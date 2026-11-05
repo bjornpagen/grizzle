@@ -30,11 +30,7 @@ import {
 	tableConstraints
 } from "#compiler/sql/ast.ts"
 
-import {
-	type AstHooks,
-	identityHooks,
-	transformStatements
-} from "#compiler/sql/transform.ts"
+import { type AstHooks, identityHooks, transformStatements } from "#compiler/sql/transform.ts"
 
 /** An object of an installation manifest, as the deployment passes read it. */
 export type ManifestObject = PhysicalObject<SqlStatement>

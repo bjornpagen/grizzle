@@ -1475,16 +1475,28 @@ export class Reference {
 		return sorted.slice(0, Number(this.bound(node)))
 	}
 
+	/**
+	 * A fold's contributions, from its input's rows each projected on its complete bound tuple: for the reference, whose
+	 * every node is a set, the distinct bound tuples, one per input row, since the bound holds a key of every fact the
+	 * input matched.
+	 */
+	contributions(
+		node: NodeOf<"Group">,
+		tuples: ReadonlyArray<Row>,
+		heading: Heading
+	): ReadonlyArray<Row> {
+		return distinctRows(tuples, heading, `the bound tuples of ${node.id}`)
+	}
+
 	group(node: NodeOf<"Group">, scope: Bindings): ReadonlyArray<Row> {
 		const input = this.eval(node.input, scope)
 		const heading: Heading = Arr.map(node.bound.columns, (name) =>
 			columnAt(input.heading, columnIndex(input.heading, name, node.id))
 		)
-		/** The contributions: the distinct complete bound tuples. */
-		const tuples = distinctRows(
+		const tuples = this.contributions(
+			node,
 			Arr.map(input.rows, (row) => project(input.heading, heading, row, node.id)),
-			heading,
-			`the bound tuples of ${node.id}`
+			heading
 		)
 		const keyHeading: Heading = Arr.map(node.keys, (k) =>
 			columnAt(heading, columnIndex(heading, k, node.id))

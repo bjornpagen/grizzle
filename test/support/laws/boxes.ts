@@ -485,7 +485,7 @@ export const Visit = relation(
 )
 
 /** The coverage's target with its fields named apart from Visit's `site` and `during`, in another heading order. */
-export const Roster = relation(
+export const ShiftRoster = relation(
 	"Roster",
 	{ shift: span(pg.integer), crew: pg.integer, place: pg.integer, open: pg.boolean },
 	["place", "shift"]
@@ -511,7 +511,7 @@ export interface VisitsParams {
 /** The visits a `billable` value selects, and the rota and roster facts an `open` value selects. */
 const billableVisits = (billable: boolean) => select(Visit, (v) => v.eq(v.billable, billable))
 const openRota = (open: boolean) => select(Rota, (r) => r.eq(r.open, open))
-const openRoster = (open: boolean) => select(Roster, (r) => r.eq(r.open, open))
+const openRoster = (open: boolean) => select(ShiftRoster, (r) => r.eq(r.open, open))
 
 /** The source side of the coverage: every visit, or the visits a selector picks. */
 const visitSide = (p: VisitsParams) =>
@@ -531,7 +531,7 @@ const rosterCoverage = (p: VisitsParams) =>
 	contained(
 		visitSide(p),
 		p.cover.kind === "every"
-			? on(Roster, "place", "shift")
+			? on(ShiftRoster, "place", "shift")
 			: on(openRoster(p.cover.value), "place", "shift")
 	)
 
@@ -548,10 +548,10 @@ export const visits = (p: VisitsParams) => (name: string) =>
 	])
 
 export const rosterVisits = (p: VisitsParams) => (name: string) =>
-	schema(name, { Roster, Visit }, [
+	schema(name, { Roster: ShiftRoster, Visit }, [
 		visitSpanKey,
 		rosterCoverage(p),
-		...mutables(p.mutable, { source: Visit, target: Roster })
+		...mutables(p.mutable, { source: Visit, target: ShiftRoster })
 	])
 
 const visitRelation = (p: VisitsParams): HostRelation =>
@@ -626,7 +626,7 @@ const coverageHost = (p: VisitsParams): HostSchema => {
 				laws: [
 					{
 						kind: "spanKey",
-						law: laws.primaryKeyLaw(Roster),
+						law: laws.primaryKeyLaw(ShiftRoster),
 						relation: "Roster",
 						scalars: ["place"],
 						span: "shift"
@@ -718,7 +718,7 @@ export const spanCoverage: Family<VisitsParams> = {
 			case "roster":
 				return Effect.flatMap(
 					openWriter({ installed, schema: rosterVisits(p)(installed.declared) }),
-					(o) => runtimeSession(coverageHost(p), o, { Roster, Visit })
+					(o) => runtimeSession(coverageHost(p), o, { Roster: ShiftRoster, Visit })
 				)
 		}
 	}

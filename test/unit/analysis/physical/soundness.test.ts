@@ -42,7 +42,7 @@ import {
 	twiceFixed
 } from "#test/unit/analysis/physical/order.ts"
 import {
-	BagReference,
+	FragmentReference,
 	owedOf,
 	physical,
 	propsOf,
@@ -54,7 +54,7 @@ import {
  *
  * Over generated cases (the oracle generator, test/support/oracle/gen, and the mutant suite's rooted and hand-built
  * cases), every claim the analysis makes about a node is checked against what that node's plain SQL delivers, computed
- * by the bag evaluator: each physical key, each maximum cardinality, every node it says owes no elimination, every
+ * by the fragment evaluator: each physical key, each maximum cardinality, every node it says owes no elimination, every
  * obligation it says is discharged. "Unknown evidence gets conservative duplicate elimination, never guessed
  * uniqueness": a single counterexample fails the suite. The same check runs with every node realized
  * `distinct`, the conservative lowering's shape, where every claim must still hold.
@@ -76,7 +76,7 @@ type SoundnessFeature =
 	| "a constant read laterally"
 
 /**
- * Every claim the analysis makes holds on every relation the bag evaluator computes. A case the reference cannot
+ * Every claim the analysis makes holds on every relation the fragment evaluator computes. A case the reference cannot
  * evaluate is a gap of the oracle, never a pass: it fails.
  */
 const check = (
@@ -91,8 +91,8 @@ const check = (
 		realization: () => all,
 		roots: "result"
 	})
-	const bag = BagReference.bag(dag, input, (node) => analysis.of(node).realization)
-	const violations = soundness(analysis, bag)
+	const fragments = FragmentReference.delivered(dag, input, (node) => analysis.of(node).realization)
+	const violations = soundness(analysis, fragments)
 	if (violations.length > 0) {
 		throw new Error(`unsound claims: ${Formatter.format(violations)}`)
 	}
@@ -105,7 +105,7 @@ const check = (
 	for (const node of analysis.order) {
 		const p = propsOf(analysis, node)
 		c.note(`evaluated ${node.kind}`)
-		if (bag.evaluations.correlated(node)) {
+		if (fragments.evaluations.correlated(node)) {
 			c.note(`a correlated ${node.kind} evaluated per outer tuple`)
 		}
 		if ((readers.get(node) ?? 0) > 1) {

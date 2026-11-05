@@ -17,7 +17,7 @@ import {
 	type QueueParams,
 	queue,
 	queueFamily,
-	Roster,
+	ShiftRoster,
 	Rota,
 	type RunsParams,
 	rosterVisits,
@@ -218,7 +218,7 @@ export const spanCoverageHistory: HistoryFamily<VisitsParams> = {
 			}
 			case "roster": {
 				const schema = rosterVisits(i.params)(i.installed.declared)
-				return historyEnv(i, schema, { Roster, Visit })
+				return historyEnv(i, schema, { Roster: ShiftRoster, Visit })
 			}
 		}
 	}

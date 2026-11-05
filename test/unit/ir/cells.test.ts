@@ -43,7 +43,7 @@ import {
 	finDigit,
 	finSize,
 	finSpace,
-	type Layout,
+	type CellLayout,
 	rosterCodes,
 	type RosterCodes,
 	rowMajorIndex,
@@ -100,7 +100,7 @@ const readCell = (bits: string, width: number, index: number): bigint => {
  * to its key by the odometer of the key space and its value 1 + c to the payload at position c of the payload space's
  * odometer. Its tuples come in index order.
  */
-const decoded = (layout: Layout, text: string, width: number): ReadonlyArray<Tuple> => {
+const decoded = (layout: CellLayout, text: string, width: number): ReadonlyArray<Tuple> => {
 	const payloads = odometer(layout.payload)
 	return Arr.flatMap(odometer(layout.key), (key, index): ReadonlyArray<Tuple> => {
 		const cell = readCell(text, width, index)
@@ -138,7 +138,7 @@ const keySizes =
 
 /** A closed relation of a box: its layout, and its tuples in the index order of its key space. */
 interface Boxed {
-	readonly layout: Layout
+	readonly layout: CellLayout
 	readonly rows: ReadonlyArray<Tuple>
 }
 
@@ -398,7 +398,7 @@ describe("a relation's string of cells", () => {
 
 	/** A relation's rows as a caller states them: in any order, some repeated, and in a named invalid variant a key collision. */
 	interface Statement {
-		readonly layout: Layout
+		readonly layout: CellLayout
 		readonly relation: ReadonlyArray<Tuple>
 		readonly stated: ReadonlyArray<Tuple>
 	}
@@ -1094,7 +1094,7 @@ describe("a constant's digest", () => {
 	const small = relationIn(3, [[], [2], [3]])
 
 	/** The constant of `rows` over `layout`, which holds the key. */
-	const encode = (layout: Layout, rows: ReadonlyArray<Tuple>): Constant =>
+	const encode = (layout: CellLayout, rows: ReadonlyArray<Tuple>): Constant =>
 		succeeded(constantOf(layout, rows))
 
 	const digestOf = (c: Constant): string => constantDigestOf(c)
@@ -1168,7 +1168,7 @@ describe("a constant's digest", () => {
 					}
 				}
 			}
-			const grown: Layout = {
+			const grown: CellLayout = {
 				key: nonEmpty([...layout.key.slice(0, -1), defined(layout.key.at(-1)) + 1]),
 				payload: layout.payload
 			}
@@ -1181,7 +1181,7 @@ describe("a constant's digest", () => {
 				bitsToHold(BigInt(defined(layout.payload[0]) + 1)) === original.width
 			) {
 				c.note("another layout, the same constant")
-				const wider: Layout = { key: layout.key, payload: [defined(layout.payload[0]) + 1] }
+				const wider: CellLayout = { key: layout.key, payload: [defined(layout.payload[0]) + 1] }
 				assert.equal(
 					digestOf(encode(wider, rows)),
 					digest,

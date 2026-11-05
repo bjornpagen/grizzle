@@ -383,7 +383,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 					Arr.map(o.members, (mb) => ({ member: mb.member, g: o.owner, x: mb.x }))
 				)
 				const rows = yield* migratedRows(
-					"backfill copy",
+					"backfillcopy",
 					copyBefore,
 					copyAfter,
 					[
@@ -411,7 +411,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 		() =>
 			Effect.gen(function* () {
 				const rows = yield* migratedRows(
-					"backfill tree",
+					"backfilltree",
 					treeBefore,
 					treeAfter,
 					[{ relation: "Node", rows: FOREST }],

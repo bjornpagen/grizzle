@@ -9,11 +9,10 @@ import {
 import { isUnique, plainLosses } from "#compiler/analysis/physical/props.ts"
 import type { PhysicalProps, Realization } from "#compiler/analysis/physical/props.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import type { Heading, KeySet, RelDag, RelNode } from "#compiler/ir/rel.ts"
+import type { Heading, KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { defined } from "#test/support/assert.ts"
 import type { Ir } from "#test/support/fixtures/ir/build.ts"
 import {
-	type Bindings,
 	noBindings,
 	type ReferenceInput,
 	type Relation
@@ -22,16 +21,18 @@ import { RecordingReference } from "#test/support/oracle/reference/evaluations.t
 import { type Row, rowKey } from "#test/support/oracle/reference/values.ts"
 
 /**
- * Shared helpers for the physical analysis tests: running the analysis, and a bag evaluator that computes what each
- * fragment's SQL physically delivers under a realization, so every claim the analysis makes can be checked against
+ * Shared helpers for the physical analysis tests: running the analysis, and a fragment evaluator that computes the rows
+ * each fragment's SQL physically delivers under a realization, so every claim the analysis makes can be checked against
  * the rows themselves.
  *
- * The bag evaluator is the brute-force reference evaluator (test/support/oracle/reference) with its set
- * boundary moved: Reference deduplicates every node, as the conservative lowering does; BagReference deduplicates only
- * what the physical form deduplicates. A relation parameter is deduplicated on entry, a Group delivers
- * one row per group and a Recursive its UNION's distinct states (both are computed so by Reference itself), and a node
- * realized `distinct` (a set UNION, INTERSECT, EXCEPT, or a placed DISTINCT) is deduplicated; every other node keeps
- * the repeats its plain SQL would produce, so a projection that drops keys, a join with fanout and a UNION ALL repeat.
+ * The fragment evaluator is the brute-force reference evaluator (test/support/oracle/reference) with its set boundary
+ * moved: Reference deduplicates every node, as the conservative lowering does; FragmentReference deduplicates only what
+ * the physical form deduplicates. A relation parameter is deduplicated on entry, a Group delivers one row per group and
+ * a Recursive its UNION's distinct states, INTERSECT and EXCEPT keep their set forms, and a node realized `distinct` (a
+ * set UNION or a placed DISTINCT) is deduplicated; every other node keeps the rows its plain SQL would produce, repeats
+ * included, so a projection that drops keys, a join with fanout and a UNION ALL repeat. A fold reads every row its
+ * input's fragment delivers, as both lowerings fold it: a repeat that reaches a fold changes its answer, and the
+ * program's result then differs from the reference's, whatever the analysis claimed.
  */
 export const physical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis =>
 	analyzePhysical(dag, env)
@@ -135,8 +136,11 @@ export const lossReasons = (
 	node: RelNode
 ): ReadonlyArray<MultiplicityReason> => Arr.map(plainLosses(propsOf(a, node)), (l) => l.reason)
 
-/** The bag evaluator; its evaluations record every relation computed, a correlated node's once per outer tuple. */
-export class BagReference extends RecordingReference {
+/**
+ * The fragment evaluator: the rows each fragment's SQL delivers under a realization. Its evaluations record every
+ * relation computed, a correlated node's once per outer tuple.
+ */
+export class FragmentReference extends RecordingReference {
 	readonly #realization: (node: RelNode) => Realization
 
 	protected constructor(
@@ -148,13 +152,13 @@ export class BagReference extends RecordingReference {
 		this.#realization = realization
 	}
 
-	/** The bag reference of a case under a realization: its DAG's closed bags settled. */
-	static bag(
+	/** The fragment reference of a case under a realization: its DAG's closed fragments settled. */
+	static delivered(
 		dag: RelDag,
 		input: ReferenceInput,
 		realization: (node: RelNode) => Realization
-	): BagReference {
-		return new BagReference(dag, input, realization).settle()
+	): FragmentReference {
+		return new FragmentReference(dag, input, realization).settle()
 	}
 
 	override deduplicates(node: RelNode): boolean {
@@ -162,49 +166,19 @@ export class BagReference extends RecordingReference {
 			node.kind === "InputSet" ||
 			node.kind === "Group" ||
 			node.kind === "Recursive" ||
+			node.kind === "Intersect" ||
+			node.kind === "Difference" ||
 			this.#realization(node) === "distinct"
 		)
 	}
 
-	/**
-	 * An intersection or difference realized plainly is the internal ALL form: INTERSECT ALL keeps
-	 * min(l, r) copies of a row and EXCEPT ALL max(l - r, 0), counted over the inputs' delivered rows.
-	 *
-	 * Each left copy is matched against one right copy, in turn.
-	 */
-	override rows(node: RelNode, scope: Bindings): ReadonlyArray<Row> {
-		if (
-			(node.kind !== "Intersect" && node.kind !== "Difference") ||
-			this.#realization(node) !== "plain"
-		) {
-			return super.rows(node, scope)
-		}
-		const left = this.eval(node.left, scope)
-		const right = this.eval(node.right, scope)
-		const counts = new Map<string, number>()
-		for (const row of right.rows) {
-			const k = rowKey(
-				projectTo(
-					right.heading,
-					Arr.map(left.heading, (h) => h.name),
-					row
-				).row,
-				left.heading
-			)
-			counts.set(k, (counts.get(k) ?? 0) + 1)
-		}
-		const out: Array<Row> = []
-		for (const row of left.rows) {
-			const k = rowKey(row, left.heading)
-			const r = counts.get(k) ?? 0
-			if (node.kind === "Intersect" ? r > 0 : r === 0) {
-				out.push(row)
-			}
-			if (r > 0) {
-				counts.set(k, r - 1)
-			}
-		}
-		return out
+	/** Every row the fold's input fragment delivers contributes, as both lowerings fold it: none is deduplicated first. */
+	override contributions(
+		_node: NodeOf<"Group">,
+		tuples: ReadonlyArray<Row>,
+		_heading: Heading
+	): ReadonlyArray<Row> {
+		return tuples
 	}
 }
 
@@ -257,11 +231,11 @@ export interface Violation {
  */
 export const soundness = (
 	analysis: PhysicalAnalysis,
-	bag: BagReference
+	delivered: FragmentReference
 ): ReadonlyArray<Violation> => {
 	for (const node of analysis.order) {
-		if (bag.closed(node)) {
-			bag.eval(node, noBindings)
+		if (delivered.closed(node)) {
+			delivered.eval(node, noBindings)
 		}
 	}
 	/** What one relation of a node breaks of the node's claims. */
@@ -283,13 +257,13 @@ export const soundness = (
 		]
 	}
 	const claims = Arr.flatMap(analysis.order, (node) =>
-		Arr.flatMap(bag.evaluations.of(node), (rel) => brokenIn(node, rel))
+		Arr.flatMap(delivered.evaluations.of(node), (rel) => brokenIn(node, rel))
 	)
 	const dischargedObligations = Arr.filter(analysis.obligations, (o) => o.discharged)
 	const discharged = Arr.flatMap(dischargedObligations, (o) =>
 		Arr.map(
 			Arr.filter(
-				bag.evaluations.of(o.edge.input),
+				delivered.evaluations.of(o.edge.input),
 				(rel) => !uniqueOn(rel.heading, rel.rows, o.heading)
 			),
 			(): Violation => ({

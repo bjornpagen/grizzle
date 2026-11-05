@@ -104,13 +104,15 @@ const constructions = {
 	"an aggregate joined to the step": {
 		blocks: true,
 		scans: 2,
+		/** The fold reads each state row once, by the whole state its match binds (FoldInput), paid included. */
 		step: (p) => {
+			const state = Arr.map(p.self.heading, (c) => c.name)
 			const m = p.q.region([
-				{ source: p.self, bind: { src: "src", dst: "dst", hops: "hops" }, constants: {} }
+				{ source: p.self, bind: Rec.fromEntries(Arr.map(state, (c) => [c, c])), constants: {} }
 			])
 			const g = p.q.group(
 				m,
-				["src", "dst", "hops"],
+				state,
 				["src"],
 				[{ name: "most", fn: "max", op: "int4_max", args: ["dst"], type: T.int4 }],
 				conservativeMeta

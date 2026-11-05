@@ -82,7 +82,10 @@ const AWKWARD = [
 	`${Str.repeat(31)("é")}x`
 ] as const
 
-const POOLS: Readonly<Record<RosterSpelling, ReadonlyArray<string>>> = { plain: PLAIN, awkward: AWKWARD }
+const POOLS: Readonly<Record<RosterSpelling, ReadonlyArray<string>>> = {
+	plain: PLAIN,
+	awkward: AWKWARD
+}
 
 /** Roster names, each a declared name the naming door admits. */
 const ROSTER_NAMES = ["Kind", "Tier", "Tone", "Phase", "Stage", "Mood"] as const
@@ -196,7 +199,10 @@ const removedOf = (state: RosterState): ReadonlyArray<string> => {
 }
 
 /** The names of `spelling` that the slots have never held. */
-const unheldOf = (slots: ReadonlyArray<ModelSlot>, spelling: RosterSpelling): ReadonlyArray<string> => {
+const unheldOf = (
+	slots: ReadonlyArray<ModelSlot>,
+	spelling: RosterSpelling
+): ReadonlyArray<string> => {
 	const held = heldNames(slots)
 	return Arr.filter(POOLS[spelling], (name) => !held.has(name))
 }

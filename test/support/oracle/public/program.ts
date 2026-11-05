@@ -106,7 +106,7 @@ export interface Stored {
 }
 
 /** The case's closed roster, matchable as a relation of its handles under the field `id`. */
-export interface Roster {
+export interface CaseRoster {
 	readonly kind: "roster"
 	readonly name: string
 	readonly handles: Arr.NonEmptyReadonlyArray<string>
@@ -176,7 +176,7 @@ export interface Closure {
 
 export type Derived = Imported | Interior | RelationSource | Closure
 
-export type Source = Stored | Roster | Derived
+export type Source = Stored | CaseRoster | Derived
 
 export const sourceFields = (source: Source): Arr.NonEmptyReadonlyArray<ProgramField> => {
 	switch (source.kind) {
@@ -197,7 +197,7 @@ export type NameKind = IdentifierFeature | "fallback"
 
 export interface ProgramSchema {
 	readonly relations: Arr.NonEmptyReadonlyArray<Stored>
-	readonly roster: Roster
+	readonly roster: CaseRoster
 	readonly nameKinds: ReadonlySet<NameKind>
 }
 

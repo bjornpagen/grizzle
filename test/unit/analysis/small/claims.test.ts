@@ -29,7 +29,12 @@ import {
 import { equal } from "#test/support/oracle/reference/values.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { type LogicalFeature, logicalUnsound } from "#test/unit/analysis/logical/support.ts"
-import { BagReference, propsOf, soundness, uniqueOn } from "#test/unit/analysis/physical/support.ts"
+import {
+	FragmentReference,
+	propsOf,
+	soundness,
+	uniqueOn
+} from "#test/unit/analysis/physical/support.ts"
 import {
 	coreGrammar,
 	descOf,
@@ -239,14 +244,18 @@ const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 				const facts = () =>
 					`\nR: ${Formatter.format(db.facts["R"])} S: ${Formatter.format(db.facts["S"])} params: ${Formatter.format(params)}`
 				for (const p of physicals) {
-					const bag = BagReference.bag(dag, input, (node) => p.analysis.of(node).realization)
-					const violations = soundness(p.analysis, bag)
+					const fragments = FragmentReference.delivered(
+						dag,
+						input,
+						(node) => p.analysis.of(node).realization
+					)
+					const violations = soundness(p.analysis, fragments)
 					if (violations.length > 0) {
 						throw new Error(
 							`unsound physical claims (${p.placement}) ${Formatter.format(violations)}\n${at}${facts()}`
 						)
 					}
-					const delivered = bag.eval(root, noBindings)
+					const delivered = fragments.eval(root, noBindings)
 					if (
 						!uniqueOn(
 							delivered.heading,
@@ -260,7 +269,7 @@ const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 						if (o.discharged || p.witnessed.get(o) === "repeats") {
 							continue
 						}
-						const rels = bag.evaluations.of(o.edge.input)
+						const rels = fragments.evaluations.of(o.edge.input)
 						if (Arr.some(rels, (rel) => !uniqueOn(rel.heading, rel.rows, o.heading))) {
 							p.witnessed.set(o, "repeats")
 						} else if (Arr.some(rels, (rel) => rel.rows.length > 1)) {

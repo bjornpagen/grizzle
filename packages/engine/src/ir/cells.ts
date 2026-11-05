@@ -231,7 +231,7 @@ export const cellWidth = (points: bigint): number => {
 }
 
 /** A closed relation's coordinates: the codes each key coordinate and each payload coordinate holds, in their order. */
-export interface Layout {
+export interface CellLayout {
 	readonly key: NonEmptyReadonlyArray<number>
 	readonly payload: ReadonlyArray<number>
 }
@@ -278,7 +278,7 @@ const compareIndexes: Comparator<Entry> = (a, b) =>
  * refused as the key's collision.
  */
 export const constantOf = (
-	layout: Layout,
+	layout: CellLayout,
 	tuples: ReadonlyArray<Tuple>
 ): Result.Result<Constant, KeyCollision> => {
 	const held = new Map<bigint, { readonly row: number; readonly payload: bigint }>()

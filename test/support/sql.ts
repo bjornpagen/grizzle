@@ -8,7 +8,7 @@ import {
 	cellWidth,
 	constantOf,
 	type KeyCollision,
-	type Layout,
+	type CellLayout,
 	spaceSize
 } from "#compiler/ir/cells.ts"
 import type {
@@ -68,7 +68,7 @@ export interface CodeColumn<C extends string> {
  * its members is the test oracle's (test/support/closed/bit-text.ts bitText, R8).
  *
  * - Its key columns index its cells row-major in their order, and `payload` holds the code spaces of its payload
- *   coordinates, none for a set, as a layout's (ir/cells.ts Layout) do.
+ *   coordinates, none for a set, as a layout's (ir/cells.ts CellLayout) do.
  * - A cell's rank is its index times `stride` modulo the cell count, a permutation of the cells when `stride` is coprime
  *   to the count. The `members` cells of lowest rank are its members, so they are scattered over the whole constant,
  *   and a member's payload code is its rank modulo the size of its payload space.
@@ -82,7 +82,7 @@ export interface HandClosed<C extends string> {
 }
 
 /** A relation's coordinates, as the cells encoder reads them. */
-const layoutOf = (relation: HandClosed<string>): Layout => ({
+const layoutOf = (relation: HandClosed<string>): CellLayout => ({
 	key: Arr.map(relation.key, (k) => k.codes),
 	payload: relation.payload
 })
@@ -235,10 +235,8 @@ export const membersTableSql = (
 }
 
 /** A cell's index over the codes `digit` reads, row-major in key order (sql/constants.ts mixedRadix). */
-const indexOver = (
-	relation: HandClosed<string>,
-	digit: (key: CodeColumn<string>) => Expr
-): Expr => mixedRadix(Arr.map(relation.key, (k) => ({ digit: digit(k), radix: k.codes })))
+const indexOver = (relation: HandClosed<string>, digit: (key: CodeColumn<string>) => Expr): Expr =>
+	mixedRadix(Arr.map(relation.key, (k) => ({ digit: digit(k), radix: k.codes })))
 
 /** A cell's index from the codes of a row's key columns, inside a table's DDL. */
 const rowIndex = (relation: HandClosed<string>): Expr =>

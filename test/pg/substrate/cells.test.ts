@@ -28,7 +28,7 @@ import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { cell, fromText } from "#compiler/codec/bits.ts"
 import { indices } from "#compiler/core/array.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
-import { cellWidth, constantOf, type Layout, spaceSize, type Tuple } from "#compiler/ir/cells.ts"
+import { cellWidth, constantOf, type CellLayout, spaceSize, type Tuple } from "#compiler/ir/cells.ts"
 import { assert, containsText, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -68,7 +68,7 @@ const radixSql = (
  * A relation's rows as a row source of codes, its key columns `k0 …` and payload columns `p0 …`: a VALUES list, or a
  * typed empty select where it has no row, since VALUES cannot be empty.
  */
-const rowsSql = (layout: Layout, rows: ReadonlyArray<ReadonlyArray<number>>): string => {
+const rowsSql = (layout: CellLayout, rows: ReadonlyArray<ReadonlyArray<number>>): string => {
 	const columns = [
 		...Arr.map(layout.key, (_, i) => `k${i}`),
 		...Arr.map(layout.payload, (_, i) => `p${i}`)
@@ -89,7 +89,7 @@ const rowsSql = (layout: Layout, rows: ReadonlyArray<ReadonlyArray<number>>): st
  */
 const packSql = (
 	fn: string,
-	layout: Layout,
+	layout: CellLayout,
 	rows: ReadonlyArray<ReadonlyArray<number>>
 ): string => {
 	const keys = Arr.map(layout.key, (_, i) => `k${i}`)
@@ -125,12 +125,12 @@ const PAYLOADS: Arr.NonEmptyReadonlyArray<ReadonlyArray<number>> = [[], [2], [3]
 
 /** A relation of the pack's box: its layout, and each key cell absent or holding one payload code. */
 interface PackCase {
-	readonly layout: Layout
+	readonly layout: CellLayout
 	readonly cells: ReadonlyArray<Option.Option<number>>
 }
 
 const packGen: Gen<PackCase> = (source) => {
-	const layout: Layout = {
+	const layout: CellLayout = {
 		key: source.draw(element(KEYS)),
 		payload: source.draw(element(PAYLOADS))
 	}
@@ -168,11 +168,11 @@ type PackFeature = "a set" | "a function" | "empty" | "full" | "a two-coordinate
 
 /** A relation whose key law fails or holds: each key cell absent, one payload code, or two different ones. */
 interface KeyLawCase {
-	readonly layout: Layout
+	readonly layout: CellLayout
 	readonly cells: ReadonlyArray<ReadonlyArray<number>>
 }
 
-const KEY_LAW_LAYOUTS: Arr.NonEmptyReadonlyArray<Layout> = [
+const KEY_LAW_LAYOUTS: Arr.NonEmptyReadonlyArray<CellLayout> = [
 	{ key: [1], payload: [2] },
 	{ key: [2], payload: [2] },
 	{ key: [2], payload: [3] },

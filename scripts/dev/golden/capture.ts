@@ -406,6 +406,8 @@ const captureWrite = (write: Write, path: string, value: unknown): void => {
 					names: isRecord(a) ? a["names"] : undefined,
 					reads: isRecord(a) ? a["reads"] : undefined,
 					claims: { kind: "facts", present: [] },
+					laws: isRecord(a) ? a["laws"] : undefined,
+					derived,
 					derivedKeys: isRecord(a) ? a["derivedKeys"] : undefined,
 					viewKeys: isRecord(a) ? a["viewKeys"] : undefined,
 					world: { kind: "reality" }

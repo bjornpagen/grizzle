@@ -88,7 +88,7 @@ import type {
 	Query,
 	ProgramRead,
 	Root,
-	Roster,
+	CaseRoster,
 	Rule,
 	StatedDelivery,
 	Var
@@ -303,7 +303,7 @@ const plantedColumn = "plantedHandle"
  * A child whose every arm matches the roster and delivers its handle. The variable's id is -1: a read's scope mints
  * its variables from zero up (generate.ts ReadScope.mint), so no generated variable holds it.
  */
-const multiplied = (child: Query<ParentColumn>, roster: Roster): Query<ParentColumn> => {
+const multiplied = (child: Query<ParentColumn>, roster: CaseRoster): Query<ParentColumn> => {
 	const handle: Var = { id: -1, field: roster.id }
 	const arm = (rule: Rule<ParentColumn>): Rule<ParentColumn> => ({
 		...rule,

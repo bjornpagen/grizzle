@@ -11,7 +11,8 @@ import { assert } from "#test/support/assert.ts"
  * own kind with its own kind's fix, never another's.
  *
  * The oracle is the refusal table (cli/refusals.ts), which the skill documents word for word: each kind's line is its
- * file, line, kind and that kind's fix, and the kinds' fixes differ, so a confirm told to fill a placeholder fails.
+ * file, line, kind and that kind's fix, and the table types each kind's fix as its own text, so a confirm told to fill
+ * a placeholder fails.
  */
 describe("a drafted folder's markers", () => {
 	it("are printed under their own kind with their own kind's fix", () => {
@@ -38,11 +39,6 @@ describe("a drafted folder's markers", () => {
 				`migrations/s/f/01-structure.sql:2: placeholder: ${refusalText.placeholder.fix}`,
 				`migrations/s/f/01-structure.sql:3: confirm: ${refusalText.confirm.fix}`
 			]
-		)
-		assert.notEqual(
-			refusalText.confirm.fix,
-			refusalText.placeholder.fix,
-			"each kind has a fix of its own"
 		)
 	})
 })

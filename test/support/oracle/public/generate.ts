@@ -101,7 +101,7 @@ import {
 	type ProgramRead,
 	type RelationParam,
 	type Root,
-	type Roster,
+	type CaseRoster,
 	type Rule,
 	type ProgramSchema,
 	type Source,
@@ -1415,7 +1415,7 @@ const resolveRelation = (
 	sketch: RelationSketch,
 	index: number,
 	names: Names,
-	roster: Roster,
+	roster: CaseRoster,
 	swarm: Swarm<SwarmFeature>,
 	decisions: Decisions,
 	spanKind: "span4" | "span8"
@@ -3327,7 +3327,7 @@ const resolveKeyRead = (
  * The case's closed roster, its name drawn in the schema's scope after the contract's, which no relation or roster
  * takes.
  */
-const resolveRoster = (names: Names, pick: number): Roster => {
+const resolveRoster = (names: Names, pick: number): CaseRoster => {
 	names.reserve("Tick")
 	const name = names.draw(pick, "Roster")
 	return {
@@ -3874,7 +3874,7 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 }
 
 /** The roster of the acceptance cases, User [Red, Green, Blue]. */
-const userRoster: Roster = {
+const userRoster: CaseRoster = {
 	kind: "roster",
 	name: "User",
 	handles: rosterHandles,

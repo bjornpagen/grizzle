@@ -1,5 +1,5 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
-import { compareText, Refusal } from "#compiler/core/canonical.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import {
 	compareIdentities,
@@ -17,7 +17,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import { addIsolation } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardDdl } from "#compiler/physical/ddl/ledger.ts"
-import { type InstallNames, missing, worldNames } from "#compiler/physical/ddl/names.ts"
+import { type InstallNames, missing } from "#compiler/physical/ddl/names.ts"
 import {
 	type Before,
 	enforcement,

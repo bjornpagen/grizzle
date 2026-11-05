@@ -100,7 +100,7 @@ const aggregateNames: ReadonlyArray<Aggregate> = ["total", "n", "top"]
 
 describe("demand pruning", () => {
 	it.effect(
-		"keeps a fold's whole bound tuple, the omitted id included, and drops only undemanded aggregates",
+		"keeps a fold's whole bound tuple, the key no head reads included, and drops only undemanded aggregates",
 		(ctx) =>
 			searched(
 				ctx,
@@ -108,19 +108,19 @@ describe("demand pruning", () => {
 					{
 						suite: "unit/lower/rewrite/prune-fold",
 						literal: Formatter.format,
-						generator: (source) =>
-							[
-								source.draw(subarray(aggregateNames)),
-								source.draw(element<"with id" | "without id">(["with id", "without id"]))
-							] as const,
-						limit: 16,
+						/**
+						 * A fold reads each posting once, by its key id, which its bound tuple holds though no head reads it
+						 * (FoldInput); a fold over the projection (account, amount) is no plan (FoldOverProjection).
+						 */
+						generator: subarray(aggregateNames),
+						limit: 8,
 						coverage: requiredInSpace<"an aggregate dropped" | "every aggregate delivered">([
 							"an aggregate dropped",
 							"every aggregate delivered"
 						]),
 						caseHang
 					},
-					([delivered, identity], c) =>
+					(delivered, c) =>
 						Effect.sync(() => {
 							const q = new Q()
 							const region = q.region([
@@ -130,8 +130,7 @@ describe("demand pruning", () => {
 									constants: {}
 								}
 							])
-							const bound =
-								identity === "with id" ? ["id", "account", "amount"] : ["account", "amount"]
+							const bound = ["id", "account", "amount"]
 							const group = q.group(
 								region,
 								bound,

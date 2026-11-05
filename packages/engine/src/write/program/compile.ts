@@ -9,6 +9,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import type { Family } from "#compiler/ir/family.ts"
+import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type {
 	CountRule,
@@ -284,6 +285,12 @@ interface FamilyProgram {
 const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram => {
 	const all = frontend.laws.families
 	const depthOf = relationDepths(all)
+	/** Every stored relation of the schema, beyond the role's world: a family's read and its count statement name its
+	 * owner, which a member's writer reads and counts through exactly the columns its installation grants it (the
+	 * owner's key, count, ends and copies), whether or not its world holds the owner. */
+	const stored: ReadonlyMap<string, RelationInfo> = new Map(
+		[...frontend.laws.relations].map(([name, laws]) => [name, laws.relation] as const)
+	)
 	const layoutOf = (name: string): RowLayout => {
 		const info = defined(frontend.schema.relations.get(name), `the family relation ${name}`)
 		return unwrap(rowLayout(info, all))
@@ -295,7 +302,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 		)
 		const reads = families.map((family) => ({
 			family,
-			sql: unwrap(suffixReadSql(family, layout, w, frontend.schema.relations))
+			sql: unwrap(suffixReadSql(family, layout, w, stored))
 		}))
 		return Object.freeze({
 			edit,
@@ -347,7 +354,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 		}
 		for (const e of edited) {
 			for (const { family } of e.reads) {
-				add(unwrap(countStatement(family, w, frontend.schema.relations)), {
+				add(unwrap(countStatement(family, w, stored)), {
 					kind: "owners",
 					family: family.id
 				})

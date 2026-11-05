@@ -20,7 +20,7 @@ import {
 	type Constant,
 	constantDigestOf,
 	constantOf,
-	type Layout,
+	type CellLayout,
 	rowMajorIndex,
 	type CellSide,
 	type Split,
@@ -183,7 +183,7 @@ const plannedCells = (
 	rows: ReadonlyArray<Split<TypedLiteral>>,
 	what: string
 ): PlannedCells => {
-	const layout: Layout = { key: mapNonEmpty(key, radixOf), payload: payload.map(radixOf) }
+	const layout: CellLayout = { key: mapNonEmpty(key, radixOf), payload: payload.map(radixOf) }
 	const tuples = rows.map((row): Tuple => ({
 		key: key.map((space, i) => codeIn(space, defined(row.key[i], "a key value per key field"))),
 		payload: payload.map((space, i) =>

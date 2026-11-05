@@ -38,20 +38,21 @@ import {
 } from "#test/support/oracle/reference/evaluate.ts"
 import { ReferenceUnsupported, rowKey } from "#test/support/oracle/reference/values.ts"
 import { verifyMultiplicity } from "#test/support/oracle/verify/multiplicity.ts"
-import { BagReference, uniqueOn } from "#test/unit/analysis/physical/support.ts"
+import { FragmentReference, uniqueOn } from "#test/unit/analysis/physical/support.ts"
 import { present } from "#test/unit/lower/support.ts"
 
 /**
  * Placement is sound on the rows themselves.
  *
  * Over generated cases (the oracle generator and the counterexample suite's rooted and hand-built cases), the plan's
- * realization is evaluated by the bag evaluator, which keeps exactly the repeats each fragment's SQL would deliver
- * (test/unit/analysis/physical/support.ts BagReference), and checked against the brute-force reference, which
+ * realization is evaluated by the fragment evaluator, which keeps exactly the repeats each fragment's SQL would deliver
+ * (test/unit/analysis/physical/support.ts FragmentReference), and checked against the brute-force reference, which
  * deduplicates every node as the conservative lowering does:
  *
  * - the program's result has no repeated row and is exactly the reference set;
  * - every consumer that observes repeats, a fold, a bound, a page, an attachment, sees an input with one row per value
- *   of the heading it needs, unless it is a fold deduplicating its own contributions;
+ *   of the heading it needs; a fold reads every row its input's fragment delivers, so a repeat that reaches one also
+ *   changes the program's result;
  * - the kernel verification's recomputation (oracle/verify/multiplicity.ts) finds no problem in the plan.
  *
  * "Unknown evidence gets conservative duplicate elimination, never guessed uniqueness": one
@@ -94,17 +95,17 @@ const sound = (dag: RelDag, input: ReferenceInput, env: Env, c: Case<DedupFeatur
 	 * The repeats the emitted SQL delivers: a node that only delivers another node's rows (an attachment, a law query,
 	 * an ordered result) lowers as that node, so a DISTINCT realized on it is never emitted.
 	 */
-	const bag = BagReference.bag(dag, input, (node) =>
+	const fragments = FragmentReference.delivered(dag, input, (node) =>
 		deliveredInput(node) !== undefined ? "plain" : (plan.realization[node.id] ?? "plain")
 	)
 	const reference = Reference.of(dag, input)
 	const evaluated = Result.try({
 		try: (): void => {
 			for (const root of dag.roots) {
-				if (root.kind === "Forbid" || !bag.closed(root)) {
+				if (root.kind === "Forbid" || !fragments.closed(root)) {
 					continue
 				}
-				const delivered = bag.eval(root, noBindings)
+				const delivered = fragments.eval(root, noBindings)
 				const columns = Arr.map(delivered.heading, (h) => h.name)
 				if (!uniqueOn(delivered.heading, delivered.rows, columns)) {
 					throw new Error(`repeated rows delivered at ${root.id}`)
@@ -118,10 +119,10 @@ const sound = (dag: RelDag, input: ReferenceInput, env: Env, c: Case<DedupFeatur
 				assert.deepEqual(keys(delivered.rows), keys(expected.rows))
 			}
 			for (const o of plan.analysis.obligations) {
-				if (o.edge.consumer.kind === "result" || !bag.closed(o.edge.input)) {
+				if (o.edge.consumer.kind === "result" || !fragments.closed(o.edge.input)) {
 					continue
 				}
-				const rel = bag.eval(o.edge.input, noBindings)
+				const rel = fragments.eval(o.edge.input, noBindings)
 				if (!uniqueOn(rel.heading, rel.rows, o.heading)) {
 					throw new Error(
 						`${o.edge.consumer.node.id} observes repeats of ${o.edge.input.id} on (${Arr.join(o.heading, ", ")})`
