@@ -18,11 +18,16 @@ const failureText = <E>(cause: Cause.Cause<E>): string =>
 /** Every service a dev tool runs on: Effect's Node platform, and the repository derived from it. */
 const DEVTOOL_LAYER = Layer.provideMerge(RepositoryLive, NodeServices.layer)
 
+/** What an interrupted tool says, since an interruption stops it before it has anything to report. */
+const INTERRUPTED =
+	"Interrupted by SIGINT or SIGTERM before it finished, so it reports nothing: under turbo, the run cancels every running task once one fails, and that task's error is the one to read."
+
 /**
  * Runs a dev tool's program, which answers its exit status: 0 when it found nothing, 1 when it found something, or
- * whatever status a tool it launched answered. Every failure of the tool itself, a defect or an interruption
- * included, prints and exits 2, so 1 always means findings. It is every dev tool's entry point, the one place their
- * layers are provided: Effect's Node platform services, which are unstable, and so is it, and the repository.
+ * whatever status a tool it launched answered. Every failure of the tool itself, a defect included, prints and exits 2,
+ * so 1 always means findings. A SIGINT or SIGTERM interrupts the program (Effect's runMain), which prints that it was
+ * interrupted and exits 130. It is every dev tool's entry point, the one place their layers are provided: Effect's Node
+ * platform services, which are unstable, and so is it, and the repository.
  *
  * @stability unstable
  */
@@ -31,6 +36,7 @@ export const runDevtool = <E>(
 ): void => {
 	const program = main.pipe(
 		Effect.catchCause((cause) => Effect.as(Console.error(failureText(cause)), 2)),
+		Effect.onInterrupt(() => Console.error(INTERRUPTED)),
 		Effect.flatMap((status) =>
 			Effect.sync(() => {
 				process.exitCode = status

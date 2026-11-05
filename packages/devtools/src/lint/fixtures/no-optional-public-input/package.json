@@ -1,0 +1,18 @@
+{
+	"name": "no-optional-public-input-fixture",
+	"private": true,
+	"type": "module",
+	"imports": {
+		"#fixture/*": "./*"
+	},
+	"exports": {
+		".": {
+			"types": "./violating.d.ts",
+			"fixture-source": "./violating.ts",
+			"default": "./violating.js"
+		},
+		"./clean": "./clean.ts",
+		"./internal/hidden": "./hidden.ts",
+		"./package.json": "./package.json"
+	}
+}

@@ -13,17 +13,19 @@ import {
 	String as Str
 } from "effect"
 import type * as ts from "typescript/ast"
-import type { Checker } from "typescript/sync"
+import type { Checker, Project } from "typescript/sync"
 import { FIXTURE_OPTIONS, SuperlintOptions } from "#lint/options.ts"
 import { isAtAny } from "#lint/paths.ts"
-import { RULES } from "#lint/rules/index.ts"
+import { RULES, type Rule } from "#lint/rules/index.ts"
+import { surfaceOf } from "#lint/surface.ts"
+import type { Visit } from "#lint/types.ts"
 import { isTestFile, REJECTED_DIAGNOSTICS } from "#preset.ts"
 import { invocationOf } from "#shared/arguments.ts"
 import { DevtoolFailure } from "#shared/devtool.ts"
 import { type Finding, findingAt, renderFindings, statusOf } from "#shared/finding.ts"
 import { fixtureMismatchesOf, renderFixtureMismatches } from "#shared/fixtures.ts"
 import { gitFilesUnder } from "#shared/git.ts"
-import { nativeSession, openProgram, openProject } from "#shared/native-api.ts"
+import { withProgram } from "#shared/native-api.ts"
 import {
 	covers,
 	isGeneratedPath,
@@ -42,8 +44,9 @@ import { workspaceConfigs } from "#shared/workspace.ts"
  * it at the root, where it also holds every tsconfig to REJECTED_DIAGNOSTICS, the shared base to the installed
  * @effect/tsgo's diagnostics, and refuses a JavaScript file. The repository's own names come from
  * the `superlint` field of its root package.json. Explicit paths lint the files at or under them (a file
- * the tsconfig excludes is added to the program); `--fixtures` runs every rule against its fixtures instead. Exit
- * status 1 means findings, 2 that the linter itself failed.
+ * the tsconfig excludes is added to the program); `--fixtures` runs every rule against its fixtures instead, and
+ * `--pending` runs the pending rules beside the rest (rules/index.ts). Exit status 1 means findings, 2 that the linter
+ * itself failed.
  */
 
 /**
@@ -381,14 +384,11 @@ const tsOnlyExtensionFindings = Effect.gen(function* () {
 	)
 })
 
-/** The package's program and the source files it owns. */
-const openLintProgram = (
-	input: Readonly<{ packageRoot: string; extraFiles: ReadonlyArray<string> }>
-) =>
+/** The source files of the package's program that the package owns. */
+const ownedSourcesOf = (input: Readonly<{ project: Project; packageRoot: string }>) =>
 	Effect.gen(function* () {
 		const path = yield* Path.Path
-		const config = yield* configOf(input.packageRoot)
-		const project = yield* openProgram({ config, extraFiles: input.extraFiles })
+		const { project } = input
 		const fileNames = yield* Effect.try({
 			try: () => project.program.getSourceFileNames(),
 			catch: (cause) =>
@@ -415,12 +415,51 @@ const openLintProgram = (
 		return sources
 	})
 
-/** Every rule over one file in a single traversal; the engine stamps each report with its rule's id. */
+/** A rule started on the program a run lints: the Visit each of its files gets. */
+type StartedRule = Readonly<{ rule: Rule; visit: Visit }>
+
+/**
+ * Starts the rules on a program, with its public surface: the source modules of the public exports the manifests
+ * declare (lint/surface.ts). A module the surface names that the program does not hold fails the lint, since its
+ * inputs could not be checked: an unread surface is never a pass.
+ */
+const startRules = (
+	input: Readonly<{
+		project: Project
+		rules: ReadonlyArray<Rule>
+		manifests: ReadonlyArray<string>
+	}>
+) =>
+	Effect.gen(function* () {
+		const { root } = yield* Repository
+		const surfaces = yield* Effect.forEach(input.manifests, surfaceOf)
+		const surface = Arr.flatten(surfaces)
+		const held = yield* Effect.try({
+			try: () => input.project.program.getSourceFileNames(),
+			catch: (cause) =>
+				DevtoolFailure.make({ detail: "The lint program's source files could not be read", cause })
+		})
+		const unheld = Arr.filter(surface, (module) => !Arr.contains(held, module))
+		if (Arr.isReadonlyArrayNonEmpty(unheld)) {
+			return yield* DevtoolFailure.make({
+				detail: `The public exports of ${Arr.join(Arr.map(input.manifests, relativeTo(root)), ", ")} name modules the package's program does not hold: ${Arr.join(Arr.map(unheld, relativeTo(root)), ", ")}`
+			})
+		}
+		const program = { checker: input.project.checker, surface }
+		return yield* Effect.try({
+			try: () =>
+				Arr.map(input.rules, (rule): StartedRule => ({ rule, visit: rule.start(program) })),
+			catch: (cause) =>
+				DevtoolFailure.make({ detail: "superlint failed while starting its rules", cause })
+		})
+	})
+
+/** Every started rule over one file in a single traversal; the engine stamps each report with its rule's id. */
 const findingsOf = (
 	source: LintSource,
-	options: SuperlintOptions,
-	root: string
+	input: Readonly<{ rules: ReadonlyArray<StartedRule>; options: SuperlintOptions; root: string }>
 ): ReadonlyArray<Finding> => {
+	const { options, root } = input
 	const context = { ...source, semantics: prepareSemantics(source), options, root }
 	const excepted = Arr.filterMap(options.exceptions, (exception) =>
 		isAtAny(root, exception.files, source.sourceFile.fileName)
@@ -430,10 +469,10 @@ const findingsOf = (
 	const test = isTestFile(source.sourceFile.fileName)
 	const visitors = Arr.map(
 		Arr.filter(
-			RULES,
-			(rule) => !Arr.contains(excepted, rule.id) && !(test && rule.scope === "outside tests")
+			input.rules,
+			({ rule }) => !Arr.contains(excepted, rule.id) && !(test && rule.scope === "outside tests")
 		),
-		(rule) => ({ rule: rule.id, visit: rule.visit(context) })
+		({ rule, visit }) => ({ rule: rule.id, visit: visit(context) })
 	)
 	const findings: Array<Finding> = []
 	const walk = (node: ts.Node): void => {
@@ -476,40 +515,47 @@ const fixtureSetsOf = (files: ReadonlyArray<string>): ReadonlyArray<string> =>
 /** The rule a fixture set proves: its directory's first segment. */
 const ruleOfSet = (set: string): string => Arr.headNonEmpty(Str.split("/")(set))
 
+/** A rule's fixtures may declare a public surface: a package.json beside them whose exports name fixture modules. */
+const fixtureManifests: ReadonlyArray<string> = Arr.map(
+	RULES,
+	(rule) => `${FIXTURES_ROOT}/${rule.id}/package.json`
+)
+
 const checkFixtures = Effect.gen(function* () {
 	const { root } = yield* Repository
-	const mismatches = yield* Effect.scoped(
-		Effect.gen(function* () {
-			const api = yield* nativeSession({ cwd: FIXTURES_ROOT })
-			const project = yield* openProject({ api, config: `${FIXTURES_ROOT}/tsconfig.json` })
-			return yield* Effect.try({
-				try: () =>
-					fixtureMismatchesOf({
-						root: FIXTURES_ROOT,
-						extensionOf: () => ".ts",
-						rules: fixtureSetsOf(project.program.getSourceFileNames()),
-						runOf: ({ rule: set, file }) =>
-							Option.map(
-								Option.fromUndefinedOr(project.program.getSourceFile(file)),
-								(sourceFile) => ({
-									text: sourceFile.text,
-									reported: Arr.filterMap(
-										findingsOf(
-											{ sourceFile, checker: project.checker },
-											FIXTURE_OPTIONS,
-											FIXTURES_ROOT
-										),
-										(finding) =>
-											finding.rule === ruleOfSet(set)
-												? Result.succeed(finding.line)
-												: Result.failVoid
-									)
-								})
-							)
-					}),
-				catch: (cause) => DevtoolFailure.make({ detail: "superlint fixtures failed to run", cause })
+	const mismatches = yield* withProgram(
+		{ config: `${FIXTURES_ROOT}/tsconfig.json`, extraFiles: [] },
+		(project) =>
+			Effect.gen(function* () {
+				const rules = yield* startRules({ project, rules: RULES, manifests: fixtureManifests })
+				return yield* Effect.try({
+					try: () =>
+						fixtureMismatchesOf({
+							root: FIXTURES_ROOT,
+							extensionOf: () => ".ts",
+							rules: fixtureSetsOf(project.program.getSourceFileNames()),
+							runOf: ({ rule: set, file }) =>
+								Option.map(
+									Option.fromUndefinedOr(project.program.getSourceFile(file)),
+									(sourceFile) => ({
+										text: sourceFile.text,
+										reported: Arr.filterMap(
+											findingsOf(
+												{ sourceFile, checker: project.checker },
+												{ rules, options: FIXTURE_OPTIONS, root: FIXTURES_ROOT }
+											),
+											(finding) =>
+												finding.rule === ruleOfSet(set)
+													? Result.succeed(finding.line)
+													: Result.failVoid
+										)
+									})
+								)
+						}),
+					catch: (cause) =>
+						DevtoolFailure.make({ detail: "superlint fixtures failed to run", cause })
+				})
 			})
-		})
 	)
 	yield* Console.log(
 		renderFixtureMismatches({ tool: "superlint", root, rules: RULES.length, mismatches })
@@ -518,32 +564,38 @@ const checkFixtures = Effect.gen(function* () {
 })
 
 const main = Effect.gen(function* () {
-	const invocation = yield* invocationOf(["--fixtures"])
+	const invocation = yield* invocationOf(["--fixtures", "--pending"])
 	if (invocation.flags.has("--fixtures")) {
 		return yield* checkFixtures
 	}
 	const packageRoot = yield* Effect.sync(() => process.cwd())
 	const { root } = yield* Repository
 	const options = yield* projectOptions
-	const findings = yield* Effect.scoped(
-		Effect.gen(function* () {
-			const owned = yield* openLintProgram({
-				packageRoot,
-				extraFiles: Arr.filter(invocation.paths, isTypeScriptPath)
+	const config = yield* configOf(packageRoot)
+	const pending = invocation.flags.has("--pending")
+	const findings = yield* withProgram(
+		{ config, extraFiles: Arr.filter(invocation.paths, isTypeScriptPath) },
+		(project) =>
+			Effect.gen(function* () {
+				const owned = yield* ownedSourcesOf({ project, packageRoot })
+				const selected = yield* selectFiles({
+					available: Arr.map(owned, (source) => source.sourceFile.fileName),
+					paths: invocation.paths
+				})
+				const sources = Arr.filter(owned, (source) =>
+					Arr.contains(selected, source.sourceFile.fileName)
+				)
+				const rules = yield* startRules({
+					project,
+					rules: Arr.filter(RULES, (rule) => pending || rule.gate === "on"),
+					manifests: [`${packageRoot}/package.json`]
+				})
+				return yield* Effect.try({
+					try: () => Arr.flatMap(sources, (source) => findingsOf(source, { rules, options, root })),
+					catch: (cause) =>
+						DevtoolFailure.make({ detail: "superlint failed while collecting findings", cause })
+				})
 			})
-			const selected = yield* selectFiles({
-				available: Arr.map(owned, (source) => source.sourceFile.fileName),
-				paths: invocation.paths
-			})
-			const sources = Arr.filter(owned, (source) =>
-				Arr.contains(selected, source.sourceFile.fileName)
-			)
-			return yield* Effect.try({
-				try: () => Arr.flatMap(sources, (source) => findingsOf(source, options, root)),
-				catch: (cause) =>
-					DevtoolFailure.make({ detail: "superlint failed while collecting findings", cause })
-			})
-		})
 	)
 	const repository =
 		packageRoot === root
