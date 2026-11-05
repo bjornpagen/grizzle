@@ -8,6 +8,7 @@ import {
 	unwrapOr,
 	type ViolationBuilder
 } from "#compiler/analysis/theory/build.ts"
+import { sameOrder } from "#compiler/core/array.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
@@ -28,6 +29,8 @@ import type {
 } from "#compiler/ir/desc.ts"
 import { type ExprSpec, OpId, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
+	type ArmTag,
+	type ArmTagMove,
 	type CapacityAggregate,
 	type CapacityBound,
 	type CapacityBounds,
@@ -138,6 +141,25 @@ type LawDetail =
 			/** Every handle of the roster, in roster order: armed with its arm, or unarmed, owing no payload and no
 			 * further law. At least one is armed. */
 			readonly handles: NonEmptyReadonlyArray<RosterHandleOf<TheoryArm>>
+	  }
+	| {
+			/** An alternatives arm relation's law: each of its rows belongs to a parent whose kind it is the arm of. */
+			readonly kind: "alternativesArm"
+			/** The origin marker, FieldId(parent, discriminator). */
+			readonly family: string
+			readonly parent: string
+			readonly parentRel: TheoryRelation
+			readonly parentKey: NonEmptyReadonlyArray<string>
+			readonly discriminator: string
+			readonly discriminatorField: LawField
+			readonly arm: string
+			readonly armRel: TheoryRelation
+			/** The arm's key, each field paired with the parent key field it meets, in parent key order. */
+			readonly key: NonEmptyReadonlyArray<ResolvedArmPair>
+			/** The handles it is the arm of, in roster order: the first is the tag its rows carry. */
+			readonly handles: NonEmptyReadonlyArray<string>
+			/** The tag its family's parent facts are met at (`ArmTag`). */
+			readonly armTag: ArmTag
 	  }
 	| {
 			readonly kind: "capacity"
@@ -278,9 +300,9 @@ export interface ContractUse {
  *   against the maximal covered segments;
  * - a mirrors: the two containments it is, each keeping the mirrors as its diagnostic identity;
  * - an alternatives expansion, recognized as one family from the origin marker its statements carry:
- *   its head containment, each arm's child-to-parent half, and one family law for every arm's reverse obligation, a
- *   parent selecting a handle with no row in that handle's arm, so lowering can share tags and dispatch one selected
- *   arm;
+ *   its head containment; each arm relation's law, a row of it whose key no parent of a handle it is the arm of holds;
+ *   and one family law for every arm's reverse obligation, a parent selecting a handle with no row in that handle's
+ *   arm, so lowering can tag each arm relation once and dispatch one selected arm;
  * - a capacity: a target fact whose group's count or total weight lies outside its bounds, the empty group included
  *   when zero lies outside them.
  *
@@ -305,15 +327,20 @@ export type LawIdentity = Omit<TheoryLaw, "id" | "named" | "violation" | "loc" |
 
 /**
  * The laws of an alternatives family, at L: its head containment, discriminator into the roster's handles; its family
- * law, every arm's reverse obligation, whose detail is the recognized family; and each arm's child-to-parent half, a
- * selected-target containment, by handle. A theory's families name laws by id (L = LawId); the drafts, by index.
+ * law, every arm's reverse obligation, whose detail is the recognized family; and each arm relation's law, each of its
+ * rows a payload of a parent of one of its handles, in roster order of the relations' first handles. A theory's
+ * families name laws by id (L = LawId); the drafts, by index.
  */
 export interface AlternativesFamily<L> {
 	/** The origin marker, FieldId(parent, discriminator). */
 	readonly id: string
 	readonly containment: L
 	readonly reverse: L
-	readonly arms: NonEmptyReadonlyArray<{ readonly handle: string; readonly forward: L }>
+	readonly arms: NonEmptyReadonlyArray<{
+		readonly relation: string
+		readonly handles: NonEmptyReadonlyArray<string>
+		readonly forward: L
+	}>
 }
 
 /** One statement of an alternatives expansion, at its index in the owned schema's statements. */
@@ -986,23 +1013,21 @@ export class Normalizer {
 			}
 			const leftHandle = selected(st.left)
 			const rightHandle = leftHandle === undefined ? selected(st.right) : undefined
-			/** The arm's key paired with the parent's, and the half of the mirrors that runs from the arm to the parent. */
+			/** The arm's key paired with the parent's. */
 			const arm =
 				leftHandle !== undefined
 					? {
 							parentSide: st.left,
 							armSide: st.right,
 							handle: leftHandle,
-							key: mapNonEmpty(st.pairs, (p) => ({ arm: p.right, parent: p.left })),
-							half: "rightToLeft" as const
+							key: mapNonEmpty(st.pairs, (p) => ({ arm: p.right, parent: p.left }))
 						}
 					: rightHandle !== undefined
 						? {
 								parentSide: st.right,
 								armSide: st.left,
 								handle: rightHandle,
-								key: mapNonEmpty(st.pairs, (p) => ({ arm: p.left, parent: p.right })),
-								half: "leftToRight" as const
+								key: mapNonEmpty(st.pairs, (p) => ({ arm: p.left, parent: p.right }))
 							}
 						: refuse(
 								"MalformedDescription",
@@ -1056,22 +1081,17 @@ export class Normalizer {
 			loc,
 			{ kind: "contained" }
 		)
-		const forwards = mapNonEmpty(ordered, (a) => ({
-			handle: a.handle,
-			forward: this.containment(
-				a.armSide,
-				a.parentSide,
-				mapNonEmpty(a.key, (p) => ({ from: p.arm, to: p.parent })),
-				a.m.index,
-				id,
-				a.m.s.loc,
-				loc,
-				{ kind: "mirrors", half: a.half }
-			)
-		}))
 		const first = ordered[0]
 		const parentSide = this.side({ relation: parent.name, selection: {} }, parentKey, loc)
+		const discriminatorField = this.#column(parent, discriminator, loc)
 		const armed = mapNonEmpty(ordered, (a) => {
+			if (Object.keys(a.armSide.selection).length > 0) {
+				throw refusal(
+					"MalformedDescription",
+					a.m.s.loc,
+					`an alternatives arm of ${id} over its whole relation ${a.armSide.relation}`
+				)
+			}
 			const side = this.side(
 				a.armSide,
 				mapNonEmpty(a.key, (p) => p.arm),
@@ -1088,7 +1108,84 @@ export class Normalizer {
 				})),
 				statement: a.m.index
 			}
-			return { side, arm }
+			return { side, arm, loc: a.m.s.loc }
+		})
+		type Armed = (typeof armed)[number]
+		const [lead, ...later] = armed
+		const leads: NonEmptyReadonlyArray<Armed> = [
+			lead,
+			...later.filter(
+				(a, i) => ![lead, ...later.slice(0, i)].some((b) => b.arm.relation === a.arm.relation)
+			)
+		]
+		const groups = mapNonEmpty(leads, (l) => {
+			const members: NonEmptyReadonlyArray<Armed> = [
+				l,
+				...armed.filter((a) => a !== l && a.arm.relation === l.arm.relation)
+			]
+			const armKey = mapNonEmpty(l.arm.key, (p) => p.arm)
+			for (const m of members) {
+				if (
+					!sameOrder(
+						mapNonEmpty(m.arm.key, (p) => p.arm),
+						armKey
+					)
+				) {
+					throw refusal(
+						"MalformedDescription",
+						loc,
+						`an arm relation of ${id} keyed by one key at every handle it is the arm of; ${l.arm.relation} is keyed differently at ${l.arm.handle} and ${m.arm.handle}`
+					)
+				}
+			}
+			return { lead: l, handles: mapNonEmpty(members, (m) => m.arm.handle), members }
+		})
+		const tagOfRelation = new Map<string, string>()
+		const moved: Array<ArmTagMove> = []
+		for (const a of armed) {
+			const tag = tagOfRelation.get(a.arm.relation)
+			if (tag === undefined) {
+				tagOfRelation.set(a.arm.relation, a.arm.handle)
+			} else {
+				moved.push({ handle: a.arm.handle, tag })
+			}
+		}
+		const armTag: ArmTag = isNonEmpty(moved)
+			? { kind: "generated", moved }
+			: { kind: "discriminator" }
+		const forwards = mapNonEmpty(groups, (g) => {
+			const arm = g.lead.arm
+			return {
+				relation: arm.relation,
+				handles: g.handles,
+				forward: this.#push(
+					{
+						identity: {
+							shape: "alternativesArm",
+							source: { statement: arm.statement, kind: "mirrors", alternatives: id },
+							sides: [g.lead.side, parentSide],
+							detail: {
+								kind: "alternativesArm",
+								family: id,
+								parent: parent.name,
+								parentRel: parent,
+								parentKey,
+								discriminator,
+								discriminatorField,
+								arm: arm.relation,
+								armRel: arm.rel,
+								key: arm.key,
+								handles: g.handles,
+								armTag
+							}
+						},
+						sources: g.members.map((m) => ({ index: m.arm.statement, loc: m.loc })),
+						violation: (b) =>
+							alternativesArmViolation(b, parent, discriminatorField, arm.rel, arm.key, g.handles)
+					},
+					loc
+				)
+			}
 		})
 		const familyArms = mapNonEmpty(armed, (a) => a.arm)
 		const armOf = new Map(familyArms.map((arm) => [arm.handle, arm] as const))
@@ -1096,7 +1193,6 @@ export class Normalizer {
 			const arm = armOf.get(handle)
 			return arm === undefined ? { kind: "unarmed", handle } : { kind: "armed", arm }
 		})
-		const discriminatorField = this.#column(parent, discriminator, loc)
 		const reverse = this.#push(
 			{
 				identity: {
@@ -1476,6 +1572,49 @@ const alternativesViolation = (
 				met.map((m) => m.met)
 			)
 		})
+	)
+}
+
+/**
+ * An alternatives arm relation's violation: a row of the arm whose key no parent fact of one of `handles` holds, the
+ * handles the relation is the arm of. The witness is the arm's key, named by its fields.
+ */
+const alternativesArmViolation = (
+	b: ViolationBuilder,
+	parent: TheoryRelation,
+	discriminator: LawField,
+	arm: TheoryRelation,
+	key: NonEmptyReadonlyArray<ResolvedArmPair>,
+	handles: NonEmptyReadonlyArray<string>
+): RelNode => {
+	const met = mapNonEmpty(key, (pair) => ({
+		pair,
+		met: metColumn(
+			meetType(pair.armColumn.type, pair.parentColumn.type),
+			pair.arm,
+			`parent#${pair.parent}`
+		)
+	}))
+	const rows = sideProjection(
+		b,
+		arm,
+		[],
+		met.map((m) => ({ field: m.pair.armColumn, column: m.met.left }))
+	)
+	const parents = b.union(
+		mapNonEmpty(handles, (h) =>
+			sideProjection(
+				b,
+				parent,
+				[b.selector(parent, discriminator, h)],
+				met.map((m) => ({ field: m.pair.parentColumn, column: m.met.right }))
+			)
+		)
+	)
+	return b.anti(
+		rows,
+		parents,
+		met.map((m) => m.met)
 	)
 }
 

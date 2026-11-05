@@ -2,9 +2,11 @@ import { Array as Arr, Option, Record, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
 	type HostLaw,
+	type HostSelector,
 	isResidual,
 	isSpan,
 	sameValue,
+	selectorValues,
 	valueText
 } from "#test/pg/laws/families/model.ts"
 import { nextDraw, withSerial } from "#test/support/worlds/model/draws.ts"
@@ -1451,9 +1453,12 @@ const projected = (
 	return entries.length === from.length ? Record.fromEntries(entries) : undefined
 }
 
-/** Whether a fact holds a side's selector values. */
-const selected = (fact: HostFact, where: Readonly<Record<string, HostValue>>): boolean =>
-	Arr.every(Record.toEntries(where), ([f, v]) => Record.has(fact, f) && sameValue(fact[f], v))
+/** Whether a fact holds a side's selector values: at each field, the value or one of the values it admits. */
+const selected = (fact: HostFact, where: Readonly<Record<string, HostSelector>>): boolean =>
+	Arr.every(
+		Record.toEntries(where),
+		([f, s]) => Record.has(fact, f) && Arr.some(selectorValues(s), (v) => sameValue(fact[f], v))
+	)
 
 /** Whether two span values overlap, as half-open ranges; an empty one overlaps none. */
 const overlaps = (a: HostValue | undefined, b: HostValue | undefined): boolean =>

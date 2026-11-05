@@ -116,6 +116,12 @@ const uniqueOf = (n: NamedNative): ReadonlyArray<Placed> => {
 					object: { ...named, kind: "index", equal: o.columns, where: o.where }
 				}
 			]
+		case "ArmUnique": {
+			/** The key and the discriminator its arm tag is computed from: two facts equal at them are equal at the tag, and
+			 * two it holds apart share the key, which holds them apart too. */
+			const equal = appendNonEmpty(o.columns, o.discriminator)
+			return [{ relation: o.relation, role: "other", object: { ...named, kind: "key", equal } }]
+		}
 		case "WithoutOverlaps":
 			return o.key.kind === "primary"
 				? []
@@ -138,6 +144,7 @@ const uniqueOf = (n: NamedNative): ReadonlyArray<Placed> => {
 		case "FiniteCheck":
 		case "ForeignKey":
 		case "TaggedForeignKey":
+		case "ArmForeignKey":
 		case "PeriodForeignKey":
 		case "TaggedPeriodForeignKey":
 			return []

@@ -42,6 +42,14 @@ export const lawDescription = (law: LawIdentity): Law => {
 				: Object.freeze({ kind: d.stated.kind, from: side(d.from), to: side(d.to) })
 		case "alternatives":
 			return Object.freeze({ kind: "alternatives", relation: d.parent, field: d.discriminator })
+		case "alternativesArm":
+			return Object.freeze({
+				kind: "alternativesArm",
+				relation: d.parent,
+				field: d.discriminator,
+				arm: d.arm,
+				handles: Object.freeze(mapNonEmpty(d.handles, (h) => h))
+			})
 		case "capacity":
 			return Object.freeze({
 				kind: "capacity",

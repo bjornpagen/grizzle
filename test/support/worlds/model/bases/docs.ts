@@ -364,12 +364,14 @@ export const docsOneShareEditorInstall: InstallSpec = {
 }
 
 /**
- * The documents base's README-shaped worlds with two roles beside them in the login `ops`, each writing Visit through
+ * The documents base's README-shaped worlds with three roles beside them in the login `ops`, each writing Visit through
  * one of the query entries the README names for serial columns ("Writing through a role"), since a role writes a
  * relation through one entry at most: the `visitor`'s Visits, both of its serials, an entry whose every carried field
- * is serial, so an insert through it may leave both out and carry no field (the unit relation); and the `counter`'s
+ * is serial, so an insert through it may leave both out and carry no field (the unit relation); the `counter`'s
  * LateVisit, the visits whose `seq` is at least one, a filter reading a serial field, so every fact inserted through it
- * carries `seq` and may leave out `no`.
+ * carries `seq` and may leave out `no`; and the `pinner`'s PinnedVisit, the visits whose `seq` is seven, a serial field
+ * its fill fixes, so an insert leaving out `no` stores seven there. A generated addition through LateVisit or
+ * PinnedVisit stores the serial value it supplies beside the one its identity draws.
  */
 export const docsVisitsInstall: InstallSpec = {
 	base: docsBase,
@@ -394,10 +396,18 @@ export const docsVisitsInstall: InstallSpec = {
 			},
 			write: ["LateVisit"],
 			refresh: []
+		},
+		{
+			name: "pinner",
+			entries: {
+				PinnedVisit: query(rule([of("Visit", { no, seq: literal(7) })], { no }, none))
+			},
+			write: ["PinnedVisit"],
+			refresh: []
 		}
 	],
 	logins: [
 		{ name: "web", roles: ["reader", "member"] },
-		{ name: "ops", roles: ["job", "admin", "visitor", "counter"] }
+		{ name: "ops", roles: ["job", "admin", "visitor", "counter", "pinner"] }
 	]
 }

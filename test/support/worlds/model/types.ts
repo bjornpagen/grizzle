@@ -969,6 +969,7 @@ export type WorldFeature =
 	| `readback:${"empty-delta" | "projected-delta" | "refused-delta"}`
 	| `strata:${"one" | "union" | "sequence" | "refused-order"}`
 	| AdditionFeature
+	| SuppliedSerialFeature
 	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-transient" | "after-interrupted" | "after-stale-snapshot"}`
 
 /**
@@ -978,6 +979,13 @@ export type WorldFeature =
  */
 export type AdditionFeature =
 	`addition:${"complete" | "generated"}:${"whole" | "entry"}:${"carried" | "unit"}`
+
+/**
+ * A generated addition through a query entry that stores a serial value it supplies, one the entry's filter reads or
+ * its fill fixes, beside the serial fields its identity draws (README "Writing through a role"). The stored value is
+ * the one supplied: the driver holds every committed state to the model's, whose fact holds that value.
+ */
+export type SuppliedSerialFeature = "addition:generated:entry:supplied-serial"
 
 /** The weights a run draws its actions with: swarm testing draws a fresh set per run. */
 export type ActionWeights = Readonly<Record<ActionKind, number>>

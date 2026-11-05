@@ -114,12 +114,31 @@ export interface HostRelation {
 	readonly mutable: boolean
 }
 
+/** Values a selector admits at a field, one of which a fact of the side holds there. */
+export interface HostAmong {
+	readonly among: Arr.NonEmptyReadonlyArray<HostValue>
+}
+
+/** What a selector fixes at a field: one value, or one of several (`HostAmong`). */
+export type HostSelector = HostValue | HostAmong
+
+const isAmong = (s: HostSelector): s is HostAmong => typeof s === "object" && "among" in s
+
+/** The values a selector admits at a field: its one value, or an among's. */
+export const selectorValues = (s: HostSelector): Arr.NonEmptyReadonlyArray<HostValue> =>
+	isAmong(s) ? s.among : [s]
+
+/** A selector as fact values: each field's value, the first of the values an among admits. */
+export const pinned = (
+	where: Readonly<Record<string, HostSelector>>
+): Readonly<Record<string, HostValue>> => Rec.map(where, (s) => selectorValues(s)[0])
+
 /** A side of a law: a relation, its paired fields in pair order, and the field values a selector fixes. */
 export interface HostSide {
 	readonly relation: string
 	readonly fields: ReadonlyArray<string>
 	/** The selector: the field values a fact of the side holds; none, `everyFact`, selects every fact. */
-	readonly where: Readonly<Record<string, HostValue>>
+	readonly where: Readonly<Record<string, HostSelector>>
 }
 
 /** What a capacity sums per group: a count, a field's values, or the widths of a span field. */
@@ -378,8 +397,8 @@ const weightOf = (weight: HostWeight, fact: HostFact): bigint => {
 	}
 }
 
-export const selected = (fact: HostFact, where: Readonly<Record<string, HostValue>>): boolean =>
-	Arr.every(Rec.toEntries(where), ([k, x]) => fact[k] === x)
+export const selected = (fact: HostFact, where: Readonly<Record<string, HostSelector>>): boolean =>
+	Arr.every(Rec.toEntries(where), ([k, s]) => Arr.some(selectorValues(s), (x) => fact[k] === x))
 
 /** The empty selector, which every fact holds. */
 export const everyFact: Readonly<Record<string, HostValue>> = {}

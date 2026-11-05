@@ -3,7 +3,12 @@ import { appendAll } from "#compiler/core/array.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
 import { inputsOf, type RelNode } from "#compiler/ir/rel.ts"
-import { completeAddition, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
+import {
+	completeAddition,
+	completeClass,
+	type ReadBack,
+	type SerialClass
+} from "#compiler/ir/write.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
 import { withoutSerial } from "#compiler/scalar/compute/types.ts"
 import { type Carrier, CarrierSupply } from "#compiler/write/carriers/carriers.ts"
@@ -35,7 +40,7 @@ import type {
 } from "#compiler/write/put/choose.ts"
 import type { MergeScope } from "#compiler/write/put/proof.ts"
 import { carriersOf, type DeltaPlan, planDeltas } from "#compiler/write/readback/deltas.ts"
-import { carriesSerial } from "#compiler/write/serial/advance.ts"
+import { explicitSerials } from "#compiler/write/serial/advance.ts"
 
 /** An action a planned statement realizes: its stratum, its position among the stratum's actions
  * (ir.strata[stratum].actions), and the positions there of the earlier actions that must complete first (`Action`), whose
@@ -139,6 +144,8 @@ export type PlanStep =
 			readonly action: PlanAction
 			readonly relation: WrittenRelation
 			readonly input: RereadInput
+			/** The explicit serial fields the addition carries, each advanced past (serial/advance.ts explicitSerials). */
+			readonly fields: NonEmptyReadonlyArray<LawField>
 	  }
 	| {
 			readonly kind: "classify"
@@ -168,7 +175,7 @@ export interface WritePlan {
 type DraftStep =
 	| Exclude<WriteOpStep, { readonly op: "exactDelete" | "anchoredDelete" }>
 	| { readonly op: "exactDelete" }
-	| { readonly op: "advance" }
+	| { readonly op: "advance"; readonly fields: NonEmptyReadonlyArray<LawField> }
 	| {
 			readonly op: "classify"
 			readonly serial: SerialClass
@@ -342,7 +349,8 @@ const placedSteps = (
 							kind: "advance",
 							action: draft.at,
 							relation: draft.action.info.relation,
-							input
+							input,
+							fields: step.fields
 						}
 					: statementStep(draft, step, input, except)
 			)
@@ -364,7 +372,7 @@ const opsOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 				...advanceOf(action.info.relation, action.serial)
 			]
 		case "put":
-			return [...putOps(action), ...advanceOf(action.info.relation, "complete")]
+			return [...putOps(action), ...advanceOf(action.info.relation, completeClass)]
 	}
 }
 
@@ -376,9 +384,11 @@ const precheckOf = (action: ChosenAction, serial: SerialClass): ReadonlyArray<Dr
 		: []
 }
 
-/** The sequence advance after an addition whose facts carry explicit serial values. */
-const advanceOf = (relation: RelationInfo, serial: SerialClass): ReadonlyArray<DraftStep> =>
-	carriesSerial(relation, serial) ? [{ op: "advance" }] : []
+/** The sequence advance after an addition whose facts carry explicit serial values, of each of them. */
+const advanceOf = (relation: RelationInfo, serial: SerialClass): ReadonlyArray<DraftStep> => {
+	const [first, ...rest] = explicitSerials(relation, serial)
+	return first === undefined ? [] : [{ op: "advance", fields: [first, ...rest] }]
+}
 
 /** The classification after an insert of `of` into a span primary key (`buildSpanClassify`). */
 const classify = (
@@ -401,9 +411,9 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 				...(payload.kind === "pureSet"
 					? []
 					: [{ op: "displace", payload: payload.fields } as const]),
-				...precheckOf(put, "complete"),
+				...precheckOf(put, completeClass),
 				{ op: "putInsert" },
-				...classify(relation, "complete", "put")
+				...classify(relation, completeClass, "put")
 			]
 		}
 		case "onConflictDoUpdate":

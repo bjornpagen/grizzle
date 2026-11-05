@@ -278,6 +278,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 		if (
 			o.kind !== "ForeignKey" &&
 			o.kind !== "TaggedForeignKey" &&
+			o.kind !== "ArmForeignKey" &&
 			o.kind !== "PeriodForeignKey" &&
 			o.kind !== "TaggedPeriodForeignKey"
 		) {
@@ -301,7 +302,7 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 			referencedFields: fieldNames(period ? [...o.targetColumns, o.targetSpan] : o.targetColumns),
 			period,
 			location: at(`foreign key ${identifierOf(n.named)}`),
-			/** A tagged or PERIOD foreign key is always deferred; a plain one as the law model decides. */
+			/** A tagged, arm or PERIOD foreign key is always deferred; a plain one as the law model decides. */
 			deferrable: o.kind !== "ForeignKey" || o.deferrable
 		})
 		foreignKeys.set(o.relation.name, list)

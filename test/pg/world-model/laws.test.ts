@@ -61,13 +61,15 @@ const lawInputs = invalidFeatures([
 
 /**
  * Insertions whose every carried field is serial, the unit relation's generated class, through a query entry and into a
- * relation written whole: complete facts, and generated ones, which carry no field.
+ * relation written whole: complete facts, and generated ones, which carry no field; and generated ones through a query
+ * entry that supply a serial value its filter reads or its fill fixes, which is the value stored.
  */
 const unitAdditions: ReadonlyArray<WorldFeature> = [
 	"addition:generated:entry:unit",
 	"addition:complete:entry:unit",
 	"addition:generated:whole:unit",
-	"addition:complete:whole:unit"
+	"addition:complete:whole:unit",
+	"addition:generated:entry:supplied-serial"
 ]
 
 const refusedByLaw = opIn({
@@ -107,8 +109,8 @@ const deferredAtCommit: StepCheck = ({ seen }) => {
 
 /**
  * The installations the laws are written under: the documents base's (docsInstalls) three times in four, and otherwise
- * its worlds with Visit written through a unit entry and through one filtering on a serial field (docsVisitsInstall),
- * where an insertion leaving out its serial fields meets each rule the README states for them.
+ * its worlds with Visit written through a unit entry, one filtering on a serial field and one fixing one
+ * (docsVisitsInstall), where an insertion leaving out its serial fields meets each rule the README states for them.
  */
 const installs: Gen<InstallSpec> = weighted([
 	[3, docsInstalls],

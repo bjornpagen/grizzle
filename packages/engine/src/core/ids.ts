@@ -41,6 +41,7 @@ export type IdentityKind =
 	| "view"
 	| "column"
 	| "tag"
+	| "armTag"
 	| "contractDomain"
 	| "textDomain"
 	| "sequence"
@@ -102,8 +103,8 @@ type RaisedLawKind = "law" | "patternLaw"
 export type RaisedLawId = Identifier<RaisedLawKind>
 /** The table, enum type or materialized view of a relation, or a role relation's view, which a role reads it through. */
 export type RelationIdent = Identifier<"table" | "enum" | "view" | "roleView">
-/** The column of a field, a derived view's head name, or a stored tag. */
-export type ColumnIdent = Identifier<"column" | "tag">
+/** The column of a field, a derived view's head name, a stored tag, or an alternatives parent's arm tag. */
+export type ColumnIdent = Identifier<"column" | "tag" | "armTag">
 /**
  * What a violation reports as its constraint: a table constraint, a unique index (a key's or a partial one), a domain
  * constraint, or the law identity a law function or a write statement's refusal raises (RaisedLawId).

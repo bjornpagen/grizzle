@@ -723,8 +723,9 @@ const centsNamed = (name: string) => {
 }
 
 /** The schema of a shape, built by the public builders: Note references Account and Comment Note (a containment each);
- * Task's selector field selects its arm, AutomaticTask or ManualTask, by the alternatives law; Item holds a handle of
- * Rank and an amount of the Cents contract or of plain bigint. */
+ * Task's selector field selects its arm by the alternatives law, AutomaticTask the arm of Automatic and Scheduled, so
+ * Task carries an arm tag over its selector, and ManualTask of manual; Item holds a handle of Rank and an amount of the
+ * Cents contract or of plain bigint. */
 const shopOf = (name: string, shape: Shape) => {
 	const n = (slot: Slot) => nameOf(shape, slot)
 	const text = str.regex("^.*$", "su")
@@ -735,7 +736,7 @@ const shopOf = (name: string, shape: Shape) => {
 		["id"]
 	)
 	const Comment = relation(n("Comment"), { id: uuid, note: pg.bigint }, ["id"])
-	const Kind = closed(n("Kind"), ["Automatic", n("manual")])
+	const Kind = closed(n("Kind"), ["Automatic", "Scheduled", n("manual")])
 	const Task = relation(n("Task"), { id: uuid, [n("selector")]: closedId(Kind) }, ["id"])
 	const AutomaticTask = relation(n("AutomaticTask"), { task: uuid, budget: pg.bigint }, ["task"])
 	const ManualTask = relation(n("ManualTask"), { task: uuid, [n("operator")]: text }, ["task"])
@@ -748,6 +749,7 @@ const shopOf = (name: string, shape: Shape) => {
 	)
 	const arms = alternatives(Task, n("selector"), Kind, {
 		Automatic: AutomaticTask,
+		Scheduled: AutomaticTask,
 		[n("manual")]: ManualTask
 	})
 	/** At most three notes per account: a residual capacity over the containment of Note into Account. */

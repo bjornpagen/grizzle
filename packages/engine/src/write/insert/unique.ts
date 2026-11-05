@@ -40,25 +40,19 @@ import {
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
-import {
-	isSerialField,
-	keyFirst,
-	rowType,
-	type WriteContext
-} from "#compiler/write/insert/statement.ts"
+import { keyFirst, rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
 
 /** The unique objects of a relation an insert meets: its arbiter, the primary key; every object
  * besides it, in law order, probed or not, on which a 23505 or 23P01 aborts the apply; the objects an insert of
- * complete facts probes, those besides the arbiter; those a generated addition's insert probes, every object that
- * reads no serial field, the arbiter among them; and the probes of a query entry over it (`OutsideProbe`), which the
- * role installs and the entry's precheck calls. Each probed list holds fewer fields and no predicate first. `keys` are
- * its declared keys' objects, the arbiter first. */
+ * complete facts probes, those besides the arbiter; and the probes of a query entry over it (`OutsideProbe`), which the
+ * role installs and the entry's precheck calls. A generated addition's insert probes the objects that read none of the
+ * fields it draws (`generatedChecks`). Each probed list holds fewer fields and no predicate first. `keys` are its
+ * declared keys' objects, the arbiter first. */
 export interface RelationUniques {
 	readonly arbiter: PrimaryKeyObject
 	readonly keys: NonEmptyReadonlyArray<PrimaryKeyObject>
 	readonly others: ReadonlyArray<UniqueObject>
 	readonly checks: ReadonlyArray<Probed>
-	readonly generated: ReadonlyArray<Probed>
 	/** The probes of a query entry over the relation: each declared key's, then each object's no declared key subsumes
 	 * (`beyondKeys`). */
 	readonly probes: ReadonlyArray<OutsideProbe>
@@ -141,8 +135,9 @@ const probeOrder = (
 	return kept
 }
 
-/** Whether an object reads a serial field, whose value a generated addition draws only at its insert. */
-export const readsSerial = (u: UniqueObject): boolean => readFields(u).some(isSerialField)
+/** Whether an object reads a field a generated addition draws (`drawn`), whose value it meets only at its insert. */
+export const readsDrawn = (u: UniqueObject, drawn: ReadonlyArray<string>): boolean =>
+	readFields(u).some((f) => drawn.includes(f.name))
 
 /** The unique objects of `relation` no declared key subsumes, as a statement probes them (`probeOrder`): those whose
  * conflicts are no key's, an at-most-one capacity's unique index among them.
@@ -159,29 +154,54 @@ const beyondKeys = ({ primary, others, keys }: UniqueObjects): ReadonlyArray<Uni
 	)
 }
 
+/** `objects` as a statement probes them, each with who refuses a pair of it within one input: the host at a key, and at
+ * a span a complete insert probes (`complete`, normalize.ts hostChecks); the statement anywhere else. */
+const probedAt = (
+	objects: ReadonlyArray<UniqueObject>,
+	complete: ReadonlyArray<UniqueObject>
+): ReadonlyArray<Probed> =>
+	Object.freeze(
+		objects.map((object): Probed =>
+			Object.freeze({
+				object,
+				pairs:
+					object.kind === "key" || (object.kind === "span" && complete.includes(object))
+						? "host"
+						: "statement"
+			})
+		)
+	)
+
+/**
+ * The objects a generated addition drawing `drawn` probes (see `buildProbe`): every unique object of the relation that
+ * reads none of them, the arbiter among them when it does not, since the addition carries every value they compare; an
+ * object that reads a drawn field it meets only at its insert, through a stored value its sequence had not passed.
+ */
+export const generatedChecks = (
+	uniques: RelationUniques,
+	drawn: ReadonlyArray<string>
+): ReadonlyArray<Probed> =>
+	probedAt(
+		probeOrder(
+			[uniques.arbiter, ...uniques.others].filter((u) => !readsDrawn(u, drawn)),
+			[]
+		),
+		uniques.checks.map((c) => c.object)
+	)
+
 /** The unique objects an insert into `relation` meets (see `buildProbe`), which the write front end resolves once for each
  * relation a ChangeSet writes (`WrittenRelation`). A complete insert's arbiter settles its own conflicts, so it probes
- * the objects besides it; a generated addition's insert has no arbiter, its draws making every object that reads a serial
- * field one it meets only through a stored value the sequence has not passed, so it probes every other object. */
+ * the objects besides it; a generated addition's insert has no arbiter, its draws making every object that reads a field
+ * it draws one it meets only through a stored value the sequence has not passed, so it probes every other object
+ * (`generatedChecks`). */
 export const relationUniques = ({ uniques }: RelationLaws): RelationUniques => {
 	const { primary, others, keys } = uniques
 	const complete = probeOrder(others, [primary])
-	/** The spans the host compares (normalize.ts hostChecks): those a complete insert probes. */
-	const pairsOf = (u: UniqueObject): Probed["pairs"] =>
-		u.kind === "key" || (u.kind === "span" && complete.includes(u)) ? "host" : "statement"
-	const probed = (objects: ReadonlyArray<UniqueObject>): ReadonlyArray<Probed> =>
-		Object.freeze(objects.map((object) => Object.freeze({ object, pairs: pairsOf(object) })))
 	return Object.freeze({
 		arbiter: primary,
 		keys,
 		others,
-		checks: probed(complete),
-		generated: probed(
-			probeOrder(
-				[primary, ...others].filter((u) => !readsSerial(u)),
-				[]
-			)
-		),
+		checks: probedAt(complete, complete),
 		probes: Object.freeze([
 			...keys.map((object): OutsideProbe => Object.freeze({ kind: "key", object })),
 			...beyondKeys(uniques).map((object): OutsideProbe =>
@@ -194,8 +214,8 @@ export const relationUniques = ({ uniques }: RelationLaws): RelationUniques => {
 /** The facts a probed statement requests: complete facts, every field key first, each probed only where its arbiter key
  * is free in the snapshot (an occupied one is the arbiter's to settle, a repeat or its conflict witness, and is never
  * inserted into another index), told apart by their primary key; or a generated addition's, its `fields` the
- * relation's fields but the serial ones, key first, each probed, since the identity draws its arbiter key at the insert,
- * and told apart by every field it holds, equal generated additions being one. */
+ * relation's fields but the ones it draws, key first, each probed, since the identity may draw its arbiter key at the
+ * insert, and told apart by every field it holds, equal generated additions being one. */
 export type Requested =
 	| { readonly kind: "complete"; readonly arbiter: UniqueObject }
 	| { readonly kind: "generated"; readonly fields: ReadonlyArray<LawField> }

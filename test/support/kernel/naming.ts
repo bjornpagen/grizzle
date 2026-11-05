@@ -212,7 +212,8 @@ export interface AlternativesLaws {
 	/** contained(on(parent, discriminator), on(roster, "id")): its law (enforced by the enum or a foreign key). */
 	readonly head: LawId
 	/**
-	 * Each armed handle's foreign key from its arm into the parent: the forward half of its mirrors, the arm's FK law.
+	 * Each armed handle's arm relation's law, its foreign key into the parent: one law per arm relation, which every
+	 * handle it is the arm of names.
 	 */
 	readonly arms: Readonly<Record<string, LawId>>
 	/** The family law, the mirrors' reverse halves as one residual law, `<parent>_<discriminator>`. */
@@ -359,8 +360,15 @@ const constraintsOf = (
 			return named("key", object.relation.name, fieldNames(object.columns))
 		case "TemporalUnique":
 			return named("key", object.relation.name, fieldNames([...object.columns, object.span]))
+		case "ArmUnique":
+			return named(
+				"key",
+				object.relation.name,
+				fieldNames([...object.columns, object.discriminator])
+			)
 		case "ForeignKey":
 		case "TaggedForeignKey":
+		case "ArmForeignKey":
 			return named("fk", object.relation.name, fieldNames(object.columns))
 		case "PeriodForeignKey":
 		case "TaggedPeriodForeignKey":
@@ -375,6 +383,7 @@ const constraintsOf = (
 		case "Domain":
 		case "Enum":
 		case "StoredTag":
+		case "ArmTag":
 		case "ReverseIndex":
 			return []
 	}
@@ -510,8 +519,8 @@ const mirrorsLaws = <L>(holding: Holding, statement: StatementDesc<L>): MirrorsL
 
 /**
  * The laws of an alternatives expansion, `[head, ...arms]`: the head's one law; each arm's handle, its left side's
- * selection of the head's discriminator, to the law holding the arm whose detail is a containment; and the one law every
- * arm's alternatives half belongs to.
+ * selection of the head's discriminator, to the law of its arm relation holding the arm, one for every handle the
+ * relation is the arm of; and the one law every arm's alternatives half belongs to.
  */
 const alternativesLaws = <L>(
 	holding: Holding,
@@ -545,8 +554,8 @@ const alternativesLaws = <L>(
 		}
 		armLaws[handle] = theLaw(
 			target,
-			Arr.filter(laws, (l) => l.detail.kind === "containment"),
-			"arm foreign key"
+			Arr.filter(laws, (l) => l.detail.kind === "alternativesArm"),
+			"arm relation's law"
 		)
 		reverses.add(
 			theLaw(

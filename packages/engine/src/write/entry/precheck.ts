@@ -31,7 +31,7 @@ import {
 	type WriteContext,
 	type WriteStatement
 } from "#compiler/write/insert/statement.ts"
-import { type OutsideProbe, probeParams, readsSerial } from "#compiler/write/insert/unique.ts"
+import { type OutsideProbe, probeParams, readsDrawn } from "#compiler/write/insert/unique.ts"
 import {
 	outsideDetail,
 	type RefusalArm,
@@ -97,13 +97,13 @@ const entryOf = (check: EntryCheck): string =>
 /** The probes of a query entry over `relation` an addition of serial class `serial` calls for a fact outside the entry:
  * every probe the role installs (insert/unique.ts RelationUniques.probes), at every declared key and every object no
  * declared key subsumes, so every object the addition's statement meets; but for a generated addition none reading a
- * serial field, whose value the identity default draws only at the insert. */
+ * field it draws, whose value the identity default draws only at the insert. */
 export const outsideProbes = (
 	relation: WrittenRelation,
 	serial: SerialClass
 ): ReadonlyArray<OutsideProbe> =>
-	serial === "generated"
-		? relation.uniques.probes.filter((probe) => !readsSerial(probe.object))
+	serial.kind === "generated"
+		? relation.uniques.probes.filter((probe) => !readsDrawn(probe.object, serial.drawn))
 		: relation.uniques.probes
 
 /** The membership of the row whose fields `value` gives, in the entry (see `buildEntryCheck`). */

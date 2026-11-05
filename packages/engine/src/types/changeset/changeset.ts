@@ -359,10 +359,12 @@ export interface LawBounds {
  *   nonoverlap key);
  * - `check`: a relation's row check, by its name;
  * - `contained`: a containment, a foreign key included, from its source side into its target side;
- * - `mirrors`: one half of a mirrors, from one side into the other (an alternatives arm's halves included);
+ * - `mirrors`: one half of a mirrors, from one side into the other;
  * - `coverage`: a containment or mirrors half whose sides pair a span field, the source's span covered by the target's;
  * - `alternatives`: an alternatives family's reverse obligation, by its parent relation and discriminator: a parent
- *   fact selecting a handle has its arm's fact (its head containment and arm halves are `contained` and `mirrors`);
+ *   fact selecting a handle has its arm's fact (its head containment is `contained`);
+ * - `alternativesArm`: an alternatives family's arm relation `arm`, by the parent relation and discriminator and the
+ *   handles it is the arm of, in roster order: each of its facts is the payload of a parent fact selecting one of them;
  * - `capacity`: a capacity, by its target and source sides, its weight and its bounds;
  * - `contract`: a contract's predicate, by its name;
  * - `pattern`: a text pattern (str.regex), as its domain spells it: one law for every spelling of the same language;
@@ -383,6 +385,13 @@ export type Law =
 			readonly to: LawSide
 	  }
 	| { readonly kind: "alternatives"; readonly relation: string; readonly field: string }
+	| {
+			readonly kind: "alternativesArm"
+			readonly relation: string
+			readonly field: string
+			readonly arm: string
+			readonly handles: NonEmptyReadonlyArray<string>
+	  }
 	| {
 			readonly kind: "capacity"
 			readonly target: LawSide

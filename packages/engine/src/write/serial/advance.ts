@@ -21,10 +21,16 @@ import {
 	type WriteStatement
 } from "#compiler/write/insert/statement.ts"
 
-/** Whether an addition's facts carry explicit serial values: complete facts of a relation with serial fields, an
- * insertion's or a put's. Those are inserted OVERRIDING SYSTEM VALUE and followed by the sequence advance. */
-export const carriesSerial = (relation: RelationInfo, serial: SerialClass): boolean =>
-	serial === "complete" && relation.serial.length > 0
+/** The serial fields an addition of class `serial` carries, key-first as every write statement lists them, each an
+ * explicit serial value: inserted OVERRIDING SYSTEM VALUE and followed by its sequence advance. Complete facts carry
+ * every serial field of their relation, an insertion's or a put's; a generated addition every one it does not draw. */
+export const explicitSerials = (
+	relation: RelationInfo,
+	serial: SerialClass
+): ReadonlyArray<LawField> =>
+	keyFirst(relation).filter(
+		(f) => isSerialField(f) && (serial.kind === "complete" || !serial.drawn.includes(f.name))
+	)
 
 interface AdvanceSpec {
 	readonly relation: RelationInfo
@@ -77,21 +83,18 @@ export const buildSequenceAdvance = (
 	})
 }
 
-/** The serial fields of a relation in the order their advances run: key-first, as every write statement lists them. */
-export const serialOrder = (relation: RelationInfo): ReadonlyArray<LawField> =>
-	keyFirst(relation).filter(isSerialField)
-
-/** One sequence advance per serial field of the relation.
+/** One sequence advance per explicit serial field `fields` an addition carries (explicitSerials).
  *
  * Generated identities: the sequence advance after explicit serial values.
  *
  * A serial field is GENERATED ALWAYS AS IDENTITY, and its sequence advances only when the column default is used, so
  * an explicitly supplied value beyond the sequence's position leaves it behind and a later generated value can equal
- * the stored one. An apply that inserts explicit serial values, an addition that supplies them or a put,
- * whose members are complete facts, therefore advances each sequence past them in the same transaction,
+ * the stored one. An apply that inserts explicit serial values, an addition that supplies them (complete facts, or a
+ * generated addition's serial fields its entry's filter reads or its fill fixes) or a put, therefore advances each such
+ * sequence past them in the same transaction,
  * with a statement pipelined after the insert that reads the same input: the relation parameter again, or the carrier a
  * described member travels in, since a described member that two statements read is consumed sequentially.
- * One statement per serial field, each calling that field's advance function with the largest value written:
+ * One statement per explicit serial field, each calling that field's advance function with the largest value written:
  *
  *   SELECT "work"."__advance_ticket__id"("r0"."c1"::bigint)::text AS "c2"
  *   FROM jsonb_to_recordset($1::jsonb) AS "r0"("c1" bigint, ...)
@@ -111,6 +114,7 @@ export const serialOrder = (relation: RelationInfo): ReadonlyArray<LawField> =>
  * so no implicit coercion is emitted. */
 export const buildSequenceAdvances = (
 	w: WriteContext,
-	spec: AdvanceSpec
+	spec: AdvanceSpec,
+	fields: ReadonlyArray<LawField>
 ): ReadonlyArray<WriteStatement<SequenceAdvanceResult>> =>
-	serialOrder(spec.relation).map((field) => buildSequenceAdvance(w, spec, field))
+	fields.map((field) => buildSequenceAdvance(w, spec, field))

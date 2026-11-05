@@ -320,7 +320,7 @@ describe("violation queries mean what their laws say", () => {
 	const t = theoryOf(W.WorkDesc, provisionalTheory)
 	const family = defined(t.families[0])
 	const manualHalf = Option.getOrThrow(
-		Arr.findFirst(family.arms, (a) => a.handle === "Manual")
+		Arr.findFirst(family.arms, (a) => a.handles.includes("Manual"))
 	).forward
 	const contract = defined(lawsOf(t, "contract")[0]).id
 	/**

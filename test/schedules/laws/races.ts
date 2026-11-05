@@ -24,6 +24,7 @@ import {
 	type HostState,
 	needs,
 	type HostOp,
+	pinned,
 	projection,
 	relationOf,
 	type HostSide,
@@ -426,7 +427,7 @@ const redrawn = (
 
 /** `fact` pointed at the anchor values `at`: its side's fields set to them, and its side's selector applied. */
 const pointedAt = (side: HostSide, fact: HostFact, at: ReadonlyArray<HostValue>): HostFact => {
-	const out: Record<string, HostValue> = { ...fact, ...side.where }
+	const out: Record<string, HostValue> = { ...fact, ...pinned(side.where) }
 	for (const [i, field] of side.fields.entries()) {
 		const x = at[i]
 		if (x === undefined) {
@@ -724,7 +725,7 @@ const seededRace = (
 		/** The anchor points at nothing: its side's selector applied to its drawn fact. */
 		const anchor: HostFact = {
 			...drawnFact(env, t.anchor.relation, strided(sketch.anchor, k)),
-			...t.anchor.where
+			...pinned(t.anchor.where)
 		}
 		const at = Arr.map(t.anchor.fields, (f) => defined(anchor[f], `the seeded anchor's ${f}`))
 		const source = (fact: HostFact): Placed => ({

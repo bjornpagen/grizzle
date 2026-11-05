@@ -360,7 +360,7 @@ const planGen =
  * beside (docsEditorInstall, docsOneShareEditorInstall) one time in four, whose every fact outside an entry it writes
  * lies outside its world one way only: visible through a relation it holds whole, or hidden, which a Db or a direct
  * writer of the editor's meets each way under no claims, and a generated installation's roles rarely offer; and
- * otherwise its worlds with Visit written through a unit entry and through one filtering on a serial field
+ * otherwise its worlds with Visit written through a unit entry, one filtering on a serial field and one fixing one
  * (docsVisitsInstall), the serial shapes a generated installation's roles rarely offer.
  */
 const installsGen: Gen<InstallSpec> = weighted([

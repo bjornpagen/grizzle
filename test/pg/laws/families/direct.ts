@@ -23,6 +23,7 @@ import {
 	isSpan,
 	needs,
 	type HostOp,
+	pinned,
 	projection,
 	relationOf,
 	rowsDifference,
@@ -507,7 +508,7 @@ const resolveUpdate = (
 		return Option.match(pickIn(unselected, u.index), {
 			onNone: (): ReadonlyArray<Statement> => [],
 			onSome: ({ ref, fact }) => {
-				const to = { ...fact, ...ref.from.where }
+				const to = { ...fact, ...pinned(ref.from.where) }
 				const update: Statement = {
 					kind: "update",
 					relation: ref.from.relation,
@@ -563,7 +564,7 @@ const resolveUpdate = (
 											)
 										),
 										(target): ReadonlyArray<readonly [string, HostValue]> => [
-											...Rec.toEntries(ref.from.where),
+											...Rec.toEntries(pinned(ref.from.where)),
 											...Arr.map(ref.from.fields, (field, i) => {
 												const toField = defined(ref.to.fields[i], `the field ${field} pairs with`)
 												return [

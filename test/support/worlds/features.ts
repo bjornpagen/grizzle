@@ -33,6 +33,7 @@ import type {
 	Action,
 	ActionKind,
 	AdditionFeature,
+	SuppliedSerialFeature,
 	BaseSpec,
 	ClaimState,
 	ContextFacts,
@@ -1375,7 +1376,12 @@ const pathsOf = (
 					: action.reads.length > 0
 						? ["readback:refused-delta"]
 						: []
-			return [strata, ...readbacks, ...additionsOf(state, action)]
+			return [
+				strata,
+				...readbacks,
+				...additionsOf(state, action),
+				...(observation.kind === "applied" ? suppliedSerialsOf(state, action) : [])
+			]
 		}
 		case "open-db":
 		case "refresh":
@@ -1424,6 +1430,51 @@ export const additionsOf = (
 					const generated = classed.length > 0 && Arr.every(classed, (f) => fact[f] === undefined)
 					return `addition:${generated ? "generated" : "complete"}:${target}:${unit}`
 				})
+			})
+	})
+}
+
+/**
+ * The generated additions through a Db's query entries that supply a serial value, one the entry's filter reads or its
+ * fill fixes (SuppliedSerialFeature): a fact leaving out every classed serial head field (writes.ts serialHead) of an
+ * entry whose target holds a serial field no classed head field writes. Noted of an applied ChangeSet alone, whose
+ * committed state the driver then holds to the model's, the supplied value stored.
+ */
+const suppliedSerialsOf = (
+	state: ModelState,
+	action: Extract<Action, { readonly kind: "apply" }>
+): ReadonlyArray<SuppliedSerialFeature> => {
+	const base = state.install.base
+	const role = Option.flatMap(Option.fromUndefinedOr(sessionAt(state, action.session)), (session) =>
+		session.kind === "db" ? roleIn(state.install, session.role) : Option.none()
+	)
+	return Option.match(role, {
+		onNone: () => [],
+		onSome: (r) =>
+			Arr.flatMap(action.strata.flat(), (op): ReadonlyArray<SuppliedSerialFeature> => {
+				const written = writtenNamed(base, r, op.relation)
+				if (op.kind !== "insert" || written === undefined || written.kind !== "query") {
+					return []
+				}
+				const { classed } = serialHead(base, written)
+				const drawn = new Set(
+					Arr.flatMap(classed, (h) =>
+						Option.toArray(
+							Option.map(Option.fromUndefinedOr(written.head[h]), (head) => head.field)
+						)
+					)
+				)
+				const supplied = Arr.some(
+					relationSpecOf(base, written.target)?.fields ?? [],
+					(f) => f.domain.kind === "serial" && !drawn.has(f.name)
+				)
+				return supplied
+					? Arr.flatMap(op.facts, (fact): ReadonlyArray<SuppliedSerialFeature> =>
+							Arr.every(classed, (h) => fact[h] === undefined)
+								? ["addition:generated:entry:supplied-serial"]
+								: []
+						)
+					: []
 			})
 	})
 }
@@ -1829,6 +1880,7 @@ const situations: ReadonlyArray<WorldFeature> = [
 	"addition:complete:entry:unit",
 	"addition:generated:whole:carried",
 	"addition:generated:whole:unit",
+	"addition:generated:entry:supplied-serial",
 	"addition:generated:entry:carried",
 	"addition:generated:entry:unit",
 	"deletion:base-gone",

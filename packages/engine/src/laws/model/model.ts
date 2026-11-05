@@ -44,6 +44,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import {
 	type AlternativesParticipant,
+	type ArmTagMove,
 	type DomainCheck,
 	type DomainCheckTerm,
 	type DomainNative,
@@ -102,10 +103,12 @@ export type ConstraintNativeKind =
 	| "TaggedForeignKey"
 	| "PeriodForeignKey"
 	| "TaggedPeriodForeignKey"
+	| "ArmUnique"
+	| "ArmForeignKey"
 
 /** A native object with the identity its installed name was minted from, its namespace, and its owner: the table
  * identifier, or a contract domain's identifier. Each namespace holds exactly its kinds of object: a table constraint, a capacity's partial
- * unique index, a stored tag column, a contract's domain, or an object the law model names nothing for. A table
+ * unique index, a stored tag or arm tag column, a contract's domain, or an object the law model names nothing for. A table
  * constraint and a unique index carry the description of the law their violation reports. */
 export type NamedNative =
 	| {
@@ -123,9 +126,9 @@ export type NamedNative =
 			readonly described: Law
 	  }
 	| {
-			readonly object: NativeOf<"StoredTag">
+			readonly object: NativeOf<"StoredTag" | "ArmTag">
 			readonly namespace: "column"
-			readonly named: Identity<"tag">
+			readonly named: Identity<"tag" | "armTag">
 			readonly owner: RelationIdent
 	  }
 	| {
@@ -351,6 +354,23 @@ const nativeIdentity = (object: NativeObject): unknown => {
 				...rest,
 				relation: rest.relation.name,
 				selector: { relation: rest.selector.relation.name, field: rest.selector.field.name }
+			}
+		case "ArmTag":
+			return { ...rest, relation: rest.relation.name, discriminator: rest.discriminator.name }
+		case "ArmUnique":
+			return {
+				...rest,
+				relation: rest.relation.name,
+				columns: fieldNames(rest.columns),
+				discriminator: rest.discriminator.name
+			}
+		case "ArmForeignKey":
+			return {
+				...rest,
+				relation: rest.relation.name,
+				columns: fieldNames(rest.columns),
+				target: rest.target.name,
+				targetColumns: fieldNames(rest.targetColumns)
 			}
 		case "Domain":
 		case "Enum":
@@ -758,6 +778,7 @@ class Specializer {
 			plan.natives.flatMap((n): ReadonlyArray<readonly [string, string]> =>
 				n.kind === "ForeignKey" ||
 				n.kind === "TaggedForeignKey" ||
+				n.kind === "ArmForeignKey" ||
 				n.kind === "PeriodForeignKey" ||
 				n.kind === "TaggedPeriodForeignKey"
 					? [[n.relation.name, n.target.name]]
@@ -897,6 +918,35 @@ class Specializer {
 					selector: { relation: n.tag.target, field: n.tag.field },
 					lawIds
 				}
+			case "ArmTag":
+				return {
+					kind: "ArmTag",
+					relation: n.tag.relation,
+					column: this.#mint(armTagOf(n.tag)),
+					discriminator: n.tag.discriminator,
+					moved: n.tag.moved,
+					lawIds
+				}
+			case "ArmUnique":
+				return {
+					kind: "ArmUnique",
+					relation: n.relation,
+					columns: n.columns,
+					tag: this.#mint(armTagOf(n.tag)),
+					discriminator: n.tag.discriminator,
+					lawIds
+				}
+			case "ArmForeignKey":
+				return {
+					kind: "ArmForeignKey",
+					relation: n.relation,
+					columns: n.columns,
+					tag: this.#mint(tagOf(n.tag)),
+					target: n.target,
+					targetColumns: n.targetColumns,
+					targetTag: this.#mint(armTagOf(n.targetTag)),
+					lawIds
+				}
 			case "PeriodForeignKey":
 				return {
 					kind: "PeriodForeignKey",
@@ -945,7 +995,11 @@ class Specializer {
 		})
 		const foreignKey = (
 			on: NativeOf<
-				"ForeignKey" | "TaggedForeignKey" | "PeriodForeignKey" | "TaggedPeriodForeignKey"
+				| "ForeignKey"
+				| "TaggedForeignKey"
+				| "ArmForeignKey"
+				| "PeriodForeignKey"
+				| "TaggedPeriodForeignKey"
 			>,
 			from: KeySide,
 			to: KeySide,
@@ -1012,6 +1066,20 @@ class Specializer {
 					side(object.target, fieldNames(object.targetColumns)),
 					false
 				)
+			case "ArmForeignKey":
+				return foreignKey(
+					object,
+					side(object.relation, [...fieldNames(object.columns), object.tag]),
+					side(object.target, [...fieldNames(object.targetColumns), object.targetTag]),
+					false
+				)
+			case "ArmUnique":
+				return constraint(
+					object,
+					this.#named(
+						identity.key(object.relation.name, [...fieldNames(object.columns), object.tag])
+					)
+				)
 			case "PeriodForeignKey":
 				return foreignKey(
 					object,
@@ -1033,6 +1101,17 @@ class Specializer {
 						target: object.selector.relation,
 						field: object.selector.field,
 						value: object.value
+					}),
+					namespace: "column",
+					owner: object.relation.ident
+				}
+			case "ArmTag":
+				return {
+					object,
+					named: armTagOf({
+						relation: object.relation,
+						discriminator: object.discriminator,
+						moved: object.moved
 					}),
 					namespace: "column",
 					owner: object.relation.ident
@@ -1067,6 +1146,13 @@ const tagOf = (tag: {
 	readonly field: { readonly name: string }
 	readonly value: TypedLiteral
 }): Identity<"tag"> => identity.tag(tag.target.name, tag.field.name, identityValueOf(tag.value))
+
+/** The STORED arm tag column of an alternatives parent: one per parent, discriminator and arm tag map. */
+const armTagOf = (tag: {
+	readonly relation: { readonly name: string }
+	readonly discriminator: { readonly name: string }
+	readonly moved: NonEmptyReadonlyArray<ArmTagMove>
+}): Identity<"armTag"> => identity.armTag(tag.relation.name, tag.discriminator.name, tag.moved)
 
 const columnLeaf = (node: NodeId, field: LawField): ExprSpec => ({
 	kind: "column",

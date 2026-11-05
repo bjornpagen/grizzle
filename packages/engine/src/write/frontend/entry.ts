@@ -46,23 +46,34 @@ export const entryFillable = (entry: CheckedEntry, claims: EntryClaims): boolean
 	claims.kind === "every" ||
 	[...fixedContexts(entry).keys()].every((name) => claims.present.has(name))
 
-/** E's facts as a member relation: each head field typed as the field of T it writes, in E's field order, and the head
- * fields an addition may omit for grizzle to generate: those writing a serial field of T the entry's filter does not
- * read. An addition is checked against the filter before its insert, and the identity default draws a serial value
- * only at the insert, so a generated value cannot be checked: a serial field the filter reads is one every fact
- * carries, and a fact omitting it is refused where any fact missing a field is (the host's encoder, or checkMember's
- * heading check for a described member). Every head field may be such a field, so a generated addition may carry no
- * field: the unit relation, one new fact of T's fixed fields with its serial fields drawn. */
-export const entryRelation = (entry: CheckedEntry): MemberRelation => {
-	const checked = new Set(entry.filter.kind === "query" ? entry.filter.fields : [])
-	return {
-		name: entry.entry,
-		heading: [...entry.head].map(([head, { field }]) => ({ name: head, type: field.type })),
-		serial: [...entry.head].flatMap(([head, { field }]) =>
-			isSerialField(field) && !checked.has(field) ? [head] : []
-		)
-	}
+/** A serial field of a target an addition may leave out, for its identity to draw it: the member's field that carries
+ * it (a head field of a query entry, or the field itself), and the target's field. */
+export interface SerialDraw {
+	readonly carried: string
+	readonly field: string
 }
+
+/** The serial fields an addition into E may leave out, the ones its identity draws: the head fields writing a serial
+ * field of T the entry's filter does not read. An addition is checked against the filter before its insert, and the
+ * identity default draws a serial value only at the insert, so a generated value cannot be checked: a serial field the
+ * filter reads is one every fact carries, and a fact omitting it is refused where any fact missing a field is (the
+ * host's encoder, or checkMember's heading check for a described member). A serial field the fill fixes is never a
+ * head field, and the fill writes its value. Every head field may be drawn, so a generated addition may carry no field:
+ * the unit relation, one new fact of T's fixed fields with its drawn fields generated. */
+export const entryDraws = (entry: CheckedEntry): ReadonlyArray<SerialDraw> => {
+	const checked = new Set(entry.filter.kind === "query" ? entry.filter.fields : [])
+	return [...entry.head].flatMap(([head, { field }]) =>
+		isSerialField(field) && !checked.has(field) ? [{ carried: head, field: field.name }] : []
+	)
+}
+
+/** E's facts as a member relation: each head field typed as the field of T it writes, in E's field order, and the head
+ * fields an addition may omit for grizzle to generate (`entryDraws`). */
+export const entryRelation = (entry: CheckedEntry): MemberRelation => ({
+	name: entry.entry,
+	heading: [...entry.head].map(([head, { field }]) => ({ name: head, type: field.type })),
+	serial: entryDraws(entry).map((d) => d.carried)
+})
 
 const varOf = (id: string): ExprDesc => ({ kind: "var", var: id })
 

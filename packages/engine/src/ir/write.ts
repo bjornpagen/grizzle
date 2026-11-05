@@ -1,4 +1,5 @@
 import type { ParamId } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
 
@@ -8,13 +9,24 @@ export type ActionSource =
 	| { readonly kind: "described"; readonly node: RelNode }
 
 /**
- * The serial class of an insertion's facts: generated, an addition that omits the relation's serial fields, which the
- * relation's sequences draw; complete, facts that carry every field. A put and a deletion name complete facts. Complete
- * facts of a relation with serial fields carry explicit serial values (write/serial/advance.ts carriesSerial). An
- * insertion into a target with serial fields drafts both classes whatever facts it is applied with (the front end's
- * InsertClasses), and a class whose facts carry no field is the unit relation: the one empty fact, or none.
+ * The serial class of an insertion's facts: complete, facts that carry every field; or generated, an addition that
+ * leaves out `drawn`, the serial fields of the relation its sequences draw at the insert, and carries every other field.
+ * A member of the relation draws every serial field of it; a member of a query entry draws the entry's classed serial
+ * head fields, and carries a serial field its filter reads or its fill fixes, the value the filter checked. The front
+ * end decides `drawn` once per target (write/frontend/compile.ts classesOf), and every statement reads it there. A put
+ * and a deletion name complete facts. Every serial field an addition carries is an explicit serial value, inserted
+ * OVERRIDING SYSTEM VALUE and advanced past (write/serial/advance.ts explicitSerials). An insertion into a target with
+ * serial fields drafts both classes whatever facts it is applied with (the front end's InsertClasses), and a class whose
+ * facts carry no field is the unit relation: the one empty fact, or none.
  */
-export type SerialClass = "generated" | "complete"
+export type SerialClass =
+	| { readonly kind: "complete" }
+	| { readonly kind: "generated"; readonly drawn: NonEmptyReadonlyArray<string> }
+
+/** The class of complete facts. */
+export const completeClass: Extract<SerialClass, { readonly kind: "complete" }> = {
+	kind: "complete"
+}
 
 /** An operation, an insertion with the serial class of its facts. */
 export type ActionOp =
@@ -27,7 +39,7 @@ export type ActionOp =
  * D EXCEPT A over these additions of its stratum.
  */
 export const completeAddition = (a: ActionOp): boolean =>
-	a.op === "put" || (a.op === "insert" && a.serial === "complete")
+	a.op === "put" || (a.op === "insert" && a.serial.kind === "complete")
 
 /** What an action does: insert, put or delete its source's facts. */
 export type ActionCore = ActionOp & { readonly relation: string; readonly source: ActionSource }

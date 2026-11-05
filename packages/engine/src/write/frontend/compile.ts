@@ -32,15 +32,16 @@ import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { slotSpelling } from "#compiler/ir/slots.ts"
-import type {
-	Action,
-	ActionCore,
-	ActionOp,
-	ActionSource,
-	ReadBack,
-	SerialClass,
-	Stratum,
-	WriteIR
+import {
+	type Action,
+	type ActionCore,
+	type ActionOp,
+	type ActionSource,
+	completeClass,
+	type ReadBack,
+	type SerialClass,
+	type Stratum,
+	type WriteIR
 } from "#compiler/ir/write.ts"
 import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -55,11 +56,13 @@ import type { CheckNames, WriteWorld } from "#compiler/write/entry/precheck.ts"
 import { deltaSources, GlueBuilder, QueryMerger, substitute } from "#compiler/write/frontend/dag.ts"
 import {
 	type EntryClaims,
+	entryDraws,
 	entryFacts,
 	entryFillable,
 	entryRelation,
 	entryRowsParam,
-	fillQuery
+	fillQuery,
+	type SerialDraw
 } from "#compiler/write/frontend/entry.ts"
 
 import {
@@ -85,14 +88,16 @@ export interface FrontendOptions {
 }
 
 /** The classes an insertion into a target's facts fall in, each with what it carries, decided once per target where
- * its member is checked (`targetOf`). Unclassed: a target with no serial field, every fact complete. Classed: every fact
- * omits all of `serial` (generated) or none (complete). A generated class of no field is the unit relation: it holds
- * the one empty fact or none. */
+ * its member is checked (`targetOf`). Unclassed: a target with no serial field to draw, every fact complete. Classed:
+ * every fact omits all of `serial`, the member's fields carrying a serial field it may leave out (generated), or none
+ * (complete); `drawn` is the generated class, the target's serial fields its identity draws, which every statement
+ * of the class reads. A generated class of no field is the unit relation: it holds the one empty fact or none. */
 export type InsertClasses<A> =
 	| { readonly kind: "unclassed"; readonly complete: A }
 	| {
 			readonly kind: "classed"
 			readonly serial: NonEmptyReadonlyArray<string>
+			readonly drawn: Extract<SerialClass, { readonly kind: "generated" }>
 			readonly complete: A
 			readonly generated: A
 	  }
@@ -123,7 +128,7 @@ export interface InputMember<N> {
 export type SingleAct =
 	| { readonly op: "delete" }
 	| { readonly op: "put" }
-	| { readonly op: "insert"; readonly serial: "complete" }
+	| { readonly op: "insert"; readonly serial: Extract<SerialClass, { readonly kind: "complete" }> }
 
 /** The enumerated members of one operation on one relation in one stratum, and the slot each of their facts travels
  * in: one slot, for a deletion, a put and an insertion into an unclassed target; or an insertion into a classed
@@ -375,7 +380,7 @@ const slotKind = (
 		case "unclassed":
 			return "none"
 		case "classed":
-			return act.op === "insert" && act.serial === "generated" ? "generated" : "explicit"
+			return act.op === "insert" && act.serial.kind === "generated" ? "generated" : "explicit"
 	}
 }
 
@@ -404,19 +409,26 @@ const sameHeading = (a: Heading, b: Heading): boolean =>
 		return d !== undefined && sameScalarType(c.type, d.type)
 	})
 
-/** A member relation's classes, each the heading its facts carry, typed without the serial generation flag: an entry's
- * serial head fields (`entryRelation`), a whole relation's serial fields. */
-const classesOf = (member: MemberRelation): InsertClasses<Heading> => {
+/** A member relation's classes, each the heading its facts carry, typed without the serial generation flag, by the
+ * serial fields of its target an addition may leave out (`draws`): an entry's serial head fields its filter does not
+ * read (entry.ts entryDraws), a whole relation's every serial field. */
+const classesOf = (
+	member: MemberRelation,
+	draws: ReadonlyArray<SerialDraw>
+): InsertClasses<Heading> => {
 	const complete = member.heading.map((c) => ({ name: c.name, type: withoutSerial(c.type) }))
-	const [first, ...rest] = member.serial
-	return first === undefined
-		? { kind: "unclassed", complete }
-		: {
-				kind: "classed",
-				serial: [first, ...rest],
-				complete,
-				generated: complete.filter((c) => !member.serial.includes(c.name))
-			}
+	const [first, ...rest] = draws
+	if (first === undefined) {
+		return { kind: "unclassed", complete }
+	}
+	const carried = mapNonEmpty([first, ...rest], (d) => d.carried)
+	return {
+		kind: "classed",
+		serial: carried,
+		drawn: { kind: "generated", drawn: mapNonEmpty([first, ...rest], (d) => d.field) },
+		complete,
+		generated: complete.filter((c) => !carried.includes(c.name))
+	}
 }
 
 /** A described insertion's class, by the head its query delivers (checkMemberHeading has refused a head that supplies
@@ -424,11 +436,11 @@ const classesOf = (member: MemberRelation): InsertClasses<Heading> => {
 const describedClass = (classes: InsertClasses<Heading>, delivered: Heading): SerialClass => {
 	switch (classes.kind) {
 		case "unclassed":
-			return "complete"
+			return completeClass
 		case "classed":
 			return classes.serial.every((f) => delivered.some((c) => c.name === f))
-				? "complete"
-				: "generated"
+				? completeClass
+				: classes.drawn
 	}
 }
 
@@ -562,7 +574,8 @@ const merge = (params: Map<string, ParamDecl>, decl: ParamDecl, loc: SourceLoc):
  *    context the Db holds no fact of is no action but a refusal of its sources (WriteStratum.outside), and a deletion
  *    there is dropped.
  * 3. Serial class. Each insertion's serial class, decided once per target (`classesOf`): generated, when its facts
- *    omit every serial field of the target, or complete; a described member's by the head its query delivers
+ *    omit every serial field the target lets them leave out (all of a relation's, a query entry's classed head
+ *    fields), which its identity draws, `drawn`; or complete; a described member's by the head its query delivers
  *    (`describedClass`). The statement that realizes an action is the lowering's, a put's chosen with the proofs the
  *    whole ChangeSet gives. An insertion drafts its acts for its enumerated members whatever facts they are applied
  *    with: a classed target's both classes, each reading its own slot, the generated one with every described
@@ -630,7 +643,14 @@ const compile = (
 	/** A relation written whole, its classes its own serial fields'. */
 	const wholeTarget = (name: string, loc: SourceLoc): CheckedTarget => {
 		const relation = writtenOf(name, loc)
-		return { relation, entry: { kind: "whole" }, classes: classesOf(relation) }
+		return {
+			relation,
+			entry: { kind: "whole" },
+			classes: classesOf(
+				relation,
+				relation.serial.map((field) => ({ carried: field, field }))
+			)
+		}
 	}
 	/** What a member's relation name writes (see `compileChangeSet`), and its classes, decided once. */
 	const targetOf = (name: string, loc: SourceLoc): CheckedTarget => {
@@ -677,7 +697,7 @@ const compile = (
 				member,
 				fillable: entryFillable(entry, options.claims)
 			},
-			classes: classesOf(member)
+			classes: classesOf(member, entryDraws(entry))
 		}
 	}
 	const strataMembers = desc.strata.map((stratum) =>
@@ -753,23 +773,21 @@ const compile = (
 	})
 
 	/** A query entry's fill over `input`, the facts its sources carry, checked against the base as a member of its target
-	 * and merged into the DAG: its root. The fill omits exactly the serial fields an addition through the entry may
-	 * leave out (entry.ts entryRelation), those the entry's filter does not read; a serial field the filter reads is one
-	 * every fact carries, so the target's omissible serial fields are its others. */
+	 * and merged into the DAG: its root. The fill omits exactly the serial fields of the target an addition through the
+	 * entry leaves out, its classes' drawn fields (entry.ts entryDraws); every other serial field, one the entry's
+	 * filter reads or its fill fixes, is one every fact carries. */
 	const mergeFill = (
 		entry: CheckedEntry,
 		relation: WrittenRelation,
+		classes: InsertClasses<Heading>,
 		op: MemberDesc["op"],
 		input: Heading,
 		loc: SourceLoc
 	): RelNode => {
-		const filtered = new Set(
-			entry.filter.kind === "query" ? entry.filter.fields.map((f) => f.name) : []
-		)
 		const target: MemberRelation = {
 			name: relation.name,
 			heading: relation.heading,
-			serial: relation.serial.filter((f) => !filtered.has(f))
+			serial: classes.kind === "classed" ? classes.drawn.drawn : []
 		}
 		return merger.add(
 			unwrap(
@@ -875,8 +893,8 @@ const compile = (
 					if (!isNonEmpty(enumerated)) {
 						return undefined
 					}
-					const complete = classSlot({ op: "insert", serial: "complete" }, classed.complete)
-					const generated = classSlot({ op: "insert", serial: "generated" }, classed.generated)
+					const complete = classSlot({ op: "insert", serial: completeClass }, classed.complete)
+					const generated = classSlot({ op: "insert", serial: classed.drawn }, classed.generated)
 					groupInputs.push(
 						Object.freeze({
 							kind: "classed",
@@ -925,7 +943,7 @@ const compile = (
 						}
 						return
 					}
-					const fill = mergeFill(target.entry, relation, act.op, carried, loc)
+					const fill = mergeFill(target.entry, relation, classes, act.op, carried, loc)
 					drafts.push({
 						act,
 						relation,
@@ -954,7 +972,7 @@ const compile = (
 						break
 					}
 					case "insert": {
-						const complete = { op, serial: "complete" } as const
+						const complete: SingleAct = { op, serial: completeClass }
 						const described = queries.map((q) => ({
 							root: q.root,
 							serial: describedClass(classes, q.query.dag.roots[0].heading)
@@ -967,16 +985,16 @@ const compile = (
 								const classSlots = classedInput(classes)
 								draft(complete, classes.complete, classSlots?.complete, [])
 								draft(
-									{ op, serial: "generated" },
+									{ op, serial: classes.drawn },
 									classes.generated,
 									classSlots?.generated,
-									described.flatMap((d) => (d.serial === "generated" ? [d.root] : []))
+									described.flatMap((d) => (d.serial.kind === "generated" ? [d.root] : []))
 								)
 								break
 							}
 						}
 						for (const d of described) {
-							if (d.serial === "complete") {
+							if (d.serial.kind === "complete") {
 								draft(complete, classes.complete, undefined, [d.root])
 							}
 						}

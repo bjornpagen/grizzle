@@ -398,7 +398,8 @@ export interface RunsParams {
 	readonly arms: Arr.NonEmptyReadonlyArray<PayArm>
 }
 
-const stageName = (i: number): string => `s${i}`
+/** The handle of a drawn roster at a position. */
+export const stageName = (i: number): string => `s${i}`
 
 /** The values of a drawn alternatives schema: its roster, parent and payload relations, and its statements. */
 const drawnRuns = (p: RunsParams) => {
@@ -565,21 +566,23 @@ export const alternativesFamily: Family<RunsParams> = {
 						fields: ["id"]
 					},
 					{ kind: "key", law: laws.lawOf(pay.runKey), relation: pay.value.name, fields: ["run"] },
-					...Arr.flatMap(pay.handles, (h): HostSchema["laws"] => [
-						{
-							kind: "contained",
-							law: defined(stage.arms[stageName(h)], `the ${stageName(h)} arm's law`),
-							source: { relation: pay.value.name, fields: ["run"], where: everyFact },
-							target: { relation: "Run", fields: ["id"], where: { stage: stageName(h) } },
-							residual: false
+					{
+						kind: "contained",
+						law: defined(stage.arms[stageName(pay.handles[0])], `${pay.value.name}'s arm law`),
+						source: { relation: pay.value.name, fields: ["run"], where: everyFact },
+						target: {
+							relation: "Run",
+							fields: ["id"],
+							where: { stage: { among: Arr.map(pay.handles, stageName) } }
 						},
-						{
-							kind: "obliged",
-							law: stage.reverse,
-							anchor: { relation: "Run", fields: ["id"], where: { stage: stageName(h) } },
-							dependent: { relation: pay.value.name, fields: ["run"], where: everyFact }
-						}
-					])
+						residual: false
+					},
+					...Arr.map(pay.handles, (h): HostLaw => ({
+						kind: "obliged",
+						law: stage.reverse,
+						anchor: { relation: "Run", fields: ["id"], where: { stage: stageName(h) } },
+						dependent: { relation: pay.value.name, fields: ["run"], where: everyFact }
+					}))
 				])
 			]
 		}

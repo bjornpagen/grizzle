@@ -18,7 +18,7 @@ import type {
 	WriteSlot
 } from "#compiler/ir/products.ts"
 import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
-import type { ReadBack } from "#compiler/ir/write.ts"
+import { completeClass, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
@@ -94,7 +94,7 @@ import {
 	type WriteStatement,
 	writeContext
 } from "#compiler/write/insert/statement.ts"
-import { readsSerial } from "#compiler/write/insert/unique.ts"
+import { readsDrawn } from "#compiler/write/insert/unique.ts"
 import { withCarrierAnalysis } from "#compiler/write/program/analyze.ts"
 import {
 	type ArtifactForms,
@@ -137,7 +137,7 @@ import {
 	planWrite,
 	type WritePlan
 } from "#compiler/write/schedule/plan.ts"
-import { buildSequenceAdvance, serialOrder } from "#compiler/write/serial/advance.ts"
+import { buildSequenceAdvance } from "#compiler/write/serial/advance.ts"
 
 export interface CompileWriteOptions {
 	/** The installed names the statements write (`InstallNames`, `schemaArtifacts`). */
@@ -172,23 +172,31 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 	return r.value
 }
 
+/** What decides which of a write op's unique violations abort the apply: a generated addition's class, whose drawn
+ * fields tell an unseen occupant from a draw a stored value meets; a MERGE; any other probed statement; or none. */
+type AbortKind =
+	| {
+			readonly kind: "generated"
+			readonly serial: Extract<SerialClass, { readonly kind: "generated" }>
+	  }
+	| { readonly kind: "merge" }
+	| { readonly kind: "probed" }
+	| { readonly kind: "other" }
+
 /** The 23505 and 23P01 violations at a statement into `relation` that abort the apply: a generated addition's at every
- * unique object, which its probe leaves only an occupant its snapshot did not see at an object that reads no serial
- * field, and at one that reads a serial field a stored value the sequence had not passed; a MERGE insert at the primary
+ * unique object, which its probe leaves only an occupant its snapshot did not see at an object that reads no field it
+ * draws, and at one that reads a drawn field a stored value the sequence had not passed; a MERGE insert at the primary
  * key its put targets, or at a unique object besides it, which compares every field of that key (`uniqueBesideKey`),
  * so it is the same concurrent commit; and a probed insert's, at every unique object besides its arbiter, which after
  * the probe only an occupant its snapshot did not see raises. */
-const uniqueAbortsOf = (
-	relation: WrittenRelation,
-	kind: "generated" | "merge" | "probed" | "other"
-): ReadonlyArray<UniqueAbort> => {
+const uniqueAbortsOf = (relation: WrittenRelation, kind: AbortKind): ReadonlyArray<UniqueAbort> => {
 	const aborts = (
 		objects: ReadonlyArray<UniqueObject>,
 		reason: UniqueAbort["reason"]
 	): ReadonlyArray<UniqueAbort> =>
 		objects.map((u) => ({ constraint: u.name, relation: relation.name, reason }))
 	const { arbiter, others } = relation.uniques
-	switch (kind) {
+	switch (kind.kind) {
 		case "other":
 			return []
 		case "probed":
@@ -199,7 +207,7 @@ const uniqueAbortsOf = (
 			return [arbiter, ...others].map((u): UniqueAbort => ({
 				constraint: u.name,
 				relation: relation.name,
-				reason: readsSerial(u) ? "GeneratedSerialUnique" : "UnseenOccupant"
+				reason: readsDrawn(u, kind.serial.drawn) ? "GeneratedSerialUnique" : "UnseenOccupant"
 			}))
 	}
 }
@@ -677,7 +685,7 @@ const optimizedPlacement = (
 			}
 			case "advance": {
 				const spec = { relation: step.relation, input: step.input }
-				for (const field of serialOrder(step.relation)) {
+				for (const field of step.fields) {
 					const deps = tracker.addAfter(
 						[...inputReads([step.input]), ...describedReads([step.input])],
 						[`sequence:${step.relation.name}.${field.name}`],
@@ -810,7 +818,7 @@ const buildWriteOp = (
 		case "putInsert":
 			return buildInsert(w, {
 				relation,
-				serial: "complete",
+				serial: completeClass,
 				input,
 				of: "put"
 			})
@@ -834,21 +842,25 @@ const buildWriteOp = (
 	}
 }
 
+/** Which of an insert's unique violations abort the apply, by the class it inserts. */
+const insertAborts = (serial: SerialClass): AbortKind =>
+	serial.kind === "generated" ? { kind: "generated", serial } : { kind: "probed" }
+
 /** Which of a write op's unique violations abort the apply (uniqueAbortsOf). */
-const abortsOf = (step: PlannedWrite): "generated" | "merge" | "probed" | "other" => {
+const abortsOf = (step: PlannedWrite): AbortKind => {
 	switch (step.op) {
 		case "insert":
-			return step.serial === "generated" ? "generated" : "probed"
+			return insertAborts(step.serial)
 		case "putInsert":
 		case "upsert":
-			return "probed"
+			return { kind: "probed" }
 		case "merge":
-			return "merge"
+			return { kind: "merge" }
 		case "exactDelete":
 		case "anchoredDelete":
 		case "displace":
 		case "updateFrom":
-			return "other"
+			return { kind: "other" }
 	}
 }
 
@@ -901,11 +913,7 @@ const conservativeArtifact = (write: ConservativeWrite, meter: BudgetMeter): Wri
 								...skip,
 								uniqueAborts: uniqueAbortsOf(
 									relation,
-									result.kind !== "insert"
-										? "other"
-										: result.variant === "generated"
-											? "generated"
-											: "probed"
+									result.kind !== "insert" ? { kind: "other" } : insertAborts(result.serial)
 								)
 							},
 					previous

@@ -46,6 +46,7 @@ import {
 	type HostOp,
 	type OpKind,
 	overlapsUnequally,
+	pinned,
 	projection,
 	relationOf,
 	rowsDifference,
@@ -54,6 +55,7 @@ import {
 	sameValue,
 	sameValues,
 	selected,
+	selectorValues,
 	sharesWitnessRelation,
 	stateRows,
 	transition,
@@ -918,7 +920,7 @@ export const resolveStep = (
 				return drawn
 			}
 			const target = pickIn(targets, sketch.index, "the targets")
-			const out: Record<string, HostValue> = { ...drawn, ...link.from.where }
+			const out: Record<string, HostValue> = { ...drawn, ...pinned(link.from.where) }
 			for (const [i, field] of link.from.fields.entries()) {
 				const to = link.to.fields[i]
 				const x = to === undefined ? undefined : target[to]
@@ -998,7 +1000,7 @@ const drawnFact = (
  * `fact` pointed at `at` through `side`: its selector's values, and its side's fields at `at`'s values in pair order.
  */
 const pointedAt = (side: HostSide, fact: HostFact, at: ReadonlyArray<HostValue>): HostFact => {
-	const out: Record<string, HostValue> = { ...fact, ...side.where }
+	const out: Record<string, HostValue> = { ...fact, ...pinned(side.where) }
 	for (const [i, field] of side.fields.entries()) {
 		const x = at[i]
 		if (x === undefined) {
@@ -1092,7 +1094,10 @@ const resolveSupported = (
 	const need = pickFrom([first, ...rest], sketch.need)
 	const values = (k: number) =>
 		Arr.map(sketch.values, (p, i) => (p + k * (i + 1) * fillStride) % pickSpan)
-	const fact = { ...drawnFact(host, domains, need.from.relation, values(0)), ...need.from.where }
+	const fact = {
+		...drawnFact(host, domains, need.from.relation, values(0)),
+		...pinned(need.from.where)
+	}
 	return insertsOf(
 		withSupports(
 			host,
@@ -1177,7 +1182,7 @@ const resolveNear = (
 		if (stored !== undefined) {
 			return { target: pickFrom([stored, ...more], sketch.target), writes: [] }
 		}
-		const target = { ...drawnFact(host, domains, to.relation, values(1)), ...to.where }
+		const target = { ...drawnFact(host, domains, to.relation, values(1)), ...pinned(to.where) }
 		return {
 			target,
 			writes: withSupports(host, domains, before, [{ relation: to.relation, fact: target }], (k) =>
@@ -1254,7 +1259,10 @@ const resolveFill = (
 		const target =
 			targets.length > 0
 				? pickIn(targets, sketch.target, "the capacity's targets")
-				: { ...drawnFact(host, domains, law.target.relation, values(maxFill)), ...law.target.where }
+				: {
+						...drawnFact(host, domains, law.target.relation, values(maxFill)),
+						...pinned(law.target.where)
+					}
 		if (targets.length === 0) {
 			written.push({ relation: law.target.relation, fact: target })
 		}
@@ -1495,7 +1503,7 @@ export const plantedRefusal = (
 				if (
 					law.kind !== "obliged" ||
 					Rec.keys(law.anchor.where).length === 0 ||
-					!inDomain(law.anchor.relation, law.anchor.where)
+					!inDomain(law.anchor.relation, pinned(law.anchor.where))
 				) {
 					continue
 				}
@@ -1505,7 +1513,7 @@ export const plantedRefusal = (
 					}
 					for (const refused of rewrites(state, law.anchor.relation, i, {
 						...a,
-						...law.anchor.where
+						...pinned(law.anchor.where)
 					})) {
 						yield { lawful, refused }
 					}
@@ -1732,7 +1740,7 @@ export const exemptReachable = (host: HostSchema, domains: Domains): boolean =>
 			Arr.some(domains[relation]?.[field] ?? [], (value) =>
 				Arr.every(peers, (m) => {
 					const wanted = m.anchor.where[field]
-					return wanted !== undefined && wanted !== value
+					return wanted !== undefined && !Arr.some(selectorValues(wanted), (x) => x === value)
 				})
 			)
 		)

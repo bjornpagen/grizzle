@@ -9,6 +9,7 @@ import {
 import { fieldNames, type LawField } from "#compiler/ir/law.ts"
 import type { StatementRole } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
+import { completeClass } from "#compiler/ir/write.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import {
 	type ColumnMap,
@@ -84,7 +85,7 @@ import {
 	refusalGuard,
 	refusalRank
 } from "#compiler/write/refusal.ts"
-import { carriesSerial } from "#compiler/write/serial/advance.ts"
+import { explicitSerials } from "#compiler/write/serial/advance.ts"
 
 /** What the rows of a put statement that updates in place mean. A refusal is never a row: a same-key pair within the
  * input and a unique object's refusal raise. */
@@ -386,7 +387,8 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			table: w.names.relation(relation.name),
 			alias: r3,
 			columns: all.map(column),
-			overriding: carriesSerial(spec.relation, "complete") ? "SYSTEM VALUE" : undefined,
+			overriding:
+				explicitSerials(spec.relation, completeClass).length > 0 ? "SYSTEM VALUE" : undefined,
 			source: {
 				kind: "query",
 				query: {
@@ -674,7 +676,8 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 					condition: notMatched,
 					action: {
 						kind: "insert",
-						overriding: carriesSerial(spec.relation, "complete") ? "SYSTEM VALUE" : undefined,
+						overriding:
+							explicitSerials(spec.relation, completeClass).length > 0 ? "SYSTEM VALUE" : undefined,
 						row: mapNonEmpty(all, (f) => ({ column: column(f), value: inCol(f) }))
 					}
 				},

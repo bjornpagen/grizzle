@@ -15,10 +15,12 @@ import { eq, types } from "#compiler/sql/build.ts"
 type CaseWhen = Extract<PlStatement, { readonly kind: "case" }>["whens"][number]
 
 /** The alternatives reverse family. `alternatives(Parent, "kind", Roster, { Handle: Arm, ... })` lowers to native
- * objects and one residual law: the parent's generated UNIQUE (key, kind), each arm's constant STORED tag and its
- * deferred composite foreign key into that unique, which reject orphan and wrong-arm payloads, and the family's reverse
- * law, every parent has the payload of its selected arm. Only that reverse obligation is checked here; no function
- * repeats the child-to-parent checks the tagged foreign keys already make.
+ * objects and one residual law: the parent's STORED arm tag, each fact's kind mapped to the first handle of its arm
+ * relation, and its UNIQUE (key, arm tag); each arm relation's constant STORED tag, its first handle, and its deferred
+ * composite foreign key into that unique, which reject orphan and wrong-arm payloads, a relation armed at several
+ * handles taking the payloads of each; and the family's reverse law, every parent has the payload of its selected arm.
+ * Only that reverse obligation is checked here; no function repeats the child-to-parent checks the arm foreign keys
+ * already make.
  *
  * The reverse law's violation is a union of one term per armed handle, each reading the parent and that handle's arm
  * relation, so each participant re-checks exactly the terms its writes can break (`AlternativesCheck`). The parent's

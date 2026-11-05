@@ -17,6 +17,7 @@ const lawShapes = [
 	"contained",
 	"mirrorsHalf",
 	"alternatives",
+	"alternativesArm",
 	"capacity",
 	"spanKey",
 	"coverage"
@@ -269,6 +270,38 @@ type NativeBody =
 			readonly selector: { readonly relation: LawRelation; readonly field: LawField }
 	  }
 	| {
+			/**
+			 * An alternatives parent's arm tag: a STORED generated column of its discriminator's type holding each fact's
+			 * arm tag (`ArmTagMove`).
+			 */
+			readonly kind: "ArmTag"
+			readonly relation: LawRelation
+			readonly column: ColumnIdent
+			readonly discriminator: LawField
+			readonly moved: NonEmptyReadonlyArray<ArmTagMove>
+	  }
+	| {
+			/**
+			 * The parent's UNIQUE over its key and its arm tag, which the arms' foreign keys reference. Its arm tag is
+			 * computed from the discriminator, so a write of the discriminator moves the fact's entry.
+			 */
+			readonly kind: "ArmUnique"
+			readonly relation: LawRelation
+			readonly columns: NonEmptyReadonlyArray<LawField>
+			readonly tag: ColumnIdent
+			readonly discriminator: LawField
+	  }
+	| {
+			/** An arm relation's deferred foreign key: its key and constant tag into its parent's key and arm tag. */
+			readonly kind: "ArmForeignKey"
+			readonly relation: LawRelation
+			readonly columns: NonEmptyReadonlyArray<LawField>
+			readonly tag: ColumnIdent
+			readonly target: LawRelation
+			readonly targetColumns: NonEmptyReadonlyArray<LawField>
+			readonly targetTag: ColumnIdent
+	  }
+	| {
 			readonly kind: "WithoutOverlaps"
 			readonly relation: LawRelation
 			readonly span: SpanField
@@ -314,6 +347,26 @@ type NativeBody =
 export type TableCheckOrigin =
 	| { readonly kind: "declared"; readonly name: string; readonly named: Identity<"check"> }
 	| { readonly kind: "generated"; readonly law: RaisedLawId }
+
+/**
+ * A handle of an alternatives roster whose arm tag is another handle: an armed handle whose arm relation is armed first
+ * at an earlier handle, in roster order, has that handle as its tag. Every other handle is its own tag: the first armed
+ * handle of each arm relation, which is the constant tag of the relation's rows, and every unarmed handle, which no arm
+ * relation's tag is, so no row of any arm references a parent of it.
+ */
+export interface ArmTagMove {
+	readonly handle: string
+	readonly tag: string
+}
+
+/**
+ * The tag an alternatives parent's fact is met at by its arms' foreign keys: its discriminator itself, when every arm
+ * relation is the arm of one handle, so every handle is its own tag; or a STORED column computed from the discriminator
+ * when some arm relation is the arm of several, every handle it moves to its relation's first (`ArmTagMove`).
+ */
+export type ArmTag =
+	| { readonly kind: "discriminator" }
+	| { readonly kind: "generated"; readonly moved: NonEmptyReadonlyArray<ArmTagMove> }
 
 /** A field's value in a fact: the handle of the field, and the literal the fact holds there. */
 export interface FieldValue {

@@ -1498,9 +1498,9 @@ class Differ {
 
 	/** The previous objects built over a column this migration replaces (ColumnFate converted or retagged), by identity,
 	 * each with how: what is built over a column converted in place (objects.ts builtOver: a constraint, an index, a
-	 * statistics object or a law trigger), and each foreign key referencing a key over one, which dropReplaced drops
-	 * before the conversion; and what is built over a stored tag dropped and added again only, which goes with the
-	 * drop. */
+	 * statistics object, a law trigger or a stored tag computed from it), and each foreign key referencing a key over
+	 * one, which dropReplaced drops before the conversion; and what is built over a stored tag dropped and added again,
+	 * which goes with the drop, a foreign key referencing a key over it dropped first by dropReplaced. */
 	takenByReplacement(): ReadonlyMap<string, Replacement> {
 		const out = new Map<string, Replacement>()
 		/** How each of `columns` of `table` is replaced, of those this migration replaces: only a table both hold has
@@ -1538,14 +1538,17 @@ class Differ {
 	 * first, then the keys and CHECKs, the indexes, the statistics objects and the law triggers. PostgreSQL would carry
 	 * each across the conversion under its old definition, or refuse the conversion under it (a foreign key compares
 	 * only once both its sides are converted; a trigger's UPDATE OF pins its columns), so the target's is built again as
-	 * on any relation that may hold rows. */
+	 * on any relation that may hold rows. Of what a stored tag dropped and added again takes, it drops the foreign keys:
+	 * the tag's DROP COLUMN drops every constraint and index of its own table over it, but refuses one a foreign key of
+	 * another table depends on (2BP01), an arm's into an alternatives parent's key over its arm tag. */
 	dropReplaced(): void {
 		const drops = this.previous
 			.flatMap(({ object: o, fate }) => {
-				if (fate.kind !== "replaced" || fate.how !== "converted") {
+				const v = installed(o)
+				if (fate.kind !== "replaced" || (fate.how === "retagged" && v.kind !== "foreignKey")) {
 					return []
 				}
-				const drop = replacementDrop(installed(o))
+				const drop = replacementDrop(v)
 				return drop === undefined ? [] : [drop]
 			})
 			.toSorted(byDropOrder)
@@ -2047,9 +2050,10 @@ class Differ {
 			}
 		}
 		/** The dependents dropped before the conversion, and what the target makes of each, read part by part. A key over a
-		 * column of the type is converted with it, as a statistics object is, and neither is built
-		 * over a stored tag; the stored tags themselves are dropped and added again. An index the target declares over a
-		 * stored tag is created again once the tag is back, so the previous index of its name goes first.
+		 * column of the type is converted with it, as a statistics object is; the stored tags themselves are dropped and
+		 * added again, and a key over one, an alternatives parent's UNIQUE over its arm tag, goes with it and is added again
+		 * once the tag is back, before the foreign keys that reference it. An index the target declares over a stored tag
+		 * is created again once the tag is back, so the previous index of its name goes first.
 		 * What a conversion in place takes away (Taken replaced) is dropped before it by dropReplaced, and drafted as new
 		 * by the target's visit, so the rebuild leaves it to them; and what an earlier rebuild drops, that one does. */
 		const dependentsOf = (p: ManifestObject, part: Part): ReadonlyArray<RebuiltDependent> => {
@@ -2063,13 +2067,15 @@ class Differ {
 									c.references,
 									c.referencedColumns.map((k) => k.column)
 								)
-							: c.kind === "check" && names(c)
+							: c.kind === "check"
+								? names(c)
+								: c.kind !== "exclude" && constraintColumns(c).some((x) => tagged(part.table, x))
 					return over
 						? [
 								{
 									object: p,
 									drop: {
-										rank: dropOrder[c.kind === "foreignKey" ? "foreignKey" : "check"],
+										rank: dropOrder[c.kind === "exclude" ? "unique" : c.kind],
 										draft: statement(alter(part.table, [{ kind: "dropConstraint", name: c.name }]))
 									}
 								}
@@ -2260,6 +2266,24 @@ class Differ {
 			const target = this.next.get(t.object.ident)
 			if (target !== undefined) {
 				appendAll(this.rebuildTail, target.ddl)
+			}
+		}
+		for (const d of ordered) {
+			const target = this.next.get(d.object.ident)
+			if (target === undefined) {
+				continue
+			}
+			const v = installed(target)
+			if (v.kind === "primaryKey" || v.kind === "unique") {
+				this.rebuildTail.push(
+					alter(v.table, [
+						{
+							kind: "addConstraint",
+							constraint: this.constraintOf(target, this.next),
+							notValid: false
+						}
+					])
+				)
 			}
 		}
 		for (const d of ordered) {
@@ -5075,7 +5099,8 @@ const dropTrigger = (v: { readonly create: CreateConstraintTrigger }): Action =>
 	statement(partDrop("lawTrigger", v.create.table, v.create.name))
 
 /** The drop of what a conversion in place of a column takes away, in the drop order (dropOrder): the foreign keys
- * first, then the keys and CHECKs, the indexes, the statistics objects and the law triggers; none for any other kind. */
+ * first, then the keys and CHECKs, the indexes, the statistics objects, the law triggers and the stored tags whose
+ * generation reads the column, which PostgreSQL refuses to convert it under (0A000); none for any other kind. */
 const replacementDrop = (v: Installed): Drop | undefined => {
 	switch (v.kind) {
 		case "lawTrigger":
@@ -5101,13 +5126,17 @@ const replacementDrop = (v: Installed): Drop | undefined => {
 			}
 		case "statistics":
 			return { rank: dropOrder.statistics, draft: { kind: "dropStatistics", name: v.create.name } }
+		case "storedTag":
+			return {
+				rank: dropOrder.storedTag,
+				draft: statement(alter(v.table, [{ kind: "dropColumn", column: v.column }]))
+			}
 		case "databaseDefault":
 		case "schema":
 		case "extension":
 		case "enum":
 		case "domain":
 		case "table":
-		case "storedTag":
 		case "refusalFunction":
 		case "advanceFunction":
 		case "isolationFunction":

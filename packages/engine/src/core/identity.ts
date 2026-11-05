@@ -3,6 +3,7 @@ import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { Identifier, IdentityKind } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
@@ -28,7 +29,7 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  *   login's or role's name is refused when it does not fit with its schema's (physical/ddl/names.ts).
  * - Hashed: `__`, a readable stem cut to `stemBudget` bytes at a segment boundary, `_` and a digest of the identity's
  *   canonical encoding, 50 bits of SHA-256 as 10 characters of lowercase RFC 4648 base32: keys, foreign keys, span,
- *   norm and law checks, indexes and statistics, sequences, text-pattern domains, tag columns, laws and their functions
+ *   norm and law checks, indexes and statistics, sequences, text-pattern domains, tag and arm tag columns, laws and their functions
  *   and triggers, filter functions, key and unique probes and advance functions, and a migration's temporaries. Every
  *   name grizzle derives starts with `__`, so no declared name meets one; two distinct hashed identities meet only where
  *   50 bits of two digests do, which the installation's census treats as a compiler defect, never as a refusal.
@@ -530,6 +531,22 @@ export const identity = Object.freeze({
 			[target, field, value.part],
 			["tag", field, value.stem],
 			`tag ${target}.${field} = ${value.display}`,
+			hashed
+		),
+	/**
+	 * An alternatives parent's arm tag: its relation, its discriminator field, and every handle its kind maps to another
+	 * handle's tag, the first handle of the handle's arm relation, in roster order. Every other handle is its own tag.
+	 */
+	armTag: (
+		parent: string,
+		field: string,
+		moved: NonEmptyReadonlyArray<{ readonly handle: string; readonly tag: string }>
+	): Identity<"armTag"> =>
+		mint(
+			"armTag",
+			[parent, field, moved.map((m) => [m.handle, m.tag])],
+			[parent, field, "arm"],
+			`arm tag of ${parent}.${field}, ${moved.map((m) => `${m.handle} as ${m.tag}`).join(", ")}`,
 			hashed
 		),
 	contractDomain: (contract: DeclaredName): Identity<"contractDomain"> =>

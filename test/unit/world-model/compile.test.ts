@@ -90,7 +90,7 @@ const additionAim = (
 
 /**
  * The installation an aimed witness writes under: the documents base's worlds whose roles write Visit through a query
- * entry whose every carried field is serial and through one filtering on a serial field (docsVisitsInstall), beside
+ * entry whose every carried field is serial, one filtering on a serial field and one fixing one (docsVisitsInstall), beside
  * the member's notes, whose number is serial; the drawn one otherwise, whose roles hold those shapes too rarely to rely
  * on.
  */

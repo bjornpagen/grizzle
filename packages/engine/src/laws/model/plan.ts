@@ -29,6 +29,7 @@ import {
 	type AlternativesCheck,
 	type Anchor,
 	type AnchorPair,
+	type ArmTagMove,
 	type CapacityBound,
 	type CheckedBound,
 	type ClosedTheoryRelation,
@@ -107,6 +108,14 @@ export interface TagRef {
 	readonly value: TypedLiteral
 }
 
+/** An alternatives parent's generated arm tag as planned: its parent, its discriminator, and every handle another
+ * handle tags (ir/law.ts ArmTagMove). */
+export interface ArmTagRef {
+	readonly relation: TheoryRelation
+	readonly discriminator: LawField
+	readonly moved: NonEmptyReadonlyArray<ArmTagMove>
+}
+
 /** A native object as planned: the frozen NativeObject kinds, with a tag still symbolic, a foreign key's deferral still
  * to decide, and a generated CHECK still to lower. */
 export type NativePlan =
@@ -164,6 +173,22 @@ export type NativePlan =
 			readonly targetColumns: NonEmptyReadonlyArray<LawField>
 	  }
 	| { readonly kind: "StoredTag"; readonly tag: TagRef }
+	| { readonly kind: "ArmTag"; readonly tag: ArmTagRef }
+	| {
+			readonly kind: "ArmUnique"
+			readonly relation: TheoryRelation
+			readonly columns: NonEmptyReadonlyArray<LawField>
+			readonly tag: ArmTagRef
+	  }
+	| {
+			readonly kind: "ArmForeignKey"
+			readonly relation: TheoryRelation
+			readonly columns: NonEmptyReadonlyArray<LawField>
+			readonly tag: TagRef
+			readonly target: TheoryRelation
+			readonly targetColumns: NonEmptyReadonlyArray<LawField>
+			readonly targetTag: ArmTagRef
+	  }
 	| {
 			readonly kind: "WithoutOverlaps"
 			readonly relation: TheoryRelation
@@ -611,6 +636,8 @@ export class Recognizer {
 				return done([{ kind: "Domain", contract: d.owned }], undefined)
 			case "alternatives":
 				return done([], this.#alternatives(law, d))
+			case "alternativesArm":
+				return done(this.#alternativesArm(d), undefined)
 			case "containment":
 				return this.#containment(law, d, loc, done)
 			case "capacity":
@@ -640,6 +667,66 @@ export class Recognizer {
 				named
 			}
 		]
+	}
+
+	/** An alternatives arm relation's native half: its rows' constant STORED tag, the first handle it is the arm of, and
+	 * its deferred foreign key from its key and that tag into the parent's key and arm tag, with the UNIQUE over them it
+	 * references, which refuses a row whose parent is of no handle the relation is the arm of. The arm tag (`ArmTag`) is
+	 * the discriminator itself when every arm relation is the arm of one handle, a tagged foreign key into UNIQUE (key,
+	 * discriminator); when some arm relation is the arm of several, it is the parent's STORED column mapping each of
+	 * them to the relation's first handle, so the relation meets each of their parents at its one tag. */
+	#alternativesArm(
+		d: Extract<TheoryLaw["detail"], { readonly kind: "alternativesArm" }>
+	): ReadonlyArray<NativePlan> {
+		const tag: TagRef = {
+			relation: d.armRel,
+			target: d.parentRel,
+			field: d.discriminatorField,
+			value: { kind: "enum", handle: d.handles[0] }
+		}
+		const columns = mapNonEmpty(d.key, (p) => p.armColumn)
+		const targetColumns = mapNonEmpty(d.key, (p) => p.parentColumn)
+		const reverse: NativePlan = { kind: "ReverseIndex", relation: d.armRel, columns }
+		switch (d.armTag.kind) {
+			case "discriminator": {
+				const tagged = appendNonEmpty(targetColumns, d.discriminatorField)
+				return [
+					{ kind: "StoredTag", tag },
+					{ kind: "Unique", relation: d.parentRel, columns: tagged },
+					{
+						kind: "TaggedForeignKey",
+						relation: d.armRel,
+						columns,
+						tag,
+						target: d.parentRel,
+						targetColumns: tagged
+					},
+					reverse
+				]
+			}
+			case "generated": {
+				const armTag: ArmTagRef = {
+					relation: d.parentRel,
+					discriminator: d.discriminatorField,
+					moved: d.armTag.moved
+				}
+				return [
+					{ kind: "StoredTag", tag },
+					{ kind: "ArmTag", tag: armTag },
+					{ kind: "ArmUnique", relation: d.parentRel, columns: targetColumns, tag: armTag },
+					{
+						kind: "ArmForeignKey",
+						relation: d.armRel,
+						columns,
+						tag,
+						target: d.parentRel,
+						targetColumns,
+						targetTag: armTag
+					},
+					reverse
+				]
+			}
+		}
 	}
 
 	/** The alternatives family's reverse obligation, anchored on the parent row; the native half is the arms' tagged

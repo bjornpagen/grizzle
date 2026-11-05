@@ -94,7 +94,8 @@ const alternativesExpansions = (
 
 /**
  * The constraint of the one tagged foreign key from an alternatives arm into its parent, among the law model's natives:
- * the arm's own foreign key, which a field set alone does not tell from another foreign key of the arm's key fields.
+ * the arm's own foreign key, which a field set alone does not tell from another foreign key of the arm's key fields; into
+ * the parent's key and discriminator, or its arm tag when an arm relation is the arm of several handles.
  */
 const taggedForeignKey = (
 	model: LawModel,
@@ -103,7 +104,7 @@ const taggedForeignKey = (
 ): { readonly owner: ConstraintOwner; readonly ident: ConstraintName } => {
 	const keys = Arr.flatMap(model.natives, (n) =>
 		n.namespace === "constraint" &&
-		n.object.kind === "TaggedForeignKey" &&
+		(n.object.kind === "TaggedForeignKey" || n.object.kind === "ArmForeignKey") &&
 		n.object.relation.name === arm &&
 		n.object.target.name === parent
 			? [{ owner: { kind: "table", name: n.owner } as const, ident: identifierOf(n.named) }]
@@ -338,7 +339,7 @@ describe("production names from src", () => {
 							for (const expansion of alternativesExpansions(levelStatements(L.model.owned.desc))) {
 								c.note("alternatives expansion")
 								const laws = L.alternativesOfDesc(expansion)
-								const all = [laws.head, laws.reverse, ...Rec.values(laws.arms)]
+								const all = [laws.head, laws.reverse, ...new Set(Rec.values(laws.arms))]
 								assert.equal(
 									new Set(all).size,
 									all.length,

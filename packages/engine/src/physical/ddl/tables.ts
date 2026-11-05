@@ -17,6 +17,7 @@ import {
 	fieldNames,
 	type LawField,
 	type NativeObject,
+	type NativeOf,
 	type Selector,
 	type SpanField
 } from "#compiler/ir/law.ts"
@@ -43,7 +44,8 @@ import type {
 	ForeignKeyColumn,
 	InlineConstraint,
 	KeyColumn,
-	PrimaryKey
+	PrimaryKey,
+	TableConstraint
 } from "#compiler/sql/ast.ts"
 import { and, columnKey, eq, or, tableCol } from "#compiler/sql/build.ts"
 
@@ -285,6 +287,17 @@ type NativePlan =
 			readonly laws: ReadonlyArray<LawId>
 			readonly key: KeyShape
 	  }
+	| {
+			readonly kind: "armUnique"
+			readonly relation: string
+			readonly named: Identity<IdentityKind>
+			readonly constraint: Extract<TableConstraint, { readonly kind: "unique" }>
+			readonly laws: ReadonlyArray<LawId>
+			/** The key the arms' foreign keys reference, which serves no index request: its arm tag is no field. */
+			readonly key: KeyShape
+			/** The arm tag column it holds, which its table adds after its CREATE TABLE. */
+			readonly tag: string
+	  }
 
 /** A key index before its object is added. */
 type KeyShape = Omit<KeyIndex, "object">
@@ -361,6 +374,10 @@ export interface KeyIndex {
  *   value the selected literal: `GENERATED ALWAYS AS ('Automatic'::work.kind) STORED NOT NULL`, the keyword STORED
  *   always emitted, since PostgreSQL defaults to VIRTUAL, which cannot carry an FK. It is
  *   its own object, `ALTER TABLE ... ADD COLUMN`, with the reasons of the law that needs it.
+ * - An alternatives parent with an arm relation of several handles has an arm tag, such a column of its
+ *   discriminator's type computed from the discriminator (`tagGeneration`), and its UNIQUE over the parent's key and the
+ *   arm tag is its own object after it, `ALTER TABLE ... ADD CONSTRAINT`, which the arms' foreign keys reference: the
+ *   column is added after the table, which an inline key could not name (42703).
  * - Every native constraint is its own object with its own law reasons. The row-local ones are declared
  *   inline by the table's CREATE TABLE, as a hand-written table declares them, so their objects carry
  *   no statement of their own: the primary key `<table>__pk`, each candidate key and generated unique
@@ -483,6 +500,24 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 					false
 				)
 				continue
+			case "ArmUnique":
+				plans.push({
+					kind: "armUnique",
+					relation: o.relation.name,
+					named,
+					constraint: {
+						kind: "unique",
+						name,
+						columns: appendNonEmpty(keyColumns(b, o.relation.name, keyNames(o.columns)), {
+							column: o.tag,
+							withoutOverlaps: false
+						})
+					},
+					laws: o.lawIds,
+					key: keyShape("btree", [...fieldNames(o.columns), o.tag], allRows),
+					tag: o.tag
+				})
+				continue
 			case "WithoutOverlaps":
 			case "TemporalUnique": {
 				/** A span key's scalar fields; a temporal unique's columns, beside its span. */
@@ -588,6 +623,7 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 			}
 			case "ForeignKey":
 			case "TaggedForeignKey":
+			case "ArmForeignKey":
 			case "PeriodForeignKey":
 			case "TaggedPeriodForeignKey":
 				continue
@@ -596,9 +632,40 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 	return plans
 }
 
-/** The objects of the natives once every table stands: each stored tag after its table and the type it names; each
- * key and CHECK after its table (a span key with a scalar component after btree_gist too); each partial unique index
- * after its table; then each reference, after its table, its target's table and key index, and the tags it names. */
+/** The type and STORED generation of a tag column: a stored tag's constant, of its selector's type; or an alternatives
+ * parent's arm tag, of its discriminator's type, `CASE <discriminator> WHEN <handle> THEN <tag> ... ELSE <discriminator>
+ * END` over each handle another handle tags, every other handle its own tag. */
+const tagGeneration = (
+	b: InstallBuilder,
+	o: NativeOf<"StoredTag" | "ArmTag">
+): { readonly type: ScalarType; readonly expr: Expr } => {
+	switch (o.kind) {
+		case "StoredTag":
+			return {
+				type: o.selector.field.type,
+				expr: persistentLiteral(b.names, o.value, o.selector.field.type)
+			}
+		case "ArmTag": {
+			const t = o.discriminator.type
+			const kind = tableCol(b.names.column(o.relation.name, o.discriminator.name))
+			const handle = (h: string): Expr => persistentLiteral(b.names, { kind: "enum", handle: h }, t)
+			return {
+				type: t,
+				expr: {
+					kind: "case",
+					operand: kind,
+					whens: mapNonEmpty(o.moved, (m) => ({ when: handle(m.handle), result: handle(m.tag) })),
+					else: kind
+				}
+			}
+		}
+	}
+}
+
+/** The objects of the natives once every table stands: each stored tag and arm tag after its table and the type it
+ * names; each key and CHECK after its table (a span key with a scalar component after btree_gist too); each partial
+ * unique index after its table; each arm unique after its table's arm tag; then each reference, after its table, its
+ * target's table and key index, and the tags it names. */
 const addNatives = (
 	b: InstallBuilder,
 	plans: ReadonlyArray<NativePlan>
@@ -609,7 +676,7 @@ const addNatives = (
 			continue
 		}
 		const o = n.object
-		const t = o.selector.field.type
+		const { type: t, expr } = tagGeneration(b, o)
 		const { type, collation } = columnType(b.names, t)
 		const column = identifierOf(n.named)
 		const tag = b.add(
@@ -632,7 +699,7 @@ const addNatives = (
 									name: column,
 									type,
 									collation,
-									generated: { kind: "stored", expr: persistentLiteral(b.names, o.value, t) }
+									generated: { kind: "stored", expr }
 								}
 							}
 						]
@@ -645,6 +712,14 @@ const addNatives = (
 		)
 		tags.set(o.relation.name, new Map([...(tags.get(o.relation.name) ?? []), [column, tag]]))
 	}
+	const tagsOf = (
+		relation: string,
+		columns: ReadonlyArray<string>
+	): ReadonlyArray<Node<"structure">> =>
+		columns.flatMap((c) => {
+			const tag = tags.get(relation)?.get(c)
+			return tag === undefined ? [] : [tag]
+		})
 	const keyIndexes: Array<KeyIndex> = []
 	/** The key constraints a reference can name, each with its object. */
 	const keys: Array<{ readonly shape: KeyShape; readonly object: Node<"structure"> }> = []
@@ -681,6 +756,26 @@ const addNatives = (
 				keyIndexes.push({ ...p.key, object })
 				continue
 			}
+			case "armUnique": {
+				const object = b.add(
+					{
+						kind: "unique",
+						ident: constraintIdent(b, p.relation, p.named),
+						ddl: [
+							{
+								kind: "alterTable",
+								table: b.names.relation(p.relation),
+								actions: [{ kind: "addConstraint", constraint: p.constraint, notValid: false }]
+							}
+						],
+						reasons: lawReasons(p.laws),
+						phase: "structure"
+					},
+					[b.table(p.relation), ...tagsOf(p.relation, [p.tag])]
+				)
+				keys.push({ shape: p.key, object })
+				continue
+			}
 		}
 	}
 	/** The references, after every table, key and tag: a reference's target key is a key constraint of its target. */
@@ -700,14 +795,6 @@ const addNatives = (
 			)
 			.slice(0, 1)
 			.map((k) => k.object)
-	const tagsOf = (
-		relation: string,
-		columns: ReadonlyArray<string>
-	): ReadonlyArray<Node<"structure">> =>
-		columns.flatMap((c) => {
-			const tag = tags.get(relation)?.get(c)
-			return tag === undefined ? [] : [tag]
-		})
 	for (const n of b.natives) {
 		if (n.namespace !== "constraint") {
 			continue
@@ -758,6 +845,32 @@ const addNatives = (
 					]
 				)
 				continue
+			case "ArmForeignKey":
+				addReference(
+					b,
+					o.relation.name,
+					n.named,
+					{
+						kind: "foreignKey",
+						name,
+						columns: fkColumns(b, o.relation.name, keyNames(o.columns), [
+							{ column: o.tag, period: false }
+						]),
+						references: b.names.relation(o.target.name),
+						referencedColumns: fkColumns(b, o.target.name, keyNames(o.targetColumns), [
+							{ column: o.targetTag, period: false }
+						]),
+						deferrable: "INITIALLY DEFERRED"
+					},
+					o.lawIds,
+					[
+						b.table(o.target.name),
+						...keyObjectOf(o.target.name, [...fieldNames(o.targetColumns), o.targetTag], "btree"),
+						...tagsOf(o.relation.name, [o.tag]),
+						...tagsOf(o.target.name, [o.targetTag])
+					]
+				)
+				continue
 			case "PeriodForeignKey":
 			case "TaggedPeriodForeignKey": {
 				/** A tagged reference's STORED tag column follows its scalar columns. */
@@ -795,6 +908,7 @@ const addNatives = (
 			}
 			case "PrimaryKey":
 			case "Unique":
+			case "ArmUnique":
 			case "WithoutOverlaps":
 			case "TemporalUnique":
 			case "TableCheck":

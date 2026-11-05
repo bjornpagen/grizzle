@@ -205,7 +205,7 @@ const checkedProgramIr = (
 			const targeted = new Set(
 				frontend.ir.strata.flatMap((s) =>
 					s.actions.flatMap((a) =>
-						a.op === "insert" && a.serial === "generated" ? [] : [a.relation]
+						a.op === "insert" && a.serial.kind === "generated" ? [] : [a.relation]
 					)
 				)
 			)

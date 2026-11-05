@@ -227,6 +227,14 @@ const lawStatement = (law: LawIdentity): LawStatement => {
 				display: `alternatives of ${relation}.${field}`
 			}
 		}
+		case "alternativesArm": {
+			const { relation, field } = fieldIdSpellingParts(d.family)
+			return {
+				parts: [law.shape, d.family, d.arm, d.handles],
+				stem: [d.arm, "arm", relation, field],
+				display: `${d.arm} the arm of ${relation}.${field} at ${d.handles.join(", ")}`
+			}
+		}
 		case "capacity": {
 			const weight: ReadonlyArray<string> =
 				d.weight.kind === "count" ? [] : [d.weight.kind, d.weight.field]
@@ -417,7 +425,8 @@ class Builder {
 				containment: identifierOf(f.containment.named),
 				reverse: identifierOf(f.reverse.named),
 				arms: mapNonEmpty(f.arms, (a) => ({
-					handle: a.handle,
+					relation: a.relation,
+					handles: a.handles,
 					forward: identifierOf(a.forward.named)
 				}))
 			})
@@ -511,6 +520,11 @@ class Builder {
 						pair(detail.target.relation, p.targetColumn, detail.from.relation, p.fromColumn, loc)
 					}
 					break
+				case "alternativesArm":
+					for (const p of detail.key) {
+						pair(detail.arm, p.armColumn, detail.parent, p.parentColumn, loc)
+					}
+					break
 				case "key":
 				case "check":
 				case "contract":
@@ -571,7 +585,12 @@ class Builder {
 		return Object.freeze([...caps].toSorted(compareText))
 	}
 
-	/** A family law's reverse obligation per arm: a parent selecting the handle has its arm row. */
+	/**
+	 * Each key, row check and containment's evidence; an alternatives arm relation's law, each row of it a payload of a
+	 * parent, selected by the discriminator when the relation is the arm of one handle, since a row of an arm of several
+	 * handles may belong to a parent of any of them; and a family law's reverse obligation per arm: a parent selecting
+	 * the handle has its arm row.
+	 */
 	#evidence(laws: ReadonlyArray<TheoryLaw>): TheoryEvidence {
 		const keys: Array<KeyEvidence> = []
 		const checks: Array<CheckEvidence> = []
@@ -598,6 +617,27 @@ class Builder {
 					coverage: d.pairing.kind === "span",
 					statement: d.stated.kind,
 					context: this.#containmentContext(law, d)
+				})
+			} else if (d.kind === "alternativesArm") {
+				const [only, ...more] = d.handles
+				containments.push({
+					law: law.id,
+					from: {
+						relation: d.arm,
+						fields: mapNonEmpty(d.key, (p) => p.arm),
+						selection: []
+					},
+					to: {
+						relation: d.parent,
+						fields: mapNonEmpty(d.key, (p) => p.parent),
+						selection:
+							more.length === 0
+								? [{ column: d.discriminator, value: { kind: "enum", handle: only } }]
+								: []
+					},
+					coverage: false,
+					statement: "mirrors",
+					context: this.options.containmentContext(law)
 				})
 			}
 		}

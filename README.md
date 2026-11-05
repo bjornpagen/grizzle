@@ -1695,6 +1695,7 @@ the contract's or pattern's rule, witness `unreported`.
 | `contained`, `mirrors`  | `from`, `to`: each a `relation`, its `fields` and its constant `selection`; a mirrors as its two halves |
 | `coverage`              | a containment or mirrors half over spans: `statement`, `from`, `to`                           |
 | `alternatives`          | the parent `relation` and its discriminator `field`, for every arm's reverse obligation       |
+| `alternativesArm`       | the parent `relation`, its discriminator `field`, the `arm` table and the `handles` it serves: each arm row's parent has one of them |
 | `capacity`              | `target`, `from`, `weight`, `within`                                                          |
 | `contract`              | `contract`                                                                                    |
 | `pattern`               | `source`, `flags`: one rule for every spelling of the same language                           |

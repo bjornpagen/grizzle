@@ -3,7 +3,12 @@ import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { completeAddition, type ReadBack, type SerialClass } from "#compiler/ir/write.ts"
+import {
+	completeAddition,
+	completeClass,
+	type ReadBack,
+	type SerialClass
+} from "#compiler/ir/write.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
@@ -41,7 +46,7 @@ import {
 } from "#compiler/write/insert/statement.ts"
 import { deltaSourceIn } from "#compiler/write/readback/lower.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
-import { buildSequenceAdvances, carriesSerial } from "#compiler/write/serial/advance.ts"
+import { buildSequenceAdvances, explicitSerials } from "#compiler/write/serial/advance.ts"
 
 /** One step of the conservative realization:
  * - `carrier`, a carrier's creation or fill: a member's, at the start of its stratum, or, with no stratum, a snapshot
@@ -215,10 +220,12 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 				if (shape.variant === "spanKey") {
 					statement(buildSpanClassify(w, spec, shape.span))
 				}
-				if (carriesSerial(relation, serial)) {
-					for (const advance of buildSequenceAdvances(w, { relation, input })) {
-						statement(advance)
-					}
+				for (const advance of buildSequenceAdvances(
+					w,
+					{ relation, input },
+					explicitSerials(relation, serial)
+				)) {
+					statement(advance)
 				}
 			}
 			switch (action.op) {
@@ -237,7 +244,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					if (payload.kind === "keyed") {
 						statement(buildDisplacingDelete(w, { relation, input, payload: payload.fields }))
 					}
-					add("complete", "put")
+					add(completeClass, "put")
 					break
 				}
 			}

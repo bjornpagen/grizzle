@@ -55,7 +55,6 @@ import {
 	type InsertOf,
 	type InsertResult,
 	type InsertVariant,
-	isSerialField,
 	keyFirst,
 	type ModifyingStatement,
 	type ResultColumn,
@@ -68,6 +67,7 @@ import {
 
 import {
 	buildProbe,
+	generatedChecks,
 	type Probed,
 	type ProbeSql,
 	type Requested
@@ -81,11 +81,11 @@ import {
 	refusalGuard,
 	refusalRank
 } from "#compiler/write/refusal.ts"
-import { carriesSerial } from "#compiler/write/serial/advance.ts"
+import { explicitSerials } from "#compiler/write/serial/advance.ts"
 
 /** An insert's spec. The statement meets its relation's unique objects (`relationUniques`): an insert of complete facts
- * probes those besides the arbiter, a generated addition every one that reads no serial field. A conflict witness and a
- * same-key pair raise the law of the relation's primary key, the arbiter's. */
+ * probes those besides the arbiter, a generated addition every one that reads no field it draws (`generatedChecks`). A
+ * conflict witness and a same-key pair raise the law of the relation's primary key, the arbiter's. */
 interface InsertSpec {
 	readonly relation: WrittenRelation
 	readonly serial: SerialClass
@@ -115,7 +115,7 @@ export type InsertShape =
 	| { readonly variant: "protocol"; readonly payload: NonEmptyReadonlyArray<LawField> }
 
 export const insertShape = (relation: RelationInfo, serial: SerialClass): InsertShape => {
-	if (serial === "generated") {
+	if (serial.kind === "generated") {
 		return { variant: "generated" }
 	}
 	const key = primaryKeyShape(relation)
@@ -128,9 +128,11 @@ export const insertShape = (relation: RelationInfo, serial: SerialClass): Insert
 		: { variant: "protocol", payload: payload.fields }
 }
 
-/** The fields an insert writes: every field, or every field but the serial ones for a generated addition. */
+/** The fields an insert writes: every field, or every field but the ones a generated addition draws. */
 const insertedFields = (relation: RelationInfo, serial: SerialClass): ReadonlyArray<LawField> =>
-	serial === "generated" ? keyFirst(relation).filter((f) => !isSerialField(f)) : keyFirst(relation)
+	serial.kind === "generated"
+		? keyFirst(relation).filter((f) => !serial.drawn.includes(f.name))
+		: keyFirst(relation)
 
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
@@ -169,13 +171,14 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  * - Relations with a payload: ON CONFLICT (the key) DO SELECT WHERE the payload differs, as above.
  * - Pure sets, whose primary key is the whole heading: ON CONFLICT (every key column) DO NOTHING RETURNING the key; a
  *   returned key was inserted.
- * - Generated additions, which omit the relation's serial fields: a plain INSERT ... RETURNING of the complete row,
- *   taking the identity default, with no arbiter, probed at every unique object that reads no serial field (see the
- *   probe below). Equal generated additions are one: a carried
+ * - Generated additions, which omit the serial fields their class draws: a plain INSERT ... RETURNING of the complete
+ *   row, taking the identity default of each drawn field, with no arbiter, probed at every unique object that reads no
+ *   drawn field (see the probe below). A serial field the addition carries, one its entry's filter reads or its fill
+ *   fixes, is an explicit serial value, written as it is. Equal generated additions are one: a carried
  *   or described one is read through SELECT DISTINCT over its head. A generated class of no field reads the unit
  *   input and assigns no column, so every column takes its identity: `INSERT INTO ... AS "r3" SELECT FROM "r1"`.
- * - Explicit serial values: the protocol with OVERRIDING SYSTEM VALUE, because the column is GENERATED ALWAYS;
- * the sequence advance that follows is serial/.
+ * - Explicit serial values, complete facts' and those a generated addition carries: OVERRIDING SYSTEM VALUE, because
+ *   the column is GENERATED ALWAYS; the sequence advance that follows is serial/.
  * - Carriers and described members, which nobody normalized on the host, read SELECT DISTINCT over the input and gate
  *   the INSERT with a same-key check in the same statement:
  *
@@ -193,11 +196,11 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  *   way and is one more UNION ALL arm of the verdict rows, the requested fact with the object's signed ordinal c10 (0 on
  *   every other row), which raises that object's law; a 23505 or 23P01 the INSERT still raises there is an unseen
  *   occupant, a TransientFailure. A probed statement returns complete facts, which the witness reads from.
- * - A generated addition is probed the same way at every unique object that reads no serial field, its primary key
+ * - A generated addition is probed the same way at every unique object that reads no field it draws, its primary key
  *   among them when that reads none, since it has no arbiter. A refused addition never becomes a fact, so its refusal
  *   is no verdict row: the refusal guard over the probe's refusal is the INSERT's own gate, which raises before
  *   anything is inserted, r1 being nonempty whenever a refusal is found in it. Every 23505 or 23P01 the INSERT still
- *   raises aborts the apply: an unseen occupant (UnseenOccupant), or at an object that reads a serial field a stored
+ *   raises aborts the apply: an unseen occupant (UnseenOccupant), or at an object that reads a drawn field a stored
  *   value its sequence had not passed (GeneratedSerialUnique).
  *
  * ORDER BY the primary key under the fixed collation makes concurrent inserters take new-key locks in one order.
@@ -239,7 +242,7 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  * after the put's deletion. Neither marker is an occupant the arbiter met that has since gone or, on a put's insert
  * half, one committed at the put's key after its deletion: a concurrent change, which raises SpanKeyChange and fails
  * the apply with TransientFailure{SpanKeyChange}. A generated addition there stays a plain INSERT, probed at the span key
- * when it reads no serial field.
+ * when it reads no field the addition draws.
  *
  * Every transaction is SERIALIZABLE. The arbiter meets an occupant under no snapshot, and
  * PostgreSQL reads it again under the transaction's: SSI sees an exact repeat, which inserts nothing, as a read of the
@@ -269,10 +272,13 @@ export const buildInsert = (
 	const same = (f: LawField, a: Expr, b: Expr): Expr =>
 		typedEq(rowType(f), a, b, w.names.vectorSchema)
 	/** The requested facts the probe reads and the objects it probes (`buildProbe`): a generated addition is probed at every
-	 * object that reads no serial field, complete facts at every object besides the arbiter. */
+	 * object that reads no field it draws, complete facts at every object besides the arbiter. */
 	const probed: { readonly requested: Requested; readonly checks: ReadonlyArray<Probed> } =
-		variant === "generated"
-			? { requested: { kind: "generated", fields }, checks: relation.uniques.generated }
+		serial.kind === "generated"
+			? {
+					requested: { kind: "generated", fields },
+					checks: generatedChecks(relation.uniques, serial.drawn)
+				}
 			: {
 					requested: { kind: "complete", arbiter: relation.uniques.arbiter },
 					checks: relation.uniques.checks
@@ -416,7 +422,7 @@ export const buildInsert = (
 			table: w.names.relation(relation.name),
 			alias: r3,
 			columns: fields.map(column),
-			overriding: carriesSerial(relation, serial) ? "SYSTEM VALUE" : undefined,
+			overriding: explicitSerials(relation, serial).length > 0 ? "SYSTEM VALUE" : undefined,
 			source: { kind: "query", query: source },
 			onConflict:
 				shape.variant === "generated"
@@ -596,6 +602,7 @@ export const buildInsert = (
 			kind: "insert",
 			relation: relation.name,
 			variant,
+			serial,
 			of: spec.of,
 			columns,
 			fields: fieldNames(outFields),

@@ -10,6 +10,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
 import type { Heading, KeySet, ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { SerialClass } from "#compiler/ir/write.ts"
 import { LowerContext, WriteParams } from "#compiler/lower/conservative/context.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { wildcardText, withoutSerial } from "#compiler/scalar/compute/types.ts"
@@ -56,6 +57,8 @@ export interface InsertResult {
 	readonly kind: "insert"
 	readonly relation: string
 	readonly variant: InsertVariant
+	/** The serial class of the facts it inserts, the one its action's front end decided. */
+	readonly serial: SerialClass
 	readonly of: InsertOf
 	/** The outer SELECT's columns, position by position: the fact fields. */
 	readonly columns: ReadonlyArray<ResultColumn>

@@ -198,7 +198,7 @@ How to upgrade:
   digests each residual law's whole record; a previous snapshot.json is refused, never read. Every database installed
   before is re-created.
 
-#### `alternatives` refuses a stray arm key and the parent as its own arm, in the types first (#5)
+#### `alternatives` refuses a stray arm key and the parent as its own arm, in the types first; a shared arm relation accepts each handle's payloads (#5)
 
 - **An arm map is keyed by handles of its roster alone, as a type error.** Before, an arm map that mixed a roster
   handle with another key (`{ Manual: ManualTask, Bogus: ManualTask }`) typechecked and was refused only when the
@@ -211,6 +211,20 @@ How to upgrade:
   now refused by the type, `Refusal<"an arm is a relation other than its parent">`, wherever the relation's name is a
   literal, and with MalformedDescription when the statement is built and when a description declares it.
   - Fix: declare the arm as a relation of its own, keyed like the parent. No codemod.
+- **A relation that is the arm of several handles accepts each one's payloads.** Before, each handle installed its
+  own constant tag and tagged foreign key on the arm, so a relation shared by two handles (`{ Manual: Task1,
+  Scheduled: Task1 }`) carried two foreign keys no row meets, and no row could ever be written to it. A shared arm's
+  rows now belong to a parent of any handle it is the arm of. The containment fact the query layer reads carries the
+  handle only where the arm serves one. An arm relation keyed differently at two of its handles is refused
+  (MalformedDescription).
+- **An arm's foreign key is the law `alternativesArm`**, `{ kind: "alternativesArm", relation, field, arm, handles }`,
+  one per arm relation, no longer a `mirrors` half from the arm into the parent. The reverse obligation stays
+  `alternatives`.
+  - Codemod: a program that switches over `Law["kind"]` exhaustively gains `"alternativesArm"`, and a match on an
+    arm's `mirrors` half into its parent becomes a match on `alternativesArm` by `arm`.
+  - Installed objects change only for a parent with an arm relation of several handles. It gets a STORED arm tag
+    column, mapping each kind to its arm relation, and UNIQUE (key, arm tag), and that relation gets one tagged
+    foreign key into it. An unshared parent installs exactly as before. Re-create every database.
 
 #### A uuid is the uuid language, a refined text's identity is text, and a parameter carries its type (#7)
 
@@ -673,7 +687,11 @@ codemod unless it says so.
   linear time: a percentile over a few rows took minutes to plan, and now milliseconds.
 - **An entry insert leaves out only its classed serial fields.** An insert through a writable entry may omit the
   serial fields the entry classes, and carries every serial field its filter reads, as the README states; before,
-  the fill was checked against the table's whole serial list and refused.
+  the fill was checked against the table's whole serial list and refused. Every serial value the insert supplies, one
+  its filter reads or its fill fixes, is the value stored (`OVERRIDING SYSTEM VALUE`, and the serial advances past
+  it). Only the serial fields the entry classes are drawn. At `e7fd8b3` such a supplied value was replaced by a drawn
+  one without an error, or refused by the entry's row-level policy (42501): a row written there through such an
+  entry may hold a wrong serial, so re-create every database written at that commit.
 - **A literal equality in a role or workload filter is indexed.** The index request of a filter such as
   `org = '<uuid>'` now holds that column, so it is read by an index and not a scan; an equality over a roster handle
   alone is still no index. Index names and snapshots change.

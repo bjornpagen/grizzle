@@ -843,6 +843,7 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 			if (
 				o.kind !== "ForeignKey" &&
 				o.kind !== "TaggedForeignKey" &&
+				o.kind !== "ArmForeignKey" &&
 				o.kind !== "PeriodForeignKey" &&
 				o.kind !== "TaggedPeriodForeignKey"
 			) {

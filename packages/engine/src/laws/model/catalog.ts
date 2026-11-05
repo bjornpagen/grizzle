@@ -16,6 +16,7 @@ const existenceKind = (native: NamedNative["object"]): ExistenceKind | undefined
 		case "ForeignKey":
 			return native.deferrable ? "deferredForeignKey" : "foreignKey"
 		case "TaggedForeignKey":
+		case "ArmForeignKey":
 			return "deferredForeignKey"
 		case "PeriodForeignKey":
 		case "TaggedPeriodForeignKey":
@@ -29,6 +30,8 @@ const existenceKind = (native: NamedNative["object"]): ExistenceKind | undefined
 		case "Domain":
 		case "TableCheck":
 		case "StoredTag":
+		case "ArmTag":
+		case "ArmUnique":
 		case "WithoutOverlaps":
 		case "TemporalUnique":
 		case "ReverseIndex":
@@ -121,7 +124,7 @@ export interface CatalogSchema {
  * Every key a rewrite may rely on resolves to the constraint ownership derived for it, a derived relation's inherited
  * key to the unique index its view is installed with (derivedKeyConstraints), and every containment to the native
  * object or residual law the law model specialized it into. The kind follows the object: an immediate foreign key, a
- * deferred one (tagged foreign keys and PERIOD foreign keys are always deferred), a residual law, or a finite closed
+ * deferred one (tagged, arm and PERIOD foreign keys are always deferred), a residual law, or a finite closed
  * domain (an enum or a finite CHECK). A coverage law proves coverage of a span, not the existence of one matching fact,
  * and a containment with a selected side holds only for the facts its selector picks, which the catalog cannot say: neither
  * gives evidence here. The evidence context is the one the law model gave the

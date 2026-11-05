@@ -519,8 +519,9 @@ export interface BuiltOver {
  * a column reaches (a column converted in place by a type change, dropped and added again, or renamed by a chosen
  * candidate) asks it here: an index reads its keys, INCLUDE columns and predicate; a statistics object its columns; a
  * constraint its own, `constraint` giving the definition of one declared inside its table's CREATE TABLE; a law trigger
- * the columns its UPDATE OF names and its WHEN reads. Nothing else is built over a table's columns: a table holds them, a stored tag is
- * one, a table's isolation trigger reads none, and every other kind stands outside any table. */
+ * the columns its UPDATE OF names and its WHEN reads; a stored tag the columns its generation reads, an alternatives
+ * parent's arm tag its discriminator and a constant tag none. Nothing else is built over a table's columns: a table
+ * holds them, a table's isolation trigger reads none, and every other kind stands outside any table. */
 export const builtOver = (
 	v: Installed,
 	constraint: (c: KeyOrCheckView) => KeyOrCheck
@@ -539,6 +540,8 @@ export const builtOver = (
 			return { table: v.table, columns: constraintColumns(v.constraint) }
 		case "lawTrigger":
 			return { table: v.create.table, columns: triggerColumns(v.create) }
+		case "storedTag":
+			return { table: v.table, columns: columnsOf(v.definition.generated) }
 		case "table":
 		case "enum":
 		case "domain":
@@ -557,7 +560,6 @@ export const builtOver = (
 		case "view":
 		case "policy":
 		case "rowSecurity":
-		case "storedTag":
 		case "schema":
 		case "extension":
 		case "ledger":
