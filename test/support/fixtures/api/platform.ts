@@ -1536,12 +1536,12 @@ export const setCaps = ChangeSet.empty(Platform)
 	.delete(
 		WorkspaceLimit,
 		query(Platform).rule((r) => {
-			const { workspace, month, cap, charges, spent } = v(WorkspaceLimit, "workspaceLimit")
+			const { workspace, month, cap } = v(WorkspaceLimit, "workspaceLimit")
 			return r
-				.match(WorkspaceLimit, { workspace, month, cap, charges, spent })
+				.match(WorkspaceLimit, { workspace, month, cap })
 				.where(r.eq(workspace, r.param("workspace", WorkspaceLimit.fields.workspace)))
 				.where(r.not(r.relation("caps", capsGiven), { workspace, month }))
-				.find({ workspace, month, cap, charges, spent })
+				.find({ workspace, month, cap })
 		})
 	)
 
