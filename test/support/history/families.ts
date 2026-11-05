@@ -114,17 +114,35 @@ export interface HistoryFamily<P> {
 }
 
 /**
- * Why the installation does not enforce the host's laws as the host states them, or undefined: a law of the host no
- * installed constraint reports.
+ * Why the installation does not enforce the host's laws as the host states them, or undefined. Both directions: a law of
+ * the host no installed constraint reports, which the host would expect a refusal of that never comes; and a law an
+ * installed table constraint reports that the host does not state, whose refusal the host could not predict.
  */
 export const enforcementProblem = (host: HostSchema, names: Names): string | undefined => {
 	const reported = new Set<LawId>(
 		Arr.flatMap(names.model.constraints, (c) => Arr.map(c.laws, (l) => l.law))
 	)
-	const problems = Arr.map(
-		Arr.filter(host.laws, (l) => !reported.has(l.law)),
-		(l) => `the host's law ${l.law} is reported by no installed constraint`
+	const stated = new Set<LawId>(Arr.map(host.laws, (l) => l.law))
+	const unstated = new Set<LawId>(
+		Arr.flatMap(names.model.constraints, (c) =>
+			c.kind === "constraint"
+				? Arr.filter(
+						Arr.map(c.laws, (l) => l.law),
+						(law) => !stated.has(law)
+					)
+				: []
+		)
 	)
+	const problems = [
+		...Arr.map(
+			Arr.filter(host.laws, (l) => !reported.has(l.law)),
+			(l) => `the host's law ${l.law} is reported by no installed constraint`
+		),
+		...Arr.map(
+			[...unstated],
+			(law) => `the installed law ${law} is reported by a table constraint the host does not state`
+		)
+	]
 	return problems.length === 0 ? undefined : Arr.join(problems, "; ")
 }
 

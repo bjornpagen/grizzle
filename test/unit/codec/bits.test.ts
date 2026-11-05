@@ -5,9 +5,8 @@
  *
  * Where a space is small at the boundaries that matter it is enumerated whole: every string with at most two ones or at
  * most two zeros at each length beside a word's edges (0, 1, 31, 32, 33, 63, 64, 65), every string with one one or one
- * zero beside a Harley–Seal block's edges (255 to 257, 511 to 513, 543 to 545), every fold of up to four members over
- * rosters of up to four codes placed across a word's edge, and every one-hot string of three words under every cell
- * width. Random densities and lengths up to four blocks and a word are searched.
+ * zero beside a Harley–Seal block's edges (255 to 257, 511 to 513, 543 to 545), and every one-hot string of three
+ * words under every cell width. Random densities and lengths up to four blocks and a word are searched.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
@@ -20,7 +19,6 @@ import {
 	type Gen,
 	int,
 	oneOf,
-	option,
 	string,
 	weighted
 } from "@grizzle/testing/gen"
@@ -42,12 +40,9 @@ import {
 	has,
 	members,
 	or,
-	type Planes,
-	planes,
-	step,
 	toText
 } from "#compiler/codec/bits.ts"
-import { assert, defined, throwsDefect } from "#test/support/assert.ts"
+import { assert, throwsDefect } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /** The naive model of a bit string. */
@@ -68,10 +63,6 @@ const textOf = (model: Model): string =>
 		Array.from({ length: model.length }, (_, k) => (model.ones.has(k) ? "1" : "0")),
 		""
 	)
-
-/** The union of sets, the empty set for none. */
-const unionOf = (sets: ReadonlyArray<ReadonlySet<number>>): ReadonlySet<number> =>
-	Arr.reduce(sets, new Set<number>(), (union: ReadonlySet<number>, set) => union.union(set))
 
 /** The model's positions, ascending. */
 const ascending = (ones: ReadonlySet<number>): ReadonlyArray<number> =>
@@ -256,15 +247,6 @@ const textAt = (length: number, density: Density): Gen<string> =>
 const texts: Gen<string> = (source) =>
 	source.draw(textAt(source.draw(lengths), source.draw(densities)))
 
-/** The planes of a fold of `folded`, strings of `length` bits each, stepped in their order from nothing. */
-const foldOf = (length: number, folded: ReadonlyArray<string>): Planes => {
-	const fold = planes(length)
-	for (const text of folded) {
-		step(fold, fromText(text))
-	}
-	return fold
-}
-
 describe("bit strings on the host", () => {
 	type Read =
 		| "no bits"
@@ -332,37 +314,32 @@ describe("bit strings on the host", () => {
 	}
 
 	/**
-	 * The branchless set-and-count: each add returns 1 for a new bit and 0 for one already there, so a fold's count is
-	 * the sum of what its adds return; and a position outside the string is a defect. Oracle: the Set model.
+	 * Adding a code is set union with it, in place: the string holds exactly the model's set after every add, an add of a
+	 * code already there changes nothing, and a position outside the string is a defect. Oracle: the Set model.
 	 */
-	const setAndCount = ({ text, fresh, positions }: Additions, c: Case<Added>) =>
+	const setMembers = ({ text, fresh, positions }: Additions, c: Case<Added>) =>
 		Effect.sync(() => {
 			const bits = fresh ? empty(text.length) : copy(fromText(text))
 			const ones = new Set<number>(fresh ? [] : modelOf(text).ones)
-			const before = ones.size
-			let added = 0
 			for (const k of positions) {
 				if (k >= 0 && k < text.length) {
 					c.note(ones.has(k) ? "already there" : "new")
 					if (fresh && ones.has(k)) {
 						c.pair("from nothing", "already there")
 					}
-					const one = add(bits, k)
-					assert.equal(one, ones.has(k) ? 0 : 1, `position ${k}`)
-					added += one
+					add(bits, k)
 					ones.add(k)
+					assert.equal(toText(bits), textOf({ length: text.length, ones }), `position ${k}`)
 				} else {
 					c.note("outside")
 					throwsDefect(() => add(bits, k), `position ${k}`)
 				}
 			}
-			assert.equal(toText(bits), textOf({ length: text.length, ones }))
 			assert.equal(count(bits), ones.size)
-			assert.equal(before + added, ones.size)
 		})
 
 	it.effect(
-		"add each bit in place, returning 1 for a new one and 0 for one already there, so their sum keeps the count, and refuse a position outside",
+		"add each bit in place as set union, so a code already there changes nothing, and refuse a position outside",
 		(ctx) =>
 			searched(
 				ctx,
@@ -392,7 +369,7 @@ describe("bit strings on the host", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					setAndCount
+					setMembers
 				)
 			)
 	)
@@ -476,187 +453,6 @@ describe("bit strings on the host", () => {
 						caseHang
 					},
 					algebra
-				)
-			)
-	)
-
-	type Folded = "a position twice" | "no position twice" | "lengths differ"
-
-	interface Folding {
-		readonly length: number
-		readonly folded: ReadonlyArray<string>
-		readonly stray: Option.Option<string>
-	}
-
-	/**
-	 * A fold's planes are the positions set in at least one string and in at least two, whatever the strings; a string of
-	 * another length is a defect. Oracle: the Set model's union and its union of pairwise intersections.
-	 */
-	const twoPlanes = ({ length, folded, stray }: Folding, c: Case<Folded>) =>
-		Effect.sync(() => {
-			const fold = foldOf(length, folded)
-			if (Option.isSome(stray) && stray.value.length !== length) {
-				c.note("lengths differ")
-				throwsDefect(() => step(fold, fromText(stray.value)))
-			}
-			const sets = Arr.map(folded, (text) => modelOf(text).ones)
-			const twos = unionOf(
-				Arr.flatMap(sets, (set, i) =>
-					Arr.map(sets.slice(i + 1), (later) => set.intersection(later))
-				)
-			)
-			if (sets.length >= 2) {
-				c.note(twos.size === 0 ? "no position twice" : "a position twice")
-			}
-			assert.equal(toText(fold.ones), textOf({ length, ones: unionOf(sets) }))
-			assert.equal(toText(fold.twos), textOf({ length, ones: twos }))
-		})
-
-	it.effect(
-		"fold strings into two planes, the positions set in at least one and the positions set in at least two",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/codec/bits-fold",
-						draw: drawn((source): Folding => {
-							const length = source.draw(lengths)
-							return {
-								length,
-								folded: source.draw(
-									array((s) => s.draw(textAt(length, s.draw(densities))), { min: 0, max: 5 })
-								),
-								stray: source.draw(option(texts))
-							}
-						}),
-						literal: Formatter.format,
-						coverage: required<Folded>(
-							["a position twice", "no position twice", "lengths differ"],
-							{
-								cases: 500,
-								sense: notesOnly
-							}
-						),
-						kept: [],
-						runs: 1000,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					twoPlanes
-				)
-			)
-	)
-
-	type AtMostOne =
-		| "a member twice in K"
-		| "every member of K at most once"
-		| "a member outside K twice"
-		| "no member"
-
-	interface Members {
-		readonly width: number
-		readonly placed: ReadonlyArray<number>
-		readonly members: ReadonlyArray<number>
-		readonly k: ReadonlyArray<number>
-	}
-
-	/**
-	 * Every fold of zero to four members over a roster of one to four codes, against every set K of its codes, the
-	 * roster's codes placed at the start of one word, across the edge of the first two words, or across the edge of the
-	 * second and third: 19,674 folds.
-	 */
-	const folds: Gen<Members> = (s) => {
-		const codes = s.draw(int(1, 4))
-		const [width, positions] = s.draw(
-			element<readonly [number, ReadonlyArray<number>]>([
-				[4, [0, 1, 2, 3]],
-				[33, [31, 32, 0, 30]],
-				[65, [63, 64, 31, 32]]
-			])
-		)
-		const placed = positions.slice(0, codes)
-		const members = Array.from({ length: s.draw(int(0, 4)) }, () => s.draw(int(0, codes - 1)))
-		const k = Arr.filter(
-			Array.from({ length: codes }, (_, code) => code),
-			() => s.draw(boolean)
-		)
-		return { width, placed, members, k }
-	}
-
-	/**
-	 * The saturating fold of members' one-hot strings, as qti-pie folds a node's children: "at most one of K" holds,
-	 * `twos & K` empty, exactly when no code of K is a member twice; `ones & K` holds the members of K; and folding the
-	 * members in reverse gives the same planes, as a commutative monoid must. Oracle: the members counted.
-	 */
-	const atMostOne = ({ width, placed, members: folded, k }: Members, c: Case<AtMostOne>) =>
-		Effect.sync(() => {
-			const oneHot = (code: number): BitString => {
-				const bits = empty(width)
-				add(bits, defined(placed[code]))
-				return bits
-			}
-			const fold = planes(width)
-			for (const code of folded) {
-				step(fold, oneHot(code))
-			}
-			const backwards = planes(width)
-			for (const code of Arr.reverse(folded)) {
-				step(backwards, oneHot(code))
-			}
-			assert.equal(
-				toText(backwards.ones),
-				toText(fold.ones),
-				"the order of the members never shows"
-			)
-			assert.equal(
-				toText(backwards.twos),
-				toText(fold.twos),
-				"the order of the members never shows"
-			)
-			const mask = empty(width)
-			for (const code of k) {
-				add(mask, defined(placed[code]))
-			}
-			const times = (code: number): number => Arr.filter(folded, (member) => member === code).length
-			const twosInK = copy(fold.twos)
-			and(twosInK, mask)
-			const onesInK = copy(fold.ones)
-			and(onesInK, mask)
-			const once = Arr.every(k, (code) => times(code) <= 1)
-			assert.equal(count(twosInK) === 0, once, "at most one of K")
-			assert.equal(count(onesInK), Arr.filter(k, (code) => times(code) >= 1).length)
-			if (folded.length === 0) {
-				c.note("no member")
-			}
-			c.note(once ? "every member of K at most once" : "a member twice in K")
-			if (Arr.some(folded, (code) => !k.includes(code) && times(code) >= 2)) {
-				c.note("a member outside K twice")
-			}
-		})
-
-	it.effect(
-		"fold members so that at most one of K is twos & K empty, in any order of the members",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/codec/bits-at-most-one",
-						generator: folds,
-						literal: Formatter.format,
-						limit: 19_674,
-						coverage: requiredInSpace<AtMostOne>([
-							"a member twice in K",
-							"every member of K at most once",
-							"a member outside K twice",
-							"no member"
-						]),
-						caseHang
-					},
-					atMostOne
 				)
 			)
 	)

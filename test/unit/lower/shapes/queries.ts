@@ -8,6 +8,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
+import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	Account,
@@ -165,7 +166,7 @@ export const conditional = (
 	const node = q.b.node({
 		kind: "Group",
 		input: m,
-		bound: ["id", "account", "amount"],
+		bound: foldInputOf(m, ["id", "account", "amount"]),
 		keys: ["account"],
 		aggs: [{ name: "passed", fn: "sum", op: OpId("sum(integer)"), args: [c], filter: undefined }],
 		heading: [

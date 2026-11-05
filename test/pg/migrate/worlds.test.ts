@@ -38,7 +38,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** What a version holds, each a knob a case turns.
  *
  * Worlds across migrations on PostgreSQL 19: each case migrates one version of a schema with worlds to a next that
- * changes one thing a world rests on, through its generated, reviewed folders (`migrated`: every candidate rename kept, each folder applied by the real runner, which drift-checks the catalog it reaches).
+ * changes one thing a world rests on, through its generated, reviewed folders (`migrated`: each drafted under the
+ * renames its version declares, applied by the real runner, which drift-checks the catalog it reaches). The oracle is
+ * PostgreSQL's catalog: each login's and role's OID, the drift check, Db.open's admission and the installed-catalog
+ * checker.
  *
  * The schema: documents of organizations on a tier (a roster, whose closed ids are smallint codes), each with a word
  * count and a cap (a contract), their shares and their notes (a serial field), and a derived relation over the documents' word counts.
@@ -214,6 +217,11 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 						generator: caseGen,
 						literal: (c: WorldsCase) => c.name,
 						limit: cases.length,
+						box: "every one of the seven changes a world rests on, each from the first version to its next",
+						oracle: {
+							kind: "postgresql",
+							name: "the catalog: each login's and role's OID across the versions, the runner's drift check, Db.open's admission and the installed-catalog checker"
+						},
 						coverage: requiredInSpace<WorldsFeature>(Arr.map(cases, (c) => c.name)),
 						caseHang
 					},

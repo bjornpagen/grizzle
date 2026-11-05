@@ -57,57 +57,74 @@ const Task = relation("Task", { id: uuid, worker: uuid }, ["id"])
 const Crew = relation("Crew", { id: uuid, hands: drawn(natural) }, ["id"])
 export const Hand = relation("Hand", { id: uuid, crew: uuid, label }, ["id"])
 
-export const Shop = schema(
-	"Shop",
-	{ Item, Stock, Seat, Code, Pair, Counter, Line, Worker, Task, Crew, Hand },
-	[
-		mutable(Stock),
-		mutable(Seat),
-		mutable(Code),
-		mutable(Pair),
-		mutable(Counter),
-		mutable(Task),
-		mutable(Hand),
-		key(on(Code, "code")),
-		contained(on(Line, "stock"), on(Stock, "id")),
-		contained(on(Task, "worker"), on(Worker, "id")),
-		key(on(Task, "worker")),
-		contained(on(Hand, "crew"), on(Crew, "id")),
-		counted(on(Hand, "crew"), fin(Crew, "hands")),
-		check("OneOrTwoHands", Crew, (r) => r.hands.between(1n, 2n))
-	]
-)
+const shopRelations = { Item, Stock, Seat, Code, Pair, Counter, Line, Worker, Task, Crew, Hand }
 
-const shop = owning(Shop)
-const shopNames: WriteNames = succeeded(
-	compileInstallation(shop, {
-		...installOptions(shop, "owner"),
-		installation: identity.schema(parsedSchemaName("shop"))
-	})
-).names
+const shopLaws = [
+	mutable(Stock),
+	mutable(Seat),
+	mutable(Code),
+	mutable(Pair),
+	mutable(Counter),
+	mutable(Task),
+	mutable(Hand),
+	key(on(Code, "code")),
+	contained(on(Line, "stock"), on(Stock, "id")),
+	contained(on(Task, "worker"), on(Worker, "id")),
+	key(on(Task, "worker")),
+	contained(on(Hand, "crew"), on(Crew, "id")),
+	counted(on(Hand, "crew"), fin(Crew, "hands")),
+	check("OneOrTwoHands", Crew, (r) => r.hands.between(1n, 2n))
+] as const
 
-/** The keys of the Shop's views, as its artifacts know them. */
-const shopArtifacts = succeeded(testArtifacts(Shop, testCompile))
+export const Shop = schema("Shop", shopRelations, shopLaws)
+
+/**
+ * The Shop with Crew mutable: a Hand's delete then shrinks a stored Crew's family, which the Shop's immutable Crew keeps
+ * fixed from its insert.
+ */
+export const MutableCrewShop = schema("Shop", shopRelations, [...shopLaws, mutable(Crew)])
 
 export const shopChangeSet = (): ChangeSetValue => ChangeSet.empty(Shop)
+export const mutableCrewChangeSet = (): ChangeSetValue => ChangeSet.empty(MutableCrewShop)
 
 /** How a test compiles a put of the Shop: which contexts the Db holds a fact of, every one for reality. shopCompile
  * states that, and a test spreads it with what it changes. */
 export type ShopCompile = Pick<CompileWriteOptions, "claims">
 export const shopCompile: ShopCompile = { claims: { kind: "every" } }
 
-const shopWrite = (value: unknown, options: ShopCompile) =>
-	compileWrite(checking(Shop), descOf(value), {
-		names: shopNames,
-		reads: shopNames,
-		claims: options.claims,
-		world: { kind: "reality" },
-		laws: shopArtifacts.laws,
-		derived: shopArtifacts.derived
-	})
+/**
+ * The write compiler of a Shop: its names as installed under the schema `shop`, the keys of its views as its artifacts
+ * know them, and the reality it writes.
+ */
+const shopWriter = (s: typeof Shop | typeof MutableCrewShop) => {
+	const owned = owning(s)
+	const names: WriteNames = succeeded(
+		compileInstallation(owned, {
+			...installOptions(owned, "owner"),
+			installation: identity.schema(parsedSchemaName("shop"))
+		})
+	).names
+	const artifacts = succeeded(testArtifacts(s, testCompile))
+	return (value: unknown, options: ShopCompile) =>
+		compileWrite(checking(s), descOf(value), {
+			names,
+			reads: names,
+			claims: options.claims,
+			world: { kind: "reality" },
+			laws: artifacts.laws,
+			derived: artifacts.derived
+		})
+}
+
+/** A write of the Shop compiled, or the compiler's refusal of it. */
+export const shopWrite = shopWriter(Shop)
+const mutableCrewWrite = shopWriter(MutableCrewShop)
 
 export const shopCompiled = (value: unknown, options: ShopCompile): CompiledWrite =>
 	succeeded(shopWrite(value, options))
+
+export const mutableCrewCompiled = (value: unknown, options: ShopCompile): CompiledWrite =>
+	succeeded(mutableCrewWrite(value, options))
 
 /** The facts of a relation parameter `name` of a relation's heading, put as they are: a described put that reads no
  * stored relation. */

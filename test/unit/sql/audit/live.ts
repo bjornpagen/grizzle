@@ -89,6 +89,8 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	Code,
 	Counter,
+	mutableCrewChangeSet,
+	mutableCrewCompiled,
 	shopCompiled,
 	shopChangeSet,
 	Hand,
@@ -145,6 +147,7 @@ export type LiveFeature =
 	| "source installed"
 	| "source drafted"
 	| "source written"
+	| "a member deleted under a mutable owner"
 	| `context ${TemplateContext}`
 
 /**
@@ -527,6 +530,16 @@ const realOutput: Dictionary = ((): Dictionary => {
 const writeOps = ["none", "insert", "put", "delete"] as const
 type WriteOp = (typeof writeOps)[number]
 
+/** Whether the shop's Crew is mutable, so a Hand's delete may shrink a stored Crew's family. */
+type CrewMutability = "immutable" | "mutable"
+
+/**
+ * The actions a written draw may take on a relation: every one, but a Hand's delete only under a mutable Crew, since
+ * an immutable Crew's family is fixed from its insert and the compiler refuses the delete.
+ */
+const opsOf = (relation: unknown, crew: CrewMutability): Arr.NonEmptyReadonlyArray<WriteOp> =>
+	relation === Hand && crew === "immutable" ? ["none", "insert", "put"] : writeOps
+
 /**
  * The shop relations a written draw acts on, each with its fact: an immutable and a mutable relation, a candidate key,
  * a pure set, a serial key written explicitly (OVERRIDING SYSTEM VALUE), a residual law's member and a serial field
@@ -543,29 +556,37 @@ const writeTargets: ReadonlyArray<readonly [unknown, ReadonlyArray<unknown>]> = 
 ]
 
 /**
- * A write program before it is compiled: the action on each write target, by position, and whether a described put of
- * Stock comes on top.
+ * A write program before it is compiled: whether its shop's Crew is mutable, the action on each write target, by
+ * position, and whether a described put of Stock comes on top, which only the shop with an immutable Crew states, since
+ * the described put's query is over that shop.
  */
 interface WriteSketch {
+	readonly crew: CrewMutability
 	readonly ops: ReadonlyArray<WriteOp>
 	readonly described: boolean
 }
 
-/** A write sketch that writes something: a sketch of no action and no described put, one draw in 32768, is drawn again. */
+/** A write sketch that writes something: a sketch of no action and no described put is drawn again. */
 const writeSketchGen: Gen<WriteSketch> = filter(
-	(source): WriteSketch => ({
-		ops: source.draw(
-			array(element(writeOps), { min: writeTargets.length, max: writeTargets.length })
-		),
-		described: source.draw(boolean)
-	}),
+	(source): WriteSketch => {
+		const crew = source.draw(element(["immutable", "mutable"] as const))
+		return {
+			crew,
+			ops: Arr.map(writeTargets, ([relation]) => source.draw(element(opsOf(relation, crew)))),
+			described: crew === "immutable" && source.draw(boolean)
+		}
+	},
 	(w) => w.described || Arr.some(w.ops, (op) => op !== "none"),
 	8
 )
 
+/** Whether a write sketch deletes the Hand: a member of Crew's family. */
+const deletesHand = (w: WriteSketch): boolean =>
+	Arr.some(Arr.zip(writeTargets, w.ops), ([[relation], op]) => relation === Hand && op === "delete")
+
 /** The ChangeSet a write sketch states, built afresh on every call. */
 const changeSetOf = (w: WriteSketch) => {
-	let value = shopChangeSet()
+	let value = w.crew === "mutable" ? mutableCrewChangeSet() : shopChangeSet()
 	for (const [i, [relation, facts]] of writeTargets.entries()) {
 		const op = w.ops[i]
 		if (op === "insert") {
@@ -581,7 +602,8 @@ const changeSetOf = (w: WriteSketch) => {
 
 /** Every statement a write compilation places, its optimized artifact's and then its conservative artifact's. */
 const writtenStatements = (w: WriteSketch) => {
-	const { optimized, conservative } = shopCompiled(changeSetOf(w), shopCompile).artifacts
+	const compiled = w.crew === "mutable" ? mutableCrewCompiled : shopCompiled
+	const { optimized, conservative } = compiled(changeSetOf(w), shopCompile).artifacts
 	return [...optimized.statements, ...conservative.statements]
 }
 
@@ -594,7 +616,12 @@ const writtenLive = (w: WriteSketch): Live => {
 			statements,
 			Arr.map(writtenStatements(w), (s) => s.ast)
 		),
-		features: ["source written"],
+		features: [
+			"source written",
+			...(w.crew === "mutable" && deletesHand(w)
+				? (["a member deleted under a mutable owner"] as const)
+				: [])
+		],
 		emitted: Arr.map(placed, (s) => ({ ast: s.ast, text: s.spec.sql })),
 		again: () => [
 			Arr.map(placed, (s) => s.spec.sql),

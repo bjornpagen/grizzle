@@ -400,7 +400,7 @@ const isJoin = (n: RelNode): n is NodeOf<"MatchRegion"> =>
 
 /** Whether some key of the group's input lies within its bound tuple. */
 const boundKeyed = (analysis: KeyAnalysis, g: NodeOf<"Group">): boolean =>
-	Arr.some(analysis.keys(g.input), (k) => Arr.every(k, (c) => g.bound.includes(c)))
+	Arr.some(analysis.keys(g.input), (k) => Arr.every(k, (c) => g.bound.columns.includes(c)))
 
 /**
  * The mutant suite: six valid and eight invalid rewrites of the conservative output, which the harness

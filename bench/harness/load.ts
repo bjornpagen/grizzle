@@ -1,4 +1,4 @@
-import { Array as Arr, Duration, Effect, Fiber, Record as Rec, Schedule } from "effect"
+import { Array as Arr, Duration, Effect, Fiber, Schedule } from "effect"
 import type { TransientReason } from "#adapter/errors/failures.ts"
 import { transientFailureOf } from "#adapter/outcomes/index.ts"
 import { elapsed, type Summary, summarize } from "#bench/cold/stats.ts"

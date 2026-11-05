@@ -252,7 +252,7 @@ const printBody = (n: RelNode, printer: ExprPrinter): string => {
 		case "Take":
 			return `Take ${n.input.id} ${printBound(n.bound)} by ${printOrder(n.order)}${n.correlation.length > 0 ? ` per${list(Arr.map(n.correlation, (c) => `${c.column}=${e(c.expr)}`))}` : ""}`
 		case "Group":
-			return `Group ${n.input.id} bound${list(n.bound)} keys${list(n.keys)} ${list(Arr.map(n.aggs, (a) => `${a.name}=${a.op}(${a.args.length === 0 ? "*" : Arr.join(Arr.map(a.args, e), ", ")})${a.filter === undefined ? "" : ` filter ${e(a.filter)}`}`))}`
+			return `Group ${n.input.id} bound${list(n.bound.columns)} keys${list(n.keys)} ${list(Arr.map(n.aggs, (a) => `${a.name}=${a.op}(${a.args.length === 0 ? "*" : Arr.join(Arr.map(a.args, e), ", ")})${a.filter === undefined ? "" : ` filter ${e(a.filter)}`}`))}`
 		case "Produce":
 			return `Produce ${n.input.id} ${n.producer}(${Arr.join(Arr.map(n.args, e), ", ")}) as ${n.out} carry${list(n.carried)}`
 		case "Recursive":

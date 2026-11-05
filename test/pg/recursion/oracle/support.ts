@@ -219,11 +219,11 @@ export const bagRecursion: Lowering = {
  * distinct facts whose endpoints agree, merge into one contribution.
  */
 const eraseEdge = (node: RelNode, inputs: NodeOver<ValueRefs<RelNode>>): RelNode => {
-	if (inputs.kind !== "Group" || !inputs.bound.includes("edge")) {
+	if (inputs.kind !== "Group" || !inputs.bound.columns.includes("edge")) {
 		return unchangedEdges(node, inputs) ? node : relNode(node.id, inputs)
 	}
-	const bound = [...Arr.filter(inputs.bound, (c) => c !== "edge"), "node", "next"]
-	return relNode(node.id, { ...inputs, bound: [...new Set(bound)] })
+	const bound = [...Arr.filter(inputs.bound.columns, (c) => c !== "edge"), "node", "next"]
+	return relNode(node.id, { ...inputs, bound: { ...inputs.bound, columns: [...new Set(bound)] } })
 }
 
 export const eraseEdgeIdentity: Lowering = {

@@ -28,6 +28,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { defined } from "#test/support/assert.ts"
 import { closed, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { anyNumeric, plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
 import { definedOf } from "#test/support/oracle/gen/ops.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -386,7 +387,7 @@ export class Q {
 		return this.b.node({
 			kind: "Group",
 			input,
-			bound,
+			bound: foldInputOf(input, bound),
 			keys,
 			aggs: Arr.map(aggs, (a): AggregateSpecOver<ScalarExpr> => {
 				const filter = "filter" in a ? a.filter : undefined

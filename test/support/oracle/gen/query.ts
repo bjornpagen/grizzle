@@ -60,6 +60,7 @@ import {
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { defined } from "#test/support/assert.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
+import { foldInputOf, keyedFoldInput } from "#test/support/fixtures/ir/fold.ts"
 import { liveOf, validateDag } from "#test/support/oracle/dag-validate.ts"
 import {
 	buildCompare,
@@ -229,8 +230,9 @@ interface AggSketch {
  * - filter over comparisons, AND, OR and NOT; project, including the projections that drop keys and collapse;
  *   semi- and anti-join; union of same-heading arms, optionally tagged by a literal column, which keeps them disjoint;
  *   intersection and difference;
- * - group, whose bound tuple may be a strict subset of its input's heading, so the distinct bound tuple, not the input
- *   rows, is what is folded; aggregate-only groups;
+ * - group, whose bound tuple may be a strict subset of its input's heading: one that holds a key of every fact the
+ *   input reads folds the input's rows, and any other folds the distinct values of the bound tuple, a projection
+ *   matched whole; aggregate-only groups;
  * - take over a completed total order;
  * - closure, a linear recursive relation over the edges of any generated query, optionally acyclic; the richer
  *   recursive generator is recursive.ts;
@@ -2163,17 +2165,26 @@ class QueryResolver {
 		}
 	}
 
-	/** min and max return one of their arguments; natively equal ones are one value. */
+	/**
+	 * A fold over a drawn bound tuple of its input. Where the bound tuple holds a key of every fact the input reads, the
+	 * fold reads the input as it is (keyedFoldInput); where it does not, a fold over it would read a projection, which
+	 * the checker refuses, so the fold reads the projection's own set instead: the input projected onto the bound
+	 * tuple, a set of its distinct values, matched whole, as a caller folds distinct values by matching a query of them.
+	 * A group key merges the tuples it groups, computed columns and sums among them: natively equal values of any
+	 * spelling are one value; min and max return one of their arguments.
+	 */
 	group(s: Extract<QuerySketch, { tag: "group" }>): Built {
-		const input = this.query(s.input)
-		const h = input.heading
-		/**
-		 * The distinct bound tuples merge the input rows that agree on them, and a group key merges the tuples it
-		 * groups, computed columns and sums among them: natively equal values of any spelling are one value.
-		 */
-		const bound = Arr.flatMap(h, (headingColumn, i) =>
+		const drawn = this.query(s.input)
+		const drawnBound = Arr.flatMap(drawn.heading, (headingColumn, i) =>
 			s.full || ((s.boundMask >> i) & 1) === 1 ? [headingColumn] : []
 		)
+		const keyed = keyedFoldInput(
+			drawn.node,
+			Arr.map(drawnBound, (c) => c.name)
+		)
+		const input: Built = keyed === undefined ? this.distinctValues(drawn, drawnBound) : drawn
+		const bound = keyed === undefined ? input.heading : drawnBound
+		const fold = keyed ?? foldInputOf(input.node, Arr.map(bound, (c) => c.name))
 		const keys = Arr.filter(bound, (_, i) => ((s.keyMask >> i) & 1) === 1)
 		const taken = new Set(Arr.map(keys, (k) => k.name))
 		const enabled = this.config.aggregates
@@ -2207,12 +2218,26 @@ class QueryResolver {
 			meta: conservativeMeta,
 			kind: "Group",
 			input: input.node,
-			bound: Arr.map(bound, (c) => c.name),
+			bound: fold,
 			keys: Arr.map(keys, (c) => c.name),
 			aggs,
 			heading
 		})
 		return this.stored({ node: id, heading })
+	}
+
+	/** `input` projected onto `columns`, the set of their distinct values, read through a region that matches it whole. */
+	distinctValues(input: Built, columns: ReadonlyArray<HeadingColumn>): Built {
+		const heading: Heading = Arr.map(columns, (c) => column(c.name, c.type))
+		const projected = this.b.node({
+			loc: undefined,
+			meta: conservativeMeta,
+			kind: "ProjectSet",
+			input: input.node,
+			out: Arr.map(columns, (c) => ({ name: c.name, expr: this.col(input.node, c) })),
+			heading
+		})
+		return this.boundRegion({ node: projected, heading }, [])
 	}
 
 	/**

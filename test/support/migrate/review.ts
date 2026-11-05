@@ -1,5 +1,5 @@
-import { Array as Arr, Data, Option, pipe, Result, String as Str } from "effect"
-import { decodeMeta, readMeta } from "#adapter/boundary/meta.ts"
+import { Array as Arr, Data, pipe, Result, String as Str } from "effect"
+import { readMeta } from "#adapter/boundary/meta.ts"
 import type {
 	Action,
 	Confirm,
@@ -8,22 +8,14 @@ import type {
 	MigrationPlan
 } from "#compiler/deploy/diff/plan.ts"
 import { type DraftFile, planFiles } from "#compiler/deploy/phases/files.ts"
-import {
-	type LossDecided,
-	lossDecisions,
-	type MetaStep,
-	writeMeta
-} from "#compiler/deploy/render/folder.ts"
+import { type LossDecided, lossDecisions } from "#compiler/deploy/render/folder.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import {
 	confirmMarker,
-	fromFirstToken,
 	isNoTransaction,
 	lossMarker,
-	placeholderMarker,
-	splitStatements
+	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
-import { renderFile } from "#compiler/deploy/render/sql.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { placeholderToken, printStatement } from "#compiler/sql/print.ts"
 

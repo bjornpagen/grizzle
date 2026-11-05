@@ -22,6 +22,7 @@ import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { castOf } from "#compiler/scalar/compute/registry.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
+import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { anyNumeric, plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { castOpOf, definedOpOf } from "#test/support/oracle/gen/ops.ts"
@@ -339,7 +340,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 	const totals = b.node({
 		kind: "Group",
 		input: match,
-		bound: ["id", "account", "amount"],
+		bound: foldInputOf(match, ["id", "account", "amount"]),
 		keys: ["account"],
 		aggs: [
 			{

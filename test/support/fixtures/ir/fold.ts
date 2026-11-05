@@ -1,4 +1,4 @@
-import { Array as Arr } from "effect"
+import { Array as Arr, Option } from "effect"
 import type { FoldInput, KeySet, KeyedOccurrence, RelNode } from "#compiler/ir/rel.ts"
 
 /**
@@ -77,57 +77,63 @@ const regionUnder = (input: RelNode): RelNode => {
 }
 
 /**
- * The fold input of a Group a fixture builds over `input` with the bound tuple `columns` (ir/rel.ts FoldInput): for
- * each occurrence of the region the input reads, the first key of its source whose every field the occurrence binds
- * to a column of `columns` or fixes to a constant, as the checker proves it. A fold over a stored relation read whole
- * is keyed by its primary key, and one over any other source by its whole heading, which `columns` then holds. A
- * fixture whose fold reads a projection, a source of which `columns` holds no key, is a defect of the fixture, never
- * a case for the code under test: the checker refuses such a fold before any IR exists.
+ * The fold input of a Group over `input` with the bound tuple `columns` (ir/rel.ts FoldInput), where `columns` holds a
+ * key of every fact the input reads, as the checker proves it: for each occurrence of the region the input reads under
+ * its filters and existence tests, the first key of its source whose every field the occurrence binds to a column of
+ * `columns` or fixes to a constant; a stored relation read directly by its keys; and any other input, a set keyed by
+ * its heading, by its whole heading. Undefined where `columns` holds no key of some fact: a fold over it would read a
+ * projection, which the checker refuses before any IR exists.
  */
-export const foldInputOf = (input: RelNode, columns: ReadonlyArray<string>): FoldInput => {
+export const keyedFoldInput = (
+	input: RelNode,
+	columns: ReadonlyArray<string>
+): FoldInput | undefined => {
 	const region = regionUnder(input)
-	const keyed = (
-		occurrence: KeyedOccurrence["occurrence"],
-		source: RelNode,
-		bound: ReadonlySet<string>
-	): KeyedOccurrence => {
-		const key = Arr.findFirst(sourceKeys(source), (k) => Arr.every(k, (f) => bound.has(f)))
-		if (key._tag === "None") {
-			throw new Error(
-				`a fixture's fold over ${source.kind} ${source.id} binds none of its keys: bind one of (${Arr.join(
-					Arr.map(sourceKeys(source), (k) => Arr.join(k, ", ")),
-					"), ("
-				)}) in its bound tuple`
-			)
-		}
-		return { occurrence, key: key.value }
-	}
-	if (region.kind === "MatchRegion") {
-		return {
-			columns,
-			keyed: Arr.map(region.occurrences, (o) =>
-				keyed(
-					o.id,
+	const keyOf = (source: RelNode, bound: ReadonlySet<string>): KeySet | undefined =>
+		Option.getOrUndefined(
+			Arr.findFirst(sourceKeys(source), (k) => Arr.every(k, (f) => bound.has(f)))
+		)
+	switch (region.kind) {
+		case "MatchRegion": {
+			const keyed: Array<KeyedOccurrence> = []
+			for (const o of region.occurrences) {
+				const key = keyOf(
 					o.source,
 					new Set([
-						...Arr.flatMap(o.bindings, (b) => (columns.includes(b.var.name) ? [b.column] : [])),
+						...Arr.flatMap(o.bindings, (b) => (Arr.contains(columns, b.var.name) ? [b.column] : [])),
 						...Arr.map(o.constants, (c) => c.column)
 					])
 				)
-			)
+				if (key === undefined) {
+					return undefined
+				}
+				keyed.push({ occurrence: o.id, key })
+			}
+			return { columns, keyed }
 		}
+		case "Base": {
+			const key = keyOf(region, new Set(columns))
+			return key === undefined
+				? undefined
+				: { columns, keyed: [{ occurrence: region.occurrence, key }] }
+		}
+		default:
+			return Arr.every(region.heading, (c) => Arr.contains(columns, c.name))
+				? { columns, keyed: [] }
+				: undefined
 	}
-	if (region.kind === "Base") {
-		return { columns, keyed: [keyed(region.occurrence, region, new Set(columns))] }
-	}
-	const missing = Arr.filter(region.heading, (c) => !columns.includes(c.name))
-	if (missing.length > 0) {
+}
+
+/**
+ * The fold input of a Group a fixture builds (keyedFoldInput). A fixture whose fold reads a projection is a defect of
+ * the fixture, never a case for the code under test.
+ */
+export const foldInputOf = (input: RelNode, columns: ReadonlyArray<string>): FoldInput => {
+	const fold = keyedFoldInput(input, columns)
+	if (fold === undefined) {
 		throw new Error(
-			`a fixture's fold over ${region.kind} ${region.id} binds its whole heading, not without (${Arr.join(
-				Arr.map(missing, (c) => c.name),
-				", "
-			)})`
+			`a fixture's fold over ${input.kind} ${input.id} whose bound tuple (${Arr.join(columns, ", ")}) holds a key of every fact it reads`
 		)
 	}
-	return { columns, keyed: [] }
+	return fold
 }

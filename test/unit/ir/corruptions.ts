@@ -1220,12 +1220,16 @@ const scope: ReadonlyArray<DagCorruption> = [
 						g.input,
 						a.filter === undefined ? a.args : [...a.args, a.filter]
 					)
-					if (c === undefined || !g.bound.includes(c)) {
+					if (c === undefined || !g.bound.columns.includes(c)) {
 						return []
 					}
 					return [
 						site(
-							withNode(dag, g.id, { ...g, bound: without(g.bound, c), keys: without(g.keys, c) }),
+							withNode(dag, g.id, {
+								...g,
+								bound: { ...g.bound, columns: without(g.bound.columns, c) },
+								keys: without(g.keys, c)
+							}),
 							atNode(g.id, "aggs", i),
 							a.fn
 						)

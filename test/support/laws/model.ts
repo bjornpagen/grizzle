@@ -397,7 +397,11 @@ export const collide = (law: HostLaw, a: HostFact, b: HostFact): boolean => {
 	return false
 }
 
-/** One relation's facts after a stratum's members of it, `mine`, over its facts before, `current`. */
+/**
+ * One relation's facts after a stratum's members of it, `mine`, over its facts before, `current`: a ChangeSet's facts
+ * are a set by identity, so identical facts stated twice, in one member or across members, are one fact, and two facts
+ * that share a key with different identities both stay, for the relation's key law to refuse.
+ */
 const relationAfter = (
 	relation: HostRelation,
 	current: ReadonlyArray<HostFact>,
@@ -548,6 +552,52 @@ const violationOf = (state: HostState, law: HostLaw): Option.Option<Violation> =
 	}
 }
 
+/** Whether two field lists name the same fields, each once, in any order. */
+const sameFieldSet = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+	new Set(a).size === a.length &&
+	new Set(b).size === b.length &&
+	new Set([...a, ...b]).size === a.length
+
+/**
+ * The law a schema states for a relation's primary key: a key over exactly its key's fields that reads every fact, or a
+ * span key whose scalars and span are its key's fields; none when the schema states neither.
+ */
+export const primaryKeyLawOf = (schema: HostSchema, relation: HostRelation): HostLaw | undefined =>
+	Option.getOrUndefined(
+		Arr.findFirst(
+			schema.laws,
+			(law) =>
+				(law.kind === "key" &&
+					law.relation === relation.name &&
+					law.selection.kind === "every" &&
+					sameFieldSet(law.fields, relation.key)) ||
+				(law.kind === "spanKey" &&
+					law.relation === relation.name &&
+					sameFieldSet([...law.scalars, law.span], relation.key))
+		)
+	)
+
+/**
+ * The relations of a schema with a key whose primary key no law states. A relation's key is one of its laws: two facts
+ * at one key, an exact repeat of one fact included, violate it, so a state that holds a fact twice is a violation the
+ * host names, never a state its laws pass.
+ */
+export const unkeyedRelations = (schema: HostSchema): ReadonlyArray<string> =>
+	Arr.flatMap(schema.relations, (r) =>
+		r.key.length > 0 && primaryKeyLawOf(schema, r) === undefined ? [r.name] : []
+	)
+
+/** A host schema whose every keyed relation states its primary key's law; any other is a defect of the harness. */
+export const keyedSchema = (schema: HostSchema): HostSchema => {
+	const unkeyed = unkeyedRelations(schema)
+	if (Arr.isReadonlyArrayNonEmpty(unkeyed)) {
+		throw new Error(
+			`the host states no law for the primary key of ${Arr.join(unkeyed, ", ")}: without it a state holding a fact twice breaks no law`
+		)
+	}
+	return schema
+}
+
 /**
  * The brute-force side of the law-bearing generated suites: over law-bearing generated schemas, an outcome is accepted
  * iff the brute-force evaluation of every violation query on the final state is empty.
@@ -579,10 +629,13 @@ const violationOf = (state: HostState, law: HostLaw): Option.Option<Violation> =
  * is S. A key's or a span key's refusal names the violating facts by the law's own fields (witnessOf); every other
  * native violation, whose key PostgreSQL reports only in prose, carries none.
  *
+ * Every relation's primary key is one of its laws (keyedSchema): a schema whose relation's key no law states is refused,
+ * so a state holding one fact twice is always the primary key's violation.
+ *
  * Every law's violation query over `state`.
  */
 export const violations = (schema: HostSchema, state: HostState): ReadonlyArray<Violation> => {
-	const out = Arr.flatMap(schema.laws, (law) => Option.toArray(violationOf(state, law)))
+	const out = Arr.flatMap(keyedSchema(schema).laws, (law) => Option.toArray(violationOf(state, law)))
 	/** Two statements of one law identity are one law (a restated containment): their violators merge. */
 	const merged = new Map<string, Violation>()
 	for (const v of out) {

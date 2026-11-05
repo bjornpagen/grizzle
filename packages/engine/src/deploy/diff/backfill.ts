@@ -20,9 +20,14 @@
  *   parent's start, by the one recursive step a migration holds: the closure of the parent relation, from which each
  *   row's subtree size, and its start as the sum over its ancestors of one plus the sizes of their earlier siblings.
  *
+ * - **Tree folds:** over each row's siblings in slot order, their order by start, the root alone at slot 0, its before
+ *   the identity; each row's end its last child's after.
+ * - **Copies:** each copy an axis carries is its target's value, joined to the row its axis names, after every family's
+ *   own columns are drawn and after any copy it reads; a row its axis names no row for keeps the copy's base.
+ *
  * Window functions and the one recursive CTE are admitted here: a migration is reviewed text, and grizzle's limits on
- * them are limits on its run-time queries. What the backfill cannot draw from stored rows alone (a fold over a tree, a
- * copy along an axis, a family whose drawn columns are partly stored) is refused, naming the family.
+ * them are limits on its run-time queries. What the backfill cannot draw from stored rows alone (copies that read each
+ * other, a fold over a copy, a family whose drawn columns are partly stored) is refused, naming the family.
  */
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
@@ -32,7 +37,7 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import { nameKey } from "#compiler/deploy/snapshot/objects.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import type { Family, FamilyFold, FoldPlane, TreeShape } from "#compiler/ir/family.ts"
+import type { AxisKind, Family, FamilyFold, FoldPlane, TreeShape } from "#compiler/ir/family.ts"
 import type { NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -74,6 +79,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
+import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
 /** The columns of each table the target's families draw, by table key (nameKey), then column, each with the value it
  * holds where its family is empty: the placeholder DEFAULT a migration adds it under to a table that may hold rows. */
@@ -151,8 +157,8 @@ const identityOf = (installation: Installation, plane: FoldPlane): Expr =>
 /**
  * The columns the target's families draw (DrawnColumns): on a member, the counted index ‹i› or the ordered index, the
  * copy ‹n›, each fold plane's before and after; on an owner, the count and each fold plane's end; a tree's interval and
- * its parent's start among them. Each holds 0 where its family is empty, but an accumulator or an end, which holds its
- * plane's identity.
+ * its parent's start among them; and every copy an axis carries (Copy) on its source. Each holds 0 where its family is
+ * empty, but an accumulator or an end, which holds its plane's identity, and a copy, which holds its base.
  */
 export const drawnColumns = (installation: Installation): DrawnColumns => {
 	const out = new Map<string, Map<string, Expr>>()
@@ -180,6 +186,12 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 				put(member, columnOf(plane.before), identity)
 				put(member, columnOf(plane.after), identity)
 				put(owner, plane.end.column, identity)
+			}
+		}
+		for (const copy of copiesOf(installation, family)) {
+			const base = baseOf(installation, copy.from)
+			if (base !== undefined) {
+				put(copy.axis === "last" ? owner : member, columnOf(copy.from), base)
 			}
 		}
 	}
@@ -573,9 +585,14 @@ const foldedName = "__folded"
  * - `__stepped`: each row's step, one plus the sizes of its earlier siblings, 0 for the root.
  * - `__started`: each row's start, the sum of the steps of its ancestors and itself: its pre-order index.
  *
+ * - `__folded`: each fold over the tree, over each row's siblings in slot order, which is their order by start, the
+ *   root alone at slot 0 (planeLayers): the root's before the identity, as its first-slot pin holds it, and its after
+ *   its own step's, the one state NP's fold suite admits a root (test/pg/fin/fold.test.ts).
+ *
  * Its end is its start plus its size, its copy of the count its siblings' count (the root's own count, as the root pin
  * reads it), and its parent's start the start of its parent's row, the root's own 0. A row the closure reaches from no
- * root, under stored parents that make no tree, is drawn anyway, and VALIDATE refuses it by the tree's laws.
+ * root, under stored parents that make no tree, is drawn anyway, and VALIDATE refuses it by the tree's laws. Each fold's
+ * end is a row's last child's after (treeEndUpdate).
  */
 const treeUpdate = (
 	input: BackfillInput,
@@ -719,6 +736,13 @@ const treeUpdate = (
 	]
 	/** Each fold over the tree, its family each row's siblings in slot order, the root alone at slot 0: the layers over
 	 * the ranked rows that accumulate it (planeLayers). */
+	const foldCarried: NonEmptyReadonlyArray<string> = [
+		...key,
+		...parent.filter((p) => !key.includes(p)),
+		"__root",
+		"__at",
+		...steps
+	]
 	const folded = isNonEmpty(folds)
 		? [
 				cte(
@@ -726,7 +750,7 @@ const treeUpdate = (
 					[],
 					layered(
 						cteRefAs(rankedName, "r"),
-						[...key, ...parent.filter((p) => !key.includes(p)), "__root", "__at", ...steps] as unknown as NonEmptyReadonlyArray<string>,
+						foldCarried,
 						planeLayers(
 							installation,
 							folds,
@@ -873,10 +897,48 @@ const treeUpdate = (
 	}
 }
 
-/** The columns a family's axis carries beyond its formers' that the host fills (a copy along the axis): the backfill
- * draws none of them, so a family that adds one to stored rows is refused. */
-const axisCopies = (family: Family): ReadonlyArray<string> => {
-	const planes = new Set<string>([
+/** A tree's fold ends: each row's end its last child's after, read off the backfilled rows; a leaf keeps its
+ * placeholder, the identity, which an empty family's end is. */
+const treeEndUpdate = (family: Family, table: ObjectName): Update | undefined => {
+	const set = family.folds.flatMap((fold) =>
+		fold.planes.map((plane) => ({
+			column: plane.end.column,
+			value: col("c", columnOf(plane.after))
+		}))
+	)
+	if (!isNonEmpty(set)) {
+		return undefined
+	}
+	return {
+		kind: "update",
+		with: undefined,
+		table,
+		alias: "t",
+		set,
+		from: [{ kind: "table", table, alias: "c" }],
+		where: and([
+			...mapNonEmpty(family.group, (g) => eq(col("c", g.member.column), col("t", g.owner.column))),
+			not(
+				and(
+					mapNonEmpty(family.group, (g) => eq(col("c", g.member.column), col("c", g.owner.column)))
+				)
+			),
+			eq(
+				col("c", columnOf(family.index)),
+				binary("-", col("c", family.copy), lit.int(1n, types.bigint))
+			)
+		]),
+		returning: []
+	}
+}
+
+/** The columns a family draws beside its copies: its index, copy and count, its folds' planes and ends, and a tree's
+ * interval and parent's start. */
+const familyColumns = (family: Family): ReadonlySet<string> =>
+	new Set<string>([
+		columnOf(family.index),
+		family.copy,
+		family.count.column,
 		...family.folds.flatMap((fold) =>
 			fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after), p.end.column])
 		),
@@ -884,18 +946,200 @@ const axisCopies = (family: Family): ReadonlyArray<string> => {
 			? [family.members.start.column, family.members.end.column, family.members.parentStart]
 			: [])
 	])
-	const copied = (c: NativeColumn): boolean =>
-		c.kind === "law" || c.field.writing.kind === "drawn" || c.field.writing.kind === "accumulated"
-	return [...family.axes.owner, ...family.axes.predecessor, ...family.axes.last].flatMap((pair) =>
-		copied(pair.from) && !planes.has(columnOf(pair.from)) ? [columnOf(pair.from)] : []
+
+/**
+ * A copy a family's axis carries (rows-first §6 as amended): a column the host fills on the axis's source row, `from`,
+ * with the value of `to` on the row the axis names, its target. The owner axis names each member's owner, a tree's
+ * row its parent's, the root its own (it references itself), so no row lacks one; the predecessor axis names the
+ * member at the slot before, and the first slot holds the copy's base; the last axis names an owner's last member, and
+ * an empty family holds the base. The base is an accumulated field's declared start: the placeholder the copy is added
+ * under, which the backfill leaves wherever the axis names no row.
+ */
+interface Copy {
+	readonly family: Family
+	readonly axis: AxisKind
+	readonly from: NativeColumn
+	readonly to: NativeColumn
+	/** The table `from` is on: the member's, or the owner's for the last axis. */
+	readonly source: ObjectName
+	/** The table `to` is on: the owner's for the owner axis, the member's otherwise. */
+	readonly target: ObjectName
+}
+
+/** Whether the host fills a column: a law column, or a drawn or accumulated field. */
+const hostFilled = (c: NativeColumn): boolean =>
+	c.kind === "law" || c.field.writing.kind === "drawn" || c.field.writing.kind === "accumulated"
+
+/** The copies a family's axes carry beside its formers' own columns (familyColumns), in axis order. */
+const copiesOf = (installation: Installation, family: Family): ReadonlyArray<Copy> => {
+	const own = familyColumns(family)
+	const member = tableOf(installation, family.member.name)
+	const owner = tableOf(installation, family.owner.name)
+	return (["owner", "predecessor", "last"] as const).flatMap((axis) =>
+		family.axes[axis].flatMap((pair): ReadonlyArray<Copy> =>
+			hostFilled(pair.from) && !own.has(columnOf(pair.from))
+				? [
+						{
+							family,
+							axis,
+							from: pair.from,
+							to: pair.to,
+							source: axis === "last" ? owner : member,
+							target: axis === "owner" ? owner : member
+						}
+					]
+				: []
+		)
+	)
+}
+
+/** A copy's base: an accumulated field's declared start; a law column has none, so a copy of one is never drawn. */
+const baseOf = (installation: Installation, c: NativeColumn): Expr | undefined =>
+	c.kind === "field" && c.field.writing.kind === "accumulated"
+		? literalOf(installation, c.field.writing.start, c.field.type)
+		: undefined
+
+/** Whether every member of a tree but its root is the row a column reference names: a tree's family leaves the root
+ * out, so the predecessor and last axes never name it. */
+const nonRoot = (family: Family, alias: string): ReadonlyArray<Expr> =>
+	family.members.kind === "tree"
+		? [
+				not(
+					and(
+						mapNonEmpty(family.group, (g) =>
+							eq(col(alias, g.member.column), col(alias, g.owner.column))
+						)
+					)
+				)
+			]
+		: []
+
+/** A copy's UPDATE: its column set, on every source row, to `to` on the row its axis names, read as the table stood
+ * before the statement; a source row whose axis names none keeps its base. */
+const copyUpdate = (copy: Copy): Update => {
+	const { family, from, to } = copy
+	const index = columnOf(family.index)
+	const predecessorOf = (row: string, before: string): Expr =>
+		eq(col(before, index), binary("-", col(row, index), lit.int(1n, types.bigint)))
+	const where = ((): NonEmptyReadonlyArray<Expr> => {
+		switch (copy.axis) {
+			case "owner":
+				return mapNonEmpty(family.group, (g) =>
+					eq(col("t", g.member.column), col("a", g.owner.column))
+				)
+			case "predecessor":
+				return [
+					...mapNonEmpty(family.group, (g) =>
+						eq(col("t", g.member.column), col("a", g.member.column))
+					),
+					...nonRoot(family, "t"),
+					...nonRoot(family, "a"),
+					predecessorOf("t", "a")
+				]
+			case "last":
+				return [
+					...mapNonEmpty(family.group, (g) =>
+						eq(col("a", g.member.column), col("t", g.owner.column))
+					),
+					...nonRoot(family, "a"),
+					eq(col("a", index), binary("-", col("a", family.copy), lit.int(1n, types.bigint)))
+				]
+		}
+	})()
+	return {
+		kind: "update",
+		with: undefined,
+		table: copy.source,
+		alias: "t",
+		set: [{ column: columnOf(from), value: col("a", columnOf(to)) }],
+		from: [{ kind: "table", table: copy.target, alias: "a" }],
+		where: and(where),
+		returning: []
+	}
+}
+
+/** The column a copy fills, by its table and its column. */
+const fillKey = (table: ObjectName, column: string): string => `${nameKey(table)}\u0000${column}`
+
+/**
+ * The copies' UPDATEs in an order that reads every copy's target after it is drawn: a copy whose target column is
+ * another copy's comes after it. A copy of itself along its axis (a tree's column copied from its parent's, a member's
+ * from its predecessor's) holds its base on every row, which its placeholder is, so it reads itself as it stands. Two
+ * copies that read each other have no such order and are refused.
+ */
+const orderedCopies = (copies: ReadonlyArray<Copy>): ReadonlyArray<Copy> => {
+	const by = new Map(copies.map((c) => [fillKey(c.source, columnOf(c.from)), c] as const))
+	const done = new Set<string>()
+	const placed: Array<Copy> = []
+	const visiting = new Set<string>()
+	const place = (c: Copy): void => {
+		const key = fillKey(c.source, columnOf(c.from))
+		if (done.has(key)) {
+			return
+		}
+		if (visiting.has(key)) {
+			return refuseBackfill(
+				c.family,
+				`the copies along its axes read each other, ${columnOf(c.from)} among them`
+			)
+		}
+		visiting.add(key)
+		const reads = by.get(fillKey(c.target, columnOf(c.to)))
+		if (reads !== undefined && reads !== c) {
+			place(reads)
+		}
+		visiting.delete(key)
+		done.add(key)
+		placed.push(c)
+	}
+	for (const c of copies) {
+		place(c)
+	}
+	return placed
+}
+
+/** The columns an expression reads, by name. */
+const readColumns = (e: Expr): ReadonlyArray<string> => {
+	const out: Array<string> = []
+	transformExpr(e, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind === "column") {
+				out.push(x.column)
+			}
+			return x
+		}
+	})
+	return out
+}
+
+/** The member columns a family's folds read: each value step's field and each selection's columns. */
+const foldReads = (installation: Installation, family: Family): ReadonlySet<string> => {
+	const member = relationOf(installation, family.member.name)
+	return new Set(
+		family.folds.flatMap((fold) => [
+			...(fold.step.kind === "value" ? [fold.step.field.column] : []),
+			...fold.where.flatMap((w) =>
+				readColumns(
+					lowerPersistent(installation.names, w, {
+						reads: {
+							kind: "row",
+							column: (ref) => member.fields.find((f) => f.name === ref.name)?.column
+						},
+						loc: backfillLoc
+					})
+				)
+			)
+		])
 	)
 }
 
 /**
  * The backfill of every family of the target whose columns this migration adds to a table that may hold rows
  * (Backfill), family by family in the law model's order: its member's UPDATE, then its owner's, which reads the
- * member's backfilled rows. A family whose columns are all new to tables that hold no row needs none: its placeholders
- * are the values an empty family holds.
+ * member's backfilled rows (a tree's one UPDATE, then its fold ends); then every copy this migration adds, in an order
+ * that reads each copy's target once it is drawn (orderedCopies). A family whose columns are all new to tables that hold
+ * no row needs none: its placeholders are the values an empty family holds.
  */
 export const backfillOf = (input: BackfillInput): Backfill => {
 	const { installation } = input
@@ -922,10 +1166,6 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 		])
 		const mine = new Set([...onMember].filter((c) => memberColumns.has(c)))
 		const theirs = new Set([...onOwner].filter((c) => ownerColumns.has(c)))
-		const copies = axisCopies(family).filter((c) => onMember.has(c) || onOwner.has(c))
-		if (isNonEmpty(copies)) {
-			return refuseBackfill(family, `the copies ${copies.join(", ")} along its axes`)
-		}
 		if (family.members.kind === "tree") {
 			const shape = family.members
 			const columns = [
@@ -934,7 +1174,10 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 				family.copy,
 				shape.start.column,
 				shape.end.column,
-				shape.parentStart
+				shape.parentStart,
+				...family.folds.flatMap((fold) =>
+					fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after), p.end.column])
+				)
 			]
 			const drawnHere = columns.filter((c) => onMember.has(c))
 			if (drawnHere.length === 0) {
@@ -943,10 +1186,11 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			if (drawnHere.length < columns.length) {
 				return refuseBackfill(family, "its drawn columns are partly stored already")
 			}
-			if (family.folds.length > 0) {
-				return refuseBackfill(family, "a fold over a tree, whose root its family leaves out")
-			}
 			updates.push(treeUpdate(input, family, shape, memberTable, onMember))
+			const ends = treeEndUpdate(family, memberTable)
+			if (ends !== undefined) {
+				updates.push(ends)
+			}
 			continue
 		}
 		if (mine.size === 0 && theirs.size === 0) {
@@ -961,6 +1205,25 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			updates.push(o)
 		}
 	}
+	const drawnCopies = installation.laws.families.flatMap((family) =>
+		copiesOf(installation, family).filter(
+			(c) =>
+				input.mayHoldRows(c.source) &&
+				(input.added.get(nameKey(c.source))?.columns ?? []).includes(columnOf(c.from))
+		)
+	)
+	const copied = new Set(drawnCopies.map((c) => fillKey(c.source, columnOf(c.from))))
+	for (const family of installation.laws.families) {
+		const member = tableOf(installation, family.member.name)
+		const read = [...foldReads(installation, family)].filter((c) => copied.has(fillKey(member, c)))
+		if (isNonEmpty(read)) {
+			return refuseBackfill(
+				family,
+				`a fold that steps over the copies ${read.join(", ")}, drawn after it`
+			)
+		}
+	}
+	updates.push(...orderedCopies(drawnCopies).map(copyUpdate))
 	const dropDefaults = [...input.added.values()].flatMap(
 		({ table, columns }): ReadonlyArray<SqlStatement> => {
 			const [first, ...rest] = columns

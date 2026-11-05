@@ -16,6 +16,140 @@ How to upgrade:
 
 ### Breaking changes
 
+#### Closed relations are erased into constants, a family is a law over the rows you write, a tree is an interval tiling, and every rename and drop is declared
+
+- **A roster's handles are smallint codes.** `closed(name, handles)` installs no enum. A closed id is a `smallint`
+  under the roster's domain, whose one CHECK reads the roster's names constant, an IMMUTABLE function returning its
+  handles as `name[]` in code order: `((names())[VALUE + 1] <> ''::name) IS TRUE`. Codes are given in declared order
+  and recorded in snapshot.json: a new handle takes the next code, a renamed one keeps its own, a removed one leaves a
+  hole no handle takes again, and a roster declared out of its codes' order is refused (`generate` at the stage
+  `codes`). The API still reads and writes names. Each role's view adds a decoded column `<field>_name` beside each
+  closed id; a roster among a role's entries has no view of its own. A closed id's claim in `grizzle.claims` holds its
+  handle's code.
+  - Codemod: `EnumClosed<N, H>` → `Roster<N, H>`, and `Closed` → `AnyClosed`; a psql reader of a closed-id column
+    reads `<field>_name` in a role's view; a direct writer writes the handle's code,
+    `array_position(<names constant>(), '<handle>') - 1`.
+- **`closed.relation(name, fields, key, rows)` is the one closed relation, and a roster's `.with(payload, facts)` is
+  gone.** Its rows are fixed when the schema compiles, its key is a required list of closed-id fields (a set lists every
+  field), and no two rows share a key, a type error for a literal list of them. It installs no table, enum or VALUES
+  template: each closed relation or side a rule or query reads is a content-addressed IMMUTABLE constant, a bit string
+  indexed by its key's codes in mixed radix, which PostgreSQL folds into each statement. Every rule that reads one from
+  an open row is a table CHECK on that row's table, named by its rule, and a query's membership test is one cell read.
+  `C.at(field, …key)` reads a payload field, NULL where no row holds the key, and `C.row(…prefix)` the set of the last
+  key field's completions, in a row check, a selection or a generated field. A rule over closed relations alone is
+  checked once, by PostgreSQL, at the start of the migration that installs them, as a DO block raising 23000 named by
+  the rule, when it is new or its closed rows changed. A containment from a closed relation into an open one is
+  refused.
+  - Codemod: `closed("K", hs).with(payload, facts)` → the roster `closed("K", hs)` beside
+    `closed.relation("KPayload", { k: closedId(K), ...payload }, ["k"], rows)`, one row per fact with its handle at
+    `k`; a row check that read the payload reads `KPayload.at("<field>", r.k)`.
+- **A set of handles is `bits(R)`.** A `bit(n)` column, one bit per code, under a bits domain whose CHECK,
+  `((VALUE & live()) = VALUE) IS TRUE`, admits only live handles, `live()` derived from the names constant. Its host
+  value is `Bits<typeof R>`, a frozen `ReadonlySet` of handles that `Bits.of(R, handles)` makes. `Compute.union`,
+  `.intersection`, `.difference`, `.cardinality`, `.subset` and `.disjoint` are its algebra, with no complement. A key
+  holds no set. A roster that grows converts its set columns to the wider domain in place, the new handles absent.
+  No codemod.
+- **Every field says how it is written.** `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type,
+  term) }))` declares STORED generated fields, `r` holding the written fields alone; `drawn(natural)` is a count, an
+  index or a tree's interval that grizzle draws; `accumulated(type, start)` is a fold's end or accumulator, or a copy
+  along a family's axis. An insert and a put take `Written<R>`, the fields the caller writes, never a generated, drawn
+  or accumulated one; a fact and a query's row hold every field. A primary key holds no set, generated or accumulated
+  field. No codemod.
+- **`capacity`, `within`, `weigh`, `ref` and `duration` are deleted, with the residual capacity family.** A count is a
+  drawn field of its owner, and its bounds are row checks:
+  - `fin(O, "n")` is the slots of O's drawn count; `ordered(on(F, g…, "at"), fin(O, "n"))` indexes each owner's
+    members by their drawn `at` exactly 0 … n − 1; `counted(on(F, g…), fin(O, "n"))` is each owner's n members, an
+    unordered set of rows one per member key, their index a hidden coordinate the proof counts by, never a
+    multiplicity.
+  - `fold(family, Monoid.m, step, end)` combines the members' step values into the owner's accumulated end fields,
+    over `Monoid.count`, `.sum` (an integer type or a numeric, never a float or money), `.or`, `.twos` and `.max`.
+    Every fold's running value is a drawn column grizzle fills and PostgreSQL proves,
+    `CHECK ((after = combine(before, x)) IS TRUE)` in exact arithmetic, and each starts at its monoid's identity. A
+    fold over a counted family names no running value: it would show the hidden order.
+  - A relation is a member of at most one ordered family or tree, and of any number of counted families, each with its
+    own hidden columns and foreign keys.
+  - Codemod (`n: drawn(natural)` added to the target, and `mutable(T)` where its rows' count changes after it is
+    inserted): `capacity(on(T, k…), { from: on(S, f…), within: within(0n, 1n) })` → `key(on(S, f…))`, or over a
+    selected source `key(on(select(S, φ), f…))`; at least one, a count in bounds, or a count against a field →
+    `counted(on(S, f…), fin(T, "n"))` and `check(T, (t) => …)` over `t.n`; `weigh("w")` →
+    `fold(family, Monoid.sum, on(S, f…, "w"), on(T, k…, "total"))` with `total: accumulated(type, 0)` on T, and the
+    bound a check over `total`; a count of a selection → `fold(family, Monoid.count, on(select(S, φ), f…), …)`; a
+    `duration` → a generated field `upper − lower`, then weighed; a program that switches over `Law["kind"]`
+    exhaustively drops `"capacity"`.
+- **`tree(on(T, "parent", "at"), fin(T, "children"), { root: r })` is a tree as an interval tiling.** T is an ordered
+  family over itself, every row but its self-parented root a member, with drawn `at`, `children`, `start` and `end`.
+  Seven native laws, T0 to T6 (the root copy, `UNIQUE (r, start)`, the one root at start 0, a first child at its
+  parent's start + 1, a next sibling at its predecessor's end, a last child closing its parent, non-empty intervals),
+  make each value of r one tree in pre-order: every row reachable, none on a cycle, and `[start, end)` exactly its
+  pre-order interval. A tree in order is one index scan by `start`, and a row's descendants are a range of `start`,
+  with no recursion. No codemod: a rank (`depth` and its `pred(depth)` containment) proves nothing the intervals don't.
+- **Rows first: a family is never a write shape.** A sequence's members (an ordered family's or a tree's) are nested
+  under their owner, in order, at its count field, each without its group and drawn fields; an insert of an ordered
+  member alone is a type error. A counted member is a row whose group key names its owner, inserted, put and deleted
+  like any row. A family's member is written from an array or a Stream, never a query or a query entry. A tree is
+  written whole, by inserting its root with the tree nested; a put or delete of a tree's row is refused. An immutable
+  owner's family is fixed when the owner is inserted: a delete of its member is refused before any SQL. Every change
+  to one owner's family is one edit, which grizzle refills from the first slot it touches, and an edit of a stored
+  group reads its stored values first: the apply sends two flights in its one transaction, the reads and then the
+  writes, and a 40001 at either is a `TransientFailure` grizzle never retries. A role that writes a family's member
+  holds column UPDATE on that family's drawn count and accumulated ends on the owner, and SELECT on what the read
+  reads.
+  - Codemod: a capacity's target and source written as two inserts stay two inserts for a counted family; an ordered
+    family's members move under their owner's insert, `insert(O, [{ …o, n: [m₁, m₂] }])`, each member without its
+    group or index.
+- **No residual law remains.** grizzle installs no law function and no constraint trigger, and the residual-law
+  engine, the `lawFunction` and `lawTrigger` snapshot objects and the law trigger names are deleted. `alternatives` is
+  its containments: one from each arm into its parent at its handle, and one from each handle's parent rows into its
+  arm, a generated column `CASE WHEN tag = h THEN id END` and a foreign key deferred to commit. Coverage from a
+  selected side is a native PERIOD foreign key over generated range columns, and coverage into a target with no
+  `WITHOUT OVERLAPS` key over its span is refused. A foreign key over spans, or an arm's, is no longer always
+  deferred: one is deferred when its target has a field it does not reference or it lies on a cycle, and a family's
+  axes as its proof needs (a counted predecessor and every last-slot key). SQLSTATE 23000 at COMMIT is gone.
+  - Codemod: a program that switches over `Law["kind"]` exhaustively drops `"alternatives"` and `"alternativesArm"`
+    and gains `"family"`, `"tree"` and `"fold"`; a match on `alternatives` or `alternativesArm` matches `contained` by
+    its `from` side.
+- **An outcome names its laws: `invariant-rejected` carries `laws: NonEmptyReadonlyArray<Law>`.** It is the one law
+  the failing constraint states, or, where one PostgreSQL object discharges several and its report does not say which
+  failed, each of them: a family's foreign key carries every containment merged into it, and one domain serves every
+  contract and pattern of one definition. The new law kinds are `family` (`order`, `member`, `slots`), `tree`
+  (`member`, `slots`, `root`) and `fold` (`family`, `monoid`, `step`, `end`).
+  - Codemod: `outcome.law` → `outcome.laws`, a match on one law → `outcome.laws.some((law) => …)`.
+- **A ChangeSet's facts of one relation are a set.** Identical facts are one fact, nested ones included; two of one
+  key that differ elsewhere are `invariant-rejected` on that key before any SQL, and a literal list of them is a type
+  error (exact up to 1,024 literal facts). An aggregate reads each row its rule matches once, by its key: every match
+  of a rule with an aggregate binds a whole key of its source, or the query is refused with the new CompileError
+  reason `FoldOverProjection`, naming the match and the key to bind. To aggregate distinct values, match a query of
+  them.
+  - Codemod: a rule that aggregates over a match binding no key binds the key (`v(Comment, "c").id` in the match), or
+    matches a query of the distinct values as its source.
+- **A contract's and a pattern's domain is named by its definition**, `__domain_<digest>` and `__text_<digest>`, so
+  identical definitions share one domain. No codemod.
+- **Every rename and drop is declared.** `grizzle generate` takes `--rename <old>=<new>` and `--drop <old>`, once per
+  name, each side a relation or roster (`Task`), a field (`Task.title`), a roster's handle (`Status#done`) or a login
+  (`@web`). A draft guesses no rename: a name the snapshot holds and the schema does not, which no declaration names,
+  is refused as the new CompileError reason `UndeclaredDrop`, naming it, and `check` refuses it the same way. A
+  generated, drawn or accumulated field, a derived relation and a role need no declaration. A renamed relation or field
+  is renamed in place, through an aside name, so swaps and chains are free; a renamed handle keeps its code; a renamed
+  login is its PostgreSQL role renamed in place, `ALTER ROLE ... RENAME TO`, keeping its OID, password and grants. A
+  declared drop is drafted live. The rename candidates, their `-- grizzle: rename candidate` markers, and every data
+  loss but a schema's first migration beside an abandoned schema are deleted; a holder set aside is a
+  `-- grizzle: confirm` group. `--schema` is required beside `--rename` or `--drop` where the configuration lists
+  several schemas.
+  - Codemod: a reviewer's chosen rename → `--rename <old>=<new>` on the `generate` that drafts it; an uncommented
+    drop → `--drop <old>`.
+- **A family added to stored rows is backfilled** in the migration that adds it, from SQL over those rows: each index
+  in member-key order, each count, each fold's running values and each tree's intervals, under placeholder defaults,
+  before its constraints are added `NOT VALID` and validated. A family whose values the stored rows alone don't give
+  is refused, naming it. No codemod.
+- **A role holds EXECUTE on every constant its statements call**, PostgreSQL checking EXECUTE as the invoker: the names
+  constants its domains and decoded columns read, and the closed constants its tables' CHECKs, generated fields and
+  queries read. USAGE covers roster and set domains. No codemod.
+- **Format and state:** snapshot.json changes: a roster records its codes, a closed relation leaves no theory record, a
+  law over closed relations alone is a migration law with its digest, the law functions and triggers are gone, and
+  every family's hidden columns, constraints and constants are new objects; meta.json records the folder's
+  declarations and no candidates; every fingerprint changes. A previous snapshot.json or meta.json is refused, never
+  read: re-create every database (step 3 above).
+
 #### A side is a partial projection: `select` takes a predicate, `key` takes a side, `pred` reads a `natural` count, and `mirrors` is two containments
 
 - **`select(R, (r) => φ)` is the one spelling of a selection.** φ is a row check's condition over R's own fields, any

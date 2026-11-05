@@ -1,12 +1,12 @@
 /**
  * The bit algebra of fin.md §16 on PostgreSQL 19rc1, differentially: PostgreSQL's `bit(n)` operators (`&`, `|`, `#`,
  * `~`, `bit_count`, `substring`), the set laws written with them (subset, disjointness, at least one, at most one), and
- * the saturating two-plane fold, against the host bitsets (packages/engine/src/codec/bits.ts) and a naive reference, a
- * `Set<number>` of positions.
+ * the saturating two-plane fold, against the host bitsets (packages/engine/src/codec/bits.ts) where the host has the
+ * operation, and a naive reference, a `Set<number>` of positions.
  *
  * Oracles: a second implementation twice over. Every operation the host has (and, or, the difference, the count, the
- * members, a cell read, the fold's step) must agree with PostgreSQL and with the reference; the two PostgreSQL has and
- * the host has not (`#`, `~`) agree with the reference; and each law PostgreSQL evaluates agrees with the law read off
+ * members, a cell read) must agree with PostgreSQL and with the reference; those PostgreSQL has and the host has not
+ * (`#`, `~`, the two-plane fold) agree with the reference; and each law PostgreSQL evaluates agrees with the law read off
  * the reference: A ⊆ B, A ∩ B = ∅, A ∩ K ≠ ∅, |A ∩ K| ≤ 1, and, through the twos plane, no member of K in two of the
  * folded sets. The fold is commutative, so both orders of the sets must give the same planes.
  *
@@ -31,8 +31,6 @@ import {
 	fromText,
 	members,
 	or,
-	planes,
-	step,
 	toText
 } from "#compiler/codec/bits.ts"
 import { indices } from "#compiler/core/array.ts"
@@ -159,15 +157,6 @@ const foldSql = (
 		]
 	)
 
-/** The host's planes of a fold of `sets`, in their order. */
-const hostFold = (width: number, sets: ReadonlyArray<ReadonlyArray<boolean>>) => {
-	const fold = planes(width)
-	for (const set of sets) {
-		step(fold, fromText(textOf(set)))
-	}
-	return { ones: toText(fold.ones), twos: toText(fold.twos) }
-}
-
 /** A width as a feature: one of the named widths, or a drawn one. */
 const widthFeature = (n: number): BitFeature =>
 	Option.match(
@@ -281,8 +270,6 @@ layer(Substrate.layer)("the bit algebra of fin.md §16 on PostgreSQL 19rc1", (it
 								const hostDiff = copy(fromText(textOf(c.a)))
 								andNot(hostDiff, fromText(textOf(c.b)))
 								const hostA = fromText(textOf(c.a))
-								const fold = hostFold(n, c.folded)
-								const foldBack = hostFold(n, Arr.reverse(c.folded))
 								const [
 									andPg,
 									orPg,
@@ -330,10 +317,7 @@ layer(Substrate.layer)("the bit algebra of fin.md §16 on PostgreSQL 19rc1", (it
 									["the host's count", count(hostA), reference.count],
 									["the host's members", members(hostA), reference.members],
 									["the host's subset law", count(hostDiff) === 0, reference.subset],
-									["the host's cell read", cell(hostA, c.cellIndex, c.cellWidth), reference.cell],
-									["the host's ones plane", fold.ones, reference.ones],
-									["the host's twos plane", fold.twos, reference.twos],
-									["the host's planes, the sets reversed", foldBack, fold]
+									["the host's cell read", cell(hostA, c.cellIndex, c.cellWidth), reference.cell]
 								]
 								for (const [what, actual, expected] of checks) {
 									if (!deepEquals(actual, expected)) {

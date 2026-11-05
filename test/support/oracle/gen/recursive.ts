@@ -18,6 +18,7 @@ import {
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { castOf } from "#compiler/scalar/compute/registry.ts"
 import { exactType } from "#compiler/scalar/compute/types.ts"
+import { foldInputOf, keyedFoldInput } from "#test/support/fixtures/ir/fold.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import {
 	bool,
@@ -1093,7 +1094,15 @@ class GraphQueryBuilder {
 	 * count over the distinct bound tuples `bound`, grouped by `keys` (only the bound tuple
 	 * contributes).
 	 */
-	groupOver(input: Built, keys: KeySet, bound: KeySet, countName: string): Built {
+	groupOver(drawn: Built, keys: KeySet, drawnBound: KeySet, countName: string): Built {
+		const keyed = keyedFoldInput(drawn.node, drawnBound)
+		/**
+		 * A bound tuple that holds no key of some fact the input reads would fold a projection, which the checker
+		 * refuses: the count then reads the projection's own set, the input projected onto the bound tuple matched whole,
+		 * as a caller counts distinct values by matching a query of them.
+		 */
+		const input = keyed === undefined ? this.distinctValues(drawn, drawnBound) : drawn
+		const fold = keyed ?? foldInputOf(input.node, drawnBound)
 		const heading = [
 			...Arr.map(keys, (k) => column(k, columnOf(input, k).type)),
 			column(countName, scalarOfSpec({ carrier: "int8" }))
@@ -1103,12 +1112,27 @@ class GraphQueryBuilder {
 			meta: conservativeMeta,
 			kind: "Group",
 			input: input.node,
-			bound: [...bound],
+			bound: fold,
 			keys: [...keys],
 			aggs: [{ name: countName, fn: "count", op: OpId("count"), args: [], filter: undefined }],
 			heading
 		})
 		return { node: id, heading }
+	}
+
+	/** `input` projected onto `columns`, the set of their distinct values, read through a region matching it whole. */
+	distinctValues(input: Built, columns: KeySet): Built {
+		const projected = this.rename(
+			input,
+			Arr.map(columns, (c) => [c, c] as const)
+		)
+		const vars = Arr.map(projected.heading, (c) => this.variable(c.name, c.type))
+		return this.region(vars, [
+			{
+				source: projected,
+				bind: Object.fromEntries(Arr.map(vars, (v) => [v.name, v] as const))
+			}
+		])
 	}
 
 	attach(

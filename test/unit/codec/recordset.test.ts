@@ -351,7 +351,9 @@ describe("relation normalization", () => {
 						(facts) =>
 							Effect.sync(() => {
 								const normal = succeeded(normalize(facts))
-								const marked = normalForm(heading)(normal.entries)
+								const marked = normalForm(heading)(
+									new Map(Arr.map(normal.entries, (e) => [e.identity, { fact: e.fact }] as const))
+								)
 								const written = succeeded(rows(marked))
 								assert.equal(written.facts, marked.facts)
 								assert.deepEqual(written.rows, succeeded(again(facts)).rows)

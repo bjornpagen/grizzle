@@ -57,7 +57,8 @@ import {
 import type {
 	DeploySnapshot,
 	SnapshotContent,
-	SnapshotTheory
+	SnapshotTheory,
+	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
 import { migrationChecks } from "#compiler/deploy/snapshot/violation.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
@@ -619,7 +620,11 @@ class Differ {
 					const { old, order } = at
 					const create = v.create
 					const key = nameKey(create.table)
-					const changes = fieldChangesOf(old.columns, create.columns)
+					const changes = redrawn(
+						fieldChangesOf(old.columns, create.columns),
+						writingsOf(this.input.previous.theory, create.table.name),
+						writingsOf(this.input.target.theory, create.table.name)
+					)
 					const fields = old.columns.map((b): readonly [string, ColumnFate] => {
 						const change = changes.get(b.name)
 						if (change === undefined) {
@@ -2472,6 +2477,39 @@ const fieldChangesOf = (
 		})
 	)
 }
+
+/** How each field of the stored relation installed as the table `table` is written, by column, as `theory` records it:
+ * none for a table no stored relation of it is installed as. */
+const writingsOf = (
+	theory: SnapshotTheory,
+	table: string
+): ReadonlyMap<string, SnapshotWriting> => {
+	const r = Object.values(theory.relations).find((x) => x.kind === "relation" && x.ident === table)
+	return new Map(r?.kind === "relation" ? r.fields.map((f) => [f.column, f.writing] as const) : [])
+}
+
+/** Whether a field is grizzle's to write: drawn from the nested arrays, or accumulated on the host. */
+const isDrawn = (w: SnapshotWriting | undefined): boolean =>
+	w === "drawn" || (typeof w === "object" && "accumulated" in w)
+
+/**
+ * The field changes of a table with each field its caller wrote that the target draws or accumulates rewritten
+ * (rows-first §6 as amended): its column is added again under its placeholder and backfilled, so the caller's values
+ * give way to the drawn ones. A drawn or accumulated field the target leaves to its caller keeps its column and its
+ * values, which are lawful, as the caller's data; its family's law columns and natives go with the family.
+ */
+const redrawn = (
+	changes: ReadonlyMap<string, FieldChange>,
+	before: ReadonlyMap<string, SnapshotWriting>,
+	after: ReadonlyMap<string, SnapshotWriting>
+): ReadonlyMap<string, FieldChange> =>
+	new Map(
+		[...changes].map(([column, change]): readonly [string, FieldChange] =>
+			before.get(column) === "caller" && isDrawn(after.get(column))
+				? [column, { kind: "rewritten" }]
+				: [column, change]
+		)
+	)
 
 /** A field's change in a table's changes (fieldChangesOf): every field both declarations hold has one. */
 const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): FieldChange => {

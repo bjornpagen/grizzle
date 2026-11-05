@@ -64,6 +64,7 @@ import {
 	type Identified,
 	type InputSetInput,
 	inputsOf,
+	type FoldInput,
 	type KeySet,
 	keptRowsOf,
 	type KindOver,
@@ -1371,7 +1372,7 @@ class Checker {
 			"an aggregate"
 		)
 		for (const c of new Set(read)) {
-			if (!node.bound.includes(c)) {
+			if (!node.bound.columns.includes(c)) {
 				this.report(path, `an aggregate reading columns of the bound tuple only, not ${c}`)
 			}
 		}
@@ -1395,9 +1396,9 @@ class Checker {
 
 	checkGroup(node: TableOf<"Group">, path: ReadonlyArray<string | number>, heading: Heading): void {
 		const input = this.headingOf(node.input)
-		this.requireColumns(path, input, node.bound, "a bound column")
+		this.requireColumns(path, input, node.bound.columns, "a bound column")
 		for (const k of node.keys) {
-			if (!node.bound.includes(k)) {
+			if (!node.bound.columns.includes(k)) {
 				this.report(path, `a group key within the bound tuple, not ${k}`)
 			}
 		}
@@ -1646,6 +1647,11 @@ const headingShape: S.Shape<Heading> = S.uniqueArray(
 )
 
 const keySetShape: S.Shape<KeySet> = S.uniqueStrings("key columns", S.nonEmptyString)
+/** A fold's bound tuple with the key of each matched fact it holds (ir/rel.ts FoldInput). */
+const foldInputShape: S.Shape<FoldInput> = S.struct({
+	columns: keySetShape,
+	keyed: S.array(S.struct({ occurrence: occurrenceIdShape, key: keySetShape }))
+})
 
 /**
  * The name brands a DAG admits (a Forbid node's law, an evidence premise's object), through the naming door's admitting
@@ -1980,7 +1986,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 		{
 			...common,
 			input: nodeIdShape,
-			bound: keySetShape,
+			bound: foldInputShape,
 			keys: keySetShape,
 			aggs: S.array(
 				S.tagged("fn", {

@@ -7,6 +7,7 @@ import {
 	type HostSchema,
 	type HostState,
 	type HostOp,
+	keyedSchema,
 	projection,
 	relationOf,
 	transition,
@@ -146,12 +147,17 @@ const rowViolations = (
 		return []
 	})
 
-/** What a direct writer's transaction of `ops` must do from the lawful `state`. */
+/**
+ * What a direct writer's transaction of `ops` must do from the lawful `state`. Every relation's primary key is one of
+ * the host's laws (keyedSchema), so an INSERT that repeats a stored fact exactly meets that key's law, as PostgreSQL's
+ * unique index refuses it.
+ */
 export const expectDirect = (
 	host: HostSchema,
 	state: HostState,
 	ops: ReadonlyArray<HostOp>
 ): Expected => {
+	keyedSchema(host)
 	let current = transition(
 		host,
 		state,

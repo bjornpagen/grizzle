@@ -495,10 +495,6 @@ const carriedColumn = (c: MemberColumn): HeadingColumn => ({
 const additionCarries = (c: MemberColumn): boolean =>
 	c.writing.kind === "caller" || c.writing.kind === "serial"
 
-/** The heading a deletion's facts carry: every field of the relation, a generated one too, since a fact is matched
- * with every field. */
-const factHeading = (member: MemberRelation): Heading => member.heading.map(carriedColumn)
-
 /** A member relation's classes, each the heading an addition's facts carry (`additionCarries`), by the serial fields of its target an addition may leave out (`draws`): an entry's serial head
  * fields its filter does not read (entry.ts entryDraws), a whole relation's every serial field. */
 const classesOf = (
@@ -1153,7 +1149,7 @@ const compile = (
 					refuseGeneratedUnique(relation, loc)
 				}
 				if (managed(relation.name) && !families.some((f) => isTreeOf(f, relation.name))) {
-					const heading = op === "delete" ? factHeading(written) : classes.complete
+					const heading = classes.complete
 					const act: SingleAct =
 						op === "insert" ? { op, serial: completeClass } : op === "put" ? { op } : { op }
 					const slot = singleInput(act, heading)
@@ -1175,7 +1171,10 @@ const compile = (
 					}
 					case "delete": {
 						const act = { op }
-						const facts = factHeading(written)
+						/** One relation, one fact heading (rule 0): a deletion's facts carry what an addition's do, its
+						 * written fields, so a fact inserted and deleted is one fact with one identity, which nets. A
+						 * generated field is a function of the written ones, so it decides no match. */
+						const facts = classes.complete
 						draft(act, facts, singleInput(act, facts), [])
 						for (const q of queries) {
 							draft(act, facts, undefined, [q.root])

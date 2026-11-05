@@ -5,7 +5,7 @@ import { array, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -16,7 +16,7 @@ import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/quer
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { assert, defined, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 
@@ -398,15 +398,27 @@ describe("head literal typing", () => {
 							const expected = expectedOf(arms)
 							c.noteAll(featuresOf(arms, expected))
 							/**
-							 * A union whose arms deliver `c` at types no rule combines is refused at its description: by the
-							 * builder's read of the union's arms (program/compile.ts queryInput), or else by the checker.
+							 * A union whose arms deliver `c` at carriers no rule combines is refused as its rules are added
+							 * (schema/record.ts carrierUnion), the builder's MalformedDescription; any other union the rule
+							 * refuses, by the checker.
 							 */
-							const built = queryInput(unionOf(arms))
-							if (expected.kind === "refused" && !built.ok) {
-								refused(built, "MalformedDescription", "the union the rule refuses is refused")
+							if (Result.isFailure(Result.try(() => unionOf(arms)))) {
+								assert.equal(
+									expected.kind,
+									"refused",
+									"the builder refuses only a union the rule refuses"
+								)
+								throwsRefused(
+									() => unionOf(arms),
+									"MalformedDescription",
+									"the union's arms' carriers"
+								)
 								return
 							}
-							const input = succeeded(built, "the builder admits every union the rule types")
+							const input = succeeded(
+								queryInput(unionOf(arms)),
+								"the builder admits every union whose arms' carriers it combines"
+							)
 							const result = checkQuery(checked, input.desc, checkOptions("head literals"))
 							if (expected.kind === "refused") {
 								refused(result, "MalformedDescription", "the union the rule refuses is refused")

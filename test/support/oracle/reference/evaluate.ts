@@ -1477,7 +1477,7 @@ export class Reference {
 
 	group(node: NodeOf<"Group">, scope: Bindings): ReadonlyArray<Row> {
 		const input = this.eval(node.input, scope)
-		const heading: Heading = Arr.map(node.bound, (name) =>
+		const heading: Heading = Arr.map(node.bound.columns, (name) =>
 			columnAt(input.heading, columnIndex(input.heading, name, node.id))
 		)
 		/** The contributions: the distinct complete bound tuples. */

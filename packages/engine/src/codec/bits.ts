@@ -21,8 +21,7 @@ const firstBit = 0x8000_0000
 
 /**
  * A PostgreSQL `bit(n)` or `bit varying` value on the host, as 32-bit words: a set over a roster's codes, or a
- * relation's constant of w-bit cells, for the constants a connection reads when it opens and the set-valued folds a
- * write computes before PostgreSQL proves them.
+ * relation's constant of w-bit cells, for the constants a connection reads when it opens.
  *
  * Position k, the string's (k + 1)th character and code k of a set, is bit 31 − (k mod 32) of word ⌊k / 32⌋. So each
  * word is the binary numeral its 32 positions spell, first position most significant, as PostgreSQL casts a 32-bit
@@ -51,8 +50,8 @@ const wordsFor = (length: number): Uint32Array => new Uint32Array(Math.ceil(leng
 declare const accumulatorBrand: unique symbol
 
 /**
- * A bit string a fold owns and changes in place, minted only by empty, copy and planes: the one kind of string `add`,
- * `or`, `and`, `andNot` and `step` write. A constant read from PostgreSQL is shared by every write that reads it, and is
+ * A bit string its holder owns and changes in place, minted only by empty and copy: the one kind of string `add`,
+ * `or`, `and` and `andNot` write. A constant read from PostgreSQL is shared by every write that reads it, and is
  * never one, so changing a shared constant is a type error.
  */
 export type Accumulator = BitString & { readonly [accumulatorBrand]: true }
@@ -99,21 +98,16 @@ export const has = (bits: BitString, k: number): boolean => {
 }
 
 /**
- * Sets position `k` to 1 in place, and returns 1 when it was 0 and 0 when it already held a 1, with no branch: the
- * changed bit, shifted down to the units. A fold that adds each member's code and sums what `add` returns keeps its
- * count, and a 0 is a member already present. `k` lies inside the string, as PostgreSQL's set_bit requires.
+ * Sets position `k` to 1 in place: a code joins a set, once whatever it held, so adding a member twice is adding it
+ * once. `k` lies inside the string, as PostgreSQL's set_bit requires.
  */
-export const add = (bits: Accumulator, k: number): number => {
+export const add = (bits: Accumulator, k: number): void => {
 	invariant(
 		k >= 0 && k < bits.length,
 		`a bit added at ${k} lies inside its string of ${bits.length} bits`
 	)
 	const j = wordOf(k)
-	const shift = k - j * wordBits
-	const was = wordAt(bits.words, j)
-	const now = was | (firstBit >>> shift)
-	bits.words[j] = now
-	return (was ^ now) >>> (wordBits - 1 - shift)
+	bits.words[j] = wordAt(bits.words, j) | (firstBit >>> (k - j * wordBits))
 }
 
 /** Two strings an operation combines have one length, as PostgreSQL's `&` and `|` refuse strings of two. */
@@ -242,31 +236,4 @@ export const cell = (bits: BitString, index: number, width: number): number => {
 		(wordAt(bits.words, j) << shift) |
 		((wordAt(bits.words, j + 1) >>> 1) >>> (wordBits - 1 - shift))
 	return (window >>> (wordBits - width)) | 0
-}
-
-/**
- * The two planes of a saturating fold of sets, whose step is (ones, twos) ⊕ x = (ones | x, twos | (ones & x)): it is
- * commutative and associative, so the order the members are folded in never shows. "At most one of K" is
- * `twos & K` empty.
- */
-export interface Planes {
-	/** The positions set in at least one string folded in. */
-	readonly ones: Accumulator
-	/** The positions set in at least two. */
-	readonly twos: Accumulator
-}
-
-/** The planes of `length` bits with nothing folded in. */
-export const planes = (length: number): Planes => ({ ones: empty(length), twos: empty(length) })
-
-/** Folds `x` into `fold`'s planes in place: each word's twos take the ones `x` repeats, then its ones take `x`. */
-export const step = (fold: Planes, x: BitString): void => {
-	sameLength(fold.ones, x)
-	const { ones, twos } = fold
-	for (let j = 0; j < ones.words.length; j++) {
-		const o = wordAt(ones.words, j)
-		const v = wordAt(x.words, j)
-		twos.words[j] = wordAt(twos.words, j) | (o & v)
-		ones.words[j] = o | v
-	}
 }
