@@ -520,7 +520,7 @@ export const normalizeChangeSet = (
 		for (const [category, slot] of slotOf) {
 			/** Distinct by identity over the slot heading and in identity order: the slot's normal facts, which its
 			 * encoders take as they are. */
-			const normal = slot.normalForm(sorted(sets[category].values()))
+			const normal = slot.normalForm(sets[category])
 			out.set(slot.slot, Object.freeze({ ...normal, slot, count: normal.facts.length }))
 		}
 	}
