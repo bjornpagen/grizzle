@@ -180,6 +180,13 @@ const literalsGen = (source: Source) => ({
 })
 
 /** The edge values every case carries besides its drawn ones. */
+/** A numeric literal spelled `text`, built as the AST holds it: lit.decimal spells only a value's parts. */
+const decimalSpelled = (text: string): Expr => ({
+	kind: "literal",
+	value: { kind: "decimal", value: text },
+	type: types.numeric
+})
+
 const edgeDecimals = [
 	"NaN",
 	"Infinity",
@@ -570,7 +577,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							assert.deepEqual(rows, texts)
 							const decimals = [...edgeDecimals, ...sample.decimals]
 							const printedDecimals = yield* values(
-								Arr.map(decimals, (d) => asText(lit.decimal(d, types.numeric)))
+								Arr.map(decimals, (d) => asText(decimalSpelled(d)))
 							)
 							assert.deepEqual(
 								printedDecimals,

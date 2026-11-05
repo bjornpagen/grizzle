@@ -14,14 +14,13 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
-import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import {
 	type PayrollProgramName,
 	payrollPrograms,
 	runPayrollCase
 } from "#test/pg/oracle/payroll/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { nonEmpty } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import {
@@ -52,7 +51,7 @@ const caseGen: Gen<CaseSketch> = (source) => ({
 	params: source.draw(array(paramSketchGen, { min: 1, max: 8 }))
 })
 
-/** Only the members whose parameter only a member's heading types refuse to compile standalone. */
+/** Every payroll program, each compiled standalone, optimized against conservative on generated states. */
 const run = Effect.gen(function* () {
 	const installed = yield* install(P.Reporting, {
 		ambient: ordinarySession,
@@ -60,14 +59,7 @@ const run = Effect.gen(function* () {
 		logins: [],
 		label: "real"
 	})
-	const { programs, refused } = payrollPrograms(installed)
-	assert.deepEqual(
-		Arr.map(refused, (r): readonly [string, CompileReasonTag] => [r.name, r.error.reason._tag]),
-		[
-			["payPaymentMember", "MalformedDescription"],
-			["reverseVoidingMember", "MalformedDescription"]
-		]
-	)
+	const programs = payrollPrograms(installed)
 	return yield* oracleCheck(
 		sketched(caseGen, (k) => ({ facts: resolvePayroll(k.facts), params: k.params })),
 		{

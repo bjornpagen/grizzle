@@ -69,7 +69,9 @@ interface PagedRowsSpec {
 export const pagedRows = (cx: LowerContext, spec: PagedRowsSpec): Select => {
 	const source = cx.wrap(spec.rel, spec.heading, spec.origin)
 	const where =
-		spec.seek === undefined ? undefined : seekPredicate(spec.slots.seekKeys(source.map), spec.seek)
+		spec.seek === undefined
+			? undefined
+			: seekPredicate(spec.slots.seekKeys(source.map), spec.seek, cx.names.vectorSchema)
 	const declared = spec.order(source.map)
 	const orderBy = spec.direction === "backward" ? reversedOrder(declared) : declared
 	return {
@@ -90,7 +92,7 @@ interface ProbeSpec {
 /** EXISTS (SELECT 1 FROM (D) AS r(...) [WHERE seek]). */
 export const probeTest = (cx: LowerContext, spec: ProbeSpec): Expr => {
 	const source = cx.wrap(spec.rel, spec.heading, spec.origin)
-	const where = seekPredicate(spec.slots.seekKeys(source.map), spec.seek)
+	const where = seekPredicate(spec.slots.seekKeys(source.map), spec.seek, cx.names.vectorSchema)
 	return exists(select(core([target(lit.int(1, types.integer))], [source.item], where)))
 }
 
@@ -140,10 +142,12 @@ export const retainedGroupRows = (cx: LowerContext, spec: RetainedGroupSpec): Se
 	const precedes = seekPredicate(
 		spec.comparators.map((c) => ({
 			direction: c.direction,
+			type: c.type,
 			column: comparatorColumn(all.map, c),
 			boundary: comparatorColumn(kept.map, c)
 		})),
-		{ side: spec.direction === "forward" ? "precedes" : "follows", inclusive: false }
+		{ side: spec.direction === "forward" ? "precedes" : "follows", inclusive: false },
+		cx.names.vectorSchema
 	)
 	const predecessors: Expr = {
 		kind: "subquery",

@@ -286,11 +286,16 @@ interface Table {
 	readonly name: string
 	readonly spans: ReadonlySet<string>
 	readonly few: ReadonlySet<string>
+	/** The columns of a vector type, which only the extension's qualified operators compare. */
+	readonly vectors: ReadonlySet<string>
 	readonly rows: number
 }
 
-/** What a column of a table holds, by its type under its domains: a span, few values, or many. */
-type ColumnHolds = ReadonlyArray<readonly [string, "span" | "few" | "many"]>
+/**
+ * What a column of a table holds, by its type under its domains: a span, few values, or many; and whether its type is
+ * the vector extension's.
+ */
+type ColumnHolds = ReadonlyArray<readonly [string, "span" | "few" | "many", "true" | "false"]>
 
 const columnHoldsOf = (rows: unknown): ColumnHolds => trusted<ColumnHolds>(rows)
 
@@ -301,16 +306,17 @@ const tableOf = (installed: Judged, relation: string) =>
 		const quoted = `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
 		const columns = yield* Effect.map(
 			admin.queryValues(
-				"WITH RECURSIVE base(name, oid, typtype, typbasetype) AS (" +
-					"SELECT a.attname, t.oid, t.typtype, t.typbasetype FROM pg_catalog.pg_attribute AS a " +
+				"WITH RECURSIVE base(name, oid, typtype, typbasetype, typnamespace) AS (" +
+					"SELECT a.attname, t.oid, t.typtype, t.typbasetype, t.typnamespace FROM pg_catalog.pg_attribute AS a " +
 					"JOIN pg_catalog.pg_type AS t ON t.oid = a.atttypid " +
 					"WHERE a.attrelid = $1::text::regclass AND a.attnum > 0 AND NOT a.attisdropped " +
-					"UNION ALL SELECT b.name, t.oid, t.typtype, t.typbasetype FROM base AS b " +
+					"UNION ALL SELECT b.name, t.oid, t.typtype, t.typbasetype, t.typnamespace FROM base AS b " +
 					"JOIN pg_catalog.pg_type AS t ON t.oid = b.typbasetype WHERE b.typtype = 'd'::\"char\") " +
 					"SELECT name::text, CASE WHEN typtype = 'r'::\"char\" THEN 'span' " +
-					"WHEN typtype = 'e'::\"char\" OR oid = 'pg_catalog.bool'::pg_catalog.regtype THEN 'few' ELSE 'many' END " +
+					"WHEN typtype = 'e'::\"char\" OR oid = 'pg_catalog.bool'::pg_catalog.regtype THEN 'few' ELSE 'many' END, " +
+					"(typnamespace = $2::text::pg_catalog.regnamespace)::text " +
 					"FROM base WHERE typtype <> 'd'::\"char\"",
-				[quoted]
+				[quoted, quoteIdent(installed.installation.names.vectorSchema)]
 			),
 			columnHoldsOf
 		)
@@ -327,6 +333,12 @@ const tableOf = (installed: Judged, relation: string) =>
 			name: q.name,
 			spans: holding("span"),
 			few: holding("few"),
+			vectors: new Set(
+				Arr.map(
+					Arr.filter(columns, ([, , vector]) => vector === "true"),
+					([name]) => name
+				)
+			),
 			rows
 		} satisfies Table
 	})
@@ -420,7 +432,7 @@ export const loadAtVolume = (
 /**
  * Loads every relation in order over the series 0 to `rows` - 1, in one SERIALIZABLE transaction as the owner, each row
  * a key already holds skipped, then VACUUM ANALYZEs each table, so its statistics and visibility map are a settled
- * table's.
+ * table's. A load of no field inserts rows of defaults only, a serial numbering each.
  */
 export const loadRows = (
 	installed: Judged,
@@ -433,15 +445,19 @@ export const loadRows = (
 			const q = installed.installation.names.relation(relation)
 			return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
 		}
+		const columns = (l: VolumeLoad): string =>
+			l.fields.length === 0
+				? ""
+				: ` (${Arr.join(
+						Arr.map(l.fields, ([field]) =>
+							quoteIdent(installed.installation.names.column(l.relation, field))
+						),
+						", "
+					)})`
 		const inserts = Arr.map(
 			loads,
 			(l) =>
-				`INSERT INTO ${table(l.relation)} (${Arr.join(
-					Arr.map(l.fields, ([field]) =>
-						quoteIdent(installed.installation.names.column(l.relation, field))
-					),
-					", "
-				)}) SELECT ${Arr.join(
+				`INSERT INTO ${table(l.relation)}${columns(l)} SELECT ${Arr.join(
 					Arr.map(l.fields, ([, sql]) => sql),
 					", "
 				)} FROM pg_catalog.generate_series(0, ${rows - 1}) AS s(g) ON CONFLICT DO NOTHING`
@@ -540,9 +556,17 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 				? assert.fail(`${label}: the sample has no value at ${at}`)
 				: quoteString(v)
 		}
+		/** `op` between two values of a key's column: the extension's qualified operator over a vector. */
+		const operator = (field: string, op: "=" | "<=" | ">="): string =>
+			table.vectors.has(installed.installation.names.column(request.relation, field))
+				? `OPERATOR(${quoteIdent(installed.installation.names.vectorSchema)}.${op})`
+				: op
 		/** Each of the first `count` keys equal to its sampled value. */
 		const equal = (count: number): ReadonlyArray<string> =>
-			Arr.map(keys.slice(0, count), (k, at) => `${column(k.field)} = ${value(at)}`)
+			Arr.map(
+				keys.slice(0, count),
+				(k, at) => `${column(k.field)} ${operator(k.field, "=")} ${value(at)}`
+			)
 		/**
 		 * A range probe's bounds on its last key: after an equality prefix, the half of the column's extent that holds
 		 * the sampled value, from its least value to its median or from its median to its greatest, so the prefix's
@@ -550,7 +574,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 		 * rechecks the column on them, an index taking the column first reads half, and the sampled row is among the
 		 * probe's; alone, the sampled value, so the probe reads a point of the column, not half of it.
 		 */
-		const rangeBounds = (at: number, c: string) =>
+		const rangeBounds = (at: number, c: string, le: string) =>
 			at === 0
 				? Effect.succeed({ lo: value(at), hi: value(at) })
 				: Effect.map(
@@ -559,8 +583,8 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 								`WITH m AS (SELECT (SELECT ${c} FROM ${table.quoted} ORDER BY ${c} LIMIT 1) AS lo, ` +
 									`(SELECT ${c} FROM ${table.quoted} ORDER BY ${c} OFFSET (SELECT count(*) / 2 FROM ${table.quoted}) LIMIT 1) AS mid, ` +
 									`(SELECT ${c} FROM ${table.quoted} ORDER BY ${c} DESC LIMIT 1) AS hi) ` +
-									`SELECT (CASE WHEN ${value(at)} <= mid THEN lo ELSE mid END)::text, ` +
-									`(CASE WHEN ${value(at)} <= mid THEN mid ELSE hi END)::text FROM m`,
+									`SELECT (CASE WHEN ${value(at)} ${le} mid THEN lo ELSE mid END)::text, ` +
+									`(CASE WHEN ${value(at)} ${le} mid THEN mid ELSE hi END)::text FROM m`,
 								[]
 							),
 							textsOf
@@ -584,8 +608,13 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 						return assert.fail(`${label}: a range request with no key`)
 					}
 					const c = column(bounded.field)
-					return Effect.map(rangeBounds(last, c), ({ lo, hi }) => ({
-						conditions: [...equal(last), `${c} >= ${lo}`, `${c} <= ${hi}`],
+					const le = operator(bounded.field, "<=")
+					return Effect.map(rangeBounds(last, c, le), ({ lo, hi }) => ({
+						conditions: [
+							...equal(last),
+							`${c} ${operator(bounded.field, ">=")} ${lo}`,
+							`${c} ${le} ${hi}`
+						],
 						tail: ""
 					}))
 				}
@@ -594,7 +623,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 						conditions: Arr.map(
 							keys,
 							(k, at) =>
-								`${column(k.field)} ${table.spans.has(installed.installation.names.column(request.relation, k.field)) ? "&&" : "="} ${value(at)}`
+								`${column(k.field)} ${table.spans.has(installed.installation.names.column(request.relation, k.field)) ? "&&" : operator(k.field, "=")} ${value(at)}`
 						),
 						tail: ""
 					})

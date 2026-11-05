@@ -14,7 +14,7 @@ import {
 import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { type InputFailure, hostInputs } from "#adapter/apply/run.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { type CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
@@ -265,6 +265,7 @@ export type WriteOracleFeature =
 	| "described member wider than its field"
 	| "a deletion described wider than its field"
 	| "outcome outside a domain"
+	| "outcome refused at bind"
 	| "put on an immutable relation"
 	| "a stated-one read-back with its parent present"
 	| "a stated-one read-back with its parent absent"
@@ -624,6 +625,32 @@ const countProblems = (
 	})
 }
 
+/**
+ * The problems of an outcome against a refusal at bind: EncodingFailure refinedValue at the slot of one of `params`, a
+ * scalar parameter's own slot or a field of a relation parameter's (`<param>.<field>`).
+ */
+const unboundProblems = (
+	params: ReadonlySet<string>,
+	outcome: Result.Result<unknown, unknown>
+): ReadonlyArray<string> => {
+	const failure = Result.isFailure(outcome) ? outcome.failure : undefined
+	const slot =
+		failure instanceof EncodingFailure &&
+		failure.reason._tag === "refinedValue" &&
+		failure.place._tag === "Slot"
+			? failure.place.name
+			: undefined
+	const refused =
+		slot !== undefined && Arr.some([...params], (p) => slot === p || Str.startsWith(`${p}.`)(slot))
+	return refused
+		? []
+		: [
+				`expected a refusal at bind, EncodingFailure refinedValue at one of ${Arr.join([...params], ", ")}, got ${
+					Result.isFailure(outcome) ? Formatter.format(outcome.failure) : "a bound change"
+				}`
+			]
+}
+
 /** The problems of one side's outcome and committed state against the expectation. */
 export const judgeWrite = (
 	group: WGroup,
@@ -648,6 +675,11 @@ export const judgeWrite = (
 				)
 			}
 		}
+	}
+	if (expected.kind === "unbound") {
+		appendAll(problems, unboundProblems(expected.params, outcome))
+		stateIs(expected.initial, "after a refusal at bind the initial state stays:", noRenaming)
+		return problems
 	}
 	if (expected.kind === "outsideDomain") {
 		const laws = Arr.join(
@@ -1044,6 +1076,8 @@ const printExpected = (expected: Expected): string => {
 				Arr.map(expected.refusals, (r) => r.law),
 				", "
 			)}`
+		case "unbound":
+			return `refused at bind, EncodingFailure refinedValue at one of ${Arr.join([...expected.params], ", ")}`
 	}
 }
 
@@ -1187,18 +1221,23 @@ export const runCase = (
 				problems.push(audited.failure)
 			}
 		}
-		const takes = yield* takesOf(entry.success, params).pipe(
-			Effect.mapError(
-				(e) => new CaseFailed({ report: `${header()}\nthe ChangeSet does not bind: ${e._tag}` })
-			)
-		)
-		for (const take of takes) {
+		const expected = expectChangeSet({ group, laws: t.laws }, facts, c, sequences)
+		const bound = yield* Effect.result(takesOf(entry.success, params))
+		if (expected.kind === "unbound") {
+			for (const p of unboundProblems(expected.params, bound)) {
+				problems.push(`the bind: ${p}`)
+			}
+		} else if (Result.isFailure(bound)) {
+			return yield* new CaseFailed({
+				report: `${header()}\nthe ChangeSet does not bind: ${bound.failure._tag}`
+			})
+		}
+		for (const take of Result.isSuccess(bound) ? bound.success : []) {
 			note(`take sent in its ${take} form`)
 		}
 		for (const realization of realizationsOf(program)) {
 			note(realization)
 		}
-		const expected = expectChangeSet({ group, laws: t.laws }, facts, c, sequences)
 		const outcomes: Array<Result.Result<WriteOutcome, unknown>> = []
 		/** Each side's expectation under its own draws (judgedExpectation), where it committed an applied change. */
 		const realized: Array<Expected> = []
@@ -1383,6 +1422,8 @@ export const runCase = (
 			}
 		} else if (expected.kind === "outsideDomain") {
 			note("outcome outside a domain")
+		} else if (expected.kind === "unbound") {
+			note("outcome refused at bind")
 		} else {
 			note("outcome invariant-rejected")
 			if (origin.kind === "planted" && origin.arm === "lagging repeat") {

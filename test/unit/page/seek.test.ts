@@ -16,6 +16,7 @@ import {
 	seekPredicate,
 	variantSeek
 } from "#compiler/lower/shapes/page/seek.ts"
+import { plainType } from "#compiler/scalar/compute/types.ts"
 import type { BinaryOperator, Expr } from "#compiler/sql/ast.ts"
 import { asc, col, desc, param, types } from "#compiler/sql/build.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
@@ -35,13 +36,17 @@ import { isList } from "#test/support/list.ts"
  * emits.
  */
 
-/** The seek keys of `dirs`: key i reads column r.ki against placeholder $(i + 1). */
+/** The seek keys of `dirs`: integer key i reads column r.ki against placeholder $(i + 1). */
 const keysOf = (dirs: ReadonlyArray<"asc" | "desc">): ReadonlyArray<SeekKey> =>
 	Arr.map(dirs, (direction, i) => ({
 		direction,
+		type: plainType("int4"),
 		column: col("r", `k${i}`),
 		boundary: param(i + 1, types.integer)
 	}))
+
+/** The extension schema a vector key's operators would name; no key here is a vector. */
+const vectorSchema = "vector_ext"
 
 /**
  * A direct evaluation of the predicate subset the seek emits: columns and placeholders over integers, the comparison
@@ -231,7 +236,7 @@ describe("the seek predicate", () => {
 					({ dirs, seek, m }, c) =>
 						Effect.sync(() => {
 							c.note(m === 0 ? "0 keys" : m === 1 ? "1 keys" : m === 2 ? "2 keys" : "3 keys")
-							const predicate = seekPredicate(keysOf(dirs), seek)
+							const predicate = seekPredicate(keysOf(dirs), seek, vectorSchema)
 							for (const t of tuples(m)) {
 								for (const bound of tuples(m)) {
 									const holds =
@@ -258,7 +263,7 @@ const anyOn = (
 	seek: Seek,
 	bound: ReadonlyArray<number>
 ): boolean => {
-	const predicate = seekPredicate(keysOf(dirs), seek)
+	const predicate = seekPredicate(keysOf(dirs), seek, vectorSchema)
 	return Arr.some(d, (t) => predicate === undefined || evaluate(predicate, t, bound) === true)
 }
 

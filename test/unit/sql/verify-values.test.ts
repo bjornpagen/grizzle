@@ -7,6 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { exactParts } from "#compiler/core/decimal.ts"
 import type { Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { col, lit, simpleSelect, table, target, types } from "#compiler/sql/build.ts"
 import { assert } from "#test/support/assert.ts"
@@ -23,6 +24,13 @@ import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
 const rules = (statement: SqlStatement): ReadonlyArray<string> =>
 	Arr.map(auditStatementViolations(statement), (v) => v.rule)
 const selecting = (e: Expr): SqlStatement => simpleSelect([target(e)], [], undefined)
+
+/** A numeric literal spelled `text` as drawn, built as the AST holds it: lit.decimal spells only a value's parts. */
+const decimalSpelled = (text: string): Expr => ({
+	kind: "literal",
+	value: { kind: "decimal", value: text },
+	type: types.numeric
+})
 
 /** Text of code units around the edges: ASCII, a two-byte letter, a pair, a lone high or low surrogate, NUL. */
 const unitsGen = (maxLength: number): Gen<string> =>
@@ -175,7 +183,7 @@ describe("the audit's checks of values, generated", () => {
 								regex("^-?[0-9]+(\\.[0-9]+)?$").test(text) ||
 								["NaN", "Infinity", "-Infinity"].includes(text)
 							assert.equal(
-								rules(selecting(lit.decimal(text, types.numeric))).includes("literal"),
+								rules(selecting(decimalSpelled(text))).includes("literal"),
 								!valid,
 								Formatter.format(text)
 							)
@@ -246,7 +254,7 @@ describe("the audit's checks of values, generated", () => {
 						const precisionValid = precision >= 1 && precision <= 1000
 						const scaleValid = scale === undefined || (scale >= -1000 && scale <= 1000)
 						assert.equal(
-							rules(selecting(lit.decimal("1", type))).includes("type"),
+							rules(selecting(lit.decimal(exactParts(1n, 0), type))).includes("type"),
 							!(precisionValid && scaleValid),
 							Formatter.format(type)
 						)

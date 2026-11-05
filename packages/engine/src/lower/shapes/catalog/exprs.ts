@@ -11,7 +11,7 @@ import {
 	type TypedLiteral,
 	withArgs
 } from "#compiler/ir/expr.ts"
-import type { PreconditionProof } from "#compiler/ir/proof.ts"
+import type { OperationProof } from "#compiler/ir/proof.ts"
 import type { Cell } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import type { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
@@ -294,7 +294,7 @@ export const castExpr = (
 	ed: CatalogEditor,
 	arg: ScalarExpr,
 	type: ScalarType,
-	proof: PreconditionProof | undefined
+	proof: OperationProof | undefined
 ): ScalarExpr => {
 	const from = baseOf(arg.type).carrier
 	const to = baseOf(type).carrier

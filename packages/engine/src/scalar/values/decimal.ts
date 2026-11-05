@@ -1,19 +1,17 @@
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
-import { hostRead } from "#compiler/core/host.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	type DecimalParts,
-	type DecimalValue,
-	decimalPayload,
-	decimalTag,
 	type FiniteParts,
 	finiteDigitsText,
 	infinityParts,
 	nanParts,
 	negativeInfinityParts
-} from "#compiler/ir/decimal.ts"
+} from "#compiler/core/decimal.ts"
+import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
+import { hostRead } from "#compiler/core/host.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import * as Result from "#compiler/core/result.ts"
+import { type DecimalValue, decimalPayload, decimalTag } from "#compiler/ir/decimal.ts"
 import type { NumericTypmod } from "#compiler/ir/scalar.ts"
 import { faultError } from "#compiler/scalar/values/fault.ts"
 

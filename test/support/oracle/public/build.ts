@@ -121,9 +121,10 @@ const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 
 /**
  * The descriptor a parameter is declared with: its field's own (a contract's, a typmod's) for a field declaration, and
- * for a base declaration a generated descriptor of its type's carrier, the roster's for a handle. A base parameter's
- * type is a compared column's base (compareParamType), and compatibility reads the carrier and roster, never a text's
- * refinement nor a numeric's typmod.
+ * for a base declaration a generated descriptor of its type's carrier, the roster's for a handle, and unbounded text
+ * for text. A base parameter's type is a compared column's base (compareParamType), and compatibility reads the carrier
+ * and roster, never a text's refinement nor a numeric's typmod; a parameter is checked against its declared type at
+ * bind, so a base declaration carries no refinement a compared value could violate.
  */
 const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 	if (param.declaration.kind === "field") {
@@ -148,7 +149,7 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 		case "bool":
 			return pg.boolean
 		case "text":
-			return text
+			return prose
 		case "uuid":
 			return uuid
 		case "enum":

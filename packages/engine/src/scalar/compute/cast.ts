@@ -141,6 +141,15 @@ type CastResult = Result.Result<CastValue, Undefined>
 type FloatCarrier = "float4" | "float8"
 
 /**
+ * The significant digits a float keeps cast to numeric: the %.*g precision of float4_numeric and float8_numeric,
+ * FLT_DIG and DBL_DIG.
+ */
+export const floatNumericDigits: { readonly [C in FloatCarrier]: number } = {
+	float4: 6,
+	float8: 15
+}
+
+/**
  * PostgreSQL's casts among the numeric family, money and the exact carriers, each defined on every value or where its
  * precondition holds (registry.ts castOverloads), the precondition a value fails named:
  *
@@ -220,7 +229,7 @@ const floatToDecimal = (x: number, width: FloatCarrier): Result.Result<Decimal, 
 	if (x === Number.NEGATIVE_INFINITY) {
 		return Result.ok(Decimal.negativeInfinity)
 	}
-	return gDecimal(x, width === "float4" ? 6 : 15)
+	return gDecimal(x, floatNumericDigits[width])
 }
 
 /** A count of minor units as money: defined where it fits the signed 64-bit count. */

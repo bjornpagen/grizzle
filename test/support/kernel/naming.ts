@@ -296,6 +296,8 @@ export interface Names extends LawNames {
 	readonly spanCheck: (relation: NamedRelation, field: string, check: SpanCheck) => ConstraintName
 	/** A vector column's cosine-domain CHECK. */
 	readonly normCheck: (relation: NamedRelation, field: string) => ConstraintName
+	/** A bare numeric column's 1,000-integer-digit bound CHECK. */
+	readonly numericBound: (relation: NamedRelation, field: string) => ConstraintName
 	/** The access index the index engine created over `keys` (field names, in key order). */
 	readonly accessIndex: (relation: NamedRelation, keys: ReadonlyArray<string>) => IndexName
 	/** A derived relation's inherited key's unique index. */
@@ -933,6 +935,12 @@ const namesOver = (installation: Installation, schema: string): Names => {
 				relation,
 				identifierOf(identity.normCheck(relation.name, field)),
 				`norm CHECK of the vector ${field}`
+			),
+		numericBound: (relation, field) =>
+			created(
+				relation,
+				identifierOf(identity.numericBound(relation.name, field)),
+				`bound CHECK of the numeric ${field}`
 			),
 		accessIndex: (relation, keys) => {
 			const engine = Arr.flatMap(installation.indexes, (i): ReadonlyArray<IndexName> =>

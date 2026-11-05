@@ -20,6 +20,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { baseOf, type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm, typedTermOf } from "#compiler/scalar/compute/term.ts"
+import { exactType } from "#compiler/scalar/compute/types.ts"
 import { pgDescriptors as descriptors } from "#compiler/scalar/pg.ts"
 import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
 import { assert } from "#test/support/assert.ts"
@@ -69,11 +70,11 @@ const throws = (f: () => unknown): CompileError => {
  * The typing rules of the builders (compute/builders.ts, compute/lower.ts), stated over operands of one base, bigint,
  * so no widening between integer types enters: two operands meet only when their nominal types are one (a contract its
  * own contract, a bare base its bare base, Compute.base the explicit way between them); LEAST, GREATEST and a
- * conditional keep that type, arithmetic yields its base, and a comparison is boolean. A conditional is typed by its
- * first branch, a term, never a JavaScript literal or a parameter; the other branch is a term or parameter of that type,
- * or a JavaScript literal of its base's host kind (integer a number, bigint a bigint, numeric a bigint). A span's
- * endpoints are typed by its endpoint descriptor, and its width by that descriptor's base; any other descriptor, or an
- * operand that is no span, is malformed.
+ * conditional keep that type, a sum is exact, an exact integer one digit past its base's 19, and a comparison is
+ * boolean. A conditional is typed by its first branch, a term, never a JavaScript literal or a parameter; the other
+ * branch is a term or parameter of that type, or a JavaScript literal of its base's host kind (integer a number, bigint
+ * a bigint, numeric a bigint). A span's endpoints are typed by its endpoint descriptor, and its width, the difference of
+ * its endpoints, is an exact integer; any other descriptor, or an operand that is no span, is malformed.
  */
 type Operand = "cents" | "other cents" | "epoch day" | "bigint" | "based cents"
 const operands: Arr.NonEmptyReadonlyArray<Operand> = [
@@ -312,7 +313,7 @@ describe("Compute builders", () => {
 									return
 								}
 								const expected =
-									sketch.op === "add" ? baseOf(nominalOf[a].scalar) : nominalOf[a].scalar
+									sketch.op === "add" ? exactType("exactInteger", 20) : nominalOf[a].scalar
 								assert.ok(
 									sameScalarType(built, expected),
 									`${sketch.op}(${a}, ${b}) typed ${typeLabel(built)}`
@@ -353,9 +354,11 @@ describe("Compute builders", () => {
 									return
 								}
 								c.note(`span ${sketch.fn} typed`)
-								const expected = sketch.fn === "width" ? baseOf(endpoint.scalar) : endpoint.scalar
+								const built = typeOf(build())
 								assert.ok(
-									sameScalarType(typeOf(build()), expected),
+									sketch.fn === "width"
+										? built.carrier === "exactInteger"
+										: sameScalarType(built, endpoint.scalar),
 									`${sketch.fn} over a span of ${sketch.endpoint}`
 								)
 								return

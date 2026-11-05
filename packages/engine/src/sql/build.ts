@@ -1,3 +1,4 @@
+import { type DecimalParts, partsText } from "#compiler/core/decimal.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
 	BinaryOperator,
@@ -193,9 +194,9 @@ export const lit = {
 		value: { kind: "int", value: BigInt(value) },
 		type
 	}),
-	decimal: (value: string, type: TypeRef): Expr => ({
+	decimal: (value: DecimalParts, type: TypeRef): Expr => ({
 		kind: "literal",
-		value: { kind: "decimal", value },
+		value: { kind: "decimal", value: partsText(value) },
 		type
 	}),
 	float: (value: number, type: TypeRef): Expr => ({

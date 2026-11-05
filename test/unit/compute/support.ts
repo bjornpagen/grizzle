@@ -1,19 +1,20 @@
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { type Column, convertColumn, handleColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDesc, LiteralDesc, Spelled } from "#compiler/ir/desc.ts"
 import { describeOp, type ExprSpec, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { BuilderScope, OpenExpr } from "#compiler/ir/open.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import { baseOf, type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
+import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { spellExpr } from "#compiler/query/build/walk.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
-import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
 	type LowerEnv,
 	type Lowered,
@@ -24,7 +25,6 @@ import {
 	type ParamRef
 } from "#compiler/scalar/compute/lower.ts"
 import { exprEmitter } from "#compiler/scalar/compute/lower.ts"
-import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { plainColumns } from "#compiler/scalar/compute/tables.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
@@ -34,17 +34,10 @@ import { spanColumn } from "#compiler/scalar/span.ts"
 import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import {
-	type BuiltinFunctionName,
-	builtinFunctionNames,
-	type Expr,
-	type TypeRef
-} from "#compiler/sql/ast.ts"
+import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 
 import {
-	binary,
 	builtinType,
-	call,
 	lit,
 	namedType,
 	numericType,
@@ -232,10 +225,13 @@ export const v = (name: string, of: TestField): ScalarTerm =>
 export const param = (name: string, of: TestField): ScalarTerm =>
 	scalarTerm({ kind: "param", name, type: of.desc }, of.scalar, of)
 
-/** An env's variables: each a column of node n0 or a literal value. */
+/**
+ * An env's variables: each a column of node n0, or a literal of a field's type, which lowerWith lowers as that literal
+ * (withLiterals), as Compute.literal makes one.
+ */
 export type LeafBinding =
 	| { readonly kind: "column"; readonly type: ScalarType }
-	| { readonly kind: "literal"; readonly type: ScalarType; readonly value: LiteralDesc }
+	| { readonly kind: "literal"; readonly field: TestField; readonly value: LiteralDesc }
 
 /** An emitter under fresh labels `x#n` (lower.ts exprEmitter), and every expression it emitted, in emission order. */
 export interface Sink {
@@ -297,6 +293,62 @@ const env = (
 	}
 }
 
+/** The name a leaf is bound by in an env's variables: a variable's, a field's, or VALUE's and a parent column's kind. */
+const leafName = (
+	desc:
+		| { readonly kind: "var"; readonly var: string }
+		| { readonly kind: "field"; readonly field: string }
+		| {
+				readonly kind: "value" | "parent"
+		  }
+): string => (desc.kind === "var" ? desc.var : desc.kind === "field" ? desc.field : desc.kind)
+
+/**
+ * `e` with each leaf `vars` binds to a literal replaced by that literal at its field's type, the node Compute.literal
+ * makes, so the lowering types it as a literal, its bounds and facts its own value's, as the product lowers every
+ * literal; a leaf bound to a column stays a leaf.
+ */
+const withLiterals = (e: ExprDesc, vars: Readonly<Record<string, LeafBinding>>): ExprDesc => {
+	const go = (x: ExprDesc): ExprDesc => withLiterals(x, vars)
+	switch (e.kind) {
+		case "var":
+		case "field":
+		case "value":
+		case "parent": {
+			const binding = vars[leafName(e)]
+			return binding?.kind === "literal"
+				? { kind: "literal", value: binding.value, type: binding.field.desc }
+				: e
+		}
+		case "param":
+		case "literal":
+			return e
+		case "compute":
+			return { ...e, args: Arr.map(e.args, go) }
+		case "cast":
+		case "base":
+		case "not":
+		case "in":
+			return { ...e, arg: go(e.arg) }
+		case "cond":
+			return { ...e, pred: go(e.pred), onTrue: go(e.onTrue), onFalse: go(e.onFalse) }
+		case "when":
+			return { ...e, subject: go(e.subject), proved: go(e.proved), otherwise: go(e.otherwise) }
+		case "compare":
+		case "allen":
+			return { ...e, left: go(e.left), right: go(e.right) }
+		case "between":
+			return { ...e, arg: go(e.arg), low: go(e.low), high: go(e.high) }
+		case "and":
+		case "or":
+			return { ...e, args: mapNonEmpty(e.args, go) }
+		case "pointIn":
+			return { ...e, point: go(e.point), span: go(e.span) }
+		case "absent":
+			return { ...e, bindings: Rec.map(e.bindings, go) }
+	}
+}
+
 const commonEnv = (
 	vars: Readonly<Record<string, LeafBinding>>,
 	emit: (spec: ExprSpec) => ScalarExpr,
@@ -305,30 +357,17 @@ const commonEnv = (
 	loc: SourceLoc("test", []),
 	emit,
 	leaf: (desc, loc) => {
-		const name = desc.kind === "var" ? desc.var : desc.kind === "field" ? desc.field : desc.kind
+		const name = leafName(desc)
 		const binding = vars[name]
-		if (binding === undefined) {
-			return Result.err(malformedDescription(loc, `a variable named ${name}`))
-		}
-		if (binding.kind === "column") {
-			return Result.ok({
-				kind: "column",
-				column: { node: NodeId("n0"), name },
-				args: [],
-				type: binding.type,
-				nonNull: "storage"
-			})
-		}
-		const typed = irLiteral(binding.value, binding.type)
-		if (!typed.ok) {
-			throw new Error(`${formatLoc(loc)}: ${typed.error}`)
+		if (binding?.kind !== "column") {
+			return Result.err(malformedDescription(loc, `a column named ${name}`))
 		}
 		return Result.ok({
-			kind: "literal",
-			value: typed.value.literal,
+			kind: "column",
+			column: { node: NodeId("n0"), name },
 			args: [],
 			type: binding.type,
-			nonNull: "literal"
+			nonNull: "storage"
 		})
 	},
 	params,
@@ -341,7 +380,10 @@ export interface LoweredTable {
 	readonly root: Lowered
 }
 
-/** Lowers a term or predicate whose variables are bound to literal values or columns. */
+/**
+ * Lowers a term or predicate whose variables are bound to literal values or columns: a literal binding as the literal
+ * itself (withLiterals), a column binding as a leaf.
+ */
 export const lowerWith = (
 	mode: LowerEnv["mode"],
 	expr: ExprDesc,
@@ -351,7 +393,8 @@ export const lowerWith = (
 ): Result.Result<LoweredTable, CompileError> => {
 	const s = sink()
 	const e = env(mode, vars, s.emit, params)
-	const lowered = predicate ? lowerPredicate(expr, e) : lowerTerm(expr, e)
+	const literal = withLiterals(expr, vars)
+	const lowered = predicate ? lowerPredicate(literal, e) : lowerTerm(literal, e)
 	return Result.map(lowered, (root) => ({ emitted: s.emitted, root }))
 }
 
@@ -414,6 +457,12 @@ const typeRef = (t: ScalarType, options: RenderOptions): TypeRef => {
 	if (t.carrier === "vector") {
 		return namedType(testTypeSchema(options.vectorSchema), "vector", [t.typmod.dims])
 	}
+	if (t.carrier === "exactInteger") {
+		return t.digits <= 18 ? builtinType("bigint") : types.numeric
+	}
+	if (t.carrier === "exactMoney") {
+		return types.numeric
+	}
 	const ref = builtinNames[t.carrier]
 	if (ref === undefined) {
 		throw new Error(`no SQL type for ${t.carrier}`)
@@ -474,14 +523,13 @@ const literalExpr = (literal: TypedLiteral, t: ScalarType, options: RenderOption
 	}
 }
 
-/** The PostgreSQL builtin a registry operator names. */
-const builtinName = (name: string): BuiltinFunctionName =>
-	Option.getOrThrowWith(
-		Arr.findFirst(builtinFunctionNames, (n) => n === name),
-		() => new Error(`no builtin function ${name}`)
-	)
-
-/** The SQL AST of the expression tree `root`. */
+/**
+ * The SQL of an expression tree, as grizzle sends it: a literal, a column, VALUE and a parameter in PostgreSQL's own
+ * spelling, and every operation and every cast into a float through the product's own forms (lower/conservative/expr:
+ * defaultOps, which chooses each overload's exact, IEEE or native form and its operand readings, and ieeeForm, a cast's
+ * guarded IEEE 754 rounding unless a kept proof makes it native), so the compute suites run on PostgreSQL the SQL a
+ * query holds, against the host evaluator.
+ */
 const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 	const go = (e: ScalarExpr): Expr => {
 		const args = Arr.map(e.args, go)
@@ -501,8 +549,16 @@ const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 				return { kind: "domainValue" }
 			case "param":
 				return { kind: "param", slot: positionalValue(1), type: typeRef(e.type, options) }
-			case "cast":
+			case "cast": {
+				const ieee = ieeeForm(e, args)
+				if (ieee?.kind === "guarded") {
+					if (ieee.sql === undefined) {
+						throw new Error(`no IEEE 754 rounding into ${baseOf(e.type).carrier}`)
+					}
+					return ieee.sql
+				}
 				return { kind: "cast", expr: arg(0), type: typeRef(e.type, options) }
+			}
 			case "domainCast":
 				return { kind: "cast", expr: arg(0), type: typeRef(e.type, options) }
 			case "cond":
@@ -513,61 +569,11 @@ const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 					operand: undefined
 				}
 			case "op": {
-				const op = nativeOp(e.op)
-				if (op === undefined) {
-					throw new Error(`no operator ${describeOp(e.op)}`)
+				const rendered = defaultOps(e, args)
+				if (rendered === undefined) {
+					throw new Error(`no form of ${describeOp(e.op)} over ${args.length} operand(s)`)
 				}
-				const sql = op.sql
-				switch (sql.kind) {
-					case "infix":
-						return sql.owner === "catalog"
-							? binary(sql.op, arg(0), arg(1))
-							: {
-									kind: "binary",
-									op: sql.op,
-									left: arg(0),
-									right: arg(1),
-									schema: options.vectorSchema
-								}
-					case "prefix":
-						return { kind: "negate", expr: arg(0) }
-					case "function":
-						return sql.owner === "catalog"
-							? call(builtinName(sql.name), args)
-							: {
-									kind: "call",
-									fn: {
-										kind: "qualified",
-										schema: options.vectorSchema,
-										name: sql.name
-									},
-									args,
-									star: false,
-									distinct: false,
-									orderBy: [],
-									withinGroup: [],
-									over: undefined
-								}
-					case "between":
-						return { kind: "between", expr: arg(0), low: arg(1), high: arg(2), not: false }
-					case "in":
-						return {
-							kind: "inList",
-							expr: arg(0),
-							list: [arg(1), ...args.slice(2)],
-							not: false
-						}
-					case "least":
-					case "greatest":
-						return { kind: sql.kind, args: [arg(0), ...args.slice(1)] }
-					case "and":
-					case "or":
-						return { kind: sql.kind, args: [arg(0), ...args.slice(1)] }
-					case "not":
-						return { kind: "not", expr: arg(0) }
-					case "cast":
-						return { kind: "cast", expr: arg(0), type: typeRef(e.type, options) }
-				}
+				return rendered
 			}
 		}
 	}

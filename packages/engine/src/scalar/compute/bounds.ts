@@ -46,6 +46,25 @@ export const minus = (x: Exact, y: Exact): Exact => addExact(x, negExact(y))
 /** 10^digits. */
 export const tenTo = (digits: number): Exact => ({ units: pow10(digits), scale: 0 })
 
+/**
+ * `x` rounded to `digits` significant digits, to nearest, ties to even: what float4_numeric and float8_numeric do to a
+ * float's value (%.*g). The rounding is monotone, so it takes every value of [low, high] into
+ * [significantRound(low, d), significantRound(high, d)].
+ */
+export const significantRound = (x: Exact, digits: number): Exact => {
+	const dropped = absExact(x).units.toString().length - digits
+	if (dropped <= 0) {
+		return x
+	}
+	const unit = pow10(dropped)
+	const magnitude = absExact(x).units
+	const kept = magnitude / unit
+	const twice = (magnitude % unit) * 2n
+	const up = twice > unit || (twice === unit && kept % 2n === 1n)
+	const rounded = up ? kept + 1n : kept
+	return exactOf(x.units < 0n ? -rounded : rounded, x.scale - dropped)
+}
+
 /** The integer digits of a finite exact value: the least d with |x| < 10^d. */
 export const digitsOfExact = (a: Exact): number => {
 	const whole = absExact(a).units / pow10(a.scale)
@@ -53,7 +72,7 @@ export const digitsOfExact = (a: Exact): number => {
 }
 
 /** The fractional digits a finite exact value is written with at least. */
-const scaleOfExact = (a: Exact): number => {
+export const scaleOfExact = (a: Exact): number => {
 	let units = absExact(a).units
 	let scale = a.scale
 	while (scale > 0 && units % 10n === 0n) {
@@ -342,13 +361,46 @@ export const pointOf = (b: Bounds): Exact | undefined => {
 		: undefined
 }
 
-/** The interval premise of operand `operand`: its closed finite ends, where it has them. */
+/** An interval premise: what it says of its operand, every value but NaN within [low, high], NaN where `nan`. */
+export type IntervalPremise = Extract<OperandPremise, { readonly kind: "interval" }>
+
+/**
+ * The interval premise of operand `operand`: the closed finite ends of its values other than NaN, where they have them
+ * (no infinity), and whether NaN is among them.
+ */
 export const intervalPremise = (
 	operand: OperandPremise["operand"],
 	b: Bounds
-): Extract<OperandPremise, { readonly kind: "interval" }> | undefined => {
-	const ends = finiteEnds(b)
-	return ends === undefined ? undefined : { kind: "interval", operand, low: ends[0], high: ends[1] }
+): IntervalPremise | undefined =>
+	b.low.kind === "at" && b.high.kind === "at"
+		? { kind: "interval", operand, low: b.low.value, high: b.high.value, nan: b.nan }
+		: undefined
+
+/** The interval premise of operand `operand` where its every value lies in it: no infinity and no NaN. */
+export const finitePremise = (
+	operand: OperandPremise["operand"],
+	b: Bounds
+): IntervalPremise | undefined => {
+	const p = intervalPremise(operand, b)
+	return p === undefined || p.nan ? undefined : p
+}
+
+/**
+ * Whether every value an interval premise admits has `fact`: none when NaN is among them; else finite always, never
+ * below zero from a low end at or above zero, never zero with zero outside it.
+ */
+export const premiseHas = (p: IntervalPremise, fact: Fact): boolean => {
+	if (p.nan) {
+		return false
+	}
+	switch (fact) {
+		case "finite":
+			return true
+		case "nonnegative":
+			return compareExact(p.low, zeroExact) >= 0
+		case "nonzero":
+			return compareExact(p.low, zeroExact) > 0 || compareExact(p.high, zeroExact) < 0
+	}
 }
 
 /** Whether [low, high] lies within [min, max]. */

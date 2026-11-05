@@ -1,7 +1,7 @@
 import { element, type Gen, proportional } from "@grizzle/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
-import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
+import { conversionOf, parseDeclaredName, parseSchemaName } from "#compiler/core/identity.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
@@ -241,6 +241,18 @@ export const dictionaryNameGen: Gen<Admitted> = weightedNameGen(
 	evenWeights,
 	nonEmpty(admittedNames, "an admitted name")
 )
+
+/**
+ * The admitted names a schema may take: every admitted name but those whose conversion starts with pg_, which
+ * PostgreSQL reserves for its own schemas and roles (core/identity.ts parseSchemaName).
+ */
+export const admittedSchemaNames: Arr.NonEmptyReadonlyArray<Admitted> = nonEmpty(
+	Arr.filter(admittedNames, (n) => parseSchemaName(n.declared).ok),
+	"an admitted schema name"
+)
+
+/** An admitted declared name a schema may take, drawn as dictionaryNameGen draws one. */
+export const schemaNameGen: Gen<Admitted> = weightedNameGen(evenWeights, admittedSchemaNames)
 
 /** The catalog-type names' conversions: the identifiers a relation shares with a PostgreSQL type or function. */
 export const catalogConversions: ReadonlySet<string> = new Set(

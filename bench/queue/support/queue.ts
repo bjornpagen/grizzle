@@ -19,6 +19,7 @@ import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import {
 	Digest,
 	Done,
+	epochBound,
 	QueueKind,
 	Leased,
 	Outcome,
@@ -307,7 +308,11 @@ export const claimOf = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => 
 					kind: x.kind,
 					slot: x.slot,
 					standing: "leased",
-					epoch: Compute.add(x.epoch, 1n),
+					epoch: Compute.when(
+						Compute.within(x.epoch, 0n, epochBound),
+						(epoch) => Compute.cast(Compute.add(epoch, 1n), pg.bigint),
+						x.epoch
+					),
 					enqueued: x.enqueued
 				})
 			})
@@ -347,7 +352,11 @@ export const claimOf = <St extends ReadonlyArray<Statement>>(s: QueueOf<St>) => 
 					key,
 					resource: r.param("resource", Leased.fields.resource),
 					seat,
-					epoch: Compute.add(epoch, 1n),
+					epoch: Compute.when(
+						Compute.within(epoch, 0n, epochBound),
+						(current) => Compute.cast(Compute.add(current, 1n), pg.bigint),
+						epoch
+					),
 					expires: r.param("expires", Leased.fields.expires)
 				})
 			})

@@ -32,8 +32,10 @@ import {
 	type FactSource,
 	factNames,
 	factsSorted,
+	type NativeProof,
 	type OperandIndex,
 	type OperandPremise,
+	type OperationProof,
 	type Precondition,
 	type PreconditionProof
 } from "#compiler/ir/proof.ts"
@@ -517,17 +519,26 @@ const factSourceShape: S.Shape<FactSource> = S.tagged("kind", {
 
 const premiseShape: S.Shape<OperandPremise> = S.tagged("kind", {
 	fact: S.struct({ operand: operandIndexShape, fact: factShape, source: factSourceShape }),
-	interval: S.struct({ operand: operandIndexShape, low: exactShape, high: exactShape }),
+	interval: S.struct({
+		operand: operandIndexShape,
+		low: exactShape,
+		high: exactShape,
+		nan: S.boolean
+	}),
 	checked: S.struct({
 		operand: operandIndexShape,
 		by: S.literalsShape(["literal", "parameter", "write"])
 	})
 })
 
-const proofShape: S.Shape<PreconditionProof> = S.struct({
+const preconditionProofShape: S.Shape<PreconditionProof> = S.struct({
 	precondition: preconditionShape,
 	premises: S.nonEmptyArray(premiseShape)
 })
+
+const proofShape: S.Shape<OperationProof> = S.nonEmptyArray(preconditionProofShape)
+
+const nativeShape: S.Shape<NativeProof> = S.struct({ premises: S.nonEmptyArray(premiseShape) })
 
 /**
  * Every expression has the common fields, its kind's inputs and non-null proof among them in that order, then its
@@ -562,21 +573,33 @@ export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 		role: S.literalsShape(["compare", "write", "emit"])
 	}),
 	literal: S.struct({ ...common(leaf, S.literalsShape(["literal"])), value: literalShape }),
-	op: S.normalized(
-		S.structStated(
-			{ ...common(S.array(exprIdShape), strict), op: opIdShape },
-			{ proof: proofShape },
-			{}
+	op: S.unionShape(
+		S.normalized(
+			S.structStated(
+				{ ...common(S.array(exprIdShape), strict), op: opIdShape },
+				{ proof: proofShape },
+				{}
+			),
+			({ proof, ...e }): CaseFields<TableExprOf<"op">> =>
+				proof === undefined ? { ...e, op: definedOp(e.op) } : { ...e, op: partialOp(e.op), proof }
 		),
-		({ proof, ...e }): CaseFields<TableExprOf<"op">> =>
-			proof === undefined ? { ...e, op: definedOp(e.op) } : { ...e, op: partialOp(e.op), proof }
+		S.normalized(
+			S.struct({ ...common(S.array(exprIdShape), strict), op: opIdShape, native: nativeShape }),
+			(e): CaseFields<TableExprOf<"op">> => ({ ...e, op: definedOp(e.op) })
+		)
 	),
-	cast: S.normalized(
-		S.structStated({ ...common(operand, strict), cast: opIdShape }, { proof: proofShape }, {}),
-		({ proof, ...e }): CaseFields<TableExprOf<"cast">> =>
-			proof === undefined
-				? { ...e, cast: definedOp(e.cast) }
-				: { ...e, cast: partialOp(e.cast), proof }
+	cast: S.unionShape(
+		S.normalized(
+			S.structStated({ ...common(operand, strict), cast: opIdShape }, { proof: proofShape }, {}),
+			({ proof, ...e }): CaseFields<TableExprOf<"cast">> =>
+				proof === undefined
+					? { ...e, cast: definedOp(e.cast) }
+					: { ...e, cast: partialOp(e.cast), proof }
+		),
+		S.normalized(
+			S.struct({ ...common(operand, strict), cast: opIdShape, native: nativeShape }),
+			(e): CaseFields<TableExprOf<"cast">> => ({ ...e, cast: definedOp(e.cast) })
+		)
 	),
 	domainCast: S.struct({ ...common(operand, strict), proof: proofShape }),
 	cond: S.struct(common(S.tripleShape(exprIdShape), S.literalsShape(["cond"])))

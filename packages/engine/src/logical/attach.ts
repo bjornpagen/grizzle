@@ -19,7 +19,7 @@ import {
 } from "#compiler/ir/rel.ts"
 
 import {
-	fixedValue,
+	fixedNames,
 	type Props,
 	type PropsReading,
 	type Provenance,
@@ -123,8 +123,9 @@ const scanSelects = (
 	if (binding === undefined) {
 		return false
 	}
-	const f = fixedValue(found.region, binding.var.name)
-	return f?.kind === "literal" && f.key === want
+	return (fixedNames(found.region, binding.var.name) ?? []).some(
+		(v) => v.name.kind === "literal" && v.name.key === want
+	)
 }
 
 /**

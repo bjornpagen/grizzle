@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { ExprId } from "#compiler/core/ids.ts"
 import { describeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
@@ -15,10 +15,22 @@ import { T } from "#test/unit/lower/conservative/fixtures.ts"
  *
  * Every entry of the default operator table names a real overload: an operator form's identity is the implementing
  * function (pg_operator.oprcode) of a builtin operator spelled with the form's symbol, unary for negation. Every
- * function the default vocabulary lowers is a registry entry whose OpId is its regprocedure signature, and the call it
- * emits names that function. That every literal kind reaches PostgreSQL exactly is the generated oracle suites': their
+ * function the default vocabulary lowers is a registry entry whose OpId is its regprocedure signature, an exact
+ * carrier's own overload prefixing the numeric signature that implements it, and the call it emits names that function. That every literal kind reaches PostgreSQL exactly is the generated oracle suites': their
  * compared and projected literals and closed payloads over every palette type, against the reference.
  */
+
+/** The namespaces of the exact carriers' own overloads, whose OpIds prefix the numeric signature that implements them. */
+const exactNamespaces = ["exact:", "exactMoney:"] as const
+
+/** The regprocedure signature an entry's OpId lists: the id itself, or, for an exact carrier's overload, the one it prefixes. */
+const listedSignature = (id: NativeOp["id"]): string => {
+	const text = typeof id === "string" ? id : id.code
+	return Option.match(
+		Arr.findFirst(exactNamespaces, (n) => Str.startsWith(n)(text)),
+		{ onNone: () => text, onSome: (n) => Str.slice(n.length)(text) }
+	)
+}
 
 /**
  * The op node of `native` that defaultOps lowers: it reads the overload; the rest makes a well-formed scalar
@@ -39,10 +51,12 @@ const opExpr = (native: NativeOp): ScalarExpr & { readonly kind: "op" } => {
 		? {
 				...common,
 				op: native.id,
-				proof: {
-					precondition: { kind: "nonzero", operand: 1 },
-					premises: [{ kind: "checked", operand: 1, by: "literal" }]
-				}
+				proof: [
+					{
+						precondition: { kind: "nonzero", operand: 1 },
+						premises: [{ kind: "checked", operand: 1, by: "literal" }]
+					}
+				]
 			}
 		: { ...common, op: native.id }
 }
@@ -88,7 +102,7 @@ layer(Substrate.layer)("the conservative vocabulary on PostgreSQL 19", (it) => {
 				const name = describeOp(native.id)
 				assert.ok(lowered.kind === "call", name)
 				/** A range-polymorphic function's identity is its signature at a range carrier. */
-				const signature = typeof native.id === "string" ? native.id : native.id.code
+				const signature = listedSignature(native.id)
 				const rows = yield* admin.queryValues(
 					"SELECT p.proname::text FROM pg_catalog.pg_proc AS p WHERE p.oid = pg_catalog.to_regprocedure($1::text) AND p.pronamespace = 'pg_catalog'::regnamespace",
 					[signature]

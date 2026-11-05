@@ -131,6 +131,12 @@ export interface TextBreak {
 	readonly variants: (text: string) => ReadonlyArray<string>
 }
 
+/** Whether a CTE's column list names its query's outputs as PostgreSQL already does, so dropping it renames none. */
+const restatesOutputs = (
+	columns: ReadonlyArray<string>,
+	outputs: ReadonlyArray<string | undefined>
+): boolean => columns.length === outputs.length && Arr.every(columns, (c, k) => outputs[k] === c)
+
 /** Names no statement grizzle builds defines. */
 const freshRelation = "r9001"
 const freshRelation2 = "r9002"
@@ -719,7 +725,7 @@ const requiredBreakTable = breakTable([
 				}
 				const body = item.query.body
 				const [first, ...rest] = body.targets
-				if (first.alias === undefined) {
+				if (first?.alias === undefined) {
 					return []
 				}
 				return Arr.map(
@@ -775,7 +781,7 @@ const requiredBreakTable = breakTable([
 		)
 	},
 	{
-		name: "a query CTE without its column list",
+		name: "a query CTE without the column list that restates its outputs' names",
 		rule: "columnList",
 		holes: {
 			...noHoles,
@@ -785,7 +791,8 @@ const requiredBreakTable = breakTable([
 						cte.query.kind !== "select" ||
 						cte.columns.length === 0 ||
 						isUnitRead(cte.query) ||
-						q.with === undefined
+						q.with === undefined ||
+						!restatesOutputs(cte.columns, bodyPositionNames(cte.query.body))
 					) {
 						return []
 					}
@@ -2095,7 +2102,11 @@ export const textBreaks: Arr.NonEmptyReadonlyArray<TextBreak> = [
 			const shape = textShape(tokens)
 			const depths = depthsAfter(tokens)
 			return Arr.flatMap(tokens, (t, i) => {
-				if (t.kind !== "quotedIdent" || isPunct(tokens[i + 1], ".")) {
+				if (
+					t.kind !== "quotedIdent" ||
+					isPunct(tokens[i + 1], ".") ||
+					isPunct(tokens[i + 1], "(")
+				) {
 					return []
 				}
 				const depth = depths[i] ?? 0

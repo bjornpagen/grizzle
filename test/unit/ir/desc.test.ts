@@ -1463,7 +1463,14 @@ describe("Descriptions", () => {
 		bigint(-(2n ** 64n), 2n ** 64n),
 		map(
 			(source) => [source.draw(bigint(-(10n ** 20n), 10n ** 20n)), source.draw(int(0, 6))] as const,
-			([digits, scale]) => {
+			([units, drawnScale]) => {
+				/** The value's one text: the coefficient and scale with every trailing fractional zero dropped. */
+				let digits = units
+				let scale = drawnScale
+				while (scale > 0 && digits % 10n === 0n) {
+					digits /= 10n
+					scale--
+				}
 				const sign = digits < 0n ? "-" : ""
 				const abs = pipe((digits < 0n ? -digits : digits).toString(), Str.padStart(scale + 1, "0"))
 				return dec(
@@ -1761,7 +1768,7 @@ describe("Descriptions", () => {
 							assert.deepEqual<ExprDesc>(unit, {
 								kind: "literal",
 								value: s.kind === "and",
-								type: undefined
+								type: { kind: "pg", type: "boolean" }
 							})
 							const [written, meant] = emptied(s, unit, succeeded(decodeDesc("expr", s.beside)))
 							assert.deepEqual<ExprDesc>(succeeded(decodeDesc("expr", written)), meant)

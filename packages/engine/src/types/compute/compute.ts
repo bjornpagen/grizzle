@@ -13,6 +13,7 @@ import type {
 	RemainderSql,
 	SignedSql
 } from "#compiler/scalar/compute/tables.ts"
+import type { guarded } from "#compiler/scalar/compute/term.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -24,6 +25,7 @@ import type {
 	Guard,
 	Holds,
 	Literal,
+	OfFamily,
 	Operand,
 	Proves,
 	Requires,
@@ -132,9 +134,11 @@ type Compared<A, B> = Predicate<P<A> & P<B>, ComputedOrigin<O<A> | O<B>>>
  *
  * The operand families are constraints on the operand's SQL type, so a type error points at the mistaken operand:
  * arithmetic over booleans, text, uuids, enums, spans and vectors; money products, remainders, negations and absolute
- * values; % over a float; power and sqrt over an integer type. The first operand of an operation is a term, never a
- * parameter or a JavaScript value (FirstTerm): the checker types those from the term they meet. Each first operand
- * admits a JavaScript value beside its terms only to refuse it by that name.
+ * values; % over a float; power and sqrt over an integer type. A result read off the operand's SQL type is read at the
+ * first operand's (OfFamily), and is never where the family refuses it, so the refusal is the call's one diagnostic.
+ * The first operand of an operation is a term, never a parameter or a JavaScript value (FirstTerm): the checker
+ * types those from the term they meet. Each first operand admits a JavaScript value beside its terms only to refuse it
+ * by that name.
  *
  * test/unit/compute pins the runtime behavior each signature promises, test/types/compute and test/types/skeleton the
  * signatures.
@@ -153,7 +157,7 @@ export interface ComputeApi {
 	/** Drops a contract to its base explicitly: the plain value of its SQL type, with every fact it states. */
 	base<A extends TermBase | FirstValue, X, PA, OA, S extends PlainSql, FX extends Facts>(
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, S> & Proving<FX>
-	): Term<PlainHost[S], PA, ComputedOrigin<OA>, S, PlainHost[S], FX>
+	): OfFamily<A, PlainSql, Term<PlainHost[S], PA, ComputedOrigin<OA>, S, PlainHost[S], FX>>
 	/**
 	 * Re-enters a contract, or converts, through a cast PostgreSQL checks; a violation is a typed execution failure.
 	 * The numeric family and money convert among themselves where PostgreSQL has a cast; any other base
@@ -189,19 +193,52 @@ export interface ComputeApi {
 	 * Arithmetic on contract values yields the base type. Integer and money arithmetic is exact: an exact integer,
 	 * delivered as bigint, and exact money, which never overflow; float arithmetic is IEEE 754.
 	 */
-	add<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql, B extends Operand<X, S>>(
+	add<
+		A extends TermBase | FirstValue,
+		X,
+		PA,
+		OA,
+		S extends NumericSql,
+		const B extends Operand<X, S>
+	>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>,
 		b: B
-	): Term<PlainHost[ArithmeticSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, ArithmeticSql[S]>
-	sub<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql, B extends Operand<X, S>>(
+	): OfFamily<
+		A,
+		NumericSql,
+		Term<PlainHost[ArithmeticSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, ArithmeticSql[S]>
+	>
+	sub<
+		A extends TermBase | FirstValue,
+		X,
+		PA,
+		OA,
+		S extends NumericSql,
+		const B extends Operand<X, S>
+	>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>,
 		b: B
-	): Term<PlainHost[ArithmeticSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, ArithmeticSql[S]>
+	): OfFamily<
+		A,
+		NumericSql,
+		Term<PlainHost[ArithmeticSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, ArithmeticSql[S]>
+	>
 	/** Money has no product. */
-	mul<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql, B extends Operand<X, S>>(
+	mul<
+		A extends TermBase | FirstValue,
+		X,
+		PA,
+		OA,
+		S extends SignedSql,
+		const B extends Operand<X, S>
+	>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>,
 		b: B
-	): Term<PlainHost[ArithmeticSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, ArithmeticSql[S]>
+	): OfFamily<
+		A,
+		SignedSql,
+		Term<PlainHost[ArithmeticSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, ArithmeticSql[S]>
+	>
 	/**
 	 * Integer division truncates over the exact integers; money / money is double precision. The divisor is proved
 	 * nonzero, except a float's, whose quotient by zero IEEE 754 defines (±Infinity, or NaN over zero).
@@ -216,7 +253,11 @@ export interface ComputeApi {
 	>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>,
 		b: B & Divisor<S, B>
-	): Term<PlainHost[QuotientSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, QuotientSql[S]>
+	): OfFamily<
+		A,
+		NumericSql,
+		Term<PlainHost[QuotientSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, QuotientSql[S]>
+	>
 	/** PostgreSQL has no float or money %; the divisor is proved nonzero. */
 	mod<
 		A extends TermBase | FirstValue,
@@ -228,10 +269,18 @@ export interface ComputeApi {
 	>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>,
 		b: B & Divisor<S, B>
-	): Term<PlainHost[RemainderSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, RemainderSql[S]>
+	): OfFamily<
+		A,
+		IntegralSql,
+		Term<PlainHost[RemainderSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, RemainderSql[S]>
+	>
 	neg<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
-	): Term<PlainHost[ArithmeticSql[S]], PA, ComputedOrigin<OA>, ArithmeticSql[S]>
+	): OfFamily<
+		A,
+		SignedSql,
+		Term<PlainHost[ArithmeticSql[S]], PA, ComputedOrigin<OA>, ArithmeticSql[S]>
+	>
 	quot<A extends TermBase | FirstValue, X, PA, OA, const B extends Operand<X, "numeric">>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "numeric">,
 		b: B & Divisor<"numeric", B>
@@ -242,11 +291,15 @@ export interface ComputeApi {
 	): Term<Decimal, PA & P<B>, ComputedOrigin<OA | O<B>>, "numeric">
 	abs<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
-	): Term<PlainHost[ArithmeticSql[S]], PA, ComputedOrigin<OA>, ArithmeticSql[S]>
+	): OfFamily<
+		A,
+		SignedSql,
+		Term<PlainHost[ArithmeticSql[S]], PA, ComputedOrigin<OA>, ArithmeticSql[S]>
+	>
 	/** sign returns the operand's type, composed over the integer types and real (scalar/compute/registry.ts). */
 	sign<A extends TermBase | FirstValue, X, PA, OA, S extends SignedSql>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
-	): Term<PlainHost[S], PA, ComputedOrigin<OA>, S>
+	): OfFamily<A, SignedSql, Term<PlainHost[S], PA, ComputedOrigin<OA>, S>>
 	/** round, trunc, ceil, and floor are numeric only; there is no exp, ln, or log. */
 	round<A extends TermBase | FirstValue, X, PA, OA>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "numeric">,
@@ -266,11 +319,19 @@ export interface ComputeApi {
 	gcd<A extends TermBase | FirstValue, X, PA, OA, S extends IntegralSql, B extends Meets<X, S>>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>,
 		b: B
-	): Term<PlainHost[DivisorSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, DivisorSql[S]>
+	): OfFamily<
+		A,
+		IntegralSql,
+		Term<PlainHost[DivisorSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, DivisorSql[S]>
+	>
 	lcm<A extends TermBase | FirstValue, X, PA, OA, S extends IntegralSql, B extends Meets<X, S>>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, S>,
 		b: B
-	): Term<PlainHost[DivisorSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, DivisorSql[S]>
+	): OfFamily<
+		A,
+		IntegralSql,
+		Term<PlainHost[DivisorSql[S]], PA & P<B>, ComputedOrigin<OA | O<B>>, DivisorSql[S]>
+	>
 	/**
 	 * Numeric and double precision. The base is proved nonnegative, and nonzero or the exponent nonnegative; that the
 	 * result stays in range rests on the operands' magnitudes, which compilation proves or refuses as PartialOperation.
@@ -292,7 +353,7 @@ export interface ComputeApi {
 			Literal<LA> &
 			PowerBase<FA, LA, B>,
 		b: B
-	): Term<PlainHost[S], PA & P<B>, ComputedOrigin<OA | O<B>>, S>
+	): OfFamily<A, PowerSql, Term<PlainHost[S], PA & P<B>, ComputedOrigin<OA | O<B>>, S>>
 	/** Numeric's radicand is proved nonnegative; double precision's is IEEE 754's, NaN below zero. */
 	sqrt<A extends TermBase | FirstValue, X, PA, OA, S extends PowerSql, FA extends Facts, LA>(
 		a: A &
@@ -304,7 +365,7 @@ export interface ComputeApi {
 				[S] extends ["numeric"] ? Holds<FA, LA, "nonnegative"> : true,
 				"a radicand proved nonnegative: guard it with Compute.when(Compute.nonnegative(x), (x) => …, otherwise)"
 			>
-	): Term<PlainHost[S], PA, ComputedOrigin<OA>, S>
+	): OfFamily<A, PowerSql, Term<PlainHost[S], PA, ComputedOrigin<OA>, S>>
 	/**
 	 * LEAST and GREATEST return an operand unchanged, so they keep the first operand's type, contract and roster
 	 * included, and deliver any operand's values; every other operand is a term that meets that type.
@@ -421,7 +482,7 @@ export interface ComputeApi {
 		S extends SqlTag,
 		V,
 		L,
-		Otherwise extends Operand<X, S, L>
+		const Otherwise extends Operand<X, S, L>
 	>(
 		p: C & FirstTerm<C>,
 		then: A & FirstTerm<A> & Term<X, PT, OT, S, V, Facts, L>,
@@ -440,27 +501,26 @@ export interface ComputeApi {
 	 * function of the guard's subject, which it receives with the guard's facts proved, so a partial operation over it
 	 * type-checks inside the branch and nowhere else; the otherwise branch, a term that meets the branch's type or a
 	 * literal of it, is the caller's value where the guard fails: Compute.when(Compute.nonzero(b), (b) => Compute.div(a,
-	 * b), 0n).
+	 * b), 0n). The subject is read off the guard itself, so a guard its builder refused, never (OfFamily), hands the
+	 * branch never, and the refusal is its one diagnostic.
 	 */
 	when<
-		G extends TermBase,
-		PG,
-		OG,
+		Gd extends Guard<TermBase>,
 		X,
 		PT,
 		OT,
 		S extends SqlTag,
 		V,
 		L,
-		Otherwise extends Operand<X, S, L>
+		const Otherwise extends Operand<X, S, L>
 	>(
-		guard: Guard<G, PG, OG>,
-		then: (subject: G) => Term<X, PT, OT, S, V, Facts, L> & FirstOrigin<OT>,
+		guard: Gd,
+		then: (subject: Gd[typeof guarded]) => Term<X, PT, OT, S, V, Facts, L> & FirstOrigin<OT>,
 		otherwise: Otherwise
 	): Term<
 		X,
-		PG & PT & P<Otherwise>,
-		ComputedOrigin<OG | OT | O<Otherwise>>,
+		P<Gd> & PT & P<Otherwise>,
+		ComputedOrigin<O<Gd> | OT | O<Otherwise>>,
 		S,
 		V | ValuesOf<Otherwise>,
 		Facts,
@@ -469,7 +529,7 @@ export interface ComputeApi {
 	/** A guard that its subject, a numeric-family term, is nonzero: `x <> 0`. */
 	nonzero<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql, V, FA extends Facts, L>(
 		x: A & FirstTerm<A> & Term<X, PA, OA, S, V, FA, L>
-	): GuardOver<X, PA, OA, S, V, FA, L, { readonly nonzero: true }>
+	): OfFamily<A, NumericSql, GuardOver<X, PA, OA, S, V, FA, L, { readonly nonzero: true }>>
 	/** A guard that its subject is nonnegative: `x >= 0`. */
 	nonnegative<
 		A extends TermBase | FirstValue,
@@ -482,7 +542,7 @@ export interface ComputeApi {
 		L
 	>(
 		x: A & FirstTerm<A> & Term<X, PA, OA, S, V, FA, L>
-	): GuardOver<X, PA, OA, S, V, FA, L, { readonly nonnegative: true }>
+	): OfFamily<A, NumericSql, GuardOver<X, PA, OA, S, V, FA, L, { readonly nonnegative: true }>>
 	/** A guard that its subject is positive, so nonzero and nonnegative: `x > 0`. */
 	positive<
 		A extends TermBase | FirstValue,
@@ -495,7 +555,11 @@ export interface ComputeApi {
 		L
 	>(
 		x: A & FirstTerm<A> & Term<X, PA, OA, S, V, FA, L>
-	): GuardOver<X, PA, OA, S, V, FA, L, { readonly nonzero: true; readonly nonnegative: true }>
+	): OfFamily<
+		A,
+		NumericSql,
+		GuardOver<X, PA, OA, S, V, FA, L, { readonly nonzero: true; readonly nonnegative: true }>
+	>
 	/** A guard that its subject, numeric or a float, is finite: `x > -Infinity AND x < Infinity`. */
 	isFinite<
 		A extends TermBase | FirstValue,
@@ -508,7 +572,7 @@ export interface ComputeApi {
 		L
 	>(
 		x: A & FirstTerm<A> & Term<X, PA, OA, S, V, FA, L>
-	): GuardOver<X, PA, OA, S, V, FA, L, { readonly finite: true }>
+	): OfFamily<A, InexactSql, GuardOver<X, PA, OA, S, V, FA, L, { readonly finite: true }>>
 	/**
 	 * A guard that its subject lies within two finite literal bounds: `x BETWEEN low AND high`. It proves the subject
 	 * finite, nonnegative from a low bound at or above zero, and nonzero from bounds on one side of zero (WithinFacts);
@@ -530,7 +594,7 @@ export interface ComputeApi {
 		x: A & FirstTerm<A> & Term<X, PA, OA, S, V, FA, L>,
 		low: Lo,
 		high: Hi
-	): GuardOver<X, PA, OA, S, V, FA, L, WithinFacts<Lo, Hi>>
+	): OfFamily<A, NumericSql, GuardOver<X, PA, OA, S, V, FA, L, WithinFacts<Lo, Hi>>>
 	not<Q extends PredicateBase>(p: Q): Predicate<P<Q>, ComputedOrigin<O<Q>>>
 	/** A conjunction states what each conjunct states, as the rule's does; a disjunction states nothing. */
 	and<const Qs extends ReadonlyArray<PredicateBase>>(
@@ -548,30 +612,30 @@ export interface ComputeApi {
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<A, B> & Stating<EqualityStates<A, B>>
-	ne<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	ne<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<A, B>
-	lt<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	lt<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<A, B>
-	le<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	le<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<A, B>
-	gt<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	gt<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<A, B>
-	ge<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	ge<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<A, B>
 	between<
 		A extends TermBase | FirstValue,
-		L extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>,
-		H extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>
+		const L extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>,
+		const H extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>
 	>(
 		a: A & FirstTerm<A>,
 		low: L,
@@ -610,7 +674,7 @@ export interface ComputeApi {
 	 * double precision in [0, 2]; schema-qualified cosine_distance(a, b), never the <=> operator. The second operand is
 	 * a vector term of the first's dimensions or a literal vector, which takes the first operand's type.
 	 */
-	cosineDistance<A extends TermBase | FirstValue, X, PA, OA, B extends Operand<X, "vector">>(
+	cosineDistance<A extends TermBase | FirstValue, X, PA, OA, const B extends Operand<X, "vector">>(
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "vector">,
 		b: B
 	): Term<number, PA & P<B>, ComputedOrigin<OA | O<B>>, "double precision">

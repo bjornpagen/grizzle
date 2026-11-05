@@ -158,6 +158,11 @@ export interface RealWorld {
 	 * outside the model, as a transaction in flight does.
 	 */
 	readonly psql: (login: string) => Effect.Effect<PsqlWriter, never, Scope.Scope>
+	/**
+	 * The login every migration, drift and ledger session of the installation logs in as (test/support/ambient.ts
+	 * AmbientOwner), by which a schedule finds a running migration's backend.
+	 */
+	readonly migrator: string
 }
 
 /**
@@ -1374,6 +1379,7 @@ const realizeWith = (
 			get names() {
 				return state.current.names
 			},
+			migrator: installed.ambientOwner.credentials.role,
 			reset,
 			stored: readAll,
 			perform,

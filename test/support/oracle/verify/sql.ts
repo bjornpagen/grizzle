@@ -3,6 +3,7 @@ import { appendAll } from "#compiler/core/array.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { operandsAlias } from "#compiler/lower/conservative/expr/total.ts"
 import {
 	type Analyze,
 	builtinFunctionNames,
@@ -493,7 +494,10 @@ class StatementAuditor {
 		}
 	}
 
-	/** A relation alias the statement defines: r<n>, once per statement. */
+	/**
+	 * A relation alias the statement defines: r<n>, once per statement. The one other alias is an operation's operand
+	 * binding (total.ts operandsAlias), a scalar subquery's own derived row, which every binding names alike.
+	 */
 	defineRelation(name: string, at: string | number): void {
 		this.ident(name, "relation alias", at)
 		if (!isGeneratedRelationName(name)) {
@@ -1372,7 +1376,11 @@ class StatementAuditor {
 						topLevel: false
 					})
 				})
-				this.defineRelation(item.alias, "alias")
+				if (item.alias === operandsAlias) {
+					this.ident(item.alias, "operand binding", "alias")
+				} else {
+					this.defineRelation(item.alias, "alias")
+				}
 				return register(item.alias, { columns })
 			}
 			case "function": {
@@ -2740,9 +2748,16 @@ const outputNames = (names: ReadonlyArray<string | undefined>): ReadonlySet<stri
 	return new Set(known)
 }
 
+/**
+ * The columns a CTE exposes, as PostgreSQL names them: its column list, else its query's output names or its RETURNING
+ * aliases; undefined where an output has no name, which no reference is then checked against.
+ */
 const cteColumns = (cte: Cte): ReadonlySet<string> | undefined => {
-	if (cte.columns.length > 0 || cte.query.kind === "select") {
+	if (cte.columns.length > 0) {
 		return new Set(cte.columns)
+	}
+	if (cte.query.kind === "select") {
+		return outputNames(bodyPositionNames(cte.query.body))
 	}
 	const names: Array<string> = []
 	for (const target of cte.query.returning) {

@@ -63,7 +63,10 @@ const units: FieldDomain = { kind: "contract", name: "Units", bits: 32, min: 0, 
 /**
  * A base whose session reads integers: a clock's `now` (an int8, from the payload's top level) and a quota's `units`
  * (an int4 contract, from the claim object `q`), so tokens can carry integer claims, unsafe or not digits, and facts a
- * contract's bounds refuse. Its one role writes readings stamped with the clock's time.
+ * contract's bounds refuse. Its role `alpha` writes readings stamped with the clock's time, and ticks, two identity
+ * numbers and the clock's time, through an entry whose every carried field is serial, its time filled from the clock;
+ * `beta` writes ticks through an entry that carries the time and filters on `seq`, a serial field its filter reads,
+ * since a role writes a relation through one entry at most.
  */
 const meterBase: BaseSpec = {
 	name: "Meter",
@@ -77,6 +80,16 @@ const meterBase: BaseSpec = {
 				{ name: "units", domain: units }
 			],
 			key: ["id"],
+			mutability: "immutable"
+		},
+		{
+			name: "Tick",
+			fields: [
+				{ name: "no", domain: { kind: "serial", bits: 64 } },
+				{ name: "seq", domain: { kind: "serial", bits: 32 } },
+				{ name: "at", domain: { kind: "integer", bits: 64 } }
+			],
+			key: ["no"],
 			mutability: "immutable"
 		}
 	],
@@ -125,13 +138,70 @@ const meterInstall: InstallSpec = {
 							head: { id: { kind: "var", name: "id" }, units: { kind: "var", name: "units" } }
 						}
 					]
+				},
+				Tick: {
+					kind: "query",
+					rules: [
+						{
+							matches: [
+								{
+									source: { kind: "ordinary", name: "Tick" },
+									fields: {
+										no: { kind: "var", name: "no" },
+										seq: { kind: "var", name: "seq" },
+										at: { kind: "context", context: "Clock", field: "now" }
+									}
+								}
+							],
+							negations: [],
+							comparisons: [],
+							head: { no: { kind: "var", name: "no" }, seq: { kind: "var", name: "seq" } }
+						}
+					]
 				}
 			},
-			write: ["Reading"],
+			write: ["Reading", "Tick"],
+			refresh: []
+		},
+		{
+			name: "beta",
+			entries: {
+				LateTick: {
+					kind: "query",
+					rules: [
+						{
+							matches: [
+								{
+									source: { kind: "ordinary", name: "Tick" },
+									fields: {
+										no: { kind: "var", name: "no" },
+										seq: { kind: "var", name: "seq" },
+										at: { kind: "var", name: "at" }
+									}
+								}
+							],
+							negations: [],
+							comparisons: [
+								{
+									left: { kind: "var", name: "seq" },
+									op: ">=",
+									right: { kind: "literal", value: 1 }
+								}
+							],
+							head: {
+								no: { kind: "var", name: "no" },
+								seq: { kind: "var", name: "seq" },
+								at: { kind: "var", name: "at" }
+							}
+						}
+					]
+				}
+			},
+			write: ["LateTick"],
 			refresh: []
 		}
 	],
-	logins: [{ name: "web", roles: ["alpha"] }]
+	logins: [{ name: "web", roles: ["alpha", "beta"] }]
 }
 
 /**

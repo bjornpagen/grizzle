@@ -209,7 +209,11 @@ export const queueQueries = (s: QueueInstalled) => {
 				kind: p.kind,
 				slot: p.slot,
 				standing: "leased",
-				epoch: Compute.add(p.epoch, 1n),
+				epoch: Compute.when(
+					Compute.within(p.epoch, 0n, Q.epochBound),
+					(epoch) => Compute.cast(Compute.add(epoch, 1n), pg.bigint),
+					p.epoch
+				),
 				enqueued: p.enqueued
 			})
 		}),
@@ -243,7 +247,11 @@ export const queueQueries = (s: QueueInstalled) => {
 				key,
 				resource: r.param("resource", Q.Seat.fields.resource),
 				seat,
-				epoch: Compute.add(epoch, 1n),
+				epoch: Compute.when(
+					Compute.within(epoch, 0n, Q.epochBound),
+					(current) => Compute.cast(Compute.add(current, 1n), pg.bigint),
+					epoch
+				),
 				/** The host computes the expiry and passes it as one Instant (test/support/fixtures/api/queue.ts). */
 				expires: r.param("expires", Q.Leased.fields.expires)
 			})

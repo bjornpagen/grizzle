@@ -1085,11 +1085,58 @@ export const entryRows = (
 	}
 }
 
+/** The variables a term is, none for a constant term. */
+const termVars = (term: Term): ReadonlyArray<string> => (term.kind === "var" ? [term.name] : [])
+
+/**
+ * The rule a fact that leaves fields of its target out is checked against (README "Writing through a role": an insert
+ * may leave out the entry's serial columns, and a row is checked against the query before its identity is drawn): the
+ * rule with the supplier's match and the head without those fields, where each is a variable the rule reads nowhere
+ * else; none where the rule reads one anywhere else, a constant there or a filter, join or comparison over it, since a
+ * serial column the query filters on is one every inserted row carries.
+ */
+const leftOutRule = (rule: Rule, supplier: number, fact: HostFact): Rule | undefined => {
+	const occurrence = rule.matches[supplier]
+	if (occurrence === undefined) {
+		return undefined
+	}
+	const leftOut = Arr.filter(Rec.keys(occurrence.fields), (field) => own(fact, field) === undefined)
+	if (leftOut.length === 0) {
+		return rule
+	}
+	const read = [
+		...Arr.flatMap(rule.matches, (m, i) =>
+			Arr.flatMap(Rec.toEntries(m.fields), ([field, term]) =>
+				i === supplier && Arr.contains(leftOut, field) ? [] : termVars(term)
+			)
+		),
+		...Arr.flatMap(rule.negations, (n) =>
+			Arr.flatMap(n, (m) => Arr.flatMap(Rec.values(m.fields), termVars))
+		),
+		...Arr.flatMap(rule.comparisons, (c) => [...termVars(c.left), ...termVars(c.right)])
+	]
+	const dropped = Arr.map(leftOut, (field) => own(occurrence.fields, field))
+	if (!Arr.every(dropped, (term) => term?.kind === "var" && !Arr.contains(read, term.name))) {
+		return undefined
+	}
+	const names = new Set(Arr.flatMap(dropped, (term) => (term === undefined ? [] : termVars(term))))
+	const supplied: Occurrence = {
+		...occurrence,
+		fields: Rec.filter(occurrence.fields, (_, field) => !Arr.contains(leftOut, field))
+	}
+	return {
+		...rule,
+		matches: Arr.map(rule.matches, (m, i) => (i === supplier ? supplied : m)),
+		head: Rec.filter(rule.head, (term) => !Arr.some(termVars(term), (v) => names.has(v)))
+	}
+}
+
 /**
  * Whether a fact of a writable entry's target T is in the entry under a session's facts: a whole entry over an
  * ordinary relation holds every fact of it; a writable query entry holds the fact when its rule holds with T's
- * supplying occurrence reading that fact alone, every other match reading reality. A read-only entry has no target,
- * and holds no fact of one.
+ * supplying occurrence reading that fact alone, every other match reading reality, the fields the fact leaves out
+ * unread where the rule reads them nowhere else (leftOutRule). A read-only entry has no target, and holds no fact of
+ * one.
  */
 export const isMember = (
 	state: ModelState,
@@ -1108,10 +1155,14 @@ export const isMember = (
 			if (w.kind !== "writable") {
 				return false
 			}
+			const rule = leftOutRule(w.rule, w.supplier, fact)
+			if (rule === undefined) {
+				return false
+			}
 			const reading = readingOf(state, facts)
 			const factsAt: FactsAt = (occurrence, index) =>
 				index === w.supplier ? [fact] : sourceFacts(reading, occurrence.source)
-			return ruleRows(reading, w.rule, factsAt).length > 0
+			return ruleRows(reading, rule, factsAt).length > 0
 		}
 	}
 }

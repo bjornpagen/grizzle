@@ -17,7 +17,7 @@ import {
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import { exactOf, finiteEnds, insideRange } from "#compiler/scalar/compute/bounds.ts"
-import { boundsOfType } from "#compiler/scalar/compute/lower.ts"
+import { boundsOfType, intervalCastProof } from "#compiler/scalar/compute/lower.ts"
 import { binaryCoercion, castOf } from "#compiler/scalar/compute/registry.ts"
 import { compatible, isInteger, withoutSerial } from "#compiler/scalar/compute/types.ts"
 
@@ -118,9 +118,9 @@ const conversion = (arm: ScalarType, declared: ScalarType): Conversion => {
 
 /**
  * An exact integer an arm computes for an integer state column, narrowed into it with the proof the recursion's
- * bounded counter gives (check/recursion/bound.ts counterInterval): every value its step computes, the one
- * past its bound included, which PostgreSQL may compute before the step's filter, lies in the column's range. Without
- * one it is PartialOperation, naming the guard to write.
+ * bounded counter gives (check/recursion/termination.ts terminationVerdict): every value its step computes from every
+ * state the column holds, the one past its bound included, which PostgreSQL may compute before the step's filter, lies
+ * in the column's range. Without one it is PartialOperation, naming the guard to write.
  */
 const counterNarrowing = (
 	cx: CheckServices,
@@ -138,7 +138,21 @@ const counterNarrowing = (
 		interval !== undefined &&
 		ends !== undefined &&
 		insideRange(exactOf(interval[0], 0), exactOf(interval[1], 0), ends[0], ends[1])
-	if (op === undefined || !op.partial || interval === undefined || !fits) {
+	const proof =
+		op === undefined || op.totality.kind !== "requires" || interval === undefined || !fits
+			? undefined
+			: intervalCastProof(
+					op.totality.preconditions,
+					{
+						kind: "interval",
+						operand: 0,
+						low: exactOf(interval[0], 0),
+						high: exactOf(interval[1], 0),
+						nan: false
+					},
+					target.type
+				)
+	if (op === undefined || !op.partial || proof === undefined) {
 		throw new Refusal(
 			CompileError.make({
 				_tag: "PartialOperation",
@@ -157,17 +171,7 @@ const counterNarrowing = (
 		type: target.type,
 		nonNull: "strict",
 		volatility: op.volatility,
-		proof: {
-			precondition: { kind: "fits" },
-			premises: [
-				{
-					kind: "interval",
-					operand: 0,
-					low: exactOf(interval[0], 0),
-					high: exactOf(interval[1], 0)
-				}
-			]
-		}
+		proof
 	})
 }
 

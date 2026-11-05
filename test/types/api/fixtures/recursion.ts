@@ -93,7 +93,7 @@ export type SelfVars = Expect<Equals<keyof ReturnType<typeof selfSource>, "from"
 export const missingField = query(Work).recursive("Short", {
 	row: { from: uuid, to: uuid },
 	base: [
-		// @ts-expect-error -- TS2322: a base arm's head is the whole row
+		// @ts-expect-error -- TS2322 refusal: an arm's head delivers the row: each of its fields, at a type that meets the field's
 		(r) => {
 			const { from, to } = v(Edge, "edge")
 			return r.match(Edge, { from, to }).find({ from })
@@ -106,7 +106,7 @@ export const wrongType = query(Work).recursive("Kinds", {
 	row: { from: uuid, to: uuid },
 	base: [],
 	rec: [
-		// @ts-expect-error -- TS2322: a recursive arm's head has the row's field types; a roster handle is no uuid
+		// @ts-expect-error -- TS2322 refusal: an arm's head delivers the row: each of its fields, at a type that meets the field's
 		(r, self) => {
 			const prior = v(self, "self")
 			const { kind } = v(Task, "task")

@@ -281,6 +281,8 @@ interface ReadSketch {
  *   field, where a stored wide fact holds a text past the narrow domain, which refuses it;
  * - "wider deletion": a deletion from the narrow relation of the wide one's facts, which removes the stored narrow fact
  *   a stored wide fact equals, while a wide text past the narrow domain matches no fact;
+ * - "refused at bind": an insert into the narrow relation of the wide one's keys, its text a parameter past the narrow
+ *   domain, which the bind refuses before any SQL (EncodingFailure refinedValue at the parameter's slot);
  * - "candidate repeated": the change adds a keyed fact at a stored fact's candidate key, refused by that key;
  * - "immediate violated": the change adds a member naming no fact of the pure set, refused at its statement by the
  *   immediate containment;
@@ -336,6 +338,7 @@ export const plantedArms = [
 	"described put",
 	"wider member",
 	"wider deletion",
+	"refused at bind",
 	"candidate repeated",
 	"immediate violated",
 	"serial collision",
@@ -540,6 +543,7 @@ const plantedFactsOf = (
 		case "described put":
 			return [[p.merged, [{ a: armKey, b: armKey, c: "" }]]]
 		case "wider member":
+		case "refused at bind":
 			return [wide]
 		case "wider deletion":
 			return [wide, [p.narrow, [{ a: armKey, b: planted.narrowText }]]]
@@ -815,6 +819,17 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 			return changeSet([widened("insert")], [], {})
 		case "wider deletion":
 			return changeSet([widened("delete")], [], {})
+		case "refused at bind":
+			return changeSet(
+				[
+					described("insert", p.narrow, p.wide, undefined, {
+						a: own("a"),
+						b: { kind: "param", param: "p0" }
+					})
+				],
+				[],
+				{ p0: planted.pastNarrow }
+			)
 		case "candidate repeated":
 			return changeSet([enumerated("insert", p.keyed, [{ a: otherKey, b: armKey }])], [], {})
 		case "immediate violated":
@@ -1088,9 +1103,11 @@ export const resolveChangeSet =
 			return out
 		}
 		/**
-		 * A projection member. One `outside` its target's domain gives every text field outside a put's kept key a
-		 * parameter spelling a wide text's value of more than three code points, which the field's domain refuses, and reads
-		 * a relation holding stored facts where the group has one (its target first), so its facts are not empty.
+		 * A projection member. One `outside` its target's domain gives every text field outside a put's kept key a value
+		 * the field's domain may refuse: where its source has a wide text field, half the time that field, whose stored
+		 * values past three code points the domain's law refuses at the statement; otherwise a parameter spelling a wide
+		 * text's value of more than three code points, which the bind refuses before any SQL. It reads a relation holding
+		 * stored facts where the group has one (its target first), so its facts are not empty.
 		 */
 		const project = (
 			target: WRelation,
@@ -1144,16 +1161,20 @@ export const resolveChangeSet =
 				if (keepKey) {
 					head[c.name] = { kind: "var", column: same.value.name }
 				} else if (outside && c.kind === "text") {
-					head[c.name] = {
-						kind: "param",
-						param: scalar(
-							elementAt(
-								typeInfo.text6.values,
-								2 + pickIndex(h.value, 2),
-								"the wide text's values past three code points"
-							)
-						)
-					}
+					const wide = Arr.findFirst(from.columns, (s) => s.kind === "text6")
+					head[c.name] =
+						Option.isSome(wide) && pickIndex(h.term, 2) === 0
+							? { kind: "var", column: wide.value.name }
+							: {
+									kind: "param",
+									param: scalar(
+										elementAt(
+											typeInfo.text6.values,
+											2 + pickIndex(h.value, 2),
+											"the wide text's values past three code points"
+										)
+									)
+								}
 				} else if (h.term < 3 && Option.isSome(same)) {
 					head[c.name] = { kind: "var", column: same.value.name }
 				} else if (h.term < 4 && candidates.length > 0) {

@@ -520,11 +520,8 @@ const correlatedTakeOverOneRow: Kept<readonly [QueryCaseSketch, ContextSketch], 
 		},
 		{ transaction: false, containments: [] }
 	],
-	/**
-	 * The swarms' thinning decisions: "correlated take" kept at the first place it could appear, the take over the
-	 * closed relation, and left out at the next.
-	 */
-	draws: "2.0",
+	/** The swarm's thinning decision: "correlated take" kept at the one place it can appear, the take over the closed relation. */
+	draws: "2",
 	/**
 	 * Its one outer fact evaluates the take once, which the reference counts as no correlated evaluation; the take's
 	 * claim, at most one row, is what the case reaches.

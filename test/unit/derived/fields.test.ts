@@ -211,7 +211,14 @@ describe("derived field inference", () => {
 								const L = schema("L", { Line }, [])
 								const q = query(L).rule((r) => {
 									const { id, amount } = v(Line, "line")
-									return r.match(Line, { id, amount }).find({ id, c: Compute.cast(amount, Cents) })
+									return r.match(Line, { id, amount }).find({
+										id,
+										c: Compute.when(
+											Compute.nonnegative(amount),
+											(a) => Compute.cast(a, Cents),
+											Compute.literal(Cents, 0n)
+										)
+									})
 								})
 								const analyzed = Result.map(
 									checkedIn(schema.extend(L, { T: derived("T", q) }, [])),

@@ -30,6 +30,13 @@ export interface FixedFact {
 	readonly just: Justification
 }
 
+/**
+ * What a fixed column is fixed to: every value a fact names, each with its justification, which are one value per
+ * evaluation wherever the fragment has a row, whatever order the facts are found in; the first is the one its first
+ * fixing named, which its fixing rests on. A column only computations fix holds the one fact that names no value.
+ */
+export type FixedFacts = NonEmptyReadonlyArray<FixedFact>
+
 export interface Loss {
 	readonly reason: MultiplicityReason
 	/** A constant phrase naming what was lost; never a value. */
@@ -71,7 +78,7 @@ export interface PhysicalProps {
 	 * A proof that the node's DISTINCT is redundant may use only these, never the DISTINCT itself.
 	 */
 	readonly plainKeys: ReadonlyArray<JustifiedKey>
-	readonly fixed: ReadonlyMap<string, FixedFact>
+	readonly fixed: ReadonlyMap<string, FixedFacts>
 	/** Dependencies among the columns, equalities included (both directions), bounded (fds.ts dependencyBound). */
 	readonly fds: ReadonlyArray<Implication>
 	/** The most rows the fragment can have. */
@@ -101,8 +108,8 @@ export const plainLosses = (props: PhysicalProps): ReadonlyArray<Loss> =>
 /** A ProofFds over a fragment's columns carrying its fixed columns and dependencies. */
 export const fdsOf = (props: PhysicalProps): ProofFds => {
 	const fds = new ProofFds(props.columns)
-	for (const [c, f] of props.fixed) {
-		fds.fix(c, f.just)
+	for (const [c, [first]] of props.fixed) {
+		fds.fix(c, first.just)
 	}
 	for (const imp of props.fds) {
 		fds.implyAt(imp.from, imp.at, imp.to, imp.just)

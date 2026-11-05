@@ -296,10 +296,19 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						suite: "unit/scalar/fixtures-are-registry",
 						generator: element(fixtureTypes),
 						literal: Formatter.format,
-						/** The space is the fixtures' types, listed above: every one of them, once. */
+						/**
+						 * The space is the fixtures' types, listed above: every one of them, once, of every carrier a field can
+						 * have, which the exact arithmetic carriers never are.
+						 */
 						limit: fixtureTypes.length,
 						coverage: requiredInSpace<`carrier ${Carrier}`>(
-							Arr.map(carriers, (c) => `carrier ${c}` as const)
+							nonEmpty(
+								Arr.map(
+									Arr.filter(carriers, (c) => c !== "exactInteger" && c !== "exactMoney"),
+									(c): `carrier ${Carrier}` => `carrier ${c}`
+								),
+								"a field's carriers"
+							)
 						),
 						caseHang: Duration.minutes(2)
 					},

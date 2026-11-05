@@ -403,7 +403,8 @@ const claimSql = (domain: FieldDomain): string => {
  * - Doc: an id per number, words the number itself, so (org, words) is a key whatever the org, an org and an owner
  *   each spread over rows / 50 values;
  * - Share: a document per number, at most one per document under either capacity, a user spread over rows / 50;
- * - Note: its identity numbers it, a document and an author each spread over rows / 50, every document one Doc holds.
+ * - Note: its identity numbers it, a document and an author each spread over rows / 50, every document one Doc holds;
+ * - Visit: its identity numbers it, its one field.
  *
  * Every value a spread field holds is one an identity field holds too, so a link from either finds its fact, and each
  * spread value is held by some 50 rows, so a probe that rechecks another field on them is told from one that binds it.
@@ -428,7 +429,8 @@ const docsLoads = (base: BaseSpec, rows: number): ReadonlyArray<VolumeLoad> => {
 		Note: [
 			["doc", uuidOf(spread(4, many))],
 			["author", subjectOf(spread(5, many))]
-		]
+		],
+		Visit: []
 	}
 	return Arr.map(base.relations, (r) => ({
 		relation: r.name,

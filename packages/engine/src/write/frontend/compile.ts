@@ -1,7 +1,7 @@
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
-import { checkMember, checkReadBack } from "#compiler/check/index.ts"
+import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberRelation } from "#compiler/check/schema.ts"
 import {
 	type NormalForm,
@@ -753,23 +753,34 @@ const compile = (
 	})
 
 	/** A query entry's fill over `input`, the facts its sources carry, checked against the base as a member of its target
-	 * and merged into the DAG: its root. */
+	 * and merged into the DAG: its root. The fill omits exactly the serial fields an addition through the entry may
+	 * leave out (entry.ts entryRelation), those the entry's filter does not read; a serial field the filter reads is one
+	 * every fact carries, so the target's omissible serial fields are its others. */
 	const mergeFill = (
 		entry: CheckedEntry,
 		relation: WrittenRelation,
 		op: MemberDesc["op"],
 		input: Heading,
 		loc: SourceLoc
-	): RelNode =>
-		merger.add(
+	): RelNode => {
+		const filtered = new Set(
+			entry.filter.kind === "query" ? entry.filter.fields.map((f) => f.name) : []
+		)
+		const target: MemberRelation = {
+			name: relation.name,
+			heading: relation.heading,
+			serial: relation.serial.filter((f) => !filtered.has(f))
+		}
+		return merger.add(
 			unwrap(
-				checkMember(
+				checkFill(
 					base,
-					{ op, relation, query: fillQuery(entry, input, loc), loc },
+					{ op, relation: target, query: fillQuery(entry, input, loc), loc },
 					{ ...checkOptions, label: `${op} ${entry.entry}` }
 				)
 			)
 		)
+	}
 
 	/** 2. Group each stratum's members into actions. */
 	const slots: Array<SlotGroup> = []

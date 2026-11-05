@@ -81,14 +81,43 @@ export const isPlainCarrier = (carrier: Carrier): carrier is PlainCarrier =>
 	plainCarriers.has(carrier)
 
 /**
+ * The exact carrier an integer or money type widens into, and the integer digits its values are below: a plain
+ * carrier's range, an exact type's own bound.
+ */
+const exactWidening = (
+	t: ScalarType
+): { readonly into: "exactInteger" | "exactMoney"; readonly digits: number } | undefined => {
+	switch (t.carrier) {
+		case "int2":
+			return { into: "exactInteger", digits: 5 }
+		case "int4":
+			return { into: "exactInteger", digits: 10 }
+		case "int8":
+			return { into: "exactInteger", digits: 19 }
+		case "money":
+			return { into: "exactMoney", digits: 17 }
+		case "exactInteger":
+		case "exactMoney":
+			return { into: t.carrier, digits: t.digits }
+		default:
+			return undefined
+	}
+}
+
+/**
  * Whether `to` is `from`'s value type with only refinements dropped that PostgreSQL never checks on the way: a contract
- * (its base), a numeric typmod (plain numeric), a text refinement (wildcard text), a span's fixed width. A cast between
- * the two is binary coercible: total and immutable.
+ * (its base), a numeric typmod (plain numeric), a text refinement (wildcard text), a span's fixed width, a binary
+ * coercible cast, total and immutable; or an integer or money value lifted into the exact carrier of its family that
+ * holds every one of its values, an exact conversion.
  */
 export const widensTo = (from: ScalarType, to: ScalarType): boolean => {
 	const v = valueType(from)
 	if (sameScalarType(to, v) || sameScalarType(to, withoutSpanWidth(v))) {
 		return true
+	}
+	const exact = exactWidening(v)
+	if (exact !== undefined && (to.carrier === "exactInteger" || to.carrier === "exactMoney")) {
+		return to.carrier === exact.into && to.digits >= exact.digits
 	}
 	if (v.carrier === "numeric") {
 		return sameScalarType(to, plainType("numeric"))

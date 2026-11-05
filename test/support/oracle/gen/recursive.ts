@@ -889,17 +889,20 @@ class GraphQueryBuilder {
 			type,
 			nonNull: "strict",
 			volatility: "immutable",
-			proof: {
-				precondition: { kind: "fits" },
-				premises: [
-					{
-						kind: "interval",
-						operand: 0,
-						low: { units: 1n, scale: 0 },
-						high: { units: BigInt(bound), scale: 0 }
-					}
-				]
-			}
+			proof: [
+				{
+					precondition: { kind: "fits" },
+					premises: [
+						{
+							kind: "interval",
+							operand: 0,
+							low: { units: 1n, scale: 0 },
+							high: { units: BigInt(bound), scale: 0 },
+							nan: false
+						}
+					]
+				}
+			]
 		})
 	}
 

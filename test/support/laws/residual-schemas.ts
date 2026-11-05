@@ -128,16 +128,48 @@ export const alternativesGen: Gen<AlternativesSketch> = (s) => {
 	}
 }
 
+/** A drawn alternatives law of at least 8 handles, every one armed but the last. */
+const largeUnarmedGen: Gen<AlternativesSketch> = (s) => {
+	const roster = s.draw(int(8, 24))
+	return {
+		kind: "alternatives",
+		keyWidth: s.draw(boolean) ? 2 : 1,
+		roster,
+		armed: "all but one",
+		parentMutable: s.draw(boolean),
+		arms: s.draw(armRelations(s.draw(armedHandles(roster, "all but one"))))
+	}
+}
+
+/** A drawn alternatives law, every handle armed, whose first arm relation is the mutable payload of its first two. */
+const sharedMutableGen: Gen<AlternativesSketch> = (s) => {
+	const roster = s.draw(int(2, 7))
+	return {
+		kind: "alternatives",
+		keyWidth: s.draw(boolean) ? 2 : 1,
+		roster,
+		armed: "all",
+		parentMutable: s.draw(boolean),
+		arms: [
+			{ handles: [0, 1], mutable: true },
+			...Arr.makeBy(roster - 2, (i): ArmSketch => ({ handles: [i + 2], mutable: s.draw(boolean) }))
+		]
+	}
+}
+
 const otherGen =
 	(kind: OtherSketch["kind"]): Gen<OtherSketch> =>
 	(s) => ({ kind, firstMutable: s.draw(boolean), secondMutable: s.draw(boolean) })
 
 /**
- * A drawn residual law: an alternatives law most often, one point of each other family and the named invalid point
- * beside it.
+ * A drawn residual law: an alternatives law most often, among them a large roster with an unarmed handle and a mutable
+ * arm relation shared by two handles, each a combination the free draw pairs rarely; one point of each other family
+ * and the named invalid point beside it.
  */
 export const residualSketchGen: Gen<ResidualSketch> = weighted<ResidualSketch>([
 	[12, alternativesGen],
+	[1, largeUnarmedGen],
+	[1, sharedMutableGen],
 	[1, otherGen("selectedSource")],
 	[1, otherGen("mirrors")],
 	[1, otherGen("capacity")],

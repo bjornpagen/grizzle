@@ -2,6 +2,7 @@ import { exact, ordered } from "@grizzle/testing/oracle"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { decodePlan } from "#adapter/explain/plan.ts"
 import { type PlanLabel, planEdges, planNodeTypes } from "#bench/harness/explain.ts"
+import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -49,7 +50,6 @@ import {
 	transportLimits,
 	type ValuesInput
 } from "#compiler/lower/shapes/relparam/index.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
 import { explainOf } from "#compiler/sql/emit.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
@@ -57,6 +57,7 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { strictArrayText } from "#test/support/kernel/strict.ts"
 import { messageOf } from "#test/support/message.ts"
 import {
+	canonicalRows,
 	type Comparison,
 	compareRuns,
 	printComparison,
@@ -72,7 +73,7 @@ import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
-import { captureRows, type RawRow } from "#test/support/oracle/install/capture.ts"
+import { arrayCasts, captureRows, type RawRow } from "#test/support/oracle/install/capture.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { oraclePlan, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import {
@@ -80,7 +81,6 @@ import {
 	multiplyFacts,
 	plannerStatements
 } from "#test/support/oracle/perturb.ts"
-import { elementAt } from "#test/support/oracle/pick.ts"
 import {
 	factSet,
 	inputText,
@@ -219,9 +219,12 @@ export const executeStatements = (
 		const ran: Array<ReadonlyArray<RawRow>> = []
 		for (const [i, { statement }] of statements.entries()) {
 			const params = yield* placeholders(statement, i, name, fill)
-			const columns = statementOutput(statement.role, statement.heading, statement.fused).names
-				.length
-			const rows = yield* captureRows(session, statement.sql.text, params, { columns }).pipe(
+			const output = statementOutput(statement.role, statement.heading, statement.fused)
+			const columns = [
+				...Arr.map(output.heading, (h) => resultTextCasts(h.type)),
+				...Arr.map(output.fused, () => arrayCasts)
+			]
+			const rows = yield* captureRows(session, statement.sql.text, params, columns).pipe(
 				Effect.mapError((e) =>
 					failure("execute", name, `statement ${i}: ${sqlMessage(e)}\n${statement.sql.text}`)
 				)
@@ -327,37 +330,6 @@ const layoutOf = (dag: RelDag, f: FusedAttachment) =>
 const unitColumn = "__unit"
 
 /**
- * The output-function texts of values given as the text a fused array carries for a column of `type`: money arrives
- * as its numeric text and bool as `true` or `false`, which PostgreSQL reads back at the base type and spells as
- * capture would; every other carrier's `::text` is already its output function's text.
- */
-const respell = (
-	session: PgConnection,
-	type: ScalarType,
-	texts: ReadonlyArray<string>
-): Effect.Effect<ReadonlyArray<string>, DifferentialFailure> => {
-	if (texts.length === 0) {
-		return Effect.succeed([])
-	}
-	const cast =
-		type.carrier === "money"
-			? "(u.x::pg_catalog.numeric)::pg_catalog.money"
-			: type.carrier === "bool"
-				? "u.x::pg_catalog.bool"
-				: undefined
-	if (cast === undefined) {
-		return Effect.succeed(texts)
-	}
-	const sql = `SELECT ${cast} FROM pg_catalog.jsonb_array_elements_text($1::pg_catalog.jsonb) WITH ORDINALITY AS u(x, n) ORDER BY u.n`
-	return captureRows(session, sql, [jsonText(texts)], { columns: 1 }).pipe(
-		Effect.mapBoth({
-			onSuccess: (rows) => Arr.map(rows, (r) => cellAt(r, 0, "respell")),
-			onFailure: (e) => failure("unfuse", "respell", sqlMessage(e))
-		})
-	)
-}
-
-/**
  * The child rows one fused array text delivers for one parent row: each child heading column from the element (the
  * array's own text form) or from the parent row (a correlated column the array leaves out).
  */
@@ -453,6 +425,10 @@ export interface Delivered {
 const columnTypes = (h: Heading): ReadonlyArray<ScalarType> => Arr.map(h, (c) => c.type)
 
 /** A statement's rows in delivery order, and the parent key prefix under which an attachment's sequence is judged. */
+/**
+ * An ordered delivery's rows as values (compare.ts canonicalRows), in delivery order, and how many of its leading
+ * columns are its parent's key: two spellings of one value are one value in an order too.
+ */
 type Sequence = { readonly rows: ReadonlyArray<RawRow>; readonly prefix: number }
 
 /** A fused attachment's array for one distinct parent key tuple, and the first parent row carrying it. */
@@ -504,11 +480,11 @@ const parentArrays = (
 }
 
 /**
- * A fused attachment unfused into the rows of the attachment statement it replaces, each element column respelled
- * as its output function spells it, with its sequence when the attachment is ordered.
+ * A fused attachment unfused into the rows of the attachment statement it replaces, each element column the text its
+ * array carries, which is the column's result text (codec resultTextCasts), with its sequence when the attachment is
+ * ordered.
  */
 const unfused = (
-	session: PgConnection,
 	dag: RelDag,
 	name: string,
 	fusedLabel: string,
@@ -556,22 +532,6 @@ const unfused = (
 				Arr.map(children.success, (c) => [...key, ...c])
 			)
 		}
-		for (const [j, col] of child.entries()) {
-			if (Arr.some(layout.correlated, (c) => c.child === col.name)) {
-				continue
-			}
-			const position = f.parentColumns.length + j
-			const type =
-				col.name === unitColumn && layout.element.length === 0 ? plainType("bool") : col.type
-			const spelled = yield* respell(
-				session,
-				type,
-				Arr.map(rows, (r) => cellAt(r, position, fusedLabel))
-			)
-			for (const [r, text] of spelled.entries()) {
-				elementAt(rows, r, `${fusedLabel}: the unfused rows to respell`)[position] = text
-			}
-		}
 		const parentColumns: Array<Heading[number]> = []
 		for (const p of parentAt) {
 			const column = heading[p]
@@ -592,19 +552,20 @@ const unfused = (
 			sequence:
 				attach.order === undefined
 					? []
-					: [[fusedLabel, { rows, prefix: f.parentColumns.length }] as const]
+					: [
+							[
+								fusedLabel,
+								{ rows: canonicalRows(statement), prefix: f.parentColumns.length }
+							] as const
+						]
 		}
 	})
 
 /**
  * An executed program as the conservative program's statements: every fused attachment unfused into the rows of the
  * attachment statement it replaces.
- *
- * The element columns' spellings, respelled by PostgreSQL where the array's text form is not the output
- * function's (money, bool, and the existence marker of a child without element columns).
  */
 export const delivered = (
-	session: PgConnection,
 	dag: RelDag,
 	executed: Executed,
 	name: string,
@@ -619,23 +580,26 @@ export const delivered = (
 			const output = statementOutput(s.role, s.heading, s.fused)
 			const heading = output.heading
 			const width = heading.length
-			const own = Arr.map(raw, (r) => r.slice(0, width))
-			statements.push({
+			const statement: StatementRows = {
 				label,
 				columns: Arr.map(heading, (h) => h.name),
 				types: columnTypes(heading),
 				unstated: { kind: "none" },
-				rows: own
-			})
+				rows: Arr.map(raw, (r) => r.slice(0, width))
+			}
+			statements.push(statement)
 			if (attach?.order !== undefined) {
-				sequences.push([label, { rows: own, prefix: keyColumns(s.role).length }])
+				sequences.push([
+					label,
+					{ rows: canonicalRows(statement), prefix: keyColumns(s.role).length }
+				])
 			} else if (isOrdered && s.role.kind === "main") {
-				sequences.push([label, { rows: own, prefix: 0 }])
+				sequences.push([label, { rows: canonicalRows(statement), prefix: 0 }])
 			}
 			for (const [k, f] of s.fused.entries()) {
 				fusedAttachments++
 				const fusedLabel = `${label}/${f.name}`
-				const u = yield* unfused(session, dag, name, fusedLabel, heading, raw, output.fusedAt(k), f)
+				const u = yield* unfused(dag, name, fusedLabel, heading, raw, output.fusedAt(k), f)
 				statements.push(u.statement)
 				appendAll(sequences, u.sequence)
 			}
@@ -964,7 +928,6 @@ const runDifferential = (
 						"conservative"
 					)
 					const baseline = yield* delivered(
-						session,
 						query.dag,
 						conservativeRun,
 						"conservative",
@@ -990,7 +953,7 @@ const runDifferential = (
 					for (const f of forms) {
 						const label = formLabel(f.form)
 						const run = yield* execute(session, c, f.roots, label)
-						const d = yield* delivered(session, optimizedDag, run, label, optimizedOrdered)
+						const d = yield* delivered(optimizedDag, run, label, optimizedOrdered)
 						fusedAttachments = Math.max(fusedAttachments, d.fusedAttachments)
 						optimized.push({
 							form: f.form,
@@ -1020,7 +983,7 @@ const runDifferential = (
 							deliveredAsOptimized(o.program).roots,
 							o.lowering.name
 						)
-						const d = yield* delivered(session, query.dag, run, o.lowering.name, false)
+						const d = yield* delivered(query.dag, run, o.lowering.name, false)
 						otherRuns.push({
 							name: o.lowering.name,
 							run: d.run,
@@ -1074,11 +1037,10 @@ const runDifferential = (
  *
  * A fused attachment is one array column of its parent's statement rather than a statement of its own.
  * The runner unfuses it into the rows the pipelined attachment statement would deliver, the parent key columns and
- * then the child's heading, so the comparison stays raw text and structural: each element of the array is the child
- * value's text form cast inside the array (codec resultTextCasts: `::text`, money through numeric), which PostgreSQL
- * reads back at the column's base type and spells by its output function for the comparison, exactly what capture
- * does for an ordinary column; a child column correlated to a parent column the array leaves out is the parent row's
- * text (shapes/attach/decode.ts). Two parent rows with equal parent key columns must carry equal arrays, and an array
+ * then the child's heading, so the comparison stays structural: each element of the array is the child value's result
+ * text cast inside the array (codec resultTextCasts: `::text`, money through numeric), the text capture reads for an
+ * ordinary column; a child column correlated to a parent column the array leaves out is the parent row's text
+ * (shapes/attach/decode.ts). Two parent rows with equal parent key columns must carry equal arrays, and an array
  * that repeats an element is a repeated row of the unfused statement.
  *
  * runDifferential, with a failure to lower or run either artifact reported as a failed property carrying the case in

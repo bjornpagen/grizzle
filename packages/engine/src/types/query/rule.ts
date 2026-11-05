@@ -7,6 +7,7 @@ import type {
 	FirstTerm,
 	FirstValue,
 	IsSpan,
+	OfFamily,
 	Operand,
 	Requires
 } from "#compiler/types/compute/scalar.ts"
@@ -66,7 +67,7 @@ import type {
 	DeadConstants,
 	HeadOrigins,
 	HeadParams,
-	HeadShape,
+	HeadTerm,
 	HeadTerms,
 	NoExcess,
 	ParamSource,
@@ -283,7 +284,13 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		AfterWhere<Facts, Ps>,
 		Cx | PredicateContexts<Ps>
 	>
-	find<const H extends HeadShape>(head: H): FinishedHead<S, Params, Sole, Facts, Cx, HeadTerms<H>>
+	/**
+	 * Each entry is checked where it stands (HeadTerm), never through H's constraint: an entry no head holds is refused
+	 * at its key, and the query keeps the head as written, so nothing built on it refuses again.
+	 */
+	find<const H extends Readonly<Record<string, unknown>>>(
+		head: H & { readonly [K in keyof H]: HeadTerm }
+	): FinishedHead<S, Params, Sole, Facts, Cx, HeadTerms<H>>
 	/** A stage over the rule's own schema, so it carries S like the query it is part of. */
 	interior<Head, Ev extends Evidence, P2, IHead, Hc extends Carriers, Cx2>(
 		rule: (r: Rule<S>) => Finished<Head, Ev, P2, S, IHead, Hc, Cx2>
@@ -313,30 +320,30 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"eq", A, B> & Stating<EqualityStates<A, B>>
-	ne<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	ne<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"ne", A, B>
-	lt<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	lt<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"lt", A, B>
-	le<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	le<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"le", A, B>
-	gt<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	gt<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"gt", A, B>
-	ge<A extends TermBase | FirstValue, B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	ge<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,
 		b: B
 	): Compared<"ge", A, B>
 	between<
 		A extends TermBase | FirstValue,
-		L extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>,
-		H extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>
+		const L extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>,
+		const H extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>
 	>(
 		a: A & FirstTerm<A>,
 		low: L,
@@ -403,18 +410,18 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	count(): Aggregate<bigint, unknown, "bigint">
 	sum<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql>(
 		term: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
-	): Aggregate<PlainHost[SumSql[S]], PA, SumSql[S]>
+	): OfFamily<A, NumericSql, Aggregate<PlainHost[SumSql[S]], PA, SumSql[S]>>
 	mean<A extends TermBase | FirstValue, X, PA, OA, S extends keyof AvgSql>(
 		term: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
-	): Aggregate<PlainHost[AvgSql[S]], PA, AvgSql[S]>
+	): OfFamily<A, keyof AvgSql, Aggregate<PlainHost[AvgSql[S]], PA, AvgSql[S]>>
 	/**
 	 * min and max return an input unchanged, so they keep its type, a contract and a roster included, its values and
 	 * its language.
 	 */
 	min<A extends TermBase | FirstValue, X, PA, OA, S extends MinMaxSql, V, L>(
 		term: A & FirstTerm<A> & Term<X, PA, OA, S, V, ProvedFacts, L>
-	): Aggregate<V, PA, S, X, L>
+	): OfFamily<A, MinMaxSql, Aggregate<V, PA, S, X, L>>
 	max<A extends TermBase | FirstValue, X, PA, OA, S extends MinMaxSql, V, L>(
 		term: A & FirstTerm<A> & Term<X, PA, OA, S, V, ProvedFacts, L>
-	): Aggregate<V, PA, S, X, L>
+	): OfFamily<A, MinMaxSql, Aggregate<V, PA, S, X, L>>
 }

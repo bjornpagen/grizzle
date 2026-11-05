@@ -109,6 +109,7 @@ const lowered = (query: LogicalQuery): Result.Result<ConservativeProgram, Compil
 interface Reads {
 	readonly feedbackOutside: boolean
 	readonly rewrite: boolean
+	/** An operator of no native overload, which the lowering cannot spell; a search's exact top-k it lowers. */
 	readonly unresolvedSearch: boolean
 	readonly delta: boolean
 }
@@ -128,9 +129,6 @@ const readsOf = (root: RelNode): Reads => {
 		}
 		if (node.kind === "Window" || node.kind === "OrderedSetAggregate") {
 			reads.rewrite = true
-		}
-		if (node.kind === "ApproximateNearest") {
-			reads.unresolvedSearch = true
 		}
 		if (node.kind === "Delta") {
 			reads.delta = true

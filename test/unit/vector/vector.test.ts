@@ -54,8 +54,9 @@ const componentGen = oneOf([
 
 /**
  * A buffer: of the field's dimensions or not, its components drawn one by one, all equal (four components of 2^-17
- * have norm 2^-16 exactly), or small components inside the domain with -0 among them, which reach an admitted buffer
- * holding -0; and whether the caller writes zeros into it after the check.
+ * have norm 2^-16 exactly), small components inside the domain with -0 among them, which reach an admitted buffer
+ * holding -0, or one component at a bound of the norm and the others zero, whose norm is that bound; and whether the
+ * caller writes zeros into it after the check.
  */
 interface BufferSketch {
 	readonly length: number
@@ -69,7 +70,10 @@ const bufferGen: Gen<BufferSketch> = (source) => ({
 		oneOf([
 			array(componentGen, { min: dims + 1, max: dims + 1 }),
 			map(componentGen, (x) => Array.from({ length: dims + 1 }, () => x)),
-			array(element([-0, 0, 1, 2 ** -17]), { min: dims + 1, max: dims + 1 })
+			array(element([-0, 0, 1, 2 ** -17]), { min: dims + 1, max: dims + 1 }),
+			map(element([lowest, highest, -lowest, -highest]), (bound) =>
+				Array.from({ length: dims + 1 }, (_, i) => (i === 0 ? bound : 0))
+			)
 		])
 	),
 	zeroedAfter: source.draw(boolean)

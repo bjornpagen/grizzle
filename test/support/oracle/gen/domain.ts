@@ -494,6 +494,11 @@ const rawClasses: Readonly<Record<Exclude<GenCarrier, "enum">, Classes>> = {
 		num("Infinity"),
 		num("-Infinity")
 	],
+	/**
+	 * Besides the small values, the edge of a narrowing into a typmod wider than a float's significant digits
+	 * (compute.ts floatEdges): the widest value whose numeric cast fits numeric(7, 0) and numeric(16, 0), and values
+	 * whose cast rounds past them, last so shrinking moves away from them.
+	 */
 	float4: [
 		flt(0),
 		flt(1),
@@ -502,7 +507,10 @@ const rawClasses: Readonly<Record<Exclude<GenCarrier, "enum">, Classes>> = {
 		flt(0.25),
 		special("Infinity"),
 		special("-Infinity"),
-		flt(3)
+		flt(3),
+		flt(9999994),
+		flt(9999995),
+		flt(-9999998)
 	],
 	float8: [
 		flt(0),
@@ -512,7 +520,10 @@ const rawClasses: Readonly<Record<Exclude<GenCarrier, "enum">, Classes>> = {
 		flt(0.25),
 		special("Infinity"),
 		special("-Infinity"),
-		flt(3)
+		flt(3),
+		flt(9999999999999994),
+		flt(9999999999999996),
+		flt(-9999999999999998)
 	],
 	money: [cash(0n), cash(100n), cash(1n), cash(-250n), cash(99999n)],
 	bool: [

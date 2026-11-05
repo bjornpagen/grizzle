@@ -4,30 +4,34 @@
  * refusals, a key a witness may carry that is not a violating one, a keyless pass for a law whose witness carries its
  * key) lets a wrong realization pass silently, and no run on PostgreSQL can notice.
  *
- * Over the write oracle's own generated groups, facts and ChangeSets (no database: law names come from the schema's
- * real compiled installation, planned as the pg oracle plans it), each case's expectation (expect.ts) judges, through
+ * Over the write oracle's own generated groups, facts and ChangeSets, and the planted group's wider member arm where a
+ * domain refusal is pending (no database: law names come from the schema's real compiled installation, planned as the
+ * pg oracle plans it), each case's expectation (expect.ts) judges, through
  * the harness's own judge (harness.ts), a faithful realization's outcome and mutants of it. The faithful one passes:
  * - a refusal by the first acceptable law, its witness the key of one of its violators, or keyless where that refusal
  *   may be;
- * - a keyless refusal by the column domain's law, where a value lies outside its column's domain, as the adapter
- *   classifies the server's check violation by the domain it names.
+ * - a keyless refusal by the column domain's law, where a stored value lies outside its column's domain, as the adapter
+ *   classifies the server's check violation by the domain it names;
+ * - a refusal at bind, EncodingFailure refinedValue at the slot of a parameter passed outside its field.
  * Every mutant fails:
  * - a refusal by a law of the group that no acceptable refusal names;
  * - a witness naming another law than the outcome;
  * - a witness key that is no violating key of the law;
  * - a keyless witness where the law's witness carries its key;
  * - a witness carrying a key where the law's violation is native and keyless;
- * - a refusal where the change applies, and an applied outcome where the domain refuses;
+ * - a refusal where the change applies, and an applied outcome where the domain or the bind refuses;
  * - a domain's check violation left an operational failure, unclassified.
  */
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
+import { boolean } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record, Result } from "effect"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
+import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
@@ -39,7 +43,7 @@ import { changeSetSketchGen, resolveChangeSet } from "#test/support/oracle/write
 import { typeInfo } from "#test/support/oracle/write/domain.ts"
 import { type AcceptableRefusal, expectChangeSet } from "#test/support/oracle/write/expect.ts"
 import { factsSketchGen, keyOf, resolveFacts } from "#test/support/oracle/write/facts.ts"
-import { judgeWrite } from "#test/support/oracle/write/harness.ts"
+import { judgeWrite, plantedCase } from "#test/support/oracle/write/harness.ts"
 import type { GroupState, WriteOutcome, OutcomeWitness } from "#test/support/oracle/write/run.ts"
 import {
 	buildSchema,
@@ -135,10 +139,34 @@ const situations = [
 	"mutant: a keyed witness of a native law",
 	"mutant: refused where applied",
 	"mutant: applied where domain-refused",
-	"mutant: a domain's violation unclassified"
+	"mutant: a domain's violation unclassified",
+	"faithful refusal at bind",
+	"mutant: applied where refused at bind"
 ] as const
 
 type WriteExpectFeature = (typeof situations)[number]
+
+/** The situations of a domain refusal: the faithful one, and its two mutants. */
+const domainSituations: ReadonlyArray<WriteExpectFeature> = [
+	"faithful domain refusal",
+	"mutant: applied where domain-refused",
+	"mutant: a domain's violation unclassified"
+]
+
+/**
+ * The planted group a witness judges in place of its drawn case, aimed at what no witness reached yet (Case.steering):
+ * while a domain refusal's situation is pending, in half its cases by a draw of its own, the schema's planted group,
+ * whose "wider member" arm reads a stored wide text past the narrow domain into it (changeset.ts plantedChangeSet), the
+ * refusal a drawn ChangeSet reads from a stored value too rarely; none for a schema without it, and for a rotating or
+ * kept case, which runs as drawn.
+ */
+const widerAimed = (schema: WSchema, n: Case<WriteExpectFeature>): Option.Option<WGroup> =>
+	Option.filter(
+		Arr.findFirst(schema.groups, (g) => g.role === "planted"),
+		() =>
+			Option.exists(n.steering, (pending) => Arr.some(domainSituations, (s) => pending.has(s))) &&
+			n.draw(boolean)
+	)
 
 describe("the write oracle's judgement", () => {
 	it.effect("passes a faithful realization and refuses every planted mutant of it", (ctx) =>
@@ -173,9 +201,21 @@ describe("the write oracle's judgement", () => {
 							return
 						}
 						const laws = writeLawNames(schema)
-						const group = pickFrom([first, ...rest], groupPick)
-						const facts = resolveFacts(group, factsSketch)
-						const c = n.draw(resolveChangeSet(group, facts, changesSketch))
+						const { group, facts, c } = Option.match(widerAimed(schema, n), {
+							onNone: () => {
+								const drawnGroup = pickFrom([first, ...rest], groupPick)
+								const drawnFacts = resolveFacts(drawnGroup, factsSketch)
+								return {
+									group: drawnGroup,
+									facts: drawnFacts,
+									c: n.draw(resolveChangeSet(drawnGroup, drawnFacts, changesSketch))
+								}
+							},
+							onSome: (planted) => {
+								const wider = plantedCase(planted, "wider member", factsSketch)
+								return { group: wider.group, facts: wider.facts, c: wider.changes }
+							}
+						})
 						const expected = expectChangeSet({ group, laws }, facts, c, {})
 						const state: GroupState = {
 							relations: expected.initial.relations,
@@ -219,6 +259,22 @@ describe("the write oracle's judgement", () => {
 											})
 										})
 									)
+								)
+								return
+							}
+							case "unbound": {
+								const [param] = [...expected.params]
+								if (param === undefined) {
+									throw new Error("a refusal at bind names no parameter")
+								}
+								n.note("faithful refusal at bind")
+								assert.deepEqual(
+									verdict(Result.fail(encodeFailure("refinedValue", slotPlace(param)))),
+									[]
+								)
+								mutant(
+									"mutant: applied where refused at bind",
+									Result.succeed({ kind: "no-change", reads: {} })
 								)
 								return
 							}

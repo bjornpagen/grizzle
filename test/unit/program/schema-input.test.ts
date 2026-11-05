@@ -40,9 +40,9 @@ import * as Q from "#test/support/fixtures/ir/queue.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
 import {
 	type Admitted,
-	admittedNames,
-	dictionaryNameGen,
-	type IdentifierFeature
+	admittedSchemaNames,
+	type IdentifierFeature,
+	schemaNameGen
 } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { pickGen, pickFrom } from "#test/support/pick.ts"
@@ -441,7 +441,7 @@ interface ContentSketch {
 const contentSketchGen: Gen<ContentSketch> = (source) => ({
 	built: source.draw(element(roots)),
 	renamed: source.draw(boolean),
-	name: source.draw(dictionaryNameGen),
+	name: source.draw(schemaNameGen),
 	change: source.draw(element(contentChanges)),
 	relation: source.draw(pickGen),
 	field: source.draw(pickGen)
@@ -500,7 +500,7 @@ const keptContent: ReadonlyArray<Kept<ContentSketch, ContentFeature>> = (() => {
 	const nameOf = (feature: IdentifierFeature): Admitted =>
 		Option.getOrThrow(
 			Arr.findFirst(
-				admittedNames,
+				admittedSchemaNames,
 				(n) => n.feature === feature && n.declared !== built.subject.label
 			)
 		)

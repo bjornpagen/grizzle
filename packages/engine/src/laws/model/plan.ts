@@ -60,7 +60,7 @@ import {
 	type LawIndexRequest
 } from "#compiler/ir/products.ts"
 import { closedCell, type KeySet, type RelNode } from "#compiler/ir/rel.ts"
-import { baseOf, rosterOf, type ScalarType, type SpanInfo } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, rosterOf, type SpanInfo } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 
@@ -420,14 +420,14 @@ export type CheckPredicate =
 
 const field = (column: LawField): FieldTerm => ({ kind: "field", field: column.name, column })
 
-/** The type a literal opposite `term` is lowered at, which the generated CHECK's lowering adopts from the term it meets
- * (`operand`): a field's own type, or a width's span endpoint (`width`). */
-const metType = (term: MetTerm): ScalarType => {
+/** The carrier a literal opposite `term` is lowered at, which the generated CHECK's lowering adopts from the term it
+ * meets (`operand`): a field's own, or a width's, an exact integer, the difference of its span's endpoints. */
+const metCarrier = (term: MetTerm): Carrier => {
 	switch (term.kind) {
 		case "field":
-			return term.column.type
+			return baseOf(term.column.type).carrier
 		case "compute":
-			return term.span.endpoint
+			return "exactInteger"
 	}
 }
 
@@ -435,10 +435,9 @@ const metType = (term: MetTerm): ScalarType => {
  * in (`irLiteral`): an integer is a JavaScript number at int2 and int4 and a bigint elsewhere.
  * A bound the carrier cannot hold stays irLiteral's typed refusal: beyond 2^53 - 1 the number is no safe integer, and
  * within it the range check refuses what int2 or int4 cannot hold. */
-const literalAt = (met: ScalarType, literal: TypedLiteral): CheckTerm => {
+const literalAt = (carrier: Carrier, literal: TypedLiteral): CheckTerm => {
 	switch (literal.kind) {
 		case "int": {
-			const carrier = baseOf(met).carrier
 			return {
 				kind: "literal",
 				value: carrier === "int2" || carrier === "int4" ? Number(literal.value) : literal.value,
@@ -475,7 +474,7 @@ const compareLiteral = (
 	kind: "compare",
 	op,
 	left,
-	right: literalAt(metType(left), literal)
+	right: literalAt(metCarrier(left), literal)
 })
 
 /** A predicate over a row with its statically known parts folded: `true` and `false` are decided, anything else is a
@@ -513,7 +512,7 @@ const selectionPred = (side: ResolvedSide): Pred =>
 			kind: "compare",
 			op: "eq",
 			left: field(s.col),
-			right: literalAt(s.col.type, s.value)
+			right: literalAt(baseOf(s.col.type).carrier, s.value)
 		}))
 	)
 
@@ -888,7 +887,7 @@ export class Recognizer {
 						kind: "compare",
 						op: "eq",
 						left: field(column.fromColumn),
-						right: literalAt(column.fromColumn.type, value)
+						right: literalAt(baseOf(column.fromColumn.type).carrier, value)
 					}))
 				)
 			)

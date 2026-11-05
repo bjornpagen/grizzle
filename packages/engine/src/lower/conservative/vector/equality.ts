@@ -3,11 +3,15 @@ import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { and, binary, or, row } from "#compiler/sql/build.ts"
 
-const isVectorType = (t: ScalarType): boolean => baseOf(t).carrier === "vector"
+/** Whether a column type is a vector, which only the extension's qualified operators compare. */
+export const isVectorType = (t: ScalarType): boolean => baseOf(t).carrier === "vector"
+
+/** A comparison grizzle emits between two values of one column type. */
+type ComparisonOperator = "=" | "<>" | "<" | "<=" | ">" | ">="
 
 /** `left op right` for two values of `type`: the extension's qualified operator over a vector. */
-const compare = (
-	op: "=" | "<>",
+export const typedCompare = (
+	op: ComparisonOperator,
 	type: ScalarType,
 	left: Expr,
 	right: Expr,
@@ -34,7 +38,7 @@ const compare = (
  * A row without a vector stays one row comparison.
  */
 export const typedEq = (type: ScalarType, left: Expr, right: Expr, vectorSchema: string): Expr =>
-	compare("=", type, left, right, vectorSchema)
+	typedCompare("=", type, left, right, vectorSchema)
 
 /** A row of `items`, or the one item alone. */
 export const rowOrSingle = (items: NonEmptyReadonlyArray<Expr>): Expr =>
@@ -60,7 +64,9 @@ const rowCompare = <F>(op: "=" | "<>", sides: RowSides<F>, vectorSchema: string)
 			rowOrSingle(mapNonEmpty(fields, right))
 		)
 	}
-	const terms = mapNonEmpty(fields, (f) => compare(op, typeOf(f), left(f), right(f), vectorSchema))
+	const terms = mapNonEmpty(fields, (f) =>
+		typedCompare(op, typeOf(f), left(f), right(f), vectorSchema)
+	)
 	return op === "=" ? and(terms) : or(terms)
 }
 

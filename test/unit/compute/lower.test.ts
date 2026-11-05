@@ -23,6 +23,7 @@ import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
+import { definedness } from "#compiler/scalar/compute/registry.ts"
 import { commonType, widening } from "#compiler/scalar/compute/types.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { widensTo } from "#test/support/fixtures/ir/scalar.ts"
@@ -42,7 +43,7 @@ import {
 	typedLiteralDesc,
 	resolveValue
 } from "#test/support/oracle/gen/domain.ts"
-import { proofHolds } from "#test/support/oracle/proof.ts"
+import { operationProofHolds } from "#test/support/oracle/proof.ts"
 import {
 	baseParams,
 	testContract,
@@ -57,7 +58,9 @@ import {
 
 const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
 
-const col = (f: { readonly scalar: LeafBinding["type"] }): LeafBinding => ({
+const col = (f: {
+	readonly scalar: Extract<LeafBinding, { readonly kind: "column" }>["type"]
+}): LeafBinding => ({
 	kind: "column",
 	type: f.scalar
 })
@@ -279,14 +282,20 @@ type CastCase =
 	  }
 
 /**
- * Every partial cast of a lowered table stands with a proof the kernel re-derives (oracle/proof.ts proofHolds); every cast into
+ * Every partial cast of a lowered table stands with a proof of each precondition the kernel re-derives (oracle/proof.ts
+ * operationProofHolds); every cast into
  * a contract is a domain cast, whose proof holds too, whether or not the contract has a CHECK.
  */
 const checkCasts = (exprs: ReadonlyArray<ScalarExpr>, c: Case<CastFeature>): void => {
 	for (const e of exprs) {
 		if (e.kind === "cast" && "proof" in e) {
+			const defined = definedness(e.cast)
 			assert.ok(
-				proofHolds(e.proof, { type: e.type, operand: e.args[0].type }),
+				defined.kind === "partial" &&
+					operationProofHolds(e.proof, defined.preconditions, {
+						type: e.type,
+						operand: e.args[0].type
+					}),
 				`a narrowing into ${typeLabel(e.type)} its proof re-derives`
 			)
 		}
@@ -300,7 +309,10 @@ const checkCasts = (exprs: ReadonlyArray<ScalarExpr>, c: Case<CastFeature>): voi
 		assert.equal(e.kind, "domainCast", `a cast into ${typeLabel(e.type)} is a domain cast`)
 		if (e.kind === "domainCast") {
 			assert.ok(
-				proofHolds(e.proof, { type: e.type, operand: e.args[0].type }),
+				operationProofHolds(e.proof, [{ kind: "contract" }], {
+					type: e.type,
+					operand: e.args[0].type
+				}),
 				`a domain cast into ${typeLabel(e.type)} its proof re-derives`
 			)
 		}
@@ -375,7 +387,7 @@ describe("a conversion into a contract", () => {
 					kind: "column",
 					column: { node: NodeId("n0"), name: column.name },
 					args: [],
-					type: binding.type,
+					type: binding.kind === "column" ? binding.type : binding.field.scalar,
 					nonNull: "storage",
 					volatility: "immutable"
 				}
@@ -484,7 +496,7 @@ describe("a conversion into a contract", () => {
  * A conditional, LEAST or GREATEST over two compatible terms combines them in their common type (compute/types.ts
  * commonType), the same whichever comes first, and lowers to a value or a typed CompileError, never a defect: its
  * result has the common type, and a branch of another type reaches it by a widening (widensTo), which drops only
- * refinements PostgreSQL never checks. The terms are the compute generator's (test/support/oracle/gen/compute.ts), a
+ * refinements PostgreSQL never checks or lifts a plain integer or money into its exact carrier. The terms are the compute generator's (test/support/oracle/gen/compute.ts), a
  * comparison's two sides, and two planted shapes the generator draws too rarely: cond(p, sign(x), y) over numeric
  * typmods, a negative scale among them (sign carries no typmod, so a typmod on its branch is a narrowing that rounds or
  * overflows), and a plain span against Compute.base of a contract over a fixed-width span (a width only the operand

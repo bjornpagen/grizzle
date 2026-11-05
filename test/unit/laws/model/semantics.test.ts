@@ -62,7 +62,7 @@ const evaluate = (m: LawModel, node: RelNode, facts: HostFacts) =>
 /**
  * The integer and numeric carriers a generated CHECK's literal meets, and the shapes that generate one: a
  * self-capacity's field weight or count against its bounds, a selected source into closed facts by a payload field or by
- * a selector field, and a self-capacity over a span's width, whose literal meets the span's endpoint type.
+ * a selector field, and a self-capacity over a span's width, an exact integer, whose literal is a bigint.
  */
 type Carrier = "int2" | "int4" | "int8" | "numeric(10,2)"
 type CheckCase =

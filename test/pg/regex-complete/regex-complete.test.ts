@@ -14,6 +14,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
+import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import { indices } from "#compiler/core/array.ts"
@@ -25,6 +26,7 @@ import type * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
+import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import {
 	compileInstallation,
 	type Installation,
@@ -74,20 +76,19 @@ import { oracleWorld } from "#test/support/worlds.ts"
  * language-equivalent spelling of it, a contract bounding length with Compute.charLength over the wildcard, and a
  * closed relation whose payload is a slug. Against it:
  *
- * - an out-of-pattern comparison parameter is bound as text and matches nothing, without error, under generic and
- *   custom plans, also when the query emits the parameter too;
+ * - a parameter is checked against its pattern or contract where the reader binds it (adapter/reader/relations.ts
+ *   executionInputs): a value outside them is refused with the codec fault refinedValue before any SQL is sent, and a
+ *   value inside them matches exactly its rows, under generic and custom plans and unprepared, in both artifacts, also
+ *   where the query emits the parameter, a fused attachment's child emits it inside its array, or a union's arm emits
+ *   it beside an arm that stores it; each forced plan is checked against pg_prepared_statements;
+ * - a scalar parameter's and a relation parameter's refined values alike, a relation parameter's refined column, which
+ *   the optimized delivery casts to its domain in the output list (lower/shapes/refined), included;
+ * - a Compute.cast into a refinement no value of its operand is proved to satisfy is refused by compilation
+ *   (PartialOperation, precondition contract), so no read raises 23514 on a delivered row;
  * - a refined write is refused before commit, by grizzle's compiled insert and by a direct SQL writer alike, with
  *   PostgreSQL's 23514 naming the domain's constraint;
- * - a refined output cast is evaluated for every delivered row under generic and custom plans, each run checked
- *   against pg_prepared_statements for the plan PostgreSQL used: a Compute.cast into the slug domain, and a relation
- *   parameter's refined column, which the optimized delivery casts to its domain in the output list
- *   (lower/shapes/refined), refuse one invalid row wherever it sits; an emitted parameter
- *   a fused attachment's child delivers is cast inside the attachment's array, so it refuses a delivered element and
- *   claims nothing over empty arrays; a union whose arm emits the parameter runs with one explicit type per arm;
  * - closed payloads are validated by PostgreSQL at installation, and the migration generate drafts and the snapshot
- *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered;
- * - a parameter compared with a numeric contract field is bound as the base and matches nothing outside the contract,
- *   without error, under generic and custom plans, in both artifacts.
+ *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered.
  *
  * The slug, and a spelling of the same language (domain identity is the canonical pattern).
  */
@@ -130,10 +131,7 @@ const bySlug = query(Content).rule((r) => {
 		.find({ id: article, slug })
 })
 
-/**
- * The same lookup that also emits the compared parameter under the slug's refinement: an empty result
- * delivers no value, so an out-of-pattern parameter still returns empty.
- */
+/** The same lookup that also emits the compared parameter under the slug's refinement. */
 const echoSlug = query(Content).rule((r) => {
 	const { id: article, slug } = v(Article, "article")
 	return r
@@ -142,19 +140,13 @@ const echoSlug = query(Content).rule((r) => {
 		.find({ id: article, echo: r.param("slug", Slug) })
 })
 
-/**
- * Every title cast into the slug's refinement: a computed refined output, validated for every delivered row. The
- * parameter excludes a title no row has, so every row is delivered; it gives PostgreSQL a bound value, without which
- * a custom plan is never chosen.
- */
+/** Every title cast into the slug's refinement: a narrowing nothing proves of a title, which compilation refuses. */
 const titlesAsSlugs = query(Content).rule((r) => {
 	const { id: article, title } = v(Article, "article")
 	return r
 		.match(Article, { id: article, title })
-		.where(r.ne(title, r.param("except", Article.fields.title)))
 		.find({ id: article, slug: Compute.cast(title, Slug) })
 })
-const noTitle = "no such title"
 
 /**
  * Every article with its comments other than the parameter, each echoing it: the child is fused into the parent
@@ -250,14 +242,14 @@ const ok = <A, E>(r: Result.Result<A, E>, what: string): A => {
 	return r.value
 }
 
+const compiling = (q: unknown, schemaIdent: string) =>
+	compileTemplate(q, undefined, {
+		...testCompile,
+		installation: identity.schema(parsedSchemaName(schemaIdent))
+	})
+
 const compiled = (q: unknown, schemaIdent: string): QueryTemplate =>
-	ok(
-		compileTemplate(q, undefined, {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(schemaIdent))
-		}),
-		"compile"
-	)
+	ok(compiling(q, schemaIdent), "compile")
 
 /** The text domain Article's slug field uses, with its constraint and its law, as the installation names them. */
 const slugDomain = (installation: Installation): TextDomainNames =>
@@ -282,18 +274,9 @@ let prepared = 0
  * Runs one statement under a forced plan, through PREPARE and EXECUTE, and checks in pg_prepared_statements that
  * PostgreSQL used that plan, whether the execution succeeded or failed: PostgreSQL counts the plan it chose before
  * it runs it. A statement with no bound value is never given a custom plan, so the check also refuses a case that
- * could not exercise one. The execution's own outcome is returned. A run whose binding may fail states it: such a
- * failure comes before any plan is chosen.
+ * could not exercise one. The execution's own outcome is returned.
  */
-type Binding = "planned" | "may fail at bind"
-
-const runPlanned = (
-	session: RawSession,
-	sql: string,
-	values: ReadonlyArray<string>,
-	plan: Plan,
-	binding: Binding
-) =>
+const runPlanned = (session: RawSession, sql: string, values: ReadonlyArray<string>, plan: Plan) =>
 	Effect.gen(function* () {
 		const name = `m14a_${++prepared}`
 		yield* session.query(`SET plan_cache_mode = force_${plan}_plan`, [])
@@ -312,18 +295,11 @@ const runPlanned = (
 		)
 		yield* session.query(`DEALLOCATE ${name}`, [])
 		yield* session.query("RESET plan_cache_mode", [])
-		/**
-		 * A failure raised while PostgreSQL binds the parameters comes before any plan is chosen and is no row's
-		 * evaluation; where a caller allows it, it is returned as it is.
-		 */
-		const unplanned = Exit.isFailure(run) && counts[0]?.[0] === "0" && counts[0][1] === "0"
-		if (!(unplanned && binding === "may fail at bind")) {
-			assert.deepEqual(
-				counts[0],
-				plan === "generic" ? ["1", "0"] : ["0", "1"],
-				`the plan PostgreSQL used under force_${plan}_plan`
-			)
-		}
+		assert.deepEqual(
+			counts[0],
+			plan === "generic" ? ["1", "0"] : ["0", "1"],
+			`the plan PostgreSQL used under force_${plan}_plan`
+		)
 		if (Exit.isFailure(run)) {
 			return yield* Effect.failCause(run.cause)
 		}
@@ -338,16 +314,8 @@ type Run = Plan | "unprepared"
 const runs: Arr.NonEmptyReadonlyArray<Run> = ["generic", "custom", "unprepared"]
 
 /** The rows a statement returns run as a case says: under a forced plan through `runPlanned`, or unprepared. */
-const runAs = (
-	session: RawSession,
-	sql: string,
-	values: ReadonlyArray<string>,
-	run: Run,
-	binding: Binding
-) =>
-	run === "unprepared"
-		? session.values(sql, values)
-		: runPlanned(session, sql, values, run, binding)
+const runAs = (session: RawSession, sql: string, values: ReadonlyArray<string>, run: Run) =>
+	run === "unprepared" ? session.values(sql, values) : runPlanned(session, sql, values, run)
 
 /** Every case of a finite space, checked against the installation a test set up. */
 const everyCase = <A, E, R>(
@@ -368,16 +336,58 @@ const everyCase = <A, E, R>(
 		property
 	)
 
-/** What a relation parameter is given: valid facts, facts with one invalid slug at a position, or none. */
-type Given =
-	| Readonly<{ kind: "valid" }>
-	| Readonly<{ kind: "invalid"; at: number }>
-	| Readonly<{ kind: "empty" }>
-
 /** The two artifacts of a compiled template. */
 type Artifact = "optimized" | "conservative"
 
 const artifacts: Arr.NonEmptyReadonlyArray<Artifact> = ["optimized", "conservative"]
+
+/** What the reader's bind makes of a case's parameters: refused before any SQL, or bound, matching `count` rows. */
+type Bound = Readonly<{ kind: "refused" }> | Readonly<{ kind: "rows"; count: number }>
+
+const refused: Bound = { kind: "refused" }
+
+const rows = (count: number): Bound => ({ kind: "rows", count })
+
+/**
+ * The codec fault the reader's bind refuses `params` with before any SQL (adapter/reader/relations.ts
+ * executionInputs, over the template's declared parameters), the refusal's own tag where it is no codec fault, or
+ * undefined where it binds them.
+ */
+const bindRefusal = (
+	template: QueryTemplate,
+	params: Readonly<Record<string, unknown>>
+): string | undefined => {
+	const bound = executionInputs(paramCodecs(template.params), params, transportLimits)
+	if (bound._tag === "Success") {
+		return undefined
+	}
+	return bound.failure._tag === "EncodingFailure" ? bound.failure.reason._tag : bound.failure._tag
+}
+
+/**
+ * A case's parameters against the reader's bind and, where it binds them, the first statement of `artifact` run as
+ * `run`: refused with refinedValue, or matching the rows `bound` states.
+ */
+const boundAgrees = (
+	session: RawSession,
+	template: QueryTemplate,
+	artifact: Artifact,
+	params: Readonly<Record<string, unknown>>,
+	bound: Bound,
+	run: Run,
+	what: string
+) =>
+	Effect.gen(function* () {
+		const refusal = bindRefusal(template, params)
+		if (bound.kind === "refused") {
+			assert.equal(refusal, "refinedValue", what)
+			return
+		}
+		assert.equal(refusal, undefined, what)
+		const spec = defined(template[artifact][0], "statement")
+		const matched = yield* runAs(session, spec.sql, paramTexts(spec, params), run)
+		assert.equal(matched.length, bound.count, what)
+	})
 
 const changeSet = (value: unknown) => defined(changeSetDesc(value), "a ChangeSet value")
 
@@ -417,7 +427,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 		})
 
 	it.effect(
-		"an out-of-pattern comparison parameter returns empty without error, generic and custom",
+		"a parameter outside its pattern is refused at bind, and one inside it matches its rows, generic and custom",
 		(ctx) =>
 			searched(
 				ctx,
@@ -426,76 +436,43 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					const { schema: name } = yield* install()
 					yield* loadArticles(name, articles(3))
 					const session = yield* s.session({ ...ownerSession(), label: "reader" })
-					/**
-					 * The lookup's two artifacts, and the optimized artifact of the lookup that emits its parameter too: there the
-					 * emitted placeholder is bound as text and cast to the domain only in the delivered output list
-					 * (lower/shapes/refined), so an empty result validates nothing. The conservative artifact of that lookup is
-					 * held to the same gate by the case below.
-					 */
-					const lookup = compiled(bySlug, name)
-					const echo = compiled(echoSlug, name)
-					const statements = {
-						"the lookup, optimized": lookup.optimized,
-						"the lookup, conservative": lookup.conservative,
-						"the echoing lookup, optimized": echo.optimized
+					const lookups = {
+						"the lookup": compiled(bySlug, name),
+						"the echoing lookup": compiled(echoSlug, name)
 					}
 					return yield* everyCase(
-						"out-of-pattern parameter",
+						"pattern parameter",
 						(source) => ({
-							artifact: source.draw(
-								element([
-									"the lookup, optimized",
-									"the lookup, conservative",
-									"the echoing lookup, optimized"
-								] as const)
-							),
+							lookup: source.draw(element(["the lookup", "the echoing lookup"] as const)),
+							artifact: source.draw(element(artifacts)),
 							slug: source.draw(
-								element<readonly [string, number]>([
-									["Not A Slug!", 0],
-									["", 0],
-									["post-2", 1]
-								] as const)
+								element<readonly [string, Bound]>([
+									["Not A Slug!", refused],
+									["", refused],
+									["post-2", rows(1)],
+									["post-9", rows(0)]
+								])
 							),
 							run: source.draw(element(runs))
 						}),
-						27,
-						({ artifact, slug: [value, expected], run }) =>
-							Effect.gen(function* () {
-								const spec = defined(statements[artifact][0], "statement")
-								const values = paramTexts(spec, { slug: value })
-								const rows = yield* runAs(session, spec.sql, values, run, "planned")
-								assert.equal(rows.length, expected, `${value} in ${artifact}, run ${run}`)
-							})
+						48,
+						({ lookup, artifact, slug: [value, bound], run }) =>
+							boundAgrees(
+								session,
+								lookups[lookup],
+								artifact,
+								{ slug: value },
+								bound,
+								run,
+								`${value} in ${lookup}, ${artifact}, run ${run}`
+							)
 					)
 				})
 			)
 	)
 
 	it.effect(
-		"the conservative artifact of a lookup that emits its parameter returns empty without error",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const { schema: name } = yield* install()
-					yield* loadArticles(name, articles(3))
-					const session = yield* s.session({ ...ownerSession(), label: "reader" })
-					const echo = compiled(echoSlug, name)
-					const spec = defined(echo.conservative[0], "statement")
-					const values = paramTexts(spec, { slug: "Not A Slug!" })
-					return yield* everyCase("conservative echo", element(plans), plans.length, (plan) =>
-						Effect.gen(function* () {
-							const rows = yield* runPlanned(session, spec.sql, values, plan, "may fail at bind")
-							assert.equal(rows.length, 0, plan)
-						})
-					)
-				})
-			)
-	)
-
-	it.effect(
-		"a parameter outside a numeric contract matches nothing without error, generic and custom",
+		"a parameter outside a numeric contract is refused at bind, and one inside it matches its rows, generic and custom",
 		(ctx) =>
 			searched(
 				ctx,
@@ -508,14 +485,14 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					)
 					const session = yield* s.session({ ...ownerSession(), label: "reader" })
 					const decimal = (text: string): Decimal => ok(Decimal.fromString(text), text)
-					/** Each lookup, the parameter it compares and the values it is given, with the rows each matches. */
+					/** Each lookup, the parameter it compares and the values it is given, with what the bind makes of each. */
 					const lookups: Readonly<
 						Record<
 							"amount compared" | "amount echoed" | "rate echoed",
 							{
 								readonly template: QueryTemplate
 								readonly param: string
-								readonly values: Arr.NonEmptyReadonlyArray<readonly [bigint | Decimal, number]>
+								readonly values: Arr.NonEmptyReadonlyArray<readonly [bigint | Decimal, Bound]>
 							}
 						>
 					> = {
@@ -523,25 +500,28 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 							template: compiled(byAmount, name),
 							param: "amount",
 							values: [
-								[-5n, 0],
-								[100n, 1]
+								[-5n, refused],
+								[5n, rows(0)],
+								[100n, rows(1)]
 							]
 						},
 						"amount echoed": {
 							template: compiled(echoAmount, name),
 							param: "amount",
 							values: [
-								[-5n, 0],
-								[100n, 1]
+								[-5n, refused],
+								[5n, rows(0)],
+								[100n, rows(1)]
 							]
 						},
 						"rate echoed": {
 							template: compiled(echoRate, name),
 							param: "rate",
 							values: [
-								[decimal("2"), 0],
-								[decimal("-0.5"), 0],
-								[decimal("0.062"), 1]
+								[decimal("2"), refused],
+								[decimal("-0.5"), refused],
+								[decimal("0.5"), rows(0)],
+								[decimal("0.062"), rows(1)]
 							]
 						}
 					}
@@ -558,19 +538,19 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 								run: source.draw(element(runs))
 							}
 						},
-						42,
-						({ lookup, artifact, value: [value, expected], run }) =>
-							Effect.gen(function* () {
-								const { template, param } = lookups[lookup]
-								const spec = defined(template[artifact][0], "statement")
-								const bound = paramTexts(spec, { [param]: value })
-								const matched = yield* runAs(session, spec.sql, bound, run, "planned")
-								assert.equal(
-									matched.length,
-									expected,
-									`${param} ${Formatter.format(value)} in the ${artifact} artifact, run ${run}`
-								)
-							})
+						60,
+						({ lookup, artifact, value: [value, bound], run }) => {
+							const { template, param } = lookups[lookup]
+							return boundAgrees(
+								session,
+								template,
+								artifact,
+								{ [param]: value },
+								bound,
+								run,
+								`${param} ${Formatter.format(value)} in the ${artifact} artifact, run ${run}`
+							)
+						}
 					)
 				})
 			)
@@ -685,68 +665,33 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 	)
 
 	it.effect(
-		"a refined output cast is evaluated for every delivered row, generic and custom",
+		"a cast into a refinement nothing proves is refused at compile, and a relation parameter outside its pattern at bind, generic and custom",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const { schema: name, installation } = yield* install()
-					const rows = articles(40)
-					yield* loadArticles(name, rows)
+					const { schema: name } = yield* install()
 					const session = yield* s.session({ ...ownerSession(), label: "reader" })
-					const table = `${quoteIdent(name)}."article"`
-					const template = compiled(titlesAsSlugs, name)
-					yield* everyCase(
-						"output cast",
-						(source) => ({
-							artifact: source.draw(element(artifacts)),
-							/**
-							 * Under every artifact and plan, every title valid or one invalid title at the first, a middle or
-							 * the last row, restored after.
-							 */
-							victim: source.draw(
-								element([Option.none(), Option.some(0), Option.some(20), Option.some(39)])
-							),
-							plan: source.draw(element(plans))
-						}),
-						16,
-						({ artifact, victim, plan }) =>
-							Effect.gen(function* () {
-								const spec = defined(template[artifact][0], "statement")
-								const values = paramTexts(spec, { except: noTitle })
-								if (Option.isNone(victim)) {
-									const delivered = yield* runPlanned(session, spec.sql, values, plan, "planned")
-									assert.equal(delivered.length, rows.length, `every row under a ${plan} plan`)
-									return
-								}
-								const position = victim.value
-								const bad = defined(rows[position], "article")
-								yield* s.admin.query(
-									`UPDATE ${table} SET "title" = 'Bad Title' WHERE "id" = '${bad.id}'`,
-									[]
-								)
-								yield* expectConstraint(
-									runPlanned(session, spec.sql, values, plan, "planned"),
-									slugDomain(installation).constraint,
-									"23514"
-								)
-								yield* s.admin.query(
-									`UPDATE ${table} SET "title" = 'title-${position + 1}' WHERE "id" = '${bad.id}'`,
-									[]
-								)
-							})
+					const cast = compiling(titlesAsSlugs, name)
+					assert.equal(
+						cast.ok
+							? "compiled"
+							: cast.error.reason._tag === "PartialOperation"
+								? `PartialOperation, precondition ${cast.error.reason.precondition}`
+								: cast.error.reason._tag,
+						"PartialOperation, precondition contract",
+						"a title cast into the slug's refinement"
 					)
 					/** A relation parameter's refined column is cast to its domain in the delivered output list. */
 					const given = compiled(givenSlugs, name)
-					const spec = defined(given.optimized[0], "statement")
 					assert.equal(
 						isRefined(
 							Option.getOrThrow(Arr.findFirst(given.heading, (c) => c.name === "slug")).type
 						),
 						true
 					)
-					const facts = (bad: number | undefined) =>
+					const givenFacts = (bad: number | undefined) =>
 						Arr.map(indices(10), (i) => ({
 							id: id(100 + i),
 							slug: i === bad ? "BAD" : `given-${i}`
@@ -756,82 +701,57 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 						(source) => ({
 							/** Ten valid slugs, one invalid slug at the first, a middle or the last fact, or none given. */
 							given: source.draw(
-								element<Given>([
-									{ kind: "valid" },
-									{ kind: "invalid", at: 0 },
-									{ kind: "invalid", at: 5 },
-									{ kind: "invalid", at: 9 },
-									{ kind: "empty" }
-								] as const)
+								element<readonly [ReadonlyArray<{ id: Uuid; slug: string }>, Bound]>([
+									[givenFacts(undefined), rows(10)],
+									[givenFacts(0), refused],
+									[givenFacts(5), refused],
+									[givenFacts(9), refused],
+									[[], rows(0)]
+								])
 							),
+							artifact: source.draw(element(artifacts)),
 							plan: source.draw(element(plans))
 						}),
-						10,
-						({ given, plan }) =>
-							Effect.gen(function* () {
-								switch (given.kind) {
-									case "valid": {
-										const delivered = yield* runPlanned(
-											session,
-											spec.sql,
-											paramTexts(spec, { given: facts(undefined) }),
-											plan,
-											"planned"
-										)
-										assert.equal(delivered.length, 10, `every given fact under a ${plan} plan`)
-										return
-									}
-									case "invalid":
-										yield* expectConstraint(
-											runPlanned(
-												session,
-												spec.sql,
-												paramTexts(spec, { given: facts(given.at) }),
-												plan,
-												"planned"
-											),
-											slugDomain(installation).constraint,
-											"23514"
-										)
-										return
-									case "empty": {
-										const delivered = yield* runPlanned(
-											session,
-											spec.sql,
-											paramTexts(spec, { given: [] }),
-											plan,
-											"planned"
-										)
-										assert.equal(delivered.length, 0, `no given fact under a ${plan} plan`)
-										return
-									}
-								}
-							})
+						20,
+						({ given: [facts, bound], artifact, plan }) =>
+							boundAgrees(
+								session,
+								given,
+								artifact,
+								{ given: facts },
+								bound,
+								plan,
+								`${facts.length} facts in the ${artifact} artifact under a ${plan} plan`
+							)
 					)
 				})
 			)
 	)
 
 	it.effect(
-		"a fused attachment's emitted parameter is cast inside its array, and a union's arms agree",
+		"a fused attachment's and a union arm's emitted parameter is refused outside its pattern, and delivered inside it",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const { schema: name, installation } = yield* install()
+					const { schema: name } = yield* install()
 					yield* loadArticles(name, articles(3))
 					const session = yield* s.session({ ...ownerSession(), label: "reader" })
 					const fused = compiled(echoComments, name)
 					assert.equal(fused.optimized.length, 1)
 					const spec = defined(fused.optimized[0], "statement")
+					const union = compiled(slugsOrEcho, name)
+					const unionSpec = defined(union.optimized[0], "statement")
+					assert.equal(bindRefusal(fused, { slug: "Not A Slug!" }), "refinedValue")
+					assert.equal(bindRefusal(union, { slug: "Not A Slug!" }), "refinedValue")
 					const run = (slug: string, plan: Plan) =>
-						runPlanned(session, spec.sql, paramTexts(spec, { slug }), plan, "planned")
+						runPlanned(session, spec.sql, paramTexts(spec, { slug }), plan)
 					/** No comment exists: every array is empty, so no element is delivered and nothing is claimed. */
 					const everyPlan = element(plans)
 					yield* everyCase("fused attachment without comments", everyPlan, plans.length, (plan) =>
 						Effect.gen(function* () {
-							const empty = yield* run("Not A Slug!", plan)
+							const empty = yield* run("first", plan)
 							assert.deepEqual(
 								Arr.sort(
 									Arr.map(empty, (r) => String(r[2])),
@@ -849,25 +769,17 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					)
 					/**
 					 * The union's stored arm is cast to text explicitly where the other arm emits the text-bound parameter, so
-					 * PostgreSQL resolves no type across the arms; an out-of-pattern parameter matches no comment and the
-					 * delivered slugs are the articles'.
+					 * PostgreSQL resolves no type across the arms; a parameter no comment has delivers the articles' slugs alone.
 					 */
-					const union = compiled(slugsOrEcho, name)
-					const unionSpec = defined(union.optimized[0], "statement")
 					const withComments = yield* everyCase(
 						"fused attachment and union with comments",
 						element(plans),
 						plans.length,
 						(plan) =>
 							Effect.gen(function* () {
-								yield* expectConstraint(
-									run("Not A Slug!", plan),
-									slugDomain(installation).constraint,
-									"23514"
-								)
 								/** A valid parameter is delivered in every element but the comment it excludes. */
-								const rows = yield* run("first", plan)
-								const arrays = new Map(Arr.map(rows, (r) => [r[0], r[2]]))
+								const delivered = yield* run("first", plan)
+								const arrays = new Map(Arr.map(delivered, (r) => [r[0], r[2]]))
 								assert.equal(arrays.get(id(2)), "{}", plan)
 								containsText(String(arrays.get(id(1))), "first", plan)
 								containsText(String(arrays.get(id(1))), id(51), plan)
@@ -875,9 +787,8 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 								const out = yield* runPlanned(
 									session,
 									unionSpec.sql,
-									paramTexts(unionSpec, { slug: "Not A Slug!" }),
-									plan,
-									"planned"
+									paramTexts(unionSpec, { slug: "absent" }),
+									plan
 								)
 								assert.deepEqual(
 									Arr.sort(
@@ -891,8 +802,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 									session,
 									unionSpec.sql,
 									paramTexts(unionSpec, { slug: "second" }),
-									plan,
-									"planned"
+									plan
 								)
 								assert.deepEqual(
 									Arr.sort(

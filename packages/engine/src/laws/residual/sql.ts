@@ -1,10 +1,10 @@
 import { Refusal } from "#compiler/core/canonical.ts"
+import { exactParts } from "#compiler/core/decimal.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
-import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { DetailCodec, FieldSelector, LawField, LawRelation } from "#compiler/ir/law.ts"
 import { baseTypeRef, type PhysicalNames } from "#compiler/ir/physical.ts"
@@ -34,14 +34,6 @@ const refuseLaw = (law: LawId, tag: ProseTag, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, SourceLoc(`law ${law}`, []), capability)))
 }
 
-/** Minor units as the exact decimal text of the amount under the fixed C.UTF-8 monetary context. */
-const moneyText = (minor: bigint): string => {
-	const negative = minor < 0n
-	const magnitude = negative ? -minor : minor
-	const cents = (magnitude % 100n).toString().padStart(2, "0")
-	return `${negative ? "-" : ""}${(magnitude / 100n).toString()}.${cents}`
-}
-
 /** A typed literal of `t`'s base, the type a value of `t` is compared as against a stored column: unrefined, a
  * roster's the enum the naming door mints from its declared name. */
 export const literalExpr = (
@@ -55,7 +47,7 @@ export const literalExpr = (
 		case "int":
 			return lit.int(literal.value, type)
 		case "numeric":
-			return lit.decimal(decimalPayload(literal.value), type)
+			return lit.decimal(literal.value.parts, type)
 		case "float":
 			return lit.float(literal.value, type)
 		case "floatSpecial":
@@ -68,7 +60,7 @@ export const literalExpr = (
 				type
 			)
 		case "money":
-			return lit.decimal(moneyText(moneyMinorUnits(literal.value)), type)
+			return lit.decimal(exactParts(moneyMinorUnits(literal.value), 2), type)
 		case "bool":
 			return lit.bool(literal.value)
 		case "text":

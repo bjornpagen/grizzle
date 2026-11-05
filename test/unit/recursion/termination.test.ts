@@ -14,6 +14,7 @@ import {
 	eq,
 	lt,
 	match,
+	narrowed,
 	param,
 	plainVar,
 	ref,
@@ -94,7 +95,9 @@ describe("the seen-state estimate", () => {
 							if (bx === 3 && by === 3) {
 								c.note("the widest grid")
 							}
-							const sum: HeadTermDesc = summed ? compute("add", s("x"), s("y")) : int(0)
+							const sum: HeadTermDesc = summed
+								? narrowed(compute("add", s("x"), s("y")), "integer")
+								: int(0)
 							const q = succeeded(
 								checkQuery(
 									checking(Graph),
@@ -171,8 +174,8 @@ describe("the seen-state estimate", () => {
 								)
 							)
 							/**
-							 * x counts 0..bx and y 0..by; sum its literal beside x * y when computed from them; d, data, once; tag its
-							 * literals.
+							 * x counts 0..bx and y 0..by; sum, their exact sum narrowed into integer under its guard, its literal beside
+							 * x * y when computed from them; d, data, once; tag its literals.
 							 */
 							const counts = (BigInt(bx) + 1n) * (BigInt(by) + 1n)
 							const cert = theRecursive(q).termination

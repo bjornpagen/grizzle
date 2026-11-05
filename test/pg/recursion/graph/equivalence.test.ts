@@ -60,8 +60,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   whether a bounded walk is unrolled into the set union of joins or kept a recursive CTE, and both forms must occur
  *   (its kernel feature registry).
  * - The attachment population is every recursion attached to its roots by origin: each is seeded once
- *   from the delivered parents' key recordset (R37), and the suite requires every attachment statement whose origin
- *   prints alike to be seeded.
+ *   from the delivered parents' key recordset (R37), and the suite requires every attachment statement to be seeded:
+ *   equal values have one canonical cell text, so every origin type stitches by key.
  * - The seed-filter population is three result predicates: a filter on the origin, which the graph
  *   pass pushes into the seed (graph.seedPushdown), and a filter on the end vertex and a final inequality, which it
  *   must not move. The suite requires the pushdown to have fired on origin filters and agreement everywhere. The
@@ -260,16 +260,15 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 						cases: attached,
 						sense: notesOnly
 					}),
-					check: ({ c, program }) => {
+					check: ({ program }) => {
 						const seeded = seededStatements(program)
 						const statements = Arr.filter(
 							flight(program.roots),
 							(s) => s.role.kind === "attachment"
 						).length
-						const expected = c.graph.kind === "float8" ? 0 : statements
-						return statements === 1 && seeded === expected
+						return statements === 1 && seeded === statements
 							? []
-							: [`${seeded} of ${statements} attachment statements seeded, expected ${expected}`]
+							: [`${seeded} of ${statements} attachment statements seeded, expected ${statements}`]
 					}
 				})
 			),

@@ -2,7 +2,6 @@ import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
-import { decimalPayload } from "#compiler/ir/decimal.ts"
 import {
 	type ColumnRef,
 	describeOp,
@@ -44,7 +43,7 @@ export const persistentLiteral = (
 		case "int":
 			return lit.int(literal.value, sqlType)
 		case "numeric":
-			return lit.decimal(decimalPayload(literal.value), sqlType)
+			return lit.decimal(literal.value.parts, sqlType)
 		case "float":
 			return lit.float(literal.value, sqlType)
 		case "floatSpecial":

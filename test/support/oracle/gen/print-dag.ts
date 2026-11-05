@@ -141,7 +141,14 @@ class ExprPrinter {
 					""
 				)})`
 			case "cast":
-				return `(${"proof" in expr ? `${expr.proof.precondition.kind} ` : ""}cast ${args[0]} ${typeLabel(expr.type)})`
+				return `(${
+					"proof" in expr
+						? `${Arr.join(
+								Arr.map(expr.proof, (p) => p.precondition.kind),
+								" "
+							)} `
+						: ""
+				}cast ${args[0]} ${typeLabel(expr.type)})`
 			case "domainCast":
 				return `(domain ${args[0]} ${typeLabel(expr.type)})`
 			case "cond":

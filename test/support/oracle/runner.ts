@@ -26,6 +26,7 @@ import {
 	Result,
 	type Scope
 } from "effect"
+import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -458,9 +459,12 @@ export const runProgram = (
 		for (const [i, statement] of flight(program.roots).entries()) {
 			const params = yield* Effect.fromResult(paramValues(c, statement, name))
 			const heading = statementOutput(statement.role, statement.heading, []).heading
-			const rows = yield* captureRows(session, statement.sql.text, params, {
-				columns: heading.length
-			}).pipe(
+			const rows = yield* captureRows(
+				session,
+				statement.sql.text,
+				params,
+				Arr.map(heading, (h) => resultTextCasts(h.type))
+			).pipe(
 				Effect.mapError((e) =>
 					failure(
 						"execute",

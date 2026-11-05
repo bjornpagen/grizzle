@@ -26,6 +26,13 @@ export const Slot = contract("Slot", pg.integer, (x) => x.ge(0))
 export const SeatNo = contract("SeatNo", pg.integer, (x) => x.ge(0))
 
 export const Standing = closed("Standing", ["wanted", "leased", "done", "refused"])
+
+/**
+ * The largest epoch a claim advances. An epoch counts one item's claims from 0, each claim one past the last, so only
+ * the (2^63 − 1)th claim of one item would carry it past bigint's largest: a claim advances the epoch under the guard
+ * that states this bound, which narrows the exact sum into the bigint field, and an item at the bound keeps its epoch.
+ */
+export const epochBound = 9223372036854775806n
 export const QueueWork = relation(
 	"Work",
 	{
@@ -308,7 +315,11 @@ export const claimWorkPut = query(Queue).rule((r) => {
 		kind: p.kind,
 		slot: p.slot,
 		standing: "leased",
-		epoch: Compute.add(p.epoch, 1n),
+		epoch: Compute.when(
+			Compute.within(p.epoch, 0n, epochBound),
+			(epoch) => Compute.cast(Compute.add(epoch, 1n), pg.bigint),
+			p.epoch
+		),
 		enqueued: p.enqueued
 	})
 })
@@ -341,7 +352,11 @@ export const claimLeasedPut = query(Queue).rule((r) => {
 		key,
 		resource: r.param("resource", Leased.fields.resource),
 		seat,
-		epoch: Compute.add(epoch, 1n),
+		epoch: Compute.when(
+			Compute.within(epoch, 0n, epochBound),
+			(current) => Compute.cast(Compute.add(current, 1n), pg.bigint),
+			epoch
+		),
 		/** The host computes the expiry and passes it as one Instant. */
 		expires: r.param("expires", Leased.fields.expires)
 	})

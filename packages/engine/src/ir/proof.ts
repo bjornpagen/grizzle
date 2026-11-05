@@ -15,7 +15,8 @@ export type OperandIndex = 0 | 1 | 2 | 3
  * - `nonnegative`: the operand is never below zero (numeric sqrt's radicand, power's base);
  * - `finite`: the operand is never NaN or an infinity (min_scale, numeric or a float cast to an integer or money,
  *   width_bucket's operands);
- * - `fits`: a cast's value fits its target, a narrower carrier or a numeric typmod, once the cast rounds it;
+ * - `fits`: a cast's value other than NaN fits its target, a narrower carrier or a numeric typmod, once the cast
+ *   rounds it; NaN passes a typmod, and a cast that NaN would fail into an integer or money also requires `finite`;
  * - `contract`: the value satisfies the contract or regex refinement a domain cast enters;
  * - `powerDomain`: power's result stays inside its carrier's range;
  * - `bucketDomain`: width_bucket's bounds differ and its count lies in 1..2147483646.
@@ -54,11 +55,12 @@ export type FactSource =
 	| { readonly kind: "type" }
 
 /**
- * What a proof rests on: an operand's fact and its source; a closed finite interval every value of the operand lies
- * in, which the bound domain derived from carrier ranges, typmods, the 1,000-digit bound of a bare numeric, contracts'
- * atoms, literals, exact digit bounds, guards and recursion bounds; or an operand whose value is checked against a
- * refinement where it is no read's evaluation: a literal at compile time (ContractLiteral), a parameter at bind, or a
- * written value by the write itself, whose refusal is the write's outcome (README: writes keep their value checks).
+ * What a proof rests on: an operand's fact and its source; a closed finite interval every value of the operand but NaN
+ * lies in, and whether NaN is among its values, which the bound domain derived from carrier ranges, typmods, the
+ * 1,000-digit bound of a bare numeric, contracts' atoms, literals, exact digit bounds, guards and recursion bounds; or
+ * an operand whose value is checked against a refinement where it is no read's evaluation: a literal at compile time
+ * (ContractLiteral), a parameter at bind, or a written value by the write itself, whose refusal is the write's outcome
+ * (README: writes keep their value checks).
  */
 export type OperandPremise =
 	| {
@@ -72,6 +74,7 @@ export type OperandPremise =
 			readonly operand: OperandIndex
 			readonly low: Exact
 			readonly high: Exact
+			readonly nan: boolean
 	  }
 	| {
 			readonly kind: "checked"
@@ -79,13 +82,30 @@ export type OperandPremise =
 			readonly by: "literal" | "parameter" | "write"
 	  }
 
-/**
- * The kept, checkable proof that a partial operation's precondition holds where it stands: the precondition and the
- * premises it rests on. An expression names a partial operation only with one (ir/expr.ts PartialOp), and the tests'
- * proof kernel (test/support/oracle/proof.ts checkProof) re-derives the precondition from its premises, so a proof is a
- * value that can be verified, never a claim.
- */
+/** The proof of one precondition: the precondition and the premises it rests on. */
 export interface PreconditionProof {
 	readonly precondition: Precondition
+	readonly premises: NonEmptyReadonlyArray<OperandPremise>
+}
+
+/**
+ * The kept, checkable proof that a partial operation is defined where it stands: one PreconditionProof per precondition
+ * its Totality requires, in its order (a narrowing from numeric proves finite, then fits), each on premises of its own.
+ * An expression names a partial operation only with one (ir/expr.ts PartialOp), and the tests' proof kernel
+ * (test/support/oracle/proof.ts) re-derives every precondition from its own premises, so a proof is a value that can be
+ * verified, never a claim, and no precondition is claimed without one.
+ */
+export type OperationProof = NonEmptyReadonlyArray<PreconditionProof>
+
+/**
+ * The kept, checkable proof that PostgreSQL's own overload computes an IEEE 754 operation's value where it stands (an
+ * overload whose Totality is ieee): the premises its operands' values meet, under which the native operation neither
+ * overflows, underflows, divides by zero nor takes the root of a negative, so it raises on none of them and its result
+ * is IEEE 754's. A node that carries one renders natively, with no guard and no binding
+ * (lower/conservative/expr/total.ts ieeeForm); one that carries none renders the guarded IEEE 754 form. The tests'
+ * proof kernel (test/support/oracle/proof.ts nativeProofHolds) re-derives it from its premises with the arithmetic
+ * scalar/compute/native.ts writes once.
+ */
+export interface NativeProof {
 	readonly premises: NonEmptyReadonlyArray<OperandPremise>
 }

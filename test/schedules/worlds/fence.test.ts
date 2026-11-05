@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { type Array as Arr, Effect, Fiber } from "effect"
+import { type Array as Arr, Effect, Fiber, Formatter } from "effect"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
@@ -142,6 +142,19 @@ const holders: Arr.NonEmptyReadonlyArray<Holder> = [
 	}
 ]
 
+/**
+ * A migration that ended before it waited behind the transaction in flight, a failure of the schedule rather than a
+ * barrier awaited until the runner's timeout: its exit, whatever it was.
+ */
+const endedUnblocked = <A, E>(migration: Fiber.Fiber<A, E>): Effect.Effect<never> =>
+	Effect.flatMap(Fiber.await(migration), (exit) =>
+		Effect.die(
+			new Error(
+				`the migration ended before it waited behind the transaction in flight: ${Formatter.format(exit)}`
+			)
+		)
+	)
+
 const fenceSchedule = (holder: Holder) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
@@ -160,7 +173,7 @@ const fenceSchedule = (holder: Holder) =>
 			{ startImmediately: true }
 		)
 		const pid = yield* Effect.orDie(held.pid)
-		yield* s.awaitBlockedBy(pid, s.owner.role)
+		yield* Effect.raceFirst(s.awaitBlockedBy(pid, world.migrator), endedUnblocked(migration))
 		const during = running(before, checked)
 		yield* Effect.forEach(
 			[...calls(0), annDb, jobDb],

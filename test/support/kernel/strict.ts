@@ -162,9 +162,12 @@ const readNumeric =
 			: Result.fail("numericShape")
 	}
 
-/** money::numeric text: a finite amount with exactly two fractional digits (cash_numeric), read without rounding. */
+/**
+ * money::numeric text: numeric_out's grammar, special values included, then money's shape: a finite amount with
+ * exactly two fractional digits (cash_numeric), read without rounding.
+ */
 const readMoney = (text: string): Result.Result<Money, StrictFault> => {
-	if (!isNumericOutput(text, "any", "finite")) {
+	if (!isNumericOutput(text, "any", "special")) {
 		return Result.fail("numericSyntax")
 	}
 	if (!isNumericOutput(text, moneyFractionDigits, "finite")) {

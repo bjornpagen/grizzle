@@ -3,9 +3,10 @@ import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 export interface LockWait {
 	readonly pid: number
-	/** pg_stat_activity.wait_event for a Lock wait: the lock type, e.g. `transactionid` or `relation`. */
-	readonly waitEvent: string
-	/** The ungranted pg_locks entry: lock type and requested mode, e.g. `transactionid` and `ShareLock`. */
+	/**
+	 * The ungranted pg_locks entry: lock type and requested mode, e.g. `transactionid` and `ShareLock`. The lock type is
+	 * also the wait event pg_stat_activity names for the wait.
+	 */
 	readonly locktype: string
 	readonly mode: string
 	/** pg_blocking_pids: the backends holding or queued ahead for the lock. */
@@ -13,19 +14,18 @@ export interface LockWait {
 }
 
 /**
- * pg_stat_activity's wait columns are visible only to a viewer with the privileges of the target's role; the
- * allocator grants each test role to the owner for this reason (see substrate.ts). pg_locks is visible to all.
+ * A backend's wait on a heavyweight lock, read of pg_locks and pg_blocking_pids alone, which every role sees, so the
+ * barrier reads the wait of a backend of any login, an owner login's (substrate.ts ownerLogin) included, whose
+ * pg_stat_activity wait columns no viewer without its privileges sees and the owner never has.
  */
-const lockWaitQuery = `SELECT a.wait_event::text, l.locktype::text, l.mode::text, array_to_string(pg_catalog.pg_blocking_pids(a.pid), ',')
-FROM pg_catalog.pg_stat_activity AS a
-JOIN pg_catalog.pg_locks AS l ON l.pid = a.pid AND NOT l.granted
-WHERE a.pid = $1::int4 AND a.wait_event_type = 'Lock'::text`
+const lockWaitQuery = `SELECT l.locktype::text, l.mode::text, array_to_string(pg_catalog.pg_blocking_pids(l.pid), ',')
+FROM pg_catalog.pg_locks AS l
+WHERE l.pid = $1::int4 AND NOT l.granted`
 
 const parseWait = (pid: number, row: ReadonlyArray<unknown>): LockWait => {
-	const [waitEvent, locktype, mode, blockers] = Arr.map(row, String)
+	const [locktype, mode, blockers] = Arr.map(row, String)
 	return {
 		pid,
-		waitEvent: waitEvent ?? "",
 		locktype: locktype ?? "",
 		mode: mode ?? "",
 		blockedBy: (blockers ?? "").length === 0 ? [] : Arr.map(Str.split(blockers ?? "", ","), Number)
@@ -44,8 +44,8 @@ export const lockWaitOf = (
 /**
  * The lock-wait barrier: waits until a backend is observed blocked on a heavyweight lock.
  *
- * Tests never sleep to let a concurrent statement "probably" reach its lock; they poll pg_stat_activity and pg_locks
- * until the backend is waiting. Each poll is one round trip on the observer session, issued back to back; nothing waits
+ * Tests never sleep to let a concurrent statement "probably" reach its lock; they poll pg_locks until the backend is
+ * waiting. Each poll is one round trip on the observer session, issued back to back; nothing waits
  * on a timer and nothing is judged by time. A wait that is never observed holds the test until Vitest's test timeout, the
  * runner's hang guard, reports it hung.
  *

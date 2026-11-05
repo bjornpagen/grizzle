@@ -469,7 +469,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 			{
 				name: "distance",
 				expr: x.op(
-					"cosine_distance",
+					"vector:cosine_distance(vector,vector)",
 					[
 						x.col(doc, "embedding", scalarTypes.vector3),
 						x.param("q", scalarTypes.vector3, "compare")
@@ -685,17 +685,20 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 					type: scalarTypes.int4,
 					nonNull: "strict",
 					volatility: "immutable",
-					proof: {
-						precondition: { kind: "fits" },
-						premises: [
-							{
-								kind: "interval",
-								operand: 0,
-								low: { units: -100n, scale: 0 },
-								high: { units: 100n, scale: 0 }
-							}
-						]
-					}
+					proof: [
+						{
+							precondition: { kind: "fits" },
+							premises: [
+								{
+									kind: "interval",
+									operand: 0,
+									low: { units: -100n, scale: 0 },
+									high: { units: 100n, scale: 0 },
+									nan: false
+								}
+							]
+						}
+					]
 				})
 			},
 			{
@@ -705,10 +708,12 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 					args: [amount],
 					type: scalarTypes.cents,
 					nonNull: "strict",
-					proof: {
-						precondition: { kind: "contract" },
-						premises: [{ kind: "checked", operand: 0, by: "write" }]
-					}
+					proof: [
+						{
+							precondition: { kind: "contract" },
+							premises: [{ kind: "checked", operand: 0, by: "write" }]
+						}
+					]
 				})
 			},
 			{
@@ -756,6 +761,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		],
 		heading: heading(
 			["asNumeric", scalarTypes.numeric],
+			["narrowed", scalarTypes.int4],
 			["cents", scalarTypes.cents],
 			["flag", scalarTypes.int4],
 			["rate", scalarTypes.numeric],

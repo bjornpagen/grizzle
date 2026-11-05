@@ -110,6 +110,12 @@ export const annGenConfig: GenConfig = {
 	}
 }
 
+/**
+ * The optimizer's population: what each rewrite family needs, containments to read through, wide payload under takes
+ * with stated orders, total computed terms, equations, filters read through regions and rooted closures, and now and
+ * then a filter directly over a group or a union (filterOver), the stage pushdown.group and pushdown.union move a filter
+ * below, so every generated part reaches them.
+ */
 export const optimizerGenConfig: GenConfig = {
 	...defaultGenConfig,
 	schema: { ...defaultSchemaLimits, wide: "textAndVectors", containments: "often" },
@@ -129,7 +135,8 @@ export const optimizerGenConfig: GenConfig = {
 			filter: 5,
 			closure: 2,
 			union: 3,
-			semiOver: 2
+			semiOver: 2,
+			filterOver: 1
 		}
 	}
 }

@@ -33,7 +33,7 @@ import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
 /**
  * What a JavaScript caller passes as a ChangeSet and is none: the refusal db.apply compiles it to.
  */
-const notAChangeSet = (): CompileError =>
+export const notAChangeSet = (): CompileError =>
 	malformedDescription(
 		SourceLoc("db.apply", []),
 		"a ChangeSet value built by ChangeSet.empty, union or sequence"
@@ -42,7 +42,7 @@ const notAChangeSet = (): CompileError =>
 const compileLoc = SourceLoc("db.compile", [])
 
 /** What a JavaScript caller passes to db.compile and is no program. */
-const notAProgram = (): CompileError =>
+export const notAProgram = (): CompileError =>
 	malformedDescription(
 		compileLoc,
 		"a query, an ordered query or a ChangeSet value the builders made"

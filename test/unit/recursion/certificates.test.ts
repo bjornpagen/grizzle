@@ -64,6 +64,7 @@ import {
 	eq,
 	lit,
 	match,
+	narrowed,
 	param,
 	plainVar,
 	ref,
@@ -100,7 +101,11 @@ import { Graph, theRecursive } from "#test/unit/recursion/fixtures.ts"
  * - a counter counts every integer from its least to its greatest value: the seeds' range when every other value is
  *   a known literal, the carrier's range otherwise, widened to what the counter produces;
  * - the estimate is the product over the columns, refused as ResourceBound above recursionMaxStates; the family is
- *   finiteCarrier without a counter, boundedState with an increasing one, wellFounded with only decreasing ones.
+ *   finiteCarrier without a counter, boundedState with an increasing one, wellFounded with only decreasing ones;
+ * - a counter's step is exact integer arithmetic, narrowed into the carrier: from every value the counter can hold,
+ *   least to greatest, each of its steps stays inside the carrier, the step past its last state included, or the
+ *   narrowing is unproved, PartialOperation, which admission decides after the rules above. Every other integer
+ *   arithmetic the definition computes is narrowed under the guard that it fits, as a program writes it.
  *
  * The model restates the rules, so a rule that is unsound in both, an estimate below the states a recursion really
  * reaches, would pass the comparison. So every admitted definition also runs, by the reference evaluator's fixpoint,
@@ -530,26 +535,31 @@ const guardDesc = (carrier: Carrier, g: Guard): ExprDesc => {
 		: { kind: "compare", op: g.op, left: h, right: typedLit(bound, typeOf(carrier)) }
 }
 
-const stepDesc = (carrier: Carrier, s: Step): ExprDesc => {
+/**
+ * A step h ± k over the current h is a counter, whose exact value the recursion's bound narrows into the carrier; every
+ * other integer arithmetic, and a step over a pinned h, which is data, narrows under its guard, as a program writes it.
+ */
+const stepDesc = (carrier: Carrier, s: Step, pinned: boolean): ExprDesc => {
+	const counter = (step: ExprDesc): ExprDesc => (pinned ? narrowed(step, carrier) : step)
 	switch (s.kind) {
 		case "add":
-			return compute("add", h, operand(carrier, s.k))
+			return counter(compute("add", h, operand(carrier, s.k)))
 		case "addLeft":
-			return compute("add", typedLit(host(carrier, s.k.value), typeOf(carrier)), h)
+			return counter(compute("add", typedLit(host(carrier, s.k.value), typeOf(carrier)), h))
 		case "sub":
-			return compute("sub", h, operand(carrier, s.k))
+			return counter(compute("sub", h, operand(carrier, s.k)))
 		case "copy":
 			return h
 		case "copyTag":
 			return t
 		case "mul":
-			return compute("mul", h, lit(host(carrier, 2)))
+			return narrowed(compute("mul", h, lit(host(carrier, 2))), carrier)
 		case "addCost":
-			return compute("add", h, cost)
+			return narrowed(compute("add", h, cost), carrier)
 		case "cost":
 			return cost
 		case "costPlus":
-			return compute("add", cost, lit(1))
+			return narrowed(compute("add", cost, lit(1)), carrier)
 		case "literal":
 			return literal(carrier, s.value)
 	}
@@ -564,9 +574,9 @@ const tagDesc = (carrier: Carrier, tag: Tag): ExprDesc => {
 		case "cost":
 			return cost
 		case "costPlus":
-			return compute("add", cost, lit(1))
+			return narrowed(compute("add", cost, lit(1)), carrier)
 		case "mul":
-			return compute("mul", t, lit(host(carrier, 2)))
+			return narrowed(compute("mul", t, lit(host(carrier, 2))), carrier)
 	}
 }
 
@@ -591,7 +601,7 @@ const recArm = (carrier: Carrier, arm: ArmSpec): RuleDesc => {
 				: guards,
 		head: {
 			node: ref("Edge", "to"),
-			h: stepDesc(carrier, arm.h),
+			h: stepDesc(carrier, arm.h, arm.pinned),
 			t: tagDesc(carrier, arm.t),
 			m: arm.m.kind === "copy" ? m : lit(arm.m.value)
 		},
@@ -631,10 +641,12 @@ const descOfSpec = (spec: Spec): QueryDesc =>
 	})
 
 /** The refusal the rules decide: its cause's kind, and for the seen-state bound the estimate it needs. */
+/** A refusal of admission's rules, or the PartialOperation of a counter's narrowing no bound proves. */
 type ModelRefusal =
 	| { readonly kind: "carrierOverflow" }
 	| { readonly kind: "unboundedState" }
 	| { readonly kind: "stateEstimate"; readonly needed: bigint }
+	| { readonly kind: "unprovedNarrowing" }
 
 type Verdict =
 	| { readonly kind: "refused"; readonly refusal: ModelRefusal }
@@ -647,18 +659,24 @@ type Verdict =
 
 /**
  * What the rules estimate of a spec before any bound: a refusal they decide first, or the admitted family, its state
- * estimate and whether it counts.
+ * estimate, whether it counts, and whether its counter's exact step narrows into the carrier: every value the step
+ * computes from every state h holds, the counter's least plus its most negative step through its greatest plus its most
+ * positive one, lies in the carrier's range.
  */
 type Estimate =
 	| {
 			readonly kind: "refused"
-			readonly refusal: Exclude<ModelRefusal, { readonly kind: "stateEstimate" }>
+			readonly refusal: Exclude<
+				ModelRefusal,
+				{ readonly kind: "stateEstimate" | "unprovedNarrowing" }
+			>
 	  }
 	| {
 			readonly kind: "admitted"
 			readonly family: TerminationCert["kind"]
 			readonly estimate: bigint
 			readonly counters: boolean
+			readonly narrows: boolean
 	  }
 
 type Form =
@@ -808,6 +826,7 @@ const estimateWith = (spec: Spec, dataValues: DataValues): Estimate => {
 	const tagFactor = plainCount(tForms, 1n, dataValues.t)
 	const steps = Arr.flatMap(hForms, (f) => (f.kind === "counter" ? [f] : []))
 	let hFactor: bigint
+	let narrows = true
 	if (steps.length === 0) {
 		hFactor = plainCount(hForms, tagFactor, dataValues.h)
 	} else {
@@ -824,6 +843,10 @@ const estimateWith = (spec: Spec, dataValues: DataValues): Estimate => {
 			s.delta > 0n && s.produced > x ? s.produced : x
 		)
 		hFactor = hi >= lo ? hi - lo + 1n : 1n
+		const deltas = Arr.map(steps, (x) => x.delta)
+		const least = Arr.reduce(deltas, 0n, (x, d) => (d < x ? d : x))
+		const most = Arr.reduce(deltas, 0n, (x, d) => (d > x ? d : x))
+		narrows = lo + least >= min && hi + most <= max
 	}
 	const markLiterals = new Set([
 		...Arr.map(spec.seeds, (s) => s.m),
@@ -838,15 +861,32 @@ const estimateWith = (spec: Spec, dataValues: DataValues): Estimate => {
 					? "boundedState"
 					: "wellFounded",
 		estimate: hFactor * tagFactor * BigInt(markLiterals.size),
-		counters: steps.length > 0
+		counters: steps.length > 0,
+		narrows
 	}
 }
 
-/** The verdict under a seen-state bound: the estimate's refusal, ResourceBound above the bound, or the admission. */
-const verdict = (e: Estimate, maxStates: number): Verdict =>
-	e.kind === "refused" || e.estimate <= BigInt(maxStates)
-		? e
-		: { kind: "refused", refusal: { kind: "stateEstimate", needed: e.estimate } }
+/**
+ * The verdict under a seen-state bound: the estimate's refusal, ResourceBound above the bound, the counter's narrowing
+ * left unproved, which admission decides after termination, or the admission.
+ */
+const verdict = (e: Estimate, maxStates: number): Verdict => {
+	if (e.kind === "refused") {
+		return e
+	}
+	if (e.estimate > BigInt(maxStates)) {
+		return { kind: "refused", refusal: { kind: "stateEstimate", needed: e.estimate } }
+	}
+	if (!e.narrows) {
+		return { kind: "refused", refusal: { kind: "unprovedNarrowing" } }
+	}
+	return {
+		kind: "admitted",
+		family: e.family,
+		estimate: e.estimate,
+		counters: e.counters
+	}
+}
 
 /** Whether admission refused for the rule the model decided, and at the seen-state bound with the estimate it needs. */
 const sameRefusal = (cause: RecursionRefusal, expected: ModelRefusal, maxStates: number): boolean =>
@@ -1139,9 +1179,24 @@ const featureTests = [
 			v.kind === "admitted" && Arr.some(s.arms, (a) => a.pinned && a.h.kind !== "literal")
 	],
 	[
-		"a counter beside a copy of t",
+		"a counter beside a copy of t, which leaves its narrowing unproved",
 		({ spec: s, verdict: v }) =>
-			v.kind !== "refused" && Arr.some(s.arms, (a) => a.h.kind === "copyTag") && v.counters
+			v.kind === "refused" &&
+			v.refusal.kind === "unprovedNarrowing" &&
+			Arr.some(s.arms, (a) => a.h.kind === "copyTag")
+	],
+	[
+		"a narrowing unproved one step past a literal bound",
+		({ spec: s, verdict: v }) =>
+			v.kind === "refused" &&
+			v.refusal.kind === "unprovedNarrowing" &&
+			Arr.every(
+				s.arms,
+				(a) =>
+					!a.pinned &&
+					a.h.kind !== "copyTag" &&
+					Arr.every(a.guards, (g) => g.kind === "between" || g.bound !== "param")
+			)
 	],
 	[
 		"a bigint seed cast from an integer beside an equal one spelled otherwise",
@@ -1214,7 +1269,7 @@ type CertificateCase = readonly [Spec, ReadonlyArray<GraphSketch>]
 
 const kept: ReadonlyArray<Kept<CertificateCase, CertificateFeature>> = [
 	{
-		note: "a counter stepping by -3 toward a bound near smallint's minimum is admitted with 131116 states per vertex, and the reference's fixpoint over them ran for an hour",
+		note: "a counter stepping by -3 toward a bound near smallint's minimum reaches the minimum, from where its next step leaves smallint: once admitted with 131116 states per vertex, and the reference's fixpoint over them ran for an hour",
 		sketch: [
 			{
 				carrier: "smallint",
@@ -1260,7 +1315,7 @@ const kept: ReadonlyArray<Kept<CertificateCase, CertificateFeature>> = [
 			]
 		],
 		draws: "",
-		reaches: ["wellFounded", "a fixpoint past the reference's step limit"]
+		reaches: ["a narrowing unproved one step past a literal bound"]
 	},
 	{
 		note: "plants a fixpoint at its estimate: a counter stepping by 1 to a literal bound, with a mark switch, over a self-loop",
@@ -1413,6 +1468,12 @@ describe("generated recursions against the termination proof rules", () => {
 							if (expected.kind === "refused") {
 								if (r.ok) {
 									throw new Error(`admitted, not refused for ${expected.refusal.kind}`)
+								}
+								if (expected.refusal.kind === "unprovedNarrowing") {
+									if (r.error.reason._tag !== "PartialOperation") {
+										throw new Error(`${r.error.message}, not an unproved narrowing`)
+									}
+									return
 								}
 								if (
 									r.error.reason._tag !== "RecursionRefused" ||

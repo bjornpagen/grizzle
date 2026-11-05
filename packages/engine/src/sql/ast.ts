@@ -157,7 +157,8 @@ declare const finiteFloatBrand: unique symbol
  * The typed value of a Literal. Each prints as a typed literal (print.ts):
  * - bool: `true` or `false`, PostgreSQL's boolean constants;
  * - int: a nonnegative integer typed integer prints bare, PostgreSQL types it int4; otherwise `N::type`;
- * - decimal: an exact decimal string (`-?digits(.digits)?`) or NaN/Infinity/-Infinity, for numeric;
+ * - decimal: an exact decimal string (`-?digits(.digits)?`) or NaN/Infinity/-Infinity, for numeric, which lit.decimal
+ *   (build.ts) spells from a value's parts, so no builder writes an exponent;
  * - float: a finite double other than -0, for real or double precision, printed in shortest round-trip form as a
  *   quoted literal;
  * - floatSpecial: NaN, an infinity or -0, for real or double precision, printed as its quoted spelling, which the

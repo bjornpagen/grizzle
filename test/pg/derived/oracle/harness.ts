@@ -18,6 +18,8 @@ import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { Heading } from "#compiler/ir/rel.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import type { AnyLogin, AnyLoginRole } from "#compiler/public/schema.ts"
@@ -60,11 +62,13 @@ import { loginLayerIn, tokenOf } from "#test/support/worlds.ts"
 
 type Facts = Readonly<Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>>>
 
-/** One stored row: its record text, the tuple that holds it as `<ctid>/<xmin>`, and that xmin alone. The tuple carries
- * the xmin because a ctid alone does not identify a row version: a plain REFRESH MATERIALIZED VIEW swaps in a new heap
- * and writes the same rows at the same ctids in the same order, so only the xmin tells the rewritten row apart. */
+/** One stored row: its record text, its value's record text (valueColumn), the tuple that holds it as
+ * `<ctid>/<xmin>`, and that xmin alone. The tuple carries the xmin because a ctid alone does not identify a row version:
+ * a plain REFRESH MATERIALIZED VIEW swaps in a new heap and writes the same rows at the same ctids in the same order, so
+ * only the xmin tells the rewritten row apart. */
 export interface StoredRow {
 	readonly text: string
+	readonly value: string
 	readonly tuple: string
 	readonly xmin: string
 }
@@ -94,6 +98,8 @@ export interface Opened {
 	readonly table: (relation: string) => string
 	/** The column list of a derived relation's view, in heading order, as `"r1"."<column>"`. */
 	readonly columns: (relation: string) => ReadonlyArray<string>
+	/** The same columns, each as its value's text (valueColumn). */
+	readonly values: (relation: string) => ReadonlyArray<string>
 	/** Its definition's conservative lowering and that lowering's output columns, lowered at installation, where a
 	 * lowering failure is the installation's typed failure. */
 	readonly definition: (relation: string) => Definition
@@ -101,7 +107,19 @@ export interface Opened {
 
 export interface Definition {
 	readonly sql: string
-	readonly columns: ReadonlyArray<string>
+	readonly columns: Heading
+}
+
+/**
+ * A column of a read as its value's text: a float's -0 as its 0, as every delivery reads it, so a view that stored a
+ * group's -0 spelling and a definition that computed its 0 read alike; every other value as it is, since every stored
+ * value of the oracle's other kinds has one spelling (gen.ts).
+ */
+const valueColumn = (expr: string, type: ScalarType): string => {
+	const carrier = baseOf(type).carrier
+	return carrier === "float8" || carrier === "float4"
+		? `(${expr} + 0::pg_catalog.${carrier})`
+		: expr
 }
 
 /** A fixture the oracle cannot use: a refusal of a generated schema, with what the compiler said, so a counterexample
@@ -174,10 +192,7 @@ export const installDerived = (
 					message: `${relation}'s definition lowers to ${flight(program.value.roots).length} statements`
 				})
 			}
-			definitions.set(relation, {
-				sql: main.sql.text,
-				columns: Arr.map(r.heading, (c) => c.name)
-			})
+			definitions.set(relation, { sql: main.sql.text, columns: r.heading })
 		}
 		const definition = (relation: string): Definition => {
 			const known = definitions.get(relation)
@@ -195,6 +210,10 @@ export const installDerived = (
 				Arr.map(
 					heading(relation).heading,
 					(c) => `"r1".${quoteIdent(installed.names.column(relation, c.name))}`
+				),
+			values: (relation) =>
+				Arr.map(heading(relation).heading, (c) =>
+					valueColumn(`"r1".${quoteIdent(installed.names.column(relation, c.name))}`, c.type)
 				),
 			definition
 		}
@@ -261,17 +280,18 @@ export const readAll = (
 const viewRows = (session: PgConnection, o: Opened, relation: string) =>
 	Effect.map(
 		session.query(
-			`SELECT ROW(${Arr.join(o.columns(relation), ", ")})::text AS "row", "r1".ctid::text || '/' || "r1".xmin::text AS "tuple", "r1".xmin::text AS "xmin" FROM ${o.view(relation)} AS "r1"`,
+			`SELECT ROW(${Arr.join(o.columns(relation), ", ")})::text AS "row", ROW(${Arr.join(o.values(relation), ", ")})::text AS "value", "r1".ctid::text || '/' || "r1".xmin::text AS "tuple", "r1".xmin::text AS "xmin" FROM ${o.view(relation)} AS "r1"`,
 			[]
 		),
 		(result) =>
 			Arr.sort(
 				Arr.map(result.rows, (row) => ({
 					text: String(row["row"]),
+					value: String(row["value"]),
 					tuple: String(row["tuple"]),
 					xmin: String(row["xmin"])
 				})),
-				Order.mapInput(Order.String, (r: { readonly text: string }) => r.text)
+				Order.mapInput(Order.String, (r: { readonly value: string }) => r.value)
 			)
 	)
 
@@ -280,7 +300,7 @@ const definitionRows = (session: PgConnection, o: Opened, relation: string) => {
 	return Effect.map(
 		session.query(
 			`SELECT ROW(${Arr.join(
-				Arr.map(columns, (c) => `"r1".${quoteIdent(c)}`),
+				Arr.map(columns, (c) => valueColumn(`"r1".${quoteIdent(c.name)}`, c.type)),
 				", "
 			)})::text AS "row" FROM (${sql}) AS "r1"`,
 			[]

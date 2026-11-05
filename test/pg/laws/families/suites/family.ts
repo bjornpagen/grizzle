@@ -1,10 +1,18 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { type Reached, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, type Scope, String as Str } from "effect"
+import {
+	Array as Arr,
+	Duration,
+	Effect,
+	Formatter,
+	Option,
+	type Scope,
+	String as Str
+} from "effect"
 import { type Family, installFamily, populationsOf } from "#test/pg/laws/families/families.ts"
 import { type HostLaw, type HostSchema, isResidual, needs } from "#test/pg/laws/families/model.ts"
 import {
@@ -291,7 +299,7 @@ const plantedRefusals = <P>(
 	family: Family<P>,
 	variants: ReadonlyArray<P>,
 	situations: ReadonlyArray<Requirement>
-): ReadonlyArray<Kept<FamilyCase, FamilyFeature>> => {
+): ReadonlyArray<Planted> => {
 	const planted: Array<Planted> = []
 	for (const q of situations) {
 		if (
@@ -308,8 +316,52 @@ const plantedRefusals = <P>(
 			)
 		}
 	}
-	return Arr.map(planted, (k) => k.kept)
+	return planted
 }
+
+/** Each requirement's situation and the planted case that reaches it. */
+type Aim = readonly [situation: Reached<FamilyFeature>, planted: FamilyCase]
+
+const aimsOf = <P>(
+	family: Family<P>,
+	variants: ReadonlyArray<P>,
+	situations: ReadonlyArray<Requirement>,
+	planted: ReadonlyArray<Planted>
+): ReadonlyArray<Aim> =>
+	Arr.flatMap(situations, (q) =>
+		Option.match(
+			Arr.findFirst(
+				planted,
+				(k) => meets(family, variants, q, k.variant) && k.reaches.includes(q.refusal.feature)
+			),
+			{
+				onNone: () => [],
+				onSome: (k): ReadonlyArray<Aim> => [[reachedOf(family, variants, q), k.kept.sketch]]
+			}
+		)
+	)
+
+/**
+ * The case a case runs: the drawn one, or, where the case's steering leaves a requirement pending, the planted case
+ * that reaches it, so the steered phase reaches every requirement by construction, since a kept case never counts. A
+ * steered case reads the steering it was drawn under, so it replays alike.
+ */
+const aimedCase = (
+	drawnCase: FamilyCase,
+	steering: Case<FamilyFeature>["steering"],
+	aims: ReadonlyArray<Aim>
+): FamilyCase =>
+	Option.match(steering, {
+		onNone: () => drawnCase,
+		onSome: (pending) =>
+			Option.getOrElse(
+				Option.map(
+					Arr.findFirst(aims, ([situation]) => pending.has(situation)),
+					([, planted]) => planted
+				),
+				() => drawnCase
+			)
+	})
 
 /**
  * One family's generated suite.
@@ -344,6 +396,7 @@ export const familySuite = <P>(family: Family<P>, cases: number, reach: Reach): 
 			for (const { mode, variants } of populationsOf(family)) {
 				const refusals = requirements(family, variants, reach)
 				const planted = plantedRefusals(family, variants, refusals)
+				const aims = aimsOf(family, variants, refusals, planted)
 				const exempt = Arr.some(variants, (p) => exemptReachable(family.host(p), family.domains))
 				const situations: Arr.NonEmptyReadonlyArray<Reached<FamilyFeature>> = [
 					"accepted",
@@ -366,15 +419,16 @@ export const familySuite = <P>(family: Family<P>, cases: number, reach: Reach): 
 							draw: drawn(familyCaseGen(variants.length)),
 							literal: Formatter.format,
 							coverage: required<FamilyFeature>(situations, { cases: 4 * cases, sense: notesOnly }),
-							kept: planted,
+							kept: Arr.map(planted, (k) => k.kept),
 							runs: cases,
 							shrink,
 							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
-						(k, c) =>
+						(drawnCase, c) =>
 							Effect.gen(function* () {
+								const k = aimedCase(drawnCase, c.steering, aims)
 								const p = elementAt(variants, k.variant, "the family's schemas")
 								const schemaFeature: FamilyFeature = `schema ${family.describe(p)}`
 								const traits = Arr.map(

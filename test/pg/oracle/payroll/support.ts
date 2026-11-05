@@ -1,6 +1,5 @@
 import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
@@ -50,11 +49,13 @@ const payrollProgramNames = [
 	"ledger",
 	"ledgerBalance",
 	"orgOf",
+	"payPaymentMember",
 	"payPutMember",
 	"payslip",
 	"postingMember",
 	"reverseDeleteMember",
 	"reversePutMember",
+	"reverseVoidingMember",
 	"runStages",
 	"runTotalOf",
 	"runTotals",
@@ -82,19 +83,12 @@ const programNameOf = (name: string): PayrollProgramName => {
 }
 
 /**
- * Every query and ordered query the payroll fixture exports, compiled against Reporting under the installed name, and
- * the ones that do not compile standalone with the reason. A ChangeSet member whose parameter only the member's target
- * heading types (pay's `now`, reverse's `reason`) emits nothing on its own; the outcomes suite applies it in its
- * ChangeSet.
+ * Every query and ordered query the payroll fixture exports, compiled against Reporting under the installed name. Each
+ * compiles standalone, a ChangeSet member included, since a parameter is of its declared type wherever it stands; one
+ * that does not is a defect.
  */
-export const payrollPrograms = (
-	installed: Installed
-): {
-	readonly programs: ReadonlyArray<PayrollProgram>
-	readonly refused: ReadonlyArray<{ readonly name: string; readonly error: CompileError }>
-} => {
+export const payrollPrograms = (installed: Installed): ReadonlyArray<PayrollProgram> => {
 	const programs: Array<PayrollProgram> = []
-	const refused: Array<{ readonly name: string; readonly error: CompileError }> = []
 	for (const [name, value] of Rec.toEntries(P)) {
 		if (!isQueryValue(value) && !isOrderedValue(value)) {
 			continue
@@ -103,17 +97,16 @@ export const payrollPrograms = (
 			...testCompile,
 			installation: identity.schema(parsedSchemaName(installed.declared))
 		})
-		if (compiled.ok) {
-			programs.push({ name: programNameOf(name), template: compiled.value })
-		} else {
-			refused.push({ name, error: compiled.error })
+		if (!compiled.ok) {
+			throw new Error(`the payroll program ${name} does not compile: ${compiled.error.message}`)
 		}
+		programs.push({ name: programNameOf(name), template: compiled.value })
 	}
 	const built = Arr.map(programs, (p) => p.name)
 	if (Arr.join(built, ",") !== Arr.join(payrollProgramNames, ",")) {
 		throw new Error(`the payroll programs ${Arr.join(built, ", ")} differ from payrollProgramNames`)
 	}
-	return { programs, refused }
+	return programs
 }
 
 export interface PayrollCase {
@@ -184,7 +177,6 @@ const runProgram = (
 			fill(values)
 		)
 		const baseline = yield* delivered(
-			session,
 			checked.dag,
 			conservativeRun,
 			"conservative",
@@ -201,7 +193,6 @@ const runProgram = (
 		for (const f of forms) {
 			const run = yield* executeStatements(session, f.roots, f.form, fill(values))
 			const d = yield* delivered(
-				session,
 				optimized.query.dag,
 				run,
 				f.form,

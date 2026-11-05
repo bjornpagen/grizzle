@@ -145,7 +145,7 @@ const checkCall = (
 				continue
 			}
 			const defined = readOf(after.defined, relation)
-			const stored: ReadonlyArray<string> = Arr.map(now, (r) => r.text)
+			const stored: ReadonlyArray<string> = Arr.map(now, (r) => r.value)
 			assert.deepEqual(
 				stored,
 				defined,
@@ -158,16 +158,22 @@ const checkCall = (
 			for (const r of fresh) {
 				written.add(r.xmin)
 			}
-			/** A view that already held its definition's result has no row to change: whether the base is untouched,
-			 * rewritten with the same facts, or changed where this definition does not look. */
-			const held = Arr.map(thenRows, (r) => r.text)
+			/**
+			 * A view that already held its definition's result has no row to change: whether the base is untouched,
+			 * rewritten with the same facts, or changed where this definition does not look; only a row whose value is
+			 * a held one's in another spelling (a float's -0 for its 0, which a respelled fact may give a group) may be
+			 * written again, as a concurrent refresh compares rows by identity.
+			 */
+			const held = Arr.map(thenRows, (r) => r.value)
+			const respelled = (r: (typeof now)[number]): boolean =>
+				Arr.some(thenRows, (was) => was.value === r.value && was.text !== r.text)
 			if (
 				wasPopulated.has(relation) &&
 				held.length === defined.length &&
 				Arr.every(held, (text, i) => text === defined[i])
 			) {
 				assert.equal(
-					fresh.length,
+					Arr.filter(fresh, (r) => !respelled(r)).length,
 					0,
 					`${call.label}: ${relation}, whose definition did not change, is not written`
 				)

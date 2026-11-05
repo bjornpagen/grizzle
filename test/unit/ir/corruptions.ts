@@ -2,8 +2,10 @@ import type { Broken, Corruption } from "@grizzle/testing/lsw"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { ExprId, NodeId, VarId } from "#compiler/core/ids.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { sortedUnique, type TableExpr } from "#compiler/ir/expr.ts"
 import { claimedColumns, claimedKeyIn, rewriteClaim } from "#compiler/ir/keys.ts"
+import type { Exact } from "#compiler/ir/proof.ts"
 import {
 	type DagTable,
 	type Heading,
@@ -20,6 +22,7 @@ import {
 	type TableRefs
 } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { fitRange } from "#compiler/scalar/compute/lower.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { scalarTypes } from "#test/unit/ir/fixture.ts"
@@ -93,6 +96,7 @@ export type DagRule =
 	| "VALUE appears only in a contract predicate"
 	| "a column reference keeps its column's type"
 	| "a partial operation stands with a proof the kernel re-derives"
+	| "every precondition of a partial operation stands with a proof of its own"
 	| "a domain cast targets a refined type"
 	| "a node or expression holds its kind's properties only"
 	| "no field holds null"
@@ -1857,17 +1861,16 @@ const expressions: ReadonlyArray<DagCorruption> = [
 							site(
 								withExpr(dag, e.id, {
 									...e,
-									proof: {
-										precondition: { kind: "fits" },
-										premises: [
-											{
-												kind: "interval",
-												operand: 0,
-												low: { units: -(10n ** 40n), scale: 0 },
-												high: { units: 10n ** 40n, scale: 0 }
-											}
-										]
-									}
+									proof: mapNonEmpty(e.proof, (p) =>
+										p.precondition.kind === "fits"
+											? {
+													precondition: p.precondition,
+													premises: [
+														{ kind: "interval", operand: 0, ...pastFit(e.type), nan: false }
+													]
+												}
+											: p
+									)
 								}),
 								atExpr(e.id),
 								"an interval past the target"
@@ -1875,6 +1878,37 @@ const expressions: ReadonlyArray<DagCorruption> = [
 						]
 					: []
 			)
+	},
+	{
+		rule: "every precondition of a partial operation stands with a proof of its own",
+		from: "wild",
+		sites: (dag) =>
+			Arr.flatMap(ofExprKind(dag, "cast"), (e) => {
+				if (!("proof" in e)) {
+					return []
+				}
+				const [first, ...rest] = e.proof
+				const stranger = {
+					precondition: { kind: "powerDomain" },
+					premises: first.premises
+				} as const
+				return [
+					site(
+						withExpr(dag, e.id, { ...e, proof: [stranger, ...rest] }),
+						atExpr(e.id),
+						"an entry for a precondition the cast does not require"
+					),
+					...(Arr.isReadonlyArrayNonEmpty(rest)
+						? [
+								site(
+									withExpr(dag, e.id, { ...e, proof: [first] }),
+									atExpr(e.id),
+									"a precondition no entry proves"
+								)
+							]
+						: [])
+				]
+			})
 	},
 	{
 		rule: "a domain cast targets a refined type",
@@ -1885,6 +1919,20 @@ const expressions: ReadonlyArray<DagCorruption> = [
 			)
 	}
 ]
+
+/**
+ * An interval one unit past each end of the range a value must lie in to fit `target`, however wide its typmod; a
+ * target with no such range takes no fits proof at all, so any interval is past it.
+ */
+const pastFit = (target: ScalarType): { readonly low: Exact; readonly high: Exact } => {
+	const range = fitRange(target)
+	return range === undefined
+		? { low: { units: -(10n ** 40n), scale: 0 }, high: { units: 10n ** 40n, scale: 0 } }
+		: {
+				low: { units: range[0].units - 1n, scale: range[0].scale },
+				high: { units: range[1].units + 1n, scale: range[1].scale }
+			}
+}
 
 /** Values no field of a node or expression holds: properties of no kind, and null. */
 const shapes: ReadonlyArray<DagCorruption> = [

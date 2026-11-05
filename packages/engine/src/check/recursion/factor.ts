@@ -16,6 +16,7 @@ import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { mapProducer } from "#compiler/ir/desc.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 
 /** Parent variables replaced by the variables an arm reads them through. */
 type Subst = ReadonlyMap<string, ResolvedExpr>
@@ -90,6 +91,28 @@ const substHead = (h: ResolvedHead, s: Subst): ResolvedHead => {
 	}
 	return h.kind === "producer" ? mapProducer(h, (a) => substExpr(a, s)) : substExpr(h, s)
 }
+
+/**
+ * A counter column's value in a transition, as an exact integer: a step already is one, and a bare literal takes the
+ * type the other arms deliver; any other value, a copy, a typed literal or data, is lifted into the exact integers by
+ * adding 0 (a bigint for a bigint column, a number for a narrower one, as a literal of the column's type is), so every
+ * arm delivers the column at one exact type and the step narrows it into the row once, by the recursion's counter
+ * interval (state.ts).
+ */
+const exactHead = (h: ResolvedHead, column: ScalarType): ResolvedHead =>
+	h.kind === "aggregate" ||
+	h.kind === "producer" ||
+	h.kind === "compute" ||
+	(h.kind === "literal" && h.type === undefined)
+		? h
+		: {
+				kind: "compute",
+				fn: "add",
+				args: [
+					h,
+					{ kind: "literal", value: baseOf(column).carrier === "int8" ? 0n : 0, type: undefined }
+				]
+			}
 
 /**
  * The names a rule reads in its parameter scope: its scalar parameters, each bound to itself under its declared type,
@@ -173,12 +196,16 @@ const freshName = (stem: string, taken: Set<string>): string => {
  * The factored transition reads `self` exactly once, so feedback stays linear and monotone, and the state it delivers
  * is the union of what the arms deliver: the same fixed point.
  *
+ * A counter column, whose step is an exact integer, is delivered by every transition as one (exactHead), so the
+ * transitions' union has one type per column, as the union of any query's arms does.
+ *
  * The one factored recursive rule over the arms that each read `self` once, located below the definition's `rec`
- * list. `row` is the declared state, in canonical order.
+ * list. `row` is the declared state, in canonical order; `counters`, its counter columns with their declared types.
  */
 export const factorArms = (
 	arms: NonEmptyReadonlyArray<RecArm>,
 	row: ReadonlyArray<string>,
+	counters: ReadonlyMap<string, ScalarType>,
 	at: SourceLoc
 ): ResolvedRule => {
 	const outer = { params: new Map<ParamCell, ResolvedBound>(), parents: new Set<string>() }
@@ -246,7 +273,13 @@ export const factorArms = (
 						}
 			),
 			where: rule.where.map((w) => substExpr(w, s)),
-			head: Object.fromEntries(entries(rule.head).map(([k, h]) => [k, substHead(h, s)])),
+			head: Object.fromEntries(
+				entries(rule.head).map(([k, h]) => {
+					const head = substHead(h, s)
+					const counter = counters.get(k)
+					return [k, counter === undefined ? head : exactHead(head, counter)]
+				})
+			),
 			interiors: [...rule.interiors, { id: interior, arms: [current] }],
 			attach: [],
 			loc: arm.loc

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
-import { required, type Situations } from "@grizzle/testing/features"
+import { type Reached, required, type Situations } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -246,12 +246,12 @@ const filterHolds = (object: ResidualUnitObjects, unit: LawUnit): void => {
 }
 
 /** What a law's compiled participants make of the situations the suite requires. */
-const featuresOf = (law: ResidualLaw): ReadonlyArray<ParticipantFeature> => {
+const featuresOf = (law: ResidualLaw): ReadonlyArray<Reached<ParticipantFeature>> => {
 	const family: ParticipantFeature = `family ${law.family}`
 	if (law.family !== "alternativesReverse") {
 		return [family]
 	}
-	const out: Array<ParticipantFeature> = [family]
+	const out: Array<Reached<ParticipantFeature>> = [family]
 	for (const p of law.participants) {
 		const updates = p.events.update !== undefined
 		switch (p.check.kind) {
@@ -260,6 +260,9 @@ const featuresOf = (law: ResidualLaw): ReadonlyArray<ParticipantFeature> => {
 				out.push(unarmed ? "an unarmed handle" : "all armed")
 				if (p.check.handles.length >= 8) {
 					out.push("a roster of at least 8")
+					if (unarmed) {
+						out.push(["a roster of at least 8", "an unarmed handle"])
+					}
 				}
 				if (updates) {
 					out.push("a mutable parent")
@@ -272,6 +275,9 @@ const featuresOf = (law: ResidualLaw): ReadonlyArray<ParticipantFeature> => {
 				}
 				if (updates) {
 					out.push("a mutable arm")
+					if (p.check.arms.length > 1) {
+						out.push(["a mutable arm", "an arm relation shared by two handles"])
+					}
 				}
 				continue
 		}
@@ -309,7 +315,7 @@ const refusedParentArm = (sketch: ParentArmSketch): ReadonlyArray<ParticipantFea
 }
 
 /** The property of one drawn law (see the header). */
-const delta = (sketch: Admitted): ReadonlyArray<ParticipantFeature> => {
+const delta = (sketch: Admitted): ReadonlyArray<Reached<ParticipantFeature>> => {
 	const { law, objects } = emitted(sketch)
 	const terms = termsOf(law)
 	const units = lawUnits(law)
@@ -378,8 +384,17 @@ const delta = (sketch: Admitted): ReadonlyArray<ParticipantFeature> => {
 		case "conditionalMirrors":
 		case "scalarCapacity":
 		case "selectedSourceCoverage": {
+			/**
+			 * One term, beside which a capacity whose bounds exclude zero, as the drawn capacity's low bound of 1 does, has
+			 * its empty groups' (analysis/theory/laws.ts capacityViolation), which its law function checks in the same one
+			 * comparison of the group's weight.
+			 */
 			const [term, ...rest] = terms
-			assert.equal(rest.length, 0, "the family's violation is one term")
+			assert.equal(
+				rest.length,
+				law.family === "scalarCapacity" ? 1 : 0,
+				"the family's violation is one term, and a capacity's empty groups beside it"
+			)
 			for (const p of law.participants) {
 				assert.ok(
 					readsOf(term).has(p.relation.name),
@@ -433,7 +448,15 @@ describe("residual law participants", () => {
 					},
 					(sketch, c) =>
 						Effect.sync(() => {
-							c.noteAll(sketch.kind === "parentArm" ? refusedParentArm(sketch) : delta(sketch))
+							for (const reached of sketch.kind === "parentArm"
+								? refusedParentArm(sketch)
+								: delta(sketch)) {
+								if (typeof reached === "string") {
+									c.note(reached)
+								} else {
+									c.pair(reached[0], reached[1])
+								}
+							}
 						})
 				)
 			)

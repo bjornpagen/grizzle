@@ -330,14 +330,17 @@ export const recordsetJson = (
 }
 
 /**
- * The recordset parameter encoder of one relation input (ir/products.ts RelationParamEncoder): its normal facts, each
- * value of a refined column checked against its refinements (scalar.ts refinedMember), as a scalar parameter is, since
- * the recordset carries it as its base type.
+ * The normalizer of a relation parameter's input, a read's and a write's alike: the relation normalizer, then each value
+ * of a refined column checked against its refinements (scalar.ts refinedMember), as a scalar parameter is, since the
+ * recordset carries it as its base type, so a fact outside them is refused at bind (refinedValue) before any SQL. A
+ * ChangeSet member's facts are no parameter: one outside its column's domain is refused by the domain's law
+ * (relationNormalizer).
  */
-export const recordsetEncoder = (spec: RelationSpec): RelationParamEncoder => {
-	const built = buildSpec(spec)
+export const parameterNormalizer = (spec: RelationSpec): RelationNormalizer =>
+	parameterNormalizerOf(buildSpec(spec))
+
+const parameterNormalizerOf = (built: BuiltSpec): RelationNormalizer => {
 	const normalize = normalizerOf(built)
-	const wires = built.columns.map((c) => c.wire)
 	const refined = built.columns.flatMap((c) => {
 		const member = refinedMember(c.codec.type)
 		return member === undefined ? [] : [{ field: c.field, member }]
@@ -345,7 +348,7 @@ export const recordsetEncoder = (spec: RelationSpec): RelationParamEncoder => {
 	return (facts) => {
 		const normalized = normalize(facts)
 		if (!normalized.ok) {
-			return Result.err(normalized.error)
+			return normalized
 		}
 		for (const fact of normalized.value.facts) {
 			for (const { field, member } of refined) {
@@ -354,9 +357,21 @@ export const recordsetEncoder = (spec: RelationSpec): RelationParamEncoder => {
 				}
 			}
 		}
-		return Result.ok({
-			json: recordsetJson(wires, normalized.value.rows),
-			count: normalized.value.count
-		})
+		return normalized
 	}
+}
+
+/**
+ * The recordset parameter encoder of one relation input (ir/products.ts RelationParamEncoder): its normal facts as a
+ * relation parameter's (parameterNormalizer), written as the recordset's JSON.
+ */
+export const recordsetEncoder = (spec: RelationSpec): RelationParamEncoder => {
+	const built = buildSpec(spec)
+	const normalize = parameterNormalizerOf(built)
+	const wires = built.columns.map((c) => c.wire)
+	return (facts) =>
+		Result.map(normalize(facts), (normalized) => ({
+			json: recordsetJson(wires, normalized.rows),
+			count: normalized.count
+		}))
 }

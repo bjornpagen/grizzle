@@ -326,12 +326,11 @@ type OneValue<V> = [V] extends [never]
 		: unknown
 type StatesOfEach<X> = X extends Phantom<{ readonly states: infer St }> ? St : never
 type FixedKeys<St> = St extends Fixed<infer K, unknown> ? K : never
-type FixedValues<St, K> = St extends Fixed<K & string, infer V> ? V : never
 type EqualitiesOf<St> = St extends Dep<string, string> ? St : never
 /**
  * What a predicate states whatever value it has: over a union of predicates, `flag ? r.eq(a, p) : r.eq(b, q)`, only what
- * every member states, since either may be the one that runs: a variable every member fixes, to the value they agree
- * on or to unknown, and an equality every member states.
+ * every member states, since either may be the one that runs: a variable every member fixes, to the names they share or
+ * to unknown, and an equality every member states.
  */
 type MustState<X> = MustFix<X> | MustEqual<X>
 type MustFix<X> = [FixedKeys<StatesOfEach<X>>] extends [infer All extends string]
@@ -340,11 +339,16 @@ type MustFix<X> = [FixedKeys<StatesOfEach<X>>] extends [infer All extends string
 				X extends unknown ? (All extends FixedKeys<StatesOfEach<X>> ? true : false) : never
 			)
 			? never
-			: Fixed<All, AgreedValue<X extends unknown ? FixedValues<StatesOfEach<X>, All> : never>>
+			: Fixed<All, OrUnknown<SharedNames<X, All>>>
 		: never
 	: never
-/** The one value the members fix a variable to, unknown when they disagree. */
-type AgreedValue<V> = [V] extends [UnionToIntersection<V>] ? V : unknown
+/** The names every member of a union of predicates X fixes the variable K to. */
+type SharedNames<X, K> = (
+	X extends unknown ? (names: NamedValues<StatesOfEach<X>, K>) => void : never
+) extends (names: infer I) => void
+	? I
+	: never
+type OrUnknown<V> = [V] extends [never] ? unknown : V
 type MustEqual<X> = [EqualitiesOf<StatesOfEach<X>>] extends [infer All]
 	? All extends unknown
 		? false extends (
@@ -419,29 +423,35 @@ export type EvidenceOf<
 type ValuesPart<V> = [keyof V] extends [never] ? unknown : { readonly values: V }
 
 /**
- * Each head field's value where the rule fixes it per binding and the types name it: a constant's own value, from its
- * column; a parameter's by name; a parent variable's field; and the value the rule's filters fix its variable to,
- * directly or through equalities (Stated). The engine reads a fixed column's value the same way (logical/props.ts
- * fixedValue), which a union compares across its arms.
+ * Each head field's values where the rule fixes it per binding and the types name it, as a union of its names: a
+ * constant's own value, from its column; a parameter's by name; a parent variable's field; and every value the rule's
+ * filters fix its variable to, directly or through equalities (Stated), which are one value wherever the rule has a row,
+ * so each names it, in any order the filters are written. The engine reads a fixed column's names the same way
+ * (logical/props.ts fixedNames), which a union compares across its arms.
  */
 export type HeadValues<H, Stated> = {
-	readonly [
-		K in keyof H as unknown extends AgreedValue<ValueAt<H[K], Stated>> ? never : K
-	]: AgreedValue<ValueAt<H[K], Stated>>
+	readonly [K in keyof H as [ValueAt<H[K], Stated>] extends [never] ? never : K]: ValueAt<
+		H[K],
+		Stated
+	>
 }
 
+/** The names of a head term's value: none, never, where the types name none. */
 type ValueAt<X, St> = X extends TermBase
 	? [OriginOfTerm<X>] extends [ParamOrigin]
 		? ParamValue<keyof ParamsOfTerm<X>>
 		: [OriginOfTerm<X>] extends [ConstantOrigin | LiteralOrigin]
-			? OneValue<ValueOfTerm<X>>
+			? Named<OneValue<ValueOfTerm<X>>>
 			: [ParentOriginOf<X>] extends [never]
 				? [OriginKey<X>] extends [never]
-					? unknown
-					: OrUnknown<AgreedValue<FixedValues<St, Closure<EqualitiesOf<St>, OriginKey<X>>>>>
+					? never
+					: NamedValues<St, Closure<EqualitiesOf<St>, OriginKey<X>>>
 				: ParentValue<ParentOriginOf<X>>
-	: unknown
-type OrUnknown<V> = [V] extends [never] ? unknown : V
+	: never
+/** A value the types name, never for unknown. */
+type Named<V> = unknown extends V ? never : V
+/** Every value the statements St fix one of the variables K to that the types name. */
+type NamedValues<St, K> = St extends Fixed<K & string, infer V> ? Named<V> : never
 
 /**
  * The evidence of a union of an arm or union of evidence Ev1 and heading H1 with an arm of evidence Ev2 and heading H2,
@@ -480,16 +490,21 @@ type UnionWith<A, F extends string, Keys> = {
 	readonly card: [Exclude<F, keyof A>] extends [never] ? "atMostOne" : "many"
 } & ValuesPart<A>
 
-/** The fields both fix to one value, with it. */
+/** The fields both fix to one value, a name they share, with every name they share. */
 type Alike<V1, V2> = {
-	readonly [K in keyof V1 & keyof V2 as SameValue<V1[K], V2[K]> extends true ? K : never]: V1[K]
+	readonly [
+		K in keyof V1 & keyof V2 as [Extract<V1[K], V2[K]>] extends [never] ? never : K
+	]: Extract<V1[K], V2[K]>
 }
 type SameValue<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
-/** The fields the two fix to literals that differ. */
+/**
+ * The fields each fixes to one literal, the two different: an arm whose names hold two literals at a field holds no row,
+ * and tells nothing apart there.
+ */
 type Separators<V1, V2> = {
-	[K in keyof V1 & keyof V2]-?: V1[K] extends Literal
-		? V2[K] extends Literal
-			? SameValue<V1[K], V2[K]> extends true
+	[K in keyof V1 & keyof V2]-?: IsSingle<Extract<V1[K], Literal>> extends true
+		? IsSingle<Extract<V2[K], Literal>> extends true
+			? SameValue<Extract<V1[K], Literal>, Extract<V2[K], Literal>> extends true
 				? never
 				: K
 			: never

@@ -290,12 +290,7 @@ type MetaKey = "schemaName" | "schema" | "source" | "target" | "kind" | "files"
 type RecordMiss =
 	| "a dangling path"
 	| "two rename offers of one path"
-	| "a nested field's rename at the top"
-	| "a relation's rename inside an alternative"
-	| "requires naming a relation"
 	| "a head written as another statement"
-	| "a delete offer with statements"
-	| "a choice offering nothing"
 
 type Fault =
 	| { readonly kind: "none" }
@@ -564,12 +559,12 @@ const missed = (
 	files: ReadonlyArray<MetaFile>,
 	roots: Roots,
 	miss: RecordMiss
-): ReadonlyArray<unknown> | undefined => {
+): ReadonlyArray<MetaFile> | undefined => {
 	const [top, ...rest] = files
 	if (top === undefined) {
 		return undefined
 	}
-	const added = (step: unknown): ReadonlyArray<unknown> => [
+	const added = (step: MetaStep): ReadonlyArray<MetaFile> => [
 		{ name: top.name, steps: [...top.steps, step] },
 		...rest
 	]
@@ -596,82 +591,6 @@ const missed = (
 			)
 			return own === undefined ? undefined : added(own)
 		}
-		case "a nested field's rename at the top":
-			return added({
-				kind: "choice",
-				keep: "SELECT 1",
-				follows: [],
-				offers: [
-					{
-						kind: "nested rename",
-						removed: quoted("v"),
-						added: quoted("w"),
-						requires: { kind: "nothing" },
-						head: "SELECT 2",
-						alternative: []
-					}
-				]
-			})
-		case "a relation's rename inside an alternative":
-			return relation === undefined
-				? undefined
-				: [
-						{
-							name: top.name,
-							steps: Arr.map(top.steps, (step) =>
-								step.kind === "choice"
-									? {
-											...step,
-											offers: Arr.map(step.offers, (o: MetaTopOffer) =>
-												o.kind === "relation rename"
-													? {
-															...o,
-															alternative: [
-																...o.alternative,
-																{
-																	kind: "choice",
-																	keep: "SELECT 1",
-																	follows: [],
-																	offers: [
-																		{
-																			kind: "relation rename",
-																			removed: name("x"),
-																			added: name("y"),
-																			head: "SELECT 2",
-																			alternative: []
-																		}
-																	]
-																}
-															]
-														}
-													: o
-											)
-										}
-									: step
-							)
-						},
-						...rest
-					]
-		case "requires naming a relation":
-			return added({
-				kind: "choice",
-				keep: "SELECT 1",
-				follows: [],
-				offers: [
-					{
-						kind: "rename",
-						renames: {
-							kind: "field",
-							relation: name("other"),
-							removed: quoted("c"),
-							added: quoted("d"),
-							requires: { kind: "relation", removed: name("x"), added: name("y") }
-						},
-						head: "SELECT 2",
-						alternative: []
-					}
-				]
-			})
 		case "a head written as another statement":
 			return relation === undefined
 				? undefined
@@ -679,34 +598,16 @@ const missed = (
 						kind: "statement",
 						statement: `ALTER TABLE ${relation.path.removed} RENAME TO ${relation.path.added}`
 					})
-		case "a delete offer with statements": {
-			const [path] = pathsOf(roots)
-			return path === undefined
-				? undefined
-				: added({
-						kind: "choice",
-						keep: "SELECT 1",
-						follows: [],
-						offers: [{ kind: "delete", candidate: path, statements: ["SELECT 2"] }]
-					})
-		}
-		case "a choice offering nothing":
-			return added({ kind: "choice", keep: "SELECT 1", follows: [], offers: [] })
 	}
 }
 
 const recordMisses: Arr.NonEmptyReadonlyArray<RecordMiss> = [
 	"a dangling path",
 	"two rename offers of one path",
-	"a nested field's rename at the top",
-	"a relation's rename inside an alternative",
-	"requires naming a relation",
-	"a head written as another statement",
-	"a delete offer with statements",
-	"a choice offering nothing"
+	"a head written as another statement"
 ]
 
-/** The faults of a meta: a field holding a wrong value, one of its keys removed, or its record short of its form or
+/** The faults of a meta: a field holding a wrong value, one of its keys removed, or its record, of the form, short of
  * its proof. */
 const faultGen = (meta: MigrationMeta): Gen<Fault> => {
 	const removable = Arr.filter(wrong, (w) => w.key in meta)
@@ -857,7 +758,7 @@ describe("meta.json, generated", () => {
 								}
 								c.note(fault.miss)
 								const text = succeeded(
-									writeMeta({ ...meta, files: trusted<ReadonlyArray<MetaFile>>(files) }),
+									writeMeta({ ...meta, files }),
 									"a sealed meta short of its record"
 								)
 								const read = readMeta(text)

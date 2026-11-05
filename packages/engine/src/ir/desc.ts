@@ -261,13 +261,22 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 			readonly bindings: BindingsDesc<L, R>
 	  }
 
-/** The constant a connective of no operand is, its unit: true for and, false for or. */
+/** The boolean field descriptor, the one a connective's unit is typed by. */
+export const booleanField: { readonly kind: "pg"; readonly type: "boolean" } = Object.freeze({
+	kind: "pg",
+	type: "boolean"
+})
+
+/**
+ * The constant a connective of no operand is, its unit: true for and, false for or, typed boolean (booleanField), so it
+ * stands as a predicate on its own where an untyped literal meets no term.
+ */
 const connectiveUnit = (
 	kind: "and" | "or"
-): { readonly kind: "literal"; readonly value: boolean; readonly type: undefined } => ({
+): { readonly kind: "literal"; readonly value: boolean; readonly type: typeof booleanField } => ({
 	kind: "literal",
 	value: kind === "and",
-	type: undefined
+	type: booleanField
 })
 
 /**

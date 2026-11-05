@@ -218,9 +218,9 @@ export const boolSum = Compute.add(flag, flag)
 export const textSum = Compute.add(text, "x")
 // @ts-expect-error -- TS2345: PostgreSQL has no % over double precision
 export const floatMod = Compute.mod(dbl, 2)
-// @ts-expect-error -- TS2345: power is numeric or double precision
+// @ts-expect-error -- TS2345 refusal: a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)
 export const intPower = Compute.power(int, 2)
-// @ts-expect-error -- TS2345: power is numeric or double precision, and a number of unknown SQL type is neither
+// @ts-expect-error -- TS2345 refusal: a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)
 export const unknownPower = Compute.power(unknownNumber, 2)
 // @ts-expect-error -- TS2345: sqrt is numeric or double precision
 export const realSqrt = Compute.sqrt(real)
@@ -327,7 +327,7 @@ export const paramOpposite = Compute.cond(flag, cents, nCents)
 export type ParamOpposite = Expect<
 	Equals<ParamsOfT<typeof paramOpposite>, { readonly n: CentsHost }>
 >
-// @ts-expect-error -- TS2345: the first branch types the conditional, so it is a term, never a literal
+// @ts-expect-error -- TS2345 refusal: a term first: a literal takes its place opposite a term, never first
 export const literalFirst = Compute.cond(p, 1, 0)
 /** A parameter is a term of its declared type, first included: the literal opposite it adopts that type. */
 export const paramFirst = Compute.cond(p, nInt, 0)

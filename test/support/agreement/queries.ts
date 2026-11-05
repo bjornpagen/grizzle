@@ -106,6 +106,7 @@ export type AgreementNote =
 	| "get proved"
 	| "get refused"
 	| "a key below the heading"
+	| "a variable two filters fix"
 
 /**
  * The pairs of notes one case must reach together: a self-join whose get the engine proves, which pinnedSelfJoin
@@ -1120,6 +1121,7 @@ const verdictOf = (spec: QuerySpec, source: string): Verdict => {
  * included, and what it reached.
  */
 interface AgreementCase {
+	readonly spec: QuerySpec
 	readonly source: string
 	readonly uses: ReadonlySet<Imported>
 	readonly verdict: Verdict
@@ -1148,8 +1150,63 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 	if (Arr.some(verdict.keys, (k) => k.length < heading)) {
 		notes.add("a key below the heading")
 	}
-	return { source, uses: rendering.uses, verdict, notes }
+	if (Arr.some(spec.arms, fixedTwice)) {
+		notes.add("a variable two filters fix")
+	}
+	return { spec, source, uses: rendering.uses, verdict, notes }
 }
+
+/**
+ * The variables a filter fixes: one an equality compares with a value fixed per binding, a parameter or a constant, and
+ * each a conjunction's operands fix; a disjunction fixes none.
+ */
+const fixedBy = (p: Pred): ReadonlyArray<string> => {
+	switch (p.kind) {
+		case "cmp": {
+			const fixedWith = (v: Term, other: Term): ReadonlyArray<string> =>
+				v.kind === "var" &&
+				(other.kind === "param" ||
+					other.kind === "literal" ||
+					other.kind === "constant" ||
+					other.kind === "handle")
+					? [varName(v.v)]
+					: []
+			return p.op === "eq" ? [...fixedWith(p.a, p.b), ...fixedWith(p.b, p.a)] : []
+		}
+		case "and":
+			return [...fixedBy(p.ps[0]), ...fixedBy(p.ps[1])]
+		case "or":
+			return []
+	}
+}
+
+/** Whether two of a rule's filters fix one variable: to two values, which are one wherever the rule has a row. */
+const fixedTwice = (arm: RuleSpec): boolean => {
+	const fixed = Arr.flatMap(arm.filters, fixedBy)
+	return new Set(fixed).size < fixed.length
+}
+
+/** A predicate with every conjunction's and disjunction's operands in the other order. */
+const swapped = (p: Pred): Pred =>
+	p.kind === "cmp" ? p : { ...p, ps: [swapped(p.ps[1]), swapped(p.ps[0])] }
+
+/** A query with each rule's filters, and every connective's operands, in the other order. */
+const reordered = (spec: QuerySpec): QuerySpec => ({
+	...spec,
+	arms: Arr.map(spec.arms, (arm) => ({
+		...arm,
+		filters: Arr.reverse(Arr.map(arm.filters, swapped))
+	}))
+})
+
+/** A verdict as text: whether get reads the query, and its keys as a set. */
+const verdictText = (v: Verdict): string =>
+	`get ${v.get ? "proved" : "refused"}, keys ${jsonText(
+		Arr.sort(
+			Arr.map(v.keys, (k) => jsonText(k)),
+			Str.Order
+		)
+	)}`
 
 /** The queries the run's own stream draws. */
 export const agreementCount = 240
@@ -1181,6 +1238,19 @@ const agreementCases = (seed: number): ReadonlyArray<AgreementCase> => [
 	...agreementWitnesses().values,
 	...sample(caseGen, rotatingSeed(seed, floorSeed(agreementLabel)), agreementCount)
 ]
+
+/**
+ * The run's cases whose verdict moves when each rule's filters are written in the other order (reordered): none, since
+ * the order of a rule's filters is no part of what it means, so a value two filters fix a variable to is one value
+ * whichever comes first. Each is its source with its two verdicts.
+ */
+export const reorderedVerdicts = (seed: number): ReadonlyArray<string> =>
+	Arr.flatMap(agreementCases(seed), (c) => {
+		const moved = verdictOf(reordered(c.spec), c.source)
+		return verdictText(moved) === verdictText(c.verdict)
+			? []
+			: [`${c.source}\n  as written: ${verdictText(c.verdict)}\n  reordered: ${verdictText(moved)}`]
+	})
 
 /** The refusal db.get's type names for a query not proved at most one row per binding (adapter/types/db.ts). */
 const getRefusal = "get needs a query proved at most one row per parameter binding"

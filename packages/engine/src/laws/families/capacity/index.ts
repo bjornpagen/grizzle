@@ -1,3 +1,4 @@
+import { exactParts } from "#compiler/core/decimal.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { CapacityBound, FieldSelector, LawField } from "#compiler/ir/law.ts"
@@ -237,6 +238,6 @@ const zeroOf = (what: Extract<CapacityCheck, { readonly kind: "aggregate" }>): E
 		case "int8":
 			return lit.int(0n, types.bigint)
 		case "numeric":
-			return lit.decimal("0", types.numeric)
+			return lit.decimal(exactParts(0n, 0), types.numeric)
 	}
 }

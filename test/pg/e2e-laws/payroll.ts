@@ -79,7 +79,11 @@ const members = (s: PayrollInstalled) => ({
 					line: id,
 					account: "Withholding",
 					side: "credit",
-					amount: Compute.cast(Compute.sub(gross, net), Cents)
+					amount: Compute.when(
+						Compute.within(Compute.sub(gross, net), 0n, 9223372036854775807n),
+						(withheld) => Compute.cast(withheld, Cents),
+						Compute.literal(Cents, 0n)
+					)
 				})
 		}),
 	/** The pay run put. */

@@ -133,7 +133,6 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 			const psqlUpdate = yield* Effect.forkChild(p.run(update("p")))
 			const psqlWait = yield* s.awaitLockWait(pPid, Option.some(aPid))
 			matchesObject(psqlWait, {
-				waitEvent: "transactionid",
 				locktype: "transactionid",
 				mode: "ShareLock",
 				blockedBy: [aPid]

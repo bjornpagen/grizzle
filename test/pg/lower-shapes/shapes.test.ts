@@ -30,6 +30,7 @@ import type {
 	RelNode,
 	ValidDag
 } from "#compiler/ir/rel.ts"
+import { baseOf } from "#compiler/ir/scalar.ts"
 import { parentColumnsOf, statementRows } from "#compiler/lower/conservative/deliver.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
@@ -180,22 +181,29 @@ interface Ran {
 
 /**
  * Runs one SQL text whose output has `width` columns, or the columns of a heading, every column read back as its
- * exact text, money through numeric as the outermost SELECT casts it (codec resultTextCasts).
+ * exact text, money through numeric as the outermost SELECT casts it (codec resultTextCasts). A numeric column of a
+ * heading is read as its value, through trim_scale: a value is only its value, and the display scale PostgreSQL
+ * computes for a sum or a cast is none of it; the row's text is then the row of those column texts.
  */
 const runText = (text: string, width: number | Heading, params: ReadonlyArray<string>) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const count = typeof width === "number" ? width : width.length
 		const names = Arr.map(indices(count), (i) => `"p${i}"`)
-		const column = (n: string, i: number): string =>
-			typeof width === "number"
-				? `t.${n}::text`
-				: Arr.reduce(
-						resultTextCasts(defined(width[i], "column").type),
-						`t.${n}`,
-						(e, cast) => `(${e})::${cast}`
-					)
-		const wrapped = `SELECT t::text, ${Arr.join(Arr.map(names, column), ", ")} FROM (${text}) AS t(${Arr.join(names, ", ")})`
+		const column = (n: string, i: number): string => {
+			if (typeof width === "number") {
+				return `t.${n}::text`
+			}
+			const type = defined(width[i], "column").type
+			return Arr.reduce(
+				resultTextCasts(type),
+				baseOf(type).carrier === "numeric" ? `pg_catalog.trim_scale(t.${n})` : `t.${n}`,
+				(e, cast) => `(${e})::${cast}`
+			)
+		}
+		const columns = Arr.map(names, column)
+		const row = typeof width === "number" ? "t::text" : `ROW(${Arr.join(columns, ", ")})::text`
+		const wrapped = `SELECT ${row}, ${Arr.join(columns, ", ")} FROM (${text}) AS t(${Arr.join(names, ", ")})`
 		const rows = yield* admin.queryValues(wrapped, params)
 		return {
 			text: Arr.map(rows, (r) => String(r[0])),
@@ -614,7 +622,7 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 					const forms: ReadonlyArray<ConditionalForm> = [
 						"int4",
 						"int8",
-						"numeric1.0",
+						"numeric",
 						"numeric5.2",
 						"term"
 					]

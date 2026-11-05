@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
@@ -10,21 +10,25 @@ import {
 	int,
 	map,
 	oneOf,
-	string
+	string,
+	weighted
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { jsonText } from "#compiler/core/trusted.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	caseChunk,
 	compareAnswers,
 	type EvalCase,
 	installEvaluator,
+	parseAnswer,
 	runCases
 } from "#test/pg/compute/support.ts"
 import { assert } from "#test/support/assert.ts"
@@ -94,6 +98,99 @@ const exponents: Gen<string> = oneOf([
 	signed((source) => `${source.draw(int(0, 3))}.${source.draw(digitString(40, 60))}`),
 	signed((source) => `${source.draw(int(1, 9))}e${source.draw(int(-40, -1))}`)
 ])
+
+/**
+ * PostgreSQL's bound on power_var for an exponent that is no integer (numeric.c): y · ln x below
+ * NUMERIC_MAX_RESULT_SCALE · 3 = 6000, at which it raises 22003; in decimal weight, log10 x^y below 6000 / ln 10.
+ */
+const expLimitWeight = 6000 / Math.LN10
+
+/**
+ * A pair near that bound, where a proof that over-counts nothing meets PostgreSQL's own limit: a base of nine and a
+ * long significand at a drawn power of ten, so its decimal weight is within a digit of its integer digits, and a
+ * fractional exponent putting log10 x^y within one percent of the bound on either side; or the same weight reached by a
+ * base below one and a negative exponent.
+ */
+const nearLimit: Gen<readonly [string, string]> = (source) => {
+	const k = source.draw(int(0, 400))
+	const significand = `9.${source.draw(digitString(1, 12))}`
+	const below = source.draw(boolean)
+	const exponent = below ? -k - 1 : k
+	const weight = Math.abs(Math.log10(Number(significand)) + exponent)
+	const y = (expLimitWeight / weight) * (1 + source.draw(int(-100, 100)) / 10000)
+	return [`${significand}e${exponent}`, (below ? -y : y).toFixed(9)]
+}
+
+/**
+ * Escaped: power_var raised 22003 on powers the proof admitted, its range then half numeric's 131072 digits for every
+ * exponent, where PostgreSQL bounds a fractional one's result by exp(6000).
+ */
+const kept: ReadonlyArray<Kept<ReadonlyArray<readonly [string, string]>, PowerFeature>> = [
+	{
+		note: "a fractional exponent past power_var's exp(6000): power(9.5e400, 60.123456789) and power(5.5e10, 1000.123)",
+		sketch: [
+			["9.5e400", "60.123456789"],
+			["5.5e10", "1000.123"]
+		],
+		draws: "",
+		reaches: ["refused at compilation"]
+	}
+]
+
+/** What a guarded power over a base column reached: refused at compilation, or proved and computed at its ends. */
+type GuardedFeature = "guarded power refused" | "guarded power proved"
+
+/**
+ * A guard over a base column of bare numeric: above zero and within [0, high], whose least value is bare numeric's
+ * least positive one, 10^-16383; or within [low, high] with low a power of ten at most one. And the exponent a power
+ * raises the guarded base to: a negative integer or fraction, or a positive one.
+ */
+interface GuardedPower {
+	readonly guard:
+		| Readonly<{ kind: "positive"; high: string }>
+		| Readonly<{ kind: "within"; low: string; high: string }>
+	readonly exponent: string
+}
+
+/** The least positive value of a bare numeric: 10^-16383, numeric's largest display scale. */
+const leastPositive = "1e-16383"
+
+const guardedPowerGen: Gen<GuardedPower> = (source) => ({
+	guard: source.draw(
+		weighted<GuardedPower["guard"]>([
+			[1, (g) => ({ kind: "positive", high: `${g.draw(int(1, 9))}e${g.draw(int(0, 40))}` })],
+			[
+				3,
+				(g) => ({
+					kind: "within",
+					low: `1e-${g.draw(int(0, 400))}`,
+					high: `${g.draw(int(1, 9))}e${g.draw(int(0, 40))}`
+				})
+			]
+		])
+	),
+	exponent: source.draw(
+		oneOf([
+			map(int(-40, -1), String),
+			(g) => `-${g.draw(int(0, 60))}.${g.draw(digitString(1, 6))}`,
+			map(int(1, 40), String),
+			(g) => `${g.draw(int(0, 60))}.${g.draw(digitString(1, 6))}`
+		])
+	)
+})
+
+/**
+ * Escaped: a base guarded above zero and within [0, 10] raised to a negative power was proved in range from its
+ * interval's ends alone, though such a bare numeric reaches 10^-16383, so power(1e-16383, -10) raises 22003.
+ */
+const guardedKept: ReadonlyArray<Kept<ReadonlyArray<GuardedPower>, GuardedFeature>> = [
+	{
+		note: "a base above zero and within [0, 10] raised to -10: its least value 10^-16383 overflows",
+		sketch: [{ guard: { kind: "positive", high: "10" }, exponent: "-10" }],
+		draws: "",
+		reaches: ["guarded power refused"]
+	}
+]
 
 const edges: ReadonlyArray<readonly [string, string]> = [
 	["0", "0"],
@@ -199,17 +296,20 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 						{
 							suite: "pg/compute/power",
 							draw: drawn(
-								array((source) => [source.draw(bases), source.draw(exponents)] as const, {
-									min: 1,
-									max: 1000
-								})
+								array(
+									oneOf<readonly [string, string]>([
+										(source) => [source.draw(bases), source.draw(exponents)] as const,
+										nearLimit
+									]),
+									{ min: 1, max: 1000 }
+								)
 							),
 							literal: Formatter.format,
 							coverage: required<PowerFeature>(
 								["value agreement", "refused at compilation", "underflow to zero"],
 								{ cases: 4, sense: notesOnly }
 							),
-							kept: [],
+							kept,
 							runs: 4,
 							shrink: completeShrink,
 							concurrency: 1,
@@ -224,8 +324,8 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 										"query",
 										expr,
 										{
-											a: { kind: "literal", type: testPg.numeric.scalar, value: Decimal.of(a) },
-											b: { kind: "literal", type: testPg.numeric.scalar, value: Decimal.of(b) }
+											a: { kind: "literal", field: testPg.numeric, value: Decimal.of(a) },
+											b: { kind: "literal", field: testPg.numeric, value: Decimal.of(b) }
 										},
 										false,
 										baseParams
@@ -272,6 +372,99 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 								) {
 									c.note("underflow to zero")
 								}
+							})
+					)
+				})
+			),
+		300_000
+	)
+
+	it.effect(
+		"never proves a power over a guarded base that PostgreSQL fails at its guard's ends",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const { session, schema } = yield* Substrate
+					const db = yield* session(ownerSession())
+					const s = yield* schema(freshSchema)
+					yield* installEvaluator(db, s)
+					return yield* explore(
+						{
+							suite: "pg/compute/power/guarded",
+							draw: drawn(array(guardedPowerGen, { min: 1, max: 200 })),
+							literal: Formatter.format,
+							coverage: required<GuardedFeature>(
+								["guarded power refused", "guarded power proved"],
+								{
+									cases: 4,
+									sense: notesOnly
+								}
+							),
+							kept: guardedKept,
+							runs: 4,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang: Duration.minutes(2)
+						},
+						(batch, c) =>
+							Effect.gen(function* () {
+								const proved = Arr.flatMap(batch, (g) => {
+									const x = v("x", testPg.numeric)
+									const power = (base: ScalarTerm) =>
+										Compute.power(base, Compute.literal(testPg.numeric, Decimal.of(g.exponent)))
+									const zero = Decimal.of("0")
+									const guard = g.guard
+									const term =
+										guard.kind === "positive"
+											? Compute.when(
+													Compute.positive(x),
+													(y: ScalarTerm) =>
+														Compute.when(
+															Compute.within(y, zero, Decimal.of(guard.high)),
+															power,
+															zero
+														),
+													zero
+												)
+											: Compute.when(
+													Compute.within(x, Decimal.of(guard.low), Decimal.of(guard.high)),
+													power,
+													zero
+												)
+									const lowered = lowerWith(
+										"query",
+										spelled(term.expr),
+										{ x: { kind: "column", type: testPg.numeric.scalar } },
+										false,
+										baseParams
+									)
+									if (!lowered.ok) {
+										const reason = lowered.error.reason
+										assert.ok(
+											reason._tag === "PartialOperation" && reason.precondition === "powerDomain",
+											`${Formatter.format(g)}: ${String(lowered.error)}`
+										)
+										c.note("guarded power refused")
+										return []
+									}
+									c.note("guarded power proved")
+									const ends = [guard.kind === "positive" ? leastPositive : guard.low, guard.high]
+									return Arr.map(ends, (end) => ({
+										label: `power(${end}, ${g.exponent}) under ${Formatter.format(g.guard)}`,
+										q: `"pg_catalog"."power"(${end}::numeric, (${g.exponent})::numeric)`
+									}))
+								})
+								const rows = yield* db.values(
+									`SELECT "${s}".try_eval(c.q, c.q) FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, q text) ORDER BY c.ord`,
+									[jsonText(Arr.map(proved, (k, ord) => ({ ord, q: k.q })))]
+								)
+								const failed = Arr.flatMap(proved, (k, i) => {
+									const answer = parseAnswer(String(rows[i]?.[0]))
+									return answer.kind === "error" ? [`${k.label}: ${answer.sqlstate}`] : []
+								})
+								assert.deepEqual(failed, [])
 							})
 					)
 				})

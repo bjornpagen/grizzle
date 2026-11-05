@@ -774,15 +774,17 @@ export const valuePicks = (
 const headingOf = (host: HostSchema, relation: string): ReadonlyArray<string> =>
 	Arr.map(relationOf(host, relation).fields, (f) => f.name)
 
-export const plantedInsert = (
+/** A write of `fact` drawn whole: an insertion, or a put, which a mutable relation takes as its key's new payload. */
+const plantedWrite = (
 	host: HostSchema,
 	domains: Domains,
 	relation: string,
-	fact: Readonly<Record<string, HostValue>>
+	fact: Readonly<Record<string, HostValue>>,
+	kind: "insert" | "put"
 ): MemberSketch => ({
 	arm: "write",
 	relation: relationPick(host, relation),
-	kind: "insert",
+	kind,
 	first: {
 		mode: "drawn",
 		values: valuePicks(domains, relation, headingOf(host, relation), fact),
@@ -791,6 +793,21 @@ export const plantedInsert = (
 	},
 	rest: []
 })
+
+export const plantedInsert = (
+	host: HostSchema,
+	domains: Domains,
+	relation: string,
+	fact: Readonly<Record<string, HostValue>>
+): MemberSketch => plantedWrite(host, domains, relation, fact, "insert")
+
+/** A put of `fact` at its key: on a mutable relation the stored fact there takes its payload, else an insertion. */
+const plantedPut = (
+	host: HostSchema,
+	domains: Domains,
+	relation: string,
+	fact: Readonly<Record<string, HostValue>>
+): MemberSketch => plantedWrite(host, domains, relation, fact, "put")
 
 export const plantedDeletion = (
 	host: HostSchema,
@@ -1410,6 +1427,120 @@ export const plantedRefusal = (
 		}
 	}
 	const grouped = Arr.filter(host.laws, (l) => needs(l).length > 0)
+	/** The lawful states a rewrite starts from: one fact alone, one referring group, two referring groups. */
+	const startingStates = function* (): Generator<CaseSketch> {
+		for (const r of host.relations) {
+			for (const fact of domainFacts(host, domains, r.name)) {
+				yield [[plantedInsert(host, domains, r.name, fact)]]
+			}
+		}
+		for (const law of grouped) {
+			for (const from of domainFacts(host, domains, fromOf(law))) {
+				yield [[plantedGroup(host, domains, law, from)]]
+			}
+		}
+		for (const law of grouped) {
+			for (const [first, second] of pairsOf(host, domains, law)) {
+				yield [
+					[plantedGroup(host, domains, law, first)],
+					[plantedGroup(host, domains, law, second)]
+				]
+			}
+		}
+	}
+	/**
+	 * The stored fact `at` of `relation` rewritten at its key into `next`: by a put, which a mutable relation takes as
+	 * the fact's new payload, or by its deletion and next's insertion in one step, which replaces it on any relation;
+	 * each also with one other stored fact deleted, a fact the old one's laws asked for or one the new one collides with.
+	 */
+	const rewrites = function* (
+		state: HostState,
+		relation: string,
+		at: number,
+		next: Readonly<Record<string, HostValue>>
+	): Generator<StepSketch> {
+		const stored = state.get(relation) ?? []
+		const forms: ReadonlyArray<StepSketch> = [
+			[plantedPut(host, domains, relation, next)],
+			[
+				plantedDeletion(host, relation, at, stored.length),
+				plantedInsert(host, domains, relation, next)
+			]
+		]
+		for (const form of forms) {
+			yield form
+			for (const r of host.relations) {
+				const facts = state.get(r.name) ?? []
+				for (const [i] of facts.entries()) {
+					if (r.name !== relation || i !== at) {
+						yield [...form, plantedDeletion(host, r.name, i, facts.length)]
+					}
+				}
+			}
+		}
+	}
+	/** Whether every value of `values` lies in its field's domain, so a planted member can pick it. */
+	const inDomain = (relation: string, values: Readonly<Record<string, HostValue>>): boolean =>
+		Arr.every(Rec.toEntries(values), ([field, value]) =>
+			Arr.some(domains[relation]?.[field] ?? [], (x) => sameValue(x, value))
+		)
+	/** Each stored anchor outside an obligation's selection switched into it at its key, its dependent not added. */
+	const switches = function* (): Generator<PlantedSteps> {
+		for (const lawful of startingStates()) {
+			const state = accepted(lawful)
+			if (state === undefined) {
+				continue
+			}
+			for (const law of host.laws) {
+				if (
+					law.kind !== "obliged" ||
+					Rec.keys(law.anchor.where).length === 0 ||
+					!inDomain(law.anchor.relation, law.anchor.where)
+				) {
+					continue
+				}
+				for (const [i, a] of (state.get(law.anchor.relation) ?? []).entries()) {
+					if (selected(a, law.anchor.where)) {
+						continue
+					}
+					for (const refused of rewrites(state, law.anchor.relation, i, {
+						...a,
+						...law.anchor.where
+					})) {
+						yield { lawful, refused }
+					}
+				}
+			}
+		}
+	}
+	/** Each stored dependent of an obligation moved at its key, its paired fields to other values. */
+	const moves = function* (): Generator<PlantedSteps> {
+		for (const lawful of startingStates()) {
+			const state = accepted(lawful)
+			if (state === undefined) {
+				continue
+			}
+			for (const law of host.laws) {
+				if (law.kind !== "obliged") {
+					continue
+				}
+				const dependent = law.dependent.relation
+				const key = relationOf(host, dependent).key
+				for (const [i, d] of (state.get(dependent) ?? []).entries()) {
+					for (const moved of domainFacts(host, domains, dependent)) {
+						if (
+							projection(moved, key) === projection(d, key) &&
+							projection(moved, law.dependent.fields) !== projection(d, law.dependent.fields)
+						) {
+							for (const refused of rewrites(state, dependent, i, moved)) {
+								yield { lawful, refused }
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	const capacities = Arr.filter(host.laws, (l) => l.kind === "capacity")
 	const candidates = function* (): Generator<PlantedSteps> {
 		for (const r of host.relations) {
@@ -1451,6 +1582,8 @@ export const plantedRefusal = (
 				])
 			}
 		}
+		yield* switches()
+		yield* moves()
 	}
 	for (const c of candidates()) {
 		const before = accepted(c.lawful)

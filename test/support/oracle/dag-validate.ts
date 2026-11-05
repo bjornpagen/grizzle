@@ -52,7 +52,7 @@ import {
 	type Rule,
 	type ViewKey
 } from "#compiler/ir/keys.ts"
-import type { PreconditionProof } from "#compiler/ir/proof.ts"
+import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
 import {
 	aggregateArity,
 	type CompletedOrder,
@@ -91,10 +91,10 @@ import {
 import { literalShape, scalarTypeShape, tableExprShape } from "#compiler/ir/scalar-shape.ts"
 import { baseOf, isRefined, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
-import { binaryCoercion, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { definedness } from "#compiler/scalar/compute/registry.ts"
 import { meets } from "#compiler/scalar/compute/types.ts"
 import { defined } from "#test/support/assert.ts"
-import { proofHolds } from "#test/support/oracle/proof.ts"
+import { nativeProofHolds, operationProofHolds } from "#test/support/oracle/proof.ts"
 
 /**
  * The strict re-reader of a DAG: every rule a DAG grizzle's builders and editors assemble holds by construction,
@@ -855,15 +855,22 @@ class Checker {
 			case "domainCast":
 				return !isRefined(expr.type)
 					? ["a contract or regex-refined target for a domain cast"]
-					: proofHolds(expr.proof, { type: expr.type, operand: args[0]?.type })
+					: operationProofHolds(expr.proof, [{ kind: "contract" }], {
+								type: expr.type,
+								operand: args[0]?.type
+						  })
 						? []
 						: ["a proof the kernel re-derives from its premises"]
 			case "cond":
 				return condProblems(expr.type, args)
 			case "cast":
-				return proofProblems(expr.cast, "proof" in expr ? expr.proof : undefined, expr.type, args)
+				return "native" in expr
+					? nativeProblems(expr.cast, expr.native, expr.type, args)
+					: proofProblems(expr.cast, "proof" in expr ? expr.proof : undefined, expr.type, args)
 			case "op":
-				return proofProblems(expr.op, "proof" in expr ? expr.proof : undefined, expr.type, args)
+				return "native" in expr
+					? nativeProblems(expr.op, expr.native, expr.type, args)
+					: proofProblems(expr.op, "proof" in expr ? expr.proof : undefined, expr.type, args)
 		}
 	}
 
@@ -2157,34 +2164,47 @@ export const validateTable = (table: DagTable): DagTable => {
 
 /**
  * The problems of an operation's or a cast's proof: the registry's overload is partial exactly where the node carries a
- * proof, and the proof kernel re-derives the precondition from its premises (oracle/proof.ts proofHolds), so every partial
- * operation a DAG holds stands where its precondition is proved, the soundness half of "no read raises".
+ * proof, and the proof kernel re-derives each precondition the registry's Totality requires from its own premises
+ * (oracle/proof.ts operationProofHolds), so every partial operation a DAG holds stands where every precondition of it is
+ * proved, the soundness half of "no read raises".
  */
 const proofProblems = (
 	op: OpId,
-	proof: PreconditionProof | undefined,
+	proof: OperationProof | undefined,
 	type: ScalarType,
 	args: ReadonlyArray<TableExpr>
 ): ReadonlyArray<string> => {
-	const native = nativeOp(op)
-	if (native === undefined || op === binaryCoercion) {
-		return native === undefined && op !== binaryCoercion
-			? [`an overload the registry holds, not ${describeOp(op)}`]
-			: proof === undefined
+	const defined = definedness(op)
+	switch (defined.kind) {
+		case "unknown":
+			return [`an overload the registry holds, not ${describeOp(op)}`]
+		case "everywhere":
+			return proof === undefined
 				? []
-				: ["no proof on a coercion, which is defined everywhere"]
+				: [`no proof on an overload defined everywhere, ${describeOp(op)}`]
+		case "partial":
+			return proof === undefined
+				? [`the proof a partial overload stands with, ${describeOp(op)}`]
+				: operationProofHolds(proof, defined.preconditions, { type, operand: args[0]?.type })
+					? []
+					: [`a proof of each precondition of ${describeOp(op)}, re-derived from its own premises`]
 	}
-	if (native.partial !== (proof !== undefined)) {
-		return [
-			native.partial
-				? "the proof a partial overload stands with"
-				: "no proof on an overload defined everywhere"
-		]
-	}
-	return proof === undefined || proofHolds(proof, { type, operand: args[0]?.type })
-		? []
-		: ["a proof the kernel re-derives from its premises"]
 }
+
+/**
+ * The problems of an IEEE 754 node's native proof: the proof kernel re-derives that PostgreSQL's own overload computes
+ * it where it stands (oracle/proof.ts nativeProofHolds), which only an IEEE 754 overload can, so every node a DAG renders
+ * natively instead of by its guarded form raises on none of its operands' values.
+ */
+const nativeProblems = (
+	op: OpId,
+	proof: NativeProof,
+	type: ScalarType,
+	args: ReadonlyArray<TableExpr>
+): ReadonlyArray<string> =>
+	nativeProofHolds(proof, { op, type, operand: args[0]?.type })
+		? []
+		: [`a native proof the kernel re-derives, on an IEEE 754 overload, not ${describeOp(op)}`]
 
 /**
  * Validates a DAG grizzle built over its outside form (validateTable); a label two of its nodes share is a defect. It

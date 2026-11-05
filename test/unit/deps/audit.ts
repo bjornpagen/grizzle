@@ -1,5 +1,5 @@
 import { transformSync } from "amaro"
-import { Array as Arr, Order, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { type Token, tokenize } from "#test/unit/deps/lexer.ts"
 
 /**
@@ -12,7 +12,8 @@ import { type Token, tokenize } from "#test/unit/deps/lexer.ts"
  * - RegExp construction: a regular expression literal, or any reference to the RegExp global other than the right
  *   operand of instanceof;
  * - RegExp matching: a `.test` or `.exec` member access, and a call of `.match`, `.matchAll` or `.search`, which build a
- *   RegExp from a string argument;
+ *   RegExp from a string argument, unless its receiver is a module the file imports from effect, whose `Option.match`
+ *   and the like are its own functions;
  * - its runtime imports, static, re-exported and dynamic, which the arkregex check reads.
  */
 export interface Finding {
@@ -53,10 +54,41 @@ const isPunct = (t: Token | undefined, text: string): boolean =>
 const isIdent = (t: Token | undefined, text: string): boolean =>
 	t?.kind === "ident" && t.text === text
 
+/** The local names a file's `import { ... } from "effect"` declarations bind: effect's modules, `X as Y` by Y. */
+const effectModules = (tokens: ReadonlyArray<Token>): ReadonlySet<string> => {
+	const names = new Set<string>()
+	for (const [i, t] of tokens.entries()) {
+		if (!isIdent(t, "import") || !isPunct(tokens[i + 1], "{")) {
+			continue
+		}
+		const found = Arr.findFirstIndex(tokens, (x, j) => j > i && isPunct(x, "}"))
+		if (Option.isNone(found)) {
+			continue
+		}
+		const close = found.value
+		if (
+			!isIdent(tokens[close + 1], "from") ||
+			tokens[close + 2]?.kind !== "string" ||
+			tokens[close + 2]?.text !== "effect"
+		) {
+			continue
+		}
+		for (let j = i + 2; j < close; j++) {
+			const name = tokens[j]
+			if (name?.kind === "ident" && name.text !== "as" && !isIdent(tokens[j + 1], "as")) {
+				names.add(name.text)
+			}
+		}
+	}
+	return names
+}
+
 const regexFindings = (file: string, tokens: ReadonlyArray<Token>): Array<Finding> => {
 	const out: Array<Finding> = []
+	const effect = effectModules(tokens)
 	for (const [i, t] of tokens.entries()) {
 		const prev = tokens[i - 1]
+		const receiver = tokens[i - 2]
 		if (t.kind === "regex") {
 			out.push({ file, line: t.line, rule: "regex literal", text: t.text })
 		} else if (isIdent(t, "RegExp") && !isIdent(prev, "instanceof")) {
@@ -64,7 +96,10 @@ const regexFindings = (file: string, tokens: ReadonlyArray<Token>): Array<Findin
 		} else if (
 			t.kind === "ident" &&
 			(isPunct(prev, ".") || isPunct(prev, "?.")) &&
-			(regexMembers.has(t.text) || (regexBuildingCalls.has(t.text) && isPunct(tokens[i + 1], "(")))
+			(regexMembers.has(t.text) ||
+				(regexBuildingCalls.has(t.text) &&
+					isPunct(tokens[i + 1], "(") &&
+					!(receiver?.kind === "ident" && effect.has(receiver.text))))
 		) {
 			out.push({ file, line: t.line, rule: `.${t.text} member`, text: `.${t.text}` })
 		}

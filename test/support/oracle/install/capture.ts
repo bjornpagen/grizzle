@@ -1,10 +1,9 @@
 import { Array as Arr, Data, Effect, Option, pipe, Record, Result, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 
 import { regex } from "arkregex"
-/** One result row: each column's output-function text, in column order. */
+/** One result row: each column's result text (captureRows), in column order. */
 export type RawRow = ReadonlyArray<string>
 
 /** What a capture refused, and where: the result as a whole, a row of it, or one cell. */
@@ -27,14 +26,31 @@ export interface QueryRunner {
 const trimStatement = (sql: string): string =>
 	Str.trimEnd(pipe(Str.trim(sql), Str.replace(regex(";$"), "")))
 
-/** The capturing query over `sql`, which has `columns` output columns. */
-const captureSql = (sql: string, columns: number): string => {
+/**
+ * The casts that make one output column's result text, as the outermost SELECT of an executable statement applies
+ * them (lower/template.ts): codec resultTextCasts of a heading column's type, money through numeric, and text for a
+ * fused attachment's array.
+ */
+export type ColumnCasts = ReadonlyArray<"numeric" | "text">
+
+/** A fused attachment's array column: cast to text, its array literal. */
+export const arrayCasts: ColumnCasts = ["text"]
+
+/** The capturing query over `sql`, whose output columns take `columns` casts each. */
+const captureSql = (sql: string, columns: ReadonlyArray<ColumnCasts>): string => {
 	const inner = trimStatement(sql)
-	if (columns === 0) {
+	if (!Arr.isReadonlyArrayNonEmpty(columns)) {
 		return `SELECT FROM (${inner}) AS "r"`
 	}
-	const names = Arr.map(indices(columns), (i) => quoteIdent(`c${i + 1}`))
-	const targets = Arr.map(names, (n) => `pg_catalog.format('%L', "r".${n}) AS ${n}`)
+	const names = Arr.map(columns, (_, i) => quoteIdent(`c${i + 1}`))
+	const targets = Arr.map(columns, (casts, i) => {
+		const n = quoteIdent(`c${i + 1}`)
+		const cast = Arr.join(
+			Arr.map(casts, (c) => `::pg_catalog.${c}`),
+			""
+		)
+		return `pg_catalog.format('%L', ("r".${n})${cast}) AS ${n}`
+	})
 	return `SELECT ${Arr.join(targets, ", ")} FROM (${inner}) AS "r"(${Arr.join(names, ", ")})`
 }
 
@@ -102,23 +118,35 @@ export const unquoteLiteral = (quoted: string): string | undefined => {
 }
 
 /**
- * The output-function texts of every row `sql` returns, in the order the server sent them. The query's own column count
- * is always read, because a column alias list shorter than the derived table's columns is legal in PostgreSQL and would
- * silently drop the extra trailing columns: a query of another count than the caller expects, typically a lowering's
- * heading, fails instead of being compared on a prefix.
+ * Result text capture for the oracle: lowerings are compared by the texts the runtime receives.
+ *
+ * PgConnection reads every result column in binary format, so capture asks the server for the text itself: each
+ * output column c of the query becomes format('%L', c) after the casts an executable statement's outermost SELECT
+ * applies to it (ColumnCasts, codec resultTextCasts), so a money cell is its numeric text and every other cell its
+ * type's text, the text a runtime read receives, quoted as a literal, or the bare word NULL for a NULL. The host
+ * unquotes it. A NULL in a result is a failure, never a value: grizzle's output never contains one, so capture reports
+ * it instead of letting it pass as a string. The comparison reads each text to its value (compare.ts canonicalCell).
+ *
+ * The query is wrapped as a derived table, so it must be a single query a FROM clause admits: a SELECT, VALUES or
+ * WITH ... SELECT, never a data-modifying statement. Its parameters pass through unchanged.
+ *
+ * The rows of a query of exactly one output column per entry of `columns`, typically a lowering's heading, in the
+ * order the server sent them. The query's own column count is always read, because a column alias list shorter than
+ * the derived table's columns is legal in PostgreSQL and would silently drop the extra trailing columns: a query of
+ * another count fails instead of being compared on a prefix.
  */
-const capture = (
+export const captureRows = (
 	runner: QueryRunner,
 	sql: string,
 	params: ReadonlyArray<unknown>,
-	expected: number
+	columns: ReadonlyArray<ColumnCasts>
 ): Effect.Effect<ReadonlyArray<RawRow>, SqlError | RawCaptureError> =>
 	Effect.gen(function* () {
 		const described = yield* runner.query(columnsSql(sql), params)
-		const columns = described.fields.length
-		if (expected !== columns) {
+		const width = described.fields.length
+		if (columns.length !== width) {
 			return yield* new RawCaptureError({
-				reason: `expected ${expected} columns, the query has ${columns}`,
+				reason: `expected ${columns.length} columns, the query has ${width}`,
 				at: { kind: "result" }
 			})
 		}
@@ -126,9 +154,9 @@ const capture = (
 		const rows: Array<RawRow> = []
 		for (const [r, record] of result.rows.entries()) {
 			const values = Record.values(record)
-			if (values.length !== columns) {
+			if (values.length !== width) {
 				return yield* new RawCaptureError({
-					reason: `expected ${columns} columns, got ${values.length}`,
+					reason: `expected ${width} columns, got ${values.length}`,
 					at: { kind: "row", row: r }
 				})
 			}
@@ -140,27 +168,3 @@ const capture = (
 		}
 		return rows
 	})
-
-/**
- * Raw text result capture for the oracle: lowerings are compared as raw text multisets.
- *
- * The oracle compares lowerings by the exact text PostgreSQL's output functions write, with no codec in between, so a
- * lost distinction (1.0 vs 1.00, -0, NaN, an enum label, a supplementary-plane character) shows up as different
- * text. PgConnection reads every result column in binary format, so capture asks the server for the text itself:
- * each output column c of the query becomes format('%L', c), which calls the column type's own output function (the
- * text a text-format result would carry) and quotes it as a literal, or writes the bare word NULL for a NULL. The
- * host unquotes it. A NULL in a result is a failure, never a value: grizzle's output never contains one,
- * so capture reports it instead of letting it pass as a string.
- *
- * The query is wrapped as a derived table, so it must be a single query a FROM clause admits: a SELECT, VALUES or
- * WITH ... SELECT, never a data-modifying statement. Its parameters pass through unchanged.
- *
- * The rows of a query of exactly `expected.columns` output columns, typically a lowering's heading.
- */
-export const captureRows = (
-	runner: QueryRunner,
-	sql: string,
-	params: ReadonlyArray<unknown>,
-	expected: { readonly columns: number }
-): Effect.Effect<ReadonlyArray<RawRow>, SqlError | RawCaptureError> =>
-	capture(runner, sql, params, expected.columns)

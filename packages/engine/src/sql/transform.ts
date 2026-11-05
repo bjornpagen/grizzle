@@ -614,6 +614,10 @@ class Transform {
 		return query === t.source.query ? t : { columns: t.columns, source: { ...t.source, query } }
 	}
 
+	/**
+	 * An INSERT rebuilt from its rebuilt parts, its target spread first: an unchanged target is the insert itself, whose
+	 * own WITH, table and conflict clause the rebuilt ones then replace.
+	 */
 	insert(i: Insert): Insert {
 		const w = i.with === undefined ? undefined : this.with(i.with)
 		const table = this.table(i.table)
@@ -630,12 +634,12 @@ class Transform {
 			return i
 		}
 		return {
+			...target,
 			kind: "insert",
 			with: w,
 			table,
 			alias: i.alias,
 			overriding: i.overriding,
-			...target,
 			onConflict,
 			returning
 		}

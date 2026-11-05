@@ -4,7 +4,7 @@ import { captureLoc } from "#compiler/core/loc.ts"
 import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import type { GuardDesc } from "#compiler/ir/desc.ts"
-import type { OpenExpr } from "#compiler/ir/open.ts"
+import type { OpenExpr, OpenHead } from "#compiler/ir/open.ts"
 import { scalarTypeShape } from "#compiler/ir/scalar-shape.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { conformWith } from "#compiler/ir/shape.ts"
@@ -81,7 +81,8 @@ export interface ScalarTerm<out T = unknown, out S extends SqlTag = SqlTag>
  * What a builder recorded for a value it made: a typed term, with its type and carrier; a carried term, whose carrier
  * is known but whose type the checker reads from the term it meets (a JavaScript value in a head, or a variable over a
  * union field whose arms disagree on its type); a field of a query rebuilt from its Description alone, which has
- * neither type nor carrier; or a predicate.
+ * neither type nor carrier; a predicate; or a head-only value, an aggregate or a producer, which stands only in a
+ * find head and is no term: its Description and what the builder knows of its result's type.
  */
 type Registered =
 	| {
@@ -99,6 +100,7 @@ type Registered =
 			readonly guard: GuardDesc
 			readonly subject: object
 	  }
+	| { readonly kind: "head"; readonly desc: OpenHead; readonly typing: Typing }
 
 /**
  * The terms and predicates the builders made, by identity. A WeakMap holds nothing alive and is never enumerated, so
@@ -134,6 +136,37 @@ export const registerCarried = <V extends Built & TermCarrier>(value: V, expr: O
 export const registerUntyped = <V extends Built>(value: V, expr: OpenExpr): V => {
 	registered.set(value, { kind: "untyped", expr })
 	return value
+}
+
+/**
+ * Registers `value`, a frozen head-only value a builder made, an aggregate or a producer, with its Description and
+ * what the builder knows of its result's type, and returns it.
+ */
+export const registerHead = <V extends Built>(value: V, desc: OpenHead, typing: Typing): V => {
+	registered.set(value, { kind: "head", desc, typing })
+	return value
+}
+
+/** The Description and result typing of a head-only value, or undefined when `value` is none. */
+export const headOf = (
+	value: unknown
+): { readonly desc: OpenHead; readonly typing: Typing } | undefined => {
+	const entry = registeredOf(value)
+	return entry?.kind === "head" ? { desc: entry.desc, typing: entry.typing } : undefined
+}
+
+/**
+ * Why a head-only value stands nowhere a term does, the refusal `wanted` names: an aggregate or a producer is a find
+ * head's own column, never an operand. A computation over its result reads it from an interior stage that finds it.
+ */
+export const headOnlyOperand = (wanted: string, head: OpenHead): string => {
+	const named =
+		head.kind === "aggregate"
+			? `r.${head.fn}(...) is an aggregate`
+			: head.kind === "producer"
+				? `r.${head.fn}(...) is a producer`
+				: "a head term"
+	return `${wanted}: ${named}, which stands only as a column of a find head; to compute with its result, find it in an interior stage (r.interior) and compute over the variable that matches that column`
 }
 
 /** Registers `value`, a frozen predicate a builder made over `expr`, and returns it. */
@@ -186,7 +219,10 @@ const registeredOf = (value: unknown): Registered | undefined => {
 /** The expression of a scalar term, or undefined when the value is not one. */
 export const termExpr = (value: unknown): OpenExpr | undefined => {
 	const entry = registeredOf(value)
-	return entry === undefined || entry.kind === "predicate" || entry.kind === "guard"
+	return entry === undefined ||
+		entry.kind === "predicate" ||
+		entry.kind === "guard" ||
+		entry.kind === "head"
 		? undefined
 		: entry.expr
 }
@@ -214,7 +250,12 @@ export interface TermOf {
  */
 export const termOf = (value: unknown): TermOf | undefined => {
 	const entry = registeredOf(value)
-	if (entry === undefined || entry.kind === "predicate" || entry.kind === "guard") {
+	if (
+		entry === undefined ||
+		entry.kind === "predicate" ||
+		entry.kind === "guard" ||
+		entry.kind === "head"
+	) {
 		return undefined
 	}
 	return { expr: entry.expr, typing: entry.kind === "typed" ? typed(entry.scalarType) : untyped }

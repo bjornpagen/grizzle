@@ -46,7 +46,7 @@ const guardedSql = (): string => {
 				0n
 			).expr
 		),
-		{ x: { kind: "literal", type: testPg.bigint.scalar, value: dividend } },
+		{ x: { kind: "literal", field: testPg.bigint, value: dividend } },
 		false,
 		baseParams
 	)

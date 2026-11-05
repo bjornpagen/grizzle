@@ -61,7 +61,6 @@ interface PgPin {
 	readonly commit: string
 	readonly version: string
 	readonly pgvector: string
-	readonly llvmFormula: string
 }
 
 export interface ServerIdentity {
@@ -116,8 +115,7 @@ const pinConfig = Config.all({
 	tag: pinValue("PG_PIN_TAG"),
 	commit: pinValue("PG_PIN_COMMIT"),
 	version: pinValue("PG_PIN_VERSION"),
-	pgvector: pinValue("PGVECTOR_PIN_VERSION"),
-	llvmFormula: pinValue("PG_LLVM_FORMULA")
+	pgvector: pinValue("PGVECTOR_PIN_VERSION")
 })
 
 /**

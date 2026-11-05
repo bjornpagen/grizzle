@@ -1,5 +1,6 @@
 import { exact, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Data, Formatter, Option, Order, Record as Rec, String as Str } from "effect"
+import { exactParts, infinityParts, nanParts } from "#compiler/core/decimal.ts"
 import { CompileError, type CompileReason, prose, type ProseTag } from "#compiler/core/errors.ts"
 
 import {
@@ -41,6 +42,7 @@ import {
 	not,
 	numericType,
 	objectName,
+	or,
 	qualifiedCall,
 	tableCol,
 	types
@@ -162,6 +164,19 @@ const vectorNorm = (vectorSchema: string, column: string): Expr => ({
 	high: lit.float(2 ** 16, types.double),
 	not: false
 })
+
+/**
+ * The documented numeric bound over a bare numeric column: at most 1,000 integer digits, its magnitude below 10^1000,
+ * or NaN, or an infinity.
+ */
+const numericBound = (column: string): Expr => {
+	const c = tableCol(column)
+	return or([
+		binary("<", call("abs", [c]), lit.decimal(exactParts(10n ** 1000n, 0), types.numeric)),
+		eq(c, lit.decimal(nanParts, types.numeric)),
+		eq(call("abs", [c]), lit.decimal(infinityParts, types.numeric))
+	])
+}
 
 /** What a field descriptor stores under its contracts: the descriptor the column's storage CHECKs follow. */
 const storedDesc = (field: FieldDesc): FieldDesc =>
@@ -578,8 +593,9 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			)
 			const { type, serial } = resolve(fieldDesc, fieldLocation)
 			/**
-			 * The column's storage CHECKs, in the real installer's order: a span's shape and its width; a vector's norm. A
-			 * span endpoint's contract predicate is a predicate CHECK, which the minimal installer leaves out (see the header).
+			 * The column's storage CHECKs, in the real installer's order: a span's shape and its width; a vector's norm; a
+			 * bare numeric's bound. A span endpoint's contract predicate is a predicate CHECK, which the minimal installer
+			 * leaves out (see the header).
 			 */
 			const stored = storedDesc(fieldDesc)
 			if (stored.kind === "span") {
@@ -602,6 +618,9 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					vectorNorm(vectorSchema, column),
 					fieldLocation
 				)
+			}
+			if (stored.kind === "numeric" && !("precision" in stored)) {
+				check(door.numericBound(r.name, field).identifier, numericBound(column), fieldLocation)
 			}
 			if (!serial) {
 				columns.push({ field, column, type, sequence: { kind: "none" }, location: fieldLocation })
@@ -1026,7 +1045,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
  *   UNIQUE;
  * - an enum per closed relation, in roster order, typing every closedId column;
  * - a domain per contract, with no constraint;
- * - the fixed-form CHECKs of every span and vector column, under the names the real installer gives them (below);
+ * - the fixed-form CHECKs of every span, vector and bare numeric column, under the names the real installer gives them
+ *   (below);
  * - an immediate NO ACTION foreign key for each containment whose target fields are a key of a stored relation;
  * - no role: the worlds are the real installer's, held to their worlds behaviourally (test/pg/worlds), and the
  *   oracle reads and loads as the owner.
@@ -1054,14 +1074,15 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
  * every other class in test/pg/physical/checks.test.ts). A plan only restricts which facts may be stored by those
  * CHECKs, and the oracle loads only facts its generators drew inside them.
  *
- * The span and vector CHECKs are the oracle's own statement of the documented storage rules, never read from src, so a
- * catalog comparison checks the real installer's against them independently:
+ * The span, vector and numeric CHECKs are the oracle's own statement of the documented storage rules, never read from
+ * src, so a catalog comparison checks the real installer's against them independently:
  *
  * - a span is nonempty, bounded on both sides, lower bound inclusive and upper bound exclusive (its shape CHECK), and a
  *   span of a fixed width spans exactly that many endpoint steps, the endpoints compared as numeric so no width at an
  *   endpoint type's limits overflows (its width CHECK);
  * - a vector lies in the nondegenerate cosine domain: its norm, accumulated by pgvector's vector_norm in double
- *   precision, lies between 2^-16 and 2^16, both exact binary values.
+ *   precision, lies between 2^-16 and 2^16, both exact binary values;
+ * - a bare numeric, a contract over one included, has at most 1,000 integer digits, or is NaN or an infinity.
  *
  * A span endpoint typed by a contract with a predicate also carries that predicate over each endpoint, a predicate CHECK
  * like the contract domain's own, which the minimal installer leaves out (see above).

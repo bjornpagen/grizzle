@@ -7,7 +7,7 @@ import {
 	normalRows,
 	positionalColumns,
 	type RelationSpec,
-	relationNormalizer
+	parameterNormalizer
 } from "#compiler/codec/recordset.ts"
 import { paramEncoder } from "#compiler/codec/scalar.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
@@ -74,9 +74,9 @@ const specOver = (decl: RelationParamDecl, columns: SlotColumns): RelationSpec =
 	columns: positionalColumns(columns)
 })
 
-/** The normalizer of a relation input over `columns`. */
+/** The normalizer of a relation input over `columns`: a relation parameter's, which refuses a value outside its refinements. */
 const normalizerOver = (decl: RelationParamDecl, columns: SlotColumns) =>
-	relationNormalizer(specOver(decl, columns))
+	parameterNormalizer(specOver(decl, columns))
 
 /** The rows of a relation input's normal facts over `columns`, as normalizerOver's heading writes them. */
 const rowsOver = (decl: RelationParamDecl, columns: SlotColumns) =>

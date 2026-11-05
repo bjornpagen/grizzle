@@ -1,5 +1,5 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Equivalence, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Equivalence, Option, pipe, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { describeOp } from "#compiler/ir/expr.ts"
 import {
@@ -30,6 +30,18 @@ const sameCarriers = Arr.makeEquivalence(Equivalence.strictEqual<string>())
 const sameOperands = (a: Operands, b: Operands): boolean =>
 	a.kind === b.kind && sameCarriers(operandCarriers(a), operandCarriers(b))
 
+/** The namespaces of the exact carriers' own overloads, whose OpIds prefix the numeric code that implements them. */
+const exactNamespaces: ReadonlyArray<string> = ["exact:", "exactMoney:"]
+
+/** The operator's code an entry's OpId lists: the id itself, or, for an exact carrier's overload, the code it prefixes. */
+const listedCode = (id: NativeOp["id"]): string => {
+	const text = typeof id === "string" ? id : id.code
+	return Option.match(
+		Arr.findFirst(exactNamespaces, (n) => Str.startsWith(n)(text)),
+		{ onNone: () => text, onSome: (n) => Str.slice(n.length)(text) }
+	)
+}
+
 /** What pg_operator says against an operator entry. */
 const operatorProblems = (
 	db: RawSession,
@@ -57,7 +69,7 @@ const operatorProblems = (
 			]
 		}
 		const code = pipe(textCell(row, 0), Str.replace(`${vectorSchema}.`, ""))
-		const listed = typeof op.id === "string" ? op.id : op.id.code
+		const listed = listedCode(op.id)
 		return [
 			...(code === listed ? [] : [`${describeOp(op.id)}: implemented by ${code}, not ${listed}`]),
 			...(textCell(row, 1) === c.result

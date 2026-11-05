@@ -523,7 +523,7 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
- * - a cast: "cast:<source>-><target>" over PostgreSQL type names, listed by its carriers in castOverloads.
+ * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
  *
  * What the registry admits is the catalogue, not the catalog: same-type operands only, because Compute's operations
  * take two terms of one type; no bit, string or array function; no money * money,
@@ -936,7 +936,11 @@ type CastOpOf<S extends ResultCarrier, T extends ResultCarrier> = CastOp & {
 	readonly result: T
 }
 
-/** The cast from `source` to `target`, under its OpId "cast:<source>-><target>" over their PostgreSQL type names. */
+/**
+ * The cast from `source` to `target`, under its OpId "cast:<source>-><target>" over their carriers: an exact carrier
+ * and numeric share PostgreSQL's type name, and their casts differ in what they need (numeric into numeric is a
+ * typmod's narrowing, an exact integer into numeric total), so only the carriers name one cast.
+ */
 const castOp = <S extends ResultCarrier, T extends ResultCarrier>(
 	source: S,
 	target: T,
@@ -945,7 +949,7 @@ const castOp = <S extends ResultCarrier, T extends ResultCarrier>(
 	host: HostCast
 ): CastOpOf<S, T> => {
 	const op: CastOpOf<S, T> = {
-		...identified(opId(`cast:${catalogTypeName[source]}->${catalogTypeName[target]}`), totality),
+		...identified(opId(`cast:${source}->${target}`), totality),
 		fn: "cast",
 		operands: positional([source] as const),
 		result: target,
@@ -993,8 +997,8 @@ const fromMoney = <S extends "money" | "exactMoney", T extends "numeric" | "mone
 ): CastOpOf<S, T> => castOp(source, target, totality, volatility, moneyCast(target))
 
 /**
- * Each cast by its source and target carriers, which its OpId "cast:<source>-><target>" spells by their PostgreSQL
- * type names, so two casts under one identity are a compile error. Casts among the numeric family, money and the
+ * Each cast by its source and target carriers, which its OpId "cast:<source>-><target>" spells, so no two casts share
+ * an identity. Casts among the numeric family, money and the
  * exact carriers, each with its Totality: a widening is total; integer narrowing, an exact integer or exact amount
  * into a storage carrier, numeric and float to an integer or money, and a numeric typmod coercion are defined where
  * the value fits (numeric and floats also finite); a conversion into a float rounds once as IEEE 754 does (`ieee`
@@ -1084,6 +1088,30 @@ const listedOp = (id: OpId, overload: Overload): NativeOp =>
  * contract's base, a numeric typmod, a text refinement, a span width: types.ts wideningOf): defined everywhere.
  */
 export const binaryCoercion: DefinedOp = definedOp(opId("coercion"))
+
+/**
+ * Where an overload an expression names is defined: everywhere, the binary coercion, every range-polymorphic operator
+ * the IR holds (definedRangeOp) and a listed overload or cast whose Totality is total, exact or ieee; partially, a listed
+ * one whose Totality requires preconditions, each of which its node's proof proves (ir/proof.ts OperationProof); or
+ * unknown, an identity the registry does not hold.
+ */
+export const definedness = (
+	op: OpId
+):
+	| { readonly kind: "everywhere" }
+	| { readonly kind: "partial"; readonly preconditions: NonEmptyReadonlyArray<Precondition> }
+	| { readonly kind: "unknown" } => {
+	if (op === binaryCoercion) {
+		return { kind: "everywhere" }
+	}
+	const native = nativeOp(op)
+	if (native !== undefined) {
+		return native.totality.kind === "requires"
+			? { kind: "partial", preconditions: native.totality.preconditions }
+			: { kind: "everywhere" }
+	}
+	return typeof op === "string" ? { kind: "unknown" } : { kind: "everywhere" }
+}
 
 /** An overload's identity where it is defined everywhere, for a caller that builds an expression with no proof. */
 export const definedIdOf = (op: NativeOp): DefinedOp | undefined => (op.partial ? undefined : op.id)

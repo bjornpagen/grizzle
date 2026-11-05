@@ -1,8 +1,10 @@
 import { boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Formatter, Option } from "effect"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { makeIdSupply } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { DagBuilder } from "#compiler/ir/builder.ts"
 import type {
 	CompareOp,
 	ComputeFn,
@@ -25,6 +27,7 @@ import { firstOperand, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import {
 	exactType,
 	meets as engineMeets,
+	meetingType,
 	type PlainCarrier,
 	plainType
 } from "#compiler/scalar/compute/types.ts"
@@ -79,7 +82,13 @@ export type TermSketch =
 			readonly left: TermSketch
 			readonly right: TermSketch
 	  }
-	| { readonly tag: "cast"; readonly target: number; readonly arg: TermSketch }
+	| {
+			readonly tag: "cast"
+			readonly target: number
+			/** The guard's bound at a float narrowing's edge (floatEdges), where its target is one. */
+			readonly guard: number
+			readonly arg: TermSketch
+	  }
 	| {
 			readonly tag: "cond"
 			readonly pred: CompareSketch
@@ -146,6 +155,7 @@ export const termSketchGen = (depth: number): Gen<TermSketch> => {
 			(source) => ({
 				tag: "cast",
 				target: source.draw(int(0, 31)),
+				guard: source.draw(int(0, 3)),
 				arg: source.draw(sub)
 			})
 		],
@@ -179,6 +189,7 @@ export const castChainSketchGen: Gen<TermSketch> = weighted<TermSketch>([
 		(source) => ({
 			tag: "cast",
 			target: source.draw(int(0, 31)),
+			guard: source.draw(int(0, 3)),
 			arg: source.draw(leafGen)
 		})
 	],
@@ -187,9 +198,11 @@ export const castChainSketchGen: Gen<TermSketch> = weighted<TermSketch>([
 		(source) => ({
 			tag: "cast",
 			target: source.draw(int(0, 31)),
+			guard: source.draw(int(0, 3)),
 			arg: {
 				tag: "cast",
 				target: source.draw(int(0, 31)),
+				guard: source.draw(int(0, 3)),
 				arg: source.draw(leafGen)
 			}
 		})
@@ -267,8 +280,30 @@ const numericTargets: ReadonlyArray<FieldDesc> = [
 	{ kind: "numeric", precision: 5, scale: 2 },
 	{ kind: "numeric", precision: 1, scale: 0 },
 	{ kind: "numeric", precision: 38, scale: 10 },
-	{ kind: "numeric", precision: 3, scale: 1 }
+	{ kind: "numeric", precision: 3, scale: 1 },
+	{ kind: "numeric", precision: 7, scale: 0 },
+	{ kind: "numeric", precision: 16, scale: 0 }
 ]
+
+/**
+ * The float narrowings at their target's edge: per float carrier, a numeric typmod of more integer digits than the
+ * float keeps cast to numeric (cast.ts floatNumericDigits: real 6, double precision 15), and the guard bounds a cast
+ * into it draws: 9, and three at the edge of float4_numeric's or float8_numeric's rounding, the widest bound whose
+ * every value rounds inside the range (9999994::real::numeric is 9999990), the least past it, which rounds out of it
+ * (9999995::real::numeric is 10000000, half to even), and the range's own last value but one. The generator keeps a
+ * bound only where the checker proves the narrowing under it (provesNarrowing), and the facts hold the edge bounds as
+ * values (domain.ts), so PostgreSQL evaluates every narrowing the checker proves at the edge: a bound proved past the
+ * edge overflows there (22003), and the oracle reports it.
+ */
+const floatEdges: {
+	readonly [C in "float4" | "float8"]: {
+		readonly precision: number
+		readonly bounds: Arr.NonEmptyReadonlyArray<number>
+	}
+} = {
+	float4: { precision: 7, bounds: [9, 9999994, 9999995, 9999998] },
+	float8: { precision: 16, bounds: [9, 9999999999999994, 9999999999999996, 9999999999999998] }
+}
 
 const isPlain = (c: Carrier): c is PlainCarrier =>
 	c === "int2" ||
@@ -295,7 +330,10 @@ const fieldTypeOf = (desc: FieldDesc): ScalarType | undefined => {
 /** The operations that divide, each defined where its divisor is nonzero, a float's division excepted (IEEE 754). */
 const divisions: ReadonlySet<ComputeFn> = new Set<ComputeFn>(["div", "mod", "quot", "rem"])
 
-/** The operations over an integer or money that compute exactly, delivering an exact integer or exact money. */
+/**
+ * The operations over an integer or money that compute exactly, delivering an exact integer or exact money; mod keeps
+ * its operands' type, since a remainder is smaller than its divisor.
+ */
 const exactFns: ReadonlySet<ComputeFn> = new Set<ComputeFn>([
 	"add",
 	"sub",
@@ -303,7 +341,6 @@ const exactFns: ReadonlySet<ComputeFn> = new Set<ComputeFn>([
 	"neg",
 	"abs",
 	"div",
-	"mod",
 	"gcd",
 	"lcm"
 ])
@@ -538,12 +575,13 @@ const resolveTerm = (
 			if (literalShy.has(fn) && right.desc.kind === "literal") {
 				return left
 			}
+			const operand = meetingType(left.type, right.type)
 			const type =
 				fn === "least" || fn === "greatest"
-					? left.type
+					? operand
 					: fn === "cosineDistance"
 						? plainType("float8")
-						: resultOf(fn, carrier, left.type)
+						: resultOf(fn, baseOf(operand).carrier, operand)
 			if (!divisions.has(fn) || floatCarriers.has(carrier)) {
 				return { desc: { kind: "compute", fn, args: [left.desc, right.desc] }, type, free: false }
 			}
@@ -600,10 +638,11 @@ const resolveTerm = (
 			if (!guardable.has(source) || !guardable.has(baseOf(type).carrier)) {
 				return { desc: cast, type, free: false }
 			}
+			const bound = guardBound(source, to, s.guard)
 			return {
 				desc: {
 					kind: "when",
-					guard: withinGuard(source, -9, 9),
+					guard: withinGuard(source, -bound, bound),
 					subject: arg.desc,
 					proved: cast,
 					otherwise: literalOf(baseOf(type).carrier, 0)
@@ -710,6 +749,62 @@ const lowerEnv = (heading: Heading, hooks: LowerHooks): LowerEnv => ({
 	extension: noExtension
 })
 
+/** A column of the probed float alone, for provesNarrowing: no relation holds it, and no parameter is named. */
+const probeHooks = (): LowerHooks => {
+	const ids = makeIdSupply()
+	const b = new DagBuilder(ids)
+	const node = ids.node()
+	return {
+		emit: (spec) => b.expr(spec),
+		column: (c) => ({
+			kind: "column",
+			column: { node, name: c.name },
+			args: [],
+			type: c.type,
+			nonNull: "storage"
+		}),
+		param: (name) => {
+			throw new Error(`a narrowing probe names no parameter, ${name}`)
+		}
+	}
+}
+
+/**
+ * Whether the checker proves the narrowing of a `source` value into `to` under within(-bound, bound), over a column of
+ * the float alone. A subject's bounds lie inside its type's, so a narrowing proved here is proved over any subject.
+ */
+const provesNarrowing = (source: "float4" | "float8", to: FieldDesc, bound: number): boolean => {
+	const x: HeadingColumn = { name: "x", type: plainType(source) }
+	const desc: ExprDesc = {
+		kind: "when",
+		guard: withinGuard(source, -bound, bound),
+		subject: { kind: "var", var: x.name },
+		proved: { kind: "cast", to, arg: { kind: "var", var: x.name } },
+		otherwise: literalOf("numeric", 0)
+	}
+	return lowerTerm(desc, lowerEnv([x], probeHooks())).ok
+}
+
+/**
+ * The bound of a cast's within guard: 9, inside every target's range; or for a float narrowing into its edge target,
+ * the drawn edge bound where the checker proves the narrowing under it, and 9 where it does not.
+ */
+const guardBound = (source: Carrier, to: FieldDesc, pick: number): number => {
+	if (
+		(source !== "float4" && source !== "float8") ||
+		to.kind !== "numeric" ||
+		!("precision" in to)
+	) {
+		return 9
+	}
+	const edge = floatEdges[source]
+	if (to.precision !== edge.precision || to.scale !== 0) {
+		return 9
+	}
+	const bound = at(edge.bounds, pick)
+	return provesNarrowing(source, to, bound) ? bound : 9
+}
+
 export interface LoweredTerm {
 	readonly expr: ScalarExpr
 	readonly type: ScalarType
@@ -756,6 +851,33 @@ export const buildTerm = (
 	if (!lowered.ok) {
 		throw new Error(
 			`a generated term the checker refuses: ${lowered.error.message}\n${Formatter.format(plainOutput(resolved))}\n${Formatter.format(Arr.map(scope.heading, (h) => [h.name, h.type.carrier, rosterOf(h.type)?.closed]))}`
+		)
+	}
+	return {
+		expr: lowered.value.expr,
+		type: lowered.value.actual,
+		stable: lowered.value.volatility === "stable"
+	}
+}
+
+/**
+ * A column of an exact type narrowed into the carrier a program stores it at (plainOutput), lowered over `scope`'s
+ * heading: how a generated aggregate's exact money sum becomes a money column the generators draw.
+ */
+export const storedColumn = (
+	scope: TermScope,
+	hooks: LowerHooks,
+	column: HeadingColumn
+): LoweredTerm => {
+	const desc = plainOutput({
+		desc: { kind: "var", var: column.name },
+		type: column.type,
+		free: false
+	})
+	const lowered = lowerTerm(desc, lowerEnv(scope.heading, hooks))
+	if (!lowered.ok) {
+		throw new Error(
+			`a stored column the checker refuses: ${lowered.error.message}\n${Formatter.format(desc)}`
 		)
 	}
 	return {

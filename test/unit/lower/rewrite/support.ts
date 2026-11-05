@@ -167,8 +167,32 @@ export const sameDelivery = (
 export type RewriteAgreement = "agree" | "unsupported"
 
 /**
+ * What the reference delivers for `root` of `dag` from `input`, or "unsupported" where it cannot evaluate it: a form outside its
+ * fragment, or a predicate over a value it declines (a cosine distance), wherever in the query the evaluation meets
+ * it.
+ */
+const referenceDelivery = (
+	dag: RelDag,
+	root: RelNode,
+	input: ReferenceInput
+): ReadonlyArray<ExpectedStatement> | "unsupported" => {
+	const evaluated = Result.try({
+		try: (): ReadonlyArray<ExpectedStatement> => delivery(dag, root, input),
+		catch: (thrown): unknown => thrown
+	})
+	if (Result.isSuccess(evaluated)) {
+		return evaluated.success
+	}
+	if (evaluated.failure instanceof ReferenceUnsupported) {
+		return "unsupported"
+	}
+	throw evaluated.failure
+}
+
+/**
  * Whether the rewritten query delivers what the original delivers, by the reference; "unsupported" when the
- * reference cannot evaluate the original (a form outside its fragment).
+ * reference cannot evaluate either (referenceDelivery): a rewrite may move a predicate onto rows the original never
+ * evaluated it on, so the reference can state the original and not the rewritten.
  */
 export const agrees = (c: QueryCase, rewritten: LogicalQuery): RewriteAgreement => {
 	const input: ReferenceInput = {
@@ -177,18 +201,11 @@ export const agrees = (c: QueryCase, rewritten: LogicalQuery): RewriteAgreement 
 		params: c.query.params,
 		observer: unobserved
 	}
-	const evaluated = Result.try({
-		try: (): ReadonlyArray<ExpectedStatement> => delivery(c.query.dag, c.query.dag.roots[0], input),
-		catch: (thrown): unknown => thrown
-	})
-	if (Result.isFailure(evaluated)) {
-		if (evaluated.failure instanceof ReferenceUnsupported) {
-			return "unsupported"
-		}
-		throw evaluated.failure
+	const expected = referenceDelivery(c.query.dag, c.query.dag.roots[0], input)
+	const rewrittenDelivery = referenceDelivery(rewritten.dag, rewritten.dag.roots[0], input)
+	if (expected === "unsupported" || rewrittenDelivery === "unsupported") {
+		return "unsupported"
 	}
-	const expected = evaluated.success
-	const rewrittenDelivery = delivery(rewritten.dag, rewritten.dag.roots[0], input)
 	const difference = deliveryEquivalence(expected, rewrittenDelivery)
 	if (Option.isSome(difference)) {
 		throw new Error(

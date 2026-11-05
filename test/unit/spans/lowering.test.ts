@@ -161,7 +161,7 @@ describe("span parameters and windows", () => {
 	)
 
 	it.effect(
-		"binds a window or an equated value opposite a fixed-width span as any span over its endpoint",
+		"binds a window or an equated value of a fixed-width span at its declared width, and refuses another width at bind",
 		(ctx) => {
 			const window = compiled(
 				query(Shifts).rule((r) => {
@@ -214,11 +214,15 @@ describe("span parameters and windows", () => {
 					({ start, width }, c) =>
 						Effect.sync(() => {
 							c.note(width === 15 ? "the column's width" : "another width")
-							for (const encode of [...encoders(window), ...encoders(equated)]) {
-								assert.deepEqual(
-									encode({ start, end: start + width }),
-									Result.ok(`[${start},${start + width})`)
-								)
+							/** Each statement's encoder of the parameter, of its declared type: the column's fixed-width span. */
+							const declared = [...encoders(window), ...encoders(equated)]
+							for (const encode of declared) {
+								const encoded = encode({ start, end: start + width })
+								if (width === 15) {
+									assert.deepEqual(encoded, Result.ok(`[${start},${start + width})`))
+								} else {
+									refused(encoded, "spanWidth")
+								}
 							}
 						})
 				)

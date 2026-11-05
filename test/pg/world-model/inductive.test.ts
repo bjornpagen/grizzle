@@ -40,7 +40,8 @@ import { type Weights, weightsGen } from "#test/support/worlds/generate/weights.
 import { malformedTexts } from "#test/support/worlds/invalid/claims.ts"
 import {
 	docsEditorInstall,
-	docsOneShareEditorInstall
+	docsOneShareEditorInstall,
+	docsVisitsInstall
 } from "#test/support/worlds/model/bases/docs.ts"
 import { roleContexts, rolesOfLogin, samePlain } from "#test/support/worlds/model/session/state.ts"
 import type {
@@ -61,8 +62,8 @@ import type {
 
 /**
  * The worlds invariants, checked inductively: rather than reaching states by walks of actions, a case draws a state
- * directly (an installation, the documents base's README-shaped ones two times in three and one with an editor beside
- * half the time (installsGen), a lawful reality the owner loads,
+ * directly (an installation, the documents base's own, one with an editor beside or one writing Visit through its
+ * serial shapes (installsGen), a lawful reality the owner loads,
  * half the time with a document at its capacity, Db sessions of any roles of any logins with any claims their tokens
  * carry, those Dbs' reads spread over the logins' pooled connections, a pool of one connection per login half the
  * time, so its Dbs of every role share it, and then a direct writer with any current role of its login and any claims,
@@ -355,14 +356,17 @@ const planGen =
 	})
 
 /**
- * The installations a case draws: the documents base's (docsInstalls) two times in three, and otherwise one of its
- * worlds with an editor beside (docsEditorInstall, docsOneShareEditorInstall), whose every fact outside an entry it
- * writes lies outside its world one way only: visible through a relation it holds whole, or hidden. A Db or a direct
- * writer of the editor's meets each way under no claims, which a generated installation's roles rarely offer.
+ * The installations a case draws: the documents base's (docsInstalls) one time in two; one of its worlds with an editor
+ * beside (docsEditorInstall, docsOneShareEditorInstall) one time in four, whose every fact outside an entry it writes
+ * lies outside its world one way only: visible through a relation it holds whole, or hidden, which a Db or a direct
+ * writer of the editor's meets each way under no claims, and a generated installation's roles rarely offer; and
+ * otherwise its worlds with Visit written through a unit entry and through one filtering on a serial field
+ * (docsVisitsInstall), the serial shapes a generated installation's roles rarely offer.
  */
 const installsGen: Gen<InstallSpec> = weighted([
 	[2, docsInstalls],
-	[1, element([docsEditorInstall, docsOneShareEditorInstall])]
+	[1, element([docsEditorInstall, docsOneShareEditorInstall])],
+	[1, constant(docsVisitsInstall)]
 ])
 
 const caseGen: Gen<InductiveCase> = (source) => {

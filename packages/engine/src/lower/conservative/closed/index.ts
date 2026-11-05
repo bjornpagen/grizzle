@@ -1,3 +1,4 @@
+import { exactParts } from "#compiler/core/decimal.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { closedRows } from "#compiler/ir/rel.ts"
@@ -27,7 +28,7 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 		case "money":
 		case "exactInteger":
 		case "exactMoney":
-			return lit.decimal("0", cx.baseTypeRef(base))
+			return lit.decimal(exactParts(0n, 0), cx.baseTypeRef(base))
 		case "float4":
 		case "float8":
 			return lowerLiteral(cx.names, { kind: "float", value: canonicalZero(0) }, base)

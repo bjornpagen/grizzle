@@ -36,7 +36,6 @@ import type { ReadError } from "#adapter/errors/execution.ts"
 import type { QueryResult } from "#adapter/types/db.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import {
 	applyFacts,
@@ -540,9 +539,9 @@ const checkQuote = (
 		)
 	})
 	const actual = Arr.map(rows, (r) =>
-		isRecord(r) && r["amount"] instanceof Decimal
-			? `${String(r["kind"])} ${String(r["tokens"])} ${r["amount"].toString()}`
-			: String(r)
+		isRecord(r) && typeof r["amount"] === "bigint"
+			? `${String(r["kind"])} ${String(r["tokens"])} ${r["amount"]}`
+			: Formatter.format(r)
 	)
 	assert.deepEqual(Arr.sort(actual, Order.String), Arr.sort(expected, Order.String), "quote")
 }

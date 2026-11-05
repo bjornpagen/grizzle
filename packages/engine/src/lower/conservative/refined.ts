@@ -389,6 +389,10 @@ export const castDomain = (
  * 2. Every refined delivered column some definition of which is unproved is cast to its domain in the outermost target
  *    list, and an ORDER BY item that is the cast column is cast alike, which SELECT DISTINCT needs of an ORDER BY
  *    expression. A refined output whose domain the installation does not name cannot be validated and is refused.
+ *
+ * A residual law's violation probe (deploy/diff) delivers to no host: its rows are stored values, which already satisfy
+ * their refinements, and the migration reads only whether one exists. It claims nothing of its outputs, so step 2
+ * casts none of them, a contract's base pattern no domain names among them.
  */
 export const refineConservative = (
 	cx: LowerContext,
@@ -408,7 +412,11 @@ export const refineConservative = (
 		retyped.set(slot.number, cx.params.retype(slot, base))
 	}
 	const relabeled = retypePlaceholders(query, retyped)
-	if (unit || !delivered.some((c) => isRefined(c.type))) {
+	if (
+		unit ||
+		cx.options.subject.kind === "violationProbe" ||
+		!delivered.some((c) => isRefined(c.type))
+	) {
 		return relabeled
 	}
 	const tracer = new Tracer(storedColumns(cx))

@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { type Case, drawn } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -40,7 +40,12 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { nodesByLabel, relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
-import type { CompletedOrder, Heading, OrderKey } from "#compiler/ir/rel.ts"
+import {
+	type CompletedOrder,
+	conservativeMeta,
+	type Heading,
+	type OrderKey
+} from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
@@ -67,14 +72,18 @@ import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { strictRead } from "#test/support/kernel/strict.ts"
 import { mergeComparator } from "#test/support/merge.ts"
 import { messageOf } from "#test/support/message.ts"
+import { canonicalCell } from "#test/support/oracle/compare.ts"
 import {
 	defaultGenConfig,
 	type GenConfig,
 	type QueryCase,
 	queryCaseGen
 } from "#test/support/oracle/gen/case.ts"
+import { int4 } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
-import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
+import { normalQuery } from "#test/support/oracle/gen/query.ts"
+import { type GenRelation, schemaDesc, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { oraclePlan } from "#test/support/oracle/install/real.ts"
 import {
@@ -88,6 +97,7 @@ import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { statementSql } from "#test/support/sql.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Q } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
  * Why a case pages nothing: a column without an admitted order, a baseline lowering that refuses the query, a
@@ -110,7 +120,7 @@ type PageSize = (typeof pageSizes)[number]
 
 /**
  * What a case reached: the node kinds of its query, the shapes of its template, the size of its D, the lookahead row
- * a page drops, a per-execution form, a float -0 among a relation parameter's rows, the page size of each traversal, and
+ * a page drops, a per-execution form, a caller's float -0 among a relation parameter's rows, the page size of each traversal, and
  * its skip.
  */
 type PageFeature =
@@ -213,6 +223,11 @@ interface OrderedCase {
 	readonly stated: number
 	/** Each direction's page size. */
 	readonly size: { readonly forward: PageSize; readonly backward: PageSize }
+	/**
+	 * Whether the caller passes every float zero among its relation parameters' rows as -0, a number its host carrier
+	 * admits as the one zero.
+	 */
+	readonly negativeZero: boolean
 }
 
 const pageSizeGen: Gen<PageSize> = element(pageSizes)
@@ -232,14 +247,71 @@ const orderedCaseGen: Gen<OrderedCase> = (source) => ({
 			[3, (inner) => ({ forward: inner.draw(pageSizeGen), backward: inner.draw(pageSizeGen) })],
 			[1, (inner) => ({ forward: 1, backward: inner.draw(pageSizeGen) })]
 		])
-	)
+	),
+	negativeZero: source.draw(boolean)
 })
+
+/** A long case: R0(k, a) keyed by k, `facts` facts, k numbering them and a their residue mod 3, every fact read. */
+const longCase = (facts: number): QueryCase => {
+	const r: GenRelation = {
+		name: "R0",
+		columns: [
+			{ name: "k", type: int4 },
+			{ name: "a", type: int4 }
+		],
+		primaryKey: ["k"],
+		keys: [],
+		mutable: false
+	}
+	const q = new Q()
+	const root = q.region([
+		{
+			source: q.base(
+				{ name: r.name, heading: r.columns, primaryKey: r.primaryKey },
+				conservativeMeta
+			),
+			bind: { k: "k", a: "a" },
+			constants: {}
+		}
+	])
+	const int = (value: number): TypedLiteral => ({ kind: "int", value: BigInt(value) })
+	return {
+		schema: { name: schemaName, relations: [r], closed: [], containments: [] },
+		facts: canonicalFacts({ R0: Arr.map(indices(facts), (i) => [int(i + 1), int(i % 3)]) }),
+		query: { dag: normalQuery(q.b.build(Arr.of(root))), params: {} },
+		spelling: { mode: "drawn", edge: false }
+	}
+}
+
+/** A long traversal: a long case of 200 to 240 facts in key order, paged forward one fact at a time. */
+const longOrderedCaseGen: Gen<OrderedCase> = map(
+	int(longTraversal, longTraversal + 40),
+	(facts): OrderedCase => ({
+		c: longCase(facts),
+		rotate: 0,
+		dirs: Arr.makeBy(8, () => false),
+		stated: 0,
+		size: { forward: 1, backward: 1 },
+		negativeZero: false
+	})
+)
+
+/**
+ * The case a case pages: the drawn one, or, while the case's steering leaves a traversal of 200 pages pending, a long
+ * traversal drawn from the case's own tape, which no drawn population of this size reaches by itself.
+ */
+const aimedCase = (o: OrderedCase, c: Case<PageFeature>): OrderedCase =>
+	Option.exists(c.steering, (pending) =>
+		pending.has("a traversal of at least 200 pages in one direction")
+	)
+		? c.draw(longOrderedCaseGen)
+		: o
 
 const printCase = (o: OrderedCase): string =>
 	`order: rotate ${o.rotate}, stated ${o.stated}, ${Arr.join(
 		Arr.map(o.dirs, (d) => (d ? "desc" : "asc")),
 		" "
-	)}\n${printQueryCase(o.c)}`
+	)}${o.negativeZero ? ", relation parameters' float zeros passed as -0" : ""}\n${printQueryCase(o.c)}`
 
 type Row = ReadonlyArray<string>
 
@@ -336,10 +408,17 @@ const callerInput = (
 	throw new Error(`a generated literal its codec refuses: ${text}`)
 }
 
-/** The case's parameters as a caller passes them: scalars as host values, relation parameters as arrays of facts. */
-const hostParams = (c: QueryCase): Readonly<Record<string, unknown>> =>
+/** Whether a literal is a float zero, which a caller may pass as -0. */
+const isFloatZero = (literal: TypedLiteral): boolean =>
+	literal.kind === "float" && literal.value === 0
+
+/**
+ * The case's parameters as a caller passes them: scalars as host values, relation parameters as arrays of facts, each
+ * float zero among their rows as -0 where the case passes it so.
+ */
+const hostParams = (o: OrderedCase): Readonly<Record<string, unknown>> =>
 	Rec.fromEntries(
-		Arr.map(Rec.toEntries(c.query.params), ([name, p]) => {
+		Arr.map(Rec.toEntries(o.c.query.params), ([name, p]) => {
 			if (p.kind === "scalar") {
 				return [name, callerInput(p.type, p.value).value]
 			}
@@ -347,10 +426,13 @@ const hostParams = (c: QueryCase): Readonly<Record<string, unknown>> =>
 				name,
 				Arr.map(p.rows, (row) =>
 					Rec.fromEntries(
-						Arr.map(p.heading, (h, i) => [
-							h.name,
-							callerInput(h.type, defined(row[i], "parameter column")).value
-						])
+						Arr.map(p.heading, (h, i) => {
+							const literal = defined(row[i], "parameter column")
+							return [
+								h.name,
+								o.negativeZero && isFloatZero(literal) ? -0 : callerInput(h.type, literal).value
+							]
+						})
 					)
 				)
 			]
@@ -389,6 +471,17 @@ const run =
 	(sql: string, values: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<Row>, SqlError> =>
 		Effect.map(session.queryValues(sql, values), textRows)
 
+/**
+ * Rows on `heading` as values: each cell its column type's canonical text (oracle/compare.ts canonicalCell), so two
+ * spellings of one value, which two statements' deduplications may keep differently, read alike.
+ */
+const valueRows = (heading: Heading, rows: ReadonlyArray<Row>): ReadonlyArray<Row> => {
+	const cells = Arr.map(heading, (c) => canonicalCell(c.type))
+	return Arr.map(rows, (row) =>
+		Arr.map(cells, (cell, i) => cell(defined(row[i], `column ${i} of a delivered row`)))
+	)
+}
+
 /** The rows PostgreSQL returns, every column as text. */
 const textRows = (rows: unknown): ReadonlyArray<Row> => trusted<ReadonlyArray<Row>>(rows)
 
@@ -401,7 +494,7 @@ interface Full {
 
 /**
  * D: the conservative lowering's delivery, each heading group sorted on the page order and the groups merged on it,
- * on the template's heading; and every attachment statement's rows over every delivered parent.
+ * on the template's heading, as values (valueRows); and every attachment statement's rows over every delivered parent.
  */
 const fullResult = (
 	session: PgConnection,
@@ -495,7 +588,13 @@ const fullResult = (
 				report: `two delivered rows tie on every column\n${printCase(o)}`
 			})
 		}
-		return { rows: Arr.map(merged, (m) => m.row.row), attachments }
+		return {
+			rows: valueRows(
+				heading,
+				Arr.map(merged, (m) => m.row.row)
+			),
+			attachments
+		}
 	})
 
 /**
@@ -505,7 +604,7 @@ const fullResult = (
 interface Paged {
 	readonly page: Page<unknown, unknown>
 	readonly rows: PageRows
-	/** The delivered rows on the template's heading, in presentation order. */
+	/** The delivered rows on the template's heading, in presentation order, as values (valueRows). */
 	readonly delivered: ReadonlyArray<Row>
 	/** Every attachment statement of the request's program, in statement order. */
 	readonly attached: ReadonlyArray<Attached>
@@ -619,20 +718,23 @@ const pager =
 			/** The page's nodes, which this suite compares by their texts, read as their Rows. */
 			const page = yield* Effect.fromResult(pageOf(runtime, rows, (row) => row))
 			const records = runtime.artifacts[artifact].requests[variant].records
-			const delivered = Arr.map(rows.edges, (e) => {
-				const heading = e.statement.run.statement.heading
-				return Arr.map(runtime.page.heading, (c) =>
-					defined(
-						e.raw[
-							Option.getOrThrowWith(
-								Arr.findFirstIndex(heading, (h) => h.name === c.name),
-								() => new Error("a column the case's own heading holds")
-							)
-						],
-						c.name
+			const delivered = valueRows(
+				runtime.page.heading,
+				Arr.map(rows.edges, (e) => {
+					const heading = e.statement.run.statement.heading
+					return Arr.map(runtime.page.heading, (c) =>
+						defined(
+							e.raw[
+								Option.getOrThrowWith(
+									Arr.findFirstIndex(heading, (h) => h.name === c.name),
+									() => new Error("a column the case's own heading holds")
+								)
+							],
+							c.name
+						)
 					)
-				)
-			})
+				})
+			)
 			const attached: Array<Attached> = []
 			let expected = Option.isSome(rows.probe) ? 1 : 0
 			const parents = new Map(
@@ -915,15 +1017,14 @@ const coverage = (
 }
 
 /**
- * Whether a relation parameter of the case holds a float -0: the caller's host value is one zero, so D must read the
- * codec's text of it, never the literal's spelling.
+ * Whether the caller passes a float -0 in a relation parameter: its host carrier admits it as the one zero, so the
+ * runtime's answer must be D's, which reads the codec's text of that zero.
  */
-const negativeZeroRelation = (c: QueryCase): boolean =>
+const negativeZeroRelation = (o: OrderedCase): boolean =>
+	o.negativeZero &&
 	Arr.some(
-		Rec.values(c.query.params),
-		(p) =>
-			p.kind === "relation" &&
-			Arr.some(p.rows, (row) => Arr.some(row, (l) => l.kind === "float" && Object.is(l.value, -0)))
+		Rec.values(o.c.query.params),
+		(p) => p.kind === "relation" && Arr.some(p.rows, (row) => Arr.some(row, isFloatZero))
 	)
 
 /**
@@ -1096,7 +1197,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 					report: `page runtime template: ${runtime.failure.message}\n${printCase(o)}`
 				})
 			}
-			const params = hostParams(o.c)
+			const params = hostParams(o)
 			yield* Effect.scoped(
 				Effect.gen(function* () {
 					const session = yield* s.admin.pin
@@ -1154,7 +1255,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 						sizes
 					)
 					coverage(query, template, full, c.note)
-					if (negativeZeroRelation(o.c)) {
+					if (negativeZeroRelation(o)) {
 						c.note("float -0 in a relation parameter")
 					}
 				})
@@ -1199,7 +1300,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 									caseHang,
 									perturb: "all"
 								},
-								(o, c) => runCase(o, schema, c, ctx, share)
+								(o, c) => runCase(aimedCase(o, c), schema, c, ctx, share)
 							)
 							assert.ok(
 								share.overBound <= boundSkipShare * share.cases,

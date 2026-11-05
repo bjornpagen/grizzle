@@ -16,7 +16,6 @@ import {
 	String as Str
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { pageTemplate, rowOf, sortedResult, traverse, untyped } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -26,7 +25,8 @@ import {
 	float8,
 	int8,
 	numeric,
-	resolveValue,
+	resolveStored,
+	type SpelledValue,
 	scalarOfSpec,
 	type ValueSketch
 } from "#test/support/oracle/gen/domain.ts"
@@ -133,16 +133,30 @@ const valuesCaseGen: Gen<ValuesCase> = (source) => ({
 	backward: source.draw(int(1, 4))
 })
 
-/** Every class, edges included, so a sketch reaches each. */
-const literalOf = (field: Field, sketch: ValueSketch): TypedLiteral =>
-	resolveValue(fields[field], sketch, true)
+/** Every class, edges included, in every spelling, so a sketch reaches each: a double's -0 is 0's twin spelling. */
+const storedOf = (field: Field, sketch: ValueSketch): SpelledValue =>
+	resolveStored(fields[field], sketch, true)
+
+/** A fact's stored values, each in its drawn spelling. */
+type StoredFact = Readonly<Record<Field, SpelledValue>>
+
+const storedFact = (f: FactSketch): StoredFact => ({
+	x: storedOf("x", f.x),
+	amount: storedOf("amount", f.amount),
+	big: storedOf("big", f.big),
+	label: storedOf("label", f.label)
+})
+
+/** A stored value's text as its column's input function reads it: its canonical text, or its twin spelling. */
+const storedText = (v: SpelledValue): string =>
+	v.spelling.kind === "twin" ? v.spelling.text : inputText(v.literal)
 
 /** A fact's stored texts, as its column's input function reads them. */
-const factTexts = (f: FactSketch): Readonly<Record<Field, string>> => ({
-	x: inputText(literalOf("x", f.x)),
-	amount: inputText(literalOf("amount", f.amount)),
-	big: inputText(literalOf("big", f.big)),
-	label: inputText(literalOf("label", f.label))
+const factTexts = (f: StoredFact): Readonly<Record<Field, string>> => ({
+	x: storedText(f.x),
+	amount: storedText(f.amount),
+	big: storedText(f.big),
+	label: storedText(f.label)
 })
 
 type ValuesFeature =
@@ -161,15 +175,15 @@ type ValuesFeature =
 	| "a tie on the leading key"
 
 /**
- * What a case's stored texts reach.
+ * What a case's stored values reach: each field's stored text, an amount's digits those of its value, whatever zeros
+ * its spelling pads it with.
  *
  * A code point beyond the BMP is two UTF-16 units.
  */
-const reached = (
-	texts: ReadonlyArray<Readonly<Record<Field, string>>>
-): ReadonlyArray<ValuesFeature> => {
+const reached = (stored: ReadonlyArray<StoredFact>): ReadonlyArray<ValuesFeature> => {
 	const out = new Set<ValuesFeature>()
-	for (const f of texts) {
+	for (const v of stored) {
+		const f = { ...factTexts(v), amount: inputText(v.amount.literal) }
 		if (f.x === "-0") {
 			out.add("float -0")
 		}
@@ -256,7 +270,8 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 							(c, notes) =>
 								Effect.gen(function* () {
 									/** The case's facts replace the last case's whole (substrate/replace.ts). */
-									const texts = Arr.map(c.facts, factTexts)
+									const stored = Arr.map(c.facts, storedFact)
+									const texts = Arr.map(stored, factTexts)
 									yield* replaceRows(
 										s.admin,
 										installationGroup(names),
@@ -320,7 +335,7 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 										}
 									}
 									notes.note(`query ${c.query}`)
-									notes.noteAll(reached(texts))
+									notes.noteAll(reached(stored))
 									/** A tie on the leading key, by the column type's own equality. */
 									const leading = defined(runtime.page.comparators[0]).field
 									if (!isCompared(leading)) {

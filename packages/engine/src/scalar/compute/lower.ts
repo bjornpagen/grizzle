@@ -30,7 +30,10 @@ import {
 import type {
 	Exact,
 	Fact,
+	NativeProof,
+	OperandIndex,
 	OperandPremise,
+	OperationProof,
 	Precondition,
 	PreconditionProof
 } from "#compiler/ir/proof.ts"
@@ -58,8 +61,10 @@ import {
 	type FactSet,
 	factPremise,
 	finiteEnds,
+	finitePremise,
 	hullBounds,
 	insideRange,
+	type IntervalPremise,
 	intervalPremise,
 	minus,
 	mulBounds,
@@ -71,13 +76,16 @@ import {
 	ofRange,
 	ofSpecial,
 	pointOf,
+	premiseHas,
 	type Refinement,
 	boundsHave,
 	refine,
+	scaleOfExact,
+	significantRound,
 	subBounds,
 	tenTo
 } from "#compiler/scalar/compute/bounds.ts"
-import type { IntCarrier } from "#compiler/scalar/compute/cast.ts"
+import { floatNumericDigits, type IntCarrier } from "#compiler/scalar/compute/cast.ts"
 import {
 	admitLiteral,
 	literalMember,
@@ -89,6 +97,7 @@ import {
 	type CarriedLiteral,
 	type CarrierValue
 } from "#compiler/scalar/compute/literal.ts"
+import { nativeProof, resultBounds } from "#compiler/scalar/compute/native.ts"
 import {
 	binaryCoercion,
 	type CastOp,
@@ -121,6 +130,7 @@ import {
 } from "#compiler/scalar/compute/types.ts"
 import {
 	Decimal,
+	normalizeNumeric,
 	numericMaxDisplayScale,
 	numericMaxIntegerDigits
 } from "#compiler/scalar/values/decimal.ts"
@@ -423,6 +433,7 @@ const tableNumber = (
 ): Exact | "nan" | "infinity" | "-infinity" | undefined => literalNumber(literalValue(e.value))
 
 const zero: Exact = exactOf(0n, 0)
+const oneExact: Exact = exactOf(1n, 0)
 
 /** The comparisons a contract predicate states of VALUE and a literal. */
 type Comparison = "lt" | "le" | "gt" | "ge" | "eq" | "ne"
@@ -617,6 +628,33 @@ const guardFacts = (
 	}
 }
 
+/**
+ * A fact of an operand its bounds prove where its facts state none: the interval premise of its values when every one
+ * of them has the fact (bounds.ts premiseHas), as the bounds of an integer's sign prove it finite.
+ */
+const boundsPremise = (
+	operand: OperandIndex,
+	fact: Fact,
+	bounds: Bounds | undefined
+): IntervalPremise | undefined => {
+	const p = bounds === undefined ? undefined : intervalPremise(operand, bounds)
+	return p !== undefined && premiseHas(p, fact) ? p : undefined
+}
+
+/**
+ * The values of sign over an operand of `carrier` and bounds `b`: -1, 0 and 1, and NaN where a numeric operand may be
+ * NaN, whose sign is NaN; a float's NaN has sign 0.
+ */
+const signBoundsOver = (
+	carrier: "numeric" | "float8" | "exactInteger",
+	b: Bounds | undefined
+): Bounds => {
+	const signs = ofRange(-1n, 1n, 1)
+	return carrier === "numeric" && (b === undefined || b.nan)
+		? hullBounds(signs, ofSpecial("nan"))
+		: signs
+}
+
 /** The guard a refusal names, for the precondition it lacks. */
 const guardText = (precondition: PreconditionKind, operand: string, operation: string): string => {
 	switch (precondition) {
@@ -701,7 +739,8 @@ class Lowering<R extends Refs> {
 	/**
 	 * A lowered node with what is proved of it: the bounds and facts its type gives every value unless the caller states
 	 * what its computation proves, then refined by each enclosing Compute.when guard whose subject this node is. A
-	 * numeric bound past numeric's 131072 integer digits is ResourceBound: every numeric expression's is known.
+	 * numeric bound past numeric's 131072 integer digits is ResourceBound: every numeric expression's is known. A builder
+	 * types its term and refuses only what is malformed; the bound is compilation's, a typed refusal of the compile.
 	 */
 	settle(
 		entry: ScalarExpr,
@@ -721,7 +760,11 @@ class Lowering<R extends Refs> {
 			}
 			facts = Object.freeze(added)
 		}
-		if (bounds !== undefined && bounds.digits > numericMaxIntegerDigits) {
+		if (
+			this.env.mode !== "build" &&
+			bounds !== undefined &&
+			bounds.digits > numericMaxIntegerDigits
+		) {
 			throw new Refusal(
 				CompileError.make({
 					_tag: "ResourceBound",
@@ -762,9 +805,10 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * A node of the registry's `op` over `args`, of `type`: an overload defined everywhere names its DefinedOp, and a
-	 * partial one stands only with the proof of every precondition its Totality requires, or is refused as
-	 * PartialOperation (prove).
+	 * A node of the registry's `op` over `args`, of `type`: an overload defined everywhere names its DefinedOp, an IEEE
+	 * 754 one with the proof that PostgreSQL's own overload computes it there where its operands' premises give one
+	 * (nativeProofOf) and its exact result's bounds as IEEE 754 rounds them (native.ts resultBounds), and a partial one
+	 * stands only with the proof of every precondition its Totality requires, or is refused as PartialOperation (prove).
 	 */
 	native(
 		op: NativeOp,
@@ -776,16 +820,28 @@ class Lowering<R extends Refs> {
 	): Lowered {
 		const operands = args.map((a) => a.expr)
 		if (!op.partial) {
+			const native = this.nativeProofOf(op, args, type)
+			const rounded = resultBounds(op, type, bounds)
 			return this.emitProved(
-				{
-					kind: "op",
-					op: op.id,
-					args: operands,
-					type,
-					nonNull: "strict",
-					volatility: op.volatility
-				},
-				bounds,
+				native === undefined
+					? {
+							kind: "op",
+							op: op.id,
+							args: operands,
+							type,
+							nonNull: "strict",
+							volatility: op.volatility
+						}
+					: {
+							kind: "op",
+							op: op.id,
+							args: operands,
+							type,
+							nonNull: "strict",
+							volatility: op.volatility,
+							native
+						},
+				rounded,
 				noFacts
 			)
 		}
@@ -809,6 +865,26 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
+	 * The proof that PostgreSQL's own overload computes an IEEE 754 operation or rounding `op` into `type` over `args`
+	 * (native.ts nativeProof), where its operands' premises give one; none for any other overload, and none in a builder,
+	 * which types its term before it knows where the term stands.
+	 */
+	nativeProofOf(
+		op: NativeOp,
+		args: ReadonlyArray<Lowered>,
+		type: ScalarType
+	): NativeProof | undefined {
+		const carrier = baseOf(type).carrier
+		const [first] = args
+		return op.totality.kind !== "ieee" ||
+			this.env.mode === "build" ||
+			first === undefined ||
+			(carrier !== "float4" && carrier !== "float8")
+			? undefined
+			: nativeProof(op.totality.op, carrier, first.expr.type, args)
+	}
+
+	/**
 	 * One proof of a partial operation's preconditions over `args`, whose premises establish them all, or the
 	 * PartialOperation refusal of the first one nothing proves.
 	 */
@@ -818,17 +894,8 @@ class Lowering<R extends Refs> {
 		target: ScalarType,
 		at: SourceLoc,
 		operation: string
-	): PreconditionProof {
-		const proofs = mapNonEmpty(preconditions, (p) => this.prove(p, args, target, at, operation))
-		const [first, ...rest] = proofs
-		if (rest.length === 0) {
-			return first
-		}
-		const [head, ...tail] = first.premises
-		return {
-			precondition: first.precondition,
-			premises: [head, ...tail, ...rest.flatMap((p) => p.premises)]
-		}
+	): OperationProof {
+		return mapNonEmpty(preconditions, (p) => this.prove(p, args, target, at, operation))
 	}
 
 	/**
@@ -864,7 +931,8 @@ class Lowering<R extends Refs> {
 				const p =
 					a === undefined
 						? undefined
-						: factPremise(precondition.operand, precondition.kind, a.facts)
+						: (factPremise(precondition.operand, precondition.kind, a.facts) ??
+							boundsPremise(precondition.operand, precondition.kind, a.bounds))
 				return p === undefined ? refuse(precondition.operand) : { precondition, premises: [p] }
 			}
 			case "fits": {
@@ -882,7 +950,7 @@ class Lowering<R extends Refs> {
 			}
 			case "contract": {
 				const a = args[0]
-				const interval = a?.bounds === undefined ? undefined : intervalPremise(0, a.bounds)
+				const interval = a?.bounds === undefined ? undefined : finitePremise(0, a.bounds)
 				if (
 					a?.bounds === undefined ||
 					interval === undefined ||
@@ -917,8 +985,9 @@ class Lowering<R extends Refs> {
 	 * IEEE 754 rounding, is refused with float arithmetic.
 	 */
 	castNode(arg: Lowered, to: ScalarType, how: CastHow, at: SourceLoc): Lowered {
-		const bounds = arg.bounds === undefined ? undefined : castBounds(arg.bounds, to)
-		const facts = keptFacts(arg, to)
+		const conversion = conversionOf(arg.actual, to, how)
+		const bounds = arg.bounds === undefined ? undefined : castBounds(arg.bounds, conversion, to)
+		const facts = keptFacts(arg, conversion, to)
 		if (how.kind === "coercion") {
 			return this.emitProved(
 				{
@@ -938,15 +1007,26 @@ class Lowering<R extends Refs> {
 			if (this.check && op.totality.kind === "ieee") {
 				return this.floatArithmetic("cast", to, at)
 			}
+			const native = this.nativeProofOf(op, [arg], to)
 			return this.emitProved(
-				{
-					kind: "cast",
-					cast: op.id,
-					args: [arg.expr],
-					type: to,
-					nonNull: "strict",
-					volatility: op.volatility
-				},
+				native === undefined
+					? {
+							kind: "cast",
+							cast: op.id,
+							args: [arg.expr],
+							type: to,
+							nonNull: "strict",
+							volatility: op.volatility
+						}
+					: {
+							kind: "cast",
+							cast: op.id,
+							args: [arg.expr],
+							type: to,
+							nonNull: "strict",
+							volatility: op.volatility,
+							native
+						},
 				bounds,
 				facts
 			)
@@ -991,7 +1071,7 @@ class Lowering<R extends Refs> {
 		if (this.env.mode === "build") {
 			return this.typedOnly(to, value.bounds)
 		}
-		const proof: PreconditionProof =
+		const proof: OperationProof = [
 			checked === undefined || !this.checkedAgainst(value, to, checked, at)
 				? this.prove(
 						{ kind: "contract" },
@@ -1004,6 +1084,7 @@ class Lowering<R extends Refs> {
 						precondition: { kind: "contract" },
 						premises: [{ kind: "checked", operand: 0, by: checked }]
 					}
+		]
 		return this.emitProved(
 			{ kind: "domainCast", args: [value.expr], type: to, nonNull: "strict", proof },
 			value.bounds,
@@ -1517,7 +1598,8 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * Compute.cast: a registered conversion of the value types, then the target's numeric typmod coercion, then a domain
-	 * cast into a contract or a regex-refined text type. A cast that changes nothing emits nothing. Each step is defined
+	 * cast into a contract or a regex-refined text type, or the binary coercion that drops a typmod or a regex into the
+	 * plain type, so the node delivered is of the type the cast names. A cast that changes nothing emits nothing. Each step is defined
 	 * everywhere or proved where it stands (castNode, domainCast); a conversion into a float rounds as IEEE 754 does.
 	 */
 	castTo(arg: Lowered, to: ScalarType, at: SourceLoc): Lowered {
@@ -1546,23 +1628,44 @@ class Lowering<R extends Refs> {
 				`cast: ${typeLabel(from)} and ${typeLabel(target)} are different types with no cast between them`
 			)
 		}
-		if (numericTypmodOf(target) !== undefined && !sameShape(value.actual, target)) {
-			value = this.castNode(
-				value,
-				target,
-				{ kind: "registered", op: registeredCast("numeric", "numeric") },
-				at
-			)
+		if (numericTypmodOf(target) !== undefined && !sameShape(valueType(value.actual), target)) {
+			value = this.typmodCoercion(value, target, at)
 		}
 		if (isRefined(to) && !sameRefinement(arg.actual, to)) {
 			return this.domainCast(value, to, checkedKind(arg.expr), at)
 		}
-		return {
-			...value,
-			nominal: to,
-			actual:
-				contractOf(value.actual) === undefined && contractOf(to) === undefined ? to : value.actual
+		const plain = contractOf(value.actual) === undefined && contractOf(to) === undefined
+		const shaped =
+			plain && !sameShape(value.actual, to)
+				? this.castNode(value, to, { kind: "coercion" }, at)
+				: value
+		return { ...shaped, nominal: to, actual: plain ? to : shaped.actual }
+	}
+
+	/**
+	 * A numeric value coerced into `target`'s typmod: a numeric literal as the literal of the value the coercion stores,
+	 * rounded to the scale half away from zero (values/decimal.ts normalizeNumeric), so a contract over the typmod judges
+	 * that literal (ContractLiteral); any other value, or a literal the precision cannot hold, by the typmod cast and its
+	 * fits proof.
+	 */
+	typmodCoercion(value: Lowered, target: ScalarType, at: SourceLoc): Lowered {
+		const literal = value.expr.kind === "literal" ? value.expr.value : undefined
+		const coerced =
+			literal?.kind === "numeric"
+				? normalizeNumeric(Decimal.fromValue(literal.value), numericTypmodOf(target))
+				: undefined
+		if (coerced?.ok === true) {
+			return this.literalNode(
+				{ literal: { kind: "numeric", value: coerced.value }, value: coerced.value },
+				target
+			)
 		}
+		return this.castNode(
+			value,
+			target,
+			{ kind: "registered", op: registeredCast("numeric", "numeric") },
+			at
+		)
 	}
 
 	compute(
@@ -1908,14 +2011,14 @@ class Lowering<R extends Refs> {
 	 */
 	sign(a: Lowered, at: SourceLoc): Lowered {
 		const v = valueType(a.actual)
-		const signBounds = ofRange(-1n, 1n, 1)
 		const carrier = v.carrier
 		switch (carrier) {
 			case "numeric":
 			case "float8":
 			case "exactInteger": {
 				const op = this.overload("sign", [v], at)
-				return this.native(op, [a], this.resultType(op, signBounds), signBounds, at, "Compute.sign")
+				const bounds = signBoundsOver(carrier, a.bounds)
+				return this.native(op, [a], this.resultType(op, bounds), bounds, at, "Compute.sign")
 			}
 			case "int2":
 			case "int4":
@@ -2138,46 +2241,129 @@ const roundedBounds = (a: Bounds | undefined, carry: number, scale: number): Bou
 			})
 
 /**
- * A cast's result bounds: the target type's, cut to the operand's interval widened by one unit each way, which covers
- * any rounding; a conversion into a float keeps its target's.
+ * How a cast moves its operand's value, which every cast proof reads (castBounds, keptFacts): a binary coercion and an
+ * exact conversion (an integer, an exact integer or money into a wider carrier, numeric or money, numeric into bare
+ * numeric) not at all; a rounding into an integer, money or a numeric typmod's scale by less than one unit at that
+ * scale; a float into numeric to its significant digits (cast.ts floatNumericDigits), by up to half a unit in the last
+ * of them, which may be many units; and a conversion into a float to the float's precision.
  */
-const castBounds = (a: Bounds, to: ScalarType): Bounds | undefined => {
+type Conversion =
+	| { readonly kind: "exact" }
+	| { readonly kind: "rounding"; readonly scale: number }
+	| { readonly kind: "significant"; readonly digits: number }
+	| { readonly kind: "intoFloat" }
+
+/** The fractional digits a rounding conversion into `target` keeps: an integer's none, money's two, a typmod's own. */
+const roundingScale = (target: ScalarType): number => {
+	const t = baseOf(target)
+	switch (t.carrier) {
+		case "money":
+		case "exactMoney":
+			return 2
+		case "numeric":
+			return numericTypmodOf(t)?.scale ?? numericMaxDisplayScale
+		case "int2":
+		case "int4":
+		case "int8":
+		case "exactInteger":
+		case "float4":
+		case "float8":
+		case "bool":
+		case "uuid":
+		case "text":
+		case "enum":
+		case "range4":
+		case "range8":
+		case "vector":
+			return 0
+	}
+}
+
+const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversion => {
+	const target = baseOf(to)
+	if (isFloat(target)) {
+		return { kind: "intoFloat" }
+	}
+	if (how.kind === "coercion") {
+		return { kind: "exact" }
+	}
+	const source = valueType(from).carrier
+	switch (source) {
+		case "float4":
+		case "float8":
+			return target.carrier === "numeric"
+				? { kind: "significant", digits: floatNumericDigits[source] }
+				: { kind: "rounding", scale: roundingScale(to) }
+		case "numeric":
+			return target.carrier === "numeric" && numericTypmodOf(target) === undefined
+				? { kind: "exact" }
+				: { kind: "rounding", scale: roundingScale(to) }
+		case "int2":
+		case "int4":
+		case "int8":
+		case "exactInteger":
+		case "money":
+		case "exactMoney":
+		case "bool":
+		case "uuid":
+		case "text":
+		case "enum":
+		case "range4":
+		case "range8":
+		case "vector":
+			return { kind: "exact" }
+	}
+}
+
+/**
+ * The ends of a cast's result over its operand's finite ends [low, high], as `conversion` moves a value. A rounding is
+ * monotone, so an end already at the target's scale is its own image, and another moves by less than one unit there.
+ */
+const convertedEnds = (
+	ends: readonly [Exact, Exact],
+	conversion: Exclude<Conversion, { readonly kind: "intoFloat" }>
+): readonly [Exact, Exact] => {
+	const [low, high] = ends
+	switch (conversion.kind) {
+		case "exact":
+			return ends
+		case "rounding": {
+			const unit = exactOf(1n, conversion.scale)
+			const kept = (x: Exact): boolean => scaleOfExact(x) <= conversion.scale
+			return [kept(low) ? low : minus(low, unit), kept(high) ? high : minus(high, negExact(unit))]
+		}
+		case "significant":
+			return [significantRound(low, conversion.digits), significantRound(high, conversion.digits)]
+	}
+}
+
+/**
+ * A cast's result bounds: the target type's, cut to the operand's interval as its conversion moves it; a conversion
+ * into a float keeps its target's.
+ */
+const castBounds = (a: Bounds, conversion: Conversion, to: ScalarType): Bounds | undefined => {
 	const target = boundsOfType(to)
-	if (target === undefined || isFloat(baseOf(to))) {
+	if (target === undefined || conversion.kind === "intoFloat") {
 		return target
 	}
 	const ends = finiteEnds(a)
 	if (ends === undefined) {
 		return target
 	}
-	const unit = exactOf(1n, 0)
-	return refine(target, {
-		kind: "within",
-		low: minus(ends[0], unit),
-		high: minus(ends[1], negExact(unit))
-	})
+	const [low, high] = convertedEnds(ends, conversion)
+	return refine(target, { kind: "within", low, high })
 }
 
 /**
- * The facts a cast keeps: a widening, an exact conversion, keeps every one; a conversion that rounds (into an integer,
- * money or a typmod) keeps all but nonzero, which rounding toward zero loses; a conversion into a float keeps none.
+ * The facts a cast keeps: one that moves no value keeps every one; one that rounds keeps all but nonzero, which
+ * rounding toward zero loses; a conversion into a float keeps none.
  */
-const keptFacts = (arg: Lowered, to: ScalarType): FactSet => {
-	const target = baseOf(to)
-	if (isFloat(target)) {
+const keptFacts = (arg: Lowered, conversion: Conversion, to: ScalarType): FactSet => {
+	if (conversion.kind === "intoFloat") {
 		return noFacts
 	}
-	const source = valueType(arg.actual).carrier
-	const exact =
-		source === "int2" ||
-		source === "int4" ||
-		source === "int8" ||
-		source === "exactInteger" ||
-		source === "money" ||
-		source === "exactMoney" ||
-		(source === "numeric" && target.carrier === "numeric" && numericTypmodOf(target) === undefined)
 	const { nonzero: _lost, ...rest } = arg.facts
-	return Object.freeze({ ...(exact ? arg.facts : rest), ...factsOfType(to) })
+	return Object.freeze({ ...(conversion.kind === "exact" ? arg.facts : rest), ...factsOfType(to) })
 }
 
 /** The range a value must lie in to fit `target`, a narrower integer, money or a typmod, once a cast rounds it. */
@@ -2300,9 +2486,9 @@ const magnitude = (e: Exact): number => Math.abs(Number(e.units) / 10 ** e.scale
 /**
  * power's premises: its base never below zero (a fact, so no negative base meets a fractional exponent), its base
  * never zero or its exponent never below zero (a fact, so zero meets no negative power), and both operands' finite
- * intervals, small enough that the result stays in range: over numeric the exponent's magnitude times one more than
- * the base's digits at most half numeric's limit, and over double precision a base in [2^-256, 2^256] or exactly zero
- * and an exponent of magnitude at most 3, so the result lies within 2^±768.
+ * intervals, small enough that the result stays in range: over numeric as PostgreSQL computes it (powerInRange), and
+ * over double precision a base in [2^-256, 2^256] or exactly zero and an exponent of magnitude at most 3, so the result
+ * lies within 2^±768.
  */
 const powerPremises = (
 	base: Lowered,
@@ -2312,8 +2498,8 @@ const powerPremises = (
 	const nonnegative = factPremise(0, "nonnegative", base.facts)
 	const nonzero =
 		factPremise(0, "nonzero", base.facts) ?? factPremise(1, "nonnegative", exponent.facts)
-	const b = base.bounds === undefined ? undefined : intervalPremise(0, base.bounds)
-	const e = exponent.bounds === undefined ? undefined : intervalPremise(1, exponent.bounds)
+	const b = base.bounds === undefined ? undefined : finitePremise(0, base.bounds)
+	const e = exponent.bounds === undefined ? undefined : finitePremise(1, exponent.bounds)
 	if (nonnegative === undefined || nonzero === undefined || b === undefined || e === undefined) {
 		return undefined
 	}
@@ -2322,7 +2508,53 @@ const powerPremises = (
 		: undefined
 }
 
-/** Whether power over these intervals stays inside its result carrier, as powerPremises states. */
+/**
+ * An upper bound on log10 x^y over a base interval [bLow, bHigh] never below zero and an exponent interval [eLow, eHigh],
+ * where it is above zero: a result below 1 is an underflow at worst, which PostgreSQL rounds to zero without raising.
+ * It grows past 1 only by the largest x raised to the largest positive y, x < 10^d for d the integer digits of the
+ * interval's ends, or by the least x raised to the most negative y, x at least 10^-s for s the fractional digits of a
+ * low end above zero. Over a low end of zero a negative exponent's result has no bound: Infinity.
+ */
+const powerWeight = (bLow: Exact, bHigh: Exact, eLow: Exact, eHigh: Exact): number => {
+	const up = Math.max(digitsOfExact(bLow), digitsOfExact(bHigh))
+	const rising = compareExact(eHigh, zero) > 0 ? weightOf(magnitudeAtMost(eHigh), up) : 0
+	if (compareExact(eLow, zero) >= 0 || compareExact(bLow, oneExact) >= 0) {
+		return rising
+	}
+	const falling =
+		compareExact(bLow, zero) > 0
+			? weightOf(magnitudeAtMost(eLow), scaleOfExact(bLow))
+			: Number.POSITIVE_INFINITY
+	return Math.max(rising, falling)
+}
+
+/** An exponent's magnitude as a double, never below it: Infinity where the double reading overflows. */
+const magnitudeAtMost = (e: Exact): number => {
+	const m = magnitude(e)
+	return Number.isNaN(m) ? Number.POSITIVE_INFINITY : m
+}
+
+/** An exponent's magnitude times a base's digits: zero where either is zero, so an infinite exponent over no digit adds none. */
+const weightOf = (exponent: number, digits: number): number =>
+	exponent === 0 || digits === 0 ? 0 : exponent * digits
+
+/**
+ * The bound PostgreSQL's power_var puts on exp(y · ln x) for an exponent that is no integer (numeric.c power_var, its
+ * test before exp_var, and exp_var's own): y · ln x below NUMERIC_MAX_RESULT_SCALE · 3 = 6000, at which it raises 22003
+ * "value overflows numeric format".
+ */
+const powerExpLimit = 6000
+
+/**
+ * Whether power over these intervals stays inside its result carrier, as powerPremises states. Over double precision a
+ * base in [2^-256, 2^256] or exactly zero and an exponent of magnitude at most 3. Over numeric, as PostgreSQL computes
+ * it (numeric.c power_var): an exponent proved one integer, a point interval at an integer, is power_var_int's, which
+ * raises 22003 once the result's decimal weight passes about (SHRT_MAX + 1) · DEC_DIGITS = 131072 digits, so its weight
+ * (powerWeight) is held to half that; any other is power_var's, exp(y · ln x), its weight held below
+ * powerExpLimit / ln 10. Either rounds an underflow to zero without raising, so only the weight above 1 is bounded. An
+ * integer past int32 takes power_var's way too, but a weight at most half 131072 bounds the exponent's magnitude by
+ * 65536 wherever the result can grow past 1.
+ */
 export const powerInRange = (
 	bLow: Exact,
 	bHigh: Exact,
@@ -2330,18 +2562,19 @@ export const powerInRange = (
 	eHigh: Exact,
 	target: ScalarType
 ): boolean => {
-	const eMag = Math.max(magnitude(eLow), magnitude(eHigh))
 	if (isFloat(baseOf(target))) {
+		const eMag = Math.max(magnitude(eLow), magnitude(eHigh))
 		const lo = magnitude(bLow)
 		const hi = magnitude(bHigh)
 		const zeroBase = lo === 0 && hi === 0
 		return eMag <= 3 && (zeroBase || (lo >= 2 ** -256 && hi <= 2 ** 256))
 	}
-	const digits = Math.max(digitsOfExact(bLow), digitsOfExact(bHigh), bLow.scale, bHigh.scale)
-	return eMag * (digits + 1) <= numericMaxIntegerDigits / 2
+	const weight = powerWeight(bLow, bHigh, eLow, eHigh)
+	const integral = compareExact(eLow, eHigh) === 0 && scaleOfExact(eLow) === 0
+	return integral ? weight <= numericMaxIntegerDigits / 2 : weight * Math.LN10 < powerExpLimit
 }
 
-/** power's result bounds where its premises hold: digits as powerInRange bounds them; a float's its type's. */
+/** power's result bounds where its premises hold: its integer digits powerWeight's bound; a float's its type's. */
 const powerBounds = (a: Lowered, b: Lowered, v: ScalarType): Bounds | undefined => {
 	if (isFloat(v)) {
 		return boundsOfType(v)
@@ -2351,9 +2584,7 @@ const powerBounds = (a: Lowered, b: Lowered, v: ScalarType): Bounds | undefined 
 	if (ea === undefined || eb === undefined) {
 		return undefined
 	}
-	const eMag = Math.ceil(Math.max(magnitude(eb[0]), magnitude(eb[1])))
-	const digits =
-		(Math.max(digitsOfExact(ea[0]), digitsOfExact(ea[1]), ea[0].scale, ea[1].scale) + 1) * eMag
+	const digits = Math.ceil(powerWeight(ea[0], ea[1], eb[0], eb[1]))
 	return ofDigits(Math.min(digits, numericMaxIntegerDigits), 1000, { infinite: false, nan: true })
 }
 
@@ -2366,9 +2597,9 @@ const bucketPremises = (
 	high: Lowered,
 	count: Lowered
 ): NonEmptyReadonlyArray<OperandPremise> | undefined => {
-	const lo = low.bounds === undefined ? undefined : intervalPremise(1, low.bounds)
-	const hi = high.bounds === undefined ? undefined : intervalPremise(2, high.bounds)
-	const c = count.bounds === undefined ? undefined : intervalPremise(3, count.bounds)
+	const lo = low.bounds === undefined ? undefined : finitePremise(1, low.bounds)
+	const hi = high.bounds === undefined ? undefined : finitePremise(2, high.bounds)
+	const c = count.bounds === undefined ? undefined : finitePremise(3, count.bounds)
 	if (lo === undefined || hi === undefined || c === undefined) {
 		return undefined
 	}
@@ -2549,15 +2780,61 @@ export const lowerTerm = <R extends Refs>(
  * The proof that every value of `from` fits `to` once cast, from `from`'s own bounds (an exact integer's digits, a
  * contract's atoms), where they prove it: what a described write's narrowing into its column rests on.
  */
-export const typeFitProof = (from: ScalarType, to: ScalarType): PreconditionProof | undefined => {
+export const typeFitProof = (
+	preconditions: NonEmptyReadonlyArray<Precondition>,
+	from: ScalarType,
+	to: ScalarType
+): OperationProof | undefined => {
 	const b = boundsOfType(from)
-	const range = fitRange(to)
 	const interval = b === undefined ? undefined : intervalPremise(0, b)
-	return interval === undefined ||
-		range === undefined ||
-		!insideRange(interval.low, interval.high, range[0], range[1])
-		? undefined
-		: { precondition: { kind: "fits" }, premises: [interval] }
+	return interval === undefined ? undefined : intervalCastProof(preconditions, interval, to)
+}
+
+/**
+ * The proof of a cast's preconditions over an operand every value of which `interval` bounds (operand 0): each fact by
+ * the interval (bounds.ts premiseHas), fits where the interval lies in the target's fit range (fitRange), one entry per
+ * precondition; undefined where one is not proved. What a described write's narrowing, a recursion's counter and a
+ * fold's count total rest on.
+ */
+export const intervalCastProof = (
+	preconditions: NonEmptyReadonlyArray<Precondition>,
+	interval: IntervalPremise,
+	to: ScalarType
+): OperationProof | undefined => {
+	const proved = (precondition: Precondition): PreconditionProof | undefined => {
+		switch (precondition.kind) {
+			case "nonzero":
+			case "nonnegative":
+			case "finite":
+				return precondition.operand === interval.operand && premiseHas(interval, precondition.kind)
+					? { precondition, premises: [interval] }
+					: undefined
+			case "fits": {
+				const range = fitRange(to)
+				return range !== undefined && insideRange(interval.low, interval.high, range[0], range[1])
+					? { precondition, premises: [interval] }
+					: undefined
+			}
+			case "contract":
+			case "powerDomain":
+			case "bucketDomain":
+				return undefined
+		}
+	}
+	const [first, ...rest] = preconditions
+	const head = proved(first)
+	if (head === undefined) {
+		return undefined
+	}
+	const proofs: [PreconditionProof, ...Array<PreconditionProof>] = [head]
+	for (const p of rest) {
+		const proof = proved(p)
+		if (proof === undefined) {
+			return undefined
+		}
+		proofs.push(proof)
+	}
+	return proofs
 }
 
 /** An expression another package built, lowered as it is: its type's bounds and facts, and nothing more. */

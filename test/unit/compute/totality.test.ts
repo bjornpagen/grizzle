@@ -167,7 +167,7 @@ const violates = (value: LiteralDesc, fact: Entry["needs"]): boolean => {
 
 const literalOf = (field: TestField, value: LiteralDesc): LeafBinding => ({
 	kind: "literal",
-	type: field.scalar,
+	field,
 	value
 })
 
@@ -309,13 +309,16 @@ describe("totality", () => {
 					({ entry, source, a, b }, c) =>
 						Effect.sync(() => {
 							c.note(`over a ${source}`)
+							/**
+							 * The operand whose fact the operation needs: a literal, whose own value states its facts, a parameter of
+							 * the field, or one of a contract declaring the fact, met as its base, which keeps the facts it declares.
+							 */
 							const needed =
 								source === "literal"
-									? v(entry.operand === 0 ? "a" : "b", entry.field)
-									: param(
-											"p",
-											source === "parameter" ? entry.field : declaring(entry.field, entry.needs)
-										)
+									? Compute.literal(entry.field, entry.operand === 0 ? a : b)
+									: source === "parameter"
+										? param("p", entry.field)
+										: Compute.base(param("p", declaring(entry.field, entry.needs)))
 							const expr = (
 								entry.operand === 0
 									? entry.build(needed, v("b", entry.field))

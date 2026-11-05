@@ -1,15 +1,13 @@
 import type { RecursionPlugin } from "#compiler/check/context.ts"
 import { only as onlyMember } from "#compiler/check/defined.ts"
-import { counterDepth, counterInterval, reachable } from "#compiler/check/recursion/bound.ts"
 import { factorArms } from "#compiler/check/recursion/factor.ts"
 import { carryOrigin, correlationColumns, originParents } from "#compiler/check/recursion/origin.ts"
 import { scanArms } from "#compiler/check/recursion/scan.ts"
 import { conform, declaredRow, requireHashing } from "#compiler/check/recursion/state.ts"
-import { terminationCertificate } from "#compiler/check/recursion/termination.ts"
+import { certificate, terminationVerdict } from "#compiler/check/recursion/termination.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { recursionMaxStates } from "#compiler/core/policy.ts"
-import type { RelNode } from "#compiler/ir/rel.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 
 /** The location of a list's one member, or `fallback` for a list of none or several. */
@@ -31,13 +29,17 @@ const only = (list: ReadonlyArray<{ readonly loc: SourceLoc }>, fallback: Source
  *    state, so the traversals of different parents never merge. A correlation
  *    column the checker names after a head key, because that key delivers the parent variable unchanged, is a declared
  *    row column and part of the origin as well.
- * 4. The step: a SelfRef over the state heading, read by the recursive arms. One arm is checked as it is; several are
- *    factored into one rule that reads `self` once (factor.ts). In an attachment's child the step's
- *    `self` match also binds each origin column to its parent variable, so every state carries the parent of the
- *    seed it came from instead of reading the outer parent (origin.ts).
- * 5. Conformance (state.ts): base and step deliver the state at its declared types, through exact casts where needed.
- * 6. Termination (termination.ts): the certificate family and the static seen-state estimate, refused above the
- *    recursionMaxStates (core/policy.ts) with ResourceBound.
+ * 4. Termination (termination.ts), read from the arms as written: the certificate family and the static seen-state
+ *    estimate, refused above the recursionMaxStates (core/policy.ts) with ResourceBound, and each counter column's
+ *    interval. It precedes the step, so unbounded state is refused as such, not as a narrowing it leaves unproved.
+ * 5. The step: a SelfRef over the state heading, read by the recursive arms. One arm is checked as it is; several are
+ *    factored into one rule that reads `self` once (factor.ts), each delivering a counter column as an exact integer.
+ *    In an attachment's child the step's `self` match also binds each origin column to its parent variable, so every
+ *    state carries the parent of the seed it came from instead of reading the outer parent (origin.ts).
+ * 6. Conformance (state.ts): base and step deliver the state at its declared types, through exact casts where needed;
+ *    an exact step narrows into its integer column where its counter interval fits it, PartialOperation otherwise.
+ *    The base conforms before termination, with no interval, so a base delivering the state at another type is
+ *    refused first.
  *
  * A recursion whose arms read no `self` at all is its base: the least fixed point of a constant step is the step's
  * union with the base, so no Recursive node is built.
@@ -87,58 +89,42 @@ export const recursion: RecursionPlugin = {
 			return base
 		}
 
-		const recursive = cx.reserve()
-		const self = cx.node({ kind: "SelfRef", recursive, heading: state }, recLoc)
-		const stepRule = carryOrigin(
-			onlyMember(rec)?.rule ?? factorArms(rec, [...row.keys()], at),
-			originParents(stage, origin, baseLoc)
-		)
-		const stepNode = cx.arms([stepRule], scope, recLoc, self)
-		const step = conform(
-			cx,
-			def.name,
-			stepNode,
-			state,
-			"rec",
-			only(rec, recLoc),
-			stateCounters(base, stepNode, self, state)
-		)
-		const termination = terminationCertificate({
+		const verdict = terminationVerdict({
 			def,
 			row,
 			base: arms.base,
 			rec,
-			step,
 			maxStates: recursionMaxStates,
 			loc,
 			cx
 		})
+		const recursive = cx.reserve()
+		const self = cx.node({ kind: "SelfRef", recursive, heading: state }, recLoc)
+		const stepRule = carryOrigin(
+			onlyMember(rec)?.rule ??
+				factorArms(
+					rec,
+					[...row.keys()],
+					new Map([...row].filter(([column]) => verdict.counters.has(column))),
+					at
+				),
+			originParents(stage, origin, baseLoc)
+		)
+		const stepNode = cx.arms([stepRule], scope, recLoc, self)
+		const step = conform(cx, def.name, stepNode, state, "rec", only(rec, recLoc), verdict.counters)
 		return cx.define(
 			recursive,
-			{ kind: "Recursive", name: def.name, base, step, self, termination, origin, heading: state },
+			{
+				kind: "Recursive",
+				name: def.name,
+				base,
+				step,
+				self,
+				termination: certificate(verdict, step),
+				origin,
+				heading: state
+			},
 			loc
 		)
 	}
-}
-
-/**
- * The interval every bounded counter of a recursion's state computes, by state column (bound.ts counterInterval): what
- * proves an exact step `c + k` fits the column it narrows into, with no guard of the author's.
- */
-const stateCounters = (
-	base: RelNode,
-	step: RelNode,
-	self: RelNode,
-	state: Heading
-): ReadonlyMap<string, readonly [bigint, bigint]> => {
-	const labels = new Map(reachable([base, step]).map((n) => [n.id, n] as const))
-	const parts = { base, step, self, heading: state }
-	const out = new Map<string, readonly [bigint, bigint]>()
-	for (const c of state) {
-		const analysis = counterDepth(labels, parts, c.name)
-		if (analysis.kind === "bounded") {
-			out.set(c.name, counterInterval(analysis.proof))
-		}
-	}
-	return out
 }

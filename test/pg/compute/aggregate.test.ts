@@ -6,7 +6,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Result, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { aggregateOverload } from "#compiler/scalar/aggregate.ts"
+import { type AggregateOverload, aggregateOverload } from "#compiler/scalar/aggregate.ts"
 import { catalogTypeName } from "#compiler/scalar/compute/registry.ts"
 import { valueType } from "#compiler/scalar/compute/types.ts"
 import { concreteTypeName, textCell } from "#test/pg/compute/support.ts"
@@ -83,10 +83,24 @@ const samples: readonly [Sample, ...ReadonlyArray<Sample>] = [
 const catalogResult = (result: ScalarType): string => catalogTypeName[baseOf(result).carrier]
 
 /**
+ * The call whose result PostgreSQL types as the host types the overload's, over the argument `x`: the native call, or,
+ * for a money sum, which is exact money (scalar/aggregate.ts exactSum), the sum over the amounts cast to numeric, whose
+ * total no row count overflows.
+ */
+const resultCall = (
+	o: AggregateOverload,
+	x: string
+): { readonly sql: string; readonly op: string } =>
+	o.lowering.kind === "exactSum" && o.lowering.exact === "money"
+		? { sql: `${o.sql}(${x}::numeric)`, op: `${o.sql}(numeric)` }
+		: { sql: `${o.sql}(${x})`, op: o.op }
+
+/**
  * What PostgreSQL says against the host's typing of one aggregate over one sample: an aggregate the host refuses has no
  * PostgreSQL counterpart, and an admitted one runs, resolves to the pg_aggregate the overload names, takes the sample's
- * base type (or the polymorphic type it instantiates), and has pg_typeof the host's result type, over the base for a
- * contract. `checked` marks an admitted aggregate whose checks all ran.
+ * base type (or the polymorphic type it instantiates), and its result call (resultCall) has the pg_proc result and the
+ * pg_typeof of the host's result type, over the base for a contract. `checked` marks an admitted aggregate whose checks
+ * all ran.
  */
 const aggregateProblems = (
 	db: RawSession,
@@ -112,8 +126,9 @@ const aggregateProblems = (
 			}
 		}
 		const o = overload.value
+		const typed = resultCall(o, "t.x")
 		const run = yield* db
-			.values(`SELECT pg_typeof(${o.sql}(t.x))::text FROM ${values} AS t(x)`, [])
+			.values(`SELECT pg_typeof(${typed.sql})::text FROM ${values} AS t(x)`, [])
 			.pipe(Effect.result)
 		if (Result.isFailure(run)) {
 			return { problems: [`${label}: PostgreSQL has no ${o.sql} over the sample`], checked: false }
@@ -126,14 +141,20 @@ const aggregateProblems = (
 			[o.op]
 		)
 		const [resolvedRow] = resolved
-		if (resolved.length !== 1 || resolvedRow === undefined || typeofRow === undefined) {
-			return { problems: [`${label}: no pg_aggregate ${o.op}`], checked: false }
+		const [resultRow] = yield* db.values(
+			"SELECT p.prorettype::regtype::text FROM pg_catalog.pg_proc p WHERE p.oid = to_regprocedure($1::text)",
+			[typed.op]
+		)
+		if (
+			resolved.length !== 1 ||
+			resolvedRow === undefined ||
+			typeofRow === undefined ||
+			resultRow === undefined
+		) {
+			return { problems: [`${label}: no pg_aggregate ${o.op} or ${typed.op}`], checked: false }
 		}
-		const [opText, rettype, argtype] = [
-			textCell(resolvedRow, 0),
-			textCell(resolvedRow, 1),
-			textCell(resolvedRow, 2)
-		]
+		const [opText, argtype] = [textCell(resolvedRow, 0), textCell(resolvedRow, 2)]
+		const rettype = textCell(resultRow, 0)
 		const [sampleRow] = yield* db.values(
 			`SELECT (CASE WHEN ty.typtype = 'd' THEN ty.typbasetype ELSE ty.oid END)::regtype::text, ty.typtype::text
 			FROM pg_catalog.pg_type ty, ${values} AS t(x) WHERE ty.oid = pg_typeof(t.x) LIMIT 1`,
@@ -158,7 +179,7 @@ const aggregateProblems = (
 				...(rettype === catalogResult(o.result)
 					? []
 					: [
-							`${label}: pg_proc returns ${rettype}, the overload implies ${catalogResult(o.result)}`
+							`${label}: pg_proc ${typed.op} returns ${rettype}, the overload implies ${catalogResult(o.result)}`
 						]),
 				...(argtype === argBase || polymorphic
 					? []

@@ -182,11 +182,12 @@ const textTyped = (value: string): Typed => ({
 })
 
 /**
- * The dictionary: numeric scale (1.0, 1.00), float8's NaN, infinities and signed zeros, and text whose code points
- * order otherwise than their letters would suggest (é above z) and proper prefixes.
+ * The dictionary: numeric values on either side of an integer, each the one literal of its value, float8's NaN,
+ * infinities and signed zeros, and text whose code points order otherwise than their letters would suggest (é above z)
+ * and proper prefixes.
  */
 const dictionary: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<Typed>> = [
-	[numericLit("-0.5"), numericLit("1.0"), numericLit("1.00"), numericLit("2")],
+	[numericLit("-0.5"), numericLit("1"), numericLit("1.5"), numericLit("2")],
 	[
 		floatSpecial("NaN"),
 		floatSpecial("Infinity"),

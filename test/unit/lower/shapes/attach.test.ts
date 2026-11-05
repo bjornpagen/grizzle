@@ -48,10 +48,10 @@ import { regex } from "arkregex"
  * through the public boundary the public differential's (test/pg/oracle/public).
  *
  * - The fusion rule (attach/index.ts chooseAttachment over fusedLayout): a child fuses exactly when the fields its
- *   array carries, at least one, are at most attachFuseMaxFields; a child column correlated to the parent travels in
- *   the array when its type spells equal values apart (numeric and float), and is copied from the parent row
- *   otherwise. Exhausted over every correlated Reading column, every set of further child fields and every field
- *   bound up to the widest child, passed as the rule's own maxFields.
+ *   array carries, at least one, are at most attachFuseMaxFields; a child column correlated to the parent is copied
+ *   from the parent row, whatever its type, since equal values decode to one host value (a numeric's 1.0 and 1.00 are
+ *   one Decimal, a float's -0 and 0 one zero). Exhausted over every correlated Reading column, every set of further
+ *   child fields and every field bound up to the widest child, passed as the rule's own maxFields.
  * - The converter (attach/decode.ts fusedTexts, arrayElements): over drawn layouts and children, a fused column as
  *   PostgreSQL writes it (array_out over the element texts, or over jsonb_out objects keyed f1..fn, or one `true` per
  *   child of correlated columns only) reads back as each child's texts in the child heading's order, the correlated
@@ -73,18 +73,6 @@ const readingColumns: Arr.NonEmptyReadonlyArray<ReadingColumn> = [
 	"paid",
 	"ok"
 ]
-
-/**
- * The Reading columns whose equal values PostgreSQL can spell apart (1.0 and 1.00, -0 and 0): the numeric and the
- * float ones, which a fused array carries even where they are correlated.
- */
-const spelledApart: Readonly<Record<ReadingColumn, boolean>> = {
-	id: false,
-	value: true,
-	price: true,
-	paid: false,
-	ok: false
-}
 
 /** Readings attached to the readings of one value of `correlated`, the child binding it and `fields`. */
 const readingsBy = (correlated: ReadingColumn, fields: ReadonlyArray<ReadingColumn>) => {
@@ -122,26 +110,19 @@ describe("the attachment fusion rule", () => {
 							}
 						},
 						limit: 400,
-						coverage: requiredInSpace<"fused" | "pipelined" | "correlated column in the array">([
-							"fused",
-							"pipelined",
-							"correlated column in the array"
-						]),
+						coverage: requiredInSpace<"fused" | "pipelined">(["fused", "pipelined"]),
 						caseHang: Duration.minutes(2)
 					},
 					({ correlated, fields, max }, c) =>
 						Effect.sync(() => {
 							const built = readingsBy(correlated, fields)
-							const width = Math.max(1, fields.length + (spelledApart[correlated] ? 1 : 0))
+							const width = Math.max(1, fields.length)
 							const expected = width <= max ? "fused" : "pipelined"
 							assert.equal(
 								chooseAttachment(attachOf(built.dag.roots[0]), "exact", max).form,
 								expected
 							)
 							c.note(expected)
-							if (spelledApart[correlated]) {
-								c.note("correlated column in the array")
-							}
 						})
 				)
 			)

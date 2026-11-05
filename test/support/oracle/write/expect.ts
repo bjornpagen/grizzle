@@ -1,4 +1,4 @@
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import {
@@ -16,6 +16,7 @@ import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
 import {
 	evaluateSource,
 	generates,
+	isFact,
 	isGenerated,
 	oracleChangeSet,
 	type WChangeSet
@@ -23,6 +24,7 @@ import {
 import { fitsField } from "#test/support/oracle/write/domain.ts"
 import { keyOf, type WFacts } from "#test/support/oracle/write/facts.ts"
 import {
+	columnOf,
 	isImmediate,
 	oracleSchemaOf,
 	relationIn,
@@ -95,6 +97,17 @@ export type Expected =
 	| {
 			readonly kind: "outsideDomain"
 			readonly refusals: ReadonlyArray<AcceptableRefusal>
+			readonly initial: OracleState
+			readonly collisions: ReadonlyMap<string, Collisions>
+	  }
+	| {
+			/**
+			 * A parameter passed outside the field it is declared at (unboundParams): the bind refuses the whole ChangeSet
+			 * with EncodingFailure refinedValue at one such parameter's slot, before any SQL, so the initial state stays.
+			 */
+			readonly kind: "unbound"
+			/** The names of the parameters passed outside their fields, one of which the refusal's slot names. */
+			readonly params: ReadonlySet<string>
 			readonly initial: OracleState
 			readonly collisions: ReadonlyMap<string, Collisions>
 	  }
@@ -212,14 +225,70 @@ const sameKeyRefusals = (
 }
 
 /**
+ * The parameters a ChangeSet passes outside the field each is declared at (domain.ts fitsField): a head parameter at
+ * its target's column, a filter's at its source's column, a scope's at its relation's column, and a relation
+ * parameter's facts at their relation's columns. The bind checks every parameter against its declared type, the
+ * field's pattern included, so one outside refuses the whole ChangeSet with EncodingFailure refinedValue before any
+ * SQL, whatever its stratum and whether or not its source holds a row.
+ */
+const unboundParams = (ctx: ExpectContext, c: WChangeSet): ReadonlySet<string> => {
+	const params = c.params
+	const outsideAt = (relation: WRelation, column: string, param: string): ReadonlyArray<string> =>
+		fitsField(columnOf(relation, column).kind, params[param]) ? [] : [param]
+	const factOutside = (relation: WRelation, fact: unknown): boolean =>
+		isFact(fact) &&
+		Arr.some(
+			relation.columns,
+			(col) => Rec.has(fact, col.name) && !fitsField(col.kind, fact[col.name])
+		)
+	const factsOutside = (relation: WRelation, param: string): ReadonlyArray<string> => {
+		const facts = params[param]
+		return Arr.isArray(facts) && Arr.some(facts, (fact) => factOutside(relation, fact))
+			? [param]
+			: []
+	}
+	return new Set(
+		Arr.flatMap(c.strata, (members) =>
+			Arr.flatMap(members, (m): ReadonlyArray<string> => {
+				const target = relationIn(ctx.group, m.relation)
+				const source = m.source
+				switch (source.kind) {
+					case "array":
+						return []
+					case "project": {
+						const from = relationIn(ctx.group, source.from)
+						return [
+							...(source.filter === undefined
+								? []
+								: outsideAt(from, source.filter.column, source.filter.param)),
+							...Arr.flatMap(Rec.toEntries(source.head), ([field, term]) =>
+								term.kind === "param" ? outsideAt(target, field, term.param) : []
+							)
+						]
+					}
+					case "param":
+						return factsOutside(target, source.param)
+					case "scoped":
+						return [
+							...outsideAt(target, source.scope.column, source.scope.param),
+							...factsOutside(target, source.exclude)
+						]
+					case "top":
+						return factsOutside(relationIn(ctx.group, source.from), source.parents)
+				}
+			})
+		)
+	)
+}
+
+/**
  * The domain refusals of a stratum that adds a fact holding a value its field's domain refuses: the law of each column's
  * domain that a described member other than a deletion breaks, where its facts, evaluated against the state before
- * the stratum, hold a value outside that column's domain (domain.ts fitsField), or its head writes a parameter outside
- * it. Such a parameter is declared with the column's descriptor, so the server admits its value into the column's type
- * whether or not the source holds a row, and refuses the stratum even when it adds nothing. A domain's violation is
- * reported by the domain PostgreSQL names, the law it enforces, with no key. A deletion never breaks one: its member is
- * carried as the comparison reads it, so an outside value matches no fact, which the add-wins calculator already
- * predicts.
+ * the stratum, hold a stored value read into a column whose domain refuses it (domain.ts fitsField), a wider text read
+ * into a narrower one. A parameter is never one: the bind refuses a parameter outside its field first
+ * (unboundParams). A domain's violation is reported by the domain PostgreSQL names, the law it enforces, with no key.
+ * A deletion never breaks one: its member is carried as the comparison reads it, so an outside value matches no fact,
+ * which the add-wins calculator already predicts.
  */
 const domainRefusals = (
 	ctx: ExpectContext,
@@ -232,13 +301,9 @@ const domainRefusals = (
 			return []
 		}
 		const target = relationIn(ctx.group, m.relation)
-		const head = m.source.head
 		const facts = evaluateSource(ctx.group, target, m.source, params, state)
 		return Arr.flatMap(target.columns, (col): ReadonlyArray<AcceptableRefusal> => {
-			const term = head[col.name]
-			const outside =
-				(term?.kind === "param" && !fitsField(col.kind, params[term.param])) ||
-				Arr.some(facts, (fact) => !fitsField(col.kind, fact[col.name]))
+			const outside = Arr.some(facts, (fact) => !fitsField(col.kind, fact[col.name]))
 			return outside
 				? [
 						{
@@ -361,9 +426,11 @@ const collisionsOf = (
  * pair among the enumerated additions of any stratum breaks, which host normalization refuses before any SQL. Laws are
  * accepted exactly when every violation query evaluated by brute force is empty where it is judged.
  *
- * A stratum that adds a fact holding a value its field's domain refuses, a described member reading a wider text into
- * a narrower field or writing a parameter outside it, is refused there by the domain's law, or meets a law of the
- * stratum first; the initial state stays.
+ * Before any of these, the bind: host normalization refuses a same-key pair among the enumerated additions first,
+ * then a parameter passed outside the field it is declared at refuses the whole ChangeSet with EncodingFailure
+ * refinedValue before any SQL (unboundParams). A stratum that adds a fact holding a stored value its field's domain
+ * refuses, a described member reading a wider text into a narrower field, is refused there by the domain's law, or
+ * meets a law of the stratum first. A refused change leaves the initial state.
  *
  * The expected result of applying `c` to `facts`, each identity sequence where `sequences` states it, and every other
  * past the stored values, where a migration that loaded them leaves it: its generated additions drawn as the add-wins
@@ -400,6 +467,12 @@ const expectUnder = (
 		initial,
 		collisions
 	})
+	const unbound = unboundParams(ctx, c)
+	if (unbound.size > 0) {
+		return host.length > 0
+			? rejected([])
+			: { kind: "unbound", params: unbound, initial, collisions }
+	}
 	/** The domains' refusals lead, then the host's and the stratum's. */
 	const outsideDomain = (
 		domains: ReadonlyArray<AcceptableRefusal>,

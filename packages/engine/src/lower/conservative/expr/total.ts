@@ -1,9 +1,11 @@
+import { exactParts, nanParts } from "#compiler/core/decimal.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { ExactCarrier } from "#compiler/scalar/aggregate.ts"
-import type { IeeeOp, NativeOp } from "#compiler/scalar/compute/registry.ts"
-import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
+import { type FloatCarrier, nativeRange } from "#compiler/scalar/compute/native.ts"
+import { type IeeeOp, type NativeOp, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import type { Expr, Select, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -77,10 +79,12 @@ const castInner = (e: Expr): Expr => (e.kind === "cast" ? e.expr : e)
 
 /**
  * An exact operation's SQL (T1): its operands brought into one space, bigint where its digit bounds fit 18 digits and
- * numeric otherwise, and the space's own operator, so no step overflows. An overload whose Totality is exact computes
- * over plain integers or money (int4pl is an exact sum of two integers, cash_pl of two amounts); every other overload
- * over an exact operand is the exact carriers' own. A comparison computed in bigint reads a widened plain integer
- * bare, so PostgreSQL's cross-type integer operators keep the integer column's index serving it.
+ * numeric otherwise, and the space's own operator, so no step overflows; a result whose own type lies in the other
+ * space is cast into it, so its SQL type is its physical type (a bigint for an exact integer of at most 18 digits). An
+ * overload whose Totality is exact computes over plain integers or money (int4pl is an exact sum of two integers,
+ * cash_pl of two amounts); every other overload over an exact operand is the exact carriers' own. A comparison computed
+ * in bigint reads a widened plain integer bare, so PostgreSQL's cross-type integer operators keep the integer column's
+ * index serving it.
  */
 export const exactForm = (
 	expr: ScalarExpr & { readonly kind: "op" },
@@ -110,6 +114,19 @@ export const exactForm = (
 		}
 		return spaceOf(ir.type) === space ? sql : cast(sql, spaceType[space])
 	})
+	const computed = exactIn(native, space, operands)
+	const own = spaceOf(expr.type)
+	return computed === undefined || own === undefined || own === space
+		? computed
+		: cast(computed, spaceType[own])
+}
+
+/** An exact operation computed in `space` over its operands brought into it. */
+const exactIn = (
+	native: NativeOp,
+	space: Space,
+	operands: ReadonlyArray<Expr>
+): Expr | undefined => {
 	const [x, y, z] = operands
 	if (x === undefined) {
 		return undefined
@@ -191,16 +208,19 @@ export const exactForm = (
 	}
 }
 
+/** An integer as a numeric literal. */
+const numericInteger = (n: bigint): Expr => lit.decimal(exactParts(n, 0), types.numeric)
+
 /** The binary64 and binary32 thresholds of one rounding: past `over` a value rounds to an infinity; at or below 2^-`under` to zero. */
 const thresholds = {
 	float8: {
-		over: (2n ** 1024n - 2n ** 970n).toString(),
-		under: (2n ** 1075n).toString(),
+		over: numericInteger(2n ** 1024n - 2n ** 970n),
+		under: numericInteger(2n ** 1075n),
 		type: types.double
 	},
 	float4: {
-		over: (2n ** 128n - 2n ** 103n).toString(),
-		under: (2n ** 150n).toString(),
+		over: numericInteger(2n ** 128n - 2n ** 103n),
+		under: numericInteger(2n ** 150n),
 		type: types.real
 	}
 } as const
@@ -216,6 +236,72 @@ const caseOf = (whens: NonEmptyReadonlyArray<readonly [Expr, Expr]>, otherwise: 
 })
 
 /**
+ * The alias of the derived row that binds an operation's operands, in the reserved __ namespace no lowering mints: the
+ * one FROM item of its own scalar subquery, so a nested binding shadows an enclosing one and reads only its own row.
+ */
+export const operandsAlias = "__operands"
+
+/**
+ * Whether an operand's SQL repeats inline at no cost: a column, a parameter, a literal, VALUE, or a cast of one. The
+ * SQL decides, never the IR: a column reference renders as whatever SQL its scope binds the column to, which can be any
+ * expression (a correlated variable's value, a parent's key).
+ */
+const isAtom = (e: Expr): boolean =>
+	e.kind === "cast"
+		? isAtom(e.expr)
+		: e.kind === "column" || e.kind === "param" || e.kind === "literal" || e.kind === "domainValue"
+
+/**
+ * The one row of an operation's operands, SELECT a, b OFFSET 0. The OFFSET keeps PostgreSQL's planner from pulling the
+ * row up into the subquery that reads it, which would put a copy of each operand at each of its references and plan
+ * the copies' own bindings again, so nesting would cost exponential planning time.
+ */
+const operandRow = (operands: NonEmptyReadonlyArray<Expr>): Select => ({
+	...select(core(mapNonEmpty(operands, target), [], undefined)),
+	offset: lit.int(0, types.bigint)
+})
+
+/**
+ * A rendering that names its operands several times, over operands rendered once: inline where every operand is an
+ * atom, and otherwise as a scalar subquery that binds them once, (SELECT <form> FROM (SELECT a, b OFFSET 0) AS
+ * __operands(c1, c2)), its columns the generated c<n> names every stage's columns take. Each compound operand's text
+ * appears once, so nesting costs linear size and linear planning, never exponential (operandRow). Nothing in it reads a
+ * row of its own: it is its operands' function. A window call is never an operand: bound, it would compute over the
+ * binding's one row.
+ */
+const bindOperands = <F extends Expr | undefined>(
+	sqlArgs: NonEmptyReadonlyArray<Expr>,
+	form: (operands: NonEmptyReadonlyArray<Expr>) => F
+): F | Expr => {
+	if (sqlArgs.every(isAtom)) {
+		return form(sqlArgs)
+	}
+	const names = mapNonEmpty(sqlArgs, (_, i) => `c${i + 1}`)
+	const body = form(mapNonEmpty(names, (name) => col(operandsAlias, name)))
+	if (body === undefined) {
+		return body
+	}
+	return {
+		kind: "subquery",
+		query: select(
+			core(
+				[target(body)],
+				[
+					{
+						kind: "derived",
+						query: operandRow(sqlArgs),
+						alias: operandsAlias,
+						columns: names,
+						lateral: false
+					}
+				],
+				undefined
+			)
+		)
+	}
+}
+
+/**
  * A numeric value rounded once to the float carrier as IEEE 754 rounds, half to even: NaN is NaN; at or past the
  * rounding threshold (the midpoint between the greatest finite value and 2^128 or 2^1024) an infinity of its sign; at
  * or below half the least subnormal the one zero; any other value through float8in or float4in, which round correctly
@@ -223,18 +309,17 @@ const caseOf = (whens: NonEmptyReadonlyArray<readonly [Expr, Expr]>, otherwise: 
  */
 export const roundToFloat = (n: Expr, carrier: "float4" | "float8"): Expr => {
 	const { over, under, type } = thresholds[carrier]
-	const numeric = (text: string): Expr => lit.decimal(text, types.numeric)
 	return caseOf(
 		[
-			[eq(n, lit.decimal("NaN", types.numeric)), floatLit(Number.NaN, carrier)],
+			[eq(n, lit.decimal(nanParts, types.numeric)), floatLit(Number.NaN, carrier)],
 			[
-				ge(call("abs", [n]), numeric(over)),
+				ge(call("abs", [n]), over),
 				caseOf(
-					[[gt(n, numeric("0")), floatLit(Number.POSITIVE_INFINITY, carrier)]],
+					[[gt(n, numericInteger(0n)), floatLit(Number.POSITIVE_INFINITY, carrier)]],
 					floatLit(Number.NEGATIVE_INFINITY, carrier)
 				)
 			],
-			[le(binary("*", call("abs", [n]), numeric(under)), numeric("1")), floatLit(0, carrier)]
+			[le(binary("*", call("abs", [n]), under), numericInteger(1n)), floatLit(0, carrier)]
 		],
 		cast(n, type)
 	)
@@ -258,65 +343,67 @@ const moderate = (x: Expr, k: number, carrier: "float4" | "float8"): Expr => ({
 	not: false
 })
 
-/** The magnitudes the native operations of each width meet with no overflow or underflow. */
-const safe = { float8: { sum: 1022, product: 500 }, float4: { sum: 126, product: 60 } } as const
-
 /**
- * The exact numeric value of a float or money expression: a double's bits (sql/build.ts exactNumericOfDouble), a real
- * widened to double precision exactly first, money as money::numeric (cash_numeric, exact).
+ * The exact numeric value of a float or money expression: a double's bits (sql/build.ts exactNumericOfDouble), which
+ * name the double many times, so a compound one is bound once (bindOperands), a real widened to double precision
+ * exactly first, money as money::numeric (cash_numeric, exact).
  */
 export const exactNumeric = (e: Expr, carrier: ExactCarrier): Expr => {
 	switch (carrier) {
 		case "money":
 			return cast(e, types.numeric)
 		case "float4":
-			return exactNumericOfDouble(cast(e, types.double))
+			return bindOperands([e], ([x]) => exactNumericOfDouble(cast(x, types.double)))
 		case "float8":
-			return exactNumericOfDouble(e)
+			return bindOperands([e], ([x]) => exactNumericOfDouble(x))
 	}
 }
+
+/**
+ * roundToFloat over a value bound once (bindOperands): the rounding of an exact path, whose value is a compound
+ * expression of bound operands. roundToFloat itself names its value inline, as an aggregate's rounded total, a window
+ * call among them, must.
+ */
+const roundedOnce = (n: Expr, carrier: "float4" | "float8"): Expr =>
+	bindOperands([n], ([v]) => roundToFloat(v, carrier))
 
 /** A float operand's exact numeric value (exactNumeric), of a finite operand. */
 const exactOf = (x: Expr, carrier: "float4" | "float8"): Expr => exactNumeric(x, carrier)
 
-/** 10^700 and 5 · 10^-701: an exact quotient's scale and its half unit, written as numeric_in reads them exactly. */
-const quotientScale = lit.decimal("1e700", types.numeric)
-const halfUnit = lit.decimal("5e-701", types.numeric)
+/** 10^700 and 5 · 10^-701: an exact quotient's scale and its half unit. */
+const quotientScale = numericInteger(10n ** 700n)
+const halfUnit = lit.decimal(exactParts(5n, 701), types.numeric)
 
 /**
  * The correctly rounded quotient of two finite floats, the divisor nonzero, from their exact values: the quotient
  * scaled by 10^700 and truncated (div, exact), doubled, and one more toward its sign where it was inexact (a sticky
  * half unit), then scaled back exactly and rounded once. The truncated quotient keeps at least 68 significant digits
- * for any two doubles, so the sticky half unit decides every rounding the true quotient does.
+ * for any two doubles, so the sticky half unit decides every rounding the true quotient does. The value rounded is
+ * bound once (roundedOnce).
  */
 const exactQuotient = (x: Expr, y: Expr, carrier: "float4" | "float8"): Expr => {
 	const scaled = binary("*", exactOf(x, carrier), quotientScale)
 	const divisor = exactOf(y, carrier)
 	const truncated = call("div", [scaled, divisor])
 	const sticky = caseOf(
-		[
-			[
-				eq(call("mod", [scaled, divisor]), lit.decimal("0", types.numeric)),
-				lit.decimal("0", types.numeric)
-			]
-		],
+		[[eq(call("mod", [scaled, divisor]), numericInteger(0n)), numericInteger(0n)]],
 		binary("*", call("sign", [exactOf(x, carrier)]), call("sign", [divisor]))
 	)
-	const doubled = binary("+", binary("*", truncated, lit.decimal("2", types.numeric)), sticky)
-	return roundToFloat(binary("*", doubled, halfUnit), carrier)
+	const doubled = binary("+", binary("*", truncated, numericInteger(2n)), sticky)
+	return roundedOnce(binary("*", doubled, halfUnit), carrier)
 }
 
 /**
- * An IEEE 754 operation over its operands' SQL (T2): CASE WHEN <fast> THEN <native> ELSE <exact path> END. The fast
- * test admits exactly the operands PostgreSQL's native operation meets with no overflow, underflow or zero divisor (it
- * computes IEEE there): NaN and the infinities (which it propagates), zeros of a product, and magnitudes inside the
- * safe range. The exact path computes the exact value of the finite operands and rounds it once (roundToFloat); a zero
- * divisor gives the infinity of the dividend's sign, or NaN over a zero or NaN dividend (grizzle's floats have one
- * zero, so the divisor's sign never shows); the square root of a negative is NaN.
+ * An IEEE 754 operation's guarded form over its operands' SQL (T2): CASE WHEN <fast> THEN <native> ELSE <exact path>
+ * END. The fast test admits operands PostgreSQL's native operation meets with no overflow, underflow or zero divisor
+ * (it computes IEEE there): NaN and the infinities (which it propagates), zeros of a product, and magnitudes inside
+ * the range native.ts nativeRange states. The exact path computes the exact value of the finite operands and rounds it
+ * once (roundToFloat); a zero divisor gives the infinity of the dividend's sign, or NaN over a zero or NaN dividend
+ * (grizzle's floats have one zero, so the divisor's sign never shows); the square root of a negative is NaN.
  */
-export const ieeeForm = (
-	op: IeeeOp,
-	carrier: "float4" | "float8",
+const guardedForm = (
+	op: Exclude<IeeeOp, "round">,
+	carrier: FloatCarrier,
 	operands: ReadonlyArray<Expr>
 ): Expr | undefined => {
 	const [x, y] = operands
@@ -325,12 +412,10 @@ export const ieeeForm = (
 	}
 	const zero = floatLit(0, carrier)
 	const nan = floatLit(Number.NaN, carrier)
-	const { sum, product } = safe[carrier]
+	const { sum, product } = nativeRange[carrier]
 	switch (op) {
 		case "sqrt":
 			return caseOf([[lt(x, zero), nan]], call("sqrt", [x]))
-		case "round":
-			return undefined
 		case "add":
 		case "sub": {
 			if (y === undefined) {
@@ -345,7 +430,7 @@ export const ieeeForm = (
 					lt(call("abs", [y]), floatLit(2 ** sum, carrier))
 				])
 			])
-			const exact = roundToFloat(
+			const exact = roundedOnce(
 				binary(op === "add" ? "+" : "-", exactOf(x, carrier), exactOf(y, carrier)),
 				carrier
 			)
@@ -362,7 +447,7 @@ export const ieeeForm = (
 				eq(y, zero),
 				and([moderate(x, product, carrier), moderate(y, product, carrier)])
 			])
-			const exact = roundToFloat(binary("*", exactOf(x, carrier), exactOf(y, carrier)), carrier)
+			const exact = roundedOnce(binary("*", exactOf(x, carrier), exactOf(y, carrier)), carrier)
 			return caseOf([[fast, binary("*", x, y)]], exact)
 		}
 		case "div": {
@@ -402,7 +487,7 @@ export const ieeeForm = (
  * overflow or underflow (NaN, the infinities, zero and the normal range) and by the exact value rounded once otherwise;
  * a bigint exact integer converts natively, as a bigint never leaves either range.
  */
-export const ieeeCastForm = (arg: Expr, from: ScalarType, to: "float4" | "float8"): Expr => {
+const ieeeCastForm = (arg: Expr, from: ScalarType, to: "float4" | "float8"): Expr => {
 	const source = baseOf(from)
 	const space = spaceOf(source)
 	if (space === "int8") {
@@ -412,47 +497,50 @@ export const ieeeCastForm = (arg: Expr, from: ScalarType, to: "float4" | "float8
 		const fast = or([
 			special(arg, "float8"),
 			eq(arg, floatLit(0, "float8")),
-			moderate(arg, 125, "float8")
+			moderate(arg, nativeRange.float4.rounding, "float8")
 		])
-		return caseOf([[fast, cast(arg, types.real)]], roundToFloat(exactOf(arg, "float8"), "float4"))
+		return caseOf([[fast, cast(arg, types.real)]], roundedOnce(exactOf(arg, "float8"), "float4"))
 	}
-	return roundToFloat(space === "numeric" ? cast(arg, types.numeric) : arg, to)
+	return roundedOnce(space === "numeric" ? cast(arg, types.numeric) : arg, to)
 }
 
-/** The alias of the VALUES row that binds an operation's operands, in the reserved __ namespace no lowering mints. */
-const operandsAlias = "__operands"
-
-/** Whether an IR expression is a leaf, whose SQL repeats inline at no cost: a column, a parameter, a literal, VALUE. */
-const isLeaf = (e: ScalarExpr): boolean =>
-	e.kind === "column" || e.kind === "param" || e.kind === "literal" || e.kind === "value"
-
 /**
- * A rendering that names its operands several times, over operands rendered once: inline where every operand is a
- * leaf, and otherwise as a scalar subquery that binds them once, (SELECT <form> FROM (VALUES (a, b)) AS
- * __operands(o0, o1)), so
- * nesting costs linear size, never exponential. Nothing in it reads a row of its own: it is its operands' function.
+ * How an IEEE 754 node renders, an operation or a cast whose overload's Totality is ieee (T2): as PostgreSQL's own
+ * overload where the node carries the proof that it computes the IEEE 754 value there (ir/proof.ts NativeProof), with
+ * no guard and no binding; otherwise as its guarded form over its operands bound once (bindOperands), an operation's
+ * fast and exact paths (guardedForm) or a rounding's (ieeeCastForm). Undefined for a node of any other overload. The
+ * one choice every renderer of an IEEE 754 node makes: the conservative lowering's operations (ops.ts) and casts
+ * (index.ts), and the compute suites' renderer.
  */
-export const bindOperands = (
-	irArgs: ReadonlyArray<ScalarExpr>,
-	sqlArgs: NonEmptyReadonlyArray<Expr>,
-	form: (operands: NonEmptyReadonlyArray<Expr>) => Expr | undefined
-): Expr | undefined => {
-	if (irArgs.every(isLeaf)) {
-		return form(sqlArgs)
-	}
-	const names = mapNonEmpty(sqlArgs, (_, i) => `o${i}`)
-	const body = form(mapNonEmpty(names, (name) => col(operandsAlias, name)))
-	if (body === undefined) {
+export const ieeeForm = (
+	expr: ScalarExpr & { readonly kind: "op" | "cast" },
+	args: ReadonlyArray<Expr>
+):
+	| { readonly kind: "native" }
+	| { readonly kind: "guarded"; readonly sql: Expr | undefined }
+	| undefined => {
+	const totality = nativeOp(expr.kind === "op" ? expr.op : expr.cast)?.totality
+	const carrier = baseOf(expr.type).carrier
+	const [first, ...rest] = args
+	const [source] = expr.args
+	if (
+		totality?.kind !== "ieee" ||
+		(carrier !== "float4" && carrier !== "float8") ||
+		first === undefined ||
+		source === undefined
+	) {
 		return undefined
 	}
+	if ("native" in expr) {
+		return { kind: "native" }
+	}
+	const op = totality.op
 	return {
-		kind: "subquery",
-		query: select(
-			core(
-				[target(body)],
-				[{ kind: "values", rows: [sqlArgs], alias: operandsAlias, columns: names }],
-				undefined
-			)
+		kind: "guarded",
+		sql: bindOperands([first, ...rest], (operands) =>
+			op === "round"
+				? ieeeCastForm(operands[0], source.type, carrier)
+				: guardedForm(op, carrier, operands)
 		)
 	}
 }

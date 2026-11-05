@@ -1,6 +1,7 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
+import { boolean, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -48,6 +49,31 @@ const f8 = (value: number) => D.typedLit(value, Q.double)
 
 /** The drawn lab facts each agreement explores: the rotating stream's cases, and a quarter as many in the floor's. */
 const agreementRuns = 12
+
+/**
+ * The facts with a price of the first sitting's student, below 105, on the sitting's day and on the day before, which
+ * every as-of mode and the cheap filter meet; and a sitting where the facts hold none.
+ */
+const withPricedSitting = (f: Facts, amount: number): Facts => {
+	const [first] = f.sittings
+	const sitting = first ?? ([1000, 1, 6, 1] as const)
+	const [, student, day] = sitting
+	return {
+		...f,
+		sittings: first === undefined ? [sitting] : f.sittings,
+		prices: [...f.prices, [1001, student, day, amount], [1002, student, day - 1, amount]]
+	}
+}
+
+/**
+ * The facts a witness runs over, aimed at a delivered row while no witness has delivered one (Case.steering): half its
+ * cases, by a draw of their own, priced for their first sitting (withPricedSitting); a rotating or kept case runs as
+ * drawn.
+ */
+const aimedFacts = (f: Facts, c: Case<"delivers rows">): Facts =>
+	Option.exists(c.steering, (pending) => pending.has("delivers rows")) && c.draw(boolean)
+		? withPricedSitting(f, c.draw(int(0, 104)))
+		: f
 
 /**
  * Whether an entry's cases must deliver a row: a restricted shape whose answer is empty on most facts (a count bound to
@@ -116,8 +142,9 @@ const agree = (
 					steerEvery: 16,
 					caseHang: Duration.minutes(2)
 				},
-				(f, c) =>
+				(drawnFacts, c) =>
 					Effect.gen(function* () {
+						const f = aimedFacts(drawnFacts, c)
 						const outcome = yield* runLabelledOracle(
 							oracleCase(label, desc, f),
 							conservative,

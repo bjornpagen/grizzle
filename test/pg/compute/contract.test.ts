@@ -298,7 +298,7 @@ const contractSearch = (f: Fixture) =>
 			(batch, c) =>
 				Effect.gen(function* () {
 					const cases = Arr.map([...f.edges, ...batch], (value) => {
-						const bindings = { x: { kind: "literal", type: f.base.scalar, value } } as const
+						const bindings = { x: { kind: "literal", field: f.base, value } } as const
 						const lowered = lowerWith("query", cast, bindings, false, baseParams)
 						if (!lowered.ok && lowered.error.reason._tag !== "ContractLiteral") {
 							throw new Error(`${f.name}: ${lowered.error.message}`)

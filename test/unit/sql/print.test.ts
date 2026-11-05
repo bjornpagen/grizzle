@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, explore, sketched } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
@@ -18,7 +18,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
 import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { BlockLines } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -364,6 +364,23 @@ const statementLines = (body: Arr.NonEmptyReadonlyArray<PlStatement>): ReadonlyA
 
 type WriteFeature = `wide ${WidePosition}` | "narrow" | "split"
 
+/**
+ * A wide sketch aimed, where the case steers, at the first wide position still pending, so a few wide cases reach every
+ * position rather than leave one to its share of chance; any other sketch as drawn.
+ */
+const aimed = (sketch: BlockSketch, steering: Case<WriteFeature>["steering"]): BlockSketch => {
+	const width = sketch.width
+	if (width.kind === "narrow") {
+		return sketch
+	}
+	return Option.match(
+		Option.flatMap(steering, (pending) =>
+			Arr.findFirst(widePositions, (at) => pending.has(`wide ${at}`))
+		),
+		{ onNone: () => sketch, onSome: (at) => ({ ...sketch, width: { ...width, at } }) }
+	)
+}
+
 describe("PL/pgSQL through the line sink", () => {
 	it.effect(
 		"writes a block of every width, wider than one call's argument limit, and its statements' lines compose",
@@ -373,7 +390,7 @@ describe("PL/pgSQL through the line sink", () => {
 				explore(
 					{
 						suite: "unit/sql/pl-width",
-						draw: sketched(blockSketch, (sketch) => ({ sketch, block: resolveBlock(sketch) })),
+						draw: drawn(blockSketch),
 						literal: Formatter.format,
 						kept: [],
 						runs: 96,
@@ -393,8 +410,10 @@ describe("PL/pgSQL through the line sink", () => {
 							{ cases: 96, sense: notesOnly }
 						)
 					},
-					({ sketch, block }, c) =>
+					(drawnSketch, c) =>
 						Effect.sync(() => {
+							const sketch = aimed(drawnSketch, c.steering)
+							const block = resolveBlock(sketch)
 							printStatement(triggerFunction(block))
 							doText(block)
 							const body = block.body

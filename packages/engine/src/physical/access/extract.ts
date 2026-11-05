@@ -912,9 +912,8 @@ class Extractor {
 				]
 			}
 			const equal = new Set(ctx.eq.keys())
-			const fixed = [...ctx.eq].filter(([, k]) => k === "fixed").map(([c]) => c)
 			const prefix = sorted(
-				fixed.filter((c) => !isSpanColumn(heading, c) && !isVectorColumn(heading, c))
+				[...equal].filter((c) => !isSpanColumn(heading, c) && !isVectorColumn(heading, c))
 			)
 			if (ctx.kind === "span") {
 				return ctx.spans.map((span) =>
@@ -1298,13 +1297,14 @@ class Extractor {
  *   sides is a prefix search;
  * - otherwise a B-tree on the equality columns.
  *
- * Equality columns are those equal to a parameter, an outer value or a join partner's column, in code point order, so
- * an index's name never depends on declaration or predicate order. A literal equality selects no key column: it is a
- * selection a partial index would serve, and the policy builds no partial and no expression access index, because a
- * partial index needs the compiler and the query to agree on its predicate, so a low-cardinality handle column is never
- * indexed merely because a program names a handle. For the same reason an equality path whose columns are all handle
- * columns, equal to a parameter or a join partner's column, is none: a roster of a few handles splits the rows into a
- * few large groups, which PostgreSQL reads by a scan, never by such an index. A vector column is never a B-tree column; it is reached only by
+ * Equality columns are those equal to a parameter, an outer value, a join partner's column or a literal, in code point
+ * order, so an index's name never depends on declaration or predicate order. A literal equality selects its column as
+ * a parameter's does: a world entry's filter that fixes a column of another relation to a literal runs at every write
+ * and must read that relation by an index, which a plain B-tree on the column serves; the policy builds no partial and
+ * no expression access index, because a partial index needs the compiler and the query to agree on its predicate. An
+ * equality path whose columns are all handle columns is none, so a low-cardinality handle column is never indexed
+ * merely because a program names a handle: a roster of a few handles splits the rows into a few large groups, which
+ * PostgreSQL reads by a scan, never by such an index. A vector column is never a B-tree column; it is reached only by
  * HNSW. Ordered paths come from a take (`take seek`) and a workload program whose root is an ordered result,
  * which reader.page can page (`page seek`): the equality columns of the occurrence that holds every column of the
  * completed order, then that order with its directions, when no other occurrence carries a fixed restriction that would

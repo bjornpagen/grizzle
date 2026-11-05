@@ -1,4 +1,5 @@
 import { catchRefusal } from "#compiler/core/canonical.ts"
+import { exactParts, infinityParts, nanParts } from "#compiler/core/decimal.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
@@ -35,13 +36,16 @@ const isBareNumeric = (t: ScalarType): boolean => {
 	return base.carrier === "numeric" && base.typmod === undefined
 }
 
-/** `abs(c) < 1e1000 OR c = 'NaN' OR abs(c) = 'Infinity'`: at most 1,000 integer digits, or NaN, or an infinity. */
+/** 10^1000: the least magnitude with more than 1,000 integer digits. */
+const pastBound = lit.decimal(exactParts(10n ** BigInt(bareNumericDigits), 0), types.numeric)
+
+/** `abs(c) < 10^1000 OR c = 'NaN' OR abs(c) = 'Infinity'`: at most 1,000 integer digits, or NaN, or an infinity. */
 const boundPredicate = (column: string): Expr => {
 	const c = tableCol(column)
 	return or([
-		binary("<", call("abs", [c]), lit.decimal(`1e${bareNumericDigits}`, types.numeric)),
-		eq(c, lit.decimal("NaN", types.numeric)),
-		eq(call("abs", [c]), lit.decimal("Infinity", types.numeric))
+		binary("<", call("abs", [c]), pastBound),
+		eq(c, lit.decimal(nanParts, types.numeric)),
+		eq(call("abs", [c]), lit.decimal(infinityParts, types.numeric))
 	])
 }
 
@@ -116,7 +120,7 @@ const boundLaws = (bounds: ReadonlyArray<NumericBound>): ReadonlyArray<Constrain
  * Numeric bounds: the CHECK every bare numeric column carries, as the installer's built-in contribution (T4).
  *
  * A bare `pg.numeric` field, a contract over one included, stores at most 1,000 integer digits, NaN or an infinity:
- * `__<table>_bound_<column>_<digest>`, `abs(c) < 1e1000 OR c = 'NaN' OR abs(c) = 'Infinity'`, wrapped in IS TRUE by the
+ * `__<table>_bound_<column>_<digest>`, `abs(c) < 10^1000 OR c = 'NaN' OR abs(c) = 'Infinity'`, wrapped in IS TRUE by the
  * printer, on every write, grizzle's or a direct SQL writer's. The encoder refuses such a value before any SQL (values/identity.ts
  * bareNumericDigits), so the CHECK refuses a computed value grizzle writes and a direct writer's, each by the bound's
  * law. Every numeric value a read meets then has a known digit bound, and no numeric arithmetic overflows

@@ -2708,6 +2708,79 @@ export const renamedWithRetype: StatedRenamedPath = plantedRename(
 	{ toB: ["relationRetyped"], toC: [] }
 )
 
+/** B's R0 with its field a of K0 retyped to c of int4, beside Q1, R1 renamed. */
+const retypedAtRebuildB = statedSchema(
+	[
+		statedRelation(
+			"R0",
+			[
+				{ name: "b", type: int4 },
+				{ name: "c", type: int4 }
+			],
+			["b"],
+			false
+		),
+		ints("Q1", ["a"], ["a"])
+	],
+	[shortRoster]
+)
+
+const retypedAtRebuildOrigins = statedOrigins(
+	[
+		["R0", "R0"],
+		["Q1", "R1"]
+	],
+	[
+		["R0.b", "R0.b"],
+		["R0.c", "R0.a"],
+		["Q1.a", "R1.a"]
+	]
+)
+
+/** B removes K0's handle H1, which rebuilds the roster, retypes R0's field a of K0 to c of int4, and renames R1 to Q1,
+ * every candidate kept; C is B. The rebuild converts a, which c may be renamed from with its type changed, so the
+ * rebuild's conversion of a offers the rename's conversion in its place (an offer that replaces); Q1's rename brings
+ * R1's primary key across under Q1's name, a statement inside a rename a decision may leave unchosen. */
+export const retypedAtRebuild: StatedRenamedPath = plantedRename(
+	{
+		a: statedSchema(
+			[
+				statedRelation(
+					"R0",
+					[
+						{ name: "a", type: closedIdType(keptRoster) },
+						{ name: "b", type: int4 }
+					],
+					["b"],
+					false
+				),
+				ints("R1", ["a"], ["a"])
+			],
+			[keptRoster]
+		),
+		b: retypedAtRebuildB,
+		c: retypedAtRebuildB
+	},
+	{ R0: [], R1: [] },
+	{
+		a: statedOrigins(
+			[
+				["R0", "R0"],
+				["R1", "R1"]
+			],
+			[
+				["R0.a", "R0.a"],
+				["R0.b", "R0.b"],
+				["R1.a", "R1.a"]
+			]
+		),
+		b: retypedAtRebuildOrigins,
+		c: retypedAtRebuildOrigins
+	},
+	false,
+	{ toB: ["removeHandle", "retyped", "relation"], toC: [] }
+)
+
 /** The value a reviewer supplies for a placeholder of a field of `type`: the first value of its domain, the same on
  * every run (domain.ts: class 0, first spelling). */
 export const typedDefault = (type: GenColumn["type"]): TypedLiteral =>

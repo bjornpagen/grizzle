@@ -32,7 +32,10 @@ const Item = relation(
 )
 const Kit = schema("Kit", { Kind, Item }, [])
 
-/** SUM over every numeric overload, grouped by a closed id. */
+/**
+ * SUM over every numeric overload, grouped by a closed id. A money sum is exact money, which no stored field holds, so
+ * the money is summed as numeric, whose sum a numeric field holds.
+ */
 const sums = query(Kit).rule((r) => {
 	const { id, kind, price, qty, small, big, amount, ratio, weight, fee } = v(Item, "item")
 	return r.match(Item, { id, kind, price, qty, small, big, amount, ratio, weight, fee }).find({
@@ -44,7 +47,7 @@ const sums = query(Kit).rule((r) => {
 		sumAmount: r.sum(amount),
 		sumRatio: r.sum(ratio),
 		sumWeight: r.sum(weight),
-		sumFee: r.sum(fee),
+		sumFee: r.sum(Compute.cast(fee, pg.numeric)),
 		sumPrice: r.sum(price)
 	})
 })

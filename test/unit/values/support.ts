@@ -2,7 +2,6 @@ import {
 	codePoint,
 	constant,
 	element,
-	filter,
 	type Gen,
 	int,
 	map,
@@ -41,21 +40,20 @@ const exponent: Gen<number | undefined> = weighted([
 	[3, int(-30, 30)]
 ])
 
-/** An exact decimal literal: sign, integer digits, fraction digits, and sometimes an exponent. */
-export const decimalText: Gen<string> = map(
-	filter(
-		(source) => ({
-			sign: source.draw(element(["", "", "-", "+"])),
-			int: source.draw(digits(24)),
-			frac: source.draw(optional(digits(24))),
-			exp: source.draw(exponent)
-		}),
-		({ int, frac }) => int.length > 0 || (frac !== undefined && frac.length > 0),
-		10
-	),
-	({ sign, int, frac, exp }) =>
-		`${sign}${int}${frac === undefined ? "" : `.${frac}`}${exp === undefined ? "" : `e${exp}`}`
-)
+/**
+ * An exact decimal literal: sign, integer digits, fraction digits, and sometimes an exponent. A literal with no integer
+ * digit has fraction digits, so every drawn text is one.
+ */
+export const decimalText: Gen<string> = (source) => {
+	const sign = source.draw(element(["", "", "-", "+"]))
+	const whole = source.draw(digits(24))
+	const frac =
+		whole.length === 0
+			? source.draw(string(digit, { min: 1, max: 24 }))
+			: source.draw(optional(digits(24)))
+	const exp = source.draw(exponent)
+	return `${sign}${whole}${frac === undefined ? "" : `.${frac}`}${exp === undefined ? "" : `e${exp}`}`
+}
 
 const finiteDecimal: Gen<Decimal> = map(decimalText, (text) => succeeded(Decimal.fromString(text)))
 

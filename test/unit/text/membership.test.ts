@@ -192,6 +192,13 @@ describe("host NFA membership equals ECMAScript", () => {
 					}
 				}
 			)
+			/**
+			 * Each refusing pattern's planted refused string, by its label: the string a steered case tries where its
+			 * pattern's refusal is still pending, so a few of the pattern's cases reach it rather than leave it to chance.
+			 */
+			const plantedRefusal = new Map(
+				Arr.map(refusals, (k): readonly [string, FamilyCase[1]] => [k.sketch[0].label, k.sketch[1]])
+			)
 			const familyCaseGen: Gen<FamilyCase> = oneOf(
 				Arr.map(admitted, (p): Gen<FamilyCase> => {
 					const drawnString = oneOf<FamilyCase[1]>([
@@ -230,13 +237,21 @@ describe("host NFA membership equals ECMAScript", () => {
 					},
 					([p, drawnString], c) =>
 						Effect.sync(() => {
-							if (drawnString.s === undefined) {
+							const subject = Option.getOrElse(
+								Option.flatMap(c.steering, (pending) =>
+									pending.has(`${p.label} refuses`)
+										? Option.fromNullishOr(plantedRefusal.get(p.label))
+										: Option.none()
+								),
+								() => drawnString
+							)
+							if (subject.s === undefined) {
 								return
 							}
-							const js = jsAccepts(p.source, p.flags, drawnString.s)
-							const label = `${p.label} on ${Formatter.format(drawnString.s)}`
-							assert.equal(accepts(p.r, drawnString.s), js, label)
-							if (drawnString.witness) {
+							const js = jsAccepts(p.source, p.flags, subject.s)
+							const label = `${p.label} on ${Formatter.format(subject.s)}`
+							assert.equal(accepts(p.r, subject.s), js, label)
+							if (subject.witness) {
 								assert.equal(js, true, `${label}: a witness is a member`)
 							}
 							c.note(`${p.label} ${js ? "accepts" : "refuses"}`)

@@ -1,7 +1,7 @@
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
-import { bindOperands, exactForm, ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
+import { exactForm, ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import {
 	admitsArity,
 	type NativeOp,
@@ -222,8 +222,9 @@ const connectiveOf = (op: OpId): (typeof keywordOps)[number] | undefined =>
 
 /**
  * The rendering a Totality states beyond the native form (scalar/compute/registry.ts): an exact overload, or any over
- * an exact operand, in its exact space (total.ts exactForm); an IEEE 754 overload by its fast and exact paths
- * (total.ts ieeeForm), its operands bound once where any is compound; every other overload natively.
+ * an exact operand, in its exact space (total.ts exactForm); an IEEE 754 overload natively where it carries the proof
+ * that PostgreSQL's own overload computes it there, and otherwise by its guarded form, its operands bound once where
+ * any is compound (total.ts ieeeForm); every other overload natively.
  */
 const totalForm = (
 	expr: ScalarExpr & { readonly kind: "op" },
@@ -240,16 +241,12 @@ const totalForm = (
 	if (native.totality.kind !== "ieee") {
 		return { kind: "native" }
 	}
-	const op = native.totality.op
-	const carrier = baseOf(expr.args[0]?.type ?? expr.type).carrier
-	const [first, ...rest] = args
-	if (first === undefined || (carrier !== "float4" && carrier !== "float8")) {
-		return { kind: "rendered", sql: undefined }
-	}
-	return {
-		kind: "rendered",
-		sql: bindOperands(expr.args, [first, ...rest], (operands) => ieeeForm(op, carrier, operands))
-	}
+	const ieee = ieeeForm(expr, args)
+	return ieee === undefined
+		? { kind: "rendered", sql: undefined }
+		: ieee.kind === "native"
+			? { kind: "native" }
+			: { kind: "rendered", sql: ieee.sql }
 }
 
 /**

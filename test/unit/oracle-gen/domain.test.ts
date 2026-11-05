@@ -139,17 +139,17 @@ const numericSpelling = (l: TypedLiteral, text: string): boolean =>
 	l.kind === "numeric" && decimalPayload(l.value) === text
 
 const edges: ReadonlyArray<Edge> = [
-	...Arr.map(["1.0", "1.00", "NaN", "Infinity"], (text) => ({
-		what: `numeric ${text}, a display scale or a special value`,
+	...Arr.map(["NaN", "Infinity"], (text) => ({
+		what: `numeric ${text}, a special value`,
 		type: scalarOfSpec({ carrier: "numeric" }),
 		holds: (l: TypedLiteral) => numericSpelling(l, text),
 		held: true
 	})),
 	{
-		what: "the signed zero",
+		what: "the signed zero, which a float's one zero is not",
 		type: scalarOfSpec({ carrier: "float8" }),
 		holds: (l) => l.kind === "float" && Object.is(l.value, -0),
-		held: true
+		held: false
 	},
 	{
 		what: "float NaN",

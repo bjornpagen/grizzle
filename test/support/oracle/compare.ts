@@ -113,7 +113,7 @@ const cellAt = (row: RawRow, i: number): string => {
  * (codec/scalar.ts cellText): it reads every cell to its value first. A text the strict reader refuses is no output of
  * the type, a defect of the run.
  */
-const canonicalCell = (type: ScalarType): ((cell: string) => string) => {
+export const canonicalCell = (type: ScalarType): ((cell: string) => string) => {
 	const read = strictReader(type)
 	const spec = carrierSpecOf(type)
 	return (cell) => {
@@ -123,6 +123,25 @@ const canonicalCell = (type: ScalarType): ((cell: string) => string) => {
 		}
 		return admittedText(spec, value.success)
 	}
+}
+
+/**
+ * A statement's rows as values: each cell of a column it states read as its canonical text (canonicalCell), and each
+ * cell of a column some row leaves unstated as it is, so two spellings of one value (-0 and 0, 1.0 and 1.00) are one row.
+ */
+export const canonicalRows = (s: StatementRows): ReadonlyArray<RawRow> => {
+	const unstated = new Set(unstatedColumns(s))
+	const texts = Arr.map(s.columns, (c, i): ((cell: string) => string) => {
+		if (unstated.has(c)) {
+			return (cell) => cell
+		}
+		const type = s.types[i]
+		if (type === undefined) {
+			throw new Error(`${s.label}: no type for column ${i}`)
+		}
+		return canonicalCell(type)
+	})
+	return Arr.map(s.rows, (row) => Arr.map(texts, (text, i) => text(cellAt(row, i))))
 }
 
 /** The rows at `indexes` of a statement, each keeping the columns `keep` admits, every cell its canonical text. */
@@ -197,7 +216,7 @@ export interface Comparison {
 	readonly equal: boolean
 	readonly structural: ReadonlyArray<StructuralDifference>
 	readonly diffs: ReadonlyArray<StatementDiff>
-	/** Repeated rows the right run returned, summed over its statements: rows.length minus distinct rows. */
+	/** Repeated rows the right run returned, summed over its statements: rows.length minus distinct values. */
 	readonly rightDuplicates: number
 	readonly leftDuplicates: number
 }
@@ -224,8 +243,9 @@ export const rowMultiset = (rows: ReadonlyArray<RawRow>): ReadonlyMap<string, Ro
 	return out
 }
 
-/** The number of repeated rows: a set returns 0. */
-const duplicateCount = (rows: ReadonlyArray<RawRow>): number => rows.length - rowMultiset(rows).size
+/** The number of rows a statement repeats as values (canonicalRows): a set returns 0. */
+const duplicateCount = (s: StatementRows): number =>
+	s.rows.length - rowMultiset(canonicalRows(s)).size
 
 const byKey = (a: readonly [string, RowCount], b: readonly [string, RowCount]): -1 | 0 | 1 =>
 	a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0
@@ -354,7 +374,7 @@ export const compareRuns = (left: Run, right: Run): Comparison => {
 			structural.push({ kind: "missing", side: left.name, label: r.label })
 		}
 	}
-	const dup = (run: Run) => Arr.reduce(run.statements, 0, (n, s) => n + duplicateCount(s.rows))
+	const dup = (run: Run) => Arr.reduce(run.statements, 0, (n, s) => n + duplicateCount(s))
 	return {
 		equal: structural.length === 0 && diffs.length === 0,
 		structural,

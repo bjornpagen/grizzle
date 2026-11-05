@@ -26,6 +26,7 @@ import {
 } from "#compiler/analysis/physical/fds.ts"
 import {
 	type FixedFact,
+	type FixedFacts,
 	isUnique,
 	keyIdentity,
 	type Loss,
@@ -57,7 +58,13 @@ import {
 } from "#compiler/ir/cardinality.ts"
 import type { CoercionIdentity } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog, KeyConstraint } from "#compiler/ir/evidence.ts"
-import { exprClosure, nativeEqualityKey, type OpId, type ScalarExpr } from "#compiler/ir/expr.ts"
+import {
+	type EqualityKey,
+	exprClosure,
+	nativeEqualityKey,
+	type OpId,
+	type ScalarExpr
+} from "#compiler/ir/expr.ts"
 import {
 	closedColumn,
 	exprsOf,
@@ -330,7 +337,7 @@ interface Draft {
 	readonly fds: ProofFds
 	readonly prove: Prover
 	readonly candidates: ReadonlyArray<ReadonlyArray<string>>
-	readonly fixed: ReadonlyMap<string, FixedFact>
+	readonly fixed: ReadonlyMap<string, FixedFacts>
 	/** The most rows the node can have. */
 	readonly maxCard: Cardinality
 	readonly losses: ReadonlyArray<Loss>
@@ -397,7 +404,7 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 	 * A column determined by nothing is fixed: to what an equal fixed column is fixed to, or to a computation. Its
 	 * justification keeps the outer columns its derivation read, so it stays fixed only per outer row.
 	 */
-	const fixed = new Map<string, FixedFact>()
+	const fixed = new Map<string, FixedFacts>()
 	for (const c of columns) {
 		const f = draft.fixed.get(c)
 		if (f !== undefined) {
@@ -407,7 +414,7 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 	const determined = draft.fds.closure([])
 	for (const c of columns) {
 		if (!fixed.has(c) && determined.columns.has(c)) {
-			fixed.set(c, { fixed: { kind: "expr" }, just: draft.fds.explain(determined, [c]) })
+			fixed.set(c, [{ fixed: { kind: "expr" }, just: draft.fds.explain(determined, [c]) }])
 		}
 	}
 	const inHeading = new Set(columns)
@@ -459,14 +466,25 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 /** A node's dependency table and the facts its fixed columns are fixed to. */
 interface FixedState {
 	readonly fds: ProofFds
-	readonly fixed: Map<string, FixedFact>
+	readonly fixed: Map<string, FixedFacts>
 }
 
 /**
- * Fixes `column` with `just`, recording `fact` as what it is fixed to unless an earlier fact already is: one that names
- * its value, or one that names none where `fact` names none either. So a column an input fixes by a computation and a
- * filter equates with a literal is fixed to the literal, as the logical analysis reads it (logical/closure.ts).
+ * Records `fact` among what `column` is fixed to: a value it names beside the ones already held, or in place of a
+ * computation's fact, which names none; a computation's fact only where nothing is held. So a column an input fixes by
+ * a computation and a filter equates with a literal is fixed to the literal, as the logical analysis reads it
+ * (logical/props.ts fixedNames), and one two filters equate with two values is fixed to both, in either order.
  */
+const recordFact = (fixed: Map<string, FixedFacts>, column: string, fact: FixedFact): void => {
+	const held = fixed.get(column)
+	if (held === undefined || (held[0].fixed.kind === "expr" && fact.fixed.kind !== "expr")) {
+		fixed.set(column, [fact])
+	} else if (fact.fixed.kind !== "expr" && !held.some((h) => fixedEqual(h.fixed, fact.fixed))) {
+		fixed.set(column, [...held, fact])
+	}
+}
+
+/** Fixes `column` with `just`, recording `fact` among what it is fixed to (recordFact). */
 const fixColumn = (
 	state: FixedState,
 	column: string,
@@ -474,10 +492,7 @@ const fixColumn = (
 	fact: FixedFact
 ): void => {
 	state.fds.fix(column, just)
-	const held = state.fixed.get(column)
-	if (held === undefined || (held.fixed.kind === "expr" && fact.fixed.kind !== "expr")) {
-		state.fixed.set(column, fact)
-	}
+	recordFact(state.fixed, column, fact)
 }
 
 /** A column of the node that stands for an input column, and what representing it rests on. */
@@ -493,13 +508,16 @@ interface Rep {
  */
 const inherit = (
 	fds: ProofFds,
-	fixed: Map<string, FixedFact>,
+	fixed: Map<string, FixedFacts>,
 	input: PhysicalProps,
 	reps: (column: string) => ReadonlyArray<Rep>
 ): Requirement => {
-	for (const [c, f] of input.fixed) {
+	for (const [c, [first, ...others]] of input.fixed) {
 		for (const r of reps(c)) {
-			fixColumn({ fds, fixed }, r.column, joinJustifications([f.just, r.just]), f)
+			fixColumn({ fds, fixed }, r.column, joinJustifications([first.just, r.just]), first)
+			for (const f of others) {
+				recordFact(fixed, r.column, f)
+			}
 		}
 	}
 	for (const c of input.columns) {
@@ -515,7 +533,7 @@ const inherit = (
 		for (const c of cs) {
 			const f = input.fixed.get(c)
 			if (f !== undefined) {
-				just.push(f.just)
+				just.push(f[0].just)
 				continue
 			}
 			const r = reps(c)[0]
@@ -568,7 +586,7 @@ interface SameInherited extends FixedState {
 const inheritSame = (node: RelNode, input: PhysicalProps): SameInherited => {
 	const columns = node.heading.map((c) => c.name)
 	const fds = new ProofFds(columns)
-	const fixed = new Map<string, FixedFact>()
+	const fixed = new Map<string, FixedFacts>()
 	const options = inherit(fds, fixed, input, sameName(fds))
 	return {
 		fds,
@@ -696,9 +714,14 @@ const fixFromRight = (node: NodeOf<"SemiJoin">, cx: RuleContext, s: FixedState):
 	const right = cx.props(node.right)
 	const inner = subtreeLabels(node)
 	for (const pair of node.on) {
-		const f = right.fixed.get(pair.right)
-		if (f !== undefined && resolveOuter(f.just, (n) => inner.has(n)).bound.length === 0) {
-			fixColumn(s, pair.left, f.just, f)
+		const [first, ...others] = (right.fixed.get(pair.right) ?? []).filter(
+			(f) => resolveOuter(f.just, (n) => inner.has(n)).bound.length === 0
+		)
+		if (first !== undefined) {
+			fixColumn(s, pair.left, first.just, first)
+			for (const f of others) {
+				recordFact(s.fixed, pair.left, f)
+			}
 		}
 	}
 }
@@ -1029,7 +1052,7 @@ const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
 	const fds = new ProofFds(columns)
-	const fixed = new Map<string, FixedFact>()
+	const fixed = new Map<string, FixedFacts>()
 	const rows = node.rows
 	const facts = withReason(justify({ premises: [nodePremise(node.id)], context: "descriptor" }), [
 		"finiteFacts"
@@ -1054,7 +1077,7 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 		const [key] = values
 		if (literal !== undefined && key !== undefined && new Set(values).size === 1) {
 			fds.fix(c, facts)
-			fixed.set(c, { fixed: { kind: "literal", literal, key }, just: facts })
+			fixed.set(c, [{ fixed: { kind: "literal", literal, key }, just: facts }])
 		}
 	}
 	return finish(node, cx, {
@@ -1123,7 +1146,7 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 	const universe = node.vars.map((v) => v.name)
 	const columns = node.heading.map((c) => c.name)
 	const fds = new ProofFds(universe)
-	const fixed = new Map<string, FixedFact>()
+	const fixed = new Map<string, FixedFacts>()
 	const locals = new Set<NodeId>([node.id, ...node.occurrences.map((o) => o.source.id)])
 	const requirements: Array<Requirement> = []
 	const losses: Array<Loss> = []
@@ -1243,8 +1266,27 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 				fds.imply([v], l.vars, just)
 			}
 		}
-		for (const [c, f] of src.fixed) {
-			fixedColumn(c, f)
+		/**
+		 * Each further value the source fixes a column to names the variable's value too, where it holds outright: the
+		 * variable is fixed by it where nothing fixed it yet.
+		 */
+		const furtherFact = (c: string, f: FixedFact): void => {
+			const l = localize(f.just)
+			const v = colVar.get(c)
+			if (l === undefined || v === undefined || l.vars.length > 0) {
+				return
+			}
+			if (fixed.has(v)) {
+				recordFact(fixed, v, f)
+			} else {
+				fixVar(v, f)
+			}
+		}
+		for (const [c, [first, ...others]] of src.fixed) {
+			fixedColumn(c, first)
+			for (const f of others) {
+				furtherFact(c, f)
+			}
 		}
 		const mapColumns = (cs: ReadonlyArray<string>) => {
 			const vars: Array<string> = []
@@ -1436,7 +1478,7 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 	const inputId = node.input.id
 	const columns = node.heading.map((c) => c.name)
 	const fds = new ProofFds(columns)
-	const fixed = new Map<string, FixedFact>()
+	const fixed = new Map<string, FixedFacts>()
 	const locals = new Set([inputId])
 	const reps = new Map<string, Array<Rep>>()
 	/** A computed output, the input columns it reads, and what else it varies with: the outer columns it reads. */
@@ -1459,7 +1501,7 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 		const r = valueRep(o.expr, locals)
 		if (r.kind === "fixed") {
 			fds.fix(o.name, r.fact.just)
-			fixed.set(o.name, r.fact)
+			fixed.set(o.name, [r.fact])
 			continue
 		}
 		noninjective = true
@@ -1483,7 +1525,7 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 		for (const r of c.reads) {
 			const f = input.fixed.get(r)
 			if (f !== undefined) {
-				just.push(f.just)
+				just.push(f[0].just)
 				continue
 			}
 			const rep = repsOf(r)[0]
@@ -1522,20 +1564,23 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 	})
 }
 
-/** A column's fact when it is fixed to a literal. */
+/**
+ * The literal a column is fixed to, with its fact's justification: the one literal among its values; none where they
+ * hold no literal, or two, which no row holds at once.
+ */
 const literalFixed = (
 	props: PhysicalProps,
 	column: string
-):
-	| { readonly fixed: Extract<Fixed, { readonly kind: "literal" }>; readonly just: Justification }
-	| undefined => {
-	const f = props.fixed.get(column)
-	return f?.fixed.kind === "literal" ? { fixed: f.fixed, just: f.just } : undefined
+): { readonly key: EqualityKey; readonly just: Justification } | undefined => {
+	const [only, ...more] = (props.fixed.get(column) ?? []).flatMap((f) =>
+		f.fixed.kind === "literal" ? [{ key: f.fixed.key, just: f.just }] : []
+	)
+	return more.length === 0 ? only : undefined
 }
 
 /**
- * The first candidate column of the union's heading on which the two arms fix different literals, with its type under
- * the union and both arms' facts.
+ * The first candidate column of the union's heading each arm fixes to one literal, the two different, with its type
+ * under the union and both arms' facts.
  */
 const separator = (
 	cs: ReadonlyArray<string>,
@@ -1549,7 +1594,7 @@ const separator = (
 		const type = columnType.get(column)
 		const x = literalFixed(a, column)
 		const y = literalFixed(b, column)
-		if (type !== undefined && x !== undefined && y !== undefined && x.fixed.key !== y.fixed.key) {
+		if (type !== undefined && x !== undefined && y !== undefined && x.key !== y.key) {
 			return { type, a: x.just, b: y.just }
 		}
 	}
@@ -1603,20 +1648,25 @@ const unionProps = (node: NodeOf<"Union">, cx: RuleContext): PhysicalProps => {
 		}
 	}
 	const fds = new ProofFds(columns)
-	const fixed = new Map<string, FixedFact>()
+	const fixed = new Map<string, FixedFacts>()
 	for (const c of columns) {
-		const facts = arms.map((a) => a.props.fixed.get(c))
-		const [first] = facts
-		if (first === undefined || first.fixed.kind === "expr") {
-			continue
-		}
-		if (
-			facts.every((f) => f !== undefined) &&
-			facts.every((f) => fixedEqual(f.fixed, first.fixed))
-		) {
-			const just = joinJustifications(facts.map((f) => f.just))
-			fds.fix(c, just)
-			fixed.set(c, { fixed: first.fixed, just })
+		/** Each value the first arm fixes the column to that every arm does, with every arm's fact of it. */
+		const [first, ...others] = (arms[0].props.fixed.get(c) ?? []).flatMap(
+			(f): ReadonlyArray<FixedFact> => {
+				if (f.fixed.kind === "expr") {
+					return []
+				}
+				const facts = arms.map((a) =>
+					a.props.fixed.get(c)?.find((g) => fixedEqual(g.fixed, f.fixed))
+				)
+				return facts.every((g) => g !== undefined)
+					? [{ fixed: f.fixed, just: joinJustifications(facts.map((g) => g.just)) }]
+					: []
+			}
+		)
+		if (first !== undefined) {
+			fds.fix(c, first.just)
+			fixed.set(c, [first, ...others])
 		}
 	}
 	const separators = columns.filter((c) =>
@@ -1651,7 +1701,7 @@ const unionProps = (node: NodeOf<"Union">, cx: RuleContext): PhysicalProps => {
 /** An arm's dependency table: its fixed columns and its dependencies. */
 const armFdsOf = (props: PhysicalProps): ProofFds => {
 	const f = new ProofFds(props.columns)
-	for (const [c, x] of props.fixed) {
+	for (const [c, [x]] of props.fixed) {
 		f.fix(c, x.just)
 	}
 	for (const imp of props.fds) {
@@ -1671,7 +1721,7 @@ const groupProps = (
 	const input = cx.props(node.input)
 	const columns = node.heading.map((c) => c.name)
 	const fds = new ProofFds(columns)
-	const fixed = new Map<string, FixedFact>()
+	const fixed = new Map<string, FixedFacts>()
 	inherit(fds, fixed, input, (c) =>
 		node.keys.includes(c) && fds.has(c) ? [{ column: c, just: structural }] : []
 	)
@@ -1699,7 +1749,7 @@ const produceProps = (node: NodeOf<"Produce">, cx: RuleContext): PhysicalProps =
 	const input = cx.props(node.input)
 	const columns = node.heading.map((c) => c.name)
 	const fds = new ProofFds(columns)
-	const fixed = new Map<string, FixedFact>()
+	const fixed = new Map<string, FixedFacts>()
 	const carried = (c: string): ReadonlyArray<Rep> =>
 		node.carried.includes(c) && fds.has(c) ? [{ column: c, just: structural }] : []
 	const options = inherit(fds, fixed, input, carried)

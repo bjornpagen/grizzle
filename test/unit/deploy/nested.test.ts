@@ -336,9 +336,16 @@ const property = (box: Box, c: Case<Feature>): void => {
 		if (!Arr.some(allowed, (d) => sameDecision(d, chosen))) {
 			const refused = splitRenames(g.record, files)
 			assert.ok(refused.length > 0, `${at}: a decision the rules forbid passes check`)
-			const twice = Arr.some([...chosen], (x) =>
-				Arr.some([...chosen], (y) => x !== y && rivals(x, y))
-			)
+			/**
+			 * The candidates the review takes: those written, and those written as their head alone where a head is a
+			 * branch to take, at the top or inside a written relation's rename; a nested field's head under a relation
+			 * rename the review does not take is an orphan, no choice.
+			 */
+			const taken = [
+				...written,
+				...Arr.filter(heads, (h) => h.kind !== "nested field" || written.has(h.parent))
+			]
+			const twice = Arr.some(taken, (x) => Arr.some(taken, (y) => x !== y && rivals(x, y)))
 			if (twice) {
 				c.note("two rival renames both chosen refused")
 				assert.ok(
@@ -346,7 +353,7 @@ const property = (box: Box, c: Case<Feature>): void => {
 					`${at}: two rivals both chosen are not refused as twice`
 				)
 			}
-			for (const x of chosen) {
+			for (const x of taken) {
 				if (
 					(x.kind === "field" || x.kind === "nested field") &&
 					x.requires.kind === "type" &&

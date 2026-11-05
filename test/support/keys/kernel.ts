@@ -11,6 +11,7 @@ import {
 } from "#compiler/ir/evidence.ts"
 import { nativeEqualityKey, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Fold } from "#compiler/ir/fold.ts"
+import { comparedValue } from "#compiler/ir/injective.ts"
 import type { Dependency, Implication, KeyProof, Rule } from "#compiler/ir/keys.ts"
 import type { KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
@@ -156,8 +157,13 @@ export class KeyKernel {
 		return x !== undefined && y !== undefined && more.length === 0 ? [x, y] : undefined
 	}
 
+	/**
+	 * The column of `node` an expression is, as an equality compares it: the column itself, or an injective cast of it
+	 * (ir/injective.ts comparedValue), which holds two values apart exactly when the column does.
+	 */
 	#columnOf(e: ScalarExpr, node: NodeId): string | undefined {
-		return e.kind === "column" && e.column.node === node ? e.column.name : undefined
+		const value = comparedValue(e)
+		return value.kind === "column" && value.column.node === node ? value.column.name : undefined
 	}
 
 	#reads(e: ScalarExpr, nodes: ReadonlySet<NodeId>): boolean {

@@ -607,22 +607,28 @@ const cappedByDomain = (type: ScalarType, count: bigint): bigint => {
  * recursionMaxStates in production) is ResourceBound before any SQL exists, because RecursiveUnion's seen-state hash
  * cannot spill; finite state is a termination argument, not a resource bound, so the runtime gates stay.
  *
- * The termination certificate of a definition whose arms the scan admitted, or its refusal: UnsupportedOperation for
+ * The range a counter's component spans, every integer between its least and its greatest value, bounds every state
+ * of its columns, so the step computes, on any state a counter column holds, the state plus one of the column's steps:
+ * the column's counter interval, [least + the most negative step, greatest + the most positive step], the steps
+ * taken as 0 where none is negative or none positive. It holds the value one step past the bound, which PostgreSQL
+ * may compute on the working table's last rows before the step's filter drops them, and it is what proves the exact
+ * step's narrowing into the column (state.ts).
+ *
+ * The termination verdict of a definition whose arms the scan admitted, or its refusal: UnsupportedOperation for
  * unbounded computed state or a carrier overflow, ResourceBound for an estimate above recursionMaxStates.
  *
  * A computed term reading a column of its own component invents values around a cycle: unbounded.
  */
-export const terminationCertificate = (input: {
+export const terminationVerdict = (input: {
 	readonly def: ResolvedRecursive
 	readonly row: ReadonlyMap<string, ScalarType>
 	readonly base: ReadonlyArray<Arm>
 	readonly rec: ReadonlyArray<RecArm>
-	readonly step: RelNode
 	/** The admitted state estimate. */
 	readonly maxStates: number
 	readonly loc: SourceLoc
 	readonly cx: CheckServices
-}): TerminationCert => {
+}): TerminationVerdict => {
 	const { def, row, maxStates } = input
 	const a = new Analysis(def, row, input.cx)
 	for (const arm of input.base) {
@@ -639,12 +645,12 @@ export const terminationCertificate = (input: {
 	}
 	const columns = [...row.keys()]
 	const forms = (c: string): ReadonlyArray<Form> => a.formsOf(c)
-	/** The number of values a counter's component takes: every integer between its least and its greatest. */
-	const counterCount = (
+	/** The values a counter's component takes: every integer between its least and its greatest. */
+	const counterRange = (
 		[min, max]: readonly [bigint, bigint],
 		all: ReadonlyArray<PlacedForm>,
 		steps: ReadonlyArray<Extract<Value, { readonly kind: "counter" }>>
-	): bigint => {
+	): readonly [bigint, bigint] => {
 		/**
 		 * What can widen the range: every form but a counter and a copy of the component's own columns, which
 		 * delivers a value the component already holds.
@@ -660,11 +666,9 @@ export const terminationCertificate = (input: {
 		const [first, ...rest] = known
 		const falling = steps.flatMap((x) => (x.delta < 0n ? [x.limit] : []))
 		const rising = steps.flatMap((x) => (x.delta > 0n ? [x.limit] : []))
-		const [lo, hi] =
-			known.length < inputs.length || first === undefined
-				? [least(min, falling), greatest(max, rising)]
-				: [least(first, [...rest, ...falling]), greatest(first, [...rest, ...rising])]
-		return hi >= lo ? hi - lo + 1n : 1n
+		return known.length < inputs.length || first === undefined
+			? [least(min, falling), greatest(max, rising)]
+			: [least(first, [...rest, ...falling]), greatest(first, [...rest, ...rising])]
 	}
 	/**
 	 * The number of values any other component takes: its literals, data once, and for each copy or computed term the
@@ -690,6 +694,7 @@ export const terminationCertificate = (input: {
 	/** The computed terms reading a column of their own component, the row's factors, components in dependency order. */
 	const cyclic: Array<Cyclic> = []
 	const factors: Array<bigint> = []
+	const intervals = new Map<string, readonly [bigint, bigint]>()
 	/** Counts a closed component, `members` last pushed first: every read of an open column is of the component
 	 * itself. */
 	const close = (members: ReadonlyArray<Visit>): void => {
@@ -719,8 +724,15 @@ export const terminationCertificate = (input: {
 		const [counter] = members.flatMap((m) =>
 			m.forms.flatMap(({ form }) => (form.value.kind === "counter" ? [form.value] : []))
 		)
-		const count = counter === undefined ? valueCount(all) : counterCount(counter.range, all, steps)
+		const range = counter === undefined ? undefined : counterRange(counter.range, all, steps)
+		const count = range === undefined ? valueCount(all) : range[1] - range[0] + 1n
 		for (const m of members) {
+			const deltas = m.forms.flatMap(({ form }) =>
+				form.value.kind === "counter" ? [form.value.delta] : []
+			)
+			if (range !== undefined && deltas.length > 0) {
+				intervals.set(m.column, [range[0] + least(0n, deltas), range[1] + greatest(0n, deltas)])
+			}
 			const type = row.get(m.column)
 			const factor = type === undefined ? count : cappedByDomain(type, count)
 			m.state = { kind: "closed", factor }
@@ -779,7 +791,7 @@ export const terminationCertificate = (input: {
 	const steps = columns.flatMap((c) =>
 		forms(c).flatMap((f) => (f.value.kind === "counter" ? [f.value] : []))
 	)
-	const counters = steps.length > 0
+	const counting = steps.length > 0
 	const increasing = steps.some((x) => x.delta > 0n)
 	/** Every row column is in one component, closed with its factor. */
 	const stateEstimate = factors.reduce((p, f) => p * f, 1n)
@@ -792,8 +804,25 @@ export const terminationCertificate = (input: {
 		})
 	}
 	return {
-		kind: !counters ? "finiteCarrier" : increasing ? "boundedState" : "wellFounded",
+		kind: !counting ? "finiteCarrier" : increasing ? "boundedState" : "wellFounded",
 		stateEstimate,
-		premises: counters ? [{ kind: "node", node: input.step.id }] : []
+		counters: intervals
 	}
 }
+
+/**
+ * What termination admits a recursion by: its certificate family, its state estimate, and each counter column's
+ * interval, every value its step computes from every state the column holds.
+ */
+export interface TerminationVerdict {
+	readonly kind: TerminationCert["kind"]
+	readonly stateEstimate: bigint
+	readonly counters: ReadonlyMap<string, readonly [bigint, bigint]>
+}
+
+/** The certificate of a verdict over the step it proves: a counter family's premise is that step. */
+export const certificate = (verdict: TerminationVerdict, step: RelNode): TerminationCert => ({
+	kind: verdict.kind,
+	stateEstimate: verdict.stateEstimate,
+	premises: verdict.kind === "finiteCarrier" ? [] : [{ kind: "node", node: step.id }]
+})

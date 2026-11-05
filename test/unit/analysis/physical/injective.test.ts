@@ -6,6 +6,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Result } from "effect"
 import { ExprId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { builtExpr, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
@@ -194,10 +195,10 @@ const castNode = (arg: ScalarExpr, type: ScalarType, id: ExprId): ScalarExpr => 
 				{
 					...common,
 					cast: native.id,
-					proof: {
-						precondition: { kind: "fits" },
+					proof: mapNonEmpty(native.totality.preconditions, (precondition) => ({
+						precondition,
 						premises: [{ kind: "checked", operand: 0, by: "literal" }]
-					}
+					}))
 				},
 				id
 			)

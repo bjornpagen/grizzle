@@ -175,7 +175,10 @@ describe("the audit finds what it must", () => {
 				"export const c = (n: number, d: number): number => n / d / 2",
 				"export type D = { readonly test: RegExp }",
 				"export const e = { test: 1, exec: 2 }",
-				"export const f = (when: { match: string }) => when.match === 'NOT MATCHED' ? when.match : ''"
+				"export const f = (when: { match: string }) => when.match === 'NOT MATCHED' ? when.match : ''",
+				'import { Option, Result as R } from "effect"',
+				"export const g = (o: Option.Option<string>) => Option.match(o, { onNone: () => '', onSome: (s) => s })",
+				"export const h = (r: R.Result<string, string>) => R.match(r, { onSuccess: (s) => s, onFailure: (e) => e })"
 			],
 			"\n"
 		)

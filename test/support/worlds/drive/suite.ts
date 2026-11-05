@@ -1437,7 +1437,8 @@ const docsConversions: ReadonlySet<string> = ownConversions(docsBases)
 /**
  * Notes what a case's realization met of how PostgreSQL resolves names: the ambient session its owner sessions started
  * under, the dictionary features of the names its installation drew beyond the documents bases' own, and a base object
- * or a role entry named after a PostgreSQL type.
+ * or a role entry named after a PostgreSQL type, paired with the grizzle-first path where the installation's schemas
+ * come first on its owner's search path, ahead of pg_catalog's type of that name.
  */
 export const noteNaming = (pc: ProgramCase, c: Case<WorldFeature>): void => {
 	for (const feature of ambientFeatures(pc.ambient)) {
@@ -1448,6 +1449,9 @@ export const noteNaming = (pc: ProgramCase, c: Case<WorldFeature>): void => {
 	}
 	if (namesCatalogType(pc.install)) {
 		c.note("catalog-type name")
+		if (pc.ambient.path.kind === "grizzleFirst") {
+			c.pair("grizzle-first path", "catalog-type name")
+		}
 	}
 }
 

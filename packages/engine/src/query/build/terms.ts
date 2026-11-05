@@ -1,7 +1,7 @@
 import { constantColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties, isList } from "#compiler/core/record.ts"
+import { isList } from "#compiler/core/record.ts"
 import { type CompareOp, connectiveExpr, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr, OpenHead } from "#compiler/ir/open.ts"
 import { spanCarrierOf, spanOf } from "#compiler/ir/scalar.ts"
@@ -22,7 +22,10 @@ import {
 	type PredicateValue,
 	predicateExpr,
 	predicateValue,
+	headOf,
+	headOnlyOperand,
 	registerCarried,
+	registerHead,
 	registerUntyped,
 	type ScalarTerm,
 	type TermCarrier,
@@ -52,10 +55,8 @@ interface HeadDesc {
 	readonly desc: OpenHead
 	readonly typing: Typing
 }
-const headValues = new WeakMap<object, HeadDesc>()
 
-export const headValueOf = (value: unknown): HeadDesc | undefined =>
-	hasProperties(value) ? headValues.get(value) : undefined
+export const headValueOf = (value: unknown): HeadDesc | undefined => headOf(value)
 
 /** An aggregate: its fold, and the carrier of its result. */
 interface AggregateValue<out T, out S extends SqlTag> extends Built, TermCarrier<T, S> {
@@ -67,10 +68,8 @@ interface ProducerValue<out T, out S extends SqlTag> extends Built, TermCarrier<
 	readonly produces: "intersection" | "difference" | "pack"
 }
 
-const headValue = <V extends Built>(value: V, desc: OpenHead, typing: Typing): V => {
-	headValues.set(value, { desc, typing })
-	return value
-}
+const headValue = <V extends Built>(value: V, desc: OpenHead, typing: Typing): V =>
+	registerHead(value, desc, typing)
 
 /** The untyped term: comparisons recorded as written, literal operands carried by host kind for the checker to type. */
 export interface UntypedTerm extends Built {
@@ -281,8 +280,9 @@ export const operand = (value: unknown, anchor: Typing, label: string): OpenExpr
 	if (predicateExpr(value) !== undefined) {
 		throw malformed(label, "a scalar operand, not a predicate")
 	}
-	if (headValueOf(value) !== undefined) {
-		throw malformed(label, "a scalar operand: an aggregate or producer is a head term")
+	const head = headValueOf(value)
+	if (head !== undefined) {
+		throw malformed(label, headOnlyOperand("a scalar operand", head.desc))
 	}
 	return { kind: "literal", value: literalAgainst(anchor, value, label), type: undefined }
 }
@@ -293,6 +293,10 @@ const firstTerm = (value: unknown, label: string): TermOf => {
 	if (term === undefined) {
 		if (predicateExpr(value) !== undefined) {
 			throw malformed(label, "a term first, not a predicate")
+		}
+		const head = headValueOf(value)
+		if (head !== undefined) {
+			throw malformed(label, headOnlyOperand("a term first", head.desc))
 		}
 		throw malformed(
 			label,

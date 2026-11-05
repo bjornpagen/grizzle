@@ -1,7 +1,7 @@
 import { type Array as Arr, Effect, type Scope } from "effect"
-import { apply } from "#adapter/apply/index.ts"
+import { apply, compileFailure } from "#adapter/apply/index.ts"
 import { type DbContext, dbContext } from "#adapter/db/context.ts"
-import { type CompiledOps, runtimeOf } from "#adapter/db/db.ts"
+import { type CompiledOps, notAChangeSet, notAProgram, runtimeOf } from "#adapter/db/db.ts"
 import type { ApplyError } from "#adapter/errors/execution.ts"
 import type { Db } from "#adapter/public/db.ts"
 import type { ReaderValue } from "#adapter/reader/reader.ts"
@@ -16,7 +16,7 @@ import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
  * program whose type the schema type argument does not admit, a ChangeSet outside the role's write list, or a loop over
  * queries of different types. It is the runtime the Db's methods dispatch to, built over the Db's own context, so a
  * guard, a span or an ordering there reaches the tests through it; it types every program `unknown`, as a JavaScript
- * caller's value is, and a value that is no program the builders made is a defect of the test.
+ * caller's value is, and a value that is no program the builders made is refused as the Db's own methods refuse it.
  */
 export interface DbRuntime {
 	/** The reader db.get, db.execute and db.page dispatch to: one transaction per read from the pool. */
@@ -48,13 +48,13 @@ const runtimeFor = (ctx: DbContext): DbRuntime => {
 				? runtime.compileTyped(program, program.reads)
 				: isQueryValue(program) || isOrderedValue(program)
 					? runtime.compileTyped(program, program.rows)
-					: Effect.die(new Error("db.compile of a value that is no program")),
+					: Effect.fail(notAProgram()),
 		methods: {
 			apply: (changes, params) =>
 				Effect.suspend(() =>
 					isChangeSetValue(changes)
 						? apply(ctx, changes, changes.reads, params)
-						: Effect.die(new Error("db.apply of a value that is no ChangeSet"))
+						: compileFailure(notAChangeSet())
 				),
 			refresh: runtime.refresh
 		}

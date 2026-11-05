@@ -10,7 +10,7 @@ import type { NodeOver, RelNode, ValueRefs } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { type ConservativeProgram, conservativeInput } from "#compiler/lower/conservative/types.ts"
 import type { Select, SelectBody, SelectCore } from "#compiler/sql/ast.ts"
-import { rowMultiset, rawRowKey } from "#test/support/oracle/compare.ts"
+import { canonicalRows, rowMultiset, rawRowKey } from "#test/support/oracle/compare.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import {
@@ -285,7 +285,7 @@ export const told = (o: OracleOutcome): boolean => !o.comparison.equal
 
 /**
  * The feedback UNION ALL counterexample shape: the same distinct rows on both sides, the right repeating some states and the
- * left none (a repeated endpoint state, never a changed value).
+ * left none (a repeated endpoint state, never a changed value), rows compared as values (compare.ts canonicalRows).
  */
 export const repeatsStates = (o: OracleOutcome): boolean => {
 	if (
@@ -300,15 +300,15 @@ export const repeatsStates = (o: OracleOutcome): boolean => {
 		if (other === undefined) {
 			return false
 		}
-		const a = rowMultiset(st.rows)
-		const b = rowMultiset(other.rows)
+		const a = rowMultiset(canonicalRows(st))
+		const b = rowMultiset(canonicalRows(other))
 		return a.size === b.size && Arr.every([...a.keys()], (k) => b.has(k))
 	})
 }
 
 /**
  * The erased edge identity counterexample shape: the same groups, every differing count smaller on the right (parallel edges
- * merged), and no repeated row on either side.
+ * merged), and no repeated row on either side, rows compared as values (compare.ts canonicalRows).
  */
 export const undercounts = (o: OracleOutcome, countColumn: string): boolean => {
 	if (
@@ -328,10 +328,11 @@ export const undercounts = (o: OracleOutcome, countColumn: string): boolean => {
 			return false
 		}
 		const keyOf = (row: RawRow) => rawRowKey(row.toSpliced(at, 1))
-		const right = new Map(Arr.map(other.rows, (row) => [keyOf(row), Number(row[at])]))
+		const left = canonicalRows(st)
+		const right = new Map(Arr.map(canonicalRows(other), (row) => [keyOf(row), Number(row[at])]))
 		return (
-			right.size === st.rows.length &&
-			Arr.every(st.rows, (row) => {
+			right.size === left.length &&
+			Arr.every(left, (row) => {
 				const r = right.get(keyOf(row))
 				return r !== undefined && r <= Number(row[at])
 			})

@@ -6,6 +6,7 @@ import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
+	booleanField,
 	type CompareOp,
 	type ComputeFn,
 	connectiveExpr,
@@ -48,6 +49,8 @@ import {
 	type GuardValue,
 	guarded,
 	guardOf,
+	headOf,
+	headOnlyOperand,
 	type PredicateValue,
 	predicateExpr,
 	predicateValue,
@@ -222,7 +225,8 @@ interface PlainChecked extends Checked {
 class Call {
 	readonly loc: SourceLoc
 	readonly types: Array<ScalarType> = []
-	readonly fields = new Map<FieldDesc, ScalarType>()
+	/** The field descriptors the call met, with their types; a connective's unit is typed by booleanField. */
+	readonly fields = new Map<FieldDesc, ScalarType>([[booleanField, plainType("bool")]])
 
 	constructor(label: string) {
 		this.loc = captureLoc(label, [])
@@ -247,6 +251,10 @@ class Call {
 		if (term === undefined) {
 			if (predicateExpr(value) !== undefined) {
 				return malformed(this.loc, `a term as ${what}, not a predicate`)
+			}
+			const head = headOf(value)
+			if (head !== undefined) {
+				return malformed(this.loc, headOnlyOperand(`a term as ${what}`, head.desc))
 			}
 			return malformed(this.loc, `a term as ${what}: a literal never stands first`)
 		}

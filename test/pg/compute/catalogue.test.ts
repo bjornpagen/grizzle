@@ -337,7 +337,7 @@ const spellingOf = (read: ReadonlyArray<Operand>): Spelling["kind"] => {
 
 const literalOf = (f: TestField, operand: Operand): LeafBinding => ({
 	kind: "literal",
-	type: f.scalar,
+	field: f,
 	value: operand.value
 })
 
@@ -763,7 +763,7 @@ const buildCases = (operands: Operands): ReadonlyArray<ReadCase> => {
 				a: literalOf(numeric, a),
 				b: literalOf(numeric, b),
 				c: literalOf(numeric, c),
-				n: { kind: "literal", type: testPg.integer.scalar, value: n }
+				n: { kind: "literal", field: testPg.integer, value: n }
 			},
 			false,
 			[a, b, c]

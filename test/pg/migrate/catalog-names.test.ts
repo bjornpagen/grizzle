@@ -228,6 +228,9 @@ layer(Substrate.layer)("objects named like PostgreSQL's own types", (it) => {
 							for (const t of targets) {
 								k.note(t)
 								k.note(`named ${c.names[t].type}`)
+								for (const feature of ambientFeatures(c.ambient)) {
+									k.pair(t, feature)
+								}
 							}
 							const substrate = yield* Substrate
 							const desc = schemaOf(c.names)

@@ -25,7 +25,7 @@ import {
 } from "#compiler/public/schema.ts"
 
 /**
- * R09: a residual law's checker is specialized to what each write can break, so its first call in a backend compiles
+ * law-first-call: a residual law's checker is specialized to what each write can break, so its first call in a backend compiles
  * only the unit the write fires, and its cost follows that unit's size, never the law's.
  *
  * PostgreSQL compiles a trigger function once per trigger and backend, so a backend's first write to a table pays the
@@ -94,7 +94,7 @@ const commitMs = (m: TransactionMeasure): number => {
 /** @internal */
 export default defineGate({
 	name: "write-first-call",
-	gates: ["R09"],
+	gates: ["law-first-call"],
 	title: "A residual law's first call per backend compiles only the unit its write fires",
 	scope:
 		"An alternatives law over growing rosters, every handle armed or one unarmed: the first COMMIT of a parent in a " +
@@ -106,7 +106,7 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const cases: Array<CaseRecord<"R09">> = []
+			const cases: Array<CaseRecord<"law-first-call">> = []
 			/** (a) and (b) by size and arming, each the median of its samples. */
 			const parent = new Map<string, number>()
 			const payloads = new Map<string, number>()
@@ -182,7 +182,7 @@ export default defineGate({
 					payloads.set(label, everyPayloadMs)
 					cases.push({
 						name: label,
-						gates: ["R09"],
+						gates: ["law-first-call"],
 						conditions: writeConditions({
 							workload: `in a fresh backend: one parent and its payload committed; and one transaction rewriting a payload in each of ${armed} payload tables`,
 							schemaState: loadedByOwner,
@@ -224,7 +224,7 @@ export default defineGate({
 			)
 			const payloadGrowth = at(payloads, large, true) / at(payloads, small, true)
 			const parentGrowth = at(parent, large, true) / at(parent, small, true)
-			const r09: VerdictInput = {
+			const firstCall: VerdictInput = {
 				checks: [
 					mechanism(
 						"an unarmed handle costs one empty WHEN: a parent's first COMMIT with one unarmed handle is within 1.5 times every handle armed, at each size",
@@ -246,6 +246,6 @@ export default defineGate({
 					)
 				]
 			}
-			return { cases, verdicts: { R09: r09 } }
+			return { cases, verdicts: { "law-first-call": firstCall } }
 		})
 })

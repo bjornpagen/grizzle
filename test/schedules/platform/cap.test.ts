@@ -81,20 +81,19 @@ const anyCapSketchGen: Gen<CapSketch> = (source) => {
 	}
 }
 
+/** A race whose caps merge keeps `merge`, with every op on. */
+const mergeArm = (merge: Merge): Gen<CapSketch> =>
+	map(anyCapSketchGen, (k): CapSketch => ({ ...k, merge, ops: fullSwarm(opFeatures) }))
+
 /**
- * A race's sketch: any, or one in five a caps merge that keeps only the second month with every op on, so a request can
- * meet the month a merge removed.
+ * A race's sketch: any, or one in six a caps merge that keeps only the second month with every op on, so a request can
+ * meet the month a merge removed, and one in six one that keeps both months, the race's month's cap changed under the
+ * requests.
  */
 const capSketchGen: Gen<CapSketch> = weighted([
 	[4, anyCapSketchGen],
-	[
-		1,
-		map(anyCapSketchGen, (k): CapSketch => ({
-			...k,
-			merge: "the second month",
-			ops: fullSwarm(opFeatures)
-		}))
-	]
+	[1, mergeArm("the second month")],
+	[1, mergeArm("both months")]
 ])
 
 /** Request n's window: a minute apart, each half a minute long, inside the month. */

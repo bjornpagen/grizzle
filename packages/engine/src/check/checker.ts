@@ -3138,7 +3138,10 @@ class RuleCheck {
 			: { kind: "filtered", column, type: col.type, value }
 	}
 
-	/** A negated column correlated with a region column, which has its type up to refinement. */
+	/**
+	 * A negated column correlated with a region column, which has its value type up to refinement: a serial
+	 * declaration is a column's generation, no refinement, so a serial column correlates with its integer's values.
+	 */
 	#correlatedBinding(
 		col: HeadingColumn,
 		correlation: NegatedCorrelation,
@@ -3152,7 +3155,7 @@ class RuleCheck {
 				`operands of one type: ${region.name} is ${typeLabel(region.type)}, ${col.name} is ${typeLabel(col.type)}`
 			)
 		}
-		if (!sameScalarType(baseOf(region.type), baseOf(col.type))) {
+		if (!sameScalarType(valueType(region.type), valueType(col.type))) {
 			fail(
 				"UnsupportedOperation",
 				at,
@@ -3183,9 +3186,10 @@ class RuleCheck {
 	}
 
 	/**
-	 * A computed binding of a negated match, lowered over the negated source. An own or literal-bound parameter is a
-	 * constant here; a parameter an import binds to an outer variable reads the rule's region, which the negated source
-	 * cannot, like a variable.
+	 * A computed binding of a negated match, lowered over the negated source, of a type that meets its column (types.ts
+	 * meets), as a match's computed binding is (#constant): an exact integer or money value fixes a plain column of its
+	 * family. An own or literal-bound parameter is a constant here; a parameter an import binds to an outer variable reads
+	 * the rule's region, which the negated source cannot, like a variable.
 	 */
 	#negatedTerm(source: RelNode, e: ResolvedExpr, col: HeadingColumn, at: SourceLoc): ScalarExpr {
 		const base = this.env(source.id, at)
@@ -3219,7 +3223,7 @@ class RuleCheck {
 				}
 			})
 		)
-		if (!compatible(term.nominal, col.type)) {
+		if (!meets(term.nominal, col.type)) {
 			fail(
 				"MalformedDescription",
 				at,

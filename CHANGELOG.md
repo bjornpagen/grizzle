@@ -597,7 +597,7 @@ How to upgrade:
   that switches over the codec fault words gains `"refinedValue"`. No codemod.
 - **A bare `pg.numeric` field stores at most 1,000 integer digits.** Its encoder refuses a longer value
   (`numericOverflow`), and every bare numeric column carries the installed CHECK `__<table>_bound_<column>_<digest>`,
-  `abs(c) < 1e1000 OR c = 'NaN' OR abs(c) = 'Infinity'`, whose violation, by a computed value grizzle writes or by a
+  `abs(c) < 10^1000 OR c = 'NaN' OR abs(c) = 'Infinity'` (the bound written out in full digits), whose violation, by a computed value grizzle writes or by a
   direct SQL writer, reports the law `{ kind: "numericBound", relation, field }`. A numeric expression whose digit
   bound passes 131,072 digits is `ResourceBound` with `bound: { kind: "numericDigits", limit, needed }`.
   - Fix: a program that switches over `Law["kind"]` exhaustively gains `"numericBound"`, and one over
@@ -606,7 +606,11 @@ How to upgrade:
   every other Compute operation, since no operation raises; the refusal of arithmetic in a role entry is removed. No
   codemod.
 - **A derived relation stores no exact value.** A derived head that delivers an exact integer or exact money is
-  `DerivedRefused` with reason `exactField`; narrow it with `Compute.cast` into the field's type under a guard.
+  `DerivedRefused` with reason `exactField`; narrow it with `Compute.cast` into the field's type under a guard. An
+  aggregate is a head column, never a term, so a sum is narrowed one stage later: find the sum in an interior stage
+  (`r.interior`), match it, and narrow the matched variable,
+  `Compute.when(Compute.within(total, least, greatest), (t) => Compute.cast(t, pg.money), Compute.literal(pg.money,
+  Money.of(0n)))`. `Compute.cast(r.sum(...))` is refused and names that route.
 - **`r.sum` over `bigint` is `numeric`, and over money exact money.** Sums over exact values are exact. No codemod for
   reads of `bigint` sums, which already delivered `Decimal`.
 - **Format and state:** snapshot.json changes: a scalar operation node carries its precondition proof, failure
@@ -642,3 +646,43 @@ How to upgrade:
   outside grizzle is refused as malformed by `grizzle check`, `grizzle generate` and `grizzle migrate` before its meta
   is read. Every snapshot fingerprint changes, and a previous snapshot.json or meta.json is refused, never read:
   delete `migrations/`, re-create every database and run `grizzle generate` (step 3 above).
+
+#### What the full test run found and fixed: proofs PostgreSQL disagreed with, and literals, plans and checks it refused
+
+Every one of these was reached by the suites under the witness phases (#1) and the cutovers above; none needs a
+codemod unless it says so.
+- **Cast proofs are PostgreSQL's conversions.** A narrowing proof reads the conversion the cast is: an exact
+  conversion is not widened (so `Compute.cast(x, pg.numeric(1, 0))` under `Compute.within(x, -9n, 9n)` is proved),
+  rounding to a scale widens by one unit, and a float into numeric widens outward to the float's significant digits
+  (6 for `real`, 15 for `double precision`), where before a `real` near the bound was proved and PostgreSQL raised
+  22003. `fits` into a numeric typmod admits NaN, which a numeric column holds; a cast into an integer or money also
+  needs the value finite. Float bounds account for IEEE rounding (overflow to ±Infinity, underflow to 0), so a float
+  product or divisor is no longer proved finite or nonzero where rounding makes it infinite or zero.
+- **Power proofs are PostgreSQL's limits.** A numeric power with a fractional exponent is proved in range only while
+  its result has at most 6000 digits (PostgreSQL's power_var); an exponent proved integral keeps the wider range of
+  power_var_int. A small base with a negative exponent is bounded too (`power(1e-16383, -10)` overflows and was
+  proved). Write the guard the type error names.
+- **Recursive counters.** A counter is proved from the recursion's termination interval: every value the step
+  computes from every state the counter holds, the step past its bound included. A walk whose arms step by 1 and 2
+  is admitted, and so are mixed arms (`h: Compute.add(h, 1)` beside `h: h`). A counter seeded by data or bounded by a
+  parameter can reach its carrier's extreme and is refused (`PartialOperation`); a counter without a bound is refused
+  as unbounded state.
+- **Float arithmetic runs natively where that is exact.** An IEEE 754 operation is sent as PostgreSQL's own
+  operation where a kept proof shows its result is the IEEE result (literals, contracts, guards, conversions of
+  exact integers), and otherwise as a guarded form whose operands are bound once, fenced so PostgreSQL plans it in
+  linear time: a percentile over a few rows took minutes to plan, and now milliseconds.
+- **An entry insert leaves out only its classed serial fields.** An insert through a writable entry may omit the
+  serial fields the entry classes, and carries every serial field its filter reads, as the README states; before,
+  the fill was checked against the table's whole serial list and refused.
+- **A literal equality in a role or workload filter is indexed.** The index request of a filter such as
+  `org = '<uuid>'` now holds that column, so it is read by an index and not a scan; an equality over a roster handle
+  alone is still no index. Index names and snapshots change.
+- **Smaller corrections:** a rewritten WITH or target table of an INSERT is no longer lost (the SQL transformer);
+  a residual law's violation probe admits a contract over text; a read's relation parameter outside its refinement
+  is refused at bind (`EncodingFailure` with `refinedValue`), as a scalar parameter is; a page over a vector key
+  compares by pgvector's qualified operator; `r.not` binds an exact value at a plain column; a money literal is
+  written in its one form (`1.5::money`); decimal literals are never written with an exponent.
+- **Format and state:** snapshot.json changes again: a cast's operation id names its source carrier
+  (`cast:exactInteger->numeric`, where exact carriers shared numeric's id), an interval premise records whether it
+  admits NaN, and a float operation may carry its native proof. Delete `migrations/`, re-create every database and
+  run `grizzle generate`.

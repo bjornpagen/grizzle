@@ -1,5 +1,5 @@
+import { exactParts } from "#compiler/core/decimal.ts"
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
-import { decimalPayload } from "#compiler/ir/decimal.ts"
 import { describeOp, type TypedLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
@@ -10,10 +10,9 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
-import { bindOperands, ieeeCastForm } from "#compiler/lower/conservative/expr/total.ts"
+import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
-import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { cast, lit } from "#compiler/sql/build.ts"
 
@@ -48,7 +47,7 @@ export const lowerLiteral = (
 		case "int":
 			return lit.int(literal.value, sqlType)
 		case "numeric":
-			return lit.decimal(decimalPayload(literal.value), sqlType)
+			return lit.decimal(literal.value.parts, sqlType)
 		case "float":
 			return lit.float(literal.value, sqlType)
 		case "floatSpecial":
@@ -61,7 +60,7 @@ export const lowerLiteral = (
 				sqlType
 			)
 		case "money":
-			return lit.decimal(moneyText(moneyMinorUnits(literal.value)), sqlType)
+			return lit.decimal(exactParts(moneyMinorUnits(literal.value), 2), sqlType)
 		case "bool":
 			return lit.bool(literal.value)
 		case "text":
@@ -85,9 +84,9 @@ const exprLabel = (expr: ScalarExpr): string => `expression ${expr.id} (${expr.k
  *
  * One IR node is one Compute operation, so each lowers to its SQL: a column becomes its qualified reference in the
  * environment, a parameter its typed placeholder, a literal a typed literal, an operator its catalog form (an exact
- * one in its exact space and an IEEE 754 one by its fast and exact paths, ops.ts totalForm), a cast `x::type` (a
- * rounding into a float by total.ts ieeeCastForm), a domain cast `x::domain`, and a conditional CASE with its ELSE. No
- * NULL, NULLIF or COALESCE is produced.
+ * one in its exact space and an IEEE 754 one natively where proved and by its guarded form otherwise, ops.ts
+ * totalForm), a cast `x::type` (a rounding into a float as total.ts ieeeForm chooses), a domain cast `x::domain`, and
+ * a conditional CASE with its ELSE. No NULL, NULLIF or COALESCE is produced.
  *
  * Types: a comparison parameter is cast to its base type and a written or emitted one to
  * its domain, which the IR records as the parameter's type; a literal is typed by its base, since its refinement was
@@ -116,14 +115,16 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 		case "literal":
 			return lowerLiteral(cx.names, expr.value, expr.type)
 		case "cast": {
-			const [arg] = expr.args
-			const inner = lower(arg)
-			const native = nativeOp(expr.cast)
-			const target = baseOf(expr.type).carrier
-			if (native?.totality.kind === "ieee" && (target === "float4" || target === "float8")) {
+			const inner = lower(expr.args[0])
+			const ieee = ieeeForm(expr, [inner])
+			if (ieee?.kind === "guarded") {
 				return (
-					bindOperands([arg], [inner], ([x]) => ieeeCastForm(x, arg.type, target)) ??
-					refuse("UnsupportedOperation", at, `an IEEE 754 rounding into ${target}`)
+					ieee.sql ??
+					refuse(
+						"UnsupportedOperation",
+						at,
+						`an IEEE 754 rounding into ${baseOf(expr.type).carrier}`
+					)
 				)
 			}
 			return cast(inner, cx.typeRef(expr.type, at))

@@ -21,6 +21,7 @@ import {
 	referencedRenamedFirst,
 	renamedDrawGen,
 	resolveRenamedDraw,
+	retypedAtRebuild,
 	revivedRosterRebuild,
 	rivalsOntoOne,
 	type Version
@@ -53,7 +54,8 @@ import {
  * the property.
  *
  * The decision record a draft writes to meta.json, and the reviews `grizzle check` reads against it, generated over the
- * migration paths' schemas with renames (`renamedDrawGen`), drafted on the host and reviewed by the one reviewer:
+ * migration paths' schemas with renames (`renamedDrawGen`), and over the stated paths of what they never draft
+ * (`jointDrawGen`, `retypedAtRebuild`), drafted on the host and reviewed by the one reviewer:
  *
  * - meta.json is the complete record of the draft: it decodes, proves, writes back byte for byte, and holds every
  *   statement each file holds uncommented, in order (`recordFaults`);
@@ -217,6 +219,17 @@ const jointCaseGen: Gen<Sketch<RenamedDraw>> = (source) => ({
 	mutation: source.draw(mutationGen)
 })
 
+/**
+ * The stated path whose rebuild's conversion of a field offers a candidate's conversion in its place, an offer that
+ * replaces, which the renamed paths never draft (retypedAtRebuild): reviewed keeping every candidate, with one statement
+ * inside the relation's rename it leaves unchosen written in.
+ */
+const retypedCaseGen: Gen<Sketch<RenamedDraw>> = (source) => ({
+	path: { kind: "stated", path: retypedAtRebuild },
+	pick: { kind: "kept" },
+	mutation: { kind: "excluded", at: source.draw(int(0, 200)) }
+})
+
 const kept: ReadonlyArray<Kept<Sketch<RenamedDraw>, Feature>> = [
 	{
 		note: "R0 and its roster K0 renamed and both candidates kept, then renamed back with K0's last handle removed (a rebuild of a roster renamed away and back)",
@@ -358,7 +371,8 @@ describe("the decision record a draft writes and the reviews check reads against
 						draw: drawn(
 							weighted([
 								[6, renamedCaseGen],
-								[1, jointCaseGen]
+								[1, jointCaseGen],
+								[1, retypedCaseGen]
 							])
 						),
 						literal: Formatter.format,
@@ -442,6 +456,9 @@ describe("the decision record a draft writes and the reviews check reads against
 									case "none":
 										break
 									case "split": {
+										if (!Arr.isReadonlyArrayNonEmpty(draftChoices(g))) {
+											break
+										}
 										const written = succeeded(reviewWritten(g, decisions, mutation.written)).files
 										if (
 											splitRenames(g.record, written).length > 0 ||

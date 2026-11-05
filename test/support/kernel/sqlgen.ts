@@ -2,6 +2,7 @@ import { array, boolean, element, type Gen, int, map, span } from "@grizzle/test
 import { forcedChooser, generate, type Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr } from "effect"
+import { exactParts } from "#compiler/core/decimal.ts"
 import type {
 	Assignment,
 	ConflictAction,
@@ -262,7 +263,14 @@ const typeRefs: { readonly [T in SqlColumnType]: TypeRef } = {
 }
 
 const comparisons = ["=", "<>", "<", "<=", ">", ">="] as const
-const decimals = ["0", "1", "-1", "0.5", "123.25", "-7.125"] as const
+const decimals = [
+	exactParts(0n, 0),
+	exactParts(1n, 0),
+	exactParts(-1n, 0),
+	exactParts(5n, 1),
+	exactParts(12325n, 2),
+	exactParts(-7125n, 3)
+] as const
 const texts = ["", "a", "B", "ab", "a b", "%", "\u00e4"] as const
 
 /**

@@ -363,7 +363,7 @@ export const freshSql = (o: Fixture, name: DerivedName): string => {
 	const { sql, columns } = o.opened.definition(name)
 	const stored = `SELECT ${Arr.join(o.opened.columns(name), ", ")} FROM ${o.view(name)} AS "r1"`
 	const defined = `SELECT ${Arr.join(
-		Arr.map(columns, (c) => `"r1".${quoteIdent(c)}`),
+		Arr.map(columns, (c) => `"r1".${quoteIdent(c.name)}`),
 		", "
 	)} FROM (${sql}) AS "r1"`
 	return `SELECT (count(*) = 0)::text AS "fresh" FROM ((${stored} EXCEPT ALL ${defined}) UNION ALL (${defined} EXCEPT ALL ${stored})) AS "d"`

@@ -897,10 +897,10 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				{
 					name: 62495,
 					fields: [
-						{ name: 27120, kind: 28963, key: 49254 },
-						{ name: 32056, kind: 59549, key: 39891 },
-						{ name: 7, kind: 8518, key: 27954 },
-						{ name: 38655, kind: 7134, key: 38689 }
+						{ name: 27120, kind: 21846, key: 49254 },
+						{ name: 32056, kind: 36864, key: 39891 },
+						{ name: 7, kind: 4096, key: 27954 },
+						{ name: 38655, kind: 4096, key: 38689 }
 					],
 					candidate: 28767,
 					facts: [
@@ -931,8 +931,8 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				{
 					name: 0,
 					fields: [
-						{ name: 17154, kind: 54639, key: 6147 },
-						{ name: 64511, kind: 16649, key: 8476 }
+						{ name: 17154, kind: 36409, key: 6147 },
+						{ name: 64511, kind: 8192, key: 8476 }
 					],
 					candidate: 26083,
 					facts: [
@@ -996,10 +996,10 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				{
 					name: 58272,
 					fields: [
-						{ name: 65051, kind: 21667, key: 44707 },
-						{ name: 19568, kind: 11271, key: 25507 },
-						{ name: 13341, kind: 3, key: 38764 },
-						{ name: 65533, kind: 56618, key: 45197 }
+						{ name: 65051, kind: 14564, key: 44707 },
+						{ name: 19568, kind: 4096, key: 25507 },
+						{ name: 13341, kind: 0, key: 38764 },
+						{ name: 65533, kind: 36864, key: 45197 }
 					],
 					candidate: 47335,
 					facts: [

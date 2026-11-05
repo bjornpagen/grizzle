@@ -213,6 +213,10 @@ layer(Substrate.layer)("span storage", (it) => {
 							}
 						}),
 						unbounded,
+						map(spanOf(endpointGen(int8)), (h): Drawn => ({
+							kind: "bounded",
+							spelling: { lowerInc: true, lo: h.lo, hi: h.hi, upperInc: false }
+						})),
 						(source) => ({
 							kind: "bounded",
 							spelling: source.draw(
@@ -480,7 +484,7 @@ layer(Substrate.layer)("span storage", (it) => {
 					type F =
 						| "a span from the lower limit read"
 						| "a span to the upper limit read"
-						| "a width past bigint refused with 22003"
+						| "a width past bigint read exactly"
 						| "an empty answer"
 						| "a nonempty answer"
 						| "an empty window refused by its codec"
@@ -517,7 +521,7 @@ layer(Substrate.layer)("span storage", (it) => {
 								[
 									"a span from the lower limit read",
 									"a span to the upper limit read",
-									"a width past bigint refused with 22003",
+									"a width past bigint read exactly",
 									"an empty answer",
 									"a nonempty answer",
 									"an empty window refused by its codec",
@@ -559,7 +563,7 @@ layer(Substrate.layer)("span storage", (it) => {
 								const met = Arr.flatMap(d.spans, (span, i) =>
 									span.lo < window.hi && window.lo < span.hi ? [{ id: i + 1, span }] : []
 								)
-								const overflows = Arr.some(met, ({ span }) => span.hi - span.lo > int8.max)
+								const pastBigint = Arr.some(met, ({ span }) => span.hi - span.lo > int8.max)
 								const columns = ["id", "s", "lo", "hi", "w"]
 								const expected = Arr.sort(
 									Arr.map(met, ({ id, span }) => [
@@ -573,28 +577,20 @@ layer(Substrate.layer)("span storage", (it) => {
 								)
 								for (const { artifact, spec } of specs) {
 									assert.deepEqual(paramTexts(spec, { window: d.window }), [spanText(window)])
-									if (overflows) {
-										const failed = yield* Effect.flip(
-											runArtifact(reader, template, artifact, { window: d.window })
-										)
-										assert.equal(pgErrorFields(failed)?.code, "22003", artifact)
-										continue
-									}
 									const [rows] = yield* runArtifact(reader, template, artifact, {
 										window: d.window
 									})
 									const read = rowsAs(spec, defined(rows, "the statement's rows"), columns)
 									assert.deepEqual(read, { rows: expected, repeats: 0 }, artifact)
 								}
-								if (overflows) {
-									c.note("a width past bigint refused with 22003")
-								} else {
-									c.note(met.length === 0 ? "an empty answer" : "a nonempty answer")
+								if (pastBigint) {
+									c.note("a width past bigint read exactly")
 								}
-								if (!overflows && Arr.some(met, ({ span }) => span.lo === int8.min)) {
+								c.note(met.length === 0 ? "an empty answer" : "a nonempty answer")
+								if (Arr.some(met, ({ span }) => span.lo === int8.min)) {
 									c.note("a span from the lower limit read")
 								}
-								if (!overflows && Arr.some(met, ({ span }) => span.hi === int8.max)) {
+								if (Arr.some(met, ({ span }) => span.hi === int8.max)) {
 									c.note("a span to the upper limit read")
 								}
 							})

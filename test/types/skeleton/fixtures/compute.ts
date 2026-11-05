@@ -160,11 +160,11 @@ export const truncBigint = Compute.trunc(cents)
 export const ceilInt = Compute.ceil(int)
 // @ts-expect-error -- TS2345: floor is numeric only
 export const floorMoney = Compute.floor(money)
-// @ts-expect-error -- TS2345: power is numeric only
+// @ts-expect-error -- TS2345 refusal: a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)
 export const powerInt = Compute.power(int, 2)
 // @ts-expect-error -- TS2345: sqrt is numeric only
 export const sqrtBigint = Compute.sqrt(cents)
-// @ts-expect-error -- TS2345: minScale is numeric only
+// @ts-expect-error -- TS2345 refusal: a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)
 export const minScaleInt = Compute.minScale(int)
 // @ts-expect-error -- TS2339: Compute has no scale, which would read a display scale no Decimal has
 export const noScale = Compute.scale(dec)
@@ -201,7 +201,7 @@ export const bucket = Compute.when(
 	0
 )
 export type BucketType = Expect<Equals<TypeOfTerm<typeof bucket>, number>>
-// @ts-expect-error -- TS2345: width_bucket's bounds are numeric
+// @ts-expect-error -- TS2345 refusal: a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)
 export const bucketBigint = Compute.widthBucket(dec, cents, dec, int)
 
 /**

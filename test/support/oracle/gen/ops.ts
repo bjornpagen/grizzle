@@ -1,4 +1,5 @@
 import { Array as Arr, Option } from "effect"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	type CatalogOpId,
 	type DefinedOp,
@@ -9,6 +10,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import type { AggregateFn } from "#compiler/ir/rel.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import { unaryOverload } from "#compiler/scalar/aggregate.ts"
 import {
 	binaryCoercion,
 	castOf,
@@ -18,14 +20,11 @@ import {
 	nativeOp
 } from "#compiler/scalar/compute/registry.ts"
 import {
-	bool,
-	float8,
 	type GenCarrier,
 	genCarrierOf,
 	genCarriers,
 	hasCap,
-	int8,
-	numeric
+	int8
 } from "#test/support/oracle/gen/domain.ts"
 
 export const compareOps = ["eq", "ne", "lt", "le", "gt", "ge"] as const
@@ -177,10 +176,23 @@ export const aggregateApplies = (fn: GenAggregate, type: ScalarType | undefined)
 	}
 }
 
+/** The checker's aggregate a generated one is: avg is r.mean, and bool_and and bool_or are min and max over boolean. */
+const checkerAggregate: Readonly<
+	Record<Exclude<GenAggregate, "count">, "sum" | "mean" | "min" | "max">
+> = {
+	sum: "sum",
+	avg: "mean",
+	min: "min",
+	max: "max",
+	boolAnd: "min",
+	boolOr: "max"
+}
+
 /**
- * The native result type: count is bigint; sum is bigint over smallint and integer, numeric
- * over bigint and numeric, and the argument's type over real, double precision and money; avg is numeric over the
- * exact types and double precision over the floats; min and max keep the argument's descriptor; the folds are boolean.
+ * The result type the checker gives the aggregate (scalar/aggregate.ts unaryOverload): count is bigint; sum is bigint
+ * over smallint and integer, numeric over bigint and numeric, the argument's type over the floats and exact money over
+ * money; avg is numeric over the exact types and double precision over the floats; min and max keep the argument's
+ * descriptor; the folds are boolean.
  */
 export const aggregateResult = (fn: GenAggregate, type: ScalarType | undefined): ScalarType => {
 	if (fn === "count") {
@@ -189,25 +201,11 @@ export const aggregateResult = (fn: GenAggregate, type: ScalarType | undefined):
 	if (type === undefined) {
 		throw new Error(`${fn} needs an argument`)
 	}
-	const carrier = genCarrierOf(type)
-	switch (fn) {
-		case "sum":
-			if (carrier === "int2" || carrier === "int4") {
-				return int8
-			}
-			if (carrier === "int8" || carrier === "numeric") {
-				return numeric
-			}
-			return type
-		case "avg":
-			return carrier === "float4" || carrier === "float8" ? float8 : numeric
-		case "min":
-		case "max":
-			return type
-		case "boolAnd":
-		case "boolOr":
-			return bool
+	const overload = unaryOverload(checkerAggregate[fn], type, SourceLoc("a generated aggregate", []))
+	if (!overload.ok) {
+		throw new Error(`a generated aggregate the checker refuses: ${overload.error.message}`)
 	}
+	return overload.value.result
 }
 
 export const aggregateOpId = (fn: GenAggregate, type: ScalarType | undefined): CatalogOpId => {

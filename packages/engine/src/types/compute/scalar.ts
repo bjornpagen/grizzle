@@ -29,6 +29,9 @@ import type { LiteralOf } from "#compiler/types/fields/field.ts"
  * parameter of them and a value of an exact family among them), or a literal of the term's language L (which adopts
  * T's base and S). A literal never stands in the first operand; a parameter, a term, does (FirstTerm). S is the SQL
  * type the lowering checks the operand against (scalar/compute/lower.ts), so every position that checks it states it.
+ * Every type parameter an Operand constrains is const, so a JavaScript value keeps its literal type: widened, a
+ * roster's member, a uuid or a refined text's member is no value of L, and TypeScript would type the operand as the
+ * constraint, whose terms read an unknown origin, so nothing computed over it would be determined.
  */
 export type Operand<T, S extends SqlTag, L = T> = Meets<T, S> | LiteralOf<L>
 
@@ -165,13 +168,25 @@ export interface Scalar<
 	out Sql extends SqlTag = SqlTag,
 	in out L = T
 > extends Term<T, P, O, Sql, L, Facts, L> {
-	eq<B extends Operand<T, Sql, L>>(other: B): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	ne<B extends Operand<T, Sql, L>>(other: B): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	lt<B extends Operand<T, Sql, L>>(other: B): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	le<B extends Operand<T, Sql, L>>(other: B): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	gt<B extends Operand<T, Sql, L>>(other: B): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	ge<B extends Operand<T, Sql, L>>(other: B): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
-	between<Lo extends Operand<T, Sql, L>, Hi extends Operand<T, Sql, L>>(
+	eq<const B extends Operand<T, Sql, L>>(
+		other: B
+	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
+	ne<const B extends Operand<T, Sql, L>>(
+		other: B
+	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
+	lt<const B extends Operand<T, Sql, L>>(
+		other: B
+	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
+	le<const B extends Operand<T, Sql, L>>(
+		other: B
+	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
+	gt<const B extends Operand<T, Sql, L>>(
+		other: B
+	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
+	ge<const B extends Operand<T, Sql, L>>(
+		other: B
+	): Predicate<P & ParamsOfTerm<B>, ComparisonOrigin<O, B>>
+	between<const Lo extends Operand<T, Sql, L>, const Hi extends Operand<T, Sql, L>>(
 		low: Lo,
 		high: Hi
 	): Predicate<
@@ -191,6 +206,19 @@ type ComparisonOrigin<O, B> = ComputedOrigin<O | OperandOrigin<B>>
 export type Requires<Cond extends boolean, Message extends TypeRefusal> = [Cond] extends [true]
 	? unknown
 	: Refusal<Message>
+
+/**
+ * The result R of an operation over the SQL types F, read at its first operand A's SQL type: R at every type of F, and
+ * none, never, at a JavaScript value or a term of another type, which the operation refuses. TypeScript types a type
+ * parameter whose argument breaks its constraint as the constraint itself, so a result read off the refused operand's
+ * SQL type would be of every type F's results have, which no position meets; never meets every position, so the
+ * refusal is the call's one diagnostic.
+ */
+export type OfFamily<A, F extends SqlTag, R> = { readonly [K in F]: R }[Extract<
+	A,
+	TermBase
+>["sql"] &
+	F]
 
 /** Whether a term is a JavaScript value in a head (LiteralOrigin), which a Description records untyped. */
 type IsHeadLiteral<A> =

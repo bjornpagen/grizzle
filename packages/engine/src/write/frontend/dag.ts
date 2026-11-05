@@ -153,10 +153,12 @@ export class GlueBuilder {
 							args: [column],
 							type: c.type,
 							nonNull: "strict",
-							proof: {
-								precondition: { kind: "contract" },
-								premises: [{ kind: "checked", operand: 0, by: "write" }]
-							}
+							proof: [
+								{
+									precondition: { kind: "contract" },
+									premises: [{ kind: "checked", operand: 0, by: "write" }]
+								}
+							]
 						}
 					: writtenCast(column, type, c.type, SourceLoc("described write", [c.name]))
 			)
@@ -288,8 +290,7 @@ const writtenCast = (
 		}
 	}
 	const op = castOf(baseOf(from).carrier, baseOf(to).carrier)
-	const proof = typeFitProof(from, to)
-	if (op === undefined || proof === undefined) {
+	const refused = (): never => {
 		throw new Refusal(
 			CompileError.make({
 				_tag: "PartialOperation",
@@ -301,6 +302,17 @@ const writtenCast = (
 					"Compute.when(Compute.within(x, <low>, <high>), (x) => Compute.cast(x, <the field>), <your value>) in the described head"
 			})
 		)
+	}
+	if (op === undefined) {
+		return refused()
+	}
+	const proof = typeFitProof(
+		op.totality.kind === "requires" ? op.totality.preconditions : [{ kind: "fits" }],
+		from,
+		to
+	)
+	if (proof === undefined) {
+		return refused()
 	}
 	return op.partial
 		? {

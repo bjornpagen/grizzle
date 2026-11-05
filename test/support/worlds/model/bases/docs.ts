@@ -18,13 +18,14 @@ const integer: FieldDomain = { kind: "integer", bits: 32 }
 
 /**
  * The documents base: organizations, their documents, the shares of a document with a user, the notes on a document,
- * and visits, each nothing but its bigserial number, a relation whose every field is serial, so an addition written
- * whole may carry no field (the unit relation); with laws of each kind a refusal under a world reaches. A note's document exists (a foreign key); an
- * organization's documents differ in their word counts (a candidate key, a unique index); a document has at most two
- * shares (a capacity, a residual law whose function withholds its witness keys from a role that does not hold Doc
- * whole); a plan is at most five (a row check), and lies in 0..9 by its contract Plan (a domain CHECK), so a plan of
- * six to nine breaks the check and one past nine the domain. Doc and Note are mutable, so a put of a document or a
- * note replaces it in place; a note's `no` is a bigserial key.
+ * and visits, each nothing but its two identity numbers, a bigserial key and a serial, a relation whose every field is
+ * serial, so an addition written whole may carry no field (the unit relation), and one carrying one of its serial
+ * fields and not the other is refused; with laws of each kind a refusal under a world reaches. A note's document
+ * exists (a foreign key); an organization's documents differ in their word counts (a candidate key, a unique index); a
+ * document has at most two shares (a capacity, a residual law whose function withholds its witness keys from a role
+ * that does not hold Doc whole); a plan is at most five (a row check), and lies in 0..9 by its contract Plan (a domain
+ * CHECK), so a plan of six to nine breaks the check and one past nine the domain. Doc and Note are mutable, so a put of
+ * a document or a note replaces it in place; a note's `no` is a bigserial key.
  *
  * Two contexts read the verified token: Session { sub } from the payload's top level, and Tenant { org, seats } from
  * its `t` claim object, seats an int8 a token carries as a JSON number or a string of digits, so a token's wild forms
@@ -77,7 +78,10 @@ export const docsBase: BaseSpec = {
 		},
 		{
 			name: "Visit",
-			fields: [{ name: "no", domain: { kind: "serial", bits: 64 } }],
+			fields: [
+				{ name: "no", domain: { kind: "serial", bits: 64 } },
+				{ name: "seq", domain: { kind: "serial", bits: 32 } }
+			],
 			key: ["no"],
 			mutability: "immutable"
 		}
@@ -176,6 +180,7 @@ const words = variable("words")
 const doc = variable("doc")
 const user = variable("user")
 const no = variable("no")
+const seq = variable("seq")
 const plan = variable("plan")
 const tenant = claim("Tenant", "org")
 const subjectClaim = claim("Session", "sub")
@@ -356,4 +361,43 @@ export const docsEditorInstall: InstallSpec = {
 export const docsOneShareEditorInstall: InstallSpec = {
 	...docsEditorInstall,
 	base: docsOneShareBase
+}
+
+/**
+ * The documents base's README-shaped worlds with two roles beside them in the login `ops`, each writing Visit through
+ * one of the query entries the README names for serial columns ("Writing through a role"), since a role writes a
+ * relation through one entry at most: the `visitor`'s Visits, both of its serials, an entry whose every carried field
+ * is serial, so an insert through it may leave both out and carry no field (the unit relation); and the `counter`'s
+ * LateVisit, the visits whose `seq` is at least one, a filter reading a serial field, so every fact inserted through it
+ * carries `seq` and may leave out `no`.
+ */
+export const docsVisitsInstall: InstallSpec = {
+	base: docsBase,
+	roles: [
+		...docsInstall.roles,
+		{
+			name: "visitor",
+			entries: { Visits: query(rule([of("Visit", { no, seq })], { no, seq }, none)) },
+			write: ["Visits"],
+			refresh: []
+		},
+		{
+			name: "counter",
+			entries: {
+				LateVisit: query(
+					rule(
+						[of("Visit", { no, seq })],
+						{ no, seq },
+						{ negations: [], comparisons: [{ left: seq, op: ">=", right: literal(1) }] }
+					)
+				)
+			},
+			write: ["LateVisit"],
+			refresh: []
+		}
+	],
+	logins: [
+		{ name: "web", roles: ["reader", "member"] },
+		{ name: "ops", roles: ["job", "admin", "visitor", "counter"] }
+	]
 }

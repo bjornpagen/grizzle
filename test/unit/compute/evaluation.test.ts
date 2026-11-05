@@ -161,10 +161,12 @@ const evaluated = (c: PowerCase): CatalogResult => {
 		type: types.numeric,
 		nonNull: "strict",
 		volatility: numericPower.volatility,
-		proof: {
-			precondition: { kind: "powerDomain" },
-			premises: [{ kind: "checked", operand: 0, by: "parameter" }]
-		}
+		proof: [
+			{
+				precondition: { kind: "powerDomain" },
+				premises: [{ kind: "checked", operand: 0, by: "parameter" }]
+			}
+		]
 	})
 	return evaluate(root, {
 		kind: "row",

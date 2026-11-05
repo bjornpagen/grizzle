@@ -355,10 +355,14 @@ export const noninjectiveKeyCaseGen: Gen<QueryCase> = map(
 						type: int4,
 						nonNull: "strict",
 						volatility: "immutable",
-						proof: {
-							precondition: { kind: "nonzero", operand: 1 },
-							premises: [{ kind: "fact", operand: 1, fact: "nonzero", source: { kind: "literal" } }]
-						}
+						proof: [
+							{
+								precondition: { kind: "nonzero", operand: 1 },
+								premises: [
+									{ kind: "fact", operand: 1, fact: "nonzero", source: { kind: "literal" } }
+								]
+							}
+						]
 					})
 		const out = keepB
 			? [

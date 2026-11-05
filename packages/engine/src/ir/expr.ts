@@ -1,21 +1,23 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import type { DecimalParts } from "#compiler/core/decimal.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { IdentityValue } from "#compiler/core/identity.ts"
 import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { type Comparator, combine, compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { CanonicalFloat, MoneyValue, VectorText } from "#compiler/ir/carriers.ts"
-import { type DecimalParts, type DecimalValue, decimalPayload } from "#compiler/ir/decimal.ts"
+import { type DecimalValue, decimalPayload } from "#compiler/ir/decimal.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
-import type { PreconditionProof } from "#compiler/ir/proof.ts"
+import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
 import {
 	baseOf,
 	type NumericTypmod,
 	type ScalarType,
 	type SpanCarrier,
-	sameScalarType
+	sameScalarType,
+	typeLabel
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
 
@@ -252,7 +254,8 @@ export interface TableArgs {
  * cast's. Every other kind is immutable of itself, and every kind's volatility joins its arguments' (exprEffects),
  * which builtExpr computes. An operator names its overload and a cast its registered cast (or the binary coercion),
  * each a DefinedOp or a PartialOp: a partial one stands only with the proof of its precondition, and a domain cast,
- * which PostgreSQL validates, always does.
+ * which PostgreSQL validates, always does. An IEEE 754 operation or rounding (a DefinedOp whose Totality is ieee) may
+ * stand with the proof that PostgreSQL's own overload computes its value there (NativeProof), and then renders as it.
  */
 export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 	| {
@@ -284,11 +287,19 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 	  }
 	| {
 			readonly kind: "op"
+			readonly op: DefinedOp
+			readonly args: ReadonlyArray<R["expr"]>
+			readonly nonNull: "strict"
+			readonly volatility: Volatility
+			readonly native: NativeProof
+	  }
+	| {
+			readonly kind: "op"
 			readonly op: PartialOp
 			readonly args: ReadonlyArray<R["expr"]>
 			readonly nonNull: "strict"
 			readonly volatility: Volatility
-			readonly proof: PreconditionProof
+			readonly proof: OperationProof
 	  }
 	| {
 			readonly kind: "cast"
@@ -299,17 +310,25 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 	  }
 	| {
 			readonly kind: "cast"
+			readonly cast: DefinedOp
+			readonly args: readonly [R["expr"]]
+			readonly nonNull: "strict"
+			readonly volatility: Volatility
+			readonly native: NativeProof
+	  }
+	| {
+			readonly kind: "cast"
 			readonly cast: PartialOp
 			readonly args: readonly [R["expr"]]
 			readonly nonNull: "strict"
 			readonly volatility: Volatility
-			readonly proof: PreconditionProof
+			readonly proof: OperationProof
 	  }
 	| {
 			readonly kind: "domainCast"
 			readonly args: readonly [R["expr"]]
 			readonly nonNull: "strict"
-			readonly proof: PreconditionProof
+			readonly proof: OperationProof
 	  }
 	| {
 			readonly kind: "cond"
@@ -893,7 +912,11 @@ export const condProblems = (
 		(sameScalarType(t.type, type) && sameScalarType(e.type, type))
 	return [
 		...(p !== undefined && baseOf(p.type).carrier !== "bool" ? ["a boolean condition"] : []),
-		...(branchesTyped ? [] : ["both branches of the conditional's own type"])
+		...(branchesTyped
+			? []
+			: [
+					`both branches of the conditional's own type ${typeLabel(type)}, not ${typeLabel(t.type)} and ${typeLabel(e.type)}`
+				])
 	]
 }
 

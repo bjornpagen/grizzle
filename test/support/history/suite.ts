@@ -295,6 +295,33 @@ const plantedOn = <P>(
 	throw new Error(`no schema of ${h.family.label} has a planted history`)
 }
 
+/**
+ * The case a history runs: the drawn one, or, where the case's steering leaves a trait's direct acceptance pending,
+ * the planted serial history (plantedHistories) on the first schema bearing such a trait that has one, its direct
+ * writer's step accepted there. A steered case reads the steering it was drawn under, so it replays alike.
+ */
+const aimedCase = <P>(
+	h: HistoryFamily<P>,
+	variants: Arr.NonEmptyReadonlyArray<P>,
+	drawnCase: HistoryCase,
+	steering: Case<HistoryFeature>["steering"]
+): HistoryCase => {
+	if (Option.isNone(steering)) {
+		return drawnCase
+	}
+	const pending = steering.value
+	for (const [i, p] of variants.entries()) {
+		if (!Arr.some(h.family.traits(p), (t) => pending.has([`trait ${t}`, "direct accepted"]))) {
+			continue
+		}
+		const planted = plantedHistories(h.family.host(p), h.family.domains)
+		if (planted !== undefined) {
+			return { variant: i, history: planted.serial, order: "listed" }
+		}
+	}
+	return drawnCase
+}
+
 /** Installs `p` and checks the installation enforces the host's laws as the host states them. */
 const installChecked = <P>(
 	h: HistoryFamily<P>,
@@ -402,8 +429,9 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 							steerEvery: 16,
 							caseHang: Duration.minutes(2)
 						},
-						(hc, c) =>
+						(drawnCase, c) =>
 							Effect.gen(function* () {
+								const hc = aimedCase(h, variants, drawnCase, c.steering)
 								const p = elementAt(variants, hc.variant, "the family's schemas")
 								c.note(`schema ${h.family.describe(p)}`)
 								const traits = Arr.map(h.family.traits(p), (t): HistoryFeature => `trait ${t}`)

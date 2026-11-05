@@ -135,6 +135,9 @@ export const relationHeading = (relation: GenRelation): Heading =>
 const isSpanType = (type: ScalarType): boolean =>
 	type.carrier === "range4" || type.carrier === "range8"
 
+/** Whether a type is a vector, which btree_gist has no operator class for, so no span key holds one beside its span. */
+const isVectorType = (type: ScalarType): boolean => type.carrier === "vector"
+
 export const closedIdType = (closed: Pick<GenClosed, "name" | "handles">): ScalarType =>
 	scalarOfSpec({ carrier: "enum", roster: { closed: closed.name, handles: closed.handles } })
 
@@ -465,7 +468,8 @@ export const resolveSchema =
 					: pkColumns
 			/**
 			 * A span key keeps the relation's first span field a range as its last field, beside the drawn key's other
-			 * fields, or the first other field when the drawn key has none; a relation of one field has no span key.
+			 * fields but its vectors, or the first other field no vector when the drawn key has none; a relation with no
+			 * such field has no span key.
 			 */
 			const spanField = rs.spanKey
 				? Option.map(
@@ -473,11 +477,13 @@ export const resolveSchema =
 						(c) => c.name
 					)
 				: Option.none()
-			const spanScalars = Arr.filter(drawnKey, (f) => !Option.contains(spanField, f))
+			const gistScalars = Arr.filter(
+				picked,
+				(c) => !Option.contains(spanField, c.name) && !isVectorType(c.type)
+			)
+			const spanScalars = Arr.filter(drawnKey, (f) => Arr.some(gistScalars, (c) => c.name === f))
 			const scalars =
-				spanScalars.length > 0
-					? spanScalars
-					: Arr.filter(all, (f) => !Option.contains(spanField, f)).slice(0, 1)
+				spanScalars.length > 0 ? spanScalars : Arr.map(gistScalars, (c) => c.name).slice(0, 1)
 			const span = scalars.length > 0 ? spanField : Option.none()
 			const primaryKey = Option.match(span, {
 				onNone: () => drawnKey,

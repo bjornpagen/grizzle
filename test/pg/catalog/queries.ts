@@ -550,9 +550,15 @@ function selfMatchByScore(ord: HeadTermDesc): QueryDesc {
 	)
 }
 
-/** ceil((p * n::float8)::numeric)::bigint */
+/** ceil((p * n::float8)::numeric) */
 const ceilPn = (p: number, n: ExprDesc): ExprDesc =>
-	D.cast(D.compute("ceil", D.cast(D.compute("mul", f8(p), D.cast(n, double)), numeric)), bigint)
+	D.compute("ceil", D.cast(D.compute("mul", f8(p), D.cast(n, double)), numeric))
+
+/**
+ * The ordinal `o` at a rounded position: o::numeric = position. The ordinal widens into numeric, which every value
+ * survives; the position cast back to bigint would narrow a value no type proves finite.
+ */
+const ordinalAt = (o: string, position: ExprDesc): ExprDesc => D.eq(D.cast(v(o), numeric), position)
 
 /**
  * R29: the value at ordinal ceil(p · n) of each student's scores, one selection per fraction. `unjoined` leaves the
@@ -593,7 +599,7 @@ export const discretePercentile = (
 				),
 				D.match(D.imported(perStudent, {}), { student: v("g"), n: v("n") })
 			],
-			where: Arr.map(fractions, (p, k) => D.eq(v(`o${k}`), ceilPn(p, v("n")))),
+			where: Arr.map(fractions, (p, k) => ordinalAt(`o${k}`, ceilPn(p, v("n")))),
 			head: {
 				student: v("g"),
 				...Rec.fromEntries(Arr.map(indices(fractions.length), (k) => [`p${k}`, v(`v${k}`)]))
@@ -673,7 +679,7 @@ export const continuousPercentile = (p: number, over: "score" | "amount"): Query
 	const value = (x: string) => (over === "score" ? v(x) : D.cast(v(x), double))
 	const n = v("n")
 	const position = (fn: "floor" | "ceil") =>
-		D.cast(D.compute(fn, D.cast(D.compute("add", f8(1), hOf(p, n)), numeric)), bigint)
+		D.compute(fn, D.cast(D.compute("add", f8(1), hOf(p, n)), numeric))
 	const frac = D.compute(
 		"sub",
 		hOf(p, n),
@@ -694,7 +700,7 @@ export const continuousPercentile = (p: number, over: "score" | "amount"): Query
 				D.match(D.imported(ordinals, {}), { student: v("g"), [over]: v("b"), ord: v("ob") }),
 				D.match(D.imported(counts, {}), { student: v("g"), n })
 			],
-			where: [D.eq(v("oa"), position("floor")), D.eq(v("ob"), position("ceil"))],
+			where: [ordinalAt("oa", position("floor")), ordinalAt("ob", position("ceil"))],
 			head: {
 				student: v("g"),
 				value: D.compute(

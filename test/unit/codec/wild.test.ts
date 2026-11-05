@@ -164,7 +164,7 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 			type: {
 				carrier: "int8",
 				caps,
-				contract: { name: "Cents", base: { carrier: "int8", caps } }
+				contract: { name: "Cents", base: { carrier: "int8", caps }, facts: [] }
 			},
 			live: int64
 		},

@@ -163,6 +163,7 @@ export const writeSituations = [
 	"described member wider than its field",
 	"a deletion described wider than its field",
 	"outcome outside a domain",
+	"outcome refused at bind",
 	"put on an immutable relation",
 	"a stated-one read-back with its parent present",
 	"a stated-one read-back with its parent absent",

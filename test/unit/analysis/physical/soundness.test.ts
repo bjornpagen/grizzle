@@ -6,9 +6,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
 import type { Realization } from "#compiler/analysis/physical/props.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { inputsOf, type RelDag, type RelKind, type RelNode } from "#compiler/ir/rel.ts"
+import { assert } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import {
 	defaultGenConfig,
@@ -31,6 +33,13 @@ import {
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
 import { type ReferenceInput, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import {
+	claimsOf,
+	fixedTwice,
+	hasTwoConjuncts,
+	reversedConjuncts,
+	twiceFixed
+} from "#test/unit/analysis/physical/order.ts"
 import {
 	BagReference,
 	owedOf,
@@ -306,6 +315,58 @@ describe("every physical claim holds on the delivered rows", () => {
 				(q, c) =>
 					Effect.sync(() => {
 						check(q.query.dag, inputOf(q), undefined, c)
+					})
+			)
+		)
+	)
+})
+
+/** What a case's filters reached: two conjuncts to reverse, and a column they fix to two values. */
+type OrderFeature = "a filter of two conjuncts" | "a column fixed to two values"
+
+/**
+ * The order of a filter's conjuncts is no part of its meaning: every claim either analysis makes of every node, its
+ * keys, bounds, uniqueness and the values it fixes each column to, is the same with every filter's conjuncts reversed.
+ * A column two conjuncts fix to two values is fixed to both, whichever comes first: each generated case's equalities
+ * of a column to a value fixed per evaluation are doubled by a twin over a parameter of their own (twiceFixed), so
+ * the cases hold such columns wherever their filters fix one.
+ */
+describe("neither analysis reads the order of a filter's conjuncts", () => {
+	it.effect("generated cases, every filter's conjuncts reversed", (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: "unit/analysis/physical/conjunct-order",
+					draw: drawn(queryCaseGen(soundnessGenConfig)),
+					literal: Formatter.format,
+					coverage: required<OrderFeature>(
+						["a filter of two conjuncts", "a column fixed to two values"],
+						{ cases: 400, sense: notesOnly }
+					),
+					kept: [],
+					runs: 400,
+					shrink: completeShrink,
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang: Duration.minutes(2)
+				},
+				(q, c) =>
+					Effect.sync(() => {
+						const dag = twiceFixed(q.query.dag)
+						const env: PhysicalEnv = {
+							context: "snapshot",
+							catalog: genCatalog(q.schema),
+							realization: unplaced,
+							roots: "result"
+						}
+						if (hasTwoConjuncts(dag)) {
+							c.note("a filter of two conjuncts")
+						}
+						if (fixedTwice(dag, env)) {
+							c.note("a column fixed to two values")
+						}
+						assert.deepEqual(claimsOf(reversedConjuncts(dag), env), claimsOf(dag, env))
 					})
 			)
 		)

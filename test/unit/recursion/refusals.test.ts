@@ -38,6 +38,7 @@ import {
 	imported,
 	lt,
 	match,
+	narrowed,
 	ne,
 	not,
 	or,
@@ -380,9 +381,16 @@ describe("the state heading", () => {
 			reads: ["price"]
 		}
 	]
-	/** The author casts the delivered term to the declared type, where a numeric cast is one. */
+	/**
+	 * The author casts the delivered term to the declared type, where a numeric cast is one and total: a cast from
+	 * numeric into an integer needs its value proved finite, a partial operation the column's own rule never reads.
+	 */
 	type Spelled = "as delivered" | "cast by the author"
 	const numericIdentities: ReadonlyArray<Typed["identity"]> = ["int4", "int8", "numeric"]
+	const totalCast = (d: Typed, a: Typed): boolean =>
+		numericIdentities.includes(d.identity) &&
+		numericIdentities.includes(a.identity) &&
+		!(a.identity === "numeric" && d.identity !== "numeric")
 
 	/**
 	 * The rule (check/recursion/state.ts): every state column hashes, so money is refused at the row; an arm's column
@@ -436,9 +444,7 @@ describe("the state heading", () => {
 									source.draw(element(delivered)),
 									source.draw(element<Spelled>(["as delivered", "cast by the author"]))
 								] as const,
-							([d, a, spelled]) =>
-								spelled === "as delivered" ||
-								(numericIdentities.includes(d.identity) && numericIdentities.includes(a.identity)),
+							([d, a, spelled]) => spelled === "as delivered" || totalCast(d, a),
 							1
 						),
 						literal: Formatter.format,
@@ -1048,7 +1054,7 @@ describe("unbounded computed state", () => {
 									const other = column === "a" ? "b" : "a"
 									switch (t) {
 										case "the other plus one":
-											return compute("add", s(other), typedLit(1, integer))
+											return narrowed(compute("add", s(other), typedLit(1, integer)), "integer")
 										case "itself plus one":
 											return compute("add", s(column), typedLit(1, integer))
 										case "copied":
@@ -1112,7 +1118,10 @@ describe("unbounded computed state", () => {
 	)
 })
 
-/** Inc.bind({ x, at }) delivers the vertex `at` with y = 1 + x; Echo.bind({ x }) every vertex with y = 0 + x. */
+/**
+ * Inc.bind({ x, at }) delivers the vertex `at` with y = 1 + x; Echo.bind({ x }) every vertex with y = 0 + x; each
+ * narrows its exact sum into an integer under the guard that it fits.
+ */
 const vertexRule = (where: ReadonlyArray<ExprDesc>, y: ExprDesc): QueryDesc =>
 	queryDesc(
 		rule({
@@ -1128,9 +1137,12 @@ const vertexRule = (where: ReadonlyArray<ExprDesc>, y: ExprDesc): QueryDesc =>
 describe("unbounded computed state through a correlated import", () => {
 	const Inc = vertexRule(
 		[eq(ref("Vertex", "id"), param("at", { kind: "uuid" }))],
-		compute("add", typedLit(1, integer), param("x", integer))
+		narrowed(compute("add", typedLit(1, integer), param("x", integer)), "integer")
 	)
-	const Echo = vertexRule([], compute("add", typedLit(0, integer), param("x", integer)))
+	const Echo = vertexRule(
+		[],
+		narrowed(compute("add", typedLit(0, integer), param("x", integer)), "integer")
+	)
 	/** What the step binds an import's x to, and Inc's at. */
 	type X = "the hop count" | "the edge's cost" | "a parameter"
 	type At = "the state's node" | "the edge's end"
@@ -1139,7 +1151,7 @@ describe("unbounded computed state through a correlated import", () => {
 	 * bound to it.
 	 */
 	type Via = "Inc" | "Echo then Inc" | "a counter beside Echo"
-	type ImportFeature = `${"admitted" | "refused"} ${Via}`
+	type ImportFeature = `${"admitted" | "refused"} ${Via}` | "unproved a counter beside Echo"
 
 	it.effect(
 		"refuses a counter laundered through an import whose bind map reads the state, through a chain, and admits one bound to data",
@@ -1174,7 +1186,8 @@ describe("unbounded computed state through a correlated import", () => {
 							"admitted Echo then Inc",
 							"refused Echo then Inc",
 							"admitted a counter beside Echo",
-							"refused a counter beside Echo"
+							"refused a counter beside Echo",
+							"unproved a counter beside Echo"
 						]),
 						caseHang: Duration.minutes(2)
 					},
@@ -1255,15 +1268,24 @@ describe("unbounded computed state through a correlated import", () => {
 							)
 							const outcome = outcomeOf(desc)
 							/**
+							 * Beside an Echo bound to data, the Echo's output binds the hop count, which is then data, so its successor
+							 * is an exact integer no counter's bound proves fits the column: a narrowing left unproved.
+							 */
+							const dataHops = via === "a counter beside Echo" && x !== "the hop count"
+							if (dataHops) {
+								c.note("unproved a counter beside Echo")
+								assert.deepEqual(outcome, { kind: "malformed", reason: "PartialOperation" })
+								return
+							}
+							/**
 							 * The state columns the next hop count is computed from: through an import, those its bind maps read. A
-							 * counter is computed from itself, admitted under its bound; beside an Echo bound to data, the Echo's output
-							 * binds the hop count, which is then data.
+							 * counter is computed from itself, admitted under its bound.
 							 */
 							const reads =
 								via === "a counter beside Echo"
-									? x === "the hop count" && !guarded
-										? ["hops"]
-										: []
+									? guarded
+										? []
+										: ["hops"]
 									: [
 											...(x === "the hop count" ? ["hops"] : []),
 											...(at === "the state's node" ? ["node"] : [])

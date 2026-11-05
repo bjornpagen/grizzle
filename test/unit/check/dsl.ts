@@ -103,6 +103,33 @@ export const compute = (
 
 export const cast = (arg: ExprDesc, to: FieldDesc): ExprDesc => ({ kind: "cast", to, arg })
 
+type IntegerType = "smallint" | "integer" | "bigint"
+
+/** Each integer type's range, what an exact integer narrowed into it is proved within, and its literal 0. */
+const integerTypes: Readonly<
+	Record<IntegerType, { readonly low: bigint; readonly high: bigint; readonly zero: LiteralDesc }>
+> = {
+	smallint: { low: -(2n ** 15n), high: 2n ** 15n - 1n, zero: 0 },
+	integer: { low: -(2n ** 31n), high: 2n ** 31n - 1n, zero: 0 },
+	bigint: { low: -(2n ** 63n), high: 2n ** 63n - 1n, zero: 0n }
+}
+
+/**
+ * An exact integer narrowed into an integer type under the guard that it fits, 0 otherwise: what a program writes to
+ * store integer arithmetic in an integer field.
+ */
+export const narrowed = (x: ExprDesc, to: IntegerType): ExprDesc => {
+	const { low, high, zero } = integerTypes[to]
+	const field: FieldDesc = { kind: "pg", type: to }
+	return {
+		kind: "when",
+		guard: { kind: "within", low, high },
+		subject: x,
+		proved: cast(x, field),
+		otherwise: typedLit(zero, field)
+	}
+}
+
 export const count = (): HeadTermDesc => ({ kind: "aggregate", fn: "count" })
 export const sum = (arg: ExprDesc): HeadTermDesc => ({ kind: "aggregate", fn: "sum", arg })
 export const min = (arg: ExprDesc): HeadTermDesc => ({ kind: "aggregate", fn: "min", arg })

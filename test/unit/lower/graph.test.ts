@@ -336,19 +336,29 @@ const cases = <F extends RecursiveFeature | GraphFeature>(
 	}
 }
 
-/**
- * The origin filter's cases. Planted: a closure over float8 vertices, which the drawn vertex kinds reach a few times a
- * run.
- */
-const originFilterCases = cases<GraphFeature>(["originFilter"], recursiveCaseSketchGen, [
-	{
-		note: "an origin filter over float8",
-		vertexKind: vertexKinds.indexOf("float8"),
-		form: 0,
-		consumer: 0,
-		reaches: ["the seed applies an origin filter over double precision"]
-	}
-])
+/** A drawn case over float8 vertices, which the drawn vertex kinds, led by int4, rarely are. */
+const overFloat8: Gen<RecursiveCaseSketch> = (source) => {
+	const sketch = source.draw(recursiveCaseSketchGen)
+	return { ...sketch, graph: { ...sketch.graph, vertexKind: vertexKinds.indexOf("float8") } }
+}
+
+/** The origin filter's cases: one drawn case in four over float8 vertices, and a closure over them planted. */
+const originFilterCases = cases<GraphFeature>(
+	["originFilter"],
+	weighted([
+		[3, recursiveCaseSketchGen],
+		[1, overFloat8]
+	]),
+	[
+		{
+			note: "an origin filter over float8",
+			vertexKind: vertexKinds.indexOf("float8"),
+			form: 0,
+			consumer: 0,
+			reaches: ["the seed applies an origin filter over double precision"]
+		}
+	]
+)
 
 /** The consumers besides the origin filter: the pass fires no rule over any of them. */
 const otherConsumers: RecursiveLimits["consumers"] = [

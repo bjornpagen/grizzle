@@ -40,8 +40,9 @@ describe("R24 conditional aggregates", () => {
 	/** The head term a shape makes of a conditional: its sum, or the conditional itself. A count takes no argument. */
 	type Shape = "sum" | "bare"
 	/**
-	 * A branch: an integer literal, the integer column qty, or a numeric(5,1) literal, whose display scale count(*) does
-	 * not have. A conditional's two branches are of one type, so the leaves pair within theirs.
+	 * A branch: an integer literal, the integer column qty, or a numeric(5,1) literal, whose value is all a sum reads, so
+	 * 1.0 is the integer 1 count(*) cast to numeric delivers. A conditional's two branches are of one type, so the leaves
+	 * pair within theirs.
 	 */
 	type Leaf =
 		| "integer 0"
@@ -81,7 +82,7 @@ describe("R24 conditional aggregates", () => {
 			: integerQuery(shape, then, otherwise)
 
 	it.effect(
-		"counts by FILTER exactly sum(cond(p, 1, 0)) over integer literals, and leaves every other shape composed",
+		"counts by FILTER exactly sum(cond(p, 1, 0)) over literals of one carrier, and leaves every other shape composed",
 		(ctx) =>
 			Effect.gen(function* () {
 				const shapes = element<Shape>(["sum", "bare"])
@@ -117,7 +118,10 @@ describe("R24 conditional aggregates", () => {
 						},
 						([shape, then, otherwise], c) =>
 							Effect.sync(() => {
-								const counts = shape === "sum" && then === "integer 1" && otherwise === "integer 0"
+								const counts =
+									shape === "sum" &&
+									((then === "integer 1" && otherwise === "integer 0") ||
+										(then === "numeric(5,1) 1.0" && otherwise === "numeric(5,1) 0"))
 								c.note(counts ? "counted by FILTER" : "left composed")
 								const template = succeeded(
 									compileTemplate(queryOf(shape, then, otherwise), undefined, testCompile)

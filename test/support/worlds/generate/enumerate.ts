@@ -599,6 +599,28 @@ const generatedFacts = (
 		: distinctFacts(Arr.map(facts, (f) => Rec.filter(f, (_, field) => !classed.includes(field))))
 }
 
+/**
+ * The facts of an insert through an entry leaving out serial fields as grizzle refuses, which the box tries for its
+ * aims: each of its facts without the entry's first classed serial field where it classes two or more, so some are left
+ * out and not all, and without the first serial field its filter reads (serialHead).
+ */
+const omittingFacts = (
+	base: BaseSpec,
+	role: RoleSpec,
+	entry: string,
+	facts: ReadonlyArray<HostFact>
+): ReadonlyArray<HostFact> => {
+	const written = writtenNamed(base, role, entry)
+	const { classed, filtered } =
+		written === undefined ? { classed: [], filtered: [] } : serialHead(base, written)
+	const omitted = [...(classed.length > 1 ? classed.slice(0, 1) : []), ...filtered.slice(0, 1)]
+	return distinctFacts(
+		Arr.flatMap(omitted, (field) =>
+			Arr.map(facts, (f) => Rec.filter(f, (_, name) => name !== field))
+		)
+	)
+}
+
 /** A contract field of a heading and the value just past its bounds; none for a heading without a contract. */
 const refusedField = (
 	heading: ReadonlyArray<FieldSpec>
@@ -626,7 +648,9 @@ const factAims = [
 	"fact:hidden-key-collision",
 	"fact:hidden-capacity-collision",
 	"fact:hidden-reference",
-	"fact:deleted-reference"
+	"fact:deleted-reference",
+	"fact:partial-serial",
+	"fact:filtered-serial-omitted"
 ] as const
 
 /**
@@ -671,8 +695,9 @@ const directStarts = (
 
 /**
  * The apply actions of a session in the box: each written entry's op kinds over its facts, one fact per op, one op per
- * fact kind, inserts of its generated facts, and inserts of a fact past a contract's bounds and past an integer type's
- * range.
+ * fact kind (of its facts and of those leaving out serial fields as grizzle refuses, omittingFacts), inserts of its
+ * generated facts, and inserts of a fact past a contract's bounds and past an integer type's range; and the role's
+ * union and ordered writes.
  */
 const applyActions = (
 	state: ModelState,
@@ -714,10 +739,14 @@ const applyActions = (
 				facts: [f]
 			}))
 		]
+		const omitting = Arr.map(
+			omittingFacts(state.install.base, role, entry, facts),
+			(f): EntryOp => ({ relation: entry, kind: "insert", facts: [f] })
+		)
 		const aimed = Arr.flatMap(factAims, (aim) =>
 			Arr.fromOption(
 				Arr.findFirst(
-					live,
+					[...live, ...omitting],
 					(op) => op.kind !== "delete" && opKinds(state, writer, [op]).includes(aim)
 				)
 			)
@@ -761,7 +790,67 @@ const applyActions = (
 		firstOp === undefined
 			? []
 			: [{ kind: "apply", session, strata: [[firstOp]], reads: Rec.keys(role.entries).slice(0, 2) }]
-	return [...singles, ...readBacks, ...orderedApplies(state, writer, session, scope)]
+	return [
+		...singles,
+		...readBacks,
+		...unionApplies(state, writer, session, scope),
+		...orderedApplies(state, writer, session, scope)
+	]
+}
+
+/** The first insert the box tries through an entry a writer's role holds: one fact of its first choices. */
+const firstInsert = (
+	state: ModelState,
+	writer: FactWriter,
+	scope: SmallScope,
+	entry: string
+): EntryOp | undefined => {
+	const spec = Rec.has(writer.role.entries, entry) ? writer.role.entries[entry] : undefined
+	const fact =
+		spec === undefined
+			? undefined
+			: eachChoice(headingOf(state.install.base, spec), (f) => valuesFor(state, f.domain, scope))[0]
+	return fact === undefined ? undefined : { relation: entry, kind: "insert", facts: [fact] }
+}
+
+/** The ordinary relations a written entry's rules read besides its own target; none for a whole entry. */
+const readsBesides = (w: Written): ReadonlySet<string> =>
+	new Set(
+		w.kind === "whole"
+			? []
+			: Arr.flatMap(w.rules, (r) =>
+					Arr.flatMap([...r.matches, ...r.negations.flat()], (o) =>
+						o.source.kind === "ordinary" && o.source.name !== w.target ? [o.source.name] : []
+					)
+				)
+	)
+
+/**
+ * The union of the box: the first inserts through the first two entries the role writes into different relations,
+ * neither reading the other's, in one stratum, whose membership no order of the two decides; none for a role writing
+ * no such pair.
+ */
+const unionApplies = (
+	state: ModelState,
+	writer: FactWriter,
+	session: number,
+	scope: SmallScope
+): ReadonlyArray<Action> => {
+	const written = writtenOf(state.install.base, writer.role)
+	const pairs = Arr.flatMap(written, (a, i) =>
+		Arr.flatMap(written.slice(i + 1), (b): ReadonlyArray<readonly [Written, Written]> =>
+			a.target !== b.target && !readsBesides(a).has(b.target) && !readsBesides(b).has(a.target)
+				? [[a, b]]
+				: []
+		)
+	)
+	return Arr.flatMap(Arr.take(pairs, 1), ([a, b]): ReadonlyArray<Action> => {
+		const first = firstInsert(state, writer, scope, a.entry)
+		const second = firstInsert(state, writer, scope, b.entry)
+		return first === undefined || second === undefined
+			? []
+			: [{ kind: "apply", session, strata: [[first, second]], reads: [] }]
+	})
 }
 
 /**
@@ -774,32 +863,17 @@ const orderedApplies = (
 	session: number,
 	scope: SmallScope
 ): ReadonlyArray<Action> => {
-	const base = state.install.base
-	const written = writtenOf(base, writer.role)
-	const firstInsert = (entry: string): EntryOp | undefined => {
-		const spec = Rec.has(writer.role.entries, entry) ? writer.role.entries[entry] : undefined
-		const fact =
-			spec === undefined
-				? undefined
-				: eachChoice(headingOf(base, spec), (f) => valuesFor(state, f.domain, scope))[0]
-		return fact === undefined ? undefined : { relation: entry, kind: "insert", facts: [fact] }
-	}
+	const written = writtenOf(state.install.base, writer.role)
 	return Arr.flatMap(written, (e) => {
 		if (e.kind !== "query") {
 			return []
 		}
-		const reads = new Set(
-			Arr.flatMap(e.rules, (r) =>
-				Arr.flatMap([...r.matches, ...r.negations.flat()], (o) =>
-					o.source.kind === "ordinary" && o.source.name !== e.target ? [o.source.name] : []
-				)
-			)
-		)
+		const reads = readsBesides(e)
 		return Arr.flatMap(
 			Arr.filter(written, (w) => w.entry !== e.entry && reads.has(w.target)),
 			(w: Written): ReadonlyArray<Action> => {
-				const a = firstInsert(e.entry)
-				const b = firstInsert(w.entry)
+				const a = firstInsert(state, writer, scope, e.entry)
+				const b = firstInsert(state, writer, scope, w.entry)
 				return a === undefined || b === undefined
 					? []
 					: [

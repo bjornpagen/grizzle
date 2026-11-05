@@ -1,7 +1,7 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { NodeId, OccurrenceId, ParamId } from "#compiler/core/ids.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { NodeScope, OuterRefs } from "#compiler/ir/dag.ts"
 import { type EvidenceContext, type Premise, strongest } from "#compiler/ir/evidence.ts"
 import {
@@ -132,7 +132,7 @@ export interface Props {
 	readonly node: RelNode
 	/**
 	 * The node as the analysis read it: each input replaced by that input's properties, so a walk down a dependency's
-	 * rule (fixedValue) reads the input's properties themselves.
+	 * rule (fixedNames) reads the input's properties themselves.
 	 */
 	readonly reading: PropsReading
 	/**
@@ -180,10 +180,11 @@ export interface Props {
 	 */
 	readonly discriminant: ReadonlyArray<string>
 	/**
-	 * The columns fixed per evaluation, what nothing determines, each with the value it holds (fixedValue): in the order
-	 * their closure reached them.
+	 * The columns fixed per evaluation, what nothing determines, in the order their closure reached them, each with every
+	 * value a step fixes it to (fixedNames): one value wherever the node has a row, so each names it, whatever order the
+	 * steps are stated in; none for a column only a computation fixes.
 	 */
-	readonly fixed: ReadonlyMap<string, Fixed>
+	readonly fixed: ReadonlyMap<string, ReadonlyArray<NamedValue>>
 }
 
 /** A node as the logical analysis reads it: each input replaced by that input's properties. */
@@ -350,6 +351,15 @@ interface Table {
 /** A value a fixed column holds that names it: a literal, a parameter or an outer column. */
 type Named = Exclude<Fixed, { readonly kind: "expr" }>
 
+/**
+ * A name of the value a fixed column holds, with its derivation from nothing, whose first step to reach the column
+ * names it, as the test kernel reads a derivation's value (test/support/keys/kernel.ts).
+ */
+export interface NamedValue {
+	readonly name: Named
+	readonly derivation: Implication
+}
+
 const namedOf = (f: Fixed): Named | undefined => (f.kind === "expr" ? undefined : f)
 
 /**
@@ -385,95 +395,159 @@ const coverOf = (props: Table, start: Iterable<string>): Closure<never> => {
 	)
 }
 
-/** The derivation that `from` determines `targets` at a node; every target lies in the closure of `from`. */
-const implicationAt = (
-	props: Table,
-	from: Iterable<string>,
-	targets: Iterable<string>
-): Implication => derivation(closureOf(props, from), targets)
-
 /** The columns of a node fixed per evaluation: what nothing determines. */
 export const fixedColumns = (props: Props): ReadonlyArray<string> => [...props.fixed.keys()]
 
-/** The value a fixed column holds per evaluation, undefined when the column is not fixed (Props.fixed). */
-export const fixedValue = (props: Props, column: string): Fixed | undefined =>
+/** Every name of the value a fixed column holds per evaluation, undefined when the column is not fixed (Props.fixed). */
+export const fixedNames = (props: Props, column: string): ReadonlyArray<NamedValue> | undefined =>
 	props.fixed.get(column)
 
-/** Each column the closure of nothing reaches, with the value the step that reached it fixes it to. */
-const fixedOver = (props: Table): ReadonlyMap<string, Fixed> => {
+/**
+ * The value the closure of nothing names a fixed column by, the first of its names, which the derivations a parent
+ * carries from that closure read; a computation where it has none.
+ */
+const firstName = (props: Props, column: string): Fixed =>
+	props.fixed.get(column)?.[0]?.name ?? { kind: "expr" }
+
+/**
+ * Each column the closure of nothing reaches, with every name a step fixes it to: first the one the closure reached it
+ * by, then each further one a step gives it, until none adds a name. A step that carries an input's column carries each
+ * name the input fixes it to, by a step like it over the input's derivation of that name; an equality carries each name
+ * of its other column. So the names are every value the node's steps fix the column to, in any order of its steps.
+ */
+const fixedOver = (props: Table): ReadonlyMap<string, ReadonlyArray<NamedValue>> => {
 	const reached = closureOf(props, [])
-	return new Map(
-		[...reached.columns.keys()].map((c): readonly [string, Fixed] => [
-			c,
-			reached.named.get(c) ?? { kind: "expr" }
-		])
-	)
+	const names = new Map<string, Array<NamedValue>>()
+	for (const c of reached.columns.keys()) {
+		const first = reached.named.get(c)
+		names.set(c, first === undefined ? [] : [{ name: first, derivation: derivation(reached, [c]) }])
+	}
+	const namesOf = (c: string): ReadonlyArray<NamedValue> => names.get(c) ?? []
+	for (let changed = true; changed;) {
+		changed = false
+		for (const d of props.dependencies) {
+			if (!d.from.every((c) => reached.columns.has(c))) {
+				continue
+			}
+			for (const c of d.to) {
+				const held = names.get(c)
+				if (held === undefined) {
+					continue
+				}
+				for (const v of stepNames(props, reached, d, c, namesOf, held)) {
+					held.push(v)
+					changed = true
+				}
+			}
+		}
+	}
+	return names
 }
 
 /**
- * The value a step fixes `column` to at a node: a literal, a parameter, an outer column, or a computation. A rule that
- * carries the column from an input reads the value that input's properties hold for it (Props.fixed): the input whose
- * label the rule's implication names, the first arm of a union's agreement; an equality reads the value its other
- * column holds, `named`, where the closure named one.
+ * What a step reads the value it fixes `column` to from: its own value (a literal, a parameter, an outer column, a
+ * computation); another column of the node, an equality's; an input's column, whose value it carries, with the step
+ * like it that carries the column alone over another derivation of the input; or a union's arms, which agree on it.
  */
-const stepValue = (
-	props: Table,
-	d: Dependency,
-	column: string,
-	named: (column: string) => Fixed | undefined
-): Fixed => {
+type StepSource =
+	| { readonly kind: "own"; readonly value: Fixed }
+	| { readonly kind: "column"; readonly column: string }
+	| {
+			readonly kind: "input"
+			readonly input: Props
+			readonly column: string
+			readonly over: (derivation: Implication) => Dependency
+	  }
+	| { readonly kind: "arms"; readonly arms: NonEmptyReadonlyArray<Props> }
+
+const own = (value: Fixed): StepSource => ({ kind: "own", value })
+const opaque: StepSource = own({ kind: "expr" })
+
+/** The input of a reading whose label is `input`, by which a rule carries its columns. */
+const inputOf = (reading: PropsReading, input: NodeId): Props | undefined =>
+	edgesOf<Props>(reading).find((p) => p.node.id === input)
+
+/** Where step `d` reads the value it fixes `column` to at a node. */
+const stepSource = (props: Table, d: Dependency, column: string): StepSource => {
 	const node = props.reading
 	const rule = d.rule
 	switch (rule.rule) {
-		case "fixed":
-			return fixedWitnessValue(props, rule.witness, column)
+		case "fixed": {
+			const witness = rule.witness
+			if (witness.kind !== "semiJoinPair") {
+				return own(fixedWitnessValue(props, witness, column))
+			}
+			const pair = node.kind === "SemiJoin" ? node.on[witness.index] : undefined
+			return pair === undefined || node.kind !== "SemiJoin"
+				? opaque
+				: {
+						kind: "input",
+						input: node.right,
+						column: pair.right,
+						over: (right) =>
+							fixedColumn(column, { kind: "semiJoinPair", index: witness.index, right })
+					}
+		}
 		case "correlated": {
 			const corr = node.kind === "MatchRegion" ? node.correlated[rule.index] : undefined
 			if (corr === undefined || node.kind !== "MatchRegion") {
-				return { kind: "expr" }
+				return opaque
 			}
-			return fixedOf(corr.expr, regionLocals(props.node.id, node)) ?? { kind: "expr" }
+			return own(fixedOf(corr.expr, regionLocals(props.node.id, node)) ?? { kind: "expr" })
 		}
 		case "equal": {
 			const [from] = d.from
-			return from === undefined ? { kind: "expr" } : (named(from) ?? { kind: "expr" })
+			return from === undefined ? opaque : { kind: "column", column: from }
 		}
 		case "match": {
 			if (node.kind !== "MatchRegion") {
-				return { kind: "expr" }
+				return opaque
 			}
 			const occurrence = node.occurrences.find((o) => o.id === rule.occurrence)
 			const binding = occurrence?.bindings.find((b) => b.var.name === column)
 			if (occurrence === undefined || binding === undefined) {
-				return { kind: "expr" }
+				return opaque
 			}
 			const constant = occurrence.constants.find((k) => k.column === binding.column)
 			if (constant !== undefined) {
-				return fixedOf(constant.expr, regionLocals(props.node.id, node)) ?? { kind: "expr" }
+				return own(fixedOf(constant.expr, regionLocals(props.node.id, node)) ?? { kind: "expr" })
 			}
-			return fixedValue(occurrence.source, binding.column) ?? { kind: "expr" }
+			return {
+				kind: "input",
+				input: occurrence.source,
+				column: binding.column,
+				over: (source) => matchBinds(d.from, [column], rule.occurrence, source)
+			}
 		}
 		case "projection": {
 			if (node.kind !== "ProjectSet") {
-				return { kind: "expr" }
+				return opaque
 			}
 			const out = node.out.find((o) => o.name === column)
 			if (out === undefined) {
-				return { kind: "expr" }
+				return opaque
 			}
 			const input = node.input.node.id
 			const copied = localColumn(out.expr, input)
 			return copied === undefined
-				? (fixedOf(out.expr, new Set([input])) ?? { kind: "expr" })
-				: (fixedValue(node.input, copied) ?? { kind: "expr" })
+				? own(fixedOf(out.expr, new Set([input])) ?? { kind: "expr" })
+				: {
+						kind: "input",
+						input: node.input,
+						column: copied,
+						over: (derived) => projectionCloses(d.from, [column], derived)
+					}
 		}
 		case "kept":
-		case "grouped":
-			return inputValue(node, rule.input.node, column)
-		case "agreed": {
-			const [first] = rule.arms
-			return inputValue(node, first.node, column)
+		case "grouped": {
+			const input = inputOf(node, rule.input.node)
+			const carry = rule.rule === "kept" ? rowsKeep : groupKeeps
+			return input === undefined
+				? opaque
+				: { kind: "input", input, column, over: (derived) => carry(d.from, [column], derived) }
 		}
+		case "agreed":
+			return node.kind === "Union" ? { kind: "arms", arms: unionArms(node.groups) } : opaque
 		case "declared":
 		case "group":
 		case "atMostOne":
@@ -481,18 +555,113 @@ const stepValue = (
 		case "produced":
 		case "ranked":
 		case "unionKey":
-			return { kind: "expr" }
+			return opaque
 	}
 }
 
-/** The value `column` holds in the input of a reading whose label is `input`, by that input's rule; a computation otherwise. */
-const inputValue = (reading: PropsReading, input: NodeId, column: string): Fixed => {
-	const from = edgesOf<Props>(reading).find((p) => p.node.id === input)
-	return from === undefined ? { kind: "expr" } : (fixedValue(from, column) ?? { kind: "expr" })
+/**
+ * The names every arm of a union fixes `column` to, in the first arm's order, each with every arm's derivation of it:
+ * a shared name is one value in every arm, so the union's column holds it in every row.
+ */
+const commonNames = (
+	arms: NonEmptyReadonlyArray<Props>,
+	column: string
+): ReadonlyArray<{ readonly name: Named; readonly arms: NonEmptyReadonlyArray<Implication> }> =>
+	(fixedNames(arms[0], column) ?? []).flatMap((v) => {
+		const derivations = everyArm(
+			arms,
+			(a) => fixedNames(a, column)?.find((x) => fixedEqual(x.name, v.name))?.derivation
+		)
+		return derivations === undefined ? [] : [{ name: v.name, arms: derivations }]
+	})
+
+/**
+ * The names beside `held` that step `d` gives `column` of a node whose closure of nothing is `reached`, given the names
+ * `namesOf` holds of its columns so far, each with its derivation: the closure's derivation of the step's determinants,
+ * then the step, or the step like it over the input's derivation of each name it carries. A derivation that reaches the
+ * column before its last step names it by that earlier step, and gives no name here.
+ */
+const stepNames = (
+	props: Table,
+	reached: Closure<Named>,
+	d: Dependency,
+	column: string,
+	namesOf: (column: string) => ReadonlyArray<NamedValue>,
+	held: ReadonlyArray<NamedValue>
+): ReadonlyArray<NamedValue> => {
+	const named = (
+		name: Named,
+		before: () => ReadonlyArray<Dependency>,
+		step: () => Dependency
+	): ReadonlyArray<NamedValue> => {
+		if (held.some((h) => fixedEqual(h.name, name))) {
+			return []
+		}
+		const steps = before()
+		return steps.some((s) => s.to.includes(column))
+			? []
+			: [{ name, derivation: implication(props.node.id, [], [...steps, step()]) }]
+	}
+	const determinants = () => derivation(reached, d.from).steps
+	const source = stepSource(props, d, column)
+	switch (source.kind) {
+		case "own": {
+			const name = namedOf(source.value)
+			return name === undefined ? [] : named(name, determinants, () => d)
+		}
+		case "column":
+			return namesOf(source.column).flatMap((v) =>
+				named(
+					v.name,
+					() => v.derivation.steps,
+					() => d
+				)
+			)
+		case "input":
+			return (fixedNames(source.input, source.column) ?? []).flatMap((v) =>
+				named(v.name, determinants, () => source.over(v.derivation))
+			)
+		case "arms":
+			return commonNames(source.arms, column).flatMap((v) =>
+				named(v.name, determinants, () => armsAgree(column, v.arms))
+			)
+	}
 }
 
-/** The value a fixed column holds by the witness that fixed it at the node `props` are of. */
-const fixedWitnessValue = (props: Table, witness: FixedWitness, column: string): Fixed => {
+/**
+ * The value a step fixes `column` to at a node: a literal, a parameter, an outer column, or a computation. A rule that
+ * carries the column from an input reads the name its input's closure of nothing gives it (firstName), as the
+ * derivation the rule carries does; a union's agreement reads the first name its arms share, as its derivations do; an
+ * equality reads the value its other column holds, `named`, where the closure named one.
+ */
+const stepValue = (
+	props: Table,
+	d: Dependency,
+	column: string,
+	named: (column: string) => Fixed | undefined
+): Fixed => {
+	const source = stepSource(props, d, column)
+	switch (source.kind) {
+		case "own":
+			return source.value
+		case "column":
+			return named(source.column) ?? { kind: "expr" }
+		case "input":
+			return firstName(source.input, source.column)
+		case "arms":
+			return commonNames(source.arms, column)[0]?.name ?? { kind: "expr" }
+	}
+}
+
+/**
+ * The value a fixed column holds by the witness that fixed it at the node `props` are of, a witness of the node's own: a
+ * semi-join's pair carries the right side's (stepSource).
+ */
+const fixedWitnessValue = (
+	props: Table,
+	witness: Exclude<FixedWitness, { readonly kind: "semiJoinPair" }>,
+	column: string
+): Fixed => {
 	const node = props.reading
 	switch (witness.kind) {
 		case "conjunct": {
@@ -522,12 +691,6 @@ const fixedWitnessValue = (props: Table, witness: FixedWitness, column: string):
 			return corr === undefined || node.kind !== "Take"
 				? { kind: "expr" }
 				: (fixedOf(corr.expr, new Set([node.input.node.id])) ?? { kind: "expr" })
-		}
-		case "semiJoinPair": {
-			const pair = node.kind === "SemiJoin" ? node.on[witness.index] : undefined
-			return pair === undefined || node.kind !== "SemiJoin"
-				? { kind: "expr" }
-				: (fixedValue(node.right, pair.right) ?? { kind: "expr" })
 		}
 		case "attachCorrelation": {
 			const attach = props.attachment
@@ -1715,27 +1878,26 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 	const discriminant =
 		node.groups.length > 1 ? node.discriminant : [...new Set(arms.flatMap((a) => a.discriminant))]
 	const single = node.groups.length === 1 && discriminant.length === 0
-	const literalAt = (a: Props, c: string): EqualityKey | undefined => {
-		const f = fixedValue(a, c)
-		return f?.kind === "literal" ? f.key : undefined
+	/**
+	 * The literal an arm fixes a column to, with its derivation: the one literal among the column's names; none where they
+	 * hold no literal, or two, which no row of the arm holds at once.
+	 */
+	const literalAt = (
+		a: Props,
+		c: string
+	): { readonly key: EqualityKey; readonly derivation: Implication } | undefined => {
+		const [only, ...more] = (fixedNames(a, c) ?? []).flatMap((v) =>
+			v.name.kind === "literal" ? [{ key: v.name.key, derivation: v.derivation }] : []
+		)
+		return more.length === 0 ? only : undefined
 	}
-	/** Columns every arm fixes to one value, and columns every arm makes equal. */
+	/** Columns every arm fixes to one value, a name they share, and columns every arm makes equal. */
 	const deps: Array<Dependency> = []
 	const equal: Array<Equality> = []
 	for (const c of all) {
-		const values = arms.map((a) => fixedValue(a, c))
-		const [first] = values
-		if (
-			first !== undefined &&
-			first.kind !== "expr" &&
-			values.every((v) => v !== undefined && fixedEqual(v, first))
-		) {
-			deps.push(
-				armsAgree(
-					c,
-					mapNonEmpty(arms, (a) => implicationAt(a, [], [c]))
-				)
-			)
+		const [shared] = commonNames(arms, c)
+		if (shared !== undefined) {
+			deps.push(armsAgree(c, shared.arms))
 		}
 	}
 	for (const c of all) {
@@ -1762,7 +1924,7 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 	const pairs = arms.flatMap((a, i) =>
 		arms.slice(i + 1).map((b, j) => [i, i + 1 + j, a, b] as const)
 	)
-	/** The separation of two arms on `cs`: a column both fix to literals that differ. */
+	/** The separation of two arms on `cs`: a column each fixes to one literal, the two different. */
 	const separation = (
 		cs: ReadonlyArray<string>,
 		i: number,
@@ -1773,12 +1935,8 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 		for (const c of cs) {
 			const x = literalAt(a, c)
 			const y = literalAt(b, c)
-			if (x !== undefined && y !== undefined && x !== y) {
-				return {
-					arms: [i, j],
-					column: c,
-					fixed: [implicationAt(a, [], [c]), implicationAt(b, [], [c])]
-				}
+			if (x !== undefined && y !== undefined && x.key !== y.key) {
+				return { arms: [i, j], column: c, fixed: [x.derivation, y.derivation] }
 			}
 		}
 		return undefined

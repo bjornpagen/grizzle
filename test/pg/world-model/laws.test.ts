@@ -1,5 +1,6 @@
 import { layer } from "@effect/vitest"
 import type { Situations } from "@grizzle/testing/features"
+import { constant, type Gen, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { isImmediate } from "#test/pg/laws/families/model.ts"
 import { assert } from "#test/support/assert.ts"
@@ -22,7 +23,8 @@ import {
 	startingWith,
 	type StepCheck
 } from "#test/support/worlds/drive/suite.ts"
-import type { WorldFeature } from "#test/support/worlds/model/types.ts"
+import { docsVisitsInstall } from "#test/support/worlds/model/bases/docs.ts"
+import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types.ts"
 
 /**
  * Every law of the documents base (a foreign key, a candidate key, a capacity, a row check, a contract's domain CHECK,
@@ -103,6 +105,16 @@ const deferredAtCommit: StepCheck = ({ seen }) => {
 	)
 }
 
+/**
+ * The installations the laws are written under: the documents base's (docsInstalls) three times in four, and otherwise
+ * its worlds with Visit written through a unit entry and through one filtering on a serial field (docsVisitsInstall),
+ * where an insertion leaving out its serial fields meets each rule the README states for them.
+ */
+const installs: Gen<InstallSpec> = weighted([
+	[3, docsInstalls],
+	[1, constant(docsVisitsInstall)]
+])
+
 const required: Situations<WorldFeature> = [
 	...requiredWhere((f: WorldFeature) => refusedByLaw(f) || committed(f) || lawFunction(f)),
 	...lawInputs,
@@ -119,7 +131,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: laws", 
 	programTests(it, {
 		suite: "pg/world-model/laws",
 		name: "every law holds on every committed state whoever writes, and its refusals show only what the README allows",
-		installs: docsInstalls,
+		installs,
 		realize: fresh,
 		focus: writes,
 		steps: 10,

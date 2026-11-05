@@ -4,6 +4,8 @@ import { noCoverage, required } from "@grizzle/testing/features"
 import { weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
+import { generate, simplestChooser } from "@grizzle/testing/source"
+import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record } from "effect"
 import {
@@ -190,6 +192,9 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 			}
 			if (Arr.some([p.path.a, p.path.b, p.path.c], holdsCatalogName)) {
 				notes.note("catalog-type name")
+				for (const feature of ambientFeatures(ambient)) {
+					notes.pair(feature, "catalog-type name")
+				}
 			}
 			noteRenames(notes, p)
 			notes.note(p.choose ? "the path's renames chosen" : "every candidate kept")
@@ -277,13 +282,29 @@ const pathDrawGen = weighted<RenamedDraw>([
 	[1, catalogRenamedDrawGen]
 ])
 
+/**
+ * The property's draws of a case kept from before its property drew an ambient session: the simplest ambient session,
+ * the ordinary one, every setting unset, under which the case was found.
+ */
+const ordinaryTape = generate(ambientSessionGen, simplestChooser).tape
+const ordinaryDraws = tokenOf(ordinaryTape.values, ordinaryTape.length)
+
+/**
+ * The path a case runs: the drawn one, or, while the case's steering leaves a catalog-type name pending, a path whose B
+ * takes one, drawn from the case's own tape.
+ */
+const aimedDraw = (d: RenamedDraw, notes: Case<Feature>): RenamedDraw =>
+	Option.exists(notes.steering, (pending) => pending.names("catalog-type name"))
+		? notes.draw(catalogRenamedDrawGen)
+		: d
+
 const planted = (
 	path: RenamedDraw & { readonly kind: "stated" },
 	note: string
 ): Kept<RenamedDraw, Feature> => ({
 	note,
 	sketch: path,
-	draws: "",
+	draws: ordinaryDraws,
 	reaches: ["a step applied"]
 })
 
@@ -323,7 +344,7 @@ const keptIntents: ReadonlyArray<Kept<IntentSketch & { readonly kind: "legal" },
 			choose: true,
 			freshRelations: "before"
 		},
-		draws: "",
+		draws: ordinaryDraws,
 		reaches: [
 			"the intent renameReferenced",
 			"the intent retypeSerial",
@@ -356,7 +377,7 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 						steerEvery: 16,
 						caseHang
 					},
-					(d, notes) => property(notes.draw(resolveRenamedDraw(d)), notes)
+					(d, notes) => property(notes.draw(resolveRenamedDraw(aimedDraw(d, notes))), notes)
 				)
 			)
 	)

@@ -158,7 +158,8 @@ export type KeyFault =
  *   has a column.
  * - `undeclaredContract`: a field whose type is a contract the schema declares nowhere.
  * - `exactField`: a field whose head term is an exact value (an exact integer or exact money), which no field's
- *   type holds: the head narrows it with Compute.cast into the field type it fits.
+ *   type holds: the head narrows it with Compute.cast into the field type it fits, an aggregate's result over the
+ *   variable an interior stage finds it as.
  * - `inheritedKey`: an inherited key narrower than the heading whose unique index entry is unrepresentable.
  * - `wholeHeading`: the whole heading, the one key when no narrower key is proven, whose unique index entry is
  *   unrepresentable.
@@ -374,7 +375,7 @@ export const derivedRefusalText = (cause: DerivedRefusal): string => {
 		case "undeclaredContract":
 			return `a contract the schema declares; ${cause.contract} is none`
 		case "exactField":
-			return `field ${cause.field} of derived relation ${cause.relation} of a field's type: its head is an ${cause.type}, which no stored field holds; narrow it with Compute.cast into the type it fits`
+			return `field ${cause.field} of derived relation ${cause.relation} of a field's type: its head is an ${cause.type}, which no stored field holds; narrow it with Compute.cast into the type it fits, under Compute.when where the cast narrows, and an aggregate's result over the variable an interior stage (r.interior) finds it as`
 		case "inheritedKey":
 			return keyFaultText(
 				`inherited key (${list(cause.key)}) of derived relation ${cause.relation}`,

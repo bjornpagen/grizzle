@@ -1,8 +1,9 @@
 import { Array as Arr, Effect } from "effect"
+import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { canonicalTag } from "#compiler/core/canonical.ts"
+import { exactParts } from "#compiler/core/decimal.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
-import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
@@ -10,12 +11,12 @@ import { cast, lit, namedType, numericType, types } from "#compiler/sql/build.ts
 import { printExpr } from "#compiler/sql/print.ts"
 import type { Run, StatementRows } from "#test/support/oracle/compare.ts"
 import {
+	type ColumnCasts,
 	captureRows,
 	type QueryRunner,
 	type RawCaptureError,
 	type RawRow
 } from "#test/support/oracle/install/capture.ts"
-import { moneyText } from "#test/support/oracle/install/literal.ts"
 import type { InstallPlan } from "#test/support/oracle/install/model.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import type { ExpectedStatement } from "#test/support/oracle/reference/deliver.ts"
@@ -93,7 +94,7 @@ const valueExpr = (literal: TypedLiteral, type: TypeRef): Expr => {
 		case "int":
 			return lit.int(literal.value, type)
 		case "numeric":
-			return lit.decimal(decimalPayload(literal.value), type)
+			return lit.decimal(literal.value.parts, type)
 		case "float":
 			return lit.float(literal.value, type)
 		case "floatSpecial":
@@ -106,7 +107,7 @@ const valueExpr = (literal: TypedLiteral, type: TypeRef): Expr => {
 				type
 			)
 		case "money":
-			return cast(lit.decimal(moneyText(moneyMinorUnits(literal.value)), types.numeric), type)
+			return cast(lit.decimal(exactParts(moneyMinorUnits(literal.value), 2), types.numeric), type)
 		case "bool":
 			return literal.value ? lit.bool(true) : lit.bool(false)
 		case "text":
@@ -125,18 +126,17 @@ const valueExpr = (literal: TypedLiteral, type: TypeRef): Expr => {
 const columnsPerQuery = 1000
 
 /**
- * The reference's rows as raw text: each value spelled by its PostgreSQL type's own output function.
+ * The reference's rows as result text: each value spelled as a runtime read receives it from PostgreSQL.
  *
- * The oracle compares raw text, the bytes a type's output function writes, so the reference's values must become the
- * same text PostgreSQL would write for them. Rather than reimplement float8out, cash_out and numeric_out on the host,
- * the reference asks PostgreSQL: every distinct value becomes one typed literal of its type (an integer, an exact
- * decimal with its display scale, a double in shortest round-trip form, money from its exact amount, an enum label, a
- * vector's canonical text),
- * all of them selected in one row, and capture (install/capture.ts) reads each column's output text. Input and output
- * functions round-trip every value the reference holds exactly, so the text is the value's, and the reference's
- * meaning stays the host's own.
+ * The oracle reads every run's result texts (install/capture.ts), so the reference's values must become the texts
+ * PostgreSQL would deliver for them. Rather than reimplement float8out and numeric_out on the host, the reference asks
+ * PostgreSQL: every distinct value becomes one typed literal of its type (an integer, an exact decimal, a double in
+ * shortest round-trip form, money from its exact amount, an enum label, a vector's canonical text), all of them
+ * selected in one row, and capture reads each column's result text, money through numeric (codec resultTextCasts).
+ * Input and output functions round-trip every value the reference holds exactly, so the text is the value's, and the
+ * reference's meaning stays the host's own.
  *
- * The expected statements as a run of raw text rows, spelled by PostgreSQL on `runner`.
+ * The expected statements as a run of result text rows, spelled by PostgreSQL on `runner`.
  */
 export const renderExpected = (
 	runner: QueryRunner,
@@ -146,12 +146,14 @@ export const renderExpected = (
 	Effect.gen(function* () {
 		const slots = new Map<string, number>()
 		const exprs: Array<string> = []
+		const casts: Array<ColumnCasts> = []
 		const slotOf = (v: Value, type: ScalarType): number => {
 			const sql = printExpr(valueExpr(literalOfValue(v, type), sqlTypeOf(type, plan)))
 			let slot = slots.get(sql)
 			if (slot === undefined) {
 				slot = exprs.length
 				exprs.push(sql)
+				casts.push(resultTextCasts(type))
 				slots.set(sql, slot)
 			}
 			return slot
@@ -174,9 +176,12 @@ export const renderExpected = (
 		const texts: Array<string> = []
 		for (let start = 0; start < exprs.length; start += columnsPerQuery) {
 			const chunk = exprs.slice(start, start + columnsPerQuery)
-			const [row] = yield* captureRows(runner, `SELECT ${Arr.join(chunk, ", ")}`, [], {
-				columns: chunk.length
-			})
+			const [row] = yield* captureRows(
+				runner,
+				`SELECT ${Arr.join(chunk, ", ")}`,
+				[],
+				casts.slice(start, start + columnsPerQuery)
+			)
 			appendAll(texts, row ?? [])
 		}
 		const textAt = (slot: number): string => {

@@ -50,6 +50,7 @@ import {
 
 import {
 	baseOf,
+	exactDigitsOf,
 	isRefined,
 	type ScalarType,
 	sameScalarType,
@@ -67,6 +68,7 @@ import {
 	castChainSketchGen,
 	compareSketchGen,
 	type LowerHooks,
+	storedColumn,
 	type TermScope,
 	type TermSketch,
 	termSketchGen
@@ -1097,6 +1099,9 @@ const freshName = (base: string, taken: ReadonlySet<string>): string => {
 
 export const column = (name: string, type: ScalarType): HeadingColumn => ({ name, type })
 
+/** Whether a column is of an exact type, an exact integer or exact money, which no generated column is stored at. */
+const isExact = (t: ScalarType): boolean => exactDigitsOf(t) !== undefined
+
 /** The names a query's minted parameters take (QueryConfig.paramNames), every name once in the case. */
 export class ParamNames {
 	readonly #mode: QueryConfig["paramNames"]
@@ -1172,6 +1177,10 @@ class QueryResolver {
 		string,
 		{ readonly value: ValueSketch; readonly type: ScalarType }
 	>()
+	/** The group under each projection that narrows its exact outputs (stored), which passes its keys through. */
+	readonly #storedGroups = new Map<RelNode, RelNode>()
+	/** The query parameter each term parameter name is bound to, once a term over it is lowered (termParam). */
+	readonly #termParamIds = new Map<string, ParamId>()
 	/** The expressions that are stable, which every operator over them inherits. */
 	readonly #stable = new Set<ScalarExpr>()
 
@@ -1306,18 +1315,32 @@ class QueryResolver {
 			param: (name) => {
 				const registered = defined(this.#termParams.get(name), "a registered term parameter")
 				const type = compareParamType(registered.type)
-				const param = this.#names.mint("p")
-				this.params[param] = {
-					kind: "scalar",
-					type,
-					value: resolveValue(type, registered.value, this.spelling.edge)
-				}
+				const param = this.termParam(name, type, registered.value)
 				return {
 					spec: { kind: "param", param, role: "compare", args: [], type, nonNull: "codec" },
 					type: registered.type
 				}
 			}
 		}
+	}
+
+	/**
+	 * The query parameter a term's named parameter is, one per name as a program's `r.param(name, type)` is wherever it
+	 * stands: a guard's subject and its occurrence in the proved branch are one parameter, which the guard refines.
+	 */
+	termParam(name: string, type: ScalarType, value: ValueSketch): ParamId {
+		const bound = this.#termParamIds.get(name)
+		if (bound !== undefined) {
+			return bound
+		}
+		const param = this.#names.mint("p")
+		this.params[param] = {
+			kind: "scalar",
+			type,
+			value: resolveValue(type, value, this.spelling.edge)
+		}
+		this.#termParamIds.set(name, param)
+		return param
 	}
 
 	/** Whether this place takes a computed term. */
@@ -1540,14 +1563,15 @@ class QueryResolver {
 	}
 
 	/**
-	 * The key columns of `input` where it is a group with keys and the configuration and the swarm draw a filter over
-	 * them: the predicate then compares those columns only, the shape pushdown.group moves below the group.
+	 * The key columns of `input` where it is a group with keys, or the projection narrowing a group's exact outputs
+	 * (stored), and the configuration and the swarm draw a filter over them: the predicate then compares those columns
+	 * only, the shape pushdown.group moves below the group, through the projection by pushdown.project.
 	 */
 	groupKeyed(input: Built): Heading | undefined {
 		if (!this.config.groupFilter || !this.kept(this.rewrite, "groupFilter")) {
 			return undefined
 		}
-		const node = input.node
+		const node = this.#storedGroups.get(input.node) ?? input.node
 		if (node.kind !== "Group" || node.keys.length === 0) {
 			return undefined
 		}
@@ -2188,7 +2212,42 @@ class QueryResolver {
 			aggs,
 			heading
 		})
-		return { node: id, heading }
+		return this.stored({ node: id, heading })
+	}
+
+	/**
+	 * A node whose exact columns (a sum over money is exact money) are narrowed into the carrier a program stores them
+	 * at, under the guard that they fit (compute.ts storedColumn), so every heading column is of a carrier the
+	 * generators draw; a node with none is itself.
+	 */
+	stored(built: Built): Built {
+		if (!Arr.some(built.heading, (c) => isExact(c.type))) {
+			return built
+		}
+		const items = Arr.map(built.heading, (c) =>
+			isExact(c.type)
+				? {
+						column: c,
+						term: storedColumn(this.termScope(built.heading), this.termHooks(built.node), c)
+					}
+				: { column: c, term: undefined }
+		)
+		const heading = Arr.map(items, (i) =>
+			i.term === undefined ? i.column : column(i.column.name, i.term.type)
+		)
+		const node = this.b.node({
+			loc: undefined,
+			meta: conservativeMeta,
+			kind: "ProjectSet",
+			input: built.node,
+			out: Arr.map(items, (i) => ({
+				name: i.column.name,
+				expr: i.term === undefined ? this.col(built.node, i.column) : this.noteTerm(i.term)
+			})),
+			heading
+		})
+		this.#storedGroups.set(node, built.node)
+		return { node, heading }
 	}
 
 	take(s: Extract<QuerySketch, { tag: "take" }>): Built {

@@ -319,8 +319,9 @@ describe("ScalarType", () => {
 	)
 })
 
+/** The numeric literal of the value `text` spells, display scale or not, at `type`. */
 const at = (text: string, type: ScalarType) =>
-	check({ kind: "numeric", value: defined(DecimalText.parse(text)) }, type)
+	check({ kind: "numeric", value: Decimal.of(text) }, type)
 
 const check = (literal: TypedLiteral, type: ScalarType) => literalProblem(literal, type)
 
@@ -805,10 +806,12 @@ describe("contract predicates", () => {
 				kind: "domainCast",
 				args: [ExprId("e#2")],
 				nonNull: "strict",
-				proof: {
-					precondition: { kind: "contract" },
-					premises: [{ kind: "checked", operand: 0, by: "literal" }]
-				}
+				proof: [
+					{
+						precondition: { kind: "contract" },
+						premises: [{ kind: "checked", operand: 0, by: "literal" }]
+					}
+				]
 			}))
 		],
 		[

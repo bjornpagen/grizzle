@@ -1,11 +1,11 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -384,6 +384,41 @@ const situationsOf = (c: AccumulationCase): ReadonlyArray<OrderSituation> => {
 
 const runs = 12
 
+/**
+ * Groups whose sequential double sum overflows in their order, a partial sum past DBL_MAX, while the exact total is
+ * DBL_MAX or its negation, finite.
+ */
+const overflowingGroups: Arr.NonEmptyReadonlyArray<ReadonlyArray<number>> = [
+	[Number.MAX_VALUE, Number.MAX_VALUE, -Number.MAX_VALUE],
+	[-Number.MAX_VALUE, -Number.MAX_VALUE, Number.MAX_VALUE],
+	[Number.MAX_VALUE, 1, Number.MAX_VALUE, -Number.MAX_VALUE]
+]
+
+/**
+ * The case a witness runs, aimed at what no witness has reached yet (Case.steering), each pending situation in half
+ * its cases by a draw of its own: its plans forced parallel, and its third group drawn from overflowingGroups in place
+ * of its own; a rotating or kept case runs as drawn. The situations are computed from the aimed case, so a note never
+ * claims what the case does not hold.
+ */
+const aimed = (k: AccumulationCase, c: Case<OrderSituation>): AccumulationCase =>
+	Option.match(c.steering, {
+		onNone: () => k,
+		onSome: (pending) => ({
+			...k,
+			entries:
+				pending.has("float sum overflowing in some order but not in total") && c.draw(boolean)
+					? [
+							...Arr.filter(k.entries, (x) => x.grp !== 3),
+							...Arr.map(c.draw(element(overflowingGroups)), (x) => plainEntry(3, x, 0n))
+						]
+					: k.entries,
+			perturbation:
+				pending.has("aggregate under forced parallel plans") && c.draw(boolean)
+					? forcedParallel
+					: k.perturbation
+		})
+	})
+
 const double = (x: number): TypedLiteral => ({ kind: "float", value: canonicalZero(x) })
 
 const plainEntry = (grp: number, x: number, cents: bigint): Entry => ({
@@ -479,8 +514,9 @@ layer(Substrate.layer)("aggregates against the exact reference on PostgreSQL 19"
 							steerEvery: 16,
 							caseHang: Duration.minutes(2)
 						},
-						(k, c) =>
-							Effect.gen(function* () {
+						(drawnCase, c) => {
+							const k = aimed(drawnCase, c)
+							return Effect.gen(function* () {
 								c.noteAll(situationsOf(k))
 								for (const [label, desc] of ledgerQueries) {
 									yield* judged(
@@ -503,6 +539,7 @@ layer(Substrate.layer)("aggregates against the exact reference on PostgreSQL 19"
 									"R41 rewrote the running total"
 								)
 							}).pipe(Effect.provideService(CurrentPerturbation, k.perturbation))
+						}
 					)
 				})
 			)

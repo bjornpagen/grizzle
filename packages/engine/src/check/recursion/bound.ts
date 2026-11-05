@@ -1,8 +1,8 @@
-import { firstIndex, appendAll } from "#compiler/core/array.ts"
+import { firstIndex } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
-import { inputsOf, type NodeOf, type RelDag, type RelNode, type VarDecl } from "#compiler/ir/rel.ts"
+import type { NodeOf, RelDag, RelNode, VarDecl } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type NativeFn, nativeOp } from "#compiler/scalar/compute/registry.ts"
 
@@ -574,28 +574,8 @@ class CounterReader {
 	}
 }
 
-/**
- * The nodes the lowering of `roots` reads, following data inputs: what one unrolled level inlines.
- *
- * The iterator reads the length at every step, so the inputs pushed below are visited too.
- */
-export const reachable = (roots: ReadonlyArray<RelNode>): ReadonlyArray<RelNode> => {
-	const seen = new Set<RelNode>()
-	const out: Array<RelNode> = []
-	const queue = [...roots]
-	for (const node of queue) {
-		if (seen.has(node)) {
-			continue
-		}
-		seen.add(node)
-		out.push(node)
-		appendAll(queue, inputsOf(node))
-	}
-	return out
-}
-
 /** The depth of one candidate counter column, or why it proves none. */
-export const counterDepth = (
+const counterDepth = (
 	labels: ReadonlyMap<NodeId, RelNode>,
 	rec: RecursionParts,
 	column: string
@@ -642,20 +622,6 @@ export const counterDepth = (
 		return { kind: "unbounded", reason: "noLiteralBound" }
 	}
 	return { kind: "bounded", proof: { column, delta, limit, seeds, depth: Number(depth) } }
-}
-
-/**
- * Every value a bounded counter's step computes, from its seeds through the step past its bound, which PostgreSQL may
- * compute on the working table's last rows before the step's filter drops them: [low, high].
- */
-export const counterInterval = (p: CounterProof): readonly [bigint, bigint] => {
-	const ends = p.seeds.flatMap((s) => [s, s + BigInt(p.depth + 1) * p.delta])
-	const [first, ...rest] = ends
-	const start = first ?? 0n
-	return [
-		rest.reduce((m, x) => (x < m ? x : m), start),
-		rest.reduce((m, x) => (x > m ? x : m), start)
-	]
 }
 
 /**

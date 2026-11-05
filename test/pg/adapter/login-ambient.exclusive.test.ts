@@ -28,7 +28,7 @@
  */
 import { layer } from "@effect/vitest"
 import { assertInstanceOf } from "@effect/vitest/utils"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import {
 	array,
@@ -186,6 +186,29 @@ type Feature =
 	| "a later page"
 
 const settingFeature = (s: AmbientSetting): SettingFeature => `${s.parameter} ${s.value}`
+
+/**
+ * The case a witness runs, aimed at what no witness reached yet (Case.steering): each setting value no witness has run
+ * under takes its parameter's place in half the case's draws of it; a rotating or kept case runs as drawn.
+ */
+const aimed = (c: LoginCase, cx: Case<Feature>): LoginCase =>
+	Option.match(cx.steering, {
+		onNone: () => c,
+		onSome: (pending) => ({
+			...c,
+			ambient: {
+				...c.ambient,
+				settings: Arr.reduce(
+					Arr.flatten(ambientSettingValues),
+					c.ambient.settings,
+					(settings, s): ReadonlyArray<AmbientSetting> =>
+						pending.has(settingFeature(s)) && cx.draw(boolean)
+							? [...Arr.filter(settings, (x) => x.parameter !== s.parameter), s]
+							: settings
+				)
+			}
+		})
+	})
 
 const textGen: Gen<TextFact> = (source) => ({
 	id: source.draw(element(ids)),
@@ -465,8 +488,9 @@ layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 							steerEvery: 4,
 							caseHang: Duration.minutes(2)
 						},
-						(c, cx) =>
+						(drawnCase, cx) =>
 							Effect.gen(function* () {
+								const c = aimed(drawnCase, cx)
 								cx.noteAll(ambientFeatures(c.ambient))
 								cx.noteAll(Arr.map(c.ambient.settings, settingFeature))
 								cx.note(`the search_path pin ${c.pin}`)

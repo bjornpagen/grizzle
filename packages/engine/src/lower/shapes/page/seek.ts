@@ -9,9 +9,10 @@ import {
 	type StatementParams
 } from "#compiler/lower/conservative/context.ts"
 import type { PageParamSlot } from "#compiler/lower/conservative/types.ts"
+import { isVectorType, typedCompare } from "#compiler/lower/conservative/vector/equality.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import type { Expr, OrderItem, TypeRef } from "#compiler/sql/ast.ts"
-import { and, asc, binary, desc, eq, lit, or, row, slotParam, types } from "#compiler/sql/build.ts"
+import { and, asc, binary, desc, lit, or, row, slotParam, types } from "#compiler/sql/build.ts"
 
 /**
  * The four request shapes: { first }, { first, after }, { last }, { last, before }. Each is its own
@@ -60,6 +61,10 @@ export type ProbeKind = (typeof probeKinds)[number]
  * boundary. A single key is the plain comparison. Mixed directions keep the
  * expansion: a row comparison compares every member with one operator, so it cannot express them, and no
  * arithmetic negation fakes a reversed key.
+ *
+ * Over a vector key every comparison is the extension's qualified operator (vector/equality.ts typedCompare), since a
+ * role's search_path never holds the extension schema. A row comparison resolves each member's operator by name, so a
+ * tuple that holds a vector keeps the expansion.
  *
  * The inclusive forms "at or after c" and "at or before c" serve the flags of an empty page: the strict
  * predicate or the whole tuple equal, as one native row comparison `>=` / `<=` when the directions agree. The
@@ -191,6 +196,7 @@ export class PageSlots {
 		}))
 		return this.#boundaries.map(({ comparator, boundary }) => ({
 			direction: comparator.direction,
+			type: comparator.type,
 			column: comparatorColumn(map, comparator),
 			boundary
 		}))
@@ -198,11 +204,12 @@ export class PageSlots {
 }
 
 /**
- * One position of a seek: its direction, the delivered column it reads, and the boundary value it compares that
- * column against.
+ * One position of a seek: its direction, its comparator's type, the delivered column it reads, and the boundary value
+ * it compares that column against.
  */
 export interface SeekKey {
 	readonly direction: "asc" | "desc"
+	readonly type: ScalarType
 	readonly column: Expr
 	readonly boundary: Expr
 }
@@ -211,9 +218,9 @@ export interface SeekKey {
 export const comparatorColumn = (map: ColumnMap, comparator: PageComparator): Expr =>
 	columnIn(map, comparator.field)
 
-/** Whether a seek on these keys is one native row comparison: every key in one direction. */
-const isRowSeek = (keys: ReadonlyArray<{ readonly direction: "asc" | "desc" }>): boolean =>
-	keys.length > 0 && keys.every((k) => k.direction === keys[0]?.direction)
+/** Whether a seek on these keys is one native row comparison: every key in one direction, and none a vector. */
+const isRowSeek = (keys: ReadonlyArray<SeekKey>): boolean =>
+	keys.every((k) => k.direction === keys[0]?.direction && !isVectorType(k.type))
 
 /** The operator by which a key on `side` of its boundary value compares, strictly or inclusively. */
 const operator = (direction: "asc" | "desc", seek: Seek): ">" | "<" | ">=" | "<=" => {
@@ -225,28 +232,33 @@ const operator = (direction: "asc" | "desc", seek: Seek): ">" | "<" | ">=" | "<=
  * The seek predicate of `keys` against their boundary values; undefined when every tuple qualifies (the inclusive seek
  * of the empty comparison tuple).
  */
-export const seekPredicate = (keys: ReadonlyArray<SeekKey>, seek: Seek): Expr | undefined => {
+export const seekPredicate = (
+	keys: ReadonlyArray<SeekKey>,
+	seek: Seek,
+	vectorSchema: string
+): Expr | undefined => {
 	if (!isNonEmpty(keys)) {
 		return seek.inclusive ? undefined : lit.bool(false)
 	}
 	const [first] = keys
+	const compare = (op: ">" | "<" | ">=" | "<=" | "=", k: SeekKey): Expr =>
+		typedCompare(op, k.type, k.column, k.boundary, vectorSchema)
+	if (keys.length === 1) {
+		return compare(operator(first.direction, seek), first)
+	}
 	if (isRowSeek(keys)) {
-		const op = operator(first.direction, seek)
-		if (keys.length === 1) {
-			return binary(op, first.column, first.boundary)
-		}
 		return binary(
-			op,
+			operator(first.direction, seek),
 			row(mapNonEmpty(keys, (k) => k.column)),
 			row(mapNonEmpty(keys, (k) => k.boundary))
 		)
 	}
-	const equal = (k: SeekKey): Expr => eq(k.column, k.boundary)
+	const equal = (k: SeekKey): Expr => compare("=", k)
 	const terms = mapNonEmpty(keys, (k, j) =>
 		and(
 			appendNonEmpty(
 				keys.slice(0, j).map(equal),
-				binary(operator(k.direction, { side: seek.side, inclusive: false }), k.column, k.boundary)
+				compare(operator(k.direction, { side: seek.side, inclusive: false }), k)
 			)
 		)
 	)

@@ -128,14 +128,14 @@ const cond = (q: Q, p: ScalarExpr, a: ScalarExpr, b: ScalarExpr, type: ScalarTyp
 		nonNull: "cond"
 	})
 
-export type ConditionalForm = "int4" | "int8" | "numeric1.0" | "numeric5.2" | "term"
+export type ConditionalForm = "int4" | "int8" | "numeric" | "numeric5.2" | "term"
 
 /** A numeric with a scale typmod: its literal 1 displays 1.00. */
 const numeric5_2: ScalarType = scalarOf(f.numeric(5, 2), {})
 
 /**
  * Per account, the sum of a conditional over its tasks' (id, account, amount) bindings: sum(cond(amount > threshold,
- * 1, 0)) over integer or bigint literals, the same over numeric 1.0 or numeric(5,2) 1 and 0, or sum(cond(amount >
+ * 1, 0)) over integer or bigint literals, the same over numeric or numeric(5,2) 1 and 0, or sum(cond(amount >
  * threshold, amount, 0)).
  */
 export const conditional = (
@@ -156,8 +156,8 @@ export const conditional = (
 			? [q.int(1, T.int4), q.int(0, T.int4), T.int4, T.int8]
 			: form === "int8"
 				? [q.int(1, T.int8), q.int(0, T.int8), T.int8, T.numeric]
-				: form === "numeric1.0"
-					? [q.decimal("1.0", T.numeric), q.decimal("0", T.numeric), T.numeric, T.numeric]
+				: form === "numeric"
+					? [q.decimal("1", T.numeric), q.decimal("0", T.numeric), T.numeric, T.numeric]
 					: form === "numeric5.2"
 						? [q.decimal("1", numeric5_2), q.decimal("0", numeric5_2), numeric5_2, T.numeric]
 						: [q.col(m, "amount"), q.int(0, T.int8), T.int8, T.numeric]

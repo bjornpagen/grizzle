@@ -1,7 +1,7 @@
 import { regex } from "arkregex"
 /**
  * The catalog of performance gates: R01 to R42, the compiler's performance rules, then the work-queue claim at a reference
- * load and the refresh lifetime. Each gate is stated here, as data, with the rule it measures, its owner and its gate
+ * load, the refresh lifetime and a residual law's first call per backend. Each gate is stated here, as data, with the rule it measures, its owner and its gate
  * text: what a bench file must show for it. A rule with no gate text of its own is gated by the performance contract, a
  * measurement that can disprove the performance assumption. Each gate's bench file belongs to its owner: the query
  * owner's under bench/query, the write owner's (the write, law, queue and refresh gates; R40 is a refresh measurement,
@@ -51,7 +51,7 @@ const ruleIds = [
 
 export type RuleId = (typeof ruleIds)[number]
 
-const extraGateIds = ["queue", "refresh-lifetime"] as const
+const extraGateIds = ["queue", "refresh-lifetime", "law-first-call"] as const
 
 export type ExtraGateId = (typeof extraGateIds)[number]
 
@@ -298,10 +298,17 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 		title: "Refreshes within an 800 s function lifetime",
 		owner: "write",
 		gate: stated("refreshes that fit an 800 s function lifetime one level per call;")
+	},
+	"law-first-call": {
+		title: "A residual law's first call per backend compiles only the unit its write fires",
+		owner: "write",
+		gate: stated(
+			"over an alternatives law of growing rosters, every handle armed or one unarmed, each in a fresh backend: a parent's first COMMIT with one unarmed handle within 1.5 times every handle armed, at each size; a transaction rewriting a payload in every payload table growing at most 2.5 times from the second-largest roster to the largest; and the parent's first COMMIT growing at most 6 times there."
+		)
 	}
 }
 
-/** Every gate, in order: R01 to R42, then the queue and refresh-lifetime gates. */
+/** Every gate, in order: R01 to R42, then the queue, refresh-lifetime and law-first-call gates. */
 export const gateCatalog: ReadonlyArray<GateEntry> = Arr.map(gateIds, (id) => ({
 	id,
 	...statedGates[id]

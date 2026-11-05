@@ -89,8 +89,8 @@ const installed = (desc: SchemaDesc): Installation => {
 const valueDesc = (desc: FieldDesc): FieldDesc =>
 	desc.kind === "contract" ? valueDesc(desc.base) : desc
 
-/** The CHECKs that enforce a column's own type declaration and report no law, as manifest idents named through the door:
- * a span column's shape and, with a fixed width, its width; a vector column's cosine domain. */
+/** The CHECKs that enforce a column's own type declaration, as manifest idents named through the door: a span column's
+ * shape and, with a fixed width, its width; a vector column's cosine domain; a bare numeric column's digit bound. */
 const typeChecks = (i: Installation): ReadonlySet<string> => {
 	const N = installationNamesOf(i)
 	const checks = new Set<string>()
@@ -109,6 +109,9 @@ const typeChecks = (i: Installation): ReadonlySet<string> => {
 			}
 			if (value.kind === "vector") {
 				checks.add(ident(N.normCheck(r.desc, field)))
+			}
+			if (value.kind === "numeric" && !("precision" in value)) {
+				checks.add(ident(N.numericBound(r.desc, field)))
 			}
 		}
 	}

@@ -5,55 +5,23 @@ import {
 	type TaggedValue,
 	taggedValueOf
 } from "#compiler/core/canonical.ts"
+import {
+	type DecimalParts,
+	type FiniteParts,
+	infinityParts,
+	nanParts,
+	negativeInfinityParts
+} from "#compiler/core/decimal.ts"
 
 export const decimalTag = "d"
 
 const isDigit = (ch: string | undefined): boolean => ch !== undefined && ch >= "0" && ch <= "9"
 
 /**
- * A finite numeric value in its one form: (-1)^negative · coefficient · 10^-minScale, where minScale is the least
- * scale that writes the value exactly (PostgreSQL's min_scale).
- */
-export interface FiniteParts {
-	readonly kind: "finite"
-	/** False for zero: numeric has no signed zero. */
-	readonly negative: boolean
-	/** Not a multiple of 10 when minScale > 0; 0n only at minScale 0. */
-	readonly coefficient: bigint
-	/** 0..16383. */
-	readonly minScale: number
-}
-
-/** A numeric value: NaN, an infinity, or a finite value in its one form. */
-export type DecimalParts =
-	| FiniteParts
-	| { readonly kind: "nan" }
-	| { readonly kind: "infinity" }
-	| { readonly kind: "-infinity" }
-
-/**
  * The IR's decimal: DecimalText or scalar/values' owned Decimal, both in the one form. The IR holds a numeric literal
  * as one (ir/expr.ts TypedLiteral), and either spells its canonical text from its parts.
  */
 export type DecimalValue = Canonicalizable & { readonly parts: DecimalParts }
-
-export const nanParts: DecimalParts = Object.freeze({ kind: "nan" })
-export const infinityParts: DecimalParts = Object.freeze({ kind: "infinity" })
-export const negativeInfinityParts: DecimalParts = Object.freeze({ kind: "-infinity" })
-
-/**
- * The text of a finite value in its one form, PostgreSQL's numeric_out of trim_scale(value): `digits` are the
- * coefficient's decimal digits, written with minScale fractional digits and no exponent.
- */
-export const finiteDigitsText = (negative: boolean, digits: string, minScale: number): string => {
-	const sign = negative ? "-" : ""
-	if (minScale === 0) {
-		return sign + digits
-	}
-	const padded = digits.padStart(minScale + 1, "0")
-	const point = padded.length - minScale
-	return `${sign}${padded.slice(0, point)}.${padded.slice(point)}`
-}
 
 export const isDecimalPayload = (text: string): boolean => DecimalText.parse(text) !== undefined
 

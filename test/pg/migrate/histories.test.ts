@@ -1,12 +1,13 @@
 import { layer } from "@effect/vitest"
 import {
+	type Command,
 	type Machine,
 	type Program,
 	program,
 	type Real,
 	runProgram
 } from "@grizzle/testing/commands"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { element, type Gen, int, map } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -19,7 +20,8 @@ import {
 	Option,
 	Record as Rec,
 	Result,
-	String as Str
+	String as Str,
+	Struct
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -1007,6 +1009,51 @@ const featureOf: { readonly [K in keyof Params]: Feature } = {
 	"rename the context": "the context renamed"
 }
 
+/** The size of a history's program: one to five steps. */
+const historySize = { min: 1, max: 5 } as const
+
+/**
+ * The machine aimed at `aims`: where an aimed command applies, only the aimed ones do, so a program drawn from it runs
+ * a pending command wherever the model allows one; elsewhere every command applies as in the machine.
+ */
+const aimedAt = (aims: ReadonlySet<keyof Params>): Machine<Model, Params> => {
+	const anyAimed = (m: Model): boolean => Arr.some([...aims], (k) => machine.commands[k].applies(m))
+	const aimed = <K extends keyof Params>(k: K): Command<Model, Params[K]> => {
+		const command = machine.commands[k]
+		return { ...command, applies: (m) => command.applies(m) && (aims.has(k) || !anyAimed(m)) }
+	}
+	return {
+		initial,
+		commands: {
+			"rename a relation": aimed("rename a relation"),
+			"swap two relations' names": aimed("swap two relations' names"),
+			"rename a field": aimed("rename a field"),
+			"rename a field and change its type": aimed("rename a field and change its type"),
+			"remove a relation and add one of its shape": aimed(
+				"remove a relation and add one of its shape"
+			),
+			"rename a closed handle": aimed("rename a closed handle"),
+			"reorder the closed handles": aimed("reorder the closed handles"),
+			"rename a login": aimed("rename a login"),
+			"rename a login while its roles change": aimed("rename a login while its roles change"),
+			"exchange a login's and a role's names": aimed("exchange a login's and a role's names"),
+			"add an entry to a role": aimed("add an entry to a role"),
+			"remove an entry from a role": aimed("remove an entry from a role"),
+			"rename a context field": aimed("rename a context field"),
+			"add a context field": aimed("add a context field"),
+			"rename the context": aimed("rename the context")
+		}
+	}
+}
+
+/** The commands whose features a case's steering leaves pending: none where it steers none. */
+const pendingCommands = (steering: Case<Feature>["steering"]): ReadonlySet<keyof Params> =>
+	Option.match(steering, {
+		onNone: () => new Set<keyof Params>(),
+		onSome: (pending) =>
+			new Set<keyof Params>(Arr.filter(Struct.keys(featureOf), (k) => pending.has(featureOf[k])))
+	})
+
 /** The system a program runs against: one schema, its owner, the folders applied so far, the snapshot they reached and
  * the plan that installed it, the rows the model expects there, how many drafts it made, and the PostgreSQL role's
  * OID of every login and role the model has held, by what the model says each is. */
@@ -1294,7 +1341,7 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 				explore(
 					{
 						suite: "pg/migrate/histories",
-						draw: drawn(program(machine, { min: 1, max: 5 })),
+						draw: drawn(program(machine, historySize)),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -1329,7 +1376,11 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 						steerEvery: 4,
 						caseHang: Duration.minutes(10)
 					},
-					(steps, c) => history(steps, (f) => c.note(f))
+					(drawnSteps, c) => {
+						const aims = pendingCommands(c.steering)
+						const steps = aims.size === 0 ? drawnSteps : c.draw(program(aimedAt(aims), historySize))
+						return history(steps, (f) => c.note(f))
+					}
 				)
 			)
 	)

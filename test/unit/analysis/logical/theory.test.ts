@@ -232,7 +232,7 @@ describe("field-compatibility classes", () => {
 									)
 									unorderedEqual(
 										[...violated(t, { A: [{ id: G.t1, code: "abc", n: "1.50" }], B: [] }).values()],
-										[[["abc", "1.50"]]]
+										[[["abc", "1.5"]]]
 									)
 									return
 								}

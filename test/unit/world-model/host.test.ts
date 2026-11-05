@@ -116,7 +116,7 @@ const kinds: Readonly<Record<string, Readonly<Record<string, Kind>>>> = {
 	Doc: { id: "doc", org: "org", owner: "sub", words: "int" },
 	Share: { doc: "doc", user: "sub" },
 	Note: { no: "no", doc: "doc", author: "sub" },
-	Visit: { no: "no" },
+	Visit: { no: "no", seq: "no" },
 	Tier: { id: "tier" },
 	OrgDocs: { org: "org", doc: "doc" },
 	Session: { sub: "sub" },

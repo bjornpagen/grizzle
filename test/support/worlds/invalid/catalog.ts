@@ -407,14 +407,17 @@ export const catalogVariants = (state: ModelState): ReadonlyArray<Variant<Catalo
 
 /**
  * The fields whose NOT NULL a person may drop: those outside their relation's primary key, whose NOT NULL PostgreSQL
- * keeps while the key stands (42P16). A relation that is all key offers none.
+ * keeps while the key stands (42P16), and other than a serial, an identity column whose NOT NULL PostgreSQL keeps while
+ * it is one (42601). A relation that is all key and serial offers none.
  */
 const nullableFields = (
 	base: BaseSpec
 ): ReadonlyArray<{ readonly relation: string; readonly field: string }> =>
 	Arr.flatMap(base.relations, (r) =>
 		Arr.flatMap(r.fields, (f) =>
-			r.key.includes(f.name) ? [] : [{ relation: r.name, field: f.name }]
+			r.key.includes(f.name) || f.domain.kind === "serial"
+				? []
+				: [{ relation: r.name, field: f.name }]
 		)
 	)
 

@@ -1,6 +1,6 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import { OpId } from "#compiler/ir/expr.ts"
-import type { PreconditionProof } from "#compiler/ir/proof.ts"
+import type { OperandPremise, OperationProof } from "#compiler/ir/proof.ts"
 import type { Cell, EditRefs, KindOver } from "#compiler/ir/rel.ts"
 import {
 	bindingsByVar,
@@ -23,20 +23,22 @@ import {
 import { keysOfRows, metaWithKeys, plainKeys } from "#compiler/lower/shapes/catalog/ordinal.ts"
 
 /**
- * Why the total of a fold's counts fits bigint: it counts rows of one input, which PostgreSQL holds fewer of than
- * 2^63 (a relation has at most 2^32 pages), so it lies in [0, 2^63 - 1].
+ * The total of a fold's counts: it counts rows of one input, which PostgreSQL holds fewer of than 2^63 (a relation has
+ * at most 2^32 pages), so it lies in [0, 2^63 - 1].
  */
-const countTotalProof: PreconditionProof = {
-	precondition: { kind: "fits" },
-	premises: [
-		{
-			kind: "interval",
-			operand: 0,
-			low: { units: 0n, scale: 0 },
-			high: { units: 2n ** 63n - 1n, scale: 0 }
-		}
-	]
+const countTotal: OperandPremise = {
+	kind: "interval",
+	operand: 0,
+	low: { units: 0n, scale: 0 },
+	high: { units: 2n ** 63n - 1n, scale: 0 },
+	nan: false
 }
+
+/** Why the numeric total of a fold's counts casts into bigint: it is finite, and it fits, by its interval. */
+const countTotalProof: OperationProof = [
+	{ precondition: { kind: "finite", operand: 0 }, premises: [countTotal] },
+	{ precondition: { kind: "fits" }, premises: [countTotal] }
+]
 
 /**
  * The rows a Group folds, as one source and the source column of each bound column: a single-occurrence region with

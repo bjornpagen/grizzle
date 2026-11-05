@@ -562,10 +562,12 @@ export class Ir {
 			args: [arg],
 			type,
 			nonNull: "strict",
-			proof: {
-				precondition: { kind: "contract" },
-				premises: [{ kind: "checked", operand: 0, by: "write" }]
-			}
+			proof: [
+				{
+					precondition: { kind: "contract" },
+					premises: [{ kind: "checked", operand: 0, by: "write" }]
+				}
+			]
 		})
 	}
 

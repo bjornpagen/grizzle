@@ -1,7 +1,15 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { type Case, drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, constant, element, type Gen, weighted, type Weight } from "@grizzle/testing/gen"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	weighted,
+	type Weight
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -283,6 +291,17 @@ const situations: Arr.NonEmptyReadonlyArray<InterruptFeature> = [
 	"rolled back after an interruption"
 ]
 
+/**
+ * The sketch a witness runs, aimed at what no witness reached yet (Case.steering): while no write has completed before
+ * its gate, half its cases by a draw of their own are a write under no lock whose gate is past its end, its members and
+ * gate type as drawn; a rotating or kept case runs as drawn.
+ */
+const aimedSketch = (sketch: CaseSketch, cx: Case<InterruptFeature>): CaseSketch =>
+	Option.exists(cx.steering, (pending) => pending.has("write completed before the gate")) &&
+	cx.draw(boolean)
+		? { ...sketch, call: "write", blocker: "none", point: { ...sketch.point, arm: "beyond" } }
+		: sketch
+
 /** The search: the Work installed once, a Db opened on it whose context every case's tapped pools reuse, and the
  * cases. */
 const interruptCases = Effect.gen(function* () {
@@ -325,9 +344,10 @@ const interruptCases = Effect.gen(function* () {
 			steerEvery: 16,
 			caseHang: Duration.minutes(2)
 		},
-		(sketch, cx) =>
+		(drawnSketch, cx) =>
 			Effect.scoped(
 				Effect.gen(function* () {
+					const sketch = aimedSketch(drawnSketch, cx)
 					serial++
 					const before = yield* notesNow
 					const write = resolveWrite(sketch.members, before, serial)

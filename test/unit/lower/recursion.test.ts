@@ -472,7 +472,9 @@ const twoArms = (forward: Arm, backward: Arm, backwardFirst: boolean) => {
 
 /**
  * The recursions no counter bounds, each planted with the reason the rule gives: the rule is about where the counter
- * comes from, which no generated recursion varies.
+ * comes from, which no generated recursion varies. A counter seeded by data or bounded by a parameter can stand at its
+ * carrier's extreme, from where its exact step leaves the column, so its narrowing into the column is unproved,
+ * PartialOperation, and the recursion never reaches the lowering.
  */
 type Unbounded = "noCounter" | "unboundedSeeds" | "noLiteralBound"
 const unboundedFamilies: Readonly<Record<Unbounded, () => unknown>> = {
@@ -646,7 +648,7 @@ describe("the bounded-counter proof (packages/engine/src/check/recursion/bound.t
 	)
 
 	it.effect(
-		"proves no bound where the counter's seed, bound or step is not a literal, and keeps the recursive CTE",
+		"proves no bound for an endpoint closure and keeps the recursive CTE, and refuses a counter whose seed or bound is not a literal",
 		(ctx) =>
 			searched(
 				ctx,
@@ -661,10 +663,20 @@ describe("the bounded-counter proof (packages/engine/src/check/recursion/bound.t
 					},
 					(reason, c) =>
 						Effect.sync(() => {
-							const q = admit(unboundedFamilies[reason]())
+							c.note(reason)
+							const family = unboundedFamilies[reason]()
+							if (reason !== "noCounter") {
+								const desc = queryValueDesc(family)
+								assert.ok(desc !== undefined, "a query value")
+								refused(
+									checkQuery(checking(Graph), desc, checkOptions("query")),
+									"PartialOperation"
+								)
+								return
+							}
+							const q = admit(family)
 							assert.deepEqual(counterBound(q.dag, recursiveNode(q)), { kind: "unbounded", reason })
 							assert.equal(recursiveCtes(mainAst(optimize(q))).length, 1, reason)
-							c.note(reason)
 						})
 				)
 			)

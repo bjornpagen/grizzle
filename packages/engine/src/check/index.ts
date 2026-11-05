@@ -106,19 +106,47 @@ export interface DescribedMember {
 	readonly loc: SourceLoc
 }
 
+/** A member's LogicalQuery over its structurally valid query `q`, its head checked against the relation. */
+const memberQuery = (
+	checked: SchemaReading,
+	member: DescribedMember,
+	q: QueryDesc,
+	options: Omit<CheckOptions, "read">
+): LogicalQuery => {
+	const { relation, op, loc } = member
+	const query = run(checked, q, { ...options, read: "rows" }, childLoc(loc, "query"), {
+		kind: "member",
+		target: { relation, op }
+	})
+	checkMemberHeading(query, relation, op, loc)
+	return query
+}
+
 /** A described member's LogicalQuery, with its head checked against the relation (DescribedHeadingMismatch). */
 export const checkMember = (
 	checked: SchemaReading,
 	member: DescribedMember,
 	options: Omit<CheckOptions, "read">
 ): Result.Result<LogicalQuery, CompileError> =>
-	catchRefusal(() => {
-		const { relation, op, loc } = member
-		const q = unwrap(decoded(member.query, { read: "rows" }))
-		const query = run(checked, q, { ...options, read: "rows" }, childLoc(loc, "query"), {
-			kind: "member",
-			target: { relation, op }
-		})
-		checkMemberHeading(query, relation, op, loc)
-		return query
-	})
+	catchRefusal(() =>
+		memberQuery(checked, member, unwrap(decoded(member.query, { read: "rows" })), options)
+	)
+
+/**
+ * A query entry's fill (write/frontend/entry.ts fillQuery), checked as a member of the entry's target: the front end
+ * builds it from the role's checked entry, so it is no Description to decode, and its relation parameter is the unit
+ * relation, of no field, where every head field it carries writes a serial field, which no author declares.
+ */
+export const checkFill = (
+	checked: SchemaReading,
+	member: DescribedMember,
+	options: Omit<CheckOptions, "read">
+): Result.Result<LogicalQuery, CompileError> =>
+	catchRefusal(() =>
+		memberQuery(
+			checked,
+			member,
+			unwrap(validateQueryStructure(member.query, { read: "rows" })),
+			options
+		)
+	)

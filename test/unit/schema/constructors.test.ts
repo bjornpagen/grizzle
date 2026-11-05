@@ -723,15 +723,22 @@ const expectedLiteral = (
 			const integer = v.kind === "bigint" ? (negative ? -v.value : v.value).toString() : v.integer
 			const fraction = v.kind === "bigint" ? "" : v.fraction
 			const digits = BigInt(`${integer}${fraction}`)
-			const signed = (magnitude: bigint, text: string) =>
-				negative && magnitude > 0n ? `-${text}` : text
+			/** The value's one text, units · 10^-scale with every trailing fractional zero dropped and no -0. */
+			const oneText = (magnitude: bigint, at: number): string => {
+				let units = magnitude
+				let scale = at
+				while (scale > 0 && units % 10n === 0n) {
+					units /= 10n
+					scale--
+				}
+				const padded = pipe(units.toString(), Str.padStart(scale + 1, "0"))
+				const text =
+					scale === 0 ? padded : `${Str.slice(0, -scale)(padded)}.${Str.slice(-scale)(padded)}`
+				return negative && units > 0n ? `-${text}` : text
+			}
 			if (field.kind === "numeric") {
-				const whole = BigInt(integer).toString()
 				return {
-					expected: {
-						kind: "numeric",
-						text: signed(digits, fraction === "" ? whole : `${whole}.${fraction}`)
-					},
+					expected: { kind: "numeric", text: oneText(digits, fraction.length) },
 					outcome: "kept"
 				}
 			}
@@ -743,11 +750,8 @@ const expectedLiteral = (
 			if (units >= 10n ** BigInt(precision)) {
 				return { expected: { kind: "fault", fault: "numericOverflow" }, outcome: "overflow" }
 			}
-			const padded = pipe(units.toString(), Str.padStart(scale + 1, "0"))
-			const text =
-				scale === 0 ? padded : `${Str.slice(0, -scale)(padded)}.${Str.slice(-scale)(padded)}`
 			return {
-				expected: { kind: "numeric", text: signed(units, text) },
+				expected: { kind: "numeric", text: oneText(units, scale) },
 				outcome: fraction.length > scale ? "rounded" : "kept"
 			}
 		}
@@ -1604,8 +1608,13 @@ describe("statements", () => {
 					right: literalExpr(p.n)
 				}
 			case "and":
-			case "or":
-				return { kind: p.kind, args: Arr.map(p.args, recordedExpr) }
+			case "or": {
+				/** A connective of one predicate is that predicate. */
+				const [only, ...more] = p.args
+				return more.length === 0
+					? recordedExpr(only)
+					: { kind: p.kind, args: Arr.map(p.args, recordedExpr) }
+			}
 			case "not":
 				return { kind: "not", arg: recordedExpr(p.arg) }
 		}
