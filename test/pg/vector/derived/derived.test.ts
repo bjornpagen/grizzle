@@ -221,8 +221,7 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 						])
 					)
 				}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.fixture.server)))
-			}),
-		300_000
+			})
 	)
 
 	it.effect(
@@ -241,7 +240,6 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 					)
 					assert.ok(read instanceof ReadFailure && read.stage === "compile")
 				}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.fixture.server)))
-			}),
-		300_000
+			})
 	)
 })

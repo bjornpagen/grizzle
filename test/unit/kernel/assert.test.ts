@@ -16,7 +16,8 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
+import { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import {
 	ChainRefused,
 	type CliError,
@@ -53,6 +54,7 @@ import {
 	throwsRefused,
 	unorderedEqual
 } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 
 type Element = number | { readonly k: number }
@@ -87,6 +89,7 @@ const sameCounts = (a: ReadonlyArray<Element>, b: ReadonlyArray<Element>): boole
 const cliStages = [
 	"usage",
 	"config",
+	"environment",
 	"filesystem",
 	"snapshot",
 	"generate"
@@ -94,10 +97,11 @@ const cliStages = [
 /** A CLI stage as one of the list's: compiles only while the list holds every stage CliStage has. */
 const listed = (stage: CliStage): (typeof cliStages)[number] => stage
 
-/** A CLI refusal at each stage, its text fields `text`: the stage follows from the reason. */
+/** A CLI refusal at each stage, its text fields, where it has any, `text`: the stage follows from the reason. */
 const cliRefusalAt: { readonly [Stage in CliStage]: (text: string) => CliError } = {
 	usage: (text) => cliRefused(new MigrationNameRefused({ migration: text })),
-	config: (text) => cliRefused(new ConfigMissing({ directory: text })),
+	config: (text) => cliRefused(new ConfigMissing({ file: text })),
+	environment: () => cliRefused(new ConnectionEnvironmentRefused({ variable: "PGOPTIONS" })),
 	filesystem: (text) => cliRefused(new FolderExists({ schema: text, path: text })),
 	snapshot: (text) =>
 		cliRefused(
@@ -247,7 +251,7 @@ const spec = {
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	caseHang: Duration.minutes(2)
+	caseHang
 } as const
 
 /** An outcome drawn against a named one: a success one case in three, else a failure of the named one half the time. */

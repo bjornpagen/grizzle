@@ -179,7 +179,7 @@ const outerTargets = (body: SelectBody): ReadonlyArray<Target> | undefined =>
  * How a fused column is written: text[] of the one field its element carries, or of the existence marker for none, and
  * jsonb[] of to_jsonb objects for several.
  */
-export const fusedForm = (layout: FusedLayout): "array" | "jsonb" =>
+const fusedForm = (layout: FusedLayout): "array" | "jsonb" =>
 	fusedElement(layout).length <= 1 ? "array" : "jsonb"
 
 /**

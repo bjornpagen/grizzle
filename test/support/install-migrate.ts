@@ -13,10 +13,7 @@ import { fromEngine } from "#adapter/engine.ts"
 import { applyOnSession, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
-import {
-	applicationName as migrateApplicationName,
-	migrationSession
-} from "#adapter/migrate/session.ts"
+import { migrationSession } from "#adapter/migrate/session.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import type * as Engine from "#compiler/core/result.ts"
@@ -355,8 +352,7 @@ const applyFolders = (
 			wireSession(substrate.cluster, {
 				database,
 				username: owner.credentials.role,
-				password: owner.credentials.password,
-				applicationName: migrateApplicationName
+				password: owner.credentials.password
 			}),
 			(e) =>
 				Effect.die(

@@ -1,26 +1,19 @@
-import { leadingReason, type MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
+import { leadingReason } from "#compiler/analysis/certificates/reasons.ts"
 import { keyEvidence } from "#compiler/analysis/physical/evidence.ts"
 import {
-	annotatedProver,
-	dependencyBound,
-	type Identification,
-	type Identity,
-	type Implication,
-	identityProver,
+	asTheyAre,
+	DependencyDraft,
+	hiddenIn,
+	type JoinedOccurrence,
 	type Justification,
 	joinJustifications,
 	justify,
-	type KeyOption,
 	nodePremise,
 	type OuterColumn,
-	type Proof,
-	ProofFds,
-	type Prover,
-	keyCombinations,
 	paramPremise,
-	physicalKeys,
-	type Requirement,
+	type Rep,
 	resolveOuter,
+	row,
 	structural,
 	withReason
 } from "#compiler/analysis/physical/fds.ts"
@@ -28,12 +21,10 @@ import {
 	type FixedFact,
 	type FixedFacts,
 	isUnique,
-	keyIdentity,
 	type Loss,
 	type PhysicalProps,
 	plainLosses,
 	type Realization,
-	strongestKey,
 	type Uniqueness
 } from "#compiler/analysis/physical/props.ts"
 import { castIdentity, castInjective, comparedValue } from "#compiler/ir/injective.ts"
@@ -71,7 +62,6 @@ import {
 	type Heading,
 	inputSetPlaceholder,
 	inputsOf,
-	type KeySet,
 	type NodeOf,
 	type RelKind,
 	type RelNode,
@@ -332,11 +322,12 @@ const valueRep = (given: ScalarExpr, locals: ReadonlySet<NodeId>): ValueRep => {
 	}
 }
 
-/** Finishing a node: its keys among the candidates under its prover, extended by its realization and its cardinality. */
+/**
+ * Finishing a node: its dependency table, extended by its realization and its cardinality, and what its heading
+ * identifies.
+ */
 interface Draft {
-	readonly fds: ProofFds
-	readonly prove: Prover
-	readonly candidates: ReadonlyArray<ReadonlyArray<string>>
+	readonly fds: DependencyDraft
 	readonly fixed: ReadonlyMap<string, FixedFacts>
 	/** The most rows the node can have. */
 	readonly maxCard: Cardinality
@@ -355,51 +346,39 @@ type DraftDedup =
 
 const placed: DraftDedup = { kind: "placed" }
 
+/**
+ * A node of at most one row identifies its row by nothing; one realized with an exact duplicate-eliminating operator
+ * identifies it by its whole heading, which only the realized table holds. The plain form is unique when its heading
+ * identifies a row citing evidence an elision rule names, by its canonical minimal key (fds.ts keyAmong); a proof
+ * that cites none backs no elision.
+ */
 const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
 	const realization = realizationOf(cx.placed, node)
-	const dedup =
-		draft.dedup.kind === "recursiveUnion"
-			? draft.dedup.just
-			: withReason(
-					joinJustifications([
-						justify({ premises: [nodePremise(node.id)] }),
-						comparing(node.heading.map((c) => c.type))
-					]),
-					["exactDeduplication"]
-				)
-	const single = boundsAtMost(draft.maxCard, 1n)
-		? withReason(ownPremise(node), ["atMostOneRow"])
-		: undefined
-	const atMostOne: Proof | undefined = single === undefined ? undefined : () => single
-	const prove: Prover = (cs) => {
-		const own = draft.prove(cs)
-		if (own !== undefined) {
-			return own
-		}
-		if (realization === "distinct") {
-			const d = draft.fds.closure(cs)
-			if (columns.every((c) => d.columns.has(c))) {
-				return () => joinJustifications([dedup, draft.fds.explain(d, columns)])
-			}
-		}
-		return atMostOne
+	if (boundsAtMost(draft.maxCard, 1n)) {
+		draft.fds.identify([], withReason(ownPremise(node), ["atMostOneRow"]))
 	}
-	const keys = physicalKeys(
-		columns,
-		prove,
-		[...draft.candidates, columns],
-		draft.fds.implications()
-	)
-	const plain: Prover = (cs) => draft.prove(cs) ?? atMostOne
-	const plainKeys =
-		realization === "plain"
-			? keys
-			: physicalKeys(columns, plain, [...draft.candidates, columns], draft.fds.implications())
-	const plainUnique = strongestKey(plainKeys)
-	const maxCard = keys.some((k) => k.columns.length === 0)
-		? leastCardinality([draft.maxCard, atMost(1n)])
-		: draft.maxCard
+	const plain = draft.fds.freeze(columns)
+	if (realization === "distinct") {
+		draft.fds.identify(
+			columns,
+			draft.dedup.kind === "recursiveUnion"
+				? draft.dedup.just
+				: withReason(
+						joinJustifications([
+							justify({ premises: [nodePremise(node.id)] }),
+							comparing(node.heading.map((c) => c.type))
+						]),
+						["exactDeduplication"]
+					)
+		)
+	}
+	const dependencies = realization === "distinct" ? draft.fds.freeze(columns) : plain
+	const plainUnique = plain.keyAmong(columns)
+	const maxCard =
+		dependencies.proof([]) === undefined
+			? draft.maxCard
+			: leastCardinality([draft.maxCard, atMost(1n)])
 	/**
 	 * A column determined by nothing is fixed: to what an equal fixed column is fixed to, or to a computation. Its
 	 * justification keeps the outer columns its derivation read, so it stays fixed only per outer row.
@@ -411,27 +390,10 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 			fixed.set(c, f)
 		}
 	}
-	const determined = draft.fds.closure([])
+	const determined = plain.closure([])
 	for (const c of columns) {
 		if (!fixed.has(c) && determined.columns.has(c)) {
-			fixed.set(c, [{ fixed: { kind: "expr" }, just: draft.fds.explain(determined, [c]) }])
-		}
-	}
-	const inHeading = new Set(columns)
-	const fds: Array<Implication> = []
-	for (const imp of draft.fds.implications()) {
-		if (imp.from.length + imp.at.length === 0) {
-			continue
-		}
-		if (!imp.from.every((c) => inHeading.has(c)) || !imp.at.every((c) => inHeading.has(c))) {
-			continue
-		}
-		const to = imp.to.filter((c) => inHeading.has(c))
-		if (to.length > 0) {
-			fds.push({ from: imp.from, at: imp.at, to, just: imp.just })
-		}
-		if (fds.length >= dependencyBound) {
-			break
+			fixed.set(c, [{ fixed: { kind: "expr" }, just: plain.explain(determined, [c]) }])
 		}
 	}
 	/** Why the plain form is not unique, whatever the realization adds. */
@@ -440,23 +402,20 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 		loss === undefined
 			? [{ reason: "unknownEvidence", detail: "no admissible evidence proves the heading" }]
 			: [loss, ...more]
-	/** The plain form is unique when a key proves it citing evidence an elision rule names; a proof that cites none
-	 * backs no elision. */
 	const lead = plainUnique === undefined ? undefined : leadingReason(plainUnique.just.reasons)
 	const uniqueness: Uniqueness =
 		plainUnique !== undefined && lead !== undefined
 			? { kind: "plain", key: plainUnique, lead }
-			: keys.length > 0
-				? { kind: "realized", losses }
-				: { kind: "none", losses }
+			: dependencies.proof(columns) === undefined
+				? { kind: "none", losses }
+				: { kind: "realized", losses }
 	return {
 		node: node.id,
 		kind: node.kind,
 		columns,
-		keys,
-		plainKeys,
+		dependencies,
+		plain,
 		fixed,
-		fds,
 		maxCard,
 		uniqueness,
 		realization
@@ -465,7 +424,7 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 
 /** A node's dependency table and the facts its fixed columns are fixed to. */
 interface FixedState {
-	readonly fds: ProofFds
+	readonly fds: DependencyDraft
 	readonly fixed: Map<string, FixedFacts>
 }
 
@@ -495,27 +454,25 @@ const fixColumn = (
 	recordFact(state.fixed, column, fact)
 }
 
-/** A column of the node that stands for an input column, and what representing it rests on. */
-interface Rep {
-	readonly column: string
-	readonly just: Justification
-}
-
 /**
- * Carries an input's fixed columns and dependencies into a node's dependency table through `reps`, and returns the
- * input's keys mapped onto the node's columns: a key survives when each of its columns is fixed in the input or has a
- * representative.
+ * Carries an input's fixed facts and its whole dependency table into a node's draft through `reps`, under
+ * `namespace`, its row as `rowAs`: the node's own row where each of the node's rows is one of the input's (a filter, a
+ * projection, a bound), so the input's identifications identify the node's rows; a hidden one where a row of the node
+ * is not one row of the input (a group). A column the node gives no representative is hidden in the namespace, so a
+ * dependency through it still holds among the columns that are represented, and a fixed one stays determined by
+ * nothing. Copies of one input column are equal.
  */
 const inherit = (
-	fds: ProofFds,
+	fds: DependencyDraft,
 	fixed: Map<string, FixedFacts>,
 	input: PhysicalProps,
-	reps: (column: string) => ReadonlyArray<Rep>
-): Requirement => {
-	for (const [c, [first, ...others]] of input.fixed) {
+	reps: (column: string) => ReadonlyArray<Rep>,
+	namespace: string,
+	rowAs: string
+): void => {
+	for (const [c, facts] of input.fixed) {
 		for (const r of reps(c)) {
-			fixColumn({ fds, fixed }, r.column, joinJustifications([first.just, r.just]), first)
-			for (const f of others) {
+			for (const f of facts) {
 				recordFact(fixed, r.column, f)
 			}
 		}
@@ -525,91 +482,33 @@ const inherit = (
 			fds.equate(first.column, other.column, joinJustifications([first.just, other.just]))
 		})
 	}
-	const mapSide = (
-		cs: ReadonlyArray<string>
-	): { readonly columns: Array<string>; readonly just: Array<Justification> } | undefined => {
-		const columns: Array<string> = []
-		const just: Array<Justification> = []
-		for (const c of cs) {
-			const f = input.fixed.get(c)
-			if (f !== undefined) {
-				just.push(f[0].just)
-				continue
-			}
-			const r = reps(c)[0]
-			if (r === undefined) {
-				return undefined
-			}
-			columns.push(r.column)
-			just.push(r.just)
-		}
-		return { columns, just }
-	}
-	for (const imp of input.fds) {
-		const from = mapSide(imp.from)
-		/** A span fixed in the input has every point known. */
-		const at = mapSide(imp.at)
-		if (from === undefined || at === undefined) {
-			continue
-		}
-		const to = imp.to.flatMap((c) => reps(c).map((r) => r.column))
-		fds.implyAt(
-			from.columns,
-			at.columns,
-			to,
-			joinJustifications([imp.just, ...from.just, ...at.just])
-		)
-	}
-	const options: Array<KeyOption> = []
-	for (const k of input.keys) {
-		const m = mapSide(k.columns)
-		if (m !== undefined) {
-			options.push({ columns: m.columns, just: joinJustifications([k.just, ...m.just]) })
-		}
-	}
-	return options
+	fds.embed(input.dependencies, { namespace, column: reps, row: rowAs, localize: asTheyAre })
 }
 
 const sameName =
-	(fds: ProofFds) =>
+	(fds: DependencyDraft) =>
 	(c: string): ReadonlyArray<Rep> =>
 		fds.has(c) ? [{ column: c, just: structural }] : []
 
-/** A node's dependency table and fixed facts inherited from an input of the same columns, with the keys they offer. */
-interface SameInherited extends FixedState {
-	readonly options: Requirement
-	/** The inherited keys' columns; a node offering more keys appends them. */
-	readonly candidates: Array<KeySet>
-}
-
-/** A node whose heading carries its input's columns under the same names, with its input's evidence. */
-const inheritSame = (node: RelNode, input: PhysicalProps): SameInherited => {
+/**
+ * A node whose heading carries its input's columns under the same names, each of its rows one of the input's, with
+ * its input's evidence.
+ */
+const inheritSame = (node: RelNode, input: PhysicalProps): FixedState => {
 	const columns = node.heading.map((c) => c.name)
-	const fds = new ProofFds(columns)
+	const fds = new DependencyDraft(columns)
 	const fixed = new Map<string, FixedFacts>()
-	const options = inherit(fds, fixed, input, sameName(fds))
-	return {
-		fds,
-		fixed,
-		options,
-		candidates: options.map((o) => o.columns)
-	}
+	inherit(fds, fixed, input, sameName(fds), "input", row)
+	return { fds, fixed }
 }
 
-const required = (options: Requirement): Identity => (options.length === 0 ? [] : [[options]])
-
-const lossesOf = (
-	input: PhysicalProps,
-	options: Requirement,
-	columns: ReadonlyArray<string>
-): ReadonlyArray<Loss> =>
+/** Why a node over `input` whose heading is `columns` is not unique, when it is not: the input's, or its keys lost. */
+const lossesOf = (input: PhysicalProps, columns: ReadonlyArray<string>): ReadonlyArray<Loss> =>
 	input.uniqueness.kind === "none"
 		? input.uniqueness.losses
-		: options.length === 0
-			? [{ reason: "projectedKeyLoss", detail: "every key of the input is dropped" }]
-			: columns.length === 0
-				? []
-				: [{ reason: "projectedKeyLoss", detail: "no retained key lies within the heading" }]
+		: columns.length === 0
+			? []
+			: [{ reason: "projectedKeyLoss", detail: "every key of the input is dropped" }]
 
 /**
  * A filter keeps its input's keys and can fix key components. A span held to contain a point the input's columns, or
@@ -618,7 +517,7 @@ const lossesOf = (
 const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps => {
 	const input = cx.props(node.input)
 	const s = inheritSame(node, input)
-	const fds: ProofFds = s.fds
+	const fds = s.fds
 	const inputId = node.input.id
 	const locals = new Set([inputId])
 	const pin = (held: HeldPoint): void => {
@@ -676,8 +575,6 @@ const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps => 
 	const empty = held.some(({ pred: c }) => isFalse(c))
 	return finish(node, cx, {
 		fds,
-		prove: identityProver(fds, required(s.options)),
-		candidates: s.candidates,
 		fixed: s.fixed,
 		maxCard: empty ? atMost(0n) : input.maxCard,
 		dedup: placed,
@@ -701,8 +598,6 @@ const semiProps = (
 	}
 	return finish(node, cx, {
 		fds: s.fds,
-		prove: identityProver(s.fds, required(s.options)),
-		candidates: s.candidates,
 		fixed: s.fixed,
 		maxCard: left.maxCard,
 		dedup: placed,
@@ -743,8 +638,6 @@ const takeProps = (node: NodeOf<"Take">, cx: RuleContext): PhysicalProps => {
 	])
 	return finish(node, cx, {
 		fds: s.fds,
-		prove: identityProver(s.fds, required(s.options)),
-		candidates: s.candidates,
 		fixed: s.fixed,
 		maxCard,
 		dedup: placed,
@@ -757,11 +650,8 @@ const takeProps = (node: NodeOf<"Take">, cx: RuleContext): PhysicalProps => {
  * membership's row, the one fact its caller names.
  */
 const atMostOneFact = (node: RelNode, cx: RuleContext): PhysicalProps => {
-	const fds = new ProofFds(node.heading.map((c) => c.name))
 	return finish(node, cx, {
-		fds,
-		prove: identityProver(fds, []),
-		candidates: [],
+		fds: new DependencyDraft(node.heading.map((c) => c.name)),
 		fixed: new Map(),
 		dedup: placed,
 		maxCard: atMost(1n),
@@ -780,10 +670,10 @@ const atMostOneFact = (node: RelNode, cx: RuleContext): PhysicalProps => {
  * - Closed: canonical finite facts, distinct under native equality, with their distinct-valued columns as keys
  *   (finiteFacts). InputSet: its complete heading, deduplicated on entry (deduplicatedInput); a membership's row, one
  *   fact by construction, at most one row. Delta: its relation's immediate keys.
- * - MatchRegion: one requirement per occurrence; an occurrence is identified when the variables bound to one of its
- *   source's keys are known, constants and columns fixed per evaluation included, and a candidate is a key when it
- *   identifies every occurrence (a key from each input jointly identifies a pair; a left key alone
- *   survives only with at most one matching right row). Unbound key columns lose the key (projectedKeyLoss).
+ * - MatchRegion: an occurrence is identified when its source's table, embedded over the variables it binds, reaches
+ *   its row, constants and columns fixed per evaluation included, and a candidate is a key when it identifies every
+ *   occurrence (a key from each input jointly identifies a pair; a left key alone survives only with at most one
+ *   matching right row). Unbound key columns lose the key (projectedKeyLoss).
  * - Filter keeps its input's keys and can fix key components. ProjectSet keeps a key whose every column
  *   is copied, equal to a copied column, fixed, or injectively represented (injective.ts).
  * - SemiJoin and AntiJoin keep the left's keys and multiplicity. Intersect and Difference, in their set
@@ -801,7 +691,8 @@ const atMostOneFact = (node: RelNode, cx: RuleContext): PhysicalProps => {
  * - Attach is its parent unchanged; Forbid its violation query.
  *
  * Every node realized with an exact duplicate-eliminating operator also has its whole heading as a key
- * (exactDeduplication), and a node proved to have at most one row has the empty key.
+ * (exactDeduplication), and a node proved to have at most one row has the empty key. A key is an identification in
+ * the node's dependency table (fds.ts Dependencies), never one entry of a list of keys.
  */
 export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps => {
 	switch (node.kind) {
@@ -815,20 +706,21 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 				return atMostOneFact(node, cx)
 			}
 			const columns = node.heading.map((c) => c.name)
-			const fds = new ProofFds(columns)
-			const just = withReason(
-				joinJustifications([
-					justify({
-						premises: [paramPremise(inputSetPlaceholder(input)), nodePremise(node.id)]
-					}),
-					comparing(node.heading.map((c) => c.type))
-				]),
-				["deduplicatedInput"]
+			const fds = new DependencyDraft(columns)
+			fds.identify(
+				columns,
+				withReason(
+					joinJustifications([
+						justify({
+							premises: [paramPremise(inputSetPlaceholder(input)), nodePremise(node.id)]
+						}),
+						comparing(node.heading.map((c) => c.type))
+					]),
+					["deduplicatedInput"]
+				)
 			)
 			return finish(node, cx, {
 				fds,
-				prove: identityProver(fds, [[[{ columns, just }]]]),
-				candidates: [],
 				fixed: new Map(),
 				dedup: placed,
 				maxCard: unbounded,
@@ -852,22 +744,14 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 		case "Difference": {
 			const left = cx.props(node.left)
 			const s = inheritSame(node, left)
-			const identity: Array<Identity[number]> = [...required(s.options)]
 			let maxCard = left.maxCard
 			if (node.kind === "Intersect") {
 				const right = cx.props(node.right)
-				const r = inherit(s.fds, s.fixed, right, sameName(s.fds))
-				appendAll(identity, required(r))
-				appendAll(
-					s.candidates,
-					r.map((o) => o.columns)
-				)
+				inherit(s.fds, s.fixed, right, sameName(s.fds), "right", row)
 				maxCard = leastCardinality([left.maxCard, right.maxCard])
 			}
 			return finish(node, cx, {
 				fds: s.fds,
-				prove: identityProver(s.fds, identity),
-				candidates: s.candidates,
 				fixed: s.fixed,
 				maxCard,
 				dedup: placed,
@@ -884,17 +768,14 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 		case "Window": {
 			const input = cx.props(node.input)
 			const s = inheritSame(node, input)
-			const identity: Array<Identity[number]> = [...required(s.options)]
 			if (node.fn === "rowNumber") {
-				const key = [...node.partition, node.out]
-				const just = withReason(ownPremise(node), ["uniqueOrdinal"])
-				identity.push([[{ columns: key, just }]])
-				s.candidates.push(key)
+				s.fds.identify(
+					[...node.partition, node.out],
+					withReason(ownPremise(node), ["uniqueOrdinal"])
+				)
 			}
 			return finish(node, cx, {
 				fds: s.fds,
-				prove: identityProver(s.fds, identity),
-				candidates: s.candidates,
 				fixed: s.fixed,
 				maxCard: input.maxCard,
 				dedup: placed,
@@ -907,7 +788,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 		case "SelfRef": {
 			const recursive = node.kind === "Recursive" ? node.id : node.recursive
 			const columns = node.heading.map((c) => c.name)
-			const fds = new ProofFds(columns)
+			const fds = new DependencyDraft(columns)
 			const closure = (cx.placed(recursive) ?? defaultRealizationOf("Recursive")) === "distinct"
 			const just = withReason(
 				joinJustifications([
@@ -923,10 +804,11 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			 * the recursive UNION, which stays in place.
 			 */
 			const working = node.kind === "SelfRef" && closure
+			if (working) {
+				fds.identify(columns, just)
+			}
 			return finish(node, cx, {
 				fds,
-				prove: identityProver(fds, working ? [[[{ columns, just }]]] : []),
-				candidates: [],
 				fixed: new Map(),
 				dedup: node.kind === "Recursive" ? { kind: "recursiveUnion", just } : placed,
 				maxCard: unbounded,
@@ -953,8 +835,6 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 					: input.maxCard
 			return finish(node, cx, {
 				fds: s.fds,
-				prove: identityProver(s.fds, required(s.options)),
-				candidates: s.candidates,
 				fixed: s.fixed,
 				maxCard,
 				dedup: placed,
@@ -975,22 +855,27 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 }
 
 /**
- * A scan's declared key, installed as `constraint` and justified by `just`: an option of the scan's identity and the
- * dependency of the row on the key's columns, and, for a nonoverlap key, on its other columns and one point of each of
- * its spans, since at most one fact's spans hold them.
+ * A scan's declared key, installed as `constraint` and justified by `just`, over the scan's `columns`: it identifies
+ * the scan's row and determines its columns, and, for a nonoverlap key, its other columns and one point of each of its
+ * spans determine the row's columns too, since at most one fact's spans hold them.
  */
-const declareKey = (fds: ProofFds, constraint: KeyConstraint, just: Justification): KeyOption => {
+const declareKey = (
+	fds: DependencyDraft,
+	columns: ReadonlyArray<string>,
+	constraint: KeyConstraint,
+	just: Justification
+): void => {
 	const k = constraint.columns
-	fds.imply(k, fds.universe, just)
+	fds.imply(k, columns, just)
+	fds.identify(k, just)
 	if (constraint.spans.length > 0) {
 		fds.implyAt(
 			k.filter((c) => !constraint.spans.includes(c)),
 			constraint.spans,
-			fds.universe,
+			columns,
 			just
 		)
 	}
-	return { columns: k, just }
 }
 
 /**
@@ -1001,8 +886,7 @@ const declareKey = (fds: ProofFds, constraint: KeyConstraint, just: Justificatio
  */
 const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
-	const fds = new ProofFds(columns)
-	const options: Array<KeyOption> = []
+	const fds = new DependencyDraft(columns)
 	const losses: Array<Loss> = []
 	const declared = [node.primaryKey, ...node.keys]
 	for (const [i, k] of declared.entries()) {
@@ -1014,8 +898,8 @@ const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 				]),
 				["inheritedDerivedKey"]
 			)
-			options.push({ columns: k, just })
-			fds.imply(k, fds.universe, just)
+			fds.imply(k, columns, just)
+			fds.identify(k, just)
 			continue
 		}
 		const constraint = cx.catalog.keyConstraint(node.relation, k, {
@@ -1036,12 +920,10 @@ const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 			]),
 			[node.relationKind === "derived" ? "inheritedDerivedKey" : "retainedPrimaryKey"]
 		)
-		options.push(declareKey(fds, constraint, just))
+		declareKey(fds, columns, constraint, just)
 	}
 	return finish(node, cx, {
 		fds,
-		prove: identityProver(fds, required(options)),
-		candidates: options.map((o) => o.columns),
 		fixed: new Map(),
 		maxCard: unbounded,
 		dedup: placed,
@@ -1051,26 +933,22 @@ const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 
 const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
-	const fds = new ProofFds(columns)
+	const fds = new DependencyDraft(columns)
 	const fixed = new Map<string, FixedFacts>()
 	const rows = node.rows
 	const facts = withReason(justify({ premises: [nodePremise(node.id)], context: "descriptor" }), [
 		"finiteFacts"
 	])
-	const options: Array<KeyOption> = []
 	const rowKeys = rows.map((r) => r.map((v) => nativeEqualityKey(v)).join("\u0000"))
 	if (new Set(rowKeys).size === rows.length) {
-		options.push({
-			columns,
-			just: joinJustifications([facts, comparing(node.heading.map((c) => c.type))])
-		})
+		fds.identify(columns, joinJustifications([facts, comparing(node.heading.map((c) => c.type))]))
 	}
 	for (const [i, { name: c, type }] of node.heading.entries()) {
 		const literals = closedColumn(node, i)
 		const values = literals.map(nativeEqualityKey)
 		if (new Set(values).size === values.length && rows.length > 0) {
 			const just = joinJustifications([facts, comparing([type])])
-			options.push({ columns: [c], just })
+			fds.identify([c], just)
 			fds.imply([c], columns, just)
 		}
 		const [literal] = literals
@@ -1082,8 +960,6 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 	}
 	return finish(node, cx, {
 		fds,
-		prove: identityProver(fds, required(options)),
-		candidates: options.map((o) => o.columns),
 		fixed,
 		maxCard: atMost(BigInt(rows.length)),
 		dedup: placed,
@@ -1095,8 +971,7 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 
 const deltaProps = (node: NodeOf<"Delta">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
-	const fds = new ProofFds(columns)
-	const options: Array<KeyOption> = []
+	const fds = new DependencyDraft(columns)
 	for (const [i, k] of node.keys.entries()) {
 		const constraint = cx.catalog.keyConstraint(node.relation, k, {
 			primary: i === 0,
@@ -1112,12 +987,10 @@ const deltaProps = (node: NodeOf<"Delta">, cx: RuleContext): PhysicalProps => {
 			]),
 			["retainedPrimaryKey"]
 		)
-		options.push(declareKey(fds, constraint, just))
+		declareKey(fds, columns, constraint, just)
 	}
 	return finish(node, cx, {
 		fds,
-		prove: identityProver(fds, required(options)),
-		candidates: options.map((o) => o.columns),
 		fixed: new Map(),
 		dedup: placed,
 		maxCard: unbounded,
@@ -1125,30 +998,20 @@ const deltaProps = (node: NodeOf<"Delta">, cx: RuleContext): PhysicalProps => {
 	})
 }
 
-/** A region's identification of its occurrences: a one-to-one join, or a key combined from several occurrences. */
-const annotateRegion = (found: Identification): Justification => {
-	const reasons: Array<MultiplicityReason> = []
-	if (found.direct.some((d) => !d)) {
-		reasons.push("oneToOneJoin")
-	} else if (found.direct.length > 1) {
-		reasons.push("combinedJoinKeys")
-	}
-	return withReason(found.just, reasons)
-}
-
 /**
  * A rule region.
  *
- * A column fixed to one column of this region equals it.
+ * A column fixed to one column of this region equals it. Every occurrence identified identifies the region's row: a key
+ * from each occurrence jointly identifies a tuple of them, and a key reached only through another occurrence's
+ * variables is a one-to-one join (fds.ts annotateJoin).
  */
 const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProps => {
 	const varType = new Map(node.vars.map((v) => [v.name, v.type]))
 	const universe = node.vars.map((v) => v.name)
-	const columns = node.heading.map((c) => c.name)
-	const fds = new ProofFds(universe)
+	const fds = new DependencyDraft(universe)
 	const fixed = new Map<string, FixedFacts>()
 	const locals = new Set<NodeId>([node.id, ...node.occurrences.map((o) => o.source.id)])
-	const requirements: Array<Requirement> = []
+	const joined: Array<JoinedOccurrence> = []
 	const losses: Array<Loss> = []
 	const cards: Array<Cardinality> = []
 	const eqJust = (vars: ReadonlyArray<string>) =>
@@ -1172,14 +1035,14 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 	const fixVar = (v: string, fact: FixedFact): void => {
 		fixColumn({ fds, fixed }, v, fact.just, fact)
 	}
+	const inside = subtreeLabels(node)
 	/**
 	 * A fact of an occurrence's source may vary with rows of this region: a lateral source reads the region's heading
-	 * or an earlier occurrence's source. It then holds per value of the variables those columns are bound
-	 * to, which join the fact's determinants, and it no longer varies with them (fixing a component is
-	 * valid only within the evaluation it is fixed for). Undefined when such a column is bound to no variable: the fact
-	 * then holds for no value this region knows, and is dropped.
+	 * or an earlier occurrence's source. It then holds per value of the variables those columns are bound to, which
+	 * join the fact's determinants, and it no longer varies with them (fixing a component is valid only within the
+	 * evaluation it is fixed for). Undefined when such a column is bound to no variable: the fact then holds for no
+	 * value this region knows, and is dropped.
 	 */
-	const inside = subtreeLabels(node)
 	const localize = (
 		just: Justification
 	): { readonly vars: ReadonlyArray<string>; readonly just: Justification } | undefined => {
@@ -1196,7 +1059,11 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 		}
 		return { vars, just: r.just }
 	}
-	const occurrence = (o: NodeOf<"MatchRegion">["occurrences"][number]): void => {
+	/**
+	 * An occurrence's facts, its source's table embedded under the namespace of its place among the region's
+	 * occurrences, which no other occurrence of the region shares.
+	 */
+	const occurrence = (o: NodeOf<"MatchRegion">["occurrences"][number], place: number): void => {
 		const src = cx.props(o.source)
 		/**
 		 * A key identifies the source's row within one evaluation, so it determines the variables the scan binds only
@@ -1224,28 +1091,10 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 			string,
 			{ readonly vars: ReadonlyArray<string>; readonly just: Justification }
 		>()
-		const constant = (
-			c: NodeOf<"MatchRegion">["occurrences"][number]["constants"][number]
-		): void => {
-			const r = valueRep(c.expr, locals)
-			if (r.kind === "fixed") {
-				const l = localize(r.fact.just)
-				if (l !== undefined) {
-					known.set(c.column, l)
-				}
-				return
-			}
-			if (r.kind !== "column") {
-				return
-			}
-			const v = varOf(r.node, r.column)
-			if (v !== undefined) {
-				bind(c.column, v)
-			}
-		}
-		for (const c of o.constants) {
-			constant(c)
-		}
+		/**
+		 * A column fixed to the value `f` names: the variable it is bound to is fixed by it where it holds outright, and
+		 * determined by the variables it is known from otherwise; a column bound to no variable is known per evaluation.
+		 */
 		const fixedColumn = (c: string, f: FixedFact): void => {
 			const l = localize(f.just)
 			if (l === undefined) {
@@ -1265,6 +1114,53 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 			if (f.fixed.kind === "outer" && l.vars.length === 1) {
 				fds.imply([v], l.vars, just)
 			}
+		}
+		/**
+		 * Each constant, its column equal to its value under the column's native equality, as its value is represented
+		 * among the region's columns.
+		 */
+		const constants = o.constants.map((c) => ({
+			column: c.column,
+			rep: valueRep(c.expr, locals)
+		}))
+		/** A constant a column of the region gives binds its column to that column's variable. */
+		const bindConstant = (c: (typeof constants)[number]): void => {
+			if (c.rep.kind !== "column") {
+				return
+			}
+			const v = varOf(c.rep.node, c.rep.column)
+			if (v !== undefined) {
+				bind(c.column, v)
+			}
+		}
+		/**
+		 * A constant fixed per evaluation fixes its column as a fact of the source does (fixedColumn), on the column's
+		 * equality with it: so a bound column's variable is fixed by it too, read after every constant has bound its
+		 * column. A column bound to no variable is known per evaluation from what the value is known from.
+		 */
+		const fixConstant = (c: (typeof constants)[number]): void => {
+			if (c.rep.kind !== "fixed") {
+				return
+			}
+			const fact = c.rep.fact
+			const v = colVar.get(c.column)
+			if (v === undefined) {
+				const l = localize(fact.just)
+				if (l !== undefined) {
+					known.set(c.column, l)
+				}
+				return
+			}
+			fixedColumn(c.column, {
+				fixed: fact.fixed,
+				just: joinJustifications([fact.just, eqJust([v])])
+			})
+		}
+		for (const c of constants) {
+			bindConstant(c)
+		}
+		for (const c of constants) {
+			fixConstant(c)
 		}
 		/**
 		 * Each further value the source fixes a column to names the variable's value too, where it holds outright: the
@@ -1288,89 +1184,39 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 				furtherFact(c, f)
 			}
 		}
-		const mapColumns = (cs: ReadonlyArray<string>) => {
-			const vars: Array<string> = []
-			const just: Array<Justification> = []
-			for (const c of cs) {
-				const v = colVar.get(c)
-				if (v !== undefined) {
-					vars.push(v)
-					continue
-				}
-				const k = known.get(c)
-				if (k === undefined) {
-					return undefined
-				}
-				appendAll(vars, k.vars)
-				just.push(k.just)
-			}
-			return { vars: [...new Set(vars)], just }
-		}
 		/**
-		 * The spans a dependency reads at a point: the variable each is bound to, or, for a span known per evaluation
-		 * (every point of it known), what it is known from, which joins the determinants.
+		 * The occurrence's own row, which its source's identifications reach once embedded over the variables it binds:
+		 * a column bound to a variable reads as that variable, a column known per evaluation as a hidden attribute of
+		 * the occurrence determined by what it is known from, any other as a hidden attribute nothing determines. A
+		 * dependency of a lateral source holds per value of the variables its outer columns are bound to (localize),
+		 * which join its determinants, so a key per evaluation identifies the row only together with the outer row it
+		 * was evaluated for.
 		 */
-		const mapSpans = (spans: ReadonlyArray<string>) => {
-			const at: Array<string> = []
-			const vars: Array<string> = []
-			const just: Array<Justification> = []
-			for (const c of spans) {
-				const v = colVar.get(c)
-				if (v !== undefined) {
-					at.push(v)
-					continue
-				}
-				const k = known.get(c)
-				if (k === undefined) {
-					return undefined
-				}
-				appendAll(vars, k.vars)
-				just.push(k.just)
+		const ns = `occurrence${place}`
+		const occurrenceRow = hiddenIn(ns, row)
+		for (const [c, k] of known) {
+			if (!colVar.has(c)) {
+				fds.implyWithin(ns, k.vars, [hiddenIn(ns, c)], k.just)
 			}
-			return { at, vars, just }
 		}
-		for (const imp of src.fds) {
-			const from = mapColumns(imp.from)
-			const at = mapSpans(imp.at)
-			const l = localize(imp.just)
-			if (from === undefined || at === undefined || l === undefined) {
-				continue
-			}
-			const to = imp.to.flatMap((c) => {
+		fds.embed(src.dependencies, {
+			namespace: ns,
+			column: (c) => {
 				const v = colVar.get(c)
-				return v === undefined ? [] : [v]
-			})
-			fds.implyAt(
-				[...new Set([...from.vars, ...at.vars, ...l.vars])],
-				at.at,
-				to,
-				joinJustifications([l.just, ...from.just, ...at.just])
-			)
-		}
+				return v === undefined ? [] : [{ column: v, just: structural }]
+			},
+			row: occurrenceRow,
+			localize: (just) => {
+				const l = localize(just)
+				return l === undefined ? undefined : { from: l.vars, just: l.just }
+			}
+		})
 		const scanVars = [...new Set(colVar.values())]
-		const options: Array<KeyOption> = []
-		for (const k of src.keys) {
-			const m = mapColumns(k.columns)
-			const l = localize(k.just)
-			if (m === undefined || l === undefined) {
-				continue
-			}
-			/**
-			 * A key per evaluation of a lateral source identifies its row only together with the outer row it was
-			 * evaluated for: the key plus the correlation's identity.
-			 */
-			const keyColumns = [...new Set([...m.vars, ...l.vars])]
-			const just = joinJustifications([l.just, ...m.just])
-			options.push({ columns: keyColumns, just })
-			if (evaluation !== undefined) {
-				fds.imply(
-					[...new Set([...keyColumns, ...evaluation.vars])],
-					scanVars,
-					joinJustifications([just, evaluation.just])
-				)
-			}
+		if (evaluation !== undefined) {
+			fds.implyWithin(ns, [occurrenceRow, ...evaluation.vars], scanVars, evaluation.just)
 		}
-		if (options.length === 0) {
+		joined.push({ row: occurrenceRow, origin: [ns] })
+		if (src.dependencies.proof([...colVar.keys(), ...known.keys()]) === undefined) {
 			losses.push(
 				src.uniqueness.kind === "none"
 					? src.uniqueness.losses[0]
@@ -1380,10 +1226,9 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 						}
 			)
 		}
-		requirements.push(options)
 	}
-	for (const o of node.occurrences) {
-		occurrence(o)
+	for (const [place, o] of node.occurrences.entries()) {
+		occurrence(o, place)
 	}
 	const correlate = (c: NodeOf<"MatchRegion">["correlated"][number]): void => {
 		const v = c.var.name
@@ -1416,24 +1261,13 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 		const b = e.b.name
 		fds.equate(a, b, eqJust([a, b]))
 	}
-	/** Candidates: one option per occurrence, up to the combination bound, then the heading. */
-	const candidates = keyCombinations(
-		requirements.map((r) => (r.length === 0 ? [[]] : r.map((o) => o.columns)))
-	)
-	const identity: Identity =
-		requirements.some((r) => r.length === 0) || requirements.length === 0 ? [] : [requirements]
-	const product = productCardinality(cards)
-	/**
-	 * Keys are sets of heading columns: a variable outside the heading can identify an occurrence only through one
-	 * inside it.
-	 */
-	const prove = annotatedProver(fds, identity, annotateRegion)
+	if (joined.length > 0) {
+		fds.identifyByJoin(joined, structural)
+	}
 	const draft: Draft = {
 		fds,
-		prove: (cs) => (cs.every((c) => columns.includes(c)) ? prove(cs) : undefined),
-		candidates,
 		fixed,
-		maxCard: product,
+		maxCard: productCardinality(cards),
 		dedup: placed,
 		losses:
 			losses.length > 0
@@ -1477,7 +1311,7 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 	const input = cx.props(node.input)
 	const inputId = node.input.id
 	const columns = node.heading.map((c) => c.name)
-	const fds = new ProofFds(columns)
+	const fds = new DependencyDraft(columns)
 	const fixed = new Map<string, FixedFacts>()
 	const locals = new Set([inputId])
 	const reps = new Map<string, Array<Rep>>()
@@ -1513,7 +1347,7 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 	}
 	/** Copies of equal input columns are equal; inherit maps the rest. */
 	const repsOf = (c: string): ReadonlyArray<Rep> => reps.get(c) ?? []
-	const options = inherit(fds, fixed, input, repsOf)
+	inherit(fds, fixed, input, repsOf, "input", row)
 	/** The columns a computed column is determined by, and why; none when a column it reads is not represented. */
 	const determinants = (
 		c: (typeof computed)[number]
@@ -1545,18 +1379,16 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 	const losses: ReadonlyArray<Loss> =
 		input.uniqueness.kind === "none"
 			? input.uniqueness.losses
-			: noninjective && options.length === 0
+			: noninjective
 				? [
 						{
 							reason: "noninjectiveExpression",
 							detail: "a key column is replaced by a noninjective expression"
 						}
 					]
-				: lossesOf(input, options, columns)
+				: lossesOf(input, columns)
 	return finish(node, cx, {
 		fds,
-		prove: identityProver(fds, required(options)),
-		candidates: options.map((o) => o.columns),
 		fixed,
 		maxCard: input.maxCard,
 		dedup: placed,
@@ -1579,75 +1411,19 @@ const literalFixed = (
 }
 
 /**
- * The first candidate column of the union's heading each arm fixes to one literal, the two different, with its type
- * under the union and both arms' facts.
+ * A union's row is identified when every arm identifies its own and every two arms are told apart. Each arm's table is
+ * embedded under its own namespace with every column hidden: an arm's dependencies hold among its rows only, so a
+ * union column determines the arm's copy of it, and nothing the arm derives flows back into the union's columns. Two
+ * arms are told apart by a column each fixes to a different literal, which every arm carries at the union's own type
+ * (a valid DAG's union columns have one type in every group, and a group's arms its heading), so the literals compare
+ * under that type and the arms' coerced rows are pairwise disjoint.
  */
-const separator = (
-	cs: ReadonlyArray<string>,
-	columnType: ReadonlyMap<string, ScalarType>,
-	a: PhysicalProps,
-	b: PhysicalProps
-):
-	| { readonly type: ScalarType; readonly a: Justification; readonly b: Justification }
-	| undefined => {
-	for (const column of cs) {
-		const type = columnType.get(column)
-		const x = literalFixed(a, column)
-		const y = literalFixed(b, column)
-		if (type !== undefined && x !== undefined && y !== undefined && x.key !== y.key) {
-			return { type, a: x.just, b: y.just }
-		}
-	}
-	return undefined
-}
-
 const unionProps = (node: NodeOf<"Union">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
 	const arms = mapNonEmpty(unionArms(node.groups), (a) => ({ arm: a, props: cx.props(a) }))
-	/** Each arm with its dependency table. */
-	const members = arms.map((a) => ({ ...a, fds: armFdsOf(a.props) }))
-	/**
-	 * A column on which two arms fix different literals tells them apart. Every arm carries each union column at the
-	 * union's own type (a valid DAG's union columns have one type in every group, and a group's arms its heading), so
-	 * the literals compare under that type.
-	 */
 	const unionType = new Map(node.heading.map((c) => [c.name, c.type]))
 	const disjoint = withReason(justify({ premises: [nodePremise(node.id)] }), ["disjointArms"])
-	const armPairs = arms.flatMap((x, i) => arms.slice(i + 1).map((y) => [x.props, y.props] as const))
-	/**
-	 * Every arm identified by the candidate and every two arms told apart; the proof joins the arms' identifications,
-	 * then each pair's separating facts.
-	 */
-	const proveArms: Prover = (cs) => {
-		const found: Array<() => Identification> = []
-		for (const m of members) {
-			const identification = m.fds.identification(keyIdentity(m.props), cs)
-			if (identification === undefined) {
-				return undefined
-			}
-			found.push(identification)
-		}
-		const told: Array<{
-			readonly type: ScalarType
-			readonly a: Justification
-			readonly b: Justification
-		}> = []
-		for (const [a, b] of armPairs) {
-			const pair = separator(cs, unionType, a, b)
-			if (pair === undefined) {
-				return undefined
-			}
-			told.push(pair)
-		}
-		return () => {
-			const justs = found.map((identification) => identification().just)
-			for (const pair of told) {
-				justs.push(pair.a, pair.b, comparing([pair.type]))
-			}
-			return joinJustifications(arms.length > 1 ? [...justs, disjoint] : justs)
-		}
-	}
-	const fds = new ProofFds(columns)
+	const fds = new DependencyDraft(columns)
 	const fixed = new Map<string, FixedFacts>()
 	for (const c of columns) {
 		/** Each value the first arm fixes the column to that every arm does, with every arm's fact of it. */
@@ -1669,20 +1445,44 @@ const unionProps = (node: NodeOf<"Union">, cx: RuleContext): PhysicalProps => {
 			fixed.set(c, [first, ...others])
 		}
 	}
-	const separators = columns.filter((c) =>
-		arms.every((a) => literalFixed(a.props, c) !== undefined)
-	)
-	const candidates = arms.flatMap((a) =>
-		a.props.keys
-			.filter((k) => k.columns.every((c) => columns.includes(c)))
-			.map((k) => [...k.columns, ...separators])
-	)
+	const identifiedBy: Array<string> = []
+	for (const [i, a] of arms.entries()) {
+		const ns = `arm${i}`
+		fds.embed(a.props.dependencies, {
+			namespace: ns,
+			column: () => [],
+			row: hiddenIn(ns, row),
+			localize: asTheyAre
+		})
+		for (const c of a.props.columns) {
+			if (unionType.has(c)) {
+				fds.imply([c], [hiddenIn(ns, c)], structural)
+			}
+		}
+		identifiedBy.push(hiddenIn(ns, row))
+	}
+	for (const [i, x] of arms.entries()) {
+		for (const [j, y] of arms.entries()) {
+			if (j <= i) {
+				continue
+			}
+			const apart = hiddenIn(`apart${i}.${j}`, row)
+			for (const c of columns) {
+				const type = unionType.get(c)
+				const lx = literalFixed(x.props, c)
+				const ly = literalFixed(y.props, c)
+				if (type !== undefined && lx !== undefined && ly !== undefined && lx.key !== ly.key) {
+					fds.imply([c], [apart], joinJustifications([lx.just, ly.just, comparing([type])]))
+				}
+			}
+			identifiedBy.push(apart)
+		}
+	}
+	fds.identify(identifiedBy, arms.length > 1 ? disjoint : structural)
 	const maxCard = sumCardinality(arms.map((a) => a.props.maxCard))
 	const nonUnique = arms.find((a) => !isUnique(a.props))
 	return finish(node, cx, {
 		fds,
-		prove: proveArms,
-		candidates,
 		fixed,
 		maxCard,
 		dedup: placed,
@@ -1698,18 +1498,6 @@ const unionProps = (node: NodeOf<"Union">, cx: RuleContext): PhysicalProps => {
 	})
 }
 
-/** An arm's dependency table: its fixed columns and its dependencies. */
-const armFdsOf = (props: PhysicalProps): ProofFds => {
-	const f = new ProofFds(props.columns)
-	for (const [c, [x]] of props.fixed) {
-		f.fix(c, x.just)
-	}
-	for (const imp of props.fds) {
-		f.implyAt(imp.from, imp.at, imp.to, imp.just)
-	}
-	return f
-}
-
 /**
  * Only the group key is carried from the input: an aggregate output may reuse the name of an input column that is
  * not a key, and carries none of its facts.
@@ -1720,10 +1508,15 @@ const groupProps = (
 ): PhysicalProps => {
 	const input = cx.props(node.input)
 	const columns = node.heading.map((c) => c.name)
-	const fds = new ProofFds(columns)
+	const fds = new DependencyDraft(columns)
 	const fixed = new Map<string, FixedFacts>()
-	inherit(fds, fixed, input, (c) =>
-		node.keys.includes(c) && fds.has(c) ? [{ column: c, just: structural }] : []
+	inherit(
+		fds,
+		fixed,
+		input,
+		(c) => (node.keys.includes(c) && fds.has(c) ? [{ column: c, just: structural }] : []),
+		"input",
+		hiddenIn("input", row)
 	)
 	const just = withReason(
 		joinJustifications([ownPremise(node), comparing(columnTypes(node.heading, node.keys))]),
@@ -1734,10 +1527,9 @@ const groupProps = (
 		columns.filter((c) => !node.keys.includes(c)),
 		just
 	)
+	fds.identify(node.keys, just)
 	return finish(node, cx, {
 		fds,
-		prove: identityProver(fds, [[[{ columns: node.keys, just }]]]),
-		candidates: [node.keys],
 		fixed,
 		maxCard: node.keys.length === 0 ? atMost(1n) : unbounded,
 		dedup: placed,
@@ -1745,33 +1537,27 @@ const groupProps = (
 	})
 }
 
+/**
+ * One intersection per input fact keeps the input's carried keys: each of its rows is one of the input's. The pieces
+ * of a difference or a pack are several per input fact, told apart by the produced span.
+ */
 const produceProps = (node: NodeOf<"Produce">, cx: RuleContext): PhysicalProps => {
 	const input = cx.props(node.input)
 	const columns = node.heading.map((c) => c.name)
-	const fds = new ProofFds(columns)
+	const fds = new DependencyDraft(columns)
 	const fixed = new Map<string, FixedFacts>()
 	const carried = (c: string): ReadonlyArray<Rep> =>
 		node.carried.includes(c) && fds.has(c) ? [{ column: c, just: structural }] : []
-	const options = inherit(fds, fixed, input, carried)
-	const just = justify({ premises: [nodePremise(node.id)] })
-	/**
-	 * One intersection per input fact keeps the input's carried keys; the pieces of a difference or a pack are told
-	 * apart by the produced span.
-	 */
-	const keyed: ReadonlyArray<KeyOption> =
-		node.producer === "spanIntersection"
-			? options
-			: options.map((o) => ({
-					columns: [...o.columns, node.out],
-					just: joinJustifications([o.just, just])
-				}))
+	const inputRow = node.producer === "spanIntersection" ? row : hiddenIn("input", row)
+	inherit(fds, fixed, input, carried, "input", inputRow)
+	if (node.producer !== "spanIntersection") {
+		fds.identify([inputRow, node.out], justify({ premises: [nodePremise(node.id)] }))
+	}
 	return finish(node, cx, {
 		fds,
-		prove: identityProver(fds, required(keyed)),
-		candidates: keyed.map((o) => o.columns),
 		fixed,
 		maxCard: node.producer === "spanIntersection" ? input.maxCard : unbounded,
 		dedup: placed,
-		losses: lossesOf(input, keyed, columns)
+		losses: lossesOf(input, columns)
 	})
 }

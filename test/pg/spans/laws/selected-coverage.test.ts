@@ -5,10 +5,11 @@ import { array, type Gen, int, map, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { visits, visitsLaw } from "#test/pg/spans/laws/schemas.ts"
 import { installSpans, witness, writerOf } from "#test/pg/spans/laws/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -125,7 +126,7 @@ layer(Substrate.layer)("selected-source span coverage at the int8 limits", (it) 
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2),
+							caseHang,
 							coverage: required<CoverFeature>(
 								Arr.flatMap(["covered", "refused"] as const, (o) =>
 									Arr.map(

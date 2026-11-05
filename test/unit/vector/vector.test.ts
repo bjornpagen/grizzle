@@ -6,8 +6,9 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { EncodingFailure, isCompileError } from "#compiler/core/errors.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { templateFor } from "#compiler/program/template.ts"
@@ -19,11 +20,14 @@ import { assert, faulted, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
 const dims = search.DocumentVector.dimensions
-const lowest = 2 ** -16
-const highest = 2 ** 16
+const lowest = cosineNormMin.value
+const highest = cosineNormMax.value
+/** Half the least norm: four components of it have the least norm exactly. */
+const quarterNorm = lowest / 2
 
 /** The largest finite float32. */
 const floatMax = Math.fround(3.4028234663852886e38)
@@ -37,12 +41,12 @@ const componentGen = oneOf([
 		0,
 		-0,
 		1,
-		2 ** -17,
+		quarterNorm,
 		lowest,
 		Math.fround(lowest * (1 - 2 ** -24)),
 		highest,
-		highest + 2 ** -7,
-		65537,
+		highest * (1 + 2 ** -23),
+		highest * 2,
 		1e-50,
 		1e39,
 		Number.NaN,
@@ -53,8 +57,8 @@ const componentGen = oneOf([
 ])
 
 /**
- * A buffer: of the field's dimensions or not, its components drawn one by one, all equal (four components of 2^-17
- * have norm 2^-16 exactly), small components inside the domain with -0 among them, which reach an admitted buffer
+ * A buffer: of the field's dimensions or not, its components drawn one by one, all equal (four components of half the
+ * least norm have the least norm exactly), small components inside the domain with -0 among them, which reach an admitted buffer
  * holding -0, or one component at a bound of the norm and the others zero, whose norm is that bound; and whether the
  * caller writes zeros into it after the check.
  */
@@ -70,7 +74,7 @@ const bufferGen: Gen<BufferSketch> = (source) => ({
 		oneOf([
 			array(componentGen, { min: dims + 1, max: dims + 1 }),
 			map(componentGen, (x) => Array.from({ length: dims + 1 }, () => x)),
-			array(element([-0, 0, 1, 2 ** -17]), { min: dims + 1, max: dims + 1 }),
+			array(element([-0, 0, 1, quarterNorm]), { min: dims + 1, max: dims + 1 }),
 			map(element([lowest, highest, -lowest, -highest]), (bound) =>
 				Array.from({ length: dims + 1 }, (_, i) => (i === 0 ? bound : 0))
 			)
@@ -108,16 +112,16 @@ type DomainFeature =
  */
 const domainKept: ReadonlyArray<Kept<BufferSketch, DomainFeature>> = [
 	{
-		note: "-0 among the components of a buffer of norm 2^16",
+		note: "-0 among the components of a buffer of the greatest norm",
 		sketch: { length: dims, components: [-0, highest, 0, -0, 0], zeroedAfter: false },
 		draws: "",
 		reaches: ["-0 written as 0", "admitted at a bound"]
 	},
 	{
-		note: "four components of 2^-17, of norm 2^-16, zeroed after the check",
+		note: "four components of half the least norm, of the least norm, zeroed after the check",
 		sketch: {
 			length: dims,
-			components: Array.from({ length: dims + 1 }, () => 2 ** -17),
+			components: Array.from({ length: dims + 1 }, () => quarterNorm),
 			zeroedAfter: true
 		},
 		draws: "",
@@ -168,7 +172,7 @@ describe("the cosine domain", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ length, components, zeroedAfter }, c) =>
 							Effect.sync(() => {
@@ -242,7 +246,7 @@ describe("the cosine domain", () => {
 							"held as built",
 							"refused when built"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(xs, c) =>
 						Effect.sync(() => {
@@ -304,7 +308,7 @@ describe("the vector schema in a template's premise", () => {
 							"a vector search",
 							"no vector"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([reads, vectorSchema], c) =>
 						Effect.sync(() => {

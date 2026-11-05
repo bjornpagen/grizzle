@@ -5,7 +5,7 @@ import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Record } from "effect"
 import { withWorkload } from "#compiler/physical/access/extension.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -14,6 +14,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** Access indexes over one column list in several directions ().
@@ -110,7 +111,7 @@ describe("access indexes over one column list in several directions", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ vectors, prefixed }, c) =>
 						Effect.sync(() => {

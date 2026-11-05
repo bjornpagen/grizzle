@@ -14,7 +14,6 @@ import {
 	Result,
 	Scope
 } from "effect"
-import type { Pool } from "pg"
 import { registerSnapshot } from "#adapter/admission/snapshots.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
@@ -35,7 +34,6 @@ import { roleDescOf, role as roleBuilder } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import type { LoginRole } from "#compiler/types/schema/world.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
-import { pgPin } from "#test/support/env.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import {
 	type InstalledAt,
@@ -46,7 +44,8 @@ import {
 import { fromEmpty, generate } from "#test/support/migrate/kit.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
-import type { SqlError } from "#test/support/pg.ts"
+import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
+import { contextOf } from "#test/support/runtime-db.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -293,7 +292,6 @@ const realizeWith = (
 		const verifying: { handed: Option.Option<Handed> } = { handed: Option.none() }
 		/** The verify calls of every login layer since the realization began. */
 		const verified = { calls: 0 }
-		const pools = new Map<string, Pool>()
 		const acquired = new Map<string, number>()
 		const scope = yield* Effect.scope
 
@@ -306,9 +304,9 @@ const realizeWith = (
 		)
 
 		/**
-		 * A login's DbLayer, given `snapshot`: attachPool captures the pool of a version's layer, and verify is given exactly
-		 * when a role of the login reads a context, as README "Permissions" requires it, so a login whose roles read none turns
-		 * no token into claims.
+		 * A login's DbLayer, given `snapshot`: attachPool records, for a version's layer, the backend of each connection its
+		 * pool's leases take, and verify is given exactly when a role of the login reads a context, as README "Permissions"
+		 * requires it, so a login whose roles read none turns no token into claims.
 		 */
 		const layerOf = (
 			spec: InstallSpec,
@@ -320,24 +318,18 @@ const realizeWith = (
 		): Effect.Effect<Layer.Layer<DbLayerOf<BuiltLogin>, OpenError>> =>
 			Effect.map(get(built.logins, login, "login"), (value) =>
 				DbLayer.make({
+					...clusterConnection(substrate.cluster, substrate.database, credentials.password),
+					pool: Option.match(poolSize, {
+						onNone: () => clusterPool,
+						onSome: (size) => ({ ...clusterPool, max: size })
+					}),
 					login: value,
 					snapshot,
-					host: pgPin.host,
-					port: pgPin.port,
-					database: substrate.database,
-					password: credentials.password,
-					tls: { ca: substrate.cluster.caPem },
 					...(loginVerifies(spec, login) ? { verify } : {}),
 					attachPool: (pool) => {
 						if (!isNativePool(pool)) {
 							throw new Error("a login's pool is not node-postgres's Pool")
 						}
-						Option.match(poolSize, {
-							onNone: () => undefined,
-							onSome: (size) => {
-								pool.options.max = size
-							}
-						})
 						if (use === "version") {
 							pool.on("acquire", (client) => {
 								const pid = leasedBackend(client)
@@ -345,7 +337,6 @@ const realizeWith = (
 									acquired.set(login, pid)
 								}
 							})
-							pools.set(login, pool)
 						}
 					}
 				})
@@ -445,13 +436,10 @@ const realizeWith = (
 			Scope.provide(
 				Layer.build(
 					DbLayer.make({
+						...clusterConnection(substrate.cluster, substrate.database, Redacted.make("")),
+						pool: clusterPool,
 						login: strangerLogin,
-						snapshot: first.snapshot,
-						host: pgPin.host,
-						port: pgPin.port,
-						database: substrate.database,
-						password: Redacted.make(""),
-						tls: { ca: substrate.cluster.caPem }
+						snapshot: first.snapshot
 					})
 				),
 				scope
@@ -702,10 +690,6 @@ const realizeWith = (
 					Effect.die(new Error("a Db opened for a role the installation does not hold")),
 				onSome: ({ role, login }) =>
 					Effect.gen(function* () {
-						const pool = pools.get(login)
-						if (pool === undefined) {
-							return yield* missing(`pool of the login ${login}`)
-						}
 						const current = state.current
 						const session = yield* mint({
 							kind: "db",
@@ -713,7 +697,6 @@ const realizeWith = (
 							role,
 							base: current.spec.base,
 							described: current.installation.described,
-							pool,
 							value,
 							db
 						})
@@ -1243,7 +1226,7 @@ const realizeWith = (
 				if (session.kind === "direct") {
 					return yield* probeDirect(session)
 				}
-				return yield* probePool(session.pool)
+				return yield* probePool(contextOf(session.db).pool)
 			})
 
 		const storedRelations = (v: Version) => [

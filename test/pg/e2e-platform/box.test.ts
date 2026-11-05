@@ -23,7 +23,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import type { ApplyError } from "#adapter/public/errors.ts"
 import {
 	applyFacts,
@@ -33,6 +33,7 @@ import {
 } from "#test/pg/e2e-platform/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	calendarOf,
 	DAY,
@@ -220,161 +221,154 @@ const decided = (db: PlatformDb, f: PlatformFacts): Effect.Effect<string, ApplyE
 	)
 
 layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
-	it.effect(
-		"every settlement the model makes in the box is lawful, exact and recorded",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const o = yield* openPlatform("platform_box")
-					const clear = s.admin.query(
-						`TRUNCATE ${Arr.join(Arr.map(["CreditDebit", "UsageCharge", "EventCharge", "ProviderCost", "UsageEvent", "CreditGrant"], o.table), ", ")}`,
-						[]
-					)
-					/** One Db for the static platform and the whole box. */
-					const exhausted = yield* o.withDb((db) =>
-						Effect.gen(function* () {
-							yield* applyFacts(db, staticFacts)
-							return yield* exhaust(
-								{
-									suite: "pg/e2e-platform/box",
-									generator: box,
-									literal: Formatter.format,
-									limit: 1024,
-									caseHang: Duration.minutes(2),
-									coverage: requiredInSpace<BoxFeature>([
-										"an event exactly at the rate change",
-										"a grant expiring at an event's start",
-										"a grant expiring at an event's end",
-										"a tier boundary crossed within one event",
-										"an event split across grants"
-									])
-								},
-								(point, cx) =>
-									Effect.gen(function* () {
-										yield* clear
-										const grants = Arr.map(point.grants, (g, i) => ({
-											id: defined(grantIds[i], "a grant's id"),
-											org,
-											amount: P.Micros(g.amount),
-											valid: { start: P.Instant(JAN), end: P.Instant(g.end) }
-										}))
-										const setup: PlatformFacts = { ...staticFacts, CreditGrant: grants }
-										const requests = Arr.map(point.requests, (r, i): UsageRequest => ({
-											id: uid(7, i),
-											key,
-											model,
-											provider,
-											during: platformSpan(r.start, r.start + 1n),
-											tokens: [{ kind: "input", tokens: r.tokens }]
-										}))
-										const view = viewOf(setup)
-										const settled = settleRequests(view, requests, {
-											left: new Map(Arr.map(grants, (g) => [g.id, g.amount])),
-											spent: new Map()
-										})
-										assert.equal(
-											settled.refused.length,
-											0,
-											"the model records every request of the box"
-										)
-										for (const r of settled.records) {
-											if (Arr.some(grants, (g) => g.valid.end === r.event.during.start)) {
-												cx.note("a grant expiring at an event's start")
-											}
-											if (Arr.some(grants, (g) => g.valid.end === r.event.during.end)) {
-												cx.note("a grant expiring at an event's end")
-											}
-										}
-										const grantFacts = { ...noFacts, CreditGrant: grants }
-										const grantsDecision = yield* decided(db, grantFacts)
-										assert.equal(grantsDecision, "accepted", "the grants are stored")
-										for (const record of settled.records) {
-											const f = recordFacts(record)
-											const decision = yield* decided(db, f)
-											assert.equal(decision, "accepted", `${record.event.id} is recorded`)
-											/** Its tier pieces sum to what the model charged. */
-											const pieces = yield* (yield* db.execute(P.eventCost, {
-												event: record.event.id
-											})).collect
-											const charged = Arr.reduce(record.charges, 0n, (sum, c) => sum + c.amount)
-											assert.equal(
-												Arr.reduce(pieces, 0n, (sum, piece) => sum + piece.amount),
-												charged,
-												`${record.event.id}'s pieces sum to its charge`
-											)
-											if (pieces.length > 1) {
-												cx.note("a tier boundary crossed within one event")
-											}
-											if (record.event.during.start === C) {
-												cx.note("an event exactly at the rate change")
-											}
-											if (new Set(Arr.map(record.debits, (d) => d.grant)).size > 1) {
-												cx.note("an event split across grants")
-											}
-										}
-										for (const g of grants) {
-											const days = yield* (yield* db.execute(P.burnDown, {
-												grant: g.id
-											})).collect
-											const debited = Arr.filter(
-												Arr.flatMap(settled.records, (r) => r.debits),
-												(d) => d.grant === g.id
-											)
-											assert.equal(
-												Arr.reduce(days, 0n, (sum, d) => sum + BigInt(d.debited.toString())),
-												Arr.reduce(debited, 0n, (sum, d) => sum + d.amount),
-												`${g.id}'s debits`
-											)
-											assert.ok(
-												Arr.reduce(debited, 0n, (sum, d) => sum + d.amount) <= g.amount,
-												`${g.id} within its amount`
-											)
-											for (const d of debited) {
-												assert.ok(
-													covers(
-														platformSpan(g.valid.start, g.valid.end),
-														platformSpan(d.during.start, d.during.end)
-													),
-													`${g.id} valid over its debits`
-												)
-											}
-										}
-										const left = new Map<string, bigint>(Arr.map(grants, (g) => [g.id, g.amount]))
-										for (const r of settled.records) {
-											const window = platformSpan(r.event.during.start, r.event.during.end)
-											const eligible = Arr.sort(
-												Arr.filter(grants, (g) =>
-													covers(platformSpan(g.valid.start, g.valid.end), window)
-												),
-												grantOrder
-											)
-											const charge = Arr.reduce(r.charges, 0n, (sum, c) => sum + c.amount)
-											const credited = Arr.reduce(r.charges, 0n, (sum, c) => sum + c.credited)
-											const held = Arr.reduce(
-												eligible,
-												0n,
-												(sum, g) => sum + (left.get(g.id) ?? 0n)
-											)
-											assert.equal(
-												credited,
-												charge < held ? charge : held,
-												`${r.event.id} credited as much as the valid grants hold`
-											)
-											spentInOrder(r, eligible, left)
-											for (const d of r.debits) {
-												left.set(d.grant, (left.get(d.grant) ?? 0n) - d.amount)
-											}
-										}
+	it.effect("every settlement the model makes in the box is lawful, exact and recorded", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const o = yield* openPlatform("platform_box")
+				const clear = s.admin.query(
+					`TRUNCATE ${Arr.join(Arr.map(["CreditDebit", "UsageCharge", "EventCharge", "ProviderCost", "UsageEvent", "CreditGrant"], o.table), ", ")}`,
+					[]
+				)
+				/** One Db for the static platform and the whole box. */
+				const exhausted = yield* o.withDb((db) =>
+					Effect.gen(function* () {
+						yield* applyFacts(db, staticFacts)
+						return yield* exhaust(
+							{
+								suite: "pg/e2e-platform/box",
+								generator: box,
+								literal: Formatter.format,
+								limit: 1024,
+								caseHang,
+								coverage: requiredInSpace<BoxFeature>([
+									"an event exactly at the rate change",
+									"a grant expiring at an event's start",
+									"a grant expiring at an event's end",
+									"a tier boundary crossed within one event",
+									"an event split across grants"
+								])
+							},
+							(point, cx) =>
+								Effect.gen(function* () {
+									yield* clear
+									const grants = Arr.map(point.grants, (g, i) => ({
+										id: defined(grantIds[i], "a grant's id"),
+										org,
+										amount: P.Micros(g.amount),
+										valid: { start: P.Instant(JAN), end: P.Instant(g.end) }
+									}))
+									const setup: PlatformFacts = { ...staticFacts, CreditGrant: grants }
+									const requests = Arr.map(point.requests, (r, i): UsageRequest => ({
+										id: uid(7, i),
+										key,
+										model,
+										provider,
+										during: platformSpan(r.start, r.start + 1n),
+										tokens: [{ kind: "input", tokens: r.tokens }]
+									}))
+									const view = viewOf(setup)
+									const settled = settleRequests(view, requests, {
+										left: new Map(Arr.map(grants, (g) => [g.id, g.amount])),
+										spent: new Map()
 									})
-							)
-						})
-					)
-					assert.equal(exhausted.cases, 1024)
-					return exhausted
-				})
-			),
-		1_800_000
+									assert.equal(
+										settled.refused.length,
+										0,
+										"the model records every request of the box"
+									)
+									for (const r of settled.records) {
+										if (Arr.some(grants, (g) => g.valid.end === r.event.during.start)) {
+											cx.note("a grant expiring at an event's start")
+										}
+										if (Arr.some(grants, (g) => g.valid.end === r.event.during.end)) {
+											cx.note("a grant expiring at an event's end")
+										}
+									}
+									const grantFacts = { ...noFacts, CreditGrant: grants }
+									const grantsDecision = yield* decided(db, grantFacts)
+									assert.equal(grantsDecision, "accepted", "the grants are stored")
+									for (const record of settled.records) {
+										const f = recordFacts(record)
+										const decision = yield* decided(db, f)
+										assert.equal(decision, "accepted", `${record.event.id} is recorded`)
+										/** Its tier pieces sum to what the model charged. */
+										const pieces = yield* (yield* db.execute(P.eventCost, {
+											event: record.event.id
+										})).collect
+										const charged = Arr.reduce(record.charges, 0n, (sum, c) => sum + c.amount)
+										assert.equal(
+											Arr.reduce(pieces, 0n, (sum, piece) => sum + piece.amount),
+											charged,
+											`${record.event.id}'s pieces sum to its charge`
+										)
+										if (pieces.length > 1) {
+											cx.note("a tier boundary crossed within one event")
+										}
+										if (record.event.during.start === C) {
+											cx.note("an event exactly at the rate change")
+										}
+										if (new Set(Arr.map(record.debits, (d) => d.grant)).size > 1) {
+											cx.note("an event split across grants")
+										}
+									}
+									for (const g of grants) {
+										const days = yield* (yield* db.execute(P.burnDown, {
+											grant: g.id
+										})).collect
+										const debited = Arr.filter(
+											Arr.flatMap(settled.records, (r) => r.debits),
+											(d) => d.grant === g.id
+										)
+										assert.equal(
+											Arr.reduce(days, 0n, (sum, d) => sum + BigInt(d.debited.toString())),
+											Arr.reduce(debited, 0n, (sum, d) => sum + d.amount),
+											`${g.id}'s debits`
+										)
+										assert.ok(
+											Arr.reduce(debited, 0n, (sum, d) => sum + d.amount) <= g.amount,
+											`${g.id} within its amount`
+										)
+										for (const d of debited) {
+											assert.ok(
+												covers(
+													platformSpan(g.valid.start, g.valid.end),
+													platformSpan(d.during.start, d.during.end)
+												),
+												`${g.id} valid over its debits`
+											)
+										}
+									}
+									const left = new Map<string, bigint>(Arr.map(grants, (g) => [g.id, g.amount]))
+									for (const r of settled.records) {
+										const window = platformSpan(r.event.during.start, r.event.during.end)
+										const eligible = Arr.sort(
+											Arr.filter(grants, (g) =>
+												covers(platformSpan(g.valid.start, g.valid.end), window)
+											),
+											grantOrder
+										)
+										const charge = Arr.reduce(r.charges, 0n, (sum, c) => sum + c.amount)
+										const credited = Arr.reduce(r.charges, 0n, (sum, c) => sum + c.credited)
+										const held = Arr.reduce(eligible, 0n, (sum, g) => sum + (left.get(g.id) ?? 0n))
+										assert.equal(
+											credited,
+											charge < held ? charge : held,
+											`${r.event.id} credited as much as the valid grants hold`
+										)
+										spentInOrder(r, eligible, left)
+										for (const d of r.debits) {
+											left.set(d.grant, (left.get(d.grant) ?? 0n) - d.amount)
+										}
+									}
+								})
+						)
+					})
+				)
+				assert.equal(exhausted.cases, 1024)
+				return exhausted
+			})
+		)
 	)
 })

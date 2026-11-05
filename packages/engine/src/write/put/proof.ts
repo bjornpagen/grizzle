@@ -1,6 +1,7 @@
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { Fold } from "#compiler/ir/fold.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import {
 	inputSetPlaceholder,
@@ -63,8 +64,6 @@ const varClasses = (node: NodeOf<"MatchRegion">): ((v: VarDecl) => VarDecl) => {
 	return find
 }
 
-const maxDepth = 256
-
 /** Key values through a projection: a column's as the input column it copies, a constant as it is; undefined when a
  * column is computed. */
 const throughProjection = (
@@ -82,101 +81,138 @@ const throughProjection = (
 	return next
 }
 
-/** Whether every row of `node` carries at the key fields the given values (one per primary key field of `relation`)
- * the key of a stored fact of `relation`. */
+/** A node and the key values each of its rows must carry: one question of the existing-keys proof. */
+interface KeyQuestion {
+	readonly node: RelNode
+	readonly values: ReadonlyMap<string, KeyValue>
+}
+
+/** A key value's identity, under which two questions over one node ask the same thing. */
+const valueText = (v: KeyValue): string => (v.kind === "column" ? `c${v.name}` : `k${v.key}`)
+
+/**
+ * Whether every row of `root` carries at the key fields the given values (one per primary key field of `relation`)
+ * the key of a stored fact of `relation`.
+ *
+ * Each question is about one node and the values its rows must carry, and is answered from questions about the node's
+ * inputs only, so the questions form a finite acyclic graph over the query DAG: the fold (ir/fold.ts) answers each
+ * once, inputs first, its frames on the heap, whatever the DAG's depth. A node asked about with the same values twice,
+ * by two arms of a union or two occurrences, is the one question, so no walk repeats.
+ */
 const provesKeys = (
-	node: RelNode,
+	root: RelNode,
 	relation: RelationInfo,
-	values: ReadonlyMap<string, KeyValue>,
-	depth: number
+	values: ReadonlyMap<string, KeyValue>
 ): boolean => {
-	if (depth > maxDepth) {
-		return false
-	}
-	const recurse = (next: RelNode, vs: ReadonlyMap<string, KeyValue>) =>
-		provesKeys(next, relation, vs, depth + 1)
-	switch (node.kind) {
-		case "Base":
-			return (
-				node.relation === relation.name &&
-				node.relationKind === "relation" &&
-				relation.primaryKey.every((f) => {
-					const v = values.get(f)
-					return v?.kind === "column" && v.name === f && node.heading.some((c) => c.name === f)
-				})
-			)
-		case "ProjectSet": {
-			const next = throughProjection(node, values)
-			return next !== undefined && recurse(node.input, next)
+	const asked = new Map<RelNode, Map<string, KeyQuestion>>()
+	const question = (node: RelNode, vs: ReadonlyMap<string, KeyValue>): KeyQuestion => {
+		const text = [...vs].map(([field, v]) => `${field}\u0001${valueText(v)}`).join("\u0000")
+		const byNode = asked.get(node) ?? new Map<string, KeyQuestion>()
+		asked.set(node, byNode)
+		const known = byNode.get(text)
+		if (known !== undefined) {
+			return known
 		}
-		case "Union":
-			return (
-				node.groups.length > 0 &&
-				node.groups.every((g) => g.arms.every((arm) => recurse(arm, values)))
-			)
-		case "MatchRegion": {
-			const classOf = varClasses(node)
-			const correlated = new Set(node.correlated.map((c) => classOf(c.var)))
-			/** Each key field's variable class, or the constant it equals. */
-			const wanted = new Map<
-				string,
-				| { readonly kind: "class"; readonly cls: VarDecl }
-				| { readonly kind: "constant"; readonly key: string }
-			>()
-			for (const [field, v] of values) {
-				if (v.kind === "constant") {
-					wanted.set(field, { kind: "constant", key: v.key })
-					continue
-				}
-				const decl = node.vars.find((d) => d.name === v.name)
-				if (decl === undefined || correlated.has(classOf(decl))) {
+		const fresh: KeyQuestion = { node, values: vs }
+		byNode.set(text, fresh)
+		return fresh
+	}
+	const answers = new Fold<KeyQuestion, boolean>(function* (q) {
+		const node = q.node
+		switch (node.kind) {
+			case "Base":
+				return (
+					node.relation === relation.name &&
+					node.relationKind === "relation" &&
+					relation.primaryKey.every((f) => {
+						const v = q.values.get(f)
+						return v?.kind === "column" && v.name === f && node.heading.some((c) => c.name === f)
+					})
+				)
+			case "ProjectSet": {
+				const next = throughProjection(node, q.values)
+				return next !== undefined && (yield question(node.input, next))
+			}
+			case "Union": {
+				if (node.groups.length === 0) {
 					return false
 				}
-				wanted.set(field, { kind: "class", cls: classOf(decl) })
+				for (const g of node.groups) {
+					for (const arm of g.arms) {
+						if (!(yield question(arm, q.values))) {
+							return false
+						}
+					}
+				}
+				return true
 			}
-			return node.occurrences.some((o) => {
-				const next = new Map<string, KeyValue>()
-				for (const [field, w] of wanted) {
-					const column =
-						w.kind === "class"
-							? o.bindings.find((b) => classOf(b.var) === w.cls)?.column
-							: o.constants.find((c) => constantKey(c.expr) === w.key)?.column
-					if (column === undefined) {
+			case "MatchRegion": {
+				const classOf = varClasses(node)
+				const correlated = new Set(node.correlated.map((c) => classOf(c.var)))
+				/** Each key field's variable class, or the constant it equals. */
+				const wanted = new Map<
+					string,
+					| { readonly kind: "class"; readonly cls: VarDecl }
+					| { readonly kind: "constant"; readonly key: string }
+				>()
+				for (const [field, v] of q.values) {
+					if (v.kind === "constant") {
+						wanted.set(field, { kind: "constant", key: v.key })
+						continue
+					}
+					const decl = node.vars.find((d) => d.name === v.name)
+					if (decl === undefined || correlated.has(classOf(decl))) {
 						return false
 					}
-					next.set(field, { kind: "column", name: column })
+					wanted.set(field, { kind: "class", cls: classOf(decl) })
 				}
-				return recurse(o.source, next)
-			})
+				for (const o of node.occurrences) {
+					const next = new Map<string, KeyValue>()
+					for (const [field, w] of wanted) {
+						const column =
+							w.kind === "class"
+								? o.bindings.find((b) => classOf(b.var) === w.cls)?.column
+								: o.constants.find((c) => constantKey(c.expr) === w.key)?.column
+						if (column !== undefined) {
+							next.set(field, { kind: "column", name: column })
+						}
+					}
+					if (next.size === wanted.size && (yield question(o.source, next))) {
+						return true
+					}
+				}
+				return false
+			}
+			case "InputSet":
+			case "Closed":
+			case "Context":
+			case "Delta":
+			case "Filter":
+			case "SemiJoin":
+			case "AntiJoin":
+			case "Intersect":
+			case "Difference":
+			case "Take":
+			case "Group":
+			case "Produce":
+			case "Recursive":
+			case "SelfRef":
+			case "ApproximateNearest":
+			case "OrderedResult":
+			case "Attach":
+			case "Forbid":
+			case "Window":
+			case "OrderedSetAggregate": {
+				/** A kept row is its input's (`keptRowsOf`), and an intersection's row is its right side's too. */
+				const kept = keptRowsOf(node)
+				if (kept !== undefined && (yield question(kept.input, q.values))) {
+					return true
+				}
+				return node.kind === "Intersect" && (yield question(node.right, q.values))
+			}
 		}
-		case "InputSet":
-		case "Closed":
-		case "Context":
-		case "Delta":
-		case "Filter":
-		case "SemiJoin":
-		case "AntiJoin":
-		case "Intersect":
-		case "Difference":
-		case "Take":
-		case "Group":
-		case "Produce":
-		case "Recursive":
-		case "SelfRef":
-		case "ApproximateNearest":
-		case "OrderedResult":
-		case "Attach":
-		case "Forbid":
-		case "Window":
-		case "OrderedSetAggregate": {
-			/** A kept row is its input's (`keptRowsOf`), and an intersection's row is its right side's too. */
-			const kept = keptRowsOf(node)
-			return (
-				(kept !== undefined && recurse(kept.input, values)) ||
-				(node.kind === "Intersect" && recurse(node.right, values))
-			)
-		}
-	}
+	})
+	return answers.of(question(root, values))
 }
 
 /** Whether a member column keeps its value when the statement casts it into the field's type: the same base type and
@@ -223,8 +259,7 @@ export const existingKeysProof = (node: RelNode, relation: RelationInfo): boolea
 	return provesKeys(
 		node,
 		relation,
-		new Map(relation.primaryKey.map((f) => [f, { kind: "column", name: f } as const])),
-		0
+		new Map(relation.primaryKey.map((f) => [f, { kind: "column", name: f } as const]))
 	)
 }
 
@@ -259,110 +294,91 @@ const bindingFields = (
 	return { fieldOf, bound }
 }
 
-/** The facts of a node as "every fact of the relation's Base under filters over its own columns", if they are.
- * `columns` maps each field of the relation to the node's column carrying it, or to the parameter or literal the
- * field equals throughout, which the occurrence must fix it to (a constant among the match's bindings).
- *
- * Every field of the relation is the column its projection says, bound in the one occurrence, or the
- * constant the occurrence fixes it to.
- *
- * Every predicate reads only the region's columns, through the region or a filter above it.
- *
- * Any other node is no scope this proof recognizes. */
-const scopedFacts = (
-	node: RelNode,
+/**
+ * The scope of a proved MERGE deletion at the region a chain of projections and filters ends in (scopedFacts): its
+ * one occurrence scans the relation's own Base, every field of the relation is the column its projection says, bound
+ * in the occurrence, or the constant the occurrence fixes it to, and every predicate reads only the region's columns,
+ * through the region or a filter above it.
+ */
+const regionScope = (
+	node: NodeOf<"MatchRegion">,
 	relation: RelationInfo,
 	columns: ReadonlyMap<string, KeyValue>,
 	predicates: ReadonlyArray<ScalarExpr>,
-	nodes: ReadonlyArray<NodeId>,
-	depth: number
+	nodes: ReadonlyArray<NodeId>
 ): MergeScope | undefined => {
-	if (depth > maxDepth) {
+	const occurrence = only(node.occurrences)
+	if (occurrence === undefined || node.equalities.length > 0 || node.correlated.length > 0) {
 		return undefined
 	}
-	switch (node.kind) {
-		case "ProjectSet": {
-			const next = throughProjection(node, columns)
-			return next === undefined
-				? undefined
-				: scopedFacts(node.input, relation, next, predicates, nodes, depth + 1)
-		}
-		case "Filter":
-			return scopedFacts(
-				node.input,
-				relation,
-				columns,
-				[...predicates, node.pred],
-				[...nodes, node.id],
-				depth + 1
-			)
-		case "MatchRegion": {
-			const occurrence = only(node.occurrences)
-			if (occurrence === undefined || node.equalities.length > 0 || node.correlated.length > 0) {
-				return undefined
-			}
-			const base = occurrence.source
-			if (
-				base.kind !== "Base" ||
-				base.relation !== relation.name ||
-				base.relationKind !== "relation"
-			) {
-				return undefined
-			}
-			const bindings = bindingFields(occurrence)
-			if (bindings === undefined) {
-				return undefined
-			}
-			const { fieldOf, bound } = bindings
-			/** Whether the occurrence fixes `field` to the parameter or literal `key`. */
-			const fixedTo = (field: string, key: string): boolean => {
-				const fixed = occurrence.constants.find((c) => c.column === field)
-				return fixed !== undefined && constantKey(fixed.expr) === key
-			}
-			const held = [...columns].every(([field, v]) =>
-				v.kind === "column" ? fieldOf.get(v.name) === field : fixedTo(field, v.key)
-			)
-			if (occurrence.constants.some((c) => bound.has(c.column)) || !held) {
-				return undefined
-			}
-			const scope = [...nodes, node.id]
-			const scopeNodes = new Set(scope)
-			const outside =
-				predicates.some((p) => p.deps.nodes.some((n) => !scopeNodes.has(n))) ||
-				occurrence.constants.some((c) => c.expr.deps.nodes.length > 0)
-			if (outside) {
-				return undefined
-			}
-			return {
-				nodes: scope,
-				fieldOf,
-				predicates,
-				constants: occurrence.constants.map((c) => ({ field: c.column, expr: c.expr }))
-			}
-		}
-		case "Base":
-		case "Closed":
-		case "Context":
-		case "InputSet":
-		case "Delta":
-		case "SemiJoin":
-		case "AntiJoin":
-		case "Union":
-		case "Intersect":
-		case "Difference":
-		case "Take":
-		case "Group":
-		case "Produce":
-		case "Recursive":
-		case "SelfRef":
-		case "ApproximateNearest":
-		case "OrderedResult":
-		case "Attach":
-		case "Forbid":
-		case "Window":
-		case "OrderedSetAggregate":
-			return undefined
+	const base = occurrence.source
+	if (base.kind !== "Base" || base.relation !== relation.name || base.relationKind !== "relation") {
+		return undefined
 	}
+	const bindings = bindingFields(occurrence)
+	if (bindings === undefined) {
+		return undefined
+	}
+	const { fieldOf, bound } = bindings
+	/** Whether the occurrence fixes `field` to the parameter or literal `key`. */
+	const fixedTo = (field: string, key: string): boolean => {
+		const fixed = occurrence.constants.find((c) => c.column === field)
+		return fixed !== undefined && constantKey(fixed.expr) === key
+	}
+	const held = [...columns].every(([field, v]) =>
+		v.kind === "column" ? fieldOf.get(v.name) === field : fixedTo(field, v.key)
+	)
+	if (occurrence.constants.some((c) => bound.has(c.column)) || !held) {
+		return undefined
+	}
+	const scope = [...nodes, node.id]
+	const scopeNodes = new Set(scope)
+	const outside =
+		predicates.some((p) => p.deps.nodes.some((n) => !scopeNodes.has(n))) ||
+		occurrence.constants.some((c) => c.expr.deps.nodes.length > 0)
+	if (outside) {
+		return undefined
+	}
+	return {
+		nodes: scope,
+		fieldOf,
+		predicates,
+		constants: occurrence.constants.map((c) => ({ field: c.column, expr: c.expr }))
+	}
+}
+
+/** The facts of a node as "every fact of the relation's Base under filters over its own columns", if they are.
+ * `fields` maps each field of the relation to the node's column carrying it, or to the parameter or literal the
+ * field equals throughout, which the occurrence must fix it to (a constant among the match's bindings).
+ *
+ * The walk descends the chain of projections and filters above the region, one input at a time, so it visits each
+ * node once and ends at the first node that is neither; that node must be the region (regionScope). Any other node is
+ * no scope this proof recognizes. */
+const scopedFacts = (
+	start: RelNode,
+	relation: RelationInfo,
+	fields: ReadonlyMap<string, KeyValue>
+): MergeScope | undefined => {
+	let node = start
+	let columns = fields
+	const predicates: Array<ScalarExpr> = []
+	const nodes: Array<NodeId> = []
+	while (node.kind === "ProjectSet" || node.kind === "Filter") {
+		if (node.kind === "Filter") {
+			predicates.push(node.pred)
+			nodes.push(node.id)
+		} else {
+			const next = throughProjection(node, columns)
+			if (next === undefined) {
+				return undefined
+			}
+			columns = next
+		}
+		node = node.input
+	}
+	return node.kind === "MatchRegion"
+		? regionScope(node, relation, columns, predicates, nodes)
+		: undefined
 }
 
 /** The key set a node delivers at `columns`, when it is exactly the projection of one InputSet placeholder's columns,
@@ -378,39 +394,42 @@ const sameKeySet = (a: KeySetIdentity, b: KeySetIdentity): boolean =>
 	a.columns.length === b.columns.length &&
 	a.columns.every((c, i) => c === b.columns[i])
 
-/** Any other node is no key set this proof recognizes. */
-const keySetIdentity = (
-	node: RelNode,
-	columns: ReadonlyArray<string>,
-	depth: number
-): KeySetIdentity | undefined => {
-	if (depth > maxDepth) {
-		return undefined
-	}
+/** One step of the key-set walk: the identity found (or none), or the columns of the next node to read. */
+type KeySetStep =
+	| { readonly kind: "found"; readonly identity: KeySetIdentity | undefined }
+	| { readonly kind: "next"; readonly node: RelNode; readonly columns: ReadonlyArray<string> }
+
+const noKeySet: KeySetStep = { kind: "found", identity: undefined }
+
+/** A node's step: an InputSet ends the walk, a projection or a one-occurrence region reads its input's columns. */
+const keySetStep = (node: RelNode, columns: ReadonlyArray<string>): KeySetStep => {
 	switch (node.kind) {
 		case "InputSet":
-			return node.input.kind !== "row" &&
-				columns.every((c) => node.heading.some((h) => h.name === c))
-				? { param: inputSetPlaceholder(node.input), columns }
-				: undefined
+			return {
+				kind: "found",
+				identity:
+					node.input.kind !== "row" && columns.every((c) => node.heading.some((h) => h.name === c))
+						? { param: inputSetPlaceholder(node.input), columns }
+						: undefined
+			}
 		case "ProjectSet": {
 			const next: Array<string> = []
 			for (const c of columns) {
 				const p = projected(node, c)
 				if (p?.kind !== "column") {
-					return undefined
+					return noKeySet
 				}
 				next.push(p.name)
 			}
-			return keySetIdentity(node.input, next, depth + 1)
+			return { kind: "next", node: node.input, columns: next }
 		}
 		case "MatchRegion": {
 			const occurrence = only(node.occurrences)
 			if (occurrence === undefined || node.equalities.length > 0 || node.correlated.length > 0) {
-				return undefined
+				return noKeySet
 			}
 			if (occurrence.constants.length > 0) {
-				return undefined
+				return noKeySet
 			}
 			const next: Array<string> = []
 			for (const c of columns) {
@@ -418,11 +437,11 @@ const keySetIdentity = (
 				const binding =
 					decl === undefined ? undefined : occurrence.bindings.find((b) => b.var === decl)
 				if (binding === undefined) {
-					return undefined
+					return noKeySet
 				}
 				next.push(binding.column)
 			}
-			return keySetIdentity(occurrence.source, next, depth + 1)
+			return { kind: "next", node: occurrence.source, columns: next }
 		}
 		case "Base":
 		case "Closed":
@@ -445,8 +464,25 @@ const keySetIdentity = (
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
-			return undefined
+			return noKeySet
 	}
+}
+
+/**
+ * The key set `start` delivers at `columns`, when it is one (KeySetIdentity). Each step reads one input of the node
+ * before (a projection's input, a region's one source), so the walk descends the DAG, which is finite and acyclic,
+ * visiting each node at most once, and ends at an InputSet or at the first node no step reads through. Any other node
+ * is no key set this proof recognizes.
+ */
+const keySetIdentity = (
+	start: RelNode,
+	startColumns: ReadonlyArray<string>
+): KeySetIdentity | undefined => {
+	let step = keySetStep(start, startColumns)
+	while (step.kind === "next") {
+		step = keySetStep(step.node, step.columns)
+	}
+	return step.identity
 }
 
 /** Whether the deletion member `deletion` is provably `relation where <scope> and key not in <put input>` for the put
@@ -490,19 +526,15 @@ export const mergeScopeProof = (
 	const scope = scopedFacts(
 		anti.left,
 		relation,
-		new Map(fields.map((f) => [f, { kind: "column", name: f } as const])),
-		[],
-		[],
-		0
+		new Map(fields.map((f) => [f, { kind: "column", name: f } as const]))
 	)
 	if (scope === undefined) {
 		return undefined
 	}
 	const right = keySetIdentity(
 		anti.right,
-		pairs.map((p) => p.right),
-		0
+		pairs.map((p) => p.right)
 	)
-	const input = keySetIdentity(put, pk, 0)
+	const input = keySetIdentity(put, pk)
 	return right !== undefined && input !== undefined && sameKeySet(right, input) ? scope : undefined
 }

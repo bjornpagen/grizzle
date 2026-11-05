@@ -4,13 +4,14 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { type Delivery, licenses } from "#compiler/core/decoder.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checked } from "#test/types/batch/groups.ts"
 import * as evidence from "#test/types/evidence/fixtures/evidence.ts"
 
@@ -86,7 +87,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("evidence types", (it) 
 						literal: Formatter.format,
 						limit: queryNames.length * contexts.length,
 						coverage: requiredInSpace<QueryName | Context>([...queryNames, ...contexts]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ name, context }, c) =>
 						Effect.sync(() => {

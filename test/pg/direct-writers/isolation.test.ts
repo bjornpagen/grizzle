@@ -32,7 +32,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -52,6 +52,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { isLedgerObject, parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -430,7 +431,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								literal: Formatter.format,
 								limit: levels.length * actors.length * statements.length * tables.length,
 								coverage: requiredInSpace<IsolationFeature>(situations),
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							([[level, actor, statement], table], c) =>
 								Effect.gen(function* () {

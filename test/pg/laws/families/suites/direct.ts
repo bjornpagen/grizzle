@@ -12,17 +12,12 @@ import {
 } from "#test/pg/laws/families/direct.ts"
 import { type Family, type Mode, populationsOf } from "#test/pg/laws/families/families.ts"
 import { isResidual } from "#test/pg/laws/families/model.ts"
-import {
-	caseHang,
-	installVariant,
-	schemaPairs,
-	shrink,
-	timeoutOf
-} from "#test/pg/laws/families/suites/family.ts"
+import { installVariant, schemaPairs, shrink } from "#test/pg/laws/families/suites/family.ts"
 import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 
 import { familyWriters, plantedRefusal, witnessing } from "#test/pg/laws/families/support.ts"
 import { defined } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -190,8 +185,7 @@ export const directSuite = <P>(family: Family<P>, cases: number, planted: Plante
 				})
 				it.effect(
 					`${mode}: a transaction commits iff its final state is lawful, refused where the law is checked`,
-					(ctx) => searched(ctx, search),
-					timeoutOf(directCases(cases))
+					(ctx) => searched(ctx, search)
 				)
 			}
 		}

@@ -5,7 +5,7 @@ import { constant, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { type Candidate, type Offer, pathOf, rivals, samePath } from "#compiler/deploy/diff/plan.ts"
 import { chosenIn, lossDecisions, splitRenames } from "#compiler/deploy/render/chosen.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
@@ -36,6 +36,7 @@ import {
 	type Previous
 } from "#test/support/migrate/kit.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	choosable,
 	type Decisions,
@@ -400,7 +401,7 @@ describe("the decision record a draft writes and the reviews check reads against
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ path: drawnPath, pick, mutation }, c) =>
 						Effect.sync(() => {

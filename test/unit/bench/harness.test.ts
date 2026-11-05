@@ -7,7 +7,6 @@ import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Data,
-	Duration,
 	Effect,
 	Exit,
 	FileSystem,
@@ -16,8 +15,7 @@ import {
 	Order,
 	Path,
 	Record as Rec,
-	Result,
-	Schedule
+	Result
 } from "effect"
 
 import {
@@ -60,6 +58,7 @@ import {
 	type OperationResult,
 	outcomeTransientReason,
 	type RetryOptions,
+	type RetryPolicy,
 	sqlAttempted,
 	withRetries
 } from "#bench/harness/load.ts"
@@ -76,6 +75,7 @@ import { MalformedRows, resultSet, rowsAgree, textRows } from "#bench/harness/va
 import { jsonText } from "#compiler/core/trusted.ts"
 import { assert, assertVariant, defined } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * The bench harness's pure parts.
@@ -592,7 +592,7 @@ const reasons = (r: OperationResult) => Arr.map(r.retries, (x) => x.reason)
 
 describe("outcomes, retries and loads", () => {
 	/** Two retries with no delay, so the attempts run synchronously. */
-	const policy = { times: 2, schedule: Schedule.forever }
+	const policy: RetryPolicy = { times: 2, baseMs: 0 }
 	const unlabelled: RetryOptions = { uniqueAborts: [], label: () => undefined }
 	/** One scripted attempt: it commits, or PostgreSQL refuses it with `code` at a statement or at COMMIT. */
 	type Step =
@@ -707,7 +707,7 @@ describe("outcomes, retries and loads", () => {
 							literal: Formatter.format,
 							limit: 3,
 							coverage: noCoverage,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([step, options]) =>
 							Effect.map(withRetries(scripted([step, commits], options), policy), (once) => {
@@ -936,7 +936,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 								"release leaked",
 								"failed run leaked"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([ran, released], c) =>
 							Effect.sync(() => {

@@ -4,7 +4,7 @@ import { rating, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelKind } from "#compiler/ir/rel.ts"
@@ -33,6 +33,7 @@ import {
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { type DeclineReason, declineReasons } from "#test/support/oracle/reference/values.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	expectedFrom,
 	expectedMixed,
@@ -288,7 +289,7 @@ describe("the builder and the checker", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, k) =>
 						Effect.sync(() => {

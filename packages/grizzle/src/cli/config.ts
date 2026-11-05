@@ -5,7 +5,6 @@ import { loginRoleValues } from "#adapter/pool/registry.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import {
 	type CliError,
-	configFileName,
 	configSettings,
 	ExportRefused,
 	LoginEntryRefused,
@@ -22,20 +21,18 @@ import { type Owned, type OwnedLogin, own, ownLogin } from "#compiler/schema/own
 import { ownedEntry } from "#compiler/schema/protocol.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 
-const defaultMigrationsDir = "migrations"
-
 /**
- * grizzle.config.ts: what the command line manages, a lean config.
+ * The configuration file: what the command line manages, a lean config.
  *
- * `grizzle` reads `grizzle.config.ts` in the directory it runs in; there is no --config flag, so a monorepo runs it from
- * the package. Node runs it as TypeScript, as it runs every grizzle source, and its
- * default export is the configuration (adapter/types/config.ts), always built by defineConfig (adapter/config/define.ts),
+ * Every command names its configuration file as its one argument (args.ts), grizzle.config.ts by convention; no
+ * command reads a file it does not name. Node runs it as TypeScript, as it runs every grizzle source, and its default
+ * export is the configuration (adapter/types/config.ts), always built by defineConfig (adapter/config/define.ts),
  * imported from the package root:
  *
  *     import { defineConfig } from "@bjornpagen/grizzle"
- *     import { Web, Work } from "./src/db.ts"
+ *     import { connection, Web, Work } from "./src/db.ts"
  *
- *     export default defineConfig({ schemas: [Work], logins: [Web] })
+ *     export default defineConfig({ schemas: [Work], logins: [Web], migrations: "migrations", connection })
  *
  * - `schemas`: the declared schema values to migrate, at least one, each a schema(...) or schema.extend(...) value
  *   (its outermost level). Each lives in its own PostgreSQL schema, which names its directory `<migrations>/<schema>/`
@@ -46,13 +43,14 @@ const defaultMigrationsDir = "migrations"
  *   over a schema the configuration does not list refused. A role is installed exactly with its login. Each login's
  *   workloads (login(..., { workload })), which login(...) admitted, plan the schema's access paths; a schema whose
  *   logins own none drafts no access path.
- * - `migrations`: the migrations directory, relative to the configuration's directory; `migrations` by default.
- * - `connection`: optional, where `grizzle migrate` connects when DATABASE_URL cannot say it (connection.ts). It is
- *   kept as given and checked only by migrate: generate and check never read it.
+ * - `migrations`: the migrations directory, absolute or relative to the configuration file's directory.
+ * - `connection`: where `grizzle migrate` and `grizzle drift` connect (connection.ts). It is kept as given and checked
+ *   only by them: generate, check and names never read it, and the configuration refuses only its absence.
  *
  * A plain object is refused with the fix, to wrap it in defineConfig: an Effect password's requirements and error
- * channel exist only in its type, which defineConfig's signature checks. Nothing else is configurable: an unknown key
- * is refused, so a misspelt one is never ignored. The default export is checked here before any command runs.
+ * channel exist only in its type, which defineConfig's signature checks. Every setting is required and nothing else is
+ * configurable: an unknown key is refused, so a misspelt one is never ignored. The default export is checked here
+ * before any command runs.
  */
 /**
  * One login's workloads as the configuration gives them, and its role values: what DbLayer.make compiles for the
@@ -78,7 +76,7 @@ export interface ConfiguredSchema {
 	readonly directory: string
 }
 
-/** grizzle.config.ts as the bin imported it: its file, and its default export, which resolveConfig checks. */
+/** The configuration file as the bin imported it: its path, and its default export, which resolveConfig checks. */
 export interface ConfigFile {
 	readonly file: string
 	readonly value: unknown
@@ -92,11 +90,8 @@ export interface ResolvedConfig {
 	readonly migrations: string
 	/** In configured order. */
 	readonly schemas: ReadonlyArray<ConfiguredSchema>
-	/**
-	 * The configuration's connection as given, checked only by `grizzle migrate` (connection.ts), or none for
-	 * DATABASE_URL.
-	 */
-	readonly connection: Option.Option<MigrationConnectionConfig>
+	/** The configuration's connection as given, checked only by `grizzle migrate` and `grizzle drift` (connection.ts). */
+	readonly connection: MigrationConnectionConfig
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -121,9 +116,13 @@ const malformedSetting = (
 
 const nonempty = (v: unknown): v is string => typeof v === "string" && v.length > 0
 
-/** `schemas[index]` parsed as a built schema, read once where the configuration names it. */
-const builtSchema = (value: unknown, index: number): Result.Result<BuiltSchema, CliError> =>
-	Result.mapError(toResult(parseBuiltSchema(value, SourceLoc(configFileName, []))), () =>
+/** `schemas[index]` of the configuration file `file` parsed as a built schema, read once where it names it. */
+const builtSchema = (
+	value: unknown,
+	index: number,
+	file: string
+): Result.Result<BuiltSchema, CliError> =>
+	Result.mapError(toResult(parseBuiltSchema(value, SourceLoc(file, []))), () =>
 		cliError(new SchemaEntryRefused({ index, fault: { kind: "notBuilt" } }))
 	)
 
@@ -141,24 +140,29 @@ const resolveConfigWith = (
 ): Result.Result<ResolvedConfig, CliError> => {
 	const directory = path.dirname(file)
 	if (!isObject(value)) {
-		return Result.fail(cliError(new ExportRefused({ fault: "notAnObject" })))
+		return Result.fail(cliError(new ExportRefused({ file, fault: "notAnObject" })))
 	}
 	const typed = definedConfig(value)
 	if (Option.isNone(typed)) {
-		return Result.fail(cliError(new ExportRefused({ fault: "notDefined" })))
+		return Result.fail(cliError(new ExportRefused({ file, fault: "notDefined" })))
 	}
 	const settings = onlyKeys(value)
-	const { migrations: migrationsValue, schemas: schemaValues, logins: loginValues } = value
 	if (Result.isFailure(settings)) {
 		return Result.fail(settings.failure)
 	}
-	const migrationsSetting = migrationsValue ?? defaultMigrationsDir
+	const {
+		migrations: migrationsSetting,
+		schemas: schemaValues,
+		logins: loginValues,
+		connection: connectionSetting
+	} = value
 	if (!nonempty(migrationsSetting)) {
 		return malformedSetting("migrations")
 	}
-	const migrations = path.isAbsolute(migrationsSetting)
-		? migrationsSetting
-		: path.resolve(directory, migrationsSetting)
+	if (connectionSetting === undefined) {
+		return Result.fail(cliError(new SettingRefused({ fault: { kind: "unconnected" } })))
+	}
+	const migrations = path.resolve(directory, migrationsSetting)
 	if (!isList(schemaValues) || schemaValues.length === 0) {
 		return malformedSetting("schemas")
 	}
@@ -170,7 +174,7 @@ const resolveConfigWith = (
 		}
 	> = []
 	for (const [i, s] of schemaValues.entries()) {
-		const built = builtSchema(s, i)
+		const built = builtSchema(s, i, file)
 		if (Result.isFailure(built)) {
 			return Result.fail(built.failure)
 		}
@@ -269,7 +273,7 @@ const resolveConfigWith = (
 		directory,
 		migrations,
 		schemas,
-		connection: Option.fromUndefinedOr(typed.value.connection)
+		connection: typed.value.connection
 	})
 }
 

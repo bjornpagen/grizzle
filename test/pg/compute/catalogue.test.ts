@@ -6,9 +6,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError, PreconditionKind } from "#compiler/core/errors.ts"
+import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type Carrier, typeLabel } from "#compiler/ir/scalar.ts"
@@ -25,6 +26,7 @@ import {
 	runCases
 } from "#test/pg/compute/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { numericPaddings } from "#test/support/oracle/gen/domain.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -53,15 +55,9 @@ const fields: { readonly [C in Gate]: TestField } = {
 	money: testPg.money
 }
 
-const limits: Readonly<Record<"int2" | "int4" | "int8", readonly [bigint, bigint]>> = {
-	int2: [-32768n, 32767n],
-	int4: [-2147483648n, 2147483647n],
-	int8: [-(2n ** 63n), 2n ** 63n - 1n]
-}
-
 /**
  * How a case spells an operand in SQL, which its value cannot tell: as it is; a finite numeric cast to numeric(1000, s)
- * and back to bare numeric, the value at display scale s past its least scale, which only a reading of the display
+ * and then its Compute.numeric, the value at display scale s past its least scale, which only a reading of the display
  * scale sees; or a float zero as neg(0), -0 in PostgreSQL, which only a reading of the sign of zero sees.
  */
 type Spelling =
@@ -105,15 +101,16 @@ const intBoundaries = (lo: bigint, hi: bigint, asNumber: boolean): ReadonlyArray
 	)
 
 /**
- * The boundary classes of each carrier: its range's ends and their neighbours, zero and the units, and for numeric and
- * the floats NaN and the infinities, the largest and smallest magnitudes, and the halves an integer cast rounds. Every
+ * The boundary classes of each carrier: its range's ends and their neighbours, zero and the units, NaN, for the floats
+ * the infinities too (no numeric field holds one), the largest and smallest magnitudes, and the halves an integer cast
+ * rounds. Every
  * (entry, class) pair is a situation the search must reach: an agreement on a value, or a refusal the operand's value
  * justifies.
  */
 const boundaries: { readonly [C in Gate]: ReadonlyArray<Boundary> } = {
-	int2: intBoundaries(-32768n, 32767n, true),
-	int4: intBoundaries(-2147483648n, 2147483647n, true),
-	int8: intBoundaries(-(2n ** 63n), 2n ** 63n - 1n, false),
+	int2: intBoundaries(...integerRanges.int2, true),
+	int4: intBoundaries(...integerRanges.int4, true),
+	int8: intBoundaries(...integerRanges.int8, false),
 	numeric: Arr.map(
 		[
 			["zero", "0"],
@@ -121,12 +118,10 @@ const boundaries: { readonly [C in Gate]: ReadonlyArray<Boundary> } = {
 			["minus one", "-1"],
 			["half", "2.5"],
 			["tiny", "1e-20"],
-			["largest", Str.repeat(1000)("9")],
+			["largest", Str.repeat(980)("9")],
 			["int4 half", "2147483647.5"],
 			["int8 half", "9223372036854775807.5"],
-			["NaN", "NaN"],
-			["Infinity", "Infinity"],
-			["-Infinity", "-Infinity"]
+			["NaN", "NaN"]
 		] as const,
 		([name, text]) => ({ name, value: Decimal.of(text) })
 	),
@@ -241,7 +236,7 @@ const batchOf = <A>(values: Gen<A>, max: number): Gen<ReadonlyArray<A>> =>
 	array(values, { min: 1, max })
 
 const integerGen = (c: "int2" | "int4" | "int8"): Gen<bigint> => {
-	const [lo, hi] = limits[c]
+	const [lo, hi] = integerRanges[c]
 	return oneOf([bigint(-1000n, 1000n), bigint(lo, hi)])
 }
 
@@ -316,9 +311,8 @@ const spelledTerm = (name: string, f: TestField, operand: Operand): ScalarTerm =
 		case "plain":
 			return term
 		case "padded":
-			return Compute.cast(
-				Compute.cast(term, testPg.numericOf(maxPaddedScale, operand.spelling.scale)),
-				testPg.numeric
+			return Compute.numeric(
+				Compute.cast(term, testPg.numericOf(maxPaddedScale, operand.spelling.scale))
 			)
 		case "negative zero":
 			return Compute.neg(term)
@@ -871,7 +865,7 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(operands, c) =>
 							Effect.gen(function* () {

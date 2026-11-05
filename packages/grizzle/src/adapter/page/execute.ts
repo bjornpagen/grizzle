@@ -7,7 +7,6 @@ import type {
 	PageRecord,
 	PageRunStatement,
 	PageRuntime,
-	PageSlot,
 	RowsStatement,
 	RunProgram
 } from "#adapter/page/template.ts"
@@ -30,7 +29,7 @@ import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { type Row, rowText } from "#compiler/core/decoder.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import type { DeclaredParamSlot } from "#compiler/lower/conservative/types.ts"
+import type { PageParamSlot, PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { ShapeChoice } from "#compiler/lower/shapes/index.ts"
 import type { ProbeKind } from "#compiler/lower/shapes/page/seek.ts"
 import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
@@ -107,31 +106,33 @@ export interface PageRows {
 }
 
 /**
- * The binding of a page placeholder: the limit, the validated size plus one, and the size through the statement's
- * integer encoder, and a boundary value as the cursor carried it. The one site of the fact that a page statement's
- * placeholders are those its request binds: a boundary placeholder only in an anchored request, at a position of the
- * boundary its decoded cursor carries one value per comparator for, and a limit or size its integer encoder admits for
- * a validated size. The engine allocates the placeholders and the cursor's decode admits the boundary apart, runtime
- * facts no TypeScript type ties together, so another binding is a defect of the compiler.
+ * The binding of a page placeholder: the limit, the validated size plus one, and the size, each a `$n::bigint` bound as
+ * the decimal digits of a bigint, which every validated size, a safe integer, and that size plus one are; and a
+ * boundary value as the cursor carried it. The one site of the fact that a page statement's boundary placeholders are
+ * those its request binds: one only in an anchored request, at a position of the boundary its decoded cursor carries
+ * one value per comparator for. The engine allocates the placeholders and the cursor's decode admits the boundary
+ * apart, runtime facts no TypeScript type ties together, so another binding is a defect of the compiler.
  */
-const pageBinding = (slot: PageSlot, call: PageCall): string => {
-	const text = pageText(slot, call)
-	if (text === undefined) {
-		throw defect(`a ${call.variant} request binds its page ${slot.fill.kind} placeholder`)
-	}
-	return text
-}
-
-/** The text a page placeholder binds in `call`, when the request binds one there. */
-const pageText = (slot: PageSlot, call: PageCall): string | undefined => {
+const pageBinding = (slot: PageParamSlot, call: PageCall): string => {
 	const fill = slot.fill
-	if (fill.kind === "boundary") {
-		return call.variant === "first" || call.variant === "last"
-			? undefined
-			: call.boundary[fill.position]
+	switch (fill.kind) {
+		case "limit":
+			return (BigInt(call.size) + 1n).toString()
+		case "size":
+			return BigInt(call.size).toString()
+		case "boundary": {
+			const text =
+				call.variant === "first" || call.variant === "last"
+					? undefined
+					: call.boundary[fill.position]
+			if (text === undefined) {
+				throw defect(
+					`a ${call.variant} request binds its page boundary placeholder ${fill.position}`
+				)
+			}
+			return text
+		}
 	}
-	const bound = slot.encode(fill.kind === "limit" ? call.size + 1 : call.size)
-	return bound.ok ? bound.value : undefined
 }
 
 /** The size of a choice's input in one execution: the requested size, or a relation parameter's distinct fact count. */
@@ -154,7 +155,7 @@ const sending = (
 	const form = formFor(run, (choice: ShapeChoice) =>
 		runsLargeForm(choice, choiceCount(choice, inputs, call))
 	)
-	const bind = (slot: DeclaredParamSlot | PageSlot) =>
+	const bind = (slot: PageStatementSlot) =>
 		slot.kind === "page" ? Result.succeed(pageBinding(slot, call)) : readBinding(slot, inputs)
 	return encodeForm(form, bind)
 }

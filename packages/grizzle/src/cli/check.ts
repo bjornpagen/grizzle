@@ -190,9 +190,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 
 	if (Option.isSome(snapshot)) {
 		const committedWorkload = snapshot.value.workload
-		const draft = yield* Effect.result(
-			draftSchema(schema, snapshot.value, { kind: "named", name: "check" }, "00000000000000", [])
-		)
+		const draft = yield* Effect.result(draftSchema(schema, snapshot.value, []))
 		if (Result.isFailure(draft)) {
 			at(
 				"compile",

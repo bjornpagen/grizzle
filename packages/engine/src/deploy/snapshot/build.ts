@@ -11,10 +11,10 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
+import { maxStringLength } from "#compiler/core/limits.ts"
 import { type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
-import { maxStringLength } from "#compiler/core/policy.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
@@ -465,7 +465,7 @@ export const writeJsonText = (value: unknown): Result.Result<string, CompileErro
 	Result.flatMap(toJson(value, everyProperty), (json) =>
 		Result.flatMap(
 			catchRefusal(() =>
-				textOf(maxStringLength, "\t", jsonTextLoc, (out) => {
+				textOf(maxStringLength.value, "\t", jsonTextLoc, (out) => {
 					jsonValue(out, "", json, "")
 					out.line("")
 				})
@@ -525,7 +525,7 @@ const formValue = (out: Lines, head: string, value: FormOf<StatementLine>, tail:
 export const writeSnapshot = (snapshot: DeploySnapshot): Result.Result<string, CompileError> =>
 	catchRefusal(() =>
 		valueOf(
-			textOf(maxStringLength, "\t", jsonTextLoc, (out) => {
+			textOf(maxStringLength.value, "\t", jsonTextLoc, (out) => {
 				formValue(out, "", snapshotForm(snapshot, asLine), "")
 				out.line("")
 			})

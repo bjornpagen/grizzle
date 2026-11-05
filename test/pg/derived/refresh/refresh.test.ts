@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Layer, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Result } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -16,6 +16,7 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { loginLayer } from "#test/support/worlds.ts"
 
@@ -273,7 +274,7 @@ layer(Substrate.layer, { excludeTestServices: true })("db.refresh", (it) => {
 								generator: calls,
 								literal: Formatter.format,
 								limit: 600,
-								caseHang: Duration.minutes(2),
+								caseHang,
 								coverage: requiredInSpace<RefreshFeature>([
 									"refused: outside the scope",
 									"refused: base relation",

@@ -28,9 +28,10 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Option, Order } from "effect"
+import { Array as Arr, Effect, Option, Order } from "effect"
 import { runMutant } from "#test/pg/oracle/mutants/support.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { type Comparison, rowMultiset, type Run, rawRowKey } from "#test/support/oracle/compare.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
@@ -71,9 +72,6 @@ const populations: Arr.NonEmptyReadonlyArray<Population> = [
 
 /** A mutant killed by its listed counterexample. */
 type KilledFeature = `killed ${MutantId}`
-
-/** How long one mutant's kill search may run. */
-const killHang = Duration.minutes(10)
 
 const distinctKeys = (run: Run, label: string): ReadonlyArray<string> =>
 	Arr.sort(
@@ -277,7 +275,7 @@ layer(Substrate.layer)("the invalid mutants are killed", (it) => {
 						coverage: requiredInSpace<KilledFeature>(
 							Arr.map(populations, (p): KilledFeature => `killed ${p.id}`)
 						),
-						caseHang: killHang
+						caseHang
 					},
 					(p, c) =>
 						Effect.gen(function* () {

@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { applyOnSession, checkDrift, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import { type MigrationTarget, parseTarget } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
@@ -14,6 +14,7 @@ import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { kept, reviewedSource } from "#test/pg/migrate/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { draftChain, fromEmpty, ownedBy } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -146,7 +147,7 @@ layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
 							"the rest of a history after its start",
 							"nothing pending"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(history, c) =>
 						Effect.gen(function* () {
@@ -156,8 +157,7 @@ layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
 								cluster: substrate.cluster,
 								database: substrate.database,
 								role: owner,
-								password: substrate.owner.password,
-								applicationName: "grizzle migrate"
+								password: substrate.owner.password
 							})
 							const m = migrationSession(tapped.session)
 							const over = { schema: atName(allocated), owner: ownedBy(owner), extensions: [] }

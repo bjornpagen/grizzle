@@ -116,8 +116,6 @@ export const f = {
 	bigint: fieldDesc({ kind: "pg", type: "bigint" }),
 	boolean: fieldDesc({ kind: "pg", type: "boolean" }),
 	numeric: (precision: number, scale: number): FieldDesc => ({ kind: "numeric", precision, scale }),
-	/** numeric with no typmod. */
-	unconstrainedNumeric: fieldDesc({ kind: "numeric" }),
 	bigserial: fieldDesc({ kind: "serial", type: "bigserial" }),
 	uuid: fieldDesc({ kind: "uuid" }),
 	regex: (source: string, flags: "u" | "su"): FieldDesc => ({ kind: "text", source, flags }),

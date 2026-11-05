@@ -1,14 +1,14 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
-import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	maxStringLength,
 	messageMaxBytes,
 	selectMaxEntries,
 	statementMaxParams
-} from "#compiler/core/policy.ts"
+} from "#compiler/core/limits.ts"
+import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	type AlterDomainAction,
@@ -51,7 +51,6 @@ import {
 	type QualifiedFunctionRef,
 	type RoleSetting,
 	type Select,
-	type SessionSetting,
 	type SelectBody,
 	type SelectCore,
 	type SqlStatement,
@@ -167,7 +166,7 @@ const optionArgument = (text: string): string => {
  * Login defaults as a startup packet's `options`, `-c <parameter>=<value>` each, in order, every value as PostgreSQL
  * stores it (storedSettingValue), so each session that sends them starts under exactly the stored defaults.
  */
-export const printStartupOptions = (settings: NonEmptyReadonlyArray<SessionSetting>): string =>
+export const printStartupOptions = (settings: NonEmptyReadonlyArray<RoleSetting>): string =>
 	settings.map((s) => `-c ${optionArgument(`${s.parameter}=${storedSettingValue(s)}`)}`).join(" ")
 
 /**
@@ -282,32 +281,37 @@ const isSpecialDecimal = (value: string): boolean =>
 	value === "NaN" || value === "Infinity" || value === "-Infinity"
 
 /**
- * Precedence, highest binding first, after PostgreSQL's operator table: atoms, `::`, unary minus, COLLATE, `* / %`,
- * `+ -`, any other operator, BETWEEN and IN, comparisons, IS, NOT, AND, OR.
+ * The printer's precedence levels, loosest binding first, after PostgreSQL's operator table: OR, AND, NOT, IS,
+ * comparisons, BETWEEN and IN, any other operator, `+ -`, `* / %`, COLLATE, unary minus, `::`, atoms. Each level binds
+ * more tightly than every level before it.
  */
-const prec = {
-	atom: 14,
-	cast: 13,
-	negate: 12,
-	collate: 11,
-	mul: 10,
-	add: 9,
-	other: 8,
-	between: 7,
-	compare: 6,
-	is: 5,
-	not: 4,
-	and: 3,
-	or: 2,
-	top: 0
-} as const
+const levels = [
+	"or",
+	"and",
+	"not",
+	"is",
+	"compare",
+	"between",
+	"other",
+	"add",
+	"mul",
+	"collate",
+	"negate",
+	"cast",
+	"atom"
+] as const
+
+type Level = (typeof levels)[number]
+
+/** Whether level `a` binds more loosely than level `b`. */
+const looser = (a: Level, b: Level): boolean => levels.indexOf(a) < levels.indexOf(b)
 
 interface Printed {
 	readonly text: string
-	readonly prec: number
+	readonly level: Level
 }
 
-const printed = (text: string, level: number): Printed => ({ text, prec: level })
+const printed = (text: string, level: Level): Printed => ({ text, level })
 
 /**
  * How the printer spells a literal before its cast: a string, quoted, that the type's input function reads, or bare, a
@@ -362,20 +366,25 @@ const printLiteral = (value: LiteralValue, type: TypeRef): Printed => {
 	const spelling = spellingOf(value)
 	const text = spelling.kind === "quoted" ? quoteString(spelling.text) : spelling.text
 	if (value.kind === "bool" && type.kind === "builtin" && type.name === "boolean" && !type.array) {
-		return printed(text, prec.atom)
+		return printed(text, "atom")
 	}
 	if (value.kind === "int" && isInt4(type) && value.value >= 0n) {
-		return printed(text, prec.atom)
+		return printed(text, "atom")
 	}
-	return printed(`${text}::${printType(type)}`, prec.cast)
+	return printed(`${text}::${printType(type)}`, "cast")
 }
 
 const comparisonOperators: ReadonlySet<string> = new Set(["=", "<>", "<", "<=", ">", ">="])
 const additiveOperators: ReadonlySet<string> = new Set(["+", "-"])
 const multiplicativeOperators: ReadonlySet<string> = new Set(["*", "/", "%"])
 
-const wrap = (child: Printed, minimum: number): string =>
-	child.prec < minimum ? `(${child.text})` : child.text
+/** A child's text, parenthesized unless it binds at least as tightly as `level`. */
+const wrap = (child: Printed, level: Level): string =>
+	looser(child.level, level) ? `(${child.text})` : child.text
+
+/** A child's text, parenthesized unless it binds more tightly than `level`. */
+const wrapTighter = (child: Printed, level: Level): string =>
+	looser(level, child.level) ? child.text : `(${child.text})`
 
 /** ASC, the default, prints bare. */
 const printOrderItem = (item: OrderItem): string =>
@@ -439,26 +448,26 @@ const callHead = (call: FunctionCall): string => {
 /** A windowed call is parenthesized when cast, as in `(SUM(count) OVER ())::bigint`. */
 const printCall = (call: FunctionCall): Printed =>
 	call.over === undefined
-		? printed(callHead(call), prec.atom)
-		: printed(`${callHead(call)} OVER ${printWindow(call.over)}`, prec.cast)
+		? printed(callHead(call), "atom")
+		: printed(`${callHead(call)} OVER ${printWindow(call.over)}`, "cast")
 
 const binaryLevels = (
 	op: string,
 	qualified: boolean
-): { readonly self: number; readonly assoc: "left" | "none" } => {
+): { readonly self: Level; readonly assoc: "left" | "none" } => {
 	if (qualified) {
-		return { self: prec.other, assoc: "left" }
+		return { self: "other", assoc: "left" }
 	}
 	if (comparisonOperators.has(op)) {
-		return { self: prec.compare, assoc: "none" }
+		return { self: "compare", assoc: "none" }
 	}
 	if (additiveOperators.has(op)) {
-		return { self: prec.add, assoc: "left" }
+		return { self: "add", assoc: "left" }
 	}
 	if (multiplicativeOperators.has(op)) {
-		return { self: prec.mul, assoc: "left" }
+		return { self: "mul", assoc: "left" }
 	}
-	return { self: prec.other, assoc: "left" }
+	return { self: "other", assoc: "left" }
 }
 
 /** "--" would open a comment. */
@@ -469,77 +478,77 @@ const expr = (e: Expr): Printed => {
 				e.table === undefined
 					? quoteIdent(e.column)
 					: `${quoteIdent(e.table)}.${quoteIdent(e.column)}`,
-				prec.atom
+				"atom"
 			)
 		case "excluded":
-			return printed(`EXCLUDED.${quoteIdent(e.column)}`, prec.atom)
+			return printed(`EXCLUDED.${quoteIdent(e.column)}`, "atom")
 		case "returning":
-			return printed(`${e.side}.${quoteIdent(e.column)}`, prec.atom)
+			return printed(`${e.side}.${quoteIdent(e.column)}`, "atom")
 		case "param":
-			return printed(`$${e.slot.number}::${printType(e.type)}`, prec.cast)
+			return printed(`$${e.slot.number}::${printType(e.type)}`, "cast")
 		case "literal":
 			return printLiteral(e.value, e.type)
 		case "cast":
-			return printed(`${wrap(expr(e.expr), prec.atom)}::${printType(e.type)}`, prec.cast)
+			return printed(`${wrap(expr(e.expr), "atom")}::${printType(e.type)}`, "cast")
 		case "collate":
 			return printed(
-				`${wrap(expr(e.expr), prec.collate)} COLLATE ${printObjectName(e.collation)}`,
-				prec.collate
+				`${wrap(expr(e.expr), "collate")} COLLATE ${printObjectName(e.collation)}`,
+				"collate"
 			)
 		case "binary": {
 			const qualified = e.schema !== undefined
 			const { self, assoc } = binaryLevels(e.op, qualified)
 			const op = e.schema !== undefined ? `OPERATOR(${quoteIdent(e.schema)}.${e.op})` : e.op
-			const left = wrap(expr(e.left), assoc === "left" ? self : self + 1)
-			const right = wrap(expr(e.right), self + 1)
+			const left = assoc === "left" ? wrap(expr(e.left), self) : wrapTighter(expr(e.left), self)
+			const right = wrapTighter(expr(e.right), self)
 			return printed(`${left} ${op} ${right}`, self)
 		}
 		case "negate": {
-			const operand = wrap(expr(e.expr), prec.negate)
-			return printed(operand.startsWith("-") ? `-(${operand})` : `-${operand}`, prec.negate)
+			const operand = wrap(expr(e.expr), "negate")
+			return printed(operand.startsWith("-") ? `-(${operand})` : `-${operand}`, "negate")
 		}
 		case "and":
-			return printed(e.args.map((arg) => wrap(expr(arg), prec.and + 1)).join(" AND "), prec.and)
+			return printed(e.args.map((arg) => wrapTighter(expr(arg), "and")).join(" AND "), "and")
 		case "or":
-			return printed(e.args.map((arg) => wrap(expr(arg), prec.or + 1)).join(" OR "), prec.or)
+			return printed(e.args.map((arg) => wrapTighter(expr(arg), "or")).join(" OR "), "or")
 		case "not":
-			return printed(`NOT ${wrap(expr(e.expr), prec.not)}`, prec.not)
+			return printed(`NOT ${wrap(expr(e.expr), "not")}`, "not")
 		case "isTrue":
-			return printed(`${wrap(expr(e.expr), prec.atom)} IS TRUE`, prec.is)
+			return printed(`${wrap(expr(e.expr), "atom")} IS TRUE`, "is")
 		case "between": {
 			const keyword = e.not ? "NOT BETWEEN" : "BETWEEN"
-			const operand = (x: Expr): string => wrap(expr(x), prec.other)
+			const operand = (x: Expr): string => wrap(expr(x), "other")
 			/**
 			 * The lower bound is PostgreSQL's b_expr, which has no COLLATE: anything binding at COLLATE or looser is
 			 * parenthesized, so no bare COLLATE can stand there (an atom, a cast and a negation hold none outside
 			 * parentheses).
 			 */
-			const low = wrap(expr(e.low), prec.negate)
-			return printed(`${operand(e.expr)} ${keyword} ${low} AND ${operand(e.high)}`, prec.between)
+			const low = wrap(expr(e.low), "negate")
+			return printed(`${operand(e.expr)} ${keyword} ${low} AND ${operand(e.high)}`, "between")
 		}
 		case "inList": {
 			const keyword = e.not ? "NOT IN" : "IN"
 			const list = e.list.map((item) => printExpr(item)).join(", ")
-			return printed(`${wrap(expr(e.expr), prec.other)} ${keyword} (${list})`, prec.between)
+			return printed(`${wrap(expr(e.expr), "other")} ${keyword} (${list})`, "between")
 		}
 		case "inQuery": {
 			const keyword = e.not ? "NOT IN" : "IN"
 			return printed(
-				`${wrap(expr(e.expr), prec.other)} ${keyword} (${printSelectInline(e.query)})`,
-				prec.between
+				`${wrap(expr(e.expr), "other")} ${keyword} (${printSelectInline(e.query)})`,
+				"between"
 			)
 		}
 		case "exists":
 			return e.not
-				? printed(`NOT EXISTS (${printSelectInline(e.query)})`, prec.not)
-				: printed(`EXISTS (${printSelectInline(e.query)})`, prec.atom)
+				? printed(`NOT EXISTS (${printSelectInline(e.query)})`, "not")
+				: printed(`EXISTS (${printSelectInline(e.query)})`, "atom")
 		case "subquery":
-			return printed(`(${printSelectInline(e.query)})`, prec.atom)
+			return printed(`(${printSelectInline(e.query)})`, "atom")
 		case "array":
-			return printed(`ARRAY(${printSelectInline(e.query)})`, prec.atom)
+			return printed(`ARRAY(${printSelectInline(e.query)})`, "atom")
 		case "row": {
 			const items = e.items.map((item) => printExpr(item)).join(", ")
-			return printed(e.items.length === 1 ? `ROW(${items})` : `(${items})`, prec.atom)
+			return printed(e.items.length === 1 ? `ROW(${items})` : `(${items})`, "atom")
 		}
 		case "case": {
 			const parts = ["CASE"]
@@ -550,7 +559,7 @@ const expr = (e: Expr): Printed => {
 				parts.push(`WHEN ${printExpr(branch.when)} THEN ${printExpr(branch.result)}`)
 			}
 			parts.push(`ELSE ${printExpr(e.else)}`, "END")
-			return printed(parts.join(" "), prec.atom)
+			return printed(parts.join(" "), "atom")
 		}
 		case "call":
 			return printCall(e)
@@ -558,22 +567,22 @@ const expr = (e: Expr): Printed => {
 		case "least":
 			return printed(
 				`${e.kind === "greatest" ? "GREATEST" : "LEAST"}(${e.args.map((arg) => printExpr(arg)).join(", ")})`,
-				prec.atom
+				"atom"
 			)
 		case "mergeAction":
-			return printed("merge_action()", prec.atom)
+			return printed("merge_action()", "atom")
 		case "domainValue":
-			return printed("VALUE", prec.atom)
+			return printed("VALUE", "atom")
 		case "user":
-			return printed(e.name, prec.atom)
+			return printed(e.name, "atom")
 		case "plVar":
-			return printed(quoteIdent(e.name), prec.atom)
+			return printed(quoteIdent(e.name), "atom")
 		case "plSpecial":
-			return printed(e.name, prec.atom)
+			return printed(e.name, "atom")
 		case "field":
-			return printed(`${expr(e.record).text}.${quoteIdent(e.field)}`, prec.atom)
+			return printed(`${expr(e.record).text}.${quoteIdent(e.field)}`, "atom")
 		case "regclass":
-			return printed(regclassText(e.relation), prec.cast)
+			return printed(regclassText(e.relation), "cast")
 	}
 }
 
@@ -593,11 +602,11 @@ const printTarget = (target: Target): string =>
 
 /** A select list, a SELECT's or a RETURNING's: refused (ResourceBound, selectList) past PostgreSQL's selectMaxEntries. */
 const printTargets = (targets: ReadonlyArray<Target>): string => {
-	if (targets.length > selectMaxEntries) {
+	if (targets.length > selectMaxEntries.value) {
 		throw new Refusal(
 			resourceBound(statementTextLoc, {
 				kind: "selectList",
-				limit: selectMaxEntries,
+				limit: selectMaxEntries.value,
 				needed: targets.length
 			})
 		)
@@ -1531,17 +1540,17 @@ const catalogLiteral = (value: string | bigint | boolean, type: CatalogCast): Pr
 	if (typeof value === "boolean") {
 		const spelled = value ? "true" : "false"
 		return !type.array && type.name === "boolean"
-			? printed(spelled, prec.atom)
-			: printed(`${spelled}::${printCatalogCast(type)}`, prec.cast)
+			? printed(spelled, "atom")
+			: printed(`${spelled}::${printCatalogCast(type)}`, "cast")
 	}
 	if (typeof value === "bigint") {
 		if (!type.array && type.name === "integer" && value >= 0n) {
-			return printed(value.toString(), prec.atom)
+			return printed(value.toString(), "atom")
 		}
 		const spelled = value < 0n ? `(${value.toString()})` : value.toString()
-		return printed(`${spelled}::${printCatalogCast(type)}`, prec.cast)
+		return printed(`${spelled}::${printCatalogCast(type)}`, "cast")
 	}
-	return printed(`${quoteString(value)}::${printCatalogCast(type)}`, prec.cast)
+	return printed(`${quoteString(value)}::${printCatalogCast(type)}`, "cast")
 }
 
 const catalogCall = (call: CatalogCall): string => {
@@ -1556,64 +1565,58 @@ const catalogCall = (call: CatalogCall): string => {
 const catalogExprs = (list: ReadonlyArray<CatalogExpr>): string =>
 	list.map((e) => catalogExpr(e).text).join(", ")
 
-/** A catalog expression, parenthesized by the precedence table grizzle's value SQL prints by. */
+/** A catalog expression, parenthesized by the precedence levels grizzle's value SQL prints by. */
 const catalogExpr = (e: CatalogExpr): Printed => {
 	switch (e.kind) {
 		case "column":
-			return printed(`${quoteIdent(e.from)}.${quoteIdent(e.column)}`, prec.atom)
+			return printed(`${quoteIdent(e.from)}.${quoteIdent(e.column)}`, "atom")
 		case "param":
-			return printed(`$${e.number}::${printCatalogCast(e.type)}`, prec.cast)
+			return printed(`$${e.number}::${printCatalogCast(e.type)}`, "cast")
 		case "literal":
 			return catalogLiteral(e.value, e.type)
 		case "cast":
-			return printed(
-				`${wrap(catalogExpr(e.expr), prec.atom)}::${printCatalogCast(e.type)}`,
-				prec.cast
-			)
+			return printed(`${wrap(catalogExpr(e.expr), "atom")}::${printCatalogCast(e.type)}`, "cast")
 		case "call":
-			return printed(catalogCall(e), prec.atom)
+			return printed(catalogCall(e), "atom")
 		case "countStar":
-			return printed(`${inCatalog("count")}(*)`, prec.atom)
+			return printed(`${inCatalog("count")}(*)`, "atom")
 		case "compare":
 			return printed(
-				`${wrap(catalogExpr(e.left), prec.compare + 1)} ${e.op} ${wrap(catalogExpr(e.right), prec.compare + 1)}`,
-				prec.compare
+				`${wrapTighter(catalogExpr(e.left), "compare")} ${e.op} ${wrapTighter(catalogExpr(e.right), "compare")}`,
+				"compare"
 			)
 		case "distinctFrom":
 			return printed(
-				`${wrap(catalogExpr(e.left), prec.other)} IS DISTINCT FROM ${wrap(catalogExpr(e.right), prec.other)}`,
-				prec.is
+				`${wrap(catalogExpr(e.left), "other")} IS DISTINCT FROM ${wrap(catalogExpr(e.right), "other")}`,
+				"is"
 			)
 		case "concat":
 			return printed(
-				e.parts.map((part) => wrap(catalogExpr(part), prec.other + 1)).join(" || "),
-				prec.other
+				e.parts.map((part) => wrapTighter(catalogExpr(part), "other")).join(" || "),
+				"other"
 			)
 		case "and":
-			return printed(
-				e.args.map((arg) => wrap(catalogExpr(arg), prec.and + 1)).join(" AND "),
-				prec.and
-			)
+			return printed(e.args.map((arg) => wrapTighter(catalogExpr(arg), "and")).join(" AND "), "and")
 		case "or":
-			return printed(e.args.map((arg) => wrap(catalogExpr(arg), prec.or + 1)).join(" OR "), prec.or)
+			return printed(e.args.map((arg) => wrapTighter(catalogExpr(arg), "or")).join(" OR "), "or")
 		case "not":
-			return printed(`NOT ${wrap(catalogExpr(e.expr), prec.not)}`, prec.not)
+			return printed(`NOT ${wrap(catalogExpr(e.expr), "not")}`, "not")
 		case "in":
 			return printed(
-				`${wrap(catalogExpr(e.expr), prec.other)} ${e.not ? "NOT IN" : "IN"} (${catalogExprs(e.list)})`,
-				prec.between
+				`${wrap(catalogExpr(e.expr), "other")} ${e.not ? "NOT IN" : "IN"} (${catalogExprs(e.list)})`,
+				"between"
 			)
 		case "any":
 			return printed(
-				`${wrap(catalogExpr(e.expr), prec.other)} = ANY (${catalogExpr(e.array).text})`,
-				prec.compare
+				`${wrap(catalogExpr(e.expr), "other")} = ANY (${catalogExpr(e.array).text})`,
+				"compare"
 			)
 		case "exists":
 			return e.not
-				? printed(`NOT EXISTS (${catalogSelectText(e.query)})`, prec.not)
-				: printed(`EXISTS (${catalogSelectText(e.query)})`, prec.atom)
+				? printed(`NOT EXISTS (${catalogSelectText(e.query)})`, "not")
+				: printed(`EXISTS (${catalogSelectText(e.query)})`, "atom")
 		case "scalar":
-			return printed(`(${catalogSelectText(e.query)})`, prec.atom)
+			return printed(`(${catalogSelectText(e.query)})`, "atom")
 		case "case": {
 			const parts = ["CASE"]
 			if (e.operand !== undefined) {
@@ -1626,24 +1629,21 @@ const catalogExpr = (e: CatalogExpr): Printed => {
 				parts.push(`ELSE ${catalogExpr(e.else).text}`)
 			}
 			parts.push("END")
-			return printed(parts.join(" "), prec.atom)
+			return printed(parts.join(" "), "atom")
 		}
 		case "coalesce":
-			return printed(`COALESCE(${catalogExprs(e.args)})`, prec.atom)
+			return printed(`COALESCE(${catalogExprs(e.args)})`, "atom")
 		case "array":
 			return printed(
 				`ARRAY[${catalogExprs(e.items)}]::${printCatalogCast({ ...e.type, array: true })}`,
-				prec.cast
+				"cast"
 			)
 		case "collateC":
-			return printed(
-				`${wrap(catalogExpr(e.expr), prec.collate)} COLLATE ${inCatalog("C")}`,
-				prec.collate
-			)
+			return printed(`${wrap(catalogExpr(e.expr), "collate")} COLLATE ${inCatalog("C")}`, "collate")
 		case "currentUser":
-			return printed("CURRENT_USER", prec.atom)
+			return printed("CURRENT_USER", "atom")
 		case "regclass":
-			return printed(regclassText(e.relation), prec.cast)
+			return printed(regclassText(e.relation), "cast")
 	}
 }
 
@@ -1833,7 +1833,7 @@ export const terminated = (out: Lines, write: (out: Lines) => void): void => {
 
 /** The SQL text `write` writes, refused (ResourceBound, stringLength) past V8's longest string. */
 export const sqlText = (at: SourceLoc, write: (out: Lines) => void): string => {
-	const text = textOf(maxStringLength, sqlUnit, at, write)
+	const text = textOf(maxStringLength.value, sqlUnit, at, write)
 	if (!text.ok) {
 		throw new Refusal(text.error)
 	}
@@ -1847,9 +1847,9 @@ export const sqlText = (at: SourceLoc, write: (out: Lines) => void): string => {
 export const statementText = (at: SourceLoc, write: (out: Lines) => void): string => {
 	const text = sqlText(at, write)
 	const bytes = utf8Length(text)
-	if (bytes > messageMaxBytes) {
+	if (bytes > messageMaxBytes.value) {
 		throw new Refusal(
-			resourceBound(at, { kind: "statementBytes", limit: messageMaxBytes, needed: bytes })
+			resourceBound(at, { kind: "statementBytes", limit: messageMaxBytes.value, needed: bytes })
 		)
 	}
 	return text
@@ -1861,11 +1861,11 @@ export const statementText = (at: SourceLoc, write: (out: Lines) => void): strin
  */
 export const printStatement = (statement: SqlStatement): string => {
 	const params = statementParams(statement)
-	if (params > statementMaxParams) {
+	if (params > statementMaxParams.value) {
 		throw new Refusal(
 			resourceBound(statementTextLoc, {
 				kind: "statementParams",
-				limit: statementMaxParams,
+				limit: statementMaxParams.value,
 				needed: params
 			})
 		)

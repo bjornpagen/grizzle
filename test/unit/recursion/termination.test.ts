@@ -3,11 +3,12 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import type { HeadTermDesc } from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
 	compute,
@@ -81,7 +82,7 @@ describe("the seen-state estimate", () => {
 							"two tags",
 							"the widest grid"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([[bx, by], [summed, twoTags], [column, type]], c) =>
 						Effect.sync(() => {

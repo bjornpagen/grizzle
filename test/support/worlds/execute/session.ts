@@ -1,5 +1,4 @@
 import { Array as Arr, Effect, Option, Predicate, Record as Rec, Result } from "effect"
-import type { Pool } from "pg"
 import { type ReadError } from "#adapter/errors/execution.ts"
 import type { Db } from "#adapter/public/db.ts"
 import type { ReaderValue } from "#adapter/reader/reader.ts"
@@ -53,8 +52,9 @@ export const refusedWith = (observation: Observation, error: unknown): Seen => (
 
 /**
  * A Db's session: its login and role, the base of the version it was opened at, whose snapshot it holds, with that
- * version's described laws, which its refusals' laws are read back by, and the pool of that version's layer, which
- * serves it after a migration made another version current.
+ * version's described laws, which its refusals' laws are read back by, and the Db, which holds the pool of that
+ * version's layer (test/support/runtime-db.ts contextOf), the pool that serves it after a migration made another
+ * version current.
  */
 export interface DbSession {
 	readonly kind: "db"
@@ -62,7 +62,6 @@ export interface DbSession {
 	readonly role: RoleSpec
 	readonly base: BaseSpec
 	readonly described: ReadonlyMap<LawId, Law>
-	readonly pool: Pool
 	readonly value: BuiltRole
 	readonly db: Db<BuiltRole, unknown>
 }

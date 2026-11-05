@@ -7,12 +7,13 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
 import { decode, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, faulted, refused, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** The largest finite 32-bit float. */
 const float32Max = 3.4028234663852886e38
@@ -103,7 +104,7 @@ describe("Vector construction", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ buffer, count, components }, c) =>
 						Effect.sync(() => {
@@ -112,8 +113,8 @@ describe("Vector construction", () => {
 							const length =
 								count === "the maximum" || count === "past the maximum"
 									? count === "the maximum"
-										? vectorMaxDimensions
-										: vectorMaxDimensions + 1
+										? vectorMaxDimensions.value
+										: vectorMaxDimensions.value + 1
 									: components.length
 							const xs =
 								length === components.length ? components : Array.from({ length }, () => 0.5)
@@ -146,7 +147,8 @@ describe("Vector construction", () => {
 												: length
 							/** The count is read first, as the type's own dimension count; then the buffer, then its length. */
 							const admitted = Vector.admit(value, dims)
-							const countOk = Number.isInteger(dims) && dims >= 1 && dims <= vectorMaxDimensions
+							const countOk =
+								Number.isInteger(dims) && dims >= 1 && dims <= vectorMaxDimensions.value
 							if (countOk && buffer !== "a Float32Array") {
 								faulted(admitted, "vectorType")
 								return
@@ -190,7 +192,7 @@ describe("Vector admission of a JavaScript caller's value", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(d, c) =>
 						Effect.sync(() => {
@@ -252,7 +254,7 @@ describe("Vector in the canonical serializer", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ xs, corruption }, c) =>
 					Effect.sync(() => {
@@ -299,7 +301,7 @@ describe("Vector in the canonical serializer", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(xs) =>
 					Effect.sync(() => {

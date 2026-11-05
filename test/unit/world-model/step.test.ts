@@ -4,10 +4,11 @@ import { required } from "@grizzle/testing/features"
 import { element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import { isDrawn, sameValues } from "#test/pg/laws/families/model.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { draftedPhases } from "#test/support/worlds/execute/catalog.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import { actionGen } from "#test/support/worlds/generate/action.ts"
@@ -174,7 +175,7 @@ describe("the worlds model's step", () => {
 					shrink: { kind: "bounded", candidates: 200 },
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ reality, weights }, c) =>
 					Effect.sync(() => {
@@ -322,7 +323,7 @@ describe("the worlds model's migration folders", () => {
 						shrink: { kind: "bounded", candidates: 100 },
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ from, to }, c) =>
 						Effect.gen(function* () {

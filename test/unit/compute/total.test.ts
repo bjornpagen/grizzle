@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -15,6 +15,7 @@ import { computeCore as Compute, scalarTerm } from "#compiler/scalar/compute/bui
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import {
 	baseParams,
@@ -90,7 +91,7 @@ const forms = {
 		table: ({ m }) =>
 			table(testPg.numericOf(20, 0), (x) => Compute.lt(Compute.div(x, "1e-16383"), m))
 	},
-	"negation, abs and sign over a bare numeric": {
+	"negation, abs and sign over a wide numeric": {
 		outcome: "admitted",
 		table: ({ m }) =>
 			table(testPg.numeric, (x) =>
@@ -120,7 +121,7 @@ const forms = {
 		outcome: "PartialOperation",
 		table: ({ m }) => table(testPg.bigint, (x) => Compute.le(Compute.div(x, x), m))
 	},
-	"arithmetic over a bare numeric": {
+	"arithmetic over a wide numeric": {
 		outcome: "admitted",
 		table: ({ k, m }) => table(testPg.numeric, (x) => Compute.lt(Compute.add(x, k), m))
 	},
@@ -201,12 +202,12 @@ const formNames: Arr.NonEmptyReadonlyArray<FormName> = [
 	"integer products",
 	"bounded numeric arithmetic",
 	"bounded numeric over a tiny divisor",
-	"negation, abs and sign over a bare numeric",
+	"negation, abs and sign over a wide numeric",
 	"abs and sign over a float",
 	"division by a zero literal",
 	"numeric division by a zero literal",
 	"division by a term",
-	"arithmetic over a bare numeric",
+	"arithmetic over a wide numeric",
 	"a literal near the limit",
 	"a quotient scaling past the limit",
 	"float arithmetic",
@@ -254,7 +255,7 @@ describe("contract predicate tables", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ form, constants }, c) =>
 						Effect.sync(() => {
@@ -298,7 +299,7 @@ describe("the ContractLiteral check", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ n, site }, c) =>
 						Effect.sync(() => {

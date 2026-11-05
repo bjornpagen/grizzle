@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
+import { caseHang } from "#test/support/limits.ts"
 /**
  * What the generated records mean, evaluated by the brute-force reference evaluator (test/support/oracle): a generated
  * CHECK accepts exactly the rows the law it replaces holds on, exhaustively over every shape that generates one and
@@ -19,7 +20,7 @@ import { searched } from "@grizzle/testing/vitest"
  * with or without payload, none at all included, has nothing to check.
  */
 
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -247,7 +248,7 @@ describe("generated CHECKs accept exactly the lawful rows", () => {
 						 */
 						limit: 18,
 						coverage: requiredInSpace<CheckFeature>(situations),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(k, c) =>
 						Effect.sync(() => {
@@ -345,7 +346,7 @@ describe("a schema that states no law", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(desc, n) =>
 					Effect.sync(() => {

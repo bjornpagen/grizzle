@@ -60,7 +60,6 @@ import {
 import { assert, succeeded } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { type Catalog, readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
-import { pgPin } from "#test/support/env.ts"
 import { isLedgerObject, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	fromEmpty,
@@ -75,7 +74,12 @@ import type { ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { PropertyFailed } from "#test/support/oracle/runner.ts"
-import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import {
+	clusterConnection,
+	parsedConnection,
+	type PgConnection,
+	type SqlError
+} from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { Credentials, RawSession } from "#test/support/substrate/session.ts"
@@ -96,14 +100,15 @@ import type { Uuid } from "#compiler/public/fields.ts"
 const migrationConnection = (
 	substrate: SubstrateShape,
 	credentials: Credentials
-): MigrationConnection => ({
-	host: pgPin.host,
-	port: pgPin.port,
-	database: substrate.database,
-	role: credentials.role,
-	password: Redacted.make(Redacted.value(credentials.password)),
-	tls: { ca: substrate.cluster.caPem, servername: pgPin.host }
-})
+): MigrationConnection =>
+	parsedConnection(
+		clusterConnection(
+			substrate.cluster,
+			substrate.database,
+			Redacted.make(Redacted.value(credentials.password))
+		),
+		credentials.role
+	)
 
 /** A migration session as `credentials` in the substrate's database, verify-full against the substrate's cluster. */
 export const openMigrator = (

@@ -18,7 +18,7 @@ import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { malformedDescription, within } from "#compiler/core/errors.ts"
 import {
 	captureLoc,
@@ -32,6 +32,7 @@ import {
 	siteFromStack
 } from "#compiler/core/loc.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 import { regex } from "arkregex"
 /**
@@ -169,7 +170,7 @@ describe("stack frame parsing", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(lines, c) =>
 						Effect.sync(() => {
@@ -282,7 +283,7 @@ describe("call-site capture", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ label, path, caller, inner }, c) =>
 						Effect.sync(() => {
@@ -386,7 +387,7 @@ describe("SourceLoc", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([{ label, path, site }, spelling], c) =>
 						Effect.sync(() => {
@@ -459,7 +460,7 @@ describe("SourceLoc", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ label, path, prefix, site }, c) =>
 							Effect.sync(() => {

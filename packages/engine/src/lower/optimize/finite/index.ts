@@ -1,5 +1,5 @@
 import type { NodeId } from "#compiler/core/ids.ts"
-import { finiteMembershipMaxTerms } from "#compiler/core/policy.ts"
+import { finiteMembershipMaxTerms } from "#compiler/core/limits.ts"
 import {
 	type DefinedOp,
 	nativeEqualityKey,
@@ -27,7 +27,7 @@ import {
 } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
-	type Measure,
+	type Potential,
 	nodePremises,
 	type RewriteCx,
 	type Rule,
@@ -41,16 +41,8 @@ const membershipRule = "R07.finiteMembership"
 type Region = KindOver<"MatchRegion", EditRefs>
 type Occurrence = OccurrenceOver<Cell, ScalarExpr, VarDecl>
 
-const terms = (o: Occurrence, rows: number): number =>
-	rows * Math.max(1, o.bindings.length + o.constants.length)
-
-/** The membership-only closed occurrences of the region `cell` holds, each of at most `maxTerms` terms. */
-const membershipOnly = (
-	cx: RewriteCx,
-	cell: Cell,
-	region: Region,
-	maxTerms: number
-): ReadonlyArray<Occurrence> => {
+/** The membership-only closed occurrences of the region `cell` holds. */
+const membershipOnly = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArray<Occurrence> => {
 	const ed = cx.editor
 	if (region.occurrences.length < 2 || ed.readsFeedback(cell)) {
 		return []
@@ -59,9 +51,6 @@ const membershipOnly = (
 	return region.occurrences.filter((o) => {
 		const source = o.source.current
 		if (source.kind !== "Closed" || d.lateral(o.source)) {
-			return false
-		}
-		if (terms(o, source.rows.length) > maxTerms) {
 			return false
 		}
 		/**
@@ -120,13 +109,15 @@ const comparison = (fn: "eq" | "in", type: ScalarType): DefinedOp | undefined =>
 
 /**
  * The predicate the occurrence stands for, over the region's own columns; `true` when it holds for every binding,
- * `false` when for none; undefined when no native operator expresses it.
+ * `false` when for none; undefined when no native operator expresses it, or when it is a tuple membership whose
+ * disjunction would hold more than `maxTerms` equalities.
  */
 const membership = (
 	cx: RewriteCx,
 	region: Cell,
 	o: Occurrence,
-	source: KindOver<"Closed", EditRefs>
+	source: KindOver<"Closed", EditRefs>,
+	maxTerms: number
 ): { readonly pred: ScalarExpr | boolean; readonly equality: ReadonlyArray<OpId> } | undefined => {
 	const ed = cx.editor
 	const typeOf = new Map(source.heading.map((c) => [c.name, c.type]))
@@ -218,6 +209,9 @@ const membership = (
 		...bound.map((b) => ({ column: b.column, expr: varRef(ed, region, b.var) })),
 		...paramConstants
 	]
+	if (tuples.size * tested.length > maxTerms) {
+		return undefined
+	}
 	/** The conjunction of a fact's equalities, or undefined when a column has no native equality. */
 	const conjunctionOf = (tuple: Fact): ScalarExpr | undefined => {
 		const conj: Array<ScalarExpr> = []
@@ -250,7 +244,7 @@ const membership = (
 	}
 }
 
-/** The R07 rule over memberships of at most `maxTerms` terms. */
+/** The R07 rule, its tuple memberships of at most `maxTerms` equalities. */
 const membershipRuleWithin = (maxTerms: number): Rule => ({
 	name: membershipRule,
 	/** membershipOnly admits closed sources only. */
@@ -260,12 +254,12 @@ const membershipRuleWithin = (maxTerms: number): Rule => ({
 		if (region.kind !== "MatchRegion") {
 			return false
 		}
-		for (const o of membershipOnly(cx, cell, region, maxTerms)) {
+		for (const o of membershipOnly(cx, cell, region)) {
 			const source = o.source.current
 			if (source.kind !== "Closed") {
 				continue
 			}
-			const m = membership(cx, cell, o, source)
+			const m = membership(cx, cell, o, source, maxTerms)
 			if (m === undefined) {
 				continue
 			}
@@ -340,18 +334,16 @@ const membershipRuleWithin = (maxTerms: number): Rule => ({
 	}
 })
 
-const membershipMeasureWithin =
-	(maxTerms: number): Measure =>
-	(cx) => {
-		let count = 0
-		for (const cell of cx.editor.topoOrder()) {
-			const node = cell.current
-			if (node.kind === "MatchRegion") {
-				count += membershipOnly(cx, cell, node, maxTerms).length
-			}
+const membershipPotential: Potential = (cx) => {
+	let count = 0
+	for (const cell of cx.editor.topoOrder()) {
+		const node = cell.current
+		if (node.kind === "MatchRegion") {
+			count += membershipOnly(cx, cell, node).length
 		}
-		return [count]
 	}
+	return count
+}
 
 /**
  * The R07 pass.
@@ -364,10 +356,11 @@ const membershipMeasureWithin =
  * for facts the schema already fixes hides them from the planner; the occurrence becomes a predicate over the region
  * instead ("closed facts ... can become enum membership, tuple membership, constants"):
  *
- * - one bound column: native constant membership, `v IN (l1, ..., ln)`, or `v = l` for one value. PostgreSQL may
- *   evaluate a constant IN list by hashing; the compiler neither pads it nor states the threshold. An
- *   enum column whose facts cover the whole roster is a tautology, since the variable is bound elsewhere to a value of
- *   that enum: the occurrence simply disappears;
+ * - one bound column: native constant membership, `v IN (l1, ..., ln)`, or `v = l` for one value, of any number of
+ *   facts. PostgreSQL evaluates a constant IN list of many values by hashing it (a hashed ScalarArrayOpExpr), so the
+ *   test costs a row what the VALUES join's hash probe does, and is never asymptotically worse; the compiler neither
+ *   pads it nor states a threshold. An enum column whose facts cover the whole roster is a tautology, since the
+ *   variable is bound elsewhere to a value of that enum: the occurrence simply disappears;
  * - several bound columns, or parameter constants: tuple membership, the disjunction over the facts of the
  *   conjunction of each fact's equalities. For tuple rosters, independent column IN lists
  *   are not equivalent, so the correlation of each fact's values is kept;
@@ -379,18 +372,22 @@ const membershipMeasureWithin =
  * The predicate reads the bound variables as columns of the remaining region; a variable the region does not deliver
  * (a join variable outside its heading) widens it under the filter, and a projection restores its heading.
  *
- * The expansion is bounded: a membership of more than `maxTerms` terms (its facts times the columns it binds, at least
- * one; core/policy.ts finiteMembershipMaxTerms in production) keeps the VALUES join rather than growing into many
- * branches. The facts are descriptor evidence: schema-declared, unconditional, the same in every context.
+ * A tuple membership's disjunction is evaluated branch by branch, so it costs a row its facts times its columns where
+ * the VALUES join's hash probe costs a row one: the two forms are genuinely different, and a tuple membership whose
+ * disjunction would hold more than `maxTerms` equalities (its distinct tested tuples times its tested columns;
+ * core/limits.ts finiteMembershipMaxTerms in production, the operating point bench/query/finite.bench.ts measures)
+ * keeps the VALUES join. A membership that is no disjunction (one column, a tautology, a contradiction) is rewritten
+ * at any size. The facts are descriptor evidence: schema-declared, unconditional, the same in every context.
  *
- * Measure: the number of membership-only closed occurrences, which each rewrite lowers by one.
+ * Potential: the number of membership-only closed occurrences, at most the DAG's occurrences, which each rewrite lowers
+ * by one.
  */
 export const finitePassWithin = (maxTerms: number): Pass<LogicalQuery, LogicalQuery> =>
 	rewritePass({
 		name: "finite",
 		rules: [membershipRuleWithin(maxTerms)],
-		measure: membershipMeasureWithin(maxTerms)
+		potential: () => membershipPotential
 	})
 
 /** The R07 pass as production runs it (finitePassWithin, finiteMembershipMaxTerms). */
-export const finitePass = finitePassWithin(finiteMembershipMaxTerms)
+export const finitePass = finitePassWithin(finiteMembershipMaxTerms.value)

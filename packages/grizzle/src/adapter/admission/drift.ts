@@ -109,9 +109,16 @@ export interface DriftMismatch {
 /** The drift check's transaction: one snapshot for every read, the scratch installation beside them, rolled back. */
 export const driftTransaction: Transaction = { access: "readWrite", end: "ROLLBACK" }
 
+/**
+ * The hex digits of a scratch schema's name after `grizzle_admission_`: the leading ones of the schema name's SHA-256.
+ *
+ * @formatConstant a scratch schema's name: grizzle_admission_ and 24 lowercase hex digits
+ */
+const scratchDigestHex = 24
+
 /** The scratch schema a schema's expected objects are deparsed in: the schema of the replayed types, too. */
 const scratchSchema = (schema: string): TypeSchema =>
-	scratchTypes(`grizzle_admission_${pipe(sha256Hex(schema), Str.slice(0, 24))}`)
+	scratchTypes(`grizzle_admission_${pipe(sha256Hex(schema), Str.slice(0, scratchDigestHex))}`)
 
 const scratchTypes = nominal<string, TypeSchema>()
 

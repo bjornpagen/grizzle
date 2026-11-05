@@ -1,6 +1,7 @@
 import { sameOrder } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
+import { derived, type Limit, published } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
@@ -95,16 +96,138 @@ export type CapabilitySet = ReadonlyArray<Capability>
 export const capabilitySet = (caps: ReadonlyArray<Capability>): CapabilitySet =>
 	Object.freeze([...new Set(caps)].toSorted(compareStrings))
 
+const numericH = "https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/utils/numeric.h"
+
+/** The greatest precision a numeric typmod declares. */
+export const numericMaxPrecision: Limit = published({
+	value: 1000,
+	owner: "PostgreSQL 19rc1",
+	unit: "decimal digits",
+	scope:
+		"the precision p of numeric(p, s): a field's, a cast's, a parameter's or a typed literal's",
+	constraint: "compile-time constant",
+	source: `${numericH}#L35`,
+	quote: "#define NUMERIC_MAX_PRECISION\t\t1000",
+	verified: "2026-11-05"
+})
+
+/** The least scale a numeric typmod declares: a negative scale rounds to a power of ten. */
+export const numericMinScale: Limit = published({
+	value: -1000,
+	owner: "PostgreSQL 19rc1",
+	unit: "decimal digits",
+	scope: "the scale s of numeric(p, s)",
+	constraint: "compile-time constant",
+	source: `${numericH}#L37`,
+	quote: "#define NUMERIC_MIN_SCALE\t\t\t(-1000)",
+	verified: "2026-11-05"
+})
+
+/** The greatest scale a numeric typmod declares. */
+export const numericMaxScale: Limit = published({
+	value: 1000,
+	owner: "PostgreSQL 19rc1",
+	unit: "decimal digits",
+	scope: "the scale s of numeric(p, s)",
+	constraint: "compile-time constant",
+	source: `${numericH}#L38`,
+	quote: "#define NUMERIC_MAX_SCALE\t\t\t1000",
+	verified: "2026-11-05"
+})
+
+const datatypeSgml =
+	"https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/datatype.sgml"
+
 /**
- * numeric(p, s): precision 1..1000, scale -1000..1000. numeric(p) is numeric(p, 0), so the scale is always present:
- * one typmod, one identity.
+ * The most integer digits a numeric value has, |x| < 10^numericMaxIntegerDigits: past it PostgreSQL's arithmetic raises
+ * 22003 "value overflows numeric format", so a numeric expression whose bound passes it is ResourceBound.
+ */
+export const numericMaxIntegerDigits: Limit = published({
+	value: 131072,
+	owner: "PostgreSQL 19rc1",
+	unit: "decimal digits",
+	scope: "the integer digits of every numeric value, a computed one's bound included",
+	constraint: "compile-time constant",
+	source: `${datatypeSgml}#L399`,
+	quote: "up to 131072 digits before the decimal point; up to 16383 digits after the decimal point",
+	verified: "2026-11-05"
+})
+
+/**
+ * The most fraction digits a numeric value has: NUMERIC_DSCALE_MAX, past which numeric multiplication rounds
+ * (numeric.c mul_var's caller) and a value's text is refused.
+ */
+export const numericMaxFractionDigits: Limit = published({
+	value: 16383,
+	owner: "PostgreSQL 19rc1",
+	unit: "decimal digits",
+	scope: "the fraction digits of every numeric value, a computed one's bound included",
+	constraint: "compile-time constant",
+	source: `${datatypeSgml}#L399`,
+	quote: "up to 131072 digits before the decimal point; up to 16383 digits after the decimal point",
+	verified: "2026-11-05"
+})
+
+/**
+ * The most fraction digits PostgreSQL gives a division's, a mean's, a square root's or a power's result,
+ * NUMERIC_MAX_DISPLAY_SCALE: select_div_scale and its kin take a result scale no larger.
+ */
+export const numericMaxDisplayScale: Limit = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "decimal digits",
+	scope: "the result scale of numeric division, avg, sqrt and power",
+	from: [numericMaxPrecision],
+	derivation: `numeric.h defines it as the greatest precision: "#define NUMERIC_MAX_DISPLAY_SCALE\tNUMERIC_MAX_PRECISION" (${numericH}#L43)`,
+	compute: ([p]) => p.value
+})
+
+/**
+ * The significant digits PostgreSQL gives an inexact numeric result at least, NUMERIC_MIN_SIG_DIGITS: a division's,
+ * a square root's and a power's result scale is chosen to give that many.
+ */
+export const numericMinSigDigits: Limit = published({
+	value: 16,
+	owner: "PostgreSQL 19rc1",
+	unit: "decimal digits",
+	scope: "the significant digits select_div_scale and its kin choose a result scale for",
+	constraint: "compile-time constant",
+	source: `${numericH}#L53`,
+	quote: "#define NUMERIC_MIN_SIG_DIGITS\t\t16",
+	verified: "2026-11-05"
+})
+
+/** The internal limit on a calculation's result scale, NUMERIC_MAX_RESULT_SCALE. */
+export const numericMaxResultScale: Limit = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "decimal digits",
+	scope: "the scale of an intermediate numeric result, which exp_var's input bound is three times",
+	from: [numericMaxPrecision],
+	derivation: `numeric.h: "#define NUMERIC_MAX_RESULT_SCALE\t(NUMERIC_MAX_PRECISION * 2)" (${numericH}#L46)`,
+	compute: ([p]) => p.value * 2
+})
+
+/**
+ * numeric(p, s): precision 1..numericMaxPrecision, scale numericMinScale..numericMaxScale, both always present, as every
+ * numeric field, cast, parameter and typed literal declares them: one typmod, one identity.
  */
 export interface NumericTypmod {
 	readonly precision: number
 	readonly scale: number
 }
 
-/** vector(n): 1..16000 dimensions. */
+/**
+ * What a computed numeric value is proved to be: every finite value below 10^digits in magnitude, with at most `scale`
+ * fraction digits, within numeric's own limits, numericMaxIntegerDigits and numericMaxFractionDigits. It is set where
+ * the value is made, from what makes it: a sum's from its argument's and the rows' count, a mean's from its argument's
+ * and PostgreSQL's display scale, an operation's from its operands' bounds. A making past numericMaxIntegerDigits is
+ * ResourceBound there, so no bound passes it.
+ */
+export interface NumericBound {
+	readonly digits: number
+	readonly scale: number
+}
+
+/** vector(n): 1..vectorMaxDimensions dimensions (ir/carriers.ts). */
 export interface VectorTypmod {
 	readonly dims: number
 }
@@ -120,7 +243,7 @@ export interface VectorTypmod {
  */
 export interface ContractInfo {
 	readonly name: DeclaredName
-	readonly base: ValueType
+	readonly base: ContractBase
 	readonly predicate: ExprTable | undefined
 	/**
 	 * The facts every value of the contract has, which its declaration states and its build proved from its predicate
@@ -214,12 +337,49 @@ interface SerialType {
 	readonly serial: "always"
 }
 
-interface NumericType {
+/** numeric(p, s): what a field, a cast, a parameter and a typed literal declare, a contract's base among them. */
+interface NumericTypmodType {
 	readonly carrier: "numeric"
 	readonly caps: CapabilitySet
-	readonly typmod: NumericTypmod | undefined
+	readonly typmod: NumericTypmod
 	readonly contract: ContractInfo | undefined
 }
+
+/**
+ * A computed numeric, PostgreSQL's numeric of no typmod: an aggregate's, an operation's or a conversion's result, with
+ * the bound its making proved. No declaration names one, so it is never a declared type, a contract or a contract's
+ * base.
+ */
+export interface NumericValueType {
+	readonly carrier: "numeric"
+	readonly caps: CapabilitySet
+	readonly typmod: undefined
+	readonly contract: undefined
+	readonly bound: NumericBound
+}
+
+type NumericType = NumericTypmodType | NumericValueType
+
+/**
+ * The value domains a contract is over: every value type a field declares, never a computed numeric or an exact value,
+ * which only an operation makes.
+ */
+export type ContractBase = Exclude<ValueType, NumericValueType | ExactType>
+
+/**
+ * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, or a
+ * serial generation over an integer. A computed numeric and an exact value are a value's making, which no declaration
+ * states.
+ */
+export type DeclaredType = ContractBase | SerialType
+
+/** Whether a type is a computed numeric, which no declaration states. */
+export const isNumericValue = (t: ScalarType): t is NumericValueType =>
+	t.carrier === "numeric" && t.typmod === undefined
+
+/** Whether a type is an exact arithmetic result, which no declaration states. */
+export const isExactValue = (t: ScalarType): t is ExactType =>
+	t.carrier === "exactInteger" || t.carrier === "exactMoney"
 
 interface BareType {
 	readonly carrier: BareCarrier
@@ -287,9 +447,10 @@ export type ValueType =
  * The scalar type IR.
  *
  * A ScalarType is the canonical native carrier identity of a value plus everything that changes its meaning:
- * numeric typmod, contract identity, text refinement, closed roster, span endpoint, vector dimensions, an exact
- * value's digit bound, serial generation, and the operation capability set. Two descriptors are the same type exactly when they agree in each of
- * these, a contract by its identity (sameScalarType). Aliases normalize at construction:
+ * numeric typmod or a computed numeric's bound, contract identity, text refinement, closed roster, span endpoint, vector
+ * dimensions, an exact value's digit bound, serial generation, and the operation capability set. Two descriptors are the
+ * same type exactly when they agree in each of these, a contract by its identity (sameScalarType). Aliases normalize at
+ * construction:
  * `pg.decimal` is `numeric`, `pg.bool` is `bool`, and so on, so no alias reaches the IR.
  *
  * There is no nullable type: every ScalarType denotes a non-null domain, and absence is zero rows.
@@ -397,7 +558,7 @@ export const spanOf = (t: ScalarType): SpanInfo | undefined => {
 	}
 }
 
-/** The typmod of a numeric descriptor, numeric(p, s); undefined for unconstrained numeric and every other carrier. */
+/** The typmod of a numeric descriptor, numeric(p, s); undefined for a computed numeric and every other carrier. */
 export const numericTypmodOf = (t: ScalarType): NumericTypmod | undefined => {
 	switch (t.carrier) {
 		case "numeric":
@@ -449,6 +610,13 @@ export const vectorTypmodOf = (t: ScalarType): VectorTypmod | undefined => {
 export const exactDigitsOf = (t: ScalarType): number | undefined =>
 	t.carrier === "exactInteger" || t.carrier === "exactMoney" ? t.digits : undefined
 
+/** The proved bound of a computed numeric; undefined for numeric(p, s) and every other carrier. */
+export const numericBoundOf = (t: ScalarType): NumericBound | undefined =>
+	t.carrier === "numeric" && t.typmod === undefined ? t.bound : undefined
+
+const sameNumericBound = (a: NumericBound | undefined, b: NumericBound | undefined): boolean =>
+	a?.digits === b?.digits && a?.scale === b?.scale
+
 /** Two contracts are one by identity, their names and bases: two descriptors of one contract are one type whatever
  * predicate either carries. */
 const sameContract = (a: ContractInfo | undefined, b: ContractInfo | undefined): boolean =>
@@ -481,8 +649,8 @@ const sameSpan = (a: SpanInfo | undefined, b: SpanInfo | undefined): boolean =>
 
 /**
  * Type identity, field by field: one carrier, capability set and serial generation, one contract by its identity (never
- * its predicate), and one numeric typmod, vector dimension count, text refinement (pattern, flags, language key and
- * bounds), roster and span. Source locations never appear inside a descriptor.
+ * its predicate), and one numeric typmod or computed numeric bound, vector dimension count, text refinement (pattern,
+ * flags, language key and bounds), roster and span. Source locations never appear inside a descriptor.
  */
 export const sameScalarType = (a: ScalarType, b: ScalarType): boolean =>
 	a === b ||
@@ -491,6 +659,7 @@ export const sameScalarType = (a: ScalarType, b: ScalarType): boolean =>
 		"serial" in a === "serial" in b &&
 		sameContract(contractOf(a), contractOf(b)) &&
 		sameNumericTypmod(numericTypmodOf(a), numericTypmodOf(b)) &&
+		sameNumericBound(numericBoundOf(a), numericBoundOf(b)) &&
 		vectorTypmodOf(a)?.dims === vectorTypmodOf(b)?.dims &&
 		exactDigitsOf(a) === exactDigitsOf(b) &&
 		sameText(textOf(a), textOf(b)) &&
@@ -546,7 +715,9 @@ export const typeLabel = (t: ScalarType): string => {
 		case "int8":
 			return "serial" in t ? `${nativeNames[t.carrier]} serial` : nativeNames[t.carrier]
 		case "numeric":
-			return t.typmod === undefined ? "numeric" : `numeric(${t.typmod.precision},${t.typmod.scale})`
+			return t.typmod === undefined
+				? `numeric of ${t.bound.digits} integer and ${t.bound.scale} fraction digits`
+				: `numeric(${t.typmod.precision},${t.typmod.scale})`
 		case "vector":
 			return `vector(${t.typmod.dims})`
 		case "enum":

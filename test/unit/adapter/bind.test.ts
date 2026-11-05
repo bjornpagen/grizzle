@@ -6,11 +6,12 @@ import { noCoverage } from "@grizzle/testing/features"
 import { array, codePoint, element, string, weighted } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter, String as Str } from "effect"
+import { Effect, Formatter, String as Str } from "effect"
 import { Connection } from "pg"
 import { bindLength, bindOverrun, type FlightStatement } from "#adapter/wire/batch.ts"
 import { serverStatement } from "#adapter/wire/session.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
 
 /**
@@ -71,7 +72,7 @@ describe("a statement's Bind message", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([named, params]) =>
 						Effect.sync(() => {

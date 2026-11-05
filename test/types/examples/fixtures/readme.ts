@@ -1,3 +1,4 @@
+import net from "node:net"
 import { Signer } from "@aws-sdk/rds-signer"
 import {
 	alternatives,
@@ -45,6 +46,7 @@ import {
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Config, Effect, type Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
+import pgDriver from "pg"
 
 type Equals<A, B> =
 	(<X>(x: X) => X extends A ? 1 : 2) extends <X>(x: X) => X extends B ? 1 : 2 ? true : false
@@ -490,16 +492,28 @@ declare const caPem: string
 
 const clerkJwtKey = Config.String("CLERK_JWT_KEY")
 
+const connection = {
+	driver: pgDriver,
+	transport: {
+		kind: "sslRequest",
+		host: "db.internal",
+		port: 5432,
+		open: () => new net.Socket(),
+		ca: caPem,
+		servername: "db.internal"
+	},
+	database: "app",
+	connectTimeoutMs: 10_000
+} as const
+
 export const WebLayer = DbLayer.make({
+	...connection,
 	login: Web,
 	snapshot,
-	host: "db.internal",
-	port: 5432,
-	database: "app",
 	password: Config.Redacted("BLOG_WEB_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
-	tls: { ca: caPem },
+	pool: { max: 10, min: 1, idleTimeoutMs: 5_000 },
 	attachPool: attachDatabasePool,
 	verify: (token) =>
 		clerkJwtKey.pipe(
@@ -579,15 +593,13 @@ export const POST = (request: Request): Promise<Response> => {
 
 /** README: "Example", "The nightly job". */
 export const EtlLayer = DbLayer.make({
+	...connection,
 	login: EtlJob,
 	snapshot,
-	host: "db.internal",
-	port: 5432,
-	database: "app",
 	password: Config.Redacted("BLOG_ETL_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
-	tls: { ca: caPem }
+	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 }
 })
 
 const etl = ManagedRuntime.make(EtlLayer)
@@ -723,8 +735,32 @@ export const purge = ChangeSet.empty(Blog)
 		})
 	)
 
-/** README: "Migrations", the block of grizzle.config.ts. Its imports of defineConfig, Blog, EtlJob and Web are this file's. */
-export default defineConfig({ schemas: [Blog], logins: [Web, EtlJob] })
+/**
+ * README: "Migrations", the block of grizzle.config.ts. Its imports of net, CredentialError, defineConfig, Config,
+ * Effect, pgDriver, Blog, caPem, EtlJob and Web are this file's.
+ */
+export default defineConfig({
+	schemas: [Blog],
+	logins: [Web, EtlJob],
+	migrations: "migrations",
+	connection: {
+		driver: pgDriver,
+		transport: {
+			kind: "sslRequest",
+			host: "db.internal",
+			port: 5432,
+			open: () => new net.Socket(),
+			ca: caPem,
+			servername: "db.internal"
+		},
+		database: "app",
+		role: "app_owner",
+		password: Config.Redacted("MIGRATION_PASSWORD").pipe(
+			Effect.mapError((cause) => new CredentialError({ cause }))
+		),
+		connectTimeoutMs: 10_000
+	}
+})
 
 /** README: "Deploying". */
 /** The login's PostgreSQL role, `<schema>__<login>`. */
@@ -732,11 +768,10 @@ const etlJobRole = Config.String("BLOG_ETL_ROLE")
 
 /** The RDS IAM password: an Effect signing a token for each connection attempt, failing as a CredentialError. */
 export const RdsEtlLayer = DbLayer.make({
+	...connection,
 	login: EtlJob,
 	snapshot,
-	host: "db.internal",
-	port: 5432,
-	database: "app",
+	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 },
 	password: etlJobRole.pipe(
 		Effect.mapError((cause) => new CredentialError({ cause })),
 		Effect.flatMap((username) =>
@@ -752,8 +787,7 @@ export const RdsEtlLayer = DbLayer.make({
 			})
 		),
 		Effect.map(Redacted.make)
-	),
-	tls: { ca: caPem }
+	)
 })
 
 /** The types the README's comments and prose state. */
@@ -877,13 +911,11 @@ export const baseOnMember = (db: Db<typeof MemberBlog, unknown>) => db.execute(p
 /** "requires verify exactly when a role of the login reads a context". */
 // @ts-expect-error -- TS2345: a role of the web login reads a context, so its layer needs verify
 export const webWithoutVerify = DbLayer.make({
+	...connection,
 	login: Web,
 	snapshot,
-	host: "db.internal",
-	port: 5432,
-	database: "app",
 	password: Redacted.make("secret"),
-	tls: { ca: caPem }
+	pool: { max: 10, min: 1, idleTimeoutMs: 5_000 }
 })
 
 /** The gallery's types, as its prose states them. */

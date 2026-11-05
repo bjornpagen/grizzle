@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import {
 	guarantees,
@@ -16,6 +16,7 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import {
 	contractOf,
+	numericBoundOf,
 	numericTypmodOf,
 	type ScalarType,
 	type TextInfo,
@@ -29,6 +30,7 @@ import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { plainType, sameRegex, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
@@ -164,7 +166,7 @@ describe("languages and guarantees", () => {
 							"a contract",
 							"another carrier"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([[an, a], [bn, b]], c) =>
 						Effect.sync(() => {
@@ -203,8 +205,8 @@ interface Unioned {
 	readonly what: string
 	readonly types: readonly [ScalarType, ScalarType]
 	readonly union: () => unknown
-	/** What the arms' types meet as: the first arm's type, the wildcard, or unconstrained numeric. */
-	readonly meet: "the first" | "the wildcard" | "unconstrained numeric"
+	/** What the arms' types meet as: the first arm's type, the wildcard, or the computed numeric holding both. */
+	readonly meet: "the first" | "the wildcard" | "the computed numeric of both"
 }
 
 const unioned: Arr.NonEmptyReadonlyArray<Unioned> = [
@@ -254,9 +256,12 @@ const unioned: Arr.NonEmptyReadonlyArray<Unioned> = [
 				})
 	},
 	{
-		/** numeric(10, 2) and numeric(12, 2) meet as unconstrained numeric, PostgreSQL's select_common_typmod. */
+		/**
+		 * numeric(10, 2) and numeric(12, 2) meet as numeric of no typmod, PostgreSQL's select_common_typmod, with the bound
+		 * holding both, 10 integer and 2 fraction digits.
+		 */
 		what: "numeric at two typmods",
-		meet: "unconstrained numeric",
+		meet: "the computed numeric of both",
 		types: [fieldType(Draft, "amount"), fieldType(Sheet, "amount")],
 		union: () =>
 			query(Content)
@@ -302,7 +307,7 @@ describe("union propagation", () => {
 						literal: Formatter.format,
 						limit: unioned.length,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(u) =>
 						Effect.sync(() => {
@@ -329,10 +334,10 @@ describe("union propagation", () => {
 								case "the wildcard":
 									assert.ok(isWildcard(common), u.what)
 									break
-								case "unconstrained numeric":
+								case "the computed numeric of both":
 									assert.deepEqual(
-										[common.carrier, numericTypmodOf(common)],
-										["numeric", undefined],
+										[common.carrier, numericTypmodOf(common), numericBoundOf(common)],
+										["numeric", undefined, { digits: 10, scale: 2 }],
 										u.what
 									)
 									break

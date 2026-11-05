@@ -1,11 +1,11 @@
+import net from "node:net"
 import {
 	Array as Arr,
 	Clock,
-	ConfigProvider,
 	DateTime,
 	Effect,
 	FileSystem,
-	type Path,
+	Path,
 	type PlatformError,
 	Redacted,
 	type Result,
@@ -13,16 +13,20 @@ import {
 	Stream
 } from "effect"
 import { ChildProcess, type ChildProcessSpawner } from "effect/process"
+import pgDriver from "pg"
 import { defineConfig } from "#adapter/config/define.ts"
 import type { GrizzleConfig, MigrationConnectionConfig } from "#adapter/types/config.ts"
+import type { DbConnection } from "#adapter/types/layer.ts"
 import { type ConfigFile, type ResolvedConfig, resolveConfig } from "#cli/config.ts"
-import { type CliError, ConfigMissing, cliError, configFileName } from "#cli/errors.ts"
-import { runCli } from "#cli/run.ts"
+import { type CliError, ConfigMissing, cliError } from "#cli/errors.ts"
+import { type ConfigLoader, runCli } from "#cli/run.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
 import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
+import { testConnectTimeout } from "#test/support/limits.ts"
+import { clusterConnection } from "#test/support/pg.ts"
 import { sourceCondition } from "#test/support/process.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 
@@ -39,12 +43,13 @@ const configChild = `${repo}test/pg/cli/config.child.ts`
  * `@bjornpagen/grizzle`, as an application imports it: the workspace lies inside the repository, so Node resolves the
  * name to the package itself, and the configuration and the command line share one module instance. What it hands
  * defineConfig is built by typed code, `configOf` here, from the spec written beside it: the shop or ledger
- * fixture (fixture.ts) under the test's unique schema names. An in-process run (`cli`) builds the same configuration
- * from the same spec, so no run imports a configuration file but the bin. `grizzle migrate` connects with DATABASE_URL
- * (`databaseUrl`, the migration identity `grizzle_dev`, over verify-full TLS), handed to the command in
- * its environment, or with a typed `connection` in the configuration when a test asks for one; the password and the CA
- * come from the initialised cluster (test/support/cluster.ts), which a CLI child reads for itself (config.child.ts), so
- * no credential is written to disk.
+ * fixture (fixture.ts) under the test's unique schema names, the migrations directory `migrations`, and where migrate
+ * connects. An in-process run (`cli`) builds the same configuration from the same spec, so no run imports a
+ * configuration file but the bin. Every command line names the workspace's configuration file (`configName`), as an
+ * application's does. `grizzle migrate` connects with the configuration's connection only, over verify-full TLS: as
+ * the migration identity `grizzle_dev`, whose password and CA come from the initialised cluster
+ * (test/support/cluster.ts), which a CLI child reads for itself (config.child.ts), or as a role a test created, whose
+ * password its spec names.
  * `cli` runs a command line in process with a fixed clock; `bin` runs the real bin, `node packages/grizzle/src/cli/main.ts`, as a child
  * process the test owns.
  *
@@ -77,99 +82,116 @@ export type SchemaSpec =
 	| { readonly name: string; readonly fixture: "ledger" }
 
 /**
- * A configuration: its schemas, and where migrate connects: DATABASE_URL, or a typed connection in the configuration to
- * `database` at `port` (a closed port shows a command never connects), with a Redacted password (`owner`), a wrong one,
- * or an Effect yielding it.
+ * Who migrate connects as: the migration identity, with its password (`owner`), a wrong one, or an Effect yielding its
+ * password; or a role a test created, with the password the test was given for it.
  */
+export type ConnectionAs =
+	| { readonly kind: "migration identity"; readonly password: "owner" | "wrong" | "effect" }
+	| { readonly kind: "role"; readonly role: string; readonly password: string }
+
+/**
+ * Where migrate connects: `database` at `port` on the cluster's host (a closed port shows a command never connects),
+ * verify-full against the cluster's CA, as `as`.
+ */
+export type ConnectionSpec = {
+	readonly database: string
+	readonly port: number
+	readonly as: ConnectionAs
+}
+
+/** A configuration: its schemas, and where migrate connects. */
 export type ConfigSpec = {
 	readonly schemas: ReadonlyArray<SchemaSpec>
-	readonly connection:
-		| { readonly kind: "databaseUrl" }
-		| {
-				readonly kind: "typed"
-				readonly database: string
-				readonly password: "owner" | "wrong" | "effect"
-				readonly port: number
-		  }
+	readonly connection: ConnectionSpec
 }
 
-/** Migrate reads DATABASE_URL. */
-export const viaDatabaseUrl: ConfigSpec["connection"] = { kind: "databaseUrl" }
-
-/** The parts of a DATABASE_URL besides its database. */
-export interface UrlParts {
-	readonly role: string
-	readonly password: string
-	readonly port: number
-	readonly query: string
-}
-
-/** The migration identity on the cluster's port, verify-full against the cluster's CA. */
-export const migrationIdentity = (cluster: InitializedClusterShape): UrlParts => ({
-	role: pgPin.devRole,
-	password: Redacted.value(cluster.devPassword),
+/** The migration identity on `database`, with its password. */
+export const ownerOn = (database: string): ConnectionSpec => ({
+	database,
 	port: pgPin.port,
-	query: `sslrootcert=${encodeURIComponent(cluster.caFile)}`
-})
-
-/** The DATABASE_URL of `parts` on `database`. */
-export const databaseUrl = (database: string, parts: UrlParts): string =>
-	`postgresql://${encodeURIComponent(parts.role)}:${encodeURIComponent(parts.password)}@${pgPin.host}:${parts.port}/${encodeURIComponent(database)}?${parts.query}`
-
-/** The environment of a migrate against `database`. */
-export const urlEnv = (
-	cluster: InitializedClusterShape,
-	database: string
-): Readonly<Record<string, string>> => ({
-	DATABASE_URL: databaseUrl(database, migrationIdentity(cluster))
+	as: { kind: "migration identity", password: "owner" }
 })
 
 /**
- * A connection's password as its spec names it: the migration identity's, the wrong one, or an Effect yielding the
- * identity's, its one source: a typed connection whose password is the Effect connects only once the Effect ran.
+ * The connection of a configuration no command of the test connects with: generate, check and names never read it,
+ * and a migrate on it finds no such database.
  */
-const passwordOf = (
+export const unconnected: ConnectionSpec = ownerOn("unconnected")
+
+/** The file every workspace's configuration lies in, as its command lines name it, relative to the workspace. */
+export const configName = "grizzle.config.ts"
+
+/** The password of the offline connection, which a refusal must never quote. */
+export const offlinePassword = "offline-password"
+
+/**
+ * A connection to no cluster, which no command or layer of a test opens: generate, check and names never read a
+ * configuration's connection, and a DbLayer builds without connecting. Its CA signs nothing.
+ *
+ * @internal
+ */
+export const offlineConnection: DbConnection = {
+	driver: pgDriver,
+	transport: {
+		kind: "sslRequest",
+		host: pgPin.host,
+		port: pgPin.port,
+		open: () => new net.Socket(),
+		ca: "-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n",
+		servername: pgPin.host
+	},
+	database: "offline",
+	password: Redacted.make(offlinePassword),
+	connectTimeoutMs: testConnectTimeout.value
+}
+
+/** The migration identity's connection to no cluster, for a configuration no test migrates with. */
+export const offlineOwner: MigrationConnectionConfig = { ...offlineConnection, role: pgPin.devRole }
+
+/**
+ * A connection's role and password as its spec names them: the migration identity's password, the wrong one, or an
+ * Effect yielding the identity's, its one source, so a connection whose password is the Effect connects only once the
+ * Effect ran; or a test's role, with its password.
+ */
+const credentialsOf = (
 	cluster: InitializedClusterShape,
-	password: "owner" | "wrong" | "effect"
-): MigrationConnectionConfig["password"] => {
-	switch (password) {
+	as: ConnectionAs
+): Pick<MigrationConnectionConfig, "role" | "password"> => {
+	if (as.kind === "role") {
+		return { role: as.role, password: Redacted.make(as.password) }
+	}
+	switch (as.password) {
 		case "wrong":
-			return Redacted.make(wrongPassword)
+			return { role: pgPin.devRole, password: Redacted.make(wrongPassword) }
 		case "effect":
-			return Effect.sync(() => cluster.devPassword)
+			return { role: pgPin.devRole, password: Effect.sync(() => cluster.devPassword) }
 		case "owner":
-			return cluster.devPassword
+			return { role: pgPin.devRole, password: cluster.devPassword }
 	}
 }
 
 /**
- * The configuration a spec describes, built from the fixtures (fixture.ts), as defineConfig takes it; a typed
- * connection verifies the cluster's CA.
+ * The connection a spec describes: the cluster's (test/support/pg.ts clusterConnection) on its port, verifying its
+ * CA, as the spec's role with its password.
+ *
+ * @internal
+ */
+export const connectionOf = (
+	cluster: InitializedClusterShape,
+	spec: ConnectionSpec
+): MigrationConnectionConfig => {
+	const { role, password } = credentialsOf(cluster, spec.as)
+	const base = clusterConnection(cluster, spec.database, password)
+	return { ...base, transport: { ...base.transport, port: spec.port }, role }
+}
+
+/**
+ * The configuration a spec describes, built from the fixtures (fixture.ts), as defineConfig takes it: its schemas and
+ * their logins, which own their workloads, the migrations directory `migrations`, and its connection.
  *
  * @internal
  */
 export const configOf = (cluster: InitializedClusterShape, spec: ConfigSpec): GrizzleConfig => {
-	const c = spec.connection
-	if (c.kind === "databaseUrl") {
-		return configWith(spec, {})
-	}
-	return configWith(spec, {
-		connection: {
-			host: pgPin.host,
-			port: c.port,
-			database: c.database,
-			role: pgPin.devRole,
-			password: passwordOf(cluster, c.password),
-			tls: { ca: cluster.caPem }
-		}
-	})
-}
-
-/** The configuration of `spec`'s schemas and their logins, which own their workloads, with its connection part. */
-const configWith = (
-	spec: ConfigSpec,
-	connection: Pick<GrizzleConfig, "connection">
-): GrizzleConfig => {
 	const built = Arr.map(spec.schemas, (s) =>
 		s.fixture === "ledger" ? ledger(s.name) : shop(s.name, s.version, s.workload)
 	)
@@ -177,7 +199,12 @@ const configWith = (
 	if (first === undefined) {
 		throw new Error("configOf: a configuration names at least one schema")
 	}
-	return { schemas: [first, ...rest], logins: Arr.map(built, (b) => b.server), ...connection }
+	return {
+		schemas: [first, ...rest],
+		logins: Arr.map(built, (b) => b.server),
+		migrations: "migrations",
+		connection: connectionOf(cluster, spec.connection)
+	}
 }
 
 /** The file a workspace's spec lies in, which its grizzle.config.ts builds its configuration from. */
@@ -222,7 +249,7 @@ export const writeConfigText = (
 ): Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		yield* fs.writeFileString(`${dir}/${configFileName}`, text)
+		yield* fs.writeFileString(`${dir}/${configName}`, text)
 	})
 
 /**
@@ -298,36 +325,34 @@ const text = (lines: ReadonlyArray<string>): string =>
 	lines.length === 0 ? "" : `${Arr.join(lines, "\n")}\n`
 
 /**
- * The configuration of the spec writeConfig wrote in `dir`, as the bin imports it: none without a spec.
+ * The configuration file at `file`, as the bin imports it: the configuration of the spec writeConfig wrote beside it,
+ * or refused as missing when no configuration file is there.
  */
-const workspaceConfig = (
-	dir: string
-): Effect.Effect<ConfigFile, CliError, FileSystem.FileSystem | Path.Path> =>
+const workspaceConfig: ConfigLoader = (file) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		if (!(yield* Effect.orDie(fs.exists(`${dir}/${specFileName}`)))) {
-			return yield* cliError(new ConfigMissing({ directory: dir }))
+		const path = yield* Path.Path
+		if (!(yield* Effect.orDie(fs.exists(file)))) {
+			return yield* cliError(new ConfigMissing({ file }))
 		}
-		const config = yield* Effect.orDie(specConfig(dir))
+		const config = yield* Effect.orDie(specConfig(path.dirname(file)))
 		const value = defineConfig(config)
-		const loaded: ConfigFile = { file: `${dir}/${configFileName}`, value }
+		const loaded: ConfigFile = { file, value }
 		return loaded
 	})
 
 /**
- * Runs a command line in process in `dir` at `now`, with the environment `env` as its ConfigProvider, over the
- * configuration `configFile`; its report's lines read back as the text the bin writes.
+ * Runs a command line in process in `dir` at `now`, its configuration file imported by `load`; its report's lines
+ * read back as the text the bin writes.
  */
 const runIn = (
 	dir: string,
-	configFile: Effect.Effect<ConfigFile, CliError, FileSystem.FileSystem | Path.Path>,
+	load: ConfigLoader,
 	argv: ReadonlyArray<string>,
-	now: DateTime.Utc,
-	env: Readonly<Record<string, string>>
+	now: DateTime.Utc
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
-	runCli(argv, dir, configFile).pipe(
+	runCli(argv, dir, load).pipe(
 		Effect.provideService(Clock.Clock, fixedClock(now)),
-		Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromUnknown(env)),
 		Effect.map((report) => ({
 			code: report.code,
 			stdout: text(report.stdout),
@@ -336,22 +361,21 @@ const runIn = (
 	)
 
 /**
- * Runs a command line in process in `dir` at `now`, with the environment `env` as its ConfigProvider, over the
- * configuration of the spec writeConfig wrote there; its report's lines read back as the text the bin writes.
+ * Runs a command line in process in `dir` at `now`, over the configuration of the spec writeConfig wrote beside the
+ * configuration file it names; its report's lines read back as the text the bin writes.
  *
  * @internal
  */
 export const cli = (
 	dir: string,
 	argv: ReadonlyArray<string>,
-	now: DateTime.Utc,
-	env: Readonly<Record<string, string>>
+	now: DateTime.Utc
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
-	runIn(dir, workspaceConfig(dir), argv, now, env)
+	runIn(dir, workspaceConfig, argv, now)
 
 /**
- * Runs a command line in process in `dir` at `now` over `value`, a grizzle.config.ts's default export as the bin
- * imports it.
+ * Runs a command line in process in `dir` at `now` over `value`, the default export of whatever configuration file it
+ * names, as the bin imports it.
  *
  * @internal
  */
@@ -361,7 +385,7 @@ export const cliOver = (
 	argv: ReadonlyArray<string>,
 	now: DateTime.Utc
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
-	runIn(dir, Effect.succeed({ file: `${dir}/${configFileName}`, value }), argv, now, {})
+	runIn(dir, (file) => Effect.succeed({ file, value }), argv, now)
 
 /** What the bin did: its exit code and its output. */
 export interface BinRun {

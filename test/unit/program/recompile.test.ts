@@ -5,12 +5,13 @@ import { exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import * as Result from "#compiler/core/result.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { type QueryTemplate, queryInput } from "#compiler/program/compile.ts"
 import { type ExecutionRequest, templateFor } from "#compiler/program/template.ts"
 import { schemaInputOf, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseGen } from "#test/support/oracle/public/generate.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
@@ -66,7 +67,7 @@ describe("compiling again", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, notes) =>
 						Effect.sync(() => {

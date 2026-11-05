@@ -5,7 +5,7 @@ import { element, type Gen, type GenValue, weighted } from "@grizzle/testing/gen
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { NodeId } from "#compiler/core/ids.ts"
@@ -16,9 +16,9 @@ import { makePassContext } from "#compiler/ir/pass.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { metaSpecOf, type NodeOf } from "#compiler/ir/rel.ts"
+import { conjuncts } from "#compiler/logical/props.ts"
 import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import { conjuncts } from "#compiler/lower/optimize/simplify/boolean.ts"
 import { carriedColumns, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -31,6 +31,7 @@ import { lowerAligned } from "#test/support/compile.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import { genCatalog, ownedSchemaFixture } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import {
@@ -120,7 +121,7 @@ describe("carried state columns (shapes/attach-recursive/carried.ts)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, note) =>
 						Effect.sync(() => {
@@ -450,7 +451,7 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							"also a root kept",
 							"read by another node kept"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([column, spelling, sharing], c) =>
 						Effect.sync(() => {
@@ -497,7 +498,7 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2),
+							caseHang,
 							coverage: required<GraphFeature>(
 								[
 									"the seed applies an origin filter",
@@ -560,7 +561,7 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2),
+							caseHang,
 							coverage: required<RecursiveFeature>(
 								["consumer:endFilter", "consumer:endNe", ["consumer:minLength", "form:walks"]],
 								{ cases: 60, sense: notesOnly }

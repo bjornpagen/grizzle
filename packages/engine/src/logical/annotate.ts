@@ -41,10 +41,10 @@ import { type ContainmentFact, delivery } from "#compiler/logical/attach.ts"
 import type { OrderSubject } from "#compiler/logical/order.ts"
 import {
 	fixedColumns,
+	logicalPropsOf,
 	type Props,
 	type PropsEnv,
-	type PropsReading,
-	propsOf
+	type PropsReading
 } from "#compiler/logical/props.ts"
 
 export interface LogicalEnv {
@@ -240,7 +240,7 @@ class Annotator<R extends Roots> {
 				mapNode<ValueRefs<Annotated>, ValueRefs<RelNode>>(values, keptRefs),
 				(a) => a.node
 			)
-			const props = propsOf(node, reading, propsEnv)
+			const props = logicalPropsOf(node, reading, propsEnv)
 			if (inputs.kind === "Base" && inputs.relationKind !== "relation") {
 				const [primaryKey, ...keys] = (env.keyedViews ? inputs.view : []).map((k) => k.fields)
 				const restated =

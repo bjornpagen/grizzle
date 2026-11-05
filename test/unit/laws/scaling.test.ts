@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import {
 	finishSnapshot,
@@ -31,6 +31,7 @@ import {
 	type SchemaDesc,
 	within
 } from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { oracleLogin } from "#test/support/oracle/install/real.ts"
 import { owning } from "#test/support/policy.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
@@ -436,7 +437,7 @@ describe("installation size", () => {
 						literal: Formatter.format,
 						limit: dimensions.length * 6,
 						coverage: requiredInSpace<Dimension>(dimensions),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(point, c) =>
 						Effect.gen(function* () {

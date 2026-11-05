@@ -14,7 +14,7 @@ export type BenchCommand =
 			readonly report: boolean
 	  }
 	| { readonly kind: "list"; readonly directories: ReadonlyArray<string> }
-	| { readonly kind: "suite"; readonly suite: "cold"; readonly args: ReadonlyArray<string> }
+	| { readonly kind: "suite"; readonly suite: Suite; readonly args: ReadonlyArray<string> }
 	| { readonly kind: "all"; readonly quick: boolean }
 	| { readonly kind: "full" }
 
@@ -24,9 +24,16 @@ class UsageError extends Data.TaggedError("UsageError")<{ readonly reason: strin
 const usage = (reason: string): Effect.Effect<never, UsageError> =>
 	Effect.fail(new UsageError({ reason }))
 
-const suiteEntries: Readonly<Record<"cold", string>> = {
-	cold: `${repoRoot}/bench/cold/main.ts`
+/** The benchmarks with an entry point of their own: the cold starts, and the subset construction (no database). */
+type Suite = "cold" | "dfa"
+
+const suiteEntries: Readonly<Record<Suite, string>> = {
+	cold: `${repoRoot}/bench/cold/main.ts`,
+	dfa: `${repoRoot}/bench/dfa/main.ts`
 }
+
+const suiteOf = (command: string | undefined): Option.Option<Suite> =>
+	Arr.findFirst(["cold", "dfa"] as const, (s) => s === command)
 
 type Listed = "gates" | "list" | "all"
 
@@ -129,8 +136,9 @@ export const parseBenchArgs = Effect.fn("parseBenchArgs")(function* (
 	argv: ReadonlyArray<string>
 ): Effect.fn.Return<BenchCommand, UsageError, Path.Path> {
 	const [first, ...rest] = argv
-	if (first === "cold") {
-		return { kind: "suite", suite: first, args: rest } satisfies BenchCommand
+	const suite = suiteOf(first)
+	if (Option.isSome(suite)) {
+		return { kind: "suite", suite: suite.value, args: rest } satisfies BenchCommand
 	}
 	const named = first !== undefined && !Str.startsWith("--")(first)
 	const command = named ? first : "gates"
@@ -173,7 +181,7 @@ export const parseBenchArgs = Effect.fn("parseBenchArgs")(function* (
  * @internal
  */
 export const runSuite = Effect.fn("runSuite")(function* (
-	suite: "cold",
+	suite: Suite,
 	args: ReadonlyArray<string>
 ): Effect.fn.Return<number, PlatformError.PlatformError, ChildProcessSpawner.ChildProcessSpawner> {
 	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner

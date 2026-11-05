@@ -11,6 +11,7 @@
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
 import {
 	asc,
@@ -150,7 +151,7 @@ export const workModel = (): SchemaModel => new SchemaModel(workFixture, {})
 const reportsModel = (): SchemaModel => {
 	const work = new SchemaModel(workFixture, {})
 	const account = work.type("Task", "account")
-	const sumType = work.fieldType({ kind: "numeric" }, SourceLoc("AccountBudget.budget", []))
+	const sumType = numericValue({ digits: 38, scale: 0 })
 	const countType = work.fieldType(f.bigint, SourceLoc("AccountBudget.tasks", []))
 	return new SchemaModel(reportsFixture, {
 		AccountBudget: {

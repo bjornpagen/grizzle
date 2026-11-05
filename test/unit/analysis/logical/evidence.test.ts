@@ -5,7 +5,7 @@ import { array, boolean, constant, element, type Gen, map } from "@grizzle/testi
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { TestContext } from "vitest"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
@@ -23,6 +23,7 @@ import { typeLabel } from "#compiler/ir/scalar.ts"
 import { analyzeLogical, type LogicalEnv } from "#compiler/logical/annotate.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import {
 	defaultGenConfig,
@@ -569,7 +570,7 @@ const holdsOn = <S>(
 				shrink: completeShrink,
 				concurrency: 1,
 				steerEvery: 16,
-				caseHang: Duration.minutes(2)
+				caseHang
 			},
 			([drawnSketch, sketch], c) =>
 				Effect.sync(() => {
@@ -615,17 +616,14 @@ const holdsOn = <S>(
 	)
 
 describe("the logical analysis's claims hold on the facts", () => {
-	it.effect(
-		`keys and cardinality bounds over ${runs} generated cases`,
-		(ctx) =>
-			holdsOn(
-				ctx,
-				"unit/analysis/logical/evidence-keys",
-				sketchedCases(defaultGenConfig),
-				[],
-				["claimed at most one row", "claimed one row", "delivered option", "execution transaction"]
-			),
-		120_000
+	it.effect(`keys and cardinality bounds over ${runs} generated cases`, (ctx) =>
+		holdsOn(
+			ctx,
+			"unit/analysis/logical/evidence-keys",
+			sketchedCases(defaultGenConfig),
+			[],
+			["claimed at most one row", "claimed one row", "delivered option", "execution transaction"]
+		)
 	)
 
 	it.effect(
@@ -642,8 +640,7 @@ describe("the logical analysis's claims hold on the facts", () => {
 					"a correlated Take evaluated per outer tuple",
 					"an approximate search"
 				]
-			),
-		120_000
+			)
 	)
 
 	it.effect(
@@ -670,8 +667,7 @@ describe("the logical analysis's claims hold on the facts", () => {
 					"committedSnapshot containment",
 					"an orphaned containment inside a transaction"
 				]
-			),
-		120_000
+			)
 	)
 
 	it.effect(
@@ -683,8 +679,7 @@ describe("the logical analysis's claims hold on the facts", () => {
 				provingCases,
 				[],
 				["delivered one", "a filter over one row", "an orphaned containment inside a transaction"]
-			),
-		120_000
+			)
 	)
 })
 
@@ -708,7 +703,7 @@ const idempotentOn = <S>(
 				shrink: completeShrink,
 				concurrency: 1,
 				steerEvery: 16,
-				caseHang: Duration.minutes(2)
+				caseHang
 			},
 			([drawnSketch, sketch], c) =>
 				Effect.sync(() => {
@@ -781,7 +776,6 @@ describe("the logical analysis is idempotent", () => {
 				idempotentOn(ctx, "unit/analysis/logical/evidence-idempotent-bare", provingCases, [
 					"delivered one"
 				])
-			),
-		120_000
+			)
 	)
 })

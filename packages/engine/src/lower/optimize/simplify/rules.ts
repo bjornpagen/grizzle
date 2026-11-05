@@ -1,20 +1,13 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
-import {
-	type ColumnRef,
-	exprClosure,
-	type ScalarExpr,
-	type TypedLiteral
-} from "#compiler/ir/expr.ts"
+import type { ColumnRef, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 
 import {
 	type Cell,
 	type EditNode,
 	type EditRefs,
 	edgesOf,
-	exprsOf,
 	type Heading,
 	inputsOf,
 	type KindOver,
@@ -22,20 +15,21 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
+import { conjuncts } from "#compiler/logical/props.ts"
 import type { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
-	type Measure,
 	nodePremises,
+	type Potential,
 	type RewriteCx,
 	type Rule
 } from "#compiler/lower/optimize/demand/frame.ts"
-import { allenNormal, endpointPredicates } from "#compiler/lower/optimize/simplify/allen.ts"
+import { allenNormal } from "#compiler/lower/optimize/simplify/allen.ts"
 import {
 	conjunction,
-	conjuncts,
 	foldBoolean,
 	foldedExpr,
+	folds,
 	noColumns
 } from "#compiler/lower/optimize/simplify/boolean.ts"
 import { firstOperand, nativeOp } from "#compiler/scalar/compute/registry.ts"
@@ -169,20 +163,23 @@ const foldFilter: Rule = {
 	}
 }
 
-const allenRule: Rule = {
-	name: simplifyRules.allen,
-	at: (cell, cx) => {
+/**
+ * simplify.allen, once over every filter: a filter's predicate in Allen normal form (allen.ts), which no other
+ * simplification takes out of normal form, since none writes an endpoint comparison, and folding, merging and
+ * equality propagation only drop parts of a predicate or conjoin normal ones. So the normal form is one traversal, run
+ * before the rewrite pass (index.ts), and no rule of that pass need lower an endpoint count.
+ */
+export const allenNormalForm = (cx: RewriteCx): void => {
+	for (const cell of cx.editor.topoOrder()) {
 		const node = cell.current
-		if (node.kind !== "Filter") {
-			return false
+		if (node.kind !== "Filter" || cx.editor.readsFeedback(cell)) {
+			continue
 		}
 		const pred = allenNormal(cx.editor, node.pred)
-		if (pred === undefined) {
-			return false
+		if (pred !== undefined) {
+			certify(cx, simplifyRules.allen, [node.input.id], node.heading, [cell.id])
+			cx.editor.set(cell, { ...node, pred })
 		}
-		certify(cx, simplifyRules.allen, [node.input.id], node.heading, [cell.id])
-		cx.editor.set(cell, { ...node, pred })
-		return true
 	}
 }
 
@@ -595,16 +592,15 @@ const equality: Rule = {
  * - simplify.equality: a `var = var` conjunct of a filter over a region read by nothing else becomes a region
  *   equality ("an equality is reserved for var = var between distinct variables"), where key propagation
  *   reads it;
- * - simplify.allen: a filter's predicate in Allen normal form (allen.ts): the comparisons and memberships of span
- *   endpoints over one pair of spans, with the Allen atoms over that pair beside them, as the table formula of their
- *   mask, so predicate movement and the shapes meet range operators.
+ * - simplify.allen, before them all, once (allenNormalForm): a filter's predicate in Allen normal form (allen.ts): the
+ *   comparisons and memberships of span endpoints over one pair of spans, with the Allen atoms over that pair beside
+ *   them, as the table formula of their mask, so predicate movement and the shapes meet range operators.
  *
- * The measure is (endpoint predicates in filter predicates, non-leaf nodes, nodes, input edges, expression tree
- * size), lexicographic: simplify.allen removes endpoint predicates; every other rule removes a non-leaf node, an edge,
- * or part of a predicate, and adds none of the earlier components.
+ * The potential (simplificationPotential) weighs the structure above the expressions: every rule removes a non-leaf
+ * node, a node or an input edge and adds none, or in place folds a predicate or takes a filter's equalities into its
+ * region.
  */
 export const simplificationRules: ReadonlyArray<Rule> = [
-	allenRule,
 	foldFilter,
 	finiteFold,
 	emptyRule,
@@ -615,27 +611,59 @@ export const simplificationRules: ReadonlyArray<Rule> = [
 ]
 
 /**
- * (endpoint predicates in filter predicates, non-leaf nodes, nodes, input edges, expression tree size) of the
- * reachable DAG.
+ * What the simplification potential reads of the reachable DAG: its shape, its nodes, non-leaf nodes and input edges
+ * together; its unfolded filters, whose predicate folding changes (boolean.ts folds); and its equated filters, those
+ * over a region with a `var = var` conjunct over the region's own variables (variableEquality), which equality
+ * propagation takes.
  */
-export const simplificationMeasure: Measure = (cx) => {
-	let endpoints = 0
-	let nonLeaf = 0
-	let nodes = 0
-	let edges = 0
-	let tree = 0
-	for (const node of topoOrder(cx.dag().dag)) {
-		nodes++
-		if (inputsOf(node).length > 0) {
-			nonLeaf++
+interface Standing {
+	readonly shape: number
+	readonly unfolded: number
+	readonly equated: number
+}
+
+const standingOf = (cx: RewriteCx): Standing => {
+	let shape = 0
+	let unfolded = 0
+	let equated = 0
+	for (const cell of cx.editor.topoOrder()) {
+		const node = cell.current
+		shape += 1 + (inputsOf(node).length > 0 ? 1 : 0) + edgesOf(node).length
+		if (node.kind !== "Filter") {
+			continue
 		}
-		edges += edgesOf(node).length
-		for (const e of exprsOf(node)) {
-			tree += exprClosure([e]).length
+		if (folds(node.pred, noColumns)) {
+			unfolded++
 		}
-		if (node.kind === "Filter") {
-			endpoints += endpointPredicates([node.pred])
+		const regionCell = node.input
+		const region = regionCell.current
+		if (
+			region.kind === "MatchRegion" &&
+			conjuncts(node.pred).some((c) => variableEquality(regionCell.id, region, c) !== undefined)
+		) {
+			equated++
 		}
 	}
-	return [endpoints, nonLeaf, nodes, edges, tree]
+	return { shape, unfolded, equated }
+}
+
+/**
+ * The simplification potential: W × (shape + unfolded) + equated (Standing), W one more than the filters the pass
+ * starts with.
+ *
+ * No rule adds a node or makes one reachable, so the pass never holds more filters than it starts with, and equated
+ * stays below W. No rule raises unfolded: a merged filter conjoins the conjuncts of the two it merges, an equality
+ * propagated keeps the rest of its filter's conjuncts, and a redirection retargets column references, none of which
+ * folding decides. Every rule but two removes a node, a non-leaf node or an input edge, lowering shape by at least
+ * one and W × shape by more than equated can rise. The two that keep shape work in place: a fold leaves a predicate
+ * folding leaves unchanged, which lowers unfolded by one and raises equated by at most one, its own filter's; an
+ * equality propagated leaves its filter none of the conjuncts it takes, which lowers equated by one. So every rule
+ * lowers it, and its first value is quadratic in the pass's DAG.
+ */
+export const simplificationPotential = (start: RewriteCx): Potential => {
+	const weight = start.editor.topoOrder().filter((c) => c.current.kind === "Filter").length + 1
+	return (cx) => {
+		const now = standingOf(cx)
+		return weight * (now.shape + now.unfolded) + now.equated
+	}
 }

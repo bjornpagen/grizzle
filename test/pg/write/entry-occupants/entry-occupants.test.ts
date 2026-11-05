@@ -14,16 +14,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	Result
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -45,6 +36,7 @@ import { str } from "#compiler/public/text.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { loginLayer, tokenOf } from "#test/support/worlds.ts"
@@ -280,7 +272,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 									shrink: completeShrink,
 									concurrency: 1,
 									steerEvery: 16,
-									caseHang: Duration.minutes(2)
+									caseHang
 								},
 								(c, cx) =>
 									Effect.gen(function* () {
@@ -385,7 +377,6 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 						return yield* Effect.scoped(explored).pipe(withLayer(loginLayer(m, desk)))
 					})
 				)
-			),
-		600_000
+			)
 	)
 })

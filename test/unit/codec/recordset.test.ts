@@ -16,16 +16,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record, String as Str } from "effect"
 import {
 	arraysEncoder,
 	arrayTexts,
@@ -47,6 +38,7 @@ import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { types } from "#test/unit/codec/support.ts"
 import { asDecimal } from "#test/unit/codec/values.ts"
 
@@ -144,7 +136,7 @@ describe("relation normalization", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ facts, at, plant, field, bad }, c) =>
 							Effect.sync(() => {
@@ -231,7 +223,7 @@ describe("relation normalization", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ start, width }, c) =>
 							Effect.sync(() => {
@@ -279,7 +271,7 @@ describe("relation normalization", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([facts, seed]) =>
 						Effect.sync(() => {
@@ -350,7 +342,7 @@ describe("relation normalization", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(facts) =>
 							Effect.sync(() => {
@@ -366,106 +358,108 @@ describe("relation normalization", () => {
 			})
 	)
 
-	it.effect("encodes canonically whatever input spelling equal facts' bare numerics took", (ctx) =>
-		Effect.gen(function* () {
-			const spec: RelationSpec = {
-				relation: "Scaled",
-				columns: positionalColumns([
-					{ name: "k", type: types.int4 },
-					{ name: "n", type: types.numeric }
-				]),
-				slot: { kind: "none" }
-			}
-			const encode = arraysEncoder(spec)
-			const normalize = relationNormalizer(spec)
-			const spellings: Arr.NonEmptyReadonlyArray<string> = [
-				"1",
-				"1.0",
-				"1.00",
-				"1e0",
-				"10",
-				"1e1",
-				"10.0",
-				"-0",
-				"0.000"
-			]
-			const fact: Gen<Scaled> = (source) => ({
-				k: source.draw(int(0, 3)),
-				n: Decimal.of(source.draw(element(spellings)))
-			})
-			/**
-			 * One payload per k, spelled at random, so the distinct facts are exactly the drawn ones and most cases hold equal
-			 * facts spelled differently.
-			 */
-			const caseGen: Gen<{
-				readonly facts: ReadonlyArray<Scaled>
-				readonly extra: ReadonlyArray<Scaled>
-			}> = (source) => {
-				const facts = nonEmpty(
-					source.draw(uniqueArray(fact, (f) => f.k, { min: 1, max: 4 }, 20)),
-					"the distinct facts"
-				)
-				const extra = source.draw(
-					array(
-						(again) => {
-							const picked = again.draw(element(facts))
-							const spelled = again.draw(
-								element(
-									nonEmpty(
-										Arr.filter(spellings, (s) => Decimal.of(s).equals(picked.n)),
-										"a spelling of the picked value"
+	it.effect(
+		"encodes canonically whatever input spelling equal facts' numerics of no typmod took",
+		(ctx) =>
+			Effect.gen(function* () {
+				const spec: RelationSpec = {
+					relation: "Scaled",
+					columns: positionalColumns([
+						{ name: "k", type: types.int4 },
+						{ name: "n", type: types.numeric }
+					]),
+					slot: { kind: "none" }
+				}
+				const encode = arraysEncoder(spec)
+				const normalize = relationNormalizer(spec)
+				const spellings: Arr.NonEmptyReadonlyArray<string> = [
+					"1",
+					"1.0",
+					"1.00",
+					"1e0",
+					"10",
+					"1e1",
+					"10.0",
+					"-0",
+					"0.000"
+				]
+				const fact: Gen<Scaled> = (source) => ({
+					k: source.draw(int(0, 3)),
+					n: Decimal.of(source.draw(element(spellings)))
+				})
+				/**
+				 * One payload per k, spelled at random, so the distinct facts are exactly the drawn ones and most cases hold equal
+				 * facts spelled differently.
+				 */
+				const caseGen: Gen<{
+					readonly facts: ReadonlyArray<Scaled>
+					readonly extra: ReadonlyArray<Scaled>
+				}> = (source) => {
+					const facts = nonEmpty(
+						source.draw(uniqueArray(fact, (f) => f.k, { min: 1, max: 4 }, 20)),
+						"the distinct facts"
+					)
+					const extra = source.draw(
+						array(
+							(again) => {
+								const picked = again.draw(element(facts))
+								const spelled = again.draw(
+									element(
+										nonEmpty(
+											Arr.filter(spellings, (s) => Decimal.of(s).equals(picked.n)),
+											"a spelling of the picked value"
+										)
 									)
 								)
-							)
-							return { k: picked.k, n: Decimal.of(spelled) }
+								return { k: picked.k, n: Decimal.of(spelled) }
+							},
+							{ min: 0, max: 8 }
+						)
+					)
+					return { facts, extra }
+				}
+				yield* searched(
+					ctx,
+					explore(
+						{
+							suite: "unit/codec/recordset-1935892844",
+							draw: drawn(
+								(source) => [source.draw(caseGen), source.draw(int(0, 2 ** 31 - 1))] as const
+							),
+							literal: Formatter.format,
+							coverage: noCoverage,
+							kept: [],
+							runs: 500,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
 						},
-						{ min: 0, max: 8 }
+						([{ facts, extra }, seed]) =>
+							Effect.sync(() => {
+								const all = [...facts, ...extra]
+								const shuffled = Arr.map(
+									Arr.sort(
+										Arr.map(all, (fact, i) => ({ fact, r: (i * 2654435761 + seed) % 4294967296 })),
+										Order.mapInput(Order.Number, (x: { readonly r: number }) => x.r)
+									),
+									(x) => x.fact
+								)
+								const first = succeeded(encode(all))
+								const second = succeeded(encode(Arr.reverse([...shuffled])))
+								assert.deepEqual(second.arrays, first.arrays)
+								assert.equal(first.count, facts.length)
+								const a = succeeded(normalize(all))
+								const b = succeeded(normalize(shuffled))
+								assert.deepEqual(b.rows, a.rows)
+								assert.deepEqual(
+									Arr.map(b.facts, (f) => asDecimal(f["n"]).toString()),
+									Arr.map(a.facts, (f) => asDecimal(f["n"]).toString())
+								)
+							})
 					)
 				)
-				return { facts, extra }
-			}
-			yield* searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/codec/recordset-1935892844",
-						draw: drawn(
-							(source) => [source.draw(caseGen), source.draw(int(0, 2 ** 31 - 1))] as const
-						),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 500,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang: Duration.minutes(2)
-					},
-					([{ facts, extra }, seed]) =>
-						Effect.sync(() => {
-							const all = [...facts, ...extra]
-							const shuffled = Arr.map(
-								Arr.sort(
-									Arr.map(all, (fact, i) => ({ fact, r: (i * 2654435761 + seed) % 4294967296 })),
-									Order.mapInput(Order.Number, (x: { readonly r: number }) => x.r)
-								),
-								(x) => x.fact
-							)
-							const first = succeeded(encode(all))
-							const second = succeeded(encode(Arr.reverse([...shuffled])))
-							assert.deepEqual(second.arrays, first.arrays)
-							assert.equal(first.count, facts.length)
-							const a = succeeded(normalize(all))
-							const b = succeeded(normalize(shuffled))
-							assert.deepEqual(b.rows, a.rows)
-							assert.deepEqual(
-								Arr.map(b.facts, (f) => asDecimal(f["n"]).toString()),
-								Arr.map(a.facts, (f) => asDecimal(f["n"]).toString())
-							)
-						})
-				)
-			)
-		})
+			})
 	)
 
 	it.effect(
@@ -499,7 +493,7 @@ describe("relation normalization", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([width, rows]) =>
 						Effect.sync(() => {
@@ -634,7 +628,7 @@ describe("the arrays of every field type", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(facts) =>
 							Effect.sync(() => {

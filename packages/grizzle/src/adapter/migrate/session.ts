@@ -26,27 +26,24 @@ import {
 	type Transaction
 } from "#adapter/wire/batch.ts"
 
-import {
-	connectSession,
-	type Password,
-	type Session,
-	type TlsConfig
-} from "#adapter/wire/session.ts"
+import type { ParsedConnection } from "#adapter/connection/config.ts"
+import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { type CatalogQuery, catalogRow, catalogRows } from "#adapter/wire/statement.ts"
 
 /**
  * The migration identity's session.
  *
  * `grizzle migrate` runs as the migration identity, which owns the schema. It is no login of the application: it has
- * none of the logins' fixed defaults and enters no role, so it does not go through the pool. It opens one session with the
- * adapter's verify-full TLS and per-attempt password (../wire/session.ts), holds it for the whole apply, and sends
- * every step itself. A step is a list of statements sent together, in one flight (../wire/batch.ts): every statement
- * of it is written before any answer is read, so no statement of a step can wait on another's answer, and the session
- * sends nothing else. A step is statements apart, each its own implicit transaction (`apart`); statements apart in
- * front of one transaction (`alongside`); or a transactional file's transaction, its statements and ledger rows ending
- * with COMMIT (`transaction`). Statements are unnamed: a migration statement runs once. Nothing sets
- * statement_timeout or lock_timeout; interruption cancels the flight in flight and the
- * session is closed, which rolls an open transaction back.
+ * none of the logins' fixed defaults and enters no role, so it does not go through the pool. It opens one session over
+ * the connection's driver and transport, with the adapter's verify-full TLS, per-attempt password and the connection's
+ * connect timeout (../wire/session.ts), holds it for the whole apply, and sends every step itself. A step is a list of
+ * statements sent together, in one flight (../wire/batch.ts): every statement of it is written before any answer is
+ * read, so no statement of a step can wait on another's answer, and the session sends nothing else. A step is
+ * statements apart, each its own implicit transaction (`apart`); statements apart in front of one transaction
+ * (`alongside`); or a transactional file's transaction, its statements and ledger rows ending with COMMIT
+ * (`transaction`). Statements are unnamed: a migration statement runs once. Nothing sets statement_timeout or
+ * lock_timeout; an interruption sends one CancelRequest for the flight in flight and destroys the session, which rolls
+ * an open transaction back.
  */
 export interface MigrationSession {
 	/**
@@ -116,19 +113,12 @@ export const migrationSession = (session: Session): MigrationSession => ({
 })
 
 /**
- * Where the migration identity connects: the destination, the role, its password and TLS. The
+ * Where the migration identity connects: a connection parsed (connection/config.ts), and the role it logs in as. The
  * command line reads it from its configuration.
  */
-export interface MigrationConnection {
-	readonly host: string
-	readonly port: number
-	readonly database: string
+export interface MigrationConnection extends ParsedConnection {
 	readonly role: string
-	readonly password: Password
-	readonly tls: TlsConfig
 }
-
-export const applicationName = "grizzle migrate"
 
 /**
  * Opens the migration identity's session, closed with the scope. A connection failure is a MigrateError whose reason,
@@ -138,19 +128,15 @@ export const applicationName = "grizzle migrate"
 export const openMigrationSession = (
 	spec: MigrationConnection
 ): Effect.Effect<MigrationSession, MigrateError, Scope.Scope> =>
-	Effect.mapBoth(
-		connectSession({
-			host: spec.host,
-			port: spec.port,
-			database: spec.database,
-			role: spec.role,
-			password: spec.password,
-			transport: { _tag: "tls", tls: spec.tls },
-			applicationName
-		}),
-		{
-			onFailure: (refusal) =>
-				stopped(new ConnectRefused({ role: spec.role, host: spec.host, port: spec.port, refusal })),
-			onSuccess: migrationSession
-		}
-	)
+	Effect.mapBoth(connectSession(spec), {
+		onFailure: (refusal) =>
+			stopped(
+				new ConnectRefused({
+					role: spec.role,
+					host: spec.transport.host,
+					port: spec.transport.port,
+					refusal
+				})
+			),
+		onSuccess: migrationSession
+	})

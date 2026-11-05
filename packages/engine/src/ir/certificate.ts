@@ -96,7 +96,6 @@ type ShapeRule =
 	| "R20.distinctOn"
 	| "R20.rowNumber"
 	| "R24.conditionalCount"
-	| "recursion.unroll"
 	| "approximateNearest.indexed"
 	| "approximateNearest.deduplicated"
 

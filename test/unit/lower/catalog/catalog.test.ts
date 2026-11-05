@@ -13,7 +13,7 @@ import {
 	oneOf
 } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal, encode, everyProperty } from "#compiler/core/canonical.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
@@ -44,6 +44,7 @@ import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { catalogDispatch } from "#test/support/compile.ts"
 import type { AuthoredExprDesc as ExprDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import * as D from "#test/unit/check/dsl.ts"
@@ -218,7 +219,7 @@ describe("R26: the lexicographic comparison in any spelling", () => {
 							"negated successor recognized",
 							"conjunctive kept"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([spelling, order, inclusive], c) =>
 						Effect.sync(() => {
@@ -350,7 +351,7 @@ describe("R26 and R41: the self-match's own conditions", () => {
 							"running maximum windowed",
 							"running maximum kept"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(shape, c) =>
 						Effect.sync(() => {
@@ -368,13 +369,15 @@ describe("R26 and R41: the self-match's own conditions", () => {
 })
 
 /**
- * The fractions a percentile is drawn from: p = 0, dyadic fractions within (0, 1] and 3/128 (dyadic, past 2^6), the
- * decimals 0.07, 0.1 and 0.3, whose products the numeric ceil can round, and fractions outside [0, 1].
+ * The fractions a percentile is drawn from: p = 0, dyadic fractions within (0, 1], 3/128 (dyadic at 2^7, the derived
+ * bound) and 3/256 (dyadic, past it), the decimals 0.07, 0.1 and 0.3, whose products the numeric ceil can round, and
+ * fractions outside [0, 1].
  */
 const fractions = [
 	0,
 	1 / 64,
 	3 / 128,
+	3 / 256,
 	0.07,
 	0.1,
 	0.25,
@@ -388,10 +391,11 @@ const fractions = [
 ] as const
 
 /**
- * The documented gate on a discrete fraction: within (0, 1], and m / 2^j with j at most 6, which the product of 64
- * alone shows exactly.
+ * The documented gate on a discrete fraction: within (0, 1], and m / 2^j with j at most 7 (percentile.ts
+ * maxDyadicExponent, derived from PostgreSQL's stored-relation row bound and float8_numeric's digits), which the
+ * product of 128 alone shows exactly.
  */
-const discreteAdmits = (p: number): boolean => p > 0 && p <= 1 && Number.isInteger(p * 64)
+const discreteAdmits = (p: number): boolean => p > 0 && p <= 1 && Number.isInteger(p * 128)
 
 type StageKind =
 	| "ordinals joined on the group"
@@ -425,13 +429,13 @@ describe("R29 and R30: percentiles", () => {
 									])
 								)
 							] as const,
-						limit: 546,
+						limit: 630,
 						coverage: requiredInSpace<"rewritten" | "a fraction refused" | "a stage refused">([
 							"rewritten",
 							"a fraction refused",
 							"a stage refused"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([ps, stage], c) =>
 						Effect.sync(() => {
@@ -465,9 +469,9 @@ describe("R29 and R30: percentiles", () => {
 								source.draw(element(fractions)),
 								source.draw(element<"score" | "amount">(["score", "amount"]))
 							] as const,
-						limit: 26,
+						limit: 28,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([p, over], c) =>
 						Effect.sync(() => {
@@ -501,7 +505,7 @@ describe("R31: the mode", () => {
 							] as const,
 						limit: 8,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([tiebreak, k, count], c) =>
 						Effect.sync(() => {
@@ -600,7 +604,7 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 							"attached as-of rewritten",
 							"attached as-of probed"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([n, parents], c) =>
 						Effect.sync(() => {
@@ -639,7 +643,7 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 							"the prices' day retyped bigint",
 							"the take's order reversed"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([mode, edit], c) =>
 						Effect.sync(() => {
@@ -708,7 +712,7 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 						generator: modes,
 						limit: 3,
 						coverage: requiredInSpace<"le" | "lt" | "ge">(["le", "lt", "ge"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(mode, c) =>
 						Effect.sync(() => {
@@ -760,7 +764,7 @@ describe("R28: shares", () => {
 						generator: shares,
 						limit: 8,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(share, c) =>
 						Effect.sync(() => {
@@ -815,7 +819,7 @@ describe("determinism and the catalog pass", () => {
 						generator: compositions,
 						limit: 44,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(desc, c) =>
 						Effect.sync(() => {

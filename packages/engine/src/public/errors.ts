@@ -1,6 +1,5 @@
 export type {
 	ClaimRule,
-	DatumUnbounded,
 	DerivedRefusal,
 	EntryKind,
 	InexactConversion,

@@ -208,7 +208,8 @@ interface ContractParts {
  * The admission core of contract: a JavaScript caller can pass anything in every position. `rest` is what follows the
  * base: none or an undefined predicate is contract(name, base), one predicate, which buildPredicate checks is a
  * callback, contract(name, base, predicate), the facts it proves after it contract(name, base, predicate, { proves }),
- * and more are refused. The predicate is read once, here.
+ * and more are refused. A serial base is refused before the predicate runs: it is a generation declaration, not a
+ * value domain. The predicate is read once, here.
  */
 export const contractParts = (
 	name: unknown,
@@ -224,16 +225,15 @@ export const contractParts = (
 		)
 	}
 	const contract = declared.value
-	if (rest.length > 2) {
+	const [predicate, declaration, ...extra] = rest
+	if (extra.length > 0) {
 		throw malformedDescription(
 			captureLoc(`contract ${contract}`, []),
 			"contract(name, base), contract(name, base, predicate) or contract(name, base, predicate, { proves })"
 		)
 	}
-	const [predicate, declaration] = rest
 	const described = describeFieldOrThrow(base, SourceLoc(`contract ${contract} base`, []))
 	const loc = captureLoc(`contract ${contract}`, [])
-	/** A serial base is refused before the predicate runs: it is a generation declaration, not a value domain. */
 	const domain = contractType(contract, described.scalar, loc, undefined, [])
 	if (!domain.ok) {
 		throw domain.error

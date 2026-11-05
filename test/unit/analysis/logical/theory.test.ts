@@ -5,7 +5,7 @@ import { array, boolean, element, int, shuffled, subarray } from "@grizzle/testi
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import {
 	immediateEvidence,
 	lawIdentityOf,
@@ -45,6 +45,7 @@ import {
 import * as P from "#test/support/fixtures/ir/payroll.ts"
 import * as Q from "#test/support/fixtures/ir/queue.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	type HostFacts,
 	theoryOf,
@@ -120,7 +121,7 @@ describe("span laws", () => {
 						"one span field",
 						"two span fields"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(spans, c) =>
 					Effect.sync(() => {
@@ -190,7 +191,7 @@ describe("field-compatibility classes", () => {
 							"two rosters sharing handles",
 							"a capacity across carriers"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(pairing, c) =>
 						Effect.sync(() => {
@@ -399,7 +400,7 @@ describe("violation queries mean what their laws say", () => {
 							"lawful",
 							"several at once"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(applied, c) =>
 						Effect.sync(() => {
@@ -458,7 +459,7 @@ describe("violation queries mean what their laws say", () => {
 							"a self-managed employee",
 							"lawful"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(managers, c) =>
 						Effect.sync(() => {
@@ -519,7 +520,7 @@ describe("violation queries mean what their laws say", () => {
 							"lawful",
 							"labels"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([names, labels], c) =>
 						Effect.sync(() => {
@@ -622,7 +623,7 @@ describe("violation queries mean what their laws say", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([budgets, draws], c) =>
 						Effect.sync(() => {
@@ -702,7 +703,7 @@ describe("evidence and its validity context", () => {
 							"a candidate key",
 							"a primary key alone"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ t, relation, owned }, c) =>
 						Effect.sync(() => {
@@ -741,7 +742,7 @@ describe("evidence and its validity context", () => {
 							"a roster membership",
 							"a committed-snapshot containment"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ t, containment }, c) =>
 						Effect.sync(() => {
@@ -787,7 +788,7 @@ describe("evidence and its validity context", () => {
 						literal: Formatter.format,
 						limit: 64,
 						coverage: requiredInSpace<"none named" | "some named">(["none named", "some named"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(named, c) =>
 						Effect.sync(() => {
@@ -871,7 +872,7 @@ describe("law identities", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([order, added, at], c) =>
 						Effect.sync(() => {
@@ -934,7 +935,7 @@ describe("law identities", () => {
 						"one declaration",
 						"two declarations"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(declared, c) =>
 					Effect.sync(() => {

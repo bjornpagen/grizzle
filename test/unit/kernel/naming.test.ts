@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import type { SchemaDesc, StatementDesc } from "#compiler/ir/desc.ts"
@@ -43,6 +43,7 @@ import {
 	lawNamesOf,
 	type NamingSubject
 } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
@@ -222,7 +223,7 @@ describe("production names from src", () => {
 						/** The space is the two levels: the base schema and the schema that extends it. */
 						limit: 2,
 						coverage: requiredInSpace<keyof typeof levels>(["Payroll", "Reporting"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(name, c) =>
 						Effect.sync(() => {
@@ -274,7 +275,7 @@ describe("production names from src", () => {
 						 */
 						limit: 84,
 						coverage: requiredInSpace<ShapeFeature>(["and under or", "singleton and"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(shape, c) =>
 						Effect.sync(() => {
@@ -312,7 +313,7 @@ describe("production names from src", () => {
 							"checked contract",
 							"text domain"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(name, c) =>
 						Effect.sync(() => {

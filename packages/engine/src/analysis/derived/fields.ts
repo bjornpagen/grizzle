@@ -2,9 +2,15 @@ import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import {
+	contractOf,
+	isNumericValue,
+	type NumericValueType,
+	type ScalarType,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 import { wildcardFlags, wildcardSource } from "#compiler/text/refinement.ts"
 
@@ -14,12 +20,23 @@ type Undescribed =
 	| { readonly kind: "exact"; readonly type: string }
 
 /**
- * The field descriptor of one inferred column type. `contracts` are the owned schema's contracts: a contract column's
- * descriptor is the schema's own declaration of that contract, so a derived field and a declared field of one
- * contract are one descriptor.
+ * The field descriptor of one inferred column type: a computed numeric's bound, or the descriptor a declaration of the
+ * type writes (declaredDescOf). `contracts` are the owned schema's contracts.
  */
 export const fieldDescOf = (
 	type: ScalarType,
+	contracts: Readonly<Record<string, OwnedContract>>
+): Result.Result<InferredFieldDesc, Undescribed> =>
+	isNumericValue(type)
+		? Result.ok({ kind: "computedNumeric", bound: type.bound })
+		: declaredDescOf(type, contracts)
+
+/**
+ * The descriptor a declaration of `type` writes. A contract column's descriptor is the schema's own declaration of that
+ * contract, so a derived field and a declared field of one contract are one descriptor.
+ */
+export const declaredDescOf = (
+	type: Exclude<ScalarType, NumericValueType>,
 	contracts: Readonly<Record<string, OwnedContract>>
 ): Result.Result<FieldDesc, Undescribed> => {
 	const contract = contractOf(type)
@@ -47,14 +64,12 @@ export const fieldDescOf = (
 			return Result.ok({ kind: "pg", type: "boolean" })
 		case "uuid":
 			return Result.ok({ kind: "uuid" })
-		case "numeric": {
-			const { typmod } = type
-			return Result.ok(
-				typmod === undefined
-					? { kind: "numeric" }
-					: { kind: "numeric", precision: typmod.precision, scale: typmod.scale }
-			)
-		}
+		case "numeric":
+			return Result.ok({
+				kind: "numeric",
+				precision: type.typmod.precision,
+				scale: type.typmod.scale
+			})
 		case "text": {
 			const { regex } = type.text
 			return Result.ok(
@@ -67,7 +82,7 @@ export const fieldDescOf = (
 			return Result.ok({ kind: "closedId", roster: type.roster.closed })
 		case "range4":
 		case "range8": {
-			const endpoint = fieldDescOf(type.span.endpoint, contracts)
+			const endpoint = declaredDescOf(type.span.endpoint, contracts)
 			if (!endpoint.ok) {
 				return endpoint
 			}
@@ -88,15 +103,17 @@ export const fieldDescOf = (
  *
  * Every term in a definition's head carries its descriptor, so a derived relation's heading needs no restatement: the
  * checker types each head term exactly as PostgreSQL types the expression it lowers to (check/checker.ts), and this
- * module states that type as the field descriptor a declaration would have written (ir/desc.ts FieldDesc), the
- * vocabulary of the schema snapshot. The rules it realizes, each pinned by test/unit/derived/fields.test.ts:
+ * module states that type as the field descriptor a declaration would have written (ir/desc.ts FieldDesc), or as the
+ * computed numeric no declaration writes (ir/desc.ts InferredFieldDesc). The rules it realizes, each pinned by
+ * test/unit/derived/fields.test.ts:
  *
  * - `r.count()` is `pg.bigint`;
  * - `r.sum` is the native SUM result type: smallint and integer give bigint, bigint and numeric give numeric, real and
  *   double precision keep their type; money gives exact money, which no field holds (a stored money total sums the
  *   amounts cast to numeric); `r.mean` is the native AVG result type:
  *   numeric over the integers and numeric, double precision over the floats. A numeric result carries no typmod, since
- *   SUM and AVG do not inherit an input precision or scale;
+ *   SUM and AVG do not inherit an input precision or scale, but the bound its definition proves (ir/scalar.ts
+ *   NumericBound), which every read of the field then has;
  * - a contract field, or its `min` or `max`, keeps its brand and its domain; its `sum` or `mean` has its base's result
  *   type;
  * - a regex-refined text field keeps its pattern; a computed text value whose pattern is not preserved has the
@@ -109,15 +126,16 @@ export const inferredFields = <C extends HeadingColumn>(
 	relation: string,
 	heading: NonEmptyReadonlyArray<C>,
 	contracts: Readonly<Record<string, OwnedContract>>
-): Result.Result<NonEmptyReadonlyArray<C & { readonly desc: FieldDesc }>, CompileError> => {
+): Result.Result<NonEmptyReadonlyArray<C & { readonly desc: InferredFieldDesc }>, CompileError> => {
 	const [first, ...rest] = heading
 	const head = describedColumn(relation, first, contracts)
 	if (!head.ok) {
 		return head
 	}
-	const out: [C & { readonly desc: FieldDesc }, ...Array<C & { readonly desc: FieldDesc }>] = [
-		head.value
-	]
+	const out: [
+		C & { readonly desc: InferredFieldDesc },
+		...Array<C & { readonly desc: InferredFieldDesc }>
+	] = [head.value]
 	for (const c of rest) {
 		const described = describedColumn(relation, c, contracts)
 		if (!described.ok) {
@@ -133,7 +151,7 @@ const describedColumn = <C extends HeadingColumn>(
 	relation: string,
 	c: C,
 	contracts: Readonly<Record<string, OwnedContract>>
-): Result.Result<C & { readonly desc: FieldDesc }, CompileError> => {
+): Result.Result<C & { readonly desc: InferredFieldDesc }, CompileError> => {
 	const desc = fieldDescOf(c.type, contracts)
 	if (!desc.ok) {
 		const at = SourceLoc(`derived ${relation} field ${c.name}`, [])

@@ -27,7 +27,6 @@ import {
 	type LawId,
 	makeIdSupply,
 	type NodeId,
-	type RaisedLawId,
 	type RelationIdent
 } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -169,20 +168,20 @@ type Merged =
 			readonly kind: "primary"
 			readonly relation: RelationInfo
 			readonly object: PrimaryNative
-			readonly laws: [RaisedLawId, ...Array<RaisedLawId>]
+			readonly laws: [LawId, ...Array<LawId>]
 			readonly law: TheoryLaw
 	  }
 	| {
 			readonly kind: "native"
 			readonly object: NativeObject
-			readonly laws: [RaisedLawId, ...Array<RaisedLawId>]
+			readonly laws: [LawId, ...Array<LawId>]
 			readonly law: TheoryLaw
 	  }
 
 /** A primary key's planned object as the model holds it, discharging `lawIds`. */
 const primaryNative = (
 	plan: PrimaryKeyPlan,
-	lawIds: NonEmptyReadonlyArray<RaisedLawId>
+	lawIds: NonEmptyReadonlyArray<LawId>
 ): PrimaryNative => ({
 	...plan,
 	lawIds
@@ -289,7 +288,7 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 }
 
 /** The law a violation of a native object reports: the first it discharges. */
-const reportedLaw = (object: NativeObject): RaisedLawId => object.lawIds[0]
+const reportedLaw = (object: NativeObject): LawId => object.lawIds[0]
 
 /** A native object as its structural identity reads it, every law it discharges left out: each handle by its name, so
  * two plans of one object are one object. */
@@ -633,7 +632,7 @@ class Specializer {
 				const key = structuralKey(nativeIdentity(object))
 				const known = byKey.get(key)
 				if (known === undefined) {
-					const laws: [RaisedLawId, ...Array<RaisedLawId>] = [plan.law.id]
+					const laws: [LawId, ...Array<LawId>] = [plan.law.id]
 					const seen: NativeObject = { ...object, lawIds: laws }
 					byKey.set(key, { kind: "native", object: seen, laws, law: plan.law })
 					objects.push(seen)
@@ -748,7 +747,7 @@ class Specializer {
 
 	/** Seeds `byKey` with the primary key of `pk`'s relation, planned from its key and discharging its law. */
 	#seed(byKey: Map<string, Merged>, pk: PrimaryKeyLaw): void {
-		const laws: [RaisedLawId, ...Array<RaisedLawId>] = [pk.law.id]
+		const laws: [LawId, ...Array<LawId>] = [pk.law.id]
 		const object = primaryNative(
 			primaryKeyPlan(pk.relation, pk.relation.keyNames[0], pk.law.loc),
 			laws
@@ -830,7 +829,7 @@ class Specializer {
 		deferred: (fk: DeferralQuery) => boolean,
 		renamed: (e: ScalarExpr) => ScalarExpr
 	): NativeObject {
-		const lawIds: NonEmptyReadonlyArray<RaisedLawId> = [plan.law.id]
+		const lawIds: NonEmptyReadonlyArray<LawId> = [plan.law.id]
 		switch (n.kind) {
 			case "PrimaryKey":
 			case "WithoutOverlaps":

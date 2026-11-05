@@ -4,7 +4,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { EvidenceCatalog, ExistenceConstraint } from "#compiler/ir/evidence.ts"
 import { type TypedLiteral, OpId } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag } from "#compiler/ir/rel.ts"
@@ -23,6 +23,7 @@ import {
 	uuidOf
 } from "#test/unit/lower/conservative/fixtures.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	passContext,
 	deliversAlikeOn,
@@ -199,7 +200,7 @@ describe("the complete proof", () => {
 							"held back: no admitted containment",
 							"held back: the match does more than match a key"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ containment, evidence, match }, c) =>
 						Effect.sync(() => {
@@ -262,7 +263,7 @@ describe("the complete proof", () => {
 						generator: element<Evidence>(["snapshot", "transaction"]),
 						limit: 2,
 						coverage: requiredInSpace<Evidence>(["snapshot", "transaction"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(evidence, c) =>
 						Effect.sync(() => {

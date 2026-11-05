@@ -18,7 +18,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -38,6 +37,7 @@ import {
 import { chooseAttachment } from "#compiler/lower/shapes/attach/index.ts"
 import { assert } from "#test/support/assert.ts"
 import { strictArrayText } from "#test/support/kernel/strict.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Q, Reading, T } from "#test/unit/lower/conservative/fixtures.ts"
 import { present } from "#test/unit/lower/support.ts"
 
@@ -47,11 +47,9 @@ import { regex } from "arkregex"
  * statements' rows are the optimized differential's on PostgreSQL (test/pg/oracle/optimized), and their decoding
  * through the public boundary the public differential's (test/pg/oracle/public).
  *
- * - The fusion rule (attach/index.ts chooseAttachment over fusedLayout): a child fuses exactly when the fields its
- *   array carries, at least one, are at most attachFuseMaxFields; a child column correlated to the parent is copied
- *   from the parent row, whatever its type, since equal values decode to one host value (a numeric's 1.0 and 1.00 are
- *   one Decimal, a float's -0 and 0 one zero). Exhausted over every correlated Reading column, every set of further
- *   child fields and every field bound up to the widest child, passed as the rule's own maxFields.
+ * - The fusion rule (attach/index.ts chooseAttachment): a child fuses exactly when its parent's rows read an
+ *   approximate search, whatever its width, and pipelines otherwise, whatever its width: no field count decides the
+ *   form. Exhausted over every correlated Reading column, every set of further child fields and both parent readings.
  * - The converter (attach/decode.ts fusedTexts, arrayElements): over drawn layouts and children, a fused column as
  *   PostgreSQL writes it (array_out over the element texts, or over jsonb_out objects keyed f1..fn, or one `true` per
  *   child of correlated columns only) reads back as each child's texts in the child heading's order, the correlated
@@ -92,7 +90,7 @@ const readingsBy = (correlated: ReadingColumn, fields: ReadonlyArray<ReadingColu
 
 describe("the attachment fusion rule", () => {
 	it.effect(
-		"fuses a child exactly when its array carries at most attachFuseMaxFields fields",
+		"fuses a child exactly when its parent's rows read an approximate search, at any width",
 		(ctx) =>
 			searched(
 				ctx,
@@ -100,28 +98,24 @@ describe("the attachment fusion rule", () => {
 					{
 						suite: "unit/lower/shapes/attach/fusion",
 						literal: Formatter.format,
-						/** Every correlated column, every set of the other columns as further child fields, every bound up to the widest. */
+						/** Every correlated column, every set of the other columns as further child fields, both parents. */
 						generator: (source) => {
 							const correlated = source.draw(element(readingColumns))
 							return {
 								correlated,
 								fields: source.draw(subarray(Arr.filter(readingColumns, (f) => f !== correlated))),
-								max: source.draw(int(1, 5))
+								parents: source.draw(element<"exact" | "approximate">(["exact", "approximate"]))
 							}
 						},
-						limit: 400,
+						limit: 160,
 						coverage: requiredInSpace<"fused" | "pipelined">(["fused", "pipelined"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
-					({ correlated, fields, max }, c) =>
+					({ correlated, fields, parents }, c) =>
 						Effect.sync(() => {
 							const built = readingsBy(correlated, fields)
-							const width = Math.max(1, fields.length)
-							const expected = width <= max ? "fused" : "pipelined"
-							assert.equal(
-								chooseAttachment(attachOf(built.dag.roots[0]), "exact", max).form,
-								expected
-							)
+							const expected = parents === "approximate" ? "fused" : "pipelined"
+							assert.equal(chooseAttachment(attachOf(built.dag.roots[0]), parents).form, expected)
 							c.note(expected)
 						})
 				)
@@ -310,7 +304,7 @@ describe("the fused attachment codec", () => {
 						),
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, note) =>
 						Effect.sync(() => {
@@ -371,7 +365,7 @@ describe("the fused attachment codec", () => {
 					}),
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(elements, note) =>
 					Effect.sync(() => {

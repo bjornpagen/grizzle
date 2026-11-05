@@ -6,7 +6,7 @@ import { exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import {
 	type BatchStatement,
 	type Flight,
@@ -43,6 +43,7 @@ import {
 	rows,
 	scriptedSession
 } from "#test/support/flight/scripted.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { statementSql, testSql } from "#test/support/sql.ts"
 
 /**
@@ -52,11 +53,9 @@ import { statementSql, testSql } from "#test/support/sql.ts"
  * server does with each of its statements, on a session that answers as PostgreSQL answers a pipeline
  * (test/support/flight/scripted.ts, itself checked against the server by test/pg/adapter/flight.test.ts). The driver
  * (test/support/flight/drive.ts) makes timing an input: each case runs once uninterrupted and once interrupted after
- * every number of delivered answers, with every number of answers delivered before the cancellation grace expires, and
- * each run must observe what the model (test/support/flight/model.ts) predicts from the answers the server gave: the
- * ending, what committed (all of a transaction or none of it), the retirement, and whether CancelRequests were sent.
- * The flight's texts must be exactly the frame's, and no CancelRequest connection may outlive the flight, the drain
- * deadline firing while a wedged backend leaves one unanswered included.
+ * every number of delivered answers, and each run must observe what the model (test/support/flight/model.ts) predicts
+ * from the answers the server made and the client was given: the ending, what committed (all of a transaction or none
+ * of it), the retirement, and whether a CancelRequest was sent. The flight's texts must be exactly the frame's.
  *
  * Every case of one statement per part is checked exhaustively; larger cases are drawn, each statement failing in a
  * way the case's swarm allows.
@@ -71,7 +70,7 @@ const statementOf = (planned: Planned): BatchStatement => statement(planned.labe
 /**
  * The features of the exhaustive population: how calls end, where interruptions land, and the interruptions that meet
  * a refused BEGIN or a refused statement, where the ending must follow the whole transaction's fate. Its cases hold no
- * stuck or wedged statement (smallCases), so the drain deadline is the drawn population's.
+ * stuck statement (smallCases), so a statement only the destruction drains is the drawn population's.
  */
 const smallRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 	"ending value",
@@ -104,11 +103,10 @@ const smallRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 	"prologue guard lost"
 ]
 
-/** The drawn population's: the exhaustive one's, and the drain deadline, which fires once mid-CancelRequest. */
+/** The drawn population's: the exhaustive one's, and a stuck statement the interruption's destruction drains. */
 const drawnRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 	...smallRequired,
-	"drained by the deadline",
-	"deadline during a CancelRequest"
+	"drained by its destruction"
 ]
 
 const endingFeature = (observation: Observation): FlightFeature => {
@@ -124,8 +122,7 @@ const endingFeature = (observation: Observation): FlightFeature => {
 
 /**
  * One run of a case: the model and the run must agree, the flight's texts must be the frame's, the server must end
- * idle with nothing owed, a session not retired healthy, and no CancelRequest connection may be left open. Answers
- * where the interruption came, or undefined for a run that blocked without one.
+ * idle with nothing owed. Answers where the interruption came, or undefined for a run that blocked without one.
  *
  * A step of the prologue that fences and enters the Db's role answered with a fault: it fails as a statement position
  * does, and the fence's refusal is StaleSnapshot.
@@ -154,10 +151,6 @@ const runOnce = (
 	assert.deepEqual(sent, framingOf(c.call, statementOf), "the flight's texts")
 	assert.equal(session.open(), false, "the server holds no transaction open")
 	assert.equal(session.deliverable(), false, "every answer was read")
-	if (!session.retired()) {
-		assert.equal(session.lost(), false, "a session not retired is healthy")
-	}
-	assert.equal(session.openCancels(), 0, "no CancelRequest connection outlives the flight")
 	const observation = observations.run
 	k.note(endingFeature(observation))
 	if (observation.retired) {
@@ -198,12 +191,7 @@ const runOnce = (
 			k.note("committed after an interruption")
 		}
 	}
-	if (session.destroyedDuringCancel()) {
-		k.note("deadline during a CancelRequest")
-	}
-	/**
-	 * The drain deadline destroyed the connection: the first query that got no answer is a stuck or wedged statement.
-	 */
+	/** The interruption destroyed the connection: the first query that got no answer is a stuck statement. */
 	const unanswered = Option.flatMap(
 		Arr.findFirstIndex(delivered, (d) => d?.answer._tag === "failed"),
 		(i) => Arr.get(layout, i)
@@ -212,40 +200,29 @@ const runOnce = (
 		Option.exists(
 			unanswered,
 			(slot) =>
-				(slot.role === "alone" || slot.role === "statement") &&
-				(slot.planned.kind === "stuck" || slot.planned.kind === "wedged")
+				(slot.role === "alone" || slot.role === "statement") && slot.planned.kind === "stuck"
 		)
 	) {
-		k.note("drained by the deadline")
+		k.note("drained by its destruction")
 	}
 	return observations.interruption
 }
 
 /**
  * Every run of a case: uninterrupted, then interrupted after k answers for every k up to the call's completion or the
- * statement it blocks at, each with every number of answers before the grace expires. Once the call completes first,
- * or blocks before k answers, every later k is the same run.
+ * statement it blocks at. Once the call completes first, or blocks before k answers, every later k is the same run.
  */
 const checkCase = (c: FlightCase, k: Case<FlightFeature>): void => {
 	k.note(`call ${c.call.kind} ${c.call.frame}`)
-	if (runOnce(c, { interruptAfter: undefined, grace: 0 }, k) === undefined) {
+	if (runOnce(c, { interruptAfter: undefined }, k) === undefined) {
 		k.note("blocked without an interruption")
 	}
 	for (let after = 0; ; after++) {
-		let last = false
-		for (let grace = 0; ; grace++) {
-			const run = runOnce(c, { interruptAfter: after, grace }, k)
-			if (run === undefined) {
-				throw new Error("an interrupted run cannot block")
-			}
-			if (run.at === undefined || run.at < after) {
-				last = true
-			}
-			if (run.at === undefined || run.grace < grace) {
-				break
-			}
+		const run = runOnce(c, { interruptAfter: after }, k)
+		if (run === undefined) {
+			throw new Error("an interrupted run cannot block")
 		}
-		if (last) {
+		if (run.at === undefined || run.at < after) {
 			return
 		}
 	}
@@ -253,7 +230,7 @@ const checkCase = (c: FlightCase, k: Case<FlightFeature>): void => {
 
 /** The unit fuzzer's cases: every way a statement fails, BEGIN refused and COMMIT's connection lost among them. */
 const space: CaseSpace = {
-	failures: ["refused", "doomed", "hold", "late", "stuck", "wedged", "nullCell", "fatal", "lose"],
+	failures: ["refused", "doomed", "hold", "late", "stuck", "nullCell", "fatal", "lose"],
 	serverFaults: true
 }
 
@@ -270,7 +247,7 @@ describe("a flight", () => {
 						literal: Formatter.format,
 						limit: 2_000,
 						coverage: requiredInSpace<FlightFeature>(smallRequired),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(flightCase, k) =>
 						Effect.sync(() => {
@@ -294,7 +271,7 @@ describe("a flight", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(flightCase, k) =>
 					Effect.sync(() => {
@@ -321,7 +298,7 @@ describe("a flight", () => {
 							literal: Formatter.format,
 							limit: 2,
 							coverage: requiredInSpace<"0A000" | "26000">(["0A000", "26000"]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(sqlstate, c) =>
 							Effect.gen(function* () {
@@ -350,7 +327,7 @@ describe("a flight", () => {
 									params: [],
 									name: { _tag: "parsed", name: server.name }
 								})
-								assert.equal(session.retired(), false)
+								assert.equal(session.state(), "open", "a stale name retires nothing")
 								stale = false
 								yield* runTransaction(session, [named], whole)
 								const after = session.flights()[2]
@@ -408,7 +385,7 @@ describe("joined flights", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(widths) =>
 						Effect.gen(function* () {

@@ -34,12 +34,11 @@ import {
 	check,
 	commit,
 	complete,
-	op,
 	rollback,
 	schedule,
 	sql
 } from "#test/support/schedules/build.ts"
-import { exactly, refreshed } from "#test/support/schedules/grizzle.ts"
+import { exactly, refreshed, retriedOp } from "#test/support/schedules/grizzle.ts"
 import { ok, rowSet, rows } from "#test/support/schedules/match.ts"
 import { planted } from "#test/support/schedules/planted.ts"
 import { runSchedule } from "#test/support/schedules/runner.ts"
@@ -74,7 +73,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								sql("writer", addSitting(o, before), ok(), complete),
 								begin("holder"),
 								sql("holder", refreshSql(o, "WeekBusy", true), ok(), complete),
-								op(
+								retriedOp(
 									"refresher",
 									"db.refresh(StudentWeekly, WeekBusy)",
 									o.refresh("refresher", "StudentWeekly", "WeekBusy"),

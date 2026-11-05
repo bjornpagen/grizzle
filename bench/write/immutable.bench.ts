@@ -10,7 +10,7 @@ import {
 import {
 	committedOrConflicted,
 	type LoadMeasure,
-	retryPolicy,
+	type RetryPolicy,
 	runLoad,
 	sqlAttempted,
 	withRetries
@@ -121,6 +121,10 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly samples: number
 	readonly writers: number
 	readonly operations: number
+	/** The writers' retry policy, an application's own. */
+	readonly retry: RetryPolicy
+	/** How often the lock-wait sampler reads the writers' wait events, in milliseconds. */
+	readonly lockSampleMs: number
 }
 
 const hot = 1
@@ -204,9 +208,19 @@ export default defineGate({
 			groupSizes: [10, 10000],
 			samples: 9,
 			writers: 16,
-			operations: 40
+			operations: 40,
+			retry: { times: 4, baseMs: 5 },
+			lockSampleMs: 5
 		},
-		quick: { sizes: [0, 1000], groupSizes: [10, 1000], samples: 2, writers: 3, operations: 4 }
+		quick: {
+			sizes: [0, 1000],
+			groupSizes: [10, 1000],
+			samples: 2,
+			writers: 3,
+			operations: 4,
+			retry: { times: 4, baseMs: 5 },
+			lockSampleMs: 5
+		}
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
@@ -449,7 +463,7 @@ export default defineGate({
 										),
 										(m) => sqlAttempted(m.outcome, { uniqueAborts: [], label: () => undefined })
 									),
-								retryPolicy
+								options.retry
 							)
 						},
 						{
@@ -458,7 +472,7 @@ export default defineGate({
 								kind: "sampled",
 								observer,
 								pids,
-								intervalMs: 5,
+								intervalMs: options.lockSampleMs,
 								onSample: () => Effect.void
 							}
 						}
@@ -483,7 +497,7 @@ export default defineGate({
 						return Effect.die(change.failure)
 					}
 					const apply = change.success.apply
-					return withRetries(() => Effect.map(apply({}), (o) => o.attempted), retryPolicy)
+					return withRetries(() => Effect.map(apply({}), (o) => o.attempted), options.retry)
 				},
 				{ bound: { kind: "operations", n: options.operations }, sampler: { kind: "none" } }
 			)

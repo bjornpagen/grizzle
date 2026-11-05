@@ -143,8 +143,8 @@ const correlatedRefusal = (
 	`${prefix}: a source evaluated once per execution; the attachment ${node.name} (${node.id}) equates its parent's ${parent} with the column ${child} of the search ${search.id}, bound by the search's own source, so the child's candidates for each parent row would be a search of their own, and one search over every parent's candidates filtered afterwards would hand each parent an arbitrary share`
 
 /**
- * What in a child's subtree makes its attachment a statement of its own whatever its width, or undefined: the
- * structural part of the fusion rule (lower/shapes/attach chooseAttachment).
+ * What in a child's subtree makes its attachment a statement of its own even under parent rows that read an
+ * approximate search, the one case an attachment otherwise fuses (lower/shapes/attach chooseAttachment), or undefined.
  */
 export const pipelinedOnly = (child: RelNode): string | undefined => {
 	const seen = new Set<RelNode>([child])
@@ -279,11 +279,11 @@ const deliveredAttachments = (
  *
  * A third placement is refused for the same reason, by the checker over the whole query (pipelinedOverSearch), so that
  * both lowerings accept the same programs: an attachment that must be a statement of its own (pipelinedOnly: a
- * recursive, approximate or paged child, a child with attachments of its own, a heterogeneous union, or any attachment
- * of an attachment's child) under rows that read a search. That statement computes its parent's rows again in the same
+ * recursive or approximate child, a child with attachments of its own, a heterogeneous union, or any attachment of an
+ * attachment's child) under rows that read a search. That statement computes its parent's rows again in the same
  * snapshot, so it would run the parent's search a second time, and a delivered parent the second search misses would
- * lose its children. An attachment that is a statement only because of its width is fused under such rows instead
- * (lower/shapes/attach chooseAttachment), so the search runs once.
+ * lose its children. Every other attachment fuses exactly when its parent's rows read an approximate search
+ * (lower/shapes/attach chooseAttachment), so the search runs once; over exact rows it is a statement of its own.
  *
  * The refusal of an attachment that must be a statement of its own under rows that read a search (see the header),
  * or undefined. Each such attachment's own parent rows are checked: an attachment's child that has attachments of its

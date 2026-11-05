@@ -4,7 +4,7 @@ import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, int, uniqueArray } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, type Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, type Order, String as Str } from "effect"
 import type { CompletedOrder } from "#compiler/ir/rel.ts"
 import {
 	probeKinds,
@@ -20,6 +20,7 @@ import { plainType } from "#compiler/scalar/compute/types.ts"
 import type { BinaryOperator, Expr } from "#compiler/sql/ast.ts"
 import { asc, col, desc, param, types } from "#compiler/sql/build.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
 
 /**
@@ -231,7 +232,7 @@ describe("the seek predicate", () => {
 							"2 keys",
 							"3 keys"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ dirs, seek, m }, c) =>
 						Effect.sync(() => {
@@ -300,7 +301,7 @@ describe("variants and probes", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ dirs, d, anchor, size }) =>
 					Effect.sync(() => {
@@ -356,7 +357,7 @@ describe("variants and probes", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(dirs) =>
 						Effect.sync(() => {

@@ -6,7 +6,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -17,6 +16,7 @@ import {
 import { indices } from "#compiler/core/array.ts"
 import { sameValue, valueText } from "#test/pg/laws/families/model.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -1457,62 +1457,43 @@ const programShrink = 200
 const programSteered = 4
 
 /**
- * A program case's time bound, on average over a search: a case realizes a fresh installation and drives up to its
- * suite's steps, each judged against the model, about 5 s, 11 s on average at the slowest seen (pg/world-model/laws in
- * a loaded run); a case that does not end at all is the hang guard's (caseHang).
- */
-const programMillis = 15_000
-
-/**
- * A program suite's test time bound: every case its search may make at programMillis each, its floor stream's quarter of
- * its cases (at least one), its steered phase, its rotating cases and a failure's shrink candidates, so a search never
- * outlives its test and a failure always prints its report.
- */
-const programTimeout = (cases: number): number =>
-	(Math.max(1, Math.ceil(cases / 4)) + programSteered * cases + cases + programShrink) *
-	programMillis
-
-/**
  * Registers a program suite's test: each case realizes its installation, stages its reality and runs its program under
  * the driver and the suite's rule. A steered phase of up to programSteered times as many cases as the suite runs aims
  * programs, through their leads and aims, at the required features no case has reached yet, and stops once every one
  * is reached; the rotating stream's programs aim at nothing. Every case installs a schema of its own, so a failure
- * shrinks through at most programShrink candidates, all of it within the test's bound (programTimeout).
+ * shrinks through at most programShrink candidates.
  */
 export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: ProgramSuite): void => {
-	it.effect(
-		spec.name,
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: spec.suite,
-						draw: drawn(programCaseGen(spec.installs, worldDraws(spec), spec.steps)),
-						literal: Formatter.format,
-						coverage: required<WorldFeature>(spec.required, {
-							cases: programSteered * spec.cases,
-							sense: notesOnly
-						}),
-						kept: [],
-						runs: spec.cases,
-						shrink: { kind: "bounded", candidates: programShrink },
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang: Duration.minutes(2)
-					},
-					(pc, c) =>
-						Effect.scoped(
-							Effect.gen(function* () {
-								const world = yield* spec.realize(pc.install, pc.ambient)
-								noteNaming(pc, c)
-								const staged = yield* stage(world, pc.install, c.draw, spec.realities)
-								yield* driveProgram(staged, pc, c, spec.check)
-							})
-						)
-				)
-			),
-		programTimeout(spec.cases)
+	it.effect(spec.name, (ctx) =>
+		searched(
+			ctx,
+			explore(
+				{
+					suite: spec.suite,
+					draw: drawn(programCaseGen(spec.installs, worldDraws(spec), spec.steps)),
+					literal: Formatter.format,
+					coverage: required<WorldFeature>(spec.required, {
+						cases: programSteered * spec.cases,
+						sense: notesOnly
+					}),
+					kept: [],
+					runs: spec.cases,
+					shrink: { kind: "bounded", candidates: programShrink },
+					concurrency: 1,
+					steerEvery: 16,
+					caseHang
+				},
+				(pc, c) =>
+					Effect.scoped(
+						Effect.gen(function* () {
+							const world = yield* spec.realize(pc.install, pc.ambient)
+							noteNaming(pc, c)
+							const staged = yield* stage(world, pc.install, c.draw, spec.realities)
+							yield* driveProgram(staged, pc, c, spec.check)
+						})
+					)
+			)
+		)
 	)
 }
 

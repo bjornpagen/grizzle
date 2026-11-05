@@ -1,14 +1,12 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { recursionUnrollMax } from "#compiler/core/policy.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { unrollRule } from "#compiler/lower/shapes/recursion/index.ts"
 import { Compute, type Predicate, type Term } from "#compiler/public/compute.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
@@ -16,9 +14,10 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { explainMain, lowerCase, optimizedLowering } from "#test/pg/recursion/lowering/support.ts"
-import { assert, contains, lacks } from "#test/support/assert.ts"
+import { assert, contains } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
-import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
+import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
@@ -36,18 +35,16 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * The Walks example through the optimized lowering on PostgreSQL 19 (V6).
  *
- * Walks is admitted with explicit casts and lowered by the optimized pipeline in both forms its fixed rule can choose:
- * the unrolled set union of joins (hops < 4 from 0 proves depth 4, at most core/policy.ts recursionUnrollMax = 4) and,
- * for the same walk bounded one hop past recursionUnrollMax, WITH RECURSIVE ... UNION; that both forms agree with the
- * reference and the conservative lowering is also the graph suite's (graph/equivalence). Their plans show the
- * difference: the unrolled statement has no Recursive Union and no worktable, every level inlined into joins; the
- * recursive one has one Recursive Union and, its seed and step being plain SELECTs and its consumer the complete state,
- * no Unique or Aggregate node at all, where the conservative plan deduplicates (the recursive UNION's hash is the only
- * deduplication). A consumer that drops the hop count deduplicates once, outside the recursion.
+ * Walks is admitted with explicit casts and lowered by the optimized pipeline to WITH RECURSIVE ... UNION, at every
+ * depth its counter bounds it to (hops < 4 from 0, and the same walk one hop longer); that it agrees with the reference
+ * and the conservative lowering is also the graph suite's (graph/equivalence). Its plan has one Recursive Union and,
+ * its seed and step being plain SELECTs and its consumer the complete state, no Unique or Aggregate node at all, where
+ * the conservative plan deduplicates (the recursive UNION's hash is the only deduplication). A consumer that drops the
+ * hop count deduplicates once, outside the recursion.
  *
  * The counter shapes past Walks's own (a union of arms bounded unequally, a between, swapped operands, a decreasing
- * counter, a step of two over two seeds) each unroll to exactly their proved depth and agree with the reference and the
- * conservative lowering, itself a recursive CTE, so a proof that under-counts a depth shows up as missing rows.
+ * counter, a step of two over two seeds) each lower to the recursive CTE and agree with the reference and the
+ * conservative lowering.
  */
 
 /** The graph fixture's Network. */
@@ -88,9 +85,9 @@ const walksBelow = (name: string, limit: number) =>
 		]
 	})
 
-/** Walks: depth 4, unrolled. LongWalks: one hop past recursionUnrollMax, kept a recursive CTE. */
+/** Walks: depth 4. LongWalks: one hop more. */
 const Walks = walksBelow("Walks", 4)
-const LongWalks = walksBelow("LongWalks", recursionUnrollMax + 1)
+const LongWalks = walksBelow("LongWalks", 5)
 
 /** The people a walk reaches, its hop count dropped. */
 const reachableBy = (walks: typeof Walks) =>
@@ -210,29 +207,33 @@ const deduplicating = (nodes: ReadonlyArray<string>): number =>
 	Arr.filter(nodes, (n) => n === "Unique" || n === "Aggregate").length
 
 layer(Substrate.layer)("the Walks example through the optimized lowering", (it) => {
-	it.effect(
-		"the unrolled plan inlines every level into joins: no Recursive Union, no worktable, no CTE scan",
-		() =>
-			Effect.gen(function* () {
-				const plan = yield* explainMain(walks, optimized)
-				lacks(plan.nodes, "Recursive Union", plan.sql)
-				lacks(plan.nodes, "WorkTable Scan", plan.sql)
-				lacks(plan.nodes, "CTE Scan", plan.sql)
-			})
-	)
-
-	it.effect("the recursive plan has one Recursive Union and no other deduplication (V6)", () =>
-		Effect.gen(function* () {
-			const plan = yield* explainMain(longWalks, optimized)
-			assert.equal(Arr.filter(plan.nodes, (n) => n === "Recursive Union").length, 1, plan.sql)
-			assert.equal(Arr.filter(plan.nodes, (n) => n === "WorkTable Scan").length, 1, plan.sql)
-			assert.equal(deduplicating(plan.nodes), 0, `${Arr.join(plan.nodes, ", ")}\n${plan.sql}`)
-			/** The conservative plan of the same query deduplicates the seed and the step itself. */
-			const baseline = yield* explainMain(longWalks, conservative)
-			contains(baseline.nodes, "Recursive Union")
-			assert.ok(deduplicating(baseline.nodes) > 0, Arr.join(baseline.nodes, ", "))
-		})
-	)
+	it.effect("each walk's plan has one Recursive Union and no other deduplication (V6)", (ctx) => {
+		const walkCases: Arr.NonEmptyReadonlyArray<LabelledCase> = [walks, longWalks]
+		return searched(
+			ctx,
+			exhaust(
+				{
+					suite: "recursion/lowering/walk-plans",
+					generator: element(walkCases),
+					literal: (c: LabelledCase) => c.label,
+					limit: walkCases.length,
+					coverage: noCoverage,
+					caseHang
+				},
+				(c) =>
+					Effect.gen(function* () {
+						const plan = yield* explainMain(c, optimized)
+						assert.equal(Arr.filter(plan.nodes, (n) => n === "Recursive Union").length, 1, plan.sql)
+						assert.equal(Arr.filter(plan.nodes, (n) => n === "WorkTable Scan").length, 1, plan.sql)
+						assert.equal(deduplicating(plan.nodes), 0, `${Arr.join(plan.nodes, ", ")}\n${plan.sql}`)
+						/** The conservative plan of the same query deduplicates the seed and the step itself. */
+						const baseline = yield* explainMain(c, conservative)
+						contains(baseline.nodes, "Recursive Union")
+						assert.ok(deduplicating(baseline.nodes) > 0, Arr.join(baseline.nodes, ", "))
+					})
+			)
+		)
+	})
 
 	it.effect("dropping the hop count deduplicates once, outside the recursion", (ctx) =>
 		searched(
@@ -250,7 +251,7 @@ layer(Substrate.layer)("the Walks example through the optimized lowering", (it) 
 						coverage: requiredInSpace<AgreedFeature>(
 							Arr.map(reachables, (c): AgreedFeature => `agreed: ${c.label}`)
 						),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, k) =>
 						Effect.gen(function* () {
@@ -274,10 +275,8 @@ layer(Substrate.layer)("the Walks example through the optimized lowering", (it) 
 
 /**
  * Counters past the Walks shape: a union of arms bounded unequally, a between, swapped operands,
- * a decreasing counter, and a step of two over two seeds. The bounded-counter proof (check/recursion/bound.ts)
- * reads each one's depth off the step; an under-counted depth would unroll too few levels and drop every state the
- * missing levels derive, so the unrolled form must agree row for row with the reference evaluator and the conservative
- * lowering, as the recursive CTE does.
+ * a decreasing counter, and a step of two over two seeds. Each lowers to the recursive CTE, which must agree row for
+ * row with the reference evaluator and the conservative lowering.
  */
 type NetworkRule = Rule<typeof Network>
 /** The feedback of a counter: the person reached and the hop count. */
@@ -327,17 +326,16 @@ const plusOne = (hops: Hops) => Compute.add(hops, Compute.literal(pg.integer, 1)
 const minusOne = (hops: Hops) => Compute.sub(hops, Compute.literal(pg.integer, 1))
 const plusTwo = (hops: Hops) => Compute.add(hops, Compute.literal(pg.integer, 2))
 
-/** Each case with the depth its proof must establish, at most recursionUnrollMax, so it unrolls. */
+/** Each counter case. */
 interface Counter {
 	readonly label: string
 	readonly q: unknown
-	readonly depth: number
 }
 const counters: Arr.NonEmptyReadonlyArray<Counter> = [
 	{
 		/**
-		 * Forward from hops 0 and 1, backward from 0 through 3: the weakest arm's bound, depth 4. A guard taken from the
-		 * strongest arm would prove depth 2 and drop the backward states at hops 3 and 4.
+		 * Forward from hops 0 and 1, backward from 0 through 3: the backward states at hops 3 and 4 are reached only
+		 * under the weaker arm's bound.
 		 */
 		label: "two arms bounded unequally",
 		q: counter(
@@ -347,8 +345,7 @@ const counters: Arr.NonEmptyReadonlyArray<Counter> = [
 				step((r, hops) => r.lt(hops, 4), "backward", plusOne)
 			],
 			[0]
-		),
-		depth: 4
+		)
 	},
 	{
 		label: "two arms bounded unequally, the weaker first",
@@ -359,13 +356,11 @@ const counters: Arr.NonEmptyReadonlyArray<Counter> = [
 				step((r, hops) => r.lt(hops, 2), "forward", plusOne)
 			],
 			[0]
-		),
-		depth: 4
+		)
 	},
 	{
 		label: "between 0 and 3",
-		q: counter("Between", [step((r, hops) => r.between(hops, 0, 3), "forward", plusOne)], [0]),
-		depth: 4
+		q: counter("Between", [step((r, hops) => r.between(hops, 0, 3), "forward", plusOne)], [0])
 	},
 	{
 		label: "4 > hops",
@@ -373,13 +368,11 @@ const counters: Arr.NonEmptyReadonlyArray<Counter> = [
 			"Swapped",
 			[step((r, hops) => r.gt(Compute.literal(pg.integer, 4), hops), "forward", plusOne)],
 			[0]
-		),
-		depth: 4
+		)
 	},
 	{
 		label: "a countdown from 3 while hops >= 1",
-		q: counter("Countdown", [step((r, hops) => r.ge(hops, 1), "forward", minusOne)], [3]),
-		depth: 3
+		q: counter("Countdown", [step((r, hops) => r.ge(hops, 1), "forward", minusOne)], [3])
 	},
 	{
 		label: "a countdown from 3 while 1 <= hops",
@@ -387,8 +380,7 @@ const counters: Arr.NonEmptyReadonlyArray<Counter> = [
 			"Countdown",
 			[step((r, hops) => r.le(Compute.literal(pg.integer, 1), hops), "forward", minusOne)],
 			[3]
-		),
-		depth: 3
+		)
 	},
 	{
 		label: "a countdown from 3 while 0 < hops",
@@ -396,13 +388,11 @@ const counters: Arr.NonEmptyReadonlyArray<Counter> = [
 			"Countdown",
 			[step((r, hops) => r.lt(Compute.literal(pg.integer, 0), hops), "forward", minusOne)],
 			[3]
-		),
-		depth: 3
+		)
 	},
 	{
 		label: "a step of 2 from 0 and 2 while hops < 6",
-		q: counter("Strides", [step((r, hops) => r.lt(hops, 6), "forward", plusTwo)], [0, 2]),
-		depth: 3
+		q: counter("Strides", [step((r, hops) => r.lt(hops, 6), "forward", plusTwo)], [0, 2])
 	}
 ]
 
@@ -418,7 +408,7 @@ const counterCases = Arr.map(counters, (c): CounterCase => ({
 
 layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => {
 	it.effect(
-		"each proves its depth, unrolls, and agrees with the reference and the conservative lowering",
+		"each lowers to the recursive CTE and agrees with the reference and the conservative lowering",
 		(ctx) =>
 			searched(
 				ctx,
@@ -434,27 +424,16 @@ layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => 
 							coverage: requiredInSpace<AgreedFeature>(
 								Arr.map(counterCases, (c): AgreedFeature => `agreed: ${c.label}`)
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(c, k) =>
 							Effect.gen(function* () {
-								/** The proved depth unrolls: depth + 1 levels and one certificate. */
 								const u = lowerCase(c.oracle, names)
 								if (!u.ok) {
 									throw new Error(`${c.label}: ${u.error.message}`)
 								}
-								assert.equal(
-									Arr.filter(u.value.certificates, (x) => x.rule === unrollRule).length,
-									1,
-									c.label
-								)
 								const statement = flight(u.value.roots)[0]
-								assert.equal(has(shapeOf(statement.ast), "with recursive"), false, c.label)
-								assert.equal(
-									featureCount(shapeOf(statement.ast), "cte not materialized"),
-									c.depth + 1,
-									c.label
-								)
+								assert.equal(featureCount(shapeOf(statement.ast), "with recursive"), 1, c.label)
 								const name = yield* s.schema({ create: false, label: "counters" })
 								const outcome = yield* runLabelledOracle(c.oracle, optimized, reference, {
 									...defaultRunOptions,

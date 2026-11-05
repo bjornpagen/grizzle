@@ -5,11 +5,12 @@ import { element } from "@grizzle/testing/gen"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
-import { Array as Arr, Clock, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Clock, Effect, Formatter, Option } from "effect"
 import { runTransaction, type Transaction } from "#adapter/wire/batch.ts"
 import { defaultPool, poolFor, roleDefaults, substrateLogin } from "#test/pg/adapter/support.ts"
 import { backendPid, onVercel, vercelRuntime } from "#test/pg/serverless/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -85,7 +86,7 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 							coverage: requiredInSpace<DeadlineFeature>(
 								Arr.flatMap(accesses, (i) => Arr.map(contexts, (c): DeadlineFeature => `${i} ${c}`))
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([access, context], c) =>
 							Effect.gen(function* () {
@@ -99,7 +100,7 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 										: Option.none()
 								const pool = yield* poolFor(writer, {
 									...defaultPool,
-									pool: { idleTimeoutMs: 60_000, min: 1, max },
+									pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max },
 									attachPool: Option.isSome(vercel) ? attachDatabasePool : defaultPool.attachPool
 								})
 								const backends = new Set<string>()
@@ -107,7 +108,7 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 									Effect.gen(function* () {
 										const sessions = yield* Effect.all(
 											Array.from({ length: max }, () => pool.lease),
-											{ concurrency: max }
+											{ concurrency: "unbounded" }
 										)
 										for (const session of sessions) {
 											const [settings, pid] = yield* runTransaction(

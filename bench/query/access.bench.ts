@@ -399,7 +399,7 @@ export default defineGate({
 			const fx = yield* installFixture(Access, accessPrograms, "benchaccess", [])
 			const size = { entries: options.entries, accounts: options.accounts }
 			yield* loadEntries(fx, size)
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b access runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b access raw")
 			const entry = fx.relationName("Entry")
 			const E = fx.table("Entry")

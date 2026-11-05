@@ -31,7 +31,13 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { NumericTypmod, ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	integerRanges,
+	moneyDigits,
+	moneyFractionDigits,
+	uuidTextLength
+} from "#compiler/ir/carriers.ts"
+import type { IntegerCarrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { type CarrierHost, isHostValue } from "#compiler/scalar/values/identity.ts"
 
 /** The host value of one comparator's type. */
@@ -63,12 +69,13 @@ export interface CursorSpec<Cs extends ReadonlyArray<CursorComparator>> {
 }
 
 /**
- * The token lengths a codec can produce, in characters: the shortest token, and the longest one, unbounded when a comparator's text has no static bound (text without a proved bound, unconstrained numeric).
+ * The token lengths a codec can produce, in characters: the shortest token, and the longest one, unbounded when a
+ * comparator's text has no static bound (text without a proved byte bound).
  */
 interface CursorTokenBound {
 	readonly min: number
 	readonly max: number | "unbounded"
-	/** Whether every token fits within the codec's byte bound, so cursorTupleOversized cannot occur. */
+	/** Whether every token fits within the codec's bound on a token's length, so cursorTupleOversized cannot occur. */
 	readonly fits: boolean
 }
 
@@ -93,52 +100,96 @@ export interface CursorCodec<Cs extends ReadonlyArray<CursorComparator>> {
  * The longest shortest-round-trip text of a binary64 value (ECMAScript Number::toString): a sign, then 17 digits
  * written positionally after "0.00000" below 1e-5 (25 characters), or with a point and an exponent such as "e-308"
  * (24 characters); integers below 1e21 have at most 21 digits.
+ *
+ * @formatConstant ECMAScript Number::toString of a finite binary64 value: at most 25 characters
  */
 const floatMaxText = 25
+
+/**
+ * The longest text of a special float or numeric value, "-Infinity".
+ *
+ * @formatConstant the canonical texts of NaN and the infinities: "-Infinity" the longest
+ */
 const specialMaxText = "-Infinity".length
 
-const numericMaxText = ({ precision: p, scale: s }: NumericTypmod): number =>
-	Math.max(1 + Math.max(p - s, 1) + (s > 0 ? 1 + s : 0), specialMaxText)
+/**
+ * The delimiters of a bounded half-open range's text: its bracket, the comma between its ends and its parenthesis.
+ *
+ * @formatConstant range_out of a bounded half-open range: [start,end)
+ */
+const rangeDelimiters = "[,)".length
+
+/**
+ * The delimiters of a vector's text: its two brackets.
+ *
+ * @formatConstant vector_out: [c1,...,cn]
+ */
+const vectorDelimiters = "[]".length
+
+/**
+ * The longest canonical text of a decimal of at most `integer` integer digits and `fraction` fraction digits: its
+ * sign, its integer digits (a zero when it has none), and its point and fraction digits when it has a fraction.
+ */
+const decimalMaxText = (integer: number, fraction: number): number =>
+	1 + Math.max(integer, 1) + (fraction > 0 ? 1 + fraction : 0)
+
+/** The longest canonical text of a numeric value of `integer` integer and `fraction` fraction digits, or a special's. */
+const numericMaxText = (integer: number, fraction: number): number =>
+	Math.max(decimalMaxText(integer, fraction), specialMaxText)
+
+/**
+ * The longest int2out, int4out or int8out text of a value of `carrier`: the longer of its range's ends' texts
+ * (ir/carriers.ts integerRanges), its least value's, whose sign it spells.
+ */
+const integerMaxText = (carrier: IntegerCarrier): number => {
+	const [least, greatest] = integerRanges[carrier]
+	return Math.max(String(least).length, String(greatest).length)
+}
+
+/** The longest range_out text of a bounded half-open range over `endpoint`: its delimiters and its two ends' texts. */
+const rangeMaxText = (endpoint: "int4" | "int8"): number =>
+	rangeDelimiters + integerMaxText(endpoint) + integerMaxText(endpoint)
 
 /**
  * The largest UTF-8 length of a boundary value's canonical text for this type (codec/scalar.ts), unbounded when it has
- * no static bound (text without a proved byte bound, numeric without a typmod): a static bound for the token's bound.
+ * no static bound (text without a proved byte bound): a static bound for the token's bound. A numeric(p, s) has p - s
+ * integer digits and s fraction digits, and a computed numeric the digits and the scale its bound proves.
  */
 export const cursorValueMaxBytes = (type: ScalarType): number | "unbounded" => {
 	switch (type.carrier) {
 		case "int2":
-			return 6
 		case "int4":
-			return 11
 		case "int8":
-			return 20
+			return integerMaxText(type.carrier)
 		case "numeric":
-			return type.typmod === undefined ? "unbounded" : numericMaxText(type.typmod)
+			return type.typmod === undefined
+				? numericMaxText(type.bound.digits, type.bound.scale)
+				: numericMaxText(type.typmod.precision - type.typmod.scale, type.typmod.scale)
 		case "float4":
 		case "float8":
 			return floatMaxText
 		case "money":
-			return "-92233720368547758.08".length
+			return decimalMaxText(moneyDigits.value, moneyFractionDigits.value)
 		case "bool":
-			return 5
+			return "false".length
 		case "uuid":
-			return 36
+			return uuidTextLength
 		case "text":
 			return type.text.byteBound ?? "unbounded"
 		case "enum":
 			return maxOf(type.roster.handles.map(utf8ByteLength), 0)
 		case "range4":
-			return 25
+			return rangeMaxText("int4")
 		case "range8":
-			return 43
+			return rangeMaxText("int8")
 		case "vector": {
 			const { dims } = type.typmod
-			return 2 + dims * floatMaxText + Math.max(dims - 1, 0)
+			return vectorDelimiters + dims * floatMaxText + Math.max(dims - 1, 0)
 		}
 		case "exactInteger":
-			return 1 + type.digits
+			return decimalMaxText(type.digits, 0)
 		case "exactMoney":
-			return 1 + type.digits + 3
+			return decimalMaxText(type.digits, moneyFractionDigits.value)
 	}
 }
 
@@ -159,7 +210,7 @@ export const cursorValueMinBytes = (type: ScalarType): number => {
 		case "bool":
 			return "true".length
 		case "uuid":
-			return 36
+			return uuidTextLength
 		case "text":
 			return 0
 		case "enum":
@@ -169,14 +220,14 @@ export const cursorValueMinBytes = (type: ScalarType): number => {
 			return "[0,1)".length
 		case "vector": {
 			const { dims } = type.typmod
-			return 2 + dims + Math.max(dims - 1, 0)
+			return vectorDelimiters + dims + Math.max(dims - 1, 0)
 		}
 	}
 }
 
 const tokenBound = (
 	comparators: ReadonlyArray<CursorComparator>,
-	maxBytes: number
+	maxLength: number
 ): CursorTokenBound => {
 	const count = varintLength(comparators.length)
 	let min = headerBytes + count
@@ -187,12 +238,12 @@ const tokenBound = (
 		const hi = cursorValueMaxBytes(c.type)
 		max = max === "unbounded" || hi === "unbounded" ? "unbounded" : max + varintLength(hi) + hi
 	}
-	const minLength = base64urlLength(min)
-	const maxLength = max === "unbounded" ? max : base64urlLength(max)
+	const shortest = base64urlLength(min)
+	const longest = max === "unbounded" ? max : base64urlLength(max)
 	return {
-		min: minLength,
-		max: maxLength,
-		fits: maxLength !== "unbounded" && maxLength <= maxBytes
+		min: shortest,
+		max: longest,
+		fits: longest !== "unbounded" && longest <= maxLength
 	}
 }
 
@@ -208,6 +259,18 @@ const isCursorTuple = <Cs extends ReadonlyArray<CursorComparator>>(
 	comparators.every((c, i) => isHostValue(c.type.carrier, values[i]))
 
 /**
+ * The longest token a cursor codec issues or reads, in characters, the bound production passes cursorCodec: the
+ * layout's own, since a token's bytes are fewer than its characters (base64url writes four characters for three
+ * bytes), so no length or count in a token of at most this many characters exceeds a varint. A longer token is
+ * CursorError cursorOversized, refused before any of it is decoded, and a tuple whose token would be longer is
+ * cursorTupleOversized. It is bytes.ts varintMax, the largest length or count a varint of the layout writes: a token of
+ * n characters holds at most n bytes, so every length and count in it is at most n.
+ *
+ * @formatConstant the cursor token: at most varintMax characters, one byte each in base64url
+ */
+export const cursorTokenMaxLength = varintMax
+
+/**
  * The cursor codec of one ordered query.
  *
  * `cursorCodec` is built once per ordered template from its semantic identity: the ordered-query fingerprint, the
@@ -217,7 +280,7 @@ const isCursorTuple = <Cs extends ReadonlyArray<CursorComparator>>(
  *   row decoder produced from the database output, never recomputed from presentation values. Each is
  *   admitted again through its carrier and written as the parameter codec's canonical text, so -0 is one zero, NaN
  *   is NaN, a bigint and a Decimal keep every digit, and text keeps every scalar (supplementary planes included). A
- *   token longer than the codec's byte bound is CursorError cursorTupleOversized: full values are never replaced by
+ *   token longer than the codec's bound is CursorError cursorTupleOversized: full values are never replaced by
  *   hashes.
  * - `decode` validates a caller's token on the host before any SQL is issued, in this order, and returns the boundary
  *   values or the first refusal as CursorError (fault.ts): type, size, base64url, layout, generation, query,
@@ -231,20 +294,20 @@ const isCursorTuple = <Cs extends ReadonlyArray<CursorComparator>>(
  *
  * Every token is stateless: it names a boundary of the live query and is accepted by any later page of that query.
  *
- * Builds the cursor codec of an ordered query, whose tokens are at most `maxBytes` long (core/policy.ts cursorMaxBytes
- * in production; at most the layout's largest field length, bytes.ts varintMax). Refuses an inconsistent spec as
+ * Builds the cursor codec of an ordered query, whose tokens are at most `maxLength` characters long
+ * (cursorTokenMaxLength in production, the layout's own bound, and at most it). Refuses an inconsistent spec as
  * MalformedDescription, a comparator without an equality-compatible native order as UnsupportedOperation, and an order
- * whose shortest token already exceeds `maxBytes` as UnsupportedOperation: no correct bounded representation exists.
+ * whose shortest token already exceeds `maxLength` as UnsupportedOperation: no correct bounded representation exists.
  */
 export const cursorCodec = <const Cs extends ReadonlyArray<CursorComparator>>(
 	spec: CursorSpec<Cs>,
-	maxBytes: number
+	maxLength: number
 ): Result.Result<CursorCodec<Cs>, CompileError> => {
-	if (maxBytes > varintMax) {
+	if (maxLength > cursorTokenMaxLength) {
 		return Result.err(
 			unsupported(
-				SourceLoc("cursor byte bound", []),
-				`a cursor byte bound of at most ${varintMax}, the layout's largest field length`
+				SourceLoc("cursor token bound", []),
+				`a cursor token bound of at most ${cursorTokenMaxLength} characters, the layout's own`
 			)
 		)
 	}
@@ -263,12 +326,12 @@ export const cursorCodec = <const Cs extends ReadonlyArray<CursorComparator>>(
 	const codecs: ReadonlyArray<ScalarCodec> = spec.comparators.map((c) => scalarCodec(c.type))
 	/** Each comparator's codec, with its reader of a token's value text (value.ts). */
 	const readers = codecs.map((codec) => ({ codec, read: boundaryValue(codec) }))
-	const bound = tokenBound(spec.comparators, maxBytes)
-	if (bound.min > maxBytes) {
+	const bound = tokenBound(spec.comparators, maxLength)
+	if (bound.min > maxLength) {
 		return Result.err(
 			unsupported(
 				SourceLoc("cursor comparators", []),
-				`a completed order whose cursor token fits within ${maxBytes} bytes`
+				`a completed order whose cursor token fits within ${maxLength} characters`
 			)
 		)
 	}
@@ -276,12 +339,12 @@ export const cursorCodec = <const Cs extends ReadonlyArray<CursorComparator>>(
 	const generationBytes = digestBytes(generation.value)
 	const queryBytes = digestBytes(query.value)
 	const comparatorBytes = digestBytes(comparators.value)
-	const maxLength = maxBytes
 	const arity = codecs.length
 
 	/**
-	 * A tuple's token. The token's text is longer than its bytes, which hold every encoded value, so a tuple whose
-	 * values alone exceed the limit is refused before any value's bytes are built or anything is written.
+	 * A tuple's token. Its length is the layout's over its values' lengths (layout.ts: the digests, the count, and each
+	 * value's varint length and bytes), so a tuple whose token would exceed the limit is refused at the first value that
+	 * takes it past, before that value's bytes are built or anything is written.
 	 */
 	const admit = (tuple: unknown): Result.Result<string, CursorError> => {
 		if (!isList(tuple) || tuple.length !== arity) {
@@ -289,7 +352,7 @@ export const cursorCodec = <const Cs extends ReadonlyArray<CursorComparator>>(
 		}
 		const values = tuple
 		const encoded: Array<Uint8Array> = []
-		let total = 0
+		let length = headerBytes + varintLength(arity)
 		let i = 0
 		for (const codec of codecs) {
 			const text = codec.encode(values[i])
@@ -297,22 +360,23 @@ export const cursorCodec = <const Cs extends ReadonlyArray<CursorComparator>>(
 			if (!text.ok) {
 				return Result.err(cursorError("cursorValue"))
 			}
-			total += utf8ByteLength(text.value)
-			if (total > maxLength) {
+			const valueBytes = utf8ByteLength(text.value)
+			length += varintLength(valueBytes) + valueBytes
+			if (base64urlLength(length) > maxLength) {
 				return Result.err(cursorError("cursorTupleOversized"))
 			}
 			encoded.push(utf8Bytes(text.value))
 		}
-		const bytes = writeCursor({
-			generation: generationBytes,
-			query: queryBytes,
-			comparators: comparatorBytes,
-			tuple: encoded
-		})
-		const token = base64urlEncode(bytes)
-		return token.length > maxLength
-			? Result.err(cursorError("cursorTupleOversized"))
-			: Result.ok(token)
+		return Result.ok(
+			base64urlEncode(
+				writeCursor({
+					generation: generationBytes,
+					query: queryBytes,
+					comparators: comparatorBytes,
+					tuple: encoded
+				})
+			)
+		)
 	}
 	const encode = (tuple: CursorTuple<Cs>): Result.Result<string, CursorError> => admit(tuple)
 
@@ -327,9 +391,9 @@ export const cursorCodec = <const Cs extends ReadonlyArray<CursorComparator>>(
 		if (bytes === undefined) {
 			return Result.err(cursorError("cursorEncoding"))
 		}
-		const read = readCursor(bytes)
+		const read = readCursor(bytes, arity)
 		if (!read.ok) {
-			return Result.err(cursorError(read.error))
+			return Result.err(cursorError("cursorMalformed"))
 		}
 		const fields = read.value
 		if (!bytesEqual(fields.generation, generationBytes)) {
@@ -341,7 +405,7 @@ export const cursorCodec = <const Cs extends ReadonlyArray<CursorComparator>>(
 		if (!bytesEqual(fields.comparators, comparatorBytes)) {
 			return Result.err(cursorError("cursorComparator"))
 		}
-		if (fields.tuple.length !== arity) {
+		if (fields.kind === "count") {
 			return Result.err(cursorError("cursorMalformed"))
 		}
 		const values: Array<unknown> = []

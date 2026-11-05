@@ -8,7 +8,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { json } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { contractOf, numericTypmodOf, sameScalarType } from "#compiler/ir/scalar.ts"
@@ -23,6 +23,7 @@ import {
 	contractDescriptor,
 	fieldIdentity
 } from "#test/support/fixtures/descriptors.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 import { regex } from "arkregex"
 import { argumentsOf } from "#test/support/list.ts"
@@ -118,7 +119,7 @@ describe("contract identity", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ kind, base: baseName, precision, name, other, value, withPredicate }, c) =>
 						Effect.sync(() => {
@@ -283,7 +284,7 @@ describe("contract admission", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ name, base, extra }, c) =>
 						Effect.sync(() => {

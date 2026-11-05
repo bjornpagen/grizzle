@@ -11,40 +11,37 @@ import { scopedTempDir } from "#test/support/temp.ts"
 layer(NodeServices.layer, { excludeTestServices: true })(
 	"the query rule gates on PostgreSQL",
 	(it) => {
-		it.effect(
-			"find nothing at quick scale, and record a verdict for every query gate",
-			() =>
-				Effect.gen(function* () {
-					const fs = yield* FileSystem.FileSystem
-					const path = yield* Path.Path
-					const results = path.join(repoRoot, "bench/results")
-					yield* fs.makeDirectory(results, { recursive: true })
-					const outDir = yield* scopedTempDir(results, "m15b-pg-")
-					const ran = yield* runGates({
-						quick: true,
-						outDir,
-						directories: Arr.map(ownerDirectories.query, (dir) => path.join(repoRoot, dir)),
-						only: [],
-						onRecord: () => Effect.void
-					})
-					assert.deepEqual(gateFindings(ran.records), [])
-					assert.deepEqual(
-						Arr.sort(
-							Arr.flatMap(ran.records, (r) =>
-								r.kind === "ran" ? Arr.map(r.verdicts, (v) => v.gate) : r.gates
-							),
-							Order.String
+		it.effect("find nothing at quick scale, and record a verdict for every query gate", () =>
+			Effect.gen(function* () {
+				const fs = yield* FileSystem.FileSystem
+				const path = yield* Path.Path
+				const results = path.join(repoRoot, "bench/results")
+				yield* fs.makeDirectory(results, { recursive: true })
+				const outDir = yield* scopedTempDir(results, "m15b-pg-")
+				const ran = yield* runGates({
+					quick: true,
+					outDir,
+					directories: Arr.map(ownerDirectories.query, (dir) => path.join(repoRoot, dir)),
+					only: [],
+					onRecord: () => Effect.void
+				})
+				assert.deepEqual(gateFindings(ran.records), [])
+				assert.deepEqual(
+					Arr.sort(
+						Arr.flatMap(ran.records, (r) =>
+							r.kind === "ran" ? Arr.map(r.verdicts, (v) => v.gate) : r.gates
 						),
-						Arr.sort(
-							Arr.map(
-								Arr.filter(gateCatalog, (e) => e.owner === "query"),
-								(e) => e.id
-							),
-							Order.String
-						)
+						Order.String
+					),
+					Arr.sort(
+						Arr.map(
+							Arr.filter(gateCatalog, (e) => e.owner === "query"),
+							(e) => e.id
+						),
+						Order.String
 					)
-				}),
-			1_200_000
+				)
+			})
 		)
 	}
 )

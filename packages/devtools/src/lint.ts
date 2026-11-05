@@ -416,10 +416,14 @@ const openLintProgram = (
 	})
 
 /** Every rule over one file in a single traversal; the engine stamps each report with its rule's id. */
-const findingsOf = (source: LintSource, options: SuperlintOptions): ReadonlyArray<Finding> => {
-	const context = { ...source, semantics: prepareSemantics(source), options }
+const findingsOf = (
+	source: LintSource,
+	options: SuperlintOptions,
+	root: string
+): ReadonlyArray<Finding> => {
+	const context = { ...source, semantics: prepareSemantics(source), options, root }
 	const excepted = Arr.filterMap(options.exceptions, (exception) =>
-		isAtAny(exception.files, source.sourceFile.fileName)
+		isAtAny(root, exception.files, source.sourceFile.fileName)
 			? Result.succeed(exception.rule)
 			: Result.failVoid
 	)
@@ -447,6 +451,31 @@ const findingsOf = (source: LintSource, options: SuperlintOptions): ReadonlyArra
 /** Each rule's fixtures compile in their own program; no other tool reads them. */
 const FIXTURES_ROOT = `${import.meta.dirname}/lint/fixtures`
 
+const VIOLATING_FIXTURE = "/violating.ts"
+
+/**
+ * The fixture sets the rules run against, by their directory under the fixtures root: each rule's own directory, and
+ * every directory beneath it that holds a violating fixture of its own, where the rule runs under the options that
+ * name that directory (a second scope, a sanctioned reader). A set's first segment is its rule.
+ */
+const fixtureSetsOf = (files: ReadonlyArray<string>): ReadonlyArray<string> =>
+	Arr.flatMap(RULES, (rule) => {
+		const directory = `${FIXTURES_ROOT}/${rule.id}/`
+		const nested = Arr.filterMap(files, (file): Result.Result<string, void> =>
+			Str.startsWith(directory)(file) &&
+			Str.endsWith(VIOLATING_FIXTURE)(file) &&
+			file !== `${directory}violating.ts`
+				? Result.succeed(
+						Str.slice(FIXTURES_ROOT.length + 1, file.length - VIOLATING_FIXTURE.length)(file)
+					)
+				: Result.failVoid
+		)
+		return [rule.id, ...nested]
+	})
+
+/** The rule a fixture set proves: its directory's first segment. */
+const ruleOfSet = (set: string): string => Arr.headNonEmpty(Str.split("/")(set))
+
 const checkFixtures = Effect.gen(function* () {
 	const { root } = yield* Repository
 	const mismatches = yield* Effect.scoped(
@@ -458,16 +487,22 @@ const checkFixtures = Effect.gen(function* () {
 					fixtureMismatchesOf({
 						root: FIXTURES_ROOT,
 						extensionOf: () => ".ts",
-						rules: Arr.map(RULES, (rule) => rule.id),
-						runOf: ({ rule, file }) =>
+						rules: fixtureSetsOf(project.program.getSourceFileNames()),
+						runOf: ({ rule: set, file }) =>
 							Option.map(
 								Option.fromUndefinedOr(project.program.getSourceFile(file)),
 								(sourceFile) => ({
 									text: sourceFile.text,
 									reported: Arr.filterMap(
-										findingsOf({ sourceFile, checker: project.checker }, FIXTURE_OPTIONS),
+										findingsOf(
+											{ sourceFile, checker: project.checker },
+											FIXTURE_OPTIONS,
+											FIXTURES_ROOT
+										),
 										(finding) =>
-											finding.rule === rule ? Result.succeed(finding.line) : Result.failVoid
+											finding.rule === ruleOfSet(set)
+												? Result.succeed(finding.line)
+												: Result.failVoid
 									)
 								})
 							)
@@ -504,7 +539,7 @@ const main = Effect.gen(function* () {
 				Arr.contains(selected, source.sourceFile.fileName)
 			)
 			return yield* Effect.try({
-				try: () => Arr.flatMap(sources, (source) => findingsOf(source, options)),
+				try: () => Arr.flatMap(sources, (source) => findingsOf(source, options, root)),
 				catch: (cause) =>
 					DevtoolFailure.make({ detail: "superlint failed while collecting findings", cause })
 			})

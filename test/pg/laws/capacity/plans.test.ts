@@ -24,11 +24,12 @@ import { element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { planNodeTypes } from "#bench/harness/explain.ts"
 import { quotas, quotasLaw } from "#test/pg/laws/capacity/schemas.ts"
 import { installCapacity, writerOf } from "#test/pg/laws/capacity/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -91,7 +92,7 @@ layer(Substrate.layer)("capacity law plans on skewed statistics", (it) => {
 								["a generic plan scans Seat", "a small group of none", "a small group of some"],
 								{ cases: 16, sense: notesOnly }
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(sketch, c) =>
 							Effect.gen(function* () {
@@ -145,7 +146,6 @@ layer(Substrate.layer)("capacity law plans on skewed statistics", (it) => {
 							})
 					)
 				})
-			),
-		600_000
+			)
 	)
 })

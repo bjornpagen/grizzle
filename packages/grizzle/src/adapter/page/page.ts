@@ -13,7 +13,6 @@ import { executionInputs, type ParamCodecs, paramCodecs } from "#adapter/reader/
 import { bindGroups, type Row, type RowDecoder } from "#compiler/core/decoder.ts"
 import { CompileError, type CursorError, prose } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { pageMaxSize } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
@@ -28,8 +27,8 @@ import type { Page, PageCursor, PageEdge } from "#compiler/types/page/page.ts"
  * whole result evaluated and buffered on the host. In order, and everything before step 5 without SQL:
  *
  * 1. The request is validated (request.ts): exactly { first }, { first, after }, { last } or { last, before }, a size
- *    from 1 to pageMaxSize, an anchor that is a string. A refused shape or size is a ReadFailure whose reason is
- *    PageRequestRefused (stage request), a non-string anchor CursorError `cursorType`.
+ *    that is a safe integer of at least 1, an anchor that is a string. A refused shape or size is a ReadFailure whose
+ *    reason is PageRequestRefused (stage request), a non-string anchor CursorError `cursorType`.
  * 2. The ordered query compiles for a page: the query compiler's template for read "page" (program/compile.ts), whose
  *    checker refuses a page over an attached query with AttachedPage, as this module refuses a builder
  *    value still inside its attachment; then its page runtime template (template.ts: the page compiler's statements
@@ -51,9 +50,9 @@ import type { Page, PageCursor, PageEdge } from "#compiler/types/page/page.ts"
  *    variant's layouts once per page template, a binding the query's decoder refuses failing the page as a query that
  *    does not compile; and its cursor is made from its comparison tuple (execute.ts). Every cursor is stateless: it
  *    identifies a boundary of the live query and is accepted by any later page of the same query. A tuple whose token
- *    would exceed cursorMaxBytes fails the page with CursorError `cursorTupleOversized`; a page is returned only once
- *    every cursor exists. startCursor and endCursor are the first and last edges' cursors, Option.none for an empty
- *    page.
+ *    would exceed the layout's bound (codec/cursor/codec.ts cursorTokenMaxLength) fails the page with CursorError
+ *    `cursorTupleOversized`; a page is returned only once every cursor exists. startCursor and endCursor are the first
+ *    and last edges' cursors, Option.none for an empty page.
  */
 export interface PageRun<A> {
 	readonly ctx: DbContext
@@ -207,7 +206,7 @@ export const runPage = <A, Q>(
 	run: PageRun<A>
 ): Effect.Effect<Page<A, Q>, ReadError | CursorError> =>
 	Effect.gen(function* () {
-		const request = yield* Effect.fromResult(pageRequest(run.request, pageMaxSize))
+		const request = yield* Effect.fromResult(pageRequest(run.request))
 		const { compiled, runtime, codecs } = yield* pageTemplateOf(run)
 		const values = yield* hostParams(compiled.template.params, run.params)
 		const inputs = yield* Effect.fromResult(

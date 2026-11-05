@@ -9,6 +9,7 @@ import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
 import { conjuncts, type Fixed, type NamedValue } from "#compiler/logical/props.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { andOp } from "#test/support/oracle/gen/ops.ts"
+import { provedKeys } from "#test/unit/analysis/physical/support.ts"
 
 /**
  * The order of a filter's conjuncts is no part of what it means, so neither analysis may read it: a column two
@@ -136,9 +137,7 @@ const physicalClaims = (dag: RelDag, env: PhysicalEnv): ReadonlyArray<string> =>
 	return Arr.map(analysis.order, (node) => {
 		const p = analysis.of(node).props
 		const fixed: ReadonlyMap<string, FixedFacts> = p.fixed
-		return `physical ${node.id} ${node.kind}: keys [${keysText(
-			Arr.map(p.keys, (k) => k.columns)
-		)}], fixed [${fixedText(fixed, (f) => valueText(f.fixed))}], at most ${Formatter.format(
+		return `physical ${node.id} ${node.kind}: keys [${keysText(provedKeys(p))}], fixed [${fixedText(fixed, (f) => valueText(f.fixed))}], at most ${Formatter.format(
 			p.maxCard
 		)}, ${p.uniqueness.kind}, ${p.realization}`
 	})

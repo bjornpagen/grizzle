@@ -3,6 +3,7 @@ import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { identity, parseSchemaName } from "#compiler/core/identity.ts"
 import type * as Result from "#compiler/core/result.ts"
+import { initMigrationName } from "#compiler/deploy/render/folder.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
@@ -235,7 +236,7 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 				previous: emptySnapshot({ schemaName: owned.name, schema: installation.names.schema }),
 				installation,
 				workload: { access, accessPaths: paths },
-				naming: { kind: "named", name: "init" },
+				naming: { kind: "named", name: initMigrationName },
 				timestamp: "20261012000001",
 				abandoned: []
 			}),

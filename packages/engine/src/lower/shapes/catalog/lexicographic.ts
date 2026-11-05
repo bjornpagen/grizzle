@@ -1,10 +1,9 @@
 import { firstIndex } from "#compiler/core/array.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
+import { drive, Fold } from "#compiler/ir/fold.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { columnRef, opView, required } from "#compiler/lower/shapes/catalog/exprs.ts"
 import { firstOperand, nativeOp } from "#compiler/scalar/compute/registry.ts"
-
-const maxPairs = 6
 
 type Side = "a" | "b"
 
@@ -51,62 +50,71 @@ interface LexOrder {
  * pair it compares is added to `pairs`, numbered in first-use order.
  *
  * A field compared with two different fields would make the pairs' signs dependent.
+ *
+ * The one fold engine reads it (ir/fold.ts), each connective waiting on a stack on the heap while its operands are
+ * read, so a predicate nested to any depth never deepens the call stack. Operands are read in order and the first that
+ * is no native comparison of one pair ends the parse, so the pairs are numbered in the order a reading of the operands
+ * in turn meets them; an expression the predicate holds in two places is read once, one formula in both.
  */
-const parse = (e: ScalarExpr, classify: Classify, pairs: Array<Pair>): Formula | undefined => {
-	const v = opView(e)
-	const fn = v?.fn
-	if (v === undefined || fn === undefined) {
-		return undefined
-	}
-	if (fn === "and" || fn === "or") {
-		const args: Array<Formula> = []
-		for (const a of v.args) {
-			const f = parse(a, classify, pairs)
-			if (f === undefined) {
-				return undefined
-			}
-			args.push(f)
-		}
-		return { kind: fn, args }
-	}
-	if (fn === "not") {
-		const [only] = v.args
-		const arg = only === undefined ? undefined : parse(only, classify, pairs)
-		return arg === undefined ? undefined : { kind: "not", arg }
-	}
-	const [l, r] = v.args
-	if (!isCmp(fn) || v.args.length !== 2 || l === undefined || r === undefined) {
-		return undefined
-	}
-	const lRef = columnRef(l)
-	const rRef = columnRef(r)
-	const lc = lRef === undefined ? undefined : classify(lRef)
-	const rc = rRef === undefined ? undefined : classify(rRef)
-	if (lc === undefined || rc === undefined || lc.side === rc.side) {
-		return undefined
-	}
-	const b = lc.side === "b" ? lc.id : rc.id
-	const a = lc.side === "a" ? lc.id : rc.id
-	/** One carrier on both sides under its own native comparison. */
-	const carrier = baseOf(l.type).carrier
-	const native = nativeOp(v.op)
-	if (
-		baseOf(r.type).carrier !== carrier ||
-		native === undefined ||
-		firstOperand(native.operands) !== carrier
-	) {
-		return undefined
-	}
-	let index = firstIndex(pairs, (p) => p.b === b && p.a === a)
-	if (index === undefined) {
-		if (pairs.some((p) => p.b === b || p.a === a)) {
+const parse = (pred: ScalarExpr, classify: Classify, pairs: Array<Pair>): Formula | undefined =>
+	new Fold<ScalarExpr, Formula | undefined>(function* (e) {
+		const v = opView(e)
+		const fn = v?.fn
+		if (v === undefined || fn === undefined) {
 			return undefined
 		}
-		pairs.push({ b, a })
-		index = pairs.length - 1
-	}
-	return { kind: "atom", pair: index, cmp: lc.side === "b" ? fn : flip[fn] }
-}
+		if (fn === "and" || fn === "or") {
+			const args: Array<Formula> = []
+			for (const operand of v.args) {
+				const f = yield operand
+				if (f === undefined) {
+					return undefined
+				}
+				args.push(f)
+			}
+			return { kind: fn, args }
+		}
+		if (fn === "not") {
+			const [only] = v.args
+			if (only === undefined) {
+				return undefined
+			}
+			const arg = yield only
+			return arg === undefined ? undefined : { kind: "not", arg }
+		}
+		const [l, r] = v.args
+		if (!isCmp(fn) || v.args.length !== 2 || l === undefined || r === undefined) {
+			return undefined
+		}
+		const lRef = columnRef(l)
+		const rRef = columnRef(r)
+		const lc = lRef === undefined ? undefined : classify(lRef)
+		const rc = rRef === undefined ? undefined : classify(rRef)
+		if (lc === undefined || rc === undefined || lc.side === rc.side) {
+			return undefined
+		}
+		const b = lc.side === "b" ? lc.id : rc.id
+		const a = lc.side === "a" ? lc.id : rc.id
+		/** One carrier on both sides under its own native comparison. */
+		const carrier = baseOf(l.type).carrier
+		const native = nativeOp(v.op)
+		if (
+			baseOf(r.type).carrier !== carrier ||
+			native === undefined ||
+			firstOperand(native.operands) !== carrier
+		) {
+			return undefined
+		}
+		let index = firstIndex(pairs, (p) => p.b === b && p.a === a)
+		if (index === undefined) {
+			if (pairs.some((p) => p.b === b || p.a === a)) {
+				return undefined
+			}
+			pairs.push({ b, a })
+			index = pairs.length - 1
+		}
+		return { kind: "atom", pair: index, cmp: lc.side === "b" ? fn : flip[fn] }
+	}).of(pred)
 
 const holds = (cmp: Cmp, sign: number): boolean => {
 	switch (cmp) {
@@ -125,53 +133,197 @@ const holds = (cmp: Cmp, sign: number): boolean => {
 	}
 }
 
-const evaluate = (f: Formula, signs: ReadonlyArray<number>): boolean => {
-	switch (f.kind) {
-		case "and":
-			return f.args.every((a) => evaluate(a, signs))
-		case "or":
-			return f.args.some((a) => evaluate(a, signs))
-		case "not":
-			return !evaluate(f.arg, signs)
-		case "atom":
-			return holds(f.cmp, required(signs[f.pair], `a sign for the pair ${f.pair}`))
-	}
+/** One of the three signs of a pair, b - a under the pair's native order. */
+type Sign = -1 | 0 | 1
+
+/** A truth value of the predicate, once every pair it still tests is decided. */
+interface Leaf {
+	readonly kind: "leaf"
+	readonly id: number
+	readonly value: boolean
 }
 
-/** Every assignment of -1, 0, 1 to `free`, the other pairs as `fixed`. */
-const assignments = function* (
-	count: number,
-	free: ReadonlyArray<number>,
-	fixed: ReadonlyMap<number, number>
-) {
-	const signs = [...Array.from({ length: count }).keys()].map((i) => fixed.get(i) ?? 0)
-	const total = 3 ** free.length
-	for (let n = 0; n < total; n++) {
-		let m = n
-		for (const p of free) {
-			signs[p] = (m % 3) - 1
-			m = Math.floor(m / 3)
-		}
-		yield signs
-	}
+/** A test of one pair's sign, with the diagram for each sign; every pair it leads to is a later one. */
+interface Test {
+	readonly kind: "test"
+	readonly id: number
+	readonly pair: number
+	readonly below: Diagram
+	readonly equal: Diagram
+	readonly above: Diagram
 }
 
 /**
- * The one value `formula` takes over every assignment of the `free` pairs, or none when it varies. There is always
- * at least one assignment, the empty one when nothing is free.
+ * A reduced ordered decision diagram over the pairs' signs (Bryant's, three-way): the pairs tested in first-use order,
+ * no test whose three children are one diagram, and no two tests of one pair over the same children. It is canonical:
+ * two formulas compute one function of the sign vector exactly when they build one diagram.
  */
-const constantOver = (
-	formula: Formula,
-	count: number,
-	free: ReadonlyArray<number>,
-	fixed: ReadonlyMap<number, number>
-): boolean | undefined => {
-	const values = new Set<boolean>()
-	for (const signs of assignments(count, free, fixed)) {
-		values.add(evaluate(formula, signs))
+type Diagram = Leaf | Test
+
+const child = (t: Test, sign: Sign): Diagram => (sign < 0 ? t.below : sign > 0 ? t.above : t.equal)
+
+/**
+ * An operation on diagrams: the negation of a test, the conjunction or disjunction of two tests (`x` the one made
+ * first), or a test of an earlier pair than `pair` with that pair's sign fixed to `sign`. Each is one object per
+ * operation and operands (Diagrams #operation), so the fold that computes it keeps its diagram by that object.
+ */
+type Operation =
+	| { readonly kind: "negate"; readonly test: Test }
+	| { readonly kind: "apply"; readonly op: "and" | "or"; readonly x: Test; readonly y: Test }
+	| { readonly kind: "restrict"; readonly test: Test; readonly pair: number; readonly sign: Sign }
+
+/** What the fold of a recognition computes a diagram of: a formula, or an operation on diagrams. */
+type Vertex = Formula | Operation
+
+/**
+ * The diagrams of one predicate, built and shared within one recognition: each test is made once per pair and children
+ * (the unique table), and each operation is one object per operands, computed once by the one fold engine
+ * (ir/fold.ts), so a diagram is never built twice. The fold keeps the operations it is inside on a stack on the heap, so
+ * neither a formula nested to any depth nor a diagram over any number of pairs deepens the call stack; each step reads
+ * its operands in the order a recursion would, so every test is made, and numbered, in that order.
+ */
+class Diagrams {
+	readonly #truth: Leaf = { kind: "leaf", id: 0, value: true }
+	readonly #falsity: Leaf = { kind: "leaf", id: 1, value: false }
+	#next = 2
+	readonly #unique = new Map<string, Test>()
+	readonly #operations = new Map<string, Operation>()
+	readonly #fold = new Fold<Vertex, Diagram>((v) => this.#step(v))
+
+	/** The diagram of `f`. */
+	of(f: Formula): Diagram {
+		return this.#fold.of(f)
 	}
-	const [only] = values
-	return values.size === 1 && only !== undefined ? only : undefined
+
+	/** The diagram `d` with `pair`'s sign fixed to `sign`. */
+	restrict(d: Diagram, pair: number, sign: Sign): Diagram {
+		return drive(this.#restrict(d, pair, sign), (v) => this.#fold.of(v))
+	}
+
+	#leaf(value: boolean): Leaf {
+		return value ? this.#truth : this.#falsity
+	}
+
+	#test(pair: number, below: Diagram, equal: Diagram, above: Diagram): Diagram {
+		if (below === equal && equal === above) {
+			return below
+		}
+		const key = `${pair}/${below.id}/${equal.id}/${above.id}`
+		const known = this.#unique.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		const made: Test = { kind: "test", id: this.#next++, pair, below, equal, above }
+		this.#unique.set(key, made)
+		return made
+	}
+
+	/** The one object of the operation `key` names, `operation` when it is the first. */
+	#operation(key: string, operation: Operation): Operation {
+		const known = this.#operations.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		this.#operations.set(key, operation)
+		return operation
+	}
+
+	/** The fold's step: the diagram of a vertex, from the diagrams of the vertices it yields. */
+	*#step(v: Vertex): Generator<Vertex, Diagram, Diagram> {
+		switch (v.kind) {
+			case "atom":
+				return this.#test(
+					v.pair,
+					this.#leaf(holds(v.cmp, -1)),
+					this.#leaf(holds(v.cmp, 0)),
+					this.#leaf(holds(v.cmp, 1))
+				)
+			case "not": {
+				const d = yield v.arg
+				return yield* this.#not(d)
+			}
+			case "and":
+			case "or": {
+				const op = v.kind
+				let acc: Diagram = this.#leaf(op === "and")
+				for (const a of v.args) {
+					const d = yield a
+					acc = yield* this.#apply(op, acc, d)
+				}
+				return acc
+			}
+			case "negate": {
+				const t = v.test
+				const below = yield* this.#not(t.below)
+				const equal = yield* this.#not(t.equal)
+				const above = yield* this.#not(t.above)
+				return this.#test(t.pair, below, equal, above)
+			}
+			case "apply": {
+				const { op, x, y } = v
+				const pair = Math.min(x.pair, y.pair)
+				const at = (d: Test, sign: Sign): Diagram => (d.pair === pair ? child(d, sign) : d)
+				const below = yield* this.#apply(op, at(x, -1), at(y, -1))
+				const equal = yield* this.#apply(op, at(x, 0), at(y, 0))
+				const above = yield* this.#apply(op, at(x, 1), at(y, 1))
+				return this.#test(pair, below, equal, above)
+			}
+			case "restrict": {
+				const { test: t, pair, sign } = v
+				const below = yield* this.#restrict(t.below, pair, sign)
+				const equal = yield* this.#restrict(t.equal, pair, sign)
+				const above = yield* this.#restrict(t.above, pair, sign)
+				return this.#test(t.pair, below, equal, above)
+			}
+		}
+	}
+
+	/** The negation of `d`: a leaf's at once, a test's by its operation. */
+	*#not(d: Diagram): Generator<Vertex, Diagram, Diagram> {
+		if (d.kind === "leaf") {
+			return this.#leaf(!d.value)
+		}
+		return yield this.#operation(`n${d.id}`, { kind: "negate", test: d })
+	}
+
+	/** `a` and `b`, or `a` or `b`: with a leaf, or of one diagram, at once; of two tests, by their operation. */
+	*#apply(op: "and" | "or", a: Diagram, b: Diagram): Generator<Vertex, Diagram, Diagram> {
+		if (a.kind === "leaf") {
+			return this.#withLeaf(op, a, b)
+		}
+		if (b.kind === "leaf") {
+			return this.#withLeaf(op, b, a)
+		}
+		if (a === b) {
+			return a
+		}
+		const [x, y] = a.id < b.id ? [a, b] : [b, a]
+		return yield this.#operation(`${op}${x.id},${y.id}`, { kind: "apply", op, x, y })
+	}
+
+	/** `leaf` and `other`, or `leaf` or `other`. */
+	#withLeaf(op: "and" | "or", leaf: Leaf, other: Diagram): Diagram {
+		return op === "and" ? (leaf.value ? other : this.#falsity) : leaf.value ? this.#truth : other
+	}
+
+	/**
+	 * `d` with `pair`'s sign fixed to `sign`: a leaf or a test of a later pair as it is, a test of `pair` its child at
+	 * `sign`, a test of an earlier pair by its operation.
+	 */
+	*#restrict(d: Diagram, pair: number, sign: Sign): Generator<Vertex, Diagram, Diagram> {
+		if (d.kind === "leaf" || d.pair > pair) {
+			return d
+		}
+		if (d.pair === pair) {
+			return child(d, sign)
+		}
+		return yield this.#operation(`r${d.id}:${pair}:${sign}`, {
+			kind: "restrict",
+			test: d,
+			pair,
+			sign
+		})
+	}
 }
 
 /**
@@ -193,45 +345,54 @@ const constantOver = (
  * whenever its fields differ, the strictly smaller side preceding under that pair's direction, and the remaining
  * pairs decide the ties the same way. The recursion yields the order (pair and direction, first pair first) and
  * whether equal tuples satisfy it: inclusive (<=) or strict (<). Pairs the predicate never depends on are not part
- * of the order. The search evaluates at most 3^pairs sign vectors per step over at most `maxPairs` pairs, a fixed
- * bound.
+ * of the order.
+ *
+ * Complete for every arrangement of every number of pairs: each question the recursion asks (is the predicate
+ * constant once the pairs chosen so far tie, and is it constant on each side of one more) is a property of the
+ * function the predicate computes, which its decision diagram (Diagrams) represents exactly and canonically, so a
+ * question is answered by restricting the diagram and asking whether a leaf is left: the answer every sign vector's
+ * evaluation would give, without evaluating 3^pairs of them. The work is polynomial in the diagrams built, a few tests
+ * per pair for the lexicographic spellings, since the nested expansion and its disjunctive normal form test the pairs
+ * in first-use order. No method is polynomial for every arrangement: whether one is lexicographic is coNP-hard. For a
+ * formula φ over atoms `b < a` of distinct pairs and two pairs p and q it does not read, `p.b < p.a and (φ or q.b <
+ * q.a)` is lexicographic (the strict order of p alone) exactly when φ is a tautology: otherwise no pair decides it
+ * whenever its fields differ, since p's does not once φ and q's comparison can both be false, and every other pair's
+ * leaves it varying with p's.
  */
 export const lexicographicOrder = (pred: ScalarExpr, classify: Classify): LexOrder | undefined => {
 	const pairs: Array<Pair> = []
 	const formula = parse(pred, classify, pairs)
-	if (formula === undefined || pairs.length === 0 || pairs.length > maxPairs) {
+	if (formula === undefined || pairs.length === 0) {
 		return undefined
 	}
-	const count = pairs.length
+	const diagrams = new Diagrams()
 	const order: Array<Pair & { dir: "asc" | "desc" }> = []
-	const fixed = new Map<number, number>()
 	let remaining: ReadonlyArray<number> = [...pairs.keys()]
-	/** The direction pair `c` decides the predicate in whenever its fields differ, given the pairs fixed so far. */
-	const decision = (c: number): "asc" | "desc" | undefined => {
-		const others = remaining.filter((p) => p !== c)
-		const below = constantOver(formula, count, others, new Map(fixed).set(c, -1))
-		const above = constantOver(formula, count, others, new Map(fixed).set(c, 1))
-		if (below === undefined || above === undefined || below === above) {
+	/** The direction pair `c` decides the predicate in whenever its fields differ, given the pairs tied so far. */
+	const decision = (current: Diagram, c: number): "asc" | "desc" | undefined => {
+		const below = diagrams.restrict(current, c, -1)
+		const above = diagrams.restrict(current, c, 1)
+		if (below.kind !== "leaf" || above.kind !== "leaf" || below.value === above.value) {
 			return undefined
 		}
-		return below ? "asc" : "desc"
+		return below.value ? "asc" : "desc"
 	}
-	const decide = (): { readonly index: number; readonly dir: "asc" | "desc" } | undefined => {
+	const decide = (
+		current: Diagram
+	): { readonly index: number; readonly dir: "asc" | "desc" } | undefined => {
 		for (const c of remaining) {
-			const dir = decision(c)
+			const dir = decision(current, c)
 			if (dir !== undefined) {
 				return { index: c, dir }
 			}
 		}
 		return undefined
 	}
-	for (;;) {
-		/** Constant over the remaining pairs: the tuple ends here. */
-		const constant = constantOver(formula, count, remaining, fixed)
-		if (constant !== undefined) {
-			return { order, inclusive: constant }
+	for (let current = diagrams.of(formula); ;) {
+		if (current.kind === "leaf") {
+			return { order, inclusive: current.value }
 		}
-		const chosen = decide()
+		const chosen = decide(current)
 		if (chosen === undefined) {
 			return undefined
 		}
@@ -239,7 +400,7 @@ export const lexicographicOrder = (pred: ScalarExpr, classify: Classify): LexOrd
 			...required(pairs[chosen.index], `the pair ${chosen.index}`),
 			dir: chosen.dir
 		})
-		fixed.set(chosen.index, 0)
+		current = diagrams.restrict(current, chosen.index, 0)
 		remaining = remaining.filter((p) => p !== chosen.index)
 	}
 }

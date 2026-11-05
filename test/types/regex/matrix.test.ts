@@ -4,7 +4,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { type CompileReasonTag, isCompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
@@ -12,6 +12,7 @@ import { admitRegex } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checked } from "#test/types/batch/groups.ts"
 import { type Category, type Row, rows } from "#test/types/regex/matrix.ts"
 import { jsAccepts } from "#test/unit/text/generators.ts"
@@ -148,7 +149,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("ArkRegex inference mat
 					literal: (row) => Formatter.format(row.name),
 					limit: rows.length,
 					coverage: requiredInSpace<Category>(categories),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(row, c) =>
 					Effect.sync(() => {

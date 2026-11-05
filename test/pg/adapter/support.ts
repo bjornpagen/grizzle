@@ -1,15 +1,19 @@
 import { type Array as Arr, Effect, Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/failures.ts"
 import type { BatchFailure } from "#adapter/errors/failures.ts"
-import { type AcquisitionBudgets, acquisitionBudgets } from "#adapter/pool/budgets.ts"
-import type { ConnectionPool } from "#adapter/types/layer.ts"
-import { makePool, type Session, type SessionPool, type Transport } from "#adapter/wire/session.ts"
-import { poolBounds } from "#compiler/core/policy.ts"
+import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
+import { makePool, type Session, type SessionPool } from "#adapter/wire/session.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
 import { printRoleSetting, quoteIdent } from "#compiler/sql/print.ts"
-import { pgPin } from "#test/support/env.ts"
-import { runAlone, type SqlError } from "#test/support/pg.ts"
+import { testConnectTimeout } from "#test/support/limits.ts"
+import {
+	clusterConnection,
+	clusterPool,
+	parsedConnection,
+	runAlone,
+	type SqlError
+} from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -19,7 +23,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * A login here is what an installation's migration makes of a login: a role `<schema>__<name>` that logs in, whose role
  * defaults are the installation's own for every login (physical/ddl/roles.ts roleDefaultSettings): search_path =
- * pg_catalog, pg_temp, jit = off, the four locale categories at C.UTF-8 and extra_float_digits = 1.
+ * pg_catalog, pg_temp, lc_monetary, lc_numeric and lc_time at C.UTF-8 and extra_float_digits = 1.
  *
  * The settings an installation stores as role defaults for every login, and their values.
  */
@@ -53,13 +57,6 @@ export const substrateLogin = (
 	})
 
 export interface PoolOptions {
-	readonly host: string
-	/** The CA bundle the sessions verify the server's certificate against: the cluster's own CA, or another bundle. */
-	readonly ca: { readonly kind: "cluster" } | { readonly kind: "given"; readonly pem: string }
-	/** The name the server's certificate must carry: the host connected to, or an override (a tunnel's name). */
-	readonly servername:
-		| { readonly kind: "host" }
-		| { readonly kind: "given"; readonly servername: string }
 	/**
 	 * What the pool's sessions send as their password: the credentials' own, or another (a rotating Effect, a wrong one).
 	 */
@@ -69,88 +66,63 @@ export interface PoolOptions {
 				readonly kind: "given"
 				readonly password: Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
 		  }
-	readonly pool: { readonly idleTimeoutMs: number; readonly min: 1; readonly max: number }
-	readonly budgets: AcquisitionBudgets
+	readonly pool: PoolBounds
 	/**
 	 * The platform's pool hook (DbConfig.attachPool): nothing, or Vercel's attachDatabasePool in the serverless suite.
 	 */
 	readonly attachPool: (pool: ConnectionPool) => void
 	/**
-	 * How the sessions reach the server: verify-full TLS from `ca` and `servername`, or a transport a test supplies (a tap,
-	 * a fake server).
+	 * How the sessions reach the server: the cluster's own transport (test/support/pg.ts clusterConnection), or one a
+	 * test supplies (a tap, a fake server, another CA, host or servername).
 	 */
 	readonly transport:
-		| { readonly kind: "tls" }
+		| { readonly kind: "cluster" }
 		| { readonly kind: "given"; readonly transport: Transport }
+	/** How long each connection attempt and each CancelRequest may take. */
+	readonly connectTimeoutMs: number
 }
 
 /**
- * The adapter's own pool for the local cluster: the cluster's CA certificate for the local host, the credentials'
- * password, production's pool bounds, the default acquisition budgets. A test spreads it and overrides
- * what it means.
+ * The adapter's own pool for the local cluster: the cluster's transport, the credentials' password, the test pool's
+ * bounds and the cluster's connect timeout. A test spreads it and overrides what it means.
  */
 export const defaultPool: PoolOptions = {
-	host: pgPin.host,
-	ca: { kind: "cluster" },
-	servername: { kind: "host" },
 	password: { kind: "credentials" },
-	pool: poolBounds,
-	budgets: acquisitionBudgets,
+	pool: clusterPool,
 	attachPool: () => undefined,
-	transport: { kind: "tls" }
+	transport: { kind: "cluster" },
+	connectTimeoutMs: testConnectTimeout.value
 }
 
-/** A session pool for `credentials` in this file's database at `port`, closed with the scope. */
-const poolAt = (
-	credentials: Credentials,
-	port: number,
-	options: PoolOptions
-): Effect.Effect<SessionPool, never, Substrate | Scope.Scope> =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const pool = yield* makePool({
-			connection: {
-				host: options.host,
-				port,
-				database: s.database,
-				role: credentials.role,
-				password:
-					options.password.kind === "credentials" ? credentials.password : options.password.password
-			},
-			transport:
-				options.transport.kind === "given"
-					? options.transport.transport
-					: {
-							_tag: "tls",
-							tls: {
-								ca: options.ca.kind === "cluster" ? s.cluster.caPem : options.ca.pem,
-								servername:
-									options.servername.kind === "host" ? options.host : options.servername.servername
-							}
-						},
-			pool: options.pool,
-			budgets: options.budgets,
-			attachPool: options.attachPool
-		})
-		return pool
-	})
-
 /**
- * A session pool for `credentials` in this file's database, reaching the server through the substrate's target, closed
- * with the scope.
+ * A session pool for `credentials` in this file's database, closed with the scope, its connection parsed as grizzle
+ * parses one (test/support/pg.ts parsedConnection).
  */
 export const poolFor = (
 	credentials: Credentials,
 	options: PoolOptions
 ): Effect.Effect<SessionPool, never, Substrate | Scope.Scope> =>
-	Effect.flatMap(Substrate, () => poolAt(credentials, pgPin.port, options))
-
-/** A pool aimed at a local fake server, not at PostgreSQL: the one endpoint a test names by its port. */
-export const fakeServerPool = (
-	credentials: Credentials,
-	port: number
-): Effect.Effect<SessionPool, never, Substrate | Scope.Scope> =>
-	poolAt(credentials, port, defaultPool)
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const connection = clusterConnection(
+			s.cluster,
+			s.database,
+			options.password.kind === "credentials" ? credentials.password : options.password.password
+		)
+		return yield* makePool({
+			connection: parsedConnection(
+				{
+					...connection,
+					transport:
+						options.transport.kind === "given" ? options.transport.transport : connection.transport,
+					connectTimeoutMs: options.connectTimeoutMs
+				},
+				credentials.role
+			),
+			bounds: options.pool,
+			attachPool: options.attachPool
+		})
+	})
 
 /** The rows of one statement sent alone on `session`, parameters as their texts. */
 export const rowsOn = (

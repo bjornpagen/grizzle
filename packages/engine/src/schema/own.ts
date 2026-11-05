@@ -734,11 +734,11 @@ class Owner {
 	 */
 	#checkClosed(entry: RelationEntry, r: RelationDesc & { readonly kind: "closed" }): void {
 		for (const handle of r.handles) {
-			if (utf8Length(handle) > maxEnumLabelBytes) {
+			if (utf8Length(handle) > maxEnumLabelBytes.value) {
 				fail(
 					"MalformedDescription",
 					labeledChildLoc(entry.desc.loc, "handles", `roster of ${r.name}`),
-					`handles of at most ${maxEnumLabelBytes} UTF-8 bytes, the limit of a PostgreSQL enum label; ${JSON.stringify(handle)} has ${utf8Length(handle)}`
+					`handles of at most ${maxEnumLabelBytes.value} UTF-8 bytes, the limit of a PostgreSQL enum label; ${JSON.stringify(handle)} has ${utf8Length(handle)}`
 				)
 			}
 		}

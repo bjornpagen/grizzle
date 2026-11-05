@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
@@ -21,6 +21,7 @@ import {
 	parseAnswer
 } from "#test/pg/compute/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { type CatalogResult, constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -140,8 +141,6 @@ const fixtures = (): ReadonlyArray<Fixture> => {
 	const numericEdges = Arr.map(
 		[
 			"NaN",
-			"Infinity",
-			"-Infinity",
 			"0.0000005",
 			"0.0000004",
 			"1.0000004",
@@ -316,7 +315,7 @@ const contractSearch = (f: Fixture) =>
 				shrink: completeShrink,
 				concurrency: 1,
 				steerEvery: 16,
-				caseHang: Duration.minutes(2)
+				caseHang
 			},
 			(batch, c) =>
 				Effect.gen(function* () {
@@ -425,7 +424,7 @@ layer(Substrate.layer)("contract predicates against PostgreSQL 19 domains", (it)
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(batch) =>
 							Effect.gen(function* () {

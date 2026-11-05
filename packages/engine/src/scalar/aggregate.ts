@@ -1,16 +1,27 @@
-import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { type CompileError, resourceBound, unsupported } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { int8Digits, int8ExactDigits } from "#compiler/ir/carriers.ts"
 import { type CatalogOpId, OpId as opId } from "#compiler/ir/expr.ts"
 import type { AggregateCallOver, AggregateFn } from "#compiler/ir/rel.ts"
-import { baseOf, type Carrier, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import {
+	baseOf,
+	type Carrier,
+	type NumericBound,
+	numericMaxDisplayScale,
+	numericMaxIntegerDigits,
+	type ScalarType,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
+import {
+	exactNumericBound,
 	exactType,
 	familyDigits,
 	plainType,
 	valueType,
 	withoutSerial
 } from "#compiler/scalar/compute/types.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 
 export type AggregateName = "count" | "sum" | "mean" | "min" | "max"
 
@@ -75,26 +86,95 @@ interface OverloadCommon {
 	readonly lowering: AggregateLowering
 }
 
-interface Entry {
-	/** The result over an argument of `arg`'s type. */
-	readonly result: (arg: ScalarType) => ScalarType
-	readonly lowering: AggregateLowering
-}
+/**
+ * An overload's result over its argument: a type of the argument's, or a computed numeric whose bound is a function
+ * of the argument's once converted into numeric exactly (types.ts exactNumericBound).
+ */
+type Entry =
+	| {
+			readonly kind: "typed"
+			readonly result: (arg: ScalarType) => ScalarType
+			readonly lowering: AggregateLowering
+	  }
+	| {
+			readonly kind: "numeric"
+			readonly bound: (arg: NumericBound) => NumericBound
+			readonly lowering: AggregateLowering
+	  }
 
 /**
- * The integer digits a sum adds to its arguments' at most: it sums fewer rows than 2^63 (PostgreSQL holds fewer), so
- * |sum| < 10^19 · 10^digits.
+ * The integer digits a sum adds to its arguments' at most: it sums fewer rows than a bigint counts, so |sum| <
+ * 10^rowDigits · 10^digits.
  */
-const rowDigits = 19
+const rowDigits = int8Digits
 
 /** An exact sum's result over `arg`: an exact integer or exact money, its bound its argument's widened by the rows. */
 const exactSumOf =
 	(carrier: "exactInteger" | "exactMoney") =>
 	(arg: ScalarType): ScalarType =>
-		exactType(carrier, (familyDigits(valueType(arg)) ?? 0) + rowDigits)
+		exactType(carrier, (familyDigits(valueType(arg)) ?? 0) + rowDigits.value)
 
-const plainResult = (carrier: "int8" | "numeric" | "float4" | "float8") => (): ScalarType =>
-	plainType(carrier)
+const plainResult = (carrier: "int8" | "float4" | "float8") => (): ScalarType => plainType(carrier)
+
+const typed = (result: (arg: ScalarType) => ScalarType, lowering: AggregateLowering): Entry => ({
+	kind: "typed",
+	result,
+	lowering
+})
+
+/** A numeric sum's bound: its argument's integer digits widened by the rows, its fraction digits its argument's. */
+const sumBound = (b: NumericBound): NumericBound => ({
+	digits: b.digits + rowDigits.value,
+	scale: b.scale
+})
+
+const numericSum: Entry = { kind: "numeric", bound: sumBound, lowering: native }
+
+/**
+ * A numeric mean: within its argument's integer digits, a mean lying between the values it averages and rounding onto
+ * a scale they lie on; its scale PostgreSQL's division's, at most numericMaxDisplayScale (numeric_avg is numeric_div).
+ */
+const numericMean = (lowering: AggregateLowering): Entry => ({
+	kind: "numeric",
+	bound: (b) => ({ digits: b.digits, scale: numericMaxDisplayScale.value }),
+	lowering
+})
+
+/** The result of `entry` over `arg`, or ResourceBound where a computed numeric's bound passes numeric's own. */
+const resultOf = (
+	entry: Entry,
+	arg: ScalarType,
+	loc: SourceLoc
+): Result.Result<ScalarType, CompileError> => {
+	if (entry.kind === "typed") {
+		const result = entry.result(arg)
+		return result.carrier === "exactInteger" || result.carrier === "exactMoney"
+			? withinNumeric(result, result.digits, loc)
+			: Result.ok(result)
+	}
+	const b = exactNumericBound(arg)
+	if (b === undefined) {
+		return Result.err(unsupported(loc, `a numeric aggregate over ${typeLabel(arg)}`))
+	}
+	const bound = entry.bound(b)
+	return withinNumeric(numericValue(bound), bound.digits, loc)
+}
+
+/** `result`, of `digits` integer digits, where numeric holds them: past numericMaxIntegerDigits, ResourceBound. */
+const withinNumeric = (
+	result: ScalarType,
+	digits: number,
+	loc: SourceLoc
+): Result.Result<ScalarType, CompileError> =>
+	digits > numericMaxIntegerDigits.value
+		? Result.err(
+				resourceBound(loc, {
+					kind: "numericDigits",
+					limit: numericMaxIntegerDigits.value,
+					needed: digits
+				})
+			)
+		: Result.ok(result)
 
 /** The catalog's argument type name of a type (pg_aggregate over pg_proc): an exact value's its SQL type's. */
 const catalogName = (t: ScalarType): string => {
@@ -110,7 +190,7 @@ const catalogName = (t: ScalarType): string => {
 		case "exactMoney":
 			return "numeric"
 		case "exactInteger":
-			return b.digits <= 18 ? "bigint" : "numeric"
+			return b.digits <= int8ExactDigits.value ? "bigint" : "numeric"
 		case "float4":
 			return "real"
 		case "float8":
@@ -134,26 +214,34 @@ const catalogName = (t: ScalarType): string => {
 }
 
 const sumOverloads: Readonly<Partial<Record<Carrier, Entry>>> = {
-	int2: { result: plainResult("int8"), lowering: native },
-	int4: { result: plainResult("int8"), lowering: native },
-	int8: { result: plainResult("numeric"), lowering: native },
-	numeric: { result: plainResult("numeric"), lowering: native },
-	float4: { result: plainResult("float4"), lowering: exactSum("float4") },
-	float8: { result: plainResult("float8"), lowering: exactSum("float8") },
-	money: { result: exactSumOf("exactMoney"), lowering: exactSum("money") },
-	exactInteger: { result: exactSumOf("exactInteger"), lowering: native },
-	exactMoney: { result: exactSumOf("exactMoney"), lowering: native }
+	int2: typed(plainResult("int8"), native),
+	int4: typed(plainResult("int8"), native),
+	int8: numericSum,
+	numeric: numericSum,
+	float4: typed(plainResult("float4"), exactSum("float4")),
+	float8: typed(plainResult("float8"), exactSum("float8")),
+	money: typed(exactSumOf("exactMoney"), exactSum("money")),
+	exactInteger: typed(exactSumOf("exactInteger"), native),
+	exactMoney: typed(exactSumOf("exactMoney"), native)
 }
 
 const avgOverloads: Readonly<Partial<Record<Carrier, Entry>>> = {
-	int2: { result: plainResult("numeric"), lowering: native },
-	int4: { result: plainResult("numeric"), lowering: native },
-	int8: { result: plainResult("numeric"), lowering: native },
-	numeric: { result: plainResult("numeric"), lowering: scaleFree },
-	float4: { result: plainResult("float8"), lowering: exactMean("float4") },
-	float8: { result: plainResult("float8"), lowering: exactMean("float8") },
-	exactInteger: { result: plainResult("numeric"), lowering: native }
+	int2: numericMean(native),
+	int4: numericMean(native),
+	int8: numericMean(native),
+	numeric: numericMean(scaleFree),
+	float4: typed(plainResult("float8"), exactMean("float4")),
+	float8: typed(plainResult("float8"), exactMean("float8")),
+	exactInteger: numericMean(native)
 }
+
+/**
+ * sum(bigint)'s result, a computed numeric of a bigint's digits widened by the rows: what a window total of grouped
+ * counts is (lower/shapes/catalog/share.ts).
+ */
+export const bigintSumType: ScalarType = numericValue(
+	sumBound({ digits: int8Digits.value, scale: 0 })
+)
 
 /** The carriers with min and max: those with the minMax capability, PostgreSQL's min(anyenum) included. */
 const minMaxCarriers: ReadonlyArray<Carrier> = [
@@ -192,7 +280,9 @@ const refusedAggregate = (loc: SourceLoc, capability: string): Result.Result<nev
  *
  * r.count is bigint. A contract input contributes its base to r.sum and r.mean, whose result is no contract until an
  * explicit cast; r.min and r.max return an input unchanged and keep its type, contract included. Numeric sums and
- * means carry no typmod. Over boolean, r.min is bool_and and r.max is bool_or, matching false < true.
+ * means carry no typmod: each is a computed numeric whose bound its argument's gives, a sum's integer digits widened by
+ * the rows' (rowDigits) and a mean's scale PostgreSQL's division's (numericMaxDisplayScale), refused as ResourceBound
+ * where it passes numeric's integer digits; an exact sum is refused there too. Over boolean, r.min is bool_and and r.max is bool_or, matching false < true.
  * PostgreSQL defines no AVG(money), no sum or mean over any other type, and no min or max over uuid, ranges or vectors,
  * so those are UnsupportedOperation with the capability named.
  *
@@ -261,13 +351,13 @@ export const unaryOverload = (
 			)
 		}
 		const sql = name === "sum" ? "sum" : "avg"
-		return Result.ok({
+		return Result.map(resultOf(entry, value, loc), (result) => ({
 			fn: sql,
 			op: opId(`${sql}(${catalogName(value)})`),
 			sql,
-			result: entry.result(value),
+			result,
 			lowering: entry.lowering
-		})
+		}))
 	}
 	/** min and max keep the input's type, contract included. */
 	const kept = withoutSerial(arg)

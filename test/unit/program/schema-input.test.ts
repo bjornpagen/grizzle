@@ -11,7 +11,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
@@ -45,6 +45,7 @@ import {
 	schemaNameGen
 } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickFrom } from "#test/support/pick.ts"
 
 /**
@@ -136,7 +137,7 @@ describe("the schema a query compiles against", () => {
 						literal: Formatter.format,
 						limit: 16,
 						coverage: requiredInSpace<LevelFeature>(["the schema itself", "a level", "no level"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([built, named], c) =>
 						Effect.sync(() => {
@@ -234,7 +235,7 @@ describe("the artifacts of a schema", () => {
 							"the Owned and its description",
 							"names of its own"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([s, [first, second], naming], c) =>
 						Effect.sync(() => {
@@ -555,7 +556,7 @@ describe("a level is its content, not its name", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.gen(function* () {
@@ -692,7 +693,7 @@ describe("a schema the decoder refuses", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(live, c) =>
 						Effect.sync(() => {

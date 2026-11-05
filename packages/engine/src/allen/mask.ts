@@ -1,3 +1,4 @@
+import { type AllenRelation, allenMaskMax, allenRelations } from "#compiler/core/allen.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -6,9 +7,9 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 /**
  * An Allen mask: bit flags over the thirteen basic relations between two spans.
  *
- * The bit order is the declared order of allenRelations, from before = bit 0 to finishedBy = bit 12. It is fixed: the
- * offline table is indexed by it, a QueryDescription carries a mask as this number, and a change would silently
- * reinterpret every stored description.
+ * The bit order is the declared order of allenRelations (core/allen.ts), from before = bit 0 to finishedBy = bit 12.
+ * It is fixed: the offline table is indexed by it, a QueryDescription carries a mask as this number, and a change would
+ * silently reinterpret every stored description.
  *
  * A mask is any subset of the thirteen relations, so there are 2^13 = 8192 masks. ALLEN's named members are masks;
  * `ALLEN.after | ALLEN.metBy` is a valid mask, and in TypeScript it is a plain number, so `complement` and `converse`
@@ -17,15 +18,15 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 export type AllenMask = number & { readonly [allenMaskBrand]: true }
 declare const allenMaskBrand: unique symbol
 
-const allenMaskLimit = 0x1fff
-/** A thirteen-bit integer, -0 included: what a caller may write for a mask. */
-const inMaskRange = (value: number): boolean =>
-	Number.isInteger(value) && value >= 0 && value <= allenMaskLimit
 /**
  * The brand's one mint, unchecked like every brand: the compiler builds a mask only from parseAllenMask's admitted
  * value, a relation's bit, or the bitwise operations of masks, which stay within the thirteen bits and never give -0.
  */
 export const AllenMask = nominal<number, AllenMask>()
+
+/** A thirteen-bit integer, -0 included: what a caller may write for a mask. */
+const inMaskRange = (value: number): boolean =>
+	Number.isInteger(value) && value >= 0 && value <= allenMaskMax
 /**
  * The one parse of a caller's value into a mask: a thirteen-bit integer, -0 read as the empty mask; undefined for
  * every other value.
@@ -34,24 +35,6 @@ export const parseAllenMask = (value: unknown): AllenMask | undefined =>
 	typeof value === "number" && inMaskRange(value)
 		? AllenMask(Object.is(value, -0) ? 0 : value)
 		: undefined
-
-/** The thirteen basic relations in bit order. */
-export const allenRelations = [
-	"before",
-	"meets",
-	"overlaps",
-	"starts",
-	"during",
-	"finishes",
-	"equals",
-	"after",
-	"metBy",
-	"overlappedBy",
-	"startedBy",
-	"contains",
-	"finishedBy"
-] as const
-export type AllenRelation = (typeof allenRelations)[number]
 
 /**
  * Where a point lies among the two endpoints of a span B = [b0, b1): 0 before b0, 1 at b0, 2 strictly between them, 3
@@ -145,7 +128,7 @@ export const allenConverseRelation: Readonly<Record<AllenRelation, AllenRelation
 }
 
 /** The mask of all thirteen relations, which holds for every pair of spans and emits no predicate. */
-export const fullAllenMask = AllenMask(allenMaskLimit)
+export const fullAllenMask = AllenMask(allenMaskMax)
 export const emptyAllenMask = AllenMask(0)
 
 export const allenBit = (relation: AllenRelation): AllenMask =>
@@ -174,7 +157,7 @@ export const checkedMask = (value: unknown, operation: string): AllenMask => {
 	}
 	throw malformedDescription(
 		SourceLoc(`ALLEN.${operation}`, []),
-		"an Allen mask is an integer in [0, 8191], a set of the thirteen basic relations"
+		`an Allen mask is an integer in [0, ${allenMaskMax}], a set of the thirteen basic relations`
 	)
 }
 

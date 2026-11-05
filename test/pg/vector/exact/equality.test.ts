@@ -3,17 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	pipe,
-	Result,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -48,6 +38,7 @@ import {
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { type NamedRelation, namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"
@@ -540,7 +531,7 @@ layer(Substrate.layer)("vector equality as a world role", (it) => {
 								"clash in its rank",
 								"clash in its vector"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([differs, clashing], k) =>
 							Effect.gen(function* () {

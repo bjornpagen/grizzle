@@ -52,7 +52,6 @@ export type IdentityKind =
 	| "generatedCheck"
 	| "spanCheck"
 	| "normCheck"
-	| "numericBound"
 	| "domainCheck"
 	| "foreignKey"
 	| "partialUnique"
@@ -61,7 +60,6 @@ export type IdentityKind =
 	| "derivedKey"
 	| "law"
 	| "patternLaw"
-	| "boundLaw"
 	| "lawFunction"
 	| "lawTrigger"
 	| "login"
@@ -90,24 +88,21 @@ declare const identifierBrand: unique symbol
  */
 export type Identifier<K extends IdentityKind> = string & { readonly [identifierBrand]: K }
 
-/**
- * A law's identifier, the snapshot's, its constraints' and its law function's: a theory law's, a text pattern's, or a
- * bare numeric column's bound. An outcome names the law by its description instead (types/changeset Law).
- */
-export type LawId = Identifier<RaisedLawKind | "boundLaw">
-/**
- * The kinds of law identity a law function or a write statement's refusal raises: a theory law's or a text pattern's. A
- * bare numeric column's bound never is: its CHECK raises its own name (numericBound), which the snapshot maps to the law.
- */
+/** The kinds of law identity: a theory law's or a text pattern's, each of which a law function or a refusal raises. */
 type RaisedLawKind = "law" | "patternLaw"
-export type RaisedLawId = Identifier<RaisedLawKind>
+/**
+ * A law's identifier, the snapshot's, its constraints' and its law function's: a theory law's or a text pattern's,
+ * which a law function or a write statement's refusal raises. An outcome names the law by its description instead
+ * (types/changeset Law).
+ */
+export type LawId = Identifier<RaisedLawKind>
 /** The table, enum type or materialized view of a relation, or a role relation's view, which a role reads it through. */
 export type RelationIdent = Identifier<"table" | "enum" | "view" | "roleView">
 /** The column of a field, a derived view's head name, a stored tag, or an alternatives parent's arm tag. */
 export type ColumnIdent = Identifier<"column" | "tag" | "armTag">
 /**
  * What a violation reports as its constraint: a table constraint, a unique index (a key's or a partial one), a domain
- * constraint, or the law identity a law function or a write statement's refusal raises (RaisedLawId).
+ * constraint, or the law identity a law function or a write statement's refusal raises (LawId).
  */
 export type ConstraintName = Identifier<
 	| "primaryKey"
@@ -116,7 +111,6 @@ export type ConstraintName = Identifier<
 	| "generatedCheck"
 	| "spanCheck"
 	| "normCheck"
-	| "numericBound"
 	| "domainCheck"
 	| "foreignKey"
 	| "partialUnique"

@@ -89,7 +89,7 @@ export const refusalText = {
 
 /** The fix of each stage at which `grizzle migrate` stops (packages/grizzle/src/adapter/migrate/errors.ts). */
 export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
-	connect: "check DATABASE_URL (or connection in grizzle.config.ts), the password and the CA",
+	connect: "check the configuration's connection: its host, port, database, role, password and CA",
 	owner: "connect as the role that owns the schema",
 	input: "run grizzle check and fix what it reports",
 	busy: "wait for the other grizzle migrate to finish, then run it again",
@@ -103,7 +103,7 @@ export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
 	record: "run grizzle migrate again: the failed file rolled back with its ledger row",
 	commit: "run grizzle migrate again: the ledger tells whether the file committed",
 	drift:
-		"undo the change made outside a migration, or reach the snapshot with a new migration (grizzle generate --custom)",
+		"undo the change made outside a migration, or reach the snapshot with a new migration (grizzle generate <config> --custom --name <name>)",
 	unchecked:
 		"the check changed nothing: run grizzle drift again, and report it with this output if it is refused the same way"
 }
@@ -111,7 +111,10 @@ export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
 /** The fix of each stage at which the command line itself refuses (errors.ts). */
 export const cliStageFix: Readonly<Record<CliStage, string>> = {
 	usage: "run grizzle --help for the commands",
-	config: "fix grizzle.config.ts: export default defineConfig({ schemas: [...], logins: [...] })",
+	config:
+		'fix the configuration file: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: { ... } })',
+	environment:
+		"unset the variable it names in the environment grizzle runs in, then run the command again",
 	filesystem: "fix the migrations directory, then run grizzle check",
 	snapshot: "restore snapshot.json and the migration folders from git",
 	generate: "fix the schema or workload it names, then run grizzle generate again"

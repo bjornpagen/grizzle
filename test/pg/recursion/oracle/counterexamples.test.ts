@@ -5,7 +5,7 @@ import { filter, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Data, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import {
 	bagRecursion,
 	type CaseLowering,
@@ -212,7 +212,6 @@ const killsEvery = (generator: Gen<RecursiveCase>, kills: Kills) =>
 			kept: [],
 			runs: kills.runs,
 			shrink: completeShrink,
-			caseHang: Duration.minutes(2),
 			perturb: "none"
 		},
 		(c, notes) =>
@@ -296,8 +295,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						}
 					})
 				})
-			),
-		600_000
+			)
 	)
 
 	it.effect(
@@ -368,8 +366,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						}
 					})
 				})
-			),
-		600_000
+			)
 	)
 
 	it.effect(
@@ -401,15 +398,13 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
-							caseHang: Duration.minutes(2),
 							/** Facts repeated under fresh edge ids are parallel edges, which this population excludes. */
 							perturb: "planner"
 						}
 					)
 					return control
 				})
-			),
-		600_000
+			)
 	)
 
 	it.effect(
@@ -462,8 +457,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						about: everyCase
 					})
 				})
-			),
-		600_000
+			)
 	)
 
 	it.effect(
@@ -494,7 +488,6 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 						about: everyCase
 					})
 				})
-			),
-		600_000
+			)
 	)
 })

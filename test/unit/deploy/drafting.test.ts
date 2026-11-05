@@ -8,7 +8,6 @@ import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -74,6 +73,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	checkOf,
 	choosableOf,
@@ -654,7 +654,7 @@ describe("generated migration paths, drafted and reviewed with no database", () 
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(drawnPath, c) =>
 						Effect.sync(() => {
@@ -701,7 +701,7 @@ describe("generated migration paths, drafted and reviewed with no database", () 
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.sync(() => {
@@ -1108,7 +1108,7 @@ describe("losses of stored data, and the identities of swaps and chains", () => 
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(x, c) =>
 						Effect.sync(() => {
@@ -1371,7 +1371,7 @@ describe("keys replaced over the same fields, whichever way the reviewer decides
 						literal: Formatter.format,
 						limit: 100,
 						coverage: requiredInSpace<ReplacedFeature>([...replacedFeatures]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([shift, size, reference], c) =>
 						Effect.sync(() => {

@@ -23,31 +23,27 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double, float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	pipe,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
 import {
 	base64urlDecode,
 	base64urlEncode,
 	base64urlLength
 } from "#compiler/codec/cursor/base64url.ts"
-import { varintLength, varintMax } from "#compiler/codec/cursor/bytes.ts"
+import { varintLength, varintMax, written } from "#compiler/codec/cursor/bytes.ts"
 import {
 	type CursorCodec,
 	type CursorSpec,
 	type CursorValue,
 	cursorCodec,
+	cursorTokenMaxLength,
 	cursorValueMaxBytes,
 	cursorValueMinBytes
 } from "#compiler/codec/cursor/codec.ts"
-import type { CursorComparator } from "#compiler/codec/cursor/identity.ts"
+import {
+	type CursorComparator,
+	cursorDigestBytes,
+	DigestBytes
+} from "#compiler/codec/cursor/identity.ts"
 import {
 	type CursorFields,
 	headerBytes,
@@ -55,17 +51,25 @@ import {
 	writeCursor
 } from "#compiler/codec/cursor/layout.ts"
 import { CursorError, type CursorFault } from "#compiler/core/errors.ts"
-import { cursorMaxBytes } from "#compiler/core/policy.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { toReal } from "#compiler/scalar/values/float.ts"
 import { compareValues } from "#compiler/scalar/values/identity.ts"
-import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { assert, assertNot, lacksText, refused, succeeded } from "#test/support/assert.ts"
+import {
+	assert,
+	assertNot,
+	assertVariant,
+	failed,
+	lacksText,
+	refused,
+	succeeded
+} from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	generation,
 	taskCodec,
@@ -91,7 +95,7 @@ const single = <T extends ScalarType>(type: T): CursorCodec<readonly [CursorComp
 				comparators: [{ field: "v", direction: "asc", type }],
 				generation
 			},
-			cursorMaxBytes
+			cursorTokenMaxLength
 		)
 	)
 
@@ -136,7 +140,10 @@ type CarrierCase =
 const int8Span = map(
 	filter(
 		(source) =>
-			[source.draw(bigint(int8Min, int8Max)), source.draw(bigint(int8Min, int8Max))] as const,
+			[
+				source.draw(bigint(int8Min.value, int8Max.value)),
+				source.draw(bigint(int8Min.value, int8Max.value))
+			] as const,
 		([a, b]) => a !== b,
 		100
 	),
@@ -174,7 +181,7 @@ const anyFloat = weighted([
 
 const carrierCaseGen: Gen<CarrierCase> = oneOf([
 	map(
-		oneOf([bigint(int8Min, int8Max), element([int8Min, int8Max, -1n, 0n])]),
+		oneOf([bigint(int8Min.value, int8Max.value), element([int8Min.value, int8Max.value, -1n, 0n])]),
 		(n): CarrierCase => ({ kind: "money", value: Money.of(n) })
 	),
 	map(caseOfUuid, (value): CarrierCase => ({ kind: "uuid", value })),
@@ -183,10 +190,13 @@ const carrierCaseGen: Gen<CarrierCase> = oneOf([
 		element(["Manual" as const, "Automatic" as const, "Ünïcode" as const]),
 		(value): CarrierCase => ({ kind: "handle", value })
 	),
-	map(oneOf([int8Span, constant({ start: int8Min, end: int8Max })]), (value): CarrierCase => ({
-		kind: "int8range",
-		value
-	})),
+	map(
+		oneOf([int8Span, constant({ start: int8Min.value, end: int8Max.value })]),
+		(value): CarrierCase => ({
+			kind: "int8range",
+			value
+		})
+	),
 	map(
 		oneOf([
 			array(float(-cosineBound, cosineBound), { min: 3, max: 3 }),
@@ -278,7 +288,7 @@ describe("boundary values round-trip exactly", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([d, float4], c) =>
 						Effect.sync(() => {
@@ -323,8 +333,8 @@ describe("boundary values round-trip exactly", () => {
 								[
 									source.draw(
 										oneOf([
-											bigint(int8Min, int8Max),
-											element([int8Min, int8Max, 0n, -1n, 2n ** 53n + 1n])
+											bigint(int8Min.value, int8Max.value),
+											element([int8Min.value, int8Max.value, 0n, -1n, 2n ** 53n + 1n])
 										])
 									),
 									source.draw(element(["int8" as const, "contract" as const]))
@@ -340,12 +350,12 @@ describe("boundary values round-trip exactly", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([n, which], c) =>
 						Effect.sync(() => {
 							c.note(which)
-							if (n === int8Min || n === int8Max) {
+							if (n === int8Min.value || n === int8Max.value) {
 								c.note("an extreme")
 							}
 							const codec = codecs[which]
@@ -380,7 +390,7 @@ describe("boundary values round-trip exactly", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(d) =>
 						Effect.sync(() => {
@@ -433,7 +443,7 @@ describe("boundary values round-trip exactly", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ typmod, negative, whole: drawnWhole, fraction }, c) =>
 							Effect.sync(() => {
@@ -496,7 +506,7 @@ describe("boundary values round-trip exactly", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s) =>
 						Effect.sync(() => {
@@ -537,7 +547,7 @@ describe("boundary values round-trip exactly", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.sync(() => {
@@ -594,7 +604,7 @@ describe("boundary values round-trip exactly", () => {
 									 * The spec states no page size or direction: a codec built again binds the same identity, and one
 									 * token serves every request variant.
 									 */
-									const rebuilt = succeeded(cursorCodec(taskSpec, cursorMaxBytes))
+									const rebuilt = succeeded(cursorCodec(taskSpec, cursorTokenMaxLength))
 									assert.deepEqual(rebuilt.identity, taskCodec.identity)
 									assert.equal(succeeded(rebuilt.encode(sketch.value)), token)
 									return
@@ -603,7 +613,7 @@ describe("boundary values round-trip exactly", () => {
 									const unit = succeeded(
 										cursorCodec(
 											{ query: "unit", comparators: [] as const, generation },
-											cursorMaxBytes
+											cursorTokenMaxLength
 										)
 									)
 									assert.deepEqual(succeeded(unit.decode(succeeded(unit.encode([])))).values, [])
@@ -634,7 +644,7 @@ describe("boundary values round-trip exactly", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([a, b]) =>
 						Effect.sync(() => {
@@ -648,6 +658,57 @@ describe("boundary values round-trip exactly", () => {
 		})
 	)
 })
+
+/**
+ * Token bytes up to one claim, the tuple's count or its first value's length, the claim raised past the `tail` that
+ * follows it: from one more than the tail holds, the smallest refused, up to the largest varint.
+ */
+interface Claim {
+	readonly at: "count" | "value"
+	readonly claimed: number
+	readonly tail: Uint8Array
+}
+
+const claimGen: Gen<Claim> = (source) => {
+	const tail = source.draw(bytes({ min: 0, max: 8 }))
+	return {
+		at: source.draw(element(["count", "value"] as const)),
+		claimed: source.draw(
+			weighted([
+				[4, int(tail.length + 1, varintMax)],
+				[1, element([tail.length + 1, varintMax])]
+			])
+		),
+		tail
+	}
+}
+
+/** The bytes of a claim after `fields`' digests: a value's claim follows a count of one. */
+const claimBytes = (fields: CursorFields, claim: Claim): Uint8Array => {
+	const claiming = written((sink) => {
+		sink.field(fields.generation).field(fields.query).field(fields.comparators)
+		if (claim.at === "value") {
+			sink.varint(1)
+		}
+		sink.varint(claim.claimed)
+	})
+	return Uint8Array.from([...claiming, ...claim.tail])
+}
+
+/** The fields of token bytes whose tuple holds `arity` values, read for a codec of that arity. */
+const readFields = (bytes: Uint8Array, arity: number): CursorFields => {
+	const read = succeeded(readCursor(bytes, arity))
+	assertVariant(read, "kind", "fields")
+	return read
+}
+
+/** The fields of the task codec's token for (5, taskId). */
+const taskFields = readFields(bytesOf(succeeded(taskCodec.encode([5, taskId]))), 2)
+
+const digestGen: Gen<DigestBytes> = map(
+	bytes({ min: cursorDigestBytes, max: cursorDigestBytes }),
+	DigestBytes
+)
 
 /**
  * The respects a token can be wrong in, in the order validation checks them (codec/cursor/fault.ts): its kind, its
@@ -683,11 +744,12 @@ const faultReasons: Readonly<Record<Fault, CursorFault>> = {
 type Comparators = ReadonlyArray<CursorComparator>
 
 /**
- * A codec under test, its token's fields, the fields its token would have under another generation, query or order,
- * a text of its first value that the value's reading refuses, and the texts no refusal may carry.
+ * A codec under test and its bound, its token's fields, the fields its token would have under another generation,
+ * query or order, a text of its first value that the value's reading refuses, and the texts no refusal may carry.
  */
 interface Subject {
 	readonly codec: CursorCodec<Comparators>
+	readonly maxBytes: number
 	readonly fields: CursorFields
 	readonly other: Omit<CursorFields, "tuple">
 	readonly unreadable: Uint8Array
@@ -700,17 +762,23 @@ const subject = (
 	unreadable: Uint8Array,
 	secrets: ReadonlyArray<string>
 ): Subject => {
+	const tokenOf = (s: CursorSpec<Comparators>): string =>
+		succeeded(succeeded(cursorCodec(s, cursorTokenMaxLength)).admit(tuple))
 	const fieldsOf = (s: CursorSpec<Comparators>): CursorFields =>
-		succeeded(
-			readCursor(bytesOf(succeeded(succeeded(cursorCodec(s, cursorMaxBytes)).admit(tuple))))
-		)
+		readFields(bytesOf(tokenOf(s)), s.comparators.length)
+	/**
+	 * Twice the token's length, which every planting but an oversized one stays within: the most any other adds is a
+	 * copy of one value, a trailing byte and a padding character, beside an unreadable value of a few bytes.
+	 */
+	const maxBytes = 2 * tokenOf(spec).length
 	const [first, ...rest] = spec.comparators
 	const flipped: Comparators =
 		first === undefined
 			? []
 			: [{ ...first, direction: first.direction === "asc" ? "desc" : "asc" }, ...rest]
 	return {
-		codec: succeeded(cursorCodec(spec, cursorMaxBytes)),
+		codec: succeeded(cursorCodec(spec, maxBytes)),
+		maxBytes,
 		fields: fieldsOf(spec),
 		other: {
 			generation: fieldsOf({
@@ -809,16 +877,16 @@ const planted = ({ subject: s, faults, layout, count }: Planting): unknown => {
 		comparators: has("comparators") ? s.other.comparators : s.fields.comparators,
 		tuple: counted
 	}
-	const written = writeCursor(fields)
+	const whole = writeCursor(fields)
 	const laid = !has("layout")
-		? written
+		? whole
 		: layout === "trailing byte"
-			? Uint8Array.from([...written, 0])
-			: written.slice(0, -1)
+			? Uint8Array.from([...whole, 0])
+			: whole.slice(0, -1)
 	const text = base64urlEncode(laid)
 	const encoded = has("encoding") ? `${text}=` : text
 	const sized = has("size")
-		? `${encoded}${Str.repeat(Math.max(1, cursorMaxBytes + 1 - encoded.length))("A")}`
+		? `${encoded}${Str.repeat(Math.max(1, s.maxBytes + 1 - encoded.length))("A")}`
 		: encoded
 	return has("kind") ? [sized] : sized
 }
@@ -841,7 +909,7 @@ describe("validation before any SQL, in order", () => {
 							"accepted",
 							...new Set(Rec.values(faultReasons))
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(planting, c) =>
 						Effect.sync(() => {
@@ -877,12 +945,13 @@ describe("validation before any SQL, in order", () => {
 	)
 
 	it.effect(
-		"never throws and always refuses with a vocabulary word, on arbitrary input and on valid tokens changed at any byte",
+		"decodes arbitrary input, valid tokens changed at any byte and claims past the input to a cursor that encodes again, or refuses it with a vocabulary word, and never throws",
 		(ctx) =>
 			Effect.gen(function* () {
 				/**
-				 * Random text and bytes fail at the first checks; a valid token with up to three bytes changed, cut or extended
-				 * reaches every later step, from the layout to a boundary value.
+				 * Random text, of any UTF-16 code units, and bytes fail at the first checks; a valid token with up to three
+				 * bytes changed, cut or extended reaches every later step, from the layout to a boundary value; and its digests
+				 * followed by a count or a length claiming more than follows it reach the layout's claim check.
 				 */
 				const valid = bytesOf(token)
 				const changed = map(
@@ -918,8 +987,10 @@ describe("validation before any SQL, in order", () => {
 							draw: drawn(
 								oneOf([
 									string(codePoint(0x20, 0x7e), { min: 0, max: 200 }),
+									string(codePoint(0, 0xff_ff), { min: 0, max: 200 }),
 									map(bytes({ min: 0, max: 200 }), base64urlEncode),
-									changed
+									changed,
+									map(claimGen, (claim) => base64urlEncode(claimBytes(taskFields, claim)))
 								])
 							),
 							literal: Formatter.format,
@@ -939,7 +1010,7 @@ describe("validation before any SQL, in order", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(text, c) =>
 							Effect.sync(() => {
@@ -947,7 +1018,11 @@ describe("validation before any SQL, in order", () => {
 								if (!result.ok) {
 									assert.ok(result.error instanceof CursorError)
 									c.note(result.error.reason._tag)
+									return
 								}
+								/** A cursor that decodes is one of the order's: its values encode, and read back as themselves. */
+								const reissued = succeeded(taskCodec.encode(result.value.values))
+								assert.deepEqual(succeeded(taskCodec.decode(reissued)).texts, result.value.texts)
 							})
 					)
 				)
@@ -967,7 +1042,7 @@ describe("validation before any SQL, in order", () => {
 						literal: Formatter.format,
 						limit: headerBytes * 2,
 						coverage: requiredInSpace<"a header byte changed">(["a header byte changed"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([i, delta], c) =>
 						Effect.sync(() => {
@@ -983,6 +1058,153 @@ describe("validation before any SQL, in order", () => {
 })
 
 /**
+ * What the layout reads, each for a codec of an arity: arbitrary bytes, the bytes of arbitrary fields, or a claim past
+ * what follows it.
+ */
+type LayoutCase =
+	| { readonly kind: "arbitrary"; readonly bytes: Uint8Array; readonly arity: number }
+	| { readonly kind: "written"; readonly fields: CursorFields; readonly arity: number }
+	| { readonly kind: "claim"; readonly claim: Claim }
+
+/** An arity a codec reads a tuple for: one of the few a test tuple holds. */
+const arityGen: Gen<number> = int(0, 7)
+
+const layoutCaseGen: Gen<LayoutCase> = oneOf<LayoutCase>([
+	(source): LayoutCase => ({
+		kind: "arbitrary",
+		bytes: source.draw(bytes({ min: 0, max: 120 })),
+		arity: source.draw(arityGen)
+	}),
+	(source): LayoutCase => {
+		const tuple = source.draw(array(bytes({ min: 0, max: 40 }), { min: 0, max: 6 }))
+		return {
+			kind: "written",
+			fields: {
+				generation: source.draw(digestGen),
+				query: source.draw(digestGen),
+				comparators: source.draw(digestGen),
+				tuple
+			},
+			arity: source.draw(
+				weighted([
+					[3, constant(tuple.length)],
+					[1, arityGen]
+				])
+			)
+		}
+	},
+	map(claimGen, (claim): LayoutCase => ({ kind: "claim", claim }))
+])
+
+/**
+ * The arities a claim is read for: one that keeps the tuple's one value (1), and one that walks past it (0). Either way
+ * the refusal is the comparison itself, the claim against the fewer bytes after it, so nothing of what it claims is
+ * read or allocated, a claim of the largest varint over a few bytes included.
+ */
+const claimArities: ReadonlyArray<number> = [0, 1]
+
+/** Every field of `fields`, as views of `input`'s own bytes: nothing of them was copied or built. */
+const assertViews = (fields: CursorFields, input: Uint8Array): void => {
+	for (const field of [fields.generation, fields.query, fields.comparators, ...fields.tuple]) {
+		assert.equal(field.buffer, input.buffer)
+		assert.ok(field.byteOffset + field.length <= input.byteOffset + input.length)
+	}
+}
+
+type LayoutFeature =
+	| "arbitrary"
+	| "written"
+	| "written another count"
+	| "claim count"
+	| "claim value"
+
+describe("the layout over untrusted bytes", () => {
+	it.effect(
+		"reads any bytes into views of them that write them again, keeping a tuple's values only for a codec of its count, or refuses, and refuses a claim past what follows it without reading it",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/cursor/layout-untrusted",
+						draw: drawn(layoutCaseGen),
+						literal: Formatter.format,
+						coverage: required<LayoutFeature>(
+							["arbitrary", "written", "written another count", "claim count", "claim value"],
+							{ cases: 3000, sense: notesOnly }
+						),
+						kept: [],
+						runs: 3000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							switch (c.kind) {
+								case "arbitrary": {
+									k.note("arbitrary")
+									const read = readCursor(c.bytes, c.arity)
+									if (read.ok) {
+										/** A tuple of another count is the same layout, read whole for a codec of its count. */
+										const fields =
+											read.value.kind === "fields"
+												? read.value
+												: readFields(c.bytes, read.value.count)
+										assertViews(fields, c.bytes)
+										assert.deepEqual(writeCursor(fields), c.bytes)
+									} else if (read.error.kind === "claim") {
+										assert.ok(read.error.claimed > read.error.remaining)
+										assert.ok(read.error.remaining < c.bytes.length)
+									}
+									return
+								}
+								case "written": {
+									const laid = writeCursor(c.fields)
+									const read = succeeded(readCursor(laid, c.arity))
+									const { generation, query, comparators, tuple } = c.fields
+									if (c.arity === tuple.length) {
+										k.note("written")
+										assertVariant(read, "kind", "fields")
+										assertViews(read, laid)
+										assert.deepEqual(read, { kind: "fields", ...c.fields })
+										return
+									}
+									k.note("written another count")
+									assert.deepEqual(read, {
+										kind: "count",
+										generation,
+										query,
+										comparators,
+										count: tuple.length
+									})
+									return
+								}
+								case "claim": {
+									k.note(`claim ${c.claim.at}`)
+									for (const arity of claimArities) {
+										const refusal = failed(readCursor(claimBytes(taskFields, c.claim), arity))
+										assert.deepEqual(
+											refusal,
+											{
+												kind: "claim",
+												claimed: c.claim.claimed,
+												remaining: c.claim.tail.length
+											},
+											`arity ${arity}`
+										)
+									}
+									return
+								}
+							}
+						})
+				)
+			)
+	)
+})
+
+/**
  * The stateless single-text token of a value of `valueBytes` UTF-8 bytes, from the layout: the header, the tuple
  * count, the value's varint length and its bytes (layout.ts).
  */
@@ -992,6 +1214,30 @@ const stateless = (valueBytes: number, maxBytes: number) => {
 	)
 	return { length, fits: length <= maxBytes }
 }
+
+/** A one-text codec whose tokens are at most `maxBytes` long. */
+const codecUnder = (maxBytes: number) =>
+	cursorCodec(
+		{
+			query: "q",
+			comparators: [{ field: "v", direction: "asc", type: cursorCodecTypes.text }] as const,
+			generation
+		},
+		maxBytes
+	)
+
+/**
+ * The largest bound the size tests draw: the bound is the codec's parameter, and production's, the layout's
+ * cursorTokenMaxLength, decides exactly as a small one does. Bounds up to it pass every residue of a token's base64url
+ * length mod 4 a thousand times, and a token at one is cheap to build.
+ */
+const drawnBoundMax = 4_096
+
+/** A bound a one-text codec admits: from its shortest token up. */
+const drawnBound: Gen<number> = int(
+	succeeded(codecUnder(cursorTokenMaxLength)).bound.min,
+	drawnBoundMax
+)
 
 describe("size limits (the codec's byte bound)", () => {
 	/** The UTF-8 length of the longest text value whose stateless token fits within the limit. */
@@ -1006,70 +1252,64 @@ describe("size limits (the codec's byte bound)", () => {
 	it.effect(
 		"decodes every token encode issues near the limit, and refuses exactly the ones past it",
 		(ctx) =>
-			Effect.gen(function* () {
-				const codec = single(cursorCodecTypes.text)
-				const n = longestFitting(cursorMaxBytes)
-				yield* searched(
-					ctx,
-					explore(
-						{
-							suite: "unit/cursor/codec-1607",
-							draw: drawn(
-								array(element(["x", "é", "€", "\u{1f600}"]), {
-									min: Math.floor(n / 4) - 8,
-									max: n + 8
-								})
-							),
-							literal: Formatter.format,
-							coverage: noCoverage,
-							kept: [],
-							runs: 1000,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang: Duration.minutes(2)
-						},
-						(scalars) =>
-							Effect.sync(() => {
-								const value = Arr.join(scalars, "")
-								const bytes = utf8(value).length
-								const expected = base64urlLength(
-									headerBytes + varintLength(1) + varintLength(bytes) + bytes
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/cursor/codec-1607",
+						draw: drawn((source) => {
+							const maxBytes = source.draw(drawnBound)
+							const n = longestFitting(maxBytes)
+							return {
+								maxBytes,
+								scalars: source.draw(
+									array(element(["x", "é", "€", "\u{1f600}"]), {
+										min: Math.max(0, Math.floor(n / 4) - 8),
+										max: n + 8
+									})
 								)
-								const token = codec.encode([value])
-								if (expected <= cursorMaxBytes) {
-									const issued = succeeded(token)
-									assert.equal(issued.length, expected)
-									assert.deepEqual(succeeded(codec.decode(issued)).values, [value])
-								} else {
-									refused(token, "cursorTupleOversized")
-								}
-							})
-					)
+							}
+						}),
+						literal: Formatter.format,
+						coverage: noCoverage,
+						kept: [],
+						runs: 1000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					({ maxBytes, scalars }) =>
+						Effect.sync(() => {
+							const codec = succeeded(codecUnder(maxBytes))
+							const value = Arr.join(scalars, "")
+							const bytes = utf8(value).length
+							const expected = base64urlLength(
+								headerBytes + varintLength(1) + varintLength(bytes) + bytes
+							)
+							const token = codec.encode([value])
+							if (expected <= maxBytes) {
+								const issued = succeeded(token)
+								assert.equal(issued.length, expected)
+								assert.deepEqual(succeeded(codec.decode(issued)).values, [value])
+							} else {
+								refused(token, "cursorTupleOversized")
+							}
+						})
 				)
-			})
+			)
 	)
 
 	it.effect(
-		"refuses an oversized tuple before writing it, under every limit a codec admits",
+		"refuses an oversized tuple before writing it, under every limit a codec admits up to the layout's own",
 		(ctx) =>
 			Effect.gen(function* () {
-				const codecUnder = (maxBytes: number) =>
-					cursorCodec(
-						{
-							query: "q",
-							comparators: [{ field: "v", direction: "asc", type: cursorCodecTypes.text }] as const,
-							generation
-						},
-						maxBytes
-					)
 				yield* searched(
 					ctx,
 					explore(
 						{
 							suite: "unit/cursor/oversized-before-write",
-							/** Four times the default limit spans every residue of the base64url length mod 4 many times over. */
-							draw: drawn(int(succeeded(codecUnder(cursorMaxBytes)).bound.min, 4 * cursorMaxBytes)),
+							draw: drawn(drawnBound),
 							literal: Formatter.format,
 							coverage: noCoverage,
 							kept: [],
@@ -1077,7 +1317,7 @@ describe("size limits (the codec's byte bound)", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(maxBytes) =>
 							Effect.sync(() => {
@@ -1090,10 +1330,12 @@ describe("size limits (the codec's byte bound)", () => {
 							})
 					)
 				)
-				refused(
-					single(cursorCodecTypes.text).encode([Str.repeat(varintMax + 1)("x")]),
-					"cursorTupleOversized"
-				)
+				/** At the layout's own bound, a value longer than every token, refused before its bytes are built. */
+				const pastLayout = Str.repeat(cursorTokenMaxLength + 1)("x")
+				refused(single(cursorCodecTypes.text).encode([pastLayout]), "cursorTupleOversized")
+				/** The layout's bound is every codec's ceiling: a varint could not write a longer token's lengths. */
+				const pastCeiling = codecUnder(cursorTokenMaxLength + 1)
+				refused(pastCeiling, "UnsupportedOperation")
 			})
 	)
 
@@ -1112,14 +1354,14 @@ describe("size limits (the codec's byte bound)", () => {
 					] as const,
 					generation
 				}
-				const unbounded = succeeded(cursorCodec(bounded, cursorMaxBytes)).bound
+				const unbounded = succeeded(cursorCodec(bounded, cursorTokenMaxLength)).bound
 				yield* searched(
 					ctx,
 					explore(
 						{
 							suite: "unit/cursor/build-limit",
 							draw: drawn((source) => ({
-								maxBytes: source.draw(int(16, 4 * cursorMaxBytes)),
+								maxBytes: source.draw(int(16, drawnBoundMax)),
 								spec: source.draw(element(["task" as const, "bounded" as const])),
 								length: source.draw(int(0, 500))
 							})),
@@ -1135,7 +1377,7 @@ describe("size limits (the codec's byte bound)", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ maxBytes, spec, length }, c) =>
 							Effect.sync(() => {
@@ -1205,7 +1447,7 @@ describe("per-value byte bounds behind the static token bound", () => {
 				shrink: completeShrink,
 				concurrency: 1,
 				steerEvery: 16,
-				caseHang: Duration.minutes(2)
+				caseHang
 			},
 			(value) =>
 				Effect.sync(() => {
@@ -1229,7 +1471,10 @@ describe("per-value byte bounds behind the static token bound", () => {
 				ctx,
 				within(cursorCodecTypes.int4, int(-2147483648, 2147483647), [-2147483648], 1611)
 			)
-			yield* searched(ctx, within(cursorCodecTypes.int8, bigint(int8Min, int8Max), [int8Min], 1612))
+			yield* searched(
+				ctx,
+				within(cursorCodecTypes.int8, bigint(int8Min.value, int8Max.value), [int8Min.value], 1612)
+			)
 			yield* searched(
 				ctx,
 				within(
@@ -1257,7 +1502,7 @@ describe("per-value byte bounds behind the static token bound", () => {
 				ctx,
 				within(
 					cursorCodecTypes.money,
-					map(bigint(int8Min, int8Max), (minor) => Money.of(minor)),
+					map(bigint(int8Min.value, int8Max.value), (minor) => Money.of(minor)),
 					[Money.min],
 					1615
 				)
@@ -1311,15 +1556,15 @@ describe("per-value byte bounds behind the static token bound", () => {
 						filter(
 							(source) =>
 								[
-									source.draw(bigint(int8Min, int8Max)),
-									source.draw(bigint(int8Min, int8Max))
+									source.draw(bigint(int8Min.value, int8Max.value)),
+									source.draw(bigint(int8Min.value, int8Max.value))
 								] as const,
 							([a, b]) => a !== b,
 							100
 						),
 						([a, b]) => (a < b ? { start: a, end: b } : { start: b, end: a })
 					),
-					[{ start: int8Min, end: int8Max }],
+					[{ start: int8Min.value, end: int8Max.value }],
 					1622
 				)
 			)

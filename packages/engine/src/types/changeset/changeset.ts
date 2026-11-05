@@ -367,8 +367,7 @@ export interface LawBounds {
  *   handles it is the arm of, in roster order: each of its facts is the payload of a parent fact selecting one of them;
  * - `capacity`: a capacity, by its target and source sides, its weight and its bounds;
  * - `contract`: a contract's predicate, by its name;
- * - `pattern`: a text pattern (str.regex), as its domain spells it: one law for every spelling of the same language;
- * - `numericBound`: a bare numeric field's bound, at most 1,000 integer digits, by its relation and field.
+ * - `pattern`: a text pattern (str.regex), as its domain spells it: one law for every spelling of the same language.
  */
 export type Law =
 	| {
@@ -401,4 +400,3 @@ export type Law =
 	  }
 	| { readonly kind: "contract"; readonly contract: string }
 	| { readonly kind: "pattern"; readonly source: string; readonly flags: "u" | "su" }
-	| { readonly kind: "numericBound"; readonly relation: string; readonly field: string }

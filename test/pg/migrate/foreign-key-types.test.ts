@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Result, String as Str } from "effect"
 import type {
 	ColumnDef,
 	ForeignKey,
@@ -16,6 +16,7 @@ import { cUtf8Collation, lit, namedType, types } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { emptyState, interpret, type ModelFile } from "#test/support/migrate/interpret.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
@@ -280,7 +281,7 @@ layer(Substrate.layer)("the migration model's foreign key types", (it) => {
 									`${way}: refused` as const
 								])
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([way, from, to], c) =>
 							Effect.gen(function* () {

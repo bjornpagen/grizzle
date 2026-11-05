@@ -1,6 +1,7 @@
 import { analyzeDemand } from "#compiler/analysis/demand/demand.ts"
 import { containmentEvidence } from "#compiler/analysis/physical/evidence.ts"
 import type { JustifiedKey } from "#compiler/analysis/physical/fds.ts"
+import { keyAmong } from "#compiler/analysis/physical/props.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -23,7 +24,7 @@ import type {
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
-	type Measure,
+	type Potential,
 	type RewriteCx,
 	type Rule,
 	rewritePass
@@ -75,10 +76,7 @@ const eliminationVia = (
 		if (!matched || !c.to.fields.every((f) => o.bindings.some((b) => b.column === f))) {
 			continue
 		}
-		const key = cx
-			.physical()
-			.of(o.source)
-			.props.keys.find((k) => k.columns.every((col) => c.to.fields.includes(col)))
+		const key = keyAmong(cx.physical().of(o.source).props, c.to.fields)
 		if (key === undefined) {
 			continue
 		}
@@ -170,11 +168,11 @@ const sameVariable = (a: Occurrence, b: Occurrence, column: string): boolean =>
 
 /**
  * The first key join of a region (KeyJoin), in occurrence order: two occurrences `admits` lets fold, over one stored
- * relation, and the first of its keys (`keysOf`) both bind to one variable at every column.
+ * relation, where the columns both bind to one variable hold a key of it (`keyOf`, the one key among those columns).
  */
 const keyJoinOf = <K extends { readonly columns: KeySet }>(
 	region: Region,
-	keysOf: (o: Occurrence, source: Base) => ReadonlyArray<K>,
+	keyOf: (o: Occurrence, source: Base, shared: ReadonlySet<string>) => K | undefined,
 	admits: (o: Occurrence) => boolean
 ): KeyJoin<K> | undefined => {
 	const stored = region.occurrences.flatMap((o) => {
@@ -183,10 +181,13 @@ const keyJoinOf = <K extends { readonly columns: KeySet }>(
 	})
 	for (const [i, a] of stored.entries()) {
 		for (const b of stored.slice(i + 1)) {
-			const key =
-				a.s.relation === b.s.relation
-					? keysOf(a.o, a.s).find((k) => k.columns.every((c) => sameVariable(a.o, b.o, c)))
-					: undefined
+			if (a.s.relation !== b.s.relation) {
+				continue
+			}
+			const shared = new Set(
+				a.s.heading.flatMap((c) => (sameVariable(a.o, b.o, c.name) ? [c.name] : []))
+			)
+			const key = keyOf(a.o, a.s, shared)
 			if (key !== undefined) {
 				return { kept: a.o, folded: b.o, key }
 			}
@@ -246,7 +247,7 @@ const keyJoinFold: Rule = {
 		const d = cx.demand()
 		const join = keyJoinOf(
 			node,
-			(o) => physical.of(o.source).props.keys,
+			(o, _source, shared) => keyAmong(physical.of(o.source).props, shared),
 			(o) => !d.lateral(o.source)
 		)
 		if (join === undefined) {
@@ -282,7 +283,10 @@ export const keyJoinNormalDag = (dag: RootedDag): Result.Result<RootedDag, Compi
 		const folded = (region: Region): Region => {
 			const join = keyJoinOf(
 				region,
-				(_, s) => [s.primaryKey, ...s.keys].map((columns) => ({ columns })),
+				(_o, s, shared) =>
+					[s.primaryKey, ...s.keys]
+						.map((columns) => ({ columns }))
+						.find((k) => k.columns.every((c) => shared.has(c))),
 				(o) => !lateral(snapshot.node(o.source))
 			)
 			return join === undefined ? region : folded(keyJoined(region, join))
@@ -330,7 +334,7 @@ const eliminateRule: Rule = {
 	}
 }
 
-const eliminationMeasure: Measure = (cx) => {
+const eliminationPotential: Potential = (cx) => {
 	let count = 0
 	for (const cell of cx.editor.topoOrder()) {
 		const node = cell.current
@@ -338,7 +342,7 @@ const eliminationMeasure: Measure = (cx) => {
 			count += node.occurrences.length
 		}
 	}
-	return [count]
+	return count
 }
 
 /**
@@ -376,10 +380,10 @@ const eliminationMeasure: Measure = (cx) => {
  * the relation whatever PostgreSQL's own self-join elimination would allow, and the access extraction, which reads the
  * same fold of the checked DAG (`keyJoinNormalDag`), plans one probe binding what both occurrences bind.
  *
- * Measure: the number of occurrences in the reachable regions, which each elimination and each fold lowers by one.
+ * Potential: the number of occurrences in the reachable regions, which each elimination and each fold lowers by one.
  */
 export const eliminatePass = rewritePass({
 	name: "eliminate",
 	rules: [keyJoinFold, eliminateRule],
-	measure: eliminationMeasure
+	potential: () => eliminationPotential
 })

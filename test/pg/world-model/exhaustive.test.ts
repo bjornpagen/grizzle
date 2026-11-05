@@ -3,8 +3,9 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Exit, Formatter, Option, Ref, Scope } from "effect"
+import { Array as Arr, Effect, Exit, Formatter, Option, Ref, Scope } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, runStep } from "#test/support/worlds/drive/index.ts"
 import { type Taken, unnoted } from "#test/support/worlds/drive/suite.ts"
@@ -188,7 +189,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							literal: Formatter.format,
 							limit,
 							coverage: noCoverage,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(transition, c) =>
 							Effect.gen(function* () {

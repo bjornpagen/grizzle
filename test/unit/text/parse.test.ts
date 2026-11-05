@@ -6,12 +6,13 @@ import { drawnFeature, lsw, passed, WILD_KINDS, type WildKind } from "@grizzle/t
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { expandedSize, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { admitRegex } from "#compiler/text/field.ts"
 import { assert, matchesObject, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { nonStringWildKinds } from "#test/unit/values/support.ts"
 
 import { regex } from "arkregex"
@@ -110,7 +111,7 @@ describe("refusals with location and reason", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ refusal, before, after }, c) =>
 						Effect.sync(() => {
@@ -161,7 +162,7 @@ describe("refusals with location and reason", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(units) =>
 						Effect.sync(() => {
@@ -197,7 +198,7 @@ describe("refusals with location and reason", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ before, after, planted, flags }, c) =>
 					Effect.sync(() => {
@@ -268,7 +269,7 @@ describe("refusals with location and reason", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([sourceDrawn, flagsDrawn], c) =>
 						Effect.sync(() => {
@@ -363,7 +364,7 @@ describe("nesting", () => {
 					}),
 					limit: 12,
 					coverage: requiredInSpace<Nesting>(nestings),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ nesting, depth }, n) =>
 					Effect.sync(() => {

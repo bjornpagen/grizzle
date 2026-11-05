@@ -4,20 +4,10 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Layer,
-	ManagedRuntime,
-	Option,
-	Redacted
-} from "effect"
+import { Array as Arr, Effect, Formatter, Layer, ManagedRuntime, Option, Redacted } from "effect"
 import { dbSessions } from "#adapter/pool/registry.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
-import { poolBounds } from "#compiler/core/policy.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { login, relation, role, schema as schemaOf } from "#compiler/public/schema.ts"
@@ -31,11 +21,13 @@ import {
 } from "#test/pg/adapter/support.ts"
 import { backendPid, onVercel, roleBackends, vercelRuntime } from "#test/pg/serverless/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { pgPin } from "#test/support/env.ts"
 import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
+import { caseHang, nodeTimerMin } from "#test/support/limits.ts"
 import { fromEmpty, generate } from "#test/support/migrate/kit.ts"
+import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { isNativePool } from "#test/support/worlds/execute/pool.ts"
 
 /**
  * The session pool on Vercel Fluid compute.
@@ -99,10 +91,14 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 			const { attached, onVercelPool } = recordedAttach()
 			const pool = yield* poolFor(reader, onVercelPool)
 			assert.equal(attached.length, 1)
-			assert.equal(attached[0], pool.native)
-			assert.equal(pool.native.options.idleTimeoutMillis, poolBounds.idleTimeoutMs)
-			assert.equal(pool.native.options.idleTimeoutMillis, pool.idleTimeoutMillis)
-			assert.equal(pool.native.listenerCount("release"), 1)
+			const [handed] = attached
+			assert.equal(handed, pool.native)
+			assert.ok(
+				handed !== undefined && isNativePool(handed),
+				"the pool handed over is pg's own Pool"
+			)
+			assert.equal(pool.native.options.idleTimeoutMillis, defaultPool.pool.idleTimeoutMs)
+			assert.equal(handed.listenerCount("release"), 1)
 			for (let i = 0; i < 3; i++) {
 				yield* Effect.scoped(Effect.flatMap(pool.lease, (x) => rowsOn(x, backendPid, [])))
 			}
@@ -143,7 +139,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 								"region only",
 								"neither"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([url, region], c) =>
 							Effect.gen(function* () {
@@ -180,7 +176,11 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 				const s = yield* Substrate
 				const schema = yield* s.schema(freshSchema)
 				const reader = yield* substrateLogin(schema, "server", roleDefaults)
-				const idleTimeoutMs = 300
+				/**
+				 * The least delay a Node timer waits: the three sessions are counted while their leases hold them, so the pool's
+				 * idle timer only has to close the two above the floor before Vercel's keep-alive after the last release ends.
+				 */
+				const idleTimeoutMs = nodeTimerMin.value
 				/**
 				 * Each wait is watched from the moment Vercel takes it: the test's release listener runs after Vercel's, which
 				 * grizzle attached when it built the pool, so the wait a release hands over is already the context's newest. When a
@@ -212,7 +212,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							Array.from({ length: 3 }, () =>
 								Effect.flatMap(pool.lease, (x) => rowsOn(x, backendPid, []))
 							),
-							{ concurrency: 3 }
+							{ concurrency: "unbounded" }
 						)
 						const size = yield* pool.size
 						assert.equal(size, 3)
@@ -251,13 +251,14 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 				const instance = ManagedRuntime.make(
 					Layer.fresh(
 						DbLayer.make({
+							...clusterConnection(
+								s.cluster,
+								s.database,
+								Redacted.make(Redacted.value(worker.password))
+							),
+							pool: clusterPool,
 							login: shop.worker,
 							snapshot: shop.snapshot,
-							host: pgPin.host,
-							port: pgPin.port,
-							database: s.database,
-							password: Redacted.make(Redacted.value(worker.password)),
-							tls: { ca: s.cluster.caPem },
 							attachPool: attach
 						})
 					)

@@ -29,7 +29,7 @@ import { boolean } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record, Result } from "effect"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -37,6 +37,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { Fact } from "#test/support/oracle/addwins.ts"
 import { planRealInstall } from "#test/support/oracle/install/real.ts"
 import { changeSetSketchGen, resolveChangeSet } from "#test/support/oracle/write/changeset.ts"
@@ -191,7 +192,7 @@ describe("the write oracle's judgement", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([schemaSketch, groupPick, factsSketch, changesSketch], n) =>
 					Effect.sync(() => {

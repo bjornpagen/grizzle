@@ -29,6 +29,7 @@ import {
 	TransactionRolledBack
 } from "#test/support/substrate/errors.ts"
 
+import { testTimeout } from "#test/support/limits.ts"
 import {
 	type BelowSerializable,
 	beginBelowStatement,
@@ -93,27 +94,26 @@ export interface PsqlOptions {
 	readonly hostaddr: Option.Option<string>
 	/**
 	 * Cancels backend `pid`'s query from another connection (pg_cancel_backend), only while pg_stat_activity shows it
-	 * running one (state `active`). A statement interrupted once the writer has started is canceled this way, and the
-	 * psql session survives. The startup query runs before the backend pid is known: interrupted, the child gets SIGINT,
-	 * and a non-interactive psql cancels the query and then exits.
+	 * running one (state `active`), and says which it found. A statement interrupted once the writer has started is
+	 * canceled this way, and the psql session survives. The startup query runs before the backend pid is known:
+	 * interrupted, the child gets SIGINT, and a non-interactive psql cancels the query and then exits.
 	 */
-	readonly cancelBackend: (pid: number) => Effect.Effect<void>
+	readonly cancelBackend: (pid: number) => Effect.Effect<BackendCancel>
 }
 
 /**
- * The writer's deadlines: the wall-clock time each wait may take before psql is killed. They run on the live clock,
- * never on a test's TestClock, which moves only when the test adjusts it, so a hung psql is killed after its real
- * deadline whichever clock the test runs on.
+ * What one cancel through the backend did: signalled the statement the backend was running (pg_stat_activity showed it
+ * active, so it had read the statement and honours the cancel); found it running none, as before psql has sent the
+ * statement; or could not ask, the canceler's own connection having failed.
  */
-const deadlines = {
-	/**
-	 * From an interrupted statement's first cancel to its end. Reaching it means a backend ignored its cancels, which is
-	 * a defect.
-	 */
-	cancel: Duration.seconds(10),
-	/** From end-of-file on an idle psql's stdin to its exit. */
-	exit: Duration.seconds(5)
-} as const
+export type BackendCancel = "signalled" | "not running" | "unreachable"
+
+/**
+ * From end-of-file on an idle psql's stdin to its exit: as long as its test may run (testTimeout), since a psql that
+ * never exits is its test's deadline's to report. It runs on the live clock, never on a test's TestClock, which moves
+ * only when the test adjusts it.
+ */
+const exitDeadline = Duration.millis(testTimeout.value)
 
 /** The live clock: wall time, even in a test whose current clock is its TestClock. */
 const wallClock: Clock.Clock = Clock.Clock.defaultValue()
@@ -137,14 +137,8 @@ const within = <A, E>(
 /** psql killed at once: SIGKILL. */
 const killNow: ChildProcess.KillOptions = { killSignal: "SIGKILL" }
 
-/**
- * psql interrupted: SIGINT, on which a non-interactive psql cancels its query and exits, and SIGKILL once the cancel
- * deadline has passed. The spawner times the escalation on wall time itself (NodeChildProcessSpawner).
- */
-const interruptThenKill: ChildProcess.KillOptions = {
-	killSignal: "SIGINT",
-	forceKillAfter: deadlines.cancel
-}
+/** psql interrupted: SIGINT, on which a non-interactive psql cancels its query and exits. */
+const interrupt: ChildProcess.KillOptions = { killSignal: "SIGINT" }
 
 /** What psql printed for a statement up to its stdout marker, and its :SQLSTATE and :ROW_COUNT from the marker. */
 interface Printed {
@@ -810,7 +804,7 @@ export const openPsql = Effect.fnUntraced(function* (
 				return kill(killNow)
 			case "eof":
 				return Effect.gen(function* () {
-					const exited = yield* within(deadlines.exit, Effect.exit(handle.exitCode))
+					const exited = yield* within(exitDeadline, Effect.exit(handle.exitCode))
 					if (Option.isNone(exited)) {
 						yield* kill(killNow)
 					}
@@ -825,9 +819,10 @@ export const openPsql = Effect.fnUntraced(function* (
 	)
 
 	/**
-	 * Cancels backend `pid`'s query until the statement has ended. A cancel that arrives before psql has sent the
-	 * statement, while the backend is still reading a command, is ignored by PostgreSQL, hence the repeats. Each cancel
-	 * runs to its end, so once this stops, at the statement's end or at the deadline, no cancel is in flight.
+	 * Cancels backend `pid`'s query once it is running it. Before psql has sent the statement the backend runs none, and
+	 * a cancel would be ignored, so the canceler asks again, each time once the server has answered the time before,
+	 * until it signals the running statement or the statement has ended. Each ask runs to its end, so once this stops no
+	 * cancel is in flight. A canceler that cannot ask ends psql instead.
 	 */
 	const recancel = (outcome: Outcome, pid: number): Effect.Effect<void> =>
 		Effect.gen(function* () {
@@ -835,29 +830,31 @@ export const openPsql = Effect.fnUntraced(function* (
 				if (yield* Deferred.isDone(outcome)) {
 					return
 				}
-				yield* Effect.uninterruptible(options.cancelBackend(pid))
-				yield* Effect.yieldNow
+				const sent = yield* Effect.uninterruptible(options.cancelBackend(pid))
+				switch (sent) {
+					case "signalled":
+						return
+					case "not running":
+						break
+					case "unreachable":
+						return yield* kill(killNow)
+				}
 			}
 		})
 
 	/**
-	 * Ends an interrupted statement psql is running, and returns only once it has really completed or psql has ended. A
-	 * backend that ignores its cancels past the deadline ends psql instead, as does interrupting the startup query, which
-	 * has no backend pid to cancel by yet.
+	 * Ends an interrupted statement psql is running, and returns only once it has really completed or psql has ended:
+	 * the statement's own end, which a signalled backend reaches at its next interrupt check, and which a backend that
+	 * never honours it leaves to its test's deadline. Interrupting the startup query, which has no backend pid to cancel
+	 * by yet, interrupts psql instead.
 	 */
 	const cancel = (outcome: Outcome, canceler: Canceler): Effect.Effect<void> => {
 		const ended = Effect.ignore(Deferred.await(outcome))
 		switch (canceler._tag) {
 			case "Signal":
-				return Effect.andThen(kill(interruptThenKill), ended)
+				return Effect.andThen(kill(interrupt), ended)
 			case "Backend":
-				return Effect.gen(function* () {
-					const canceled = yield* within(deadlines.cancel, recancel(outcome, canceler.pid))
-					if (Option.isNone(canceled)) {
-						yield* kill(killNow)
-					}
-					yield* ended
-				})
+				return Effect.andThen(recancel(outcome, canceler.pid), ended)
 		}
 	}
 

@@ -19,9 +19,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { lex, type Token } from "#compiler/sql/lexer.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * The PostgreSQL lexer the text audit runs on (scan.l token rules): it is the audit's eyes, so a token it misreads is
@@ -318,7 +319,7 @@ describe("lex", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -364,7 +365,7 @@ describe("lex", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([s, last], c) =>
 						Effect.sync(() => {

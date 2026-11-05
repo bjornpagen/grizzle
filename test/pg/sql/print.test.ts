@@ -21,7 +21,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint, double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import type {
 	AlterDefaultPrivileges,
 	Expr,
@@ -50,6 +50,7 @@ import {
 	setCaseGen
 } from "#test/pg/sql/evaluated.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
@@ -231,7 +232,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2),
+							caseHang,
 							coverage: required<RelationalFeature>(
 								[
 									"cross join",
@@ -339,7 +340,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(cases, c) =>
 							Effect.gen(function* () {
@@ -386,7 +387,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(c) =>
 							Effect.gen(function* () {
@@ -421,7 +422,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(c) =>
 							Effect.gen(function* () {
@@ -457,7 +458,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ message, code, detail, hint }) =>
 							Effect.gen(function* () {
@@ -568,7 +569,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sample) =>
 						Effect.gen(function* () {

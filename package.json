@@ -85,9 +85,15 @@
 			{
 				"rule": "no-spread-argument",
 				"files": [
-					"packages/grizzle/src/adapter/wire/releasing-pool.ts",
 					"test/types/evidence/fixtures/evidence.ts",
 					"test/unit/deps/runtime-probe.ts"
+				]
+			},
+			{
+				"rule": "limit-evidence",
+				"files": [
+					"test/types/examples/fixtures/readme.ts",
+					"test/types/examples/fixtures/skill.ts"
 				]
 			}
 		],
@@ -159,6 +165,346 @@
 			"explanations": [
 				"message",
 				"why"
+			]
+		},
+		"limitEvidence": {
+			"limits": {
+				"module": "packages/engine/src/core/limits.ts",
+				"mints": [
+					"published",
+					"measured",
+					"derived"
+				]
+			},
+			"formatTag": "formatConstant",
+			"modules": [
+				{
+					"package": "effect",
+					"module": "Duration",
+					"category": "time"
+				},
+				{
+					"package": "effect",
+					"module": "Schedule",
+					"category": "retry"
+				}
+			],
+			"wrappers": [
+				{
+					"package": "effect",
+					"module": "Effect",
+					"names": [
+						"fn",
+						"fnUntraced"
+					]
+				}
+			],
+			"vocabulary": {
+				"length": {
+					"parameters": [
+						"start",
+						"end",
+						"count",
+						"length",
+						"maxLength",
+						"targetLength",
+						"arrayLength",
+						"deleteCount",
+						"n"
+					],
+					"words": []
+				},
+				"time": {
+					"parameters": [
+						"ms",
+						"millis",
+						"milliseconds",
+						"delay",
+						"timeout",
+						"duration",
+						"seconds",
+						"minutes",
+						"hours",
+						"days",
+						"weeks",
+						"nanos",
+						"micros",
+						"interval",
+						"timeToLive"
+					],
+					"words": [
+						"timeout",
+						"deadline",
+						"idle",
+						"ms",
+						"millis",
+						"milliseconds",
+						"seconds",
+						"minutes",
+						"hours",
+						"interval",
+						"delay",
+						"grace",
+						"backoff",
+						"duration",
+						"lifetime",
+						"ttl"
+					]
+				},
+				"concurrency": {
+					"parameters": [
+						"permits",
+						"concurrency"
+					],
+					"words": [
+						"concurrency",
+						"permits",
+						"parallelism",
+						"workers"
+					]
+				},
+				"retry": {
+					"parameters": [
+						"times",
+						"retries",
+						"attempts"
+					],
+					"words": [
+						"retries",
+						"retry",
+						"attempts",
+						"attempt",
+						"times",
+						"tries"
+					]
+				},
+				"size": {
+					"parameters": [
+						"capacity",
+						"size",
+						"max",
+						"min",
+						"limit"
+					],
+					"words": [
+						"max",
+						"min",
+						"size",
+						"limit",
+						"budget",
+						"depth",
+						"capacity",
+						"cap",
+						"threshold"
+					]
+				}
+			},
+			"scopes": [
+				{
+					"files": [
+						"packages/engine/src/",
+						"packages/grizzle/src/"
+					],
+					"generated": [
+						".generated.ts"
+					],
+					"positions": [
+						"comparison",
+						"loop",
+						"extremum",
+						"length",
+						"time",
+						"concurrency",
+						"retry",
+						"size"
+					],
+					"words": "every property",
+					"constants": [
+						"max",
+						"min",
+						"limit",
+						"bound",
+						"budget",
+						"timeout",
+						"deadline",
+						"retries",
+						"size",
+						"depth",
+						"cap",
+						"threshold",
+						"grace",
+						"ms",
+						"millis",
+						"seconds"
+					],
+					"inputs": []
+				},
+				{
+					"files": [
+						"test/"
+					],
+					"generated": [],
+					"positions": [
+						"time",
+						"concurrency",
+						"retry"
+					],
+					"words": "library properties",
+					"constants": [
+						"timeout",
+						"deadline",
+						"retries",
+						"attempts",
+						"concurrency",
+						"grace",
+						"ms",
+						"millis",
+						"seconds",
+						"minutes",
+						"backoff",
+						"interval",
+						"delay",
+						"idle"
+					],
+					"inputs": [
+						{
+							"module": "packages/testing/src/gen.ts",
+							"alias": "Gen"
+						}
+					]
+				},
+				{
+					"files": [
+						"bench/",
+						"scripts/"
+					],
+					"generated": [],
+					"positions": [
+						"time",
+						"concurrency",
+						"retry"
+					],
+					"words": "library properties",
+					"constants": [
+						"timeout",
+						"deadline",
+						"retries",
+						"attempts",
+						"concurrency",
+						"grace",
+						"ms",
+						"millis",
+						"seconds",
+						"minutes",
+						"backoff",
+						"interval",
+						"delay",
+						"idle"
+					],
+					"inputs": [
+						{
+							"module": "packages/testing/src/gen.ts",
+							"alias": "Gen"
+						},
+						{
+							"module": "bench/harness/gate.ts",
+							"alias": "Gate"
+						}
+					]
+				}
+			]
+		},
+		"noEnvironment": {
+			"files": [
+				"packages/engine/src/",
+				"packages/grizzle/src/"
+			],
+			"readers": [
+				"packages/grizzle/src/adapter/connection/environment.ts"
+			],
+			"sources": [
+				{
+					"package": "@types/node",
+					"module": "process",
+					"reads": {
+						"kind": "exports",
+						"names": [
+							"env",
+							"cwd",
+							"chdir",
+							"argv",
+							"argv0",
+							"execArgv",
+							"execPath",
+							"loadEnvFile",
+							"platform",
+							"arch",
+							"version",
+							"versions",
+							"release",
+							"config",
+							"features",
+							"title",
+							"ppid",
+							"getuid",
+							"geteuid",
+							"getgid",
+							"getegid",
+							"getgroups",
+							"umask",
+							"memoryUsage",
+							"resourceUsage",
+							"availableMemory",
+							"constrainedMemory",
+							"allowedNodeEnvironmentFlags",
+							"permission"
+						]
+					}
+				},
+				{
+					"package": "@types/node",
+					"module": "os",
+					"reads": {
+						"kind": "module"
+					}
+				},
+				{
+					"package": "@types/node",
+					"module": "navigator",
+					"reads": {
+						"kind": "module"
+					}
+				},
+				{
+					"package": "@types/node",
+					"module": "v8",
+					"reads": {
+						"kind": "exports",
+						"names": [
+							"getHeapStatistics",
+							"getHeapSpaceStatistics",
+							"getHeapCodeStatistics"
+						]
+					}
+				},
+				{
+					"package": "effect",
+					"module": "Config",
+					"reads": {
+						"kind": "module"
+					}
+				},
+				{
+					"package": "effect",
+					"module": "ConfigProvider",
+					"reads": {
+						"kind": "module"
+					}
+				}
+			],
+			"entryReads": [
+				"argv",
+				"cwd"
 			]
 		}
 	}

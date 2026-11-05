@@ -7,7 +7,7 @@ import { multiset } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
@@ -26,6 +26,7 @@ import { assert, defined, failureOf, nonEmpty, unorderedEqual } from "#test/supp
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, a2, t2, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
+import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { tableState } from "#test/support/substrate/state.ts"
@@ -67,8 +68,8 @@ const tapped = <R>(db: Db<R, unknown>, credentials: Credentials) =>
 		const tap = makeTap(cluster)
 		const pool = yield* poolFor(credentials, {
 			...defaultPool,
-			transport: { kind: "given", transport: { _tag: "stream", open: tap.open } },
-			pool: { idleTimeoutMs: 60_000, min: 1, max: 1 }
+			transport: { kind: "given", transport: tap.transport },
+			pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 }
 		})
 		yield* Effect.scoped(
 			Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
@@ -202,7 +203,7 @@ const budget = {
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	caseHang: Duration.minutes(2)
+	caseHang
 } as const
 
 /**
@@ -544,7 +545,7 @@ export const explainSuite = (): void => {
 									literal: Formatter.format,
 									limit: 2,
 									coverage: requiredInSpace<keyof typeof programs>(["encode", "compile"]),
-									caseHang: Duration.minutes(2)
+									caseHang
 								},
 								(stage, c) =>
 									Effect.gen(function* () {

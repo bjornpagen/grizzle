@@ -5,7 +5,7 @@ import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
@@ -22,6 +22,7 @@ import {
 import { bareFixture, type Fixture, failure, openFixture } from "#test/pg/e2e-laws/support.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { lawIdOf, lawNamesOf, namesOf, parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import {
 	type PgErrorFields,
@@ -236,7 +237,7 @@ export const nativeErrorsSuite = (): void =>
 									shrink: completeShrink,
 									concurrency: 1,
 									steerEvery: 16,
-									caseHang: Duration.minutes(2),
+									caseHang,
 									coverage: required<NativeFeature>(
 										[
 											"23514 at a row check",
@@ -347,7 +348,7 @@ export const nativeErrorsSuite = (): void =>
 									coverage: requiredInSpace<`${DerivedWrite} refused by privilege`>(
 										Arr.map(derivedWrites, (write) => `${write} refused by privilege` as const)
 									),
-									caseHang: Duration.minutes(2)
+									caseHang
 								},
 								(write, c) =>
 									Effect.gen(function* () {

@@ -5,17 +5,7 @@ import { array, boolean, element, type Gen, int, map, weighted } from "@grizzle/
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Data,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	Result
-} from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { DatabaseError } from "pg"
 import type { TestContext } from "vitest"
 import { fromEngine } from "#adapter/engine.ts"
@@ -27,14 +17,15 @@ import { type PageArtifactName, type PageRuntime, pageRuntimeOf } from "#adapter
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import type { BatchOutcome, Flight } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
+import { cursorCodec } from "#compiler/codec/cursor/codec.ts"
 import { arrayTexts } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { indices } from "#compiler/core/array.ts"
-import { type CursorError } from "#compiler/core/errors.ts"
+import type { CursorError, CursorFault } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
+import { maxStringLength } from "#compiler/core/limits.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { maxStringLength } from "#compiler/core/policy.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { nodesByLabel, relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -174,20 +165,13 @@ const situations: Arr.NonEmptyReadonlyArray<PageFeature> = [
 ]
 
 /**
- * The requests a case's traversals may take: what fits in half its hang bound (caseHang, two minutes)
- * at the slowest per-request time measured on this machine. Over 6,956 traversed cases of generated-optimized at
- * three seeds, a request (one page's flight with its attachments and checks) took 0.54 ms
- * at the median, 4.4 ms at the 90th percentile, and 6.04 ms at the slowest; at the median, the 110,000 requests half
- * the bound would admit take eight minutes for the slowest shapes, so the bound uses the slowest: 60,000 / 6 = 10,000.
- * The largest traversal those runs drew took 3,460 requests; one case, 186,624 (a 93,312-row cross product at page
- * size 1), is the kind the bound skips.
+ * The requests a case's traversals may take, a size of the generated population: a drawn case whose traversals would
+ * take more is skipped. Over 6,956 traversed cases of generated-optimized at three seeds, a request (one page's flight
+ * with its attachments and checks) took 0.54 ms at the median, 4.4 ms at the 90th percentile and 6.04 ms at the
+ * slowest, so this many take about a minute at the slowest. The largest traversal those runs drew took 3,460 requests;
+ * one case, 186,624 (a 93,312-row cross product at page size 1), is the kind the bound skips.
  */
-const slowestRequestMillis = 6
-
-/** How long one case may run before it is stopped and reported. */
-const caseHang = Duration.minutes(2)
-
-const requestBound = Math.floor(Duration.toMillis(caseHang) / 2 / slowestRequestMillis)
+const requestBound = 10_000
 
 /**
  * The share of a run's cases the request bound may skip: past it the generator has drifted toward results no traversal
@@ -460,7 +444,7 @@ const slotText = (c: QueryCase, slot: ConservativeStatement["params"][number]): 
 			String(slot.param),
 			Arr.map(slot.columns, (col) => col.name),
 			Arr.dedupeWith(texts, (x, y) => x.length === y.length && Arr.every(x, (t, i) => t === y[i])),
-			maxStringLength
+			maxStringLength.value
 		)
 		if (!arrays.ok) {
 			throw new Error(`the arrays of ${slot.param} pass the string bound`)
@@ -724,6 +708,7 @@ const pager =
 			)
 			/** The page's nodes, which this suite compares by their texts, read as their Rows. */
 			const page = yield* Effect.fromResult(pageOf(runtime, rows, (row) => row))
+			assertWithinBound(runtime, rows, page)
 			const records = runtime.artifacts[artifact].requests[variant].records
 			const delivered = valueRows(
 				runtime.page.heading,
@@ -790,6 +775,53 @@ const pager =
 			assert.equal(rows.statements, expected, `${variant} statements`)
 			return { page, rows, delivered, attached }
 		})
+
+/**
+ * A page is returned only once every cursor fits its codec's bound: under a codec bounded by its longest cursor's length
+ * the same rows give the same cursors, and under one a character shorter, when the order's shortest token still fits,
+ * the page fails with cursorTupleOversized rather than lose or shorten a cursor.
+ */
+const assertWithinBound = (
+	runtime: PageRuntime,
+	rows: PageRows,
+	page: Page<unknown, unknown>
+): void => {
+	const edges = page.edges
+	if (!Arr.isReadonlyArrayNonEmpty(edges)) {
+		return
+	}
+	const longest = Arr.max(
+		Arr.map(edges, (e) => e.cursor.length),
+		Order.Number
+	)
+	const under = (maxLength: number) =>
+		cursorCodec(
+			{
+				query: runtime.identity.query,
+				comparators: runtime.page.comparators,
+				generation: runtime.identity.generation
+			},
+			maxLength
+		)
+	const tight = under(longest)
+	if (!tight.ok) {
+		throw new PropertyFailed({
+			report: `no codec bounded by its page's longest token: ${tight.error.message}`
+		})
+	}
+	const cursorsOf = (p: Page<unknown, unknown>): ReadonlyArray<string> =>
+		Arr.map(p.edges, (e): string => e.cursor)
+	const fitting = pageOf({ ...runtime, codec: tight.value }, rows, (row) => row)
+	assert.deepEqual(Result.map(fitting, cursorsOf), Result.succeed(cursorsOf(page)))
+	const short = under(longest - 1)
+	if (short.ok) {
+		const refused = pageOf({ ...runtime, codec: short.value }, rows, (row) => row)
+		assert.deepEqual(
+			Result.mapError(refused, (e) => e.reason._tag),
+			Result.fail<CursorFault>("cursorTupleOversized")
+		)
+	}
+}
 
 /**
  * Each attachment of each page reads exactly its delivered parents' children: every row it read belongs
@@ -1302,7 +1334,6 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 									/** The suite's stated population. */
 									runs: 2_000,
 									shrink: completeShrink,
-									caseHang,
 									perturb: "all"
 								},
 								(o, c) => runCase(aimedCase(o, c), schema, c, ctx, share)
@@ -1313,8 +1344,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 							)
 							return explored
 						})
-					),
-				3_600_000
+					)
 			)
 		}
 	)

@@ -1,3 +1,4 @@
+import { allenMaskMax } from "#compiler/core/allen.ts"
 import {
 	type Canonicalizable,
 	type EncodeOptions,
@@ -18,9 +19,21 @@ import {
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { isValidText } from "#compiler/core/text.ts"
-import { isMoneyPayload, isVectorPayload, moneyTag, vectorTag } from "#compiler/ir/carriers.ts"
+import {
+	isMoneyPayload,
+	isVectorPayload,
+	moneyTag,
+	vectorMaxDimensions,
+	vectorTag
+} from "#compiler/ir/carriers.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
+import {
+	type NumericBound,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { reservedSlots } from "#compiler/ir/slots.ts"
 
@@ -52,9 +65,13 @@ const pgScalarNames = [
 ] as const
 export type PgScalarName = (typeof pgScalarNames)[number]
 
+/**
+ * An authored field's descriptor, as a declaration states it and the Description boundary carries it
+ * (fieldDescShape): numeric is numeric(p, s), its precision and scale both declared. No declaration states a computed
+ * numeric, so none has an arm here; a derived relation's inferred field is an InferredFieldDesc.
+ */
 export type FieldDesc =
 	| { readonly kind: "pg"; readonly type: PgScalarName }
-	| { readonly kind: "numeric" }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
 	| { readonly kind: "serial"; readonly type: "smallserial" | "serial" | "bigserial" }
 	| { readonly kind: "uuid" }
@@ -70,6 +87,16 @@ export type FieldDesc =
 	| { readonly kind: "span"; readonly endpoint: FieldDesc; readonly width: bigint | undefined }
 	| { readonly kind: "closedId"; readonly roster: string }
 	| { readonly kind: "vector"; readonly dimensions: number }
+
+/**
+ * A derived relation's inferred field descriptor (analysis/derived/fields.ts fieldDescOf): the one a declaration of the
+ * field's type writes, or a computed numeric, PostgreSQL's numeric of no typmod with the bound its definition proves
+ * (ir/scalar.ts NumericBound), a sum's or a mean's. A contract's base and a span's endpoint are a declaration's, so
+ * they stay authored.
+ */
+export type InferredFieldDesc =
+	| FieldDesc
+	| { readonly kind: "computedNumeric"; readonly bound: NumericBound }
 
 /** The Compute catalogue. */
 export const computeFns = [
@@ -95,6 +122,7 @@ export const computeFns = [
 	"greatest",
 	"widthBucket",
 	"minScale",
+	"numeric",
 	"lower",
 	"upper",
 	"width",
@@ -922,16 +950,14 @@ const regexFlags = S.literalsShape(["u", "su"])
 const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 	S.tagged("kind", {
 		pg: S.struct({ type: S.literalsShape(pgScalarNames) }),
-		numeric: S.normalized(
-			S.refine(
-				S.structWith({}, { precision: S.integer, scale: S.integer }),
-				(f) =>
-					(f.scale === undefined || f.precision !== undefined) &&
-					(f.precision === undefined || (f.precision >= 1 && f.precision <= 1000)) &&
-					(f.scale === undefined || (f.scale >= -1000 && f.scale <= 1000)),
-				"numeric(p, s) with p in 1..1000 and s in -1000..1000, a scale only with a precision"
-			),
-			(f) => (f.precision === undefined ? {} : { precision: f.precision, scale: f.scale ?? 0 })
+		numeric: S.refine(
+			S.struct({ precision: S.integer, scale: S.integer }),
+			(f) =>
+				f.precision >= 1 &&
+				f.precision <= numericMaxPrecision.value &&
+				f.scale >= numericMinScale.value &&
+				f.scale <= numericMaxScale.value,
+			`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
 		),
 		serial: S.struct({ type: S.literalsShape(["smallserial", "serial", "bigserial"]) }),
 		uuid: S.struct({}),
@@ -956,7 +982,11 @@ const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 		),
 		closedId: S.struct({ roster: name }),
 		vector: S.struct({
-			dimensions: S.refine(S.positiveInteger, (n) => n <= 16000, "1..16000 dimensions")
+			dimensions: S.refine(
+				S.positiveInteger,
+				(n) => n <= vectorMaxDimensions.value,
+				`1..${vectorMaxDimensions.value} dimensions`
+			)
 		})
 	})
 )
@@ -1009,6 +1039,7 @@ const computeCases: {
 	greatest: unscaledCompute,
 	widthBucket: unscaledCompute,
 	minScale: unscaledCompute,
+	numeric: unscaledCompute,
 	lower: unscaledCompute,
 	upper: unscaledCompute,
 	width: unscaledCompute,
@@ -1069,7 +1100,11 @@ const exprCases = {
 	not: S.struct({ arg: S.lazy("an expression", () => exprDescShape) }),
 	allen: S.struct({
 		left: S.lazy("an expression", () => exprDescShape),
-		mask: S.refine(S.integer, (m) => m >= 1 && m <= 8191, "an Allen mask in 1..8191"),
+		mask: S.refine(
+			S.integer,
+			(m) => m >= 1 && m <= allenMaskMax,
+			`an Allen mask in 1..${allenMaskMax}`
+		),
 		right: S.lazy("an expression", () => exprDescShape)
 	}),
 	pointIn: S.struct({

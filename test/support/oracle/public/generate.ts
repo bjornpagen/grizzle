@@ -14,11 +14,10 @@ import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { indices } from "#compiler/core/array.ts"
 import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { pageMaxSize } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
-import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
-import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { baseOf, numericTypmodOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
@@ -29,6 +28,7 @@ import {
 	canonicallySpelled,
 	compareParamType,
 	hasCap,
+	numeric as wideNumeric,
 	numericPaddings,
 	paddedText,
 	scalarOfSpec,
@@ -115,8 +115,8 @@ import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
  *
  * A comparison, and what it compares a variable with; a literal is the floor.
  *
- * A relation's second field a bare numeric, whose equal values print differently; an attachment's correlation on
- * such a column where its parent has one.
+ * A relation's second field a double precision, whose zero has a twin spelling, -0, stored and printed apart while
+ * equal by value (gen/domain.ts twinSpellings); an attachment's correlation on such a column where its parent has one.
  *
  * A head of variables finds every variable of its rule, up to four.
  *
@@ -215,7 +215,7 @@ export type SwarmFeature = (typeof swarmFeatures)[number]
  *
  * The root's query is Query.named after its bound.
  *
- * Compute.base, Compute.cast(..., pg.numeric) or Compute.cond over a numeric variable in a head.
+ * Compute.base, Compute.numeric(...) or Compute.cond over a numeric variable in a head.
  *
  * Such a key grouping an aggregate head.
  *
@@ -743,7 +743,8 @@ interface LiteralHeadSketch {
 
 /**
  * The picks of the planted case (plantedCase): one name per slot of plantedNames, the value class its two parent rows
- * share at the spelled field and the first of the two spellings, and the handle its arm reads.
+ * share at the spelled field and the first of the two spellings (the signed field's zero is the first row's 0 and the
+ * second's -0), and the handle its arm reads.
  */
 interface PlantedSketch {
 	readonly names: ReadonlyArray<number>
@@ -1068,8 +1069,8 @@ const populationSwarm = (population: DrawnPopulation): Gen<Swarm<SwarmFeature>> 
 }
 
 /**
- * The names a planted case draws, one pick each: its relation and three fields, the root's head key of each field, its
- * two attachments and the spelled child's nested one, and each child's head key; the import's and the mixed root's
+ * The names a planted case draws, one pick each: its relation and four fields, the root's head key of each field, its
+ * two attachments and the signed child's nested one, and each child's head key; the import's and the mixed root's
  * head keys; the collapse's, the means' and the fused read's head keys and attachment; and the vector relation, its
  * fields, its read's head keys, attachment, nested attachment and their head keys.
  */
@@ -1077,18 +1078,21 @@ const plantedNames = [
 	"relation",
 	"key field",
 	"spelled field",
+	"signed field",
 	"handle field",
 	"key column",
 	"spelled column",
+	"signed column",
 	"handle column",
 	"arm",
-	"spelled",
+	"signed",
 	"nested",
 	"arm column",
-	"spelled child column",
+	"signed child column",
 	"nested column",
 	"import key column",
 	"import spelled column",
+	"import signed column",
 	"import handle column",
 	"mixed key column",
 	"mixed spelled column",
@@ -1101,7 +1105,7 @@ const plantedNames = [
 	"mean padded column",
 	"mean column",
 	"fused key column",
-	"fused spelled column",
+	"fused signed column",
 	"fused",
 	"fused child column",
 	"vector relation",
@@ -1132,12 +1136,13 @@ export const plantedNameCount = plantedNames.length
  * What the population is for:
  *
  * - Spelling per fact. Every stored value picks its own spelling of its value class (gen/domain.ts valueClasses), so
- *   1.0, 1.00 and 1 meet in one bare numeric column, and the "dense" feature narrows each column to two classes, so
+ *   1.0, 1.00 and 1 are written to one wide numeric column, which stores them alike at its scale, and 0 and -0 to one
+ *   double precision column, which prints them apart, and the "dense" feature narrows each column to two classes, so
  *   equal values of different spellings meet often: among the parent keys of an attachment above all, where the
  *   adapter must stitch children by value, not by text.
  * - Correlation by any column. An attachment's child binds a field to a parent column of the same type, chosen with
- *   the columns whose equal values print differently (numeric, double precision) first among equals, so a bare numeric
- *   non-key column is often the parent key.
+ *   the columns whose equal values print apart (double precision, a vector; twinned) first among equals, so a spelled
+ *   relation's double precision second field is often the parent key.
  * - Drawn names. Relation, field, head and attachment names come from the identifier dictionary (kernel/dict.ts):
  *   aliases, digit boundaries, reserved words and names longer than an identifier holds, each scope holding names of
  *   distinct conversions, the production rule a name must pass.
@@ -1273,7 +1278,7 @@ const typeOf = (kind: FieldKind, roster: { readonly name: string }): ScalarType 
 		case "text":
 			return scalarOfSpec({ carrier: kind })
 		case "numeric":
-			return scalarOfSpec({ carrier: "numeric" })
+			return wideNumeric
 		case "fixed":
 			return scalarOfSpec({ carrier: "numericTypmod", precision: 5, scale: 2 })
 		case "money":
@@ -1399,8 +1404,8 @@ const resolveRelation = (
 	const handled = kept("handle field")
 	/**
 	 * The first field is always one a key can hold, since every relation has a primary key; a spelled relation's
-	 * second is a bare numeric, and a handled relation's last, after it, a handle outside the primary key; a relation
-	 * gains the fields they need.
+	 * second is a double precision, whose 0 and -0 are stored and printed apart, and a handled relation's last, after
+	 * it, a handle outside the primary key; a relation gains the fields they need.
 	 */
 	const needed = 1 + (spelled ? 1 : 0) + (handled ? 1 : 0)
 	const sketches: ReadonlyArray<FieldSketch> = [
@@ -1417,7 +1422,7 @@ const resolveRelation = (
 		i === 0
 			? pickFrom(keyKinds, pick)
 			: spelled && i === 1
-				? "numeric"
+				? "float8"
 				: i === handleAt
 					? "handle"
 					: pickFrom(fieldKinds, pick)
@@ -1950,13 +1955,16 @@ const resolveNegation = <P>(state: RuleState<P>, sketch: NegationSketch): Negati
 	return first === undefined ? undefined : { source, bindings: [first, ...rest] }
 }
 
-/** A bare numeric: a padding's type, a reading's, and every quotient, root and power the generator draws. */
-const bareNumeric: ScalarType = scalarOfSpec({ carrier: "numeric" })
+/**
+ * A computed numeric at numeric's own limits: a padding's type, a reading's, and every quotient, root and power the
+ * generator draws, the checker typing each by the bound it proves.
+ */
+const computedNumeric: ScalarType = anyNumeric
 
 /** The kinds a Compute term takes as its variable: the numeric ones. */
 const computableKinds: ReadonlyArray<FieldKind> = ["int4", "int8", "numeric", "fixed", "tick"]
 
-/** The kind a display-scale reading reads as a variable: a bare numeric, whose stored values have twin spellings. */
+/** The kind a display-scale reading reads as a variable: the wide numeric. */
 const readableKind: FieldKind = "numeric"
 
 /** The largest least scale among the values a generated type holds: what a padding pads past, so it keeps each value. */
@@ -1973,8 +1981,9 @@ const paddingOf = (arg: Var, scale: number): Padding => ({
 	scale: leastScale(arg.field.type) + pickFrom(numericPaddings, scale)
 })
 
-/** The type of what an aggregate or a reading reads: its variable's, or a padding's bare numeric. */
-const argTermType = (t: ArgTerm): ScalarType => (t.kind === "var" ? t.var.field.type : bareNumeric)
+/** The type of what an aggregate or a reading reads: its variable's, or a padding's computed numeric. */
+const argTermType = (t: ArgTerm): ScalarType =>
+	t.kind === "var" ? t.var.field.type : computedNumeric
 
 /**
  * The aggregate a fold sketch draws over `arg`: its function where the argument's type has it, count otherwise. Sums
@@ -2039,9 +2048,9 @@ const exponents: Arr.NonEmptyReadonlyArray<TypedLiteral> = [
 
 /**
  * The Compute term a sketch draws over one of the rule's numeric variables, typed as the checker types it: a base the
- * variable's base, a cast to numeric, a padding and every reading bare numeric, a conditional the variable's own type.
- * A reading reads a padding of the variable where its pick says so or the rule binds no bare numeric, and a bare
- * numeric variable otherwise, which may hold one value in two stored spellings.
+ * variable's base, a cast to numeric, a padding and every reading a computed numeric, a conditional the variable's own
+ * type. A reading reads a padding of the variable where its pick says so or the rule binds no wide numeric, and a wide
+ * numeric variable otherwise.
  */
 const resolveComputed = <P>(
 	state: RuleState<P>,
@@ -2078,7 +2087,7 @@ const resolveComputed = <P>(
 		case "base":
 			return item({ kind, arg }, baseOf(arg.field.type))
 		case "cast numeric":
-			return item({ kind, arg }, bareNumeric)
+			return item({ kind, arg }, computedNumeric)
 		case "cond":
 			return item(
 				{
@@ -2091,16 +2100,19 @@ const resolveComputed = <P>(
 				arg.field.type
 			)
 		case "padded":
-			return item({ kind, padding: paddingOf(arg, sketch.scale) }, bareNumeric)
+			return item({ kind, padding: paddingOf(arg, sketch.scale) }, computedNumeric)
 		case "div":
 			return item(
 				{ kind, dividend: operand(), divisor: pickFrom(divisors, sketch.op) },
-				bareNumeric
+				computedNumeric
 			)
 		case "sqrt":
-			return item({ kind, radicand: operand() }, bareNumeric)
+			return item({ kind, radicand: operand() }, computedNumeric)
 		case "power":
-			return item({ kind, base: operand(), exponent: pickFrom(exponents, sketch.op) }, bareNumeric)
+			return item(
+				{ kind, base: operand(), exponent: pickFrom(exponents, sketch.op) },
+				computedNumeric
+			)
 	}
 }
 
@@ -2695,8 +2707,15 @@ const orderOf = (
 	return [first, ...rest]
 }
 
-/** Whether stored values of a type have twin spellings (gen/domain.ts twinSpellings), which a stitch by text misreads. */
-const twinned = (type: ScalarType): boolean => twinSpellings[baseOf(type).carrier].kind === "twins"
+/**
+ * Whether equal values of a type print apart (gen/domain.ts twinSpellings), which a stitch by text misreads: a double
+ * precision's 0 and -0, a vector's -0 components, a computed numeric's display scales; never a numeric(p, s)'s, which
+ * stores every spelling of a value at its scale s.
+ */
+const twinned = (type: ScalarType): boolean => {
+	const base = baseOf(type)
+	return twinSpellings[base.carrier].kind === "twins" && numericTypmodOf(base) === undefined
+}
 
 /**
  * The parent columns a child may bind, those whose stored values have twin spellings first: the parent keys a stitch
@@ -3173,7 +3192,8 @@ const queryParams = <P extends ParentColumn>(q: Query<P>): ReadonlyArray<Param> 
 
 /**
  * The refusal a read provokes: one of those its query can carry (a parameter to mistype; an ordered root to page with a
- * size outside 1..pageMaxSize or a cursor its codec cannot read), or none.
+ * size that is no safe integer of at least 1, zero or the first unsafe integer, or a cursor its codec cannot read), or
+ * none.
  */
 const resolveProbe = (
 	scope: ReadScope,
@@ -3190,7 +3210,10 @@ const resolveProbe = (
 		...(param === undefined ? [] : [{ kind: "encode", param } satisfies Probe]),
 		...(orderedBy
 			? [
-					{ kind: "page size", size: upper(sketch.pick) ? pageMaxSize + 1 : 0 } satisfies Probe,
+					{
+						kind: "page size",
+						size: upper(sketch.pick) ? Number.MAX_SAFE_INTEGER + 1 : 0
+					} satisfies Probe,
 					{ kind: "cursor" } satisfies Probe
 				]
 			: [])
@@ -3296,37 +3319,39 @@ const varOf = <P>(field: ProgramField, v: Var): Binding<P> => ({
 })
 
 /**
- * The planted case: one relation P(k int4, v numeric, h handle) keyed by k, two of whose facts hold one value of v in
- * two spellings and differ in h, beside the facts the first relation sketch draws at other keys; one relation V(k int4,
- * u vector(3)) keyed by k, whose two facts hold one vector, the second with -0 components; and these reads, every
- * padding pad(v) at the sketch's display scale:
+ * The planted case: one relation P(k int4, v numeric(161, 40), d double precision, h handle) keyed by k, two of whose
+ * facts hold one value of v in two input spellings, which a numeric(p, s) stores alike, the zero of d as 0 and as -0,
+ * which a double precision stores and prints apart, and differ in h, beside the facts the first relation sketch draws
+ * at other keys; one relation V(k int4, u vector(3)) keyed by k, whose two facts hold one vector, the second with -0
+ * components; and these reads, every padding pad(v) at the sketch's display scale:
  *
- *   q0 = P{k, v, h} find {k, v, h}
- *     attach arm:     P{k: parent k, v: w, h: H} find {v: w}, stated as the arm of H over h
- *     attach spelled: P{v: parent v, k: w} find {k: w}
+ *   q0 = P{k, v, d, h} find {k, v, d, h}
+ *     attach arm:    P{k: parent k, v: w, h: H} find {v: w}, stated as the arm of H over h
+ *     attach signed: P{d: parent d, k: w} find {k: w}
  *       attach nested: P{k: parent k, h: w} find {h: w}
- *   q1 = q0, its attachments kept, {k, v, h} find {k, v, h}
+ *   q1 = q0, its attachments kept, {k, v, d, h} find {k, v, d, h}
  *   q2 = P{k} find {k, side: x} | P{k, v} find {k, v, side: y} | P{k} find {k, side: z}, x, y and z distinct
  *   q3 = P{v} find {v, pad(v), Compute.div(v, 3), sqrt(pad(v)), power(v, 2)}
  *   q4 = P{v} find {r.mean(pad(v)), r.mean(v)}
- *   q5 = P{k, v} find {k, v}
- *     attach fused: P{v: parent v, k: w} find {k: w}
+ *   q5 = P{k, d} find {k, d}
+ *     attach fused: P{d: parent d, k: w} find {k: w}
  *   q6 = V{k, u} find {k, u}
  *     attach twins: V{u: parent u, k: w} find {k: w}
  *       attach nested: V{k: parent k, u: w} find {u: w}
  *
- * q3 collapses the two facts' v, one value in two spellings, into one row, beside its padding and its readings at the
- * display scale; q4 means it, and its padding, over P's distinct values of v. q5's child of one field is fused into
- * its parent, so the two rows whose v is one value in two spellings meet in one statement; q6's child is pipelined, so
- * the host stitches it to parents whose vector keys are one value, one spelled with -0 components.
+ * q3 collapses the two facts' v, one value, into one row, beside its padding and its readings at the display scale;
+ * q4 means it, and its padding, over P's distinct values of v. q5's child of one field is pipelined, as every
+ * attachment over exact parents is, so the host stitches its children to the two rows whose d is one value stored as 0
+ * and as -0; q6's child is pipelined, so the host stitches it to parents whose vector keys are one value, one stored
+ * with -0 components.
  *
- * The arm delivers Some to the parent row whose h is H, one of the two, and None to the other. The spelled
- * attachment's parents include the two rows whose v is one value in two spellings, each with the children of both,
- * and it is pipelined, since a child with an attachment of its own is never fused
- * (lower/shapes/attach/index.ts chooseAttachment): the stitch by key must use the type's equality. q1 imports an
- * attached query, whose attachments deliver nothing to its rows. q2 is a heterogeneous union whose third arm repeats the
- * first's key set with another literal at its discriminant, which a decoder keying its layouts by key set alone cannot
- * tell apart.
+ * The arm delivers Some to the parent row whose h is H, one of the two, and None to the other. The signed
+ * attachment's parents include the two rows whose d is one value stored as 0 and as -0, each with the children of
+ * both, and it is pipelined, since a child with an attachment of its own is never fused
+ * (lower/shapes/attach/index.ts chooseAttachment): the stitch by key must use the type's equality, never the cell's
+ * text. q1 imports an attached query, whose attachments deliver nothing to its rows. q2 is a heterogeneous union whose
+ * third arm repeats the first's key set with another literal at its discriminant, which a decoder keying its layouts by
+ * key set alone cannot tell apart.
  */
 const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	const planted = sketch.planted
@@ -3343,11 +3368,12 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	})
 	const key = fieldOf("int4", "key field")
 	const spelled = fieldOf("numeric", "spelled field")
+	const signed = fieldOf("float8", "signed field")
 	const handle = fieldOf("handle", "handle field")
 	const relation: Stored = {
 		kind: "stored",
 		name: names.draw(pick("relation"), "Rel0x"),
-		fields: [key, spelled, handle],
+		fields: [key, spelled, signed, handle],
 		primaryKey: [key],
 		candidates: []
 	}
@@ -3374,16 +3400,21 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		roster,
 		nameKinds: kinds
 	}
-	/** The shared value: a value of twin spellings, held by both facts. */
+	/** The shared value of v: a value of twin input spellings, held by both facts. */
 	const twice = nonEmpty(
 		Arr.filter(valuesOf(spelled.type, false), (l) => twinsOf(spelled.type, l).length > 0)
 	)
 	if (twice === undefined) {
-		throw new Error("bare numeric has no value of twin spellings")
+		throw new Error("a wide numeric has no value of twin spellings")
 	}
 	const value = pickFrom(twice, planted.value.cls)
 	const spellings = twinsOf(spelled.type, value).length + 1
 	const at = pickIndex(planted.value.sp, spellings)
+	/** The shared value of d: the zero, stored as 0 by the first fact and as -0, its twin, by the second. */
+	const zero = Option.getOrThrowWith(
+		Arr.findFirst(valuesOf(signed.type, false), (l) => twinsOf(signed.type, l).length > 0),
+		() => new Error("no generated double precision value is a zero")
+	)
 	const selected = pickFrom(roster.handles, planted.handle)
 	const other = elementOf(
 		roster.handles,
@@ -3394,11 +3425,13 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		[
 			canonicallySpelled({ kind: "int", value: 0n }),
 			spelledAt(spelled.type, value, at),
+			spelledAt(signed.type, zero, 0),
 			canonicallySpelled({ kind: "enum", handle: selected })
 		],
 		[
 			canonicallySpelled({ kind: "int", value: 1n }),
 			spelledAt(spelled.type, value, (at + 1) % spellings),
+			spelledAt(signed.type, zero, 1),
 			canonicallySpelled({ kind: "enum", handle: other })
 		]
 	]
@@ -3421,20 +3454,21 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		var: v
 	})
 	const rootNames = new Names(kinds)
-	const [k, v, h] = [mint(key), mint(spelled), mint(handle)]
+	const [k, v, d, h] = [mint(key), mint(spelled), mint(signed), mint(handle)]
 	const rootRule = soleRule<never>(
 		relation,
-		[varOf(key, k), varOf(spelled, v), varOf(handle, h)],
+		[varOf(key, k), varOf(spelled, v), varOf(signed, d), varOf(handle, h)],
 		[
 			headOf(rootNames, "key column", k),
 			headOf(rootNames, "spelled column", v),
+			headOf(rootNames, "signed column", d),
 			headOf(rootNames, "handle column", h)
 		]
 	)
 	const heading = headingOf(rootRule.head)
 	const keyColumn = elementOf(heading, 0, "the root's key column")
-	const spelledColumn = elementOf(heading, 1, "the root's spelled column")
-	const handleColumn = elementOf(heading, 2, "the root's handle column")
+	const signedColumn = elementOf(heading, 2, "the root's signed column")
+	const handleColumn = elementOf(heading, 3, "the root's handle column")
 	const armValue = mint(spelled)
 	const armChild = setQuery<ParentColumn>(
 		soleRule(
@@ -3460,22 +3494,22 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		child: armChild,
 		delivery: armDelivery
 	}
-	/** The spelled attachment and its nested one. */
-	const spelledNames = new Names(kinds)
+	/** The signed attachment and its nested one. */
+	const signedNames = new Names(kinds)
 	const childKey = mint(key)
 	const childRule = soleRule<ParentColumn>(
 		relation,
-		[parentOf(spelled, spelledColumn), varOf(key, childKey)],
-		[headOf(spelledNames, "spelled child column", childKey)]
+		[parentOf(signed, signedColumn), varOf(key, childKey)],
+		[headOf(signedNames, "signed child column", childKey)]
 	)
 	const nestedHandle = mint(handle)
 	const nested: Attachment = {
-		name: spelledNames.draw(pick("nested"), "attachment"),
+		name: signedNames.draw(pick("nested"), "attachment"),
 		child: setQuery(
 			soleRule(
 				relation,
 				[
-					parentOf(key, elementOf(headingOf(childRule.head), 0, "the spelled child's column")),
+					parentOf(key, elementOf(headingOf(childRule.head), 0, "the signed child's column")),
 					varOf(handle, nestedHandle)
 				],
 				[headOf(new Names(kinds), "nested column", nestedHandle)]
@@ -3484,31 +3518,36 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		),
 		delivery: { kind: "array" }
 	}
-	const spelledAttachment: Attachment = {
-		name: rootNames.draw(pick("spelled"), "attachment"),
+	const signedAttachment: Attachment = {
+		name: rootNames.draw(pick("signed"), "attachment"),
 		child: setQuery(childRule, [nested]),
 		delivery: { kind: "array" }
 	}
-	const rootQuery = setQuery(rootRule, [arm, spelledAttachment])
+	const rootQuery = setQuery(rootRule, [arm, signedAttachment])
 	const root: Root = { ...rootQuery, delivery: { kind: "set" } }
 	/** The second read: the root imported with its attachments, of which it reads only the root's rows (meaning.ts). */
-	const importFields = Arr.map([key, spelled, handle], (f, i): ProgramField => ({
+	const importFields = Arr.map([key, spelled, signed, handle], (f, i): ProgramField => ({
 		name: elementOf(heading, i, "the root's column").name,
 		kind: f.kind,
 		type: f.type
 	}))
-	const [importKey, importSpelled, importHandle] = Arr.map(importFields, (f) => ({
+	const [importKey, importSpelled, importSigned, importHandle] = Arr.map(importFields, (f) => ({
 		field: f,
 		var: mint(f)
 	}))
-	if (importKey === undefined || importSpelled === undefined || importHandle === undefined) {
-		throw new Error("the planted root's heading is no three columns")
+	if (
+		importKey === undefined ||
+		importSpelled === undefined ||
+		importSigned === undefined ||
+		importHandle === undefined
+	) {
+		throw new Error("the planted root's heading is no four columns")
 	}
 	const imported: Imported = {
 		kind: "import",
 		read: 0,
 		query: rootQuery,
-		fields: [importKey.field, importSpelled.field, importHandle.field],
+		fields: [importKey.field, importSpelled.field, importSigned.field, importHandle.field],
 		binds: []
 	}
 	const importNames = new Names(kinds)
@@ -3517,11 +3556,13 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		[
 			varOf(importKey.field, importKey.var),
 			varOf(importSpelled.field, importSpelled.var),
+			varOf(importSigned.field, importSigned.var),
 			varOf(importHandle.field, importHandle.var)
 		],
 		[
 			headOf(importNames, "import key column", importKey.var),
 			headOf(importNames, "import spelled column", importSpelled.var),
+			headOf(importNames, "import signed column", importSigned.var),
 			headOf(importNames, "import handle column", importHandle.var)
 		]
 	)
@@ -3588,8 +3629,8 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	}
 	const padding = (v: Var): Padding => paddingOf(v, planted.padding)
 	/**
-	 * The fourth read: the value two facts hold in two spellings collapsed into one row of P{v} find {v, ...}, beside its
-	 * padding and its readings at the display scale: its quotient, its padding's square root and its square.
+	 * The fourth read: the value two facts hold collapsed into one row of P{v} find {v, ...}, beside its padding and its
+	 * readings at the display scale: its quotient, its padding's square root and its square.
 	 */
 	const collapseNames = new Names(kinds)
 	const collapsed = mint(spelled)
@@ -3602,29 +3643,29 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 				kind: "computed",
 				name: collapseNames.draw(pick("collapse padded column"), "column"),
 				term: { kind: "padded", padding: padding(collapsed) },
-				type: bareNumeric
+				type: computedNumeric
 			},
 			{
 				kind: "computed",
 				name: collapseNames.draw(pick("collapse quotient column"), "column"),
 				term: { kind: "div", dividend: { kind: "var", var: collapsed }, divisor: divisors[0] },
-				type: bareNumeric
+				type: computedNumeric
 			},
 			{
 				kind: "computed",
 				name: collapseNames.draw(pick("collapse root column"), "column"),
 				term: { kind: "sqrt", radicand: { kind: "padded", padding: padding(collapsed) } },
-				type: bareNumeric
+				type: computedNumeric
 			},
 			{
 				kind: "computed",
 				name: collapseNames.draw(pick("collapse power column"), "column"),
 				term: { kind: "power", base: { kind: "var", var: collapsed }, exponent: exponents[0] },
-				type: bareNumeric
+				type: computedNumeric
 			}
 		]
 	)
-	/** The fifth read: the mean of every distinct value of v, and of their paddings, the two spellings one value. */
+	/** The fifth read: the mean of every distinct value of v, and of their paddings, the two facts' v one value. */
 	const meanNames = new Names(kinds)
 	const meant = mint(spelled)
 	const meanRule = soleRule<never>(
@@ -3636,7 +3677,7 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 				name: meanNames.draw(pick("mean padded column"), "column"),
 				fn: "mean",
 				arg: { kind: "padded", padding: padding(meant) },
-				type: aggregateResult("avg", bareNumeric)
+				type: aggregateResult("avg", computedNumeric)
 			},
 			{
 				kind: "fold",
@@ -3648,28 +3689,28 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		]
 	)
 	/**
-	 * The sixth read: P{k, v} find {k, v} with a child of one field and no attachment of its own, which the optimized
-	 * artifact fuses into its parent's statement (lower/shapes/attach/index.ts chooseAttachment), correlated on v: the
-	 * two rows whose v is one value in two spellings each get the children of both.
+	 * The sixth read: P{k, d} find {k, d} with a child of one field and no attachment of its own, which the optimized
+	 * artifact pipelines as every attachment over exact parents (lower/shapes/attach/index.ts chooseAttachment),
+	 * correlated on d: the two rows whose d is one value stored as 0 and as -0 each get the children of both.
 	 */
 	const fusedNames = new Names(kinds)
-	const [fusedKey, fusedValue] = [mint(key), mint(spelled)]
+	const [fusedKey, fusedValue] = [mint(key), mint(signed)]
 	const fusedRule = soleRule<never>(
 		relation,
-		[varOf(key, fusedKey), varOf(spelled, fusedValue)],
+		[varOf(key, fusedKey), varOf(signed, fusedValue)],
 		[
 			headOf(fusedNames, "fused key column", fusedKey),
-			headOf(fusedNames, "fused spelled column", fusedValue)
+			headOf(fusedNames, "fused signed column", fusedValue)
 		]
 	)
 	const fusedChildKey = mint(key)
-	const fusedParent = elementOf(headingOf(fusedRule.head), 1, "the fused root's spelled column")
+	const fusedParent = elementOf(headingOf(fusedRule.head), 1, "the fused root's signed column")
 	const fused: Attachment = {
 		name: fusedNames.draw(pick("fused"), "attachment"),
 		child: setQuery(
 			soleRule<ParentColumn>(
 				relation,
-				[parentOf(spelled, fusedParent), varOf(key, fusedChildKey)],
+				[parentOf(signed, fusedParent), varOf(key, fusedChildKey)],
 				[headOf(new Names(kinds), "fused child column", fusedChildKey)]
 			),
 			[]
@@ -3681,13 +3722,13 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	 * components (its twin spelling), with a child correlated on u that has a nested attachment of its own, so it is
 	 * pipelined and the host stitches its children to parents by a vector key.
 	 */
-	const signed = Option.getOrThrowWith(
+	const zeroed = Option.getOrThrowWith(
 		Arr.findFirst(valuesOf(vector.type, false), (l) => twinsOf(vector.type, l).length > 0),
 		() => new Error("no generated vector has a zero component")
 	)
 	const vectorFacts: ReadonlyArray<StoredFact> = [
-		[canonicallySpelled({ kind: "int", value: 0n }), spelledAt(vector.type, signed, 0)],
-		[canonicallySpelled({ kind: "int", value: 1n }), spelledAt(vector.type, signed, 1)]
+		[canonicallySpelled({ kind: "int", value: 0n }), spelledAt(vector.type, zeroed, 0)],
+		[canonicallySpelled({ kind: "int", value: 1n }), spelledAt(vector.type, zeroed, 1)]
 	]
 	const vectorNames = new Names(kinds)
 	const [vectorId, vectorValue] = [mint(vectorKey), mint(vector)]

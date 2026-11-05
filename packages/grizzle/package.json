@@ -64,15 +64,22 @@
 	},
 	"dependencies": {
 		"@bjornpagen/grizzle-engine": "workspace:*",
-		"@effect/platform-node": "catalog:",
-		"pg": "catalog:"
+		"@effect/platform-node": "catalog:"
 	},
 	"devDependencies": {
 		"@types/pg": "catalog:",
-		"effect": "catalog:"
+		"effect": "catalog:",
+		"pg": "catalog:"
 	},
 	"peerDependencies": {
-		"effect": "^4.1.2"
+		"@types/pg": "^8.23.1",
+		"effect": "^4.1.2",
+		"pg": "^8.23.1"
+	},
+	"peerDependenciesMeta": {
+		"@types/pg": {
+			"optional": true
+		}
 	},
 	"publishConfig": {
 		"access": "public",

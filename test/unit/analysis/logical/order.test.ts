@@ -5,7 +5,7 @@ import { array, boolean, constant, element, type Gen, int, map, oneOf } from "@g
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { provisionalTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -24,6 +24,7 @@ import { plainType } from "#compiler/scalar/compute/types.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { asc as ascending, type BuiltQuery, Ir } from "#test/support/fixtures/ir/build.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { logicalEnv, theoryOf } from "#test/unit/analysis/logical/support.ts"
 
 /**
@@ -304,7 +305,7 @@ describe("completing an order", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ subject: s, user, rows }, c) =>
 						Effect.sync(() => {
@@ -523,7 +524,7 @@ describe("completing an order over a union of different headings", () => {
 								`${w} refused`
 							])
 						),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([keyed, wrapper, userOrder], c) =>
 						Effect.sync(() => {

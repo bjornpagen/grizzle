@@ -4,7 +4,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag } from "#compiler/ir/rel.ts"
@@ -22,6 +22,7 @@ import {
 	uuidOf
 } from "#test/unit/lower/conservative/fixtures.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	passContext,
 	deliversAlikeOn,
@@ -237,7 +238,7 @@ describe("late payload fetch", () => {
 							"held back: no key of the payload's relation",
 							"held back: a lateral reader"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(shape, c) =>
 						Effect.sync(() => {
@@ -289,7 +290,7 @@ describe("late payload fetch", () => {
 					generator: element<Evidence>(["snapshot", "transaction"]),
 					limit: 2,
 					coverage: requiredInSpace<Evidence>(["snapshot", "transaction"]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(evidence, c) =>
 					Effect.sync(() => {

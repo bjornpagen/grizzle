@@ -5,9 +5,10 @@ import { element, type Gen, weighted } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { compareFloat, floatText, toReal } from "#compiler/scalar/values/float.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** Any double: finite ones, -0 and the subnormals among them, and now and then NaN or an infinity. */
 const anyDouble: Gen<number> = weighted([
@@ -33,7 +34,7 @@ describe("real normalization", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(x) =>
 					Effect.sync(() => {
@@ -71,7 +72,7 @@ describe("PostgreSQL's float order", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([a, b, c]) =>
 						Effect.sync(() => {

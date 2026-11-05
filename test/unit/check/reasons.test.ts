@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint as bigintGen, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { childLoc, formatLoc, type SourceLoc } from "#compiler/core/loc.ts"
@@ -20,6 +20,7 @@ import {
 	type QueryDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { WorkDesc } from "#test/support/fixtures/ir/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking, checkMemberOf, checkOptions } from "#test/support/policy.ts"
 import {
 	attach,
@@ -340,7 +341,7 @@ describe("a literal at a typed slot", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ slot, value }, c) =>
 						Effect.sync(() => {
@@ -712,7 +713,7 @@ describe("checker diagnostics", () => {
 						literal: Formatter.format,
 						limit: planted.length,
 						coverage: requiredInSpace<Answer>(["refused at", "refused", "admitted"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(p, c) =>
 						Effect.sync(() => {

@@ -22,7 +22,6 @@ import type {
 	IndexName,
 	LawFunctionName,
 	LawId,
-	RaisedLawId,
 	RelationIdent,
 	TriggerName
 } from "#compiler/core/ids.ts"
@@ -170,15 +169,15 @@ type ConstraintKind = "pk" | "fk" | "key" | "check"
 export interface LawNames {
 	readonly model: LawModel
 	/** The law a public statement declares (a statement rebuilt through the builders names the same law). */
-	readonly lawOf: (statement: Statement) => RaisedLawId
+	readonly lawOf: (statement: Statement) => LawId
 	/** The law an authored statement desc declares. */
-	readonly lawOfDesc: (statement: AuthoredStatementDesc) => RaisedLawId
+	readonly lawOfDesc: (statement: AuthoredStatementDesc) => LawId
 	/** The two laws a public mirrors statement declares, one per direction. */
 	readonly mirrorsOf: (statement: Statement) => MirrorsLaws
 	/** The two laws an authored mirrors statement desc declares, one per direction. */
 	readonly mirrorsOfDesc: (statement: AuthoredStatementDesc) => MirrorsLaws
 	/** The law a relation's primary key reports. */
-	readonly primaryKeyLaw: (relation: NamedRelation) => RaisedLawId
+	readonly primaryKeyLaw: (relation: NamedRelation) => LawId
 	/**
 	 * The constraint of `relation` of `kind` over `fields` (as a set): a primary key, a key or span key, a foreign key
 	 * (a tagged one by its scalar columns), or a finite check.
@@ -214,8 +213,8 @@ export type ReportingKind = NativeKind | "ResidualLaw"
 
 /** The two containments a mirrors statement states: left into right, and right into left. */
 export interface MirrorsLaws {
-	readonly leftToRight: RaisedLawId
-	readonly rightToLeft: RaisedLawId
+	readonly leftToRight: LawId
+	readonly rightToLeft: LawId
 }
 
 export interface AlternativesLaws {
@@ -307,8 +306,6 @@ export interface Names extends LawNames {
 	readonly spanCheck: (relation: NamedRelation, field: string, check: SpanCheck) => ConstraintName
 	/** A vector column's cosine-domain CHECK. */
 	readonly normCheck: (relation: NamedRelation, field: string) => ConstraintName
-	/** A bare numeric column's 1,000-integer-digit bound CHECK. */
-	readonly numericBound: (relation: NamedRelation, field: string) => ConstraintName
 	/** The access index the index engine created over `keys` (field names, in key order). */
 	readonly accessIndex: (relation: NamedRelation, keys: ReadonlyArray<string>) => IndexName
 	/** A derived relation's inherited key's unique index. */
@@ -494,7 +491,7 @@ const holdingOf = (model: LawModel): Holding => {
 	}
 }
 
-const theLaw = (target: string, laws: ReadonlyArray<TheoryLaw>, what: string): RaisedLawId =>
+const theLaw = (target: string, laws: ReadonlyArray<TheoryLaw>, what: string): LawId =>
 	single(
 		laws,
 		(count) =>
@@ -512,7 +509,7 @@ const mirrorsLaws = <L>(holding: Holding, statement: StatementDesc<L>): MirrorsL
 		)
 	}
 	const { target, laws } = holding(statement)
-	const half = (direction: "leftToRight" | "rightToLeft"): RaisedLawId =>
+	const half = (direction: "leftToRight" | "rightToLeft"): LawId =>
 		theLaw(
 			target,
 			Arr.filter(
@@ -635,7 +632,7 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 			kind: "ResidualLaw" as const
 		}))
 	]
-	const lawOfDesc = (desc: unknown): RaisedLawId => {
+	const lawOfDesc = (desc: unknown): LawId => {
 		const { target, laws } = holding(desc)
 		return theLaw(target, laws, "law")
 	}
@@ -771,8 +768,7 @@ export const lawNamesOf = (subject: NamingSubject): LawNames => {
 }
 
 /** The LawId of a law statement of a schema, as the installer derives it. */
-export const lawIdOf = (schema: AnySchema, law: Statement): RaisedLawId =>
-	lawNamesOf(schema).lawOf(law)
+export const lawIdOf = (schema: AnySchema, law: Statement): LawId => lawNamesOf(schema).lawOf(law)
 
 /**
  * The installed name of a constraint of a relation, named by its kind and its fields (as a set): a primary key, a
@@ -955,12 +951,6 @@ const namesOver = (installation: Installation, schema: string): Names => {
 				identifierOf(identity.normCheck(relation.name, field)),
 				`norm CHECK of the vector ${field}`
 			),
-		numericBound: (relation, field) =>
-			created(
-				relation,
-				identifierOf(identity.numericBound(relation.name, field)),
-				`bound CHECK of the numeric ${field}`
-			),
 		accessIndex: (relation, keys) => {
 			const engine = Arr.flatMap(installation.indexes, (i): ReadonlyArray<IndexName> =>
 				i.index.kind === "created" &&
@@ -1091,7 +1081,7 @@ export const standInNames = (declaredSchema: string): PhysicalNames => {
 }
 
 export interface NameMint {
-	readonly lawId: (text: string) => RaisedLawId
+	readonly lawId: (text: string) => LawId
 	readonly constraint: (text: string) => ConstraintName
 	readonly relation: (text: string) => RelationIdent
 	readonly column: (text: string) => ColumnIdent
@@ -1103,7 +1093,7 @@ export interface NameMint {
 
 /** Names admitted as the snapshot reader admits a name (core/identity.ts admittedIdentifier), each `prefix` and the text. */
 const mint = (prefix: string): NameMint => ({
-	lawId: (text): RaisedLawId => admittedIdentifier(`${prefix}${text}`),
+	lawId: (text): LawId => admittedIdentifier(`${prefix}${text}`),
 	constraint: (text): ConstraintName => admittedIdentifier(`${prefix}${text}`),
 	relation: (text): RelationIdent => admittedIdentifier(`${prefix}${text}`),
 	column: (text): ColumnIdent => admittedIdentifier(`${prefix}${text}`),

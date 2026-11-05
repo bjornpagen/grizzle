@@ -1,5 +1,6 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { lateralParentMax } from "#compiler/core/limits.ts"
 import {
 	extendNonEmpty,
 	isNonEmpty,
@@ -7,7 +8,6 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
-import { attachFuseMaxFields, lateralParentMax } from "#compiler/core/policy.ts"
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import {
 	columnIn,
@@ -487,7 +487,7 @@ const takeShape =
 			node,
 			parentsOf(cx, node, facts, attachment),
 			facts,
-			lateralParentMax
+			lateralParentMax.value
 		)
 		if (choice.kind !== "fixed") {
 			state.record({
@@ -635,7 +635,7 @@ const fusedDescription = (
  * columns the parent row supplies included.
  */
 const fusible = (attach: NodeOf<"Attach">, searches: boolean): boolean =>
-	chooseAttachment(attach, searches ? "approximate" : "exact", attachFuseMaxFields).form === "fused"
+	chooseAttachment(attach, searches ? "approximate" : "exact").form === "fused"
 
 /** Whether computing the rows of `node` reads an approximate search: an attachment's rows are its parent's. */
 const rowsReadSearch = (node: RelNode): boolean => {

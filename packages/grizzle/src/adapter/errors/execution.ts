@@ -80,9 +80,9 @@ export type OpenReason =
 
 /**
  * Where acquiring a session failed: the password Effect, TLS, authentication (a refusal of SQLSTATE class 28), anything
- * else on the way to ReadyForQuery, the acquisition wait budget, or a DbLayer whose scope has closed.
+ * else on the way to ReadyForQuery, or a DbLayer whose scope has closed.
  */
-type AcquireStage = "credential" | "tls" | "authentication" | "connect" | "wait" | "released"
+type AcquireStage = "credential" | "tls" | "authentication" | "connect" | "released"
 
 /**
  * Where opening a Db failed: an acquisition's stage; `config`, a DbConfig or the environment's connection options
@@ -119,8 +119,6 @@ const acquireStage = (reason: AcquireRefusal): AcquireStage => {
 		case "DriverRefused":
 		case "NoCancelKey":
 			return "connect"
-		case "AcquisitionBudgetExceeded":
-			return "wait"
 		case "LayerReleased":
 			return "released"
 	}
@@ -136,7 +134,6 @@ const openStage = (reason: OpenReason): OpenStage => {
 		case "ConnectionClosed":
 		case "DriverRefused":
 		case "NoCancelKey":
-		case "AcquisitionBudgetExceeded":
 		case "LayerReleased":
 			return acquireStage(reason)
 		case "DbConfigRefused":
@@ -227,7 +224,6 @@ const readStage = (reason: ReadReason): ReadStage => {
 		case "ConnectionClosed":
 		case "DriverRefused":
 		case "NoCancelKey":
-		case "AcquisitionBudgetExceeded":
 		case "LayerReleased":
 		case "HandleReleased":
 			return "acquire"

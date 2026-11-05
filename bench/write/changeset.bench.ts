@@ -6,7 +6,8 @@ import {
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
-import { retried, retryPolicy } from "#bench/harness/load.ts"
+import { benchExitWait } from "#bench/harness/limits.ts"
+import { type RetryPolicy, retried } from "#bench/harness/load.ts"
 import { type Fixture, fill, settle } from "#bench/query/support/kit.ts"
 import {
 	attemptLabel,
@@ -19,6 +20,7 @@ import {
 	observedConservative,
 	type ObservedStatement,
 	type ObservedValue,
+	loginRoleOf,
 	oneRow,
 	openFull,
 	readBackRows,
@@ -157,11 +159,14 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly credits: number
 	/** The pending amounts of each account the post moves into the ledger. */
 	readonly pendingPerAccount: number
+	/** The appliers' and posters' retry policy, an application's own. */
+	readonly retry: RetryPolicy
 }
 
 const catalogTables = ["pg_class", "pg_attribute", "pg_type", "pg_depend"] as const
 
 type CountRow = readonly [count: string]
+type PidRow = readonly [pid: string]
 type BalanceRow = readonly [balance: string]
 
 /**
@@ -179,6 +184,34 @@ const catalogInserts = Effect.fn("catalogInserts")(function* (): Effect.fn.Retur
 	)
 	const [inserted] = trusted<CountRow>(oneRow(rows))
 	return Number(inserted)
+})
+
+/** The backends of `login` in this database, by pid. */
+const backendsOf = Effect.fn("backendsOf")(function* (
+	login: string
+): Effect.fn.Return<ReadonlyArray<number>, SqlError, Substrate> {
+	const s = yield* Substrate
+	const rows = yield* s.admin.queryValues(
+		"SELECT pid::text FROM pg_catalog.pg_stat_activity WHERE usename = $1::name AND datname = pg_catalog.current_database()",
+		[login]
+	)
+	return Arr.map(trusted<ReadonlyArray<PidRow>>(rows), ([pid]) => Number(pid))
+})
+
+/**
+ * Returns once each backend of `pids`, whose client has closed it, has exited, and so reported its statistics, which a
+ * backend does as it exits, before it leaves the process array and its process ends. pg_terminate_backend with a
+ * timeout signals the ending backend and waits until no process has its pid (PostgreSQL 19rc1's signalfuncs.c
+ * pg_wait_until_termination), and answers at once for a pid no backend in the process array has any more.
+ */
+const exited = Effect.fn("exited")(function* (
+	pids: ReadonlyArray<number>
+): Effect.fn.Return<void, SqlError, Substrate> {
+	const s = yield* Substrate
+	yield* s.admin.queryValues(
+		"SELECT pg_catalog.pg_terminate_backend(pid, $2::int8)::text FROM pg_catalog.unnest($1::int4[]) AS pid",
+		[`{${Arr.join(Arr.map(pids, String), ",")}}`, String(benchExitWait.value)]
+	)
 })
 
 const statementsText = (statements: ReadonlyArray<ObservedStatement>) =>
@@ -200,8 +233,22 @@ export default defineGate({
 		"outcomes, reads, final state, and concurrent overlapping appliers in each.",
 	phases: ["operationMs"],
 	options: {
-		full: { accounts: 10000, samples: 25, appliers: 8, credits: 10, pendingPerAccount: 5 },
-		quick: { accounts: 100, samples: 3, appliers: 2, credits: 2, pendingPerAccount: 3 }
+		full: {
+			accounts: 10000,
+			samples: 25,
+			appliers: 8,
+			credits: 10,
+			pendingPerAccount: 5,
+			retry: { times: 4, baseMs: 5 }
+		},
+		quick: {
+			accounts: 100,
+			samples: 3,
+			appliers: 2,
+			credits: 2,
+			pendingPerAccount: 3,
+			retry: { times: 4, baseMs: 5 }
+		}
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
@@ -228,13 +275,18 @@ export default defineGate({
 				})
 			yield* seed(imm)
 			yield* seed(mut)
-			/** Credits on fresh accounts, through a Db of its own whose backend exits before the catalog reading. */
+			/**
+			 * Credits on fresh accounts, through a Db of its own of `login`, whose backends report their counters as they
+			 * exit, which the catalog reading waits for (exited). The reading feeds only the catalog measure, never a check.
+			 */
 			const measure = <D extends object, E>(
+				login: string,
 				open: Effect.Effect<D, E, Substrate | Scope.Scope>,
 				changes: unknown
 			) =>
 				Effect.gen(function* () {
 					const before = yield* catalogInserts()
+					const others = yield* backendsOf(login)
 					const run = yield* Effect.scoped(
 						Effect.gen(function* () {
 							const db = yield* open
@@ -247,22 +299,21 @@ export default defineGate({
 								(i) => change.success.apply({ id: BigInt(i + 1), amount: 5n }),
 								1
 							)
-							return { timed, statements: change.success.statements }
+							const live = yield* backendsOf(login)
+							const backends = Arr.difference(live, others)
+							return { timed, statements: change.success.statements, backends }
 						})
 					)
-					/**
-					 * The Db's backend reports its counters when it exits; wait until the reading settles. The reading feeds only the
-					 * catalog measure, never a check, and the wait is capped at fifty polls.
-					 */
-					let after = yield* catalogInserts()
-					for (let i = 0; i < 50 && after === before; i++) {
-						yield* Effect.sleep("100 millis")
-						after = yield* catalogInserts()
+					yield* exited(run.backends)
+					const after = yield* catalogInserts()
+					return {
+						timed: run.timed,
+						statements: run.statements,
+						catalogPerTransaction: (after - before) / (options.samples + 1)
 					}
-					return { ...run, catalogPerTransaction: (after - before) / (options.samples + 1) }
 				})
-			const immutable = yield* measure(openFull(imm, Simm), credit(Simm))
-			const mutableRun = yield* measure(openFull(mut, Smut), credit(Smut))
+			const immutable = yield* measure(loginRoleOf(imm), openFull(imm, Simm), credit(Simm))
+			const mutableRun = yield* measure(loginRoleOf(mut), openFull(mut, Smut), credit(Smut))
 			const accountWritesImm = writesOf(immutable.statements, Account.name)
 			const accountWritesMut = writesOf(mutableRun.statements, Account.name)
 
@@ -292,7 +343,7 @@ export default defineGate({
 										const credited = yield* retried(
 											() => apply({ id: BigInt(options.accounts), amount: 1n }),
 											(o) => o.attempted.transient,
-											retryPolicy
+											options.retry
 										)
 										out.push({ last: credited.last, retries: credited.retries.length })
 									}
@@ -342,7 +393,9 @@ export default defineGate({
 				realization: "single" | "sequential",
 				first: number
 			) {
+				const login = loginRoleOf(imm)
 				const before = yield* catalogInserts()
+				const others = yield* backendsOf(login)
 				const run = yield* Effect.scoped(
 					Effect.gen(function* () {
 						const db = yield* openFull(imm, Simm)
@@ -358,16 +411,19 @@ export default defineGate({
 							(i) => change.success.apply({ account: BigInt(first + i + 1) }),
 							1
 						)
-						return { timed, statements: change.success.statements }
+						const live = yield* backendsOf(login)
+						const backends = Arr.difference(live, others)
+						return { timed, statements: change.success.statements, backends }
 					})
 				)
-				/** As for the credits: the reading feeds only the catalog measure, never a check. */
-				let after = yield* catalogInserts()
-				for (let i = 0; i < 50 && after === before; i++) {
-					yield* Effect.sleep("100 millis")
-					after = yield* catalogInserts()
+				yield* exited(run.backends)
+				/** As for the credits: the reading once the Db's backends have exited, which feeds only the catalog measure. */
+				const after = yield* catalogInserts()
+				return {
+					timed: run.timed,
+					statements: run.statements,
+					catalogPerTransaction: (after - before) / (options.samples + 1)
 				}
-				return { ...run, catalogPerTransaction: (after - before) / (options.samples + 1) }
 			})
 			const single = yield* measurePost("single", 1)
 			const sequential = yield* measurePost("sequential", options.samples + 2)
@@ -437,7 +493,7 @@ export default defineGate({
 							const done = yield* retried(
 								() => change.success.apply({ account: BigInt(account) }),
 								(o) => o.attempted.transient,
-								retryPolicy
+								options.retry
 							)
 							return done.last
 						}),

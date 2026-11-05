@@ -20,7 +20,7 @@ import { core, select } from "#compiler/sql/build.ts"
  * column, or, for an input of no column, its count of facts. One form serves every size, the empty input included,
  * which is arrays of no element; each array is a constant of the execution's custom plan, so the planner estimates
  * the input's rows as its length exactly (sql/print.ts). An execution's placeholders travel in one Bind message, which
- * PostgreSQL reads up to its message limit (core/policy.ts messageMaxBytes); a statement whose Bind message would be
+ * PostgreSQL reads up to its message limit (core/limits.ts messageMaxBytes); a statement whose Bind message would be
  * longer is refused on the host before its flight is sent, as InputTooLarge (the shell's wire/batch.ts).
  *
  * InputSet as its arrays read without a DISTINCT:

@@ -41,9 +41,6 @@ check "jit is off by default" "off" \
 check "max_pred_locks_per_transaction is 2048" "2048" \
 	"$(dev "$PG_DEV_ROLE" -At -c "SHOW max_pred_locks_per_transaction")"
 
-check "$PG_DEV_ROLE holds SET on lc_messages" "t" \
-	"$(dev "$PG_DEV_ROLE" -At -c "SELECT has_parameter_privilege('lc_messages', 'SET')")"
-
 check "$PG_DEV_ROLE holds SET on deadlock_timeout" "t" \
 	"$(dev "$PG_DEV_ROLE" -At -c "SELECT has_parameter_privilege('deadlock_timeout', 'SET')")"
 

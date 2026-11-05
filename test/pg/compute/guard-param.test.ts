@@ -3,12 +3,13 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { textCell } from "#test/pg/compute/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	baseParams,
@@ -75,7 +76,7 @@ layer(Substrate.layer)("a guard over a parameter on PostgreSQL 19", (it) => {
 							"generic plan, zero",
 							"generic plan, a divisor"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([plan, bound], c) =>
 						Effect.gen(function* () {

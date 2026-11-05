@@ -16,7 +16,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { ALLEN } from "#compiler/allen/mask.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
@@ -39,6 +39,7 @@ import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { assert } from "#test/support/assert.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
 import { AutomaticTask, Kind, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { at, Booking, descOf, Schedule } from "#test/unit/query/fixtures.ts"
 
 /**
@@ -242,7 +243,7 @@ interface WorkArm {
 	readonly noNote: boolean
 	readonly byAccount: boolean
 	readonly between: boolean
-	readonly compute: "none" | "cast" | "cond" | "condLiteral" | "base"
+	readonly compute: "none" | "cast" | "numeric" | "cond" | "condLiteral" | "base"
 	readonly inSet: boolean
 	readonly interior: boolean
 	readonly bind: boolean
@@ -263,7 +264,9 @@ const work: Grammar<WorkArm> = {
 		noNote: source.draw(boolean),
 		byAccount: source.draw(boolean),
 		between: source.draw(boolean),
-		compute: source.draw(element(["none", "cast", "cond", "condLiteral", "base"] as const)),
+		compute: source.draw(
+			element(["none", "cast", "numeric", "cond", "condLiteral", "base"] as const)
+		),
 		inSet: source.draw(boolean),
 		interior: source.draw(boolean),
 		bind: source.draw(boolean),
@@ -311,20 +314,22 @@ const work: Grammar<WorkArm> = {
 		}
 		const extra =
 			arm.compute === "cast"
-				? { x: Compute.cast(Compute.base(budget), pg.numeric) }
-				: arm.compute === "cond"
-					? {
-							x: Compute.cond(
-								r.eq(account, r.param("account", Task.fields.account)),
-								Compute.base(budget),
-								0n
-							)
-						}
-					: arm.compute === "condLiteral"
-						? { x: Compute.cond(r.le(budget, 1n), Compute.base(budget), 0n) }
-						: arm.compute === "base"
-							? { x: Compute.base(budget) }
-							: {}
+				? { x: Compute.cast(Compute.base(budget), pg.numeric(19, 0)) }
+				: arm.compute === "numeric"
+					? { x: Compute.numeric(Compute.base(budget)) }
+					: arm.compute === "cond"
+						? {
+								x: Compute.cond(
+									r.eq(account, r.param("account", Task.fields.account)),
+									Compute.base(budget),
+									0n
+								)
+							}
+						: arm.compute === "condLiteral"
+							? { x: Compute.cond(r.le(budget, 1n), Compute.base(budget), 0n) }
+							: arm.compute === "base"
+								? { x: Compute.base(budget) }
+								: {}
 		switch (arm.head) {
 			case "plain":
 				return rule.find({ id, account, ...extra })
@@ -453,7 +458,7 @@ describe("rebuilding from a Description", () => {
 						literal: Formatter.format,
 						limit: 6,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([from, operation]) =>
 						Effect.sync(() => {
@@ -532,7 +537,7 @@ describe("rebuilding from a Description", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(handle, c) =>
 						Effect.sync(() => {
@@ -555,12 +560,6 @@ describe("rebuilding from a Description", () => {
 	)
 })
 
-/**
- * Each property builds, encodes, decodes and rebuilds hundreds of queries: several seconds of work, more under load,
- * so each gets a timeout of its own that covers it, and the gate does not depend on machine load.
- */
-const generatedTimeout = 60_000
-
 describe("generated queries", () => {
 	it.effect(
 		"over the worked example's schema decode, are canonical and deterministic, and rebuild to the same query",
@@ -578,12 +577,11 @@ describe("generated queries", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					property(work)
 				)
-			),
-		generatedTimeout
+			)
 	)
 
 	it.effect(
@@ -602,11 +600,10 @@ describe("generated queries", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					property(spans)
 				)
-			),
-		generatedTimeout
+			)
 	)
 })

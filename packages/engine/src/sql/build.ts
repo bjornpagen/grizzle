@@ -292,10 +292,17 @@ const exponentField = (x: Expr): Expr =>
 		binary("/", bitsByte(x, 1), integer(16))
 	)
 
+/**
+ * The bytes float8send writes of a double: its IEEE 754 binary64 bits, most significant first.
+ *
+ * @formatConstant IEEE 754 binary64: 8 bytes
+ */
+const binary64Bytes = 8
+
 /** The 52-bit fraction field of a double's bits, a bigint: byte 1's low 4 bits, then bytes 2 to 7. */
 const fractionField = (x: Expr): Expr => {
 	let field = cast(binary("%", bitsByte(x, 1), integer(16)), types.bigint)
-	for (let i = 2; i < 8; i++) {
+	for (let i = 2; i < binary64Bytes; i++) {
 		field = binary("+", binary("*", field, integer(256)), bitsByte(x, i))
 	}
 	return field

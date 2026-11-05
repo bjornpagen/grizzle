@@ -146,7 +146,7 @@ export const literalResult = (
 					: toInt2(value)
 		case "numeric": {
 			const parsed = Decimal.parse(value)
-			if (!parsed.ok || !("precision" in desc)) {
+			if (!parsed.ok) {
 				return parsed
 			}
 			return normalizeNumeric(parsed.value, { precision: desc.precision, scale: desc.scale })

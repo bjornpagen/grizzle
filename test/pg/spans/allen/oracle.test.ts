@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { compileSpanDesc, installSpans, rowsAs, runArtifact } from "#test/pg/spans/allen/support.ts"
 import {
 	printSpanCase,
@@ -90,7 +90,6 @@ layer(Substrate.layer)("generated span queries against the reference", (it) => {
 							kept: [],
 							runs: cases,
 							shrink: completeShrink,
-							caseHang: Duration.minutes(2),
 							perturb: "none"
 						},
 						(sc, c) =>
@@ -153,7 +152,6 @@ layer(Substrate.layer)("generated span queries against the reference", (it) => {
 							})
 					)
 				})
-			),
-		900_000
+			)
 	)
 })

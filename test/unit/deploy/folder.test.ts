@@ -4,12 +4,14 @@ import { noCoverage, required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
+	codePoint,
 	constant,
 	element,
 	type Gen,
 	int,
 	map,
 	oneOf,
+	string,
 	subarray,
 	type Weighted,
 	weighted
@@ -20,7 +22,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Order,
@@ -50,15 +51,18 @@ import {
 	type MetaTopOffer,
 	type CustomMeta,
 	type MigrationMeta,
+	maxMigrationNameLength,
 	metaFileName,
 	metaSeal,
 	orderFolderFiles,
+	parseMigrationName,
 	writeMeta
 } from "#compiler/deploy/render/folder.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { asDrafted, draftChain, compile, fromEmpty, draftedAt } from "#test/support/migrate/kit.ts"
 import { plansRepriced } from "#test/unit/deploy/schemas.ts"
 
@@ -67,7 +71,8 @@ import { regex } from "arkregex"
  * grammar allows, judged by an oracle written apart from it, over valid names and values and their near misses.
  *
  * - A folder is `<YYYYMMDDHHMMSS>_<words>`: fourteen ASCII digits, one `_`, and lowercase ASCII letters and digits in
- *   words joined by single `_` or `-`; folderName builds one from a timestamp and a name of at most 100 characters.
+ *   words joined by single `_` or `-`; parseMigrationName admits the words of at most maxMigrationNameLength bytes,
+ *   and folderName builds a folder name from a timestamp and a name it admits.
  * - A drafted file is `NN-<words>.sql`, NN two or more ASCII digits and positive; a folder holds such files beside
  *   meta.json, one per ordinal, applied in ordinal order.
  * - meta.json holds four nonempty strings and its kind, drafted or custom; a custom migration's source is its target. A
@@ -96,8 +101,11 @@ const timestampGen: Gen<string> = weighted([
 	]
 ])
 
+/** The longest migration name, the bound a name is drawn around. */
+const nameBound = maxMigrationNameLength.value
+
 /** Lowercase words, or a near miss: empty, a separator first, last or doubled, an uppercase letter, a space, a dot, a
- * letter outside ASCII; and names around the 100-character limit. */
+ * letter outside ASCII; and names around maxMigrationNameLength: one letter short of it, at it, and one past it. */
 const wordsGen: Gen<string> = weighted([
 	[4, matching(regex("^[a-z0-9]{1,6}(?:[_-][a-z0-9]{1,6}){0,3}$"))],
 	[
@@ -109,7 +117,7 @@ const wordsGen: Gen<string> = weighted([
 			return where === "start" ? `${odd}${w}` : where === "end" ? `${w}${odd}` : `${w}${odd}${w}`
 		}
 	],
-	[1, matching(regex("^[a-z]{98,102}$"))]
+	[1, string(codePoint(0x61, 0x7a), { min: nameBound - 1, max: nameBound + 1 })]
 ])
 
 const folderNameGen: Gen<string> = (source) =>
@@ -163,7 +171,7 @@ describe("migration folders, generated", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(name) =>
 					Effect.sync(() => {
@@ -175,7 +183,7 @@ describe("migration folders, generated", () => {
 	)
 
 	it.effect(
-		"folderName builds exactly the names isFolderName accepts, its name at most 100 characters",
+		"parseMigrationName admits exactly the words of at most maxMigrationNameLength bytes, and folderName builds from each exactly the names isFolderName accepts",
 		(ctx) =>
 			searched(
 				ctx,
@@ -190,14 +198,25 @@ describe("migration folders, generated", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([timestamp, name]) =>
 						Effect.sync(() => {
-							const built = folderName(timestamp, name)
-							const valid =
-								regex("^[0-9]{14}$").test(timestamp) && isWordsOracle(name) && name.length <= 100
-							assert.equal(built.ok, valid, Formatter.format([timestamp, name]))
+							const parsed = parseMigrationName(name)
+							assert.equal(
+								parsed !== undefined,
+								isWordsOracle(name) && name.length <= nameBound,
+								Formatter.format(name)
+							)
+							if (parsed === undefined) {
+								return
+							}
+							const built = folderName(timestamp, parsed)
+							assert.equal(
+								built.ok,
+								regex("^[0-9]{14}$").test(timestamp),
+								Formatter.format([timestamp, name])
+							)
 							if (built.ok) {
 								assert.equal(built.value, `${timestamp}_${name}`)
 								assert.ok(isFolderName(built.value))
@@ -233,7 +252,7 @@ describe("migration folders, generated", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(names) =>
 							Effect.sync(() => {
@@ -707,7 +726,7 @@ describe("meta.json, generated", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([meta, roots, fault], c) =>
 						Effect.sync(() => {

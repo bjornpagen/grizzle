@@ -14,7 +14,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { DatabaseError } from "pg"
 import { admissionFailure } from "#adapter/admission/admit.ts"
 import { OpenError, ReadFailure, TransientFailure } from "#adapter/errors/execution.ts"
@@ -29,6 +29,7 @@ import { asReadFailure } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
 import { type TransientTag } from "#compiler/core/errors.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 import { regex } from "arkregex"
 /**
@@ -321,7 +322,7 @@ describe("the failure vocabulary", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(r, c) =>
 						Effect.sync(() => {

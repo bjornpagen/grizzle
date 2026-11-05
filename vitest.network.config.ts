@@ -1,5 +1,6 @@
 import { defineTestConfig } from "@grizzle/testing/vitest/config"
 import { Option } from "effect"
+import { testTimeout } from "#test/support/limits.ts"
 import { networkWorkers } from "#test/support/substrate/workers.ts"
 
 /**
@@ -21,8 +22,8 @@ export default defineTestConfig({
 	setup: ["test/support/pg-global-setup.ts"],
 	conditions: ["grizzle-source"],
 	timeouts: {
-		test: { kind: "bounded", millis: 3_600_000 },
-		hook: { kind: "unbounded" }
+		test: { kind: "bounded", millis: testTimeout.value },
+		hook: { kind: "bounded", millis: testTimeout.value }
 	},
 	maxWorkers: Option.some(networkWorkers),
 	smallStack: []

@@ -122,7 +122,7 @@ interactive transactions and no raw SQL at run time. Read [Limits](#limits) befo
 | `pgTable("post", { ... })`                             | `relation("Post", { ... }, ["id"])`; the third argument is the primary key                      |
 | `.notNull()`                                           | every column; a value that may be missing is a row in a table of its own                        |
 | `text()`, `varchar()`                                  | `str.regex(pattern)`: text always carries a pattern                                             |
-| `integer()`, `bigint({ mode: "bigint" })`, `numeric()` | `pg.integer` (`number`), `pg.bigint` (`bigint`), `pg.numeric` (an exact `Decimal`)              |
+| `integer()`, `bigint({ mode: "bigint" })`, `numeric()` | `pg.integer` (`number`), `pg.bigint` (`bigint`), `pg.numeric(p, s)` (an exact `Decimal`)        |
 | `pgEnum("status", [...])`                              | `closed("Status", [...])`, with `closedId(Status)` for the column                               |
 | `.references(() => post.id)`                           | `contained(on(Comment, "post"), on(Post, "id"))`                                                |
 | `unique().on(t.show, t.holder)`                        | `key(Ticket, ["show", "holder"])`                                                               |
@@ -851,37 +851,38 @@ run `grizzle generate` again.
 | `login(...)`                                | a login role that can switch to its roles and holds no table privilege of its own                                            |
 | `workload(...)`                             | the indexes and statistics its queries need; its queries compiled when the app starts and prepared on each connection        |
 | `derived(...)`                              | a materialized view, with a unique index on each key it provably has                                                         |
-| a query                                     | SQL, usually a single statement, and a decoder for its exact row type                                                        |
+| a query                                     | SQL, usually one statement and one more per attachment, and a decoder for its exact row type                                 |
 
 Migrations are plain SQL files that `grizzle generate` drafts and you review, as with drizzle-kit.
 
 ## Install
 
 ```sh
-pnpm add @bjornpagen/grizzle effect
-pnpm exec grizzle skill
+pnpm add @bjornpagen/grizzle effect pg
 ```
 
-`grizzle skill` copies the agent guide into `.claude/skills/grizzle/SKILL.md` and `.agents/skills/grizzle/SKILL.md`.
-Rerun it after upgrading grizzle.
+The agent guide ships in the package as `skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again
+after upgrading grizzle.
 
 You need:
 
 - **Node 26 or later** and **Effect 4.1.** `effect` is a peer dependency, so install one copy beside grizzle. grizzle
   runs under `--disable-proto=delete` and `--disable-sigusr1`: it never touches `Object.prototype.__proto__`, the
   `grizzle` command starts with both flags, and every test runs under both.
+- **node-postgres 8.23.1 or later.** `pg` is a peer dependency too, and `@types/pg`, which TypeScript reads its types
+  from, an optional one: grizzle imports none of it, and you pass the module you import as each connection's
+  `driver`. A `pg` without pipeline mode, which every call's one round trip needs, is a type error there.
 - **PostgreSQL 19**, tested on 19rc1 with the two patches under [PostgreSQL known issues](#postgresql-known-issues).
   The database must be UTF8 with the builtin `C.UTF-8` locale, and the server host needs the `C.UTF-8` operating-system
   locale. `btree_gist` must be available; a migration creates it when a no-overlap key or a coverage rule needs it.
   pgvector 0.8.7 is needed only for vector fields; it is not a trusted extension, so a superuser creates `vector`
   first where the migration role cannot.
-- **A migration role that owns the database.** It owns the schema and the database, has CREATEROLE to create the
-  PostgreSQL roles of your logins and roles, and SET on `lc_messages`. It needs no superuser. Any other role fails
-  the first migration with 42501, because only the database's owner may set its default isolation level.
+- **A migration role that owns the database.** It owns the schema and the database, and has CREATEROLE to create the
+  PostgreSQL roles of your logins and roles. It needs no superuser. Any other role fails the first migration with
+  42501, because only the database's owner may set its default isolation level.
 - **A password for each login role**, which you set, or for an RDS IAM login, membership in `rds_iam`. Each grizzle
   connection authenticates with exactly the password its configuration names, and node-postgres never reads
-  `PGPASSWORD` or `~/.pgpass` for one (a `grizzle migrate` URL without a password takes `PGPASSWORD`'s, which grizzle
-  reads itself).
+  `PGPASSWORD` or `~/.pgpass` for one.
 - **TLS with verify-full.** It is the only mode; plaintext is refused.
 - **A direct connection.** PgBouncer is not supported.
 - **`max_pred_locks_per_transaction = 2048`** on the server, recommended (a server-start setting, about 115 MB of
@@ -1037,26 +1038,40 @@ app and the nightly job get separate logins, and no token sent to the web app ca
 ### Connecting
 
 ```ts
+import net from "node:net"
 import { CredentialError, DbLayer, TokenError } from "@bjornpagen/grizzle"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Config, Effect } from "effect"
+import pgDriver from "pg"
 import snapshot from "./migrations/blog/snapshot.json" with { type: "json" }
 
 declare const caPem: string
 
 const clerkJwtKey = Config.String("CLERK_JWT_KEY")
 
+const connection = {
+	driver: pgDriver,
+	transport: {
+		kind: "sslRequest",
+		host: "db.internal",
+		port: 5432,
+		open: () => new net.Socket(),
+		ca: caPem,
+		servername: "db.internal"
+	},
+	database: "app",
+	connectTimeoutMs: 10_000
+} as const
+
 export const WebLayer = DbLayer.make({
+	...connection,
 	login: Web,
 	snapshot,
-	host: "db.internal",
-	port: 5432,
-	database: "app",
 	password: Config.Redacted("BLOG_WEB_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
-	tls: { ca: caPem },
+	pool: { max: 10, min: 1, idleTimeoutMs: 5_000 },
 	attachPool: attachDatabasePool,
 	verify: (token) =>
 		clerkJwtKey.pipe(
@@ -1071,12 +1086,28 @@ export const WebLayer = DbLayer.make({
 })
 ```
 
-`DbLayer.make` sets up one login's connection pool. It takes the `snapshot.json` that `grizzle generate` wrote,
-where to connect, and the password: a `Redacted`, or an Effect that yields one for each new connection. A login whose
-roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's
-`verifyToken`.
-`attachPool` hands the pool to Vercel, so idle connections close before a function instance suspends. There is no pool
-size, isolation level, timeout or retry policy to set.
+`DbLayer.make` sets up one login's connection pool. It takes the `snapshot.json` that `grizzle generate` wrote, and
+the connection:
+
+- `driver`, the `pg` you import;
+- `transport`, how each connection reaches the server: `open` makes a new, unconnected socket, which pg connects to
+  `host` and `port`, then an SSLRequest and verify-full TLS over the socket, the server's certificate chained to `ca`
+  and naming `servername`. `host` is a name or an IP address, never a Unix socket's path: PostgreSQL offers no TLS
+  over one. A tunnel connects to its local end and names the server it reaches. A CancelRequest opens its own
+  connection the same way;
+- the password: a `Redacted`, or an Effect that yields one for each new connection;
+- `connectTimeoutMs`, how long one connection attempt may take, past which it fails with `ConnectTimedOut`, and how
+  long the one CancelRequest an interrupted call sends may take;
+- `pool`: at most `max` sessions open, `min` of them kept open once opened, and the others closed `idleTimeoutMs`
+  after their last use.
+
+grizzle states no number of its own. A call waits for a session as long as you let it: the wait has no deadline, and
+interrupting the Effect, your own timeout among the ways, ends it, leaving nothing behind. Closing the layer's scope
+destroys every connection of its pool at once, awaiting nothing from the network.
+
+A login whose roles read the token also needs `verify`, your function from a bearer token to its verified payload:
+here, Clerk's `verifyToken`. `attachPool` hands the pool to Vercel, so idle connections close before a function
+instance suspends. There is no isolation level, statement timeout or retry policy to set.
 
 ### The route handler
 
@@ -1169,15 +1200,13 @@ the rule and the key that broke it).
 
 ```ts
 export const EtlLayer = DbLayer.make({
+	...connection,
 	login: EtlJob,
 	snapshot,
-	host: "db.internal",
-	port: 5432,
-	database: "app",
 	password: Config.Redacted("BLOG_ETL_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
-	tls: { ca: caPem }
+	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 }
 })
 
 const etl = ManagedRuntime.make(EtlLayer)
@@ -1214,7 +1243,7 @@ becomes one PostgreSQL schema.
 | `uuid`                                             | uuid                                          | `Uuid`, its hyphenated spelling; `Uuid.parse` reads a string        |
 | `pg.smallint`, `pg.integer`                        | smallint, integer                             | `number`                                                            |
 | `pg.bigint`                                        | bigint                                        | `bigint`                                                            |
-| `pg.numeric`, `pg.numeric(p, s)`                   | numeric                                       | `Decimal`, exact, no display scale                                  |
+| `pg.numeric(p, s)`                                 | numeric(p, s)                                 | `Decimal`, exact, no display scale                                  |
 | `pg.real`, `pg["double precision"]`, `pg.float(p)` | real, double precision                        | `number`                                                            |
 | `pg.money`                                         | money                                         | `Money`                                                             |
 | `pg.boolean`                                       | boolean                                       | `boolean`                                                           |
@@ -1456,7 +1485,10 @@ Six things work differently from SQL:
   the result type, a sum of `Money` values their exact total, and a mean of floats that total over the count, rounded
   once: the same rows give the same sum in any order, under any plan. Every answer is a function of the facts, with
   two declared exceptions, both pgvector's: `.approximateNearest` returns candidates from pgvector's index, so which
-  rows it returns depends on the index as well as the facts; and `Compute.cosineDistance` is pgvector's own float
+  rows it returns, and how many, depend on the index and on the database owner's pgvector settings as well as the
+  facts. grizzle pins only `hnsw.iterative_scan = strict_order`, which keeps the candidates and their cursors in exact
+  distance order; `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` are the owner's, and a scan
+  that reaches their bounds returns fewer rows than asked. `Compute.cosineDistance` is pgvector's own float
   arithmetic, the same for the same vectors on every evaluation by one server, but it may differ in the last place
   between pgvector builds or CPUs.
 - **No read fails on a value.** Every Compute operation is defined on every value its operands' types admit, or its
@@ -1517,7 +1549,8 @@ page's rows see one snapshot.
 - **`db.get(target, params)`** gives an `Option` of one row: of a table by its key, `db.get(Post, { id })`, or of a
   query that returns at most one row.
 - **`db.page(orderedQuery, params, { first: 20 })`** pages by key, with opaque cursors: `{ first }`,
-  `{ first, after }`, `{ last }` or `{ last, before }`. There is no default page size.
+  `{ first, after }`, `{ last }` or `{ last, before }`. There is no default page size and no largest one: a size is
+  any safe integer of at least 1.
 - **`db.explain(program, params)`** returns PostgreSQL's estimated plans as data, never EXPLAIN ANALYZE.
 
 A program in the login's workloads is `db.workload.<name>`, compiled when the layer was built, with exactly the
@@ -1603,27 +1636,64 @@ never on derived ones.
 
 ## Migrations
 
-`grizzle.config.ts`:
+`grizzle.config.ts`, which every command names as its argument:
 
 ```ts
-import { defineConfig } from "@bjornpagen/grizzle"
-import { Blog, EtlJob, Web } from "./src/blog.ts"
+import net from "node:net"
+import { CredentialError, defineConfig } from "@bjornpagen/grizzle"
+import { Config, Effect } from "effect"
+import pgDriver from "pg"
+import { Blog, caPem, EtlJob, Web } from "./src/blog.ts"
 
-export default defineConfig({ schemas: [Blog], logins: [Web, EtlJob] })
+export default defineConfig({
+	schemas: [Blog],
+	logins: [Web, EtlJob],
+	migrations: "migrations",
+	connection: {
+		driver: pgDriver,
+		transport: {
+			kind: "sslRequest",
+			host: "db.internal",
+			port: 5432,
+			open: () => new net.Socket(),
+			ca: caPem,
+			servername: "db.internal"
+		},
+		database: "app",
+		role: "app_owner",
+		password: Config.Redacted("MIGRATION_PASSWORD").pipe(
+			Effect.mapError((cause) => new CredentialError({ cause }))
+		),
+		connectTimeoutMs: 10_000
+	}
+})
 ```
 
 ```text
-grizzle generate [--name <name>] [--schema <schema>]            draft the next migration from the schemas' changes
-grizzle generate --custom [--name <name>] [--schema <schema>]   an empty migration for data steps
-grizzle check                                                   generated, resolved and untampered? (offline)
-grizzle migrate                                                 apply pending migrations
-grizzle drift                                                   does the database match the snapshot? (applies nothing)
-grizzle names                                                   each hashed object's PostgreSQL name and what it is
-grizzle skill                                                   install the agent skill
+grizzle generate <config> [--name <name>] [--schema <schema>]
+    draft the next migration from the schemas' changes
+grizzle generate <config> --custom --name <name> [--schema <schema>]
+    an empty migration for data steps
+grizzle check <config>
+    generated, resolved and untampered? (offline)
+grizzle migrate <config>
+    apply pending migrations
+grizzle drift <config>
+    does the database match the snapshot? (applies nothing)
+grizzle names <config>
+    each hashed object's PostgreSQL name and what it is
 ```
 
-The loop: change the schema in code, run `grizzle generate`, read the SQL it drafts, resolve its markers, run
-`grizzle check`, commit, and run `grizzle migrate` from CI or the deploy.
+Every setting is required, and nothing else is configurable: `schemas`, the declared schemas; `logins`, every login
+and through them every role and workload; `migrations`, the directory, relative to the config file's directory; and
+`connection`, where `migrate` and `drift` connect as the role that owns the schemas, its password a `Redacted` or an
+Effect evaluated for each connection attempt. grizzle reads no file you don't name and no environment variable for
+where to connect: the config reads its credentials itself, as the password Effect does.
+
+The loop: change the schema in code, run `grizzle generate grizzle.config.ts`, read the SQL it drafts, resolve its
+markers, run `grizzle check grizzle.config.ts`, commit, and run `grizzle migrate grizzle.config.ts` from CI or the
+deploy. A migration's name, `--name` or derived from its change, is at most 240 characters, so that its folder
+`<timestamp>_<name>` fits one file name (NAME_MAX, 255 bytes); `--custom` needs one.
 
 - **Drafted from a snapshot, never from a live database.** `generate` compares your schemas, their roles and logins,
   and every login's workloads with the committed `migrations/<schema>/snapshot.json`, and writes a folder
@@ -1641,12 +1711,12 @@ The loop: change the schema in code, run `grizzle generate`, read the SQL it dra
 - **`check` reads no database.** It refuses a schema change you haven't generated, a workload program whose index
   needs differ from the snapshot's (naming it), an unresolved marker, an undecided data loss, and an edited
   `snapshot.json` or `meta.json`.
-- **`migrate` connects with `DATABASE_URL`** as the role that owns the schema and the database, in a process
-  environment that sets neither `PGOPTIONS` nor `PGREPLICATION` (refused at stage `config`), applies the pending
-  files, records each in the schema's ledger, and then refuses drift: a database that is not exactly the snapshot's.
-  It judges drift after its files, so on a database changed by hand it applies them, then refuses. `drift` runs that
-  check alone, for CI or a schedule. Both judge the database as it stands, not the statements that made it: a grant
-  already held or a revoke of a privilege never held changes nothing.
+- **`migrate` connects with the config's `connection`** as the role that owns the schema and the database, in a
+  process environment that sets neither `PGOPTIONS` nor `PGREPLICATION` (refused at stage `environment`), applies the
+  pending files, records each in the schema's ledger, and then refuses drift: a database that is not exactly the
+  snapshot's. It judges drift after its files, so on a database changed by hand it applies them, then refuses. `drift`
+  runs that check alone, for CI or a schedule. Both judge the database as it stands, not the statements that made it:
+  a grant already held or a revoke of a privilege never held changes nothing.
 - **Names come from your code.** `TaskNote` becomes `task_note` for the schema, tables, derived tables, enums,
   contracts, columns, row checks and a role's views; a contract's CHECK is `check`; a login's or role's PostgreSQL
   role, like a role's schema, is `<schema>__<name>`. Two names that become the same name are refused, as is a name
@@ -1730,12 +1800,15 @@ the contract's or pattern's rule, witness `unreported`.
   database holds.
 - **`TransportFailure`** means the connection failed before the write could commit, and it changed nothing.
   **`ExecutionFailure`** carries the server's error or a compile failure, and says what the transaction did.
-- A connection that can't be had (a failing `password` Effect, TLS, the server, the pool) fails a read with
-  `ReadFailure` at stage `acquire`, and a write with `TransportFailure`.
+- A connection that can't be had (a failing `password` Effect, TLS, the server, a released layer) fails a read with
+  `ReadFailure` at stage `acquire`, and a write with `TransportFailure`. Waiting for a session is no failure: a call
+  waits until it has one or is interrupted.
 - Every error PostgreSQL raised carries a `ServerError` with its `sqlstate`, its `message`, `detail` and `hint`
   exactly as the server gave them, and the `constraint`, `schema`, `table`, `column` and `dataType` it named; an
-  error's `message` quotes the server's. These can quote the values a statement was given, though never a value
-  outside the role's view, so what you log is your choice: grizzle logs nothing.
+  error's `message` quotes the server's. The server writes its message, detail and hint in the language of its
+  `lc_messages`, the database owner's setting; grizzle reads an error by its SQLSTATE and the fields it names, never
+  by its words. These can quote the values a statement was given, though never a value outside the role's view, so
+  what you log is your choice: grizzle logs nothing.
 
 <details>
 <summary>Every error reason</summary>
@@ -1748,7 +1821,7 @@ the contract's or pattern's rule, witness `unreported`.
 | `tls`                       | `TlsRefused`                                                                                                                            |
 | `authentication`, `connect` | `StartupRefused`, with the server's report (`authentication` for SQLSTATE class 28)                                                    |
 | `connect`                   | `ConnectTimedOut`, `SocketFailed`, `ConnectionClosed`, `DriverRefused`, `NoCancelKey`                                                   |
-| `wait`, `released`          | the pool's `AcquisitionBudgetExceeded`, `LayerReleased`                                                                                 |
+| `released`                  | the pool's `LayerReleased`, a layer whose scope has closed                                                                              |
 | `config`                    | `DbConfigRefused`; `ConnectionEnvironmentRefused`, a process environment that sets `PGREPLICATION`                                     |
 | `role`                      | `RoleOutsideLayers`, `LoginNameRefused`                                                                                                 |
 | `token`                     | `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts, or a claim PostgreSQL refused |
@@ -1800,7 +1873,9 @@ by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault wor
   no other transaction in sight, because PostgreSQL's SSI summarizes old committed transactions under load and then
   judges conservatively, so treat it as retryable everywhere.
 - **No server-side timeouts.** grizzle sets no `statement_timeout` or `lock_timeout`. Interrupting the Effect is the
-  only cancellation; treat an interrupted write like `CommitUnknown`.
+  only cancellation: a call interrupted while its statements run sends one CancelRequest, within the connection's
+  `connectTimeoutMs`, so the server stops the statement, and then destroys its session's connection, which is never
+  used again. Treat an interrupted write like `CommitUnknown`: statements that had all finished may have committed.
 - **Predicate locks are the operator's to size.** Set `max_pred_locks_per_transaction = 2048`. Without room,
   PostgreSQL fails transactions with 53200, which is not retryable. Keep every transaction on the cluster short: a
   committed write's predicate locks are kept until every older transaction ends.
@@ -1821,12 +1896,15 @@ yields:
 - the extensions the schema needs are installed;
 - no migration is running or stopped part-way, and the latest complete one reached the snapshot's fingerprint;
 - the login's and the role's settings and privileges are exactly what the snapshot installs. Every login's own
-  defaults pin its sessions: `search_path = pg_catalog, pg_temp`, `jit = off`, `extra_float_digits = 1`, and
-  `lc_monetary`, `lc_numeric`, `lc_time` and `lc_messages` at `C.UTF-8`. A role's own default outranks the database's
-  and the server's, so neither reaches a `Db`'s sessions, and a login with one of them missing, changed, or set for it
-  in this database alone is refused. Every session of the login's pool also sends them, all but `lc_messages`, as its
-  startup options, so the environment's `PGOPTIONS` never reaches it, and `DbLayer.make` refuses a process environment
-  that sets `PGREPLICATION` with an `OpenError` at stage `config`;
+  defaults pin its sessions, each a setting a grizzle guarantee rests on: `search_path = pg_catalog, pg_temp`,
+  `extra_float_digits = 1`, and `lc_monetary`, `lc_numeric` and `lc_time` at `C.UTF-8`. A role's own default
+  outranks the database's and the server's, so neither reaches a `Db`'s sessions, and a login with one of them
+  missing, changed, or set for it in this database alone is refused. Every session of the login's pool also sends
+  them as its startup options, so the environment's `PGOPTIONS` never reaches it, and `DbLayer.make` refuses a process
+  environment that sets `PGREPLICATION` with an `OpenError` at stage `config`. A login whose roles search vectors
+  also stores `hnsw.iterative_scan = strict_order`. Every other setting is the database owner's, set on the database
+  or the server, JIT among them: on a server built with LLVM, `jit_above_cost` can make a large statement compile its
+  plan to machine code first;
 - the login is LOGIN NOINHERIT and the role NOLOGIN, neither with SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or
   BYPASSRLS, and a role's members are its login and the migration role (any other membership of the login confers
   nothing, and a membership fault refuses every role of the login);
@@ -1837,7 +1915,7 @@ It does not compare view definitions, policies or the owner's default privileges
 `grizzle drift` do. A value that is not a role reached through its login is refused at stage `schema`. Otherwise a
 refusal is an `OpenError` at the first stage that fails, in this order: `role` (no provided layer holds its login),
 `schema` (the token is not a string), `token` (`verify` refused or threw, or the payload does not decode through the
-role's contexts), the connection's `credential`, `tls`, `authentication`, `connect`, `wait` and `released`, then the
+role's contexts), the connection's `credential`, `tls`, `authentication`, `connect` and `released`, then the
 checks' `version`, `locale`, `capability`, `ledger` (a migration running or stopped part-way, or a snapshot the ledger
 never reached), `settings` and `privileges`, or `admission` when the check reaches no verdict, and `token` again for a
 claim PostgreSQL refuses.
@@ -1873,11 +1951,10 @@ import { Redacted } from "effect"
 const etlJobRole = Config.String("BLOG_ETL_ROLE")
 
 export const RdsEtlLayer = DbLayer.make({
+	...connection,
 	login: EtlJob,
 	snapshot,
-	host: "db.internal",
-	port: 5432,
-	database: "app",
+	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 },
 	password: etlJobRole.pipe(
 		Effect.mapError((cause) => new CredentialError({ cause })),
 		Effect.flatMap((username) =>
@@ -1893,8 +1970,7 @@ export const RdsEtlLayer = DbLayer.make({
 			})
 		),
 		Effect.map(Redacted.make)
-	),
-	tls: { ca: caPem }
+	)
 })
 ```
 
@@ -1931,8 +2007,8 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 - **COMMIT** of a transaction a refusal aborted rolls it back, without an error. A rule PostgreSQL has no constraint
   for is judged as whoever the transaction acts as at COMMIT, the role it took on or else the login, and shows its
   witness keys only to an identity that holds the witness table whole; a login after `RESET ROLE` holds nothing.
-- **Spellings** are not values. A direct writer may store `1.50` in a bare numeric field, or `-0` in a float or
-  vector field. grizzle reads each as its value (`1.5`, `0`), and no query result depends on which spelling is stored.
+- **Spellings** are not values. A direct writer may store `-0` in a float or vector field. grizzle reads it as its
+  value, `0`, and no query result depends on which spelling is stored.
   A key holds one fact per value: `[-0,1]` and `[0,1]` stored in a vector key field collide on it (23505).
 - **Serial columns** draw their identity default with no sequence privilege. A writer that inserts explicit serial
   values (`OVERRIDING SYSTEM VALUE`) calls the field's advance function,
@@ -1999,9 +2075,15 @@ workflows, whose rules are worth declaring and whose users see different slices 
 - **No nullable columns, outer joins, window functions, SKIP LOCKED or raw SQL at run time.** A query is written in
   grizzle's query language or not at all.
 - **No timestamp type.** An instant is a bigint contract.
-- **A bare `pg.numeric` holds at most 1,000 integer digits**, NaN and the infinities; its column's installed CHECK
-  refuses a longer value from any writer, so every numeric expression has a known digit bound. One expression's digit
-  bound is at most 131,072 digits, PostgreSQL's numeric limit, or compilation refuses it with `ResourceBound`.
+- **Every numeric field declares its precision and scale**, `pg.numeric(p, s)`: PostgreSQL's numeric(p, s), its
+  precision at most 1,000 and its scale within ±1,000, which holds NaN and no infinity. A computed numeric, a sum, a
+  mean, an operation's result or a derived relation's field, carries the integer and fraction digits its computation
+  proves; one past 131,072 integer digits, PostgreSQL's numeric limit, is refused at compile time with
+  `ResourceBound`. `Compute.numeric(x)` is PostgreSQL's `x::numeric` of an integer, money or a float, a float's to
+  its 6 or 15 significant digits as PostgreSQL writes it.
+- **A vector's norm lies in the cosine domain**, between 2^-68 and 2^63: within it pgvector's `cosine_distance`,
+  which sums in single precision, is a number in [0, 2] for every pair of vectors of up to 16,000 dimensions, never
+  NaN. A vector outside it is refused when it is encoded, and its column's CHECK refuses it from any writer.
 - **A `str.regex` pattern is bounded by the automaton PostgreSQL compiles from it**, not by its length or nesting.
   PostgreSQL refuses a regular expression whose automaton outgrows its compile space (`REG_MAX_COMPILE_SPACE`) as
   "regular expression is too complex", and compilation refuses with `ResourceBound` a pattern past grizzle's measures
@@ -2024,6 +2106,10 @@ workflows, whose rules are worth declaring and whose users see different slices 
   most 1,073,741,822 bytes, PostgreSQL's longest protocol message, and binds at most 65,535 parameters, which a Bind
   message counts in 16 bits. A row must also fit one 8 KB heap page once its long values are stored out of line,
   which PostgreSQL checks when it writes the row.
+- **A page size has no upper bound**: it is any safe integer of at least 1. A cursor is at most 268,435,455
+  characters, the bound of its own layout, whose lengths and counts are varints of at most four bytes; a page one of
+  whose cursors would be longer fails with `CursorError` `cursorTupleOversized`, and a longer cursor sent back is
+  `cursorOversized`.
 - **No PgBouncer, and no LISTEN/NOTIFY.**
 - **No browser connections.** A browser cannot connect straight to PostgreSQL; a server runs `verify`.
 - **The login is the trust boundary.** Anyone with its password can act as any of its roles, with any claims.
@@ -2089,7 +2175,7 @@ whether a suite reaches what it requires never depends on it.
     - `src/adapter/`: the runtime over node-postgres in pipeline mode: `Db.open`, reads, writes, pages, `migrate` and
       `drift`.
     - `src/cli/`: the `grizzle` command line.
-    - `skills/grizzle/`: the agent guide `grizzle skill` installs.
+    - `skills/grizzle/`: the agent guide the package ships.
 - `test/`: the unit, pg, schedules and types tiers, and their support in `test/support/`.
 - `bench/`: performance gates.
 - `scripts/pg/`: the pinned PostgreSQL build, cluster, doctor and patches.

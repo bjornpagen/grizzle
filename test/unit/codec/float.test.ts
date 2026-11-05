@@ -7,11 +7,12 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import { floatText } from "#compiler/scalar/values/float.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
 import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { strictComponent, strictDouble, strictReal } from "#test/support/kernel/strict.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 import { regex } from "arkregex"
 /**
@@ -196,7 +197,7 @@ describe("exact binary32 reading", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(f) =>
 					Effect.sync(() => {
@@ -236,7 +237,7 @@ describe("exact binary32 reading", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ f, negative, side }, c) =>
 					Effect.sync(() => {
@@ -307,7 +308,7 @@ describe("exact binary32 reading", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(text, c) =>
 							Effect.sync(() => {
@@ -394,7 +395,7 @@ describe("the float text grammar, scanned without RegExp", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text, c) =>
 						Effect.sync(() => {
@@ -451,7 +452,7 @@ describe("double precision text", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(x) =>
 					Effect.sync(() => {

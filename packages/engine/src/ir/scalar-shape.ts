@@ -8,6 +8,7 @@ import {
 	type MoneyValue,
 	moneyTag,
 	VectorText,
+	vectorMaxDimensions,
 	vectorTag
 } from "#compiler/ir/carriers.ts"
 import { DecimalText, type DecimalValue, decimalTag } from "#compiler/ir/decimal.ts"
@@ -48,6 +49,14 @@ import {
 	carriers,
 	type ContractInfo,
 	type IntegerCarrier,
+	isExactValue,
+	isNumericValue,
+	type NumericBound,
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale,
 	type NumericTypmod,
 	numericTypmodOf,
 	type RegexRef,
@@ -107,6 +116,7 @@ interface WireScalarType {
 	readonly span: WireSpan | undefined
 	readonly serial: "always" | undefined
 	readonly digits: number | undefined
+	readonly bound: NumericBound | undefined
 }
 
 const capabilityShape: S.Shape<Capability> = S.literalsShape(capabilities)
@@ -119,6 +129,12 @@ const capabilitySetShape: S.Shape<CapabilitySet> = S.refine(
 			return prior === undefined || prior < c
 		}),
 	"a sorted capability set without repeats"
+)
+
+const numericBoundShape: S.Shape<NumericBound> = S.refine(
+	S.struct({ digits: S.nonNegativeInteger, scale: S.nonNegativeInteger }),
+	(b) => b.digits <= numericMaxIntegerDigits.value && b.scale <= numericMaxFractionDigits.value,
+	`a computed numeric's bound: at most ${numericMaxIntegerDigits.value} integer and ${numericMaxFractionDigits.value} fraction digits`
 )
 
 const typmodShape: S.Shape<WireTypmod> = S.structStated(
@@ -174,7 +190,8 @@ const wireShape: S.Shape<WireScalarType> = S.lazy("a scalar type", () =>
 			roster: rosterShape,
 			span: spanShape,
 			serial: S.literalsShape(["always"]),
-			digits: S.nonNegativeInteger
+			digits: S.nonNegativeInteger,
+			bound: numericBoundShape
 		},
 		{}
 	)
@@ -205,9 +222,10 @@ const sameOptional = (a: unknown, b: unknown): boolean =>
 	a === undefined || b === undefined ? a === b : canonicalEquals(a, b, everyProperty)
 
 /**
- * The contract of a wire descriptor, or the first broken rule: its base has the descriptor's carrier and is no serial
- * declaration, the descriptor repeats the base's meaning-changing fields unchanged, and the predicate's expression
- * rules hold against the base (expr.ts predicateProblems).
+ * The contract of a wire descriptor, or the first broken rule: its base has the descriptor's carrier and is a value
+ * domain a field declares (ir/scalar.ts ContractBase), no serial declaration, computed numeric or exact value, the
+ * descriptor repeats the base's meaning-changing fields unchanged, and the predicate's expression rules hold against
+ * the base (expr.ts predicateProblems).
  */
 const narrowContract = (t: WireScalarType, contract: WireContract): ContractInfo | string => {
 	const { base } = contract
@@ -236,6 +254,12 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ContractInfo
 	}
 	if ("serial" in base) {
 		return "a contract's base is a value domain, not a serial declaration"
+	}
+	if (isNumericValue(base)) {
+		return "a contract is over numeric(p, s), never a computed numeric"
+	}
+	if (isExactValue(base)) {
+		return `${base.carrier} is an arithmetic result, never a contract's base`
 	}
 	const { name, predicate } = contract
 	if (predicate !== undefined) {
@@ -278,11 +302,11 @@ const narrowNumericTypmod = (typmod: WireTypmod): NumericTypmod | string => {
 	if (scale === undefined) {
 		return "a numeric typmod has its scale: numeric(p) is numeric(p, 0)"
 	}
-	if (precision < 1 || precision > 1000) {
-		return "numeric precision lies in 1..1000"
+	if (precision < 1 || precision > numericMaxPrecision.value) {
+		return `numeric precision lies in 1..${numericMaxPrecision.value}`
 	}
-	if (scale < -1000 || scale > 1000) {
-		return "numeric scale lies in -1000..1000"
+	if (scale < numericMinScale.value || scale > numericMaxScale.value) {
+		return `numeric scale lies in ${numericMinScale.value}..${numericMaxScale.value}`
 	}
 	return Object.freeze({ precision, scale })
 }
@@ -291,8 +315,8 @@ const narrowVectorTypmod = (typmod: WireTypmod | undefined): VectorTypmod | stri
 	if (typmod?.dims === undefined) {
 		return "a vector type has dimensions"
 	}
-	if (typmod.dims > 16000) {
-		return "a vector has at most 16000 dimensions"
+	if (typmod.dims > vectorMaxDimensions.value) {
+		return `a vector has at most ${vectorMaxDimensions.value} dimensions`
 	}
 	if (typmod.precision !== undefined || typmod.scale !== undefined) {
 		return "a vector has no precision or scale"
@@ -312,7 +336,7 @@ const integerType = (
 
 /**
  * A wire descriptor as its carrier's variant, or the first broken rule. Each variant is rebuilt with the keys in the
- * wire order (carrier, caps, typmod, contract, text, roster, span, serial), so decoding is idempotent.
+ * wire order (carrier, caps, typmod, contract, text, roster, span, serial, digits, bound), so decoding is idempotent.
  */
 const narrow = (t: WireScalarType): ScalarType | string => {
 	const { carrier, caps } = t
@@ -331,6 +355,9 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 	if (t.digits !== undefined && carrier !== "exactInteger" && carrier !== "exactMoney") {
 		return "only an exact type carries a digit bound"
 	}
+	if (t.bound !== undefined && carrier !== "numeric") {
+		return "only a computed numeric carries a numeric bound"
+	}
 	if (t.serial !== undefined && carrier !== "int2" && carrier !== "int4" && carrier !== "int8") {
 		return "serial generation applies to int2, int4 and int8 only"
 	}
@@ -347,7 +374,22 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 				: Object.freeze({ carrier, caps, serial: t.serial })
 		case "numeric": {
 			if (t.typmod === undefined) {
-				return Object.freeze({ carrier, caps, typmod: undefined, contract })
+				if (t.bound === undefined) {
+					return "a numeric type declares its typmod, or a computed one carries its bound"
+				}
+				if (contract !== undefined) {
+					return "a contract is over numeric(p, s), never a computed numeric"
+				}
+				return Object.freeze({
+					carrier,
+					caps,
+					typmod: undefined,
+					contract: undefined,
+					bound: Object.freeze({ digits: t.bound.digits, scale: t.bound.scale })
+				})
+			}
+			if (t.bound !== undefined) {
+				return "numeric(p, s) carries its typmod, never a computed bound"
 			}
 			const typmod = narrowNumericTypmod(t.typmod)
 			return typeof typmod === "string"
@@ -386,9 +428,6 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 		}
 		case "exactInteger":
 		case "exactMoney":
-			if (contract !== undefined) {
-				return `${carrier} is an arithmetic result, never a contract's base`
-			}
 			return t.digits === undefined
 				? `${carrier} carries its digit bound`
 				: Object.freeze({ carrier, caps, digits: t.digits })

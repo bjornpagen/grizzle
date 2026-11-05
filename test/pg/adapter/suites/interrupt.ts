@@ -13,7 +13,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Exit, Fiber, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Exit, Fiber, Formatter, Option, Order } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -27,6 +27,7 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { replaceMigrated as replace } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { type BackendMessage, makeTap } from "#test/support/wire-tap.ts"
@@ -342,7 +343,7 @@ const interruptCases = Effect.gen(function* () {
 			shrink: completeShrink,
 			concurrency: 1,
 			steerEvery: 16,
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(drawnSketch, cx) =>
 			Effect.scoped(
@@ -388,8 +389,8 @@ const interruptCases = Effect.gen(function* () {
 						const tap = makeTap(s.cluster)
 						const pool = yield* poolFor(o.installed.as(o.server), {
 							...defaultPool,
-							transport: { kind: "given", transport: { _tag: "stream", open: tap.open } },
-							pool: { idleTimeoutMs: 60_000, min: 1, max: 1 }
+							transport: { kind: "given", transport: tap.transport },
+							pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 }
 						})
 						yield* Effect.scoped(
 							Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))

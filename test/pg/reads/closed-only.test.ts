@@ -5,7 +5,7 @@ import { array, type Gen, int, map, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -13,6 +13,7 @@ import { closed, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -91,7 +92,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, notes) =>
 						Effect.gen(function* () {
@@ -156,7 +157,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 							)
 						}).pipe(Effect.scoped)
 				)
-			),
-		300_000
+			)
 	)
 })

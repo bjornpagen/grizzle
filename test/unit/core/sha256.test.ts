@@ -4,9 +4,10 @@ import { noCoverage } from "@grizzle/testing/features"
 import { array, codePoint, int, map, oneOf, string } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { sha256Hex, utf8, utf8Length } from "#compiler/core/sha256.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 const platform = new TextEncoder()
 
@@ -68,7 +69,7 @@ describe("utf8", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text) =>
 						Effect.sync(() => {
@@ -96,7 +97,7 @@ describe("utf8", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text) =>
 						Effect.sync(() => {
@@ -125,7 +126,7 @@ describe("sha256Hex", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(text) =>
 					Effect.sync(() => {

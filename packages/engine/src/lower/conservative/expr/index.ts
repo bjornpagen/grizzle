@@ -1,5 +1,5 @@
 import { exactParts } from "#compiler/core/decimal.ts"
-import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
+import { moneyFractionDigits, moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { describeOp, type TypedLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
@@ -23,8 +23,9 @@ import { cast, lit } from "#compiler/sql/build.ts"
 export const moneyText = (minor: bigint): string => {
 	const negative = minor < 0n
 	const magnitude = negative ? -minor : minor
-	const whole = magnitude / 100n
-	const cents = (magnitude % 100n).toString().padStart(2, "0")
+	const unit = 10n ** BigInt(moneyFractionDigits.value)
+	const whole = magnitude / unit
+	const cents = (magnitude % unit).toString().padStart(moneyFractionDigits.value, "0")
 	return `${negative ? "-" : ""}${whole.toString()}.${cents}`
 }
 

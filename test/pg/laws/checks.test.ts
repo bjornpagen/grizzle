@@ -28,7 +28,7 @@ import {
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Record, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { check, relation, type Statement, schema } from "#compiler/public/schema.ts"
@@ -40,6 +40,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -335,7 +336,7 @@ const rowChecks = explore(
 		shrink: { kind: "bounded", candidates: 60 },
 		concurrency: 1,
 		steerEvery: 16,
-		caseHang: Duration.minutes(2)
+		caseHang
 	},
 	(b, c) => checkBatch(b, c.noteAll)
 )

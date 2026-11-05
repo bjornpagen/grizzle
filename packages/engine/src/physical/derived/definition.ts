@@ -180,7 +180,7 @@ const withColumnTypes = (
  *   the statement does not deliver at its domain (delivered.ts deliveredTypes) is cast to the domain; the cast changes
  *   no value, because the checker proved the contract;
  * - a typmod: PostgreSQL's MIN and MAX return their input type without its typmod, so `min` of a numeric(10, 2) field
- *   is a bare numeric column, while the value, an input unchanged, is the field's. Every column whose
+ *   is a numeric column of no typmod, while the value, an input unchanged, is the field's. Every column whose
  *   inferred type carries a typmod (a numeric precision and scale, a vector's dimensions) and no contract is cast to
  *   that type; the cast changes no value;
  * - a pattern: a literal is typed by its base type, so a literal of refined text, or any refined text value

@@ -3,7 +3,7 @@ import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -25,6 +25,7 @@ import {
 	printPlan
 } from "#test/unit/analysis/small/plans.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	contextsOf,
 	databases,
@@ -149,7 +150,7 @@ const exhaustUpTo = (
 			literal: Formatter.format,
 			limit,
 			coverage: requiredInSpace<UniverseFeature>(situations),
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		([variant, plan], c) =>
 			Effect.sync(() => {

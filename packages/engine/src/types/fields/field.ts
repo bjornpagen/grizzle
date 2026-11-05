@@ -63,12 +63,9 @@ export interface TextField<
 }
 
 /**
- * numeric and decimal: bare, with PostgreSQL's implementation limits, or numeric(p, s), whose precision and scale are
- * runtime values only. numeric(p) is numeric(p, 0), so a typed numeric holds both.
+ * numeric(p, s), its precision and scale both declared, as every numeric field is: runtime values only, so the type is
+ * one for every typmod.
  */
-export type NumericField = Field<Decimal, "numeric"> | NumericTypmodField
-
-/** numeric(p, s). */
 export interface NumericTypmodField extends Field<Decimal, "numeric"> {
 	readonly precision: number
 	readonly scale: number

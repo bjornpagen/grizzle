@@ -3,11 +3,10 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
-import { recursionUnrollMax } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { conservativeMeta, type Heading, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import { emptyEnv, LowerContext } from "#compiler/lower/conservative/context.ts"
@@ -15,10 +14,11 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
-import { recursionForm, recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
+import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { assert, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { heading } from "#test/unit/ir/fixture.ts"
 import {
@@ -35,20 +35,18 @@ import { nodeOfKind } from "#test/unit/lower/support.ts"
 /**
  * The admission of a recursion's feedback by every lowering: the conservative one (lower/conservative/recursive
  * requireAdmittedFeedback, and conservative/self-ref for a second scan) and the optimized recursion lowerer
- * (lower/shapes/recursion/index.ts), which refuses through the same walk before choosing its form. The rule, as their
+ * (lower/shapes/recursion/index.ts), which refuses through the same walk before it lowers. The rule, as their
  * headers state it: a recursion lowers only when its feedback is positive and linear, so no path from the step to its
  * SelfRef passes through an operator that is not monotone and distributive over the feedback (a fold, a bound, the
  * negated side of an anti-join or a difference, either side of an intersection), the step scans the feedback once, and
  * every state column has a hash operator class. Otherwise every lowering refuses it as UnsupportedOperation, alike:
- * the two artifacts of a template refuse alike, whichever form the lowerer would choose. Without the refusal an
- * aggregate or bound over the feedback would fold one unrolled level or one iteration instead of the fixed point, a
- * wrong answer and not an error, and an unhashable state column would deduplicate by sorting in the unrolled form where
- * the recursive CTE fails with 0A000.
+ * the two artifacts of a template refuse alike. Without the refusal an aggregate or bound over the feedback would fold
+ * one iteration instead of the fixed point, a wrong answer and not an error, and an unhashable state column would fail
+ * the recursive CTE with 0A000.
  *
  * The checker never admits these steps, so the property is exhaustive over hand-built steps: each construction states
  * what the rule reads of it (whether an operator on the way to the feedback blocks it, how often the step scans it),
- * crossed with a hashable or a money state and a counter depth below, at and above recursionUnrollMax, so the space
- * holds steps the optimized lowerer unrolls and steps it keeps recursive.
+ * crossed with a hashable or a money state and a few counter depths, every one of which lowers to the recursive CTE.
  */
 
 const names = productionNames("Ledger", { kind: "declared" }, localVectorSchema)
@@ -356,53 +354,45 @@ const located = (e: CompileError) => ({
 	message: e.message
 })
 
-type FeedbackFeature = `${"lowered" | "refused"} in the ${"unrolled" | "recursive"} form`
+type FeedbackFeature = "lowered" | "refused"
 
 describe("every lowering admits exactly positive linear feedback over a hashable state", () => {
-	it.effect(
-		"lowers or refuses each construction alike, whichever form the lowerer chooses",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/feedback/admission",
-						/** The hop's counter depth below, at and above recursionUnrollMax. */
-						generator: (source) =>
-							[
-								source.draw(element(constructionNames)),
-								source.draw(element<State>(["hashable", "money"])),
-								source.draw(element([1, recursionUnrollMax, recursionUnrollMax + 1]))
-							] as const,
-						literal: Formatter.format,
-						limit: 200,
-						coverage: requiredInSpace<FeedbackFeature>([
-							"lowered in the unrolled form",
-							"lowered in the recursive form",
-							"refused in the unrolled form",
-							"refused in the recursive form"
-						]),
-						caseHang: Duration.minutes(2)
-					},
-					([name, state, depth], c) =>
-						Effect.sync(() => {
-							const construction = constructions[name]
-							const b = closure(construction, states[state], depth)
-							const form = recursionForm(b.dag, b.rec, recursionUnrollMax).kind
-							const fromConservative = conservative(b)
-							const fromOptimized = optimized(b)
-							if (lowersByRule(construction, state)) {
-								succeeded(fromConservative, name)
-								succeeded(fromOptimized, name)
-								c.note(`lowered in the ${form} form`)
-							} else {
-								const expected = refused(fromConservative, "UnsupportedOperation", name)
-								const got = refused(fromOptimized, "UnsupportedOperation", name)
-								assert.deepEqual(located(got), located(expected), name)
-								c.note(`refused in the ${form} form`)
-							}
-						})
-				)
+	it.effect("lowers or refuses each construction alike in every lowering", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/lower/feedback/admission",
+					/** The hop's counter depth: one hop, a few, and more. */
+					generator: (source) =>
+						[
+							source.draw(element(constructionNames)),
+							source.draw(element<State>(["hashable", "money"])),
+							source.draw(element([1, 4, 5]))
+						] as const,
+					literal: Formatter.format,
+					limit: 200,
+					coverage: requiredInSpace<FeedbackFeature>(["lowered", "refused"]),
+					caseHang
+				},
+				([name, state, depth], c) =>
+					Effect.sync(() => {
+						const construction = constructions[name]
+						const b = closure(construction, states[state], depth)
+						const fromConservative = conservative(b)
+						const fromOptimized = optimized(b)
+						if (lowersByRule(construction, state)) {
+							succeeded(fromConservative, name)
+							succeeded(fromOptimized, name)
+							c.note("lowered")
+						} else {
+							const expected = refused(fromConservative, "UnsupportedOperation", name)
+							const got = refused(fromOptimized, "UnsupportedOperation", name)
+							assert.deepEqual(located(got), located(expected), name)
+							c.note("refused")
+						}
+					})
 			)
+		)
 	)
 })

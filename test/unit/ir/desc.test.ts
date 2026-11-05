@@ -19,15 +19,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	pipe,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type Canonicalizable, canonicalTag, type Json } from "#compiler/core/canonical.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -71,6 +63,7 @@ import type {
 	SchemaDesc,
 	AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { fail } from "#test/unit/ir/fixture.ts"
 
 import { regex } from "arkregex"
@@ -395,7 +388,10 @@ const relations: ReadonlyArray<RelationDesc> = [
 		kind: "closed",
 		name: "Plan",
 		handles: ["Free", "Pro"],
-		payload: { seats: { kind: "pg", type: "integer" }, price: { kind: "numeric" } },
+		payload: {
+			seats: { kind: "pg", type: "integer" },
+			price: { kind: "numeric", precision: 10, scale: 2 }
+		},
 		facts: { Free: { seats: 1, price: dec("0") }, Pro: { seats: 10, price: dec("49") } }
 	},
 	{
@@ -657,7 +653,7 @@ describe("Descriptions", () => {
 								]
 							)
 						),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ kind, value, site }, c) =>
 						Effect.sync(() => {
@@ -767,7 +763,7 @@ describe("Descriptions", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([overRecursion, a, b], c) =>
 						Effect.sync(() => {
@@ -871,7 +867,7 @@ describe("Descriptions", () => {
 						"a ChangeSet member",
 						"a derived definition"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(position, c) =>
 					Effect.sync(() => {
@@ -923,6 +919,7 @@ describe("Descriptions", () => {
 				greatest: 2,
 				widthBucket: 4,
 				minScale: 1,
+				numeric: 1,
 				lower: 1,
 				upper: 1,
 				width: 1,
@@ -996,7 +993,7 @@ describe("Descriptions", () => {
 							"aggregate refused",
 							"aggregate decoded"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, n) =>
 						Effect.sync(() => {
@@ -1222,7 +1219,7 @@ describe("Descriptions", () => {
 		[
 			"a context field of a numeric type, which no claim carries exactly",
 			"context",
-			{ name: "Session", fields: { amount: { kind: "numeric" } } }
+			{ name: "Session", fields: { amount: { kind: "numeric", precision: 10, scale: 2 } } }
 		],
 		[
 			"a closed fact for an unknown handle",
@@ -1316,7 +1313,7 @@ describe("Descriptions", () => {
 						"a malformed payload",
 						...Arr.map(broken, ([rule]): CorruptFeature => `broken: ${rule}`)
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(corrupt, c) =>
 					Effect.sync(() => {
@@ -1389,7 +1386,7 @@ describe("Descriptions", () => {
 							"an array cycle",
 							"shared"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(n, c) =>
 						Effect.sync(() => {
@@ -1621,7 +1618,7 @@ describe("Descriptions", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(e, c) =>
 						Effect.sync(() => {
@@ -1663,7 +1660,7 @@ describe("Descriptions", () => {
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(e) =>
 					Effect.sync(() => {
@@ -1748,7 +1745,7 @@ describe("Descriptions", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {

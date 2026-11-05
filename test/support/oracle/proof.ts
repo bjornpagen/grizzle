@@ -8,7 +8,12 @@ import type {
 	Precondition,
 	PreconditionProof
 } from "#compiler/ir/proof.ts"
-import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import {
 	insideRange,
 	type IntervalPremise,
@@ -24,7 +29,6 @@ import {
 } from "#compiler/scalar/compute/lower.ts"
 import { nativeHolds } from "#compiler/scalar/compute/native.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-import { numericMaxDisplayScale, numericMaxIntegerDigits } from "#compiler/scalar/values/decimal.ts"
 
 /**
  * Whether a proof's premises establish its precondition: the proof kernel, which re-checks the kept proofs a lowering
@@ -100,7 +104,7 @@ const proofHolds = (
 						node.type,
 						node.operand,
 						refine(
-							ofDigits(numericMaxIntegerDigits, numericMaxDisplayScale, {
+							ofDigits(numericMaxIntegerDigits.value, numericMaxFractionDigits.value, {
 								infinite: false,
 								nan: false
 							}),

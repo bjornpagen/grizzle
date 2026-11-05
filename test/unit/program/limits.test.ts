@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
 import type { CompileBound, CompileError } from "#compiler/core/errors.ts"
-import { selectMaxEntries, statementMaxParams, tableMaxColumns } from "#compiler/core/policy.ts"
+import { selectMaxEntries, statementMaxParams, tableMaxColumns } from "#compiler/core/limits.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -16,7 +16,7 @@ import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 
 /**
- * PostgreSQL's limits where grizzle meets them (core/policy.ts), each a planted case on both sides of it:
+ * PostgreSQL's limits where grizzle meets them (core/limits.ts), each a planted case on both sides of it:
  *
  * - a stored relation's table holds at most tableMaxColumns columns: a relation of that many fields is admitted when its
  *   schema is compiled, and one of a field more is refused there, as ResourceBound (tableColumns) naming the table;
@@ -70,35 +70,41 @@ const placeholders = (params: number) =>
 describe("PostgreSQL's limits", () => {
 	it("admits a relation of tableMaxColumns fields when its schema is compiled, and refuses one of a field more there", () => {
 		const widest = succeeded(
-			testArtifacts(wideSchema(tableMaxColumns), testCompile),
+			testArtifacts(wideSchema(tableMaxColumns.value), testCompile),
 			"the widest table"
 		)
 		assert.deepEqual(
 			boundOf(
-				refused(testArtifacts(wideSchema(tableMaxColumns + 1), testCompile), "ResourceBound")
+				refused(testArtifacts(wideSchema(tableMaxColumns.value + 1), testCompile), "ResourceBound")
 			),
 			{
 				kind: "tableColumns",
 				table: printObjectName(widest.names.relation("Wide")),
-				limit: tableMaxColumns,
-				needed: tableMaxColumns + 1
+				limit: tableMaxColumns.value,
+				needed: tableMaxColumns.value + 1
 			}
 		)
 	})
 
 	it("admits a select list of selectMaxEntries entries and refuses one of an entry more", () => {
-		succeeded(emit(selectOf(selectMaxEntries), emptyNameMap), "the longest select list")
+		succeeded(emit(selectOf(selectMaxEntries.value), emptyNameMap), "the longest select list")
 		assert.deepEqual(
-			boundOf(refused(emit(selectOf(selectMaxEntries + 1), emptyNameMap), "ResourceBound")),
-			{ kind: "selectList", limit: selectMaxEntries, needed: selectMaxEntries + 1 }
+			boundOf(refused(emit(selectOf(selectMaxEntries.value + 1), emptyNameMap), "ResourceBound")),
+			{ kind: "selectList", limit: selectMaxEntries.value, needed: selectMaxEntries.value + 1 }
 		)
 	})
 
 	it("admits a statement of statementMaxParams placeholders and refuses one of a placeholder more", () => {
-		succeeded(emit(placeholders(statementMaxParams), emptyNameMap), "the most placeholders")
+		succeeded(emit(placeholders(statementMaxParams.value), emptyNameMap), "the most placeholders")
 		assert.deepEqual(
-			boundOf(refused(emit(placeholders(statementMaxParams + 1), emptyNameMap), "ResourceBound")),
-			{ kind: "statementParams", limit: statementMaxParams, needed: statementMaxParams + 1 }
+			boundOf(
+				refused(emit(placeholders(statementMaxParams.value + 1), emptyNameMap), "ResourceBound")
+			),
+			{
+				kind: "statementParams",
+				limit: statementMaxParams.value,
+				needed: statementMaxParams.value + 1
+			}
 		)
 	})
 

@@ -4,11 +4,12 @@ import { required, type Situations } from "@grizzle/testing/features"
 import { boolean, element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Engine from "#compiler/core/result.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { atDeclaredName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { namesOfBuilt } from "#test/support/worlds/execute/names.ts"
@@ -142,7 +143,7 @@ describe("the worlds model's compile rules", () => {
 					shrink: { kind: "bounded", candidates: 200 },
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(drawnInstall, c) =>
 					Effect.gen(function* () {

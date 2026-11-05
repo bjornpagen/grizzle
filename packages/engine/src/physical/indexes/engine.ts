@@ -1003,14 +1003,14 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 			const bytes = gistEntryBytes(datums.value)
 			if (!bytes.ok) {
 				unrepresentable({ kind: "gistOperatorClass", field: bytes.error })
-			} else if (bytes.value > gistMaxItemSize) {
-				unrepresentable({ kind: "gistEntry", bytes: bytes.value, limit: gistMaxItemSize })
+			} else if (bytes.value > gistMaxItemSize.value) {
+				unrepresentable({ kind: "gistEntry", bytes: bytes.value, limit: gistMaxItemSize.value })
 			}
 			break
 		}
 		case "hnsw":
-			if (keys.length > indexMaxKeys) {
-				unrepresentable({ kind: "columns", limit: indexMaxKeys })
+			if (keys.length > indexMaxKeys.value) {
+				unrepresentable({ kind: "columns", limit: indexMaxKeys.value })
 			}
 	}
 	const named = identity.accessIndex(

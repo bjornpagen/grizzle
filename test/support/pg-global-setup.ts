@@ -1,16 +1,21 @@
 import { NodeServices } from "@effect/platform-node"
-import { Array as Arr, Console, Effect } from "effect"
+import { Array as Arr, Console, Duration, Effect } from "effect"
 import { plpgsqlCoverageReport, readPlpgsqlCoverage } from "#scripts/dev/plpgsql-coverage.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { coverageAdminUrl, pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
+import { testTimeout } from "#test/support/limits.ts"
 import { run, runOptions } from "#test/support/process.ts"
 import { ensureSharedDatabase, sharedDatabase, sweep } from "#test/support/substrate/shared.ts"
 import { dropRole } from "#test/support/substrate/substrate.ts"
 import { networkWorkers } from "#test/support/substrate/workers.ts"
 
-/** The quick checks take seconds; a minute means the doctor hangs. */
-const doctorTimeout = "1 minute"
+/**
+ * How long the doctor's quick checks may run: as long as one test may (testTimeout). They open a dozen psql sessions
+ * that each read a setting or a catalog row, less than a test does, so a doctor still running past a test's own timeout
+ * hangs; nothing else bounds the global setup.
+ */
+const doctorTimeout = Duration.millis(testTimeout.value)
 
 /** The index of every worker's shared database: 1 to the run's worker count. */
 const workers: ReadonlyArray<number> = Arr.makeBy(networkWorkers, (index) => index + 1)

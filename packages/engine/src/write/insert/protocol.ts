@@ -1,5 +1,5 @@
 import { appendAll } from "#compiler/core/array.ts"
-import type { RaisedLawId } from "#compiler/core/ids.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import {
 	appendNonEmpty,
 	isNonEmpty,
@@ -550,7 +550,7 @@ export const buildInsert = (
 				expr: verdict(retCol(f)),
 				type: rowType(f)
 			}))
-		const keyLaw = (keyFields: ReadonlyArray<LawField>, law: RaisedLawId): ArmRefusal => ({
+		const keyLaw = (keyFields: ReadonlyArray<LawField>, law: LawId): ArmRefusal => ({
 			kind: "law",
 			law,
 			relation: relation.name,

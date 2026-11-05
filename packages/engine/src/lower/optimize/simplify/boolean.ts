@@ -256,9 +256,67 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 export const foldedExpr = (editor: DagEditor, e: ScalarExpr, folded: Folded): ScalarExpr =>
 	folded.kind === "expr" ? folded.expr : boolLiteral(editor, e, folded.value)
 
-/** The conjuncts of a predicate: the operands of a top-level `and`, or the predicate itself. */
-export const conjuncts = (e: ScalarExpr): ReadonlyArray<ScalarExpr> =>
-	e.kind === "op" && nativeOp(e.op)?.fn === "and" ? e.args.flatMap((a) => conjuncts(a)) : [e]
+/**
+ * Whether folding changes `expr`: foldBoolean returns a value or another expression exactly when `expr` is a boolean
+ * literal, a comparison it decides, a conjunction or disjunction of no operand, or a connective over an operand folding
+ * changes. What foldBoolean returns folding leaves unchanged.
+ */
+export const folds = (expr: ScalarExpr, column: ColumnValue): boolean => {
+	if (expr.kind === "literal") {
+		return expr.value.kind === "bool"
+	}
+	if (expr.kind !== "op") {
+		return false
+	}
+	const op = nativeOp(expr.op)
+	if (op === undefined) {
+		return false
+	}
+	switch (op.fn) {
+		case "and":
+		case "or":
+			return expr.args.length === 0 || expr.args.some((a) => folds(a, column))
+		case "not":
+			return expr.args.some((a) => folds(a, column))
+		case "eq":
+		case "ne":
+		case "lt":
+		case "le":
+		case "gt":
+		case "ge":
+		case "between":
+		case "in":
+			return compare(expr, op.fn, column) !== undefined
+		case "add":
+		case "sub":
+		case "mul":
+		case "div":
+		case "mod":
+		case "neg":
+		case "quot":
+		case "rem":
+		case "abs":
+		case "sign":
+		case "round":
+		case "trunc":
+		case "ceil":
+		case "floor":
+		case "gcd":
+		case "lcm":
+		case "power":
+		case "sqrt":
+		case "least":
+		case "greatest":
+		case "widthBucket":
+		case "minScale":
+		case "lower":
+		case "upper":
+		case "charLength":
+		case "cosineDistance":
+		case "cast":
+			return false
+	}
+}
 
 /** The conjunction of `parts`, typed like `like`: the single part, or one `and` over all of them. */
 export const conjunction = (

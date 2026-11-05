@@ -3,7 +3,7 @@ import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import {
@@ -45,6 +45,7 @@ import {
 	type Previous
 } from "#test/support/migrate/kit.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	choosable,
 	decisionText,
@@ -460,7 +461,7 @@ describe("rename candidates that depend on another, over every rename of a type,
 							"a placeholder left in a commented alternative",
 							"a placeholder left unfilled refused"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(box, c) => Effect.sync(() => property(box, c))
 				)

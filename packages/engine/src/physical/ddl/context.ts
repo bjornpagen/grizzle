@@ -3,9 +3,9 @@ import { compareText, Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import { type DeclaredName, type Identity, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
+import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { tableMaxColumns } from "#compiler/core/policy.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -59,9 +59,12 @@ interface IndexedView {
 	}>
 }
 
-/** A field an index or statistics object of a relation may name: its descriptor and its type. */
+/**
+ * A field an index or statistics object of a relation may name: its descriptor, a stored relation's declared one or a
+ * derived relation's inferred one, and its type.
+ */
 export interface TargetField {
-	readonly desc: FieldDesc
+	readonly desc: InferredFieldDesc
 	readonly type: ScalarType
 }
 
@@ -271,12 +274,12 @@ export class InstallBuilder {
 		}
 		const table = printObjectName(widened.relation)
 		const needed = (this.#columns.get(table) ?? 0) + widened.columns
-		if (needed > tableMaxColumns) {
+		if (needed > tableMaxColumns.value) {
 			throw new Refusal(
 				resourceBound(SourceLoc(`installation of schema ${this.owned.name}`, []), {
 					kind: "tableColumns",
 					table,
-					limit: tableMaxColumns,
+					limit: tableMaxColumns.value,
 					needed
 				})
 			)

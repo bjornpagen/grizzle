@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -17,6 +17,7 @@ import { assert, lacks, succeeded } from "#test/support/assert.ts"
 import { lowerAligned } from "#test/support/compile.ts"
 import { ownedSchemaFixture } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import type { GenContainment } from "#test/support/oracle/gen/schema.ts"
 import {
@@ -204,7 +205,7 @@ layer(Substrate.layer)("endpoint existence during deferred violations", (it) => 
 							coverage: requiredInSpace<AgreedFeature>(
 								Arr.map(cases, (c): AgreedFeature => `agreed: ${c.label}`)
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(c, k) =>
 							Effect.gen(function* () {

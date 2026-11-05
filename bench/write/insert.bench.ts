@@ -7,7 +7,7 @@ import {
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
-import { type LoadMeasure, retryPolicy, runLoad, withRetries } from "#bench/harness/load.ts"
+import { type LoadMeasure, type RetryPolicy, runLoad, withRetries } from "#bench/harness/load.ts"
 import {
 	measureTransaction,
 	summarizeTransactions,
@@ -84,6 +84,8 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly writers: number
 	readonly rounds: number
 	readonly keys: number
+	/** The writers' retry policy, an application's own. */
+	readonly retry: RetryPolicy
 }
 
 const modulus = 2n ** 32n
@@ -192,8 +194,22 @@ export default defineGate({
 		"protocol and ON CONFLICT DO NOTHING.",
 	phases: writePhases,
 	options: {
-		full: { batch: 5000, samples: 9, writers: 8, rounds: 20, keys: 200 },
-		quick: { batch: 200, samples: 2, writers: 3, rounds: 3, keys: 20 }
+		full: {
+			batch: 5000,
+			samples: 9,
+			writers: 8,
+			rounds: 20,
+			keys: 200,
+			retry: { times: 4, baseMs: 5 }
+		},
+		quick: {
+			batch: 200,
+			samples: 2,
+			writers: 3,
+			rounds: 3,
+			keys: 20,
+			retry: { times: 4, baseMs: 5 }
+		}
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
@@ -298,7 +314,7 @@ export default defineGate({
 									)
 						return withRetries(
 							() => Effect.map(applyOn(d, changes, {}), (o) => o.attempted),
-							retryPolicy
+							options.retry
 						)
 					},
 					{ bound: { kind: "operations", n: options.rounds }, sampler: { kind: "none" } }

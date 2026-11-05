@@ -4,16 +4,7 @@ import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	FileSystem,
-	Formatter,
-	Layer,
-	Order,
-	Record as Rec
-} from "effect"
+import { Array as Arr, Effect, FileSystem, Formatter, Layer, Order, Record as Rec } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { maxOf } from "#compiler/core/array.ts"
@@ -25,16 +16,18 @@ import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import {
 	cli,
 	cliClock,
+	configName,
+	ownerOn,
 	type SchemaSpec,
-	urlEnv,
-	viaDatabaseUrl,
+	unconnected,
 	workspace,
 	writeConfig
 } from "#test/pg/cli/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
-import { pgPin } from "#test/support/env.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
+import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -53,7 +46,7 @@ const nextNow = cliClock()
  * runs it:
  *
  * - `grizzle generate` drafts the first migration into migrations/<schema>;
- * - `grizzle check` passes, and `grizzle migrate` with DATABASE_URL applies it;
+ * - `grizzle check` passes, and `grizzle migrate`, with the configuration's connection, applies it;
  * - the login's role and every role exist exactly as named, and Db.open of every role of the login, over the same
  *   schema value, logs in as the login's role and is admitted, its layer given the committed snapshot.
  *
@@ -94,7 +87,7 @@ const everyFixture = <E, R>(
 			literal: (fixture: Fixture) => Formatter.format(fixture.label),
 			limit: fixtures.length,
 			coverage: requiredInSpace<FixtureLabel>(["shop", "ledger"]),
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(fixture: Fixture, c: Case<FixtureLabel>) =>
 			Effect.tap(property(fixture), () => Effect.sync(() => c.note(fixture.label)))
@@ -112,10 +105,10 @@ const longestRoleName = (fixture: Fixture): number => {
 }
 
 /** The length of a schema name whose longest login or role role, `<schema>__<name>`, fills exactly 63 bytes. */
-const limitOf = (fixture: Fixture): number => maxIdentifierBytes - 2 - longestRoleName(fixture)
+const limitOf = (fixture: Fixture): number =>
+	maxIdentifierBytes.value - 2 - longestRoleName(fixture)
 
-const run = (dir: string, argv: ReadonlyArray<string>, env: Readonly<Record<string, string>>) =>
-	cli(dir, argv, nextNow(), env)
+const run = (dir: string, argv: ReadonlyArray<string>) => cli(dir, argv, nextNow())
 
 const installs = (fixture: Fixture) =>
 	Effect.gen(function* () {
@@ -125,13 +118,16 @@ const installs = (fixture: Fixture) =>
 		const installed = installation.identifier
 		const fs = yield* FileSystem.FileSystem
 		const dir = yield* workspace(`limit-${fixture.label}`)
-		yield* writeConfig(dir, { schemas: [fixture.spec(declared)], connection: viaDatabaseUrl })
-		for (const [argv, env] of [
-			[["generate"], {}],
-			[["check"], {}],
-			[["migrate"], urlEnv(substrate.cluster, substrate.database)]
+		yield* writeConfig(dir, {
+			schemas: [fixture.spec(declared)],
+			connection: ownerOn(substrate.database)
+		})
+		for (const argv of [
+			["generate", configName],
+			["check", configName],
+			["migrate", configName]
 		] as const) {
-			const ran = yield* run(dir, argv, env)
+			const ran = yield* run(dir, argv)
 			assert.equal(ran.code, 0, `grizzle ${Arr.join(argv, " ")}: ${ran.stderr}`)
 		}
 		const snapshotFile = `${dir}/migrations/${installed}/snapshot.json`
@@ -148,7 +144,7 @@ const installs = (fixture: Fixture) =>
 			(name) => identity.role(installation, parsedName(name)).identifier
 		)
 		assert.ok(
-			Arr.some([loginRole, ...roles], (role) => utf8Length(role) === maxIdentifierBytes),
+			Arr.some([loginRole, ...roles], (role) => utf8Length(role) === maxIdentifierBytes.value),
 			"a role fills the identifier"
 		)
 		const heldRows = yield* substrate.admin.queryValues(
@@ -163,13 +159,10 @@ const installs = (fixture: Fixture) =>
 		)
 		const credentials = yield* substrate.login(loginRole)
 		const dbLayer = DbLayer.make({
+			...clusterConnection(substrate.cluster, substrate.database, credentials.password),
+			pool: clusterPool,
 			login,
 			snapshot,
-			host: pgPin.host,
-			port: pgPin.port,
-			database: substrate.database,
-			password: credentials.password,
-			tls: { ca: substrate.cluster.caPem },
 			verify: testVerify
 		})
 		for (const role of Rec.values(login.roles)) {
@@ -184,8 +177,8 @@ const refuses = (fixture: Fixture) =>
 		const declared = yield* substrate.schemaOfLength("gzlimit", limitOf(fixture) + 1)
 		const fs = yield* FileSystem.FileSystem
 		const dir = yield* workspace(`past-${fixture.label}`)
-		yield* writeConfig(dir, { schemas: [fixture.spec(declared)], connection: viaDatabaseUrl })
-		const ran = yield* run(dir, ["generate"], {})
+		yield* writeConfig(dir, { schemas: [fixture.spec(declared)], connection: unconnected })
+		const ran = yield* run(dir, ["generate", configName])
 		assert.notEqual(ran.code, 0, "generate refuses a role past the limit")
 		const drafted = yield* fs.exists(
 			`${dir}/migrations/${identity.schema(parsedSchemaName(declared)).identifier}`

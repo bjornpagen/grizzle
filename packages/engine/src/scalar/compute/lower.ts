@@ -7,9 +7,25 @@ import {
 	unsupported
 } from "#compiler/core/errors.ts"
 import { ExprId } from "#compiler/core/ids.ts"
+import { derived, type Limit, maxAllocSize } from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import {
+	binary32Digits,
+	binary32FractionDigits,
+	binary64Digits,
+	binary64FractionDigits,
+	binary64MaxExponent,
+	int4Digits,
+	int4Max,
+	int8Max,
+	int8Min,
+	integerDigits,
+	integerRanges,
+	moneyDigits,
+	moneyFractionDigits
+} from "#compiler/ir/carriers.ts"
 import type {
 	ExprDesc,
 	FieldDesc,
@@ -42,6 +58,10 @@ import {
 	contractOf,
 	type ContractInfo,
 	isRefined,
+	numericMaxDisplayScale,
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxResultScale,
 	numericTypmodOf,
 	type ScalarType,
 	spanOf,
@@ -85,7 +105,7 @@ import {
 	subBounds,
 	tenTo
 } from "#compiler/scalar/compute/bounds.ts"
-import { floatNumericDigits, type IntCarrier } from "#compiler/scalar/compute/cast.ts"
+import { floatNumericDigits } from "#compiler/scalar/compute/cast.ts"
 import {
 	admitLiteral,
 	literalMember,
@@ -113,10 +133,12 @@ import {
 	registeredCast
 } from "#compiler/scalar/compute/registry.ts"
 import {
+	anyNumeric,
 	commonType,
 	exactFamily,
 	exactType,
 	familyDigits,
+	isComputedNumeric,
 	isFloat,
 	meetingType,
 	meets,
@@ -128,12 +150,8 @@ import {
 	withoutSerial,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
-import {
-	Decimal,
-	normalizeNumeric,
-	numericMaxDisplayScale,
-	numericMaxIntegerDigits
-} from "#compiler/scalar/values/decimal.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
+import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 
 /**
@@ -274,25 +292,9 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"width"
 ])
 
-/** The range of each integer carrier. */
-const intRange: { readonly [C in IntCarrier]: readonly [bigint, bigint] } = {
-	int2: [-32768n, 32767n],
-	int4: [-2147483648n, 2147483647n],
-	int8: [-(2n ** 63n), 2n ** 63n - 1n]
-}
-
-const intDigits: { readonly [C in IntCarrier]: number } = { int2: 5, int4: 10, int8: 19 }
-
-/** Money's range, a signed 64-bit count of cents. */
-const moneyLow: Exact = exactOf(-(2n ** 63n), 2)
-const moneyHigh: Exact = exactOf(2n ** 63n - 1n, 2)
-
-/**
- * The integer digits a bare numeric field's values have at most (T4, README Limits): its column's installed CHECK and
- * its encoder bound it (physical/numeric/bound.ts, scalar/values/identity.ts), so every numeric expression's digits
- * are known.
- */
-const bareNumericDigits = 1000
+/** Money's range, a signed 64-bit count of minor units. */
+const moneyLow: Exact = exactOf(int8Min.value, moneyFractionDigits.value)
+const moneyHigh: Exact = exactOf(int8Max.value, moneyFractionDigits.value)
 
 /** Every value of a carrier, before any contract: what a value of its base type can be. */
 const carrierBounds = (t: ScalarType): Bounds | undefined => {
@@ -300,30 +302,37 @@ const carrierBounds = (t: ScalarType): Bounds | undefined => {
 		case "int2":
 		case "int4":
 		case "int8":
-			return ofRange(intRange[t.carrier][0], intRange[t.carrier][1], intDigits[t.carrier])
-		case "numeric": {
-			const typmod = t.typmod
-			return typmod === undefined
-				? ofDigits(bareNumericDigits, numericMaxDisplayScale, { infinite: true, nan: true })
-				: ofDigits(typmod.precision - typmod.scale, Math.max(typmod.scale, 0), {
+			return ofRange(
+				integerRanges[t.carrier][0],
+				integerRanges[t.carrier][1],
+				integerDigits[t.carrier].value
+			)
+		case "numeric":
+			return t.typmod === undefined
+				? ofDigits(t.bound.digits, t.bound.scale, { infinite: true, nan: true })
+				: ofDigits(t.typmod.precision - t.typmod.scale, Math.max(t.typmod.scale, 0), {
 						infinite: false,
 						nan: true
 					})
-		}
 		case "float4":
-			return ofDigits(39, 149, { infinite: true, nan: true })
-		case "float8":
-			return ofDigits(309, 1074, { infinite: true, nan: true })
-		case "money":
-			return refine(ofDigits(17, 2, { infinite: false, nan: false }), {
-				kind: "within",
-				low: moneyLow,
-				high: moneyHigh
+			return ofDigits(binary32Digits.value, binary32FractionDigits.value, {
+				infinite: true,
+				nan: true
 			})
+		case "float8":
+			return ofDigits(binary64Digits.value, binary64FractionDigits.value, {
+				infinite: true,
+				nan: true
+			})
+		case "money":
+			return refine(
+				ofDigits(moneyDigits.value, moneyFractionDigits.value, { infinite: false, nan: false }),
+				{ kind: "within", low: moneyLow, high: moneyHigh }
+			)
 		case "exactInteger":
 			return ofDigits(t.digits, 0, { infinite: false, nan: false })
 		case "exactMoney":
-			return ofDigits(t.digits, 2, { infinite: false, nan: false })
+			return ofDigits(t.digits, moneyFractionDigits.value, { infinite: false, nan: false })
 		case "bool":
 		case "uuid":
 		case "text":
@@ -691,6 +700,20 @@ const exprText = (e: ScalarExpr): string => {
 	}
 }
 
+/**
+ * The computed numeric of a node's proved bounds: their integer and fraction digits; numeric's own limits where nothing
+ * is proved (anyNumeric). No numeric value has more integer digits than numeric's own limit, so a bound past it, an
+ * expression that may overflow, types as that limit: the refusal is the lowering's, which refuses such a bound as
+ * ResourceBound (numericDigits) where the expression is compiled.
+ */
+const numericOf = (bounds: Bounds | undefined): ScalarType =>
+	bounds === undefined
+		? anyNumeric
+		: numericValue({
+				digits: Math.min(bounds.digits, numericMaxIntegerDigits.value),
+				scale: bounds.scale
+			})
+
 /** How a cast converts: a registered cast, or the binary coercion that drops a refinement or widens a bound. */
 type CastHow = { readonly kind: "registered"; readonly op: CastOp } | { readonly kind: "coercion" }
 
@@ -721,8 +744,8 @@ class Lowering<R extends Refs> {
 			return withoutSerial(t)
 		}
 		const v = valueType(t)
-		if (v.carrier === "numeric" && v.typmod !== undefined) {
-			return plainType("numeric")
+		if (v.carrier === "numeric") {
+			return anyNumeric
 		}
 		if (v.carrier === "exactInteger") {
 			return plainType("int8")
@@ -739,7 +762,7 @@ class Lowering<R extends Refs> {
 	/**
 	 * A lowered node with what is proved of it: the bounds and facts its type gives every value unless the caller states
 	 * what its computation proves, then refined by each enclosing Compute.when guard whose subject this node is. A
-	 * numeric bound past numeric's 131072 integer digits is ResourceBound: every numeric expression's is known. A builder
+	 * numeric bound past numeric's numericMaxIntegerDigits is ResourceBound: every numeric expression's is known. A builder
 	 * types its term and refuses only what is malformed; the bound is compilation's, a typed refusal of the compile.
 	 */
 	settle(
@@ -763,13 +786,17 @@ class Lowering<R extends Refs> {
 		if (
 			this.env.mode !== "build" &&
 			bounds !== undefined &&
-			bounds.digits > numericMaxIntegerDigits
+			bounds.digits > numericMaxIntegerDigits.value
 		) {
 			throw new Refusal(
 				CompileError.make({
 					_tag: "ResourceBound",
 					at: this.env.loc,
-					bound: { kind: "numericDigits", limit: numericMaxIntegerDigits, needed: bounds.digits }
+					bound: {
+						kind: "numericDigits",
+						limit: numericMaxIntegerDigits.value,
+						needed: bounds.digits
+					}
 				})
 			)
 		}
@@ -790,8 +817,14 @@ class Lowering<R extends Refs> {
 	}
 
 	/** The node of `spec`, recorded, with the bounds and facts its computation proves. */
+	/**
+	 * A node of `spec` with what its computation proved: a computed numeric's type carries exactly the bounds proved of
+	 * it (numericOf), the one place a numeric node is typed, so its type is its proof wherever it is read again.
+	 */
 	emitProved(spec: ExprSpec, bounds: Bounds | undefined, facts: FactSet): Lowered {
-		const entry = this.env.emit(spec)
+		const entry = this.env.emit(
+			isComputedNumeric(spec.type) ? { ...spec, type: numericOf(bounds) } : spec
+		)
 		return this.settle(entry, entry.type, { bounds, facts })
 	}
 
@@ -1122,21 +1155,27 @@ class Lowering<R extends Refs> {
 		return member === true
 	}
 
+	/**
+	 * A literal node: of `type`, a computed numeric's bounded by the literal's own value, which is all it can be, with
+	 * the bounds and facts of that value.
+	 */
 	literalNode(typed: CarriedLiteral, type: ScalarType): Lowered {
+		const n = literalNumber(typed.value)
+		const point = n === undefined ? undefined : typeof n === "object" ? ofPoint(n) : ofSpecial(n)
+		const at = isComputedNumeric(type) ? numericOf(point) : type
 		const entry = this.env.emit({
 			kind: "literal",
 			value: typed.literal,
 			args: [],
-			type,
+			type: at,
 			nonNull: "literal"
 		})
-		const n = literalNumber(typed.value)
-		if (n === undefined || boundsOfType(type) === undefined) {
-			return this.settle(entry, type, undefined)
+		if (n === undefined || point === undefined || boundsOfType(at) === undefined) {
+			return this.settle(entry, at, undefined)
 		}
-		return this.settle(entry, type, {
-			bounds: typeof n === "object" ? ofPoint(n) : ofSpecial(n),
-			facts: Object.freeze({ ...factsOfType(type), ...factsOfValue(n) })
+		return this.settle(entry, at, {
+			bounds: point,
+			facts: Object.freeze({ ...factsOfType(at), ...factsOfValue(n) })
 		})
 	}
 
@@ -1272,7 +1311,8 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * The result type of a fixed-result operation: an exact overload's exact type, or an exact carrier's own, bounded by
-	 * its result's digits; any other overload's registered result, a numeric result unconstrained numeric.
+	 * its result's digits; a numeric result a computed numeric of its result's bounds; any other overload's registered
+	 * result.
 	 */
 	resultType(op: FixedOp, bounds: Bounds | undefined): ScalarType {
 		const digits = bounds?.digits ?? 0
@@ -1280,7 +1320,11 @@ class Lowering<R extends Refs> {
 			return exactType(op.totality.yields === "integer" ? "exactInteger" : "exactMoney", digits)
 		}
 		const r = op.result
-		return r === "exactInteger" || r === "exactMoney" ? exactType(r, digits) : plainType(r)
+		return r === "exactInteger" || r === "exactMoney"
+			? exactType(r, digits)
+			: r === "numeric"
+				? numericOf(bounds)
+				: plainType(r)
 	}
 
 	lower(desc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
@@ -1376,7 +1420,7 @@ class Lowering<R extends Refs> {
 				case "bigint":
 					return plainType("int8")
 				case "numeric":
-					return plainType("numeric")
+					return anyNumeric
 				case "money":
 					return plainType("money")
 				case "boolean":
@@ -1617,7 +1661,7 @@ class Lowering<R extends Refs> {
 			}
 			value = this.castNode(
 				arg,
-				numericTypmodOf(target) === undefined ? target : plainType("numeric"),
+				numericTypmodOf(target) === undefined ? target : anyNumeric,
 				{ kind: "registered", op },
 				at
 			)
@@ -1691,6 +1735,7 @@ class Lowering<R extends Refs> {
 			floor: 1,
 			sqrt: 1,
 			minScale: 1,
+			numeric: 1,
 			lower: 1,
 			upper: 1,
 			width: 1,
@@ -1816,16 +1861,22 @@ class Lowering<R extends Refs> {
 			case "minScale": {
 				const a = this.term(arg(0), here)
 				this.requireNumeric(a.nominal, desc.fn, here)
-				const op = this.overload("minScale", [plainType("numeric")], here)
+				const op = this.overload("minScale", [anyNumeric], here)
 				return this.native(
 					op,
 					[a],
 					plainType("int4"),
-					ofRange(0n, BigInt(numericMaxDisplayScale), 5),
+					ofRange(
+						0n,
+						BigInt(numericMaxFractionDigits.value),
+						String(numericMaxFractionDigits.value).length
+					),
 					here,
 					`Compute.minScale(${exprText(a.expr)})`
 				)
 			}
+			case "numeric":
+				return this.numeric(this.term(arg(0), here), here)
 			case "ceil":
 			case "floor":
 			case "sqrt": {
@@ -1839,7 +1890,7 @@ class Lowering<R extends Refs> {
 					desc.fn === "sqrt"
 						? a.bounds === undefined
 							? undefined
-							: ofDigits(Math.ceil(a.bounds.digits / 2) + 1, Math.max(a.bounds.scale, 1000), {
+							: ofDigits(Math.ceil(a.bounds.digits / 2) + 1, numericMaxDisplayScale.value, {
 									infinite: a.bounds.high.kind === "infinite",
 									nan: true
 								})
@@ -1917,7 +1968,7 @@ class Lowering<R extends Refs> {
 					)
 				}
 				const op = this.overload("charLength", [a.actual], here)
-				const bounds = ofRange(0n, 1073741823n, 10)
+				const bounds = ofRange(0n, BigInt(maxAllocSize.value), String(maxAllocSize.value).length)
 				return this.native(op, [a], this.resultType(op, bounds), bounds, here, "charLength")
 			}
 			case "cosineDistance": {
@@ -1942,6 +1993,29 @@ class Lowering<R extends Refs> {
 				)
 			}
 		}
+	}
+
+	/**
+	 * Compute.numeric: PostgreSQL's conversion of a value into numeric, `x::numeric`, a computed numeric typed by what
+	 * the conversion proves of it (castNode, emitProved): a registered cast from an integer, money, an exact value or a
+	 * float; the binary coercion from a numeric(p, s), its typmod dropped; a computed numeric itself.
+	 */
+	numeric(a: Lowered, at: SourceLoc): Lowered {
+		const from = valueType(a.actual)
+		if (isComputedNumeric(from)) {
+			return a
+		}
+		if (from.carrier === "numeric") {
+			return this.castNode(a, anyNumeric, { kind: "coercion" }, at)
+		}
+		const op = castOf(from.carrier, "numeric")
+		return op === undefined
+			? stop(
+					"UnsupportedOperation",
+					at,
+					`Compute.numeric: PostgreSQL has no cast from ${typeLabel(from)} to numeric that Compute admits`
+				)
+			: this.castNode(a, anyNumeric, { kind: "registered", op }, at)
 	}
 
 	requireNumeric(t: ScalarType, fn: string, at: SourceLoc): void {
@@ -2062,7 +2136,12 @@ class Lowering<R extends Refs> {
 		back: CastOp,
 		at: SourceLoc
 	): Lowered {
-		const wide = this.castNode(a, plainType(via), { kind: "registered", op: widen }, at)
+		const wide = this.castNode(
+			a,
+			via === "numeric" ? anyNumeric : plainType(via),
+			{ kind: "registered", op: widen },
+			at
+		)
 		const op = this.overload("sign", [wide.actual], at)
 		const signBounds = ofRange(-1n, 1n, 1)
 		const s = this.native(
@@ -2147,9 +2226,8 @@ class Lowering<R extends Refs> {
 				)
 			}
 		}
-		const numeric = plainType("numeric")
-		const op = this.overload("widthBucket", [numeric, numeric, numeric, int4], at)
-		const bucket = ofRange(0n, 2147483647n, 10)
+		const op = this.overload("widthBucket", [anyNumeric, anyNumeric, anyNumeric, int4], at)
+		const bucket = ofRange(0n, BigInt(int4Max.value), int4Digits.value)
 		return this.native(
 			op,
 			[nx, nl, nh, nc],
@@ -2219,7 +2297,7 @@ const arithmeticBounds = (
 		case "mul":
 			return mulBounds(a, b)
 		case "div":
-			return ofDigits(a.digits + b.scale + 1, Math.min(Math.max(a.scale, b.scale, 20), 1000), {
+			return ofDigits(a.digits + b.scale + 1, numericMaxDisplayScale.value, {
 				infinite: a.low.kind === "infinite" || a.high.kind === "infinite",
 				nan: a.nan || b.nan
 			})
@@ -2259,9 +2337,9 @@ const roundingScale = (target: ScalarType): number => {
 	switch (t.carrier) {
 		case "money":
 		case "exactMoney":
-			return 2
+			return moneyFractionDigits.value
 		case "numeric":
-			return numericTypmodOf(t)?.scale ?? numericMaxDisplayScale
+			return t.typmod === undefined ? t.bound.scale : t.typmod.scale
 		case "int2":
 		case "int4":
 		case "int8":
@@ -2338,8 +2416,9 @@ const convertedEnds = (
 }
 
 /**
- * A cast's result bounds: the target type's, cut to the operand's interval as its conversion moves it; a conversion
- * into a float keeps its target's.
+ * A cast's result bounds: the target type's, cut to the operand's interval as its conversion moves it; an operand with
+ * an infinite edge (a float), which has no finite interval, keeps its own integer and fraction digits within the
+ * target's, a conversion moving no magnitude past them; a conversion into a float keeps its target's.
  */
 const castBounds = (a: Bounds, conversion: Conversion, to: ScalarType): Bounds | undefined => {
 	const target = boundsOfType(to)
@@ -2348,11 +2427,17 @@ const castBounds = (a: Bounds, conversion: Conversion, to: ScalarType): Bounds |
 	}
 	const ends = finiteEnds(a)
 	if (ends === undefined) {
-		return target
+		return ofDigits(Math.min(a.digits, target.digits), Math.min(a.scale, target.scale), {
+			infinite: isInfinite(a) && isInfinite(target),
+			nan: a.nan && target.nan
+		})
 	}
 	const [low, high] = convertedEnds(ends, conversion)
 	return refine(target, { kind: "within", low, high })
 }
+
+/** Whether bounds admit an infinity: an edge of theirs is infinite. */
+const isInfinite = (b: Bounds): boolean => b.low.kind === "infinite" || b.high.kind === "infinite"
 
 /**
  * The facts a cast keeps: one that moves no value keeps every one; one that rounds keeps all but nonzero, which
@@ -2373,7 +2458,7 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 		case "int2":
 		case "int4":
 		case "int8":
-			return [exactOf(intRange[t.carrier][0], 0), exactOf(intRange[t.carrier][1], 0)]
+			return [exactOf(integerRanges[t.carrier][0], 0), exactOf(integerRanges[t.carrier][1], 0)]
 		case "money":
 			return [moneyLow, moneyHigh]
 		case "numeric": {
@@ -2486,9 +2571,7 @@ const magnitude = (e: Exact): number => Math.abs(Number(e.units) / 10 ** e.scale
 /**
  * power's premises: its base never below zero (a fact, so no negative base meets a fractional exponent), its base
  * never zero or its exponent never below zero (a fact, so zero meets no negative power), and both operands' finite
- * intervals, small enough that the result stays in range: over numeric as PostgreSQL computes it (powerInRange), and
- * over double precision a base in [2^-256, 2^256] or exactly zero and an exponent of magnitude at most 3, so the result
- * lies within 2^±768.
+ * intervals, small enough that the result stays in range, as powerInRange states over numeric and double precision.
  */
 const powerPremises = (
 	base: Lowered,
@@ -2540,20 +2623,35 @@ const weightOf = (exponent: number, digits: number): number =>
 
 /**
  * The bound PostgreSQL's power_var puts on exp(y · ln x) for an exponent that is no integer (numeric.c power_var, its
- * test before exp_var, and exp_var's own): y · ln x below NUMERIC_MAX_RESULT_SCALE · 3 = 6000, at which it raises 22003
+ * test before exp_var, and exp_var's own): y · ln x below NUMERIC_MAX_RESULT_SCALE · 3, at which it raises 22003
  * "value overflows numeric format".
  */
-const powerExpLimit = 6000
+const powerExpLimit: Limit = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "a natural logarithm",
+	scope: "y · ln x of a power with an exponent that is no integer",
+	from: [numericMaxResultScale],
+	derivation:
+		'exp_var\'s overflow test, three times the result scale: "if (fabs(val) >= NUMERIC_MAX_RESULT_SCALE * 3)" (https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/numeric.c#L10503)',
+	compute: ([scale]) => scale.value * 3
+})
 
 /**
- * Whether power over these intervals stays inside its result carrier, as powerPremises states. Over double precision a
- * base in [2^-256, 2^256] or exactly zero and an exponent of magnitude at most 3. Over numeric, as PostgreSQL computes
- * it (numeric.c power_var): an exponent proved one integer, a point interval at an integer, is power_var_int's, which
- * raises 22003 once the result's decimal weight passes about (SHRT_MAX + 1) · DEC_DIGITS = 131072 digits, so its weight
- * (powerWeight) is held to half that; any other is power_var's, exp(y · ln x), its weight held below
+ * Whether power over these intervals stays inside its result carrier, as powerPremises states. Over double precision
+ * a zero exponent, a base exactly zero, or a result's binary exponent, |e · log2 |b||, at most binary64's greatest over
+ * every end of the intervals, so the result is finite (dpow raises 22003 on an infinite result of finite operands)
+ * and, binary64's least subnormal exponent lying further from zero, never rounds to zero (it raises 22003 on a zero
+ * result of a nonzero base). Over numeric, as PostgreSQL computes it (numeric.c power_var): an exponent proved one
+ * integer, a point interval at an integer, is power_var_int's, which raises 22003 once its estimate of the result's
+ * decimal weight passes (NUMERIC_WEIGHT_MAX + 1) · DEC_DIGITS, numericMaxIntegerDigits:
+ * "if (f > (NUMERIC_WEIGHT_MAX + 1) * DEC_DIGITS)"
+ * (https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/numeric.c#L11074), or once a product's
+ * NBASE weight passes NUMERIC_WEIGHT_MAX (numeric.c#L11205-L11206). Its weight (powerWeight), an integer there, is held
+ * below numericMaxIntegerDigits, so the result is at most 10^(numericMaxIntegerDigits - 1): a whole digit inside both
+ * tests, whatever the estimate's rounding. Any other exponent is power_var's, exp(y · ln x), its weight held below
  * powerExpLimit / ln 10. Either rounds an underflow to zero without raising, so only the weight above 1 is bounded. An
- * integer past int32 takes power_var's way too, but a weight at most half 131072 bounds the exponent's magnitude by
- * 65536 wherever the result can grow past 1.
+ * integer past int32 takes power_var's way too, but a weight below numericMaxIntegerDigits holds the exponent's
+ * magnitude below it, inside int32, wherever the result can grow past 1.
  */
 export const powerInRange = (
 	bLow: Exact,
@@ -2566,12 +2664,17 @@ export const powerInRange = (
 		const eMag = Math.max(magnitude(eLow), magnitude(eHigh))
 		const lo = magnitude(bLow)
 		const hi = magnitude(bHigh)
-		const zeroBase = lo === 0 && hi === 0
-		return eMag <= 3 && (zeroBase || (lo >= 2 ** -256 && hi <= 2 ** 256))
+		if (eMag === 0 || (lo === 0 && hi === 0)) {
+			return true
+		}
+		const reach = Math.max(Math.abs(Math.log2(lo)), Math.abs(Math.log2(hi))) * eMag
+		return reach <= binary64MaxExponent.value
 	}
 	const weight = powerWeight(bLow, bHigh, eLow, eHigh)
 	const integral = compareExact(eLow, eHigh) === 0 && scaleOfExact(eLow) === 0
-	return integral ? weight <= numericMaxIntegerDigits / 2 : weight * Math.LN10 < powerExpLimit
+	return integral
+		? weight < numericMaxIntegerDigits.value
+		: weight * Math.LN10 < powerExpLimit.value
 }
 
 /** power's result bounds where its premises hold: its integer digits powerWeight's bound; a float's its type's. */
@@ -2585,12 +2688,15 @@ const powerBounds = (a: Lowered, b: Lowered, v: ScalarType): Bounds | undefined 
 		return undefined
 	}
 	const digits = Math.ceil(powerWeight(ea[0], ea[1], eb[0], eb[1]))
-	return ofDigits(Math.min(digits, numericMaxIntegerDigits), 1000, { infinite: false, nan: true })
+	return ofDigits(Math.min(digits, numericMaxIntegerDigits.value), numericMaxDisplayScale.value, {
+		infinite: false,
+		nan: true
+	})
 }
 
 /**
  * width_bucket's premises beyond its finite operands: its bounds' finite intervals disjoint, so the bounds differ, and
- * its count in 1..2147483646, so its result count + 1 fits integer.
+ * its count in 1..int4Max - 1, so its result count + 1 fits integer.
  */
 const bucketPremises = (
 	low: Lowered,
@@ -2606,7 +2712,10 @@ const bucketPremises = (
 	return bucketInRange(lo.low, lo.high, hi.low, hi.high, c.low, c.high) ? [lo, hi, c] : undefined
 }
 
-/** Whether width_bucket's bounds' intervals are disjoint and its count lies in 1..2147483646. */
+/**
+ * Whether width_bucket's bounds' intervals are disjoint and its count lies in 1..int4Max - 1, so its result, at most
+ * count + 1, fits integer.
+ */
 export const bucketInRange = (
 	lowLow: Exact,
 	lowHigh: Exact,
@@ -2616,7 +2725,7 @@ export const bucketInRange = (
 	countHigh: Exact
 ): boolean =>
 	(compareExact(lowHigh, highLow) < 0 || compareExact(highHigh, lowLow) < 0) &&
-	insideRange(countLow, countHigh, exactOf(1n, 0), exactOf(2147483646n, 0))
+	insideRange(countLow, countHigh, exactOf(1n, 0), exactOf(BigInt(int4Max.value) - 1n, 0))
 
 /** Zero as a literal of `v`'s family, which a guard compares its subject with. */
 const zeroLiteral = (v: ValueType): LiteralDesc => {
@@ -2752,8 +2861,8 @@ const run = <R extends Refs>(
  *
  * One semantics, in every mode: no node raises on a value its operands admit (registry.ts Totality). Integer and money
  * arithmetic is exact (an exact integer or exact money, its digits bounded by its operands'); float arithmetic is IEEE
- * 754; numeric arithmetic stays inside numeric's 131072 digits by its operands' digit bounds (a bare numeric field's
- * values have at most 1000 integer digits), past which an expression is ResourceBound; and a partial operation (a
+ * 754; numeric arithmetic stays inside numeric's numericMaxIntegerDigits by its operands' digit bounds (a numeric field's
+ * by its typmod, a computed numeric's by the bound its type carries), past which an expression is ResourceBound; and a partial operation (a
  * divisor, a root, a narrowing cast, a domain cast, power, width_bucket, min_scale) stands only with the proof of its
  * precondition (ir/proof.ts PreconditionProof): its operands' facts (a literal's value, a contract's declaration, a
  * Compute.when guard, the facts a term's TypeScript type states), or, for what rests on magnitudes no type states, the

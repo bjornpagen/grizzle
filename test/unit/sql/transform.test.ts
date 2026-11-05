@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import {
@@ -15,6 +15,7 @@ import {
 } from "#compiler/sql/transform.ts"
 import { assert } from "#test/support/assert.ts"
 import { statementGen } from "#test/support/kernel/sqlgen.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 
 /**
@@ -73,7 +74,7 @@ describe("the SQL AST traversals", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {

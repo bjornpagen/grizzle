@@ -26,7 +26,7 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Layer, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, pipe, String as Str } from "effect"
 import type { TestContext } from "vitest"
 import { Db } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -37,6 +37,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import {
 	createdIndexes,
@@ -175,7 +176,7 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 					/** Windows of four cases, so the steered phase stops within four cases of reaching both reads: every case
 					 * plans its reads at volume. */
 					steerEvery: 4,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(pick, cx) =>
 					Effect.gen(function* () {
@@ -225,7 +226,6 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 layer(Substrate.layer)("the worked example's plans at volume", (it) => {
 	it.effect(
 		"60,000 tasks: every selective read through its indexes, every created index read",
-		planSuite({ accounts: 25_000, tasks: 60_000 }, 8),
-		900_000
+		planSuite({ accounts: 25_000, tasks: 60_000 }, 8)
 	)
 })

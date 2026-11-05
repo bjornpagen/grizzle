@@ -1,5 +1,6 @@
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { ColumnIdent, DomainName, RelationIdent } from "#compiler/core/ids.ts"
+import { int8ExactDigits } from "#compiler/ir/carriers.ts"
 import { baseOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { QualifiedFunctionRef, TypeName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import { namedType, numericType, types } from "#compiler/sql/build.ts"
@@ -77,7 +78,7 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 		case "vector":
 			return namedType(names.vectorSchema, "vector", [b.typmod.dims])
 		case "exactInteger":
-			return b.digits <= 18 ? types.bigint : types.numeric
+			return b.digits <= int8ExactDigits.value ? types.bigint : types.numeric
 		case "exactMoney":
 			return types.numeric
 	}

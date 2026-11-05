@@ -6,16 +6,7 @@ import { array, boolean, constant, element, type Gen, map, oneOf } from "@grizzl
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	pipe,
-	Result,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
 import { parseTarget, transactionControl } from "#adapter/migrate/input.ts"
 import { planApply, runFiles } from "#adapter/migrate/plan.ts"
 import { indices } from "#compiler/core/array.ts"
@@ -24,6 +15,7 @@ import { type MigrationFolder, writeMeta } from "#compiler/deploy/render/folder.
 import { emptyFingerprint, emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { draftChain, fromEmpty, unowned } from "#test/support/migrate/kit.ts"
 import { draftFiles } from "#test/support/migrate/review.ts"
 import { shopV1, shopV2, shopV3 } from "#test/unit/deploy/schemas.ts"
@@ -368,7 +360,7 @@ describe("transaction control in a migration file", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(d, c) =>
 						Effect.sync(() => {
@@ -516,7 +508,7 @@ describe("the input check before any connection", () => {
 						literal: Formatter.format,
 						limit: malformations.length,
 						coverage: requiredInSpace<Malformed>(malformations),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(malformed, c) =>
 						Effect.sync(() => {

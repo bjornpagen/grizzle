@@ -6,7 +6,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -66,6 +65,7 @@ import { assert } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { plannedIndexes, recordingReader, relationRows, sentProblems } from "#test/support/plans.ts"
 import {
@@ -699,7 +699,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2),
+					caseHang,
 					coverage: required<PlanFeature>(
 						[
 							"a read by the busiest entities",
@@ -806,7 +806,6 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 layer(Substrate.layer)("the platform's plans at volume", (it) => {
 	it.effect(
 		"100,000 usage events: every read through its indexes, every index read",
-		planSuite(100_000, 6),
-		1_800_000
+		planSuite(100_000, 6)
 	)
 })

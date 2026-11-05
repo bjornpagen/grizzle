@@ -6,7 +6,7 @@ import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { Record } from "effect"
 import {
 	type CursorComparator,
@@ -23,6 +23,7 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { cursorCodecTypes } from "#test/unit/cursor/support.ts"
 
 import { regex } from "arkregex"
@@ -177,7 +178,7 @@ describe("the comparator digest", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ comparators, at, rewrite }, c) =>
 					Effect.sync(() => {
@@ -235,7 +236,7 @@ describe("the query and generation digests", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ schema, extensions, change }, c) =>
 							Effect.sync(() => {

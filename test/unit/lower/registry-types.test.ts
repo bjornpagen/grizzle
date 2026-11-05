@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { contractOf, numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
@@ -16,6 +16,7 @@ import { assert } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
@@ -91,7 +92,7 @@ describe("the scalar types of lowered statements", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, n) =>
 						Effect.gen(function* () {

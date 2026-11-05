@@ -8,7 +8,6 @@ import { type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Layer,
@@ -40,6 +39,7 @@ import {
 	type Names,
 	namesOf
 } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, type PlatformFacts } from "#test/support/platform/generate.ts"
@@ -1259,38 +1259,35 @@ interface RaceSuite<S> {
 
 export const raceSuite = <S>(suite: RaceSuite<S>): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(`platform races: ${suite.label}`, (it) => {
-		it.effect(
-			"every race is explained by the billing model and converges",
-			(ctx) =>
-				searched(
-					ctx,
-					Effect.gen(function* () {
-						const installed = yield* installRaces
-						return yield* explore(
-							{
-								suite: `platform-races/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(suite.label)}`,
-								draw: drawn(suite.sketch),
-								literal: Formatter.format,
-								coverage: required<RaceFeature>(suite.required, {
-									cases: runsPerTest,
-									sense: notesOnly
-								}),
-								kept: suite.kept,
-								runs: runsPerTest,
-								shrink: { kind: "bounded", candidates: 200 },
-								concurrency: 1,
-								steerEvery: 16,
-								caseHang: Duration.minutes(2)
-							},
-							(sketch, c) =>
-								Effect.gen(function* () {
-									const race = c.draw(suite.resolve(sketch))
-									yield* Effect.scoped(runRace(installed, race, c))
-								})
-						)
-					})
-				),
-			1_800_000
+		it.effect("every race is explained by the billing model and converges", (ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const installed = yield* installRaces
+					return yield* explore(
+						{
+							suite: `platform-races/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(suite.label)}`,
+							draw: drawn(suite.sketch),
+							literal: Formatter.format,
+							coverage: required<RaceFeature>(suite.required, {
+								cases: runsPerTest,
+								sense: notesOnly
+							}),
+							kept: suite.kept,
+							runs: runsPerTest,
+							shrink: { kind: "bounded", candidates: 200 },
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						(sketch, c) =>
+							Effect.gen(function* () {
+								const race = c.draw(suite.resolve(sketch))
+								yield* Effect.scoped(runRace(installed, race, c))
+							})
+					)
+				})
+			)
 		)
 	})
 }

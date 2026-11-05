@@ -20,19 +20,25 @@ import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { DecimalText, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/ir/scalar.ts"
+import {
 	checkNumericTypmod,
 	Decimal,
 	normalizeNumeric,
-	numericMaxDisplayScale,
-	numericMaxIntegerDigits,
 	roundedUnits
 } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined, faulted, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { decimalGen, decimalText } from "#test/unit/values/support.ts"
 
@@ -252,7 +258,7 @@ describe("Decimal parsing", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(spelling, c) =>
 					Effect.sync(() => {
@@ -285,7 +291,7 @@ describe("Decimal parsing", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ spelling, corruption, at }, c) =>
 					Effect.sync(() => {
@@ -327,7 +333,7 @@ describe("Decimal parsing", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ limit, past, margin }, c) =>
 						Effect.sync(() => {
@@ -335,10 +341,10 @@ describe("Decimal parsing", () => {
 							const extra = past ? margin : 0
 							const text =
 								limit === "display scale"
-									? `0.${Str.repeat(numericMaxDisplayScale - 1 + extra)("0")}1`
+									? `0.${Str.repeat(numericMaxFractionDigits.value - 1 + extra)("0")}1`
 									: limit === "integer digits"
-										? `9${Str.repeat(numericMaxIntegerDigits - 1 + extra)("9")}`
-										: `1e${numericMaxIntegerDigits - 1 + extra}`
+										? `9${Str.repeat(numericMaxIntegerDigits.value - 1 + extra)("9")}`
+										: `1e${numericMaxIntegerDigits.value - 1 + extra}`
 							if (past) {
 								faulted(Decimal.fromString(text), "decimalRange")
 							} else {
@@ -372,7 +378,7 @@ describe("Decimal parsing", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(x) =>
 					Effect.sync(() => {
@@ -421,7 +427,7 @@ describe("Decimal parsing", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([x, k], c) =>
 						Effect.sync(() => {
@@ -455,7 +461,7 @@ describe("Decimal identity and order", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([a, b, c]) =>
 					Effect.sync(() => {
@@ -488,7 +494,7 @@ describe("Decimal in the canonical serializer", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(x) =>
 						Effect.sync(() => {
@@ -520,7 +526,7 @@ describe("Decimal in the canonical serializer", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text) =>
 						Effect.sync(() => {
@@ -536,56 +542,51 @@ const isInt = (x: unknown, min: number, max: number): x is number =>
 	typeof x === "number" && Number.isInteger(x) && x >= min && x <= max
 
 describe("numeric(p, s) normalization", () => {
-	it.effect("validates the typmod list as numerictypmodin does: a null scale is no scale", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const entry = weighted<unknown>([
-					[6, int(-1100, 1100)],
-					[1, element<unknown>([-0, 0.5, 1.5, Number.NaN, "5", 2n, null, undefined])]
-				])
-				return yield* explore(
-					{
-						suite: "unit/values/numeric-typmod",
-						draw: drawn(
-							oneOf<readonly [unknown] | readonly [unknown, unknown]>([
-								(source) => [source.draw(entry)],
-								(source) => [source.draw(entry), source.draw(entry)]
-							])
-						),
-						literal: Formatter.format,
-						coverage: required<"admitted" | "refused" | "one element">(
-							["admitted", "refused", "one element"],
-							{ cases: 1000, sense: notesOnly }
-						),
-						kept: [],
-						runs: 1000,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang: Duration.minutes(2)
-					},
-					(list, c) =>
-						Effect.sync(() => {
-							const [precision, scale] = list
-							if (list.length === 1) {
-								c.note("one element")
-							}
-							const scaleOk = list.length === 1 || isInt(scale, -1000, 1000)
-							if (isInt(precision, 1, 1000) && scaleOk) {
-								c.note("admitted")
-								assert.deepEqual(succeeded(checkNumericTypmod(list)), {
-									precision,
-									scale: isInt(scale, -1000, 1000) ? scale + 0 : 0
-								})
-							} else {
-								c.note("refused")
-								faulted(checkNumericTypmod(list), "numericTypmod")
-							}
-						})
-				)
-			})
-		)
+	it.effect(
+		"validates precision and scale as numerictypmodin does: both integers within its limits, both given",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const entry = weighted<unknown>([
+						[6, int(-1100, 1100)],
+						[1, element<unknown>([-0, 0.5, 1.5, Number.NaN, "5", 2n, null, undefined])]
+					])
+					return yield* explore(
+						{
+							suite: "unit/values/numeric-typmod",
+							draw: drawn((source) => [source.draw(entry), source.draw(entry)] as const),
+							literal: Formatter.format,
+							coverage: required<"admitted" | "refused">(["admitted", "refused"], {
+								cases: 1000,
+								sense: notesOnly
+							}),
+							kept: [],
+							runs: 1000,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						([precision, scale], c) =>
+							Effect.sync(() => {
+								if (
+									isInt(precision, 1, numericMaxPrecision.value) &&
+									isInt(scale, numericMinScale.value, numericMaxScale.value)
+								) {
+									c.note("admitted")
+									assert.deepEqual(succeeded(checkNumericTypmod(precision, scale)), {
+										precision,
+										scale: scale + 0
+									})
+								} else {
+									c.note("refused")
+									faulted(checkNumericTypmod(precision, scale), "numericTypmod")
+								}
+							})
+					)
+				})
+			)
 	)
 
 	it.effect("is idempotent and within a half unit of the input", (ctx) =>
@@ -607,7 +608,7 @@ describe("numeric(p, s) normalization", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([x, type]) =>
 						Effect.sync(() => {
@@ -656,7 +657,7 @@ describe("Decimal admission of a JavaScript caller's value", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(d, c) =>
 						Effect.sync(() => {

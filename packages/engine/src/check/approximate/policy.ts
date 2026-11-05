@@ -1,55 +1,52 @@
+import { published } from "#compiler/core/limits.ts"
 import { vectorCosineOpclass } from "#compiler/ir/products.ts"
+
 /**
- * The fixed HNSW build and search policy of approximate retrieval.
+ * The most dimensions pgvector's HNSW index indexes: an indexed vector space of more is refused at compile time
+ * (trace.ts), since CREATE INDEX would refuse it.
+ */
+const hnswMaxDimensions = published({
+	value: 2000,
+	owner: "pgvector 0.8.7",
+	unit: "dimensions",
+	scope: "the vector column of one HNSW index",
+	constraint: "compile-time constant",
+	source: "https://github.com/pgvector/pgvector/blob/v0.8.7/src/hnsw.h#L33",
+	quote: "#define HNSW_MAX_DIM 2000",
+	verified: "2026-11-05"
+})
+
+/**
+ * The fixed HNSW index of approximate retrieval, and the one search setting grizzle pins.
  *
- * Build parameters, iterative-scan behavior, search work and memory bounds, and internal candidate expansion follow one library policy; there are no public HNSW or IVFFlat selectors, ef_search controls, recall sliders, partition hints or quantization switches. This value is that policy: one value for the whole library, never a
- * caller option.
+ * There are no public HNSW or IVFFlat selectors, recall sliders, partition hints or quantization switches. This value
+ * is the whole of what grizzle decides: one value for the whole library, never a caller option.
  *
  * - The index: HNSW over the cosine operator class `vector_cosine_ops`, the opclass whose ordering operator is `<=>`,
- *   on the one vector field a workload program ranks by. HNSW indexes vectors of 1-2000
- *   dimensions; storage admits 16000, and a larger indexed space is refused rather than truncated, cast to halfvec or
- *   quantized.
- * - Build: m = 16 and ef_construction = 64, which are pgvector 0.8.7's own defaults, so the generated
- *   `CREATE INDEX ... USING hnsw (<column> <ext>.vector_cosine_ops)` realizes the policy with no WITH clause, and
- *   admission pins 0.8.7. A policy that departs from the defaults needs storage parameters on the SQL
- *   AST's CreateIndex first.
- * - Search: iterative index scans in strict order, so a filtered search keeps exploring the graph until the LIMIT is
- *   filled or the work bound is reached, and the scan still returns rows in exact distance order (strict iterative
- *   scanning can fill the request at higher cost); ef_search 40, the dynamic candidate list of one scan step;
- *   max_scan_tuples 20000 and scan_mem_multiplier 1, the work and memory bounds after which an iterative scan stops and
- *   the request underfills. Underfill is allowed and is never evidence that the eligible universe is exhausted.
+ *   on the one vector field a workload program ranks by. HNSW indexes vectors of at most `maxDimensions`; storage
+ *   admits 16000, and a larger indexed space is refused rather than truncated, cast to halfvec or quantized. The
+ *   generated `CREATE INDEX ... USING hnsw (<column> <ext>.vector_cosine_ops)` has no WITH clause: the index is built
+ *   with pgvector's own build parameters.
+ * - The search: iterative index scans in strict order (`hnsw.iterative_scan = strict_order`), so a filtered search
+ *   keeps exploring the graph until the LIMIT is filled or the scan stops, and the scan still returns rows in exact
+ *   distance order. An approximate read's order and its pages' cursors rest on that order, so it is a login default,
+ *   stored by the migration's Publish file as ALTER ROLE ... SET and verified by admission, never set by a request and
+ *   never exposed.
  *
- * The search settings are session parameters of the extension (`hnsw.*`). They are login defaults beside `jit = off`,
- * stored by the migration's Publish file as ALTER ROLE ... SET and verified by admission, never set by a request and
- * never exposed. An `hnsw.*` parameter is a placeholder until the vector library is loaded, and the migration identity,
- * which is not a superuser, may store one only once the library is loaded in its session (SQLSTATE 42501 before any vector function runs, accepted after). `hnswSearchSettings` is the list the SQL AST's configuration
- * parameters name (sql/ast.ts), the installer emits for every login one of whose roles can name the vector type, after
- * a statement that loads the library (physical/ddl/roles.ts), and admission compares with the snapshot's
- * (adapter/admission).
+ * Nothing else of the search is grizzle's: `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier`
+ * are the database owner's, and with them which rows an approximate read returns and how many. A scan that reaches
+ * their work or memory bound stops, and the request underfills; underfill is allowed and is never evidence that the
+ * eligible universe is exhausted.
+ *
+ * An `hnsw.*` parameter is a placeholder until the vector library is loaded, and the migration identity, which is not a
+ * superuser, may store one only once the library is loaded in its session (SQLSTATE 42501 before any vector function
+ * runs, accepted after), so the installer stores the search setting after a statement that loads the library, for
+ * every login one of whose roles can name the vector type (physical/ddl/roles.ts searchPolicySettings).
  */
 export const hnswPolicy = {
 	method: "hnsw",
 	opclass: vectorCosineOpclass,
 	operator: "<=>",
-	maxDimensions: 2000,
-	build: { m: 16, efConstruction: 64 },
-	search: {
-		efSearch: 40,
-		iterativeScan: "strict_order",
-		maxScanTuples: 20000,
-		scanMemMultiplier: 1
-	}
+	maxDimensions: hnswMaxDimensions,
+	iterativeScan: "strict_order"
 } as const
-
-interface SessionSetting {
-	readonly parameter: string
-	readonly value: string
-}
-
-/** The search policy as the session parameters every login stores as its role defaults. */
-export const hnswSearchSettings = (): ReadonlyArray<SessionSetting> => [
-	{ parameter: "hnsw.ef_search", value: String(hnswPolicy.search.efSearch) },
-	{ parameter: "hnsw.iterative_scan", value: hnswPolicy.search.iterativeScan },
-	{ parameter: "hnsw.max_scan_tuples", value: String(hnswPolicy.search.maxScanTuples) },
-	{ parameter: "hnsw.scan_mem_multiplier", value: String(hnswPolicy.search.scanMemMultiplier) }
-]

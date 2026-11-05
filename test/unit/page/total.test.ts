@@ -5,7 +5,7 @@ import { array, boolean, type Gen, int, map, oneOf, weighted } from "@grizzle/te
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
 import { pageRuntimeOf } from "#adapter/page/template.ts"
 import type { AttachmentFacts } from "#adapter/reader/analysis.ts"
 import { indices } from "#compiler/core/array.ts"
@@ -25,6 +25,7 @@ import { assert, defined } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { isPlainCarrier } from "#test/support/fixtures/ir/scalar.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { largeStatements } from "#test/support/oracle/forms.ts"
 import {
 	defaultGenConfig,
@@ -410,7 +411,7 @@ describe("the page compiler and the page runtime template", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.gen(function* () {

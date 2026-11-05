@@ -11,7 +11,6 @@ import {
 	Clock,
 	Console,
 	DateTime,
-	Duration,
 	Effect,
 	Fiber,
 	FileSystem,
@@ -80,13 +79,13 @@ const self = "scripts/dev/mutate"
  * 2. The mutants are every operators.ts mutant of the scoped source modules, or with --sample N a seeded sample of
  *    N spread over the areas and operators, or with --mutant the named ones (to recheck a triaged survivor).
  * 3. A coverage pass runs every stage-1 test file (the unit project, less the generators' own tests) once on the
- *    unmutated tree under NODE_V8_COVERAGE, recording its duration, its failing tests (never counted against a
- *    mutant) and which sampled mutants it executes (coverage.ts).
+ *    unmutated tree under NODE_V8_COVERAGE, each of its tests bounded as `pnpm test` bounds it, recording its failing
+ *    tests (never counted against a mutant) and which sampled mutants it executes (coverage.ts).
  * 4. Stage 0 typechecks each mutant's tree: a mutant the type checker rejects is `invalid`, can never be committed,
  *    and is left out of the score.
  * 5. Stage 1 runs, for each valid mutant, the stage-1 files that execute it, in one Vitest run (runFiles), mutant
- *    per worker in parallel, with a timeout scaled from the files' own durations. A mutant no file executes is
- *    `no-coverage`. The stage-1 verdicts go to test/support/mutation/logs/stage1.json, and --resume FILE takes a
+ *    per worker in parallel, each file of it bounded as every run's are (reporter.ts fileTimeout), so a mutant that
+ *    loops where no timer of its test process fires times out. A mutant no file executes is `no-coverage`. The stage-1 verdicts go to test/support/mutation/logs/stage1.json, and --resume FILE takes a
  *    mutant's verdict from such a file instead of running stages 0 and 1 again.
  * 6. Stage 2 runs each stage-1 survivor against the seeded PostgreSQL oracle subset (oracle/), gated by that subset's
  *    own coverage pass.
@@ -365,7 +364,7 @@ const unpack = Effect.fn("unpack")(function* (repo: string, commit: string, into
 			const tar = yield* spawner.spawn(
 				ChildProcess.make("tar", ["-x", "-C", into], { stdin: archive.stdout, stderr: "inherit" })
 			)
-			return yield* Effect.all([archive.exitCode, tar.exitCode], { concurrency: 2 })
+			return yield* Effect.all([archive.exitCode, tar.exitCode], { concurrency: "unbounded" })
 		})
 	)
 	if (archived !== 0 || extracted !== 0) {
@@ -489,8 +488,14 @@ interface Failure {
 
 const failureKey = (f: Failure): string => `${f.file}\u0000${f.test}`
 
-/** How a child run ended: it printed its end or a failure ended it early, it ran out of time, or it died first. */
-type RunEnd = "finished" | "timeout" | "crash"
+/**
+ * How a child run ended: it printed its end or a failure ended it early, a file of it ran past the reporter's bound
+ * (reporter.ts fileTimeout), or it died first.
+ */
+type RunEnd =
+	| { readonly kind: "finished" }
+	| { readonly kind: "hung"; readonly file: string }
+	| { readonly kind: "crash" }
 
 interface RunResult {
 	readonly failures: ReadonlyArray<Failure>
@@ -499,23 +504,60 @@ interface RunResult {
 	readonly output: string
 }
 
-/** One child run: the tree, its files, the time it has, the environment it adds, and the failure that ends it early. */
+/** One child run: the tree, its files, the environment it adds, and the failure that ends it early. */
 interface FileRun {
 	readonly tree: string
 	readonly files: ReadonlyArray<string>
-	readonly timeoutMs: number
 	readonly env: Readonly<Record<string, string>>
 	readonly stop: (failure: Failure) => boolean
 }
 
-/** Where reading a child's stdout stands: reading on, past the child's last line, or stopped by a failure. */
-type Reading = "reading" | "done" | "stopped"
+/**
+ * Where reading a child's stdout stands: reading on, past the child's last line, stopped by a failure, or stopped by a
+ * file the reporter calls hung.
+ */
+type Reading =
+	| { readonly kind: "reading" }
+	| { readonly kind: "done" }
+	| { readonly kind: "stopped" }
+	| { readonly kind: "hung"; readonly file: string }
+
+/**
+ * Whether a child's stdout closed by itself, so its stderr and its exit are its own to wait for, rather than reading
+ * stopped early, after which closing the run's scope kills its process group.
+ */
+const closedByItself = (reading: Reading): boolean => {
+	switch (reading.kind) {
+		case "reading":
+		case "done":
+			return true
+		case "stopped":
+		case "hung":
+			return false
+	}
+}
+
+/** How a run whose reading stands so has ended, once its stdout is read: a run whose stdout closed early died. */
+const endOf = (reading: Reading): RunEnd => {
+	switch (reading.kind) {
+		case "reading":
+			return { kind: "crash" }
+		case "done":
+		case "stopped":
+			return { kind: "finished" }
+		case "hung":
+			return { kind: "hung", file: reading.file }
+	}
+}
 
 /**
  * Runs the files in one Vitest run in the tree, under the mutation tester's config (vitest.config.ts), one file at a
  * time, each in a process of its own, with the reporter that prints a line per failed test (reporter.ts), the run seed
- * and the oracle subset's case count. The run is killed with its whole process group after the timeout, or as soon as
- * a test fails that `stop` accepts, which counts as finished.
+ * and the oracle subset's case count. Every test and hook of it is bounded by the mutation tester's Vitest config
+ * (vitest.config.ts mutationTestTimeout), as under `pnpm test`, and every file by the reporter (reporter.ts
+ * fileTimeout), whose clock runs in Vitest's own process and so fires where a mutant loops without yielding. The run is
+ * killed with its whole process group as soon as the reporter calls a file hung, or a test fails that `stop` accepts,
+ * which counts as finished.
  */
 const runFiles = Effect.fn("runFiles")(function* (settings: Settings, run: FileRun) {
 	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -523,7 +565,7 @@ const runFiles = Effect.fn("runFiles")(function* (settings: Settings, run: FileR
 	const started = yield* Clock.currentTimeMillis
 	const failures = new Map<string, Failure>()
 	const output: Array<string> = []
-	const reading = yield* Ref.make<Reading>("reading")
+	const reading = yield* Ref.make<Reading>({ kind: "reading" })
 	const record = (line: string): Effect.Effect<void> =>
 		Effect.sync(() => {
 			output.push(line)
@@ -534,12 +576,20 @@ const runFiles = Effect.fn("runFiles")(function* (settings: Settings, run: FileR
 				failures.set(failureKey(failure), failure)
 			}),
 			() =>
-				run.stop(failure) ? Effect.as(Ref.set(reading, "stopped"), false) : Effect.succeed(true)
+				run.stop(failure)
+					? Effect.as(Ref.set(reading, { kind: "stopped" }), false)
+					: Effect.succeed(true)
 		)
-	const onLine = (line: RunLine): Effect.Effect<boolean> =>
-		line.kind === "fail"
-			? onFailure({ file: line.file, test: line.test })
-			: Effect.as(Ref.set(reading, "done"), true)
+	const onLine = (line: RunLine): Effect.Effect<boolean> => {
+		switch (line.kind) {
+			case "fail":
+				return onFailure({ file: line.file, test: line.test })
+			case "hung":
+				return Effect.as(Ref.set(reading, { kind: "hung", file: line.file }), false)
+			case "done":
+				return Effect.as(Ref.set(reading, { kind: "done" }), true)
+		}
+	}
 	/** Records one stdout line and says whether to read on: a line of the reporter's (reporter.ts) is a RunLine. */
 	const read = (line: string): Effect.Effect<boolean> =>
 		Effect.flatMap(record(line), () =>
@@ -583,8 +633,8 @@ const runFiles = Effect.fn("runFiles")(function* (settings: Settings, run: FileR
 				Stream.runForEach(Stream.splitLines(Stream.decodeText(child.stderr)), record)
 			)
 			yield* Stream.runForEachWhile(Stream.splitLines(Stream.decodeText(child.stdout)), read)
-			const ending = yield* Ref.get(reading)
-			if (ending !== "stopped") {
+			const afterStdout = yield* Ref.get(reading)
+			if (closedByItself(afterStdout)) {
 				yield* Fiber.join(stderr)
 				yield* Effect.ignore(child.exitCode)
 			}
@@ -594,18 +644,12 @@ const runFiles = Effect.fn("runFiles")(function* (settings: Settings, run: FileR
 			failureFrom(`mutate: the run of ${Arr.join(run.files, " ")} in ${run.tree} failed`)
 		)
 	)
-	const outcome = yield* Effect.timeoutOption(watch, Duration.millis(run.timeoutMs))
+	yield* watch
 	const ended = yield* Clock.currentTimeMillis
-	const state = yield* Ref.get(reading)
-	const endOf = (): RunEnd => {
-		if (state !== "reading") {
-			return "finished"
-		}
-		return Option.isNone(outcome) ? "timeout" : "crash"
-	}
+	const finalReading = yield* Ref.get(reading)
 	const result: RunResult = {
 		failures: [...failures.values()],
-		end: endOf(),
+		end: endOf(finalReading),
 		wallMs: ended - started,
 		output: Arr.join(output, "\n")
 	}
@@ -633,10 +677,9 @@ const pooled = <T, A, E, R>(
 		}
 	)
 
-/** One file of a coverage pass: its duration, its failing tests, and the planned mutants it executes. */
+/** One file of a coverage pass: its failing tests, and the planned mutants it executes. */
 interface FilePass {
 	readonly file: string
-	readonly wallMs: number
 	readonly failures: ReadonlyArray<Failure>
 	readonly covers: ReadonlySet<string>
 }
@@ -686,8 +729,7 @@ interface Stage {
 const coveragePass = Effect.fn("coveragePass")(function* (
 	stage: Stage,
 	label: string,
-	files: ReadonlyArray<string>,
-	timeoutMs: number
+	files: ReadonlyArray<string>
 ) {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
@@ -703,7 +745,6 @@ const coveragePass = Effect.fn("coveragePass")(function* (
 		const result = yield* runFiles(stage.workspace.settings, {
 			tree,
 			files: [file],
-			timeoutMs,
 			env: { NODE_V8_COVERAGE: dir },
 			stop: () => false
 		})
@@ -723,13 +764,14 @@ const coveragePass = Effect.fn("coveragePass")(function* (
 		const count = yield* Ref.updateAndGet(done, (n) => n + 1)
 		const failed = Arr.filter(result.failures, (f) => f.file === file).length
 		yield* Console.log(
-			`coverage ${label} [${count}/${files.length}] ${file} ${result.wallMs} ms${failed > 0 ? `, ${failed} failing in the baseline` : ""}${result.end === "finished" ? "" : ", did not finish"}`
+			`coverage ${label} [${count}/${files.length}] ${file} ${result.wallMs} ms${failed > 0 ? `, ${failed} failing in the baseline` : ""}${result.end.kind === "finished" ? "" : ", did not finish"}`
 		)
 		const pass: FilePass = {
 			file,
-			wallMs: result.wallMs,
 			failures:
-				result.end === "finished" ? result.failures : [...result.failures, { file, test: "(run)" }],
+				result.end.kind === "finished"
+					? result.failures
+					: [...result.failures, { file, test: "(run)" }],
 			covers: new Set(covers)
 		}
 		return pass
@@ -811,11 +853,28 @@ interface Attempt {
 	readonly log: ReadonlyArray<string>
 }
 
-const endNote = (r: RunResult): string => (r.end === "timeout" ? " (timeout)" : "")
+const endNote = (r: RunResult): string => (r.end.kind === "hung" ? " (timeout)" : "")
+
+/** What a run of the file `file` alone that did not finish charges it with: a timeout where it hung, a crash where it
+ * died. */
+const unfinishedOf = (file: string, end: RunEnd): ReadonlyArray<Failure> => {
+	switch (end.kind) {
+		case "finished":
+			return []
+		case "hung":
+			return [{ file: end.file, test: "(timeout)" }]
+		case "crash":
+			return [{ file, test: "(crash)" }]
+	}
+}
+
+/** The file a run that did not finish hung in, none where it died. */
+const hungIn = (end: RunEnd): ReadonlyArray<string> => (end.kind === "hung" ? [end.file] : [])
 
 /**
  * Runs the files against the mutant in the tree; the killing files are those with a test that passes in the baseline
- * and fails here. A run that hangs or dies is attributed by running each file alone.
+ * and fails here. A run that hangs is charged to the file it hung in, with that file's failures before it; it and a
+ * run that dies are attributed by running each other file alone.
  */
 const attempt = Effect.fn("attempt")(function* (
 	stage: Stage,
@@ -826,8 +885,6 @@ const attempt = Effect.fn("attempt")(function* (
 ) {
 	const settings = stage.workspace.settings
 	const names = Arr.map(files, (p) => p.file)
-	const budget = (ps: ReadonlyArray<FilePass>): number =>
-		60_000 + 3 * Arr.reduce(ps, 0, (s, p) => s + p.wallMs)
 	const isNew = (f: Failure): boolean =>
 		!baseline.failures.has(failureKey(f)) && Arr.contains(names, f.file)
 	const stop = (f: Failure): boolean => settings.firstKill && isNew(f)
@@ -835,7 +892,6 @@ const attempt = Effect.fn("attempt")(function* (
 		runFiles(settings, {
 			tree,
 			files: Arr.map(ps, (p) => p.file),
-			timeoutMs: budget(ps),
 			env: {},
 			stop
 		})
@@ -848,7 +904,7 @@ const attempt = Effect.fn("attempt")(function* (
 				`$ ${files.length} files: ${whole.wallMs} ms${endNote(whole)}`,
 				whole.output
 			]
-			if (whole.end === "finished") {
+			if (whole.end.kind === "finished") {
 				const found: Attempt = {
 					failures: Arr.filter(whole.failures, isNew),
 					timedOut: false,
@@ -856,17 +912,22 @@ const attempt = Effect.fn("attempt")(function* (
 				}
 				return found
 			}
-			const alone = yield* Effect.forEach(files, (p) =>
-				Effect.map(run([p]), (r) => ({ file: p.file, r }))
+			const hung = hungIn(whole.end)
+			const alone = yield* Effect.forEach(
+				Arr.filter(files, (p) => !Arr.contains(hung, p.file)),
+				(p) => Effect.map(run([p]), (r) => ({ file: p.file, r }))
 			)
 			const found: Attempt = {
-				failures: Arr.flatMap(alone, ({ file, r }) => [
-					...Arr.filter(r.failures, isNew),
-					...(r.end === "finished"
-						? []
-						: [{ file, test: r.end === "timeout" ? "(timeout)" : "(crash)" }])
-				]),
-				timedOut: Arr.some(alone, ({ r }) => r.end === "timeout"),
+				failures: [
+					...Arr.filter(whole.failures, (f) => isNew(f) && Arr.contains(hung, f.file)),
+					...Arr.map(hung, (file): Failure => ({ file, test: "(timeout)" })),
+					...Arr.flatMap(alone, ({ file, r }) => [
+						...Arr.filter(r.failures, isNew),
+						...unfinishedOf(file, r.end)
+					])
+				],
+				timedOut:
+					Arr.isReadonlyArrayNonEmpty(hung) || Arr.some(alone, ({ r }) => r.end.kind === "hung"),
 				log: [
 					...wholeLog,
 					...Arr.flatMap(alone, ({ file, r }) => [
@@ -968,7 +1029,7 @@ const stage1Of = Effect.fn("stage1Of")(function* (
 	})
 	const baselineErrors = yield* typeErrors(workspace.base)
 	const stage1Files = yield* stage1FilesOf(workspace.base, workspace.settings)
-	const baseline = yield* coveragePass(stage, "stage1", stage1Files, 900_000)
+	const baseline = yield* coveragePass(stage, "stage1", stage1Files)
 	const finished = yield* Ref.make(0)
 	const judge = Effect.fn("judge")(function* (m: Planned, tree: string) {
 		const files = Arr.filter(baseline.passes, (p) => p.covers.has(m.id))
@@ -1030,7 +1091,7 @@ const stage2Of = Effect.fn("stage2Of")(function* (
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
 	const survivors = Arr.filter(stage1, ([, v]) => isSurvivor(v))
-	const baseline = yield* coveragePass(stage, "stage2", stage2Files, 1_800_000)
+	const baseline = yield* coveragePass(stage, "stage2", stage2Files)
 	const finished = yield* Ref.make(0)
 	const retry = Effect.fn("retry")(function* (m: Planned, before: Verdict, tree: string) {
 		const files = Arr.filter(baseline.passes, (p) => p.covers.has(m.id))

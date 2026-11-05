@@ -4,7 +4,7 @@ import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element, filter, map, oneOf } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { makeIdSupply, type ParamId } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -38,6 +38,7 @@ import {
 	unitCarrier
 } from "#test/support/kernel/naming.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
@@ -174,7 +175,7 @@ describe("the kind table", () => {
 							"UnsupportedOperation query",
 							"UnsupportedOperation readBack"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([[key, root], subject], c) =>
 						Effect.sync(() => {
@@ -363,7 +364,7 @@ describe("heterogeneous unions", () => {
 							"filtered above a bound",
 							"attached"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(consumer, c) =>
 						Effect.sync(() => {
@@ -451,7 +452,7 @@ describe("heterogeneous unions", () => {
 							"a lone arm",
 							"an arm of several"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(arm, c) =>
 						Effect.sync(() => {
@@ -610,7 +611,7 @@ describe("regions", () => {
 						"refused",
 						"a defect"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(reference, c) =>
 					Effect.sync(() => {
@@ -678,7 +679,7 @@ describe("take bound parameters", () => {
 						coverage: noCoverage,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c) =>
 						Effect.sync(() => {

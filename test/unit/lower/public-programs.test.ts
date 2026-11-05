@@ -5,7 +5,7 @@ import { boolean, element, filter, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
@@ -27,6 +27,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
@@ -235,7 +236,7 @@ describe("the optimized lowering of checked public programs", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(sketch, n) =>
 					Effect.sync(() => {
@@ -266,7 +267,7 @@ describe("the optimized lowering of checked public programs", () => {
 						"an option or bare child over an identity projection's input",
 						"a take over an identity projection's input"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(p, n) =>
 					Effect.sync(() => {
@@ -310,7 +311,7 @@ describe("the optimized lowering of checked public programs", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ handles, twin }, n) =>
 						Effect.sync(() => {

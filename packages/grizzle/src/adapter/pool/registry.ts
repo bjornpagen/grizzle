@@ -10,8 +10,12 @@ import {
 } from "effect"
 import { registeredSnapshot, servesSchema } from "#adapter/admission/snapshots.ts"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
-import { type ParsedConnection, parseConnection } from "#adapter/connection/config.ts"
-import { setStartupVariable } from "#adapter/connection/environment.ts"
+import {
+	loginSettings,
+	type ParsedConnection,
+	parseConnection
+} from "#adapter/connection/config.ts"
+import { startupVariableSet } from "#adapter/connection/environment.ts"
 import { loginRole, theoryRole } from "#adapter/connection/role.ts"
 import { type TypedContext, typedContext } from "#adapter/db/claims.ts"
 import type { RoleContext } from "#adapter/db/context.ts"
@@ -24,10 +28,10 @@ import {
 	RoleOutsideLayers,
 	WorkloadUngenerated
 } from "#adapter/errors/failures.ts"
-import { acquisitionBudgets } from "#adapter/pool/budgets.ts"
 import type {
 	ConnectionPool,
 	DbConfigShape,
+	PoolBounds,
 	DbLayerService,
 	DbLayerOf,
 	Verify
@@ -38,7 +42,6 @@ import { installationWitness } from "#adapter/witness/index.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { poolBounds } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -171,8 +174,8 @@ export const dbSessions = <R>(
 	})
 
 /**
- * A DbConfig parsed: the login it names, its destination, credentials and verify-full TLS, the hook each pool is handed
- * when it is built, which attaches nothing when the config names none, and its token check.
+ * A DbConfig parsed: the login it names, its connection, its pool's bounds, the hook each pool is handed when it is
+ * built, which attaches nothing when the config names none, and its token check.
  */
 interface ParsedDbConfig extends ParsedConnection {
 	readonly login: LoginDesc
@@ -182,6 +185,7 @@ interface ParsedDbConfig extends ParsedConnection {
 	readonly workload: ReadonlyArray<AnyWorkload>
 	/** The snapshot as the config gives it: the JSON value an import of snapshot.json yields, parsed by the layer. */
 	readonly snapshot: object
+	readonly pool: PoolBounds
 	readonly attachPool: (pool: ConnectionPool) => void
 	readonly token: TokenCheck
 }
@@ -194,7 +198,8 @@ const refusedConfig = (detail: string): OpenError =>
 
 /**
  * The config's own settings, read once at the boundary as the connection's are (core/host.ts hostRead): the login
- * value, the pool hook and verify, each checked as a JavaScript caller may pass any value.
+ * value, the snapshot, the pool hook and verify, each checked as a JavaScript caller may pass any value. The pool's
+ * bounds are plain data, parsed with the connection (connection/config.ts loginSettings).
  */
 const ownSettings = <L extends AnyLogin>(
 	config: DbConfigShape<L>
@@ -253,7 +258,7 @@ const parseDbConfig = <L extends AnyLogin>(
 	config: DbConfigShape<L>
 ): Result.Result<ParsedDbConfig, OpenError> =>
 	Result.mapError(
-		Result.flatMap(parseConnection(config, "DbConfig", "login"), (parsed) =>
+		Result.flatMap(parseConnection(config, "DbConfig", loginSettings), (parsed) =>
 			Result.map(ownSettings(config), (own) => ({ ...parsed, ...own }))
 		),
 		refusedConfig
@@ -302,7 +307,7 @@ const layerRole = Effect.fn("layerRole")(function* (
 /**
  * Every role of a login, `roles` (loginRoleValues), each parsed, its artifacts computed and every program of the login's
  * workloads over it compiled, as every Db of the login runs it (layerRole): the one compilation of a login's programs.
- * DbLayer.make runs it at startup, and `grizzle generate` runs it before it drafts (cli/generate.ts draftSchema), so a
+ * DbLayer.make runs it at startup, and `grizzle generate` runs it before it drafts (cli/generate.ts draftInput), so a
  * program generate admits is one the layer compiles. A role or program that does not compile is its CompileError.
  */
 export const loginRoles = (
@@ -391,15 +396,14 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	)
 	const pool = yield* makePool({
 		connection: {
-			host: config.host,
-			port: config.port,
+			driver: config.driver,
+			transport: config.transport,
 			database: config.database,
 			role: role.success,
-			password: config.password
+			password: config.password,
+			connectTimeoutMs: config.connectTimeoutMs
 		},
-		transport: { _tag: "tls", tls: config.tls },
-		pool: poolBounds,
-		budgets: acquisitionBudgets,
+		bounds: config.pool,
 		attachPool: config.attachPool
 	})
 	const prologue: PrologueStatements = {
@@ -414,7 +418,7 @@ const makeDbSessions = Effect.fn("makeDbSessions")(function* (
  * that reaches a login's session (connection/environment.ts): one it sets is OpenError{stage: "config"}.
  */
 const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
-	Effect.sync(() => setStartupVariable(process.env, "login")),
+	Effect.sync(() => startupVariableSet("login")),
 	Option.match({
 		onNone: () => Effect.void,
 		onSome: (variable) =>

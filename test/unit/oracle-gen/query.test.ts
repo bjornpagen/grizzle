@@ -4,6 +4,7 @@ import { noCoverage, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
+import { caseHang } from "#test/support/limits.ts"
 /**
  * Generated query cases: the conservative-oracle gate's case population.
  *
@@ -18,7 +19,7 @@ import { searched } from "@grizzle/testing/vitest"
  * The edges of an acyclic closure pass a strict order filter: src < dst.
  */
 
-import { Array as Arr, Duration, Effect, Formatter, Order, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
@@ -75,7 +76,7 @@ describe("generated query cases", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c) =>
 						Effect.sync(() => {
@@ -180,7 +181,7 @@ describe("generated query cases", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c) =>
 						Effect.sync(() => {
@@ -218,7 +219,7 @@ describe("generated query cases", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, reached) =>
 						Effect.sync(() => {

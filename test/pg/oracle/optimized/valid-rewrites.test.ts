@@ -23,7 +23,7 @@ import { required } from "@grizzle/testing/features"
 import { constant, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { TestContext } from "vitest"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { Expr, Select, SelectBody, SelectCore, SetOperation } from "#compiler/sql/ast.ts"
@@ -219,7 +219,6 @@ const performed = (ctx: TestContext, id: ValidId, gen: Gen<QueryCase>, rule: Val
 					kept: [],
 					runs: cases,
 					shrink: optimizedShrink,
-					caseHang: Duration.minutes(2),
 					perturb: "all"
 				},
 				(resolved, k) =>
@@ -248,44 +247,22 @@ const titleOf = (id: ValidId, rule: ValidRule): string =>
 	`${id} (${mutants[id].check}): ${rule} is recorded and the SQL shows it, on ${cases} agreeing cases`
 
 layer(Substrate.layer)("the six valid transformations, performed and certified", (it) => {
-	it.effect(
-		titleOf("V1", validRewriteRules[0]),
-		(ctx) =>
-			performed(ctx, "V1", rootedCaseGen(projectRoot, defaultGenConfig), validRewriteRules[0]),
-		900_000
+	it.effect(titleOf("V1", validRewriteRules[0]), (ctx) =>
+		performed(ctx, "V1", rootedCaseGen(projectRoot, defaultGenConfig), validRewriteRules[0])
 	)
-	it.effect(
-		titleOf("V2", validRewriteRules[1]),
-		(ctx) =>
-			performed(ctx, "V2", rootedCaseGen(keyedJoinRoot, defaultGenConfig), validRewriteRules[1]),
-		900_000
+	it.effect(titleOf("V2", validRewriteRules[1]), (ctx) =>
+		performed(ctx, "V2", rootedCaseGen(keyedJoinRoot, defaultGenConfig), validRewriteRules[1])
 	)
-	it.effect(
-		titleOf("V3", validRewriteRules[2]),
-		(ctx) =>
-			performed(ctx, "V3", rootedCaseGen(witnessRoot, defaultGenConfig), validRewriteRules[2]),
-		900_000
+	it.effect(titleOf("V3", validRewriteRules[2]), (ctx) =>
+		performed(ctx, "V3", rootedCaseGen(witnessRoot, defaultGenConfig), validRewriteRules[2])
 	)
-	it.effect(
-		titleOf("V4", validRewriteRules[3]),
-		(ctx) => performed(ctx, "V4", rootedCaseGen(groupRoot, defaultGenConfig), validRewriteRules[3]),
-		900_000
+	it.effect(titleOf("V4", validRewriteRules[3]), (ctx) =>
+		performed(ctx, "V4", rootedCaseGen(groupRoot, defaultGenConfig), validRewriteRules[3])
 	)
-	it.effect(
-		titleOf("V5", validRewriteRules[4]),
-		(ctx) =>
-			performed(ctx, "V5", rootedCaseGen(taggedUnionRoot, defaultGenConfig), validRewriteRules[4]),
-		900_000
+	it.effect(titleOf("V5", validRewriteRules[4]), (ctx) =>
+		performed(ctx, "V5", rootedCaseGen(taggedUnionRoot, defaultGenConfig), validRewriteRules[4])
 	)
-	it.effect(
-		titleOf("V6", validRewriteRules[5]),
-		(ctx) =>
-			performed(
-				ctx,
-				"V6",
-				rootedCaseGen(closureRoot(false), defaultGenConfig),
-				validRewriteRules[5]
-			),
-		900_000
+	it.effect(titleOf("V6", validRewriteRules[5]), (ctx) =>
+		performed(ctx, "V6", rootedCaseGen(closureRoot(false), defaultGenConfig), validRewriteRules[5])
 	)
 })

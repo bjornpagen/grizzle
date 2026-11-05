@@ -16,7 +16,18 @@ export type Interval = readonly [lo: number, hi: number]
  */
 export type CharSet = ReadonlyArray<Interval>
 
+/**
+ * The admitted domain's first code point: U+0001, NUL excluded, which no admitted text holds.
+ *
+ * @formatConstant the first code point of admitted text
+ */
 const minScalar = 0x1
+/**
+ * Unicode's last code point, U+10FFFF, where its codespace ends (The Unicode Standard, §2.4 Code Points and
+ * Characters).
+ *
+ * @formatConstant the last code point of Unicode's codespace
+ */
 const maxScalar = 0x10ffff
 export const surrogateLo = 0xd800
 export const surrogateHi = 0xdfff

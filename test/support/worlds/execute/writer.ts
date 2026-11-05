@@ -368,8 +368,11 @@ export const endDirect = (
 		}
 	})
 
-/** current_user, the claims setting and whether the statement runs inside an explicit transaction. */
-const probeSql =
+/**
+ * current_user, the claims setting and whether the statement runs inside an explicit transaction: the probe of a direct
+ * writer's connection and of a pooled one (pool.ts probePool).
+ */
+export const probeSql =
 	"SELECT current_user::text, coalesce(pg_catalog.current_setting('grizzle.claims', true), ''), pg_catalog.statement_timestamp() <> pg_catalog.transaction_timestamp()"
 
 /**

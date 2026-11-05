@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { type Reached, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Record as Rec } from "effect"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeDesc, type LoginDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { type CatalogTypeName, catalogSpelling } from "#compiler/sql/ast.ts"
@@ -31,6 +31,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { catalogDeclared } from "#test/support/kernel/dict.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -218,7 +219,7 @@ layer(Substrate.layer)("objects named like PostgreSQL's own types", (it) => {
 						literal: literalOf,
 						limit: cases.length,
 						coverage: requiredInSpace<Feature>(required),
-						caseHang: Duration.minutes(5)
+						caseHang
 					},
 					(c, k) =>
 						Effect.gen(function* () {

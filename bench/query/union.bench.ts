@@ -287,7 +287,7 @@ export default defineGate({
 				text: "'memo ' || g"
 			})
 			yield* settle(fx)
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b union runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b union raw")
 			const data = `${options.accounts} accounts in 50 regions, ${options.tasksPerAccount} tasks each cycling Open, Done, Held, a memo for every even task, ${tasks} notes spread pseudo-randomly over the tasks (some tasks with several, some with none)`
 			const account = BigInt(Math.floor(options.accounts / 2))

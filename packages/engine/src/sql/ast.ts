@@ -1191,21 +1191,19 @@ export interface AlterDatabaseDefault {
 }
 
 /**
- * The role-level settings of one text value Publish stores for a login: the fixed session settings
- * and the vector library's search policy (check/approximate/policy.ts). An `hnsw.*` name is a
- * placeholder until the vector library is loaded in the session that stores it.
+ * The role-level settings of one text value Publish stores for a login, each one a grizzle guarantee rests on:
+ * extra_float_digits, under which float text is shortest round-trip; lc_monetary, lc_numeric and lc_time, the locale
+ * categories a value's text can depend on, money's two fractional digits among them; and pgvector's strict-order
+ * iterative scan, on which an approximate read's order and its cursors rest (check/approximate/policy.ts). An
+ * `hnsw.*` name is a placeholder until the vector library is loaded in the session that stores it. Every other
+ * setting is the database owner's.
  */
 export const textParameters = [
-	"jit",
 	"extra_float_digits",
 	"lc_monetary",
 	"lc_numeric",
 	"lc_time",
-	"lc_messages",
-	"hnsw.ef_search",
-	"hnsw.iterative_scan",
-	"hnsw.max_scan_tuples",
-	"hnsw.scan_mem_multiplier"
+	"hnsw.iterative_scan"
 ] as const
 export type TextParameter = (typeof textParameters)[number]
 
@@ -1226,21 +1224,6 @@ export interface TextSetting {
  * representable.
  */
 export type RoleSetting = TextSetting | { readonly parameter: "search_path" }
-
-/**
- * The text parameters only a superuser, or a role granted SET on them, may set: a login's own startup options naming
- * one are refused (42501), so only a role default the migration identity stores through its SET privilege sets it.
- */
-export type SuperuserParameter = Extract<TextParameter, "lc_messages">
-
-/**
- * A login default the login's own sessions may set at startup: search_path, or a text parameter no superuser alone may
- * set. The startup options of every session of a login carry each of them (physical/ddl/roles.ts
- * loginStartupOptions).
- */
-export type SessionSetting =
-	| { readonly parameter: Exclude<TextParameter, SuperuserParameter>; readonly value: string }
-	| { readonly parameter: "search_path" }
 
 /**
  * CREATE ROLE <name> LOGIN NOINHERIT, a login, or CREATE ROLE <name> NOLOGIN, a theory role: a login holds no

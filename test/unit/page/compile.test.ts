@@ -4,9 +4,10 @@ import { noCoverage } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { refused } from "#test/support/assert.ts"
 import { testCompile } from "#test/support/compile.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { compiledPageResult, flagged } from "#test/unit/page/fixtures.ts"
 
 describe("the page compiler", () => {
@@ -27,7 +28,7 @@ describe("the page compiler", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ take, direction }) =>
 					Effect.sync(() => {

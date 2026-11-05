@@ -9,8 +9,8 @@ import {
 
 import {
 	committedOrConflicted,
+	type RetryPolicy,
 	retried,
-	retryPolicy,
 	runLoad,
 	sqlAttempted,
 	withRetries
@@ -130,6 +130,10 @@ interface Options extends Readonly<Record<string, unknown>> {
 	/** Concurrent writers of the hot group, and the operations each runs. */
 	readonly writers: number
 	readonly operations: number
+	/** The writers' retry policy, an application's own. */
+	readonly retry: RetryPolicy
+	/** How often the lock-wait sampler reads the writers' wait events, in milliseconds. */
+	readonly lockSampleMs: number
 }
 
 /** Group ids: one fresh group per batch sample, the wide group, the hot group, and the group at its bound. */
@@ -169,8 +173,24 @@ export default defineGate({
 		"seat-fact form; commit-time law work split from COMMIT; lock waits sampled from pg_stat_activity.",
 	phases: writePhases,
 	options: {
-		full: { batches: [1, 10, 100, 1000], wide: 100000, samples: 15, writers: 16, operations: 40 },
-		quick: { batches: [1, 20], wide: 2000, samples: 2, writers: 3, operations: 3 }
+		full: {
+			batches: [1, 10, 100, 1000],
+			wide: 100000,
+			samples: 15,
+			writers: 16,
+			operations: 40,
+			retry: { times: 4, baseMs: 5 },
+			lockSampleMs: 5
+		},
+		quick: {
+			batches: [1, 20],
+			wide: 2000,
+			samples: 2,
+			writers: 3,
+			operations: 3,
+			retry: { times: 4, baseMs: 5 },
+			lockSampleMs: 5
+		}
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
@@ -378,7 +398,7 @@ END $f$`,
 					kind: "sampled",
 					observer,
 					pids: sampled,
-					intervalMs: 5,
+					intervalMs: options.lockSampleMs,
 					onSample: () => Effect.void
 				}) as const
 			const directHot = yield* runLoad(
@@ -394,7 +414,7 @@ END $f$`,
 								),
 								(m) => sqlAttempted(m.outcome, { uniqueAborts: [], label: () => undefined })
 							),
-						retryPolicy
+						options.retry
 					)
 				},
 				{ bound: { kind: "operations", n: options.operations }, sampler: sampler(pids) }
@@ -416,7 +436,7 @@ END $f$`,
 								),
 								(m) => sqlAttempted(m.outcome, { uniqueAborts: [], label: () => undefined })
 							),
-						retryPolicy
+						options.retry
 					)
 				},
 				{ bound: { kind: "operations", n: options.operations }, sampler: sampler(pids) }
@@ -440,7 +460,7 @@ END $f$`,
 						return Effect.die(change.failure)
 					}
 					const apply = change.success.apply
-					return withRetries(() => Effect.map(apply({}), (o) => o.attempted), retryPolicy)
+					return withRetries(() => Effect.map(apply({}), (o) => o.attempted), options.retry)
 				},
 				{ bound: { kind: "operations", n: options.operations }, sampler: sampler(grizzlePids) }
 			)
@@ -474,7 +494,7 @@ END $f$`,
 								),
 								(m) => sqlAttempted(m.outcome, { uniqueAborts: [], label: () => undefined })
 							),
-						retryPolicy
+						options.retry
 					),
 				{ concurrency: "unbounded" }
 			)
@@ -513,7 +533,7 @@ END $f$`,
 					return retried(
 						() => apply({}),
 						(o) => o.attempted.transient,
-						retryPolicy
+						options.retry
 					)
 				},
 				{ concurrency: "unbounded" }

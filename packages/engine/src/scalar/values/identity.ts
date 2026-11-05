@@ -84,29 +84,19 @@ type Comparators = {
 	readonly [C in Carrier]: (a: CarrierHost[C], b: CarrierHost[C], spec: SpecOf<C>) => -1 | 0 | 1
 }
 
-/** The integer digits a bare numeric value has at most (T4, README Limits): its column's CHECK states the same. */
-export const bareNumericDigits = 1000
-
 /**
- * A numeric value admitted at its typmod, rounded as PostgreSQL's coercion rounds; a bare numeric's at most 1000
- * integer digits, so every numeric expression over it has a known digit bound (scalar/compute/lower.ts).
+ * A numeric value admitted at its typmod, rounded as PostgreSQL's coercion rounds. Without one it is a computed
+ * numeric's, a cursor's boundary value of an aggregate column the only one a caller passes: every Decimal is within
+ * numeric's limits, and the computed bound (ir/scalar.ts NumericBound) is a proof of the values the database computes,
+ * which a boundary value only meets in a comparison.
  */
 const admitDecimal = (
 	value: unknown,
 	typmod: NumericTypmod | undefined
-): Result.Result<Decimal, ValueFault> => {
-	if (!(value instanceof Decimal)) {
-		return Result.err(typeof value === "number" ? "decimalNumber" : "decimalType")
-	}
-	if (
-		typmod === undefined &&
-		value.parts.kind === "finite" &&
-		value.parts.coefficient.toString().length - value.parts.minScale > bareNumericDigits
-	) {
-		return Result.err("numericOverflow")
-	}
-	return normalizeNumeric(value, typmod)
-}
+): Result.Result<Decimal, ValueFault> =>
+	value instanceof Decimal
+		? normalizeNumeric(value, typmod)
+		: Result.err(typeof value === "number" ? "decimalNumber" : "decimalType")
 
 /**
  * The encode-time boundary of a vector, read from the caller's buffer as it is now: a Float32Array of the dimensions,

@@ -9,8 +9,9 @@ import { noCoverage, required } from "@grizzle/testing/features"
 import type { Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, type Scope } from "effect"
+import { Array as Arr, Effect, Formatter, type Scope } from "effect"
 import type { TestContext } from "vitest"
+import { caseHang } from "#test/support/limits.ts"
 import type { Trace } from "#test/support/schedules/types.ts"
 
 /** What a planted case reached: a schedule run to its end, and a step of it observed waiting. */
@@ -81,7 +82,7 @@ export const planted =
 					shrink: { kind: "bounded", candidates: plantedShrink },
 					concurrency: 1,
 					steerEvery: plantedRuns,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(value, c) =>
 					Effect.gen(function* () {

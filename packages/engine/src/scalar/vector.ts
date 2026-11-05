@@ -24,11 +24,11 @@ export const admitVectorDimensions = (dimensions: unknown, extra: ReadonlyArray<
 		typeof dimensions !== "number" ||
 		!Number.isInteger(dimensions) ||
 		dimensions < 1 ||
-		dimensions > vectorMaxDimensions
+		dimensions > vectorMaxDimensions.value
 	) {
 		throw malformedDescription(
 			captureLoc("pg.vector dimensions", []),
-			`vector dimensions: an integer 1-${vectorMaxDimensions}`
+			`vector dimensions: an integer 1-${vectorMaxDimensions.value}`
 		)
 	}
 }

@@ -1,28 +1,33 @@
 import { type Column, convertColumn } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { int4Max, int8Max } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { type Described, describeFieldOrThrow, spanType } from "#compiler/scalar/registry.ts"
 import { convertSpan } from "#compiler/scalar/values/convert.ts"
-import { int4Max, int8Max } from "#compiler/scalar/values/integer.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 
 /** The width as the caller gave it, admitted, or the refusal: a positive value of the endpoint's base type. */
 const widthOf = (carrier: "int4" | "int8", width: unknown): number | bigint => {
 	if (carrier === "int4") {
-		if (typeof width !== "number" || !Number.isInteger(width) || width < 1 || width > int4Max) {
+		if (
+			typeof width !== "number" ||
+			!Number.isInteger(width) ||
+			width < 1 ||
+			width > int4Max.value
+		) {
 			throw malformedDescription(
 				captureLoc("span width", []),
-				"a span width over integer: a JavaScript integer 1-2147483647"
+				`a span width over integer: a JavaScript integer 1-${int4Max.value}`
 			)
 		}
 		return width
 	}
-	if (typeof width !== "bigint" || width < 1n || width > int8Max) {
+	if (typeof width !== "bigint" || width < 1n || width > int8Max.value) {
 		throw malformedDescription(
 			captureLoc("span width", []),
-			"a span width over bigint: a bigint 1-9223372036854775807"
+			`a span width over bigint: a bigint 1-${int8Max.value}`
 		)
 	}
 	return width
@@ -63,7 +68,7 @@ interface SpanParts {
  * The span lowers to int4range over an integer endpoint and int8range over a bigint one; a contract
  * endpoint keeps the base range, and its endpoints are branded. The optional width fixes the extent's
  * length, upper - lower, a positive value of the endpoint's base type: a JavaScript integer
- * up to 2147483647 over integer, a bigint up to 9223372036854775807 over bigint.
+ * up to int4Max over integer, a bigint up to int8Max over bigint (ir/carriers.ts).
  *
  * The span's column reads range_out's "[start,end)" once and converts each endpoint with the endpoint descriptor's own
  * column, so a span over a contract delivers its branded endpoints: span(Cents) yields Span<Cents>.

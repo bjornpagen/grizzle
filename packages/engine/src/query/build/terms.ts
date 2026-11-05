@@ -1,3 +1,4 @@
+import { allenMaskMax } from "#compiler/core/allen.ts"
 import { constantColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -410,14 +411,12 @@ const spanOperand = (value: unknown, anchor: Typing, label: string): OpenExpr =>
 	return other.expr
 }
 
-export const allenMaskMax = 8191
-
 export const allen = (left: unknown, mask: unknown, right: unknown): PredicateValue => {
 	const l = spanTerm(left, "r.allen")
 	if (typeof mask !== "number" || !Number.isInteger(mask) || mask < 1 || mask > allenMaskMax) {
 		throw malformed(
 			"r.allen",
-			"an Allen mask: a nonempty union of ALLEN's thirteen basic relations, an integer in 1..8191; the empty mask never holds"
+			`an Allen mask: a nonempty union of ALLEN's thirteen basic relations, an integer in 1..${allenMaskMax}; the empty mask never holds`
 		)
 	}
 	return predicateValue({

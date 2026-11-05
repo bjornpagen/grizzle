@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { ExecutionFailure, TransientFailure } from "#adapter/errors/execution.ts"
 import {
 	Deadlock,
@@ -28,6 +28,7 @@ import {
 	lawNamesOf,
 	wild
 } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 
 /**
@@ -227,7 +228,7 @@ describe("the outcome mapping", () => {
 							literal: Formatter.format,
 							limit: 2,
 							coverage: requiredInSpace<"23514" | "23P01">(["23514", "23P01"]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(sqlstate, c) =>
 							Effect.sync(() => {
@@ -320,7 +321,7 @@ describe("the outcome mapping", () => {
 						literal: (row) => Formatter.format(row[0]),
 						limit: unclaimed.length,
 						coverage: requiredInSpace<Unclaimed>(Arr.map(unclaimed, ([name]) => name)),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(row, c) =>
 						Effect.sync(() => {

@@ -266,7 +266,7 @@ export default defineGate({
 				text: "'note ' || g"
 			})
 			yield* settle(fx)
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b fusion runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b fusion raw")
 			const task = fx.relationName("Task")
 			const account = fx.relationName("Account")

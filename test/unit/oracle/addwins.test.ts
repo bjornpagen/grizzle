@@ -24,9 +24,10 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record } from "effect"
 import { assert, defined } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	type AddWinsOutcome,
 	type AppliedOutcome,
@@ -191,7 +192,7 @@ describe("the add-wins transition", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([initial, layers]) =>
 						Effect.sync(() => {
@@ -254,7 +255,7 @@ describe("build-order independence", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([initial, layers, order]) =>
 					Effect.sync(() => {
@@ -317,7 +318,7 @@ describe("put", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([initial, raw]) =>
 						Effect.sync(() => {
@@ -482,7 +483,7 @@ describe("counts across strata, netted over the per-stratum changes", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([initial, layers], c) =>
 						Effect.sync(() => {
@@ -589,7 +590,7 @@ describe("generated additions", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ stored, at, called, deleted, codes }, c) =>
 						Effect.sync(() => {

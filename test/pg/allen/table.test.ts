@@ -3,12 +3,14 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
-import { ALLEN, AllenMask, allenRelations, fullAllenMask } from "#compiler/allen/mask.ts"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
+import { ALLEN, AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
+import { allenRelations } from "#compiler/core/allen.ts"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { formulaSql, maskSql } from "#test/support/oracle/allen-sql.ts"
 import {
 	type Canonical,
@@ -36,7 +38,7 @@ const everyType = <E, R>(suite: string, property: (type: RangeType) => Effect.Ef
 			literal: Formatter.format,
 			limit: types.length,
 			coverage: requiredInSpace<RangeType>(types),
-			caseHang: Duration.minutes(5)
+			caseHang
 		},
 		(type, c) => Effect.tap(property(type), () => Effect.sync(() => c.note(type)))
 	)
@@ -206,7 +208,6 @@ JOIN jsonb_to_recordset($1::text::jsonb) AS j(a text, b text, rel int4) ON j.a =
 						)
 					})
 				)
-			),
-		600_000
+			)
 	)
 })

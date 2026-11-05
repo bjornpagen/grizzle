@@ -7,8 +7,11 @@ import {
 	controlText,
 	type WireQuery,
 	type Session,
+	type SessionEvent,
 	type SessionPool,
+	type SessionState,
 	SessionStatements,
+	sessionTransitions,
 	type TxControl
 } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -29,7 +32,6 @@ export type StatementAnswer =
 	| { readonly _tag: "hold" }
 	| { readonly _tag: "late" }
 	| { readonly _tag: "stuck" }
-	| { readonly _tag: "wedged" }
 	| { readonly _tag: "lose" }
 
 export const rows = (cells: Rows): StatementAnswer => ({ _tag: "rows", rows: cells })
@@ -84,6 +86,11 @@ export interface SentFlight {
 	readonly pipeline: ReadonlyArray<WireQuery>
 	/** The answers delivered so far, by pipeline position. */
 	readonly delivered: ReadonlyArray<Delivered | undefined>
+	/**
+	 * The answers the server made, by pipeline position, delivered or not: once the client destroys the connection, the
+	 * answers it never read are still what the server did. A query the server never ran has none.
+	 */
+	readonly made: ReadonlyArray<Answer | undefined>
 }
 
 export interface ScriptedSession extends Session {
@@ -93,13 +100,6 @@ export interface ScriptedSession extends Session {
 	readonly committed: () => ReadonlyArray<string>
 	/** The CancelRequests sent. */
 	readonly cancels: () => number
-	/**
-	 * The CancelRequest connections open now: each a request a wedged backend left unanswered, until its sender gives
-	 * up on it.
-	 */
-	readonly openCancels: () => number
-	/** The connection was destroyed while a CancelRequest connection was open. */
-	readonly destroyedDuringCancel: () => boolean
 	/** The server holds a transaction open. */
 	readonly open: () => boolean
 	/** The server owes the client an answer it has made. */
@@ -140,9 +140,9 @@ type Owed =
 
 /**
  * How a statement waits: for a CancelRequest, which stops it or which it finishes just before, or for the connection
- * to be destroyed (a wedged backend leaving the flight's later CancelRequests open besides).
+ * to be destroyed.
  */
-type Waiting = "hold" | "late" | "stuck" | "wedged"
+type Waiting = "hold" | "late" | "stuck"
 
 /**
  * What the server makes of one query: its answer; the end of the connection, after a FATAL ErrorResponse or none; or
@@ -160,6 +160,7 @@ type Made =
 interface Running {
 	readonly pipeline: ReadonlyArray<WireQuery>
 	readonly delivered: Array<Delivered | undefined>
+	readonly made: Array<Answer | undefined>
 	readonly owed: Array<Owed>
 	next: number
 	waiting: { readonly index: number; readonly waiting: Waiting } | undefined
@@ -185,17 +186,15 @@ interface Running {
  *   transaction, after which every statement answers 25P02 without running and COMMIT answers ROLLBACK. `fatal` answers
  *   a FATAL ErrorResponse and ends the session; `lose` ends the connection with no answer. `hold` runs until a
  *   CancelRequest and is refused 57014 then; `late` finishes just as the CancelRequest arrives, too late to stop it, and
- *   answers its rows; `stuck` runs until the connection is destroyed, which no CancelRequest makes it notice; `wedged`
- *   is stuck too, and its backend also leaves every CancelRequest of the flight after the first open and unanswered, so
- *   that request's connection stays open until the client gives up on it.
+ *   answers its rows; `stuck` runs until the connection is destroyed, which no CancelRequest makes it notice.
  * - COMMIT commits what the transaction ran, unless the transaction was aborted (ROLLBACK), a doomed statement ran in
  *   it (23503), or the script refuses it or loses the connection before it runs. ROLLBACK ends the transaction.
  *
  * A session delivers its answers either as the server makes them (`immediate`), or one at a time when the test says
  * (`stepped`): `deliver` hands the client the next answer, and an ended connection hands it every answer still owed at
  * once, each a failure, as pg fails every query in flight when the connection ends. Every flight is recorded with the
- * names it closed and the answers it was given, each with the ordinal of the delivery that carried it, and so is every
- * statement a committed transaction ran, or that committed alone, and every CancelRequest connection still open.
+ * names it closed, the answers the server made and the answers it was given, each with the ordinal of the delivery that
+ * carried it, and so is every statement a committed transaction ran, or that committed alone.
  *
  * A session that answers as the script says (see the header).
  */
@@ -204,14 +203,17 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 	const statements = new SessionStatements()
 	const flights: Array<SentFlight> = []
 	const committed: Array<string> = []
-	let retired = false
-	/** The client saw the connection end. */
-	let lost = false
+	/**
+	 * Where the session stands as its client sees it (session.ts SessionState), moved only as sessionTransitions says:
+	 * ended once the client read the connection's end, or destroyed it.
+	 */
+	let state: SessionState = "open"
+	const move = (event: SessionEvent): void => {
+		state = sessionTransitions[state][event]
+	}
 	/** The server ended the connection; what it had sent before still reaches the client. */
-	let ended = false
+	let serverEnded = false
 	let cancels = 0
-	let openCancels = 0
-	let destroyedDuringCancel = false
 	let deliveries = 0
 	let tx: "idle" | "open" | "aborted" = "idle"
 	let doomed = false
@@ -221,7 +223,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 	const statementAnswer = script.statement
 
 	const close = (): void => {
-		ended = true
+		serverEnded = true
 		tx = "idle"
 		doomed = false
 		pending = []
@@ -310,14 +312,13 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 			case "hold":
 			case "late":
 			case "stuck":
-			case "wedged":
 				return { _tag: "wait", waiting: answer._tag }
 		}
 	}
 
 	/** Whether the server can answer the flight's next query: the session lives, nothing waits, and a query is left. */
 	const answerable = (flight: Running): boolean =>
-		!ended && flight.waiting === undefined && flight.next < flight.pipeline.length
+		!serverEnded && flight.waiting === undefined && flight.next < flight.pipeline.length
 
 	/** Runs the server ahead: answers every query it can, up to a statement that waits for a CancelRequest. */
 	const advance = (flight: Running): void => {
@@ -331,10 +332,17 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 			switch (made._tag) {
 				case "answer":
 					flight.next = index + 1
+					flight.made[index] = made.answer
 					flight.owed.push({ _tag: "answer", index, answer: made.answer })
 					break
 				case "end":
 					close()
+					for (let at = index; at < flight.pipeline.length; at++) {
+						flight.made[at] =
+							at === index && made.fatal !== undefined
+								? termination(made.fatal)
+								: { _tag: "failed" }
+					}
 					flight.owed.push({ _tag: "end", from: index, fatal: made.fatal })
 					break
 				case "wait":
@@ -364,7 +372,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 			}
 			return
 		}
-		lost = true
+		move("end")
 		for (let index = owed.from; index < flight.pipeline.length; index++) {
 			record(
 				flight,
@@ -391,6 +399,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		const flight: Running = {
 			pipeline,
 			delivered: Array.from({ length: pipeline.length }, (): Delivered | undefined => undefined),
+			made: Array.from({ length: pipeline.length }, (): Answer | undefined => undefined),
 			owed: [],
 			next: 0,
 			waiting: undefined,
@@ -398,14 +407,14 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 			onAnswer,
 			onEnd
 		}
-		flights.push({ closes, pipeline, delivered: flight.delivered })
+		flights.push({ closes, pipeline, delivered: flight.delivered, made: flight.made })
 		running = flight
 		if (pipeline.length === 0) {
 			running = undefined
 			onEnd()
 			return
 		}
-		if (ended || lost) {
+		if (serverEnded || state === "ended") {
 			flight.owed.push({ _tag: "end", from: 0, fatal: undefined })
 		} else {
 			advance(flight)
@@ -416,19 +425,8 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 	}
 
 	/**
-	 * A CancelRequest connection a wedged backend never answers: it stays open until its sender gives up on it, which
-	 * closes it, as session.ts's cancelRequest does when interrupted.
-	 */
-	const unanswered: Effect.Effect<void> = Effect.callback<void>(() => {
-		openCancels++
-		return Effect.sync(() => {
-			openCancels--
-		})
-	})
-
-	/**
 	 * A CancelRequest stops the statement the server is running; when it is running none, or one that does not notice,
-	 * it does nothing, and a wedged backend leaves every request of the flight after the first unanswered.
+	 * it does nothing.
 	 */
 	const cancel: Effect.Effect<void> = Effect.suspend(() => {
 		cancels++
@@ -441,25 +439,20 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		if (waiting === undefined || waiting.waiting === "stuck") {
 			return Effect.void
 		}
-		if (waiting.waiting === "wedged") {
-			return flight.cancels > 1 ? unanswered : Effect.void
-		}
 		const query = flight.pipeline[waiting.index]
 		flight.waiting = undefined
 		flight.next = waiting.index + 1
-		if (waiting.waiting === "late" && query?._tag === "statement") {
+		const answer =
+			waiting.waiting === "late" && query?._tag === "statement"
+				? result("SELECT", [[query.sql]])
+				: refusal(cancelled)
+		if (answer._tag === "result" && query?._tag === "statement") {
 			ran(query.sql)
-			flight.owed.push({
-				_tag: "answer",
-				index: waiting.index,
-				answer: result("SELECT", [[query.sql]])
-			})
-		} else {
-			if (tx === "open") {
-				tx = "aborted"
-			}
-			flight.owed.push({ _tag: "answer", index: waiting.index, answer: refusal(cancelled) })
+		} else if (tx === "open") {
+			tx = "aborted"
 		}
+		flight.made[waiting.index] = answer
+		flight.owed.push({ _tag: "answer", index: waiting.index, answer })
 		advance(flight)
 		if (delivery === "immediate") {
 			deliverAll()
@@ -467,14 +460,14 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		return Effect.void
 	})
 
-	/** Destroying the connection loses every answer the client has not read: pg fails each query still in flight. */
+	/**
+	 * Destroying the connection ends the session at once and loses every answer the client has not read: pg fails each
+	 * query still in flight.
+	 */
 	const destroy = (): void => {
-		if (openCancels > 0) {
-			destroyedDuringCancel = true
-		}
+		move("end")
 		const flight = running
 		if (flight === undefined) {
-			lost = true
 			return
 		}
 		const from = flight.delivered.indexOf(undefined)
@@ -495,18 +488,15 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		role: scriptedRole,
 		statements,
 		cancel,
-		retired: () => retired,
+		state: () => state,
 		retire: () => {
-			retired = true
+			move("retire")
 		},
-		lost: () => lost,
 		destroy,
 		send,
 		flights: () => flights,
 		committed: () => committed,
 		cancels: () => cancels,
-		openCancels: () => openCancels,
-		destroyedDuringCancel: () => destroyedDuringCancel,
 		open: () => tx !== "idle",
 		deliverable: () => running !== undefined && running.owed.length > 0,
 		deliver: deliverOne,
@@ -535,8 +525,6 @@ const unusedCall = (member: string) => (): never => {
 export const scriptedPool = (overrides: Partial<SessionPool>): SessionPool => ({
 	role: "main",
 	native: new Pool({ max: 1 }),
-	idleTimeoutMillis: 0,
-	maxSessions: 1,
 	lease: unused("lease"),
 	size: Effect.succeed(0),
 	leased: Effect.succeed(0),

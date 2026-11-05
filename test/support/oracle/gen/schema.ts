@@ -85,7 +85,7 @@ export interface GenContainment {
  *
  * A generated schema has one to four stored relations and up to two closed rosters. Every relation declares its
  * primary key, which a pure set makes its whole heading, and up to two candidate keys; nothing else
- * implies uniqueness. Every key is representable: a key field over bare numeric is declared numeric(5,2),
+ * implies uniqueness. Every key is representable: a numeric key field is declared numeric(5,2),
  * and generated text is bounded (domain.ts). A relation may hold a closedId (enum) field of a roster and one containment of some of its
  * fields into an earlier relation's primary key, so the containment graph is acyclic and the fact generator can fill
  * referenced relations first. Some relations are declared mutable; immutable is the pinned default.

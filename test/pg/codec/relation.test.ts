@@ -7,24 +7,17 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { arraysEncoder, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { factIdentity, type HeadingField } from "#compiler/scalar/values/identity.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
@@ -55,7 +48,7 @@ const fields: ReadonlyArray<{
 	readonly sql: string
 	readonly group: string
 }> = [
-	{ name: "n", type: plainType("numeric"), sql: "numeric", group: "r.n" },
+	{ name: "n", type: anyNumeric, sql: "numeric", group: "r.n" },
 	{ name: "m", type: numeric52, sql: "numeric(5,2)", group: "r.m" },
 	{ name: "d", type: plainType("float8"), sql: "float8", group: "r.d" },
 	{ name: "f", type: plainType("float4"), sql: "float8", group: "(r.f)::real" },
@@ -154,7 +147,7 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(cases, c) =>
 						Effect.gen(function* () {
@@ -262,7 +255,7 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(facts, c) =>
 							Effect.gen(function* () {

@@ -2,7 +2,8 @@ import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { type Coverage, noCoverage } from "@grizzle/testing/features"
 import type { Gen } from "@grizzle/testing/gen"
 import { boundedShrink } from "@grizzle/testing/shrink"
-import { Config, Data, Duration, Effect, Formatter } from "effect"
+import { Config, Data, Effect, Formatter } from "effect"
+import { caseHang } from "#test/support/limits.ts"
 
 /** MUTATE_ORACLE_CASES names no positive case count. */
 class NoOracleCases extends Data.TaggedError("NoOracleCases")<{ readonly cases: number }> {
@@ -39,7 +40,7 @@ interface Exploration<T, F extends string, E, R> {
  * Runs `property` as an exploration under its own label: the label's floor stream, then `runs` cases of the rotating
  * stream of the run's TEST_SEED (main.ts sets it for every run, so every mutant meets the same cases), and fails on the
  * first failing case without shrinking, because a mutant needs a verdict, not a readable counterexample. It requires
- * no feature and never steers: a mutant's run reaches what the seed draws. A case may hang for two minutes.
+ * no feature and never steers: a mutant's run reaches what the seed draws. A case hangs past the tiers' caseHang.
  */
 export const firstFailure = <T, F extends string, E, R>({
 	suite,
@@ -59,7 +60,7 @@ export const firstFailure = <T, F extends string, E, R>({
 			shrink: boundedShrink(0),
 			concurrency: 1,
 			steerEvery: 16,
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		property
 	)

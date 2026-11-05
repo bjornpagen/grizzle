@@ -2,13 +2,12 @@
  * Sessions over pg, a hot path: every query of every flight is written, and every cell of every row it answers is
  * checked, here, in native loops with no Option or closure per row.
  */
-import { isIP, connect as netConnect } from "node:net"
+import { isIP } from "node:net"
 import { type ConnectionOptions, checkServerIdentity, connect as tlsConnect } from "node:tls"
 import {
 	Array as Arr,
 	Brand,
 	Cause,
-	Clock,
 	type Context,
 	Data,
 	Deferred,
@@ -24,19 +23,10 @@ import {
 	String as Str
 } from "effect"
 
-import {
-	Client,
-	type ClientConfig,
-	DatabaseError,
-	type Pool,
-	type PoolClient,
-	type QueryArrayResult
-} from "pg"
-
+import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
 import type { SessionKind } from "#adapter/connection/environment.ts"
 import {
 	type AcquireRefusal,
-	AcquisitionBudgetExceeded,
 	ConnectionClosed,
 	type ConnectRefusal,
 	ConnectTimedOut,
@@ -48,11 +38,19 @@ import {
 	StartupRefused,
 	TlsRefused
 } from "#adapter/errors/failures.ts"
-import { type AcquisitionBudgets, connectBudgetMs } from "#adapter/pool/budgets.ts"
-import type { ConnectionPool } from "#adapter/types/layer.ts"
+import type {
+	PgArrayResult,
+	PgClient,
+	PgClientConfig,
+	PgDriver,
+	PgPool,
+	PgPoolClient,
+	PgSocket
+} from "#adapter/types/driver.ts"
+import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
 import type { BatchOutcome, SentText, Transaction } from "#adapter/wire/batch.ts"
 import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
-import { ReleasingPool } from "#adapter/wire/releasing-pool.ts"
+import { releasingPool } from "#adapter/wire/releasing-pool.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
@@ -60,20 +58,22 @@ import { emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /**
- * Sessions: node-postgres clients (pg 8.23) in pipeline mode, pooled by pg's own Pool.
+ * Sessions: clients of the caller's node-postgres (DbConnection.driver, types/driver.ts PgDriver) in pipeline mode,
+ * pooled by its own Pool. grizzle imports nothing of pg itself.
  *
  * This module is grizzle's only contact with pg, whose types expose `any` (rows, values, pool callbacks): every value
- * pg hands back is narrowed here, by its class (DatabaseError), by a type argument that pins rows to unknown cells, or
- * by a checked read of a field its types leave out (BackendKeyData, the parsed-statement map), so batch.ts sees only
- * grizzle's types.
+ * pg hands back is narrowed here, by its class (the driver's DatabaseError), by a type argument that pins rows to
+ * unknown cells, or by a checked read of a field its types leave out (BackendKeyData, the parsed-statement map), so
+ * batch.ts sees only grizzle's types.
  *
- * - Transport. TLS is always verify-full: the certificate must chain to the CA bundle and name `servername`, which the
- *   connection's configuration gives as `host` when it names none (connection/config.ts), and an empty bundle is
- *   refused before connecting. pg replaces the `servername` it gives TLS with
- *   the host whenever the host is a name, so the name is verified by the identity check itself, and the SNI a server
- *   sees is the host. A server that answers the SSLRequest with N is refused: pg has no fallback to plaintext. The
- *   `stream` transport hands pg a stream that is already secured instead, and every CancelRequest opens another one
- *   (the protocol tap, test/support/wire-tap.ts).
+ * - Transport. Every connection, a session's and a CancelRequest's, is a socket the transport opens (Transport.open),
+ *   connected to its host and port, then an SSLRequest, then verify-full TLS over it: the certificate must chain to the
+ *   CA bundle and name `servername`. The transport is the one the parse admitted (connection/config.ts ParsedTransport),
+ *   so its bundle is a nonempty list of PEM texts and its host a network host, never the path of a Unix socket, which
+ *   pg would connect by path alone. pg replaces the `servername` it gives TLS with the host whenever the host is a
+ *   name, so the name is verified by the identity check itself, and the SNI a server sees is the host; a
+ *   CancelRequest's connection is upgraded the same way (sessionTls). A server that answers the SSLRequest with N is
+ *   refused: pg has no fallback to plaintext.
  * - Password. A Redacted, or an Effect evaluated once per connection attempt, under the services of the lease it is
  *   opened for: pg is given a function either way (passwordOf), which it calls when the server asks for a password,
  *   since pg reads PGPASSWORD, then a password file, for any password it is given as a falsy value. A client holds
@@ -81,15 +81,16 @@ import { emptyNameMap } from "#compiler/sql/naming.ts"
  *   context. Its CredentialError fails the attempt at the stage credential, as the failure's reason; a defect or an
  *   interruption of the Effect is the operation's defect.
  * - Failure. A connection attempt that fails is classified once, here, from what pg reports (failures.ts
- *   ConnectRefusal): the CredentialError, no answer within the connect budget, a socket error code, the server's
- *   refusal of the startup with its ErrorResponse as it gave it, TLS, a connection closed before it was ready, pg's own
- *   refusal, or no cancellation key.
- * - Startup. pg sends user, database and application_name, and a login's session its pinned defaults as `options`
+ *   ConnectRefusal): the CredentialError, no answer within the connection's connect timeout, a socket error code, the
+ *   server's refusal of the startup with its ErrorResponse as it gave it, TLS, a connection closed before it was ready,
+ *   pg's own refusal, or no cancellation key.
+ * - Startup. pg sends user and database, and a login's session its pinned defaults as `options`
  *   (physical/ddl/roles.ts loginStartupOptions), the very defaults its role stores, which Db.open's admission
  *   verifies; an owner's session sends none, starting under its role's and its database's defaults. grizzle never
- *   issues a session-level SET. pg reads every setting it is given as a falsy value from the environment instead: the
- *   client config states each it can (clientConfig), and the startup variables it cannot (connection/environment.ts)
- *   are refused before any session opens, a login's by DbLayer.make, an owner's by the command line.
+ *   issues a session-level SET and names no session: an application_name is the environment's (connection/
+ *   environment.ts). pg reads every setting it is given as a falsy value from the environment instead: the client config
+ *   states each it can (clientConfig), and the startup variables it cannot (connection/environment.ts) are refused
+ *   before any session opens, a login's by DbLayer.make, an owner's by the command line.
  * - Values. Every type parser is the identity and results are requested as text, so every cell is the text the server
  *   sent, and parameters are bound as untyped text. grizzle's own SQL never delivers NULL (absence is zero rows), so a
  *   result with a NULL cell is an unreadable answer: the statement ran, and its rows are none grizzle reads. Every row
@@ -99,35 +100,38 @@ import { emptyNameMap } from "#compiler/sql/naming.ts"
  *   for a stated lifetime. Each server statement has the pool's name for it, which a session parses on its first use and
  *   binds after (SessionStatements), and each runs as one role only, so its cached plan is never replanned for another.
  * - Cancellation. pg's JavaScript client has no supported cancel: Client#cancel is undocumented and writes the
- *   CancelRequest on a plaintext socket. A session cancels over a connection of its own, through the same TLS
- *   settings, with the BackendKeyData pg read at startup.
- * - Pool. pg's own Pool, handed once, when it is built, to the config's attachPool: a platform's hook for idle
- *   connections, which on Vercel is attachDatabasePool (its pg branch reads `options.idleTimeoutMillis` and subscribes
- *   to `release`), and nothing elsewhere. Its floor is one session
- *   (core/policy.ts poolBounds): pg's Pool closes an idle client above the floor the idle timeout after its release,
- *   and keeps the floor open. It opens the floor on the first lease, not when it is built. The wait for a session is the
- *   lease's own: its ask takes one of the pool's `max` permits, or waits for one in order, before pg's Pool is asked for
- *   a client, and the permit is held until pg has that client back, so pg's Pool always has an idle client or room and
- *   never queues a lease. The lease waits, interruptibly and within the acquisition wait budget (../pool/budgets.ts),
- *   only for its ask to settle; a permit and a client move between the ask, pg's callback and the lease only in plain
- *   synchronous code, so no interruption at any step can drop one. A wait that is interrupted or runs out of budget
- *   leaves nothing behind: a client that arrives for a lease abandoned while pg connected it goes back to the pool, and
- *   its permit with it. The pool ends when the scope it was built in closes (a DbLayer's), and a lease of an ended pool
- *   is refused with LayerReleased, before pg is asked for a client. The sessions a release reaches are the open
- *   connections: a session joins them when pg's Pool connects its client and leaves when its connection ends.
- * - Retirement. A session is retired on an interruption with a statement in flight, a lost connection, a failure
- *   batch.ts cannot account for, or a transaction it could not end; a retired session is released with an error, so
- *   pg's Pool closes it instead of keeping it.
+ *   CancelRequest on a plaintext socket. A session sends one CancelRequest over a connection of its own, which the
+ *   transport opens and upgrades as a session's, with the BackendKeyData pg read at startup, within the connect
+ *   timeout (Session.cancel); an interrupted flight then destroys the session (wire/batch.ts).
+ * - Pool. The driver's own Pool (releasing-pool.ts), handed once, when it is built, to the config's attachPool: a
+ *   platform's hook for idle connections, which on Vercel is attachDatabasePool (its pg branch reads
+ *   `options.idleTimeoutMillis` and subscribes to `release`), and nothing elsewhere. Its bounds are the caller's
+ *   (DbConfig.pool): pg's Pool closes an idle client above the floor the idle timeout after its release, and keeps the
+ *   floor open. It opens no session before a lease asks for one, so the floor is the sessions it keeps once opened,
+ *   never sessions it opens ahead. The wait for a session is the lease's own: its ask takes one of the pool's `max`
+ *   permits, or waits for one in order, before pg's Pool is asked for a client, and the permit is held until pg has
+ *   that client back, so pg's Pool always has an idle client or room and never keeps a lease waiting for one, holding
+ *   an ask only for the turn it takes to hand an idle client over. The lease waits, interruptibly and with no deadline
+ *   of its own, only for its ask to settle: the caller's own timeout bounds it. A permit and a client move between the
+ *   ask, pg's callback and the lease only in plain synchronous code, so no interruption at any step can drop one. A
+ *   wait that is interrupted leaves nothing behind: a client that arrives for a lease abandoned while pg connected it
+ *   goes back to the pool, and its permit with it. A lease of an ended pool is refused with LayerReleased, before pg is
+ *   asked for a client. The sessions a release of server statements reaches are the open connections: a session joins
+ *   them when its client is ready and leaves when its connection ends.
+ * - State. A session is open, retired or ended (SessionState), and moves only as sessionTransitions says: retired on an
+ *   interruption with a statement in flight, a failure batch.ts cannot account for, or a transaction it could not end;
+ *   ended once its connection ends, lost, ended by the server, or destroyed. A session that is not open is released
+ *   with an error, so pg's Pool closes it instead of keeping it, and is counted out of the pool before its permit admits
+ *   another lease.
+ * - Release. The pool ends when the scope it was built in closes (a DbLayer's): pg's Pool ends, writing a Terminate to
+ *   each idle session, every socket of every client it constructed is destroyed at once, and every lease still waiting
+ *   is refused with LayerReleased, whether queued for a permit or asking pg's Pool, which drops the asks it queued for
+ *   an idle client when it ends and so would never answer them. Nothing is awaited, so a server or a transport that no
+ *   longer answers cannot hold a release.
  *
- * PEM certificates, and the name the certificate must carry: the host, or the name a tunnel's server is known by. A
- * DbConfig and a migration connection are parsed into it once, where they are given (connection/config.ts).
+ * The password of a connection: a Redacted, or an Effect evaluated for each connection attempt (passwordOf).
  */
-export interface TlsConfig {
-	readonly ca: string | ReadonlyArray<string>
-	readonly servername: string
-}
-
-export type Password = Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
+export type Password = ParsedConnection["password"]
 
 /**
  * No password, for a role the server authenticates without one (trust, peer, a client certificate): the empty text,
@@ -173,24 +177,14 @@ export const isTlsCode = (code: unknown): boolean =>
 		Str.startsWith("ERR_TLS_")(code) ||
 		Str.startsWith("ERR_SSL_")(code))
 
-/** The duplex stream pg runs a connection over, as pg's own configuration types it. */
-type WireStream = NonNullable<ReturnType<NonNullable<ClientConfig["stream"]>>>
-
-/** How a session reaches the server: pg negotiating verify-full TLS itself, or a stream that is already secured. */
-export type Transport =
-	| { readonly _tag: "tls"; readonly tls: TlsConfig }
-	| { readonly _tag: "stream"; readonly open: () => WireStream }
-
-interface SessionSpec {
-	readonly host: string
-	readonly port: number
-	readonly database: string
+/**
+ * Where one session connects and as whom: the parsed connection (connection/config.ts ParsedConnection), its driver,
+ * transport, database, password and connect timeout, the login role, and whose session it is: a login's, every session
+ * of a pool, or an owner's, one outside any pool.
+ */
+interface SessionSpec extends ParsedConnection {
 	/** The login role. */
 	readonly role: string
-	readonly password: Password
-	readonly transport: Transport
-	readonly applicationName: string
-	/** Whose session it is: a login's, every session of a pool, or an owner's, one outside any pool. */
 	readonly startup: SessionKind
 }
 
@@ -209,13 +203,24 @@ export type ServerStatement = {
 const mintServerStatement = Brand.nominal<ServerStatement>()
 
 /**
- * The server statement of `sql`, named `grizzle_` and the first 40 hex digits of the text's SHA-256: one name for one
- * text on every session, whichever pool's Db minted it. Two programs of one text share the name; releasing one closes it
- * on every session that parsed it, and each session's parsed set, not the program, decides that the other parses it
- * again at its next use (SessionStatements.release).
+ * The hex digits of a server statement's name after `grizzle_`: the leading ones of its text's SHA-256, 160 bits, so
+ * over n distinct texts two share a name with probability at most n(n - 1) / 2 / 2^160.
+ *
+ * @formatConstant a server statement's name: grizzle_ and 40 lowercase hex digits
+ */
+const statementDigestHex = 40
+
+/**
+ * The server statement of `sql`, named `grizzle_` and the first statementDigestHex hex digits of the text's SHA-256: one
+ * name for one text on every session, whichever pool's Db minted it. Two programs of one text share the name;
+ * releasing one closes it on every session that parsed it, and each session's parsed set, not the program, decides that
+ * the other parses it again at its next use (SessionStatements.release).
  */
 export const serverStatement = (sql: EmittedText): ServerStatement =>
-	mintServerStatement({ name: `grizzle_${pipe(sha256Hex(sql), Str.slice(0, 40))}`, sql })
+	mintServerStatement({
+		name: `grizzle_${pipe(sha256Hex(sql), Str.slice(0, statementDigestHex))}`,
+		sql
+	})
 
 /**
  * The name one execution of a statement runs under: none, PostgreSQL's unnamed statement; a server statement's name
@@ -332,7 +337,7 @@ interface BackendKey {
 }
 
 /** pg keeps the BackendKeyData of a connected client as `processID` and `secretKey`, which its types leave out. */
-const backendKeyOf = (client: Client): BackendKey | undefined => {
+const backendKeyOf = (client: PgClient): BackendKey | undefined => {
 	if (!Predicate.hasProperty(client, "processID") || !Predicate.hasProperty(client, "secretKey")) {
 		return undefined
 	}
@@ -347,7 +352,7 @@ const backendKeyOf = (client: Client): BackendKey | undefined => {
  * pg remembers every name it parsed on a connection, to skip the Parse when the name is bound again, in a map its
  * types leave out. A closed name is never bound again, so it leaves the map with its Close.
  */
-const forgetParsed = (client: Client, name: string): void => {
+const forgetParsed = (client: PgClient, name: string): void => {
 	const parsed: unknown = Reflect.get(client.connection, "parsedStatements")
 	if (Predicate.isObjectKeyword(parsed)) {
 		Reflect.deleteProperty(parsed, name)
@@ -369,13 +374,13 @@ const isTextRows = (
 }
 
 /**
- * The answer of one query, from pg's callback. pg passes a DatabaseError for an ErrorResponse, its own Error for a
+ * The answer of one query, from pg's callback. pg passes its DatabaseError for an ErrorResponse, its own Error for a
  * failed connection or a query it would not send, and null and the result otherwise. Every type parser is the
  * identity, so a result cell is the text the server sent; a result with a NULL, or a cell that is no text, is
  * unreadable.
  */
-const answerOf = (error: unknown, result: QueryArrayResult<Array<unknown>> | undefined): Answer => {
-	if (error instanceof DatabaseError) {
+const answerOf = (driver: PgDriver, error: unknown, result: PgArrayResult | undefined): Answer => {
+	if (error instanceof driver.DatabaseError) {
 		return serverFailure(error) ?? { _tag: "failed" }
 	}
 	if (error !== null && error !== undefined) {
@@ -384,7 +389,7 @@ const answerOf = (error: unknown, result: QueryArrayResult<Array<unknown>> | und
 	if (result === undefined) {
 		return { _tag: "failed" }
 	}
-	const rows: ReadonlyArray<ReadonlyArray<unknown>> = result.rows
+	const rows = result.rows
 	if (!isTextRows(rows)) {
 		return { _tag: "unreadable", command: result.command }
 	}
@@ -394,17 +399,16 @@ const answerOf = (error: unknown, result: QueryArrayResult<Array<unknown>> | und
 /** The identity of every type: each cell stays the text the server sent. */
 const rawText = { getTypeParser: () => (text: string) => text } as const
 
-const caCount = (tls: TlsConfig): number =>
-	Predicate.isString(tls.ca) ? (Str.trim(tls.ca) === "" ? 0 : 1) : tls.ca.length
-
 /**
  * verify-full against the CA bundle and `servername`. The identity check names the server explicitly, so it holds
- * whatever pg sets as the SNI; the SNI is never an IP address.
+ * whatever pg sets as the SNI; the SNI is never an IP address. The bundle is a nonempty list of PEM texts, handed to TLS
+ * as a list: Node trusts its own root certificates only in place of a `ca` that is falsy, never in place of a list, so
+ * no bundle ever lets a public authority's certificate verify.
  */
-const verifyFull = (tls: TlsConfig): ConnectionOptions => {
-	const servername = tls.servername
+const verifyFull = (transport: ParsedTransport): ConnectionOptions => {
+	const servername = transport.servername
 	return {
-		ca: Predicate.isString(tls.ca) ? tls.ca : [...tls.ca],
+		ca: [...transport.ca],
 		rejectUnauthorized: true,
 		...(isIP(servername) === 0 ? { servername } : {}),
 		checkServerIdentity: (...[, certificate]) => checkServerIdentity(servername, certificate)
@@ -412,15 +416,27 @@ const verifyFull = (tls: TlsConfig): ConnectionOptions => {
 }
 
 /**
- * The failures pg reports only by their message, as the pinned pg spells them: its connect timeout, the server's
- * answer to the SSLRequest (N, or neither S nor N), and a connection that ended before ReadyForQuery with no
- * ErrorResponse.
+ * The TLS a connection's socket is upgraded with, as pg 8.23 upgrades a session's (lib/connection.js upgradeToSSL):
+ * verify-full's options, the host, and the host as the SNI whenever it is a name. A CancelRequest's connection is
+ * upgraded with exactly these, so it verifies as the session it cancels did.
  */
-const messageRefusals: ReadonlyMap<string, () => ConnectRefusal> = new Map<
+const sessionTls = (transport: ParsedTransport, socket: PgSocket): ConnectionOptions => ({
+	socket,
+	host: transport.host,
+	...verifyFull(transport),
+	...(isIP(transport.host) === 0 ? { servername: transport.host } : {})
+})
+
+/**
+ * The failures pg reports only by their message, as the pinned pg spells them: its connect timeout, which is the
+ * connection's own (DbConnection.connectTimeoutMs), the server's answer to the SSLRequest (N, or neither S nor N), and
+ * a connection that ended before ReadyForQuery with no ErrorResponse.
+ */
+const messageRefusals: ReadonlyMap<string, (spec: SessionSpec) => ConnectRefusal> = new Map<
 	string,
-	() => ConnectRefusal
+	(spec: SessionSpec) => ConnectRefusal
 >([
-	["timeout expired", () => new ConnectTimedOut({ millis: connectBudgetMs })],
+	["timeout expired", (spec) => new ConnectTimedOut({ millis: spec.connectTimeoutMs })],
 	[
 		"The server does not support SSL connections",
 		() => new TlsRefused({ fault: { kind: "notOffered" } })
@@ -450,11 +466,11 @@ const saidBy = (error: unknown): string =>
  * its code, a TLS code as TLS and any other as the socket's; pg's own failures that carry no code by their message; and
  * anything else pg ended the startup with as its own refusal, with pg's words.
  */
-const connectRefusalOf = (error: unknown): ConnectRefusal => {
+const connectRefusalOf = (spec: SessionSpec, error: unknown): ConnectRefusal => {
 	if (error instanceof CredentialError) {
 		return error
 	}
-	if (error instanceof DatabaseError) {
+	if (error instanceof spec.driver.DatabaseError) {
 		const answer = serverFailure(error)
 		return answer === undefined
 			? new DriverRefused({ said: error.message })
@@ -467,12 +483,14 @@ const connectRefusalOf = (error: unknown): ConnectRefusal => {
 	}
 	const said = saidBy(error)
 	const known = messageRefusals.get(said)
-	return known === undefined ? new DriverRefused({ said }) : known()
+	return known === undefined ? new DriverRefused({ said }) : known(spec)
 }
 
 /** The end of a failed connection attempt: a defect of the password Effect is the operation's; any other its class. */
-const attemptFailed = (error: unknown): Effect.Effect<never, ConnectRefusal> =>
-	error instanceof PasswordDefect ? Effect.die(error.defect) : Effect.fail(connectRefusalOf(error))
+const attemptFailed = (spec: SessionSpec, error: unknown): Effect.Effect<never, ConnectRefusal> =>
+	error instanceof PasswordDefect
+		? Effect.die(error.defect)
+		: Effect.fail(connectRefusalOf(spec, error))
 
 /**
  * The services a client's password Effect runs under: `current`, else its pool's or its caller's (`own`).
@@ -517,64 +535,55 @@ const passwordOf = (spec: SessionSpec, services: AttemptServices): (() => Promis
 }
 
 /**
- * A session's client configuration: it states every startup and wire setting pg would otherwise read from the
- * environment and can be told, the client encoding and the TLS negotiation among them, so `PGCLIENT_ENCODING` and
- * `PGSSLNEGOTIATION` reach no session, and a login's session its options, so `PGOPTIONS` reaches none of a login's; the
- * startup variables it cannot be told are connection/environment.ts's.
+ * A session's client configuration over `socket`, the one the transport opened for it: it states every startup and
+ * wire setting pg would otherwise read from the environment and can be told, the client encoding and the TLS
+ * negotiation among them, so `PGCLIENT_ENCODING` and `PGSSLNEGOTIATION` reach no session, and a login's session its
+ * options, so `PGOPTIONS` reaches none of a login's; the startup variables it cannot be told are
+ * connection/environment.ts's. The password is the attempt's (passwordOf).
  */
-const clientConfig = (spec: SessionSpec): ClientConfig => {
-	const base: ClientConfig = {
-		host: spec.host,
-		port: spec.port,
-		database: spec.database,
-		user: spec.role,
-		application_name: spec.applicationName,
-		client_encoding: "utf8",
-		sslnegotiation: "postgres",
-		...(spec.startup === "login" ? { options: loginStartupOptions } : {}),
-		pipeline: true,
-		types: rawText,
-		connectionTimeoutMillis: connectBudgetMs
-	}
-	const transport = spec.transport
-	return transport._tag === "tls"
-		? { ...base, ssl: verifyFull(transport.tls) }
-		: { ...base, ssl: false, stream: transport.open }
-}
+const clientConfig = (
+	spec: SessionSpec,
+	socket: PgSocket,
+	password: () => Promise<string>
+): PgClientConfig => ({
+	host: spec.transport.host,
+	port: spec.transport.port,
+	database: spec.database,
+	user: spec.role,
+	password,
+	client_encoding: "utf8",
+	sslnegotiation: "postgres",
+	...(spec.startup === "login" ? { options: loginStartupOptions } : {}),
+	pipeline: true,
+	types: rawText,
+	connectionTimeoutMillis: spec.connectTimeoutMs,
+	ssl: verifyFull(spec.transport),
+	stream: () => socket
+})
 
-/**
- * The client class of the sessions over `spec`. pg's Pool constructs each client with its own copy of its options,
- * from which it hides the password, and reads `connectionTimeoutMillis` from those options as its own bound on the
- * wait for a free client; so a client takes its configuration from here instead, with the connect budget, and the
- * wait stays the lease's. An `error` event of a client in use is also the failure of its queries, which their
- * callbacks receive, so the event is dropped rather than left to crash the process. A connection that failed is
- * destroyed: pg leaves it open when the failure is the client's own, a rejected password function or a SCRAM proof
- * that does not verify. The client's password runs under the services of the attempt that constructs it until its
- * connection is set up, and under `own` after.
- */
-const sessionClient = (spec: SessionSpec, attempt: AttemptServices) => {
-	const config = clientConfig(spec)
-	return class SessionClient extends Client {
-		constructor() {
-			const services: AttemptServices = { current: attempt.current, own: attempt.own }
-			super({ ...config, password: passwordOf(spec, services) })
-			this.once("connect", () => {
-				services.current = services.own
-			})
-			this.on("error", () => undefined)
-			this.connection.on("error", () => this.connection.stream.destroy())
-		}
-	}
+/** Destroys a client's connection at once: the TLS socket pg reads, and the transport's socket under it. */
+const destroyWire = (client: PgClient, socket: PgSocket): void => {
+	client.connection.stream.destroy()
+	socket.destroy()
 }
 
 /** The SSLRequest message: its length, 8, and the request code 80877103. */
 const sslRequest = (): Uint8Array => Uint8Array.of(0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x2f)
 
-/** The CancelRequest message: its length, 16, the request code 80877102, and the backend's key. */
+/**
+ * The bytes of a CancelRequest in protocol 3.0, the version the driver speaks: four Int32 fields, its length, the
+ * request code, and the backend's process ID and secret key ("Before protocol version 3.2, the secret key was always 4
+ * bytes long.", https://www.postgresql.org/docs/19/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-CANCELREQUEST).
+ *
+ * @formatConstant protocol 3.0's CancelRequest: four Int32 fields, its length counting itself
+ */
+const cancelRequestBytes = 16
+
+/** The CancelRequest message: its length, cancelRequestBytes, the request code 80877102, and the backend's key. */
 const cancelFrame = (key: BackendKey): Uint8Array => {
-	const frame = new Uint8Array(16)
+	const frame = new Uint8Array(cancelRequestBytes)
 	const view = new DataView(frame.buffer)
-	view.setInt32(0, 16)
+	view.setInt32(0, cancelRequestBytes)
 	view.setInt32(4, 80877102)
 	view.setInt32(8, key.processId)
 	view.setInt32(12, key.secretKey)
@@ -582,21 +591,18 @@ const cancelFrame = (key: BackendKey): Uint8Array => {
 }
 
 /**
- * How long a CancelRequest's connection may take before it is abandoned: the server closes it once it has read the
- * request.
- */
-const cancelRequestTimeout = Duration.seconds(5)
-
-/**
- * One CancelRequest for whatever statement the session's backend is running, over a connection of its own: SSLRequest
- * and verify-full TLS as the session's, or a stream of the session's transport. It ends when the server closes that
- * connection, or when it fails or times out on the Clock, in which case the request may not have arrived and the
- * connection is destroyed.
+ * One CancelRequest for whatever statement the session's backend is running, over a connection of its own: a socket
+ * the transport opens, connected to its host and port, then the SSLRequest and verify-full TLS exactly as a session's
+ * (sessionTls). It ends when the server closes that connection, or when it fails, or once the connection's connect
+ * timeout has passed on the Clock, in which case the request may not have arrived; either way its sockets are
+ * destroyed.
  */
 const cancelRequest = (spec: SessionSpec, key: BackendKey): Effect.Effect<void> =>
 	Effect.timeoutOrElse(
 		Effect.callback<void>((resume) => {
-			const sockets: Array<WireStream> = []
+			const transport = spec.transport
+			const raw = transport.open()
+			const sockets: Array<{ readonly destroy: () => unknown }> = [raw]
 			let finished = false
 			const finish = (): void => {
 				if (finished) {
@@ -608,49 +614,73 @@ const cancelRequest = (spec: SessionSpec, key: BackendKey): Effect.Effect<void> 
 				}
 				resume(Effect.void)
 			}
-			const watch = <S extends WireStream>(socket: S): S => {
-				sockets.push(socket)
-				socket.once("error", finish)
-				socket.once("close", finish)
-				return socket
-			}
-			const transport = spec.transport
-			if (transport._tag === "stream") {
-				watch(transport.open()).write(cancelFrame(key))
-			} else {
-				const raw = watch(netConnect({ host: spec.host, port: spec.port, noDelay: true }))
-				raw.once("connect", () => raw.write(sslRequest()))
-				raw.once("data", (answer: Uint8Array) => {
-					if (answer.length !== 1 || answer[0] !== 0x53) {
-						finish()
-						return
-					}
-					const secure = watch(tlsConnect({ socket: raw, ...verifyFull(transport.tls) }))
-					secure.once("secureConnect", () => secure.write(cancelFrame(key)))
-				})
-			}
+			raw.on("error", finish)
+			raw.once("close", finish)
+			raw.once("connect", () => raw.write(sslRequest()))
+			raw.once("data", (answer: Uint8Array) => {
+				if (answer.length !== 1 || answer[0] !== 0x53) {
+					finish()
+					return
+				}
+				const secure = tlsConnect(sessionTls(transport, raw))
+				sockets.push(secure)
+				secure.on("error", finish)
+				secure.once("close", finish)
+				secure.once("secureConnect", () => secure.write(cancelFrame(key)))
+			})
+			raw.setNoDelay(true)
+			raw.connect(transport.port, transport.host)
 			return Effect.sync(finish)
 		}),
-		{ duration: cancelRequestTimeout, orElse: () => Effect.void }
+		{ duration: Duration.millis(spec.connectTimeoutMs), orElse: () => Effect.void }
 	)
+
+/**
+ * Where a session stands, the one state whatever reads it consults: `open`, its connection up and the session reusable;
+ * `retired`, its connection up but never reused, since what ran on it left it unaccounted for (a refused BEGIN, an
+ * answer the pipeline cannot account for, a transaction it could not end, an interruption with a statement in flight);
+ * or `ended`, its connection gone, lost, ended by the server or destroyed, so nothing can run on it and it is never
+ * reused either. Every pair of "reusable" and "connected" a session can be in is one of these: an ended session is
+ * never open, and no session comes back from retired or ended.
+ */
+export type SessionState = "open" | "retired" | "ended"
+
+/**
+ * What moves a session's state: grizzle's own decision never to reuse it (`retire`), and its connection's end
+ * (`end`), which pg reports, or a destroy causes.
+ */
+export type SessionEvent = "retire" | "end"
+
+/**
+ * The state each event leaves a session in, from each state: the whole of a session's transitions. Retiring an ended
+ * session leaves it ended, and every state ends.
+ */
+export const sessionTransitions: {
+	readonly [S in SessionState]: { readonly [E in SessionEvent]: SessionState }
+} = {
+	open: { retire: "retired", end: "ended" },
+	retired: { retire: "retired", end: "ended" },
+	ended: { retire: "ended", end: "ended" }
+}
 
 /** One connected client in pipeline mode, with what grizzle keeps beside it. */
 export interface Session {
 	/** The login role the session logged in as, which its statements run as unless a prologue enters another. */
 	readonly role: string
 	readonly statements: SessionStatements
-	/** One CancelRequest for the statement the backend is running. */
-	readonly cancel: Effect.Effect<void>
 	/**
-	 * Whether the session must not be reused: a statement in flight was interrupted, so its cancellation is unconfirmed;
-	 * the connection was lost, the server ended it, or it answered what the pipeline cannot account for; or a
-	 * transaction it opened could not be ended.
+	 * One CancelRequest for the statement the backend is running, within the connection's connect timeout: it never
+	 * waits on the statement it cancels.
 	 */
-	readonly retired: () => boolean
+	readonly cancel: Effect.Effect<void>
+	/** Where the session stands now (SessionState). */
+	readonly state: () => SessionState
+	/** Never reuse the session: it is retired, or stays ended. */
 	readonly retire: () => void
-	/** The connection failed or ended: nothing can run on it. */
-	readonly lost: () => boolean
-	/** Ends the connection at once, failing whatever it was waiting for. */
+	/**
+	 * Ends the connection at once, failing whatever it was waiting for: its sockets are destroyed, nothing is awaited,
+	 * and the session is ended from this call on.
+	 */
 	readonly destroy: () => void
 	/**
 	 * Writes `pipeline` in one corked write, behind a Close for each of `closes`, and reports each query's answer by its
@@ -692,21 +722,28 @@ const statementQuery = (query: Extract<WireQuery, { readonly _tag: "statement" }
 const controlQuery = (sql: EmittedText) => ({ text: sql, rowMode: "array" as const })
 
 /** The whole flight is written corked and flushed at once; the stream is uncorked whatever the writes threw. */
-const makeSession = (client: Client, spec: SessionSpec, key: BackendKey): Session => {
+const makeSession = (
+	client: PgClient,
+	socket: PgSocket,
+	spec: SessionSpec,
+	key: BackendKey
+): Session => {
 	const statements = new SessionStatements()
-	let retired = false
-	let lost = false
-	const lose = (): void => {
-		lost = true
+	let state: SessionState = "open"
+	const move = (event: SessionEvent): void => {
+		state = sessionTransitions[state][event]
 	}
-	client.on("error", lose)
-	client.on("end", lose)
+	const end = (): void => {
+		move("end")
+	}
+	client.on("error", end)
+	client.on("end", end)
 	const send: Session["send"] = (closes, pipeline, onAnswer, onEnd) => {
 		const connection = client.connection
 		let answered = 0
 		let drained = false
 		const settle = (): void => {
-			if (answered < pipeline.length || !(drained || lost)) {
+			if (answered < pipeline.length || !(drained || state === "ended")) {
 				return
 			}
 			client.off("drain", drain)
@@ -729,11 +766,8 @@ const makeSession = (client: Client, spec: SessionSpec, key: BackendKey): Sessio
 			for (const query of pipeline) {
 				const index = next
 				next += 1
-				const answer = (
-					error: unknown,
-					result: QueryArrayResult<Array<unknown>> | undefined
-				): void => {
-					onAnswer(index, answerOf(error, result))
+				const answer = (error: unknown, result: PgArrayResult | undefined): void => {
+					onAnswer(index, answerOf(spec.driver, error, result))
 					answered += 1
 					settle()
 				}
@@ -756,25 +790,76 @@ const makeSession = (client: Client, spec: SessionSpec, key: BackendKey): Sessio
 		role: spec.role,
 		statements,
 		cancel: cancelRequest(spec, key),
-		retired: () => retired,
+		state: () => state,
 		retire: () => {
-			retired = true
+			move("retire")
 		},
-		lost: () => lost,
-		destroy: () => client.connection.stream.destroy(),
+		destroy: () => {
+			destroyWire(client, socket)
+			move("end")
+		},
 		send
 	}
 }
 
-/** A session from a client pg has just connected: its BackendKeyData must be there. */
-const sessionOf = (client: Client, spec: SessionSpec): Session | undefined => {
+/** A session from a client pg has just connected over `socket`: its BackendKeyData must be there. */
+const sessionOf = (client: PgClient, socket: PgSocket, spec: SessionSpec): Session | undefined => {
 	const key = backendKeyOf(client)
-	return key === undefined ? undefined : makeSession(client, spec, key)
+	return key === undefined ? undefined : makeSession(client, socket, spec, key)
 }
 
 /**
- * One session outside any pool (the migration owner's, the protocol tap's), an owner's, closed with the scope. The
- * attempt is interruptible.
+ * What the owner of a client class learns of each client it constructs: `opened`, the client and the socket the
+ * transport opened for it, as it is constructed; and `ready`, the client and its session once the server has answered
+ * its startup, before pg hands the client to anyone, or no session when the server sent no BackendKeyData.
+ */
+interface ClientHooks {
+	readonly opened: (client: PgClient, socket: PgSocket) => void
+	readonly ready: (client: PgClient, session: Session | undefined) => void
+}
+
+/**
+ * The client class of the sessions over `spec`, derived from the driver's own Client. pg's Pool constructs each client
+ * with its own copy of its options, from which it hides the password, and reads `connectionTimeoutMillis` from those
+ * options as its own bound on the wait for a free client; so a client takes its configuration from here instead, with
+ * the connection's connect timeout, and the wait stays the lease's. Each client opens its socket through the transport
+ * as it is constructed. An `error` event of a client in use is also the failure of its queries, which their callbacks
+ * receive, so the event is dropped rather than left to crash the process. A connection that failed is destroyed: pg
+ * leaves it open when the failure is the client's own, a rejected password function or a SCRAM proof that does not
+ * verify. The client's password runs under the services of the attempt that constructs it until its connection is set
+ * up, and under `own` after.
+ *
+ * The session is made at the first ReadyForQuery, by a listener the constructor adds before pg's own, so it is there
+ * before pg calls back whoever asked for the client (ClientHooks.ready).
+ */
+const sessionClient = (
+	spec: SessionSpec,
+	attempt: AttemptServices,
+	hooks: ClientHooks
+): new () => PgClient =>
+	class SessionClient extends spec.driver.Client {
+		constructor() {
+			const services: AttemptServices = { current: attempt.current, own: attempt.own }
+			const socket = spec.transport.open()
+			super(clientConfig(spec, socket, passwordOf(spec, services)))
+			hooks.opened(this, socket)
+			this.connection.once("readyForQuery", () => {
+				services.current = services.own
+				hooks.ready(this, sessionOf(this, socket, spec))
+			})
+			this.on("error", () => undefined)
+			this.connection.on("error", () => {
+				destroyWire(this, socket)
+			})
+		}
+	}
+
+/** A client end's callback that wants nothing: pg calls it once the connection has ended. */
+const ended = (): void => undefined
+
+/**
+ * One session outside any pool (the migration owner's), an owner's, closed with the scope: its Terminate is written and
+ * its sockets destroyed at once, nothing awaited, and the session is ended from then on. The attempt is interruptible.
  */
 export const connectSession = (
 	given: Omit<SessionSpec, "startup">
@@ -782,62 +867,85 @@ export const connectSession = (
 	Effect.uninterruptibleMask((restore) =>
 		Effect.gen(function* () {
 			const spec: SessionSpec = { ...given, startup: "owner" }
-			const transport = spec.transport
-			if (transport._tag === "tls" && caCount(transport.tls) === 0) {
-				return yield* new TlsRefused({ fault: { kind: "noAuthority" } })
-			}
 			const services = yield* Effect.context()
-			const SessionClient = sessionClient(spec, { current: services, own: services })
+			const sockets: Array<PgSocket> = []
+			const sessions: Array<Session> = []
+			const SessionClient = sessionClient(
+				spec,
+				{ current: services, own: services },
+				{
+					opened: (_client, socket) => {
+						sockets.push(socket)
+					},
+					ready: (_client, session) => {
+						if (session !== undefined) {
+							sessions.push(session)
+						}
+					}
+				}
+			)
 			const client = new SessionClient()
+			const destroy = (): void => {
+				client.connection.stream.destroy()
+				for (const socket of sockets) {
+					socket.destroy()
+				}
+			}
 			const connected = Effect.callback<void, ConnectRefusal>((resume) => {
 				client.connect((error: unknown) => {
-					resume(error === null || error === undefined ? Effect.void : attemptFailed(error))
+					resume(error === null || error === undefined ? Effect.void : attemptFailed(spec, error))
 				})
-				return Effect.sync(() => client.connection.stream.destroy())
+				return Effect.sync(destroy)
 			})
-			yield* restore(connected)
-			const session = sessionOf(client, spec)
+			yield* Effect.onError(restore(connected), () => Effect.sync(destroy))
+			const [session] = sessions
 			if (session === undefined) {
-				client.connection.stream.destroy()
+				destroy()
 				return yield* new NoCancelKey()
 			}
 			yield* Effect.addFinalizer(() =>
-				session.lost()
-					? Effect.sync(() => {
-							session.destroy()
-						})
-					: Effect.promise(() => client.end())
+				Effect.sync(() => {
+					client.end(ended)
+					session.destroy()
+				})
 			)
 			return session
 		})
 	)
 
 /**
+ * What one lease's ask for a client came to, once pg answered it: pg's client, held for the lease with its permit; or
+ * its refusal, the permit back, with what the attempt failed with.
+ */
+type Settled =
+	| { readonly _tag: "connected"; readonly client: PgPoolClient }
+	| { readonly _tag: "refused"; readonly failure: Effect.Effect<never, AcquireRefusal> }
+
+/**
  * Where one lease's ask for a client stands, and so who holds its permit: queued for a permit, holding none; connecting,
- * its permit given to pg's Pool, which was asked for a client and has not answered; connected, pg's client and its
- * permit held for the lease; or refused, its permit back, with what the attempt failed with.
+ * its permit given to pg's Pool, which was asked for a client and has not answered; or settled.
  */
 type AskState =
 	| { readonly _tag: "queued" }
 	| { readonly _tag: "connecting"; readonly attempt: Attempt }
-	| { readonly _tag: "connected"; readonly client: PoolClient }
-	| { readonly _tag: "refused"; readonly failure: Effect.Effect<never, AcquireRefusal> }
+	| Settled
 
 /**
  * One lease's ask for a client. It moves only in plain synchronous code, never across a fiber's steps: the lease waits
- * for `settled` alone, interruptibly, and then claims what the ask holds at once, without interruption, so neither a
- * permit nor a client is ever in flight between fibers where an interruption could drop it.
+ * for `settled` alone, interruptibly, which carries what the ask came to; an interrupted lease withdraws its ask at once,
+ * without interruption, so neither a permit nor a client is ever in flight between fibers where an interruption could
+ * drop it.
  */
 interface Ask {
 	state: AskState
 	/** The services of the lease the ask is for, under which its connection attempt's password runs. */
 	readonly services: Context.Context<never>
-	/** Done once the ask is connected or refused. */
-	readonly settled: Deferred.Deferred<void>
+	/** Done with what the ask came to, once it is connected or refused. */
+	readonly settled: Deferred.Deferred<Settled>
 }
 
 /**
- * The pool's permits, one for each session up to `pool.max`, as they stand between asks: some free and no ask waiting
+ * The pool's permits, one for each session up to `bounds.max`, as they stand between asks: some free and no ask waiting
  * (`free`, at least one), asks waiting for one in order and none free (`waiting`, at least one), or neither
  * (`exhausted`). A free permit and a waiting ask never stand side by side: a permit that comes back goes to the first
  * ask waiting, and only when none waits is it free.
@@ -867,63 +975,60 @@ interface Attempt {
 
 const nobody: AttemptWaiter = { _tag: "nobody" }
 
+/** What an ask comes to once its pool has ended: the layer that built the pool was released. */
+const layerReleased = (): Settled => ({
+	_tag: "refused",
+	failure: Effect.fail(new LayerReleased())
+})
+
+/**
+ * What pg's answer to an attempt reaches in the pool that made it (makePool): the way a permit goes back, and the one
+ * settling of an ask, its state and its `settled` together.
+ */
+interface AttemptOwner {
+	readonly permitBack: () => void
+	readonly settle: (ask: Ask, settled: Settled) => void
+}
+
 /**
  * pg's callback for one attempt. For the ask waiting for it, the client is held for the lease with its permit, or the
- * failure is the ask's and the permit goes back. When nobody waits, the client goes back to pg's Pool and the permit
- * with it. pg keeps the callback for the client's life (the connection's `connect` listener holds pg's own callback,
- * which holds this), so it is made here, apart from any lease, and drops the ask once it has answered: a connected
- * client keeps no lease's context.
+ * failure is the ask's and the permit goes back. When nobody waits, the lease having left or the pool having ended, the
+ * client goes back to pg's Pool and the permit with it: the pool's end leaves no attempt waiting (makePool), so an
+ * answer for a waiting ask always comes before it. pg keeps the callback for the client's life (the connection's
+ * `connect` listener holds pg's own callback, which holds this), so it is made here, apart from any lease, and drops
+ * the ask once it has answered: a connected client keeps no lease's context.
  */
 const answerAttempt =
-	(attempt: Attempt, permitBack: () => void) =>
-	(error: unknown, client: PoolClient | undefined): void => {
+	(spec: SessionSpec, attempt: Attempt, owner: AttemptOwner) =>
+	(error: unknown, client: PgPoolClient | undefined): void => {
 		const waiter = attempt.waiter
 		attempt.waiter = nobody
 		if (waiter._tag === "nobody") {
-			client?.release()
-			permitBack()
+			client?.release(false)
+			owner.permitBack()
 			return
 		}
-		const ask = waiter.ask
-		if (client === undefined) {
-			ask.state = { _tag: "refused", failure: attemptFailed(error) }
-			permitBack()
-		} else {
-			ask.state = { _tag: "connected", client }
+		if (client !== undefined) {
+			owner.settle(waiter.ask, { _tag: "connected", client })
+			return
 		}
-		Deferred.doneUnsafe(ask.settled, Effect.void)
+		owner.settle(waiter.ask, { _tag: "refused", failure: attemptFailed(spec, error) })
+		owner.permitBack()
 	}
 
-/**
- * What a lease takes from its ask once its wait ends: pg's client, the lease's now with its permit; pg's refusal; or
- * nothing, the ask withdrawn from the queue or from pg's Pool, whose later answer goes back to the pool.
- */
-type Claim =
-	| { readonly _tag: "client"; readonly client: PoolClient }
-	| { readonly _tag: "refused"; readonly failure: Effect.Effect<never, AcquireRefusal> }
-	| { readonly _tag: "unanswered" }
-
-const unanswered: Claim = { _tag: "unanswered" }
-
 interface PoolConfig {
-	/** The destination, the derived login role and the password. */
-	readonly connection: Omit<SessionSpec, "applicationName" | "transport" | "startup">
-	/** The transport: verify-full TLS, or a stream a test taps the protocol through. */
-	readonly transport: Transport
-	/** The pool's bounds (core/policy.ts poolBounds in production); tests pass smaller ones to observe them. */
-	readonly pool: { readonly idleTimeoutMs: number; readonly min: number; readonly max: number }
-	/** The acquisition budgets; tests pass smaller ones to observe them. */
-	readonly budgets: AcquisitionBudgets
+	/** The driver, the transport, the database, the derived login role, the password and the connect timeout. */
+	readonly connection: Omit<SessionSpec, "startup">
+	/** The pool's bounds (DbConfig.pool). */
+	readonly bounds: PoolBounds
 	/** The platform's hook, handed pg's Pool once, when it is built (DbConfig.attachPool). */
 	readonly attachPool: (pool: ConnectionPool) => void
 }
 
 export interface SessionPool {
 	readonly role: string
-	/** pg's Pool, attached to Vercel's pool integration when it was built. */
-	readonly native: Pool
-	readonly idleTimeoutMillis: number
-	readonly maxSessions: number
+	/** pg's Pool, attached to the platform's pool integration when it was built, holding the pool's bounds. */
+	readonly native: PgPool
 	/** A session for the scope. */
 	readonly lease: Effect.Effect<Session, AcquireRefusal, Scope.Scope>
 	/** Open connections: leased, idle, or still being established. */
@@ -937,113 +1042,128 @@ export interface SessionPool {
 }
 
 /**
- * Builds the pool in the current scope; it ends, closing every session, when that scope closes. A pool is a login's:
- * each of its sessions starts under the login's pinned defaults (SessionSpec startup).
+ * Builds the pool in the current scope; it ends when that scope closes. A pool is a login's: each of its sessions
+ * starts under the login's pinned defaults (SessionSpec startup).
  *
- * pg destroys a client released with true instead of returning it to the pool.
+ * pg's Pool is handed once, as it is built, to the platform's hook (Vercel's attachDatabasePool reads the idle timeout
+ * and subscribes to release), whose throw is a defect of the caller's hook; the function's deadline never becomes a
+ * statement or lock timeout. pg's Pool reports an idle client that failed after it has closed and dropped it, so its
+ * `error` event wants nothing. The lease's services hold only while pg constructs and starts connecting a client inside
+ * `connect`, and that client keeps them only until its connection is set up.
  *
- * An idle client that failed, which pg's Pool has already closed and dropped.
- *
- * Once, at construction: the platform's hook (Vercel's attachDatabasePool reads the idle timeout and subscribes to
- * release), or nothing. The function's deadline never becomes a statement or lock timeout. A throw is a defect of
- * the caller's hook.
- *
- * The lease's services hold only while pg constructs and starts connecting a client inside `connect`, and that client
- * keeps them only until its connection is set up.
+ * Its end, when the scope closes: pg's Pool ends, which writes a Terminate to each idle client and refuses every later
+ * ask; the sockets of every client constructed and not yet ended are destroyed, leased, idle or connecting alike; and
+ * every ask still unsettled is refused with LayerReleased. Nothing is awaited.
  */
 export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, Scope.Scope> =>
 	Effect.gen(function* () {
-		const { pool, budgets } = config
-		const spec: SessionSpec = {
-			...config.connection,
-			transport: config.transport,
-			applicationName: "grizzle",
-			startup: "login"
-		}
+		const { bounds } = config
+		const spec: SessionSpec = { ...config.connection, startup: "login" }
 		const own = yield* Effect.context()
 		const attemptServices: AttemptServices = { current: own, own }
+		/**
+		 * The session of each client pg's Pool connected, made when its client is ready, before anyone holds the
+		 * client, and kept beside it; a client with none had no BackendKeyData. `live` holds each session from then
+		 * until its connection ends, so it holds exactly the open ones, and an ended session goes with its client.
+		 * `wires` holds every client constructed, with the socket the transport opened for it, until it ends: what the
+		 * pool's end destroys.
+		 */
+		const sessions = new WeakMap<PgClient, Session>()
+		const live = new Set<Session>()
+		const wires = new Map<PgClient, PgSocket>()
+		const ReleasingPool = releasingPool(spec.driver.Pool)
 		const native = new ReleasingPool({
-			Client: sessionClient(spec, attemptServices),
-			min: pool.min,
-			max: pool.max,
-			idleTimeoutMillis: pool.idleTimeoutMs
+			Client: sessionClient(spec, attemptServices, {
+				opened: (client, socket) => {
+					wires.set(client, socket)
+					client.once("end", () => {
+						wires.delete(client)
+					})
+				},
+				ready: (client, session) => {
+					if (session === undefined) {
+						return
+					}
+					sessions.set(client, session)
+					live.add(session)
+					client.once("end", () => {
+						live.delete(session)
+					})
+				}
+			}),
+			min: bounds.min,
+			max: bounds.max,
+			idleTimeoutMillis: bounds.idleTimeoutMs
 		})
 		native.on("error", () => undefined)
-		/**
-		 * The session of each client pg's Pool connected, made as it connects, before anyone holds the client, and kept
-		 * beside it; a client with none had no BackendKeyData. `live` holds each session from then until its connection
-		 * ends, so it holds exactly the open ones, and an ended session goes with its client.
-		 */
-		const sessions = new WeakMap<PoolClient, Session>()
-		const live = new Set<Session>()
-		native.on("connect", (client) => {
-			const session = sessionOf(client, spec)
-			if (session === undefined) {
-				return
-			}
-			sessions.set(client, session)
-			live.add(session)
-			client.once("end", () => {
-				live.delete(session)
-			})
-		})
-		yield* Effect.addFinalizer(() => Effect.promise(() => native.end()))
-		yield* Effect.sync(() => {
-			config.attachPool(native)
-		})
-		const transport = spec.transport
-		const refused = transport._tag === "tls" && caCount(transport.tls) === 0
 		/**
 		 * The permits. An ask takes a permit before pg's Pool is asked for a client for it, and the permit comes back
 		 * once pg has that client back or the attempt has failed; an attempt abandoned while pg connects or hands over
 		 * its client keeps its permit until pg answers. So pg's Pool always has an idle client or room for the attempt,
-		 * and never queues one.
+		 * and never queues one but for the turn it takes to hand an idle client over.
 		 */
-		let permits: Permits = pool.max > 0 ? { _tag: "free", count: pool.max } : exhausted
+		let permits: Permits = { _tag: "free", count: bounds.max }
 		/**
 		 * The clients handed to a lease and not yet released. pg's Pool counts a client still connecting in totalCount
 		 * and not in idleCount, so its difference would count a session being established as leased.
 		 */
 		let leased = 0
+		/**
+		 * The asks not yet settled, whose leases wait: queued for a permit, or connecting. An ask leaves when it settles
+		 * or its lease withdraws it, and the pool's end refuses every one still here: pg's Pool drops the asks it queued
+		 * for an idle client when it ends, and answers none of them.
+		 */
+		const unsettled = new Set<Ask>()
+
+		/** Settles `ask`: what it came to, for its lease to take. */
+		const settle = (ask: Ask, settled: Settled): void => {
+			unsettled.delete(ask)
+			ask.state = settled
+			Deferred.doneUnsafe(ask.settled, Exit.succeed(settled))
+		}
 
 		/**
-		 * Asks pg's Pool for a client for `ask`, which holds a permit, under the services of its lease; whether pg holds
-		 * the permit now. pg's Pool ends only in this pool's finalizer, so an ending pool is a released layer: the ask is
-		 * refused with LayerReleased, read in the same turn as `connect`, so no end can come between, and the permit is
-		 * the caller's again, as it is when pg's Pool throws.
+		 * Asks pg's Pool for a client for `ask`, which holds a permit, under the services of its lease, pg's answer
+		 * reaching `owner`; whether pg holds the permit now. pg's Pool ends only in this pool's finalizer, so an ending
+		 * pool is a released layer: the ask is refused with LayerReleased, read in the same turn as `connect`, so no end
+		 * can come between, and the permit is the caller's again, as it is when pg's Pool throws.
 		 */
-		const attemptFor = (ask: Ask): boolean => {
+		const attemptFor = (ask: Ask, owner: AttemptOwner): boolean => {
 			if (native.ending) {
-				ask.state = { _tag: "refused", failure: Effect.fail(new LayerReleased()) }
-				Deferred.doneUnsafe(ask.settled, Effect.void)
+				settle(ask, layerReleased())
 				return false
 			}
 			const attempt: Attempt = { waiter: { _tag: "waiting", ask } }
 			ask.state = { _tag: "connecting", attempt }
 			attemptServices.current = ask.services
 			const started = Result.try(() => {
-				native.connect(answerAttempt(attempt, permitBack))
+				native.connect(answerAttempt(spec, attempt, owner))
 			})
 			attemptServices.current = own
 			if (Result.isSuccess(started)) {
 				return true
 			}
 			attempt.waiter = nobody
-			ask.state = { _tag: "refused", failure: Effect.die(started.failure) }
-			Deferred.doneUnsafe(ask.settled, Effect.void)
+			settle(ask, { _tag: "refused", failure: Effect.die(started.failure) })
 			return false
 		}
 
-		/** A permit back: to the first ask waiting that pg's Pool takes it for, else free. */
-		const permitBack = (): void => {
-			while (permits._tag === "waiting") {
-				const [first, ...rest] = permits.queue
-				permits = waitingFor(rest)
-				if (attemptFor(first)) {
-					return
+		/**
+		 * What pg's answers reach in this pool: the one settling of an ask, and a permit back, to the first ask waiting
+		 * that pg's Pool takes it for, whose attempt's answer reaches this owner in turn, else free.
+		 */
+		const owner: AttemptOwner = {
+			settle,
+			permitBack: () => {
+				while (permits._tag === "waiting") {
+					const [first, ...rest] = permits.queue
+					permits = waitingFor(rest)
+					if (attemptFor(first, owner)) {
+						return
+					}
 				}
+				permits = { _tag: "free", count: permits._tag === "free" ? permits.count + 1 : 1 }
 			}
-			permits = { _tag: "free", count: permits._tag === "free" ? permits.count + 1 : 1 }
 		}
 
 		/** A new ask for the lease whose services are `services`: given a free permit and pg asked at once, or queued. */
@@ -1051,8 +1171,9 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 			const made: Ask = {
 				state: { _tag: "queued" },
 				services,
-				settled: Deferred.makeUnsafe<void>()
+				settled: Deferred.makeUnsafe<Settled>()
 			}
+			unsettled.add(made)
 			if (permits._tag !== "free") {
 				permits = {
 					_tag: "waiting",
@@ -1061,111 +1182,123 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 				return made
 			}
 			permits = permits.count === 1 ? exhausted : { _tag: "free", count: permits.count - 1 }
-			if (!attemptFor(made)) {
-				permitBack()
+			if (!attemptFor(made, owner)) {
+				owner.permitBack()
 			}
 			return made
 		}
 
 		/**
-		 * What the lease takes from `ask` once its wait ends, in one step: the client pg connected or its refusal; or, if
-		 * neither came, the ask withdrawn, from the queue, or from pg's Pool, whose later answer goes back with its permit.
+		 * An interrupted lease's ask, withdrawn in one step: from the queue; from pg's Pool, whose later answer goes back
+		 * with its permit; or, when pg answered with a client the lease never took, that client back to pg's Pool and
+		 * then its permit. A refused ask's permit is back already.
 		 */
-		const claim = (ask: Ask): Claim => {
+		const withdraw = (ask: Ask): void => {
 			const state = ask.state
 			switch (state._tag) {
 				case "queued":
+					unsettled.delete(ask)
 					permits = withdrawn(permits, ask)
-					return unanswered
+					return
 				case "connecting":
+					unsettled.delete(ask)
 					state.attempt.waiter = nobody
-					return unanswered
+					return
 				case "connected":
-					return { _tag: "client", client: state.client }
+					state.client.release(false)
+					owner.permitBack()
+					return
 				case "refused":
-					return { _tag: "refused", failure: state.failure }
+					return
 			}
 		}
 
-		/** `client` back to pg's Pool, which closes it when `close` holds, and then its permit. */
-		const giveBack = (client: PoolClient, close: boolean): Effect.Effect<void> =>
+		/**
+		 * The pool's end: pg's Pool ended; every wire destroyed, a ready client's through its session, which is ended from
+		 * then on; and every ask still unsettled refused with LayerReleased, the queue emptied with them. A connecting
+		 * ask's attempt answers nobody after: pg's later answer, if any comes, goes back to the ended pool with its permit.
+		 */
+		const end = (): void => {
+			native.end(ended)
+			for (const [client, socket] of wires) {
+				const session = sessions.get(client)
+				if (session === undefined) {
+					destroyWire(client, socket)
+				} else {
+					session.destroy()
+				}
+			}
+			permits = permits._tag === "waiting" ? exhausted : permits
+			for (const ask of unsettled) {
+				const state = ask.state
+				if (state._tag === "connecting") {
+					state.attempt.waiter = nobody
+				}
+				settle(ask, layerReleased())
+			}
+		}
+		yield* Effect.addFinalizer(() => Effect.sync(end))
+		yield* Effect.sync(() => {
+			config.attachPool(native)
+		})
+
+		/**
+		 * `client` back to pg's Pool, which closes it when `close` holds, and then its permit: pg's Pool counts a closed
+		 * client out at once, so the permit admits no lease before the pool has room for it.
+		 */
+		const giveBack = (client: PgPoolClient, close: boolean): Effect.Effect<void> =>
 			Effect.sync(() => {
 				client.release(close)
-				permitBack()
+				owner.permitBack()
 			})
 
 		/**
-		 * A lease's end: the client leaves the leased count and goes back to pg's Pool; a retired or lost session is
-		 * released with an error, so pg's Pool closes it.
+		 * A lease's end: the client leaves the leased count and goes back to pg's Pool, which keeps it exactly when the
+		 * session is open; a retired or ended one is released with an error, so pg's Pool closes it.
 		 */
-		const release = (client: PoolClient, session: Session): Effect.Effect<void> =>
+		const release = (client: PgPoolClient, session: Session): Effect.Effect<void> =>
 			Effect.suspend(() => {
 				leased -= 1
-				return giveBack(client, session.retired() || session.lost())
+				return giveBack(client, session.state() !== "open")
 			})
 
 		/**
-		 * One client, waited for until `deadline` (clock milliseconds), as a session for the scope. A pooled client found
-		 * lost before anything ran on it is closed and another leased in its place, while `replacements` remain: this is
-		 * pool hygiene, never a retry, at most `pool.max` times and within the same wait budget, so no flight is ever sent
-		 * twice, and a connection attempt that fails is the acquisition's failure. A lease of a pool already ending is
-		 * refused at once, before it asks for a permit.
+		 * One client as a session for the scope. A pooled client whose session is not open, its connection ended while it
+		 * sat idle, is closed before anything runs on it and another leased in its place, while `replacements` remain:
+		 * this is pool hygiene, never a retry, at most `bounds.max` times, so no flight is ever sent twice, and a
+		 * connection attempt that fails is the acquisition's failure. A lease of a pool already ending is refused at once,
+		 * before it asks for a permit.
 		 *
-		 * Only the wait for the ask to settle is interruptible, and it carries nothing: whatever ended it, the lease then
-		 * claims what the ask holds in one step, without interruption, so a client that arrived for an interrupted lease
-		 * goes back with its permit, and a leased client is always released. A wait that runs out of the budget with the
-		 * ask unanswered withdraws it and fails with AcquisitionBudgetExceeded.
+		 * Only the wait for the ask to settle is interruptible, and it carries nothing and has no deadline: an interrupted
+		 * lease withdraws its ask in one step, without interruption, so a client that arrived for it goes back with its
+		 * permit, and a leased client is always released.
 		 */
-		const leaseUntil = (
-			deadline: number,
-			replacements: number
-		): Effect.Effect<Session, AcquireRefusal, Scope.Scope> =>
+		const leaseWith = (replacements: number): Effect.Effect<Session, AcquireRefusal, Scope.Scope> =>
 			Effect.uninterruptibleMask((restore) =>
 				Effect.gen(function* () {
-					if (refused) {
-						return yield* new TlsRefused({ fault: { kind: "noAuthority" } })
-					}
 					if (native.ending) {
 						return yield* new LayerReleased()
 					}
-					const now = yield* Clock.currentTimeMillis
 					const context = yield* Effect.context()
 					const asked = newAsk(context)
-					const waited = yield* Effect.exit(
-						restore(
-							Effect.timeoutOption(
-								Deferred.await(asked.settled),
-								Duration.millis(Math.max(0, deadline - now))
-							)
-						)
-					)
-					const claimed = claim(asked)
+					const waited = yield* Effect.exit(restore(Deferred.await(asked.settled)))
 					if (Exit.isFailure(waited)) {
-						if (claimed._tag === "client") {
-							yield* giveBack(claimed.client, false)
-						}
+						withdraw(asked)
 						return yield* Effect.failCause(waited.cause)
 					}
-					if (claimed._tag === "unanswered") {
-						return yield* new AcquisitionBudgetExceeded({
-							millis: budgets.waitMs,
-							sessions: native.totalCount,
-							leased,
-							max: pool.max
-						})
+					const settled = waited.value
+					if (settled._tag === "refused") {
+						return yield* settled.failure
 					}
-					if (claimed._tag === "refused") {
-						return yield* claimed.failure
-					}
-					const client = claimed.client
+					const client = settled.client
 					const session = sessions.get(client)
 					if (session === undefined) {
 						yield* giveBack(client, true)
 						return yield* new NoCancelKey()
 					}
-					if (session.lost() && replacements > 0) {
+					if (session.state() !== "open" && replacements > 0) {
 						yield* giveBack(client, true)
-						return yield* restore(leaseUntil(deadline, replacements - 1))
+						return yield* restore(leaseWith(replacements - 1))
 					}
 					leased += 1
 					yield* Effect.addFinalizer(() => release(client, session))
@@ -1173,16 +1306,10 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 				})
 			)
 
-		const lease = Effect.flatMap(Clock.currentTimeMillis, (now) =>
-			leaseUntil(now + budgets.waitMs, pool.max)
-		)
-
 		return {
 			role: spec.role,
 			native,
-			idleTimeoutMillis: pool.idleTimeoutMs,
-			maxSessions: pool.max,
-			lease,
+			lease: leaseWith(bounds.max),
 			size: Effect.sync(() => native.totalCount),
 			leased: Effect.sync(() => leased),
 			live: Effect.sync(() => live.size),

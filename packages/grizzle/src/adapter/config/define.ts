@@ -10,7 +10,8 @@ import type { GrizzleConfig } from "#adapter/types/config.ts"
 const defined = new WeakMap<object, GrizzleConfig>()
 
 /**
- * defineConfig, the identity function that types grizzle.config.ts (its shape: packages/grizzle/src/adapter/types/config.ts).
+ * defineConfig, the identity function that types a configuration file (its shape:
+ * packages/grizzle/src/adapter/types/config.ts), grizzle.config.ts by convention.
  *
  * This module is public: the connection barrel (packages/grizzle/src/adapter/public/layer.ts) re-exports it. It imports no Node module,
  * so the package root stays free of them. The command line (config.ts) reads the configurations defineConfig typed

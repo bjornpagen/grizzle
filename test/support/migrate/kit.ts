@@ -1,7 +1,8 @@
-import { DateTime } from "effect"
+import { DateTime, Formatter } from "effect"
 import { formatTimestamp } from "#cli/clock.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
+import { type MigrationName, parseMigrationName } from "#compiler/deploy/render/folder.ts"
 import { type GenerateResult, generateMigration } from "#compiler/deploy/render/generate.ts"
 import { type DraftWorkload, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -65,8 +66,20 @@ export type Previous =
 export const fromEmpty: Previous = { kind: "empty" }
 export const fromSnapshot = (snapshot: DeploySnapshot): Previous => ({ kind: "snapshot", snapshot })
 
+/** A migration name a test gives, parsed as `--name` is (folder.ts parseMigrationName): one it refuses is a defect of
+ * the test. */
+export const parsedMigrationName = (name: string): MigrationName => {
+	const parsed = parseMigrationName(name)
+	if (parsed === undefined) {
+		throw new Error(
+			`the test names a migration ${Formatter.format(name)}, of no folder name's shape`
+		)
+	}
+	return parsed
+}
+
 /** A draft as `grizzle generate` makes it, every input stated: the snapshot it continues, its workload (noWorkload for
- * none) and its folder name. */
+ * none) and its folder name, parsed as `--name` is (parsedMigrationName). */
 export interface DraftInput {
 	readonly installation: Installation
 	readonly timestamp: string
@@ -86,7 +99,7 @@ export const generate = (input: DraftInput): Result.Result<GenerateResult, Compi
 					}),
 		installation: input.installation,
 		workload: input.workload,
-		naming: { kind: "named", name: input.name },
+		naming: { kind: "named", name: parsedMigrationName(input.name) },
 		timestamp: input.timestamp,
 		abandoned: []
 	})

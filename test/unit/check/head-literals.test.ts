@@ -5,7 +5,7 @@ import { array, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -17,6 +17,7 @@ import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 
 /**
@@ -45,7 +46,7 @@ const Cell = relation(
 		s: Short,
 		n: pg.integer,
 		b: pg.bigint,
-		x: pg.numeric,
+		x: pg.numeric(10, 2),
 		m: pg.money,
 		f: pg.float8,
 		t: pg.boolean
@@ -388,7 +389,7 @@ describe("head literal typing", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(drawnArms, c) =>
 						Effect.sync(() => {

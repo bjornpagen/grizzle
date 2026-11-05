@@ -49,8 +49,15 @@ export type DraftFile =
 			readonly transaction: true
 	  })
 
+/**
+ * The digits a file's ordinal is written in, at least: `NN`, zero-padded.
+ *
+ * @formatConstant a migration file's name, `NN-<phase>.sql`: its ordinal in at least two digits
+ */
+const ordinalDigits = 2
+
 const fileName = (ordinal: number, phase: DeployPhase): string =>
-	`${String(ordinal).padStart(2, "0")}-${phase}.sql`
+	`${String(ordinal).padStart(ordinalDigits, "0")}-${phase}.sql`
 
 /** A file before it is numbered: its phase, its drafts, and how its head becomes the file. */
 interface UnnumberedFile {

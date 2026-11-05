@@ -54,6 +54,7 @@ import {
 	type ApartAnswer,
 	type BatchOutcome,
 	type BatchStatement,
+	type FenceStep,
 	fenceReason,
 	runAlongside,
 	type Transaction
@@ -218,7 +219,9 @@ const rowsOf = (
 
 /** The fence's transaction: the ledger's lock NOWAIT, then the guard's call, read-only. */
 const fenceTransaction: Transaction = { access: "readOnly", end: "COMMIT" }
-const fenceLockAt = 0
+
+/** The fence's steps, in the order its transaction sends them, each refusal read at its step's position. */
+const fenceSteps = ["lock", "guard"] as const satisfies ReadonlyArray<FenceStep>
 
 /**
  * The ledger stage's mismatch from the fence's transaction (see the header): none when it committed; the fence's
@@ -238,7 +241,10 @@ const fenceMismatch = (
 	if (failure._tag !== "BatchRefused") {
 		return Result.fail(flightFailure(failure))
 	}
-	const step = failure.index === fenceLockAt ? "lock" : "guard"
+	const step = fenceSteps[failure.index]
+	if (step === undefined) {
+		return Result.fail(failure.failure)
+	}
 	const target = (observed: string): AdmissionMismatch => ({
 		stage: "ledger",
 		check: `ledger ${schema}.${ledgerTableName} latest complete target`,
@@ -363,23 +369,27 @@ const byCheck: Order.Order<AdmissionMismatch> = Order.mapInput(
 	(m: AdmissionMismatch) => m.check
 )
 
-/** The flight's statements apart, in order. */
-const databaseAt = 0
-const extensionsAt = 1
-const loginSettingsAt = 2
-const loginPrivilegesAt = 3
-const membershipsAt = 4
-const roleSettingsAt = 5
-const rolePrivilegesAt = 6
-const policiesAt = 7
-const loginAttributesAt = 8
-const loginMembersAt = 9
-const roleAttributesAt = 10
-const roleMembershipsAt = 11
-const roleMembersAt = 12
-const rowSecurityAt = 13
-/** The claims' statements follow, one per refined claim. */
-const claimsAt = 14
+/**
+ * The flight's catalog reads apart, in the order it sends them: each read's answer is at its position in this list,
+ * and the claims' statements follow, one per refined claim, from its length on.
+ */
+const admissionReads = [
+	"database",
+	"extensions",
+	"loginSettings",
+	"loginPrivileges",
+	"memberships",
+	"roleSettings",
+	"rolePrivileges",
+	"policies",
+	"loginAttributes",
+	"loginMembers",
+	"roleAttributes",
+	"roleMemberships",
+	"roleMembers",
+	"rowSecurity"
+] as const
+type AdmissionRead = (typeof admissionReads)[number]
 
 /**
  * Admission at Db.open.
@@ -461,30 +471,34 @@ export const admit = Effect.fn("admit")(function* (
 			judged.push({ claim, domain: domain.value })
 		}
 	}
+	const reads: { readonly [R in AdmissionRead]: BatchStatement } = {
+		database: { sql: databaseQuery.sql, params: [] },
+		extensions: { sql: extensionsQuery.sql, params: [] },
+		loginSettings: { sql: settingsQuery.sql, params: [login] },
+		loginPrivileges: { sql: privilegesQuery.sql, params: privilegesParams(loginExpected) },
+		memberships: { sql: membershipsQuery.sql, params: [login] },
+		roleSettings: { sql: settingsQuery.sql, params: [role] },
+		rolePrivileges: { sql: privilegesQuery.sql, params: privilegesParams(roleExpected) },
+		policies: { sql: policiesQuery.sql, params: [role, schema] },
+		loginAttributes: { sql: attributesQuery.sql, params: [login] },
+		loginMembers: { sql: membersQuery.sql, params: [login, schema] },
+		roleAttributes: { sql: attributesQuery.sql, params: [role] },
+		roleMemberships: { sql: membershipsQuery.sql, params: [role] },
+		roleMembers: { sql: membersQuery.sql, params: [role, schema] },
+		rowSecurity: { sql: rowSecurityQuery.sql, params: [schema, textArray(roleExpected.secured)] }
+	}
 	const flight: ReadonlyArray<BatchStatement> = [
-		{ sql: databaseQuery.sql, params: [] },
-		{ sql: extensionsQuery.sql, params: [] },
-		{ sql: settingsQuery.sql, params: [login] },
-		{ sql: privilegesQuery.sql, params: privilegesParams(loginExpected) },
-		{ sql: membershipsQuery.sql, params: [login] },
-		{ sql: settingsQuery.sql, params: [role] },
-		{ sql: privilegesQuery.sql, params: privilegesParams(roleExpected) },
-		{ sql: policiesQuery.sql, params: [role, schema] },
-		{ sql: attributesQuery.sql, params: [login] },
-		{ sql: membersQuery.sql, params: [login, schema] },
-		{ sql: attributesQuery.sql, params: [role] },
-		{ sql: membershipsQuery.sql, params: [role] },
-		{ sql: membersQuery.sql, params: [role, schema] },
-		{ sql: rowSecurityQuery.sql, params: [schema, textArray(roleExpected.secured)] },
+		...Arr.map(admissionReads, (read) => reads[read]),
 		...Arr.map(judged, (j): BatchStatement => ({
 			sql: claimValidQuery.sql,
 			params: [j.claim.text, printObjectName(j.domain)]
 		}))
 	]
-	const fence: ReadonlyArray<BatchStatement> = [
-		{ sql: ledger.fence.text, params: [] },
-		{ sql: ledger.guard.text, params: [snapshot.fingerprint] }
-	]
+	const fenceStatements: { readonly [S in FenceStep]: BatchStatement } = {
+		lock: { sql: ledger.fence.text, params: [] },
+		guard: { sql: ledger.guard.text, params: [snapshot.fingerprint] }
+	}
+	const fence = Arr.map(fenceSteps, (step) => fenceStatements[step])
 	const flown = yield* Effect.scoped(
 		Effect.flatMap(
 			Effect.mapError(pool.lease, (reason) => new OpenError({ reason })),
@@ -493,10 +507,13 @@ export const admit = Effect.fn("admit")(function* (
 		)
 	)
 	const answers = flown.alone
+	/** The answer of one catalog read, at its position in admissionReads. */
+	const answerOf = (read: AdmissionRead): ApartAnswer =>
+		sentAnswer(answers, admissionReads.indexOf(read))
 	const server = yield* fromResult(
 		serverRows({
-			database: yield* rowsOf(sentAnswer(answers, databaseAt)),
-			extensions: yield* rowsOf(sentAnswer(answers, extensionsAt))
+			database: yield* rowsOf(answerOf("database")),
+			extensions: yield* rowsOf(answerOf("extensions"))
 		})
 	)
 	const fenced = yield* fromResult(fenceMismatch(schema, snapshot, flown.framed))
@@ -519,20 +536,22 @@ export const admit = Effect.fn("admit")(function* (
 		before.push(fenced.value)
 	}
 	yield* refusedAt(before)
-	const rowsAt = <Row>(query: CatalogQueryOf<Row>, at: number) =>
-		Effect.flatMap(rowsOf(sentAnswer(answers, at)), (rows) => fromResult(catalogRows(query, rows)))
-	const loginSettings = yield* rowsAt(settingsQuery, loginSettingsAt)
-	const loginPrivileges = yield* rowsAt(privilegesQuery, loginPrivilegesAt)
-	const memberships = yield* rowsAt(membershipsQuery, membershipsAt)
-	const roleSettings = yield* rowsAt(settingsQuery, roleSettingsAt)
-	const rolePrivileges = yield* rowsAt(privilegesQuery, rolePrivilegesAt)
-	const policies = yield* rowsAt(policiesQuery, policiesAt)
-	const loginAttributes = yield* rowsAt(attributesQuery, loginAttributesAt)
-	const loginMembers = yield* rowsAt(membersQuery, loginMembersAt)
-	const roleAttributes = yield* rowsAt(attributesQuery, roleAttributesAt)
-	const roleMemberships = yield* rowsAt(membershipsQuery, roleMembershipsAt)
-	const roleMembers = yield* rowsAt(membersQuery, roleMembersAt)
-	const rowSecurity = yield* rowsAt(rowSecurityQuery, rowSecurityAt)
+	const rowsAt = <Row>(query: CatalogQueryOf<Row>, answer: ApartAnswer) =>
+		Effect.flatMap(rowsOf(answer), (rows) => fromResult(catalogRows(query, rows)))
+	const rowsOfRead = <Row>(query: CatalogQueryOf<Row>, read: AdmissionRead) =>
+		rowsAt(query, answerOf(read))
+	const loginSettings = yield* rowsOfRead(settingsQuery, "loginSettings")
+	const loginPrivileges = yield* rowsOfRead(privilegesQuery, "loginPrivileges")
+	const memberships = yield* rowsOfRead(membershipsQuery, "memberships")
+	const roleSettings = yield* rowsOfRead(settingsQuery, "roleSettings")
+	const rolePrivileges = yield* rowsOfRead(privilegesQuery, "rolePrivileges")
+	const policies = yield* rowsOfRead(policiesQuery, "policies")
+	const loginAttributes = yield* rowsOfRead(attributesQuery, "loginAttributes")
+	const loginMembers = yield* rowsOfRead(membersQuery, "loginMembers")
+	const roleAttributes = yield* rowsOfRead(attributesQuery, "roleAttributes")
+	const roleMemberships = yield* rowsOfRead(membershipsQuery, "roleMemberships")
+	const roleMembers = yield* rowsOfRead(membersQuery, "roleMembers")
+	const rowSecurity = yield* rowsOfRead(rowSecurityQuery, "rowSecurity")
 	yield* refusedAt(
 		Arr.sort(
 			[
@@ -564,7 +583,10 @@ export const admit = Effect.fn("admit")(function* (
 	)
 	const refusedClaims: Array<RefusedClaim> = []
 	for (const [i, j] of judged.entries()) {
-		const [valid, ...more] = yield* rowsAt(claimValidQuery, claimsAt + i)
+		const [valid, ...more] = yield* rowsAt(
+			claimValidQuery,
+			sentAnswer(answers, admissionReads.length + i)
+		)
 		if (valid === undefined || more.length > 0) {
 			return yield* fromResult(Result.fail(new CatalogRowRefused({ what: claimValidQuery.what })))
 		}

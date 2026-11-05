@@ -3,9 +3,10 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { offlineBind, offlineCompile, parsedChange } from "#test/support/worlds/execute/offline.ts"
@@ -259,7 +260,7 @@ describe("the write front end over its small box", () => {
 							"facts refused at their shape",
 							"generated facts bound"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(point, c) =>
 						Effect.gen(function* () {

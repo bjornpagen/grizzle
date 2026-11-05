@@ -144,7 +144,7 @@ const git = Effect.fn("git")(function* (
 			spawner.spawn(ChildProcess.make("git", args, { cwd: repoRoot, stderr: "inherit" })),
 			(child) =>
 				Effect.all([Stream.mkString(Stream.decodeText(child.stdout)), child.exitCode], {
-					concurrency: 2
+					concurrency: "unbounded"
 				})
 		),
 		failed

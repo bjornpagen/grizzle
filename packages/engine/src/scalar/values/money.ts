@@ -2,22 +2,24 @@ import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/
 import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { MoneyValue } from "#compiler/ir/carriers.ts"
+import {
+	int8Digits,
+	int8Max,
+	int8Min,
+	moneyFractionDigits,
+	type MoneyValue
+} from "#compiler/ir/carriers.ts"
 import { Decimal, roundedUnits } from "#compiler/scalar/values/decimal.ts"
 import { faultError } from "#compiler/scalar/values/fault.ts"
-import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
-
-/** The fractional digits of the fixed C.UTF-8 monetary context. */
-export const moneyFractionDigits = 2
 
 /**
- * Whether the text is a canonical decimal integer of at most 19 digits: an optional minus sign, no leading zero, and
- * no minus zero. A per-value hot path, scanned in place.
+ * Whether the text is a canonical decimal integer of at most int8Digits digits: an optional minus sign, no leading
+ * zero, and no minus zero. A per-value hot path, scanned in place.
  */
 const isCanonicalInteger = (text: string): boolean => {
 	const start = text.startsWith("-") ? 1 : 0
 	const length = text.length - start
-	if (length === 0 || length > 19) {
+	if (length === 0 || length > int8Digits.value) {
 		return false
 	}
 	for (let i = start; i < text.length; i++) {
@@ -36,10 +38,11 @@ const isCanonicalInteger = (text: string): boolean => {
  * carrier holds exactly a count and nothing else: no currency, no locale, no floating amount. A money field's count is
  * a signed 64-bit one (make); an exact amount, money arithmetic's value, is a count of any size (exact).
  *
- * Conversions to and from numeric follow PostgreSQL under the fixed C.UTF-8 monetary context, whose two fractional
- * digits admission verifies: money-to-numeric divides the count by 100 exactly at
- * scale 2 (cash_numeric), and numeric-to-money multiplies by 100 and rounds half away from zero to an integer, refusing
- * a result outside int64 (numeric_cash through numeric_int8). The exact money wire form rides on these.
+ * Conversions to and from numeric follow PostgreSQL under the fixed C.UTF-8 monetary context, whose fraction digits
+ * admission verifies (ir/carriers.ts moneyFractionDigits): money-to-numeric divides the count by
+ * 10^moneyFractionDigits exactly at that scale (cash_numeric), and numeric-to-money multiplies by it and rounds half
+ * away from zero to an integer, refusing a result outside int64 (numeric_cash through numeric_int8). The exact money
+ * wire form rides on these.
  */
 export class Money implements Canonicalizable {
 	readonly minorUnits: bigint
@@ -50,15 +53,15 @@ export class Money implements Canonicalizable {
 	}
 
 	static readonly zero: Money = new Money(0n)
-	static readonly min: Money = new Money(int8Min)
-	static readonly max: Money = new Money(int8Max)
+	static readonly min: Money = new Money(int8Min.value)
+	static readonly max: Money = new Money(int8Max.value)
 
 	/** A Money value from its count of minor units: a bigint within the signed 64-bit range. */
 	static make(minorUnits: unknown): Result.Result<Money, ValueFault> {
 		if (typeof minorUnits !== "bigint") {
 			return Result.err("moneyType")
 		}
-		if (minorUnits < int8Min || minorUnits > int8Max) {
+		if (minorUnits < int8Min.value || minorUnits > int8Max.value) {
 			return Result.err("moneyRange")
 		}
 		return Result.ok(new Money(minorUnits))
@@ -88,8 +91,8 @@ export class Money implements Canonicalizable {
 	}
 
 	/**
-	 * numeric::money: round(amount * 100) half away from zero, refused outside int64; NaN and infinity have no money
-	 * value (numeric_int8 refuses them).
+	 * numeric::money: round(amount * 10^moneyFractionDigits) half away from zero, refused outside int64; NaN and
+	 * infinity have no money value (numeric_int8 refuses them).
 	 */
 	static fromDecimal(amount: Decimal): Result.Result<Money, ValueFault> {
 		return Money.admitDecimal(amount)
@@ -106,7 +109,7 @@ export class Money implements Canonicalizable {
 		if (!amount.isFinite()) {
 			return Result.err("moneySpecial")
 		}
-		return Money.make(roundedUnits(amount, moneyFractionDigits))
+		return Money.make(roundedUnits(amount, moneyFractionDigits.value))
 	}
 
 	/**
@@ -120,8 +123,8 @@ export class Money implements Canonicalizable {
 		const point = text.indexOf(".", start)
 		const digits =
 			point < 0
-				? text.slice(start) + "0".repeat(moneyFractionDigits)
-				: text.slice(start, point) + text.slice(point + 1).padEnd(moneyFractionDigits, "0")
+				? text.slice(start) + "0".repeat(moneyFractionDigits.value)
+				: text.slice(start, point) + text.slice(point + 1).padEnd(moneyFractionDigits.value, "0")
 		const units = BigInt(digits)
 		return new Money(negative ? -units : units)
 	}
@@ -146,10 +149,10 @@ export class Money implements Canonicalizable {
 	/**
 	 * money::numeric: the exact amount, in the Decimal's one form ("12.5" for 1250 minor units).
 	 *
-	 * Every int64 count of hundredths is within the numeric format.
+	 * Every int64 count of minor units is within the numeric format.
 	 */
 	toDecimal(): Decimal {
-		return Decimal.fromHundredths(this.minorUnits)
+		return Decimal.fromMinorUnits(this.minorUnits)
 	}
 
 	/**
@@ -160,8 +163,8 @@ export class Money implements Canonicalizable {
 		const negative = this.minorUnits < 0n
 		const digits = (negative ? -this.minorUnits : this.minorUnits)
 			.toString()
-			.padStart(moneyFractionDigits + 1, "0")
-		const point = digits.length - moneyFractionDigits
+			.padStart(moneyFractionDigits.value + 1, "0")
+		const point = digits.length - moneyFractionDigits.value
 		return `${negative ? "-" : ""}${digits.slice(0, point)}.${digits.slice(point)}`
 	}
 

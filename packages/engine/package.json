@@ -122,6 +122,11 @@
 			"types": "./dist/core/invariant.d.ts",
 			"default": "./dist/core/invariant.js"
 		},
+		"./internal/core/limits.ts": {
+			"grizzle-source": "./src/core/limits.ts",
+			"types": "./dist/core/limits.d.ts",
+			"default": "./dist/core/limits.js"
+		},
 		"./internal/core/loc.ts": {
 			"grizzle-source": "./src/core/loc.ts",
 			"types": "./dist/core/loc.d.ts",
@@ -136,11 +141,6 @@
 			"grizzle-source": "./src/core/phantom.ts",
 			"types": "./dist/core/phantom.d.ts",
 			"default": "./dist/core/phantom.js"
-		},
-		"./internal/core/policy.ts": {
-			"grizzle-source": "./src/core/policy.ts",
-			"types": "./dist/core/policy.d.ts",
-			"default": "./dist/core/policy.js"
 		},
 		"./internal/core/record.ts": {
 			"grizzle-source": "./src/core/record.ts",

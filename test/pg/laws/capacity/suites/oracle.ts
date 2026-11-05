@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { array, boolean, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { installCapacity, writerOf } from "#test/pg/laws/capacity/support.ts"
@@ -21,6 +21,7 @@ import {
 	within
 } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pgErrorFields, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -293,7 +294,7 @@ const capacityOracle = (variant: PoolsVariant) =>
 					["accepted", "rejected", "populated start", "empty start"],
 					{ cases: 40, sense: notesOnly }
 				),
-				caseHang: Duration.minutes(2)
+				caseHang
 			},
 			(k, c) =>
 				Effect.gen(function* () {

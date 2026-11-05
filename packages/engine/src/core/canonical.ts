@@ -6,10 +6,10 @@ import {
 	within
 } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import { maxStringLength } from "#compiler/core/limits.ts"
 import { enclosedWithin } from "#compiler/core/lines.ts"
 import { isSourceLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { maxStringLength } from "#compiler/core/policy.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 
@@ -396,7 +396,14 @@ const enclosed = (
 	separator: string,
 	close: string
 ): string => {
-	const text = enclosedWithin(maxStringLength, canonicalTextLoc, open, parts, separator, close)
+	const text = enclosedWithin(
+		maxStringLength.value,
+		canonicalTextLoc,
+		open,
+		parts,
+		separator,
+		close
+	)
 	if (!text.ok) {
 		throw new Refusal(text.error)
 	}
@@ -581,7 +588,10 @@ class Revive {
 		const tag = colon < 0 ? "" : value.slice(1, colon)
 		const payload = value.slice(colon + 1)
 		if (!isTagName(tag)) {
-			return refuseText(this.#path, `a tagged string, not ${JSON.stringify(value.slice(0, 16))}`)
+			return refuseText(
+				this.#path,
+				"a tagged string, ~<tag>:<payload> with a tag of lowercase letters and digits that begins with a letter"
+			)
 		}
 		if (tag === "n") {
 			return isCanonicalInteger(payload)

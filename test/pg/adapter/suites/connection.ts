@@ -4,7 +4,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter, Redacted } from "effect"
+import { Effect, Formatter, Redacted } from "effect"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
@@ -12,8 +12,6 @@ import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import {
 	countingPassword,
 	defaultPool,
-	fakeServerPool,
-	type PoolOptions,
 	poolFor,
 	roleDefaults,
 	rowsOn,
@@ -22,6 +20,8 @@ import {
 import { assert } from "#test/support/assert.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
+import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
+import { clusterTransport } from "#test/support/pg.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 const currentUser =
@@ -99,24 +99,27 @@ const refusingServer = Effect.acquireRelease(
  */
 const certificateNames: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "::1"])
 
-type CaChoice = "local" | "wrong" | "empty"
+type CaChoice = "local" | "wrong"
 
 /**
- * The cluster's CA, another CA, and an empty bundle (no unverified mode: nothing to verify against is a refusal); the
- * other CA is the cluster's too.
+ * The cluster's CA, and another CA, which the cluster holds too. There is no unverified mode: an empty bundle, nothing
+ * to verify against, never reaches a pool, since the parse of the connection refuses it at stage config
+ * (test/unit/adapter/layer.test.ts).
  */
-const caOf = (
-	cluster: InitializedClusterShape
-): { readonly [C in CaChoice]: PoolOptions["ca"] } => ({
-	local: { kind: "cluster" },
-	wrong: { kind: "given", pem: cluster.wrongCaPem },
-	empty: { kind: "given", pem: "" }
+const caOf = (cluster: InitializedClusterShape): { readonly [C in CaChoice]: string } => ({
+	local: cluster.caPem,
+	wrong: cluster.wrongCaPem
 })
+
+/** The name a pool verifies: the very host it dials, or another (a tunnel's), each stated in full. */
+type Servername =
+	| { readonly kind: "host" }
+	| { readonly kind: "given"; readonly servername: string }
 
 interface TlsConfig {
 	readonly ca: CaChoice
 	readonly host: string
-	readonly servername: PoolOptions["servername"]
+	readonly servername: Servername
 }
 
 type TlsFeature =
@@ -129,13 +132,14 @@ type TlsFeature =
 /**
  * Every TLS configuration of a pool over the axes a deployment sets: the CA bundle; the host it dials, by name, by the
  * address the certificate names, and by "127.1", which getaddrinfo reads as 127.0.0.1 but the certificate never names;
- * and the name verified, the host itself or an override (a tunnel), a carried name or one no certificate carries.
+ * and the name verified, stated in full: the host itself or an override (a tunnel), a carried name or one no
+ * certificate carries.
  */
 const tlsConfigs: Gen<TlsConfig> = (source) => ({
-	ca: source.draw(element<CaChoice>(["local", "wrong", "empty"])),
+	ca: source.draw(element<CaChoice>(["local", "wrong"])),
 	host: source.draw(element(["localhost", "127.0.0.1", "127.1"])),
 	servername: source.draw(
-		element<PoolOptions["servername"]>([
+		element<Servername>([
 			{ kind: "host" },
 			{ kind: "given", servername: "localhost" },
 			{ kind: "given", servername: "127.0.0.1" },
@@ -175,23 +179,28 @@ export const connectionSuite = (): void => {
 								coverage: requiredInSpace<TlsFeature>([
 									"connected",
 									"refused wrong ca",
-									"refused empty ca",
 									"refused host name",
 									"refused override name",
 									"connected through an override"
 								]),
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(config, c) =>
 								Effect.gen(function* () {
-									const pool = yield* poolFor(writer, {
-										...defaultPool,
-										ca: caOf(s.cluster)[config.ca],
-										host: config.host,
-										servername: config.servername
-									})
 									const verified =
 										config.servername.kind === "host" ? config.host : config.servername.servername
+									const pool = yield* poolFor(writer, {
+										...defaultPool,
+										transport: {
+											kind: "given",
+											transport: {
+												...clusterTransport(s.cluster),
+												host: config.host,
+												ca: caOf(s.cluster)[config.ca],
+												servername: verified
+											}
+										}
+									})
 									if (config.ca !== "local") {
 										const stage = yield* refusedStage(pool)
 										assert.equal(stage, "tls")
@@ -225,7 +234,13 @@ export const connectionSuite = (): void => {
 					const schema = yield* s.schema(freshSchema)
 					const writer = yield* substrateLogin(schema, "server", roleDefaults)
 					const server = yield* refusingServer
-					const pool = yield* fakeServerPool(writer, server.port)
+					const pool = yield* poolFor(writer, {
+						...defaultPool,
+						transport: {
+							kind: "given",
+							transport: { ...clusterTransport(s.cluster), port: server.port }
+						}
+					})
 					const stage = yield* refusedStage(pool)
 					assert.equal(stage, "tls")
 					assert.equal(server.after(), 0)
@@ -257,7 +272,7 @@ export const connectionSuite = (): void => {
 					const pool = yield* poolFor(writer, {
 						...defaultPool,
 						password: { kind: "given", password: rotating.password },
-						pool: { idleTimeoutMs: 60_000, min: 1, max: 4 }
+						pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 4 }
 					})
 					yield* Effect.scoped(
 						Effect.gen(function* () {
@@ -321,7 +336,7 @@ export const connectionSuite = (): void => {
 					const pool = yield* poolFor(writer, {
 						...defaultPool,
 						password: { kind: "given", password: flaky },
-						pool: { idleTimeoutMs: 60_000, min: 1, max: 4 }
+						pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 4 }
 					})
 					const leasedRows = yield* leased(pool, okQuery)
 					assert.deepEqual(leasedRows, [["ok"]])

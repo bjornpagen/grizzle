@@ -11,8 +11,7 @@ layer(Substrate.layer)("the optimized lowering against the invalid mutants I6-I8
 		const mutant = mutants[population.id]
 		it.effect(
 			`${population.id} (${mutant.check}): never reproduced in ${within} cases that kill the mutant`,
-			(ctx) => searched(ctx, nonReproduction(population)),
-			900_000
+			(ctx) => searched(ctx, nonReproduction(population))
 		)
 	}
 })

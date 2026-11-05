@@ -5,13 +5,14 @@ import { type Gen, map, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record } from "effect"
-import { swapName } from "#compiler/deploy/diff/diff.ts"
+import { Array as Arr, Effect, Formatter, Option, Order, Record } from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { f, key, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atDeclaredName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	compile,
 	fromEmpty,
@@ -47,6 +48,9 @@ import { draftActions, draftFiles, planStatements } from "#test/support/migrate/
  * - over the installations of every drawn schema, no swap name of an index or a key is a name the installation
  *   registers, and no registered name lies in the swap names' namespace. */
 const words = ["next", "ix", "key", "pk", "a", "b"] as const
+
+/** The name the naming door builds an index under before it is swapped in for `name` (identity.swap). */
+const swapName = (name: string): string => identifierOf(identity.swap(name))
 
 interface SwapCase {
 	/** Distinct field words: the first is retyped and keyed alone and with the second; the third is keyed alone. */
@@ -322,7 +326,7 @@ describe("keys over a retyped field, and key swaps", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(value, c) => Effect.sync(() => swaps(c, value))
 				)

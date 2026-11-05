@@ -18,7 +18,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record, String as Str } from "effect"
 import type { QueryDesc, SideDesc } from "#compiler/ir/desc.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
@@ -46,6 +46,7 @@ import type {
 	SchemaDesc,
 	AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
@@ -257,7 +258,7 @@ describe("the owned product", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -399,7 +400,7 @@ describe("conflicting declarations", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -530,7 +531,7 @@ describe("closed relations", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -663,7 +664,7 @@ describe("closed relations", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -754,7 +755,7 @@ describe("LawOnDerived", () => {
 							coverage: requiredInSpace<`${LawOnDerivedKind} ${"description" | "builder"}`>(
 								Arr.flatMap(lawKinds, (k) => [`${k} description` as const, `${k} builder` as const])
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([kind, form, swapped], c) =>
 							Effect.sync(() => {
@@ -990,7 +991,7 @@ describe("scope and structure", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {

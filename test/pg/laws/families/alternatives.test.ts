@@ -8,7 +8,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	alternativesFamily,
 	compositeAlternatives,
@@ -16,14 +16,10 @@ import {
 	type RunsParams,
 	stageName
 } from "#test/pg/laws/families/families.ts"
-import {
-	casesPerTest,
-	familySuite,
-	installVariant,
-	timeoutOf
-} from "#test/pg/laws/families/suites/family.ts"
+import { casesPerTest, familySuite, installVariant } from "#test/pg/laws/families/suites/family.ts"
 import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 familySuite(alternativesFamily, casesPerTest, "the family")
@@ -73,7 +69,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								"a handle of a payload relation shared",
 								"a handle of a payload relation of its own"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ schema, pay, handle, shared }, c) =>
 							Effect.gen(function* () {
@@ -106,8 +102,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								}
 							})
 					)
-				),
-			timeoutOf(armedHandles.length)
+				)
 		)
 	}
 )

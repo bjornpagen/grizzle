@@ -4,16 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { boolean, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	pipe,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
 import { login } from "#compiler/program/workload/login.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -26,6 +17,7 @@ import { assert, defined } from "#test/support/assert.ts"
 import { fixedDefaults, searchDefaults } from "#test/support/catalog/installed.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { migrated, type Version, worldRoleOf } from "#test/support/installed.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -241,7 +233,7 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 							shrink: { kind: "complete" },
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(c, cx) =>
 							Effect.scoped(
@@ -344,7 +336,6 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 						"each login's defaults at each version"
 					)
 				})
-			),
-		300_000
+			)
 	)
 })

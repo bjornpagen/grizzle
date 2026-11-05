@@ -14,7 +14,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { ExprId, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import { nodeScopes, type OuterRefs, toTable } from "#compiler/ir/dag.ts"
@@ -30,6 +30,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { liveOf } from "#test/support/oracle/dag-validate.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import { heading, scalarTypes } from "#test/unit/ir/fixture.ts"
@@ -829,7 +830,7 @@ describe("a node's scope", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(d, c) =>
 						Effect.sync(() => {

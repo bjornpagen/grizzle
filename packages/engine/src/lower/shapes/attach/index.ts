@@ -88,15 +88,13 @@ interface AttachmentChoice {
 }
 
 /**
- * The fixed R36 rule. `parents` says whether the parent's rows read an approximate search, under which a width-only
- * pipelining fuses instead (see the header); a child of more than `maxFields` fields (core/policy.ts
- * attachFuseMaxFields in production) is pipelined.
+ * The R36 rule. `parents` says whether the parent's rows read an approximate search, the one case correctness fuses.
  *
  * Attachments: pipelined per attached query, or fused into the parent statement.
  *
  * An attachment is the nest operator: for each delivered parent fact, the set of its correlated child facts; the parent
  * set is unchanged, never filtered, multiplied or reordered. Two lowerings deliver identical nested
- * results, chosen by the fixed rule and never by the caller:
+ * results, chosen by the rule and never by the caller:
  *
  * - pipelined: one statement per attached query, in the parent statement's flight and snapshot, which computes the
  *   parent's rows again as a derived table of its own (conservative/deliver.ts parentRowsSource); the library stitches
@@ -109,43 +107,32 @@ interface AttachmentChoice {
  * delivered rows, read as a derived table, so the parent's plan is the plan it would have alone and an attachment on a
  * page is evaluated over the delivered page only.
  *
- * The fixed fusion rule: fuse when the child delivers at most
- * attachFuseMaxFields fields and fusing changes no evaluation count the language promises. A child that reads a
- * recursive relation is seeded once from the parent keys instead (R37, attach-recursive); a child over an approximate
- * source evaluates that source once per execution, not once per parent; a child with attachments of its
- * own, or a heterogeneous union, delivers more than one array can carry. Those stay pipelined
- * (check/approximate/attach.ts pipelinedOnly).
- *
- * A parent whose rows read an approximate search fuses every child the width alone would pipeline: a pipelined
- * statement computes its parent's rows again, which would run the search a second time, and two HNSW searches in one
- * snapshot need not retrieve the same set. A child that must pipeline under such rows the checker refuses
- * (check/approximate/attach.ts pipelinedOverSearch).
+ * An attachment is pipelined, its own statement in the same round trip, unless correctness requires it fused: a
+ * parent whose rows read an approximate search fuses every child, since a pipelined statement computes its parent's
+ * rows again, which would run the search a second time, and two HNSW searches in one snapshot need not retrieve the
+ * same set. Some children always pipeline (check/approximate/attach.ts pipelinedOnly): one that reads a recursive
+ * relation is seeded once from the parent keys instead (R37, attach-recursive), one over an approximate source
+ * evaluates that source once per execution, not once per parent, and one with attachments of its own, or a
+ * heterogeneous union, delivers more than one array can carry. Such a child under a parent whose rows read a search
+ * the checker refuses (check/approximate/attach.ts pipelinedOverSearch). No width or count decides the form: a
+ * pipelined statement's cost is one more statement in the flight, never a different answer.
  */
 export const chooseAttachment = (
 	attach: NodeOf<"Attach">,
-	parents: "exact" | "approximate",
-	maxFields: number
+	parents: "exact" | "approximate"
 ): AttachmentChoice => {
 	const blocked = pipelinedOnly(attach.child)
 	if (blocked !== undefined) {
 		return { form: "pipelined", why: blocked }
 	}
-	const width = Math.max(
-		1,
-		fusedElement(fusedLayout(attach, attach.child.heading, attach.parent.heading)).length
-	)
-	if (parents === "approximate") {
-		return {
-			form: "fused",
-			why: "a child over approximate candidates fuses, so the search runs once"
-		}
-	}
-	if (width > maxFields) {
-		return { form: "pipelined", why: "the child delivers more than attachFuseMaxFields fields" }
-	}
-	return {
-		form: "fused",
-		why: width === 1 ? "a single-field child fuses directly" : "a narrow child fuses as JSON"
+	switch (parents) {
+		case "approximate":
+			return {
+				form: "fused",
+				why: "a child over approximate candidates fuses, so the search runs once"
+			}
+		case "exact":
+			return { form: "pipelined", why: "an attachment is its own statement in the flight" }
 	}
 }
 

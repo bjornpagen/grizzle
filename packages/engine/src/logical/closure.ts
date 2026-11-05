@@ -139,7 +139,7 @@ export const derivation = <V>(c: Closure<V>, targets: Iterable<string>): Implica
  * The order of keys of a heading whose columns are in heading order: the shorter first, then the one holding the first
  * heading column that only one of them holds, which is where the two, read in heading order, first differ.
  */
-export const keyOrder =
+const keyOrder =
 	(columns: ReadonlyArray<string>): ((a: KeySet, b: KeySet) => number) =>
 	(a, b) => {
 		if (a.length !== b.length) {

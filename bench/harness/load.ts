@@ -23,8 +23,8 @@ import { nothingReported, serverError } from "#test/support/server-error.ts"
  * A load is a set of workers, each holding its own session, running one operation after another: a fixed number each,
  * or until a deadline. Every operation reports its outcome and the attempts it discarded; the load reports
  * throughput, latency, outcomes and retries by reason. grizzle makes one attempt per call and never retries, so the
- * harness retries as an application does (`withRetries`): Effect.retry with its own Schedule (`retryPolicy`, a few
- * retries with exponential backoff), while the attempt ended in a transient failure. A hand-written baseline and a
+ * harness retries as an application does (`withRetries`): Effect.retry with the gate's own RetryPolicy, a few retries
+ * with exponential backoff, while the attempt ended in a transient failure. A hand-written baseline and a
  * grizzle writer retry alike:
  * - a grizzle attempt is transient when it failed with TransientFailure, whose reason it reports;
  * - a hand-written attempt is transient when its SQLSTATE and constraint are one grizzle's own classification reads
@@ -68,22 +68,18 @@ export interface OperationResult {
 }
 
 /**
- * A caller-side retry policy: at most `times` retries after the first attempt, while the attempt is transient, spaced
- * by `schedule`.
+ * A caller-side retry policy, a gate's own option as an application's would be its own: at most `times` retries after
+ * the first attempt, while the attempt is transient, spaced by an exponential backoff from `baseMs` milliseconds
+ * (backoffOf).
  */
 export interface RetryPolicy {
 	readonly times: number
-	readonly schedule: Schedule.Schedule<unknown>
+	readonly baseMs: number
 }
 
-/**
- * The harness's own policy: four retries with exponential backoff from 5 milliseconds. It is the harness's, as an
- * application's would be its own.
- */
-export const retryPolicy: RetryPolicy = {
-	times: 4,
-	schedule: Schedule.exponential(Duration.millis(5))
-}
+/** A policy's backoff: `baseMs` before the first retry, doubling before each next one. */
+export const backoffOf = (policy: RetryPolicy): Schedule.Schedule<Duration.Duration> =>
+	Schedule.exponential(Duration.millis(policy.baseMs))
 
 export interface RetryOptions {
 	/** The unique violations that are transient at the statement that raised them, by constraint. */
@@ -157,7 +153,7 @@ export const retried = Effect.fn("retried")(function* <A, E, R>(
 	)
 	const last = yield* Effect.repeat(once, {
 		times: policy.times,
-		schedule: policy.schedule,
+		schedule: backoffOf(policy),
 		while: (value: A) => transientOf(value) !== undefined
 	})
 	if (transientOf(last) !== undefined) {

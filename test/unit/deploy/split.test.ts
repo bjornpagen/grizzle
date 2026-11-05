@@ -15,9 +15,10 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** A piece of a statement: its text, and whether it makes the statement substantive (a comment does not).
  *
@@ -202,7 +203,7 @@ describe("splitting a no-transaction file into its statements, generated", () =>
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ pieces, terminated, unterminated }, c) =>
 					Effect.sync(() => {

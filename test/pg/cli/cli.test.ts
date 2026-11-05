@@ -7,12 +7,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	ConfigProvider,
-	Duration,
 	Effect,
 	FileSystem,
 	Formatter,
 	Layer,
+	Option,
 	Order,
 	pipe,
 	Redacted,
@@ -23,6 +22,7 @@ import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { defineConfig } from "#adapter/config/define.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { Db } from "#adapter/public/db.ts"
+import { migrationConnection } from "#cli/connection.ts"
 import { migrate } from "#cli/migrate.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -32,10 +32,10 @@ import {
 	bin,
 	type ConfigSpec,
 	cli,
-	configOf,
-	databaseUrl,
-	migrationIdentity,
 	cliClock,
+	configName,
+	configOf,
+	ownerOn,
 	resolvedConfig,
 	type SchemaSpec,
 	workspace,
@@ -44,8 +44,8 @@ import {
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
-import { pgPin } from "#test/support/env.ts"
 import { loginLayerOf } from "#test/support/installed.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -57,33 +57,32 @@ const nextNow = cliClock()
 /**
  * `grizzle generate`, `check` and `migrate` on PostgreSQL 19 over drawn configurations, in the cases the workflow model
  * (workflow.test.ts) does not draw: several declared schemas, the ledger fixture's residual law and derived relation,
- * a typed connection, the bin itself, and a role that does not own the schema.
+ * an Effect password, the bin itself, and a role that does not own the schema.
  *
  * A case is a configuration: one to three declared schemas, each the shop at version 1 with its full workload, without
- * its customer lookup or with none, or the ledger with its law, derived relation and workload; and where migrate connects:
- * DATABASE_URL, or a typed connection in the configuration with the owner's password or an Effect yielding it, while
- * DATABASE_URL in the environment names a database that does not exist, or DATABASE_URL as a role that does not own the
- * declared schemas, which exist. The loop runs in an application directory with
- * the lean config, every command through one executor: the bin, `node packages/grizzle/src/cli/main.ts`, as a child process, or
- * `runCli` in process. The property, by each schema's own model (its directory, snapshot and ledger):
+ * its customer lookup or with none, or the ledger with its law, derived relation and workload; and where migrate connects,
+ * the configuration's connection: as the migration identity with its password or an Effect yielding it, or as a role
+ * that does not own the declared schemas, which exist. The loop runs in an application directory with the lean config,
+ * every command through one executor: the bin, `node packages/grizzle/src/cli/main.ts`, as a child process whose
+ * environment names another server, database, role, password and CA in the variables PostgreSQL clients read for a
+ * connection, none of which the command line reads; or `runCli` in process. The property, by each schema's own model
+ * (its directory, snapshot and ledger):
  * - generate, check and migrate exit 0; each schema's ledger records exactly its own folders, complete, its latest
- *   target its own committed snapshot's; a typed Effect password is evaluated for the connection (counted in process);
+ *   target its own committed snapshot's; an Effect password is evaluated for the connection;
  * - Db.open admits each schema as its writer and its reader, through its login's layer given its committed
  *   snapshot.json, which records the login's workload, a write is accepted and read back;
  * - a second migrate exits 0 and changes no ledger.
  * When the role migrate connects as does not own the declared schemas, which exist, migrate exits 1 at the stage
- * owner (the typed refusal, in process) and nothing runs in any of them. A typed connection names the migration
- * identity's role, which wins over DATABASE_URL, so such a role connects by DATABASE_URL alone.
+ * owner (the typed refusal, in process) and nothing runs in any of them.
  */
 type Executor = "the bin" | "in process"
 type Fixture =
 	| { readonly fixture: "shop"; readonly workload: "full" | "withoutByName" | "none" }
 	| { readonly fixture: "ledger" }
 type Connection =
-	| "DATABASE_URL"
-	| "a typed connection"
+	| "the migration identity's password"
 	| "an Effect password"
-	| "DATABASE_URL as a role that does not own the schemas"
+	| "a role that does not own the schemas"
 
 interface ConfigSketch {
 	readonly executor: Executor
@@ -104,10 +103,9 @@ const configGen: Gen<ConfigSketch> = (source) => ({
 	schemas: source.draw(array(fixtureGen, { min: 1, max: 3 })),
 	connection: source.draw(
 		element<Connection>([
-			"DATABASE_URL",
-			"a typed connection",
+			"the migration identity's password",
 			"an Effect password",
-			"DATABASE_URL as a role that does not own the schemas"
+			"a role that does not own the schemas"
 		])
 	)
 })
@@ -121,17 +119,17 @@ type CliFeature =
 
 const kept: ReadonlyArray<Kept<ConfigSketch, CliFeature>> = [
 	{
-		note: "the bin over one shop with its workload, by DATABASE_URL",
+		note: "the bin over one shop with its workload, by the migration identity's password",
 		sketch: {
 			executor: "the bin",
 			schemas: [{ fixture: "shop", workload: "full" }],
-			connection: "DATABASE_URL"
+			connection: "the migration identity's password"
 		},
 		draws: "",
-		reaches: ["run by the bin", "connected by DATABASE_URL"]
+		reaches: ["run by the bin", "connected by the migration identity's password"]
 	},
 	{
-		note: "two shops, by an Effect password over a DATABASE_URL naming no database",
+		note: "two shops, by an Effect password",
 		sketch: {
 			executor: "in process",
 			schemas: [
@@ -144,21 +142,21 @@ const kept: ReadonlyArray<Kept<ConfigSketch, CliFeature>> = [
 		reaches: ["run by in process", "several schemas", "connected by an Effect password"]
 	},
 	{
-		note: "the ledger's law and derived relation, by a typed connection",
+		note: "the ledger's law and derived relation",
 		sketch: {
 			executor: "in process",
 			schemas: [{ fixture: "ledger" }],
-			connection: "a typed connection"
+			connection: "the migration identity's password"
 		},
 		draws: "",
-		reaches: ["the ledger fixture", "connected by a typed connection"]
+		reaches: ["the ledger fixture"]
 	},
 	{
 		note: "a role that does not own the schema",
 		sketch: {
 			executor: "in process",
 			schemas: [{ fixture: "shop", workload: "none" }],
-			connection: "DATABASE_URL as a role that does not own the schemas"
+			connection: "a role that does not own the schemas"
 		},
 		draws: "",
 		reaches: ["a role that does not own the schemas refused"]
@@ -192,13 +190,27 @@ const ledgerOf = (schema: string) =>
 		return yield* readLedger(migrator, schema, succeeded(statementsFor(schema)))
 	}).pipe(Effect.scoped)
 
+/**
+ * What the bin's environment names in the variables PostgreSQL clients read for a connection: another server,
+ * database, role, password and CA, none of which exists. The command line reads none of them.
+ */
+const strayEnvironment: Readonly<Record<string, string>> = {
+	DATABASE_URL:
+		"postgresql://nobody:nothing@stray.invalid:1/nowhere?sslrootcert=/nonexistent/ca.crt",
+	PGHOST: "stray.invalid",
+	PGPORT: "1",
+	PGDATABASE: "nowhere",
+	PGUSER: "nobody",
+	PGPASSWORD: "nothing",
+	PGSSLMODE: "disable",
+	PGSSLROOTCERT: "/nonexistent/ca.crt"
+}
+
 /** A command line run by the case's executor, its exit code. */
-const runner =
-	(executor: Executor, dir: string) =>
-	(argv: ReadonlyArray<string>, env: Readonly<Record<string, string>>) =>
-		executor === "in process"
-			? Effect.map(cli(dir, argv, nextNow(), env), (r) => r.code)
-			: Effect.map(bin(dir, argv, env), (r) => r.status)
+const runner = (executor: Executor, dir: string) => (argv: ReadonlyArray<string>) =>
+	executor === "in process"
+		? Effect.map(cli(dir, argv, nextNow()), (r) => r.code)
+		: Effect.map(bin(dir, argv, strayEnvironment), (r) => r.status)
 
 /**
  * A customer written as the writer and read back as the reader, through the login's layer given the committed
@@ -259,15 +271,14 @@ const configurations = (ctx: TestContext) =>
 				shrink: { kind: "bounded", candidates: 10 },
 				concurrency: 1,
 				steerEvery: 16,
-				caseHang: Duration.minutes(2),
+				caseHang,
 				coverage: required<CliFeature>(
 					[
 						"run by the bin",
 						"run by in process",
 						"several schemas",
 						"the ledger fixture",
-						"connected by DATABASE_URL",
-						"connected by a typed connection",
+						"connected by the migration identity's password",
 						"connected by an Effect password",
 						"a role that does not own the schemas refused"
 					],
@@ -286,8 +297,7 @@ const configurations = (ctx: TestContext) =>
 						if (Arr.some(sketch.schemas, (s) => s.fixture === "ledger")) {
 							c.note("the ledger fixture")
 						}
-						const intruding =
-							sketch.connection === "DATABASE_URL as a role that does not own the schemas"
+						const intruding = sketch.connection === "a role that does not own the schemas"
 						const names = yield* Effect.forEach(sketch.schemas, () =>
 							substrate.schema({ create: intruding, label: "cliconf" })
 						)
@@ -301,71 +311,46 @@ const configurations = (ctx: TestContext) =>
 										workload: f.workload
 									}
 						)
-						const connection: ConfigSpec["connection"] =
-							sketch.connection === "DATABASE_URL" || intruding
-								? { kind: "databaseUrl" }
-								: {
-										kind: "typed",
-										database: substrate.database,
-										password: sketch.connection === "an Effect password" ? "effect" : "owner",
-										port: pgPin.port
-									}
+						const intruder = intruding
+							? yield* Effect.asSome(
+									Effect.flatMap(substrate.schema({ create: false, label: "cliother" }), (other) =>
+										substrate.role(other, "intruder")
+									)
+								)
+							: Option.none()
+						const connection: ConfigSpec["connection"] = Option.match(intruder, {
+							onNone: (): ConfigSpec["connection"] => ({
+								...ownerOn(substrate.database),
+								as: {
+									kind: "migration identity",
+									password: sketch.connection === "an Effect password" ? "effect" : "owner"
+								}
+							}),
+							onSome: (role): ConfigSpec["connection"] => ({
+								...ownerOn(substrate.database),
+								as: { kind: "role", role: role.role, password: Redacted.value(role.password) }
+							})
+						})
 						const ws = yield* workspace("conf")
 						yield* writeConfig(ws, { schemas: specs, connection })
 						const run = runner(sketch.executor, ws)
-						/**
-						 * A typed connection wins over DATABASE_URL, here naming a database that does not exist.
-						 */
-						const intruder = intruding
-							? yield* Effect.flatMap(
-									substrate.schema({ create: false, label: "cliother" }),
-									(other) => substrate.role(other, "intruder")
-								)
-							: "the migration identity"
-						const env =
-							intruder !== "the migration identity"
-								? {
-										DATABASE_URL: databaseUrl(substrate.database, {
-											...migrationIdentity(substrate.cluster),
-											role: intruder.role,
-											password: Redacted.value(intruder.password)
-										})
-									}
-								: connection.kind === "databaseUrl"
-									? {
-											DATABASE_URL: databaseUrl(
-												substrate.database,
-												migrationIdentity(substrate.cluster)
-											)
-										}
-									: {
-											DATABASE_URL: databaseUrl(
-												"no_such_database",
-												migrationIdentity(substrate.cluster)
-											)
-										}
 
-						const generateExit = yield* run(["generate"], {})
+						const generateExit = yield* run(["generate", configName])
 						assert.equal(generateExit, 0, "generate")
-						const checkExit = yield* run(["check"], {})
+						const checkExit = yield* run(["check", configName])
 						assert.equal(checkExit, 0, "check")
-						if (intruder !== "the migration identity") {
+						if (Option.isSome(intruder)) {
 							c.note("a role that does not own the schemas refused")
-							const migrateExit = yield* run(["migrate"], env)
+							const migrateExit = yield* run(["migrate", configName])
 							assert.equal(migrateExit, 1, "migrate as a role that does not own the schemas")
 							if (sketch.executor === "in process") {
 								const config = yield* resolvedConfig(
 									defineConfig(configOf(substrate.cluster, { schemas: specs, connection })),
-									`${ws}/grizzle.config.ts`
+									`${ws}/${configName}`
 								)
 								const resolved = succeeded(config)
-								const refused = yield* Effect.flip(
-									Effect.provideService(
-										migrate(resolved, ws),
-										ConfigProvider.ConfigProvider,
-										ConfigProvider.fromUnknown(env)
-									)
-								)
+								const intruderConnection = yield* migrationConnection(resolved)
+								const refused = yield* Effect.flip(migrate(resolved, intruderConnection))
 								assert.ok(refused._tag === "MigrateError", `a MigrateError, not ${refused._tag}`)
 								assert.equal(refused.stage, "owner")
 							}
@@ -376,7 +361,7 @@ const configurations = (ctx: TestContext) =>
 							}
 							return
 						}
-						const migrateExit = yield* run(["migrate"], env)
+						const migrateExit = yield* run(["migrate", configName])
 						assert.equal(migrateExit, 0, "migrate")
 						const ledgers: Array<LedgerState> = []
 						for (const [i, name] of names.entries()) {
@@ -398,7 +383,7 @@ const configurations = (ctx: TestContext) =>
 							)
 							ledgers.push(state)
 						}
-						const secondMigrateExit = yield* run(["migrate"], env)
+						const secondMigrateExit = yield* run(["migrate", configName])
 						assert.equal(secondMigrateExit, 0, "a second migrate")
 						for (const [i, name] of names.entries()) {
 							const ledger = yield* ledgerOf(name)

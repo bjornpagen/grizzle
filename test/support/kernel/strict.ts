@@ -3,19 +3,25 @@ import { toResult } from "#adapter/engine.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { validateText } from "#compiler/core/text.ts"
-import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { canonicalZero, decimalToBinary32 } from "#compiler/scalar/values/float.ts"
-import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
 import {
 	int2Max,
 	int2Min,
 	int4Max,
 	int4Min,
 	int8Max,
-	int8Min
-} from "#compiler/scalar/values/integer.ts"
-import { Money, moneyFractionDigits } from "#compiler/scalar/values/money.ts"
+	int8Min,
+	moneyFractionDigits
+} from "#compiler/ir/carriers.ts"
+import {
+	type Carrier,
+	type NumericBound,
+	numericBoundOf,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
+import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { canonicalZero, decimalToBinary32 } from "#compiler/scalar/values/float.ts"
+import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	makeSpan,
 	type Span,
@@ -34,6 +40,7 @@ const strictFaults = [
 	"integerSyntax",
 	"numericSyntax",
 	"numericShape",
+	"numericBound",
 	"floatSyntax",
 	"floatRange",
 	"boolSyntax",
@@ -90,7 +97,7 @@ const readInt8 = (text: string): Result.Result<bigint, StrictFault> => {
 		return Result.fail("integerSyntax")
 	}
 	const n = BigInt(text)
-	return n >= int8Min && n <= int8Max ? Result.succeed(n) : Result.fail("integerRange")
+	return n >= int8Min.value && n <= int8Max.value ? Result.succeed(n) : Result.fail("integerRange")
 }
 
 /**
@@ -170,11 +177,15 @@ const readMoney = (text: string): Result.Result<Money, StrictFault> => {
 	if (!isNumericOutput(text, "any", "special")) {
 		return Result.fail("numericSyntax")
 	}
-	if (!isNumericOutput(text, moneyFractionDigits, "finite")) {
+	if (!isNumericOutput(text, moneyFractionDigits.value, "finite")) {
 		return Result.fail("moneyShape")
 	}
 	const parsed = Decimal.fromString(text)
-	if (!parsed.ok || !parsed.value.isFinite() || parsed.value.parts.minScale > moneyFractionDigits) {
+	if (
+		!parsed.ok ||
+		!parsed.value.isFinite() ||
+		parsed.value.parts.minScale > moneyFractionDigits.value
+	) {
 		return Result.fail("moneyShape")
 	}
 	const money = Money.fromDecimal(parsed.value)
@@ -191,11 +202,15 @@ const readExactMoney = (text: string): Result.Result<Money, StrictFault> => {
 		return Result.fail("numericSyntax")
 	}
 	const parsed = Decimal.fromString(text)
-	if (!parsed.ok || !parsed.value.isFinite() || parsed.value.parts.minScale > moneyFractionDigits) {
+	if (
+		!parsed.ok ||
+		!parsed.value.isFinite() ||
+		parsed.value.parts.minScale > moneyFractionDigits.value
+	) {
 		return Result.fail("moneyShape")
 	}
 	const p = parsed.value.parts
-	const units = p.coefficient * 10n ** BigInt(moneyFractionDigits - p.minScale)
+	const units = p.coefficient * 10n ** BigInt(moneyFractionDigits.value - p.minScale)
 	return Result.succeed(Money.exact(p.negative ? -units : units))
 }
 
@@ -351,7 +366,7 @@ const endpointReaders: {
 		text: string
 	) => Result.Result<SpanEndpointHost[P], StrictFault>
 } = {
-	int4: readSmall(int4Min, int4Max),
+	int4: readSmall(int4Min.value, int4Max.value),
 	int8: readInt8
 }
 
@@ -409,8 +424,8 @@ const readers: {
 		spec: SpecOf<C>
 	) => (text: string) => Result.Result<CarrierHost[C], StrictFault>
 } = {
-	int2: () => readSmall(int2Min, int2Max),
-	int4: () => readSmall(int4Min, int4Max),
+	int2: () => readSmall(int2Min.value, int2Max.value),
+	int4: () => readSmall(int4Min.value, int4Max.value),
 	int8: () => readInt8,
 	numeric: (spec) => readNumeric(spec),
 	float4: () => strictReal,
@@ -452,7 +467,7 @@ const readerOf = <C extends Carrier>(
  * | Carrier | Admitted text |
  * | --- | --- |
  * | int2, int4, int8 | an optional minus sign and one to nineteen digits without a leading zero, no -0, in range |
- * | numeric | numeric_out text (Decimal.fromString's value writes it back), at the declared typmod |
+ * | numeric | numeric_out text (Decimal.fromString's value writes it back), at the declared typmod, or a computed numeric's value within the integer and fraction digits its type proves (numericBound) |
  * | float4, float8 | a shortest round-trip decimal, NaN, Infinity or -Infinity; a real read exactly as binary32 |
  * | money | money::numeric text: a finite amount with at most two fractional digits, within int64 |
  * | bool | t, f, true, false |
@@ -466,8 +481,32 @@ const readerOf = <C extends Carrier>(
  */
 export const strictReader = (
 	type: ScalarType
-): ((text: string) => Result.Result<CarrierHost[Carrier], StrictFault>) =>
-	readerOf(carrierSpecOf(type))
+): ((text: string) => Result.Result<CarrierHost[Carrier], StrictFault>) => {
+	const read = readerOf(carrierSpecOf(type))
+	const bound = numericBoundOf(type)
+	return bound === undefined
+		? read
+		: (text) =>
+				Result.flatMap(read(text), (value) =>
+					value instanceof Decimal && !withinBound(value, bound)
+						? Result.fail("numericBound")
+						: Result.succeed(value)
+				)
+}
+
+/**
+ * Whether a computed numeric's value is one its type proves: a finite value below 10^digits with at most `scale`
+ * fraction digits, every value PostgreSQL computes for the expression, so a database run's cell past the bound is a
+ * bound the compiler proved and PostgreSQL broke; NaN and the infinities carry no digits.
+ */
+const withinBound = (value: Decimal, bound: NumericBound): boolean => {
+	const p = value.parts
+	if (p.kind !== "finite" || p.coefficient === 0n) {
+		return true
+	}
+	const digits = Math.max(0, p.coefficient.toString().length - p.minScale)
+	return digits <= bound.digits && p.minScale <= bound.scale
+}
 
 /** The value of PostgreSQL's output `text` of a value of `type`, or why it is no such text. */
 export const strictRead = (

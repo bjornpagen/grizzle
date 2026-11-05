@@ -140,7 +140,7 @@ export const flaggedByTitle = query(Paging)
 const Label = str.regex("^.*$", "su")
 export const Measure = relation(
 	"Measure",
-	{ id: uuid, x: pg.float8, amount: pg.numeric, big: pg.bigint, label: Label },
+	{ id: uuid, x: pg.float8, amount: pg.numeric(161, 40), big: pg.bigint, label: Label },
 	["id"]
 )
 export const Measures = schema("Measures", { Measure }, [])

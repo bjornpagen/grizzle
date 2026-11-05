@@ -1,4 +1,4 @@
-import { Effect, Schedule, type Scope, type Types } from "effect"
+import { Effect, type Schedule, type Scope, type Types } from "effect"
 import {
 	type ApplyError,
 	type ApplyOutcome,
@@ -166,7 +166,6 @@ type AcquisitionTags =
 	| "ConnectionClosed"
 	| "DriverRefused"
 	| "NoCancelKey"
-	| "AcquisitionBudgetExceeded"
 	| "LayerReleased"
 
 /** Each reason a read fails for is one class, so Effect.catchReason reaches it by its tag. */
@@ -248,6 +247,10 @@ export type AppliedOutcome = Expect<Equals<Effect.Success<typeof applied>, Apply
 export const refreshed = refresher.refresh(AccountCost)
 export type RefreshChannel = Expect<Equals<typeof refreshed, Effect.Effect<void, ApplyError>>>
 
+/** The caller's own retry policy: its schedule and how many times it retries. */
+declare const callerSchedule: Schedule.Schedule<unknown>
+declare const callerRetries: number
+
 /**
  * The caller retries on its own Schedule while the error is the retryable one: the channel stays ApplyError, since the
  * last attempt's failure surfaces when the retries run out. One reason is handled by Effect.catchReason, and the
@@ -256,8 +259,8 @@ export type RefreshChannel = Expect<Equals<typeof refreshed, Effect.Effect<void,
 export const retried = applied.pipe(
 	Effect.retry({
 		while: (e) => e._tag === "TransientFailure",
-		schedule: Schedule.exponential("10 millis"),
-		times: 4
+		schedule: callerSchedule,
+		times: callerRetries
 	})
 )
 export type RetriedChannel = Expect<Equals<Effect.Error<typeof retried>, ApplyError>>

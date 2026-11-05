@@ -14,9 +14,10 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { compareCodePoints, isValidText, validateText } from "#compiler/core/text.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	type PlantedFeature,
 	plantedFault,
@@ -86,7 +87,7 @@ describe("text validation", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(planted, c) =>
 							Effect.sync(() => {
@@ -136,7 +137,7 @@ describe("code point order", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([a, b]) =>
 						Effect.sync(() => {

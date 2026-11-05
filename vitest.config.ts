@@ -1,5 +1,6 @@
 import { defineTestConfig } from "@grizzle/testing/vitest/config"
 import { Option } from "effect"
+import { testTimeout } from "#test/support/limits.ts"
 
 /**
  * `pnpm test`: the tests that need no network, the unit tier, the type tier and the testing library's own suite. The type tier's checks are one tsgo
@@ -20,8 +21,8 @@ export default defineTestConfig({
 	setup: ["test/types/batch/global-setup.ts"],
 	conditions: ["grizzle-source"],
 	timeouts: {
-		test: { kind: "bounded", millis: 3_600_000 },
-		hook: { kind: "bounded", millis: 120_000 }
+		test: { kind: "bounded", millis: testTimeout.value },
+		hook: { kind: "bounded", millis: testTimeout.value }
 	},
 	maxWorkers: Option.none(),
 	smallStack: [

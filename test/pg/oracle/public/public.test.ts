@@ -12,7 +12,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 layer(Substrate.layer)("the public-boundary differential", (it) => {
 	it.effect(
 		`agrees with the reference on ${cases} generated programs, read through every public form`,
-		(ctx) => searched(ctx, explorePublic(asDelivered, asConverted)),
-		1_800_000
+		(ctx) => searched(ctx, explorePublic(asDelivered, asConverted))
 	)
 })

@@ -30,28 +30,20 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double, float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	pipe,
-	Record,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, Record, String as Str } from "effect"
 import { isCodecFault } from "#compiler/codec/fault.ts"
 import { tupleConverter } from "#compiler/codec/row.ts"
 import { carrierSpecOf, paramEncoder, scalarCodec } from "#compiler/codec/scalar.ts"
 import * as Result from "#compiler/core/result.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { type Carrier, capabilitySet, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
-import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * What the encoders answer for anything JavaScript can pass (README "Errors and outcomes": an encoding failure is EncodingFailure
@@ -102,7 +94,7 @@ const decoded = (written: Written): Carried => {
 const caps = capabilitySet(["storage", "equality"])
 
 const int32 = int(-(2 ** 31), 2 ** 31 - 1)
-const int64 = bigint(int8Min, int8Max)
+const int64 = bigint(int8Min.value, int8Max.value)
 
 /** A decimal whose integer part has at most `digits` digits, with any fraction. */
 const decimals = (digits: number): Gen<unknown> =>
@@ -240,7 +232,7 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 		{
 			label: "int8range of width 1",
 			type: { carrier: "range8", span: { endpoint: { carrier: "int8", caps }, width: 1n }, caps },
-			live: map(bigint(int8Min, int8Max - 1n), (start) => ({ start, end: start + 1n }))
+			live: map(bigint(int8Min.value, int8Max.value - 1n), (start) => ({ start, end: start + 1n }))
 		}
 	],
 	vector: [
@@ -331,7 +323,7 @@ describe("the encoders", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([target, drawn], c) =>
 						Effect.sync(() => {
@@ -394,7 +386,7 @@ describe("the encoders", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([target, text]) =>
 					Effect.sync(() => {
@@ -441,7 +433,7 @@ describe("admission reads a value once", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([first, then], c) =>
 					Effect.gen(function* () {
@@ -516,7 +508,7 @@ describe("fact identity", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(drawn, c) =>
 							Effect.sync(() => {
@@ -574,7 +566,7 @@ describe("the tuple converter", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ columns, values }) =>
 						Effect.sync(() => {

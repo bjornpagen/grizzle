@@ -5,16 +5,7 @@ import { int, oneOf, uniqueArray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Layer,
-	Option,
-	pipe,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option, pipe, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import {
@@ -34,6 +25,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts } from "#test/support/compile.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { checking } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -210,7 +202,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									shrink: completeShrink,
 									concurrency: 1,
 									steerEvery: 16,
-									caseHang: Duration.minutes(2)
+									caseHang
 								},
 								(parents, c) =>
 									Effect.gen(function* () {
@@ -302,8 +294,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							Effect.scoped
 						)
 					})
-				),
-			600_000
+				)
 		)
 	}
 )

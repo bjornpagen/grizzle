@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -31,6 +31,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { largeStatements } from "#test/support/oracle/forms.ts"
 import { checking } from "#test/support/policy.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
@@ -137,7 +138,7 @@ describe("a read's relation parameters", () => {
 						generator: element(["ids", "labelled", "priced"] as const),
 						limit: 3,
 						coverage: requiredInSpace<keyof typeof reads>(["ids", "labelled", "priced"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(read, c) =>
 						Effect.sync(() => {
@@ -217,7 +218,6 @@ describe("a write's enumerated members", () => {
 					}
 				}
 				assert.ok(arraysSent >= 4, `${arraysSent} member arrays sent`)
-			}),
-		{ timeout: 120_000 }
+			})
 	)
 })

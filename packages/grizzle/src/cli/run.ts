@@ -21,12 +21,13 @@ import {
 import { parseArgs, usageText } from "#cli/args.ts"
 import { check, findingText, type SchemaCheck } from "#cli/check.ts"
 import { type ConfigFile, resolveConfig } from "#cli/config.ts"
+import { migrationConnection } from "#cli/connection.ts"
 import type { CliError } from "#cli/errors.ts"
 import { generate, type SchemaGenerateReport } from "#cli/generate.ts"
 import { drift, migrate } from "#cli/migrate.ts"
 import { names } from "#cli/names.ts"
 import { cliStageFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
-import { installSkill } from "#cli/skill.ts"
+import { metaFileName } from "#compiler/deploy/render/folder.ts"
 
 /**
  * The exit statuses a command line's report carries: 0 when the command succeeded, 1 when it was refused or failed, 2
@@ -44,8 +45,6 @@ export interface CliReport {
 /** The line `grizzle generate` prints when no schema changed. */
 const noChanges = "no changes"
 
-const short = (fingerprint: string): string => Str.slice(0, 16)(fingerprint)
-
 /**
  * Each written file, relative to `cwd`; then each marker to resolve and each loss to decide, with what to do; then the
  * next step.
@@ -60,7 +59,7 @@ const renderGenerate = (
 	}
 	const folderOf = (r: (typeof written)[number]) => relative(r.path)
 	const files = Arr.flatMap(written, (r) => [
-		...Arr.map([...r.files, "meta.json"], (f) => `${folderOf(r)}/${f}`),
+		...Arr.map([...r.files, metaFileName], (f) => `${folderOf(r)}/${f}`),
 		...(r.kind === "drafted" ? [relative(r.snapshotPath)] : [])
 	])
 	const markers = Arr.flatMap(written, (r) =>
@@ -92,8 +91,8 @@ const renderGenerate = (
 const renderApply = (reports: ReadonlyArray<SchemaApplyReport>): ReadonlyArray<string> =>
 	Arr.flatMap(reports, (r) => [
 		r.applied.length === 0
-			? `${r.schemaName}: up to date at ${short(r.after)}`
-			: `${r.schemaName}: applied ${r.applied.length} migration${r.applied.length === 1 ? "" : "s"}, now at ${short(r.after)}`,
+			? `${r.schemaName}: up to date at ${r.after}`
+			: `${r.schemaName}: applied ${r.applied.length} migration${r.applied.length === 1 ? "" : "s"}, now at ${r.after}`,
 		...Arr.map(
 			r.applied,
 			(a) =>
@@ -112,7 +111,7 @@ const renderCheck = (checks: ReadonlyArray<SchemaCheck>): ReadonlyArray<string> 
 		c.findings.length > 0
 			? Arr.map(c.findings, findingText)
 			: [
-					`${c.schema}: ok (${c.folders} migration${c.folders === 1 ? "" : "s"}${Option.isNone(c.snapshot) ? "" : `, snapshot ${short(c.snapshot.value.fingerprint)}`})`
+					`${c.schema}: ok (${c.folders} migration${c.folders === 1 ? "" : "s"}${Option.isNone(c.snapshot) ? "" : `, snapshot ${c.snapshot.value.fingerprint}`})`
 				]
 	)
 
@@ -258,25 +257,28 @@ const ran = (code: Ran["code"], out: ReadonlyArray<string>, err: ReadonlyArray<s
 	err
 })
 
+/** The import of the configuration file at an absolute path: the bin's (main.ts), or a test's. */
+export type ConfigLoader = (
+	file: string
+) => Effect.Effect<ConfigFile, CliError, FileSystem.FileSystem | Path.Path>
+
 const program = Effect.fn("program")(function* (
 	argv: ReadonlyArray<string>,
 	cwd: string,
-	configFile: Effect.Effect<ConfigFile, CliError, FileSystem.FileSystem | Path.Path>
+	load: ConfigLoader
 ): Effect.fn.Return<Ran, CliError | CommandRefused, FileSystem.FileSystem | Path.Path> {
 	const parsed = parseArgs(argv)
 	if (Result.isFailure(parsed)) {
 		return yield* parsed.failure
 	}
-	const command = parsed.success
-	if (command.kind === "help") {
+	const line = parsed.success
+	if (line.kind === "help") {
 		return ran(exitCodes.ok, [Str.trimEnd(usageText)], [])
 	}
-	if (command.kind === "skill") {
-		const installed = yield* installSkill(cwd)
-		return ran(exitCodes.ok, installed, [])
-	}
-	const { value, file } = yield* configFile
+	const path = yield* Path.Path
+	const { value, file } = yield* load(path.resolve(cwd, line.config))
 	const config = yield* resolveConfig(value, file)
+	const command = line.command
 	if (command.kind === "names") {
 		const listed = yield* names(config)
 		return ran(exitCodes.ok, listed, [])
@@ -292,7 +294,8 @@ const program = Effect.fn("program")(function* (
 		)
 	}
 	if (command.kind === "migrate") {
-		/** Every check grizzle check runs comes first, before connecting. */
+		/** Where to connect comes first, then every check grizzle check runs, before connecting. */
+		const connection = yield* migrationConnection(config)
 		const checks = yield* check(config, cwd)
 		if (findingsOf(checks) > 0) {
 			return ran(
@@ -304,11 +307,12 @@ const program = Effect.fn("program")(function* (
 				]
 			)
 		}
-		const applied = yield* Effect.mapError(migrate(config, cwd), refusedBy("migrate"))
+		const applied = yield* Effect.mapError(migrate(config, connection), refusedBy("migrate"))
 		return ran(exitCodes.ok, renderApply(applied), [])
 	}
 	if (command.kind === "drift") {
-		const matched = yield* Effect.mapError(drift(config, cwd), refusedBy("drift"))
+		const connection = yield* migrationConnection(config)
+		const matched = yield* Effect.mapError(drift(config, connection), refusedBy("drift"))
 		return ran(
 			exitCodes.ok,
 			Arr.map(matched, (m) => `grizzle drift: ${m.schema} matches snapshot ${m.fingerprint}`),
@@ -317,7 +321,6 @@ const program = Effect.fn("program")(function* (
 	}
 	const now = yield* DateTime.now
 	const reports = yield* generate(config, { mode: command.mode, schema: command.schema, now })
-	const path = yield* Path.Path
 	return ran(
 		exitCodes.ok,
 		renderGenerate(reports, (p) => path.relative(cwd, p)),
@@ -338,24 +341,24 @@ const refusedReport = (e: CliError | CommandRefused): CliReport => {
 }
 
 /**
- * The `grizzle` command line as an Effect: argv, the directory it runs in, and the import of its grizzle.config.ts,
- * which only a command that reads the configuration runs, in; its report out, which main.ts writes for the bin and a
- * test reads. The command ran, with its report; it was refused,
- * with its error and the stage that refused it, rendered; or it died, reported as an internal error. An interruption
- * stays the fiber's interruption, so an interrupted migrate closes its connection, which rolls an open file transaction
- * back, and the ledger tells where a rerun resumes (packages/grizzle/src/adapter/migrate/apply.ts).
+ * The `grizzle` command line as an Effect: argv, the directory it runs in, against which the configuration file it
+ * names resolves, and the import of that file, which only a command that reads the configuration runs, in; its report
+ * out, which main.ts writes for the bin and a test reads. The command ran, with its report; it was refused, with its
+ * error and the stage that refused it, rendered; or it died, reported as an internal error. An interruption stays the
+ * fiber's interruption, so an interrupted migrate closes its connection, which rolls an open file transaction back,
+ * and the ledger tells where a rerun resumes (packages/grizzle/src/adapter/migrate/apply.ts).
  *
- * Output is stable plain text. The clock a new folder's timestamp reads is Effect's Clock; the environment migrate
- * reads DATABASE_URL, PGPASSWORD and PGSSLROOTCERT from is the ConfigProvider's.
+ * Output is stable plain text. The clock a new folder's timestamp reads is Effect's Clock. No command reads the
+ * environment for where to connect: migrate and drift connect with the configuration's connection (connection.ts).
  *
  * @internal
  */
 export const runCli = Effect.fn("runCli")(function* (
 	argv: ReadonlyArray<string>,
 	cwd: string,
-	configFile: Effect.Effect<ConfigFile, CliError, FileSystem.FileSystem | Path.Path>
+	load: ConfigLoader
 ): Effect.fn.Return<CliReport, never, FileSystem.FileSystem | Path.Path> {
-	const exit = yield* Effect.exit(program(argv, cwd, configFile))
+	const exit = yield* Effect.exit(program(argv, cwd, load))
 	if (Exit.isSuccess(exit)) {
 		const done: CliReport = {
 			code: exit.value.code,

@@ -26,19 +26,18 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint, double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	pipe,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } from "effect"
 import { canonicalTag, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
-import { isMoneyPayload, isVectorPayload, MoneyText, VectorText } from "#compiler/ir/carriers.ts"
+import {
+	cosineNormMax,
+	cosineNormMin,
+	isMoneyPayload,
+	isVectorPayload,
+	MoneyText,
+	VectorText
+} from "#compiler/ir/carriers.ts"
 import { DecimalText, isDecimalLike, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import {
 	type ExprTable,
@@ -49,12 +48,14 @@ import {
 } from "#compiler/ir/expr.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { baseOf, contractOf, isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, defined, nonEmpty, refusalLoc, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import {
+	anyNumeric,
 	normalizeExprTable,
 	plainType,
 	scalarOf,
@@ -65,6 +66,7 @@ import { fail, scalarTypes } from "#test/unit/ir/fixture.ts"
 
 import { regex } from "arkregex"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { caseHang } from "#test/support/limits.ts"
 /** The largest finite 32-bit float. */
 const floatMax = 3.4028234663852886e38
 
@@ -92,7 +94,8 @@ const validTypes: ReadonlyArray<ScalarType> = [
 	plainType("int8"),
 	scalarOf(f.bigserial, {}),
 	scalarOf({ kind: "serial", type: "serial" }, {}),
-	plainType("numeric"),
+	anyNumeric,
+	numericValue({ digits: 38, scale: 0 }),
 	numeric102,
 	scalarOf(f.numeric(5, -2), {}),
 	plainType("float4"),
@@ -294,7 +297,7 @@ describe("ScalarType", () => {
 								(c): CorruptedFeature<ScalarRule> => `${c.from} ${c.rule}`
 							)
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, n) =>
 						Effect.sync(() => {
@@ -438,7 +441,8 @@ describe("literals", () => {
 	 * kind meets its own carriers only; an integer lies in its carrier's range; a float4 is exactly a float32; NaN and
 	 * the infinities are floats; a numeric literal is one numeric(p, s) stores unchanged; text is well-formed UTF-16
 	 * without NUL; a uuid is lowercase 8-4-4-4-12 hex; an enum handle is one of its roster's; a span has start < end
-	 * within its endpoint carrier; a vector has the type's dimensions and a norm, summed in double, in [2^-16, 2^16].
+	 * within its endpoint carrier; a vector has the type's dimensions and a norm, summed in double, in the cosine domain
+	 * [cosineNormMin, cosineNormMax].
 	 */
 	const admits = (literal: TypedLiteral, outer: ScalarType): boolean => {
 		const type = baseOf(outer)
@@ -492,7 +496,11 @@ describe("literals", () => {
 				}
 				const xs = [...literal.value.components]
 				const norm = Math.sqrt(Arr.reduce(xs, 0, (sum, x) => sum + x * x))
-				return xs.length === type.typmod.dims && norm >= 2 ** -16 && norm <= 2 ** 16
+				return (
+					xs.length === type.typmod.dims &&
+					norm >= cosineNormMin.value &&
+					norm <= cosineNormMax.value
+				)
 			}
 		}
 	}
@@ -572,7 +580,7 @@ describe("literals", () => {
 					),
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([literal, type], c) =>
 					Effect.sync(() => {
@@ -640,7 +648,7 @@ describe("literals", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([text, precision, scale], c) =>
 						Effect.sync(() => {
@@ -854,7 +862,7 @@ describe("contract predicates", () => {
 							"an allocation normalized",
 							...Arr.map(broken, ([rule]): PredicateFeature => `broken: ${rule}`)
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, n) =>
 						Effect.sync(() => {
@@ -900,7 +908,7 @@ describe("money and vector values", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(units) =>
 						Effect.sync(() => {
@@ -946,7 +954,7 @@ describe("money and vector values", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text) =>
 						Effect.sync(() => {
@@ -972,7 +980,7 @@ describe("money and vector values", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(components) =>
 						Effect.sync(() => {
@@ -1037,7 +1045,7 @@ describe("money and vector values", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text) =>
 						Effect.sync(() => {
@@ -1099,7 +1107,7 @@ describe("decimals", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text, c) =>
 						Effect.sync(() => {

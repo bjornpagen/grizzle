@@ -24,7 +24,6 @@ import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	DateTime,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -66,6 +65,7 @@ import { isList } from "#test/support/list.ts"
 
 import { regex } from "arkregex"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
+import { caseHang } from "#test/support/limits.ts"
 /**
  * The canonical serializer (core/canonical.ts): one text per value, the JSON Canonicalization Scheme (RFC 8785) over
  * the value's JSON form, and a refusal, at the offending value's path, of everything outside the value model.
@@ -356,7 +356,7 @@ describe("the canonical text", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([v, draws], c) =>
 					Effect.sync(() => {
@@ -387,7 +387,7 @@ describe("the canonical text", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(v) =>
 						Effect.sync(() => {
@@ -592,7 +592,7 @@ describe("a value outside the model", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([kind, path, filler], c) =>
 						Effect.sync(() => {
@@ -675,7 +675,7 @@ describe("a value outside the model", () => {
 							literal: Formatter.format,
 							limit: 24,
 							coverage: noCoverage,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([depth, container, direction]) =>
 							Effect.sync(() => {
@@ -710,7 +710,7 @@ describe("a value outside the model", () => {
 						literal: Formatter.format,
 						limit: 36,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([length, back, container, direction]) =>
 						Effect.sync(() => {
@@ -826,7 +826,7 @@ describe("the omitted members", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([entries, member], c) =>
 						Effect.sync(() => {
@@ -905,7 +905,7 @@ describe("the omitted members", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([freezing, v, replacement], c) =>
 							Effect.sync(() => {
@@ -990,7 +990,7 @@ describe("canonical comparison", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([distinct, picks, at], c) =>
 						Effect.sync(() => {

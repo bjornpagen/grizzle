@@ -20,16 +20,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Order,
-	pipe,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Order, pipe, Record as Rec, String as Str } from "effect"
 import { appendAll, maxOf } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { BoundValueDesc, ExprDesc, LiteralDesc, StatementDesc } from "#compiler/ir/desc.ts"
@@ -86,6 +77,7 @@ import {
 	succeeded,
 	throwsRefused
 } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 import { pickGen, pickIndex, pickSpan } from "#test/support/pick.ts"
@@ -249,7 +241,7 @@ describe("relation", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -480,7 +472,7 @@ describe("closed", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -615,7 +607,7 @@ describe("closed", () => {
 	)
 })
 
-/** A host value a caller writes against a real, double precision, numeric(p, s) or bare numeric field. */
+/** A host value a caller writes against a real, double precision or numeric(p, s) field. */
 type HostValue =
 	| { readonly kind: "number"; readonly value: number }
 	| {
@@ -643,7 +635,6 @@ type LiteralField =
 	| { readonly kind: "real" }
 	| { readonly kind: "double precision" }
 	| { readonly kind: "numeric(p, s)"; readonly precision: number; readonly scale: number }
-	| { readonly kind: "numeric" }
 
 /** What the literal rule makes of a value: the float literal, the numeric's text, or the fault. */
 type Expected =
@@ -674,7 +665,7 @@ type LiteralOutcome =
  * is its binary32 rounding (Math.fround), refused when a finite value rounds to an infinity (overflow) or a nonzero
  * value to zero (underflow), and -0 is +0 in either. A numeric field never takes a JavaScript number; numeric(p, s)
  * rounds a decimal to s fractional digits, half away from zero, refuses one that then needs more than p digits and
- * refuses an infinity; a bare numeric keeps the decimal as written. Zero has no sign.
+ * refuses an infinity. Zero has no sign.
  */
 const expectedLiteral = (
 	field: LiteralField,
@@ -713,7 +704,7 @@ const expectedLiteral = (
 		case "number":
 			return { expected: { kind: "fault", fault: "decimalNumber" }, outcome: "wrong host kind" }
 		case "special":
-			if (field.kind === "numeric(p, s)" && v.text !== "NaN") {
+			if (v.text !== "NaN") {
 				return { expected: { kind: "fault", fault: "numericInfinity" }, outcome: "infinity" }
 			}
 			return { expected: { kind: "numeric", text: v.text }, outcome: "special" }
@@ -735,12 +726,6 @@ const expectedLiteral = (
 				const text =
 					scale === 0 ? padded : `${Str.slice(0, -scale)(padded)}.${Str.slice(-scale)(padded)}`
 				return negative && units > 0n ? `-${text}` : text
-			}
-			if (field.kind === "numeric") {
-				return {
-					expected: { kind: "numeric", text: oneText(digits, fraction.length) },
-					outcome: "kept"
-				}
 			}
 			const { precision, scale } = field
 			const units =
@@ -770,8 +755,6 @@ const literalFieldDescriptor = (field: LiteralField): FieldBase => {
 			return rawPg.doublePrecision
 		case "numeric(p, s)":
 			return rawPg.numericOf(field.precision, field.scale)
-		case "numeric":
-			return rawPg.numeric
 	}
 }
 
@@ -893,8 +876,7 @@ describe("literals take their field's value", () => {
 				field: { kind: "numeric(p, s)", precision, scale },
 				value: source.draw(numericGen(precision, scale))
 			}
-		},
-		(source) => ({ field: { kind: "numeric" }, value: source.draw(numericGen(6, 3)) })
+		}
 	])
 
 	type Site = "closed fact" | "selection" | "check operand"
@@ -909,8 +891,8 @@ describe("literals take their field's value", () => {
 					{
 						suite: "unit/schema/literal-rule",
 						/**
-						 * Planted: a special value of each float field and an infinite numeric(p, s), which the drawn values
-						 * reach a few times a run.
+						 * Planted: a special value of each float field and an infinite and a NaN numeric(p, s), which the drawn
+						 * values reach a few times a run.
 						 */
 						draw: sketched(
 							(source) => ({
@@ -934,8 +916,7 @@ describe("literals take their field's value", () => {
 								"numeric(p, s): overflow",
 								"numeric(p, s): infinity",
 								"numeric(p, s): wrong host kind",
-								"numeric: kept",
-								"numeric: special",
+								"numeric(p, s): special",
 								"closed fact",
 								"selection",
 								"check operand"
@@ -975,13 +956,25 @@ describe("literals take their field's value", () => {
 								},
 								draws: "",
 								reaches: ["numeric(p, s): infinity"]
+							},
+							{
+								note: "NaN for a numeric(6, 2)",
+								sketch: {
+									case: {
+										field: { kind: "numeric(p, s)", precision: 6, scale: 2 },
+										value: { kind: "special", text: "NaN" }
+									},
+									site: "selection"
+								},
+								draws: "",
+								reaches: ["numeric(p, s): special"]
 							}
 						],
 						runs: 600,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ case: { field, value }, site }, c) =>
 						Effect.sync(() => {
@@ -1101,7 +1094,7 @@ describe("statements", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -1218,7 +1211,7 @@ describe("statements", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(s, c) =>
 					Effect.sync(() => {
@@ -1352,7 +1345,7 @@ describe("statements", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -1724,7 +1717,7 @@ describe("statements", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ predicate, defect }, c) =>
 							Effect.sync(() => {
@@ -1838,7 +1831,7 @@ describe("alternatives", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -1998,7 +1991,7 @@ describe("schema and schema.extend", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(s, c) =>
 							Effect.sync(() => {
@@ -2149,7 +2142,7 @@ describe("schema and schema.extend", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {

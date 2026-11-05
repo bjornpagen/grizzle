@@ -24,7 +24,7 @@ import { element } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { runOfTest } from "@grizzle/testing/vitest/run"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -36,6 +36,7 @@ import {
 } from "#compiler/lower/conservative/types.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, containsEqual, containsText } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { StructuralDifference } from "#test/support/oracle/compare.ts"
 import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
 import {
@@ -184,7 +185,6 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
-						caseHang: Duration.minutes(2),
 						perturb: "none"
 					},
 					(c) =>
@@ -228,8 +228,7 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 				assert.deepEqual(outcome.comparison.structural, [])
 				assert.ok(outcome.comparison.leftDuplicates > 0)
 				assert.equal(outcome.comparison.rightDuplicates, 0)
-			}),
-		600_000
+			})
 	)
 
 	it.effect("reports a dropped attachment statement as structure", () =>
@@ -312,7 +311,7 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 					literal: Formatter.format,
 					limit: fixtureNames.length,
 					coverage: requiredInSpace<FixtureName>(fixtureNames),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(fixture, k) =>
 					Effect.gen(function* () {

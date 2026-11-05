@@ -1,7 +1,7 @@
 import type { Exact, Fact, FactSource, OperandPremise } from "#compiler/ir/proof.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/ir/scalar.ts"
 import { doubleParts } from "#compiler/scalar/compute/cast.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { numericMaxDisplayScale, numericMaxIntegerDigits } from "#compiler/scalar/values/decimal.ts"
 
 const pow10 = (n: number): bigint => 10n ** BigInt(n)
 
@@ -113,7 +113,7 @@ const infinite: Edge = { kind: "infinite" }
  * The bound domain: what the lowering knows of a numeric value that no TypeScript type can state, because it is a
  * number. An interval holding every value in the order -Infinity < finite < Infinity, whether NaN is possible, and
  * bounds on the integer digits (|x| < 10^digits) and fractional digits of its finite values. It proves what rests on
- * magnitudes: that a numeric expression stays inside numeric's 131072 digits, that a narrowing cast's value fits, that
+ * magnitudes: that a numeric expression stays inside numeric's numericMaxIntegerDigits, that a narrowing cast's value fits, that
  * a domain cast's value satisfies a contract's atoms, power's range and width_bucket's bounds. A guard narrows it
  * inside Compute.when's branch. An interval whose low end lies above its high end, and that is not NaN, holds no
  * value: the branch of a guard that cannot hold.
@@ -131,8 +131,8 @@ const bounds = (low: Edge, high: Edge, nan: boolean, digits: number, scale: numb
 		low,
 		high,
 		nan,
-		digits: Math.min(digits, numericMaxIntegerDigits + 1),
-		scale: Math.min(scale, numericMaxDisplayScale)
+		digits: Math.min(digits, numericMaxIntegerDigits.value + 1),
+		scale: Math.min(scale, numericMaxFractionDigits.value)
 	})
 
 /** Every finite value of `digits` integer digits and `scale` fractional ones, with the infinities and NaN as given. */

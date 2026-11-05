@@ -8,7 +8,6 @@ import {
 	ConfigMissing,
 	ConfigUnloaded,
 	cliError,
-	configFileName,
 	ExportRefused
 } from "#cli/errors.ts"
 import { runCli } from "#cli/run.ts"
@@ -18,11 +17,14 @@ const written = (
 	lines: ReadonlyArray<string>
 ): Effect.Effect<void> => (lines.length === 0 ? Effect.void : write(Arr.join(lines, "\n")))
 
-/** The refusal of a configuration that could not be found or imported, for what was thrown. */
-const unloaded = (cause: unknown): CliError => cliError(new ConfigUnloaded({ cause }))
+/** The refusal of the configuration file `file`, which could not be found or imported, for what was thrown. */
+const unloaded =
+	(file: string) =>
+	(cause: unknown): CliError =>
+		cliError(new ConfigUnloaded({ file, cause }))
 
 /**
- * The application's grizzle.config.ts in `directory`, imported once.
+ * The configuration file at `file`, the absolute path the command line names, imported once.
  *
  * It lies outside grizzle's sources, so the bin imports it by one fixed specifier, `grizzle:config`, which a module
  * resolve hook maps to its file: every import in src/ keeps a literal specifier, the dependency audit's condition for
@@ -30,17 +32,16 @@ const unloaded = (cause: unknown): CliError => cliError(new ConfigUnloaded({ cau
  * that graph, as `effect` is. A process runs one command line, so the hook answers that specifier with one file, and
  * only a command that reads the configuration imports it.
  */
-const configIn = (
-	directory: string
+const configAt = (
+	file: string
 ): Effect.Effect<ConfigFile, CliError, FileSystem.FileSystem | Path.Path> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
-		const file = path.join(directory, configFileName)
-		if (!(yield* Effect.mapError(fs.exists(file), unloaded))) {
-			return yield* cliError(new ConfigMissing({ directory }))
+		if (!(yield* Effect.mapError(fs.exists(file), unloaded(file)))) {
+			return yield* cliError(new ConfigMissing({ file }))
 		}
-		const url = (yield* Effect.mapError(path.toFileUrl(file), unloaded)).href
+		const url = (yield* Effect.mapError(path.toFileUrl(file), unloaded(file))).href
 		yield* Effect.sync(() =>
 			registerHooks({
 				resolve: (specifier, context, nextResolve) =>
@@ -51,29 +52,38 @@ const configIn = (
 		)
 		const module: unknown = yield* Effect.tryPromise({
 			try: () => import("grizzle:config"),
-			catch: unloaded
+			catch: unloaded(file)
 		})
 		if (typeof module !== "object" || module === null || !("default" in module)) {
-			return yield* cliError(new ExportRefused({ fault: "missing" }))
+			return yield* cliError(new ExportRefused({ file, fault: "missing" }))
 		}
 		const loaded: ConfigFile = { file, value: module.default }
 		return loaded
 	})
 
 /**
- * The grizzle CLI: `grizzle generate`, `grizzle check`, `grizzle migrate`, `grizzle drift`, `grizzle names` and
- * `grizzle skill`.
+ * Where the command line's own arguments begin in process.argv, after Node's executable and the program's entry point
+ * (https://nodejs.org/docs/v26.13.0/api/process.html#processargv: "The first element will be process.execPath. [...] If
+ * a program entry point was provided, the second element will be the absolute path to it. The remaining elements are
+ * additional command-line arguments.").
  *
- * The bin runs the command line in the current directory, with its grizzle.config.ts, on the real clock, the process's
- * environment and its output (run.ts), and sets the exit status its report carries. SIGINT interrupts the command, so a
+ * @formatConstant Node's process.argv: its executable, the program's entry point, then the arguments
+ */
+const argumentsStart = 2
+
+/**
+ * The grizzle CLI: `grizzle generate`, `grizzle check`, `grizzle migrate`, `grizzle drift` and `grizzle names`, each over
+ * the configuration file its command line names.
+ *
+ * The bin runs the command line in the current directory, against which a relative configuration file resolves, on the
+ * real clock and its output (run.ts), and sets the exit status its report carries. SIGINT interrupts the command, so a
  * migrate closes its connection and its open file transaction rolls back; the runtime then exits 130. It runs only as
  * the program Node runs: a module that imports the bin (the dependency audit loads every entry point) runs nothing.
  */
 const main = Effect.gen(function* () {
-	const argv = yield* Effect.sync(() => process.argv.slice(2))
+	const argv = yield* Effect.sync(() => process.argv.slice(argumentsStart))
 	const cwd = yield* Effect.sync(() => process.cwd())
-	const path = yield* Path.Path
-	const report = yield* runCli(argv, cwd, configIn(path.resolve(cwd)))
+	const report = yield* runCli(argv, cwd, configAt)
 	yield* written(Console.log, report.stdout)
 	yield* written(Console.error, report.stderr)
 	yield* Effect.sync(() => {

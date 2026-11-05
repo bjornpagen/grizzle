@@ -145,7 +145,9 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 /**
  * Writes `final` by way of a hidden scratch path beside it: whatever was left at the scratch path is removed, `write`
  * fills it, and it is renamed into place; if anything fails or is interrupted before the rename, the scratch path is
- * removed again, so `final` is written whole or not at all.
+ * removed again, so `final` is written whole or not at all. The scratch path is named after the process alone, never
+ * after `final`, so a folder whose name is the longest file name (folder.ts fileNameMaxBytes) has a scratch path the
+ * file system takes; a process writes one entry of a directory at a time.
  */
 const writeAtomically = Effect.fn("writeAtomically")(function* <R>(
 	directory: string,
@@ -155,7 +157,7 @@ const writeAtomically = Effect.fn("writeAtomically")(function* <R>(
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
 	const target = path.join(directory, final)
-	const scratch = path.join(directory, `.${final}.partial-${process.pid}`)
+	const scratch = path.join(directory, `.partial-${process.pid}`)
 	const clear = fs.remove(scratch, { recursive: true, force: true })
 	yield* clear
 	yield* write(scratch).pipe(

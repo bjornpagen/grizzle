@@ -3,12 +3,11 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, filter, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
-import { recursionMaxStates } from "#compiler/core/policy.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -26,6 +25,7 @@ import type {
 	VarDesc
 } from "#test/support/fixtures/ir/desc.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
@@ -215,7 +215,7 @@ describe("arm heads", () => {
 								"rec extra",
 								"both arms broken"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([baseHead, recHead], c) =>
 							Effect.sync(() => {
@@ -288,7 +288,7 @@ describe("the state heading", () => {
 		readonly label: string
 		readonly field: FieldDesc
 		readonly identity: "int4" | "int8" | "numeric" | "text" | "money"
-		/** The typmod or refinement within the class; "none" for an unconstrained numeric and the wildcard. */
+		/** The typmod or refinement within the class; "none" for a carrier with neither, and the wildcard. */
 		readonly within: string
 	}
 	const wildcard: FieldDesc = { kind: "text", source: "^.*$", flags: "su" }
@@ -303,7 +303,12 @@ describe("the state heading", () => {
 	const declared: Arr.NonEmptyReadonlyArray<Typed> = [
 		{ label: "integer", field: integer, identity: "int4", within: "none" },
 		{ label: "bigint", field: bigint, identity: "int8", within: "none" },
-		{ label: "numeric", field: { kind: "numeric" }, identity: "numeric", within: "none" },
+		{
+			label: "numeric(1000,0)",
+			field: { kind: "numeric", precision: 1000, scale: 0 },
+			identity: "numeric",
+			within: "1000,0"
+		},
 		{
 			label: "numeric(10,2)",
 			field: { kind: "numeric", precision: 10, scale: 2 },
@@ -394,9 +399,10 @@ describe("the state heading", () => {
 
 	/**
 	 * The rule (check/recursion/state.ts): every state column hashes, so money is refused at the row; an arm's column
-	 * converts when it has the declared identity and the conversion is exact: the same type, or a numeric typmod or
-	 * text refinement the declared column drops, or the declared refinement's language spelled otherwise, which
-	 * admission casts. Another identity, another typmod, or a declared refinement the arm does not carry is refused.
+	 * converts when it has the declared identity and the conversion is exact: the same type, or a text refinement the
+	 * declared column drops, or the declared refinement's language spelled otherwise, which admission casts. Another
+	 * identity, another typmod (every declared numeric has one, and a typmod cast rounds), or a declared refinement the
+	 * arm does not carry is refused.
 	 */
 	type Expected =
 		| { readonly kind: "admitted"; readonly conversion: "same" | "cast" }
@@ -458,7 +464,7 @@ describe("the state heading", () => {
 							"refused unprovedRefinement",
 							"cast by the author"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([d, a, spelled], c) =>
 						Effect.sync(() => {
@@ -776,7 +782,7 @@ describe("the feedback's shape", () => {
 								"refused misplaced self",
 								"several rules refuse"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([base, extra, m], c) =>
 							Effect.sync(() => {
@@ -907,7 +913,7 @@ describe("r.pack over a recursive arm", () => {
 						literal: Formatter.format,
 						limit: 2,
 						coverage: requiredInSpace<"packed" | "plain">(["packed", "plain"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(pack, c) =>
 						Effect.sync(() => {
@@ -942,7 +948,10 @@ const unboundedHops: RecursionRefusal = {
 }
 
 describe("unbounded computed state", () => {
-	/** A walk's hop counter: its carrier, how its step bounds it, and how it advances. */
+	/**
+	 * A walk's hop counter: its carrier, how its step bounds it, and how it advances. The numeric carrier is
+	 * numeric(1000,0), whose every value is an integer, and still no integer carrier a counter counts in.
+	 */
 	type Carrier = "integer" | "numeric"
 	type Bound = "current below" | "current above" | "either of two" | "next below"
 	type Advance = "plus one" | "times two"
@@ -974,11 +983,12 @@ describe("unbounded computed state", () => {
 							"refused integer current below times two",
 							"refused numeric current below plus one"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([carrier, bound, advance], c) =>
 						Effect.sync(() => {
-							const type: FieldDesc = carrier === "integer" ? integer : { kind: "numeric" }
+							const type: FieldDesc =
+								carrier === "integer" ? integer : { kind: "numeric", precision: 1000, scale: 0 }
 							const k = (n: number) =>
 								carrier === "integer"
 									? typedLit(n, type)
@@ -1046,7 +1056,7 @@ describe("unbounded computed state", () => {
 							literal: Formatter.format,
 							limit: 16,
 							coverage: requiredInSpace<"a cycle" | "acyclic">(["a cycle", "acyclic"]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([aTerm, bTerm], c) =>
 							Effect.sync(() => {
@@ -1189,7 +1199,7 @@ describe("unbounded computed state through a correlated import", () => {
 							"refused a counter beside Echo",
 							"unproved a counter beside Echo"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([[via, x], [at, guarded]], c) =>
 						Effect.sync(() => {
@@ -1306,29 +1316,28 @@ describe("unbounded computed state through a correlated import", () => {
 	)
 })
 
-describe("the seen-state bound", () => {
+describe("the seen-state estimate", () => {
 	/**
-	 * A countdown over a bigint, seeded by data (a count over the vertices) or by a literal: small ones, and the two on
-	 * either side of core/policy.ts recursionMaxStates, whose countdowns need exactly that many states and one more.
+	 * A countdown over a bigint, seeded by data (a count over the vertices) or by a literal: small ones, and ones whose
+	 * countdowns need more states than any store holds, which admission records and never refuses.
 	 */
-	type Seed = "data" | number
+	type Seed = "data" | bigint
 	it.effect(
-		"counts a countdown from its seed to its bound, a data seed over the carrier's whole range, and refuses an estimate above the bound",
+		"counts a countdown from its seed to its bound, a data seed over the carrier's whole range, and admits every estimate",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/recursion/countdown",
-						generator: element<Seed>(["data", 0, 2, recursionMaxStates - 1, recursionMaxStates]),
+						generator: element<Seed>(["data", 0n, 2n, 2n ** 40n, 2n ** 62n]),
 						literal: Formatter.format,
 						limit: 5,
-						coverage: requiredInSpace<"admitted" | "refused data" | "refused literal">([
-							"admitted",
-							"refused data",
-							"refused literal"
+						coverage: requiredInSpace<"admitted data" | "admitted literal">([
+							"admitted data",
+							"admitted literal"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(seeded, c) =>
 						Effect.sync(() => {
@@ -1340,7 +1349,7 @@ describe("the seen-state bound", () => {
 										vars: vars("Vertex", "id"),
 										matches: [match(relationSource("Vertex"), { id: ref("Vertex", "id") })],
 										where: [],
-										head: { n: seeded === "data" ? count() : typedLit(BigInt(seeded), bigint) },
+										head: { n: seeded === "data" ? count() : typedLit(seeded, bigint) },
 										interiors: [],
 										attach: []
 									})
@@ -1361,21 +1370,11 @@ describe("the seen-state bound", () => {
 							 * From the seed down to 0, the last value the bound admits less the step; a seed admission cannot read is
 							 * any bigint.
 							 */
-							const needed = seeded === "data" ? 2n ** 64n : BigInt(seeded) + 1n
-							if (needed <= BigInt(recursionMaxStates)) {
-								c.note("admitted")
-								const cert = theRecursive(admitted(outcome)).termination
-								assert.equal(cert.kind, "wellFounded")
-								assert.equal(cert.stateEstimate, needed)
-								return
-							}
-							c.note(seeded === "data" ? "refused data" : "refused literal")
-							assert.deepEqual(refusedFor(outcome).cause, {
-								kind: "stateEstimate",
-								recursion: "Countdown",
-								limit: recursionMaxStates,
-								needed
-							})
+							const needed = seeded === "data" ? 2n ** 64n : seeded + 1n
+							c.note(seeded === "data" ? "admitted data" : "admitted literal")
+							const cert = theRecursive(admitted(outcome)).termination
+							assert.equal(cert.kind, "wellFounded")
+							assert.equal(cert.stateEstimate, needed)
 						})
 				)
 			)

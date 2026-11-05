@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { json } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { objectName, types } from "#compiler/sql/build.ts"
@@ -15,6 +15,7 @@ import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { typesDigest } from "#compiler/write/carriers/carriers.ts"
 import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { unitCarrier } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * The relations a statement reads and writes (sql/access.ts) beyond DML: a CREATE TEMPORARY TABLE creates its carrier,
@@ -81,7 +82,7 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.sync(() => {
@@ -192,7 +193,7 @@ describe("the ANALYZE statement", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(names, c) =>
 						Effect.sync(() => {

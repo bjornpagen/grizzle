@@ -56,7 +56,13 @@ import {
 	type FixedFn,
 	overloadOf
 } from "#compiler/scalar/compute/registry.ts"
-import { exactType, familyDigits, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import {
+	anyNumeric,
+	exactType,
+	familyDigits,
+	plainType,
+	wildcardText
+} from "#compiler/scalar/compute/types.ts"
 import { scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { defined } from "#test/support/assert.ts"
@@ -488,9 +494,11 @@ export class Ir {
 		const result: ScalarType =
 			native.totality.kind === "exact"
 				? exactType(native.totality.yields === "integer" ? "exactInteger" : "exactMoney", digits)
-				: isPlainCarrier(native.result)
-					? plainType(native.result)
-					: (first ?? fixtureError(`fixture IR: ${fn} has no operand to take its type from`))
+				: native.result === "numeric"
+					? anyNumeric
+					: isPlainCarrier(native.result)
+						? plainType(native.result)
+						: (first ?? fixtureError(`fixture IR: ${fn} has no operand to take its type from`))
 		return this.#record({
 			kind: "op",
 			op: id,

@@ -6,7 +6,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -19,6 +18,7 @@ import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { claimsText, payloadFacts } from "#test/support/worlds/model/session/claims.ts"
@@ -494,7 +494,7 @@ describe("the host claims decoder", () => {
 						shrink: { kind: "bounded", candidates: 200 },
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ mode, raw }, c) =>
 						Effect.sync(() => {
@@ -544,7 +544,7 @@ describe("the host claims decoder", () => {
 						literal: (at: "session" | "tenant") => Formatter.format(at),
 						limit: 2,
 						coverage: requiredInSpace<"at:session" | "at:tenant">(["at:session", "at:tenant"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(at, c) =>
 						Effect.sync(() => {

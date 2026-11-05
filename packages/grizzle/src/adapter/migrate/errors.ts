@@ -194,7 +194,7 @@ export const appliedEditPhrase: Readonly<Record<AppliedEdit["kind"], string>> = 
 	edited: "was edited after it was applied; restore it from git",
 	missing: "was applied but is missing; restore it from git",
 	added:
-		"was added after its folder was applied; move it into a new migration (grizzle generate --custom)"
+		"was added after its folder was applied; move it into a new migration (grizzle generate <config> --custom --name <name>)"
 }
 
 const fileOf = (first: { readonly folder: string; readonly file: string }): MigrationPlace => ({

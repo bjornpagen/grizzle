@@ -5,7 +5,7 @@ import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Number as Num, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Number as Num, Option, Order } from "effect"
 import { compareIdentities, type Identity, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
@@ -24,6 +24,7 @@ import {
 } from "#compiler/physical/obligations/graph.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { parsedName, parsedSchemaName, wild } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 
 /** The obligation graph. Its install order keeps every edge, refined by the phase order,
@@ -245,7 +246,7 @@ describe("the obligation graph", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(sketch, c) =>
 					Effect.sync(() => {
@@ -421,7 +422,7 @@ describe("the obligation graph", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ own, later }, c) =>
 					Effect.sync(() => {

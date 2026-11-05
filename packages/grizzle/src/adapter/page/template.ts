@@ -8,21 +8,23 @@ import {
 	type StatementRecord
 } from "#adapter/reader/execution.ts"
 import { type GroupOrder, groupOrder } from "#adapter/reader/run.ts"
-import { type CursorCodec, cursorCodec } from "#compiler/codec/cursor/codec.ts"
+import {
+	type CursorCodec,
+	cursorCodec,
+	cursorTokenMaxLength
+} from "#compiler/codec/cursor/codec.ts"
 import type { CursorGeneration } from "#compiler/codec/cursor/identity.ts"
 import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
 import { type Layout, rowText } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { cursorMaxBytes } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
-import type { Encoder, PageFill, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
+import type { ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { columnPosition } from "#compiler/lower/conservative/context.ts"
 import {
-	type DeclaredParamSlot,
 	type PageStatementSlot,
 	type StatementRoots,
 	traverseTree
@@ -40,7 +42,7 @@ import {
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"
 import type { PageComparator, PageVariant, ProbeKind } from "#compiler/lower/shapes/page/seek.ts"
-import { pageSlotOf, pageStatementSlotOf, statementSpec } from "#compiler/lower/template.ts"
+import { pageStatementSlotOf, statementSpec } from "#compiler/lower/template.ts"
 import { vectorExpectations } from "#compiler/physical/vector/admission.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
@@ -56,7 +58,8 @@ import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
  * probe for both artifacts; this module adds what running them needs, once per template:
  *
  * - each statement's StatementSpec (lower/template.ts statementSpec): its executable text with every delivered column
- *   cast to text and one encoder per placeholder; and each per-execution variant's beside the statement it replaces;
+ *   cast to text and one encoder per declared parameter's placeholder; and each per-execution variant's beside the
+ *   statement it replaces;
  * - each request's statement records (reader/execution.ts programRecords), so the query's decoder binds to the same
  *   layouts on every page of the request variant, and how its rows statements deliver: each one's comparison tuple read
  *   from its texts by the comparators' value codecs, and a heterogeneous union's groups merged on the fetch order;
@@ -66,26 +69,18 @@ import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
  *   evidence context, the request variant and the page size, so one token serves every Db of the schema and the
  *   compiled handles of the query. The generation is the schema fingerprint and the extensions the
  *   schema requires by name, at the version admission verified (physical/vector/admission.ts): a token of another
- *   schema or extension generation fails validation explicitly. A completed order whose shortest token exceeds
- *   cursorMaxBytes is refused here with UnsupportedOperation;
+ *   schema or extension generation fails validation explicitly. Its tokens are bounded by the layout alone
+ *   (cursorTokenMaxLength), and a completed order whose shortest token exceeds it is refused here with
+ *   UnsupportedOperation;
  * - one value codec per comparator, which writes a delivered edge's boundary values as the texts its probe binds, the
  *   same canonical texts the edge's cursor carries.
  *
- * A page placeholder: what fills it, through the statement's own integer encoder for the limit and the size.
- */
-export interface PageSlot {
-	readonly kind: "page"
-	readonly fill: PageFill
-	readonly encode: Encoder
-}
-
-/**
- * One statement of a page program as the runtime runs it: its page placeholders among its read ones, and its
- * per-execution form, when it has one.
+ * One statement of a page program as the runtime runs it: its page placeholders, each the page fill the runtime binds
+ * (execute.ts), among its read ones, and its per-execution form, when it has one.
  */
 export type PageRunStatement = RunStatement<
 	FusedStatement<PageStatementSlot>,
-	DeclaredParamSlot | PageSlot,
+	PageStatementSlot,
 	ShapeChoice
 >
 
@@ -165,12 +160,10 @@ interface PageRuntimeParts {
 const pageForm = (
 	statement: FusedStatement<PageStatementSlot>,
 	spec: StatementSpec
-): StatementForm<FusedStatement<PageStatementSlot>, DeclaredParamSlot | PageSlot> => ({
+): StatementForm<FusedStatement<PageStatementSlot>, PageStatementSlot> => ({
 	statement,
 	spec,
-	slots: Arr.map(statement.params, (slot): DeclaredParamSlot | PageSlot =>
-		slot.kind === "page" ? pageSlotOf(slot) : slot
-	)
+	slots: statement.params
 })
 
 /** A statement of a page program as it runs, each form with the spec rebuilt from it. */
@@ -319,7 +312,7 @@ export const pageRuntimeOf = (parts: PageRuntimeParts): Result.Result<PageRuntim
 		const codec = yield* toResult(
 			cursorCodec(
 				{ query: parts.query, comparators: page.comparators, generation: parts.generation },
-				cursorMaxBytes
+				cursorTokenMaxLength
 			)
 		)
 		return {

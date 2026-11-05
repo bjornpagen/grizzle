@@ -5,7 +5,7 @@ import { boolean, element, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 /**
  * The generators' scalar types, value domains and spelling rule (test/support/oracle/gen/domain.ts): every generated
@@ -23,12 +23,14 @@ import { btreeEntryBytes, btreeMaxItemSize, datumBound } from "#compiler/schema/
 import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	allTypeSpecs,
 	compareParamType,
 	fieldDescOf,
 	keyFieldType,
 	literalEqualityKey,
+	numeric,
 	resolveStored,
 	resolveValue,
 	scalarOfSpec,
@@ -51,7 +53,7 @@ const types: Arr.NonEmptyReadonlyArray<ScalarType> = Arr.append(
  */
 const representableKey = (type: ScalarType): boolean => {
 	const bound = datumBound(fieldDescOf(type))
-	return bound.ok && btreeEntryBytes([bound.value]) <= btreeMaxItemSize
+	return bound !== undefined && btreeEntryBytes([bound]) <= btreeMaxItemSize.value
 }
 
 describe("generated scalar types", () => {
@@ -86,7 +88,7 @@ describe("generated scalar types", () => {
 								"edge classes",
 								"a type that is its own key type"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([t, edge, keep], c) =>
 							Effect.sync(() => {
@@ -140,10 +142,10 @@ const numericSpelling = (l: TypedLiteral, text: string): boolean =>
 
 const edges: ReadonlyArray<Edge> = [
 	...Arr.map(["NaN", "Infinity"], (text) => ({
-		what: `numeric ${text}, a special value`,
-		type: scalarOfSpec({ carrier: "numeric" }),
+		what: `numeric ${text}, a special value, which a typmod holds only for NaN`,
+		type: numeric,
 		holds: (l: TypedLiteral) => numericSpelling(l, text),
-		held: true
+		held: text === "NaN"
 	})),
 	{
 		what: "the signed zero, which a float's one zero is not",
@@ -190,7 +192,7 @@ describe("value domains", () => {
 						literal: Formatter.format,
 						limit: edges.length,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(e) =>
 						Effect.sync(() => {
@@ -227,7 +229,7 @@ describe("value domains", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([type, cls, sp, edge], c) =>
 						Effect.sync(() => {

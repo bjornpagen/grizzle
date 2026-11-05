@@ -2,7 +2,7 @@ import { type Explored, type Run, type SearchFailure, sketched } from "@grizzle/
 import { required } from "@grizzle/testing/features"
 import { constant, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
-import { Array as Arr, Duration, Effect, Formatter, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, type Scope, String as Str } from "effect"
 import { optimizedShrink } from "#test/pg/oracle/optimized/suite.ts"
 import {
 	agrees,
@@ -91,7 +91,6 @@ export const nonReproduction = (
 				kept: [],
 				runs: within,
 				shrink: optimizedShrink,
-				caseHang: Duration.minutes(2),
 				perturb: "planner"
 			},
 			(resolved, k) =>

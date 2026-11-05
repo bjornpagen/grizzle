@@ -210,7 +210,7 @@ export const artifactsAgree = <E>(
 					sideRead("optimized", ctx),
 					sideRead("conservative", { ...ctx, compile: conservativeCompile(ctx) })
 				],
-				{ concurrency: 2 }
+				{ concurrency: "unbounded" }
 			)
 		)
 		return sameFacts(optimized, conservative)

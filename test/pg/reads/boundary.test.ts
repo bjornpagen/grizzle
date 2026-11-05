@@ -8,7 +8,7 @@ import { passed, WILD_KINDS, type Wild, wild } from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Cause, Duration, Effect, Exit, Formatter, Option, Scope } from "effect"
+import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Scope } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
 import {
@@ -30,6 +30,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, contains, defined } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"
+import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { makeTap, type Tap } from "#test/support/wire-tap.ts"
@@ -491,7 +492,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(commands, c) =>
 							Effect.scoped(
@@ -504,8 +505,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 									yield* Effect.addFinalizer(() => Scope.close(poolScope, Exit.void))
 									const pool = yield* poolFor(o.installed.as(o.server), {
 										...defaultPool,
-										transport: { kind: "given", transport: { _tag: "stream", open: tap.open } },
-										pool: { idleTimeoutMs: 60_000, min: 1, max: 1 }
+										transport: { kind: "given", transport: tap.transport },
+										pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 }
 									}).pipe(Scope.provide(poolScope))
 									yield* Effect.scoped(
 										Effect.flatMap(pool.lease, (session) =>
@@ -535,7 +536,6 @@ layer(Substrate.layer, { excludeTestServices: true })("the public reader at its 
 							)
 					)
 				}).pipe(Effect.scoped)
-			),
-		600_000
+			)
 	)
 })

@@ -5,7 +5,7 @@ import { agree, exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Fiber, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Fiber, Formatter, Order } from "effect"
 import type { BatchStatement } from "#adapter/wire/batch.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { until } from "#test/pg/adapter/support.ts"
@@ -26,6 +26,7 @@ import {
 	prologueIn
 } from "#test/support/flight/model.ts"
 import { observationsOf, plannedBySql, runScripted } from "#test/support/flight/run.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 import { backendCount, tappedSession } from "#test/support/wire-tap.ts"
@@ -44,11 +45,11 @@ import { backendCount, tappedSession } from "#test/support/wire-tap.ts"
  * Each case runs uninterrupted when it can complete, and interrupted after every number of answers. The tap's gate
  * holds the server's bytes after the k-th ReadyForQuery, so the call has read exactly k answers; the server is let do
  * all it can, until it has answered every query or sleeps in a held statement; and the call is interrupted, which it
- * takes at once. A call that cancels retires its session as it takes the interruption, before its grace and its
- * CancelRequest (batch.ts), and nothing the server answers here retires a session sooner. So the gate lets the rest
- * through once a retired session's CancelRequest has reached the server, and at once when the session is not retired:
- * no grace runs then, and no CancelRequest can follow. The scripted session is driven the same way: k answers, the
- * interruption, and the grace expiring before any further answer.
+ * takes at once. A call that cancels retires its session as it takes the interruption, before its one CancelRequest,
+ * after which it destroys its connection (batch.ts), and nothing the server answers here retires a session sooner. So
+ * the gate lets the rest through once a retired session's CancelRequest has reached the server, when the destroyed
+ * connection reads nothing more, and at once when the session is not retired, when no CancelRequest can follow. The
+ * scripted session is driven the same way: k answers, then the interruption.
  *
  * The observations compared are the ending, what committed, the retirement, and whether a CancelRequest was sent.
  *
@@ -117,7 +118,6 @@ const statementsOver =
 			case "nullCell":
 			case "late":
 			case "stuck":
-			case "wedged":
 			case "fatal":
 			case "lose":
 				throw new Error(`the server cannot be made to answer a ${planned.kind} statement on demand`)
@@ -210,8 +210,7 @@ const flightSuite = Effect.gen(function* () {
 					cluster: s.cluster,
 					database: s.database,
 					role: s.owner.role,
-					password: s.owner.password,
-					applicationName: "grizzle-wire-tap"
+					password: s.owner.password
 				})
 				const session = tapped.session
 				const backend = yield* runAlone(session, {
@@ -251,7 +250,7 @@ const flightSuite = Effect.gen(function* () {
 						const interrupting = yield* Effect.forkChild(Fiber.interrupt(fiber), {
 							startImmediately: true
 						})
-						if (session.retired()) {
+						if (session.state() !== "open") {
 							yield* until(Effect.sync(() => tapped.cancelsEnded() > 0))
 						}
 						tapped.gate.release()
@@ -267,7 +266,7 @@ const flightSuite = Effect.gen(function* () {
 				return observed(
 					exit,
 					Arr.map(committed, ([label]) => String(label)),
-					session.retired(),
+					session.state() !== "open",
 					tapped.cancels()
 				)
 			})
@@ -284,7 +283,7 @@ const flightSuite = Effect.gen(function* () {
 			const statementOf = statementsOver(schema, c)
 			const bySql = plannedBySql(c, statementOf)
 			const writes = writing(c)
-			const run = runScripted(c, { interruptAfter: k, grace: 0 }, statementOf)
+			const run = runScripted(c, { interruptAfter: k }, statementOf)
 			const observations = observationsOf(c, run, (sql) => bySql.get(sql)?.label ?? sql)
 			if (observations === undefined) {
 				return { blocked: true, at: undefined }
@@ -343,7 +342,7 @@ const flightSuite = Effect.gen(function* () {
 			shrink: completeShrink,
 			concurrency: 1,
 			steerEvery: 16,
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(c, cx) =>
 			Effect.gen(function* () {

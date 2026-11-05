@@ -9,29 +9,39 @@ import {
 } from "#compiler/core/decimal.ts"
 import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
+import { derived, type Limit } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { int4Max, moneyFractionDigits } from "#compiler/ir/carriers.ts"
 import { type DecimalValue, decimalPayload, decimalTag } from "#compiler/ir/decimal.ts"
-import type { NumericTypmod } from "#compiler/ir/scalar.ts"
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale,
+	type NumericTypmod
+} from "#compiler/ir/scalar.ts"
 import { faultError } from "#compiler/scalar/values/fault.ts"
 
 export type { DecimalParts, FiniteParts, NumericTypmod }
 
-/** PostgreSQL's limits (src/include/utils/numeric.h, src/backend/utils/adt/numeric.c). */
-const numericMaxPrecision = 1000
-const numericMinScale = -1000
-const numericMaxScale = 1000
-export const numericMaxDisplayScale = 16383
-export const numericMaxIntegerDigits = 131072
-/** set_var_from_str refuses an exponent beyond PG_INT32_MAX / 2 before anything else. */
-const maxExponent = 1073741823
+/**
+ * The greatest exponent magnitude a numeric's text may write: set_var_from_str refuses a greater one before anything
+ * else.
+ */
+const maxExponent: Limit = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "a decimal exponent",
+	scope: "the exponent of a numeric text a caller writes, `1e5` and `1E-5`",
+	from: [int4Max],
+	derivation:
+		'PG_INT32_MAX / 2 in C integer division, numeric.c set_var_from_str (https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/numeric.c#L6927, "if (exponent > PG_INT32_MAX / 2)")',
+	compute: ([max]) => Math.trunc(max.value / 2)
+})
 
-/** 10^0 through 10^63, the powers the arithmetic reads most, computed once. */
-const pow10Table: ReadonlyArray<bigint> = [...Array.from({ length: 64 }).keys()].map(
-	(i) => 10n ** BigInt(i)
-)
-/** 10^n: from the table below 64, computed above it. */
-const pow10 = (n: number): bigint => pow10Table[n] ?? 10n ** BigInt(n)
+/** 10^n. */
+const pow10 = (n: number): bigint => 10n ** BigInt(n)
 
 /** The integer nearest to `c / 10^k` for c >= 0, ties away from zero (round_var). */
 const roundHalfAway = (c: bigint, k: number): bigint => {
@@ -80,7 +90,7 @@ const exponentAt = (
 	let magnitude = 0
 	for (let i = digitsStart; i < end; i++) {
 		magnitude = magnitude * 10 + (text.charCodeAt(i) - 0x30)
-		if (magnitude > maxExponent) {
+		if (magnitude > maxExponent.value) {
 			return Result.err("decimalRange")
 		}
 	}
@@ -104,10 +114,10 @@ const finiteParts = (negative: boolean, coefficient: bigint, minScale: number): 
  * identical, and no observation grizzle offers tells equal values apart. Its one text, `text` and `toString`, is
  * PostgreSQL's numeric_out of trim_scale(value), written at construction.
  *
- * Value limits are PostgreSQL's numeric format: at most 131072 digits before the decimal point (an int16 weight in
- * base 10000) and at most 16383 past it (NUMERIC_DSCALE_MAX). Admission is by value: a written scale above 16383 whose
- * value's minScale fits is admitted as its value, which is never sent as written. Every Decimal satisfies the limits,
- * so bare `numeric` admits every Decimal unchanged.
+ * Value limits are PostgreSQL's numeric format: at most numericMaxIntegerDigits digits before the decimal point (an
+ * int16 weight in base 10000) and at most numericMaxFractionDigits past it (NUMERIC_DSCALE_MAX). Admission is by value:
+ * a written scale above numericMaxFractionDigits whose value's minScale fits is admitted as its value, which is never
+ * sent as written. Every Decimal satisfies the limits.
  *
  * Declared precision and scale coerce as PostgreSQL's apply_typmod does: round half away from zero to the declared
  * scale, then refuse a value whose rounded magnitude needs more integer digits than precision minus scale, so rounding
@@ -131,7 +141,7 @@ export class Decimal implements Canonicalizable {
 	/**
 	 * The finite value `digits` times 10^exponent in its one form, `digits` its significant digits (no leading zero, and
 	 * no trailing zero when the exponent is negative), or its refusal outside PostgreSQL's numeric format: more than
-	 * 16383 digits past the point, or more than 131072 before it.
+	 * numericMaxFractionDigits digits past the point, or more than numericMaxIntegerDigits before it.
 	 */
 	static #fromSignificant(
 		negative: boolean,
@@ -139,7 +149,7 @@ export class Decimal implements Canonicalizable {
 		exponent: number
 	): Result.Result<Decimal, ValueFault> {
 		if (exponent >= 0) {
-			if (digits.length + exponent > numericMaxIntegerDigits) {
+			if (digits.length + exponent > numericMaxIntegerDigits.value) {
 				return Result.err("decimalRange")
 			}
 			const text = digits + "0".repeat(exponent)
@@ -147,7 +157,10 @@ export class Decimal implements Canonicalizable {
 			return Result.ok(new Decimal(parts, negative ? `-${text}` : text))
 		}
 		const minScale = -exponent
-		if (minScale > numericMaxDisplayScale || digits.length - minScale > numericMaxIntegerDigits) {
+		if (
+			minScale > numericMaxFractionDigits.value ||
+			digits.length - minScale > numericMaxIntegerDigits.value
+		) {
 			return Result.err("decimalRange")
 		}
 		const parts = finiteParts(negative, BigInt(digits), minScale)
@@ -193,22 +206,20 @@ export class Decimal implements Canonicalizable {
 	}
 
 	/**
-	 * An int64 count of hundredths: always a numeric, since an int64 has at most 19 digits and a numeric holds far more
-	 * before its decimal point. A money amount's exact value (money.ts toDecimal), in its one form.
+	 * An int64 count of money's minor units, 10^moneyFractionDigits to the unit: always a numeric, since an int64 has
+	 * at most int8Digits digits and a numeric holds far more before its decimal point. A money amount's exact value
+	 * (money.ts toDecimal), in its one form.
 	 */
-	static fromHundredths(hundredths: bigint): Decimal {
-		const negative = hundredths < 0n
-		const magnitude = negative ? -hundredths : hundredths
-		if (magnitude % 100n === 0n) {
-			const units = magnitude / 100n
-			return new Decimal(finiteParts(negative, units, 0), (negative ? -units : units).toString())
+	static fromMinorUnits(minorUnits: bigint): Decimal {
+		const negative = minorUnits < 0n
+		let coefficient = negative ? -minorUnits : minorUnits
+		let minScale = moneyFractionDigits.value
+		while (minScale > 0 && coefficient % 10n === 0n) {
+			coefficient /= 10n
+			minScale--
 		}
-		const tenths = magnitude % 10n === 0n
-		const parts = finiteParts(negative, tenths ? magnitude / 10n : magnitude, tenths ? 1 : 2)
-		return new Decimal(
-			parts,
-			finiteDigitsText(negative, parts.coefficient.toString(), parts.minScale)
-		)
+		const parts = finiteParts(negative, coefficient, minScale)
+		return new Decimal(parts, finiteDigitsText(parts.negative, coefficient.toString(), minScale))
 	}
 
 	/** An integer Decimal. */
@@ -398,7 +409,7 @@ export class Decimal implements Canonicalizable {
 	}
 }
 
-const kindRank = (parts: DecimalParts): number => {
+const kindRank = (parts: DecimalParts): 0 | 1 | 2 | 3 => {
 	switch (parts.kind) {
 		case "-infinity":
 			return 0
@@ -448,22 +459,18 @@ const isInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isInteger(value)
 
 /**
- * numerictypmodin's rule over the typmod list a JavaScript caller passes: precision 1..1000, scale -1000..1000, both
- * integers; a one-element list is numeric(p), scale 0. null, like every other non-integer, is refused. This is the one
- * check: a NumericTypmod is checked, so normalizeNumeric takes one as it is.
+ * numerictypmodin's rule over the precision and scale a JavaScript caller passes: precision 1..numericMaxPrecision,
+ * scale numericMinScale..numericMaxScale, both integers and both given. null, like every other non-integer, is refused.
+ * This is the one check: a NumericTypmod is checked, so normalizeNumeric takes one as it is.
  */
 export const checkNumericTypmod = (
-	typmod: readonly [unknown] | readonly [unknown, unknown]
+	precision: unknown,
+	scale: unknown
 ): Result.Result<NumericTypmod, ValueFault> => {
-	const [precision] = typmod
-	if (!isInteger(precision) || precision < 1 || precision > numericMaxPrecision) {
+	if (!isInteger(precision) || precision < 1 || precision > numericMaxPrecision.value) {
 		return Result.err("numericTypmod")
 	}
-	if (typmod.length === 1) {
-		return Result.ok({ precision, scale: 0 })
-	}
-	const [, scale] = typmod
-	if (!isInteger(scale) || scale < numericMinScale || scale > numericMaxScale) {
+	if (!isInteger(scale) || scale < numericMinScale.value || scale > numericMaxScale.value) {
 		return Result.err("numericTypmod")
 	}
 	return Result.ok({ precision, scale: scale === 0 ? 0 : scale })
@@ -473,7 +480,7 @@ export const checkNumericTypmod = (
  * The value a numeric(p, s) column stores for `d`, as apply_typmod and apply_typmod_special compute it, in its one
  * form: NaN unchanged; infinity refused (numericInfinity); otherwise rounded half away from zero to scale s, and
  * refused when the rounded magnitude is at least 10^(p - s) (numericOverflow, SQLSTATE 22003 in PostgreSQL). Without a
- * typmod the value is bare numeric's, which every Decimal already is.
+ * typmod, a computed numeric's, the value is numeric's own, which every Decimal already is.
  */
 export const normalizeNumeric = (
 	d: Decimal,

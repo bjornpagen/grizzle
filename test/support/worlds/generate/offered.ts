@@ -7,7 +7,7 @@ import type {
 	Action,
 	ActionKind,
 	ModelState,
-	SessionState
+	ModelSession
 } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -175,7 +175,7 @@ export const applicable = (state: ModelState, kind: ActionKind): boolean => {
 /** Whether a session is live: a Db its snapshot describes, or a direct writer's transaction. */
 const isOpen =
 	(state: ModelState) =>
-	(s: SessionState): boolean =>
+	(s: ModelSession): boolean =>
 		s.kind === "direct" || (s.kind === "db" && !staleDb(state, s))
 
 /**

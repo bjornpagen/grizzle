@@ -9,7 +9,6 @@ import type {
 import * as D from "#test/unit/check/dsl.ts"
 
 export const double: FieldDesc = { kind: "pg", type: "double precision" }
-const numeric: FieldDesc = { kind: "numeric" }
 const bigint: FieldDesc = { kind: "pg", type: "bigint" }
 const integer: FieldDesc = { kind: "pg", type: "integer" }
 
@@ -552,13 +551,14 @@ function selfMatchByScore(ord: HeadTermDesc): QueryDesc {
 
 /** ceil((p * n::float8)::numeric) */
 const ceilPn = (p: number, n: ExprDesc): ExprDesc =>
-	D.compute("ceil", D.cast(D.compute("mul", f8(p), D.cast(n, double)), numeric))
+	D.compute("ceil", D.compute("numeric", D.compute("mul", f8(p), D.cast(n, double))))
 
 /**
  * The ordinal `o` at a rounded position: o::numeric = position. The ordinal widens into numeric, which every value
  * survives; the position cast back to bigint would narrow a value no type proves finite.
  */
-const ordinalAt = (o: string, position: ExprDesc): ExprDesc => D.eq(D.cast(v(o), numeric), position)
+const ordinalAt = (o: string, position: ExprDesc): ExprDesc =>
+	D.eq(D.compute("numeric", v(o)), position)
 
 /**
  * R29: the value at ordinal ceil(p · n) of each student's scores, one selection per fraction. `unjoined` leaves the
@@ -679,11 +679,11 @@ export const continuousPercentile = (p: number, over: "score" | "amount"): Query
 	const value = (x: string) => (over === "score" ? v(x) : D.cast(v(x), double))
 	const n = v("n")
 	const position = (fn: "floor" | "ceil") =>
-		D.compute(fn, D.cast(D.compute("add", f8(1), hOf(p, n)), numeric))
+		D.compute(fn, D.compute("numeric", D.compute("add", f8(1), hOf(p, n))))
 	const frac = D.compute(
 		"sub",
 		hOf(p, n),
-		D.cast(D.compute("floor", D.cast(hOf(p, n), numeric)), double)
+		D.cast(D.compute("floor", D.compute("numeric", hOf(p, n))), double)
 	)
 	return D.queryDesc(
 		D.rule({

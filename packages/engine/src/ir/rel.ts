@@ -277,7 +277,7 @@ export const mapAggregate = <E, F>(
 
 /**
  * Why a recursive node terminates: projection over finite carrier relations, bounded computed state, or
- * a recognized well-founded transition. The state estimate is checked against recursionMaxStates at admission.
+ * a recognized well-founded transition, with the static seen-state estimate admission records.
  */
 export interface TerminationCert {
 	readonly kind: "finiteCarrier" | "boundedState" | "wellFounded"

@@ -59,6 +59,7 @@ import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { LedgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 import * as C from "#compiler/sql/catalog.ts"
 import { emitCatalog } from "#compiler/sql/emit.ts"
 
@@ -76,12 +77,13 @@ import { emitCatalog } from "#compiler/sql/emit.ts"
  *    - Identity. Migrations run as the migration identity, which owns the schema: the role that connects, whatever its
  *      name, for neither the snapshot nor the drafted SQL names it. A schema that exists must be the session role's;
  *      one that does not yet is created by the first migration, and so the role's. Anything else is refused.
- *    - The apply lock. A session-level advisory lock keyed by the schema, taken with pg_try_advisory_lock, so two
- *      applies of one schema never interleave their files; a second apply is refused rather than waiting, because a
- *      waiting statement's snapshot would hold up the first one's CREATE INDEX CONCURRENTLY (its wait for older
- *      snapshots) while the first holds the lock the second waits on. The ledger is read after the lock in the same
- *      flight, so under it when it is taken; a refused apply's read is discarded. Every lock taken is released when the
- *      apply ends, in one step, and with the session in any case.
+ *    - The apply lock. A session-level advisory lock keyed by the schema, its key derived on the host from the
+ *      schema's name (sql/catalog.ts AdvisoryLock), taken with pg_try_advisory_lock, so two applies of one schema
+ *      never interleave their files; a second apply is refused rather than waiting, because a waiting statement's
+ *      snapshot would hold up the first one's CREATE INDEX CONCURRENTLY (its wait for older snapshots) while the first
+ *      holds the lock the second waits on. The ledger is read after the lock in the same flight, so under it when it
+ *      is taken; a refused apply's read is discarded. Every lock taken is released when the apply ends, in one step,
+ *      and with the session in any case.
  *    - The ledger (ledger.ts), its absence read as the schema's empty snapshot, and the plan (plan.ts): which folders
  *      are applied, which resumes, which run; an out-of-order folder, a source that is not the latest target, a chain
  *      that does not end at the known snapshot, or an unresolved marker refuses the apply.
@@ -135,24 +137,34 @@ export interface SchemaApplyReport {
 	}>
 }
 
-/** The key of a schema's apply lock. */
-export const applyLockKey = (schema: string): string => `grizzle migrate ${schema}`
-/** The advisory lock id of the key $1, as every apply lock statement computes it. */
-export const applyLockKeyExpr: C.CatalogExpr = C.call("hashtextextended", [
-	C.param(1, "text"),
-	C.literal(0n, "bigint")
-])
-/** Whether the lock keyed by $1 was taken. */
-const tryLock: CatalogQuery<boolean> = {
-	sql: emitCatalog(
-		C.query([C.asText(C.call("pg_try_advisory_lock", [applyLockKeyExpr]))], [], undefined)
-	),
-	what: "a Boolean",
-	row: ([taken]) => (taken === "true" ? true : taken === "false" ? false : undefined)
+/**
+ * The key of `schema`'s apply lock (sql/catalog.ts AdvisoryLock), as every statement that takes or releases it prints
+ * it.
+ */
+export const applyLockKey = (schema: string): C.CatalogExpr =>
+	C.literal(C.advisoryKey({ kind: "apply", schema }), "bigint")
+
+/**
+ * A schema's apply lock: the statement that tries to take it, answering whether it did, and the statement that releases
+ * it, each with the lock's key as a literal (applyLockKey), so neither takes a parameter.
+ */
+interface ApplyLock {
+	readonly take: CatalogQuery<boolean>
+	readonly release: EmittedText
 }
-const unlockSql = emitCatalog(
-	C.query([C.asText(C.call("pg_advisory_unlock", [applyLockKeyExpr]))], [], undefined)
-)
+
+/** The apply lock of `schema`. */
+const applyLock = (schema: string): ApplyLock => {
+	const key = applyLockKey(schema)
+	return {
+		take: {
+			sql: emitCatalog(C.query([C.asText(C.call("pg_try_advisory_lock", [key]))], [], undefined)),
+			what: "a Boolean",
+			row: ([taken]) => (taken === "true" ? true : taken === "false" ? false : undefined)
+		},
+		release: emitCatalog(C.query([C.asText(C.call("pg_advisory_unlock", [key]))], [], undefined))
+	}
+}
 const roleName = ([name]: ReadonlyArray<string>): string | undefined => name
 const currentUser: CatalogQuery<string> = {
 	sql: emitCatalog(C.query([C.asText(C.currentUser)], [], undefined)),
@@ -183,40 +195,59 @@ interface Planned {
 	readonly ledger: LedgerTable
 }
 
-/** A schema's input, checked before anything is read: its parsed target and its ledger statements. */
+/** A schema's input, checked before anything is read: its parsed target, its ledger statements and its apply lock. */
 interface Checked {
 	readonly parsed: ParsedTarget
 	readonly statements: LedgerStatements
+	readonly lock: ApplyLock
 }
 
 const checkTarget = (target: MigrationTarget): Result.Result<Checked, MigrateError> =>
 	Result.flatMap(parseTarget(target), (parsed) =>
-		Result.map(statementsFor(parsed.schema), (statements) => ({ parsed, statements }))
+		Result.map(statementsFor(parsed.schema), (statements) => ({
+			parsed,
+			statements,
+			lock: applyLock(parsed.schema)
+		}))
 	)
 
 /**
- * The survey step's reads of one schema, apart and in this order (see the header): its owner, its apply lock, and
- * its ledger's two reads (ledger.ts ledgerReads).
+ * The survey step's reads of one schema, apart and in the order it sends them (see the header): its owner, its apply
+ * lock, and its ledger's two reads (ledger.ts ledgerReads). Each read's answer is at its position in this list,
+ * counted from the schema's first answer.
  */
-const schemaReads = (
-	schema: string,
-	statements: LedgerStatements
-): ReadonlyArray<BatchStatement> => [
-	{ sql: schemaOwner.sql, params: [schema] },
-	{ sql: tryLock.sql, params: [applyLockKey(schema)] },
-	...ledgerReads(schema, statements)
-]
+const schemaReadOrder = ["owner", "lock", "ledgerExists", "ledgerRows"] as const
+type SchemaRead = (typeof schemaReadOrder)[number]
+
+/** The statements of a schema's survey reads, in schemaReadOrder. */
+const schemaReads = (checked: Checked): ReadonlyArray<BatchStatement> => {
+	const schema = checked.parsed.schema
+	const [ledgerExists, ledgerRows] = ledgerReads(schema, checked.statements)
+	const reads: { readonly [R in SchemaRead]: BatchStatement } = {
+		owner: { sql: schemaOwner.sql, params: [schema] },
+		lock: { sql: checked.lock.take.sql, params: [] },
+		ledgerExists,
+		ledgerRows
+	}
+	return Arr.map(schemaReadOrder, (read) => reads[read])
+}
 
 /**
- * How many statements schemaReads sends, and where a schema's answers start in the survey step: behind the session's
- * role, then the schemas before it.
+ * Where a schema's answers start in the survey step: behind the session's role, then the schemas before it, each
+ * answering schemaReadOrder's reads.
  */
-const readsPerSchema = 4
-const answersFrom = (index: number): number => 1 + index * readsPerSchema
+const answersFrom = (index: number): number => 1 + index * schemaReadOrder.length
 
-/** Whether the survey step took a schema's apply lock: exactly when its statement answered true. */
-const lockTaken = (answer: ApartAnswer): boolean => {
-	const taken = apartRow(tryLock, answer)
+/** The answer of a schema's read `read`, its answers starting at `at`. */
+const readAnswer = (
+	answers: ReadonlyArray<ApartAnswer>,
+	at: number,
+	read: SchemaRead
+): ApartAnswer => sentAnswer(answers, at + schemaReadOrder.indexOf(read))
+
+/** Whether the survey step took a schema's apply lock `lock`: exactly when its statement answered true. */
+const lockTaken = (lock: ApplyLock, answer: ApartAnswer): boolean => {
+	const taken = apartRow(lock.take, answer)
 	return Result.isSuccess(taken) && taken.success
 }
 
@@ -226,8 +257,8 @@ const lockTaken = (answer: ApartAnswer): boolean => {
  */
 const releaseOf = (checked: ReadonlyArray<Checked>, answers: ReadonlyArray<ApartAnswer>) =>
 	Arr.flatMap(checked, (c, i) =>
-		lockTaken(sentAnswer(answers, answersFrom(i) + 1))
-			? [{ sql: unlockSql, params: [applyLockKey(c.parsed.schema)] }]
+		lockTaken(c.lock, readAnswer(answers, answersFrom(i), "lock"))
+			? [{ sql: c.lock.release, params: [] }]
 			: []
 	)
 
@@ -239,24 +270,28 @@ const planSchema = (
 	user: string
 ): Result.Result<Planned, MigrateError> =>
 	Result.gen(function* () {
-		const { parsed, statements } = checked
+		const { parsed, statements, lock } = checked
 		const schema = parsed.schema
 		const [owner] = yield* Result.mapError(
-			apartRows(schemaOwner, sentAnswer(answers, at)),
+			apartRows(schemaOwner, readAnswer(answers, at, "owner")),
 			(failure) => stopped(new OwnerUnread({ schema, failure }))
 		)
 		if (owner !== undefined && owner !== user) {
 			return yield* Result.fail(stopped(new OwnedByAnother({ schema, owner, user })))
 		}
 		const taken = yield* Result.mapError(
-			apartRow(tryLock, sentAnswer(answers, at + 1)),
+			apartRow(lock.take, readAnswer(answers, at, "lock")),
 			(failure) => stopped(new LockUnread({ schema, failure }))
 		)
 		if (!taken) {
 			return yield* Result.fail(stopped(new ApplyBusy({ schema })))
 		}
 		const read = yield* Result.mapError(
-			ledgerOfAnswers(schema, sentAnswer(answers, at + 2), sentAnswer(answers, at + 3)),
+			ledgerOfAnswers(
+				schema,
+				readAnswer(answers, at, "ledgerExists"),
+				readAnswer(answers, at, "ledgerRows")
+			),
 			stopped
 		)
 		const plan = yield* planApply(parsed, read.state)
@@ -279,7 +314,7 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 				restore(
 					session.apart([
 						{ sql: currentUser.sql, params: [] },
-						...Arr.flatMap(checked, (c) => schemaReads(c.parsed.schema, c.statements))
+						...Arr.flatMap(checked, (c) => schemaReads(c))
 					])
 				),
 				(read) => {

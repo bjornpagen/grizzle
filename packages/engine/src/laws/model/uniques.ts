@@ -1,6 +1,6 @@
 import { sameOrder } from "#compiler/core/array.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
-import type { ConstraintName, RaisedLawId } from "#compiler/core/ids.ts"
+import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { appendNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
 	FieldSelector,
@@ -16,7 +16,7 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
  * description. */
 interface Named {
 	readonly name: ConstraintName
-	readonly law: RaisedLawId
+	readonly law: LawId
 	readonly described: Law
 }
 

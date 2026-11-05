@@ -168,12 +168,13 @@ export interface MemberParamSlot extends ValuePlaceholder {
 	readonly part: ArrayPart
 }
 
-/** A placeholder the page request fills (PageFill), cast to `sqlType`. */
+/**
+ * A placeholder the page request fills (PageFill), cast where the page compiler places it (lower/shapes/page/seek.ts
+ * PageSlots): a limit or a size to bigint, a boundary to its comparator's base type.
+ */
 export interface PageParamSlot extends ValuePlaceholder {
 	readonly kind: "page"
 	readonly fill: PageFill
-	readonly type: ScalarType
-	readonly sqlType: TypeRef
 }
 
 /** A declared parameter's placeholder, which every lowering allocates: every placeholder of a query's statement. */

@@ -1,20 +1,47 @@
 import { Array as Arr, String as Str } from "effect"
 
 /**
- * Whether a repository-relative path in the superlint options names a file or lies above it. A path that ends in "/"
- * names a directory and holds every file beneath it; any other path names one file. Both are matched against the
- * file's absolute name at a "/" boundary, since a rule knows the file but not the repository root.
+ * Whether a path of the superlint options, relative to `root` (the repository's, or the fixtures' for a fixture run),
+ * names a file or lies above it. A path that ends in "/" names a directory and holds every file beneath it; any other
+ * path names one file. Both are matched from `root` itself, so `scripts/` is the root's scripts directory and never a
+ * package's of the same name, and case-insensitively, since the checker keys a declaration's file by a path it may fold
+ * to lower case.
  */
 const isAt =
-	(fileName: string) =>
-	(path: string): boolean =>
-		Str.endsWith("/")(path)
-			? Str.includes(`/${path}`)(fileName)
-			: Str.endsWith(`/${path}`)(fileName)
+	(root: string, fileName: string) =>
+	(path: string): boolean => {
+		const file = Str.toLowerCase(fileName)
+		const named = Str.toLowerCase(`${root}/${path}`)
+		return Str.endsWith("/")(path) ? Str.startsWith(named)(file) : file === named
+	}
 
-/** Whether any of the paths names the file or a directory above it. */
-export const isAtAny = (paths: ReadonlyArray<string>, fileName: string): boolean =>
-	Arr.some(paths, isAt(fileName))
+/** Whether any of the paths, relative to `root`, names the file or a directory above it. */
+export const isAtAny = (root: string, paths: ReadonlyArray<string>, fileName: string): boolean =>
+	Arr.some(paths, isAt(root, fileName))
+
+/**
+ * Whether a declaration's file is a module of an installed package: under `node_modules/<package>/`, its name before
+ * the first dot `<module>` (`effect/dist/Duration.d.ts` is effect's Duration, `@types/node/process.d.ts` is
+ * @types/node's process). The checker keys a declaration's file by a path it may fold to lower case, so names compare
+ * case-insensitively.
+ */
+export const isPackageModule = (
+	path: string,
+	target: Readonly<{ package: string; module: string }>
+): boolean => {
+	const folded = Str.toLowerCase(path)
+	if (!Str.includes(`/node_modules/${Str.toLowerCase(target.package)}/`)(folded)) {
+		return false
+	}
+	const name = Arr.lastNonEmpty(Str.split("/")(folded))
+	const [stem] = Str.split(".")(name)
+	return stem === Str.toLowerCase(target.module)
+}
+
+/** Whether a declaration's file is a repository module, by its repository-relative path, compared as
+ * isPackageModule compares. */
+export const isRepositoryModule = (path: string, module: string): boolean =>
+	Str.endsWith(`/${Str.toLowerCase(module)}`)(Str.toLowerCase(path))
 
 /** The directories above a file, nearest first; the root directory is the empty name. */
 export const directoriesAbove = (fileName: string): ReadonlyArray<string> => {

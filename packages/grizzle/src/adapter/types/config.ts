@@ -3,30 +3,29 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 
 /**
- * Where the migration identity connects when DATABASE_URL cannot say it: exactly a DbLayer's destination, credentials
- * and TLS (no login, verify or pool hook: migrate opens one connection), with the migration identity's login role, which
- * owns every declared schema.
+ * Where the migration identity connects: exactly a DbLayer's connection (its driver, transport, database, password and
+ * connect timeout; no login, verify or pool: migrate opens one connection), with the migration identity's login role,
+ * which owns every declared schema.
  */
-export interface MigrationConnectionConfig extends DbConnection {
-	readonly role: string
-}
+export type MigrationConnectionConfig = DbConnection & { readonly role: string }
 
 /**
- * The shape of grizzle.config.ts, the lean config. Types only: packages/grizzle/src/adapter/config/define.ts implements defineConfig,
- * and the command line (packages/grizzle/src/cli/config.ts, packages/grizzle/src/cli/connection.ts) parses a configuration once into its required form.
+ * The shape of a configuration file, grizzle.config.ts by convention, which every command names as its argument. Types
+ * only: packages/grizzle/src/adapter/config/define.ts implements defineConfig, and the command line
+ * (packages/grizzle/src/cli/config.ts, packages/grizzle/src/cli/connection.ts) parses a configuration once into its
+ * required form.
  *
- * The config says what grizzle manages; the environment says where it deploys. A configuration names the schemas, the
- * logins (and through them every role and workload) and the migrations directory, is committed, and reads the same in
- * every environment:
+ * Every setting is required, and nothing else is configurable: grizzle chooses no directory and takes no setting from
+ * the environment. A configuration names the schemas, the logins (and through them every role and workload), the
+ * migrations directory and where migrate and drift connect:
  *
  *     import { defineConfig } from "@bjornpagen/grizzle"
- *     export default defineConfig({ schemas: [Blog], logins: [Web, EtlJob] })
+ *     export default defineConfig({ schemas: [Blog], logins: [Web, EtlJob], migrations: "migrations", connection })
  *
- * `grizzle migrate` connects with DATABASE_URL. `connection` overrides it only for what a URL cannot say, such as an
- * RDS IAM token or a secret manager's lookup (a password Effect, evaluated for each connection attempt), or a CA the URL
- * does not give.
+ * The connection is the application's to build, from whatever its deploy provides: a password Effect (an RDS IAM
+ * token, a secret manager's lookup) is evaluated for each connection attempt.
  *
- * The default export of grizzle.config.ts.
+ * The default export of a configuration file.
  */
 export interface GrizzleConfig {
 	/**
@@ -38,8 +37,8 @@ export interface GrizzleConfig {
 	 * and their workloads plan the schemas' access paths.
 	 */
 	readonly logins: ReadonlyArray<AnyLogin>
-	/** The migrations directory, relative to the configuration; `migrations` by default. */
-	readonly migrations?: string
-	/** Where `grizzle migrate` connects; DATABASE_URL when absent. generate and check never read it. */
-	readonly connection?: MigrationConnectionConfig
+	/** The migrations directory: absolute, or relative to the configuration file's directory. */
+	readonly migrations: string
+	/** Where `grizzle migrate` and `grizzle drift` connect; generate, check and names never read it. */
+	readonly connection: MigrationConnectionConfig
 }

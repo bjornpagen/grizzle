@@ -1,5 +1,6 @@
 import { Array as Arr, Data, Option, pipe, Result, String as Str } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
+import { numericMaxIntegerDigits } from "#compiler/ir/scalar.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { isqrt } from "#test/support/oracle/evaluate/numeric.ts"
@@ -14,7 +15,6 @@ const NUMERIC_MIN_SIG_DIGITS = 16
 const NUMERIC_MIN_DISPLAY_SCALE = 0
 const NUMERIC_MAX_DISPLAY_SCALE = 1000
 const NUMERIC_MAX_RESULT_SCALE = 2000
-const NUMERIC_WEIGHT_MAX = 32767
 const PG_INT32_MIN = -2147483648
 const PG_INT32_MAX = 2147483647
 const PG_INT64_MIN = -(2n ** 63n)
@@ -107,8 +107,8 @@ const exactEstimate = (x: number): Estimate => ({ lo: x, at: x, hi: x })
 /**
  * What a computation reads of an estimate: its truncation and whether it is an integer, which together decide every
  * comparison of it with a nonzero integer. trunc maps both signs of a value in (-1, 1) to zero, so no comparison with
- * zero is among them: power_var_int compares its estimate only with 524288 and -1001, and power_var reads its weight
- * only through trunc.
+ * zero is among them: power_var_int compares its estimate only with numericMaxIntegerDigits (numeric.c's
+ * (NUMERIC_WEIGHT_MAX + 1) * DEC_DIGITS) and -1001, and power_var reads its weight only through trunc.
  */
 const sameReading = (a: number, b: number): boolean =>
 	Math.trunc(a) === Math.trunc(b) && Number.isInteger(a) === Number.isInteger(b)
@@ -827,7 +827,7 @@ const powerVarIntAt = (
 	expDscale: number,
 	f: number
 ): NumVar => {
-	if (f > (NUMERIC_WEIGHT_MAX + 1) * DEC_DIGITS) {
+	if (f > numericMaxIntegerDigits.value) {
 		return fail("22003")
 	}
 	if (f + 1 < -NUMERIC_MAX_DISPLAY_SCALE) {
@@ -875,7 +875,10 @@ const powerVarIntAt = (
 			localRscale = Math.max(localRscale, NUMERIC_MIN_DISPLAY_SCALE)
 			result = mulVar(baseProd, result, localRscale)
 		}
-		if (weightOf(baseProd) > NUMERIC_WEIGHT_MAX || weightOf(result) > NUMERIC_WEIGHT_MAX) {
+		if (
+			(Math.max(weightOf(baseProd), weightOf(result)) + 1) * DEC_DIGITS >
+			numericMaxIntegerDigits.value
+		) {
 			if (!neg) {
 				return fail("22003")
 			}

@@ -4,9 +4,10 @@ import { noCoverage } from "@grizzle/testing/features"
 import { codePoint, element, type Gen, oneOf, string } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { FieldId, fieldIdSpellingParts } from "#compiler/core/ids.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** A relation or field name: printable text, or one of the spellings the encoding escapes. */
 const part: Gen<string> = oneOf([
@@ -32,7 +33,7 @@ describe("FieldId", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([r1, f1, r2, f2]) =>
 					Effect.sync(() => {

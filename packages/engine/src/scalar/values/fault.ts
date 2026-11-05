@@ -6,6 +6,14 @@ import {
 	valueFaultWords
 } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { cosineNormMax, cosineNormMin, vectorMaxDimensions } from "#compiler/ir/carriers.ts"
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/ir/scalar.ts"
 
 /**
  * The refusal vocabulary of the exact value carriers.
@@ -26,9 +34,8 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	decimalType: "an exact decimal: a Decimal, a bigint, or an exact decimal string",
 	decimalSyntax:
 		"an exact decimal literal: digits with an optional fraction and exponent, NaN, or Infinity",
-	decimalRange:
-		"a numeric within PostgreSQL's format: below 10^131072 with at most 16383 fractional digits",
-	numericTypmod: "a numeric precision 1-1000 and scale -1000-1000, both integers",
+	decimalRange: `a numeric within PostgreSQL's format: below 10^${numericMaxIntegerDigits.value} with at most ${numericMaxFractionDigits.value} fractional digits`,
+	numericTypmod: `a numeric precision 1-${numericMaxPrecision.value} and scale ${numericMinScale.value}-${numericMaxScale.value}, both integers`,
 	numericOverflow:
 		"a numeric that rounds to fewer integer digits than its precision less its scale",
 	numericInfinity: "a finite numeric: a field with a precision cannot hold an infinite value",
@@ -54,9 +61,9 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	spanOrder: "a nonempty span: start < end",
 	spanWidth: "a span of the declared fixed width: end - start equals the width",
 	vectorType: "a vector: a Float32Array of its components",
-	vectorDimensions: "vector dimensions: an integer 1-16000 that the components match",
+	vectorDimensions: `vector dimensions: an integer 1-${vectorMaxDimensions.value} that the components match`,
 	vectorNonFinite: "a finite vector component: NaN and infinity are not vector values",
-	vectorNorm: "a vector whose native norm lies in the cosine domain [2^-16, 2^16]",
+	vectorNorm: `a vector whose native norm lies in the cosine domain [${cosineNormMin.value}, ${cosineNormMax.value}]`,
 	factShape: "a fact: a plain object with exactly the heading's fields"
 }
 

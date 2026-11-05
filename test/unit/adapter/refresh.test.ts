@@ -14,17 +14,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Cause,
-	Duration,
-	Effect,
-	Exit,
-	Formatter,
-	Option,
-	Result,
-	String as Str
-} from "effect"
+import { Array as Arr, Cause, Effect, Exit, Formatter, Option, Result, String as Str } from "effect"
 import { textArray } from "#adapter/admission/roles.ts"
 import {
 	CommitUnknown,
@@ -34,9 +24,9 @@ import {
 } from "#adapter/errors/execution.ts"
 
 import {
-	AcquisitionBudgetExceeded,
 	ConcurrentRefresh,
 	Deadlock,
+	LayerReleased,
 	SerializationFailure,
 	type ServerError,
 	type TransientReason
@@ -75,6 +65,7 @@ import {
 	texts
 } from "#test/support/flight/scripted.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 
 import { regex } from "arkregex"
@@ -263,7 +254,7 @@ describe("db.refresh targets", () => {
 						literal: (row) => Formatter.format(row[0]),
 						limit: notDerived.length,
 						coverage: requiredInSpace<NotDerived>(Arr.map(notDerived, ([name]) => name)),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(row, c) =>
 						Effect.sync(() => {
@@ -393,7 +384,7 @@ describe("plain or CONCURRENTLY", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(views, c) =>
 						Effect.sync(() => {
@@ -446,7 +437,7 @@ describe("plain or CONCURRENTLY", () => {
 						literal: Formatter.format,
 						limit: 200,
 						coverage: requiredInSpace<Detail["kind"]>(["a position", "no position"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(detail, c) =>
 						Effect.sync(() => {
@@ -565,7 +556,7 @@ describe("how a refresh ends", () => {
 					literal: (row) => Formatter.format(row[0]),
 					limit: 2,
 					coverage: requiredInSpace<"40001" | "40P01">(["40001", "40P01"]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([sqlstate, reason], c) =>
 					Effect.sync(() => {
@@ -612,7 +603,7 @@ describe("how a refresh ends", () => {
 						coverage: requiredInSpace<OtherRefusal>(
 							Arr.map(otherRefusals, ([sqlstate]) => sqlstate)
 						),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([sqlstate, raised], c) =>
 						Effect.gen(function* () {
@@ -728,9 +719,7 @@ describe("how a refresh ends", () => {
 						{
 							prologue: asRefresher,
 							pool: scriptedPool({
-								lease: Effect.fail(
-									new AcquisitionBudgetExceeded({ millis: 1, sessions: 1, leased: 1, max: 1 })
-								)
+								lease: Effect.fail(new LayerReleased())
 							})
 						},
 						targetsOf([B])

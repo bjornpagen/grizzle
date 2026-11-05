@@ -5,7 +5,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
-import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Record } from "effect"
 import type {
 	Cte,
 	Delete,
@@ -52,6 +52,7 @@ import {
 	statementGen
 } from "#test/support/kernel/sqlgen.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	auditStatement,
 	auditStatementViolations,
@@ -344,7 +345,7 @@ describe("generated queries", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(query, c) =>
 						Effect.sync(() => {
@@ -372,7 +373,7 @@ describe("generated queries", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(query, c) =>
 					Effect.sync(() => {
@@ -406,7 +407,7 @@ describe("generated statements", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(statement, c) =>
 						Effect.sync(() => {
@@ -525,7 +526,7 @@ describe("the one-hole walker", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(statement) => Effect.sync(() => rootHoleFirst(statement))
 			)
@@ -549,7 +550,7 @@ describe("the one-hole walker", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(query) => Effect.sync(() => oneSiteEach(query, marker))
 				)

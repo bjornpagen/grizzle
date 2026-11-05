@@ -5,7 +5,7 @@ import { array, boolean, element, type Gen, int, shuffled } from "@grizzle/testi
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { admit } from "#adapter/admission/admit.ts"
 import { admissionExpectation } from "#adapter/admission/expectation.ts"
 import { dbContext } from "#adapter/db/context.ts"
@@ -28,6 +28,7 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t4, t5, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
+import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
@@ -117,9 +118,6 @@ const notesGen: Gen<ReadonlyArray<{ readonly task: number; readonly text: number
 		text: source.draw(int(0, 2))
 	}))
 
-/** How long one case may run before the search stops it as hung. */
-const caseHang = Duration.minutes(2)
-
 type WriteCallFeature =
 	| "apply"
 	| "compiled apply"
@@ -178,8 +176,8 @@ export const roundTripSuite = (): void => {
 				const tap = makeTap(substrate.cluster)
 				const pool = yield* poolFor(credentials, {
 					...defaultPool,
-					transport: { kind: "given", transport: { _tag: "stream", open: tap.open } },
-					pool: { idleTimeoutMs: 60_000, min: 1, max: 1 }
+					transport: { kind: "given", transport: tap.transport },
+					pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 }
 				})
 				yield* Effect.scoped(
 					Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))

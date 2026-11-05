@@ -161,12 +161,12 @@ const memberFields = { id: pg.integer, team: pg.integer, active: pg.boolean } as
 const TeamCount = relation("Team", { ...teamFields, cap: pg.integer }, ["id"])
 const TeamI2 = relation("Team", { ...teamFields, cap: pg.smallint }, ["id"])
 const TeamI8 = relation("Team", { ...teamFields, cap: pg.bigint }, ["id"])
-const TeamNumeric = relation("Team", { ...teamFields, cap: pg.numeric }, ["id"])
+const TeamNumeric = relation("Team", { ...teamFields, cap: pg.numeric(20, 0) }, ["id"])
 const TeamMoney = relation("Team", { ...teamFields, cap: pg.money }, ["id"])
 const MemberCount = relation("Member", { ...memberFields, weight: pg.integer }, ["id"])
 const MemberI2 = relation("Member", { ...memberFields, weight: pg.smallint }, ["id"])
 const MemberI8 = relation("Member", { ...memberFields, weight: pg.bigint }, ["id"])
-const MemberNumeric = relation("Member", { ...memberFields, weight: pg.numeric }, ["id"])
+const MemberNumeric = relation("Member", { ...memberFields, weight: pg.numeric(20, 0) }, ["id"])
 
 const RotaI2 = relation("Rota", { site: pg.smallint, during: span(pg.integer), open: pg.boolean }, [
 	"site",

@@ -5,18 +5,19 @@ import { array, element, type Gen, int, map, oneOf, weighted } from "@grizzle/te
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText, refinementBounds, type TextRefinement } from "#compiler/text/refinement.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickGen } from "#test/support/pick.ts"
 import {
 	type Flags,
 	families,
-	finitePatternOver,
+	finiteLanguageOver,
 	flagsGen,
 	jsAccepts,
 	patternOver,
@@ -56,8 +57,8 @@ const utf8Bytes = (value: string): number => new TextEncoder().encode(value).len
 const codePointLength = (value: string): number => Arr.fromIterable(value).length
 
 /**
- * A family, a pattern over its alphabet, flags, and strings over its alphabet. One pattern in ten is an anchored
- * alternation of literals, a finite language, which the general patterns all but never are.
+ * A family, a pattern over its alphabet, flags, and strings over its alphabet. One pattern in ten spells a finite
+ * language, which the general patterns all but never are.
  */
 const caseGen: Gen<{
 	readonly source: string
@@ -69,7 +70,7 @@ const caseGen: Gen<{
 		source: source.draw(
 			weighted([
 				[9, patternOver(family.alphabet)],
-				[1, finitePatternOver(family.alphabet)]
+				[1, map(finiteLanguageOver(family.alphabet), (language) => language.source)]
 			])
 		),
 		flags: source.draw(flagsGen),
@@ -226,7 +227,7 @@ describe("host NFA membership equals ECMAScript", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([p, drawnString], c) =>
 						Effect.sync(() => {
@@ -271,7 +272,7 @@ describe("host NFA membership equals ECMAScript", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ source, flags, strings, walks }, c) =>
 					Effect.sync(() => {
@@ -334,7 +335,7 @@ describe("host NFA membership equals ECMAScript", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([planted, [source, flags]], c) =>
 						Effect.sync(() => {
@@ -374,7 +375,7 @@ describe("every claimed fact holds on the samples", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ source, flags, strings }, c) =>
 					Effect.sync(() => {
@@ -436,7 +437,7 @@ describe("every claimed fact holds on the samples", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ a, b, flags, strings }) =>
 					Effect.sync(() => {
@@ -552,7 +553,7 @@ describe("language-equivalent spellings share one canonical key", () => {
 					coverage: requiredInSpace<`group ${Group}`>(
 						Arr.map(groups, ([group]): `group ${Group}` => `group ${group}`)
 					),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([group, [[aSource, aFlags], [bSource, bFlags]]], c) =>
 					Effect.sync(() => {

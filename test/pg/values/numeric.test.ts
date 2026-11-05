@@ -5,11 +5,12 @@ import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/g
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { assert, contains, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { decimalGen, decimalText, orderOf } from "#test/unit/values/support.ts"
@@ -112,7 +113,7 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(chunk) =>
 						Effect.gen(function* () {
@@ -153,7 +154,7 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(chunk, k) =>
 							Effect.gen(function* () {
@@ -232,7 +233,7 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(values) => orderAgreement(db, values)
 				)

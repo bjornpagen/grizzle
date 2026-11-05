@@ -9,7 +9,6 @@ import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	DateTime,
-	Duration,
 	Effect,
 	FileSystem,
 	Formatter,
@@ -22,9 +21,17 @@ import type { CliStage } from "#cli/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
-import { cli, cliClock, viaDatabaseUrl, workspace, writeConfig } from "#test/pg/cli/support.ts"
+import {
+	cli,
+	cliClock,
+	configName,
+	unconnected,
+	workspace,
+	writeConfig
+} from "#test/pg/cli/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** The clock the in-process command lines of this file read. */
 const nextNow = cliClock()
@@ -99,9 +106,9 @@ const drafted = (base: string, label: string, name: string, versions: ReadonlyAr
 		for (const [i, version] of versions.entries()) {
 			yield* writeConfig(dir, {
 				schemas: [{ name, fixture: "shop", version: version, workload: "none" }],
-				connection: viaDatabaseUrl
+				connection: unconnected
 			})
-			const generated = yield* cli(dir, ["generate"], at(i), {})
+			const generated = yield* cli(dir, ["generate", configName], at(i))
 			assert.equal(generated.code, 0, `${label} drafts version ${version}`)
 		}
 		return dir
@@ -248,10 +255,10 @@ const tampered = (
 						workload: "none"
 					}
 				],
-				connection: viaDatabaseUrl
+				connection: unconnected
 			})
 			const before = yield* contents(ws)
-			const generated = yield* cli(ws, ["generate"], at(9), {})
+			const generated = yield* cli(ws, ["generate", configName], at(9))
 			const label = Formatter.format(x)
 			assert.equal(generated.code, 1, `${label}: generate succeeds\n${generated.stdout}`)
 			assert.ok(
@@ -264,7 +271,7 @@ const tampered = (
 			)
 			const after = yield* contents(ws)
 			assert.deepEqual(after, before, `${label}: generate wrote`)
-			const checked = yield* cli(ws, ["check"], nextNow(), {})
+			const checked = yield* cli(ws, ["check", configName], nextNow())
 			assert.equal(checked.code, 1, `${label}: check passes`)
 			assert.ok(
 				Str.includes(entry)(checked.stderr),
@@ -300,7 +307,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(cases, c) =>
 							Effect.forEach(

@@ -5,16 +5,7 @@ import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Layer,
-	pipe,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Layer, pipe, Record as Rec, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { pageTemplate, rowOf, sortedResult, traverse, untyped } from "#test/pg/page/support.ts"
@@ -46,6 +37,7 @@ import {
 
 import { regex } from "arkregex"
 import type { Uuid } from "#compiler/public/fields.ts"
+import { caseHang } from "#test/support/limits.ts"
 /**
  * Boundary values through the page runtime, drawn from the scalar edge dictionaries.
  *
@@ -53,8 +45,8 @@ import type { Uuid } from "#compiler/public/fields.ts"
  * bigint and a text, each the leading key of one ordered query (ascending and descending for the double, the id
  * completing every order). Each case stores drawn facts, every field drawn from its type's value classes with their
  * edge classes and every spelling (test/support/oracle/gen/domain.ts valueClasses): -0 beside 0, NaN, the infinities, a
- * subnormal and the largest finite double; numeric NaN and the infinities, more digits than a binary64 holds and the
- * smallest scale; the bigint extremes and 2^53 + 1, which a binary64 cannot hold, either sign; the empty text, text
+ * subnormal and the largest finite double; numeric NaN (a numeric field holds no infinity), more digits than a binary64
+ * holds and the smallest scale; the bigint extremes and 2^53 + 1, which a binary64 cannot hold, either sign; the empty text, text
  * beyond the BMP, U+10FFFF and combining marks. Through Db, for a drawn query at a drawn page size per direction:
  *
  * - the forward and backward pages concatenate to D exactly, with exact flags: every boundary value round-trips, the
@@ -247,7 +239,7 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								caseHang: Duration.minutes(2),
+								caseHang,
 								coverage: required<ValuesFeature>(
 									[
 										...Arr.map(orderedNames, (q): ValuesFeature => `query ${q}`),
@@ -359,7 +351,6 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 						Effect.scoped
 					)
 				}).pipe(Effect.scoped)
-			),
-		300_000
+			)
 	)
 })

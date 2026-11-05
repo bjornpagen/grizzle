@@ -1,10 +1,24 @@
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { type Limit, published } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import type { CreateStatistics } from "#compiler/sql/ast.ts"
+
+/** The most columns one extended statistics object covers, STATS_MAX_DIMENSIONS. */
+export const statisticsMaxColumns: Limit = published({
+	value: 8,
+	owner: "PostgreSQL 19rc1",
+	unit: "columns",
+	scope: "one extended statistics object: a request's and an access path's",
+	constraint: "compile-time constant",
+	source:
+		"https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/statistics/statistics.h#L19",
+	quote: "#define STATS_MAX_DIMENSIONS\t8\t/* max number of attributes */",
+	verified: "2026-11-05"
+})
 
 export const statisticsKinds = ["ndistinct", "dependencies", "mcv"] as const
 type StatisticsKind = (typeof statisticsKinds)[number]
@@ -13,7 +27,7 @@ export type StatisticsUse = "correlated selection" | "grouping"
 
 export interface StatisticsRequest {
 	readonly relation: string
-	/** In code point order, at least two and at most eight (STATS_MAX_DIMENSIONS). */
+	/** In code point order, at least two and at most statisticsMaxColumns. */
 	readonly columns: ReadonlyArray<string>
 	readonly kinds: ReadonlyArray<StatisticsKind>
 	readonly uses: ReadonlyArray<StatisticsUse>
@@ -107,13 +121,13 @@ export const planStatistics = (
 		if (
 			first === undefined ||
 			second === undefined ||
-			r.columns.length > 8 ||
+			r.columns.length > statisticsMaxColumns.value ||
 			new Set(r.columns).size !== r.columns.length
 		) {
 			return refuse(
 				"MalformedDescription",
 				SourceLoc(label, []),
-				"two to eight distinct statistics columns"
+				`two to ${statisticsMaxColumns.value} distinct statistics columns`
 			)
 		}
 		const unknown = r.columns.find((f) => o.field(f) === undefined)

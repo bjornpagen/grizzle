@@ -1,9 +1,16 @@
 /**
  * The cursor token's base64url text, a hot path: every page writes a token and every request reads one, so it is
- * native code over bounded loops, reading code units with charCodeAt and allocating nothing per character.
+ * native code over bounded loops, reading code units with charCodeAt and allocating nothing per character: a token is
+ * written as its characters' ASCII bytes into one buffer of exactly its length, then read as one string.
  */
 
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+/** The ASCII byte of one sextet's base64url character. */
+const character = (sextet: number): number => alphabet.charCodeAt(sextet)
+
+/** The platform's UTF-8 decoder, which reads ASCII bytes as the characters they are. */
+const ascii = new TextDecoder()
 
 /** The value of one base64url character's code unit, undefined for any other. */
 const sextet = (code: number): number | undefined => {
@@ -25,6 +32,10 @@ const sextet = (code: number): number | undefined => {
 	return undefined
 }
 
+/** The length of the token of `n` bytes. */
+export const base64urlLength = (n: number): number =>
+	Math.floor(n / 3) * 4 + (n % 3 === 0 ? 0 : (n % 3) + 1)
+
 /**
  * base64url text of the cursor bytes (RFC 4648 section 5), canonical in both directions.
  *
@@ -34,33 +45,32 @@ const sextet = (code: number): number | undefined => {
  * (RFC 4648 section 3.5), so two spellings of one byte string cannot both decode.
  */
 export const base64urlEncode = (bytes: Uint8Array): string => {
-	let out = ""
+	const out = new Uint8Array(base64urlLength(bytes.length))
+	let o = 0
 	for (let i = 0, b0 = bytes[0]; b0 !== undefined; i += 3, b0 = bytes[i]) {
 		const b1 = bytes[i + 1]
 		if (b1 === undefined) {
 			const n = b0 << 16
-			return out + alphabet.charAt(n >> 18) + alphabet.charAt((n >> 12) & 63)
+			out[o++] = character(n >> 18)
+			out[o++] = character((n >> 12) & 63)
+			break
 		}
 		const b2 = bytes[i + 2]
 		if (b2 === undefined) {
 			const n = (b0 << 16) | (b1 << 8)
-			return (
-				out +
-				alphabet.charAt(n >> 18) +
-				alphabet.charAt((n >> 12) & 63) +
-				alphabet.charAt((n >> 6) & 63)
-			)
+			out[o++] = character(n >> 18)
+			out[o++] = character((n >> 12) & 63)
+			out[o++] = character((n >> 6) & 63)
+			break
 		}
 		const n = (b0 << 16) | (b1 << 8) | b2
-		out += alphabet.charAt(n >> 18) + alphabet.charAt((n >> 12) & 63)
-		out += alphabet.charAt((n >> 6) & 63) + alphabet.charAt(n & 63)
+		out[o++] = character(n >> 18)
+		out[o++] = character((n >> 12) & 63)
+		out[o++] = character((n >> 6) & 63)
+		out[o++] = character(n & 63)
 	}
-	return out
+	return ascii.decode(out)
 }
-
-/** The length of the token of `n` bytes. */
-export const base64urlLength = (n: number): number =>
-	Math.floor(n / 3) * 4 + (n % 3 === 0 ? 0 : (n % 3) + 1)
 
 /** The bytes a canonical token spells, or undefined. */
 export const base64urlDecode = (text: string): Uint8Array | undefined => {

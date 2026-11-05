@@ -5,10 +5,11 @@ import { boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
-import { allenRelations, fullAllenMask, parseAllenMask } from "#compiler/allen/mask.ts"
+import { fullAllenMask, parseAllenMask } from "#compiler/allen/mask.ts"
+import { allenRelations } from "#compiler/core/allen.ts"
 import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -22,6 +23,7 @@ import { contains, defined, lacks, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, paramTexts, testCompile } from "#test/support/compile.ts"
 import { decodedQuery, type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 const Booking = relation("Booking", { room: uuid, during: span(pg.bigint), guest: uuid }, [
@@ -266,7 +268,7 @@ FROM generate_series(0, ${size.rooms * size.perRoom - 1}) AS i`,
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(sketch, c) =>
 							Effect.gen(function* () {
@@ -334,7 +336,6 @@ FROM generate_series(0, ${size.rooms * size.perRoom - 1}) AS i`,
 							})
 					)
 				})
-			),
-		600_000
+			)
 	)
 })

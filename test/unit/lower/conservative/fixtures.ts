@@ -28,7 +28,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { defined } from "#test/support/assert.ts"
 import { closed, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
+import { anyNumeric, plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
 import { definedOf } from "#test/support/oracle/gen/ops.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { heading } from "#test/unit/ir/fixture.ts"
@@ -53,7 +53,7 @@ export const T = {
 	int2: plainType("int2"),
 	int4: plainType("int4"),
 	int8: plainType("int8"),
-	numeric: plainType("numeric"),
+	numeric: anyNumeric,
 	numeric10_2: scalarOf(f.numeric(10, 2), {}),
 	float4: plainType("float4"),
 	float8: plainType("float8"),
@@ -130,7 +130,7 @@ export const ledgerSchema: SchemaDesc = {
 			{
 				id: f.integer,
 				value: f.pg("double precision"),
-				price: f.unconstrainedNumeric,
+				price: f.numeric(10, 2),
 				paid: f.pg("money"),
 				ok: f.boolean
 			},

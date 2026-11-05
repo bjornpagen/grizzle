@@ -40,7 +40,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { uuid as uuidGen } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { namedDetail } from "#compiler/ir/law.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
@@ -61,6 +61,7 @@ import { bareFixture, failure, openFixture } from "#test/pg/e2e-laws/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { strictDetail, withholds } from "#test/support/detail.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -437,7 +438,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								caseHang: Duration.minutes(2),
+								caseHang,
 								coverage: required<WitnessFeature>(
 									[
 										"selected-source shown to a holder",

@@ -42,7 +42,7 @@ import {
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Layer, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { AdmissionRefused } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -66,6 +66,7 @@ import {
 } from "#test/support/ambient.ts"
 import { assert, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { installedSchemas, replaceMigrated } from "#test/support/install-migrate.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -486,7 +487,7 @@ layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 							shrink: { kind: "bounded", candidates: 24 },
 							concurrency: 1,
 							steerEvery: 4,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(drawnCase, cx) =>
 							Effect.gen(function* () {
@@ -549,7 +550,6 @@ layer(Substrate.layer)("a login under hostile database defaults", (it) => {
 							})
 					)
 				}).pipe(Effect.scoped)
-			),
-		900_000
+			)
 	)
 })

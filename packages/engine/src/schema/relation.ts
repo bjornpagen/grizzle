@@ -188,10 +188,10 @@ export const relation = <
 const handleList = (value: unknown, label: string): NonEmptyReadonlyArray<string> => {
 	const handles = requireNames(value, label, "a nonempty roster of distinct handles")
 	for (const h of handles) {
-		if (utf8Length(h) > maxEnumLabelBytes) {
+		if (utf8Length(h) > maxEnumLabelBytes.value) {
 			throw malformed(
 				label,
-				`handles of at most ${maxEnumLabelBytes} UTF-8 bytes, the limit of a PostgreSQL enum label; ${JSON.stringify(h)} has ${utf8Length(h)}`
+				`handles of at most ${maxEnumLabelBytes.value} UTF-8 bytes, the limit of a PostgreSQL enum label; ${JSON.stringify(h)} has ${utf8Length(h)}`
 			)
 		}
 	}

@@ -132,7 +132,7 @@ export default defineGate({
 				at: `(${daySeconds} + (pg_catalog.hashint8(g) & 2147483647) % ${options.days * daySeconds})::int8`
 			})
 			yield* settle(fx)
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b spans runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b spans raw")
 			/** The installed indexes, read before the handwritten B-tree design adds its own. */
 			const indexes = yield* installedIndexes(fx)

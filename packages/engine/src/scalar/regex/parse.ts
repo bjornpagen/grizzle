@@ -1,5 +1,5 @@
 import { catchSignal } from "#compiler/core/canonical.ts"
-import { regexMaxRepeat } from "#compiler/core/policy.ts"
+import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import {
@@ -43,6 +43,14 @@ class Failure extends Error {
 	}
 }
 
+/**
+ * The hex digits of a `\u` escape, `\uHHHH`: ECMAScript's RegExp syntax (ECMA-262 RegExpUnicodeEscapeSequence,
+ * `u Hex4Digits`), which the parser reads and a refusal spells a code point in.
+ *
+ * @formatConstant the hex digits of ECMAScript's \uHHHH escape
+ */
+const hex4Digits = 4
+
 const syntaxCharacters = "^$\\.*+?()[]{}|"
 
 /** The code point of a one-unit ASCII literal of the grammar. */
@@ -58,10 +66,10 @@ const hexValue = (c: number | undefined): number | undefined => {
 		return c - 0x30
 	}
 	if (c >= 0x41 && c <= 0x46) {
-		return c - 0x41 + 10
+		return c - 0x41 + 0xa
 	}
 	if (c >= 0x61 && c <= 0x66) {
-		return c - 0x61 + 10
+		return c - 0x61 + 0xa
 	}
 	return undefined
 }
@@ -389,11 +397,11 @@ class Parser {
 		if (max !== "unbounded" && max < min.value) {
 			throw this.#malformed(at, construct, "numbers out of order in the quantifier")
 		}
-		if (min.value > regexMaxRepeat || (max !== "unbounded" && max > regexMaxRepeat)) {
+		if (min.value > regexMaxRepeat.value || (max !== "unbounded" && max > regexMaxRepeat.value)) {
 			this.#unsupported(
 				at,
 				construct,
-				`a repetition bound above ${regexMaxRepeat}, PostgreSQL's limit; bound the length with Compute.charLength in a contract predicate`
+				`a repetition bound above ${regexMaxRepeat.value}, PostgreSQL's limit; bound the length with Compute.charLength in a contract predicate`
 			)
 		}
 		return { min: min.value, max }
@@ -457,7 +465,9 @@ class Parser {
 		} else if (isSurrogate(c)) {
 			this.#unsupported(
 				at,
-				construct.length === 1 ? `\\u${c.toString(16).toUpperCase().padStart(4, "0")}` : construct,
+				construct.length === 1
+					? `\\u${c.toString(16).toUpperCase().padStart(hex4Digits, "0")}`
+					: construct,
 				"a lone surrogate is not admitted text"
 			)
 		}
@@ -815,7 +825,7 @@ class Parser {
 
 	#hex4(offset: number): number | undefined {
 		let value = 0
-		for (let i = 0; i < 4; i++) {
+		for (let i = 0; i < hex4Digits; i++) {
 			const h = hexValue(this.#peek(offset + i))
 			if (h === undefined) {
 				return undefined

@@ -21,7 +21,6 @@ import {
 	flight
 } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import { unrollRule } from "#compiler/lower/shapes/recursion/index.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
@@ -75,13 +74,12 @@ export const isGraphRule = (rule: string): rule is GraphRule =>
 
 /**
  * What one optimized program did: each graph rule it fired, whether it seeded an attachment once from the parent keys
- * (R37) or kept one pipelined, and whether a recursion was unrolled into joins or stayed a recursive CTE.
+ * (R37) or kept one pipelined, and whether a recursion stayed the recursive CTE, its one form.
  */
 export type GraphOptimizedFeature =
 	| GraphRule
 	| "seeded attachment"
 	| "pipelined attachment"
-	| "unrolled recursion"
 	| "recursive CTE"
 
 /**
@@ -102,9 +100,8 @@ const holdsRecursive = (statement: ConservativeStatement): boolean =>
 	has(shapeOf(statement.ast), "with recursive")
 
 /**
- * What one optimized program did, as features. A recursion is unrolled when the unroll certificate
- * records it, and stays a recursive CTE when a statement of the query itself, not an attachment's, holds a WITH
- * RECURSIVE.
+ * What one optimized program did, as features. A recursion stays a recursive CTE when a statement of the query itself,
+ * not an attachment's, holds a WITH RECURSIVE.
  */
 export const optimizedFeatures = (
 	program: OptimizedProgram
@@ -116,9 +113,6 @@ export const optimizedFeatures = (
 		...Arr.flatMap(program.certificates, (c) => (isGraphRule(c.rule) ? [c.rule] : [])),
 		...(seeded > 0 ? ["seeded attachment" as const] : []),
 		...(pipelined > 0 ? ["pipelined attachment" as const] : []),
-		...(Arr.some(program.certificates, (c) => c.rule === unrollRule)
-			? ["unrolled recursion" as const]
-			: []),
 		...(Arr.some(flight(program.roots), (s) => s.role.kind !== "attachment" && holdsRecursive(s))
 			? ["recursive CTE" as const]
 			: [])
@@ -133,36 +127,24 @@ export const reachableRecursions = (root: RelNode): number =>
 	Arr.filter(topoOrder({ roots: [root] }), (node) => node.kind === "Recursive").length
 
 /**
- * The totality of the forms: a query that reaches no recursion shows neither form, one recursion exactly one, several
- * at least one.
+ * The totality of the one form: a query that reaches no recursion shows no WITH RECURSIVE, one that reaches some shows
+ * one.
  */
-export const formsHold = (
-	recursions: number,
-	forms: { readonly unrolled: boolean; readonly recursive: boolean }
-): boolean => {
-	const shown = (forms.unrolled ? 1 : 0) + (forms.recursive ? 1 : 0)
-	return recursions === 0 ? shown === 0 : recursions === 1 ? shown === 1 : shown >= 1
-}
+export const formsHold = (recursions: number, recursive: boolean): boolean =>
+	recursions === 0 ? !recursive : recursive
 
 /**
- * The totality of the forms the lowering of `root` shows (formsHold), given its program and the features its lowering
- * noted. The forms are unrolled (the "unrolled recursion" feature, the unroll certificate) and kept, a WITH RECURSIVE
- * in any statement: the query's own or an attachment's, whose statement carries the recursion it attaches. A message
- * naming the counts when the lowering breaks it: a recursion that shows no form is one the observer cannot see, or one
+ * The totality of the form the lowering of `root` shows (formsHold), given its program: a WITH RECURSIVE in any
+ * statement, the query's own or an attachment's, whose statement carries the recursion it attaches. A message naming
+ * the count when the lowering breaks it: a recursion that shows no WITH RECURSIVE is one the observer cannot see, or one
  * the graph pass rewrote away.
  */
-export const formsBroken = (
-	root: RelNode,
-	program: ConservativeProgram,
-	features: ReadonlyArray<GraphOptimizedFeature>
-): string | undefined => {
+export const formsBroken = (root: RelNode, program: ConservativeProgram): string | undefined => {
 	const recursions = reachableRecursions(root)
-	const unrolled = features.includes("unrolled recursion")
 	const kept = Arr.some(flight(program.roots), holdsRecursive)
-	const shown = (unrolled ? 1 : 0) + (kept ? 1 : 0)
-	return formsHold(recursions, { unrolled, recursive: kept })
+	return formsHold(recursions, kept)
 		? undefined
-		: `${recursions} reachable recursions shown in ${shown} forms (unrolled: ${unrolled}, a WITH RECURSIVE: ${kept})`
+		: `${recursions} reachable recursions, a WITH RECURSIVE shown: ${kept}`
 }
 
 /** Where a lowering's features go: the case's notes, and whatever else a test keeps of them. */

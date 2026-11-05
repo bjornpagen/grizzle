@@ -1,9 +1,9 @@
 import { canonicalFormat, encode, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound, unsupported } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
+import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { tableMaxColumns } from "#compiler/core/policy.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -112,7 +112,7 @@ const typesText = (heading: Heading): string => {
 /** The digest a carrier's name holds for the column types whose canonical text is `types`: the leading
  * carrierDigestHex hex digits of SHA-256 over them, domain-separated as every fingerprint is (core/fingerprint.ts). */
 export const typesDigest = (types: string): string =>
-	sha256Hex(`${canonicalFormat}\ncarrier column types\n${types}`).slice(0, carrierDigestHex)
+	sha256Hex(`${canonicalFormat}\ncarrier column types\n${types}`).slice(0, carrierDigestHex.value)
 
 /** The column types one digest stands for in a program, and how many carriers of them the program holds. */
 interface TypesClass {
@@ -187,12 +187,12 @@ export const carrierScan = (carrier: Carrier, alias: string): FromItem => ({
  */
 const createAst = (w: WriteContext, carrier: Carrier): CreateCarrier => {
 	const at = `carrier ${carrier.name}`
-	if (carrier.heading.length > tableMaxColumns) {
+	if (carrier.heading.length > tableMaxColumns.value) {
 		throw new Refusal(
 			resourceBound(SourceLoc("write lowering", ["carriers", carrier.name]), {
 				kind: "tableColumns",
 				table: printTableName(carrier.name),
-				limit: tableMaxColumns,
+				limit: tableMaxColumns.value,
 				needed: carrier.heading.length
 			})
 		)

@@ -35,7 +35,7 @@ export type Artifact =
 
 /**
  * The measure of a pattern's automaton (text/refinement.ts analyzeText) that puts it past PostgreSQL's regex compile
- * space, with the facts it states, each bound a core/policy.ts constant:
+ * space, with the facts it states, each bound a core/limits.ts constant:
  * - `positions`: `needed` NFA positions once counted repetitions are written out, past `limit` (regexMaxPositions);
  * - `anchors`: `needed` anchor positions written out, past `limit` (regexMaxAnchors);
  * - `anchorWeight`: `anchors` anchors over `positions` positions, a product past `limit` (regexMaxAnchorWeight);
@@ -73,27 +73,20 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
 
 /**
  * The bound a ResourceBound crossed, with the facts it states:
- * - `rewriteSteps`: the steps of the rewrite pass `rewrite`, its limit and the step that crossed it;
  * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts past PostgreSQL's regex compile space;
  * - `stringLength`: a text grizzle builds as one string, `needed` UTF-16 code units long, past V8's longest string,
- *   `limit` (core/policy.ts maxStringLength);
+ *   `limit` (core/limits.ts maxStringLength);
  * - `tableColumns`: the table, view or materialized view `table` (a write program's carrier among them), of `needed`
- *   columns, past PostgreSQL's `limit` (core/policy.ts tableMaxColumns);
- * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (core/policy.ts selectMaxEntries);
+ *   columns, past PostgreSQL's `limit` (core/limits.ts tableMaxColumns);
+ * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (core/limits.ts selectMaxEntries);
  * - `statementBytes`: a statement `needed` UTF-8 bytes long, past PostgreSQL's longest protocol message, `limit`
- *   (core/policy.ts messageMaxBytes);
- * - `statementParams`: a statement of `needed` placeholders, past the `limit` a Bind message counts (core/policy.ts
+ *   (core/limits.ts messageMaxBytes);
+ * - `statementParams`: a statement of `needed` placeholders, past the `limit` a Bind message counts (core/limits.ts
  *   statementMaxParams);
  * - `numericDigits`: a numeric expression whose value may need `needed` integer digits, past numeric's `limit`
- *   (131072), where PostgreSQL's numeric arithmetic would raise.
+ *   (ir/scalar.ts numericMaxIntegerDigits), where PostgreSQL's numeric arithmetic would raise.
  */
 export type CompileBound =
-	| {
-			readonly kind: "rewriteSteps"
-			readonly rewrite: string
-			readonly limit: number
-			readonly needed: number
-	  }
 	| {
 			readonly kind: "regexCompileSpace"
 			readonly pattern: string
@@ -113,8 +106,6 @@ export type CompileBound =
 
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
-		case "rewriteSteps":
-			return `${bound.rewrite} rewrite steps <= ${bound.limit} (needed ${bound.needed})`
 		case "regexCompileSpace":
 			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past grizzle's measure of PostgreSQL's regex compile space (REG_MAX_COMPILE_SPACE), beyond which PostgreSQL refuses a pattern as "regular expression is too complex"; write a smaller pattern, or bound the text's length with Compute.charLength in a contract predicate`
 		case "stringLength":
@@ -239,6 +230,10 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `OutsideRole`: a program over `role` makes an access the role does not hold (RoleAccess).
  * - `IdentifierCollision`: two declarations whose `what` names, `declaration` and `otherDeclaration`, both convert to
  *   the identifier `identifier`; the one refused is `at`, the other `other`.
+ * - `DigestCollision`: two distinct objects, `display` and `otherDisplay`, whose hashed names share the stem and the
+ *   digest of `identifier` (core/identity.ts digestChars): two of one installation (censusOf), or a migration's
+ *   temporary and an object standing while it runs or another temporary (TemporaryCensus); renaming a declaration
+ *   either is built from gives it another.
  * - `ResourceBound`: a bound crossed (CompileBound).
  * - `PartialOperation`: an operation defined only where its precondition holds, which neither the operands' bounds nor
  *   a Compute.cond around it proves: `operation` names it, `operand` the operand the precondition reads, and `guard`
@@ -291,6 +286,13 @@ export type CompileReason =
 			readonly what: string
 			readonly declaration: string
 			readonly otherDeclaration: string
+	  }
+	| {
+			readonly _tag: "DigestCollision"
+			readonly at: SourceLoc
+			readonly identifier: string
+			readonly display: string
+			readonly otherDisplay: string
 	  }
 	| { readonly _tag: "ResourceBound"; readonly at: SourceLoc; readonly bound: CompileBound }
 	| {
@@ -365,6 +367,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return accessText(reason.role, reason.access)
 		case "IdentifierCollision":
 			return `${reason.what} names that convert apart; ${reason.declaration} and ${reason.otherDeclaration} both convert to ${reason.identifier}`
+		case "DigestCollision":
+			return `distinct hashed names for distinct objects; ${reason.display} and ${reason.otherDisplay} are both ${reason.identifier}: rename a declaration either is built from`
 		case "ResourceBound":
 			return boundText(reason.bound)
 		case "PartialOperation":

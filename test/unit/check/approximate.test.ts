@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import { approximateMisuse, approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -30,6 +30,7 @@ import {
 	scoredDocuments,
 	titles
 } from "#test/support/fixtures/api/search.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 
 const check = (s: unknown, q: unknown): Result.Result<LogicalQuery, CompileError> =>
@@ -66,13 +67,15 @@ const scored = <R>(source: {
  * and one above it.
  */
 const Ranked = relation("Ranked", { id: uuid, weight: pg.float8, value: pg.vector(4) }, ["id"])
-const AtBound = relation("AtBound", { id: uuid, value: pg.vector(hnswPolicy.maxDimensions) }, [
-	"id"
-])
+const AtBound = relation(
+	"AtBound",
+	{ id: uuid, value: pg.vector(hnswPolicy.maxDimensions.value) },
+	["id"]
+)
 
 const PastBound = relation(
 	"PastBound",
-	{ id: uuid, value: pg.vector(hnswPolicy.maxDimensions + 1) },
+	{ id: uuid, value: pg.vector(hnswPolicy.maxDimensions.value + 1) },
 	["id"]
 )
 
@@ -332,7 +335,7 @@ describe("approximateNearest's eligibility", () => {
 						literal: Formatter.format,
 						limit: planted.length,
 						coverage: requiredInSpace<Outcome>(["refused", "admitted"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(p, c) =>
 						Effect.sync(() => {
@@ -361,7 +364,7 @@ describe("approximateNearest's eligibility", () => {
 					literal: Formatter.format,
 					limit: 4,
 					coverage: noCoverage,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(by) =>
 					Effect.sync(() => {
@@ -406,7 +409,7 @@ describe("approximate provenance", () => {
 						literal: Formatter.format,
 						limit: programs.length,
 						coverage: requiredInSpace<Provenance>(["approximate", "exact"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(p, c) =>
 						Effect.sync(() => {

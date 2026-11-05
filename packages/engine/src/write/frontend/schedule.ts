@@ -20,7 +20,7 @@ export interface ImmediateReference {
 }
 
 /** The phase of an action on its own relation. */
-const phaseOf = (a: ActionCore): number =>
+const phaseOf = (a: ActionCore): 0 | 1 | 2 | 3 =>
 	a.op === "delete" ? 0 : a.op === "put" ? 1 : a.serial.kind === "generated" ? 3 : 2
 
 const removes = (a: ActionCore): boolean => a.op === "delete" || a.op === "put"

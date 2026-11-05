@@ -9,7 +9,8 @@ import {
 	int,
 	map,
 	oneOf,
-	string
+	string,
+	weighted
 } from "@grizzle/testing/gen"
 import {
 	type Drawn,
@@ -24,17 +25,16 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result } from "effect"
+import { absurd, Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { RequestFault } from "#adapter/errors/failures.ts"
 import { pageRequest } from "#adapter/page/request.ts"
 import { CursorError } from "#compiler/core/errors.ts"
-import { pageMaxSize } from "#compiler/core/policy.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { assert, failed, succeeded } from "#test/support/assert.ts"
-import { limitGen } from "#test/support/kernel/policy.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** The fault a page request's refusal names, at stage request; none for any other read failure. */
 const requestFault = (failure: ReadFailure): RequestFault | undefined =>
@@ -47,7 +47,7 @@ const requestFault = (failure: ReadFailure): RequestFault | undefined =>
  * value the types refuse is a typed refusal from the vocabulary, never a defect.
  *
  * The oracle is the contract README "Reading" states, restated here: a page request is exactly { first }, { first, after }, { last } or
- * { last, before }, its size an integer from 1 to the page limit, its anchor a string; a refused shape is a ReadFailure
+ * { last, before }, its size a safe integer of at least 1 with no upper bound, its anchor a string; a refused shape is a ReadFailure
  * at stage `request` with fault `requestShape`, a refused size one with `requestSize`, a non-string anchor CursorError
  * `cursorType`. The request is read as data before any of its fields is judged, so a value in it that is not data (a
  * refusing proxy, a getter: WILD_IS_DATA) refuses its shape wherever it sits. A schema door takes a value
@@ -55,9 +55,9 @@ const requestFault = (failure: ReadFailure): RequestFault | undefined =>
  * built, and refuses anything else as a MalformedDescription. The caller's code runs at most once at a boundary: an
  * accessor is refused without being called.
  *
- * Values are drawn live, stale and wild (lsw): a live request is valid by construction under a drawn limit
- * (kernel/policy.ts limitGen, passed through pageRequest's own parameter); a stale one carries a size another, larger
- * limit admitted; a wild one is any value JavaScript can pass, in place of the whole request or of one of its fields.
+ * Values are drawn live and wild (lsw): a live request is valid by construction, its size up to the largest safe
+ * integer; a wild one is any value JavaScript can pass, in place of the whole request or of one of its fields. A page
+ * request has no earlier state, so none is stale.
  */
 type Direction = "first" | "last"
 
@@ -70,9 +70,9 @@ interface Request {
 
 const anchorKey = (d: Direction): "after" | "before" => (d === "first" ? "after" : "before")
 
-/** The README's page size: an integer from 1 to the limit. */
-const isPageSizeSpec = (value: unknown, maxSize: number): boolean =>
-	typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= maxSize
+/** The README's page size: a safe integer of at least 1. */
+const isPageSizeSpec = (value: unknown): boolean =>
+	typeof value === "number" && Number.isSafeInteger(value) && value >= 1
 
 /** What a request holding a wild value answers: admitted, a refused shape or size, or a non-string anchor. */
 type WildVerdict = "admitted" | RequestFault | "cursorType"
@@ -83,12 +83,7 @@ type WildVerdict = "admitted" | RequestFault | "cursorType"
  * anchor that is a string (a lone surrogate, a NUL) is one the cursor codec validates later, and any other is the
  * cursor's refusal.
  */
-const wildVerdict = (
-	site: WildSite,
-	data: boolean,
-	value: unknown,
-	maxSize: number
-): WildVerdict => {
+const wildVerdict = (site: WildSite, data: boolean, value: unknown): WildVerdict => {
 	if (!data) {
 		return "requestShape"
 	}
@@ -96,7 +91,7 @@ const wildVerdict = (
 		case "whole":
 			return "requestShape"
 		case "size":
-			return isPageSizeSpec(value, maxSize) ? "admitted" : "requestSize"
+			return isPageSizeSpec(value) ? "admitted" : "requestSize"
 		case "anchor":
 			return typeof value === "string" ? "admitted" : "cursorType"
 	}
@@ -124,53 +119,41 @@ const requestValue = (r: Request): Readonly<Record<string, unknown>> =>
 		? { [r.direction]: r.size }
 		: { [r.direction]: r.size, [anchorKey(r.direction)]: r.anchor.token }
 
-const requestGen =
-	(maxSize: number): Gen<Request> =>
-	(source) => ({
-		direction: source.draw(element<Direction>(["first", "last"])),
-		size: source.draw(int(1, maxSize)),
-		anchor: source.draw(
-			oneOf<Request["anchor"]>([
-				constant({ kind: "none" }),
-				map(string(codePoint(0x20, 0x7e), { min: 0, max: 10 }), (token) => ({
-					kind: "token",
-					token
-				}))
-			])
-		)
-	})
+/** A page size: small, any safe integer, or the largest. */
+const sizeGen: Gen<number> = weighted([
+	[3, int(1, 7)],
+	[1, int(1, Number.MAX_SAFE_INTEGER)],
+	[1, constant(Number.MAX_SAFE_INTEGER)]
+])
+
+const requestGen: Gen<Request> = (source) => ({
+	direction: source.draw(element<Direction>(["first", "last"])),
+	size: source.draw(sizeGen),
+	anchor: source.draw(
+		oneOf<Request["anchor"]>([
+			constant({ kind: "none" }),
+			map(string(codePoint(0x20, 0x7e), { min: 0, max: 10 }), (token) => ({
+				kind: "token",
+				token
+			}))
+		])
+	)
+})
 
 /** Where a wild value goes: the whole request, its size, or its anchor. */
 type WildSite = "whole" | "size" | "anchor"
 
 interface PageCase {
-	readonly maxSize: number
 	readonly site: WildSite
 	readonly base: Request
-	readonly drawn: Drawn<Request, "a larger limit">
+	readonly drawn: Drawn<Request, never>
 }
 
-const pageCaseGen: Gen<PageCase> = (source) => {
-	const maxSize = source.draw(limitGen(pageMaxSize, [1, 2, 3]))
-	return {
-		maxSize,
-		site: source.draw(element<WildSite>(["whole", "size", "anchor"])),
-		base: source.draw(requestGen(maxSize)),
-		drawn: source.draw(
-			lsw<Request, "a larger limit">({
-				live: requestGen(maxSize),
-				stale: Option.some((inner) => ({
-					value: {
-						...inner.draw(requestGen(maxSize)),
-						size: inner.draw(int(maxSize + 1, maxSize + 1_000))
-					},
-					from: "a larger limit"
-				})),
-				wild: pageWildKinds
-			})
-		)
-	}
-}
+const pageCaseGen: Gen<PageCase> = (source) => ({
+	site: source.draw(element<WildSite>(["whole", "size", "anchor"])),
+	base: source.draw(requestGen),
+	drawn: source.draw(lsw<Request>({ live: requestGen, stale: Option.none(), wild: pageWildKinds }))
+})
 
 /** The value a case hands pageRequest. */
 const pageInput = (c: PageCase): unknown => {
@@ -190,14 +173,13 @@ const pageInput = (c: PageCase): unknown => {
 }
 
 type PageFeature =
-	| DrawnFeature<"a larger limit">
+	| DrawnFeature<never>
 	| `site ${WildSite}`
 	| "refused request"
 	| "refused cursorType"
 
 const pageFeatures: Arr.NonEmptyReadonlyArray<PageFeature> = [
 	"live",
-	"stale a larger limit",
 	...Arr.map(pageWildKinds, (k: WildKind): PageFeature => `wild ${k}`),
 	"site whole",
 	"site size",
@@ -227,7 +209,7 @@ describe("the public boundary", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, k) =>
 						Effect.sync(() => {
@@ -235,7 +217,7 @@ describe("the public boundary", () => {
 							if (c.drawn.kind === "wild") {
 								k.note(`site ${c.site}`)
 							}
-							const result = pageRequest(pageInput(c), c.maxSize)
+							const result = pageRequest(pageInput(c))
 							const d = c.drawn
 							if (d.kind === "live") {
 								const admitted = succeeded(result)
@@ -246,13 +228,9 @@ describe("the public boundary", () => {
 								return
 							}
 							if (d.kind === "stale") {
-								const refusal = failed(result)
-								assert.ok(refusal instanceof ReadFailure)
-								assert.equal(requestFault(refusal), "requestSize")
-								k.note("refused request")
-								return
+								return absurd(d.from)
 							}
-							const verdict = wildVerdict(c.site, WILD_IS_DATA[d.wild.kind], passed(d), c.maxSize)
+							const verdict = wildVerdict(c.site, WILD_IS_DATA[d.wild.kind], passed(d))
 							if (verdict === "admitted") {
 								succeeded(result)
 								return
@@ -283,7 +261,7 @@ describe("the public boundary", () => {
 				return 1
 			}
 		})
-		const refusal = failed(pageRequest(request, pageMaxSize))
+		const refusal = failed(pageRequest(request))
 		assert.ok(refusal instanceof ReadFailure)
 		assert.equal(requestFault(refusal), "requestShape")
 		assert.equal(calls, 0, "the caller's getter never runs")
@@ -316,7 +294,7 @@ describe("the public boundary", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(d, k) =>
 							Effect.sync(() => {

@@ -5,16 +5,7 @@ import { element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	pipe,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
@@ -30,6 +21,7 @@ import { schema as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { DefinitionQuery } from "#compiler/types/derived/derived.ts"
 import { buildSchema, caseSketchGen } from "#test/pg/derived/oracle/gen.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
 
 /** The derived refusal an analysis ends with, narrowed so its cause reads.
@@ -188,7 +180,7 @@ const unstorable = (
 					kind: "wholeHeading",
 					relation: "D",
 					key: ["note"],
-					fault: { kind: "unbounded", field: "note", datum: "textBytes" }
+					fault: { kind: "unboundedText", field: "note" }
 				}
 			}
 		case "unbounded inherited key":
@@ -203,22 +195,22 @@ const unstorable = (
 					kind: "inheritedKey",
 					relation: "D",
 					key: ["note"],
-					fault: { kind: "unbounded", field: "note", datum: "textBytes" }
+					fault: { kind: "unboundedText", field: "note" }
 				}
 			}
 		case "one fact, no representable field":
 			return {
-				analyzed: analyzedOverLines(
-					query(L).rule((r) => {
-						const { id, amount } = v(Line, "line")
-						return r.match(Line, { id, amount }).find({ total: r.sum(amount) })
+				analyzed: analyzedOver(
+					query(Base).rule((r) => {
+						const { id, note } = v(Org, "org")
+						return r.match(Org, { id, note }).find({ least: r.min(note) })
 					})
 				),
 				cause: {
 					kind: "oneFact",
-					relation: "T",
-					fields: ["total"],
-					fault: { kind: "unbounded", field: "total", datum: "numericPrecision" }
+					relation: "D",
+					fields: ["least"],
+					fault: { kind: "unboundedText", field: "least" }
 				}
 			}
 		case "33 columns":
@@ -369,7 +361,7 @@ describe("derived relation keys", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.sync(() => {
@@ -435,7 +427,7 @@ describe("derived relation keys", () => {
 						literal: Formatter.format,
 						limit: 6,
 						coverage: requiredInSpace<"several keys">(["several keys"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(order, c) =>
 						Effect.sync(() => {
@@ -543,7 +535,7 @@ describe("derived relation keys", () => {
 						"an attachment",
 						"several heading groups"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(shape, c) =>
 					Effect.sync(() => {

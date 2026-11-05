@@ -5,10 +5,9 @@ import { filter, map } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Data, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Data, Effect, Formatter } from "effect"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { unrollRule } from "#compiler/lower/shapes/recursion/index.ts"
 import { formsHold, reachableRecursions } from "#test/pg/recursion/graph/support.ts"
 import {
 	feedbackUnionAll,
@@ -46,12 +45,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * The mutant is applied in the shape an optimizer emits: the V6 form, recursive UNION with plain seed and step
  * SELECTs, with that UNION then turned into UNION ALL. The optimized lowering is that V6 form (its seed, step and
  * feedback scan carry no DISTINCT, test/pg/recursion/lowering/walks.test.ts), so the mutant here is its own output with
- * each recursion's feedback union made UNION ALL: the recursive CTE's UNION, or the unrolled levels' set UNION
- * (lower/shapes/recursion). Two paths through a diamond can produce the same state, although the
- * diamond's edges are a pure set, it is acyclic and the walk is bounded; on every generated diamond rooted at its top
- * the mutant repeats a state the optimized lowering delivers once, with the same distinct rows, in both forms: a walk
- * whose counter proves its depth within core/policy.ts recursionUnrollMax is unrolled, an unbounded one stays a
- * recursive CTE. Each case's program shows its recursion in exactly one form, observed over the whole statement AST.
+ * each recursion's feedback union made UNION ALL: the recursive CTE's UNION (lower/shapes/recursion). Two paths
+ * through a diamond can produce the same state, although the diamond's edges are a pure set, it is acyclic and the
+ * walk is bounded; on every generated diamond rooted at its top the mutant repeats a state the optimized lowering
+ * delivers once, with the same distinct rows, a bounded walk and an unbounded one alike. Each case's program shows its
+ * recursion as a WITH RECURSIVE, observed over the whole statement AST.
  */
 
 /**
@@ -113,10 +111,9 @@ const run = (c: RecursiveCase, left: Lowering, right: Lowering) =>
 const siteNames: PhysicalNames = standInNames("Graph")
 
 /**
- * How many feedback unions the mutant rewrites in a case's optimized program, and the forms the program took: unrolled
- * when the unroll certificate records a recursion unrolled into joins, recursive when a statement of the query itself
- * holds a WITH RECURSIVE at any depth of its AST (the lowering nests one inside a derived table under any consumer
- * node).
+ * How many feedback unions the mutant rewrites in a case's optimized program, and whether a statement of the query
+ * itself holds a WITH RECURSIVE at any depth of its AST (the lowering nests one inside a derived table under any
+ * consumer node).
  */
 const sites = (c: RecursiveCase) => {
 	const program = lowerCase(c, siteNames)
@@ -129,7 +126,6 @@ const sites = (c: RecursiveCase) => {
 	}
 	return {
 		sites: mutated.value.sites,
-		unrolled: Arr.some(program.value.certificates, (x) => x.rule === unrollRule),
 		recursive: Arr.some(
 			flight(program.value.roots),
 			(st) => st.role.kind !== "attachment" && has(shapeOf(st.ast), "with recursive")
@@ -137,20 +133,19 @@ const sites = (c: RecursiveCase) => {
 	}
 }
 
-/** What the population notes: its generator's features and the form each kill took. */
-type DiamondFeature = RecursiveFeature | "killed unrolled" | "killed recursive"
+/** What the population notes: its generator's features and each kill. */
+type DiamondFeature = RecursiveFeature | "killed"
 
-/** The population must reach every vertex type and parallel edges, and kill the mutant in both forms of the lowering. */
+/** The population must reach every vertex type and parallel edges, and kill the mutant. */
 const situations = [
 	...Arr.map(vertexKinds, (k): RecursiveFeature => `vertex:${k}`),
 	"parallel edges",
-	"killed unrolled",
-	"killed recursive"
+	"killed"
 ] as const satisfies ReadonlyArray<DiamondFeature>
 
 layer(Substrate.layer)("the UNION ALL feedback mutant of the optimized lowering", (it) => {
 	it.effect(
-		"every generated diamond rooted at its top kills it in both forms, whatever its vertex type, edges, seed or state",
+		"every generated diamond rooted at its top kills it, whatever its vertex type, edges, seed or state",
 		(ctx) =>
 			searched(
 				ctx,
@@ -191,7 +186,6 @@ layer(Substrate.layer)("the UNION ALL feedback mutant of the optimized lowering"
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
-							caseHang: Duration.minutes(2),
 							perturb: "none"
 						},
 						(c, notes) =>
@@ -204,9 +198,9 @@ layer(Substrate.layer)("the UNION ALL feedback mutant of the optimized lowering"
 								}
 								const counted = sites(c)
 								const recursions = reachableRecursions(c.query.dag.roots[0])
-								if (!formsHold(recursions, counted)) {
+								if (!formsHold(recursions, counted.recursive)) {
 									return yield* new NotKilled({
-										message: `${recursions} reachable recursions shown as unrolled: ${counted.unrolled}, recursive: ${counted.recursive}`
+										message: `${recursions} reachable recursions, a WITH RECURSIVE shown: ${counted.recursive}`
 									})
 								}
 								if (counted.sites === 0) {
@@ -222,16 +216,10 @@ layer(Substrate.layer)("the UNION ALL feedback mutant of the optimized lowering"
 								if (!repeatsStates(outcome)) {
 									return yield* new NotKilled({ message: `not killed:\n${printOutcome(outcome)}` })
 								}
-								if (counted.unrolled) {
-									notes.note("killed unrolled")
-								}
-								if (counted.recursive) {
-									notes.note("killed recursive")
-								}
+								notes.note("killed")
 							})
 					)
 				})
-			),
-		600_000
+			)
 	)
 })

@@ -5,7 +5,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { FamilyRecord, ResidualRecord } from "#compiler/deploy/snapshot/residual.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -18,6 +18,7 @@ import {
 	alternativesGen,
 	residualSchema
 } from "#test/support/laws/residual-schemas.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { asDrafted, compile, draftChain, fromEmpty } from "#test/support/migrate/kit.ts"
 
 /**
@@ -199,7 +200,7 @@ describe("residual law records", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ edit, base }, c) =>
 						Effect.sync(() => {

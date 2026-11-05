@@ -1,5 +1,5 @@
 import { Refusal } from "#compiler/core/canonical.ts"
-import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
+import { CompileError, type ProseTag, prose, resourceBound } from "#compiler/core/errors.ts"
 import { type LawId, makeIdSupply } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -18,7 +18,14 @@ import {
 	type RelNode,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf, type ScalarType, type SpanCarrier, sameScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	type NumericBound,
+	numericMaxIntegerDigits,
+	type ScalarType,
+	type SpanCarrier,
+	sameScalarType
+} from "#compiler/ir/scalar.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
 	binaryCoercion,
@@ -28,10 +35,13 @@ import {
 } from "#compiler/scalar/compute/registry.ts"
 import {
 	commonType,
+	exactNumericBound,
+	numericHull,
 	type PlainCarrier,
 	plainType,
 	valueType
 } from "#compiler/scalar/compute/types.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 
 /** A refusal deep inside a construction is the kernel's Refusal, caught at the theory boundary (catchRefusal). */
 export const refusal = (tag: ProseTag, loc: SourceLoc, capability: string): Refusal =>
@@ -53,7 +63,6 @@ const plainCarriers: ReadonlyArray<PlainCarrier> = [
 	"int2",
 	"int4",
 	"int8",
-	"numeric",
 	"float4",
 	"float8",
 	"money",
@@ -205,7 +214,12 @@ export class ViolationBuilder {
 			)
 		}
 		const plain = plainCarriers.find((c) => c === native.result)
-		const result: ScalarType = plain === undefined ? args[0].type : plainType(plain)
+		const result: ScalarType =
+			native.result === "numeric"
+				? this.numericDifference(fn, types)
+				: plain === undefined
+					? args[0].type
+					: plainType(plain)
 		return this.expr({
 			kind: "op",
 			op: native.id,
@@ -271,14 +285,55 @@ export class ViolationBuilder {
 	}
 
 	/**
-	 * The native cast to a plain carrier, or the identity-preserving cast to the value type when the carrier is already
-	 * that one: a widening, defined on every value, since a law compares in the wider carrier; a partial cast is
-	 * refused, as it would need a proof no law states.
+	 * The computed numeric a law's numeric sum or difference is: its operands' bounds' hull, one integer digit more,
+	 * refused as ResourceBound past numeric's integer digits. A violation query computes no other numeric operation.
 	 */
-	toCarrier(e: ScalarExpr, target: PlainCarrier): ScalarExpr {
+	numericDifference(fn: NativeName, types: ReadonlyArray<ScalarType>): ScalarType {
+		if (fn !== "add" && fn !== "sub") {
+			return refuse(
+				"UnsupportedOperation",
+				this.loc,
+				`a native ${fn} over numeric: a law's violation query computes only numeric differences`
+			)
+		}
+		const bounds = types.map((t) => this.numericBound(t))
+		const hull = bounds.reduce(numericHull, { digits: 0, scale: 0 })
+		const digits = hull.digits + 1
+		if (digits > numericMaxIntegerDigits.value) {
+			throw new Refusal(
+				resourceBound(this.loc, {
+					kind: "numericDigits",
+					limit: numericMaxIntegerDigits.value,
+					needed: digits
+				})
+			)
+		}
+		return numericValue({ digits, scale: hull.scale })
+	}
+
+	/** The bound of `t`'s values converted into numeric exactly, or the refusal of a type with none. */
+	numericBound(t: ScalarType): NumericBound {
+		return (
+			exactNumericBound(t) ??
+			refuse(
+				"UnsupportedOperation",
+				this.loc,
+				`a numeric of an integer, money or numeric; a law compares no ${baseOf(t).carrier} in numeric`
+			)
+		)
+	}
+
+	/**
+	 * The native cast to a plain carrier or to numeric, or the identity-preserving cast to the value type when the
+	 * carrier is already that one: a widening, defined on every value, since a law compares in the wider carrier; a
+	 * partial cast is refused, as it would need a proof no law states. A numeric is the computed numeric of the value's
+	 * exact bound.
+	 */
+	toCarrier(e: ScalarExpr, target: PlainCarrier | "numeric"): ScalarExpr {
 		const source = baseOf(e.type).carrier
+		const type = target === "numeric" ? numericValue(this.numericBound(e.type)) : plainType(target)
 		if (source === target) {
-			return this.as(e, plainType(target))
+			return this.as(e, type)
 		}
 		const native = castOf(source, target)
 		if (native === undefined || native.partial) {
@@ -292,7 +347,7 @@ export class ViolationBuilder {
 			kind: "cast",
 			cast: native.id,
 			args: [this.as(e, valueType(e.type))],
-			type: plainType(target),
+			type,
 			nonNull: "strict",
 			volatility: native.volatility
 		})

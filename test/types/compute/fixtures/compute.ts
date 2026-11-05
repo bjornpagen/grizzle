@@ -119,7 +119,7 @@ export const timesNumber = Compute.mul(dec, 2)
 // @ts-expect-error -- TS2345: a JavaScript number is never a numeric literal, in a comparison either
 export const comparedToNumber = Compute.le(rate, 0.5)
 // @ts-expect-error -- TS2345: Compute.literal over numeric takes no JavaScript number
-export const numericLiteral = Compute.literal(pg.numeric, 1)
+export const numericLiteral = Compute.literal(pg.numeric(1, 0), 1)
 // @ts-expect-error -- TS2322: an IN list over numeric takes no JavaScript number
 export const numericIn = Compute.in(dec, [1])
 export const numericInOk = Compute.in(dec, [1n, "0.5"])
@@ -246,9 +246,9 @@ export type ToInteger = Expect<Equals<TypeOfTerm<typeof toInteger>, number>>
 // @ts-expect-error -- TS2345 refusal: a value proved finite: guard it with Compute.when(Compute.isFinite(x), (x) => …, otherwise)
 export const unguardedToInteger = Compute.cast(dec, pg.integer)
 /** An integer cast keeps its operand's finiteness, which its type states. */
-export const intToNumeric = Compute.cast(int, pg.numeric)
+export const intToNumeric = Compute.cast(int, pg.numeric(10, 0))
 export const scaleOfInt = Compute.minScale(intToNumeric)
-export const moneyAmount = Compute.cast(money, pg.numeric)
+export const moneyAmount = Compute.cast(money, pg.numeric(19, 2))
 export type MoneyAmount = Expect<Equals<TypeOfTerm<typeof moneyAmount>, Decimal>>
 // @ts-expect-error -- TS2345 refusal: PostgreSQL has no cast between these types that Compute admits
 export const textToInteger = Compute.cast(text, pg.integer)
@@ -371,11 +371,11 @@ export const lines = query(Shop).rule((r) => {
 		.where(r.gt(qty, r.param("minimum", pg.integer)))
 		.find({
 			id: lineId,
-			total: Compute.mul(Compute.cast(price, pg.numeric), Compute.base(lineRate)),
+			total: Compute.mul(Compute.cast(price, pg.numeric(19, 0)), Compute.base(lineRate)),
 			bucket: Compute.widthBucket(
-				Compute.cast(qty, pg.numeric),
-				Compute.literal(pg.numeric, 0n),
-				Compute.literal(pg.numeric, 100n),
+				Compute.cast(qty, pg.numeric(10, 0)),
+				Compute.literal(pg.numeric(1, 0), 0n),
+				Compute.literal(pg.numeric(3, 0), 100n),
 				r.param("buckets", pg.integer)
 			)
 		})

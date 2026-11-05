@@ -1,7 +1,26 @@
 import type { CharSet, Interval } from "#compiler/scalar/regex/charset.ts"
 import { folded, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 
-const hex = (c: number, width: number): string => c.toString(16).toUpperCase().padStart(width, "0")
+/**
+ * ARE's fixed-width character-entry escapes, each a prefix and its exact count of hexadecimal digits: `\u` and four for
+ * a code point up to U+FFFF, `\U` and eight for any other. PostgreSQL 19rc1's table of Regular Expression
+ * Character-Entry Escapes states both widths: "\uwxyz (where wxyz is exactly four hexadecimal digits)" and "\Ustuvwxyz
+ * (where stuvwxyz is exactly eight hexadecimal digits)"
+ * (https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/func/func-matching.sgml#L1616-L1628, verified
+ * 2026-11-05).
+ *
+ * @formatConstant the hexadecimal digits of ARE's \u and \U character-entry escapes
+ */
+const entryEscapes = {
+	basic: { prefix: "\\u", digits: 4 },
+	supplementary: { prefix: "\\U", digits: 8 }
+} as const
+
+type EntryEscape = (typeof entryEscapes)[keyof typeof entryEscapes]
+
+/** A code point as the character-entry escape `escape`: its prefix and the code point in exactly its digits. */
+const entry = (c: number, escape: EntryEscape): string =>
+	`${escape.prefix}${c.toString(16).toUpperCase().padStart(escape.digits, "0")}`
 
 const isAsciiAlnum = (c: number): boolean =>
 	(c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)
@@ -14,7 +33,7 @@ const areChar = (c: number): string => {
 	if (c > 0x20 && c < 0x7f) {
 		return `\\${String.fromCodePoint(c)}`
 	}
-	return c <= 0xffff ? `\\u${hex(c, 4)}` : `\\U${hex(c, 8)}`
+	return entry(c, c <= 0xffff ? entryEscapes.basic : entryEscapes.supplementary)
 }
 
 /**
@@ -59,20 +78,21 @@ const quantifier = (min: number, max: number | "unbounded"): string => {
 }
 
 /**
- * Precedence: an alternation binds loosest, then a sequence, then a quantified atom, then an atom. A quantifier applies
- * only to an atom, so a quantified body is grouped again.
+ * The ARE's precedence levels, loosest binding first: an alternation, a sequence, a quantified atom, an atom. A
+ * quantifier applies only to an atom, so a quantified body is grouped again.
  */
-const precAlt = 0
-const precSeq = 1
-const precQuantified = 2
-const precAtom = 3
+const levels = ["alt", "seq", "quantified", "atom"] as const
+
+type Level = (typeof levels)[number]
 
 interface Printed {
 	readonly text: string
-	readonly prec: number
+	readonly level: Level
 }
 
-const group = (p: Printed, minimum: number): string => (p.prec < minimum ? `(?:${p.text})` : p.text)
+/** A node's text, grouped unless it binds at least as tightly as `level`. */
+const group = (p: Printed, level: Level): string =>
+	levels.indexOf(p.level) < levels.indexOf(level) ? `(?:${p.text})` : p.text
 
 /**
  * A node's ARE text and its precedence, from its children's (`of`). An assertion prints at sequence precedence, so it
@@ -81,32 +101,32 @@ const group = (p: Printed, minimum: number): string => (p.prec < minimum ? `(?:$
 const printed = (node: LiveNode, of: (child: LiveNode) => Printed): Printed => {
 	switch (node.kind) {
 		case "empty":
-			return { text: "", prec: precSeq }
+			return { text: "", level: "seq" }
 		case "set":
-			return { text: areSet(node.set), prec: precAtom }
+			return { text: areSet(node.set), level: "atom" }
 		case "start":
-			return { text: "\\A", prec: precSeq }
+			return { text: "\\A", level: "seq" }
 		case "end":
-			return { text: "\\Z", prec: precSeq }
+			return { text: "\\Z", level: "seq" }
 		case "seq":
-			return { text: node.items.map((item) => group(of(item), precSeq)).join(""), prec: precSeq }
+			return { text: node.items.map((item) => group(of(item), "seq")).join(""), level: "seq" }
 		case "alt": {
 			const arms = node.arms.filter((arm) => arm.kind !== "empty")
 			const alternation = (): Printed => ({
-				text: arms.map((arm) => group(of(arm), precAlt)).join("|"),
-				prec: precAlt
+				text: arms.map((arm) => group(of(arm), "alt")).join("|"),
+				level: "alt"
 			})
 			if (arms.length === node.arms.length) {
 				return alternation()
 			}
 			const [only] = arms
 			const rest = arms.length === 1 && only !== undefined ? of(only) : alternation()
-			return { text: `${group(rest, precAtom)}?`, prec: precQuantified }
+			return { text: `${group(rest, "atom")}?`, level: "quantified" }
 		}
 		case "repeat":
 			return {
-				text: `${group(of(node.body), precAtom)}${quantifier(node.min, node.max)}`,
-				prec: precQuantified
+				text: `${group(of(node.body), "atom")}${quantifier(node.min, node.max)}`,
+				level: "quantified"
 			}
 	}
 }

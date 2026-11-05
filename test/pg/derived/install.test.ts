@@ -3,11 +3,11 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
@@ -28,6 +28,7 @@ import {
 	loadMigrated as load
 } from "#test/support/install-migrate.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import * as K from "#test/unit/derived/kit.ts"
@@ -127,9 +128,12 @@ const workFacts = {
 	ManualTask: [{ task: id(13), operator: "ops" }]
 }
 
-/** The SQL type text of an inferred descriptor's column, as the installation names it. */
-const typmodOf = (desc: FieldDesc): number =>
-	desc.kind === "numeric" && "precision" in desc ? ((desc.precision << 16) | desc.scale) + 4 : -1
+/**
+ * The atttypmod of an inferred descriptor's column: numeric(p, s)'s, and -1 for every other, a computed numeric's numeric
+ * of no typmod among them.
+ */
+const typmodOf = (desc: InferredFieldDesc): number =>
+	desc.kind === "numeric" ? ((desc.precision << 16) | desc.scale) + 4 : -1
 
 layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 	it.effect(
@@ -153,7 +157,7 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 							literal: Formatter.format,
 							limit: 5,
 							coverage: noCoverage,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(relation) =>
 							Effect.gen(function* () {

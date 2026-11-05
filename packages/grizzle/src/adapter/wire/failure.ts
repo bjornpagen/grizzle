@@ -1,6 +1,6 @@
 import { Predicate } from "effect"
-import type { DatabaseError } from "pg"
 import { ServerError } from "#adapter/errors/failures.ts"
+import type { PgDatabaseError } from "#adapter/types/driver.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
 import type {
 	ColumnIdent,
@@ -46,12 +46,12 @@ const domainOf = (text: string | undefined): DomainName | undefined =>
 const fatalSeverities: ReadonlySet<string> = new Set(["FATAL", "PANIC"])
 
 /**
- * pg's DatabaseError read, once, into the one constructor of ServerError, as the server gave it (its SQLSTATE, message,
+ * The driver's DatabaseError read, once, into the one constructor of ServerError, as the server gave it (its SQLSTATE, message,
  * DETAIL, HINT and identity fields), refused or terminated by its severity, or undefined when it carries no SQLSTATE.
  * An identity field that is absent or empty is undefined, and never refuses the error. The outcome mapping (key-law
  * map, DETAIL codec, transient failures) belongs to the operation that ran the statement.
  */
-export const serverFailure = (error: DatabaseError): ServerAnswer | undefined => {
+export const serverFailure = (error: PgDatabaseError): ServerAnswer | undefined => {
 	const code = error.code === undefined ? undefined : parseSqlstate(error.code)
 	if (code === undefined) {
 		return undefined

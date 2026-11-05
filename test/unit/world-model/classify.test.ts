@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, filter, type Gen, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
 import type { WritabilityReason } from "#compiler/core/causes.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
@@ -11,6 +11,7 @@ import { type FixedValue, writableEntry } from "#compiler/schema/entry.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { buildBase, sourcesOf } from "#test/support/worlds/execute/build.ts"
 import { definitionOf } from "#test/support/worlds/execute/describe.ts"
 import { classifyEntry } from "#test/support/worlds/model/host.ts"
@@ -404,7 +405,7 @@ describe("the writable-entry rule", () => {
 						literal: Formatter.format,
 						limit: 6000,
 						coverage: requiredInSpace(situations),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.gen(function* () {

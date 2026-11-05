@@ -1,6 +1,6 @@
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import { int4Max, int4Min, int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
+import { int4Max, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 
 /**
  * The Span carrier of span(endpoint).
@@ -33,15 +33,15 @@ const endpointChecks: {
 		if (
 			typeof value !== "number" ||
 			!Number.isInteger(value) ||
-			value < int4Min ||
-			value > int4Max
+			value < int4Min.value ||
+			value > int4Max.value
 		) {
 			return Result.err("spanEndpoint")
 		}
 		return Result.ok(value === 0 ? 0 : value)
 	},
 	int8: (value) => {
-		if (typeof value !== "bigint" || value < int8Min || value > int8Max) {
+		if (typeof value !== "bigint" || value < int8Min.value || value > int8Max.value) {
 			return Result.err("spanEndpoint")
 		}
 		return Result.ok(value)

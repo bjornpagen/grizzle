@@ -8,7 +8,6 @@ import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -38,6 +37,7 @@ import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { largeStatements } from "#test/support/oracle/forms.ts"
 
 /**
@@ -173,7 +173,7 @@ describe("every declared parameter admitted at the read boundary", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ read: { inner, outer, kind }, wrong }, c) =>
 						Effect.sync(() => {

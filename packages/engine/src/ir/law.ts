@@ -1,5 +1,5 @@
 import type { DeclaredName, Identity } from "#compiler/core/identity.ts"
-import type { ColumnIdent, DomainName, RaisedLawId, RelationIdent } from "#compiler/core/ids.ts"
+import type { ColumnIdent, DomainName, LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
@@ -187,7 +187,7 @@ export type LawSource =
  * the world roles that write its relation alone holding UPDATE.
  */
 export interface NormalizedLaw {
-	readonly id: RaisedLawId
+	readonly id: LawId
 	readonly source: LawSource
 	readonly shape: LawShape
 	readonly sides: ReadonlyArray<LawSide>
@@ -346,7 +346,7 @@ type NativeBody =
  */
 export type TableCheckOrigin =
 	| { readonly kind: "declared"; readonly name: string; readonly named: Identity<"check"> }
-	| { readonly kind: "generated"; readonly law: RaisedLawId }
+	| { readonly kind: "generated"; readonly law: LawId }
 
 /**
  * A handle of an alternatives roster whose arm tag is another handle: an armed handle whose arm relation is armed first
@@ -388,7 +388,7 @@ export const spanKeyColumns = (o: {
 	readonly key: SpanKeyScalars
 }): NonEmptyReadonlyArray<LawField> => appendNonEmpty(o.key.scalars, o.span)
 
-export type NativeObject = { readonly lawIds: NonEmptyReadonlyArray<RaisedLawId> } & NativeBody
+export type NativeObject = { readonly lawIds: NonEmptyReadonlyArray<LawId> } & NativeBody
 
 /** A contract's domain native. */
 export type DomainNative = Extract<NativeObject, { readonly kind: "Domain" }>
@@ -808,7 +808,7 @@ export type LawWeight =
  * means is its family's (familyAbsentAnchor).
  */
 export type ResidualLaw = ResidualDetail & {
-	readonly lawId: RaisedLawId
+	readonly lawId: LawId
 	readonly anchor: Anchor
 	readonly violation: RelNode
 	/**

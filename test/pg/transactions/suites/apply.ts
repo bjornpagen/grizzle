@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result, Stream } from "effect"
+import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
 import { makeDb } from "#adapter/db/db.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -19,6 +19,7 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { t3, t4, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { applyRuntime, compileRuntime, contextOf } from "#test/support/runtime-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -146,8 +147,8 @@ export const applySuite = () => {
 							const pool = yield* poolFor(credentials, {
 								...defaultPool,
 								password: { kind: "given", password },
-								transport: { kind: "given", transport: { _tag: "stream", open: tap.open } },
-								pool: { idleTimeoutMs: 60_000, min: 1, max: 2 }
+								transport: { kind: "given", transport: tap.transport },
+								pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 2 }
 							})
 							yield* Effect.scoped(
 								Effect.flatMap(pool.lease, (session) => rowsOn(session, "SELECT 'warm'::text", []))
@@ -216,7 +217,7 @@ export const applySuite = () => {
 									literal: Formatter.format,
 									limit: 14,
 									coverage: requiredInSpace<ApplyFeature>(everyValue),
-									caseHang: Duration.minutes(2)
+									caseHang
 								},
 								([change, entry], c) =>
 									Effect.gen(function* () {

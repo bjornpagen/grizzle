@@ -3,9 +3,9 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { theoryCatalog } from "#compiler/analysis/physical/evidence.ts"
-import { strongestKey } from "#compiler/analysis/physical/props.ts"
+import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { buildTheory, provisionalTheory } from "#compiler/analysis/theory/theory.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -15,6 +15,7 @@ import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert
 import { ownedFixture } from "#test/support/evidence.ts"
 import { Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import { contained, f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	keyColumns,
 	lossReasons,
@@ -75,7 +76,7 @@ describe("catalogs", () => {
 							"a key proves the scan",
 							"a key not read"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([context, read], c) =>
 						Effect.sync(() => {
@@ -127,7 +128,9 @@ describe("catalogs", () => {
 								Arr.findFirst(topoOrder(a.dag), (n) => n.kind === "Base")
 							)
 							assert.deepEqual(lossReasons(a, base), [])
-							const unique = strongestKey(propsOf(a, scan).keys)
+							const scanProps = propsOf(a, scan)
+							/** The strongest proof that the scan's heading identifies its row. */
+							const unique = keyedBy(scanProps, scanProps.columns)
 							if (proving.length === 0) {
 								c.note("no key proves the scan")
 								assert.equal(unique, undefined)
@@ -139,7 +142,7 @@ describe("catalogs", () => {
 							}
 							c.note("a key proves the scan")
 							assert.deepEqual(owedOf(a, scan), { kind: "none" })
-							const proof = defined(unique, "the strongest key of a scan a key proves").just
+							const proof = defined(unique, "the strongest proof of a scan a key proves").just
 							/** The proof rests on key constraints, one of them a key the scan reads, and holds at every statement. */
 							const premiseOf = (k: (typeof personKeys)[number]): boolean =>
 								Arr.some(

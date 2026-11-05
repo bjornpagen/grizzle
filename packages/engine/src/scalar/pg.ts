@@ -1,8 +1,9 @@
 import { type Column, convertColumn } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
+import { derived, type Limit } from "#compiler/core/limits.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { binary32Precision, binary64Precision } from "#compiler/ir/carriers.ts"
 import type { PgScalarName } from "#compiler/ir/desc.ts"
-import type { NumericTypmod } from "#compiler/ir/scalar.ts"
 import { bareEnv, type Descriptor, defineField, type SqlTag } from "#compiler/scalar/registry.ts"
 import { serialAliases } from "#compiler/scalar/serial.ts"
 import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
@@ -13,21 +14,11 @@ import { vector } from "#compiler/scalar/vector.ts"
 /** A descriptor whose values are A. */
 type ColumnDescriptor<Sql extends SqlTag, A> = Descriptor<Sql> & { readonly column: Column<A> }
 
-/**
- * numeric(p, s): the descriptor holds its typmod as members. Bare numeric holds neither, so the two are the arms of
- * FieldDesc's numeric (ir/desc.ts).
- */
+/** numeric(p, s): the descriptor holds its typmod as members, FieldDesc's numeric (ir/desc.ts). */
 interface NumericTypmodDescriptor extends ColumnDescriptor<"numeric", Decimal> {
 	readonly precision: number
 	readonly scale: number
 }
-
-/**
- * Bare numeric, whose call admits any arguments, as a JavaScript caller passes them, and refuses all but numeric(p) and
- * numeric(p, s).
- */
-type NumericDescriptorConstructor = ColumnDescriptor<"numeric", Decimal> &
-	((...args: ReadonlyArray<unknown>) => NumericTypmodDescriptor)
 
 type FloatDescriptorConstructor = ColumnDescriptor<"double precision", number> &
 	((
@@ -50,17 +41,40 @@ const boolean = plain("boolean", convertColumn(convertByCarrier.bool({ carrier: 
 const isInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isInteger(value)
 
+const floatP =
+	"https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/datatype.sgml#L905-L910"
+
+/** The greatest binary precision float(p) maps to real: real's own, binary32's. */
+const floatRealPrecision: Limit = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bits",
+	scope: "the binary precision p of float(p) that selects real",
+	from: [binary32Precision],
+	derivation: `p names the least binary precision, and real is binary32, so float(1) through float(binary32's precision) select real: "accepts float(1) to float(24) as selecting the real type" (${floatP})`,
+	compute: ([p]) => p.value
+})
+
+/** The greatest binary precision float(p) admits: double precision's own, binary64's. */
+const floatDoublePrecision: Limit = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bits",
+	scope: "the binary precision p of float(p) that selects double precision",
+	from: [binary64Precision],
+	derivation: `double precision is binary64, so float(p) past real's precision through binary64's selects it and a greater p draws an error: "float(25) to float(53) select double precision. Values of p outside the allowed range draw an error." (${floatP})`,
+	compute: ([p]) => p.value
+})
+
 /** float(p): PostgreSQL's binary precision rule. */
 const float = (
 	precision: unknown
 ): ColumnDescriptor<"real", number> | ColumnDescriptor<"double precision", number> => {
-	if (!isInteger(precision) || precision < 1 || precision > 53) {
+	if (!isInteger(precision) || precision < 1 || precision > floatDoublePrecision.value) {
 		throw malformedDescription(
 			captureLoc("pg.float", []),
-			"a float binary precision: an integer 1-24 (real) or 25-53 (double precision)"
+			`a float binary precision: an integer 1-${floatRealPrecision.value} (real) or ${floatRealPrecision.value + 1}-${floatDoublePrecision.value} (double precision)`
 		)
 	}
-	return precision <= 24 ? real : doublePrecision
+	return precision <= floatRealPrecision.value ? real : doublePrecision
 }
 
 const doublePrecision: FloatDescriptorConstructor = defineField(
@@ -78,41 +92,30 @@ const numericColumn: Column<Decimal> = convertColumn(
 )
 
 /**
- * The typmod of numeric(p) or numeric(p, s), as a JavaScript caller passes its arguments: a scale left out (or
- * undefined) is numeric(p), the one-element typmod list.
+ * numeric(p, s), its precision and scale both declared, as a JavaScript caller passes them: PostgreSQL's
+ * numerictypmodin rule (values/decimal.ts checkNumericTypmod), every other argument a malformed description.
  */
-const numericTypmod = (args: ReadonlyArray<unknown>): NumericTypmod => {
-	if (args.length === 0 || args.length > 2) {
+const numeric = (...args: ReadonlyArray<unknown>): NumericTypmodDescriptor => {
+	const [precision, scale, ...extra] = args
+	if (args.length < 2 || extra.length > 0) {
 		throw malformedDescription(
 			captureLoc("pg.numeric", []),
-			"numeric(p) or numeric(p, s): one or two typmod arguments"
+			"numeric(p, s): its precision and its scale, both declared"
 		)
 	}
-	const typmod = checkNumericTypmod(args[1] === undefined ? [args[0]] : [args[0], args[1]])
+	const typmod = checkNumericTypmod(precision, scale)
 	if (!typmod.ok) {
 		throw malformedDescription(captureLoc("pg.numeric", []), describeFault(typmod.error))
 	}
-	return typmod.value
+	return defineField(
+		{},
+		"numeric",
+		{ kind: "numeric", precision: typmod.value.precision, scale: typmod.value.scale },
+		{ precision: typmod.value.precision, scale: typmod.value.scale, column: numericColumn },
+		SourceLoc(`pg.numeric(${typmod.value.precision}, ${typmod.value.scale})`, []),
+		bareEnv
+	)
 }
-
-const numeric: NumericDescriptorConstructor = defineField(
-	(...args: ReadonlyArray<unknown>): NumericTypmodDescriptor => {
-		const typmod = numericTypmod(args)
-		return defineField(
-			{},
-			"numeric",
-			{ kind: "numeric", precision: typmod.precision, scale: typmod.scale },
-			{ precision: typmod.precision, scale: typmod.scale, column: numericColumn },
-			SourceLoc(`pg.numeric(${typmod.precision}, ${typmod.scale})`, []),
-			bareEnv
-		)
-	},
-	"numeric",
-	{ kind: "numeric" },
-	{ column: numericColumn },
-	SourceLoc("pg.numeric", []),
-	bareEnv
-)
 
 /**
  * The pg namespace: PostgreSQL's numeric, money and boolean descriptors under their own names.
@@ -123,16 +126,14 @@ const numeric: NumericDescriptorConstructor = defineField(
  * `pg.boolean`, `pg.decimal` is `pg.numeric`, and `pg.serial2`, `pg.serial4` and `pg.serial8` are the serial forms.
  * Each alias is the very same frozen value, so alias spelling changes neither identity nor schema.
  *
- * Two descriptors are values and constructors at once:
- *
- * - `pg.numeric` is bare numeric, and `pg.numeric(p)` and `pg.numeric(p, s)` are the typmod forms; numeric(p) is
- *   numeric(p, 0), one typmod. PostgreSQL's numerictypmodin rule is checked: precision 1-1000 and scale
- *   -1000-1000, both integers, a scale larger than the precision permitted. `pg.decimal` is the same
- *   function, so `pg.decimal(p, s)` is `pg.numeric(p, s)`.
- * - `pg.float` is double precision, and `pg.float(p)` follows PostgreSQL: binary precision 1-24 selects real and 25-53
- *   double precision; every other value is invalid. The result is the real or double precision
- *   descriptor itself, so `pg.float(24)` is `pg.real`. Because `pg.float` and `pg["double precision"]` are one value,
- *   that value is the callable one.
+ * - `pg.numeric(p, s)` is numeric with its typmod, precision and scale both declared: there is no numeric field
+ *   without one, so every numeric value a field holds has the digits its typmod states. PostgreSQL's numerictypmodin
+ *   rule is checked: precision 1-numericMaxPrecision and scale numericMinScale-numericMaxScale (ir/scalar.ts), both
+ *   integers, a scale larger than the precision permitted. `pg.decimal` is the same function.
+ * - `pg.float` is double precision, a value and a constructor at once, and `pg.float(p)` follows PostgreSQL: binary
+ *   precision 1-floatRealPrecision selects real and past it through floatDoublePrecision double precision; every other
+ *   value is invalid. The result is the real or double precision descriptor itself, so `pg.float(24)` is `pg.real`.
+ *   Because `pg.float` and `pg["double precision"]` are one value, that value is the callable one.
  *
  * A malformed typmod from a JavaScript caller is CompileError MalformedDescription, thrown synchronously, the builders'
  * convention. Precision, scale and float's choice are runtime values only: the TypeScript signatures in

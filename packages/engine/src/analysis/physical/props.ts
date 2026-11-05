@@ -1,17 +1,14 @@
 import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
-import {
-	type Identification,
-	type Identity,
-	type Implication,
-	type Justification,
-	type JustifiedKey,
-	ProofFds
+import type {
+	Dependencies,
+	Identification,
+	Justification,
+	JustifiedKey
 } from "#compiler/analysis/physical/fds.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Cardinality } from "#compiler/ir/cardinality.ts"
 import type { ElisionReason } from "#compiler/ir/certificate.ts"
-import { lessDemanding } from "#compiler/ir/evidence.ts"
 import type { RelKind } from "#compiler/ir/rel.ts"
 import type { Fixed } from "#compiler/logical/props.ts"
 
@@ -63,79 +60,62 @@ export type Uniqueness =
  * The physical properties of one fragment.
  *
  * They describe what the fragment's SQL actually delivers under its realization, not the set its logical node
- * promises: the physical candidate keys with their justifications, the columns fixed per evaluation, the dependencies
- * among its columns, the maximum cardinality where known, and, when no key proves the whole heading, why not. They are
- * kept apart from NodeMeta's logical keys and from cardinality estimates: a ProjectSet that collapses
- * equal outputs logically still repeats them physically until something deduplicates it.
+ * promises: the dependencies among its columns with their justifications, its identifications of a row among them
+ * (fds.ts Dependencies), the columns fixed per evaluation, the maximum cardinality where known, and, when its heading
+ * identifies no row, why not. They are kept apart from NodeMeta's logical keys and from cardinality estimates: a
+ * ProjectSet that collapses equal outputs logically still repeats them physically until something deduplicates it.
+ *
+ * No key is listed: a key is a start whose closure holds the row, asked of the table (keyedBy, keyAmong), since the
+ * minimal keys of a table can be exponentially many.
  */
 export interface PhysicalProps {
 	readonly node: NodeId
 	readonly kind: RelKind
 	readonly columns: ReadonlyArray<string>
-	readonly keys: ReadonlyArray<JustifiedKey>
+	/** What the fragment's rows determine as realized: its own exact duplicate elimination's identification included. */
+	readonly dependencies: Dependencies
 	/**
-	 * The keys proved without the node's own duplicate elimination: under a `plain` realization, the keys themselves.
-	 * A proof that the node's DISTINCT is redundant may use only these, never the DISTINCT itself.
+	 * What the fragment's rows determine without the node's own duplicate elimination: under a `plain` realization,
+	 * the same table. A proof that the node's DISTINCT is redundant may use only this, never the DISTINCT itself.
 	 */
-	readonly plainKeys: ReadonlyArray<JustifiedKey>
+	readonly plain: Dependencies
 	readonly fixed: ReadonlyMap<string, FixedFacts>
-	/** Dependencies among the columns, equalities included (both directions), bounded (fds.ts dependencyBound). */
-	readonly fds: ReadonlyArray<Implication>
 	/** The most rows the fragment can have. */
 	readonly maxCard: Cardinality
 	readonly uniqueness: Uniqueness
 	readonly realization: Realization
 }
 
-/** Whether some key proves the fragment's whole heading physically unique. */
+/** Whether the fragment's whole heading identifies a row physically. */
 export const isUnique = (props: PhysicalProps): boolean => props.uniqueness.kind !== "none"
-
-/**
- * The key whose proof holds in the least demanding evidence context, the first among equals, if any: the strongest
- * proof of uniqueness, so a claim never rests on a deferrable key where an immediate one proves it.
- */
-export const strongestKey = (keys: ReadonlyArray<JustifiedKey>): JustifiedKey | undefined =>
-	keys.reduce<JustifiedKey | undefined>(
-		(best, k) =>
-			best === undefined || lessDemanding(k.just.context, best.just.context) ? k : best,
-		undefined
-	)
 
 /** Why the fragment's plain form is not unique: none when it is. */
 export const plainLosses = (props: PhysicalProps): ReadonlyArray<Loss> =>
 	props.uniqueness.kind === "plain" ? [] : props.uniqueness.losses
 
-/** A ProofFds over a fragment's columns carrying its fixed columns and dependencies. */
-export const fdsOf = (props: PhysicalProps): ProofFds => {
-	const fds = new ProofFds(props.columns)
-	for (const [c, [first]] of props.fixed) {
-		fds.fix(c, first.just)
-	}
-	for (const imp of props.fds) {
-		fds.implyAt(imp.from, imp.at, imp.to, imp.just)
-	}
-	return fds
-}
-
-/** The identity a fragment's keys give its own columns: any one key. */
-export const keyIdentity = (props: PhysicalProps): Identity =>
-	props.keys.length === 0 ? [] : [[props.keys.map((k) => ({ columns: k.columns, just: k.just }))]]
-
 /**
- * Whether `columns` determine a key of the fragment: then the fragment has at most one row per value of `columns`
- * ("K determines B ... exactly one contribution for each B"), and on what.
+ * Whether `columns` identify a row of the fragment: then the fragment has at most one row per value of `columns`
+ * ("K determines B ... exactly one contribution for each B"), on what, and the canonical minimal key among them.
  */
 export const keyedBy = (
 	props: PhysicalProps,
 	columns: Iterable<string>
-): Identification | undefined => fdsOf(props).identifies(keyIdentity(props), columns)
+): Identification | undefined => props.dependencies.identification(columns)
 
 /**
- * Whether `columns` determine a key proved without the fragment's own duplicate elimination: then removing that
- * elimination still leaves at most one row per value of `columns`.
+ * Whether `columns` identify a row without the fragment's own duplicate elimination: then removing that elimination
+ * still leaves at most one row per value of `columns`.
  */
 export const plainKeyedBy = (
 	props: PhysicalProps,
 	columns: Iterable<string>
-): Identification | undefined =>
-	fdsOf(props).identifies(keyIdentity({ ...props, keys: props.plainKeys }), columns)
+): Identification | undefined => props.plain.identification(columns)
+
+/**
+ * The canonical minimal key of the fragment among `columns`, with its proof, when they identify a row (fds.ts
+ * Dependencies keyAmong): the one key a consumer that needs a key reads, never a list of every key.
+ */
+export const keyAmong = (
+	props: PhysicalProps,
+	columns: Iterable<string>
+): JustifiedKey | undefined => props.dependencies.keyAmong(columns)

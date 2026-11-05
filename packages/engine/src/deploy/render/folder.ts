@@ -7,10 +7,12 @@ import {
 } from "#compiler/core/errors.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
+import { derived, published } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareNumbers, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
+import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	type CandidateEnds,
 	type CandidatePath,
@@ -33,9 +35,21 @@ import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 
 export const metaFileName = "meta.json"
 
+declare const migrationNameBrand: unique symbol
+
+/**
+ * A migration folder's name after its timestamp: lowercase ASCII letters and digits in words joined by `_` or `-`, at
+ * most maxMigrationNameLength bytes. Minted only here: by parseMigrationName, from the name `--name` gives, and by
+ * changeMigrationName, initMigrationName and updateMigrationName, for a name derived from the change
+ * (render/naming.ts derivedMigrationName).
+ */
+export type MigrationName = string & { readonly [migrationNameBrand]: true }
+
+const migrationName = nominal<string, MigrationName>()
+
 /** How a drafted folder is named: by the name `--name` gives, or by one derived from the change. */
 export type FolderNaming =
-	| { readonly kind: "named"; readonly name: string }
+	| { readonly kind: "named"; readonly name: MigrationName }
 	| { readonly kind: "derived" }
 
 /** What a loss loses, by printed name: a relation with its rows, a field with its values by the relation that held it
@@ -785,36 +799,136 @@ const allDigits = (text: string): boolean => {
 	return true
 }
 
-const isTimestamp = (text: string): boolean => text.length === 14 && allDigits(text)
-export const maxMigrationNameLength = 100
+/**
+ * A migration folder's timestamp, the UTC second it is drafted at, which the CLI reads off its clock (cli/clock.ts)
+ * since the compiler reads none: its fields in the order it writes them, each with its width in digits, YYYYMMDDHHMMSS,
+ * a four-digit year and two digits for each of the month, the day, the hour, the minute and the second.
+ *
+ * @formatConstant the digits of each field of a migration folder's timestamp
+ */
+export const timestampWidths = { year: 4, month: 2, day: 2, hour: 2, minute: 2, second: 2 } as const
 
-/** The folder name of a migration; the name is lowercase ASCII words joined by `_` or `-`. */
-export const folderName = (
-	timestamp: string,
-	name: string
-): Result.Result<string, CompileError> => {
-	if (!isTimestamp(timestamp)) {
-		return Result.err(
-			malformedDescription(
-				SourceLoc("migration folder", []),
-				`a timestamp of fourteen digits YYYYMMDDHHMMSS, not ${JSON.stringify(timestamp)}`
-			)
-		)
+/** A timestamp's length: the digits of all its fields. */
+export const timestampLength: number = Object.values(timestampWidths).reduce(
+	(length: number, width) => length + width,
+	0
+)
+
+const isTimestamp = (text: string): boolean => text.length === timestampLength && allDigits(text)
+
+/** What a migration folder's name starts with: its timestamp, then `_`. */
+const folderPrefix = (timestamp: string): string => `${timestamp}_`
+
+/**
+ * The longest file name the operating system states, NAME_MAX: a migration folder is one directory entry, created where
+ * it is drafted and wherever its repository is checked out. Darwin's NAME_MAX, whose comment reads "max bytes in a file
+ * name", is Linux's too (https://github.com/torvalds/linux/blob/v7.3/include/uapi/linux/limits.h#L12, "#define
+ * NAME_MAX         255"). A file system may admit a longer name (pathconf's _PC_NAME_MAX); grizzle writes none longer.
+ */
+export const fileNameMaxBytes = published({
+	value: 255,
+	owner: "Darwin (xnu 12377.121.6), and Linux alike",
+	unit: "bytes",
+	scope: "one file name, a single path component such as a migration folder's name",
+	constraint: "compile-time constant",
+	source:
+		"https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/syslimits.h#L103",
+	quote: "#define NAME_MAX                  255",
+	verified: "2026-11-05"
+})
+
+/**
+ * The longest name a migration folder carries after its timestamp: given by `--name` or derived from the change, it
+ * ends the folder's one file name.
+ */
+export const maxMigrationNameLength = derived({
+	owner: "grizzle",
+	unit: "UTF-8 bytes",
+	scope: "the name of one migration folder, after its `<timestamp>_` prefix",
+	from: [fileNameMaxBytes],
+	derivation:
+		"fileNameMaxBytes less the UTF-8 bytes of the prefix folderPrefix writes before every folder's name, written for a timestamp of timestampLength digits, as every timestamp is",
+	compute: ([name]) => name.value - utf8Length(folderPrefix("0".repeat(timestampLength)))
+})
+
+/**
+ * The migration name `name` is, parsed: lowercase ASCII letters and digits in words joined by `_` or `-`, at most
+ * maxMigrationNameLength bytes; none for a name of no folder name's shape.
+ */
+export const parseMigrationName = (name: string): MigrationName | undefined =>
+	isWords(name) && utf8Length(name) <= maxMigrationNameLength.value
+		? migrationName(name)
+		: undefined
+
+/** The name of a schema's first migration, from the empty snapshot. */
+export const initMigrationName: MigrationName = migrationName("init")
+
+/** The name of a migration whose change names no object. */
+export const updateMigrationName: MigrationName = migrationName("update")
+
+/** What a migration does to the object its name leads with. */
+export type ChangeVerb = "add" | "drop" | "change"
+
+/**
+ * Lowercase words joined by single underscores: `text` lowercased, each run of characters other than ASCII letters and
+ * digits one `_`, none at either end.
+ */
+const words = (text: string): string => {
+	let out = ""
+	for (const ch of text.toLowerCase()) {
+		const keep = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")
+		if (keep) {
+			out += ch
+		} else if (out.length > 0 && !out.endsWith("_")) {
+			out += "_"
+		}
 	}
-	if (!isWords(name) || name.length > maxMigrationNameLength) {
-		return Result.err(
-			malformedDescription(
-				SourceLoc("migration folder", []),
-				`a name of lowercase ASCII letters and digits joined by _ or -, at most ${maxMigrationNameLength} characters, not ${JSON.stringify(name)}`
-			)
-		)
-	}
-	return Result.ok(`${timestamp}_${name}`)
+	return out.endsWith("_") ? out.slice(0, -1) : out
 }
 
+/** What the name of a migration that does more than its first change ends with. */
+const andMore = "_and_more"
+
+/**
+ * The name of a migration led by one change: `verb`, then the words of `object`, what it changes, cut to fit
+ * maxMigrationNameLength, then `_and_more` when `more` changes follow. The verb leads, so the words are never none, and
+ * the cut leaves no `_` at its end.
+ */
+export const changeMigrationName = (
+	verb: ChangeVerb,
+	object: string,
+	more: boolean
+): MigrationName => {
+	const head = words(`${verb}_${object}`)
+	const suffix = more ? andMore : ""
+	const room = maxMigrationNameLength.value - suffix.length
+	const cut = head.length <= room ? head : head.slice(0, room)
+	return migrationName(`${cut.endsWith("_") ? cut.slice(0, -1) : cut}${suffix}`)
+}
+
+/** The folder name of a migration: its timestamp, then `_`, then its name. */
+export const folderName = (
+	timestamp: string,
+	name: MigrationName
+): Result.Result<string, CompileError> =>
+	isTimestamp(timestamp)
+		? Result.ok(`${folderPrefix(timestamp)}${name}`)
+		: Result.err(
+				malformedDescription(
+					SourceLoc("migration folder", []),
+					`a timestamp of fourteen digits YYYYMMDDHHMMSS, not ${JSON.stringify(timestamp)}`
+				)
+			)
+
+/** The timestamp a migration folder's name begins with, its first timestampLength characters. */
+export const folderTimestamp = (name: string): string => name.slice(0, timestampLength)
+
 /** Whether a directory name is a migration folder's: `<14 digits>_<words>`. */
-export const isFolderName = (name: string): boolean =>
-	isTimestamp(name.slice(0, 14)) && name[14] === "_" && isWords(name.slice(15))
+export const isFolderName = (name: string): boolean => {
+	const timestamp = folderTimestamp(name)
+	const prefix = folderPrefix(timestamp)
+	return isTimestamp(timestamp) && name.startsWith(prefix) && isWords(name.slice(prefix.length))
+}
 
 /** A drafted SQL file's ordinal: `NN-<phase>.sql`, or any `NN-<words>.sql` a reviewer adds, NN at least two digits and
  * positive. */

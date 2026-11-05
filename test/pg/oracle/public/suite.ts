@@ -9,12 +9,13 @@ import {
 } from "@grizzle/testing/explore"
 import { rating, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { Conversion, Stitch } from "#test/pg/oracle/public/planted.ts"
 import { type Disagreement, runCase } from "#test/pg/oracle/public/run.ts"
 import { declineFeatures } from "#test/pg/oracle/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
 import { type PlannerSetting, unperturbed } from "#test/support/oracle/perturb.ts"
 import {
@@ -52,7 +53,6 @@ export const cases = 80
 
 /** The suite's required features, and every program form the generator draws: each must be reached on every run. */
 const situations = [
-	"attachment fused",
 	"attachment pipelined",
 	"attachment nested",
 	"stated option",
@@ -62,7 +62,6 @@ const situations = [
 	"arm none",
 	"two spellings among parent keys",
 	"pipelined attachment over two spellings of one parent key",
-	"fused attachment over two spellings of one parent key",
 	"a vector parent key stored with a -0 component",
 	"a collapse over two stored spellings of one value",
 	"a display-scale reading over a collapsed or padded value",
@@ -216,13 +215,15 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
  * The suite's features are what its population must keep reaching, because each is a way the public boundary can be
  * wrong that only it reaches:
  *
- * - an attachment fused into its parent's statement, one pipelined as a statement of its own, and a nested one;
+ * - an attachment pipelined as a statement of its own, and a nested one: over exact parents no attachment fuses
+ *   (lower/shapes/attach chooseAttachment), and the fused codec is the attachment shape's unit suite's
+ *   (test/unit/lower/shapes/attach.test.ts);
  * - each stated delivery the decoder binds: an Option, the one child, and an arm read Some and None by its parent's
  *   handle, each licensed by the analysis and kept by the reference;
  * - facts stored by a direct SQL writer at SERIALIZABLE, each value in its drawn input spelling, since db.apply stores
  *   every value in its one form;
  * - two parents whose keys are equal but stored in different spellings (1.0 and 1.00), with children, under a
- *   pipelined and under a fused attachment, and a vector key stored with -0 components: the stitch by key must use
+ *   pipelined attachment, and a vector key stored with -0 components: the stitch by key must use
  *   the type's equality, not the text;
  * - one value in two stored spellings collapsed into one row, a padding (a cast to numeric(1000, s) and back) at a
  *   collapse, a display-scale reading (a quotient, a root, a power or a mean) over either, and a mean of a padding:
@@ -235,7 +236,7 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
  *   over a primary or candidate key, some and none;
  * - an ordered root paged forward and backward;
  * - each refusal class a read can meet at the public boundary: a parameter of another host type (encode), a page size
- *   outside 1..pageMaxSize (request), and a cursor its codec cannot read;
+ *   that is no safe integer of at least 1 (request), and a cursor its codec cannot read;
  * - every program form the generator draws (generate.ts programForms): imports bound to variables and to parameters,
  *   interiors, named stages, computed head and group keys, ranges, sets, relation parameters, closures, contract and
  *   typmod parameters, Allen relations and point memberships, each built through the public builders.
@@ -269,7 +270,7 @@ const exploration = (
 			shrink: { kind: "bounded", candidates: 150 },
 			concurrency: 1,
 			steerEvery: 16,
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(sketch, c) =>
 			runCase(c.draw(resolveCase(sketch)), c.note, stitch, conversion).pipe(

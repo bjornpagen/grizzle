@@ -4,15 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { array, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { refreshReport } from "#adapter/refresh/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { login } from "#compiler/program/workload/login.ts"
@@ -65,7 +57,7 @@ interface MenuItem {
 
 const Amount = relation(
 	"Amount",
-	{ id: pg.integer, grp: pg.integer, amount: pg.numeric, ratio: pg.float8 },
+	{ id: pg.integer, grp: pg.integer, amount: pg.numeric(10, 3), ratio: pg.float8 },
 	["id"]
 )
 
@@ -395,13 +387,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							kept: [],
 							runs: cases,
 							shrink: { kind: "complete" },
-							caseHang: Duration.minutes(2),
 							perturb: "planner"
 						},
 						property
 					)
-				),
-			600_000
+				)
 		)
 	}
 )

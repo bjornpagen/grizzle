@@ -33,6 +33,7 @@ import {
 } from "#compiler/check/scan.ts"
 
 import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
+import { allenMaskMax } from "#compiler/core/allen.ts"
 import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
@@ -41,6 +42,7 @@ import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/c
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
+import { int4Max } from "#compiler/ir/carriers.ts"
 import { deliverySpine, relNode } from "#compiler/ir/dag.ts"
 import {
 	descText,
@@ -105,7 +107,10 @@ import {
 } from "#compiler/scalar/compute/registry.ts"
 import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
 import {
+	anyNumeric,
 	compatible,
+	isComputedNumeric,
+	literalNumeric,
 	meetingType,
 	meets,
 	type PlainCarrier,
@@ -424,7 +429,7 @@ const compareType = (t: ScalarType): ScalarType => {
 
 /**
  * The type a bare literal adopts opposite a term of type t in a comparison: the contract and its refinements
- * when it has one, otherwise the value type, a numeric typmod widened and a span's fixed width dropped
+ * when it has one, otherwise the value type, a numeric widened to every numeric value and a span's fixed width dropped
  * (scalar/compute/lower.ts Lowering.adopt).
  */
 const adoptCompare = (t: ScalarType): ScalarType => {
@@ -432,9 +437,7 @@ const adoptCompare = (t: ScalarType): ScalarType => {
 		return withoutSerial(t)
 	}
 	const v = valueType(t)
-	return v.carrier === "numeric" && v.typmod !== undefined
-		? plainType("numeric")
-		: withoutSpanWidth(v)
+	return v.carrier === "numeric" ? anyNumeric : withoutSpanWidth(v)
 }
 
 const columnOf = (heading: Heading, name: string): HeadingColumn | undefined =>
@@ -657,7 +660,7 @@ const producerKinds = {
 	pack: "spanPack"
 } as const satisfies Readonly<Record<"intersection" | "difference" | "pack", ProducerKind>>
 
-const int4TakeCapability = "a positive integer bound for take, at most 2147483647"
+const int4TakeCapability = `a positive integer bound for take, at most ${int4Max.value}`
 
 /**
  * A take bound has one domain, int4's positive range, however it is spelled: a literal, or a parameter an import
@@ -667,7 +670,7 @@ const int4TakeCapability = "a positive integer bound for take, at most 214748364
  * the query that binds it, in int4's terms.
  */
 const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
-	if (k < 1n || k > 2147483647n) {
+	if (k < 1n || k > BigInt(int4Max.value)) {
 		fail("MalformedDescription", loc, int4TakeCapability)
 	}
 	return { kind: "literal", k }
@@ -1957,7 +1960,7 @@ export class Checker {
 				const right = operand(desc.right, left.nominal, childLoc(loc, "allen", "right"))
 				const mask = parseAllenMask(desc.mask)
 				if (mask === undefined) {
-					return fail("MalformedDescription", loc, "an Allen mask in 1..8191")
+					return fail("MalformedDescription", loc, `an Allen mask in 1..${allenMaskMax}`)
 				}
 				if (mask === emptyAllenMask) {
 					return fail("MalformedDescription", loc, "a nonempty Allen mask")
@@ -2006,19 +2009,22 @@ export class Checker {
 
 	/**
 	 * The type of a literal that meets no term: a JavaScript number is integer, a bigint bigint, a
-	 * Decimal numeric, a Money money, a boolean boolean and a string text with the canonical wildcard.
+	 * Decimal numeric, a Money money, a boolean boolean and a string text with the canonical wildcard. A Decimal is
+	 * admitted as any numeric value, and its node then typed by its own value (literalNumeric).
 	 */
 	bareLiteralType(value: LiteralDesc, loc: SourceLoc): ScalarType {
 		const kind = bareLiteralKind(value)
 		const plain: Partial<Record<string, PlainCarrier>> = {
 			integer: "int4",
 			bigint: "int8",
-			numeric: "numeric",
 			money: "money",
 			boolean: "bool"
 		}
 		if (kind === "text") {
 			return wildcardText
+		}
+		if (kind === "numeric") {
+			return anyNumeric
 		}
 		const carrier = kind === undefined ? undefined : plain[kind]
 		if (carrier === undefined) {
@@ -3227,8 +3233,12 @@ class RuleCheck {
 			literal: undefined
 		})
 		const literal = (value: LiteralDesc, typing: LiteralTyping, at: SourceLoc): TermOut => {
-			const type = typing.kind === "fixed" ? typing.type : this.cx.bareLiteralType(value, at)
-			const lit = this.cx.schema.literal(value, type, at)
+			const admitted = typing.kind === "fixed" ? typing.type : this.cx.bareLiteralType(value, at)
+			const lit = this.cx.schema.literal(value, admitted, at)
+			const type =
+				lit.kind === "numeric" && isComputedNumeric(admitted)
+					? literalNumeric(lit.value.parts)
+					: admitted
 			const head: HeadLiteral =
 				typing.kind === "fixed"
 					? { kind: "fixed", literal: lit }

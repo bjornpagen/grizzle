@@ -30,10 +30,8 @@ import type {
 import { baseOf, type Carrier, fewValued } from "#compiler/ir/scalar.ts"
 import { type Atom, atomKey, operandOf, predicateAtoms } from "#compiler/physical/access/atoms.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
+import { statisticsMaxColumns } from "#compiler/physical/statistics/statistics.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-
-/** The most columns one extended statistics object covers (PostgreSQL's STATS_MAX_DIMENSIONS). */
-const statisticsMaxColumns = 8
 
 interface ExtractOptions {
 	/** The roots that are a paged ordered program: a workload program whose root is an ordered result. */
@@ -936,7 +934,7 @@ class Extractor {
 		const selected = sorted([...o.eq.keys()].filter((c) => !isVectorColumn(heading, c)))
 		if (
 			selected.length >= 2 &&
-			selected.length <= statisticsMaxColumns &&
+			selected.length <= statisticsMaxColumns.value &&
 			this.keyWithin(base, new Set(selected)) === undefined
 		) {
 			this.addStatistics({
@@ -1213,7 +1211,7 @@ class Extractor {
 					c.kind === "stored" && !isVectorColumn(heading, c.column) ? [c.column] : []
 				)
 			)
-			if (columns.length < 2 || columns.length > statisticsMaxColumns) {
+			if (columns.length < 2 || columns.length > statisticsMaxColumns.value) {
 				continue
 			}
 			if (this.keyWithin(r.base, new Set(columns)) !== undefined) {

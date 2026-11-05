@@ -13,7 +13,7 @@ import {
 	subarray
 } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { VectorText } from "#compiler/ir/carriers.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
@@ -33,6 +33,7 @@ import {
 } from "#test/unit/lower/conservative/fixtures.ts"
 
 import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	passContext,
 	deliversAlikeOn,
@@ -291,7 +292,7 @@ describe("literal folding", () => {
 							"compared float8",
 							"compared text"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([[a, b], cmp], c) =>
 						Effect.sync(() => {
@@ -349,7 +350,7 @@ describe("literal folding", () => {
 							"decided false",
 							"a vector membership left to PostgreSQL"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(form, c) =>
 						Effect.sync(() => {
@@ -452,7 +453,7 @@ describe("literal folding", () => {
 							"decided false",
 							"decided undecided"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(shape, c) =>
 						Effect.sync(() => {
@@ -515,7 +516,7 @@ describe("finite folding", () => {
 						"some facts satisfy",
 						"no fact satisfies"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([facts, op, against], c) =>
 					Effect.sync(() => {
@@ -562,7 +563,7 @@ describe("branch removal", () => {
 						"union arm removed",
 						"anti-join right side removed"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(site, c) =>
 					Effect.sync(() => {
@@ -627,7 +628,7 @@ describe("normalization", () => {
 							"every conjunct an equality",
 							"a conjunct left"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([swapped, extra], c) =>
 						Effect.sync(() => {
@@ -675,7 +676,7 @@ describe("merging", () => {
 					generator: boolean,
 					limit: 2,
 					coverage: noCoverage,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(projected) =>
 					Effect.sync(() => {
@@ -704,7 +705,7 @@ describe("merging", () => {
 						generator: (source) => [source.draw(boolean), source.draw(boolean)] as const,
 						limit: 4,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([computed, outerReads]) =>
 						Effect.sync(() => {

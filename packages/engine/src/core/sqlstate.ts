@@ -5,12 +5,28 @@ declare const sqlstateBrand: unique symbol
 export type Sqlstate = string & { readonly [sqlstateBrand]: true }
 const brand = nominal<string, Sqlstate>()
 
+/**
+ * The characters of a SQLSTATE: "All messages emitted by the PostgreSQL server are assigned five-character error codes
+ * that follow the SQL standard's conventions for “SQLSTATE” codes" (https://www.postgresql.org/docs/19/errcodes-appendix.html).
+ *
+ * @formatConstant a SQLSTATE: five characters
+ */
+const sqlstateLength = 5
+
+/**
+ * The characters of a SQLSTATE's class: "According to the standard, the first two characters of an error code denote a
+ * class of errors" (https://www.postgresql.org/docs/19/errcodes-appendix.html).
+ *
+ * @formatConstant a SQLSTATE's class: its first two characters
+ */
+const sqlstateClassLength = 2
+
 /** The code a server reported, as a SQLSTATE, or undefined for any other text. */
 export const parseSqlstate = (code: string): Sqlstate | undefined => {
-	if (code.length !== 5) {
+	if (code.length !== sqlstateLength) {
 		return undefined
 	}
-	for (let i = 0; i < 5; i++) {
+	for (let i = 0; i < code.length; i++) {
 		const unit = code.charCodeAt(i)
 		if (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {
 			return undefined
@@ -80,4 +96,4 @@ export const sqlstates = {
 } as const
 
 /** The class of a SQLSTATE: its first two characters. */
-export const sqlstateClass = (state: Sqlstate): string => state.slice(0, 2)
+export const sqlstateClass = (state: Sqlstate): string => state.slice(0, sqlstateClassLength)

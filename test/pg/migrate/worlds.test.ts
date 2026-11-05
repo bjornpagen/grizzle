@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Option } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -30,6 +30,7 @@ import {
 	worldRoleOf
 } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -209,7 +210,7 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 						literal: (c: WorldsCase) => c.name,
 						limit: cases.length,
 						coverage: requiredInSpace<WorldsFeature>(Arr.map(cases, (c) => c.name)),
-						caseHang: Duration.minutes(5)
+						caseHang
 					},
 					(c, reached) =>
 						Effect.gen(function* () {

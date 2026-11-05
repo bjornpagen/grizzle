@@ -1,4 +1,6 @@
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { namedatalen } from "#compiler/core/identity.ts"
+import { derived, type Limit } from "#compiler/core/limits.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -154,8 +156,16 @@ export const rosterHandlesOf = (value: unknown): ReadonlyArray<string> | undefin
 	return isList(handles) && handles.every(isName) ? handles : undefined
 }
 
-/** A closed handle becomes a PostgreSQL enum label, which holds at most NAMEDATALEN - 1 bytes (pg_enum.h). */
-export const maxEnumLabelBytes = 63
+/** The most UTF-8 bytes of a closed handle: it becomes a PostgreSQL enum label, a name. */
+export const maxEnumLabelBytes: Limit = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "one closed relation's handle, its enum label",
+	from: [namedatalen],
+	derivation:
+		'NAMEDATALEN less its terminating zero: "The length of an enum value\'s textual label is limited by the NAMEDATALEN setting compiled into PostgreSQL; in standard builds this means at most 63 bytes." (https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/datatype.sgml#L3339-L3342)',
+	compute: ([n]) => n.value - 1
+})
 
 export interface PredicateValue extends Built {
 	readonly predicate: true

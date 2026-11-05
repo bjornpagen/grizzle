@@ -17,7 +17,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Fiber,
 	Formatter,
@@ -43,6 +42,7 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
 import { replaceMigrated as replace } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -344,7 +344,7 @@ const budget = {
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	caseHang: Duration.minutes(2)
+	caseHang
 } as const
 
 /** Payload rows by their id's text. */
@@ -453,8 +453,7 @@ export const readSuite = () => {
 								})
 						)
 					}).pipe(Effect.scoped)
-				),
-			300_000
+				)
 		)
 
 		it.effect(
@@ -513,8 +512,7 @@ export const readSuite = () => {
 							)
 						}).pipe(Effect.scoped, withLayer(opened.layer))
 					}).pipe(Effect.scoped)
-				),
-			300_000
+				)
 		)
 
 		it.effect(
@@ -645,8 +643,7 @@ export const readSuite = () => {
 							)
 						}).pipe(Effect.scoped, withLayer(opened.layer))
 					}).pipe(Effect.scoped)
-				),
-			300_000
+				)
 		)
 	})
 }

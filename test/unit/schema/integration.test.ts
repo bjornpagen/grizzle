@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
@@ -16,6 +16,7 @@ import { own } from "#compiler/schema/own.ts"
 import { schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import { check, key } from "#compiler/schema/statements.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * The schema vocabulary over the real field descriptors, str.regex and the Compute catalogue:
@@ -83,7 +84,7 @@ describe("row checks over the field registry and Compute", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ composed, n, bound, handle }, c) =>
 						Effect.sync(() => {
@@ -93,7 +94,7 @@ describe("row checks over the field registry and Compute", () => {
 									? check("headroom", Account, (r: Row) => Compute.ge(Compute.add(r.bal, n), n))
 									: composed === "a cast"
 										? check("scaled", Account, (r: Row) =>
-												Compute.ge(Compute.cast(r.bal, pg.numeric), `${n}.5`)
+												Compute.ge(Compute.numeric(r.bal), `${n}.5`)
 											)
 										: check("short", Account, (r: Row) =>
 												Compute.and(Compute.charLength(r.slug).le(bound), r.kind.ne(handle))
@@ -140,7 +141,7 @@ describe("row checks over the field registry and Compute", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ refused, n }, c) =>
 						Effect.sync(() => {

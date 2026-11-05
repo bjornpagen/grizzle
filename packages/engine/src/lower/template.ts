@@ -12,7 +12,6 @@ import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import type {
 	MemberEncoder,
-	PageFill,
 	ParamSlot,
 	RelationEncoder,
 	StatementSpec,
@@ -255,22 +254,6 @@ const relationEncoder = (
 const partIndex = (part: ArrayPart): number => (part.kind === "column" ? part.index : 0)
 
 /**
- * The label a page placeholder's encoder names. It is never observable: the page runtime turns an encoding refusal of
- * a page placeholder into a defect, and binds a boundary as the cursor's text without encoding it
- * (adapter/page/execute.ts).
- */
-const pageLabel = (fill: PageFill): string => {
-	switch (fill.kind) {
-		case "limit":
-			return "page limit"
-		case "size":
-			return "page size"
-		case "boundary":
-			return `page boundary ${fill.position}`
-	}
-}
-
-/**
  * What fills a declared parameter's placeholder, with its encoder: a scalar's text codec, a relation's arrays encoder,
  * whose array at the placeholder's part it takes.
  */
@@ -298,18 +281,20 @@ const memberSlotOf = (slot: MemberParamSlot): Extract<ParamSlot, { readonly kind
 	encode: memberEncoder(slot.relation, slot.columns)
 })
 
-/** What fills a page placeholder, with its integer or comparator codec. */
-export const pageSlotOf = (slot: PageParamSlot): Extract<ParamSlot, { readonly kind: "page" }> => ({
+/**
+ * What fills a page placeholder: its fill, with no encoder, since the page runtime binds a limit or a size, a
+ * `$n::bigint`, as a bigint's decimal digits, and a boundary as the text its cursor carried (adapter/page/execute.ts).
+ */
+const pageSlotOf = (slot: PageParamSlot): Extract<ParamSlot, { readonly kind: "page" }> => ({
 	kind: "page",
-	fill: slot.fill,
-	encode: paramEncoder(slot.type, pageLabel(slot.fill))
+	fill: slot.fill
 })
 
 /** What fills a write statement's placeholder, with its encoder: a declared parameter's or a member slot's. */
 export const writeSlotOf = (slot: WriteParamSlot): WriteSlot =>
 	slot.kind === "member" ? memberSlotOf(slot) : declaredSlotOf(slot)
 
-/** What fills a page statement's placeholder, with its encoder: a declared parameter's or a page fill's. */
+/** What fills a page statement's placeholder: a declared parameter's, with its encoder, or a page fill. */
 export const pageStatementSlotOf = (slot: PageStatementSlot): ParamSlot =>
 	slot.kind === "page" ? pageSlotOf(slot) : declaredSlotOf(slot)
 

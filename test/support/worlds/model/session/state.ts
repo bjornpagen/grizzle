@@ -15,7 +15,7 @@ import type {
 	RelationSpec,
 	RoleSpec,
 	Rule,
-	SessionState,
+	ModelSession,
 	ModelStaleReason,
 	Term
 } from "#test/support/worlds/model/types.ts"
@@ -78,7 +78,7 @@ export const loginVerifies = (install: InstallSpec, login: string): boolean =>
 	Arr.some(rolesOfLogin(install, login), (r) => roleContexts(r).size > 0)
 
 /** The session of an id, or undefined for an id the model never minted. */
-export const sessionAt = (state: ModelState, id: number): SessionState | undefined =>
+export const sessionAt = (state: ModelState, id: number): ModelSession | undefined =>
 	state.sessions[id]
 
 /** The open Db at an id, or undefined for a closed, direct or never minted session. */
@@ -94,7 +94,7 @@ export const directSessionAt = (state: ModelState, id: number): DirectSessionSta
 }
 
 /** The state with the session at `id` replaced. */
-export const withSession = (state: ModelState, id: number, session: SessionState): ModelState => ({
+export const withSession = (state: ModelState, id: number, session: ModelSession): ModelState => ({
 	...state,
 	sessions: Arr.map(state.sessions, (s, i) => (i === id ? session : s))
 })
@@ -130,7 +130,7 @@ export const loginsCreatedOn = (
  * Whether a session is a Db whose snapshot a completed migration moved past: it holds its role at no version of the
  * installation, and every call it sends SQL for refuses as `migrated` (staleReason).
  */
-export const staleDb = (state: ModelState, session: SessionState): boolean =>
+export const staleDb = (state: ModelState, session: ModelSession): boolean =>
 	session.kind === "db" && session.snapshot.version !== state.version
 
 /**
@@ -170,8 +170,8 @@ export const staleReason = (
 }
 
 /** A session closed: a Db's, or a direct writer's whose transaction ended. */
-export const closedDb: SessionState = { kind: "closed", was: "db" }
-export const closedDirect: SessionState = { kind: "closed", was: "direct" }
+export const closedDb: ModelSession = { kind: "closed", was: "db" }
+export const closedDirect: ModelSession = { kind: "closed", was: "direct" }
 
 /** A model state whose reality is a transaction's view: what a direct session's statements read and write. */
 export const seenThrough = (state: ModelState, view: HostState): ModelState => ({

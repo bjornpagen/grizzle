@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -13,6 +13,7 @@ import { contained, on, relation, schema as declareSchema } from "#compiler/publ
 import { str } from "#compiler/public/text.ts"
 import { isGraphRule, optimizedLoweringWith, publicCase } from "#test/pg/recursion/graph/support.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { GenContainment } from "#test/support/oracle/gen/schema.ts"
 import {
 	conservative,
@@ -252,7 +253,7 @@ layer(Substrate.layer)(
 								coverage: requiredInSpace<SiteFeature>(
 									Arr.map(cases, ([c]): SiteFeature => `fired: ${c.label}`)
 								),
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							([c, rule], k) =>
 								Effect.gen(function* () {

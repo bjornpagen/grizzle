@@ -28,7 +28,6 @@ import { bigint, double, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -36,7 +35,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
+import { declaredDescOf } from "#compiler/analysis/derived/fields.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -49,6 +48,9 @@ import {
 	type Carrier,
 	carriers,
 	contractOf,
+	isNumericValue,
+	numericBoundOf,
+	type NumericValueType,
 	RegexKey,
 	type Roster,
 	rosterOf,
@@ -70,6 +72,7 @@ import {
 	literalDescFor,
 	noRosters,
 	noText,
+	numericValue,
 	type ScalarEnv,
 	scalarTypeOf,
 	type TextLookup
@@ -100,6 +103,7 @@ import {
 	wildcardText
 } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { types as codecTypes } from "#test/unit/codec/support.ts"
 import { cursorCodecTypes as cursorTypes } from "#test/unit/cursor/support.ts"
@@ -156,7 +160,7 @@ describe("the capability registry", () => {
 						literal: Formatter.format,
 						limit: cases.length,
 						coverage: requiredInSpace<CapsCase["kind"]>(["serial", "contract", "vector"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(cs, c) =>
 						Effect.sync(() => {
@@ -248,11 +252,11 @@ const fixtureTypes = nonEmpty<readonly [string, ScalarType]>(
 const serialDescs = { int2: "smallserial", int4: "serial", int8: "bigserial" } as const
 
 /**
- * The FieldDesc the registry reads `t` from: the derived analysis's inverse (fieldDescOf), but for a contract, which a
- * schema declares by name over its base's FieldDesc (identity ignores the predicate), a span over such an endpoint, and
- * a serial generation declaration, which no derived column has.
+ * The FieldDesc the registry reads `t` from: the derived analysis's inverse (declaredDescOf), but for a contract, which
+ * a schema declares by name over its base's FieldDesc (identity ignores the predicate), a span over such an endpoint,
+ * and a serial generation declaration, which no derived column has.
  */
-const fieldDescFor = (t: ScalarType): FieldDesc => {
+const fieldDescFor = (t: Exclude<ScalarType, NumericValueType>): FieldDesc => {
 	const contract = contractOf(t)
 	if (contract !== undefined) {
 		return {
@@ -270,8 +274,15 @@ const fieldDescFor = (t: ScalarType): FieldDesc => {
 	if ("serial" in t) {
 		return { kind: "serial", type: serialDescs[t.carrier] }
 	}
-	return succeeded(fieldDescOf(t, {}))
+	return succeeded(declaredDescOf(t, {}))
 }
+
+/**
+ * The registry's own build of `t`: the type of the FieldDesc a declaration of it writes (fieldDescFor), or, for a
+ * computed numeric, which no declaration states, numericValue's of its bound.
+ */
+const registryBuild = (t: ScalarType): ScalarType =>
+	isNumericValue(t) ? numericValue(t.bound) : registryTypeOf(fieldDescFor(t), rostersOf(t))
 
 /** The roster an environment holds under the declared name `name`, as the registry builds a closedId's. */
 const envRoster = (env: ScalarEnv, name: string): Roster => {
@@ -287,7 +298,7 @@ const rostersOf = (t: ScalarType): Readonly<Record<string, Arr.NonEmptyReadonlyA
 
 describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 	it.effect(
-		"built every type a test fixture exports: each is the registry's type of its FieldDesc",
+		"built every type a test fixture exports: each is the registry's type of its FieldDesc, or its computed numeric",
 		(ctx) =>
 			searched(
 				ctx,
@@ -310,16 +321,12 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 								"a field's carriers"
 							)
 						),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([where, t], c) =>
 						Effect.sync(() => {
 							c.note(`carrier ${t.carrier}`)
-							assert.equal(
-								sameScalarType(t, registryTypeOf(fieldDescFor(t), rostersOf(t))),
-								true,
-								where
-							)
+							assert.equal(sameScalarType(t, registryBuild(t)), true, where)
 						})
 				)
 			)
@@ -345,7 +352,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						literal: Formatter.format,
 						limit: fields.length,
 						coverage: requiredInSpace<"a descriptor">(["a descriptor"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(field, c) =>
 						Effect.sync(() => {
@@ -388,7 +395,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ name, other, handles }) =>
 						Effect.sync(() => {
@@ -438,7 +445,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ source, flags, lengthBound }) =>
 						Effect.sync(() => {
@@ -481,7 +488,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ name, bound }) =>
 					Effect.sync(() => {
@@ -545,7 +552,6 @@ const endpointGen = map(
 
 const readingDescGen: Gen<FieldDesc> = oneOf([
 	pgGen,
-	constant<FieldDesc>({ kind: "numeric" }),
 	(source) => ({
 		kind: "numeric" as const,
 		precision: source.draw(element([9, 10])),
@@ -647,9 +653,10 @@ const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: string): 
 			assert.equal(t.carrier, "numeric", at)
 			assert.deepEqual(
 				"typmod" in t ? t.typmod : "none",
-				"precision" in desc ? { precision: desc.precision, scale: desc.scale } : undefined,
+				{ precision: desc.precision, scale: desc.scale },
 				at
 			)
+			assert.deepEqual(numericBoundOf(t), undefined, at)
 			return
 		case "serial":
 			assert.ok("serial" in t, at)
@@ -692,7 +699,7 @@ type Content =
 	| { readonly kind: "plain"; readonly carrier: Carrier }
 	| {
 			readonly kind: "numeric"
-			readonly typmod: { readonly precision: number; readonly scale: number } | undefined
+			readonly typmod: { readonly precision: number; readonly scale: number }
 	  }
 	| { readonly kind: "serial"; readonly carrier: Carrier }
 	| { readonly kind: "text"; readonly text: TextInfo }
@@ -712,10 +719,7 @@ const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 		case "pg":
 			return { kind: "plain", carrier: pgCarrier[desc.type] }
 		case "numeric":
-			return {
-				kind: "numeric",
-				typmod: "precision" in desc ? { precision: desc.precision, scale: desc.scale } : undefined
-			}
+			return { kind: "numeric", typmod: { precision: desc.precision, scale: desc.scale } }
 		case "serial":
 			return { kind: "serial", carrier: desc.type === "smallserial" ? "int2" : "int4" }
 		case "uuid":
@@ -778,7 +782,7 @@ describe("scalarTypeOf builds each type from its content", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([envs, descs], c) =>
 							Effect.sync(() => {
@@ -1155,7 +1159,7 @@ describe("literalDescFor: literal operands adopt the base's host type", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([carrier, d], c) =>
 						Effect.sync(() => {
@@ -1290,7 +1294,7 @@ describe("describeField", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([d, boundary], c) =>
 						Effect.sync(() => {

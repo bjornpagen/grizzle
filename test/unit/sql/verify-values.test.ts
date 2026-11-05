@@ -6,11 +6,12 @@ import { matching } from "@grizzle/testing/pattern"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { exactParts } from "#compiler/core/decimal.ts"
 import type { Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { col, lit, simpleSelect, table, target, types } from "#compiler/sql/build.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
 
 /**
@@ -94,7 +95,7 @@ describe("the audit's checks of values, generated", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(name) =>
 					Effect.sync(() => {
@@ -126,7 +127,7 @@ describe("the audit's checks of values, generated", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(text) =>
 					Effect.sync(() => {
@@ -175,7 +176,7 @@ describe("the audit's checks of values, generated", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text) =>
 						Effect.sync(() => {
@@ -210,7 +211,7 @@ describe("the audit's checks of values, generated", () => {
 						"bigint within",
 						"bigint past"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([[name, type, low, high], end, step], c) =>
 					Effect.sync(() => {
@@ -243,7 +244,7 @@ describe("the audit's checks of values, generated", () => {
 						"scale past",
 						"no scale"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([precision, scale], c) =>
 					Effect.sync(() => {

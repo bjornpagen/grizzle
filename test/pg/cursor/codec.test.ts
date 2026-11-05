@@ -17,17 +17,16 @@ import {
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double, float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
-import { cursorCodec } from "#compiler/codec/cursor/codec.ts"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
-import { cursorMaxBytes } from "#compiler/core/policy.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { toReal } from "#compiler/scalar/values/float.ts"
 import { type Carrier, type CarrierHost, compareValues } from "#compiler/scalar/values/identity.ts"
-import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
@@ -39,6 +38,7 @@ import {
 } from "#test/pg/codec/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
@@ -146,7 +146,7 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	},
 	{
 		label: "numeric",
-		type: plainType("numeric"),
+		type: anyNumeric,
 		values: decimalGen,
 		edge: [
 			Decimal.nan,
@@ -159,8 +159,8 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	{
 		label: "bigint",
 		type: plainType("int8"),
-		values: bigint(int8Min, int8Max),
-		edge: [int8Min, int8Max, 0n, -1n, 2n ** 53n + 1n]
+		values: bigint(int8Min.value, int8Max.value),
+		edge: [int8Min.value, int8Max.value, 0n, -1n, 2n ** 53n + 1n]
 	},
 	{
 		label: "text",
@@ -178,7 +178,7 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	{
 		label: "money",
 		type: plainType("money"),
-		values: map(bigint(int8Min, int8Max), (u) => Money.of(u)),
+		values: map(bigint(int8Min.value, int8Max.value), (u) => Money.of(u)),
 		edge: [Money.min, Money.max, Money.zero]
 	},
 	{
@@ -194,7 +194,7 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 			{}
 		),
 		values: smallRange,
-		edge: [{ start: int8Min, end: int8Max }]
+		edge: [{ start: int8Min.value, end: int8Max.value }]
 	}
 ]
 
@@ -235,7 +235,7 @@ const agreement = (db: RawSession, names: SqlNames, c: Case, batch: ReadonlyArra
 					comparators: [{ field: "v", direction: "asc", type: c.type }],
 					generation
 				},
-				cursorMaxBytes
+				cursorTokenMaxLength
 			)
 		)
 		const sample = [...c.edge, ...batch]
@@ -305,7 +305,7 @@ layer(Substrate.layer)("the cursor codec against PostgreSQL's order", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(drawnBatches) =>
 						Effect.forEach(

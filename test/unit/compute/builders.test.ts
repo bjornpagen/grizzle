@@ -14,16 +14,17 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { baseOf, type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm, typedTermOf } from "#compiler/scalar/compute/term.ts"
 import { exactType } from "#compiler/scalar/compute/types.ts"
 import { pgDescriptors as descriptors } from "#compiler/scalar/pg.ts"
-import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	testContract,
 	decimal,
@@ -290,7 +291,7 @@ describe("Compute builders", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(sketch: BuilderCase, c) =>
 					Effect.sync(() => {
@@ -397,7 +398,7 @@ const boundaryCaseGen: Gen<readonly [Drawn<unknown, never>, ComputeSite]> = oneO
 		[
 			source.draw(
 				lsw<unknown>({
-					live: bigint(int8Min, int8Max),
+					live: bigint(int8Min.value, int8Max.value),
 					stale: Option.none(),
 					wild: WILD_KINDS
 				})
@@ -435,7 +436,7 @@ describe("a JavaScript caller's operands", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([d, site], c) =>
 						Effect.sync(() => {
@@ -459,7 +460,10 @@ describe("a JavaScript caller's operands", () => {
 							 */
 							const admitted =
 								d.kind === "live" ||
-								(site === "literal value" && typeof x === "bigint" && x >= int8Min && x <= int8Max)
+								(site === "literal value" &&
+									typeof x === "bigint" &&
+									x >= int8Min.value &&
+									x <= int8Max.value)
 							if (admitted) {
 								assert.equal(typed(build(), testPg.bigint), true)
 							} else {

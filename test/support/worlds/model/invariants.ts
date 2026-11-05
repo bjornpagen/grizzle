@@ -5,7 +5,7 @@ import { factsIn, loginOf, roleOf, staleDb } from "#test/support/worlds/model/se
 import type {
 	InvariantViolation,
 	ModelState,
-	SessionState
+	ModelSession
 } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -14,7 +14,7 @@ import type {
  */
 const heldRole = (
 	state: ModelState,
-	s: SessionState
+	s: ModelSession
 ): { readonly login: string; readonly role: string } | undefined => {
 	switch (s.kind) {
 		case "db":

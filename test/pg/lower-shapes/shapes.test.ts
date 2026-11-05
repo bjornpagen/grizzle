@@ -6,16 +6,7 @@ import { exact, multiset, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	pipe,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
 import { resultTextCasts, type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -69,6 +60,7 @@ import {
 } from "#test/unit/lower/shapes/queries.ts"
 
 import { jsonText } from "#compiler/core/trusted.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	context,
 	shapedFacts,
@@ -642,7 +634,7 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(c, k) =>
 							Effect.gen(function* () {

@@ -98,8 +98,10 @@ export interface PhysicalAnalysis {
  * placement pass (lower/optimize/dedup) runs it over the plain realization to learn where elimination is owed, decides,
  * and runs it again over its decision, which the test kernel's verification (test/support/oracle/verify) checks has no
  * outstanding obligation ("verify that every required set boundary is discharged and that no sensitive consumer sees
- * unproved multiplicity"). Work is linear
- * in the DAG with bounded per-node proofs (fds.ts): no search over plans.
+ * unproved multiplicity"). Each node's table embeds its inputs' (fds.ts Dependencies), every question about it is
+ * answered by closures linear in that table, one per evidence context the table's proofs hold in and, for a minimal
+ * key, as many again per column it tries to drop, and no key is ever enumerated: no search over plans and no bound on
+ * what a proof may reach.
  *
  * Physical multiplicity: evidence lifetime, uniqueness inference, consumer sensitivity, and the obligations the
  * duplicate-elimination placement reads.

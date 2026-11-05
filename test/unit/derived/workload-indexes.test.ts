@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { workloadExtension, withWorkload } from "#compiler/physical/access/extension.ts"
@@ -19,10 +19,11 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, schema } from "#compiler/public/schema.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { asDrafted, type CompileOver, draftChain, fromEmpty } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 
@@ -48,12 +49,15 @@ const busyAccounts = query(W.Reports).rule((r) => {
 		.find({ account, budget })
 })
 
-/** A range on the view's `budget`, an unbounded numeric sum, which no B-tree entry is certain to hold. */
+/**
+ * A range on the view's `budget`, a numeric sum of bigint cents: a computed numeric whose proved bound, the cents'
+ * digits widened by the rows', bounds its B-tree entry.
+ */
 const richAccounts = query(W.Reports).rule((r) => {
 	const { account, tasks, budget } = v(W.AccountBudget, "accountBudget")
 	return r
 		.match(W.AccountBudget, { account, tasks, budget })
-		.where(r.ge(budget, r.param("least", pg.numeric)))
+		.where(r.ge(budget, r.param("least", pg.numeric(38, 0))))
 		.find({ account, tasks })
 })
 
@@ -116,7 +120,7 @@ const onView = (statement: SqlStatement): boolean =>
 
 describe("workload indexes on a derived relation", () => {
 	it.effect(
-		"index a view column a key could index, refuse one it could not, and defer both with a view not installed",
+		"index a view column, a computed numeric's by its proved bound, and defer both with a view not installed",
 		(ctx) =>
 			searched(
 				ctx,
@@ -130,12 +134,8 @@ describe("workload indexes on a derived relation", () => {
 							] as const,
 						literal: Formatter.format,
 						limit: 4,
-						coverage: requiredInSpace<"indexed" | "refused" | "deferred">([
-							"indexed",
-							"refused",
-							"deferred"
-						]),
-						caseHang: Duration.minutes(2)
+						coverage: requiredInSpace<"indexed" | "deferred">(["indexed", "deferred"]),
+						caseHang
 					},
 					([column, view], c) =>
 						Effect.sync(() => {
@@ -156,11 +156,6 @@ describe("workload indexes on a derived relation", () => {
 								assert.deepEqual(viewIndexes(deferred), [])
 								return
 							}
-							if (column === "budget") {
-								c.note("refused")
-								refused(result, "UnrepresentableKey")
-								return
-							}
 							c.note("indexed")
 							const index = Arr.findFirst(
 								viewIndexes(succeeded(result)),
@@ -169,7 +164,7 @@ describe("workload indexes on a derived relation", () => {
 							assert.ok(Option.isSome(index), "the view's workload index")
 							assert.deepEqual(
 								Arr.map(index.value.keys, (k) => k.field),
-								["tasks"]
+								[column]
 							)
 							assert.ok(Arr.every(index.value.requests, (r) => r.role === "access"))
 						})
@@ -195,7 +190,7 @@ describe("workload indexes on a derived relation", () => {
 							"program added",
 							"view redefined"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(change, c) =>
 						Effect.sync(() => {

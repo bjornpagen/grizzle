@@ -8,16 +8,7 @@ import { sample } from "@grizzle/testing/source"
 import { float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { runOfProcess } from "@grizzle/testing/vitest/run"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	pipe,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
 import { planIndexNames } from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"
 import type { Json } from "#compiler/core/canonical.ts"
@@ -25,6 +16,7 @@ import type { CodecFault } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -33,7 +25,6 @@ import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/vector.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, contains, defined, lacks } from "#test/support/assert.ts"
 import { compileTemplate, paramTexts, testCompile } from "#test/support/compile.ts"
@@ -41,6 +32,7 @@ import * as search from "#test/support/fixtures/api/search.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf, parsedSchemaName, roleNamesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { expectConstraint } from "#test/support/substrate/expect.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
@@ -319,9 +311,6 @@ const compiled = (q: unknown, role: unknown, schema: string): QueryTemplate => {
 	return r.value
 }
 
-/** How long one case of a distance check may run. */
-const caseHang = Duration.minutes(2)
-
 /** An account searched, and a probe searched with, by its place among the test's probes. */
 type ProbeFeature = `account ${"A" | "B"}` | `probe ${number}`
 
@@ -357,7 +346,7 @@ type CheckCase = readonly [width: Width, bound: number, nudge: number]
 const checkCases: Gen<CheckCase> = (source) =>
 	[
 		source.draw(element(widths)),
-		source.draw(element([cosineNormMin, cosineNormMax])),
+		source.draw(element([cosineNormMin.value, cosineNormMax.value])),
 		source.draw(element(nudges))
 	] as const
 
@@ -414,8 +403,8 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 						).value,
 						Vector.make(Float32Array.of(1, 0, 0, 0), 4),
 						Vector.make(Float32Array.of(next() - 0.5, next() - 0.5, next() - 0.5, next() - 0.5), 4),
-						Vector.make(Float32Array.of(2 ** -16, 0, 0, 0), 4),
-						Vector.make(Float32Array.of(0, 0, -65536, 0), 4)
+						Vector.make(Float32Array.of(cosineNormMin.value, 0, 0, 0), 4),
+						Vector.make(Float32Array.of(0, 0, -cosineNormMax.value, 0), 4)
 					]
 					const probeIndices = Arr.range(0, probes.length - 1)
 					let ties = 0
@@ -648,7 +637,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 								const free = { kind: "free" } as const
 								const fixed = (distance: number) => ({ kind: "fixed", distance }) as const
 								const pairs: Array<Pair> = []
-								const norms = [2 ** -16, 2 ** -8, 1, 2 ** 8, 2 ** 16]
+								const norms = [cosineNormMin.value, 2 ** -8, 1, 2 ** 8, cosineNormMax.value]
 								const sparse = dims > 4
 								const runs = dims === 16000 ? 2 : dims === 2000 ? 6 : 40
 								for (let r = 0; r < runs; r++) {
@@ -668,10 +657,14 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 										Float32Array.from(indices(dims), (j) => (j === i ? x : 0)),
 										dims
 									)
-								pairs.push({ a: axis(0, 2 ** -16), b: axis(dims - 1, 2 ** 16), expect: fixed(1) })
 								pairs.push({
-									a: scaled(2 ** -16, false),
-									b: scaled(2 ** 16, false),
+									a: axis(0, cosineNormMin.value),
+									b: axis(dims - 1, cosineNormMax.value),
+									expect: fixed(1)
+								})
+								pairs.push({
+									a: scaled(cosineNormMin.value, false),
+									b: scaled(cosineNormMax.value, false),
 									expect: free
 								})
 								const payload = jsonText(
@@ -766,7 +759,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 									const label = `${table} near ${bound} by ${nudge}`
 									expectNormAgrees(v, native, label)
 									/** The CHECK is vector_norm between the bounds: it admits exactly the native domain. */
-									const inside = native >= cosineNormMin && native <= cosineNormMax
+									const inside = native >= cosineNormMin.value && native <= cosineNormMax.value
 									if (inside) {
 										yield* insert(v)
 									} else {
@@ -780,8 +773,8 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 									const host = Vector.norm(v)
 									const tolerance = normTolerance(dims, host)
 									const margin = Math.min(
-										Math.abs(host - cosineNormMin),
-										Math.abs(host - cosineNormMax)
+										Math.abs(host - cosineNormMin.value),
+										Math.abs(host - cosineNormMax.value)
 									)
 									if (margin > 4 * tolerance) {
 										assert.equal(Vector.inCosineDomain(v), inside, label)
@@ -801,8 +794,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 					}
 					return checked
 				})
-			),
-		120_000
+			)
 	)
 
 	it.effect("the host norm agrees with vector_norm on generated binary32 vectors", (ctx) =>

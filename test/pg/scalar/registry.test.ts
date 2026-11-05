@@ -4,7 +4,7 @@ import { noCoverage } from "@grizzle/testing/features"
 import { array, element, int } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
 import { type Capability, type Carrier, carriers } from "#compiler/ir/scalar.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { type Described, nativeCapabilities } from "#compiler/scalar/registry.ts"
@@ -16,6 +16,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { caseHang } from "#test/support/limits.ts"
 /**
  * The catalog type of each carrier; enum is probed through a fresh enum type, ranges through int4range and int8range,
  * and the exact carriers through numeric, the type an exact value of any digit bound is.
@@ -186,7 +187,10 @@ const probe = (db: RawSession, spellings: ReadonlyArray<string>) =>
 
 const accepts = (f: () => unknown): boolean => Result.isSuccess(Result.try(f))
 
-/** Every alias spelling of a type the language names, with its descriptor. */
+/**
+ * Every alias spelling of a type the language names without a typmod, with its descriptor; numeric's spellings each
+ * carry one (the numeric typmods case).
+ */
 const aliasSpellings: Arr.NonEmptyReadonlyArray<readonly [string, Described]> = [
 	["smallint", pgDescriptors.smallint],
 	["int2", pgDescriptors.int2],
@@ -195,8 +199,6 @@ const aliasSpellings: Arr.NonEmptyReadonlyArray<readonly [string, Described]> = 
 	["int4", pgDescriptors.int4],
 	["bigint", pgDescriptors.bigint],
 	["int8", pgDescriptors.int8],
-	["numeric", pgDescriptors.numeric],
-	["decimal", pgDescriptors.decimal],
 	["real", pgDescriptors.real],
 	["float4", pgDescriptors.float4],
 	["double precision", pgDescriptors["double precision"]],
@@ -234,7 +236,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 						literal: ([spelling]: readonly [string, Described]) => Formatter.format(spelling),
 						limit: aliasSpellings.length,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([spelling, field]) =>
 						Effect.map(probe(db, [spelling]), (stored) => {
@@ -312,7 +314,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(drawnPairs) =>
 						Effect.gen(function* () {
@@ -334,10 +336,13 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 							}
 						})
 				)
-				/** numeric(p) is numeric(p, 0). */
+				/** PostgreSQL reads numeric(p) as numeric(p, 0); pg.numeric refuses it, both declared. */
 				const bare = yield* probe(db, ["numeric(5)", "decimal(5)", "numeric(1000)"])
 				assert.deepEqual(bare, ["numeric(5,0)", "numeric(5,0)", "numeric(1000,0)"])
-				assert.equal(pgDescriptors.numeric(5).scale, 0)
+				assert.equal(
+					accepts(() => pgDescriptors.numeric(5)),
+					false
+				)
 				return explored
 			})
 		)
@@ -358,7 +363,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 						literal: Formatter.format,
 						limit: vectorDims.length,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(n) =>
 						Effect.map(probe(db, [`${vectorSchema}.vector(${n})`]), (stored) => {

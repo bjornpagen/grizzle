@@ -4,6 +4,7 @@ import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
+	type GateCheck,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
@@ -28,6 +29,8 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { outline, planOf } from "#bench/query/support/plans.ts"
+import { indices } from "#compiler/core/array.ts"
+import { finiteMembershipMaxTerms } from "#compiler/core/limits.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
@@ -47,6 +50,13 @@ import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
  * - a membership covering the whole roster is a tautology and disappears.
  * Each is compared with the conservative lowering, which joins the closed facts as a VALUES relation, and with the
  * handwritten IN list.
+ *
+ * The threshold between a tuple membership's two forms, finiteMembershipMaxTerms (core/limits.ts), is an operating
+ * point between two genuinely different shapes that deliver the same rows, so the gate also runs both over the same
+ * input across the sizes it decides by, for its evidence to be read off the crossover: a membership of declared
+ * (tier, amount) facts over Order, as the disjunction of each fact's equalities and as the VALUES join, for fact
+ * counts on both sides of the threshold. Both are written as grizzle emits them, over the installed table and access
+ * paths, and the gate checks that they count the same orders.
  */
 const handles = ["T0", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11"] as const
 const Tier = closed("Tier", handles).with(
@@ -104,6 +114,8 @@ const programs = { regionOne, ofRegion, anyTier } as const
 interface Options extends Readonly<Record<string, unknown>> {
 	readonly orders: number
 	readonly samples: number
+	/** The fact counts of the both-forms measurement of finiteMembershipMaxTerms. */
+	readonly factCounts: Arr.NonEmptyReadonlyArray<number>
 }
 
 const valuesScans = (plan: PlanNode) => findNodes(plan, "Values Scan").length
@@ -117,11 +129,12 @@ export default defineGate({
 	scope:
 		"Membership-only matches of a twelve-handle closed roster's facts: a payload literal (compile-time selection), a " +
 		"payload parameter (tuple membership), and every handle (a tautology), against the conservative VALUES join and " +
-		"the handwritten IN list.",
+		"the handwritten IN list; and a tuple membership of declared facts as the disjunction and as the VALUES join, " +
+		"across fact counts, for finiteMembershipMaxTerms.",
 	phases: queryPhases,
 	options: {
-		full: { orders: 200000, samples: 15 },
-		quick: { orders: 30000, samples: 2 }
+		full: { orders: 200000, samples: 15, factCounts: [2, 4, 8, 16, 32, 64, 128, 256] },
+		quick: { orders: 30000, samples: 2, factCounts: [2, 64] }
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
@@ -136,7 +149,7 @@ export default defineGate({
 				amount: "((pg_catalog.hashint8(g) & 2147483647) % 1000)::int4"
 			})
 			yield* settle(fx)
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b finite runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b finite raw")
 			const O = fx.table("Order")
 			const c = (f: string) => fx.column("Order", f)
@@ -276,8 +289,96 @@ export default defineGate({
 					measures: { inListsTautology: featureCount(allShape, "in list") }
 				}
 			]
+
+			/**
+			 * The threshold's two forms over one input: the first `facts` of the (tier, amount) pairs, every tier at each
+			 * amount in turn, so the pairs are distinct and each order matches at most one.
+			 */
+			const formsOptions: VariantOptions = { ...handOptions, warmup: 1 }
+			const formChecks: Array<GateCheck> = []
+			for (const facts of options.factCounts) {
+				const pairs = Arr.take(
+					Arr.flatMap(indices(Math.ceil(facts / handles.length)), (i) =>
+						Arr.map(handles, (h) => [h, (i * 7) % 1000] as const)
+					),
+					facts
+				)
+				const disjunction = Arr.join(
+					Arr.map(
+						pairs,
+						([h, a]) => `(x.${c("tier")} = '${h}'::${tierType} AND x.${c("amount")} = ${a})`
+					),
+					" OR "
+				)
+				const values = Arr.join(
+					Arr.map(pairs, ([h, a]) => `('${h}'::${tierType}, ${a})`),
+					", "
+				)
+				const ored = yield* measureVariant(
+					raw,
+					handwritten(
+						"the disjunction of each fact's equalities",
+						[{ sql: `SELECT count(*)::text FROM ${O} AS x WHERE ${disjunction}`, params: [] }],
+						autocommit
+					),
+					formsOptions
+				)
+				const joined = yield* measureVariant(
+					raw,
+					handwritten(
+						"the VALUES join",
+						[
+							{
+								sql:
+									`SELECT count(*)::text FROM ${O} AS x JOIN (VALUES ${values}) AS t(tier, amount) ` +
+									`ON x.${c("tier")} = t.tier AND x.${c("amount")} = t.amount`,
+								params: []
+							}
+						],
+						autocommit
+					),
+					formsOptions
+				)
+				const name = `a tuple membership of ${facts} facts over two columns`
+				const comparison = compareVariants(ored, joined)
+				formChecks.push(
+					equivalence(
+						`${name}: both forms count the same orders`,
+						comparison.sameResult,
+						`${ored.label}: ${ored.result.digest}; ${joined.label}: ${joined.result.digest}`
+					)
+				)
+				cases.push({
+					name,
+					gates: ["R07"],
+					conditions: conditions({
+						workload: "the orders whose (tier, amount) is one of the declared facts",
+						schemaState: installed,
+						data,
+						parameters: {
+							facts,
+							equalities: 2 * facts,
+							finiteMembershipMaxTerms: finiteMembershipMaxTerms.value
+						},
+						semantics: "how many orders match a fact",
+						cache: warm
+					}),
+					phases: {},
+					variants: [ored, joined],
+					comparisons: [comparison],
+					transactions: {},
+					loads: {},
+					measures: { facts, equalities: 2 * facts }
+				})
+			}
 			const r07: VerdictInput = {
 				checks: [
+					mechanism(
+						"both membership forms measured at every fact count",
+						formChecks.length > 0,
+						`${formChecks.length} cases`
+					),
+					...formChecks,
 					mechanism(
 						"a payload literal becomes enum membership with no VALUES scan",
 						valuesScans(onePlan) === 0 && has(oneShape, "in list") && !has(oneShape, "from values"),

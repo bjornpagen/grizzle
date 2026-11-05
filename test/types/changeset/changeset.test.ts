@@ -4,9 +4,10 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checked } from "#test/types/batch/groups.ts"
 import * as fixtures from "#test/types/changeset/fixtures/changeset.ts"
 
@@ -52,7 +53,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("ChangeSet facade", (it
 					literal: Formatter.format,
 					limit: refusals.length,
 					coverage: requiredInSpace<Refusal>(refusals),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(refusal, c) =>
 					Effect.sync(() => {

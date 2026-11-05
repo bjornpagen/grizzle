@@ -56,7 +56,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
-import { fieldColumns, flatMapNonEmpty } from "#compiler/write/defined.ts"
+import { type FieldColumns, fieldColumns, flatMapNonEmpty } from "#compiler/write/defined.ts"
 import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import {
 	inputGuarantees,
@@ -290,18 +290,19 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 const factColumns = (fields: ReadonlyArray<LawField>): Array<ResultColumn> =>
 	fields.map((f) => ({ name: f.name, type: rowType(f) }))
 
-/** The second arm of a statement's verdict rows with a same-key check: the input's facts at the key r4 holds,
- * `copies` times over, then the marker true. Every column is an input value, so none is manufactured. */
+/** The second arm of a statement's verdict rows with a same-key check: the input's facts at the key r4 holds, in each
+ * of the verdict heading's groups of fact columns, then the marker true. Every column is an input value, so none is
+ * manufactured. */
 const sameKeyArm = (
 	head: ReturnType<typeof putHead>,
 	r4: string,
 	prefix: ReadonlyArray<Target>,
-	copies: number
+	groups: ReadonlyArray<FieldColumns<string>>
 ): SelectCore => {
 	const r4Col = (f: LawField) => col(r4, head.keys.of(f))
-	const facts = head.all.map((f) => target(head.inCol(f)))
+	const facts = groups.flatMap((group) => group.pairs.map((p) => target(head.inCol(p.field))))
 	return core(
-		[...prefix, ...Array.from({ length: copies }, () => facts).flat(), target(lit.bool(true))],
+		[...prefix, ...facts, target(lit.bool(true))],
 		[
 			join(
 				cteRef(head.r1),
@@ -588,7 +589,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 					[cteRef(r2)],
 					undefined
 				),
-				sameKeyArm(head, r4, [], 2)
+				sameKeyArm(head, r4, [], [fresh, old])
 			]
 		}
 		const ast = guardedPut(
@@ -743,7 +744,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 					[cteRef(r2)],
 					undefined
 				),
-				sameKeyArm(head, r4, [target(lit.text("INSERT", types.text))], 1)
+				sameKeyArm(head, r4, [target(lit.text("INSERT", types.text))], [returned])
 			]
 		}
 		const ast = guardedPut(

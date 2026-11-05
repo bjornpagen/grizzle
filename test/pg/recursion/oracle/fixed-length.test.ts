@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { type RecursionOracleFeature, recursiveForm } from "#test/pg/recursion/oracle/support.ts"
 import {
 	defaultGraphLimits,
@@ -27,7 +27,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Fixed-length connected matches give the same set through joins and through recursive CTEs.
  *
  * Each case is one DAG with two roots over a generated graph. Its first root is a connected match of k directed E steps
- * through joins, k from 1 to recursionUnrollMax + 2 (gen/recursive.ts): start, k - 1 bound intermediate vertices and
+ * through joins, k from 1 to 6 (gen/recursive.ts): start, k - 1 bound intermediate vertices and
  * end, each optionally matched in V, the start a parameter or every vertex (then carried as origin), the direction
  * forward or reversed. Its second root is the same set through a recursive relation whose state counts hops, seeded
  * with one step and bounded at k, filtered to hops = k and projected (the upper bound belongs to the transition, the
@@ -78,7 +78,6 @@ layer(Substrate.layer)("fixed-length connected matches: joins against recursive 
 							kept: [],
 							runs: cases,
 							shrink: completeShrink,
-							caseHang: Duration.minutes(2),
 							perturb: "all"
 						},
 						(c, notes) =>
@@ -107,7 +106,6 @@ layer(Substrate.layer)("fixed-length connected matches: joins against recursive 
 							})
 					)
 				})
-			),
-		1_200_000
+			)
 	)
 })

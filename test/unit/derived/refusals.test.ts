@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { checkedSchema, derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { type CompileError, type CompileReasonTag, isCompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -32,6 +32,7 @@ import {
 	within
 } from "#test/support/fixtures/ir/desc.ts"
 import { ReportsDesc, WorkDesc } from "#test/support/fixtures/ir/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
 /** Runtime refusals for descriptions TypeScript did not check (the type tests refuse each at the type level): a
@@ -243,7 +244,7 @@ describe("derived relation refusals", () => {
 								"capacity source",
 								"alternatives expansion"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(shape, c) =>
 							Effect.sync(() => {
@@ -285,7 +286,7 @@ describe("derived relation refusals", () => {
 							literal: Formatter.format,
 							limit: 4,
 							coverage: requiredInSpace<Unwritable>(shapes),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(shape, c) =>
 							Effect.sync(() => {

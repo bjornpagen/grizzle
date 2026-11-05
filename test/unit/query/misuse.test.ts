@@ -14,7 +14,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { ALLEN } from "#compiler/allen/mask.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { type CompileReasonTag, isCompileError } from "#compiler/core/errors.ts"
@@ -33,6 +33,7 @@ import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { Account, AutomaticTask, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	Booking,
 	Document,
@@ -978,7 +979,7 @@ describe("the query builder's untyped core", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(misuse, c) =>
 						Effect.sync(() => {
@@ -1107,7 +1108,7 @@ describe("named scopes", () => {
 							`${c.first.label}@${c.first.column} ${c.second.label}@${c.second.column} ${Arr.join(c.names, "/")}`,
 						limit: 18,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c) =>
 						Effect.sync(() => {

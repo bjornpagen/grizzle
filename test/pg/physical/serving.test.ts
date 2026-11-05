@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, shuffled, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Equal, Formatter, Order, Result } from "effect"
+import { Array as Arr, Effect, Equal, Formatter, Order, Result } from "effect"
 import type { TestContext } from "vitest"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -39,6 +39,7 @@ import {
 	within
 } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { installRealSchema, planRealInstall } from "#test/support/oracle/install/real.ts"
 import { unperturbed } from "#test/support/oracle/perturb.ts"
 import { buildMixed, buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
@@ -1711,9 +1712,6 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 	}
 ]
 
-/** How long one case may run before the search stops it as hung. */
-const caseHang = Duration.minutes(2)
-
 const workloadSuite = (runs: number) => (ctx: TestContext) =>
 	searched(
 		ctx,
@@ -1804,17 +1802,14 @@ const sharedSuite = (runs: number) => (ctx: TestContext) =>
 layer(Substrate.layer)("index serving, judged by PostgreSQL at volume", (it) => {
 	it.effect(
 		"every request a generated workload plans is served, and every index it creates is needed",
-		workloadSuite(10),
-		1_800_000
+		workloadSuite(10)
 	)
 	it.effect(
 		"every drawn request is served, and every index the engine creates for them is needed",
-		requestSuite(16),
-		1_800_000
+		requestSuite(16)
 	)
 	it.effect(
 		"requests over shared columns plan alike in every arrival order, each served, every created index needed",
-		sharedSuite(12),
-		1_800_000
+		sharedSuite(12)
 	)
 })

@@ -190,6 +190,17 @@ export interface ComputeApi {
 	): Term<D, PA, ComputedOrigin<OA>, F, H, CastFacts<S, F, FX>>
 
 	/**
+	 * The numeric of a value: PostgreSQL's conversion into numeric, `x::numeric`, of an integer, money, an exact value,
+	 * a numeric or a float. Its result is a computed numeric, the type no field has, whose bound the value's gives
+	 * (ir/scalar.ts NumericBound): a numeric(p, s) its typmod dropped, every other value exactly but a float, which
+	 * float4_numeric and float8_numeric write with FLT_DIG or DBL_DIG significant digits, NaN and the infinities kept.
+	 * It keeps the value's facts as a cast does.
+	 */
+	numeric<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql, FX extends Facts>(
+		x: A & FirstTerm<A> & InputTerm<X, PA, OA, S> & Proving<FX>
+	): Term<Decimal, PA, ComputedOrigin<OA>, "numeric", Decimal, CastFacts<S, "numeric", FX>>
+
+	/**
 	 * Arithmetic on contract values yields the base type. Integer and money arithmetic is exact: an exact integer,
 	 * delivered as bigint, and exact money, which never overflow; float arithmetic is IEEE 754.
 	 */

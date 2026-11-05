@@ -14,31 +14,20 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Layer,
-	Option,
-	pipe,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option, pipe, String as Str } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { PageRequestRefused, type RequestFault } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
-import { cursorCodec } from "#compiler/codec/cursor/codec.ts"
+import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
 import { CursorError, type CursorFault } from "#compiler/core/errors.ts"
-import { cursorMaxBytes, pageMaxSize } from "#compiler/core/policy.ts"
 import { uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	assertEdges,
 	canon,
-	checkTraversals,
 	countingExecutor,
 	type PageValue,
 	pageOrder,
@@ -54,6 +43,7 @@ import {
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { replaceMigrated as replace } from "#test/support/install-migrate.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -91,10 +81,11 @@ import {
  *   page the last k strictly before it. The flag of the fetching direction is whether more remain on that side; the
  *   opposite flag of an anchored page is whether D holds a tuple at or before the anchor (after) or at or after it
  *   (before), whether or not the anchor is still in D; a first page has no previous page and a last page no next;
- * - a token that is not one this query issued for this generation, and a request of another shape or size, is refused
- *   before any SQL: CursorError for the token, PageRequestRefused with its fault for the request, the counting
- *   executor seeing no transaction and no statement;
- * - a delivered comparison tuple too long for a cursor fails the page.
+ * - a token that is not one this query issued for this generation, a token longer than the layout's bound included, and
+ *   a request of another shape or size, is refused before any SQL: CursorError for the token, PageRequestRefused with
+ *   its fault for the request, the counting executor seeing no transaction and no statement;
+ * - a page size has no upper bound: a walk's requests draw sizes up to the largest safe integer, which the statements
+ *   bind as bigint limits.
  *
  * test/pg/page/values.test.ts covers the boundary values, test/pg/page/plans.test.ts the plans, and
  * test/pg/page/generated.ts the generated ordered queries.
@@ -246,9 +237,20 @@ interface RequestSketch {
 	readonly handle: "db" | "compiled"
 }
 
+/**
+ * A request's size: mostly small, so the pages of the drawn facts cut through them, and now and then any safe integer,
+ * a size whose limit, the size plus one, is past every 32-bit integer, or the largest safe integer: a page size has no
+ * upper bound, and the statements bind the size and the limit as bigints.
+ */
+const pageSizeGen: Gen<number> = weighted([
+	[8, int(1, 7)],
+	[1, int(8, Number.MAX_SAFE_INTEGER)],
+	[1, element([2 ** 31 - 1, Number.MAX_SAFE_INTEGER])]
+])
+
 const requestSketchGen: Gen<RequestSketch> = (source) => ({
 	variant: source.draw(element(["first", "last", "after", "before", "after", "before"] as const)),
-	size: source.draw(int(1, 7)),
+	size: source.draw(pageSizeGen),
 	anchor: source.draw(
 		oneOf<AnchorPick>([
 			constant({ kind: "end" }),
@@ -445,6 +447,25 @@ const foreign = ["!", "+", "/", " ", "=", "é", "\u{1F600}"] as const
 /** The characters of a token's three digests: 51 bytes, every one of its first 68 characters within them. */
 const digestCharacters = 68
 
+/**
+ * A text of `length` copies of "A", built by doubling: V8 holds it as concatenations of shared halves, its characters
+ * never flattened into one copy until one of them is read, so a token as long as the layout's bound and more costs next
+ * to nothing to hand a page, whose codec refuses it by its length alone.
+ */
+const longText = (length: number): string => {
+	let text = ""
+	let piece = "A"
+	for (let rest = length; rest > 0; rest = Math.floor(rest / 2)) {
+		if (rest % 2 === 1) {
+			text += piece
+		}
+		if (rest > 1) {
+			piece += piece
+		}
+	}
+	return text
+}
+
 /** What is done to a valid token or its request, and what the refusal is. */
 type Tamper =
 	| { readonly kind: "a character of a digest changed"; readonly at: number; readonly to: number }
@@ -480,7 +501,7 @@ type Tamper =
 				| "fraction"
 				| "NaN"
 				| "infinite"
-				| "above pageMaxSize"
+				| "unsafe"
 				| "text"
 				| "bigint"
 	  }
@@ -527,7 +548,7 @@ const tamperGen: Gen<Tamper> = oneOf<Tamper>([
 				"fraction",
 				"NaN",
 				"infinite",
-				"above pageMaxSize",
+				"unsafe",
 				"text",
 				"bigint"
 			] as const)
@@ -576,8 +597,8 @@ const sizeOf = (size: Extract<Tamper, { kind: "a size out of range" }>["size"]):
 			return Number.NaN
 		case "infinite":
 			return Number.POSITIVE_INFINITY
-		case "above pageMaxSize":
-			return pageMaxSize + 1
+		case "unsafe":
+			return Number.MAX_SAFE_INTEGER + 1
 		case "text":
 			return "2"
 		case "bigint":
@@ -631,7 +652,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 								literal: String,
 								limit: 25,
 								coverage: noCoverage,
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(size) =>
 								Effect.gen(function* () {
@@ -714,7 +735,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								caseHang: Duration.minutes(2),
+								caseHang,
 								coverage: required<WalkFeature>(
 									[
 										...Arr.map(pagedQueryNames, (q): WalkFeature => `query ${q}`),
@@ -984,8 +1005,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 						Effect.scoped
 					)
 				}).pipe(Effect.scoped)
-			),
-		300_000
+			)
 	)
 
 	it.effect(
@@ -1018,7 +1038,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								caseHang: Duration.minutes(2),
+								caseHang,
 								coverage: required<Tamper["kind"] | `issued by ${PagedQuery}`>(
 									[
 										"a character of a digest changed",
@@ -1110,7 +1130,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 											case "oversized":
 												return {
 													...same,
-													request: plain(Str.repeat(cursorMaxBytes + tamper.extra)("A")),
+													request: plain(longText(cursorTokenMaxLength + tamper.extra)),
 													verdict: { kind: "cursor", reason: "cursorOversized" }
 												}
 											case "another query": {
@@ -1140,7 +1160,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 															extensions: {}
 														}
 													},
-													cursorMaxBytes
+													cursorTokenMaxLength
 												)
 												const decoded = succeeded(runtime.codec.decode(token))
 												const reissued = succeeded(succeeded(old).encode(decoded.values))
@@ -1230,91 +1250,6 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 									notes.note(`issued by ${c.query}`)
 								})
 						)
-					}).pipe(
-						Effect.scoped,
-						(body) =>
-							Effect.flatMap(Layer.build(opened.layer), (context) =>
-								Effect.provideContext(body, context)
-							),
-						Effect.scoped
-					)
-				}).pipe(Effect.scoped)
-			)
-	)
-
-	it.effect(
-		"a delivered comparison tuple too long for a cursor fails the page with cursorTupleOversized",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const long = Str.repeat(cursorMaxBytes + 76)("x")
-					const opened = yield* installed(
-						Paging,
-						{
-							...facts,
-							Task: [...facts.Task, { id: t(300), account: B, priority: 9, title: long }]
-						},
-						{ label: "real", extensions: [] }
-					)
-					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(opened.server.roles.app, {})
-						const params = { account: B }
-						const oversized = cursorFailure("cursorTupleOversized")
-						/** Every page whose edges include the long title fails. */
-						const failing = yield* exhaust(
-							{
-								suite: "pg/page/oversized tuple",
-								generator: element<{ readonly first: number } | { readonly last: number }>([
-									{ first: 5 },
-									{ last: 5 },
-									{ first: 2 },
-									{ last: 3 }
-								]),
-								literal: Formatter.format,
-								limit: 4,
-								coverage: noCoverage,
-								caseHang: Duration.minutes(2)
-							},
-							(request) =>
-								Effect.gen(function* () {
-									const error = yield* Effect.flip(db.page(titles, params, request))
-									assert.deepEqual(error, oversized, Formatter.format(request))
-								})
-						)
-						/** A page whose edges exclude the long title pages normally, and the page after it fails. */
-						const head = yield* db.page(titles, params, { first: 1 })
-						const headTitles = Arr.map(head.edges, (e) => e.node.title)
-						assert.deepEqual([headTitles, head.pageInfo.hasNextPage], [["𝔘nicode"], true])
-						const error = yield* Effect.flip(
-							db.page(titles, params, {
-								first: 1,
-								after: Option.getOrThrow(head.pageInfo.endCursor)
-							})
-						)
-						assert.deepEqual(error, oversized)
-						const tail = yield* db.page(titles, params, { last: 2 })
-						const tailTitles = Arr.map(tail.edges, (e) => e.node.title)
-						assert.deepEqual([tailTitles, tail.pageInfo.hasPreviousPage], [["gamma", "beta"], true])
-						/** Only the comparison tuple is encoded: ordered by (priority, id), the long title is delivered whole. */
-						const ordered = yield* db.page(priorityDescendingTasks, params, { first: 5 })
-						assert.equal(ordered.edges.length, 4)
-						const top = defined(ordered.edges[0], "the first edge").node
-						assert.equal(top.id, t(300))
-						assert.equal(top.title, long)
-						/** The same query over an account without the long title pages normally. */
-						const compiled = pageTemplate(db, titles)
-						const rows = yield* (yield* db.execute(titles, { account: A })).collect
-						const full = sortedResult(compiled, rows)
-						yield* checkTraversals(
-							"titles of A",
-							untyped(dbReader(db)),
-							titles,
-							{ account: A },
-							full,
-							3
-						)
-						return failing
 					}).pipe(
 						Effect.scoped,
 						(body) =>

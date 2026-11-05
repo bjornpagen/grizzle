@@ -17,16 +17,7 @@ import { type Equivalence, set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Exit,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec
-} from "effect"
+import { Array as Arr, Effect, Exit, Formatter, Option, Order, Record as Rec } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
@@ -41,6 +32,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
 import type { GrizzleErrorTag } from "#test/support/error-tags.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -84,7 +76,7 @@ const Cell = relation(
 		t: pg.boolean,
 		s: Text,
 		h: closedId(Kind),
-		x: pg.numeric,
+		x: pg.numeric(10, 2),
 		f: pg.float8
 	},
 	["id"]
@@ -527,7 +519,7 @@ layer(Substrate.layer)("union cells", (it) => {
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(c, notes) =>
 								Effect.gen(function* () {
@@ -592,7 +584,6 @@ layer(Substrate.layer)("union cells", (it) => {
 						)
 					}).pipe(Effect.scoped, withLayer(opened.layer))
 				}).pipe(Effect.scoped)
-			),
-		300_000
+			)
 	)
 })

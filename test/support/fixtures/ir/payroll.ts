@@ -10,6 +10,7 @@ import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
 import { asc, type BuiltQuery, Ir, keyed, SchemaModel } from "#test/support/fixtures/ir/build.ts"
@@ -360,10 +361,13 @@ const reportingFixture = ownedFixture(ReportingDesc)
 
 export const payrollModel = (): SchemaModel => new SchemaModel(payrollFixture, {})
 
-/** RunTotal's inferred fields, run: uuid, lines: pg.bigint, gross and net: pg.numeric; its key ["run"]. */
+/**
+ * RunTotal's inferred fields, run: uuid, lines: pg.bigint, gross and net: sums of bigint cents, computed numerics of
+ * a bigint's digits widened by the rows'; its key ["run"].
+ */
 const reportingModel = (): SchemaModel => {
 	const base = payrollModel()
-	const numeric = base.fieldType(f.unconstrainedNumeric, SourceLoc("RunTotal.gross", []))
+	const numeric = numericValue({ digits: 38, scale: 0 })
 	return new SchemaModel(reportingFixture, {
 		RunTotal: {
 			fields: [
@@ -825,7 +829,7 @@ const withholdingFor = (): BuiltQuery => {
 		],
 		conservativeMeta
 	)
-	const numeric = q.model.fieldType(f.unconstrainedNumeric, SourceLoc("numeric", []))
+	const numeric = numericValue({ digits: 19, scale: 0 })
 	const rate = q.column(m, "employeeRate").type
 	const withheld = q.domainCast(
 		q.op("round", [

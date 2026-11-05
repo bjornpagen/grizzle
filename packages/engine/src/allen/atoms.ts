@@ -1,5 +1,12 @@
 import { endpointMask } from "#compiler/allen/endpoints.ts"
-import { AllenMask, converseMask, intersectMasks, uniteMasks } from "#compiler/allen/mask.ts"
+import {
+	type AllenMask,
+	complementMask,
+	converseMask,
+	fullAllenMask,
+	intersectMasks,
+	uniteMasks
+} from "#compiler/allen/mask.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 
 /**
@@ -120,7 +127,8 @@ export const rangeOperatorMasks: ReadonlyMap<string, AllenMask> = new Map(
 		.map((atom) => [rangeOperatorCodes[atom.op], atom.holds])
 )
 
-export const allenAtomCount = 11
+/** The atoms of the fixed atom order, the literals' atom * 2 + negated codes counted by it. */
+export const allenAtomCount = atomOrder.length
 
 /** A literal: the code `atom * 2 + negated` of an atom in the fixed atom order, or of its negation. */
 export type AllenLiteral =
@@ -202,14 +210,14 @@ export const literalNegated = (literal: AllenLiteral): boolean => (literal & 1) 
 /** The relations a literal holds for. */
 const literalHolds = (literal: AllenLiteral): AllenMask => {
 	const holds = literalAtom(literal).holds
-	return AllenMask(literalNegated(literal) ? 0x1fff ^ holds : holds)
+	return literalNegated(literal) ? complementMask(holds) : holds
 }
 
 /** The relations a conjunction holds for. The empty conjunction is true. */
 export const conjunctionHolds = (conjunction: AllenConjunction): AllenMask => {
-	let mask = 0x1fff
+	let mask = fullAllenMask
 	for (const literal of conjunction) {
-		mask &= literalHolds(literal)
+		mask = intersectMasks(mask, literalHolds(literal))
 	}
-	return AllenMask(mask)
+	return mask
 }

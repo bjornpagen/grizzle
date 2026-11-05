@@ -18,7 +18,6 @@ import type { ConfiguredSchema, ResolvedConfig } from "#cli/config.ts"
 import {
 	type CliError,
 	DraftRefused,
-	MigrationNameRefused,
 	MigrationsUnread,
 	cliError,
 	SchemaChoiceRefused
@@ -28,14 +27,12 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import * as Engine from "#compiler/core/result.ts"
 import type { AbandonedSchema } from "#compiler/deploy/diff/plan.ts"
 import { lossText } from "#compiler/deploy/render/chosen.ts"
-import {
-	type FolderNaming,
-	folderName,
-	type MigrationFolder
-} from "#compiler/deploy/render/folder.ts"
-
+import type { FolderNaming, MigrationFolder } from "#compiler/deploy/render/folder.ts"
 import {
 	customMigration,
+	type MigrationDraft,
+	type DraftInput,
+	draftMigration,
 	type GenerateResult,
 	generateMigration
 } from "#compiler/deploy/render/generate.ts"
@@ -97,7 +94,7 @@ type Written =
  *   access moved onto an index that already exists. Its name is `--name`, else derived from the change (compiler/deploy/render/naming.ts).
  *
  * A custom migration is the empty folder whose source and target are both the committed snapshot, for hand-written
- * data steps, named `--name` or `custom`; snapshot.json does not change.
+ * data steps, named `--name`; snapshot.json does not change.
  *
  * Every selected schema drafts before anything is written, so a schema the compiler refuses writes no folder of any
  * schema. The report lists each written file, each unresolved marker, the placeholders and candidate renames a reviewer
@@ -152,7 +149,7 @@ const selectSchemas = (
 }
 
 /** A schema's draft: nothing to write; an empty custom folder; or a drafted folder and its new snapshot.json text. */
-type Draft = (
+type SchemaDraft = (
 	| { readonly kind: "unchanged" }
 	| { readonly kind: "custom"; readonly folder: MigrationFolder }
 	| { readonly kind: "drafted"; readonly folder: MigrationFolder; readonly snapshotText: string }
@@ -163,21 +160,16 @@ type Draft = (
 }
 
 /**
- * The draft of a schema's change from `previous`: its schema compiled with every installer extension a deployment
- * needs and its logins' workloads' access paths, handed to the pure generator with the schemas it abandons (abandonedSchemas).
+ * What the draft of a schema's change from `previous` is drafted from: its schema compiled with every installer
+ * extension a deployment needs and its logins' workloads' access paths, with the schemas it abandons (abandonedSchemas).
  * Beside the access paths, every program of each login's workloads is compiled for every role of the login exactly as
  * DbLayer.make compiles it (adapter/pool/registry.ts loginRoles), so a program the layer would refuse refuses the draft.
- * Nothing is written.
- *
- * @internal
  */
-export const draftSchema = Effect.fn("draftSchema")(function* (
+const draftInput = Effect.fn("draftInput")(function* (
 	schema: ConfiguredSchema,
 	previous: DeploySnapshot,
-	naming: FolderNaming,
-	timestamp: string,
 	abandoned: ReadonlyArray<AbandonedSchema>
-): Effect.fn.Return<GenerateResult, CliError> {
+): Effect.fn.Return<DraftInput, CliError> {
 	/**
 	 * The logins' workloads and their roles' write filters, planned under the configured schema's artifacts and
 	 * the names the installation drafted below gives it, so the index requests name its vector schema. A schema
@@ -218,18 +210,48 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
 		),
 		draftRefused(schema.declared, "schema")
 	)
+	return {
+		previous,
+		installation,
+		workload: plan === undefined ? noWorkload : { access: plan.access, accessPaths: plan.requests },
+		abandoned
+	}
+})
+
+/**
+ * The draft of a schema's change from `previous`, its folder unnamed, as `grizzle check` compares it with the committed
+ * snapshot (draftInput, then the pure generator's draftMigration). Nothing is written.
+ *
+ * @internal
+ */
+export const draftSchema = Effect.fn("draftSchema")(function* (
+	schema: ConfiguredSchema,
+	previous: DeploySnapshot,
+	abandoned: ReadonlyArray<AbandonedSchema>
+): Effect.fn.Return<MigrationDraft, CliError> {
+	const input = yield* draftInput(schema, previous, abandoned)
 	return yield* Effect.mapError(
-		fromEngine(
-			generateMigration({
-				previous,
-				installation,
-				workload:
-					plan === undefined ? noWorkload : { access: plan.access, accessPaths: plan.requests },
-				naming,
-				timestamp,
-				abandoned
-			})
-		),
+		fromEngine(draftMigration(input)),
+		draftRefused(schema.declared, "draft")
+	)
+})
+
+/**
+ * The draft of a schema's change from `previous` as `grizzle generate` writes it, its folder named by `naming` and
+ * `timestamp` (draftInput, then the pure generator's generateMigration). Nothing is written.
+ *
+ * @internal
+ */
+export const generateSchema = Effect.fn("generateSchema")(function* (
+	schema: ConfiguredSchema,
+	previous: DeploySnapshot,
+	naming: FolderNaming,
+	timestamp: string,
+	abandoned: ReadonlyArray<AbandonedSchema>
+): Effect.fn.Return<GenerateResult, CliError> {
+	const input = yield* draftInput(schema, previous, abandoned)
+	return yield* Effect.mapError(
+		fromEngine(generateMigration({ ...input, naming, timestamp })),
 		draftRefused(schema.declared, "draft")
 	)
 })
@@ -239,7 +261,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 	config: ResolvedConfig,
 	schema: ConfiguredSchema,
 	options: GenerateOptions
-): Effect.fn.Return<Draft, CliError, FileSystem.FileSystem | Path.Path> {
+): Effect.fn.Return<SchemaDraft, CliError, FileSystem.FileSystem | Path.Path> {
 	const tree = yield* readSchemaTree(schema.declared, schema.directory)
 	const previous = yield* committedSnapshot(schema, tree)
 	const chain = yield* continuedChain(schema, tree, previous)
@@ -250,9 +272,9 @@ const draftFor = Effect.fn("draftFor")(function* (
 			fromEngine(customMigration({ snapshot: previous, name: mode.name, timestamp })),
 			draftRefused(schema.declared, "custom")
 		)
-		return { schema, folder, snapshot: previous, kind: "custom" } satisfies Draft
+		return { schema, folder, snapshot: previous, kind: "custom" } satisfies SchemaDraft
 	}
-	const generated = yield* draftSchema(
+	const generated = yield* generateSchema(
 		schema,
 		previous,
 		mode.naming,
@@ -260,7 +282,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		isEmptySnapshot(previous) ? yield* abandonedSchemas(config) : []
 	)
 	if (generated.change === "none") {
-		return { schema, snapshot: previous, kind: "unchanged" } satisfies Draft
+		return { schema, snapshot: previous, kind: "unchanged" } satisfies SchemaDraft
 	}
 	return {
 		schema,
@@ -268,7 +290,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		snapshot: generated.snapshot,
 		snapshotText: generated.snapshotText,
 		kind: "drafted"
-	} satisfies Draft
+	} satisfies SchemaDraft
 })
 
 /**
@@ -310,7 +332,7 @@ const abandonedSchemas = Effect.fn("abandonedSchemas")(
 
 /** Writes a draft: its folder whole, then its snapshot. */
 const writeDraft = Effect.fn("writeDraft")(function* (
-	draft: Draft
+	draft: SchemaDraft
 ): Effect.fn.Return<SchemaGenerateReport, CliError, FileSystem.FileSystem | Path.Path> {
 	const { schema } = draft
 	const common = {
@@ -358,29 +380,6 @@ const writeDraft = Effect.fn("writeDraft")(function* (
 	return drafted
 })
 
-/**
- * The folder name a mode gives, which generate checks before anything is compiled: a custom folder's, or a draft's
- * `--name`; none for a draft named after its change.
- */
-const givenName = (mode: GenerateMode): Option.Option<string> => {
-	switch (mode.kind) {
-		case "custom":
-			return Option.some(mode.name)
-		case "draft":
-			return mode.naming.kind === "named" ? Option.some(mode.naming.name) : Option.none()
-	}
-}
-
-/**
- * The refusal of a mode's folder name, checked before anything is compiled, or none when its shape is a folder name's
- * or the draft is named after its change; the timestamp only stands in.
- */
-const nameRefusal = (mode: GenerateMode): Option.Option<CliError> =>
-	Option.map(
-		Option.filter(givenName(mode), (name) => !folderName("00000000000000", name).ok),
-		(name) => cliError(new MigrationNameRefused({ migration: name }))
-	)
-
 /** @internal */
 export const generate = Effect.fn("generate")(function* (
 	config: ResolvedConfig,
@@ -390,12 +389,8 @@ export const generate = Effect.fn("generate")(function* (
 	CliError,
 	FileSystem.FileSystem | Path.Path
 > {
-	const refusal = nameRefusal(options.mode)
-	if (Option.isSome(refusal)) {
-		return yield* refusal.value
-	}
 	const schemas = yield* Effect.fromResult(selectSchemas(config, options))
-	const drafts: Array<Draft> = []
+	const drafts: Array<SchemaDraft> = []
 	for (const s of schemas) {
 		const draft = yield* draftFor(config, s, options)
 		drafts.push(draft)

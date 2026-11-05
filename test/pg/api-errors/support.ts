@@ -2,6 +2,7 @@ import { Effect, type Scope } from "effect"
 import { makeDb } from "#adapter/db/db.ts"
 import type { Db } from "#adapter/public/db.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
+import { testIdleTimeout } from "#test/support/limits.ts"
 import { contextOf } from "#test/support/runtime-db.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -26,8 +27,8 @@ export const tappedDb = <R>(
 		const tap = makeTap(substrate.cluster)
 		const pool = yield* poolFor(credentials, {
 			...defaultPool,
-			transport: { kind: "given", transport: { _tag: "stream", open: tap.open } },
-			pool: { idleTimeoutMs: 60_000, min: 1, max: 1 }
+			transport: { kind: "given", transport: tap.transport },
+			pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 }
 		})
 		yield* Effect.orDie(
 			Effect.scoped(

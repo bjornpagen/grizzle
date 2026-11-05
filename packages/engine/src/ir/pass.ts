@@ -27,8 +27,8 @@ export interface PassContext {
 /**
  * Passes and their context.
  *
- * A pass is a pure function from its input to a Result: passes never throw, and a bound overrun is a source-located
- * ResourceBound. Each pass states its measure: one traversal, or a bounded worklist; there is no unrestricted rewrite loop. The context is the optimized pipeline's: it carries the compilation's
+ * A pass is a pure function from its input to a Result: passes never throw. Each pass states its measure: one traversal,
+ * or a bounded worklist; there is no unrestricted rewrite loop. The context is the optimized pipeline's: it carries the compilation's
  * certificate log, the diagnostics, the evidence context the artifact is compiled for, the evidence
  * catalog its proofs resolve declared keys and containments through.
  * Every pass reads the one catalog of its compilation, so no pass can prove over constraints named another way. The conservative lowering is no pass: it runs outside any context,

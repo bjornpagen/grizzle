@@ -5,7 +5,7 @@ import { array, boolean, constant, type Gen, int, map, oneOf } from "@grizzle/te
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
@@ -24,6 +24,7 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { Ir } from "#test/support/fixtures/ir/build.ts"
 import { workModel } from "#test/support/fixtures/ir/work.ts"
 import { KeyKernel } from "#test/support/keys/kernel.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * The minimal keys a dependency table proves (logical/closure.ts minimalKeys): from the whole heading alone, closed
@@ -99,7 +100,7 @@ describe("minimal keys", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(table, c) =>
 					Effect.sync(() => {
@@ -237,7 +238,7 @@ describe("keys over classes of equal columns", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(drawnCase, c) =>
 						Effect.sync(() => {
@@ -459,7 +460,7 @@ describe("keys of a union", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2),
+					caseHang,
 					coverage: required<UnionFeature>(
 						[
 							"an equality every arm holds",
@@ -652,7 +653,7 @@ describe("the key kernel's union equalities", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2),
+						caseHang,
 						coverage: required<ForgeFeature>(
 							[
 								"every arm makes b equal to a",

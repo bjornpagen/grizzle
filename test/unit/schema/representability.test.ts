@@ -17,7 +17,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -49,6 +48,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex, pickSpan } from "#test/support/pick.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
@@ -515,7 +515,7 @@ describe("pattern byte bounds", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -795,7 +795,7 @@ describe("charLength bounds", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -852,8 +852,8 @@ describe("charLength bounds", () => {
 })
 
 /**
- * A key field as drawn, over pg_type's sizes and alignments: a fixed-width type, numeric(p, s), bare numeric,
- * text of a bounded pattern (ASCII, or any code point), the wildcard, or a contract over the wildcard bounding
+ * A key field as drawn, over pg_type's sizes and alignments: a fixed-width type, numeric(p, s), text of a bounded
+ * pattern (ASCII, or any code point), the wildcard, or a contract over the wildcard bounding
  * char_length.
  */
 type FixedType =
@@ -872,7 +872,6 @@ type FixedType =
 type KeyFieldSketch =
 	| { readonly kind: "fixed"; readonly type: FixedType }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
-	| { readonly kind: "bare numeric" }
 	| { readonly kind: "ascii text"; readonly length: number }
 	| { readonly kind: "any text"; readonly length: number }
 	| { readonly kind: "wildcard" }
@@ -924,7 +923,6 @@ const datumOf = (f: KeyFieldSketch): DatumBoundOf => {
 		case "any text":
 		case "bounded contract":
 			return { kind: "bounded", datum: varlena(4 * f.length) }
-		case "bare numeric":
 		case "wildcard":
 			return { kind: "unbounded" }
 	}
@@ -980,8 +978,6 @@ const keyFieldDescriptor = (f: KeyFieldSketch, i: number): FieldBase => {
 			return fixedDescriptor(f.type)
 		case "numeric":
 			return rawPg.numericOf(f.precision, f.scale)
-		case "bare numeric":
-			return rawPg.numeric
 		case "ascii text":
 			return regex(`^[a-z]{0,${f.length}}$`, "u")
 		case "any text":
@@ -1023,7 +1019,6 @@ const keyFieldGen: Gen<KeyFieldSketch> = weighted([
 			})
 		)
 	],
-	[1, constant<KeyFieldSketch>({ kind: "bare numeric" })],
 	[2, map(int(0, 40), (length): KeyFieldSketch => ({ kind: "ascii text", length }))],
 	[1, map(int(0, 40), (length): KeyFieldSketch => ({ kind: "any text", length }))],
 	[1, constant<KeyFieldSketch>({ kind: "wildcard" })],
@@ -1189,7 +1184,7 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -1259,7 +1254,7 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ width, kind }, c) =>
 						Effect.sync(() => {
@@ -1343,7 +1338,7 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -1464,7 +1459,7 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(drawnDatums, c) =>
 						Effect.sync(() => {
@@ -1534,7 +1529,7 @@ describe("a vector field is a key field like any other: every vector has one for
 		span: source.draw(boolean),
 		dimensions: source.draw(
 			weighted([
-				[1, int(1, vectorMaxDimensions)],
+				[1, int(1, vectorMaxDimensions.value)],
 				[1, int(1, 64)]
 			])
 		),
@@ -1553,10 +1548,10 @@ describe("a vector field is a key field like any other: every vector has one for
 	/** The production bound of a key field's datum; every field the sketch draws has one. */
 	const boundOf = (descriptor: FieldBase): DatumBound => {
 		const bound = datumBound(descOf(descriptor))
-		if (!bound.ok) {
-			return assert.fail(`a bounded key field: ${bound.error}`)
+		if (bound === undefined) {
+			return assert.fail("a bounded key field: text whose pattern proves no byte bound")
 		}
-		return bound.value
+		return bound
 	}
 
 	it.effect(
@@ -1589,7 +1584,7 @@ describe("a vector field is a key field like any other: every vector has one for
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(s, c) =>
 						Effect.sync(() => {
@@ -1631,10 +1626,10 @@ describe("a vector field is a key field like any other: every vector has one for
 								)
 								refused(owned, "UnrepresentableKey")
 								c.note("vector beside a span refused")
-							} else if (bytes > btreeMaxItemSize) {
+							} else if (bytes > btreeMaxItemSize.value) {
 								assert.deepEqual(
 									layout,
-									Result.err<KeyFault>({ kind: "btreeEntry", bytes, limit: btreeMaxItemSize })
+									Result.err<KeyFault>({ kind: "btreeEntry", bytes, limit: btreeMaxItemSize.value })
 								)
 								refused(owned, "UnrepresentableKey")
 								c.note("a vector key above the B-tree limit")

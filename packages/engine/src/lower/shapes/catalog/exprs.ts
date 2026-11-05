@@ -73,14 +73,11 @@ export const required = <T>(value: T | undefined, reason: string): T => value ??
  * The plain result types the Compute catalogue gives (scalar/compute/types.ts), so a type the target states is the
  * type the checker would have stated.
  */
-export const plain: {
-	readonly [C in "int4" | "int8" | "float8" | "bool" | "numeric"]: ScalarType
-} = {
+export const plain: { readonly [C in "int4" | "int8" | "float8" | "bool"]: ScalarType } = {
 	int4: plainType("int4"),
 	int8: plainType("int8"),
 	float8: plainType("float8"),
-	bool: plainType("bool"),
-	numeric: plainType("numeric")
+	bool: plainType("bool")
 }
 
 /**
@@ -108,31 +105,6 @@ interface OpView {
 
 export const opView = (e: ScalarExpr): OpView | undefined =>
 	e.kind === "op" ? { fn: nativeOp(e.op)?.fn, op: e.op, args: e.args } : undefined
-
-/** Whether `e` is the native function `fn`, with its operands. */
-const nativeView = (e: ScalarExpr, fn: NativeFn): OpView | undefined => {
-	const v = opView(e)
-	return v?.fn === fn ? v : undefined
-}
-
-/**
- * The conjuncts of a predicate: its `and` operands, flattened.
- *
- * Pushed last to first, so the first operand is popped first.
- */
-export const conjuncts = (root: ScalarExpr): ReadonlyArray<ScalarExpr> => {
-	const out: Array<ScalarExpr> = []
-	const stack = [root]
-	for (let e = stack.pop(); e !== undefined; e = stack.pop()) {
-		const v = nativeView(e, "and")
-		if (v !== undefined) {
-			appendAll(stack, v.args.toReversed())
-		} else {
-			out.push(e)
-		}
-	}
-	return out
-}
 
 /** Every column an expression reads, depth first. */
 export const columnsRead = (root: ScalarExpr): ReadonlyArray<ColumnRef> => {

@@ -1,4 +1,4 @@
-import type { LawId, RaisedLawId } from "#compiler/core/ids.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import {
 	capacity,
@@ -86,7 +86,7 @@ export const Clubs = schema("Clubs", { Region, Club, Member }, [
  * declares it.
  */
 export const clubs = installationNamesOf(installationOf(Clubs, { kind: "declared" }))
-export const memberCount: RaisedLawId = clubs.lawOf(membersPerClub)
+export const memberCount: LawId = clubs.lawOf(membersPerClub)
 export const memberKey: LawId = clubs.lawOf(emailKey)
 export const positiveSeats: LawId = clubs.lawOf(positiveSeatsCheck)
 export const seatsLaw: LawId = clubs.contract("Seats").law

@@ -2,6 +2,7 @@ import { firstIndex, appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { CatalogRule } from "#compiler/ir/certificate.ts"
 import { type ColumnRef, type OpId, type ScalarExpr, sortedOps } from "#compiler/ir/expr.ts"
+import { Fold } from "#compiler/ir/fold.ts"
 import {
 	type Cell,
 	conservativeMeta,
@@ -14,6 +15,7 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { conjuncts } from "#compiler/logical/props.ts"
 import { cellGraph, readsOutside, subtreeOf } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	bindingsByVar,
@@ -34,7 +36,6 @@ import {
 	columnsRead,
 	compareExpr,
 	condExpr,
-	conjuncts,
 	demand,
 	litExpr,
 	noMatch,
@@ -433,56 +434,66 @@ const boundRegion = (
 	if (region.occurrences.some((o, i) => i !== takeIndex && boundOccurrence(o))) {
 		return true
 	}
-	return restrictedAbove(cx, regionCell, 0)
+	return restrictedAbove(cx, regionCell)
+}
+
+/**
+ * Whether a consumer of `cell` keeps only its rows matching a bound set: a semi-join against a bound set over it, or
+ * a semi-join, filter or projection whose own readers all do (restrictedAbove, which answers the consumer's).
+ */
+function* restricts(consumer: Cell, cell: Cell): Generator<Cell, boolean, boolean> {
+	const n = consumer.current
+	switch (n.kind) {
+		case "SemiJoin":
+			return (n.left === cell && n.right !== cell && boundRows(n.right)) || (yield consumer)
+		case "Filter":
+		case "ProjectSet":
+			return yield consumer
+		case "Base":
+		case "Closed":
+		case "Context":
+		case "InputSet":
+		case "Delta":
+		case "MatchRegion":
+		case "AntiJoin":
+		case "Union":
+		case "Intersect":
+		case "Difference":
+		case "Take":
+		case "Group":
+		case "Produce":
+		case "Recursive":
+		case "SelfRef":
+		case "ApproximateNearest":
+		case "OrderedResult":
+		case "Attach":
+		case "Forbid":
+		case "Window":
+		case "OrderedSetAggregate":
+			return false
+	}
 }
 
 /**
  * Whether every node that reads a node's rows keeps only those matching a bound set: a semi-join against a bound set,
  * or a filter or projection whose own readers do. A node that only names its columns in an expression, as the take's
- * correlation names the region's, does not read its rows. The walk follows at most a few nodes up the plan.
+ * correlation names the region's, does not read its rows. Each cell's answer is read from its readers' only, so the
+ * fold (ir/fold.ts) answers each cell above `start` once, readers first: the walk climbs the editor's DAG, which is
+ * finite and acyclic through its data inputs, as far as the plan goes.
  */
-const restrictedAbove = (cx: CatalogContext, cell: Cell, depth: number): boolean => {
-	const consumers = cx.consumers(cell).filter((c) => inputsOf(c.current).includes(cell))
-	if (consumers.length === 0 || depth > 8) {
-		return false
-	}
-	const restricts = (c: Cell): boolean => {
-		const n = c.current
-		switch (n.kind) {
-			case "SemiJoin":
-				return (
-					(n.left === cell && n.right !== cell && boundRows(n.right)) ||
-					restrictedAbove(cx, c, depth + 1)
-				)
-			case "Filter":
-			case "ProjectSet":
-				return restrictedAbove(cx, c, depth + 1)
-			case "Base":
-			case "Closed":
-			case "Context":
-			case "InputSet":
-			case "Delta":
-			case "MatchRegion":
-			case "AntiJoin":
-			case "Union":
-			case "Intersect":
-			case "Difference":
-			case "Take":
-			case "Group":
-			case "Produce":
-			case "Recursive":
-			case "SelfRef":
-			case "ApproximateNearest":
-			case "OrderedResult":
-			case "Attach":
-			case "Forbid":
-			case "Window":
-			case "OrderedSetAggregate":
-				return false
+const restrictedAbove = (cx: CatalogContext, start: Cell): boolean =>
+	new Fold<Cell, boolean>(function* (cell) {
+		const consumers = cx.consumers(cell).filter((c) => inputsOf(c.current).includes(cell))
+		if (consumers.length === 0) {
+			return false
 		}
-	}
-	return consumers.every(restricts)
-}
+		for (const c of consumers) {
+			if (!(yield* restricts(c, cell))) {
+				return false
+			}
+		}
+		return true
+	}).of(start)
 
 /** A column of the node a cell holds. */
 interface At {
@@ -494,21 +505,31 @@ interface At {
  * Traces a column a reference names to the source column of one occurrence it is a copy of, through projections and
  * every node that keeps its input's rows (rel.ts keptRowsOf); none when it is computed. A reference names its node by
  * label, read through the editor's cells by label (`byLabel`); a label no cell has traces nothing.
+ *
+ * Each step is a function of the column it is at, a cell and a name, of which the editor holds finitely many, so the
+ * walk either ends or comes back to a column it was at, from which it would repeat forever: a projection's output may
+ * copy an outer column, named by label, which the cells' data inputs do not order. It traces nothing then, and
+ * otherwise visits each column once.
  */
 const trace = (byLabel: ReadonlyMap<NodeId, Cell>, ref: ColumnRef): Traced | undefined => {
 	const start = byLabel.get(ref.node)
 	if (start === undefined) {
 		return undefined
 	}
-	let at: At = { cell: start, name: ref.name }
-	for (let steps = 0; steps < 10_000; steps++) {
+	const visited = new Map<Cell, Set<string>>()
+	for (let at: At = { cell: start, name: ref.name }; ;) {
+		const names = visited.get(at.cell) ?? new Set<string>()
+		if (names.has(at.name)) {
+			return undefined
+		}
+		names.add(at.name)
+		visited.set(at.cell, names)
 		const step = traceStep(byLabel, at)
 		if (step.kind === "found") {
 			return step.traced
 		}
 		at = step.at
 	}
-	return undefined
 }
 
 /** A source column of one occurrence. */

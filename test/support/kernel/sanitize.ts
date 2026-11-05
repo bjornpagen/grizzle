@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Formatter, Predicate } from "effect"
+import { testExitWait } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 /** A backend of a login, as pg_stat_activity shows it. */
@@ -119,7 +120,7 @@ const backendRow =
  * reads its client's end-of-file and exits, but one still running a statement reads nothing until the statement ends,
  * and a statement waiting on a lock ends only when the lock's holder ends its transaction: another session, perhaps one
  * released after this one, so a wait for the backend to exit on its own could wait on that release forever. So a
- * backend still listed is terminated, the server waiting up to 10 s for it to exit, and the release waits on nothing
+ * backend still listed is terminated, the server waiting up to testExitWait for it to exit, and the release waits on nothing
  * but this backend. One that outlives its termination is a defect of the cluster, as in dropRole. The call stays in the
  * select list, so it runs only for the backend the WHERE clause finds.
  */
@@ -130,7 +131,7 @@ export const endBackend = (
 	Effect.gen(function* () {
 		const identity = [backend.pid, backend.started]
 		const terminated = yield* admin.queryValues(
-			`SELECT pg_catalog.pg_terminate_backend(a.pid, 10000) ${backendRow}`,
+			`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait.value}) ${backendRow}`,
 			identity
 		)
 		if (Arr.every(terminated, ([exited]) => exited === true)) {

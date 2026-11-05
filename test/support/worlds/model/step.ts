@@ -67,7 +67,7 @@ import type {
 	Probe,
 	ReadBack,
 	ReadVia,
-	SessionState,
+	ModelSession,
 	Source,
 	Allowed,
 	HostValue,
@@ -440,7 +440,7 @@ export const step = (state: ModelState, action: Action): Arr.NonEmptyReadonlyArr
 			if (loginOf(state.install, action.login) === undefined) {
 				return [{ observation: { kind: "refused", sqlstate: "other" }, next: state }]
 			}
-			const session: SessionState = {
+			const session: ModelSession = {
 				kind: "direct",
 				login: action.login,
 				current: { kind: "login" },

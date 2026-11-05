@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { array, boolean, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	type DirectCase,
 	type DirectFeature,
@@ -15,6 +15,7 @@ import {
 	runDirectCase
 } from "#test/pg/direct-writers/model.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import {
 	type FactsSketch,
@@ -246,7 +247,7 @@ export const directWriterSuite = () =>
 							shrink: { kind: "bounded", candidates: 300 },
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(run, cx) =>
 							Effect.scoped(
@@ -285,7 +286,6 @@ export const directWriterSuite = () =>
 								})
 							)
 					)
-				),
-			1_800_000
+				)
 		)
 	})

@@ -3,14 +3,15 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
+import { allenMaskMax } from "#compiler/core/allen.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { predicateAtoms } from "#compiler/physical/access/atoms.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { allenMaskMax } from "#compiler/query/build/terms.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { Sp } from "#test/unit/workload/fixtures.ts"
 
@@ -59,7 +60,7 @@ describe("Allen masks", () => {
 							literal: Formatter.format,
 							limit: allenMaskMax,
 							coverage: requiredInSpace<Mask>(["a partial mask", "the full mask"]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(mask, c) =>
 							Effect.sync(() => {

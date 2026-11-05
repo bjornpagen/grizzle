@@ -3,18 +3,18 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { type EndpointComparison, endpointMask, pointInMask } from "#compiler/allen/endpoints.ts"
 import {
 	type AllenMask,
 	type AllenPlace,
-	type AllenRelation,
 	allenMaskOf,
 	allenPlaces,
-	allenRelations,
 	type SpanEndpoint
 } from "#compiler/allen/mask.ts"
+import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	type HalfOpen,
 	type PairFacts,
@@ -93,7 +93,7 @@ describe("the relations' places", () => {
 								Arr.map(allenRelations, (r): PlaceFeature => `${type} ${r}`)
 							)
 						),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ type, pair }, c) =>
 						Effect.sync(() => {
@@ -138,7 +138,7 @@ describe("the endpoint masks", () => {
 						literal: Formatter.format,
 						limit: pairLimit,
 						coverage: requiredInSpace<PredicateFeature>(situations),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ pair }, c) =>
 						Effect.sync(() => {

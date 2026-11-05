@@ -18,15 +18,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint, double, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -42,6 +34,7 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { plantedStringGen } from "#test/unit/values/support.ts"
 
@@ -338,7 +331,7 @@ describe("admitValue", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([carrier, drawnValue], c) =>
 						Effect.sync(() => {
@@ -465,7 +458,7 @@ describe("factIdentity", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ fact: drawnFact, same, pick, digit }, c) =>
 						Effect.sync(() => {
@@ -530,7 +523,7 @@ describe("factIdentity", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(order) =>
 						Effect.sync(() => {
@@ -592,7 +585,7 @@ describe("factIdentity", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ fact: drawnFact, malformed, extra }, c) =>
 						Effect.sync(() => {

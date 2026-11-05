@@ -5,7 +5,7 @@ import { array, constant, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Exit, Formatter } from "effect"
+import { Array as Arr, Effect, Exit, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -18,6 +18,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import { analyzeText, type TextRefinement, textDomainDdl } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -298,7 +299,7 @@ layer(Substrate.layer)(
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(c, k) => {
 								const patterns: ReadonlyArray<CasePattern> = [
@@ -324,7 +325,7 @@ layer(Substrate.layer)(
 		)
 
 		/**
-		 * The compile-space measures (core/policy.ts regexMaxPositions, regexMaxClosurePairs, regexMaxAnchors,
+		 * The compile-space measures (core/limits.ts regexMaxPositions, regexMaxClosurePairs, regexMaxAnchors,
 		 * regexMaxAnchorWeight) must keep every admitted pattern inside what
 		 * PostgreSQL 19 compiles: it refuses none of them as too complex. How long a compile takes is no part of the
 		 * property, since the machine's load sets it; the session's statement timeout guards against a hang alone.
@@ -371,7 +372,7 @@ layer(Substrate.layer)(
 								literal: Formatter.format,
 								limit: atBound.length,
 								coverage: noCoverage,
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							([source, flags]) =>
 								Effect.gen(function* () {
@@ -410,7 +411,7 @@ layer(Substrate.layer)(
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(source, k) =>
 							Effect.gen(function* () {

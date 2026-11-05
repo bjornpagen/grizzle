@@ -158,11 +158,14 @@ const parseLocation = (location: string): CallSite | undefined => {
 	return { file, line: Number(line), column: Number(column) }
 }
 
+/** What a V8 stack line of a call site begins with. */
+const framePrefix = "at "
+
 /** One stack line to its call site, or undefined for the message line, native frames, and anything unparseable. */
 export const parseFrame = (frame: string): CallSite | undefined => {
 	const text = frame.trim()
-	if (text.startsWith("at ")) {
-		const rest = text.slice(3)
+	if (text.startsWith(framePrefix)) {
+		const rest = text.slice(framePrefix.length)
 		if (rest.endsWith(")")) {
 			const open = rest.lastIndexOf("(")
 			return open < 0 ? undefined : parseLocation(rest.slice(open + 1, -1))

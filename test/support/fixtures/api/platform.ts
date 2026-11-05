@@ -710,9 +710,7 @@ export const nearCap = query(Platform).rule((r) => {
 		.match(Workspace, { id: workspace, org: r.param("org", uuid) })
 		.match(monthSpend, { workspace, month: r.param("month", MonthNo), spend })
 		.match(WorkspaceLimit, { workspace, month: r.param("month", MonthNo), cap })
-		.where(
-			r.ge(Compute.mul(spend, 10n), Compute.mul(Compute.cast(Compute.base(cap), pg.numeric), 9n))
-		)
+		.where(r.ge(Compute.mul(spend, 10n), Compute.mul(Compute.numeric(Compute.base(cap)), 9n)))
 		.find({ workspace, spend, cap })
 })
 
@@ -1043,7 +1041,7 @@ export const refundable = query(Platform)
 		return r
 			.match(Invoice, { id, org: r.param("org", uuid), amount, state: "paid" })
 			.where(r.not(Refund, { invoice: id }))
-			.find({ invoice: id, amount, refunded: Compute.literal(pg.numeric, 0n) })
+			.find({ invoice: id, amount, refunded: Compute.literal(pg.numeric(1, 0), 0n) })
 	})
 
 /** An organization's refunds in a window, per reason. */
@@ -1107,13 +1105,10 @@ export const prorationFor = query(Platform).rule((r) => {
 			overlap,
 			prorated: Compute.round(
 				Compute.when(
-					Compute.nonzero(Compute.cast(Compute.base(Compute.width(period, Instant)), pg.numeric)),
+					Compute.nonzero(Compute.numeric(Compute.base(Compute.width(period, Instant)))),
 					(width) =>
 						Compute.div(
-							Compute.mul(
-								Compute.cast(Compute.base(monthlyPrice), pg.numeric),
-								Compute.cast(overlap, pg.numeric)
-							),
+							Compute.mul(Compute.numeric(Compute.base(monthlyPrice)), Compute.numeric(overlap)),
 							width
 						),
 					0n
@@ -1161,13 +1156,10 @@ export const recognizedIn = query(Platform).rule((r) => {
 			during,
 			recognized: Compute.round(
 				Compute.when(
-					Compute.nonzero(Compute.cast(Compute.base(Compute.width(during, Instant)), pg.numeric)),
+					Compute.nonzero(Compute.numeric(Compute.base(Compute.width(during, Instant)))),
 					(width) =>
 						Compute.div(
-							Compute.mul(
-								Compute.cast(Compute.base(amount), pg.numeric),
-								Compute.cast(overlap, pg.numeric)
-							),
+							Compute.mul(Compute.numeric(Compute.base(amount)), Compute.numeric(overlap)),
 							width
 						),
 					0n

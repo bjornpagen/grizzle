@@ -47,7 +47,7 @@ const sums = query(Kit).rule((r) => {
 		sumAmount: r.sum(amount),
 		sumRatio: r.sum(ratio),
 		sumWeight: r.sum(weight),
-		sumFee: r.sum(Compute.cast(fee, pg.numeric)),
+		sumFee: r.sum(Compute.numeric(fee)),
 		sumPrice: r.sum(price)
 	})
 })

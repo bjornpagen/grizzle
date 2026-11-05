@@ -14,7 +14,7 @@ import { paramEncoder } from "#compiler/codec/scalar.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
-import { maxStringLength } from "#compiler/core/policy.ts"
+import { maxStringLength } from "#compiler/core/limits.ts"
 import type { ArrayTexts, Encoder, ParamDecl, RelationParamDecl } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { RelationColumn } from "#compiler/lower/conservative/types.ts"
@@ -160,7 +160,7 @@ const prepareInput = (
 				decl.name,
 				Arr.map(columns, (c) => c.name),
 				rows.rows,
-				maxStringLength
+				maxStringLength.value
 			)
 			if (!texts.ok) {
 				return Result.fail(literalBound(texts.error))

@@ -303,9 +303,6 @@ const noteSpellings = (
 				: []),
 			...(group.children > 0 && form === "pipelined"
 				? ["pipelined attachment over two spellings of one parent key" as const]
-				: []),
-			...(group.children > 0 && form === "fused"
-				? ["fused attachment over two spellings of one parent key" as const]
 				: [])
 		])
 		noteAll(note, spelledTwice)

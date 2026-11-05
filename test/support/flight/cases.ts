@@ -90,7 +90,6 @@ const plainStatement = (kind: StatementKind): Unlabelled => {
 		case "hold":
 		case "late":
 		case "stuck":
-		case "wedged":
 		case "lose":
 			return { kind }
 	}
@@ -109,7 +108,6 @@ const drawnStatement = (kind: StatementKind): Gen<Unlabelled> => {
 		case "hold":
 		case "late":
 		case "stuck":
-		case "wedged":
 		case "lose":
 			return constant(plainStatement(kind))
 	}
@@ -119,7 +117,7 @@ const drawnStatement = (kind: StatementKind): Gen<Unlabelled> => {
 const labelled = (prefix: string, statements: ReadonlyArray<Unlabelled>): ReadonlyArray<Planned> =>
 	Arr.map(statements, (statement, i): Planned => ({ ...statement, label: `${prefix}${i}` }))
 
-/** The kinds the exhaustive cases hold: every kind but `stuck` and `wedged` (see smallCases). */
+/** The kinds the exhaustive cases hold: every kind but `stuck` (see smallCases). */
 const smallKinds: Arr.NonEmptyReadonlyArray<StatementKind> = [
 	"rows",
 	"refused",
@@ -139,9 +137,9 @@ const smallStatements: Gen<ReadonlyArray<Unlabelled>> = array(
 
 /**
  * Every case with one statement alone in front of a transaction or none, and at most one statement in the
- * transaction, of every kind but `stuck` and `wedged`, in every frame, its prologue answering every way, BEGIN answered
- * or refused, COMMIT answered or its connection lost: a bounded generator an exhaustive check enumerates whole. A stuck
- * or wedged statement drains only by the drain deadline, which the drawn cases reach.
+ * transaction, of every kind but `stuck`, in every frame, its prologue answering every way, BEGIN answered or refused,
+ * COMMIT answered or its connection lost: a bounded generator an exhaustive check enumerates whole. A stuck statement
+ * drains only once an interruption destroys its connection, which the drawn cases reach.
  */
 export const smallCases: Gen<FlightCase> = (source) => ({
 	call: source.draw(

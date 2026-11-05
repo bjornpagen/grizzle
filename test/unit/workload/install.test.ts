@@ -5,7 +5,7 @@ import { constant, element, subarray, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
@@ -18,6 +18,7 @@ import {
 import { withResidualLaws } from "#compiler/physical/laws/objects.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 import {
 	Board,
@@ -145,7 +146,7 @@ describe("the worked example's workload in the installation", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(kept, c) =>
 						Effect.sync(() => {
@@ -286,7 +287,7 @@ describe("a workload that cannot install", () => {
 					literal: Formatter.format,
 					limit: refusals.length,
 					coverage: noCoverage,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(r) =>
 					Effect.sync(() => {

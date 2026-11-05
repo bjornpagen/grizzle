@@ -4,7 +4,7 @@ import { noCoverage, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
 import { nodesByLabel, relNode, rooted } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
@@ -30,6 +30,7 @@ import {
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	noBindings,
 	Reference,
@@ -182,7 +183,7 @@ describe("placement delivers the reference set with no repeats", () => {
 					),
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(q, c) =>
 					Effect.sync(() => {
@@ -215,7 +216,7 @@ describe("placement delivers the reference set with no repeats", () => {
 					}),
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(q, c) =>
 					Effect.sync(() => {
@@ -245,7 +246,7 @@ describe("placement delivers the reference set with no repeats", () => {
 					coverage: noCoverage,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(q, c) =>
 					Effect.sync(() => {
@@ -291,7 +292,7 @@ describe("placement delivers the reference set with no repeats", () => {
 								coverage: noCoverage,
 								concurrency: 1,
 								steerEvery: 16,
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(q, c) =>
 								Effect.sync(() => {
@@ -323,7 +324,7 @@ describe("placement delivers the reference set with no repeats", () => {
 					coverage: noCoverage,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(q, c) =>
 					Effect.sync(() => {

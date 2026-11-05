@@ -52,7 +52,7 @@ import type {
 	ActionOutcome,
 	RoleSpec,
 	Rule,
-	SessionState,
+	ModelSession,
 	Token,
 	HostValue,
 	WorldFeature,
@@ -135,7 +135,7 @@ const sessionActor = (state: ModelState, id: number, wants: Wants): Actor =>
 	})
 
 /** The actor of a session the state holds: a stale handle when the session is closed or of the other kind. */
-const liveActor = (state: ModelState, session: SessionState, wants: Wants): Actor => {
+const liveActor = (state: ModelState, session: ModelSession, wants: Wants): Actor => {
 	switch (session.kind) {
 		case "closed":
 			return stale(session.was === "db" ? "db" : "direct-login")

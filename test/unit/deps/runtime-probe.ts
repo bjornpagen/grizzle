@@ -267,7 +267,7 @@ const floatsDecoded = Arr.map(["1.5", "-0", "3.4028235e+38", "1e-45", "1e+00"], 
 
 /**
  * The conditional aggregate's lowering reads a numeric literal's payload as
- * text: conditional sums over integer, bigint, bare numeric (from bigints and from texts) and typmod numeric branches
+ * text: conditional sums over integer, bigint, numeric(1, 0) (from bigints and from texts) and numeric(5, 1) branches
  * compile under the trap. Which of them lower to count(*) FILTER is R24's rule, which unit/compute/aggregate.test.ts
  * states exhaustively; here a compile that is refused fails the probe.
  */
@@ -305,14 +305,24 @@ for (const q of [
 	flags.rule((r) => {
 		const { id, flag } = v(Flagged, "flagged")
 		return r.match(Flagged, { id, flag }).find({
-			n: r.sum(Compute.cond(flag, Compute.literal(pg.numeric, 1n), Compute.literal(pg.numeric, 0n)))
+			n: r.sum(
+				Compute.cond(
+					flag,
+					Compute.literal(pg.numeric(1, 0), 1n),
+					Compute.literal(pg.numeric(1, 0), 0n)
+				)
+			)
 		})
 	}),
 	flags.rule((r) => {
 		const { id, flag } = v(Flagged, "flagged")
 		return r.match(Flagged, { id, flag }).find({
 			n: r.sum(
-				Compute.cond(flag, Compute.literal(pg.numeric, "1"), Compute.literal(pg.numeric, "0"))
+				Compute.cond(
+					flag,
+					Compute.literal(pg.numeric(1, 0), "1"),
+					Compute.literal(pg.numeric(1, 0), "0")
+				)
 			)
 		})
 	}),

@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { constant, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Formatter, Record } from "effect"
+import { Array as Arr, Formatter, Record } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import {
@@ -55,14 +55,13 @@ const perEvaluationRequired = [
 const partLetter = (part: number): string => String.fromCharCode(0x61 + part)
 
 /**
- * The features the optimizer's population must reach, beyond the rules: fused attachments are unfused and compared,
- * pipelined attachments and heading groups run, relation parameters also travel by VALUES, computed terms are
- * evaluated, and cases deliver rows.
+ * The features the optimizer's population must reach, beyond the rules: pipelined attachments and heading groups run
+ * (no attachment over exact parents fuses; the one that fuses, over approximate parents, is variants.test.ts's),
+ * relation parameters also travel by VALUES, computed terms are evaluated, and cases deliver rows.
  */
 const situations = [
 	...generatedRules,
 	...rewriteFamilies,
-	"fused attachment",
 	"pipelined attachment",
 	"heading groups",
 	"computed term",
@@ -269,11 +268,9 @@ export const generatedSuite = (part: number): void => {
 							kept: [],
 							runs: casesPerPopulation,
 							shrink: optimizedShrink,
-							caseHang: Duration.minutes(2),
 							perturb: "all"
 						})
-					),
-				1_800_000
+					)
 			)
 
 			it.effect(
@@ -291,33 +288,27 @@ export const generatedSuite = (part: number): void => {
 							kept: perEvaluationKept,
 							runs: casesPerPopulation,
 							shrink: optimizedShrink,
-							caseHang: Duration.minutes(2),
 							perturb: "all"
 						})
-					),
-				1_800_000
+					)
 			)
 
-			it.effect(
-				`agrees on ${casesPerPopulation} generated cases with dense facts`,
-				(ctx) =>
-					searched(
-						ctx,
-						differential(densePopulation, `dense${partLetter(part)}`, {
-							suite: `optimized/dense-${part}`,
-							literal: Formatter.format,
-							coverage: required<OptimizedFeature>(["nonempty"], {
-								cases: casesPerPopulation,
-								sense: notesOnly
-							}),
-							kept: [],
-							runs: casesPerPopulation,
-							shrink: optimizedShrink,
-							caseHang: Duration.minutes(2),
-							perturb: "all"
-						})
-					),
-				1_800_000
+			it.effect(`agrees on ${casesPerPopulation} generated cases with dense facts`, (ctx) =>
+				searched(
+					ctx,
+					differential(densePopulation, `dense${partLetter(part)}`, {
+						suite: `optimized/dense-${part}`,
+						literal: Formatter.format,
+						coverage: required<OptimizedFeature>(["nonempty"], {
+							cases: casesPerPopulation,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: casesPerPopulation,
+						shrink: optimizedShrink,
+						perturb: "all"
+					})
+				)
 			)
 		}
 	)
@@ -347,11 +338,9 @@ export const paramNamesSuite = (): void => {
 							kept: [],
 							runs: casesPerPopulation,
 							shrink: optimizedShrink,
-							caseHang: Duration.minutes(2),
 							perturb: "all"
 						})
-					),
-				1_800_000
+					)
 			)
 		}
 	)

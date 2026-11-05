@@ -1,8 +1,7 @@
 import { array, constant, element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import type { PctSchedule } from "@grizzle/testing/interleave"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
-import { Array as Arr, Effect, Option, Record, Result, Schedule, String as Str } from "effect"
-import type { ApplyError } from "#adapter/errors/execution.ts"
+import { Array as Arr, Effect, Option, Record, String as Str } from "effect"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import {
@@ -37,7 +36,7 @@ import {
 } from "#test/pg/laws/families/support.ts"
 import { defined } from "#test/support/assert.ts"
 import { strictDetail } from "#test/support/detail.ts"
-import type { DirectAbort, GrizzleAbort, Outcome, WitnessKey } from "#test/support/history/check.ts"
+import type { Outcome, Settled, WitnessKey } from "#test/support/history/check.ts"
 import type { GrizzleWriter, HistoryRig } from "#test/support/history/families.ts"
 import { directOps, expectDirect, type Immediacy } from "#test/support/history/model.ts"
 import {
@@ -52,6 +51,7 @@ import type { Names } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { untilAnswered } from "#test/support/schedules/grizzle.ts"
 
 import {
 	type PgErrorFields,
@@ -747,25 +747,10 @@ const hostKeys = (keys: ReadonlyArray<WitnessKey>): ReadonlyArray<WitnessKey> =>
 	}))
 
 /**
- * A grizzle operation's last attempt as a history outcome: a TransientFailure aborts it, since the last attempt the
- * retries allow failed and nothing committed. A history's writers run as full roles, whose worlds are reality: no fact
- * lies outside them, so an outside-world outcome is a defect.
+ * A grizzle operation's answer as a history outcome. A history's writers run as full roles, whose worlds are reality:
+ * no fact lies outside them, so an outside-world outcome is a defect.
  */
-const grizzleOutcome = (
-	names: Names,
-	result: Result.Result<ApplyOutcome<unknown>, ApplyError>
-): Effect.Effect<Outcome<GrizzleAbort>> => {
-	if (Result.isFailure(result)) {
-		const error = result.failure
-		if (error._tag === "TransientFailure") {
-			return Effect.succeed({
-				kind: "aborted",
-				cause: { kind: "transient", reason: error.reason._tag }
-			})
-		}
-		return Effect.die(error)
-	}
-	const o = result.success
+const grizzleOutcome = (names: Names, o: ApplyOutcome<unknown>): Effect.Effect<Settled> => {
 	if (o.kind === "outside-world") {
 		return Effect.die(new Error(`a full role's write is outside its world: ${o.relation}`))
 	}
@@ -779,70 +764,35 @@ const grizzleOutcome = (
 	})
 }
 
-/** The retries a law family's grizzle writer makes after a TransientFailure, as an application does. */
-const grizzleRetries = 3
-
 /**
- * A grizzle operation's outcome, how many attempts it made, and the TransientFailure reason each discarded attempt
- * met. grizzle makes one attempt per call; the writer retries a TransientFailure on its own side (Effect.retry, at
- * most `retries` times), so a refused attempt is aborted, committed nothing, and takes no place in the order, and the
- * operation's outcome is its last attempt's.
+ * A grizzle operation's outcome and the TransientFailure reason each discarded attempt met. grizzle makes one attempt
+ * per call; the writer calls again after each TransientFailure until a call answers (untilAnswered), as an
+ * application does, so a refused attempt committed nothing and takes no place in the order, and the operation's
+ * outcome is its answer. Its refusals end with the history's other transactions, so an operation that never answers is
+ * its case's hang (caseHang).
  */
 export interface GrizzleRun {
-	readonly outcome: Outcome<GrizzleAbort>
-	readonly attempts: number
+	readonly outcome: Settled
 	readonly transients: ReadonlyArray<TransientTag>
 }
 
+/** `writer`'s operation `ops`, run as an application runs a write; any failure but a refusal is a defect. */
 export const runGrizzle = (
 	env: HistoryEnv,
 	writer: GrizzleWriter,
 	ops: ReadonlyArray<HostOp>
 ): Effect.Effect<GrizzleRun> =>
-	retriedApply(
-		env.names,
-		env.rig.runtimes[writer].methods.apply(changeSetOf(env.rig.schema, env.rig.relations, ops), {}),
-		grizzleRetries
+	untilAnswered(
+		env.rig.runtimes[writer].methods.apply(changeSetOf(env.rig.schema, env.rig.relations, ops), {})
+	).pipe(
+		Effect.orDie,
+		Effect.flatMap((run) =>
+			Effect.map(grizzleOutcome(env.names, run.answered), (outcome) => ({
+				outcome,
+				transients: run.refused
+			}))
+		)
 	)
-
-/**
- * `applied` run as an application runs a write: called once, and called again after each TransientFailure, at most
- * `retries` times; every other failure is a defect of the history.
- */
-const retriedApply = (
-	names: Names,
-	applied: Effect.Effect<ApplyOutcome<unknown>, ApplyError>,
-	retries: number
-): Effect.Effect<GrizzleRun> =>
-	Effect.suspend(() => {
-		let attempts = 0
-		const transients: Array<TransientTag> = []
-		const attempt = Effect.suspend(() => {
-			attempts++
-			return Effect.tapError(applied, (e) =>
-				Effect.sync(() => {
-					if (e._tag === "TransientFailure") {
-						transients.push(e.reason._tag)
-					}
-				})
-			)
-		})
-		const retried = attempt.pipe(
-			Effect.retry({
-				schedule: Schedule.recurs(retries),
-				while: (e) => e._tag === "TransientFailure"
-			})
-		)
-		const outcome = Effect.flatMap(Effect.result(retried), (result) =>
-			grizzleOutcome(names, result)
-		)
-		return Effect.map(outcome, (o) => ({
-			outcome: o,
-			attempts,
-			/** The last attempt's own failure is the outcome's cause, not a discarded attempt's. */
-			transients: o.kind === "aborted" ? transients.slice(0, -1) : transients
-		}))
-	})
 
 /**
  * What classifying a direct writer's error reads: the installation's names (a constraint's law, through the naming
@@ -871,8 +821,8 @@ export const directClassifier = (env: HistoryEnv): DirectClassifier => ({
 export const classifyDirect = (
 	env: DirectClassifier,
 	fields: PgErrorFields
-): Effect.Effect<Outcome<DirectAbort>> =>
-	Effect.sync((): Outcome<DirectAbort> => {
+): Effect.Effect<Outcome> =>
+	Effect.sync((): Outcome => {
 		const constraint = fields.constraint
 		switch (fields.code) {
 			case "40001":

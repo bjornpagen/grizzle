@@ -17,7 +17,6 @@ import { type Names, namesOf, roleNamesOf } from "#test/support/kernel/naming.ts
 import { argumentsOf } from "#test/support/list.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.ts"
-import { type Retried, retried } from "#test/support/schedules/grizzle.ts"
 import { type ExploreEnv, exploreEnv } from "#test/support/schedules/interleave.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
@@ -48,8 +47,9 @@ type DerivedName = (typeof derivedNames)[number]
  * A world role reads a derived relation through its own view of it, in its own schema (`seen`); the holder refreshes,
  * and the judge reads, the installation's materialized view (`view`).
  *
- * grizzle makes one attempt per call, so a refresh operation retries a TransientFailure on the caller's side, as an
- * application does (the harness's `retried`), and its judge states the refusal history. What a refresh must leave is
+ * grizzle makes one attempt per call, so a refresh step retries a TransientFailure on the caller's side, as an
+ * application does (the harness's `retriedOp`), and its judge states the refusal history; a refresh run alone, before
+ * a schedule, meets no concurrent transaction and so no refusal, and runs once. What a refresh must leave is
  * each named view fresh (`freshSql`), never the statements it ran, and what a reader sees of a view is the host model
  * of its definition over the sittings of the snapshot the view was refreshed at (`weeklyRows`, `totalRows`,
  * `busyRows`).
@@ -258,11 +258,11 @@ export interface Fixture {
 	readonly seen: { readonly writer: ViewOf; readonly reader: ViewOf }
 	/** The grizzle refreshers as schedule actors, each resolved once. */
 	readonly refreshers: { readonly [I in Refresher]: GrizzleActor }
-	/** A refresher's refresh operation, retried on the caller's side. */
+	/** A refresher's refresh operation: one call. */
 	readonly refresh: (
 		refresher: Refresher,
 		...relations: ReadonlyArray<DerivedName>
-	) => Effect.Effect<Retried<void>, ApplyError>
+	) => Effect.Effect<void, ApplyError>
 	readonly owner: (...sql: ReadonlyArray<string>) => Effect.Effect<void, SqlError>
 }
 
@@ -322,12 +322,14 @@ export const open = (
 			const named = Arr.map(relations, (r) => values[r])
 			switch (refresher) {
 				case "refresher":
-					return retried(
-						refresherDb.refresh(Arr.headNonEmpty(named), ...argumentsOf(Arr.tailNonEmpty(named)))
+					return refresherDb.refresh(
+						Arr.headNonEmpty(named),
+						...argumentsOf(Arr.tailNonEmpty(named))
 					)
 				case "refresher2":
-					return retried(
-						refresher2Db.refresh(Arr.headNonEmpty(named), ...argumentsOf(Arr.tailNonEmpty(named)))
+					return refresher2Db.refresh(
+						Arr.headNonEmpty(named),
+						...argumentsOf(Arr.tailNonEmpty(named))
 					)
 			}
 		}

@@ -10,10 +10,16 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateTable, predicateTree } from "#compiler/ir/expr.ts"
-import { type Carrier, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
+	type Carrier,
+	type DeclaredType,
+	numericBoundOf,
+	type ScalarType,
+	sameScalarType
+} from "#compiler/ir/scalar.ts"
+import {
+	exactNumericBound,
 	type PlainCarrier,
-	plainType,
 	valueType,
 	wildcardText,
 	withoutSpanWidth
@@ -28,7 +34,7 @@ import {
 	textInfo
 } from "#compiler/text/refinement.ts"
 
-export { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+export { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 
 /**
  * The text metadata the schema reading gives a pattern (analysis/schema.ts): the text package's canonical analysis under
@@ -38,13 +44,13 @@ const canonicalText: TextLookup = (source, flags) =>
 	Result.map(analyzeText(source, flags, SourceLoc("a test fixture's pattern", [])), textInfo)
 
 /**
- * The ScalarType of `desc`, an enum's roster read from `rosters` (closed relation name to its handles in declared
+ * The declared type of `desc`, an enum's roster read from `rosters` (closed relation name to its handles in declared
  * order). A FieldDesc the registry refuses fails the test.
  */
 export const scalarOf = (
 	desc: FieldDesc,
 	rosters: Readonly<Record<string, NonEmptyReadonlyArray<string>>>
-): ScalarType => {
+): DeclaredType => {
 	const env: ScalarEnv = {
 		kind: "builder",
 		roster: (closed) => rosters[closed],
@@ -68,7 +74,6 @@ const plainCarriers: ReadonlySet<string> = new Set<PlainCarrier>([
 	"int2",
 	"int4",
 	"int8",
-	"numeric",
 	"float4",
 	"float8",
 	"money",
@@ -128,7 +133,14 @@ export const widensTo = (from: ScalarType, to: ScalarType): boolean => {
 		return to.carrier === exact.into && to.digits >= exact.digits
 	}
 	if (v.carrier === "numeric") {
-		return sameScalarType(to, plainType("numeric"))
+		const from = exactNumericBound(v)
+		const into = numericBoundOf(to)
+		return (
+			from !== undefined &&
+			into !== undefined &&
+			into.digits >= from.digits &&
+			into.scale >= from.scale
+		)
 	}
 	if (v.carrier === "text") {
 		return sameScalarType(to, wildcardText)

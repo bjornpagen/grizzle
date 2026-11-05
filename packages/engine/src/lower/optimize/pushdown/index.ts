@@ -1,4 +1,3 @@
-import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
@@ -8,23 +7,24 @@ import {
 	type EditNode,
 	type EditRefs,
 	type HeadingColumn,
+	inputsOf,
 	type KindOver,
 	mapAggregate,
 	type OccurrenceOver,
 	type RelKind,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
+import { conjuncts } from "#compiler/logical/props.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { columnRefs, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
-	type Measure,
-	multiset,
 	nodePremises,
+	type Potential,
 	type RewriteCx,
 	type Rule,
 	rewritePass
 } from "#compiler/lower/optimize/demand/frame.ts"
-import { conjunction, conjuncts } from "#compiler/lower/optimize/simplify/boolean.ts"
+import { conjunction } from "#compiler/lower/optimize/simplify/boolean.ts"
 import { exclusive } from "#compiler/lower/optimize/simplify/rules.ts"
 
 const pushdownRules = {
@@ -84,14 +84,28 @@ const takeOver = (ed: DagEditor, m: Moving, body: EditNode): void => {
 	ed.set(m.cell, { ...body, heading: m.filter.heading, meta: m.filter.meta })
 }
 
+/**
+ * The filter moved below a projection, its predicate reading the projected expressions in place of the projected
+ * columns. A conjunct that is a projected conjunction would arrive as several conjuncts, which no rule of this pass may
+ * make of one (pushdownPotential): the move is refused then, and the filter stays above the projection, where it is
+ * one conjunct.
+ */
 const throughProject = (
 	cx: RewriteCx,
 	m: Moving,
 	xCell: Cell,
 	x: KindOver<"ProjectSet", EditRefs>
-): void => {
+): boolean => {
 	const ed = cx.editor
 	const byName = new Map(x.out.map((o) => [o.name, o.expr]))
+	const splits = conjuncts(m.filter.pred).some((c) => {
+		const projected =
+			c.kind === "column" && c.column.node === xCell.id ? byName.get(c.column.name) : undefined
+		return projected !== undefined && conjuncts(projected).length > 1
+	})
+	if (splits) {
+		return false
+	}
 	const pred = ed.copyExpr(m.filter.pred, (ref) =>
 		ref.node === xCell.id ? byName.get(ref.name) : undefined
 	)
@@ -100,6 +114,7 @@ const throughProject = (
 	const out = x.out.map((o) => ({ name: o.name, expr: ed.copyExpr(o.expr, remap) }))
 	takeOver(ed, m, { ...x, input: moved, out })
 	certify(cx, pushdownRules.project, m, xCell.id, [m.cell.id, moved.id])
+	return true
 }
 
 const throughGroup = (
@@ -256,8 +271,7 @@ const pushRule: Rule = {
 		}
 		switch (x.kind) {
 			case "ProjectSet":
-				throughProject(cx, m, xCell, x)
-				return true
+				return throughProject(cx, m, xCell, x)
 			case "Group":
 				return throughGroup(cx, m, xCell, x)
 			case "Union":
@@ -291,22 +305,32 @@ const pushRule: Rule = {
 	}
 }
 
-const pushdownMeasure: Measure = (cx) => {
-	const weights: Array<number> = []
+/**
+ * The pushdown potential: over every filter, its conjuncts times the reach of its input, the non-filter nodes of the
+ * input's exclusive tree (a node and, through every input only it reads, that input's tree), none when its input has
+ * another reader, which no rule moves a filter below.
+ *
+ * Exclusive trees nest without overlap: a node only one reader reads lies in that reader's tree alone. So every move
+ * lowers it. A move below a projection, a group or the left of a set comparison or a semi- or anti-join takes the
+ * filter's conjuncts from above a node onto a strict part of its tree, without splitting one (throughProject); below a
+ * union it copies them onto every arm, whose trees are disjoint parts of the union's below the union itself; into a
+ * region it takes one conjunct onto an occurrence's source, a strict part of the region's tree. No move changes the
+ * reach of any other filter: the moved filter's cell takes the node it passed, which reads the filters the move
+ * placed, so every tree keeps its non-filter nodes. Its first value is at most the conjuncts times the nodes.
+ */
+const pushdownPotential: Potential = (cx) => {
+	const reach = new Map<Cell, number>()
+	const exclusiveReach = (c: Cell): number => (exclusive(cx, c) ? (reach.get(c) ?? 0) : 0)
+	let sum = 0
 	for (const cell of cx.editor.topoOrder()) {
 		const node = cell.current
-		if (node.kind !== "Filter") {
-			continue
+		const below = inputsOf(node).reduce((n, input) => n + exclusiveReach(input), 0)
+		reach.set(cell, (node.kind === "Filter" ? 0 : 1) + below)
+		if (node.kind === "Filter") {
+			sum += conjuncts(node.pred).length * exclusiveReach(node.input)
 		}
-		const below = [...cx.editor.subtree(node.input)].filter(
-			(c) => c.current.kind !== "Filter"
-		).length
-		appendAll(
-			weights,
-			conjuncts(node.pred).map(() => below)
-		)
 	}
-	return multiset(weights)
+	return sum
 }
 
 /**
@@ -337,12 +361,11 @@ const pushdownMeasure: Measure = (cx) => {
  * an attachment, or an approximate candidate set ("moving a predicate changes approximate candidate
  * semantics"), nor into a region on a recursive step.
  *
- * Measure: the multiset of each filter conjunct's weight, the number of non-filter nodes below its filter. Each move
- * replaces one conjunct's weight by smaller ones (one per union arm) and inserts only filters, which no weight counts,
- * so the multiset ordering decreases (frame.ts multiset).
+ * Potential: every filter's conjuncts times the non-filter nodes of its input's exclusive tree (pushdownPotential),
+ * which every move lowers.
  */
 export const pushdownPass = rewritePass({
 	name: "pushdown",
 	rules: [pushRule],
-	measure: pushdownMeasure
+	potential: () => pushdownPotential
 })

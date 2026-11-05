@@ -1,4 +1,4 @@
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Option, Order } from "effect"
 import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
 import {
 	analyzePhysical,
@@ -65,10 +65,38 @@ export const owedOf = (a: PhysicalAnalysis, node: RelNode): Owed => {
 	return isUnique(p) ? { kind: "none" } : { kind: "on", heading: [...p.columns] }
 }
 
+/**
+ * Every minimal key the properties prove, by brute force over the heading's subsets, narrowest first: a subset is a key
+ * when the dependency table identifies a row by it (fds.ts Dependencies proof), and minimal when no proper subset is
+ * one, so a subset holding a key found narrower is never asked. The analysis lists no keys, so a test that reads them
+ * enumerates them here, each in heading order.
+ */
+export const provedKeys = (p: PhysicalProps): ReadonlyArray<KeySet> => {
+	const subsets = Arr.reduce(p.columns, Arr.of<KeySet>([]), (prior, c) =>
+		Arr.appendAll(
+			prior,
+			Arr.map(prior, (s): KeySet => [...s, c])
+		)
+	)
+	const keys: Array<KeySet> = []
+	for (const s of Arr.sort(
+		subsets,
+		Order.mapInput(Order.Number, (k: KeySet) => k.length)
+	)) {
+		if (
+			!Arr.some(keys, (k) => Arr.every(k, (c) => s.includes(c))) &&
+			p.dependencies.proof(s) !== undefined
+		) {
+			keys.push(s)
+		}
+	}
+	return keys
+}
+
 export const keyColumns = (
 	a: PhysicalAnalysis,
 	node: RelNode
-): ReadonlyArray<ReadonlyArray<string>> => Arr.map(propsOf(a, node).keys, (k) => k.columns)
+): ReadonlyArray<ReadonlyArray<string>> => provedKeys(propsOf(a, node))
 
 export const lossReasons = (
 	a: PhysicalAnalysis,
@@ -211,8 +239,8 @@ export const soundness = (
 		const owed = owedOf(analysis, node)
 		return [
 			...Arr.map(
-				Arr.filter(p.keys, (k) => !uniqueOn(rel.heading, rel.rows, k.columns)),
-				(k): Violation => ({ node: id, claim: `key (${Arr.join(k.columns, ", ")})` })
+				Arr.filter(provedKeys(p), (k) => !uniqueOn(rel.heading, rel.rows, k)),
+				(k): Violation => ({ node: id, claim: `key (${Arr.join(k, ", ")})` })
 			),
 			...(p.maxCard.kind === "atMost" && BigInt(rel.rows.length) > p.maxCard.rows
 				? [{ node: id, claim: `at most ${p.maxCard.rows} rows` }]

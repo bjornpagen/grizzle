@@ -47,7 +47,6 @@ import {
 	rowsReadFrom,
 	serializedKb
 } from "#bench/query/support/plans.ts"
-import { attachFuseMaxFields } from "#compiler/core/policy.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -56,18 +55,15 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
 import { labeledStatements } from "#test/support/oracle/compare.ts"
-import { fusedForm } from "#test/support/oracle/verify/channels.ts"
 
 /**
  * R36 and R37: fused and pipelined attachments, and recursive attachments seeded from their parents' rows.
  *
- * - R36 (:410): "both lowerings deliver identical nested results; the fused form is selected only where measured
- *   serialization and planning cost beat the extra statement." A region's accounts carry three attachments: one field
- *   (fused as ARRAY(SELECT ...)), two fields (fused as to_jsonb objects) and five fields, above attachFuseMaxFields
- *   (pipelined: a statement of its own, which computes its parents' rows itself in the same flight). The generated
- *   delivery is compared with the conservative one, which pipelines every attachment, as nested results; the fused
- *   statement's output volume and planning and the extra statement's round trip are recorded for the calibration. No
- *   plan joins outer.
+ * - R36 (:410): "both lowerings deliver identical nested results". A region's accounts carry three attachments of
+ *   one, two and five fields, each pipelined over exact parents whatever its width: a statement of its own, which
+ *   computes its parents' rows itself in the same flight (only a parent whose rows read an approximate search fuses,
+ *   so the search runs once). The generated delivery is compared with the conservative one, which pipelines every
+ *   attachment, as nested results; each statement's output volume and planning are recorded. No plan joins outer.
  * - R37 (:418): "total rows read is proportional to the closures, not to the parents times the relation." A binary
  *   tree of follows edges and a recursive relation whose state carries its origin; a range of people with their
  *   reachable set attached is one recursive statement seeded from its parents' rows, and the edges it reads are
@@ -277,13 +273,6 @@ const distinctParents = (rows: ReadonlyArray<unknown>): boolean => {
 const fusedAs = (statement: OptimizedStatement, name: string) =>
 	Arr.findFirst(statement.fused, (f) => f.name === name)
 
-/** Whether the statement fuses the attachment `name`, written as `form`. */
-const fusedAsForm = (
-	statement: OptimizedStatement,
-	name: string,
-	form: ReturnType<typeof fusedForm>
-): boolean => Option.exists(fusedAs(statement, name), (f) => fusedForm(f.layout) === form)
-
 /**
  * The pipelined attachment statements `name` of a compiled read, with their positions in the optimized artifact, which
  * are their positions among the statements a delivery sends.
@@ -307,7 +296,7 @@ export default defineGate({
 	name: "query-attach",
 	gates: ["R36", "R37"],
 	title:
-		"Fused and pipelined attachments, and recursive attachments seeded from their parents' rows",
+		"Pipelined attachments over exact parents, and recursive attachments seeded from their parents' rows",
 	scope:
 		"A parent with one-field, two-field and five-field attachments, generated against the all-pipelined conservative " +
 		"delivery (R36); a range of tree nodes with their reachable sets through a recursive relation carrying its origin " +
@@ -336,7 +325,7 @@ export default defineGate({
 				to: "(g + 1)::int8"
 			})
 			yield* settle(fx)
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b attach runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b attach raw")
 			const follows = fx.relationName("Follows")
 			const reading = { role: fx.world.app, context: "snapshot", warm: 3, read: "rows" } as const
@@ -418,7 +407,7 @@ export default defineGate({
 					workload: "Account by region with three attachments over its tasks",
 					schemaState: installed,
 					data: `${options.accounts} accounts in 40 regions, ${options.tasksPerAccount} tasks each, titles repeating per account`,
-					parameters: { region, attachFuseMaxFields },
+					parameters: { region },
 					semantics:
 						"each account of the region with its set of titles, its (id, priority) pairs and its task sheets",
 					cache: warm
@@ -451,7 +440,7 @@ export default defineGate({
 							x
 						])
 					),
-					fusedSerializedKb: serializedKb(cardsM.generated, 0),
+					parentSerializedKb: serializedKb(cardsM.generated, 0),
 					handwrittenSerializedKb: serializedKb(cardsHand, 0),
 					pipelinedSerializedKb: Arr.map(sheets, (sheet) =>
 						serializedKb(cardsM.generated, sheet.index)
@@ -461,28 +450,32 @@ export default defineGate({
 			const r36: VerdictInput = {
 				checks: [
 					mechanism(
-						"a one-field attachment is fused as ARRAY(SELECT ...) of its text",
-						fusedAsForm(cardsParent, "ids", "array") && has(parentShape, "array subquery"),
-						`fused: ${Arr.join(
-							Arr.map(cardsParent.fused, (f) => `${f.name} as ${fusedForm(f.layout)}`),
+						"a one-field attachment over exact parents is pipelined, its own statement",
+						attachmentsOf(cards, "ids").length === 1 &&
+							Option.isNone(fusedAs(cardsParent, "ids")) &&
+							!has(parentShape, "array subquery"),
+						`${sent.length} statements sent; fused: ${Arr.join(
+							Arr.map(cardsParent.fused, (f) => f.name),
 							", "
 						)}`
 					),
 					mechanism(
-						"a one-field attachment whose values need deduplication is fused as well",
-						titlesSent.length === 1 &&
-							fusedAsForm(titlesParent, "titles", "array") &&
-							has(shapeOf(titlesParent.ast), "array subquery"),
+						"a one-field attachment whose values need deduplication is pipelined as well",
+						titlesSent.length === 2 &&
+							attachmentsOf(titles, "titles").length === 1 &&
+							titlesParent.fused.length === 0,
 						`${titlesSent.length} statements sent; fused: ${Arr.join(
 							Arr.map(titlesParent.fused, (f) => f.name),
 							", "
 						)}`
 					),
 					mechanism(
-						"a two-field attachment is fused as to_jsonb objects",
-						fusedAsForm(cardsParent, "priorities", "jsonb") && has(parentShape, "call to_jsonb"),
-						`fused: ${Arr.join(
-							Arr.map(cardsParent.fused, (f) => `${f.name} as ${fusedForm(f.layout)}`),
+						"a two-field attachment over exact parents is pipelined, its own statement",
+						attachmentsOf(cards, "priorities").length === 1 &&
+							Option.isNone(fusedAs(cardsParent, "priorities")) &&
+							!has(parentShape, "call to_jsonb"),
+						`${sent.length} statements sent; fused: ${Arr.join(
+							Arr.map(cardsParent.fused, (f) => f.name),
 							", "
 						)}`
 					),

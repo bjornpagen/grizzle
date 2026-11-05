@@ -14,7 +14,7 @@ import {
 	recordField,
 	selectedBy
 } from "#compiler/laws/residual/sql.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { anyNumeric, plainType } from "#compiler/scalar/compute/types.ts"
 import type { Expr, PlStatement, Select, SelectCore } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -178,7 +178,9 @@ export const capacityFamily: FamilyPlugin<"scalarCapacity"> = ({ law, schema, na
 					const at =
 						bound.carrier === baseOf(aggregated.type).carrier
 							? aggregated.type
-							: plainType(bound.carrier)
+							: bound.carrier === "numeric"
+								? anyNumeric
+								: plainType(bound.carrier)
 					const atRef = baseTypeRef(names, at)
 					const left = at === aggregated.type ? total : cast(total, atRef)
 					const right = cast(targetField(bound.field), atRef)

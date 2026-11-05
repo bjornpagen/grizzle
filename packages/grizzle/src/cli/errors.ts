@@ -1,4 +1,4 @@
-import { Array as Arr, type Config, Data, Formatter } from "effect"
+import { Array as Arr, Data, Formatter } from "effect"
 import type { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import { type CompileError, compileReasonText, isCompileError } from "#compiler/core/errors.ts"
 import { maxMigrationNameLength, metaFileName } from "#compiler/deploy/render/folder.ts"
@@ -15,8 +15,10 @@ import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
  *
  * - `usage`: the command line does not name one of the commands, or names it with a malformed argument, a migration
  *   name of no folder's shape, or a schema choice the configuration does not allow;
- * - `config`: grizzle.config.ts is missing, fails to load, or is not a configuration (config.ts), or migrate finds no
- *   connection it accepts, or a process environment that would send a startup variable at its sessions (connection.ts);
+ * - `config`: the configuration file the command names is missing, fails to load, or is not a configuration
+ *   (config.ts), or migrate and drift refuse its connection (connection.ts);
+ * - `environment`: migrate and drift refuse the process environment grizzle runs in, which sets a startup variable pg
+ *   would send at their sessions' startup (connection.ts ownerEnvironment);
  * - `filesystem`: the migrations directory could not be read or written, or holds what no generator wrote;
  * - `snapshot`: a schema's committed snapshot.json is not the generator's (edited, or of another schema), or it and the
  *   schema's folders disagree, so neither a draft nor an apply could continue the chain;
@@ -26,11 +28,12 @@ import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
  * schema has drafted, and an apply hands nothing to the runner until every schema's directory reads.
  *
  * A failure underneath is grizzle's own classified value where it is one (a CompileError); `cause` is only a foreign
- * value wrapped: what importing grizzle.config.ts threw, the platform's file system failure, the ConfigProvider's.
- * Nothing a CliError reports carries a credential, a connection password or a stored value: the configuration is
- * named by its keys, a URL by its parts, and the compiler's diagnostics carry source locations and capabilities only.
+ * value wrapped: what importing the configuration file threw, or the platform's file system failure. Nothing a
+ * CliError reports carries a credential, a connection password or a stored value: the configuration is named by its
+ * keys, its connection by the setting the connection parser refuses, and the compiler's diagnostics carry source
+ * locations and capabilities only.
  */
-export type CliStage = "usage" | "config" | "filesystem" | "snapshot" | "generate"
+export type CliStage = "usage" | "config" | "environment" | "filesystem" | "snapshot" | "generate"
 
 /**
  * The operating system's error code a file system failure carries, as a refusal names it, or nothing. The failure is
@@ -66,26 +69,31 @@ const schemaListText = (schemas: ReadonlyArray<SchemaNames>): string =>
 	)
 
 /** The commands of the command line. */
-type CommandName = "generate" | "check" | "migrate" | "drift" | "names" | "skill"
+export type CommandName = "generate" | "check" | "migrate" | "drift" | "names"
 
-/** The flags of `grizzle generate`, and those that take a value. */
-type Flag = "custom" | "name" | "schema"
-type ValuedFlag = "name" | "schema"
+/** The flags of `grizzle generate`: its switches, and the flags that take a value. */
+export const generateFlags = { switches: ["custom"], valued: ["name", "schema"] } as const
+export type SwitchFlag = (typeof generateFlags.switches)[number]
+export type ValuedFlag = (typeof generateFlags.valued)[number]
+type Flag = SwitchFlag | ValuedFlag
 
 /**
- * How a command line fails to parse: its command is none of them, a command takes no argument it was given, an option
- * of generate is unknown, a flag is given twice, or a valued flag has no value.
+ * How a command line fails to parse: its command is none of them; a command is given no configuration file, or an
+ * argument besides it; an option is not one its command takes; a flag is given twice; a valued flag has no value; or a
+ * custom migration has no name.
  */
 type ArgumentFault =
 	| { readonly kind: "unknownCommand"; readonly command: string }
+	| { readonly kind: "noConfig"; readonly command: CommandName }
 	| {
 			readonly kind: "unexpectedArgument"
 			readonly command: CommandName
 			readonly argument: string
 	  }
-	| { readonly kind: "unknownOption"; readonly option: string }
+	| { readonly kind: "unknownOption"; readonly command: CommandName; readonly option: string }
 	| { readonly kind: "repeatedFlag"; readonly flag: Flag }
 	| { readonly kind: "flagWithoutValue"; readonly flag: ValuedFlag }
+	| { readonly kind: "unnamedCustom" }
 
 /** The command line does not parse, for `fault` (args.ts). */
 export class ArgumentsRefused extends Data.TaggedError("ArgumentsRefused")<{
@@ -95,27 +103,33 @@ export class ArgumentsRefused extends Data.TaggedError("ArgumentsRefused")<{
 		const fault = this.fault
 		switch (fault.kind) {
 			case "unknownCommand":
-				return `unknown command ${Formatter.format(fault.command)}; the commands are generate, check, migrate, drift, names and skill`
+				return `unknown command ${Formatter.format(fault.command)}; the commands are generate, check, migrate, drift and names`
+			case "noConfig":
+				return `grizzle ${fault.command} needs the configuration file as its argument: grizzle ${fault.command} <config>`
 			case "unexpectedArgument":
 				return fault.command === "generate"
-					? `grizzle generate takes no argument, not ${Formatter.format(fault.argument)}; name the migration with --name`
-					: `grizzle ${fault.command} takes no argument, not ${Formatter.format(fault.argument)}`
+					? `grizzle generate takes one argument, the configuration file, not also ${Formatter.format(fault.argument)}; name the migration with --name`
+					: `grizzle ${fault.command} takes one argument, the configuration file, not also ${Formatter.format(fault.argument)}`
 			case "unknownOption":
-				return `unknown option ${Formatter.format(fault.option)}`
+				return fault.command === "generate"
+					? `unknown option ${Formatter.format(fault.option)}; grizzle generate takes --custom, --name and --schema`
+					: `grizzle ${fault.command} takes no option, not ${Formatter.format(fault.option)}`
 			case "repeatedFlag":
 				return `--${fault.flag} is given twice`
 			case "flagWithoutValue":
 				return `--${fault.flag} needs a value`
+			case "unnamedCustom":
+				return "grizzle generate --custom needs --name: a custom migration is named by its data step"
 		}
 	}
 }
 
-/** The migration name `--name` gives, `migration`, or a custom folder's, is not of a folder name's shape. */
+/** The migration name `--name` gives, `migration`, is not of a folder name's shape (args.ts). */
 export class MigrationNameRefused extends Data.TaggedError("MigrationNameRefused")<{
 	readonly migration: string
 }> {
 	override get message(): string {
-		return `migration name ${Formatter.format(this.migration)} is not lowercase ASCII letters and digits joined by _ or -, at most ${maxMigrationNameLength} characters`
+		return `migration name ${Formatter.format(this.migration)} is not lowercase ASCII letters and digits joined by _ or -, at most ${maxMigrationNameLength.value} characters`
 	}
 }
 
@@ -140,69 +154,79 @@ export class SchemaChoiceRefused extends Data.TaggedError("SchemaChoiceRefused")
 		const fault = this.fault
 		switch (fault.kind) {
 			case "single":
-				return "--schema is accepted only when grizzle.config.ts declares several schemas; it declares one"
+				return "--schema is accepted only when the configuration declares several schemas; it declares one"
 			case "unknown":
-				return `--schema ${fault.named} names no configured schema; grizzle.config.ts declares ${schemaListText(fault.schemas)}`
+				return `--schema ${fault.named} names no configured schema; the configuration declares ${schemaListText(fault.schemas)}`
 			case "unchosen":
-				return `a custom migration is a folder of one schema, and grizzle.config.ts declares ${schemaListText(fault.schemas)}; name one with --schema`
+				return `a custom migration is a folder of one schema, and the configuration declares ${schemaListText(fault.schemas)}; name one with --schema`
 		}
 	}
 }
 
-/** The configuration file grizzle reads. */
-export const configFileName = "grizzle.config.ts"
-
-/** No grizzle.config.ts is in `directory`, the one grizzle runs in. */
+/** The configuration file the command names, `file`, does not exist. */
 export class ConfigMissing extends Data.TaggedError("ConfigMissing")<{
-	readonly directory: string
+	readonly file: string
 }> {
 	override get message(): string {
-		return `no ${configFileName} in ${this.directory}; grizzle reads its configuration from the directory it runs in`
+		return `${this.file} does not exist; name the configuration file as the command's argument, absolute or relative to the directory grizzle runs in`
 	}
 }
 
-/** grizzle.config.ts could not be found or imported: `cause` is what its import, or the file system, threw. */
+/** The configuration file `file` could not be imported: `cause` is what its import, or the file system, threw. */
 export class ConfigUnloaded extends Data.TaggedError("ConfigUnloaded")<{
+	readonly file: string
 	readonly cause: unknown
 }> {
 	override get message(): string {
-		return `${configFileName} failed to load: ${thrownText(this.cause)}`
+		return `${this.file} failed to load: ${thrownText(this.cause)}`
 	}
 }
 
-/** grizzle.config.ts has no default export, or its default export is no object, or no object defineConfig built. */
+/**
+ * The configuration file `file` has no default export, or its default export is no object, or no object defineConfig
+ * built.
+ */
 export class ExportRefused extends Data.TaggedError("ExportRefused")<{
+	readonly file: string
 	readonly fault: "missing" | "notAnObject" | "notDefined"
 }> {
 	override get message(): string {
 		switch (this.fault) {
 			case "missing":
-				return `${configFileName} has no default export; export the configuration as default`
+				return `${this.file} has no default export; export the configuration as default`
 			case "notAnObject":
-				return `the default export of ${configFileName} must be a configuration object`
+				return `the default export of ${this.file} must be a configuration object`
 			case "notDefined":
-				return `the default export of ${configFileName} must be built by defineConfig, imported from @bjornpagen/grizzle: export default defineConfig({ schemas: [...], logins: [...] })`
+				return `the default export of ${this.file} must be built by defineConfig, imported from @bjornpagen/grizzle: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: { ... } })`
 		}
 	}
 }
 
-/** The settings of a configuration, in the order a refusal lists them. */
+/** The settings of a configuration, in the order a refusal lists them; each is required. */
 export const configSettings = ["schemas", "logins", "migrations", "connection"] as const
 
-/** The settings whose value the configuration reads itself; `connection` is migrate's to check. */
+/**
+ * The settings whose value the configuration reads itself; `connection` is migrate's and drift's to check, so the
+ * configuration refuses only its absence.
+ */
 type ReadSetting = "schemas" | "logins" | "migrations"
 
 const malformedSettingText: Readonly<Record<ReadSetting, string>> = {
 	schemas: "schemas must be a nonempty list of the declared schema values to migrate",
 	logins:
 		"logins must be a list of the login values whose roles the migrations install, and whose workloads plan its indexes",
-	migrations: "migrations must be a nonempty directory path when given"
+	migrations:
+		"migrations must be a nonempty path of the migrations directory, absolute or relative to the configuration file's directory"
 }
 
-/** A setting no configuration has (`unknown`), or one whose value is not of its kind (`malformed`). */
+/**
+ * A setting no configuration has (`unknown`), one whose value is not of its kind (`malformed`), or the connection
+ * not given (`unconnected`).
+ */
 type SettingFault =
 	| { readonly kind: "unknown"; readonly setting: string }
 	| { readonly kind: "malformed"; readonly setting: ReadSetting }
+	| { readonly kind: "unconnected" }
 
 export class SettingRefused extends Data.TaggedError("SettingRefused")<{
 	readonly fault: SettingFault
@@ -211,9 +235,11 @@ export class SettingRefused extends Data.TaggedError("SettingRefused")<{
 		const fault = this.fault
 		switch (fault.kind) {
 			case "unknown":
-				return `${configFileName} has no setting ${Formatter.format(fault.setting)}; its settings are ${Arr.join(configSettings, ", ")}`
+				return `the configuration has no setting ${Formatter.format(fault.setting)}; its settings are ${Arr.join(configSettings, ", ")}`
 			case "malformed":
 				return malformedSettingText[fault.setting]
+			case "unconnected":
+				return "connection must be given: where grizzle migrate and grizzle drift connect, as the role that owns the schemas"
 		}
 	}
 }
@@ -315,98 +341,6 @@ export class ConnectionRefused extends Data.TaggedError("ConnectionRefused")<{
 	}
 }
 
-/** Neither the configuration nor DATABASE_URL says where grizzle migrate connects. */
-export class ConnectionUnnamed extends Data.TaggedError("ConnectionUnnamed") {
-	override get message(): string {
-		return "grizzle migrate needs DATABASE_URL=postgresql://<role>[:<password>]@<host>[:<port>]/<database>, or a connection in grizzle.config.ts"
-	}
-}
-
-/** The ConfigProvider could not read the environment variable `variable`, for `cause`. */
-export class EnvironmentUnread extends Data.TaggedError("EnvironmentUnread")<{
-	readonly variable: string
-	readonly cause: Config.ConfigError
-}> {
-	override get message(): string {
-		return `the environment variable ${this.variable} could not be read: ${this.cause.message}`
-	}
-}
-
-/**
- * How DATABASE_URL is refused, never quoting it: it is no URL, its protocol is not postgresql:// or postgres://, it has
- * a fragment, a part's percent-encoding is malformed, it names no role, host or database, its port is 0, or it asks for
- * an sslmode other than verify-full or has a parameter other than sslmode and sslrootcert.
- */
-type UrlFault =
-	| { readonly kind: "notUrl" }
-	| { readonly kind: "protocol"; readonly protocol: string }
-	| { readonly kind: "fragment" }
-	| { readonly kind: "encoding"; readonly part: "role" | "password" | "host" | "database" }
-	| { readonly kind: "noRole" }
-	| { readonly kind: "noHost" }
-	| { readonly kind: "port"; readonly port: number }
-	| { readonly kind: "noDatabase" }
-	| { readonly kind: "sslmode"; readonly mode: string }
-	| { readonly kind: "parameter"; readonly parameter: string }
-
-export class DatabaseUrlRefused extends Data.TaggedError("DatabaseUrlRefused")<{
-	readonly fault: UrlFault
-}> {
-	override get message(): string {
-		const fault = this.fault
-		switch (fault.kind) {
-			case "notUrl":
-				return "DATABASE_URL is not a URL; its form is postgresql://<role>[:<password>]@<host>[:<port>]/<database>"
-			case "protocol":
-				return `DATABASE_URL must start with postgresql://, not ${fault.protocol}//`
-			case "fragment":
-				return "DATABASE_URL has a fragment, which names nothing"
-			case "encoding":
-				return `DATABASE_URL has a malformed percent-encoding in its ${fault.part}`
-			case "noRole":
-				return "DATABASE_URL names no role: postgresql://<role>@<host>/<database>"
-			case "noHost":
-				return "DATABASE_URL names no host"
-			case "port":
-				return `DATABASE_URL names port ${fault.port}; a port is from 1 to 65535`
-			case "noDatabase":
-				return "DATABASE_URL names no database: postgresql://<role>@<host>/<database>"
-			case "sslmode":
-				return `DATABASE_URL asks for sslmode=${fault.mode}; TLS is always verify-full, so sslmode may only be verify-full`
-			case "parameter":
-				return `DATABASE_URL has the parameter ${Formatter.format(fault.parameter)}; its parameters are sslmode and sslrootcert`
-		}
-	}
-}
-
-/** Where a CA file is named: DATABASE_URL's `sslrootcert` parameter, or the PGSSLROOTCERT variable. */
-type CaSource = "sslrootcert" | "PGSSLROOTCERT"
-
-const caSourceText = (source: CaSource): string =>
-	source === "sslrootcert" ? "DATABASE_URL's sslrootcert" : "PGSSLROOTCERT"
-
-/** The CA file `source` names, `file`, does not exist (`missing`) or holds no certificate (`empty`). */
-export class CaRefused extends Data.TaggedError("CaRefused")<{
-	readonly source: CaSource
-	readonly file: string
-	readonly fault: "missing" | "empty"
-}> {
-	override get message(): string {
-		return `${caSourceText(this.source)} names ${this.file}, which ${this.fault === "missing" ? "does not exist" : "holds no certificate"}`
-	}
-}
-
-/** The CA file `source` names, `file`, could not be read, for `cause`. */
-export class CaUnread extends Data.TaggedError("CaUnread")<{
-	readonly source: CaSource
-	readonly file: string
-	readonly cause: Error
-}> {
-	override get message(): string {
-		return `${caSourceText(this.source)} names ${this.file}, which could not be read${codeOf(this.cause)}`
-	}
-}
-
 /**
  * The migrations directory of `schema` holds what no generator writes: `directory`, its directory, is no directory; it
  * holds `entry`, neither snapshot.json nor a migration folder; or the migration folder at `folder` has no meta.json, or
@@ -489,15 +423,6 @@ export class MigrationsUnread extends Data.TaggedError("MigrationsUnread")<{
 }> {
 	override get message(): string {
 		return `${this.directory} could not be read${codeOf(this.cause)}`
-	}
-}
-
-/** grizzle skill could not read the skill it ships, or write it, for `cause`. */
-export class SkillUninstalled extends Data.TaggedError("SkillUninstalled")<{
-	readonly cause: Error
-}> {
-	override get message(): string {
-		return `the skill could not be installed${codeOf(this.cause)}`
 	}
 }
 
@@ -614,19 +539,13 @@ type CliReason =
 	| SchemaEntryRefused
 	| LoginEntryRefused
 	| ConnectionRefused
-	| ConnectionUnnamed
-	| EnvironmentUnread
 	| ConnectionEnvironmentRefused
-	| DatabaseUrlRefused
-	| CaRefused
-	| CaUnread
 	| TreeRefused
 	| TreeUnread
 	| FolderExists
 	| FolderUnwritten
 	| SnapshotUnwritten
 	| MigrationsUnread
-	| SkillUninstalled
 	| SnapshotUnreadable
 	| SnapshotForeign
 	| ChainRefused
@@ -644,19 +563,13 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	SchemaEntryRefused: "config",
 	LoginEntryRefused: "config",
 	ConnectionRefused: "config",
-	ConnectionUnnamed: "config",
-	EnvironmentUnread: "config",
-	ConnectionEnvironmentRefused: "config",
-	DatabaseUrlRefused: "config",
-	CaRefused: "config",
-	CaUnread: "config",
+	ConnectionEnvironmentRefused: "environment",
 	TreeRefused: "filesystem",
 	TreeUnread: "filesystem",
 	FolderExists: "filesystem",
 	FolderUnwritten: "filesystem",
 	SnapshotUnwritten: "filesystem",
 	MigrationsUnread: "filesystem",
-	SkillUninstalled: "filesystem",
 	SnapshotUnreadable: "snapshot",
 	SnapshotForeign: "snapshot",
 	ChainRefused: "snapshot",

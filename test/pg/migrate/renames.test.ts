@@ -7,9 +7,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	ConfigProvider,
 	DateTime,
-	Duration,
 	Effect,
 	FileSystem,
 	Formatter,
@@ -26,13 +24,15 @@ import {
 import { defineConfig } from "#adapter/config/define.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
+import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import { check, findingText } from "#cli/check.ts"
 import { formatTimestamp } from "#cli/clock.ts"
 import { committedSnapshot } from "#cli/committed.ts"
 import { type ConfiguredSchema, type ResolvedConfig, resolveConfig } from "#cli/config.ts"
+import { migrationConnection } from "#cli/connection.ts"
 import type { CliError } from "#cli/errors.ts"
 import { readSchemaTree, writeFolder, writeSnapshotFile } from "#cli/files.ts"
-import { draftSchema, generate } from "#cli/generate.ts"
+import { generate, generateSchema } from "#cli/generate.ts"
 import { migrate } from "#cli/migrate.ts"
 import type { refusalText } from "#cli/refusals.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -70,12 +70,12 @@ import {
 import { str } from "#compiler/public/text.ts"
 import type { ColumnDef, RenameColumn, RenameObject } from "#compiler/sql/ast.ts"
 import { printStatement, printType, quoteIdent, quoteString } from "#compiler/sql/print.ts"
-import { urlEnv } from "#test/pg/cli/support.ts"
+import { connectionOf, ownerOn } from "#test/pg/cli/support.ts"
 import { id, type Reviewer, reviewedSource } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
-import { pgPin } from "#test/support/env.ts"
 import { loginRoleOf } from "#test/support/installed.ts"
 import { contractCheckAt, lawNamesOf, parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	type Decisions,
 	draftChoices,
@@ -84,7 +84,7 @@ import {
 	review as reviewFolder,
 	reviewWritten
 } from "#test/support/migrate/review.ts"
-import type { SqlError } from "#test/support/pg.ts"
+import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen, pickSpan } from "#test/support/pick.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { expectConstraint, expectSqlstate } from "#test/support/substrate/expect.ts"
@@ -103,7 +103,7 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  * thing is a relation (an arm the alternatives law reads, the relation a containment references, the referencing one),
  * a field, a closed relation, a closed handle renamed in place (the one the law selects an arm by among them) or a
  * contract, each renamed to a free name of its own pool, so a name is renamed again or back across moves. Each step
- * drafts the next folder as `grizzle generate` does (`draftSchema`, written by the command line's own
+ * drafts the next folder as `grizzle generate` does (`generateSchema`, written by the command line's own
  * writers), is reviewed by the one reviewer (the candidates of the renames the step
  * made chosen, every other kept, or a drawn step's closed relation's and contract's renames kept as their drop and add;
  * a handle renamed in place confirmed; a field of a closed relation converted in place computed by the reviewer's
@@ -134,7 +134,8 @@ interface Workspace {
 	readonly dir: string
 	/** The schema's migrations directory. */
 	readonly directory: string
-	readonly env: Readonly<Record<string, string>>
+	/** Where migrate connects: the migration identity, on the substrate's database. */
+	readonly connection: MigrationConnectionConfig
 	readonly snapshotText: Effect.Effect<string, PlatformError.PlatformError>
 	readonly sql: (text: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>
 }
@@ -173,7 +174,12 @@ const configOf = (
 	Effect.gen(function* () {
 		const path = yield* Path.Path
 		return yield* resolveConfig(
-			defineConfig({ schemas: [version.schema], logins: [version.server] }),
+			defineConfig({
+				schemas: [version.schema],
+				logins: [version.server],
+				migrations: "migrations",
+				connection: ws.connection
+			}),
 			path.join(ws.dir, "grizzle.config.ts")
 		)
 	})
@@ -200,7 +206,7 @@ const workspace = (label: string) =>
 			name,
 			dir,
 			directory,
-			env: urlEnv(substrate.cluster, substrate.database),
+			connection: connectionOf(substrate.cluster, ownerOn(substrate.database)),
 			snapshotText: fs.readFileString(path.join(directory, snapshotFileName)),
 			sql: (text) => s.values(pipe(text, Str.replaceAll("$S", quoteIdent(name))), [])
 		}
@@ -228,7 +234,13 @@ const planned = (
 		const configured = yield* configuredOf(ws, version)
 		const tree = yield* readSchemaTree(configured.declared, configured.directory)
 		const previous = yield* committedSnapshot(configured, tree)
-		return yield* draftSchema(configured, previous, { kind: "derived" }, formatTimestamp(now()), [])
+		return yield* generateSchema(
+			configured,
+			previous,
+			{ kind: "derived" },
+			formatTimestamp(now()),
+			[]
+		)
 	})
 
 /** The one way this file drafts a folder: as `grizzle generate` drafts it, its folder written unreviewed and its
@@ -267,15 +279,12 @@ const findings = (ws: Workspace, version: Version) =>
 		return Arr.flatMap(checks, (c) => c.findings)
 	})
 
-/** `grizzle migrate` in the workspace, reading its connection from the workspace's environment. */
+/** `grizzle migrate` in the workspace, connecting with its configuration's connection. */
 const migrated = (ws: Workspace, version: Version) =>
 	Effect.gen(function* () {
 		const config = yield* configOf(ws, version)
-		return yield* Effect.provideService(
-			migrate(config, ws.dir),
-			ConfigProvider.ConfigProvider,
-			ConfigProvider.fromUnknown(ws.env)
-		)
+		const connection = yield* migrationConnection(config)
+		return yield* migrate(config, connection)
 	})
 
 /**
@@ -289,13 +298,10 @@ const open = (ws: Workspace, version: Version) =>
 		const credentials = yield* substrate.login(loginRoleOf(server))
 		const text = yield* ws.snapshotText
 		const dbLayer = DbLayer.make({
+			...clusterConnection(substrate.cluster, substrate.database, credentials.password),
+			pool: clusterPool,
 			login: server,
 			snapshot: snapshotJson(text),
-			host: pgPin.host,
-			port: pgPin.port,
-			database: substrate.database,
-			password: credentials.password,
-			tls: { ca: substrate.cluster.caPem },
 			verify: testVerify
 		})
 		const opened = yield* Effect.result(
@@ -1471,7 +1477,7 @@ const renames = explore(
 			],
 			{ cases: 160, sense: notesOnly }
 		),
-		caseHang: Duration.minutes(2)
+		caseHang
 	},
 	(sketch, c) =>
 		Effect.scoped(

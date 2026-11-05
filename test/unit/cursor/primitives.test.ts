@@ -15,7 +15,7 @@ import {
 } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import {
 	base64urlDecode,
 	base64urlEncode,
@@ -24,14 +24,16 @@ import {
 
 import {
 	ByteReader,
-	ByteWriter,
+	type ReadFault,
 	utf8ByteLength,
 	utf8Bytes,
 	utf8Text,
 	varintLength,
-	varintMax
+	varintMax,
+	written
 } from "#compiler/codec/cursor/bytes.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 describe("base64url (RFC 4648 section 5)", () => {
 	it.effect("agrees with Node's unpadded base64url and round-trips every byte string", (ctx) =>
@@ -48,7 +50,7 @@ describe("base64url (RFC 4648 section 5)", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(bytes) =>
 					Effect.sync(() => {
@@ -85,7 +87,7 @@ describe("base64url (RFC 4648 section 5)", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(text) =>
 					Effect.sync(() => {
@@ -129,11 +131,13 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(n) =>
 					Effect.sync(() => {
-						const bytes = new ByteWriter().varint(n).finish()
+						const bytes = written((sink) => {
+							sink.varint(n)
+						})
 						assert.equal(bytes.length, varintLength(n))
 						const r = new ByteReader(bytes)
 						assert.equal(r.varint(), n)
@@ -193,7 +197,7 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 							literal: Formatter.format,
 							limit: 70_000,
 							coverage: noCoverage,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(bytes) => Effect.sync(() => check(bytes))
 					)
@@ -213,7 +217,7 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(bytes) => Effect.sync(() => check(bytes))
 					)
@@ -235,19 +239,23 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(n) =>
 					Effect.sync(() => {
-						const written: ReadonlyArray<number> = [...new ByteWriter().varint(n).finish()]
-						assert.deepEqual(written, minimal(n))
+						const laid: ReadonlyArray<number> = [
+							...written((sink) => {
+								sink.varint(n)
+							})
+						]
+						assert.deepEqual(laid, minimal(n))
 					})
 			)
 		)
 	)
 
 	it.effect(
-		"reads a length-prefixed field exactly when its length is within the bound and the remaining bytes",
+		"reads a length-prefixed field as a view of its bytes, or skips it unviewed, exactly when they hold it, and refuses a longer claim unread",
 		(ctx) =>
 			searched(
 				ctx,
@@ -256,11 +264,7 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 						suite: "unit/cursor/varint-field",
 						draw: drawn(
 							(source) =>
-								[
-									source.draw(bytes({ min: 0, max: 8 })),
-									source.draw(int(0, 10)),
-									source.draw(int(-2, 2))
-								] as const
+								[source.draw(bytes({ min: 0, max: 200 })), source.draw(int(-4, 2))] as const
 						),
 						literal: Formatter.format,
 						coverage: noCoverage,
@@ -269,18 +273,39 @@ describe("varints (unsigned LEB128, minimal form)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
-					([body, bound, cut]) =>
+					([body, cut]) =>
 						Effect.sync(() => {
-							const written = new ByteWriter().field(body).finish()
+							const laid = written((sink) => {
+								sink.field(body)
+							})
 							const bytes =
 								cut < 0
-									? written.slice(0, Math.max(0, written.length + cut))
-									: Uint8Array.from([...written, ...new Uint8Array(cut)])
-							const read = new ByteReader(bytes).field(bound)
-							const fits = body.length <= bound && bytes.length >= written.length
-							assert.deepEqual(read, fits ? body : undefined)
+									? laid.slice(0, Math.max(0, laid.length + cut))
+									: Uint8Array.from([...laid, ...new Uint8Array(cut)])
+							const read = new ByteReader(bytes).field()
+							const prefix = varintLength(body.length)
+							/** The body, its truncated length, or its length claiming more than the bytes after it hold. */
+							const expected: Uint8Array | ReadFault =
+								bytes.length >= laid.length
+									? body
+									: bytes.length < prefix
+										? { kind: "varint" }
+										: { kind: "claim", claimed: body.length, remaining: bytes.length - prefix }
+							assert.deepEqual(read, expected)
+							if (read instanceof Uint8Array) {
+								assert.equal(read.buffer, bytes.buffer)
+							}
+							/** Skipping reads the same claim, and leaves the reader just past the field. */
+							const skipping = new ByteReader(bytes)
+							const skipped = skipping.skip()
+							if (expected instanceof Uint8Array) {
+								assert.equal(skipped, expected.length)
+								assert.equal(skipping.remaining, bytes.length - laid.length)
+							} else {
+								assert.deepEqual(skipped, expected)
+							}
 						})
 				)
 			)
@@ -305,7 +330,7 @@ describe("strict UTF-8 (Unicode scalars, beyond the BMP included)", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(text) =>
 					Effect.sync(() => {
@@ -361,7 +386,7 @@ describe("strict UTF-8 (Unicode scalars, beyond the BMP included)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(bytes) =>
 						Effect.sync(() => {

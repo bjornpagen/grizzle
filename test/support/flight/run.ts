@@ -49,7 +49,6 @@ const answerOf = (planned: Planned): StatementAnswer => {
 		case "hold":
 		case "late":
 		case "stuck":
-		case "wedged":
 		case "lose":
 			return { _tag: planned.kind }
 	}
@@ -158,9 +157,10 @@ export const observationsOf = (
 		return undefined
 	}
 	const session = run.session
-	const interruption = { at: driven.interruptedAt, grace: driven.graceDeliveries }
+	const interruption = { at: driven.interruptedAt }
+	const flight = session.flights()[0]
 	return {
-		model: expected(c, session.flights()[0]?.delivered ?? [], interruption),
+		model: expected(c, flight?.delivered ?? [], flight?.made ?? [], interruption),
 		run: observed(
 			driven.exit,
 			Arr.map(
@@ -171,7 +171,7 @@ export const observationsOf = (
 				),
 				labelOf
 			),
-			session.retired(),
+			session.state() !== "open",
 			session.cancels()
 		),
 		interruption

@@ -5,7 +5,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
@@ -27,6 +27,7 @@ import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	defaultGenConfig,
 	fullCaseSwarms,
@@ -192,7 +193,7 @@ const exploreSteered = (
 			shrink: completeShrink,
 			concurrency: 1,
 			steerEvery: 16,
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(sketch, c) =>
 			Effect.sync(() => {
@@ -219,7 +220,7 @@ const exploreCases = (
 			shrink: completeShrink,
 			concurrency: 1,
 			steerEvery: 16,
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(q, c) =>
 			Effect.sync(() => {
@@ -422,7 +423,7 @@ describe("each rewrite pass preserves the delivered result on generated cases", 
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ pass, sketch }, c) =>
 					Effect.sync(() => {

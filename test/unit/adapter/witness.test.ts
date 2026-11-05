@@ -3,15 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { installationWitness } from "#adapter/witness/index.ts"
 import { identifierOf, identity, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
@@ -37,6 +29,7 @@ import {
 	spelled,
 	wild
 } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { nothingReported, type Reported, serverError } from "#test/support/server-error.ts"
 
 /**
@@ -151,7 +144,7 @@ const accountName = refinementOf(workNames, W.Account, "name")
  * domain is named readable at its full length, and every domain's CHECK is `check`, so only the domain PostgreSQL
  * reports tells their violations apart.
  */
-const nameLengths = int(1, maxIdentifierBytes)
+const nameLengths = int(1, maxIdentifierBytes.value)
 const contractNameOf = (n: number): string => Str.repeat(n)("x")
 const Long = decodedSchema({
 	name: "L",
@@ -161,7 +154,7 @@ const Long = decodedSchema({
 			{
 				id: f.uuid,
 				...Rec.fromEntries(
-					Arr.map(Arr.range(1, maxIdentifierBytes), (n) => [
+					Arr.map(Arr.range(1, maxIdentifierBytes.value), (n) => [
 						`c${n}`,
 						f.contract(contractNameOf(n), f.bigint, ge(value, literal(0n)))
 					])
@@ -208,7 +201,7 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 						literal: Formatter.format,
 						limit: 5,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(constraint) =>
 						Effect.sync(() => {
@@ -299,7 +292,7 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 								"PutTargetConflict",
 								"SpanKeyChange"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(reason, c) =>
 							Effect.sync(() => {
@@ -433,7 +426,7 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 								literal: (row) => Formatter.format(row[0].constraint),
 								limit: cases.length,
 								coverage: noCoverage,
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(row) =>
 								Effect.sync(() => {
@@ -488,7 +481,7 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 							literal: (r) => Formatter.format(r.constraint),
 							limit: 2,
 							coverage: noCoverage,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(r) =>
 							Effect.sync(() => {
@@ -520,7 +513,7 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 						literal: (row) => Formatter.format(row[1]),
 						limit: 7,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([witness, constraint]) =>
 						Effect.sync(() => {
@@ -545,9 +538,9 @@ describe("witness decoding (packages/grizzle/src/adapter/witness)", () => {
 								suite: "unit/adapter/witness/contract-name-lengths",
 								generator: nameLengths,
 								literal: Formatter.format,
-								limit: maxIdentifierBytes,
+								limit: maxIdentifierBytes.value,
 								coverage: noCoverage,
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(n) =>
 								Effect.sync(() => {

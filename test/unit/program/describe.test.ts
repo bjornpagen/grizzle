@@ -6,7 +6,7 @@ import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
@@ -19,6 +19,7 @@ import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { queryFromDescription } from "#test/support/describe.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import {
 	caseSketchGen,
@@ -62,7 +63,7 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, k) =>
 						Effect.sync(() => {
@@ -125,7 +126,7 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(name, k) =>
 						Effect.sync(() => {

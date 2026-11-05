@@ -21,6 +21,7 @@ import {
 	required
 } from "#compiler/lower/shapes/catalog/exprs.ts"
 import { keysOfRows, metaWithKeys, plainKeys } from "#compiler/lower/shapes/catalog/ordinal.ts"
+import { bigintSumType } from "#compiler/scalar/aggregate.ts"
 
 /**
  * The total of a fold's counts: it counts rows of one input, which PostgreSQL holds fewer of than 2^63 (a relation has
@@ -158,7 +159,7 @@ const groupedShare = (cx: CatalogContext, cell: Cell, region: Region): ShareResu
 		args: [colExpr(cx.ed, og.source, groupedCount, plain.int8)],
 		out,
 		rule: "R28",
-		heading: [...heading, { name: out, type: plain.numeric }],
+		heading: [...heading, { name: out, type: bigintSumType }],
 		meta: metaWithKeys(plainKeys([grouped.keys])),
 		filter: undefined,
 		frame: undefined,
@@ -178,7 +179,7 @@ const groupedShare = (cx: CatalogContext, cell: Cell, region: Region): ShareResu
 		if (occ.id === ot.id) {
 			return {
 				name: h.name,
-				expr: castExpr(cx.ed, colExpr(cx.ed, window, out, plain.numeric), h.type, countTotalProof)
+				expr: castExpr(cx.ed, colExpr(cx.ed, window, out, bigintSumType), h.type, countTotalProof)
 			}
 		}
 		return { name: h.name, expr: colExpr(cx.ed, window, binding.column, h.type) }

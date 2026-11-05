@@ -1,8 +1,11 @@
 import { Array as Arr, Option, Order, Result, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
+import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { integerRanges } from "#compiler/ir/carriers.ts"
+import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
 import { operandsAlias } from "#compiler/lower/conservative/expr/total.ts"
 import {
 	type Analyze,
@@ -139,8 +142,6 @@ const builtinCallRule = (name: string): AuditRule | undefined => {
 	return lower === "coalesce" ? "coalesce" : lower === "nullif" ? "nullif" : "function"
 }
 
-const maxIdentifierBytes = 63
-
 /** A column name as a naming report shows it. */
 const shownName = (name: string | undefined): string =>
 	name === undefined ? "no name" : `"${name}"`
@@ -178,10 +179,11 @@ const isDecimalText = (value: string): boolean => {
 	return fraction > 0
 }
 
+/** The integer builtins' ranges, by the name SQL types a literal with (ir/carriers.ts integerRanges). */
 const integerBounds: Readonly<Record<string, readonly [bigint, bigint]>> = {
-	smallint: [-32768n, 32767n],
-	integer: [-2147483648n, 2147483647n],
-	bigint: [-9223372036854775808n, 9223372036854775807n]
+	smallint: integerRanges.int2,
+	integer: integerRanges.int4,
+	bigint: integerRanges.int8
 }
 
 const numericLikeBuiltins: ReadonlySet<string> = new Set([
@@ -476,8 +478,8 @@ class StatementAuditor {
 			this.reportAt("identifier", `${what} contains NUL`, at)
 		} else if (!isWellFormed(name)) {
 			this.reportAt("identifier", `${what} is not well-formed UTF-16`, at)
-		} else if (utf8Length(name) > maxIdentifierBytes) {
-			this.reportAt("identifier", `${what} "${name}" exceeds ${maxIdentifierBytes} bytes`, at)
+		} else if (utf8Length(name) > maxIdentifierBytes.value) {
+			this.reportAt("identifier", `${what} "${name}" exceeds ${maxIdentifierBytes.value} bytes`, at)
 		}
 	}
 
@@ -585,14 +587,26 @@ class StatementAuditor {
 		if (type.precision === undefined) {
 			return
 		}
-		if (!Number.isSafeInteger(type.precision) || type.precision < 1 || type.precision > 1000) {
-			this.report("type", `numeric precision ${type.precision} is outside 1..1000`)
+		if (
+			!Number.isSafeInteger(type.precision) ||
+			type.precision < 1 ||
+			type.precision > numericMaxPrecision.value
+		) {
+			this.report(
+				"type",
+				`numeric precision ${type.precision} is outside 1..${numericMaxPrecision.value}`
+			)
 		}
 		if (
 			type.scale !== undefined &&
-			(!Number.isSafeInteger(type.scale) || type.scale < -1000 || type.scale > 1000)
+			(!Number.isSafeInteger(type.scale) ||
+				type.scale < numericMinScale.value ||
+				type.scale > numericMaxScale.value)
 		) {
-			this.report("type", `numeric scale ${type.scale} is outside -1000..1000`)
+			this.report(
+				"type",
+				`numeric scale ${type.scale} is outside ${numericMinScale.value}..${numericMaxScale.value}`
+			)
 		}
 	}
 
@@ -2597,8 +2611,8 @@ class StatementAuditor {
 	enumLabel(label: string, at: string | number): void {
 		if (Str.includes("\u0000")(label) || !isWellFormed(label)) {
 			this.report("literal", "an enum label that is not well-formed text", at)
-		} else if (utf8Length(label) > maxIdentifierBytes) {
-			this.report("literal", `enum label "${label}" exceeds ${maxIdentifierBytes} bytes`, at)
+		} else if (utf8Length(label) > maxIdentifierBytes.value) {
+			this.report("literal", `enum label "${label}" exceeds ${maxIdentifierBytes.value} bytes`, at)
 		}
 	}
 }
@@ -2935,7 +2949,7 @@ const isInt4Constant = (text: string): boolean => {
 			return false
 		}
 	}
-	return text.length <= 10 && BigInt(text) <= 2147483647n
+	return BigInt(text) <= integerRanges.int4[1]
 }
 
 /** Words that introduce a statement whose syntax requires bare strings in fixed places, or column NOT NULL. */
@@ -3194,7 +3208,7 @@ class TextAuditor {
 				}
 				/**
 				 * SET <parameter> = '<value>' and SET <parameter> TO '<value>', the parameter a name or an
-				 * extension's qualified `<prefix>.<name>` (hnsw.ef_search).
+				 * extension's qualified `<prefix>.<name>` (hnsw.iterative_scan).
 				 */
 				const assigned = (prev?.kind === "operator" && prev.text === "=") || isWord(prev, "TO")
 				const setsParameter =

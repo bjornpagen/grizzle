@@ -32,12 +32,13 @@ import { compatible, isInteger, withoutSerial } from "#compiler/scalar/compute/t
  * is exact:
  *
  * - the same type, which needs no conversion;
- * - a numeric typmod the declared column does not have, dropped: equality on numeric ignores the scale it displays;
  * - a text refinement the declared column does not have, dropped: every value of a narrower pattern is a text value.
  *
- * A conversion that can round or fail is not exact: another numeric typmod (a typmod cast rounds), or a declared text
- * refinement the arm does not already carry (a checked narrowing): the arm's pattern is the declared one when the two
- * recognize one language (refinement/index.ts guarantees), however each is spelled. Those, and every change of
+ * A conversion that can round or fail is not exact: a declared numeric column is numeric(p, s), the one numeric a
+ * FieldDesc states (ir/desc.ts), so an arm's numeric of another typmod or a computed numeric reaches it only by a
+ * typmod cast, which rounds; and a declared text refinement the arm does not
+ * already carry is a checked narrowing: the arm's pattern is the declared one when the two recognize one language
+ * (refinement/index.ts guarantees), however each is spelled. Those, and every change of
  * identity (an integer arm for a bigint column, say), are MalformedDescription naming the column, so the author casts
  * with Compute.cast where the conversion is intended. An exact conversion becomes a projection over the arm that casts
  * the column, so base, step and feedback all carry the declared type; the lowering then casts each column to its base
@@ -91,7 +92,8 @@ type Conversion =
 	| { readonly kind: "refused"; readonly conversion: InexactConversion }
 
 /**
- * One identity and typmod: what the arm's values may still lack is the declared text refinement.
+ * One identity, and for a numeric the declared column's typmod, which an arm's numeric has exactly or is refused
+ * (anotherTypmod): what the arm's values may still lack is the declared text refinement.
  */
 const conversion = (arm: ScalarType, declared: ScalarType): Conversion => {
 	const a = withoutSerial(arm)

@@ -1,12 +1,6 @@
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-
-export const int2Min = -32768
-export const int2Max = 32767
-export const int4Min = -2147483648
-export const int4Max = 2147483647
-export const int8Min = -(2n ** 63n)
-export const int8Max = 2n ** 63n - 1n
+import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 
 const checkNumber = (
 	value: unknown,
@@ -23,23 +17,23 @@ const checkNumber = (
 }
 
 export const toInt2 = (value: unknown): Result.Result<number, ValueFault> =>
-	checkNumber(value, int2Min, int2Max)
+	checkNumber(value, int2Min.value, int2Max.value)
 
 /**
  * Integer host values of pg.smallint, pg.integer and pg.bigint.
  *
  * smallint and integer fit exactly in a JavaScript number and travel as one: an integer number in the type's signed
- * range, -0 as 0. bigint always travels as a JavaScript bigint in the signed 64-bit range; a number is never a bigint
+ * range (ir/carriers.ts int2Min through int4Max), -0 as 0. bigint always travels as a JavaScript bigint in the signed 64-bit range; a number is never a bigint
  * value, because the host type is bigint.
  */
 export const toInt4 = (value: unknown): Result.Result<number, ValueFault> =>
-	checkNumber(value, int4Min, int4Max)
+	checkNumber(value, int4Min.value, int4Max.value)
 
 export const toInt8 = (value: unknown): Result.Result<bigint, ValueFault> => {
 	if (typeof value !== "bigint") {
 		return Result.err("integerType")
 	}
-	if (value < int8Min || value > int8Max) {
+	if (value < int8Min.value || value > int8Max.value) {
 		return Result.err("integerRange")
 	}
 	return Result.ok(value)

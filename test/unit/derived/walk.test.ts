@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { queryValueDesc, queryOver as runtimeQuery } from "#compiler/query/build/query.ts"
@@ -11,6 +11,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import { assert } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** What a definition reads and what inputs it needs (`queryUses`): a bound import's parameters are the
  * binding's, so a definition that binds every parameter of what it imports is parameterless, while one that leaves a
@@ -65,7 +66,7 @@ describe("queryUses over imports", () => {
 							"an importer's parameter",
 							"nothing"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(binding, c) =>
 						Effect.sync(() => {

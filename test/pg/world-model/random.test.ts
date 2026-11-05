@@ -3,7 +3,8 @@ import { drawn, explore } from "@grizzle/testing/explore"
 import { required, type Situations } from "@grizzle/testing/features"
 import { v8Coverage } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	drawnRealities,
@@ -76,52 +77,49 @@ const name = "every random program's observations and probes agree with the mode
 layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 	"the worlds model: random programs",
 	(it) => {
-		it.effect(
-			name,
-			(ctx) =>
-				searched(
-					ctx,
-					Effect.gen(function* () {
-						const sense = yield* v8Coverage((url) =>
-							Arr.some(guide, (file) => Str.endsWith(file)(url))
-						)
-						return yield* explore(
-							{
-								suite: "pg/world-model/random",
-								/**
-								 * Random programs aim at nothing, the swarm's weights alone keeping them diverse: aimed at every required
-								 * feature, half of each program's draws went to whatever lay one step from one, and 60 cases took 45
-								 * minutes and read no relation at all (no via:* feature reached).
-								 */
-								draw: drawn(
-									programCaseGen(
-										generatedDocsInstalls,
-										{ kinds: everyAction, roles: everyRole, aims: noAims, lead: noLead },
-										steps
-									)
-								),
-								literal: Formatter.format,
-								coverage: required<WorldFeature>(situations, { cases, sense }),
-								kept: [],
-								runs: cases,
-								shrink: { kind: "bounded", candidates: 200 },
-								concurrency: 1,
-								steerEvery: 16,
-								caseHang: Duration.minutes(2)
-							},
-							(pc, c) =>
-								Effect.scoped(
-									Effect.gen(function* () {
-										const world = yield* realize(pc.install, pc.ambient)
-										noteNaming(pc, c)
-										const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
-										yield* driveProgram(staged, pc, c, noCheck)
-									})
+		it.effect(name, (ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const sense = yield* v8Coverage((url) =>
+						Arr.some(guide, (file) => Str.endsWith(file)(url))
+					)
+					return yield* explore(
+						{
+							suite: "pg/world-model/random",
+							/**
+							 * Random programs aim at nothing, the swarm's weights alone keeping them diverse: aimed at every required
+							 * feature, half of each program's draws went to whatever lay one step from one, and 60 cases took 45
+							 * minutes and read no relation at all (no via:* feature reached).
+							 */
+							draw: drawn(
+								programCaseGen(
+									generatedDocsInstalls,
+									{ kinds: everyAction, roles: everyRole, aims: noAims, lead: noLead },
+									steps
 								)
-						)
-					})
-				),
-			3_600_000
+							),
+							literal: Formatter.format,
+							coverage: required<WorldFeature>(situations, { cases, sense }),
+							kept: [],
+							runs: cases,
+							shrink: { kind: "bounded", candidates: 200 },
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						(pc, c) =>
+							Effect.scoped(
+								Effect.gen(function* () {
+									const world = yield* realize(pc.install, pc.ambient)
+									noteNaming(pc, c)
+									const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
+									yield* driveProgram(staged, pc, c, noCheck)
+								})
+							)
+					)
+				})
+			)
 		)
 	}
 )

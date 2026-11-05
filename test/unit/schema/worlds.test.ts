@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -29,6 +29,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { assert, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { queryFromDesc } from "#test/support/describe.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	bareContract,
 	descOf,
@@ -365,7 +366,7 @@ describe("role admission", () => {
 						literal: Formatter.format,
 						limit: roleDefects.length,
 						coverage: requiredInSpace<RoleDefect>(roleDefects),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(defect, c) =>
 						Effect.sync(() => {
@@ -457,7 +458,7 @@ describe("query entry totality", () => {
 					literal: Formatter.format,
 					limit: operations.length,
 					coverage: requiredInSpace<Operation>(operations),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(operation, c) =>
 					Effect.sync(() => {
@@ -494,7 +495,7 @@ const contextFields: Arr.NonEmptyReadonlyArray<readonly [string, FieldBase, bool
 	["bigint", rawPg.bigint, true],
 	["a contract over bigint", bareContract("Tier", rawPg.bigint), true],
 	["a closed handle", rawClosedId(Kind), true],
-	["numeric", rawPg.numeric, false],
+	["numeric", rawPg.numericOf(10, 2), false],
 	["real", rawPg.real, false],
 	["double precision", rawPg.doublePrecision, false],
 	["money", rawPg.money, false],
@@ -515,7 +516,7 @@ describe("context admission", () => {
 					literal: Formatter.format,
 					limit: contextFields.length,
 					coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([label, field, admitted], c) =>
 					Effect.sync(() => {
@@ -579,7 +580,7 @@ describe("login admission", () => {
 						literal: Formatter.format,
 						limit: loginDefects.length,
 						coverage: requiredInSpace<LoginDefect>(loginDefects),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(defect, c) =>
 						Effect.sync(() => {

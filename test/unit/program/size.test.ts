@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -14,6 +14,7 @@ import type { Select } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * A query's compiled statements grow with the query, never faster: a query attaching n relations, each its own, and the
@@ -148,7 +149,7 @@ describe("compiled size", () => {
 						literal: Formatter.format,
 						limit: 2,
 						coverage: requiredInSpace<Child>(["fused", "pipelined"]),
-						caseHang: Duration.minutes(4)
+						caseHang
 					},
 					(child, c) =>
 						Effect.sync(() => {

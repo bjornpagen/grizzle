@@ -8,7 +8,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
@@ -33,6 +33,7 @@ import {
 } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { queryFromDescription } from "#test/support/describe.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	Board,
 	fixtureLogin,
@@ -177,7 +178,7 @@ describe("workload(schema, programs)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([c, entries, other], k) =>
 						Effect.sync(() => {
@@ -241,7 +242,7 @@ describe("workload(schema, programs)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(name, k) =>
 						Effect.sync(() => {
@@ -298,7 +299,7 @@ describe("workload(schema, programs)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(name, k) =>
 						Effect.sync(() => {
@@ -365,7 +366,7 @@ describe("workload()'s signature", () => {
 					literal: Formatter.format,
 					limit: forbidden.length,
 					coverage: noCoverage,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([why, call]) =>
 					Effect.sync(() => {
@@ -407,7 +408,7 @@ describe("workload()'s signature", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ site, wild }, k) =>
 						Effect.sync(() => {
@@ -511,7 +512,7 @@ describe("page query fingerprints", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([a, b], k) =>
 							Effect.sync(() => {

@@ -67,12 +67,12 @@ export interface RoleTooLong {
 	readonly limit: number
 }
 
-/** A login's or role's PostgreSQL role, when it fits PostgreSQL's 63 bytes with its schema's name. */
+/** A login's or role's PostgreSQL role, when it fits PostgreSQL's maxIdentifierBytes with its schema's name. */
 const fittedRole = <K extends "login" | "role">(
 	named: Identity<K>
 ): Result.Result<Identity<K>, RoleTooLong> =>
-	utf8Length(named.identifier) > maxIdentifierBytes
-		? Result.err({ role: named.identifier, limit: maxIdentifierBytes })
+	utf8Length(named.identifier) > maxIdentifierBytes.value
+		? Result.err({ role: named.identifier, limit: maxIdentifierBytes.value })
 		: Result.ok(named)
 
 /** A login's or role's PostgreSQL role (fittedRole), or its refusal at `loc`. */

@@ -26,7 +26,7 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
 import { argumentsOf } from "#test/support/list.ts"
-import { numeric, vectorDimensions } from "#test/support/oracle/gen/domain.ts"
+import { numeric, vectorDimensions, wideNumericTypmod } from "#test/support/oracle/gen/domain.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
 import {
 	type ArgTerm,
@@ -89,7 +89,7 @@ const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 		case "int8":
 			return pg.bigint
 		case "numeric":
-			return pg.numeric
+			return pg.numeric(wideNumericTypmod.precision, wideNumericTypmod.scale)
 		case "fixed":
 			return pg.numeric(5, 2)
 		case "float4":
@@ -139,7 +139,7 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 		case "int8":
 			return pg.bigint
 		case "numeric":
-			return pg.numeric
+			return pg.numeric(wideNumericTypmod.precision, wideNumericTypmod.scale)
 		case "float4":
 			return pg.real
 		case "float8":
@@ -377,15 +377,15 @@ const compare = (r: RuleValue, op: CompareOp, left: unknown, right: unknown): un
 
 /**
  * A padding through Compute's admission cores: Compute.when(Compute.within(v, low, high), (v) =>
- * Compute.cast(Compute.cast(v, pg.numeric(1000, scale)), pg.numeric), Compute.cast(v, pg.numeric)).
+ * Compute.numeric(Compute.cast(v, pg.numeric(1000, scale))), Compute.numeric(v)).
  */
 const paddingTerm = (p: Padding, term: (v: Var) => unknown): unknown => {
 	const type = p.arg.field.type
 	const [low, high] = paddingBounds(type)
 	return computeCore.when(
 		computeCore.within(term(p.arg), hostValue(low, type), hostValue(high, type)),
-		(v: unknown) => computeCore.cast(computeCore.cast(v, pg.numeric(1000, p.scale)), pg.numeric),
-		computeCore.cast(term(p.arg), pg.numeric)
+		(v: unknown) => computeCore.numeric(computeCore.cast(v, pg.numeric(1000, p.scale))),
+		computeCore.numeric(term(p.arg))
 	)
 }
 
@@ -399,7 +399,7 @@ const computedTerm = (r: RuleValue, t: ComputedTerm, term: (v: Var) => unknown):
 		case "base":
 			return computeCore.base(term(t.arg))
 		case "cast numeric":
-			return computeCore.cast(term(t.arg), pg.numeric)
+			return computeCore.numeric(term(t.arg))
 		case "cond":
 			return computeCore.cond(
 				compare(r, t.op, term(t.arg), hostValue(t.than, t.arg.field.type)),

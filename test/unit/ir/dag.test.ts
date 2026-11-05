@@ -15,15 +15,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import {
@@ -92,8 +84,10 @@ import {
 	throwsDefect,
 	unorderedEqual
 } from "#test/support/assert.ts"
-import { normalizeExprTable } from "#test/support/fixtures/ir/scalar.ts"
+import { f } from "#test/support/fixtures/ir/desc.ts"
+import { normalizeExprTable, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { dagTableShape, validateDag, validateTable } from "#test/support/oracle/dag-validate.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 import { Exprs, everyKind, fail, heading, scalarTypes } from "#test/unit/ir/fixture.ts"
@@ -233,7 +227,7 @@ describe("traversals of generated DAGs", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(d, c) =>
 						Effect.sync(() => {
@@ -384,7 +378,7 @@ describe("DagBuilder.build", () => {
 						generator: element(planted),
 						limit: planted.length,
 						coverage: requiredInSpace<Planted>(planted),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(p, c) =>
 						Effect.sync(() => {
@@ -438,7 +432,7 @@ describe("dagDigest", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(burn) =>
 						Effect.sync(() => {
@@ -467,7 +461,7 @@ describe("dagDigest", () => {
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(salt) =>
 					Effect.sync(() => {
@@ -508,7 +502,7 @@ describe("dagDigest", () => {
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(d, c) =>
 					Effect.sync(() => {
@@ -546,7 +540,7 @@ describe("dagDigest", () => {
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(d, c) =>
 					Effect.sync(() => {
@@ -678,7 +672,7 @@ const cents = (table: ExprTable): ScalarType =>
 	succeeded(
 		contractType(
 			parsedName("Cents"),
-			scalarTypes.int8,
+			scalarOf(f.bigint, {}),
 			SourceLoc("a test's checked contract", []),
 			table,
 			[]
@@ -759,7 +753,7 @@ describe("normalizeDag", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([d, salt]) =>
 						Effect.sync(() => {
@@ -801,7 +795,7 @@ describe("normalizeDag", () => {
 						generator: boolean,
 						limit: 2,
 						coverage: requiredInSpace<"y allocated first">(["y allocated first"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(yFirst, c) =>
 						Effect.sync(() => {
@@ -879,7 +873,7 @@ describe("normalizeDag", () => {
 							"an advanced supply",
 							"a spelling not in normal form"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([[root, value, zero], advance], c) =>
 						Effect.sync(() => {

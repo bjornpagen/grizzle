@@ -186,8 +186,8 @@ const literalDesc = (literal: TypedLiteral, type: ScalarType): ExprDesc => ({
 
 /**
  * A padding's Description (program.ts Padding): Compute.when(Compute.within(v, low, high), (v) =>
- * Compute.cast(Compute.cast(v, pg.numeric(1000, scale)), pg.numeric), Compute.cast(v, pg.numeric)), whose branch reads
- * the guarded subject, which is the variable.
+ * Compute.numeric(Compute.cast(v, pg.numeric(1000, scale))), Compute.numeric(v)), whose branch reads the guarded
+ * subject, which is the variable.
  */
 const paddingDesc = (p: Padding, name: (v: Var) => string): ExprDesc => {
 	const type = p.arg.field.type
@@ -202,11 +202,11 @@ const paddingDesc = (p: Padding, name: (v: Var) => string): ExprDesc => {
 		},
 		subject: arg,
 		proved: {
-			kind: "cast",
-			to: { kind: "numeric" },
-			arg: { kind: "cast", to: { kind: "numeric", precision: 1000, scale: p.scale }, arg }
+			kind: "compute",
+			fn: "numeric",
+			args: [{ kind: "cast", to: { kind: "numeric", precision: 1000, scale: p.scale }, arg }]
 		},
-		otherwise: { kind: "cast", to: { kind: "numeric" }, arg }
+		otherwise: { kind: "compute", fn: "numeric", args: [arg] }
 	}
 }
 
@@ -220,7 +220,7 @@ const termDesc = (t: ComputedTerm, name: (v: Var) => string): ExprDesc => {
 		case "base":
 			return { kind: "base", arg: { kind: "var", var: name(t.arg) } }
 		case "cast numeric":
-			return { kind: "cast", to: { kind: "numeric" }, arg: { kind: "var", var: name(t.arg) } }
+			return { kind: "compute", fn: "numeric", args: [{ kind: "var", var: name(t.arg) }] }
 		case "cond": {
 			const arg: ExprDesc = { kind: "var", var: name(t.arg) }
 			return {

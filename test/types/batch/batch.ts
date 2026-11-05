@@ -3,6 +3,8 @@ import {
 	Array as Arr,
 	Cause,
 	Data,
+	Deferred,
+	Duration,
 	Effect,
 	FileSystem,
 	Layer,
@@ -12,13 +14,13 @@ import {
 	Path,
 	Record as Rec,
 	Result,
-	Schedule,
 	Stream,
 	String as Str
 } from "effect"
 import { ChildProcess } from "effect/process"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { defined } from "#test/support/assert.ts"
+import { testTimeout } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 import {
@@ -458,11 +460,11 @@ const attribute = Effect.fn("attribute")(function* (
 const rank = (spec: UnitSpec): number => (spec.kind !== "program" ? 0 : spec.heavy ? 2 : 1)
 
 /**
- * The batch's hang guard, which bounds every test that reads it: those tests have no timeout of their own, because the
- * batch holds the growing-schema programs, which tsgo checks for as long as they take. The guard is far
- * above any run's time, so it catches a hang and never judges a slow check.
+ * The batch's hang guard: as long as one test may run (testTimeout). Every test that reads the batch waits for it
+ * within its own timeout, so a check still running past that serves no test, and the guard catches a hang without
+ * judging a slow check, which the growing-schema programs make for as long as tsgo takes.
  */
-const hangGuardMs = 600_000
+const hangGuard = Duration.millis(testTimeout.value)
 
 /**
  * Places every unit of `groups` under the run's seed, typechecks them as one program, and attributes the diagnostics.
@@ -559,7 +561,7 @@ const buildBatchOn = (spelled: string, groups: ReadonlyArray<Group>, seed: numbe
 						yield* fs.writeFileString(path.join(batch, config), tsconfig)
 						const ran = yield* Effect.timeout(
 							tsc(root, ["--pretty", "false", "-p", path.join(batch, config)]),
-							hangGuardMs
+							hangGuard
 						)
 						return yield* attribute(ran, root, held, placed)
 					}),
@@ -602,15 +604,24 @@ const writeBatchOn = (groups: ReadonlyArray<Group>, seed: number, path: string) 
 		yield* fs.rename(`${path}.partial`, path)
 	})
 
-/** Settles with the file's contents once it exists, looking again every 50 milliseconds. */
-const whenWritten = (path: string) =>
+/**
+ * Settles with the file's contents once it exists. It looks once the watcher on the file's directory is installed and
+ * again after each event of the file system there, so the result's rename into place wakes it.
+ */
+const whenWritten = (file: string) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		yield* Effect.repeat(fs.exists(path), {
-			until: (exists) => exists,
-			schedule: Schedule.spaced("50 millis")
-		})
-		const text = yield* fs.readFileString(path)
+		const path = yield* Path.Path
+		const installed = yield* Deferred.make<void>()
+		yield* Stream.merge(
+			Stream.fromEffect(Deferred.await(installed)),
+			fs.watch(path.dirname(file), { onReady: () => Deferred.doneUnsafe(installed, Effect.void) })
+		).pipe(
+			Stream.mapEffect(() => fs.exists(file)),
+			Stream.takeUntil((exists) => exists),
+			Stream.runDrain
+		)
+		const text = yield* fs.readFileString(file)
 		return trustedJson<BatchResult>(text)
 	})
 

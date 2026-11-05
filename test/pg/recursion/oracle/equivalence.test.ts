@@ -3,7 +3,7 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Formatter } from "effect"
+import { Array as Arr, Formatter } from "effect"
 import {
 	type RecursionOracleFeature,
 	recursiveEquivalence
@@ -115,7 +115,6 @@ const explored = recursiveEquivalence(
 		kept: [],
 		runs: 2 * cases,
 		shrink: completeShrink,
-		caseHang: Duration.minutes(2),
 		perturb: "all"
 	}
 )
@@ -125,8 +124,7 @@ layer(Substrate.layer)(
 	(it) => {
 		it.effect(
 			`agree on ${2 * cases} seeded graph-shaped recursive queries of every shape, family, binding and consumer, with no repeated row`,
-			(ctx) => searched(ctx, explored),
-			3_600_000
+			(ctx) => searched(ctx, explored)
 		)
 	}
 )

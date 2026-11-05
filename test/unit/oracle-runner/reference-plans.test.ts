@@ -18,7 +18,7 @@ import { noCoverage } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import type { RelDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -59,6 +59,7 @@ import {
 	unobserved
 } from "#test/support/oracle/reference/evaluate.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import { equal, indexKey, rowKey, type Value } from "#test/support/oracle/reference/values.ts"
 
 class NestedLoops extends Reference {
@@ -133,7 +134,7 @@ const agree = (suite: string, generator: Gen<QueryCase>) =>
 			shrink: completeShrink,
 			concurrency: 1,
 			steerEvery: 16,
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(c) =>
 			Effect.sync(() => {
@@ -141,77 +142,66 @@ const agree = (suite: string, generator: Gen<QueryCase>) =>
 			})
 	)
 
-const slow = 180_000
-
 describe("the reference evaluator's plans", () => {
-	it.effect(
-		"agree with its nested loops on the oracle populations",
-		(ctx) =>
-			Effect.gen(function* () {
-				yield* searched(
-					ctx,
-					agree("unit/oracle-runner/reference-plans-conservative", queryCaseGen(defaultGenConfig))
-				)
-				yield* searched(
-					ctx,
-					agree("unit/oracle-runner/reference-plans-optimized", queryCaseGen(optimizerGenConfig))
-				)
-			}),
-		slow
+	it.effect("agree with its nested loops on the oracle populations", (ctx) =>
+		Effect.gen(function* () {
+			yield* searched(
+				ctx,
+				agree("unit/oracle-runner/reference-plans-conservative", queryCaseGen(defaultGenConfig))
+			)
+			yield* searched(
+				ctx,
+				agree("unit/oracle-runner/reference-plans-optimized", queryCaseGen(optimizerGenConfig))
+			)
+		})
 	)
 
-	it.effect(
-		"agree with its nested loops where joins and merges meet twin spellings",
-		(ctx) =>
-			Effect.gen(function* () {
-				yield* searched(
-					ctx,
-					agree(
-						"unit/oracle-runner/reference-plans-twinned",
-						queryCaseGen({
-							...defaultGenConfig,
-							spelling: "twinned"
-						})
-					)
+	it.effect("agree with its nested loops where joins and merges meet twin spellings", (ctx) =>
+		Effect.gen(function* () {
+			yield* searched(
+				ctx,
+				agree(
+					"unit/oracle-runner/reference-plans-twinned",
+					queryCaseGen({
+						...defaultGenConfig,
+						spelling: "twinned"
+					})
 				)
-				yield* searched(
-					ctx,
-					agree(
-						"unit/oracle-runner/reference-plans-one-palette",
-						queryCaseGen({
-							...defaultGenConfig,
-							spelling: "twinned",
-							schema: {
-								...defaultGenConfig.schema,
-								maxPalette: 1
-							}
-						})
-					)
+			)
+			yield* searched(
+				ctx,
+				agree(
+					"unit/oracle-runner/reference-plans-one-palette",
+					queryCaseGen({
+						...defaultGenConfig,
+						spelling: "twinned",
+						schema: {
+							...defaultGenConfig.schema,
+							maxPalette: 1
+						}
+					})
 				)
-			}),
-		slow
+			)
+		})
 	)
 
-	it.effect(
-		"agree with its nested loops on recursions",
-		(ctx) =>
-			Effect.gen(function* () {
-				yield* searched(
-					ctx,
-					agree(
-						"unit/oracle-runner/reference-plans-recursive",
-						recursiveCaseGen(defaultRecursiveLimits)
-					)
+	it.effect("agree with its nested loops on recursions", (ctx) =>
+		Effect.gen(function* () {
+			yield* searched(
+				ctx,
+				agree(
+					"unit/oracle-runner/reference-plans-recursive",
+					recursiveCaseGen(defaultRecursiveLimits)
 				)
-				yield* searched(
-					ctx,
-					agree(
-						"unit/oracle-runner/reference-plans-fixed-length",
-						fixedLengthCaseGen(defaultGraphLimits)
-					)
+			)
+			yield* searched(
+				ctx,
+				agree(
+					"unit/oracle-runner/reference-plans-fixed-length",
+					fixedLengthCaseGen(defaultGraphLimits)
 				)
-			}),
-		slow
+			)
+		})
 	)
 })
 
@@ -280,7 +270,7 @@ describe("indexKey", () => {
 					/** The squares of the samples' counts: 4, 3, 3, 11, 5, 7, 3, 2, 6, 2 and 2 values. */
 					limit: 286,
 					coverage: noCoverage,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([type, a, b]) =>
 					Effect.sync(() => {

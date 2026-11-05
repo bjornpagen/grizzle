@@ -21,7 +21,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { castOf } from "#compiler/scalar/compute/registry.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
-import { plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
+import { anyNumeric, plainType, scalarOf, wildcardText } from "#test/support/fixtures/ir/scalar.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { castOpOf, definedOpOf } from "#test/support/oracle/gen/ops.ts"
 
@@ -44,7 +44,7 @@ export const scalarTypes = {
 	uuid: scalarOf(f.uuid, {}),
 	int4: plainType("int4"),
 	int8: plainType("int8"),
-	numeric: plainType("numeric"),
+	numeric: anyNumeric,
 	float8: plainType("float8"),
 	money: plainType("money"),
 	bool: plainType("bool"),

@@ -10,7 +10,6 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import type { PageParamSlot } from "#compiler/lower/conservative/types.ts"
 import { isVectorType, typedCompare } from "#compiler/lower/conservative/vector/equality.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
 import type { Expr, OrderItem, TypeRef } from "#compiler/sql/ast.ts"
 import { and, asc, binary, desc, lit, or, row, slotParam, types } from "#compiler/sql/build.ts"
 
@@ -155,27 +154,28 @@ export class PageSlots {
 		this.#comparators = comparators
 	}
 
-	/** The limit placeholder, `$n::integer`. */
+	/**
+	 * The limit placeholder, `$n::bigint`: the requested size plus one. A page size is any safe integer of at least 1,
+	 * and every safe integer and its successor are bigint values, which LIMIT takes.
+	 */
 	limit(): Expr {
-		this.#limit ??= this.#fill({ kind: "limit" }, plainType("int4"), types.integer)
+		this.#limit ??= this.#fill({ kind: "limit" }, types.bigint)
 		return this.#limit
 	}
 
-	/** The size placeholder, `$n::integer`: the most rows the page delivers. */
+	/** The size placeholder, `$n::bigint`: the most rows the page delivers, any safe integer of at least 1. */
 	size(): Expr {
-		this.#size ??= this.#fill({ kind: "size" }, plainType("int4"), types.integer)
+		this.#size ??= this.#fill({ kind: "size" }, types.bigint)
 		return this.#size
 	}
 
 	/** A new placeholder the page request fills with `fill`, cast to `sqlType`. */
-	#fill(fill: PageFill, type: ScalarType, sqlType: TypeRef): Expr {
+	#fill(fill: PageFill, sqlType: TypeRef): Expr {
 		const slot = this.#params.own((number): PageParamSlot => ({
 			kind: "page",
 			placeholder: "value",
 			number,
-			fill,
-			type,
-			sqlType
+			fill
 		}))
 		return slotParam(slot, sqlType)
 	}
@@ -190,7 +190,6 @@ export class PageSlots {
 			comparator,
 			boundary: this.#fill(
 				{ kind: "boundary", position, field: comparator.field },
-				comparator.type,
 				this.#typeRef(comparator.type)
 			)
 		}))

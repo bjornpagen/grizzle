@@ -13,8 +13,8 @@ import type { Perturbation } from "#test/support/oracle/perturb.ts"
 /**
  * The field types the general draw declares, by the storage carrier each has (ir/scalar.ts StorageCarrier), so a
  * carrier added there without a kind fails the typecheck. Each is a public descriptor (build.ts) with the ScalarType the
- * schema compiler derives for it (generate.ts): integer, bigint, bare numeric (every display scale kept, so never a
- * key), numeric(5,2), double precision, money, boolean, the generated bounded text, unbounded prose (str.regex("^.*$",
+ * schema compiler derives for it (generate.ts): integer, bigint, the wide numeric (gen/domain.ts wideNumericTypmod,
+ * never a key), numeric(5,2), double precision, money, boolean, the generated bounded text, unbounded prose (str.regex("^.*$",
  * "su"), whose values come from the literal dictionary and include what array_out must quote), uuid, the handle of the
  * case's closed roster, smallint, real, a span over integer and over bigint, and a vector of three dimensions
  * (pg.vector(3)), whose -0 components are its twin spellings. A field's recorded pick names an index of fieldKinds,
@@ -326,10 +326,10 @@ export type AggregateFn = (typeof aggregateFns)[number]
 
 /**
  * The padding of one numeric variable (int4, int8, numeric, numeric(5,2) or Tick) at display scale `scale`, past the
- * least scale of every value the variable holds: within paddingBounds, Compute.cast(Compute.cast(v,
- * pg.numeric(1000, scale)), pg.numeric), its value at that display scale, a bare numeric only a reading of the display
- * scale tells from the variable; elsewhere Compute.cast(v, pg.numeric), since a typmod's cast is defined only where
- * the value fits, which the guard Compute.within(v, low, high) proves.
+ * least scale of every value the variable holds: within paddingBounds, Compute.numeric(Compute.cast(v,
+ * pg.numeric(1000, scale))), its value at that display scale, which only a reading of the display scale tells from the
+ * variable; elsewhere Compute.numeric(v), since a typmod's cast is defined only where the value fits, which the guard
+ * Compute.within(v, low, high) proves.
  */
 export interface Padding {
 	readonly arg: Var
@@ -360,8 +360,8 @@ export const powerBounds: readonly [TypedLiteral, TypedLiteral] = [
 export const unguarded: TypedLiteral = numericLiteral("0")
 
 /**
- * What an aggregate or a display-scale reading reads: a variable itself, or its padding. A reading's variable is a bare
- * numeric, whose stored values have twin spellings, so a reading's operand is always a bare numeric.
+ * What an aggregate or a display-scale reading reads: a variable itself, or its padding. A reading's variable is a wide
+ * numeric and a padding a computed numeric, so a reading's operand is always a numeric.
  */
 export type ArgTerm =
 	| { readonly kind: "var"; readonly var: Var }
@@ -369,9 +369,9 @@ export type ArgTerm =
 
 /**
  * A Compute term over one numeric variable (int4, int8, numeric, numeric(5,2) or Tick): Compute.base(v), a contract's
- * base value and identity elsewhere; Compute.cast(v, pg.numeric); Compute.cond(r.<op>(v, than), v, otherwise); a
+ * base value and identity elsewhere; Compute.numeric(v); Compute.cond(r.<op>(v, than), v, otherwise); a
  * padding; or one of the readings PostgreSQL defines over a numeric's display scale (registry.ts "displayScale"), each
- * a bare numeric, over a bare numeric variable or a padding: Compute.div(a, divisor), a quotient by a nonzero literal;
+ * a computed numeric, over a wide numeric variable or a padding: Compute.div(a, divisor), a quotient by a nonzero literal;
  * the square root of a nonnegative value, Compute.when(Compute.nonnegative(a), (a) => Compute.sqrt(a), unguarded); and
  * a power of a value within powerBounds, Compute.when(Compute.within(a, low, high), (a) => Compute.power(a, exponent),
  * unguarded).
@@ -511,8 +511,8 @@ export interface Root extends Query<never> {
 
 /**
  * A refusal the read provokes besides its answer, at the public boundary: a parameter of the wrong host type (encode),
- * a page size outside 1..pageMaxSize (request), or a cursor its codec cannot read (cursor). Each must be its typed
- * error, and the read after it must answer as before.
+ * a page size that is no safe integer of at least 1 (request), or a cursor its codec cannot read (cursor). Each must be
+ * its typed error, and the read after it must answer as before.
  */
 export type Probe =
 	| { readonly kind: "none" }

@@ -7,7 +7,16 @@ import type { IdentityValue } from "#compiler/core/identity.ts"
 import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { type Comparator, combine, compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { CanonicalFloat, MoneyValue, VectorText } from "#compiler/ir/carriers.ts"
+import {
+	type CanonicalFloat,
+	cosineNormMax,
+	cosineNormMin,
+	integerRanges,
+	type MoneyValue,
+	uuidHyphens,
+	uuidTextLength,
+	type VectorText
+} from "#compiler/ir/carriers.ts"
 import { type DecimalValue, decimalPayload } from "#compiler/ir/decimal.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
 import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
@@ -549,18 +558,23 @@ export interface ExprTable {
 	readonly exprs: Readonly<Record<ExprId, TableExpr>>
 }
 
-const int2Range = [-32768n, 32767n] as const
-const int4Range = [-2147483648n, 2147483647n] as const
-const int8Range = [-9223372036854775808n, 9223372036854775807n] as const
-
-/** Where the canonical UUID text has its hyphens, between hex groups of 8, 4, 4, 4 and 12 digits. */
-const uuidHyphens: ReadonlySet<number> = new Set([8, 13, 18, 23])
+/**
+ * pgvector's vector_norm over a vector literal's components: each binary32 component squared and summed in double, then
+ * the root (scalar/values/vector.ts norm), which a literal's place in the cosine domain is read by.
+ */
+const nativeNorm = (components: ReadonlyArray<number>): number => {
+	let sum = 0
+	for (const x of components) {
+		sum += x * x
+	}
+	return Math.sqrt(sum)
+}
 
 const isLowerHex = (ch: string): boolean => (ch >= "0" && ch <= "9") || (ch >= "a" && ch <= "f")
 
 /** Whether `text` is the canonical UUID text: lowercase hex digits in groups of 8, 4, 4, 4 and 12, joined by hyphens. */
 const isUuidText = (text: string): boolean =>
-	text.length === 36 &&
+	text.length === uuidTextLength &&
 	Array.from(text).every((ch, i) => (uuidHyphens.has(i) ? ch === "-" : isLowerHex(ch)))
 
 /**
@@ -575,15 +589,9 @@ const inRange = (value: bigint, [lo, hi]: readonly [bigint, bigint]): boolean =>
  * Why the decimal `value` is not exactly a value of numeric(p, s), or undefined when it is. A value that numeric(p,
  * s) would round, or whose rounded magnitude needs more than p - s integer digits (negative scales included), or an
  * infinity, is refused: PostgreSQL would change the value or fail at run time. NaN is a
- * value of every numeric typmod. Without a precision the type is unconstrained numeric and holds every value.
+ * value of every numeric typmod.
  */
-const numericTypmodProblem = (
-	value: DecimalValue,
-	typmod: NumericTypmod | undefined
-): string | undefined => {
-	if (typmod === undefined) {
-		return undefined
-	}
+const numericTypmodProblem = (value: DecimalValue, typmod: NumericTypmod): string | undefined => {
 	const { precision, scale } = typmod
 	const label = `numeric(${precision},${scale})`
 	const parts: DecimalParts = value.parts
@@ -655,7 +663,9 @@ export const integerLiteral = (literal: TypedLiteral): bigint | undefined => {
 
 /**
  * Why `literal` cannot be a value of `type`, or undefined when it can. The type's refinements (a contract predicate,
- * a regex) are not evaluated here: checking a literal against them is the ContractLiteral check.
+ * a regex) are not evaluated here: checking a literal against them is the ContractLiteral check. A computed numeric,
+ * numeric of no typmod, holds every numeric value: its bound is what the node's making proves (scalar/compute/lower.ts
+ * literalNode types a literal by its own value), never a domain a literal adopting it is checked against.
  */
 export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string | undefined => {
 	/** A contract's value is a value of its base: its typmod, roster and dimensions are the base's. */
@@ -664,13 +674,9 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 	switch (literal.kind) {
 		case "int": {
 			const range =
-				carrier === "int2"
-					? int2Range
-					: carrier === "int4"
-						? int4Range
-						: carrier === "int8"
-							? int8Range
-							: undefined
+				carrier === "int2" || carrier === "int4" || carrier === "int8"
+					? integerRanges[carrier]
+					: undefined
 			if (range === undefined) {
 				return `an int literal is not a ${carrier} value`
 			}
@@ -680,7 +686,9 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 			if (carrier !== "numeric") {
 				return `a numeric literal is not a ${carrier} value`
 			}
-			return numericTypmodProblem(literal.value, type.typmod)
+			return type.typmod === undefined
+				? undefined
+				: numericTypmodProblem(literal.value, type.typmod)
 		case "float":
 			if (carrier === "float8") {
 				return undefined
@@ -717,7 +725,12 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 				? undefined
 				: `${JSON.stringify(literal.handle)} is not a handle of ${type.roster.closed}`
 		case "span": {
-			const range = carrier === "range4" ? int4Range : carrier === "range8" ? int8Range : undefined
+			const range =
+				carrier === "range4"
+					? integerRanges.int4
+					: carrier === "range8"
+						? integerRanges.int8
+						: undefined
 			if (range === undefined) {
 				return `a span literal is not a ${carrier} value`
 			}
@@ -736,18 +749,10 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 			if (components.length !== type.typmod.dims) {
 				return `a vector literal has ${type.typmod.dims} components`
 			}
-			/**
-			 * A vector literal lies in the cosine domain: vector_norm, summed in double, in [2^-16, 2^16]
-			 * (scalar/values/vector.ts norm).
-			 */
-			let sum = 0
-			for (const x of components) {
-				sum += x * x
-			}
-			const norm = Math.sqrt(sum)
-			return norm >= 2 ** -16 && norm <= 2 ** 16
+			const norm = nativeNorm(components)
+			return norm >= cosineNormMin.value && norm <= cosineNormMax.value
 				? undefined
-				: "a vector literal whose native norm lies in the cosine domain [2^-16, 2^16]"
+				: `a vector literal whose native norm lies in the cosine domain [${cosineNormMin.value}, ${cosineNormMax.value}]`
 		}
 	}
 }

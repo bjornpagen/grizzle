@@ -56,7 +56,10 @@ type Ordering = -1 | 0 | 1
 const canonical = (fields: ReadonlyArray<string>): ReadonlyArray<string> =>
 	Arr.sort([...new Set(fields)], byText)
 
-/** Key order (fds.ts keyOrder): the shorter first, then the one holding the first heading column only one holds. */
+/**
+ * Key order (logical/closure.ts keyOrder): the shorter first, then the one holding the first heading column only one
+ * holds.
+ */
 const keyOrder =
 	(heading: ReadonlyArray<string>) =>
 	(a: ReadonlyArray<string>, b: ReadonlyArray<string>): Ordering => {

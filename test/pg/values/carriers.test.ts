@@ -5,13 +5,14 @@ import { array, boolean, element, filter, type Gen, int, map, oneOf } from "@gri
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { compareSpan, makeSpan, spanText } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -33,7 +34,7 @@ const spec = {
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	caseHang: Duration.minutes(2)
+	caseHang
 } as const
 
 /** An exhaustive check's budget beside its suite and generator. */
@@ -41,7 +42,7 @@ const exhaustive = {
 	literal: Formatter.format,
 	limit: 16,
 	coverage: noCoverage,
-	caseHang: Duration.minutes(2)
+	caseHang
 } as const
 
 /** One row of one and of two columns, trusted from what PostgreSQL answers. */
@@ -137,7 +138,7 @@ const refusals: Arr.NonEmptyReadonlyArray<Refusal> = [
 	{ xs: [3.5e38], fault: "vectorNonFinite", text: "22003", binary: "22003" },
 	{ xs: [-1e39], fault: "vectorNonFinite", text: "22003", binary: "22003" },
 	{
-		xs: ones(vectorMaxDimensions + 1),
+		xs: ones(vectorMaxDimensions.value + 1),
 		fault: "vectorDimensions",
 		text: "54000",
 		binary: "54000"
@@ -312,7 +313,10 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 					const { extension, vectorType } = yield* vectorTypeOf(db)
 					/** The storage limit itself is admitted by both. */
 					const widest = succeeded(
-						Vector.admit(Float32Array.from(ones(vectorMaxDimensions)), vectorMaxDimensions)
+						Vector.admit(
+							Float32Array.from(ones(vectorMaxDimensions.value)),
+							vectorMaxDimensions.value
+						)
 					)
 					const [[dims]] = yield* Effect.map(
 						db.values(`SELECT ${extension}.vector_dims($1::text::${vectorType})::text`, [
@@ -320,7 +324,7 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 						]),
 						oneCellOf
 					)
-					assert.equal(Number(dims), vectorMaxDimensions)
+					assert.equal(Number(dims), vectorMaxDimensions.value)
 					yield* expectSqlstate(
 						db.values(`SELECT (($1::text::float8[]::real[])::${vectorType})::text`, [
 							float8ArrayText([1e-50])

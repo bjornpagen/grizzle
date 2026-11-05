@@ -20,17 +20,17 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint, double, float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
 import type { ScalarCodec } from "#compiler/codec/scalar.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { int4Max, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { toReal } from "#compiler/scalar/values/float.ts"
 import { admitValue, type CarrierHost, isHostValue } from "#compiler/scalar/values/identity.ts"
-import { int4Max, int4Min, int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -46,6 +46,7 @@ import {
 } from "#test/pg/codec/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -109,11 +110,14 @@ const withNonFinite = (finite: Gen<number>): Gen<number> =>
 const realMax = 3.4028234663852886e38
 
 const int8Gen: Gen<bigint> = oneOf([
-	bigint(int8Min, int8Max),
-	element([int8Min, int8Max, 0n, -1n, 1n])
+	bigint(int8Min.value, int8Max.value),
+	element([int8Min.value, int8Max.value, 0n, -1n, 1n])
 ])
 
-const int4Gen: Gen<number> = oneOf([int(int4Min, int4Max), element([int4Min, int4Max, 0, -0])])
+const int4Gen: Gen<number> = oneOf([
+	int(int4Min.value, int4Max.value),
+	element([int4Min.value, int4Max.value, 0, -0])
+])
 
 /** Two distinct endpoints, the lower first: a draw that repeats an endpoint draws again. */
 const span = <E extends number | bigint>(endpoint: Gen<E>) =>
@@ -217,7 +221,7 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	{ label: "smallint", type: plainType("int2"), values: int(-32768, 32767) },
 	{ label: "integer", type: plainType("int4"), values: int4Gen },
 	{ label: "bigint", type: plainType("int8"), values: int8Gen },
-	{ label: "numeric", type: plainType("numeric"), values: decimalGen },
+	{ label: "numeric", type: anyNumeric, values: decimalGen },
 	{
 		label: "numeric(7,2)",
 		type: scalars.numeric72,
@@ -369,7 +373,7 @@ const batches = <A>(
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	caseHang: Duration.minutes(2)
+	caseHang
 })
 
 layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
@@ -393,7 +397,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ label, batch }, c) =>
 						Effect.gen(function* () {
@@ -433,7 +437,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([typmod, batch], notes) =>
 							Effect.gen(function* () {
@@ -583,7 +587,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 				)
 				const fact = (source: Source) => ({
 					id: source.draw(anyUuid),
-					amount: source.draw(bigint(0n, int8Max)),
+					amount: source.draw(bigint(0n, int8Max.value)),
 					rate: source.draw(map(int(-9999999, 9999999), (n) => Decimal.of(`${n}e-2`))),
 					raw: source.draw(realGen),
 					charge: source.draw(map(int8Gen, (u) => Money.of(u))),
@@ -638,7 +642,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(facts) =>
 						Effect.gen(function* () {

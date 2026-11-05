@@ -11,6 +11,8 @@ export type RuleContext = Readonly<{
 	checker: Checker
 	semantics: Semantics
 	options: SuperlintOptions
+	/** The directory the options' paths are relative to: the repository root, or the fixtures' for a fixture run. */
+	root: string
 }>
 
 /** A rule prepares once per file and answers the visitor that the engine's one traversal calls with every node of

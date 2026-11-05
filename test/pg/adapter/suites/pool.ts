@@ -1,11 +1,12 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, type Kept } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
+import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Exit, Formatter, Scope } from "effect"
+import { Array as Arr, Effect, Exit, Fiber, Formatter, Scope } from "effect"
+import { type BatchStatement, runTransaction } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import {
 	backendPidOf,
@@ -13,12 +14,17 @@ import {
 	defaultPool,
 	poolFor,
 	roleDefaults,
+	rowsOn,
 	substrateLogin,
 	until
 } from "#test/pg/adapter/support.ts"
 import { assert, lacks } from "#test/support/assert.ts"
+import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
+import { runAlone } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { testSql } from "#test/support/sql.ts"
+import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { makeTap } from "#test/support/wire-tap.ts"
 
 /** One step as drawn: what it does, and which leased session it picks. */
 interface StepSketch {
@@ -98,6 +104,191 @@ interface Held {
 	readonly scope: Scope.Closeable
 }
 
+/** What an interrupted statement waits on: the server's clock, or an advisory lock another session holds. */
+type LongStatement = "sleep" | "lock"
+
+/** How the statement runs: alone, its own implicit transaction, or inside a transaction that ends with COMMIT. */
+type FlightForm = "alone" | "transaction"
+
+interface Interrupted {
+	readonly max: number
+	readonly statement: LongStatement
+	readonly form: FlightForm
+}
+
+const interruptedCases: Gen<Interrupted> = (source) => ({
+	max: source.draw(int(1, 3)),
+	statement: source.draw(element<LongStatement>(["sleep", "lock"])),
+	form: source.draw(element<FlightForm>(["alone", "transaction"]))
+})
+
+type InterruptedFeature = `${LongStatement} ${FlightForm}`
+
+/**
+ * The advisory lock key the lock cases hold, in a session of their own that the case's scope ends, which no other
+ * test takes.
+ */
+const lockKey = "7366231908012114001"
+
+/** The long statement of a case, which runs until a CancelRequest stops it. */
+const longStatement = (statement: LongStatement): BatchStatement =>
+	statement === "sleep"
+		? { sql: testSql("SELECT pg_catalog.pg_sleep(600)::text"), params: [] }
+		: { sql: testSql("SELECT pg_catalog.pg_advisory_lock($1::int8)::text"), params: [lockKey] }
+
+/** Runs `statement` on `session` in the form drawn: alone, or in a read-only transaction that ends with COMMIT. */
+const runIn = (session: Session, form: FlightForm, statement: BatchStatement) =>
+	form === "alone"
+		? Effect.asVoid(runAlone(session, statement))
+		: Effect.asVoid(runTransaction(session, [statement], { access: "readOnly", end: "COMMIT" }))
+
+/**
+ * An interrupted statement stops on the server, and its session is gone for good, exhaustively over the pool's
+ * maximum (1 to 3), the statement (a sleep, or a wait for an advisory lock another session holds) and its flight
+ * (alone, or in a transaction ending with COMMIT): once the server runs the statement, interrupting the call
+ * sends one CancelRequest and destroys the session, so its backend leaves pg_stat_activity, and the pool's next
+ * leases, its maximum at once, are other sessions on other backends.
+ */
+const interruptedStatement = Effect.gen(function* () {
+	const s = yield* Substrate
+	const schema = yield* s.schema(freshSchema)
+	const login = yield* substrateLogin(schema, "server", roleDefaults)
+	return yield* exhaust(
+		{
+			suite: "pg/adapter/pool/interrupted",
+			generator: interruptedCases,
+			literal: Formatter.format,
+			limit: 12,
+			coverage: requiredInSpace<InterruptedFeature>([
+				"sleep alone",
+				"sleep transaction",
+				"lock alone",
+				"lock transaction"
+			]),
+			caseHang
+		},
+		(k, c) =>
+			Effect.gen(function* () {
+				const pool = yield* poolFor(login, {
+					...defaultPool,
+					pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: k.max }
+				})
+				if (k.statement === "lock") {
+					const holder = yield* s.session({ ...ownerSession(), label: "lock holder" })
+					yield* holder.query("SELECT pg_catalog.pg_advisory_lock($1::int8)", [lockKey])
+				}
+				const scope = yield* Effect.scope
+				const leaseScope = yield* Scope.fork(scope)
+				const session = yield* Scope.provide(pool.lease, leaseScope)
+				const pid = yield* backendPidOf(session)
+				const call = yield* Effect.forkChild(runIn(session, k.form, longStatement(k.statement)))
+				yield* until(
+					Effect.map(backendState(pid), (b) =>
+						k.statement === "sleep"
+							? b.state === "active" && b.waitEvent === "PgSleep"
+							: b.state === "active" && b.waitEvent === "advisory"
+					)
+				)
+				const exit = yield* Effect.andThen(Fiber.interrupt(call), Fiber.await(call))
+				assert.ok(Exit.hasInterrupts(exit), "the call ends as its interruption")
+				assert.equal(session.state(), "ended", "the interrupted session is destroyed")
+				yield* until(Effect.map(backendState(pid), (b) => b.state === "gone"))
+				yield* Scope.close(leaseScope, Exit.void)
+				const leased = yield* pool.leased
+				assert.equal(leased, 0)
+				const again = yield* Effect.scoped(
+					Effect.all(
+						Array.from({ length: k.max }, () =>
+							Effect.flatMap(pool.lease, (next) =>
+								Effect.map(backendPidOf(next), (nextPid) => ({ next, nextPid }))
+							)
+						),
+						{ concurrency: k.max }
+					)
+				)
+				lacks(
+					Arr.map(again, (a) => a.next),
+					session,
+					"the interrupted session is never handed out again"
+				)
+				lacks(
+					Arr.map(again, (a) => a.nextPid),
+					pid,
+					"its backend is never reused"
+				)
+				c.note(`${k.statement} ${k.form}`)
+			})
+	)
+}).pipe(Effect.scoped)
+
+/** Where a stalled transport is when the layer is released: its session idle in the pool, leased, or mid-statement. */
+type Stalled = "idle" | "leased" | "running"
+
+type StalledFeature = `released ${Stalled}`
+
+/**
+ * Releasing a layer never awaits the network, exhaustively over where its one session stands: through the protocol
+ * tap, a pool of one opens its session, and then the tap's gate stalls it, holding every byte the server sends,
+ * its end included, while the session is idle in the pool, leased, or running a statement. Closing the pool's
+ * scope, the layer's, completes all the same: it writes at most a Terminate and destroys the sockets, awaiting
+ * nothing. A statement in flight then fails without an answer, and the session's backend leaves pg_stat_activity
+ * once its connection is gone.
+ */
+const stalledRelease = Effect.gen(function* () {
+	const s = yield* Substrate
+	const schema = yield* s.schema(freshSchema)
+	const login = yield* substrateLogin(schema, "server", roleDefaults)
+	return yield* exhaust(
+		{
+			suite: "pg/adapter/pool/stalled release",
+			generator: element<Stalled>(["idle", "leased", "running"]),
+			literal: Formatter.format,
+			limit: 3,
+			coverage: requiredInSpace<StalledFeature>([
+				"released idle",
+				"released leased",
+				"released running"
+			]),
+			caseHang
+		},
+		(stalled, c) =>
+			Effect.gen(function* () {
+				const tap = makeTap(s.cluster)
+				const scope = yield* Effect.scope
+				const layerScope = yield* Scope.fork(scope)
+				const pool = yield* Scope.provide(
+					poolFor(login, {
+						...defaultPool,
+						transport: { kind: "given", transport: tap.transport },
+						pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 }
+					}),
+					layerScope
+				)
+				const leaseScope = yield* Scope.fork(scope)
+				const session = yield* Scope.provide(pool.lease, leaseScope)
+				const pid = yield* backendPidOf(session)
+				if (stalled === "idle") {
+					yield* Scope.close(leaseScope, Exit.void)
+				}
+				tap.gate.hold(0, { kind: "any" })
+				const call =
+					stalled === "running"
+						? yield* Effect.forkChild(rowsOn(session, "SELECT 'stalled'::text", []), {
+								startImmediately: true
+							})
+						: undefined
+				yield* Scope.close(layerScope, Exit.void)
+				if (call !== undefined) {
+					const exit = yield* Fiber.await(call)
+					assert.ok(Exit.isFailure(exit), "a statement in flight fails without an answer")
+				}
+				yield* Scope.close(leaseScope, Exit.void)
+				yield* until(Effect.map(backendState(pid), (b) => b.state === "gone"))
+				c.note(`released ${stalled}`)
+			})
+	)
+}).pipe(Effect.scoped)
+
 /**
  * The session pool's retirement of a session, over pg's own Pool (packages/grizzle/src/adapter/wire/session.ts): a session retired for
  * any reason (an interruption with a statement in flight, a lost connection, a transaction it could not end), or whose
@@ -133,13 +324,13 @@ export const poolSuite = (): void => {
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							({ max, steps }, c) =>
 								Effect.gen(function* () {
 									const pool = yield* poolFor(reader, {
 										...defaultPool,
-										pool: { idleTimeoutMs: 60_000, min: 1, max }
+										pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max }
 									})
 									const scope = yield* Effect.scope
 									const held: Array<Held> = []
@@ -151,8 +342,7 @@ export const poolSuite = (): void => {
 										const before = yield* pool.size
 										const session = yield* Scope.provide(pool.lease, leaseScope)
 										lacks([...retired], session, "a retired session is never handed out again")
-										assert.equal(session.retired(), false)
-										assert.equal(session.lost(), false)
+										assert.equal(session.state(), "open", "a leased session is open")
 										const pid = yield* backendPidOf(session)
 										lacks([...retiredPids], pid, "a retired backend is never reused")
 										if (retired.size > 0) {
@@ -205,7 +395,11 @@ export const poolSuite = (): void => {
 												break
 											case "lose":
 												h.session.destroy()
-												yield* until(Effect.sync(() => h.session.lost()))
+												assert.equal(
+													h.session.state(),
+													"ended",
+													"a destroyed session is ended at once"
+												)
 												yield* release(h, true)
 												c.note("connection lost")
 												break
@@ -227,6 +421,15 @@ export const poolSuite = (): void => {
 						)
 					})
 				)
+		)
+
+		it.effect(
+			"stops an interrupted statement's backend and never hands its session out again",
+			(ctx) => searched(ctx, interruptedStatement)
+		)
+
+		it.effect("releases a layer whose transport stalls, awaiting nothing from it", (ctx) =>
+			searched(ctx, stalledRelease)
 		)
 	})
 }

@@ -81,7 +81,7 @@ const castInPlace = (
  *
  * "Cast seed and step outputs to the declared representation": each term's targets are cast to the state column's
  * base type, so PostgreSQL's recursive type agreement never rests on a seed literal's inferred type and no column
- * silently widens. A term whose rows feed the recursive UNION, or the unrolled levels' set UNION,
+ * silently widens. A term whose rows feed the recursive UNION
  * directly needs no DISTINCT of its own: the placement realized it plain, and its
  * query is used as the term itself, its targets cast in place, which is the native shape:
  *
@@ -110,7 +110,7 @@ export const stateTerm = (
 	return core(targets, [source.item], undefined)
 }
 
-/** The column list of a recursion's CTE or of one unrolled level: one fresh c<n> per state column, or the unit marker. */
+/** The column list of a recursion's CTE: one fresh c<n> per state column, or the unit marker. */
 export const stateColumns = (
 	cx: LowerContext,
 	rec: NodeOf<"Recursive">

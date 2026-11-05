@@ -16,7 +16,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import {
@@ -30,6 +30,7 @@ import {
 } from "#compiler/write/delta/net.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	type AttributedChange,
 	attributeStratum,
@@ -97,7 +98,7 @@ describe("netting", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ start, steps }) =>
 						Effect.sync(() => {
@@ -237,7 +238,7 @@ describe("a stratum's change is a set difference", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ stored, lagging, generatedNote, alsoDeleted, later }, c) =>
 							Effect.sync(() => {
@@ -433,7 +434,7 @@ describe("relation identity", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([task, text]) =>
 							Effect.sync(() => {

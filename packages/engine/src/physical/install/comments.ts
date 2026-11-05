@@ -1,4 +1,10 @@
-import { type Census, type Censused, censused, displayOf } from "#compiler/core/identity.ts"
+import {
+	type Census,
+	type Censused,
+	censused,
+	displayOf,
+	type StandingName
+} from "#compiler/core/identity.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import {
 	type AlterTableAction,
@@ -204,6 +210,40 @@ export const targetKey = (on: CommentTarget): string => {
 			return `${on.kind}\u0001${name(on.name)}`
 	}
 }
+
+/** The identifier that names a comment's target: the object's own name, never its relation's, domain's or schema's. */
+const targetName = (on: CommentTarget): string => {
+	switch (on.kind) {
+		case "SCHEMA":
+		case "ROLE":
+		case "CONSTRAINT":
+		case "TRIGGER":
+		case "POLICY":
+		case "DOMAIN CONSTRAINT":
+			return on.name
+		case "TABLE":
+		case "VIEW":
+		case "MATERIALIZED VIEW":
+		case "TYPE":
+		case "DOMAIN":
+		case "SEQUENCE":
+		case "INDEX":
+		case "STATISTICS":
+		case "FUNCTION":
+			return on.name.name
+		case "COLUMN":
+			return on.column
+	}
+}
+
+/**
+ * Every hashed name an installation's COMMENTs record, with the identity each spells out: the installation's
+ * `manifest.comments`, which name every object it created under a hashed name and no other (commentsOf).
+ */
+export const hashedNames = (comments: ReadonlyArray<SqlStatement>): ReadonlyArray<StandingName> =>
+	comments.flatMap((c) =>
+		c.kind === "comment" ? [{ identifier: targetName(c.on), display: c.text }] : []
+	)
 
 /** What a RENAME, a column's or a constraint's names under its new name: none for a statement that renames nothing. */
 const renamedTo = (s: SqlStatement): ReadonlyArray<CommentTarget> => {

@@ -5,7 +5,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
@@ -14,6 +14,7 @@ import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import {
 	baseParams,
@@ -33,7 +34,7 @@ import {
  *
  * Two oracles judge the lowering's proofs. Over literal operands, whose interval is their point, the operation's
  * definedness is read off the values themselves, independently of the bound domain: a divisor is zero or not, a
- * radicand below zero, a value NaN or an infinity; compilation must refuse a case whose values violate a fact it needs
+ * radicand below zero, a value NaN; compilation must refuse a case whose values violate a fact it needs
  * (PartialOperation naming that fact), admit one whose values satisfy every fact it needs, and the host evaluator must
  * never meet an undefined operation in what it admits. A refusal of a precondition that rests on magnitudes (a
  * narrowing's range) is the bound domain's residue, admitted either way. A parameter is a term of its declared type,
@@ -43,7 +44,10 @@ import {
  * the host evaluator judging every row.
  */
 
-/** The texts of numeric's drawn literals: zero, the units, a half, a large value and the specials. */
+/**
+ * The texts of numeric's drawn literals: zero, the units, a half, a large value and NaN, the one value no finite fact
+ * holds of that a numeric field holds, since no numeric(p, s) holds an infinity.
+ */
 const decimalTexts: Arr.NonEmptyReadonlyArray<string> = [
 	"0",
 	"1",
@@ -52,9 +56,7 @@ const decimalTexts: Arr.NonEmptyReadonlyArray<string> = [
 	"-0.5",
 	"1e20",
 	"2147483648.5",
-	"NaN",
-	"Infinity",
-	"-Infinity"
+	"NaN"
 ]
 
 /** A field operands are drawn over: the test field, the literals its operands draw, and their zero. */
@@ -304,7 +306,7 @@ describe("totality", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ entry, source, a, b }, c) =>
 						Effect.sync(() => {
@@ -395,7 +397,7 @@ describe("totality", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ form, subject, a, b }, c) =>
 						Effect.sync(() => {

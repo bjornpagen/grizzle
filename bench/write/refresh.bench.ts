@@ -74,7 +74,9 @@ const Sitting = relation(
 	{ id: pg.bigint, student: pg.integer, week: pg.integer, passed: pg.boolean },
 	["id"]
 )
-const Fee = relation("Fee", { id: pg.bigint, student: pg.integer, amount: pg.numeric }, ["id"])
+const Fee = relation("Fee", { id: pg.bigint, student: pg.integer, amount: pg.numeric(8, 2) }, [
+	"id"
+])
 
 const build = (name: string) => {
 	const Edu = schema(name, { Sitting, Fee }, [])

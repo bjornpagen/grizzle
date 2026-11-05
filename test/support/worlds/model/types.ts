@@ -790,7 +790,7 @@ export interface DirectSessionState {
 }
 
 /** A session as the model tracks it: a Db, a direct writer, or one closed. */
-export type SessionState =
+export type ModelSession =
 	| DbSessionState
 	| DirectSessionState
 	| { readonly kind: "closed"; readonly was: "db" | "direct" }
@@ -836,7 +836,7 @@ export interface ModelState {
 	readonly reality: HostState
 	/** Each derived relation's facts as of its last refresh. */
 	readonly derived: Readonly<Record<string, ReadonlyArray<HostFact>>>
-	readonly sessions: ReadonlyArray<SessionState>
+	readonly sessions: ReadonlyArray<ModelSession>
 	readonly connections: ReadonlyArray<ConnectionState>
 	readonly tampered: ReadonlyArray<CatalogPerturbation>
 	/**

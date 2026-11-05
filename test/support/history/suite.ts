@@ -5,21 +5,12 @@ import { element } from "@grizzle/testing/gen"
 import { type PctSchedule, pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Cause,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	type Scope,
-	String as Str
-} from "effect"
+import { Array as Arr, Cause, Effect, Formatter, Option, type Scope, String as Str } from "effect"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import { populationsOf } from "#test/pg/laws/families/families.ts"
 import { emptyState, expect, rowsDifference, stateRows } from "#test/pg/laws/families/model.ts"
 import {
-	type AbortCause,
+	type DirectAbort,
 	describeHistory,
 	type History,
 	type Outcome
@@ -60,6 +51,7 @@ import {
 	scheduleOf,
 	sessionOf
 } from "#test/support/history/run.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
@@ -88,7 +80,7 @@ type HistoryFeature =
 	| "overlapping"
 	| "exact repeats"
 	| `${WriterKind} ${Outcome["kind"]}`
-	| `aborted: ${AbortCause["kind"]}`
+	| `aborted: ${DirectAbort["kind"]}`
 	| `retried after ${TransientTag}`
 	| BelowFeature
 	| `schema ${string}`
@@ -427,7 +419,7 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 							shrink: { kind: "bounded", candidates: 300 },
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(drawnCase, c) =>
 							Effect.gen(function* () {
@@ -490,7 +482,7 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 								/** Every relation of a family schema, three levels, and thirteen cases a level. */
 								limit: 256,
 								coverage: requiredInSpace<BelowFeature>(belowRequired),
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(b, c) =>
 								Effect.gen(function* () {
@@ -509,13 +501,10 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 				)
 				it.effect(
 					`${mode}: below SERIALIZABLE, every write to every table is refused and commits nothing, and a read commits`,
-					(ctx) => searched(ctx, exhaustBelow),
-					1_800_000
+					(ctx) => searched(ctx, exhaustBelow)
 				)
-				it.effect(
-					`${mode}: small histories are lawful, serial and every abort explained`,
-					(ctx) => searched(ctx, histories),
-					1_800_000
+				it.effect(`${mode}: small histories are lawful, serial and every abort explained`, (ctx) =>
+					searched(ctx, histories)
 				)
 			}
 		}

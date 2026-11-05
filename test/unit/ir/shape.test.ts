@@ -19,16 +19,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Data,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	Result
-} from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { formatLoc, formatPath } from "#compiler/core/loc.ts"
@@ -41,6 +32,7 @@ import {
 	succeeded,
 	unorderedEqual
 } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
 
 const point = S.structWith({ x: S.integer }, { label: S.nonEmptyString })
@@ -358,7 +350,7 @@ describe("shapes", () => {
 						coverage: required<Break>(breakNames, { cases: 300, sense: notesOnly }),
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ live, kind, site }, c) =>
 						Effect.sync(() => {
@@ -423,7 +415,7 @@ describe("shapes", () => {
 						),
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ live, kind, site, way }, c) =>
 						Effect.sync(() => {
@@ -491,7 +483,7 @@ describe("shapes", () => {
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(live, c) =>
 					Effect.sync(() => {
@@ -535,7 +527,7 @@ describe("shapes", () => {
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(entries, c) =>
 					Effect.sync(() => {
@@ -568,7 +560,7 @@ describe("shapes", () => {
 					generator: element<"a" | "b">(["a", "b"]),
 					limit: 2,
 					coverage: noCoverage,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(tag) =>
 					Effect.sync(() => {
@@ -606,7 +598,7 @@ describe("shapes", () => {
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ live, site, wild: drawnWild }, c) =>
 					Effect.sync(() => {
@@ -658,7 +650,7 @@ describe("shapes", () => {
 						"a union's first alternative",
 						"a tagged case"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([kind, site], c) =>
 					Effect.sync(() => {
@@ -733,7 +725,7 @@ describe("shapes", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ names, list, n }, c) =>
 						Effect.sync(() => {
@@ -859,7 +851,7 @@ describe("a value nested through a recursive shape", () => {
 							] as const,
 						limit: 12,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([depth, form, reader]) =>
 						Effect.sync(() => {
@@ -903,7 +895,7 @@ describe("a value nested through a recursive shape", () => {
 						},
 						limit: 24,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([length, back, form, reader]) =>
 						Effect.sync(() => {

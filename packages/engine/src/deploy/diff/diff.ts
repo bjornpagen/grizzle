@@ -2,7 +2,12 @@ import { sameOrder, appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import {
+	type Identity,
+	identity,
+	type TemporaryCensus,
+	type TemporaryKind
+} from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -147,6 +152,9 @@ interface DiffInput {
 	readonly installation: Installation
 	/** The holders `previous` already has set aside, whose renames the plan drafts first. */
 	readonly asides: ReadonlyArray<Aside>
+	/** The census of this migration's temporaries, which set the holders aside and admits every other temporary the
+	 * diff mints: an index's swap name and an enum's rebuild name. */
+	readonly temporaries: TemporaryCensus
 	/** The schemas the migrations directory holds that the configuration no longer lists, when `previous` is the empty
 	 * snapshot: the schema's creation then leaves their rows behind (`Loss`). */
 	readonly abandoned: ReadonlyArray<AbandonedSchema>
@@ -552,10 +560,6 @@ const carries = (
 	columns: ReadonlyArray<string>,
 	fate: (column: string) => ColumnFate
 ): boolean => columns.every((c) => carriedOver[kind][fate(c).kind])
-
-/** The temporary name an index, or a key's index, is built under before it is swapped in for `name`: the naming
- * door's (identity.swap), never a name of a live object, so the build's DROP INDEX ... IF EXISTS can never drop one. */
-export const swapName = (name: string): string => identifierOf(identity.swap(name))
 
 /** The capability a draft refuses when a name moves between a login and a role in one migration, as when the two
  * exchange names: its PostgreSQL role would turn from a login into a role, or back, which no statement does, so the
@@ -1352,6 +1356,24 @@ class Differ {
 		this.removals.push({ rank, order, draft })
 	}
 
+	/** The identifier of a temporary this migration mints, as its census admits it (core/identity.ts TemporaryCensus):
+	 * never a name an object standing while the migration runs has, nor another temporary's, so no statement under it
+	 * creates, renames or drops an object that stands; a collision is refused as DigestCollision. */
+	temporary<K extends TemporaryKind>(t: Identity<K>): string {
+		const named = this.input.temporaries.admit(t)
+		if (!named.ok) {
+			throw new Refusal(named.error)
+		}
+		return named.value
+	}
+
+	/** The temporary name an index, or a key's index, is built under before it is swapped in for `name`: the naming
+	 * door's (identity.swap), never a name of a live object, so the build's DROP INDEX ... IF EXISTS can never drop
+	 * one. */
+	swapName(name: string): string {
+		return this.temporary(identity.swap(name))
+	}
+
 	/** Whether the target's relation `name` holds rows before this migration runs: it follows the previous one, which
 	 * stands; a new relation, and a materialized view dropped and created again, hold none. */
 	mayHoldRows(name: ObjectName): boolean {
@@ -1933,8 +1955,9 @@ class Differ {
 
 	/** The rebuild of a closed relation's roster that loses or reorders handles: the enum rebuilt in place, in one Structure
 	 * transaction (see `diff`). PostgreSQL cannot remove or reorder an enum's labels, so a new type takes the new
-	 * roster under the naming door's rebuild name (identity.rebuild), which no other object takes; every column of the old type is
-	 * converted to it, rewriting its table under an ACCESS EXCLUSIVE lock; the old type is dropped and the new one renamed
+	 * roster under the naming door's rebuild name (identity.rebuild), which the migration's census admits (temporary), so
+	 * no other object takes it; every column of the old type is converted to it, rewriting its table under an ACCESS
+	 * EXCLUSIVE lock; the old type is dropped and the new one renamed
 	 * to its name. What a conversion would fail under, or would leave dangling, is dropped first and created again from
 	 * the target's definition once the type is back, at the end of Structure: each CHECK and partial index whose
 	 * definition names the type, each foreign key over a column of it (the other side is converted after or before it),
@@ -2176,7 +2199,7 @@ class Differ {
 		const name = create.name
 		const key = nameKey(name)
 		const installedObjects = this.input.previous.manifest.objects
-		const rebuilt = objectName(name.schema, identifierOf(identity.rebuild(name.name)))
+		const rebuilt = objectName(name.schema, this.temporary(identity.rebuild(name.name)))
 		const rebuiltType: TypeRef = namedType(this.input.installation.names.types, rebuilt.name, [])
 		const removed = old.labels.filter((l) => !create.labels.includes(l))
 		const reordered = removed.length === 0
@@ -3472,7 +3495,7 @@ class Differ {
 			])
 			return
 		}
-		const index = replace ? swapName(c.name) : c.name
+		const index = replace ? this.swapName(c.name) : c.name
 		this.buildConcurrently({
 			kind: "createIndex",
 			name: index,
@@ -3720,7 +3743,7 @@ class Differ {
 			return
 		}
 		/** A changed index on a relation that may hold rows: built under a temporary name, then swapped in. */
-		const next = swapName(create.name)
+		const next = this.swapName(create.name)
 		this.buildConcurrently({ ...create, name: next })
 		this.sql("validate.attach", [
 			{

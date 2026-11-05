@@ -153,7 +153,7 @@ export default defineGate({
 				body: "pg_catalog.repeat(pg_catalog.md5((g % 500)::text), CASE WHEN g % 10 = 0 THEN 130 ELSE 6 END)"
 			})
 			yield* settle(fx)
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b payload runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b payload raw")
 			const D = fx.table("Doc")
 			const c = (f: string) => fx.column("Doc", f)

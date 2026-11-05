@@ -319,12 +319,28 @@ const refsTo = (refs: OuterRefs, locals: ReadonlySet<NodeId>): ReadonlyArray<Nod
 	return out
 }
 
-/** The conjuncts of a predicate: the operands of its top-level `and`s. */
+/**
+ * The conjuncts of a predicate: the operands of its top-level `and`s, each distinct one once in the order it first
+ * appears, or the predicate itself. A conjunction is the set of its conjuncts, so one an expression shares in several
+ * places is one conjunct, and a predicate has no more conjuncts than distinct expressions. The operands wait on a heap
+ * stack, pushed last to first so the first is popped first, so a conjunction nests to any depth.
+ */
 export const conjuncts = (e: ScalarExpr): ReadonlyArray<ScalarExpr> => {
-	if (e.kind === "op" && nativeOp(e.op)?.fn === "and") {
-		return e.args.flatMap((a) => conjuncts(a))
+	const out: Array<ScalarExpr> = []
+	const seen = new Set<ScalarExpr>()
+	const stack = [e]
+	for (let x = stack.pop(); x !== undefined; x = stack.pop()) {
+		if (seen.has(x)) {
+			continue
+		}
+		seen.add(x)
+		if (x.kind === "op" && nativeOp(x.op)?.fn === "and") {
+			appendAll(stack, x.args.toReversed())
+		} else {
+			out.push(x)
+		}
 	}
-	return [e]
+	return out
 }
 
 /** The two operands of a binary native equality, or undefined when the expression is not one. */
@@ -1209,7 +1225,7 @@ const viewDependencies = (keys: ReadonlyArray<ViewKey>, all: KeySet): Stated => 
  * properties (ir/dag.ts edgeValues). A world relation's facts are a view's, read under the view's name, which may be a
  * base relation's: no containment between stored facts speaks of them.
  */
-export const propsOf = (node: RelNode, reading: PropsReading, env: PropsEnv): Props => {
+export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsEnv): Props => {
 	const subject: Subject = { node, reading, attachment: undefined }
 	const all = node.heading.map((c) => c.name)
 	/** The rest of a node's props that delivers its rows as one group, with no discriminant and no inner group. */

@@ -12,15 +12,15 @@ import { entries } from "#compiler/check/scan.ts"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { RelNode, TerminationCert } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 
-/** The integer carriers a counter may live in, with their ranges. */
-const integerRanges: Readonly<Record<string, readonly [bigint, bigint]>> = {
-	int2: [-32768n, 32767n],
-	int4: [-2147483648n, 2147483647n],
-	int8: [-9223372036854775808n, 9223372036854775807n]
+/** The range of the integer carrier a counter may live in; undefined for every other carrier. */
+const rangeOf = (t: ScalarType): readonly [bigint, bigint] | undefined => {
+	const c = baseOf(t).carrier
+	return c === "int2" || c === "int4" || c === "int8" ? integerRanges[c] : undefined
 }
 
 type Value =
@@ -348,7 +348,7 @@ class Analysis {
 
 	range(column: string): readonly [bigint, bigint] | undefined {
 		const t = this.row.get(column)
-		return t === undefined ? undefined : integerRanges[baseOf(t).carrier]
+		return t === undefined ? undefined : rangeOf(t)
 	}
 
 	/** A typed literal of an integer carrier, or an untyped one, as a counter's step. */
@@ -362,7 +362,7 @@ class Analysis {
 		}
 		if (e.type !== undefined) {
 			const t = this.cx.fieldType(e.type, loc)
-			if (integerRanges[baseOf(t).carrier] === undefined) {
+			if (rangeOf(t) === undefined) {
 				return undefined
 			}
 		}
@@ -455,10 +455,7 @@ class Analysis {
 		if (h.kind !== "cast" && h.kind !== "base") {
 			return undefined
 		}
-		if (
-			h.kind === "cast" &&
-			integerRanges[baseOf(this.cx.fieldType(h.to, loc)).carrier] === undefined
-		) {
+		if (h.kind === "cast" && rangeOf(this.cx.fieldType(h.to, loc)) === undefined) {
 			return undefined
 		}
 		const inner = this.constant(h.arg, loc)
@@ -554,12 +551,15 @@ const least = (first: bigint, rest: ReadonlyArray<bigint>): bigint =>
 const greatest = (first: bigint, rest: ReadonlyArray<bigint>): bigint =>
 	rest.reduce((x, y) => (y > x ? y : x), first)
 
+/** The values a boolean column holds, which no NULL joins (ir/scalar.ts: no type is nullable). */
+const booleanValues = [false, true] as const
+
 /** A column's value count, capped at its domain's size for a boolean or enum column. */
 const cappedByDomain = (type: ScalarType, count: bigint): bigint => {
 	const base = baseOf(type)
 	const domain =
 		base.carrier === "bool"
-			? 2n
+			? BigInt(booleanValues.length)
 			: base.carrier === "enum"
 				? BigInt(base.roster.handles.length)
 				: undefined
@@ -603,9 +603,10 @@ const cappedByDomain = (type: ScalarType, count: bigint): bigint => {
  * unchanged adds no value), a column of literals counts them, data counts once, a computed column the product of the
  * columns it reads, a copy what it copies, and a boolean or enum column at most its domain. Data counts once because a
  * carrier's size is data that admission does not read: the estimate is the number of states per combination of carrier
- * values, the growth a recursion's computed state adds to its data. An estimate above `maxStates` (core/policy.ts
- * recursionMaxStates in production) is ResourceBound before any SQL exists, because RecursiveUnion's seen-state hash
- * cannot spill; finite state is a termination argument, not a resource bound, so the runtime gates stay.
+ * values, the growth a recursion's computed state adds to its data. The estimate is recorded, never refused: finite
+ * state is a termination argument, not a resource bound. The states a recursion reaches are its data's, and its
+ * recursive UNION holds every one of them in a seen-state hash, which PostgreSQL keeps in memory and never spills
+ * (nodeRecursiveunion.c): its size is the run's to meet, never a compiler's threshold to refuse.
  *
  * The range a counter's component spans, every integer between its least and its greatest value, bounds every state
  * of its columns, so the step computes, on any state a counter column holds, the state plus one of the column's steps:
@@ -615,7 +616,7 @@ const cappedByDomain = (type: ScalarType, count: bigint): bigint => {
  * step's narrowing into the column (state.ts).
  *
  * The termination verdict of a definition whose arms the scan admitted, or its refusal: UnsupportedOperation for
- * unbounded computed state or a carrier overflow, ResourceBound for an estimate above recursionMaxStates.
+ * unbounded computed state or a carrier overflow.
  *
  * A computed term reading a column of its own component invents values around a cycle: unbounded.
  */
@@ -624,12 +625,9 @@ export const terminationVerdict = (input: {
 	readonly row: ReadonlyMap<string, ScalarType>
 	readonly base: ReadonlyArray<Arm>
 	readonly rec: ReadonlyArray<RecArm>
-	/** The admitted state estimate. */
-	readonly maxStates: number
-	readonly loc: SourceLoc
 	readonly cx: CheckServices
 }): TerminationVerdict => {
-	const { def, row, maxStates } = input
+	const { def, row } = input
 	const a = new Analysis(def, row, input.cx)
 	for (const arm of input.base) {
 		for (const [column, h] of entries(arm.rule.head)) {
@@ -795,14 +793,6 @@ export const terminationVerdict = (input: {
 	const increasing = steps.some((x) => x.delta > 0n)
 	/** Every row column is in one component, closed with its factor. */
 	const stateEstimate = factors.reduce((p, f) => p * f, 1n)
-	if (stateEstimate > BigInt(maxStates)) {
-		failRecursion(input.loc, {
-			kind: "stateEstimate",
-			recursion: def.name,
-			limit: maxStates,
-			needed: stateEstimate
-		})
-	}
 	return {
 		kind: !counting ? "finiteCarrier" : increasing ? "boundedState" : "wellFounded",
 		stateEstimate,

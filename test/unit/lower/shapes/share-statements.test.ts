@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -20,6 +20,7 @@ import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import { present } from "#test/unit/lower/support.ts"
 
 /**
@@ -131,7 +132,7 @@ describe("sub-queries carried across a stratum's statements", () => {
 						generator: int(1, 4),
 						limit: 4,
 						coverage: requiredInSpace<"carried" | "inline">(["carried", "inline"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(statements, c) =>
 						Effect.sync(() => {
@@ -165,7 +166,7 @@ describe("sub-queries repeated inside one statement", () => {
 					generator: int(1, 4),
 					limit: 4,
 					coverage: requiredInSpace<"shared" | "inline">(["shared", "inline"]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(reads, c) =>
 					Effect.sync(() => {
@@ -239,7 +240,7 @@ describe("attachment statements fed from an earlier one", () => {
 						generator: element<Second>(["the same sub-query", "a different sub-query"]),
 						limit: 2,
 						coverage: requiredInSpace<"fed" | "sent">(["fed", "sent"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(second, c) =>
 						Effect.sync(() => {

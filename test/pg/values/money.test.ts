@@ -6,20 +6,21 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
 const units = weighted([
-	[6, bigint(int8Min, int8Max)],
+	[6, bigint(int8Min.value, int8Max.value)],
 	[2, bigint(-100_000n, 100_000n)],
-	[1, element([int8Min, int8Max, int8Min + 1n, int8Max - 1n, 0n, -1n, 1n])]
+	[1, element([int8Min.value, int8Max.value, int8Min.value + 1n, int8Max.value - 1n, 0n, -1n, 1n])]
 ])
 
 /** A batch of up to `max` values, a case's one recordset. */
@@ -34,7 +35,7 @@ const spec = {
 	shrink: completeShrink,
 	concurrency: 1,
 	steerEvery: 16,
-	caseHang: Duration.minutes(2)
+	caseHang
 } as const
 
 layer(Substrate.layer)("money agreement with PostgreSQL", (it) => {

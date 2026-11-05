@@ -7,7 +7,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -62,6 +61,7 @@ import {
 	resolveCase
 } from "#test/support/oracle/public/generate.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	expectedMixed,
 	expectedQuery,
@@ -1059,7 +1059,7 @@ describe("typed rows at bind", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([sketch, plant], notes) =>
 						Effect.sync(() => check(notes.draw(resolveCase(sketch)), notes.note, plant))
@@ -1087,7 +1087,7 @@ describe("typed rows at bind", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, notes) =>
 						Effect.sync(() => check(notes.draw(resolveCase(sketch)), notes.note, unplanted))
@@ -1115,7 +1115,7 @@ describe("typed rows at bind", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, notes) =>
 						Effect.sync(() => check(notes.draw(resolveCase(sketch)), notes.note, unplanted))
@@ -1142,7 +1142,7 @@ describe("typed rows at bind", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(sketch, notes) =>
 					Effect.sync(() => {

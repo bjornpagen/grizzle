@@ -81,7 +81,7 @@ const belowTargets = (
  * input only delivers another node's rows (an attachment, a law query, an ordered result), the DISTINCT sits on the
  * node whose rows it delivers, the last one with a fragment of its own (policy.ts placementTarget).
  *
- * The worklist is bounded. Each round analyzes the current realization once, then either
+ * The worklist ends. Each round analyzes the current realization once, then either
  *
  * 1. relaxes every set UNION whose plain form a physical key proves unique to UNION ALL (R17.unionAll),
  *    which can only keep its consumers' obligations discharged, since its plain form is unique; or
@@ -89,10 +89,15 @@ const belowTargets = (
  *    lower placement can make a higher one redundant (a filter over a placed projection inherits its key).
  *
  * Every node goes from plain to `distinct` at most once, and a union from `distinct` to plain at most once, after which
- * a placement on it pins it to UNION; so at most 2V + 1 rounds run, each linear in the DAG. A Group's observing edge is
- * not placed on a node: once nothing else is outstanding, each fold whose input still lacks one row per B deduplicates
- * its contributions on B itself (FoldInput `distinct`), and a fold whose input has one row per B folds it plainly. This
- * is the one decision (foldOf) the emission, the explanation and the test kernel's verification read.
+ * a placement on it pins it to UNION. A relaxing round moves at least one union, and a placing round at least one node:
+ * the first target in topological order lies above no other, so some target is always lowest, and a lowest target
+ * already `distinct` is a defect. So at most V + U + 1 rounds run, for V nodes of which U are unions, each linear in the
+ * DAG.
+ *
+ * A Group's observing edge is not placed on a node: once nothing else is outstanding, each fold whose input still lacks
+ * one row per B deduplicates its contributions on B itself (FoldInput `distinct`), and a fold whose input has one row
+ * per B folds it plainly. This is the one decision (foldOf) the emission, the explanation and the test kernel's
+ * verification read.
  *
  * Every obligation the placements discharge is recorded, with its own consumer.
  *
@@ -113,12 +118,8 @@ export const placeDeduplication = (
 	const pinnedUnions = new Set<RelNode>()
 	const placements: Array<Placement> = []
 	const placementCerts: Array<Certificate<MultiplicityRule>> = []
-	const maxRounds = 2 * nodes.length + 2
 	let rounds = 0
 	for (;;) {
-		if (rounds >= maxRounds) {
-			return Result.err(defect("worklist", `a fixed point within ${maxRounds} rounds`))
-		}
 		rounds++
 		const a = analyzeRealization(dag, realization, env)
 		/** 1. Set UNION over unique, pairwise disjoint arms is UNION ALL. */

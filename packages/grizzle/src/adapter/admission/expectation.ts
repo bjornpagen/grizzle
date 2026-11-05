@@ -1,6 +1,7 @@
 import { Array as Arr, Record as Rec, Result, String as Str } from "effect"
 import type { AdmissionMismatch, CatalogRowRefused } from "#adapter/errors/failures.ts"
 import { type CatalogQuery, catalogRow, catalogRows } from "#adapter/wire/statement.ts"
+import { derived, measured, published } from "#compiler/core/limits.ts"
 import type { TemplateRequirements } from "#compiler/ir/products.ts"
 import { vectorExtension } from "#compiler/physical/vector/storage.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
@@ -62,6 +63,71 @@ export interface AdmissionExpectation {
 	readonly extensions: ReadonlyArray<ExtensionRequirement>
 }
 
+/**
+ * The PostgreSQL major version grizzle admits: the one its pinned build is, which every network suite runs against, and
+ * every minor release of it.
+ */
+const supportedMajor = measured({
+	value: 19,
+	owner: "grizzle's admission (adapter/admission/expectation.ts)",
+	unit: "PostgreSQL major versions",
+	scope: "the server Db.open admits",
+	evidence:
+		"the network suites, pnpm test:network (vitest.network.config.ts), each opening its Db through admission against the build scripts/pg/pin.env pins (PG_PIN_TAG=REL_19_RC1, PG_PIN_VERSION=19rc1); no run's output is preserved",
+	observed: "each pnpm test:network run; no run's interval is recorded",
+	environment:
+		"PostgreSQL 19rc1 at PG_PIN_COMMIT of scripts/pg/pin.env, built by scripts/pg/build.sh with its patches and pgvector 0.8.7, on the local cluster CONTRIBUTING.md sets up",
+	workload: "every network suite, against that one cluster",
+	result:
+		"what the suites assert; no release of 19 but 19rc1, and no other major, has been run, and no suite's pass count is recorded here",
+	decision:
+		"admit the pinned build's major and each of its minor releases, which PostgreSQL publishes as bug-fix releases changing only the last two digits of server_version_num (doc/src/sgml/libpq.sgml PQserverVersion)",
+	revalidate:
+		"a repin of scripts/pg/pin.env, to 19's GA or to another major; a network suite failing on a minor release of 19"
+})
+
+/**
+ * What server_version_num multiplies a server's major version by before it adds the minor version: the setting reports
+ * PG_VERSION_NUM, "determined by the value of PG_VERSION_NUM when building the server"
+ * (https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/config.sgml#L12583-L12584), which the build
+ * computes so.
+ */
+const versionNumPerMajor = published({
+	value: 10_000,
+	owner: "PostgreSQL 19rc1's build",
+	unit: "server_version_num per major version",
+	scope: "the server_version_num of a server of major version 10 or later",
+	constraint: "protocol constant",
+	source: "https://github.com/postgres/postgres/blob/REL_19_RC1/meson.build#L169",
+	quote: "pg_version_num = (pg_version_major * 10000) + pg_version_minor",
+	verified: "2026-11-05"
+})
+
+/** The least server_version_num admission admits: the supported major's, at minor version 0. */
+const minServerVersion = derived({
+	owner: "grizzle's admission (adapter/admission/expectation.ts)",
+	unit: "server_version_num",
+	scope: "the server Db.open admits, inclusive",
+	from: [supportedMajor, versionNumPerMajor],
+	derivation: "the supported major times versionNumPerMajor, its first release's number",
+	compute: ([major, perMajor]) => major.value * perMajor.value
+})
+
+/**
+ * The least server_version_num admission refuses past the supported major: the next major's first, which no minor
+ * release of the supported one reaches, a minor version being two digits ("In all release series, only the last two
+ * digits differ between minor releases (bug-fix releases).",
+ * https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/libpq.sgml#L3001-L3002).
+ */
+const maxServerVersion = derived({
+	owner: "grizzle's admission (adapter/admission/expectation.ts)",
+	unit: "server_version_num",
+	scope: "the server Db.open admits, exclusive",
+	from: [supportedMajor, versionNumPerMajor],
+	derivation: "the major after the supported one, times versionNumPerMajor",
+	compute: ([major, perMajor]) => (major.value + 1) * perMajor.value
+})
+
 /** Whether the schema stores or computes a vector value, so the pgvector extension must be installed. */
 const usesVector = (artifacts: SchemaArtifacts): boolean =>
 	Arr.some(Rec.values(artifacts.laws.theory.relations), (r) =>
@@ -69,8 +135,8 @@ const usesVector = (artifacts: SchemaArtifacts): boolean =>
 	)
 
 export const admissionExpectation = (artifacts: SchemaArtifacts): AdmissionExpectation => ({
-	minVersion: 190000,
-	maxVersion: 200000,
+	minVersion: minServerVersion.value,
+	maxVersion: maxServerVersion.value,
 	encoding: "UTF8",
 	localeProvider: "b",
 	extensions: usesVector(artifacts)
@@ -215,7 +281,7 @@ export const serverMismatches = (
 		out.push({
 			stage: "version",
 			check: "server_version_num",
-			expected: `PostgreSQL 19 (${expectation.minVersion} <= server_version_num < ${expectation.maxVersion})`,
+			expected: `PostgreSQL ${supportedMajor.value} (${expectation.minVersion} <= server_version_num < ${expectation.maxVersion})`,
 			observed: versionText
 		})
 	}

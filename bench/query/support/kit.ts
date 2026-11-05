@@ -63,11 +63,10 @@ import {
 	testArtifacts,
 	testCompile
 } from "#test/support/compile.ts"
-import { pgPin } from "#test/support/env.ts"
 import { ledgerPrologue } from "#test/support/flight/model.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { SqlError } from "#test/support/pg.ts"
+import { clusterConnection, parsedConnection, SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
@@ -290,8 +289,8 @@ export const installedIndexes = Effect.fn("installedIndexes")(function* <S>(
 
 /**
  * A raw direct session in a world of the fixture, `role` (fixture.world.app, its full role, or a role of a login the
- * gate installed): logged in as the role's login, with its defaults (jit = off, the C.UTF-8 categories,
- * extra_float_digits = 1), and taking on the role. The session handwritten variants and every EXPLAIN run on.
+ * gate installed): logged in as the role's login, with its defaults (the C.UTF-8 categories, extra_float_digits
+ * = 1), and taking on the role. The session handwritten variants and every EXPLAIN run on.
  */
 export const rawSession = Effect.fn("rawSession")(function* <S>(
 	fixture: Fixture<S>,
@@ -429,22 +428,15 @@ export interface Runtime {
  */
 export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 	fixture: Fixture<S>,
-	role: AnyRole,
-	label: string
+	role: AnyRole
 ): Effect.fn.Return<Runtime, SqlError, Substrate | Scope.Scope> {
 	const s = yield* Substrate
 	const world = fixture.installed.world(role)
 	const login = world.login
 	const session = yield* Effect.mapError(
-		connectSession({
-			host: pgPin.host,
-			port: pgPin.port,
-			database: s.database,
-			role: login.role,
-			password: login.password,
-			transport: { _tag: "tls", tls: { ca: s.cluster.caPem, servername: pgPin.host } },
-			applicationName: `grizzle-bench ${label}`
-		}),
+		connectSession(
+			parsedConnection(clusterConnection(s.cluster, s.database, login.password), login.role)
+		),
 		(failure) =>
 			new SqlError({
 				reason: { _tag: "ConnectionError", message: failure.message },

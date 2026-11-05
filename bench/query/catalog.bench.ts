@@ -190,7 +190,7 @@ export default defineGate({
 			const fx = yield* installFixture(Lab, labPrograms, "benchcatalog", [])
 			const size = { students: options.students, perStudent: options.perStudent }
 			yield* loadLab(fx, size)
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b catalog runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b catalog raw")
 			const sitting = fx.relationName("Sitting")
 			const S = fx.table("Sitting")

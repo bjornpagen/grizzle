@@ -12,7 +12,7 @@
  * and integers. PostgreSQL must accept every such fact into the key's unique index.
  *
  * Text is bounded in either spelling the compiler accepts: its pattern ^.{0,n}$, n within PostgreSQL's repetition limit
- * (core/policy.ts regexMaxRepeat), or a contract's charLength(value) <= n over the wildcard pattern, the spelling that
+ * (core/limits.ts regexMaxRepeat), or a contract's charLength(value) <= n over the wildcard pattern, the spelling that
  * reaches the item limit.
  */
 import { layer } from "@effect/vitest"
@@ -22,13 +22,14 @@ import { array, boolean, element, type Gen, int, map, oneOf, weighted } from "@g
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { regexMaxRepeat } from "#compiler/core/policy.ts"
+import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
 import { wildcardFlags, wildcardSource } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** What a case of the population reached: a key the compiler accepts, and one sized within a word of the item limit. */
@@ -61,7 +62,7 @@ const fieldGen: Gen<FieldSketch> = weighted<FieldSketch>([
 			(source) => ({
 				kind: "text",
 				bound: "pattern",
-				length: source.draw(int(0, regexMaxRepeat))
+				length: source.draw(int(0, regexMaxRepeat.value))
 			}),
 			(source) => ({ kind: "text", bound: "charLength", length: source.draw(int(0, 700)) })
 		])
@@ -149,7 +150,7 @@ const filled = (s: KeySketch): ReadonlyArray<FieldSketch> => {
 		return s.fields
 	}
 	let lo = 0
-	let hi = btreeMaxItemSize
+	let hi = btreeMaxItemSize.value
 	while (lo < hi) {
 		const mid = Math.ceil((lo + hi) / 2)
 		if (layoutOf(at(mid)).ok) {
@@ -246,7 +247,7 @@ layer(Substrate.layer)("key representability against PostgreSQL's B-tree item li
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(sketch, k) =>
 							Effect.gen(function* () {
@@ -259,7 +260,7 @@ layer(Substrate.layer)("key representability against PostgreSQL's B-tree item li
 								if (
 									sketch.fill &&
 									Arr.some(fields, (f) => f.kind === "text") &&
-									layout.value.btreeBytes > btreeMaxItemSize - 8
+									layout.value.btreeBytes > btreeMaxItemSize.value - 8
 								) {
 									k.note("key at the computed maximum")
 								}
@@ -296,7 +297,6 @@ layer(Substrate.layer)("key representability against PostgreSQL's B-tree item li
 							})
 					)
 				}).pipe(Effect.scoped)
-			),
-		600_000
+			)
 	)
 })

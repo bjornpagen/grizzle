@@ -1,5 +1,6 @@
 /**
- * DbLayer: the connection's destination, credentials, verify-full TLS and login, and nothing else, and the one service
+ * DbLayer: the connection's driver, transport (its verify-full TLS), credentials, connect timeout, pool and login, and
+ * nothing else, and the one service
  * Db.open requires, keyed by the role: the layer of a login serves each of its roles and no other. verify is required
  * exactly when a role of the login reads a context, and Db.open's token exactly when the opened role does. Every
  * `@ts-expect-error -- TSnnnn` names the diagnostic the harness requires on the next line.
@@ -11,8 +12,10 @@
  * Effect language service restates the checker's error beside it (missingEffectError, missingEffectContext), so the
  * line would raise two diagnostics.
  */
+import net from "node:net"
 import { NodeRuntime } from "@effect/platform-node"
 import { Effect, type Layer, Redacted } from "effect"
+import pgDriver, { type Client, type ClientConfig } from "pg"
 import {
 	type AnyLoginRole,
 	ChangeSet,
@@ -46,11 +49,23 @@ import type { Equals, Expect } from "#test/types/api/support.ts"
 
 /** The committed snapshot.json every layer here is given. */
 declare const snapshot: { readonly fingerprint: string }
+/** The caller's own connect and idle timeouts, and a statement timeout no layer takes. */
+declare const connectTimeoutMs: number
+declare const idleTimeoutMs: number
+declare const statementTimeoutMs: number
 const destination = {
-	host: "localhost",
-	port: 5433,
+	driver: pgDriver,
+	transport: {
+		kind: "sslRequest",
+		host: "localhost",
+		port: 5433,
+		open: () => new net.Socket(),
+		ca: "PEM",
+		servername: "localhost"
+	},
 	database: "work",
-	tls: { ca: "PEM" },
+	connectTimeoutMs,
+	pool: { max: 10, min: 1, idleTimeoutMs },
 	snapshot
 } as const
 
@@ -74,12 +89,12 @@ export type WorkLayer = Expect<
 /** A rotating credential is an Effect that fails only with CredentialError and needs no service. */
 declare const rotating: Effect.Effect<Redacted.Redacted, CredentialError>
 export const rotatingLayer = DbLayer.make({ ...destination, login: WorkLogin, password: rotating })
-/** A tunnel verifies the server's own name. */
+/** A tunnel connects to its local end and verifies the server's own name. */
 export const tunnel = DbLayer.make({
 	...destination,
 	login: WorkLogin,
 	password: rotating,
-	tls: { ca: ["PEM", "PEM"], servername: "db.example.com" }
+	transport: { ...destination.transport, ca: ["PEM", "PEM"], servername: "db.example.com" }
 })
 
 /**
@@ -257,13 +272,13 @@ declare const someRole: AnyLoginRole
 // @ts-expect-error -- TS2741: a role of unknown contexts may read one, so Db.open needs a token
 export const someRoleWithoutToken = Db.open(someRole, {})
 
-/** Nothing else is configurable: no pool size, isolation, timeout, retry policy or TLS mode, and no plaintext. */
-export const pooled = DbLayer.make({
+/** Nothing else is configurable: no isolation, statement timeout, retry policy or TLS mode, and no plaintext. */
+export const timed = DbLayer.make({
 	...destination,
 	login: WorkLogin,
 	password: rotating,
-	// @ts-expect-error -- TS2353: the layer has no pool size
-	poolSize: 10
+	// @ts-expect-error -- TS2353: the layer has no statement timeout
+	statementTimeoutMs
 })
 
 export const unverified = DbLayer.make({
@@ -271,17 +286,30 @@ export const unverified = DbLayer.make({
 	login: WorkLogin,
 	password: rotating,
 	// @ts-expect-error -- TS2353: TLS is always verify-full; there is no mode to relax it
-	tls: { ca: "PEM", rejectUnauthorized: false }
+	transport: { ...destination.transport, rejectUnauthorized: false }
 })
 
-// @ts-expect-error -- TS2345: TLS is required
+// @ts-expect-error -- TS2345: a transport is required, and is always TLS
 export const plaintext = DbLayer.make({
-	host: "localhost",
-	port: 5433,
+	driver: pgDriver,
 	database: "work",
+	connectTimeoutMs,
+	pool: destination.pool,
 	login: WorkLogin,
 	snapshot,
 	password: rotating
+})
+
+/** A node-postgres whose Client has no pipeline mode: every flight's one round trip needs it, so it is no driver. */
+declare const unpipelined: Omit<typeof pgDriver, "Client"> & {
+	readonly Client: new (config: ClientConfig) => Omit<Client, "pipeline">
+}
+export const unpipelinedLayer = DbLayer.make({
+	...destination,
+	login: WorkLogin,
+	password: rotating,
+	// @ts-expect-error -- TS2322: a driver without pipeline mode is no PgDriver
+	driver: unpipelined
 })
 // @ts-expect-error -- TS2322: a password is Redacted, never a plain string
 export const plainPassword = DbLayer.make({ ...destination, login: WorkLogin, password: "secret" })

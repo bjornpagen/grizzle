@@ -19,10 +19,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
+import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
 import {
 	contractOf,
 	rosterOf,
@@ -46,6 +47,7 @@ import {
 	spanDescriptor
 } from "#test/support/fixtures/descriptors.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 import { regex } from "arkregex"
 import { argumentsOf } from "#test/support/list.ts"
@@ -82,7 +84,6 @@ const aliasGroups = [
 		]
 	],
 	["boolean", [pgDescriptors.boolean, pgDescriptors.bool]],
-	["numeric", [pgDescriptors.numeric, pgDescriptors.decimal]],
 	["smallserial", [pgDescriptors.smallserial, pgDescriptors.serial2, smallserial]],
 	["serial", [pgDescriptors.serial, pgDescriptors.serial4, serial]],
 	["bigserial", [pgDescriptors.bigserial, pgDescriptors.serial8, bigserial]]
@@ -108,7 +109,7 @@ describe("alias identity", () => {
 							coverage: requiredInSpace<(typeof aliasGroups)[number][0]>(
 								Arr.map(aliasGroups, ([name]) => name)
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ name, first, alias }, c) =>
 							Effect.sync(() => {
@@ -128,7 +129,6 @@ describe("alias identity", () => {
 				pgDescriptors.smallint,
 				pgDescriptors.integer,
 				pgDescriptors.bigint,
-				pgDescriptors.numeric,
 				pgDescriptors.numeric(5, 2),
 				pgDescriptors.numeric(5, 3),
 				pgDescriptors.numeric(6, 2),
@@ -161,7 +161,7 @@ describe("alias identity", () => {
 						literal: Formatter.format,
 						limit: (distinct.length * (distinct.length - 1)) / 2,
 						coverage: requiredInSpace<"a pair">(["a pair"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([i, j], c) =>
 						Effect.sync(() => {
@@ -210,7 +210,7 @@ describe("alias identity", () => {
 							literal: Formatter.format,
 							limit: fields.length,
 							coverage: requiredInSpace<"a descriptor">(["a descriptor"]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(field, c) =>
 							Effect.sync(() => {
@@ -236,24 +236,21 @@ const isInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isInteger(value)
 
 /**
- * numerictypmodin's rule: precision 1-1000 and scale -1000-1000, as integers; numeric(p) is numeric(p, 0), so an
- * absent scale (undefined, the optional argument left out) is scale 0. -0 is the integer 0.
+ * numerictypmodin's rule: precision 1-numericMaxPrecision and scale numericMinScale-numericMaxScale, both integers and
+ * both given: no numeric is without its scale. -0 is the integer 0.
  */
 const numericTypmodOf = (
 	precision: unknown,
 	scale: unknown
-): { readonly precision: number; readonly scale: number } | undefined => {
-	if (!isInteger(precision) || precision < 1 || precision > 1000) {
-		return undefined
-	}
-	if (scale === undefined) {
-		return { precision, scale: 0 }
-	}
-	if (!isInteger(scale) || scale < -1000 || scale > 1000) {
-		return undefined
-	}
-	return { precision, scale: scale === 0 ? 0 : scale }
-}
+): { readonly precision: number; readonly scale: number } | undefined =>
+	isInteger(precision) &&
+	precision >= 1 &&
+	precision <= numericMaxPrecision.value &&
+	isInteger(scale) &&
+	scale >= numericMinScale.value &&
+	scale <= numericMaxScale.value
+		? { precision, scale: scale === 0 ? 0 : scale }
+		: undefined
 
 /** How many arguments a numeric call passes: none, the precision, both, or a third. */
 type Arity = 0 | 1 | 2 | 3
@@ -302,7 +299,7 @@ describe("typmod validation", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([dp, ds, arity], c) =>
 						Effect.sync(() => {
@@ -315,10 +312,7 @@ describe("typmod validation", () => {
 							}
 							const args: ReadonlyArray<unknown> =
 								arity === 0 ? [] : arity === 1 ? [p] : arity === 2 ? [p, s] : [p, s, 1]
-							const expected =
-								arity === 1 || arity === 2
-									? numericTypmodOf(p, arity === 2 ? s : undefined)
-									: undefined
+							const expected = arity === 2 ? numericTypmodOf(p, s) : undefined
 							if (expected === undefined) {
 								c.note("refused")
 								throwsRefused(
@@ -329,12 +323,14 @@ describe("typmod validation", () => {
 								c.note("admitted")
 								const built = pgDescriptors.numeric(...argumentsOf(args))
 								assert.deepEqual({ precision: built.precision, scale: built.scale }, expected)
+								assert.equal(pgDescriptors.decimal, pgDescriptors.numeric)
+								assert.equal(
+									identityOf(pgDescriptors.decimal(...argumentsOf(args))),
+									identityOf(built)
+								)
 							}
 							if (arity === 2 && dp.kind === "live" && ds.kind === "live") {
-								assert.equal(
-									checkNumericTypmod(s === undefined ? [p] : [p, s]).ok,
-									expected !== undefined
-								)
+								assert.equal(checkNumericTypmod(p, s).ok, expected !== undefined)
 							}
 						})
 				)
@@ -354,7 +350,7 @@ describe("typmod validation", () => {
 						/** The space: 64 integers and 3 other arguments. */
 						limit: 67,
 						coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(precision, c) =>
 						Effect.sync(() => {
@@ -415,7 +411,7 @@ describe("typmod validation", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([d, extra], c) =>
 					Effect.sync(() => {
@@ -508,7 +504,7 @@ describe("typmod validation", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([e, d, arity], c) =>
 							Effect.sync(() => {
@@ -568,9 +564,8 @@ describe("span endpoint eligibility", () => {
 					[contractDescriptor("Outer", Cents), "range8"]
 				]
 				const ineligible: Arr.NonEmptyReadonlyArray<unknown> = [
-					pgDescriptors.numeric,
 					pgDescriptors.numeric(10, 2),
-					pgDescriptors.decimal(10),
+					pgDescriptors.decimal(10, 0),
 					pgDescriptors.real,
 					pgDescriptors.float(30),
 					pgDescriptors["double precision"],
@@ -597,7 +592,7 @@ describe("span endpoint eligibility", () => {
 								"range8",
 								"refused"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([endpoint, expected], c) =>
 							Effect.sync(() => {
@@ -651,7 +646,7 @@ describe("serial family", () => {
 						literal: Formatter.format,
 						limit: 3,
 						coverage: requiredInSpace<"int2" | "int4" | "int8">(["int2", "int4", "int8"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([field, carrier, plain], c) =>
 						Effect.sync(() => {
@@ -702,7 +697,7 @@ describe("closedId", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ name, other, handles }) =>
 					Effect.sync(() => {
@@ -800,7 +795,7 @@ describe("closedId", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(forged, c) =>
 					Effect.sync(() => {

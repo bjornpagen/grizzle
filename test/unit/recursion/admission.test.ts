@@ -3,11 +3,12 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import type { QueryDesc, RuleDesc } from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
 	match,
@@ -103,7 +104,7 @@ describe("factoring transition arms into one feedback scan", () => {
 							"b fixed to a parameter",
 							"both"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(arms, c) =>
 						Effect.sync(() => {

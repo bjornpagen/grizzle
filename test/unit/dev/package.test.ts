@@ -38,7 +38,8 @@ const consumerDependency = "@vercel/functions"
 
 const consumer = `import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Effect, Redacted } from "effect"
-import { context, Db, DbLayer, key, login, query, relation, role, schema, str, TokenError, uuid, v } from "@bjornpagen/grizzle"
+import pgDriver from "pg"
+import { context, Db, DbLayer, key, login, type PgSocket, query, relation, role, schema, str, TokenError, uuid, v } from "@bjornpagen/grizzle"
 
 const Note = relation("Note", { id: uuid, author: uuid, text: str.regex("^.{1,200}$", "su") }, ["id"])
 export const App = schema("App", { Note }, [key(Note, ["id"])])
@@ -55,14 +56,19 @@ export const texts = query(Reader).rule((r) => {
 	return r.match(Note, { text }).find({ text })
 })
 declare const snapshot: { readonly fingerprint: string }
-export const layer = DbLayer.make({
-	login: Web,
-	snapshot,
-	host: "localhost",
-	port: 5432,
+declare const openSocket: () => PgSocket
+const connection = {
+	driver: pgDriver,
+	transport: { kind: "sslRequest", host: "localhost", port: 5432, open: openSocket, ca: "-----BEGIN CERTIFICATE-----", servername: "localhost" },
 	database: "app",
 	password: Redacted.make("secret"),
-	tls: { ca: "-----BEGIN CERTIFICATE-----" },
+	connectTimeoutMs: 10_000,
+	pool: { max: 10, min: 1, idleTimeoutMs: 5_000 }
+} as const
+export const layer = DbLayer.make({
+	...connection,
+	login: Web,
+	snapshot,
 	attachPool: attachDatabasePool,
 	verify: (token) => Effect.fail(new TokenError({ cause: token }))
 })
@@ -72,9 +78,9 @@ export const member = Db.open(Web.roles.member, { token: "a token" })
 Db.open(Web.roles.member, {})
 const verify = (token: string) => Effect.fail(new TokenError({ cause: token }))
 // @ts-expect-error -- a port is a number
-DbLayer.make({ login: Web, snapshot, host: "h", port: "5432", database: "d", password: Redacted.make("p"), tls: { ca: "c" }, verify })
+DbLayer.make({ ...connection, transport: { ...connection.transport, port: "5432" }, login: Web, snapshot, verify })
 // @ts-expect-error -- a role of Web reads a context, so its layer takes a verify
-DbLayer.make({ login: Web, snapshot, host: "h", port: 5432, database: "d", password: Redacted.make("p"), tls: { ca: "c" } })
+DbLayer.make({ ...connection, login: Web, snapshot })
 `
 
 const consumerTsconfig = `{
@@ -143,9 +149,9 @@ const noBin: Record.ReadonlyRecord<string, string> = {}
  *   names.
  * - The `grizzle` bin runs from node_modules and prints its usage.
  * - A consumer's TypeScript program typechecks against the published declarations alone, with no access to src's `#`
- *   imports: a schema, a context, roles and their login, a query over a role, a layer whose attachPool is Vercel's own
- *   attachDatabasePool and whose verify fails with TokenError, Db.open of each role, and misuses the types refuse (so
- *   the declarations are not `any`).
+ *   imports: a schema, a context, roles and their login, a query over a role, a layer over the pg the consumer installs
+ *   beside it, whose attachPool is Vercel's own attachDatabasePool and whose verify fails with TokenError, Db.open of
+ *   each role, and misuses the types refuse (so the declarations are not `any`).
  */
 const publishedPackage = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem

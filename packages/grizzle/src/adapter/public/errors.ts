@@ -19,7 +19,6 @@ export {
 
 export {
 	type AcquireRefusal,
-	type AcquisitionBudgetExceeded,
 	type AdmissionFailed,
 	type AdmissionMismatch,
 	type AdmissionRefused,

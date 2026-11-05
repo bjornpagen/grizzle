@@ -11,8 +11,8 @@ import { required } from "@grizzle/testing/features"
 import { constant, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
-import { type SchemaApplyReport, applyLockKey, applyLockKeyExpr } from "#adapter/migrate/apply.ts"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { type SchemaApplyReport, applyLockKey } from "#adapter/migrate/apply.ts"
 import type {
 	AppliedEdit,
 	MigrateError,
@@ -56,7 +56,14 @@ import {
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { draftChain, draftedAt, fromEmpty, ownedBy } from "#test/support/migrate/kit.ts"
+import { caseHang } from "#test/support/limits.ts"
+import {
+	draftChain,
+	draftedAt,
+	fromEmpty,
+	ownedBy,
+	parsedMigrationName
+} from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -677,7 +684,7 @@ const realOf = (
 			const next = model.recorded
 			const early = (f: FolderSource): FolderSource => ({
 				...f,
-				name: succeeded(folderName("20000101000000", "early"))
+				name: succeeded(folderName("20000101000000", parsedMigrationName("early")))
 			})
 			yield* refusedBeforeRunning(
 				r,
@@ -828,8 +835,8 @@ const realOf = (
 		Effect.gen(function* () {
 			c.note("busy")
 			yield* r.holder.values(
-				`SELECT pg_catalog.pg_advisory_lock(${printCatalogExpr(applyLockKeyExpr)})`,
-				[applyLockKey(r.schema)]
+				`SELECT pg_catalog.pg_advisory_lock(${printCatalogExpr(applyLockKey(r.schema))})`,
+				[]
 			)
 			yield* Effect.ensuring(
 				refusedBeforeRunning(
@@ -840,8 +847,8 @@ const realOf = (
 				),
 				Effect.ignore(
 					r.holder.values(
-						`SELECT pg_catalog.pg_advisory_unlock(${printCatalogExpr(applyLockKeyExpr)})`,
-						[applyLockKey(r.schema)]
+						`SELECT pg_catalog.pg_advisory_unlock(${printCatalogExpr(applyLockKey(r.schema))})`,
+						[]
 					)
 				)
 			)
@@ -914,7 +921,7 @@ const realOf = (
 				...succeeded(
 					customMigration({
 						snapshot,
-						name: "data_step",
+						name: parsedMigrationName("data_step"),
 						timestamp: draftedAt(model.recorded + 1)
 					})
 				),
@@ -963,7 +970,7 @@ const realOf = (
 			const early = succeeded(
 				customMigration({
 					snapshot: { ...first.snapshot, fingerprint: emptyFingerprint(r.schema) },
-					name: "too_early",
+					name: parsedMigrationName("too_early"),
 					timestamp: "20000101000000"
 				})
 			)
@@ -1067,7 +1074,7 @@ const ledgerSearch = Effect.gen(function* () {
 			shrink: { kind: "bounded", candidates: 150 },
 			concurrency: 1,
 			steerEvery: 16,
-			caseHang: Duration.minutes(20)
+			caseHang
 		},
 		runOn(shape)
 	)

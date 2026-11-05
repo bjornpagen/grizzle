@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer"
-import { Duplex, type DuplexOptions } from "node:stream"
+import type { TLSSocket } from "node:tls"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -19,38 +19,45 @@ import {
 	Scheduler,
 	Scope
 } from "effect"
-import { TestClock } from "effect/testing"
-import { AcquisitionBudgetExceeded } from "#adapter/errors/failures.ts"
+import pgDriver from "pg"
+import type { PgSocket } from "#adapter/types/driver.ts"
+import type { Transport } from "#adapter/types/layer.ts"
 import { makePool, noPassword, type Session } from "#adapter/wire/session.ts"
-import { assert, matchesObject } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
+import {
+	caseHang,
+	nodeTimerMin,
+	testConnectTimeout,
+	testIdleTimeout
+} from "#test/support/limits.ts"
+import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
+import { parsedConnection } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 
 /**
  * The session pool's lifetime bookkeeping (packages/grizzle/src/adapter/wire/session.ts makePool) over a PostgreSQL
- * server in memory, on pg's `stream` transport: the pool must hold no connection, session, waiter or permit past its
- * life, whatever leases, interruptions and connection losses happen.
+ * server in memory, behind the SSLRequest and verify-full TLS of grizzle's public transport (test/support/memory-tls.ts):
+ * the pool must hold no connection, session, waiter or permit past its life, whatever leases, interruptions and
+ * connection losses happen.
  *
  * A property over drawn sequences on a pool of a drawn maximum (1 to 3) whose idle timeout is short (pg closes idle
  * sessions above the floor while the sequence runs) or long. Each step leases a session and holds it, or releases a
- * held one; ends one of the server's connections, a leased session's or an idle one's; waits for the idle timeout, as
- * the sessions stand, or once it has leased a second session where the maximum allows and released one above the floor,
- * which a short timeout then closes; starves a saturated pool with 1, 64 or 2,000 leases that wait for a permit until
- * they are interrupted or their budget runs out, then releases a session; abandons a lease, interrupted or out of
- * budget, while pg connects it or hands it an idle session; cuts a lease, interrupted or out of budget, at a drawn turn
- * of the scheduler, which runs it a drawn few operations a turn, so the cut lands at every step of its acquisition and
- * of its hold; races such a cut, on a lease queued behind a saturated pool, with a release at another drawn turn, often
- * a turn or few before the cut, which hands it the permit; or has the server refuse a connection, at startup or by
- * sending no cancellation key. After every step, at a turn of the event loop: the sessions a release reaches are
- * exactly the server's open connections, pg's Pool counts exactly those, nothing waits in pg's queue, and the leased
- * count is the model's. A wait that ends fails with the budget's error (saturated exactly when every permit was leased)
- * or as an interruption. At the end every held session is released, the pool leases its maximum at once with the clock
- * standing still (no permit was lost), and its end resolves, every connection closed and no session left.
+ * held one; ends one of the server's connections, a leased session's or an idle one's; leases a second session where
+ * the maximum allows and releases one above the floor, which a short timeout then closes; starves a saturated pool with
+ * 1, 64 or 2,000 leases that wait for a permit until they are interrupted, then releases a session; abandons a lease,
+ * interrupted while pg connects it or hands it an idle session; cuts a lease, interrupted at a drawn turn of the
+ * scheduler, which runs it a drawn few operations a turn, so the cut lands at every step of its acquisition and of its
+ * hold; races such a cut, on a lease queued behind a saturated pool, with a release at another drawn turn, often a turn
+ * or few before the cut, which hands it the permit; or has the server refuse a connection, at startup or by sending no
+ * cancellation key. After every step, at a turn of the event loop, once every idle timeout due has closed its session
+ * (a short one is due at once): the sessions a release reaches are exactly the server's open connections, pg's Pool
+ * counts exactly those, nothing waits in pg's queue, and the leased count is the model's. A wait has no deadline of its
+ * own: it ends with a session, or as an interruption. At the end every held session is released, the pool leases its
+ * maximum at once with the clock standing still (no permit was lost), and its end closes every connection at once, no
+ * session left.
  *
- * How a wait ends: interrupted, or out of budget.
+ * How the server answers a startup: ready, with a cancellation key, or refused, at startup or with no key.
  */
-type WaitEnding = "interrupted" | "timed out"
-
-/** How the server answers a startup: ready, with a cancellation key, or refused, at startup or with no key. */
 type Refusal = "refused" | "no key"
 type Startup = "ready" | Refusal
 
@@ -59,14 +66,12 @@ type StepSketch =
 	| { readonly kind: "lease" }
 	| { readonly kind: "release"; readonly pick: number }
 	| { readonly kind: "lose"; readonly pick: number }
-	| { readonly kind: "churn" }
 	| { readonly kind: "expire" }
-	| { readonly kind: "starve"; readonly waiters: number; readonly ending: WaitEnding }
-	| { readonly kind: "abandon"; readonly ending: WaitEnding }
-	| { readonly kind: "cut"; readonly ending: WaitEnding; readonly at: number; readonly ops: number }
+	| { readonly kind: "starve"; readonly waiters: number }
+	| { readonly kind: "abandon" }
+	| { readonly kind: "cut"; readonly at: number; readonly ops: number }
 	| {
 			readonly kind: "race"
-			readonly ending: WaitEnding
 			readonly at: number
 			readonly freeAt: number
 			readonly ops: number
@@ -78,8 +83,6 @@ interface Sequence {
 	readonly idle: "short" | "long"
 	readonly steps: ReadonlyArray<StepSketch>
 }
-
-const endingGen: Gen<WaitEnding> = element<WaitEnding>(["interrupted", "timed out"])
 
 /** A scheduler turn at which a cut lands. */
 const turnGen: Gen<number> = int(0, 24)
@@ -100,26 +103,14 @@ const stepGen: Gen<StepSketch> = oneOf<StepSketch>([
 	constant({ kind: "lease" }),
 	(source) => ({ kind: "release", pick: source.draw(pickGen) }),
 	(source) => ({ kind: "lose", pick: source.draw(pickGen) }),
-	constant({ kind: "churn" }),
 	constant({ kind: "expire" }),
-	(source) => ({
-		kind: "starve",
-		waiters: source.draw(element([1, 64, 2_000])),
-		ending: source.draw(endingGen)
-	}),
-	(source) => ({ kind: "abandon", ending: source.draw(endingGen) }),
-	(source) => ({
-		kind: "cut",
-		ending: source.draw(endingGen),
-		at: source.draw(turnGen),
-		ops: source.draw(opsGen)
-	}),
+	(source) => ({ kind: "starve", waiters: source.draw(element([1, 64, 2_000])) }),
+	constant({ kind: "abandon" }),
+	(source) => ({ kind: "cut", at: source.draw(turnGen), ops: source.draw(opsGen) }),
 	(source) => {
-		const ending = source.draw(endingGen)
 		const freeAt = source.draw(turnGen)
 		return {
 			kind: "race",
-			ending,
 			at: source.draw(oneOf([turnGen, map(leadGen, (lead) => freeAt + lead)])),
 			freeAt,
 			ops: source.draw(opsGen)
@@ -142,7 +133,6 @@ type PoolFeature =
 	| "lost an idle connection"
 	| "idle churn closed a session"
 	| "waiters for a permit interrupted"
-	| "waiters for a permit timed out"
 	| "a flood of waiters"
 	| "abandoned while connecting"
 	| "abandoned while pg handed over an idle session"
@@ -160,7 +150,6 @@ const situations: Arr.NonEmptyReadonlyArray<PoolFeature> = [
 	"lost an idle connection",
 	"idle churn closed a session",
 	"waiters for a permit interrupted",
-	"waiters for a permit timed out",
 	"a flood of waiters",
 	"abandoned while connecting",
 	"abandoned while pg handed over an idle session",
@@ -184,15 +173,15 @@ const poolKept: ReadonlyArray<Kept<Sequence, PoolFeature>> = [
 			idle: "long",
 			steps: [
 				{ kind: "lease" },
-				{ kind: "abandon", ending: "interrupted" },
-				{ kind: "abandon", ending: "interrupted" },
+				{ kind: "abandon" },
+				{ kind: "abandon" },
 				{ kind: "lease" },
-				{ kind: "starve", waiters: 2_000, ending: "timed out" },
+				{ kind: "starve", waiters: 2_000 },
 				{ kind: "lose", pick: 0 },
 				{ kind: "lose", pick: 0 },
 				{ kind: "refuse", startup: "refused" },
 				{ kind: "refuse", startup: "no key" },
-				{ kind: "starve", waiters: 1, ending: "interrupted" }
+				{ kind: "starve", waiters: 1 }
 			]
 		},
 		reaches: [
@@ -201,13 +190,12 @@ const poolKept: ReadonlyArray<Kept<Sequence, PoolFeature>> = [
 			"released",
 			"abandoned while connecting",
 			"abandoned while pg handed over an idle session",
-			"waiters for a permit timed out",
+			"waiters for a permit interrupted",
 			"a flood of waiters",
 			"lost an idle connection",
 			"lost a leased connection",
 			"a refused connection",
-			"a connection without a cancellation key",
-			"waiters for a permit interrupted"
+			"a connection without a cancellation key"
 		]
 	},
 	{
@@ -220,8 +208,7 @@ const poolKept: ReadonlyArray<Kept<Sequence, PoolFeature>> = [
 				{ kind: "lease" },
 				{ kind: "lease" },
 				{ kind: "release", pick: 0 },
-				{ kind: "release", pick: 0 },
-				{ kind: "churn" }
+				{ kind: "release", pick: 0 }
 			]
 		},
 		reaches: ["idle churn closed a session", "released"]
@@ -233,11 +220,11 @@ const poolKept: ReadonlyArray<Kept<Sequence, PoolFeature>> = [
 			max: 1,
 			idle: "long",
 			steps: [
-				{ kind: "cut", ending: "interrupted", at: 0, ops: 3 },
-				{ kind: "cut", ending: "timed out", at: 2, ops: 3 },
-				{ kind: "cut", ending: "interrupted", at: 24, ops: 8 },
-				{ kind: "race", ending: "interrupted", at: 6, freeAt: 0, ops: 3 },
-				{ kind: "race", ending: "timed out", at: 4, freeAt: 1, ops: 4 }
+				{ kind: "cut", at: 0, ops: 3 },
+				{ kind: "cut", at: 2, ops: 3 },
+				{ kind: "cut", at: 24, ops: 8 },
+				{ kind: "race", at: 6, freeAt: 0, ops: 3 },
+				{ kind: "race", at: 4, freeAt: 1, ops: 4 }
 			]
 		},
 		reaches: [
@@ -249,11 +236,15 @@ const poolKept: ReadonlyArray<Kept<Sequence, PoolFeature>> = [
 	}
 ]
 
-/** The pool's idle timeouts, in milliseconds of real time: short, which a churn step outwaits, and long. */
-const idleMillis: { readonly [I in Sequence["idle"]]: number } = { short: 20, long: 60_000 }
-
-/** The acquisition budget, on the test's clock. */
-const waitMs = 1_000
+/**
+ * The pool's idle timeouts, in milliseconds of real time: short, the least delay a Node timer waits (nodeTimerMin), so
+ * a session released above the floor is closed at once, and long, which never fires while its test runs
+ * (testIdleTimeout).
+ */
+const idleMillis: { readonly [I in Sequence["idle"]]: number } = {
+	short: nodeTimerMin.value,
+	long: testIdleTimeout.value
+}
 
 const frame = (type: string, body: Uint8Array): Buffer => {
 	const out = Buffer.alloc(5 + body.length)
@@ -280,66 +271,94 @@ const startupRefusal = frame(
 /** The Terminate message's type, X. */
 const terminate = 0x58
 
-/**
- * One connection's end at the server, shaped as pg expects the stream it is given to be: like a socket, with
- * `connect`, which pg calls once and which only reports the connection.
- */
-class FakeSocket extends Duplex {
-	/** Closes the connection from the server's side. */
+/** One connection at the server, past its TLS: closed from the server's side by `hangUp`. */
+interface FakeConnection {
 	readonly hangUp: () => void
-
-	constructor(hangUp: () => void, options: DuplexOptions) {
-		super(options)
-		this.hangUp = hangUp
-	}
-
-	connect(): this {
-		process.nextTick(() => this.emit("connect"))
-		return this
-	}
-
-	setNoDelay(): this {
-		return this
-	}
-
-	ref(): this {
-		return this
-	}
-
-	unref(): this {
-		return this
-	}
 }
 
 /**
- * A PostgreSQL server in memory under trust authentication. Each connection reads its startup packet, then typed
- * messages, and closes on Terminate or when pg ends its side. The server answers each startup as `next` says (which then
- * goes back to ready), holds every answer while `holding`, and counts the connections it was opened for.
+ * A PostgreSQL server in memory under trust authentication, behind grizzle's public transport: each connection
+ * answers the SSLRequest and terminates verify-full TLS (test/support/memory-tls.ts), then reads its startup packet,
+ * then typed messages, and closes on Terminate or when pg ends its side. The server answers each startup as `next` says
+ * (which then goes back to ready), holds every answer while `holding`, counts the connections it was opened for and
+ * those pg ended with a Terminate, and wakes whoever waits on the open connections at each close.
  */
 class FakeServer {
-	/** The connections not yet closed. */
-	readonly open = new Set<FakeSocket>()
+	/** The connections not yet closed, from the socket pg opened for each. */
+	readonly open = new Set<PgSocket>()
 	/** The open connections that answered ready, in the order they did. */
-	readonly ready = new Set<FakeSocket>()
+	readonly ready = new Set<FakeConnection>()
 	readonly #held: Array<() => void> = []
+	/** The waits on the open connections, each run again at the next close. */
+	readonly #closing = new Set<() => void>()
 	holding = false
 	next: Startup = "ready"
 	opened = 0
+	/**
+	 * The connections pg ended with a Terminate. Before the pool ends, only pg's idle timeout does: no step runs a
+	 * statement, so no session is retired and closed on release, and a lost connection is the server's own hang-up.
+	 */
+	terminated = 0
 	#pid = 1
+	readonly #material = tlsMaterial("fake-postgres.test")
+	readonly #connect = memoryEndpoint(this.#material, (secure) => {
+		this.#serve(secure)
+	})
 
-	/** pg's `stream`: a new connection. */
-	readonly connect = (): FakeSocket => {
+	/** The transport that reaches the server: a new connection for each socket pg opens. */
+	readonly transport: Transport = memoryTransport(this.#material, () => {
 		this.opened += 1
+		const socket = this.#connect()
+		this.open.add(socket)
+		socket.once("close", () => {
+			this.open.delete(socket)
+			const waits = [...this.#closing]
+			this.#closing.clear()
+			for (const wait of waits) {
+				wait()
+			}
+		})
+		return socket
+	})
+
+	/** Returns once at most `count` connections are open: at once, or at the close that brings them down to it. */
+	openAtMost(count: number): Effect.Effect<void> {
+		return Effect.callback<void>((resume) => {
+			const wait = (): void => {
+				if (this.open.size <= count) {
+					resume(Effect.void)
+				} else {
+					this.#closing.add(wait)
+				}
+			}
+			wait()
+			return Effect.sync(() => {
+				this.#closing.delete(wait)
+			})
+		})
+	}
+
+	/** Answers every held startup, and holds none after. */
+	releaseHeld(): void {
+		this.holding = false
+		for (const answer of this.#held.splice(0)) {
+			answer()
+		}
+	}
+
+	#serve(secure: TLSSocket): void {
 		let read = Buffer.alloc(0)
 		let started = false
 		let hungUp = false
-		const hangUp = (): void => {
-			if (hungUp) {
-				return
+		const connection: FakeConnection = {
+			hangUp: () => {
+				if (hungUp) {
+					return
+				}
+				hungUp = true
+				secure.end()
+				process.nextTick(() => secure.destroy())
 			}
-			hungUp = true
-			socket.push(null)
-			process.nextTick(() => socket.destroy())
 		}
 		const take = (): void => {
 			for (;;) {
@@ -355,68 +374,52 @@ class FakeServer {
 				read = read.subarray(length)
 				if (!started) {
 					started = true
-					this.#startup(socket)
+					this.#startup(connection, secure)
 				} else if (type === terminate) {
-					hangUp()
+					this.terminated += 1
+					connection.hangUp()
 					return
 				}
 			}
 		}
-		const socket = new FakeSocket(hangUp, {
-			read() {},
-			write(chunk: Uint8Array, ...[, callback]) {
-				read = Buffer.concat([read, chunk])
-				take()
-				callback()
-			},
-			final(callback) {
-				hangUp()
-				callback()
-			}
+		secure.on("data", (chunk: Buffer) => {
+			read = Buffer.concat([read, chunk])
+			take()
 		})
-		this.open.add(socket)
-		socket.once("close", () => {
-			this.open.delete(socket)
-			this.ready.delete(socket)
+		secure.once("end", connection.hangUp)
+		secure.on("error", () => undefined)
+		secure.once("close", () => {
+			this.ready.delete(connection)
 		})
-		return socket
 	}
 
-	/** Answers every held startup, and holds none after. */
-	releaseHeld(): void {
-		this.holding = false
-		for (const answer of this.#held.splice(0)) {
-			answer()
-		}
-	}
-
-	#startup(socket: FakeSocket): void {
+	#startup(connection: FakeConnection, secure: TLSSocket): void {
 		const startup = this.next
 		this.next = "ready"
 		if (this.holding) {
 			this.#held.push(() => {
-				this.#answer(socket, startup)
+				this.#answer(connection, secure, startup)
 			})
 		} else {
-			this.#answer(socket, startup)
+			this.#answer(connection, secure, startup)
 		}
 	}
 
-	#answer(socket: FakeSocket, startup: Startup): void {
-		if (!this.open.has(socket)) {
+	#answer(connection: FakeConnection, secure: TLSSocket, startup: Startup): void {
+		if (!secure.writable) {
 			return
 		}
 		switch (startup) {
 			case "ready":
-				this.ready.add(socket)
-				socket.push(Buffer.concat([authenticationOk, backendKeyData(this.#pid++), readyForQuery]))
+				this.ready.add(connection)
+				secure.write(Buffer.concat([authenticationOk, backendKeyData(this.#pid++), readyForQuery]))
 				return
 			case "no key":
-				socket.push(Buffer.concat([authenticationOk, readyForQuery]))
+				secure.write(Buffer.concat([authenticationOk, readyForQuery]))
 				return
 			case "refused":
-				socket.push(startupRefusal)
-				socket.hangUp()
+				secure.write(startupRefusal)
+				connection.hangUp()
 				return
 		}
 	}
@@ -459,7 +462,7 @@ describe("the session pool", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.seconds(30)
+						caseHang
 					},
 					({ max, idle, steps }, c) =>
 						Effect.gen(function* () {
@@ -472,24 +475,49 @@ describe("the session pool", () => {
 							const poolScope = yield* Scope.make()
 							const pool = yield* Scope.provide(
 								makePool({
-									connection: {
-										host: "fake",
-										port: 5432,
-										database: "fake",
-										role: "fake",
-										password: noPassword
-									},
-									transport: { _tag: "stream", open: server.connect },
-									pool: { idleTimeoutMs: idleMillis[idle], min: 1, max },
-									budgets: { waitMs },
+									connection: parsedConnection(
+										{
+											driver: pgDriver,
+											transport: server.transport,
+											database: "fake",
+											password: noPassword,
+											connectTimeoutMs: testConnectTimeout.value
+										},
+										"fake"
+									),
+									bounds: { idleTimeoutMs: idleMillis[idle], min: 1, max },
 									attachPool: () => undefined
 								}),
 								poolScope
 							)
 							const held: Array<Held> = []
-							/** The pool's state at a turn of the event loop. */
+							/**
+							 * The idle churn due. Under the short timeout: a Node timer of its delay, set after every idle timer
+							 * pg's Pool has set and so run after them (Node keeps the timers of one delay in one list, in the
+							 * order they were set: node v26.13.0 lib/internal/timers.js, "any timer added later will always
+							 * have been scheduled to timeout later"), then the close of every session they removed, each an
+							 * event at the server. Under the long timeout, which never fires while its test runs: none.
+							 */
+							const churned = Effect.gen(function* () {
+								switch (idle) {
+									case "short": {
+										yield* wallClock(idleMillis.short)
+										const size = yield* pool.size
+										yield* server.openAtMost(size)
+										return
+									}
+									case "long":
+										return
+								}
+							})
+							/** The pool's state at a turn of the event loop, once the idle churn due has closed its sessions. */
 							const holds = Effect.gen(function* () {
 								yield* settle
+								yield* churned
+								yield* settle
+								if (server.terminated > 0) {
+									c.note("idle churn closed a session")
+								}
 								const open = server.open.size
 								const live = yield* pool.live
 								assert.equal(
@@ -518,12 +546,11 @@ describe("the session pool", () => {
 								})
 							/**
 							 * A lease run `step.ops` operations a scheduler turn, which holds its session once it has one,
-							 * cut at turn `step.at`: interrupted, or its budget run out on the test's clock and then
-							 * interrupted, whatever it holds by then. `onTurn` runs before each turn. It ends as an
-							 * interruption, or out of budget when its budget ran out before it had a session.
+							 * cut at turn `step.at`: interrupted, whatever it holds by then. `onTurn` runs before each turn.
+							 * It ends as an interruption.
 							 */
 							const cut = (
-								step: { readonly ending: WaitEnding; readonly at: number; readonly ops: number },
+								step: { readonly at: number; readonly ops: number },
 								onTurn: (turn: number) => Effect.Effect<void>
 							) =>
 								Effect.gen(function* () {
@@ -539,27 +566,14 @@ describe("the session pool", () => {
 									}
 									/** The pool counts the cut lease among its leased sessions beside the held ones. */
 									const holding = (yield* pool.leased) > held.length
-									if (step.ending === "timed out") {
-										yield* TestClock.adjust(Duration.millis(waitMs))
-									}
 									yield* Fiber.interrupt(leasing)
 									const exit = yield* Fiber.await(leasing)
-									if (!Exit.hasInterrupts(exit)) {
-										assert.equal(step.ending, "timed out", "only a budget ends a cut lease's wait")
-										const failure = failureOf(exit)
-										assert.ok(failure instanceof AcquisitionBudgetExceeded, String(failure))
-									}
+									assert.ok(
+										Exit.hasInterrupts(exit),
+										"only an interruption ends a cut lease's wait"
+									)
 									return holding
 								})
-							/** Real time past the short idle timeout: a session it closes is noted. */
-							const churn = Effect.gen(function* () {
-								const before = server.open.size
-								yield* wallClock(2 * idleMillis.short)
-								yield* settle
-								if (server.open.size < before) {
-									c.note("idle churn closed a session")
-								}
-							})
 							/** Releases the held lease `pick` selects, or leases one when none is held. */
 							const releaseOrLease = (pick: number) =>
 								Effect.gen(function* () {
@@ -589,22 +603,18 @@ describe("the session pool", () => {
 										}
 										pickFrom([first, ...rest], step.pick).hangUp()
 										yield* settle
-										const lost = Arr.filter(held, (h) => h.session.lost())
+										const lost = Arr.filter(held, (h) => h.session.state() === "ended")
 										for (const h of lost) {
 											yield* release(h)
 										}
 										c.note(lost.length > 0 ? "lost a leased connection" : "lost an idle connection")
 										break
 									}
-									case "churn":
-										yield* churn
-										break
 									case "expire":
 										while (held.length < Math.min(2, max)) {
 											yield* lease
 										}
 										yield* releaseOrLease(0)
-										yield* churn
 										break
 									case "starve": {
 										while (held.length < max) {
@@ -618,21 +628,11 @@ describe("the session pool", () => {
 											0,
 											"a lease waits for a permit, never in pg's queue"
 										)
-										if (step.ending === "interrupted") {
-											yield* Fiber.interruptAll(waiters)
-											for (const exit of yield* Fiber.awaitAll(waiters)) {
-												assert.ok(Exit.hasInterrupts(exit), "the wait ends as an interruption")
-											}
-											c.note("waiters for a permit interrupted")
-										} else {
-											yield* TestClock.adjust(Duration.millis(waitMs))
-											for (const exit of yield* Fiber.awaitAll(waiters)) {
-												const failure = failureOf(exit)
-												assert.ok(failure instanceof AcquisitionBudgetExceeded, String(failure))
-												matchesObject(failure, { millis: waitMs, leased: max, max })
-											}
-											c.note("waiters for a permit timed out")
+										yield* Fiber.interruptAll(waiters)
+										for (const exit of yield* Fiber.awaitAll(waiters)) {
+											assert.ok(Exit.hasInterrupts(exit), "the wait ends as an interruption")
 										}
+										c.note("waiters for a permit interrupted")
 										if (step.waiters >= 2_000) {
 											c.note("a flood of waiters")
 										}
@@ -650,23 +650,13 @@ describe("the session pool", () => {
 											startImmediately: true
 										})
 										const connecting = server.opened > opened
-										if (step.ending === "interrupted") {
-											yield* Fiber.interrupt(waiter)
-										} else {
-											yield* TestClock.adjust(Duration.millis(waitMs))
-										}
+										yield* Fiber.interrupt(waiter)
 										const exit = yield* Fiber.await(waiter)
 										server.releaseHeld()
 										if (Exit.isSuccess(exit)) {
 											break
 										}
-										if (step.ending === "interrupted") {
-											assert.ok(Exit.hasInterrupts(exit), "the wait ends as an interruption")
-										} else {
-											const failure = failureOf(exit)
-											assert.ok(failure instanceof AcquisitionBudgetExceeded, String(failure))
-											matchesObject(failure, { millis: waitMs, leased: held.length, max })
-										}
+										assert.ok(Exit.hasInterrupts(exit), "the wait ends as an interruption")
 										c.note(
 											connecting
 												? "abandoned while connecting"

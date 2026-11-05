@@ -17,7 +17,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -29,7 +28,6 @@ import {
 import { checkQuery } from "#compiler/check/index.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
-import { recursionMaxStates } from "#compiler/core/policy.ts"
 import { MoneyText } from "#compiler/ir/carriers.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
@@ -45,6 +43,7 @@ import {
 	type QueryDesc,
 	type RuleDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
@@ -100,7 +99,7 @@ import { Graph, theRecursive } from "#test/unit/recursion/fixtures.ts"
  * - any other term computed from a column's own value is unbounded computed state, refused;
  * - a counter counts every integer from its least to its greatest value: the seeds' range when every other value is
  *   a known literal, the carrier's range otherwise, widened to what the counter produces;
- * - the estimate is the product over the columns, refused as ResourceBound above recursionMaxStates; the family is
+ * - the estimate is the product over the columns, recorded and never refused, whatever its size; the family is
  *   finiteCarrier without a counter, boundedState with an increasing one, wellFounded with only decreasing ones;
  * - a counter's step is exact integer arithmetic, narrowed into the carrier: from every value the counter can hold,
  *   least to greatest, each of its steps stays inside the carrier, the step past its last state included, or the
@@ -640,12 +639,10 @@ const descOfSpec = (spec: Spec): QueryDesc =>
 		}
 	})
 
-/** The refusal the rules decide: its cause's kind, and for the seen-state bound the estimate it needs. */
 /** A refusal of admission's rules, or the PartialOperation of a counter's narrowing no bound proves. */
 type ModelRefusal =
 	| { readonly kind: "carrierOverflow" }
 	| { readonly kind: "unboundedState" }
-	| { readonly kind: "stateEstimate"; readonly needed: bigint }
 	| { readonly kind: "unprovedNarrowing" }
 
 type Verdict =
@@ -666,10 +663,7 @@ type Verdict =
 type Estimate =
 	| {
 			readonly kind: "refused"
-			readonly refusal: Exclude<
-				ModelRefusal,
-				{ readonly kind: "stateEstimate" | "unprovedNarrowing" }
-			>
+			readonly refusal: Exclude<ModelRefusal, { readonly kind: "unprovedNarrowing" }>
 	  }
 	| {
 			readonly kind: "admitted"
@@ -867,15 +861,12 @@ const estimateWith = (spec: Spec, dataValues: DataValues): Estimate => {
 }
 
 /**
- * The verdict under a seen-state bound: the estimate's refusal, ResourceBound above the bound, the counter's narrowing
- * left unproved, which admission decides after termination, or the admission.
+ * The verdict: the estimate's refusal, the counter's narrowing left unproved, which admission decides after
+ * termination, or the admission, at any estimate.
  */
-const verdict = (e: Estimate, maxStates: number): Verdict => {
+const verdict = (e: Estimate): Verdict => {
 	if (e.kind === "refused") {
 		return e
-	}
-	if (e.estimate > BigInt(maxStates)) {
-		return { kind: "refused", refusal: { kind: "stateEstimate", needed: e.estimate } }
 	}
 	if (!e.narrows) {
 		return { kind: "refused", refusal: { kind: "unprovedNarrowing" } }
@@ -888,13 +879,9 @@ const verdict = (e: Estimate, maxStates: number): Verdict => {
 	}
 }
 
-/** Whether admission refused for the rule the model decided, and at the seen-state bound with the estimate it needs. */
-const sameRefusal = (cause: RecursionRefusal, expected: ModelRefusal, maxStates: number): boolean =>
-	expected.kind === "stateEstimate"
-		? cause.kind === "stateEstimate" &&
-			cause.needed === expected.needed &&
-			cause.limit === maxStates
-		: cause.kind === expected.kind
+/** Whether admission refused for the rule the model decided. */
+const sameRefusal = (cause: RecursionRefusal, expected: ModelRefusal): boolean =>
+	cause.kind === expected.kind
 
 /**
  * A small graph over Graph's vertices: their ranks and the edges' costs drawn small, so a counter seeded from them stays
@@ -1168,10 +1155,6 @@ const featureTests = [
 	[
 		"unbounded computed state",
 		({ verdict: v }) => v.kind === "refused" && v.refusal.kind === "unboundedState"
-	],
-	[
-		"a seen-state estimate refused",
-		({ verdict: v }) => v.kind === "refused" && v.refusal.kind === "stateEstimate"
 	],
 	[
 		"a pinned counter",
@@ -1452,13 +1435,12 @@ describe("generated recursions against the termination proof rules", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([spec, graphs], c) =>
 						Effect.sync(() => {
-							/** The seen-state bound admission reads: core/policy.ts recursionMaxStates. */
 							const estimate = estimateOf(spec)
-							const expected = verdict(estimate, recursionMaxStates)
+							const expected = verdict(estimate)
 							c.noteAll(
 								Arr.flatMap(featureTests, ([name, has]) =>
 									has({ spec, verdict: expected }) ? [name] : []
@@ -1477,7 +1459,7 @@ describe("generated recursions against the termination proof rules", () => {
 								}
 								if (
 									r.error.reason._tag !== "RecursionRefused" ||
-									!sameRefusal(r.error.reason.cause, expected.refusal, recursionMaxStates)
+									!sameRefusal(r.error.reason.cause, expected.refusal)
 								) {
 									throw new Error(`${r.error.message}, not ${expected.refusal.kind}`)
 								}
@@ -1523,7 +1505,6 @@ describe("generated recursions against the termination proof rules", () => {
 							}
 						})
 				)
-			),
-		300_000
+			)
 	)
 })

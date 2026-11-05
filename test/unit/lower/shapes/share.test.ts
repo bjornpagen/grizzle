@@ -3,10 +3,11 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
@@ -45,7 +46,7 @@ describe("the share key", () => {
 							[source.draw(params), source.draw(params), source.draw(int(0, 3))] as const,
 						limit: 16,
 						coverage: requiredInSpace<"shared" | "apart">(["shared", "apart"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([first, second, burned], c) =>
 						Effect.sync(() => {

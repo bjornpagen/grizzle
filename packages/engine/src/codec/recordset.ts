@@ -7,7 +7,7 @@ import { refinedMember, type ScalarCodec, scalarCodec } from "#compiler/codec/sc
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
-import { maxStringLength } from "#compiler/core/policy.ts"
+import { maxStringLength } from "#compiler/core/limits.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
@@ -288,7 +288,7 @@ const elementOverhead = (text: string): number => {
  * The arrays of a normalized input, one placeholder text each (ir/products.ts ArrayTexts): over `columns` of it, one
  * text-format array literal per column, `{"t1","t2",...}` of its rows' texts in row order, or, of no column, the count
  * of its rows. Every literal is one string, so one longer than `limit` UTF-16 code units, the longest string the host
- * builds in production (core/policy.ts maxStringLength), is refused before it is built, as the bound of the column it
+ * builds in production (core/limits.ts maxStringLength), is refused before it is built, as the bound of the column it
  * carries (ir/products.ts LiteralBound), by a count of its length kept while the rows are read; the literals are
  * written by one pass over the rows.
  */
@@ -333,7 +333,7 @@ export const normalArrays = (
 	const fields = built.columns.map((c) => c.field)
 	return (normal) =>
 		Result.flatMap(rowsOf(normal), (normalized) =>
-			arrayTexts(spec.relation, fields, normalized.rows, maxStringLength)
+			arrayTexts(spec.relation, fields, normalized.rows, maxStringLength.value)
 		)
 }
 
@@ -379,9 +379,12 @@ export const arraysEncoder = (spec: RelationSpec): RelationParamEncoder => {
 	const fields = built.columns.map((c) => c.field)
 	return (facts) =>
 		Result.flatMap(normalize(facts), (normalized) =>
-			Result.map(arrayTexts(spec.relation, fields, normalized.rows, maxStringLength), (arrays) => ({
-				arrays,
-				count: normalized.count
-			}))
+			Result.map(
+				arrayTexts(spec.relation, fields, normalized.rows, maxStringLength.value),
+				(arrays) => ({
+					arrays,
+					count: normalized.count
+				})
+			)
 		)
 }

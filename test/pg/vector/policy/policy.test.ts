@@ -115,28 +115,24 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 						assert.equal(typeof row.distance, "number")
 					}
 				}).pipe(Effect.scoped, withLayer(fx.opened.layer))
-			}),
-		300_000
+			})
 	)
 
-	it.effect(
-		"admission refuses a login that lost a search default",
-		() =>
-			Effect.gen(function* () {
-				const fx = yield* installFixture({ candidates })
-				yield* loseDefault(fx, "hnsw.iterative_scan")
-				const error = yield* Effect.flip(
-					Db.open(fx.opened.server.roles.app, {}).pipe(Effect.scoped, withLayer(fx.opened.layer))
-				)
-				assert.ok(error instanceof OpenError)
-				assert.equal(error.stage, "settings")
-				assert.ok(error.reason instanceof AdmissionRefused)
-				const role = loginRole(fx)
-				assert.deepEqual(
-					Arr.map(error.reason.mismatches, (m) => [m.stage, m.check, m.expected, m.observed]),
-					[["settings", `role ${role} default hnsw.iterative_scan`, "strict_order", "<not set>"]]
-				)
-			}),
-		300_000
+	it.effect("admission refuses a login that lost a search default", () =>
+		Effect.gen(function* () {
+			const fx = yield* installFixture({ candidates })
+			yield* loseDefault(fx, "hnsw.iterative_scan")
+			const error = yield* Effect.flip(
+				Db.open(fx.opened.server.roles.app, {}).pipe(Effect.scoped, withLayer(fx.opened.layer))
+			)
+			assert.ok(error instanceof OpenError)
+			assert.equal(error.stage, "settings")
+			assert.ok(error.reason instanceof AdmissionRefused)
+			const role = loginRole(fx)
+			assert.deepEqual(
+				Arr.map(error.reason.mismatches, (m) => [m.stage, m.check, m.expected, m.observed]),
+				[["settings", `role ${role} default hnsw.iterative_scan`, "strict_order", "<not set>"]]
+			)
+		})
 	)
 })

@@ -5,10 +5,10 @@ import { codePoint, element, type Gen, oneOf, string, weighted } from "@grizzle/
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter, Option } from "effect"
+import { Effect, Formatter, Option } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
-import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
 import { param, types } from "#compiler/sql/build.ts"
 import { printExpr, printStatement } from "#compiler/sql/print.ts"
 import {
@@ -22,6 +22,7 @@ import {
 import { assert } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { wild } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -148,7 +149,7 @@ layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 						suite: "pg/write/refusal-detail",
 						draw: drawn((source): KeyTexts => ({
 							employee: source.draw(uuid(7)),
-							week: source.draw(bigint(int8Min, int8Max)).toString(),
+							week: source.draw(bigint(int8Min.value, int8Max.value)).toString(),
 							note: source.draw(note)
 						})),
 						literal: Formatter.format,
@@ -158,7 +159,7 @@ layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					roundTrip
 				)

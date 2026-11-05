@@ -2,7 +2,8 @@ import { drawn, explore, type Kept, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * The testing library's harness invariants, held by its types (@grizzle/testing): a suite's required features are a
@@ -27,7 +28,7 @@ export const explores = explore(
 		shrink: { kind: "complete" },
 		concurrency: 1,
 		steerEvery: 16,
-		caseHang: Duration.minutes(2)
+		caseHang
 	},
 	(n, c) => Effect.sync(() => c.note(n < 10 ? "small" : "large"))
 )
@@ -75,7 +76,7 @@ export const misspeltNote = explore(
 		shrink: { kind: "complete" },
 		concurrency: 1,
 		steerEvery: 16,
-		caseHang: Duration.minutes(2)
+		caseHang
 	},
 	(...[, c]) =>
 		Effect.sync(() =>

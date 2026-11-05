@@ -200,8 +200,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 		for (const holder of holders) {
 			it.effect(
 				`a Db never waits on a migration ${holder.migration}, which waits only for the transaction in flight`,
-				() => fenceSchedule(holder),
-				600_000
+				() => fenceSchedule(holder)
 			)
 		}
 	}

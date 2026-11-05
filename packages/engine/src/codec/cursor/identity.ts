@@ -9,7 +9,19 @@ import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 declare const cursorDigestBrand: unique symbol
 declare const digestBytesBrand: unique symbol
 
-/** The length of every identity digest in the token. */
+/**
+ * The length of every identity digest in the token, a format constant of the token's layout (layout.ts), whose change
+ * makes every issued token unreadable.
+ *
+ * Collision arithmetic: a token binds its query, its comparators and its generation by a digest each, checked by
+ * equality, never by the identity itself, so a collision is not detected but made negligible. Over n distinct
+ * identities of one kind, any two share a digest with probability at most n(n - 1) / 2 / 2^128: below 2^-65 for
+ * n = 2^32. A token presented to another query of the same digest is read through that query's own comparator codecs,
+ * each value admitted again (value.ts), so the most it can do is what a tampered token already can: move the page
+ * boundary of a query the caller can run.
+ *
+ * @formatConstant the cursor token's digests: 16 bytes, a SHA-256's leading 32 hex digits
+ */
 export const cursorDigestBytes = 16
 
 /**

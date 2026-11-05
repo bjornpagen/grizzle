@@ -38,7 +38,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { ApplyError } from "#adapter/public/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -64,6 +64,7 @@ import {
 	viewOf
 } from "#test/support/platform/generate.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	decideSet,
 	deleteOp,
@@ -852,7 +853,7 @@ layer(Substrate.layer)("the platform's laws refuse exactly what they forbid", (i
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(sketch, cx) =>
 							Effect.gen(function* () {
@@ -906,7 +907,6 @@ layer(Substrate.layer)("the platform's laws refuse exactly what they forbid", (i
 							})
 					)
 				})
-			),
-		900_000
+			)
 	)
 })

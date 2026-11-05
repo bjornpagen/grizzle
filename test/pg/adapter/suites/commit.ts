@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Cause, Duration, Effect, Exit, Fiber, Formatter, Option } from "effect"
+import { Array as Arr, Cause, Effect, Exit, Fiber, Formatter, Option } from "effect"
 import { TransientFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -13,6 +13,7 @@ import { assert } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -120,7 +121,7 @@ export const commitSuite = (): void => {
 											),
 											"40001 at COMMIT"
 										]),
-										caseHang: Duration.minutes(2)
+										caseHang
 									},
 									([concurrent, end], c) =>
 										Effect.gen(function* () {

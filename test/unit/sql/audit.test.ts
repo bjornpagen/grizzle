@@ -5,7 +5,7 @@ import { array, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 import type { CteBody, PlStatement, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
@@ -18,6 +18,7 @@ import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert
 import { unitCarrier } from "#test/support/kernel/naming.ts"
 import { type ShapeFeature, shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	auditCarrierProgramViolations,
 	auditStatementDetailed,
@@ -444,7 +445,7 @@ describe("every Live statement", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.sync(() => {
@@ -498,7 +499,7 @@ describe("every statement a generated write program places", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.sync(() => {
@@ -553,7 +554,7 @@ describe("a statement broken at one site", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ live: sketch, statement, sites }, c) =>
 						Effect.sync(() => {
@@ -619,7 +620,7 @@ describe("a statement broken at one site", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ live: sketch, statement, sites }, c) =>
 						Effect.sync(() => {
@@ -680,7 +681,7 @@ describe("a printed statement broken at one token", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ live: sketch, statement, sites }, c) =>
 					Effect.sync(() => {
@@ -754,7 +755,7 @@ describe("a write program's ANALYZE", () => {
 						literal: Formatter.format,
 						limit: 1000,
 						coverage: requiredInSpace<ProgramFeature>(["admitted", "refused"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(program, c) =>
 						Effect.sync(() => {

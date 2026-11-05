@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -12,6 +12,7 @@ import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
@@ -397,7 +398,7 @@ layer(Substrate.layer)("admitted recursions on PostgreSQL 19", (it) => {
 							coverage: requiredInSpace<AgreedFeature>(
 								Arr.map(cases, (c): AgreedFeature => `agreed: ${c.label}`)
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(c, k) =>
 							Effect.gen(function* () {
@@ -415,7 +416,6 @@ layer(Substrate.layer)("admitted recursions on PostgreSQL 19", (it) => {
 							})
 					)
 				})
-			),
-		300_000
+			)
 	)
 })

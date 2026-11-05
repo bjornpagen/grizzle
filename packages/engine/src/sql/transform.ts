@@ -1,3 +1,4 @@
+import { maxOf } from "#compiler/core/array.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
 	AlterDomain,
@@ -1308,7 +1309,7 @@ export const statementParams = (statement: SqlStatement): number => {
 					arrays.kind === "count"
 						? [arrays.count.number]
 						: arrays.columns.map((c) => c.array.number)
-				highest = Math.max(highest, ...numbers)
+				highest = maxOf(numbers, highest)
 			}
 			return source
 		}

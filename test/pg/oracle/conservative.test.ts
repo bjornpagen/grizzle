@@ -20,7 +20,7 @@ import type { Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { TestContext } from "vitest"
 import {
 	type ConservativeFeature,
@@ -97,7 +97,6 @@ const agreeOn = (ctx: TestContext, gen: Gen<QueryCase>, suite: string) =>
 					kept: [],
 					runs: cases,
 					shrink: completeShrink,
-					caseHang: Duration.minutes(2),
 					perturb: "all"
 				},
 				(c, k) =>
@@ -141,15 +140,11 @@ const agreeOn = (ctx: TestContext, gen: Gen<QueryCase>, suite: string) =>
 	)
 
 layer(Substrate.layer)("the conservative lowering against the reference evaluator", (it) => {
-	it.effect(
-		`agrees on ${cases} generated cases, raw text multisets, with no repeated row`,
-		(ctx) => agreeOn(ctx, queryCaseGen(defaultGenConfig), "conservative/generated"),
-		1_800_000
+	it.effect(`agrees on ${cases} generated cases, raw text multisets, with no repeated row`, (ctx) =>
+		agreeOn(ctx, queryCaseGen(defaultGenConfig), "conservative/generated")
 	)
 
-	it.effect(
-		`agrees on ${cases} generated cases with dense facts`,
-		(ctx) => agreeOn(ctx, denseQueryCaseGen(defaultGenConfig), "conservative/dense"),
-		1_800_000
+	it.effect(`agrees on ${cases} generated cases with dense facts`, (ctx) =>
+		agreeOn(ctx, denseQueryCaseGen(defaultGenConfig), "conservative/dense")
 	)
 })

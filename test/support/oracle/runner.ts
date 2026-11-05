@@ -19,7 +19,6 @@ import {
 	Array as Arr,
 	Cause,
 	Data,
-	type Duration,
 	Effect,
 	Option,
 	pipe,
@@ -49,6 +48,7 @@ import {
 } from "#compiler/lower/conservative/types.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import {
 	type Comparison,
@@ -849,8 +849,8 @@ export const comparisonFailed = (outcome: OracleOutcome): ComparisonFailed =>
 
 /**
  * What one exploration of oracleCheck is: the library's exploration minus its draw (oracleCheck's first argument), its
- * concurrency and its steering cadence, plus the plan perturbation each case draws. Oracle cases share their
- * substrate's database and schema, so they run one at a time.
+ * concurrency, its steering cadence and its hang guard (the tiers' caseHang), plus the plan perturbation each case
+ * draws. Oracle cases share their substrate's database and schema, so they run one at a time.
  */
 export interface CheckOptions<S, F extends string> {
 	readonly suite: string
@@ -859,7 +859,6 @@ export interface CheckOptions<S, F extends string> {
 	readonly kept: ReadonlyArray<Kept<S, F>>
 	readonly runs: number
 	readonly shrink: ShrinkBudget
-	readonly caseHang: Duration.Input
 	/** The plan perturbation each case draws: the facts repeated and planner settings, the settings alone, or none. */
 	readonly perturb: "all" | "planner" | "none"
 }
@@ -946,7 +945,7 @@ const checked = <S, T, F extends string, E, R>(
 			shrink: options.shrink,
 			concurrency: 1,
 			steerEvery: 16,
-			caseHang: options.caseHang
+			caseHang
 		},
 		([value, conditions], c) => underPerturbation(property(value, c), conditions)
 	)

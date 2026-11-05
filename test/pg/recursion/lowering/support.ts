@@ -90,9 +90,9 @@ export const lowerCase = (
  * - optimizedLowering is the oracle's left side: the full optimized pipeline (rewrites, placement, CTE policy, the
  *   shape kind table with the recursion plug-in) over a generated case, checked by the kernel's verification (it lowers
  *   through test/support/compile.ts lowerAligned), with the case's declared containments as installed evidence.
- * - optimizedFeedbackUnionAll is the feedback UNION ALL mutant applied to the optimized output itself: every recursion's set
- *   union of feedback, its recursive UNION or its unrolled levels' UNION, turned into UNION ALL. The seed and step
- *   SELECTs are already plain there (V6), so a diamond kills it when two routes reach one state.
+ * - optimizedFeedbackUnionAll is the feedback UNION ALL mutant applied to the optimized output itself: every recursion's
+ *   recursive UNION turned into UNION ALL. The seed and step SELECTs are already plain there (V6), so a diamond kills
+ *   it when two routes reach one state.
  */
 export const optimizedLowering = (name: string): Lowering => ({
 	name,
@@ -163,56 +163,18 @@ const unionAll = (body: SelectBody, count: () => void): SelectBody => {
 	return { ...body, op: "UNION ALL" }
 }
 
-/** The reads of a set union's arms: the CTE each core reads, or undefined for any other arm. */
-const armReads = (body: SelectBody): ReadonlyArray<string | undefined> => {
-	if (body.kind === "setOp") {
-		return Arr.flatMap(body.arms, armReads)
-	}
-	if (body.kind !== "core") {
-		return [undefined]
-	}
-	const [from] = body.from
-	return [body.from.length === 1 && from?.kind === "cte" ? from.name : undefined]
-}
-
-/**
- * Whether a query is an unrolled recursion (lower/shapes/recursion): NOT MATERIALIZED levels read in order by the arms
- * of its body.
- */
-const isUnrolled = (query: Select): boolean => {
-	const w = query.with
-	if (
-		w === undefined ||
-		w.recursive ||
-		!Arr.every(w.ctes, (c) => c.materialized === "NOT MATERIALIZED")
-	) {
-		return false
-	}
-	const reads = armReads(query.body)
-	return reads.length === w.ctes.length && Arr.every(w.ctes, (c, i) => reads[i] === c.name)
-}
-
-/**
- * A recursive CTE's body, or an unrolled recursion's levels (a WITH of NOT MATERIALIZED CTEs over a set union of their
- * reads), with its feedback union made UNION ALL.
- */
+/** A recursive CTE's body with its feedback union made UNION ALL; any other query as it is. */
 const mutateFeedback = (query: Select, count: () => void): Select => {
 	const w = query.with
-	if (w === undefined) {
+	if (w === undefined || !w.recursive) {
 		return query
 	}
-	if (w.recursive) {
-		const ctes = Arr.map(w.ctes, (cte) =>
-			cte.query.kind === "select"
-				? { ...cte, query: { ...cte.query, body: unionAll(cte.query.body, count) } }
-				: cte
-		)
-		return { ...query, with: { ...w, ctes } }
-	}
-	if (isUnrolled(query)) {
-		return { ...query, body: unionAll(query.body, count) }
-	}
-	return query
+	const ctes = Arr.map(w.ctes, (cte) =>
+		cte.query.kind === "select"
+			? { ...cte, query: { ...cte.query, body: unionAll(cte.query.body, count) } }
+			: cte
+	)
+	return { ...query, with: { ...w, ctes } }
 }
 
 interface MutatedFeedback {

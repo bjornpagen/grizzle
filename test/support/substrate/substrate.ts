@@ -12,6 +12,7 @@ import {
 	endBackend,
 	listedBackend
 } from "#test/support/kernel/sanitize.ts"
+import { testExitWait } from "#test/support/limits.ts"
 import { freshDatabase, type PgConnection, type SqlError, sqlErrorOf } from "#test/support/pg.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
 import type { PsqlProcessError } from "#test/support/substrate/errors.ts"
@@ -24,7 +25,12 @@ import {
 	uniqueSchemaName,
 	uniqueSchemaNameOfLength
 } from "#test/support/substrate/names.ts"
-import { openPsql, type PsqlOptions, type PsqlWriter } from "#test/support/substrate/psql.ts"
+import {
+	type BackendCancel,
+	openPsql,
+	type PsqlOptions,
+	type PsqlWriter
+} from "#test/support/substrate/psql.ts"
 import {
 	type Credentials,
 	connect,
@@ -235,13 +241,13 @@ export const dropRole = (admin: PgConnection, role: string): Effect.Effect<void,
 		yield* admin.query(`GRANT ${quoteIdent(role)} TO CURRENT_USER WITH INHERIT TRUE`, [])
 		/**
 		 * DROP ROLE succeeds while the role still has backends, so each one is terminated first, the server waiting up
-		 * to 10 s for it to exit. A backend still running is a defect of the cluster.
+		 * to testExitWait for it to exit. A backend still running is a defect of the cluster.
 		 * The call stays in the select list: in WHERE the planner may evaluate it before the usename filter, on
 		 * backends of roles the owner cannot signal.
 		 */
 		const terminated = yield* admin.queryValues(
-			"SELECT pid, pg_catalog.pg_terminate_backend(pid, 10000) FROM pg_catalog.pg_stat_activity WHERE usename = $1::text",
-			[role]
+			"SELECT pid, pg_catalog.pg_terminate_backend(pid, $2::int8) FROM pg_catalog.pg_stat_activity WHERE usename = $1::text",
+			[role, String(testExitWait.value)]
 		)
 		/**
 		 * pg_terminate_backend also returns false, with "PID n is not a PostgreSQL backend process", for a backend that
@@ -323,12 +329,12 @@ const asSuperuser = (database: string, statements: ReadonlyArray<string>): Effec
 
 /**
  * Drops the owner login `role` (SubstrateShape.ownerLogin) as the bootstrap superuser, from `database`: its backends
- * terminated first, the server waiting up to 10 s for each to exit, then the role, with its defaults and its membership
+ * terminated first, the server waiting up to testExitWait for each to exit, then the role, with its defaults and its membership
  * in the owner. It owns nothing, as every statement of its sessions acted as the owner. A no-op once it is gone.
  */
 const dropOwnerLogin = (database: string, role: string): Effect.Effect<void> =>
 	asSuperuser(database, [
-		`SELECT pg_catalog.pg_terminate_backend(a.pid, 10000) FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = ${quoteString(role)}::name`,
+		`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait.value}) FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = ${quoteString(role)}::name`,
 		`DROP ROLE IF EXISTS ${quoteIdent(role)}`
 	])
 
@@ -538,13 +544,21 @@ const build = Effect.fnUntraced(function* (
 		caFile: cluster.caFile,
 		host: options.host,
 		hostaddr: options.hostaddr,
-		/** The call stays in the select list, so it runs only for a backend the WHERE clause found running a query. */
+		/**
+		 * The call stays in the select list, so it runs only for a backend the WHERE clause found running a query; it
+		 * answers false for one that exited meanwhile, which runs nothing.
+		 */
 		cancelBackend: (pid) =>
-			Effect.ignore(
-				admin.query(
-					"SELECT pg_catalog.pg_cancel_backend(pid) FROM pg_catalog.pg_stat_activity WHERE pid = $1::int4 AND state = 'active'::text",
+			Effect.match(
+				admin.queryValues(
+					"SELECT pg_catalog.pg_cancel_backend(pid)::text FROM pg_catalog.pg_stat_activity WHERE pid = $1::int4 AND state = 'active'::text",
 					[pid]
-				)
+				),
+				{
+					onFailure: (): BackendCancel => "unreachable",
+					onSuccess: (rows): BackendCancel =>
+						Arr.some(rows, ([signalled]) => signalled === "true") ? "signalled" : "not running"
+				}
 			)
 	})
 

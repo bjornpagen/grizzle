@@ -1,7 +1,8 @@
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
+import { TemporaryCensus } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type * as Result from "#compiler/core/result.ts"
+import * as Result from "#compiler/core/result.ts"
 import { asidesOf, setAside } from "#compiler/deploy/diff/aside.ts"
 import { diff } from "#compiler/deploy/diff/diff.ts"
 import type { AbandonedSchema, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
@@ -15,6 +16,7 @@ import {
 	type FolderNaming,
 	folderName,
 	type MigrationFolder,
+	type MigrationName,
 	type RecordFault,
 	recordFaultText,
 	writeMeta
@@ -28,9 +30,11 @@ import {
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { hashedNames } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 
-interface GenerateInput {
+/** What a schema's draft is drafted from: `grizzle check`'s, and `grizzle generate`'s before it names the folder. */
+export interface DraftInput {
 	/** The previous committed snapshot: the empty snapshot (`emptySnapshot`) before the schema's first
 	 * migration. */
 	readonly previous: DeploySnapshot
@@ -39,27 +43,39 @@ interface GenerateInput {
 	readonly installation: Installation
 	/** The current workloads: each login's programs' access and the access requests, none for a schema without one. */
 	readonly workload: DraftWorkload
-	readonly naming: FolderNaming
-	/** YYYYMMDDHHMMSS, from the CLI's clock. */
-	readonly timestamp: string
 	/** The schemas the migrations directory holds that the configuration no longer lists, which the CLI names for a
 	 * schema's first migration (none for any other): the draft starts the schema under the loss of their rows. */
 	readonly abandoned: ReadonlyArray<AbandonedSchema>
+}
+
+/** A draft and how `grizzle generate` names its folder: by `--name` or after its change, and the CLI's timestamp. */
+interface GenerateInput extends DraftInput {
+	readonly naming: FolderNaming
+	/** YYYYMMDDHHMMSS, from the CLI's clock. */
+	readonly timestamp: string
 }
 
 /** What a draft changes: nothing, so the folder holds no file and the snapshot is the previous one; or the schema or
  * workload. */
 export type DraftChange = "none" | "schema"
 
-export interface GenerateResult {
+/** A draft whose folder is `F`: what it changes, its folder, the folder's decision record, the new snapshot and its text,
+ * and the plan the folder's files render. */
+interface DraftOf<F> {
 	readonly change: DraftChange
-	readonly folder: DraftedFolder
+	readonly folder: F
 	/** The folder's meta.json files, read as `grizzle check` reads them (decisionRecord). */
 	readonly record: DecisionRecord
 	readonly snapshot: DeploySnapshot
 	readonly snapshotText: string
 	readonly plan: MigrationPlan
 }
+
+/** A draft before its folder is named: the folder's meta.json and files, as `grizzle check` drafts it. */
+export type MigrationDraft = DraftOf<Omit<DraftedFolder, "name">>
+
+/** A draft whose folder is named `<timestamp>_<name>`, as `grizzle generate` writes it. */
+export type GenerateResult = DraftOf<DraftedFolder>
 
 const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 	if (!r.ok) {
@@ -91,27 +107,20 @@ const recordRefusal = (fault: RecordFault): CompileError => {
 	}
 }
 
-/** The name's shape is checked before anything is compiled.
+/** `grizzle check`'s draft, and `grizzle generate`'s before it names the folder, as a pure function.
  *
- * `grizzle generate` and `grizzle generate --custom` as pure functions.
- *
- * generateMigration drafts the next folder of a declared schema from its previous committed snapshot (the empty
- * snapshot before the first migration), the current schema's compiled installation and its logins' workloads: it builds
- * the target snapshot state with the ledger's objects, diffs the two, groups the plan into files and renders them, with
+ * draftMigration drafts the next folder of a declared schema from its previous committed snapshot (the empty snapshot
+ * before the first migration), the current schema's compiled installation and its logins' workloads: it builds the
+ * target snapshot state with the ledger's objects, diffs the two, groups the plan into files and renders them, with
  * meta.json's decision record of every file built through the record's one constructor (decisionRecord), the one
- * `grizzle check` reads it through. It returns the folder and the new snapshot; the CLI writes both. It reads no file
- * and no clock: the caller supplies the timestamp.
+ * `grizzle check` reads it through. It returns the folder's contents and the new snapshot. It reads no file and no
+ * clock.
  *
  * A schema whose target equals its previous snapshot drafts nothing: the change is none, the snapshot is the previous
  * one and the folder holds no file, so the CLI can report that there is nothing to generate. */
-export const generateMigration = (
-	input: GenerateInput
-): Result.Result<GenerateResult, CompileError> =>
+export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft, CompileError> =>
 	catchRefusal(() => {
 		const { installation, previous } = input
-		if (input.naming.kind === "named") {
-			unwrap(folderName(input.timestamp, input.naming.name))
-		}
 		if (previous.schema !== installation.names.schema) {
 			throw new Refusal(
 				malformedArtifact(
@@ -134,26 +143,27 @@ export const generateMigration = (
 			)
 		}
 		const state = unwrap(targetState({ installation, workload: input.workload }))
+		/** Every hashed name that stands while the migration runs, the previous installation's and the target's, against
+		 * which each temporary it mints is censused. */
+		const temporaries = new TemporaryCensus([
+			...hashedNames(previous.manifest.comments),
+			...hashedNames(state.manifest.comments)
+		])
 		/** The holders whose names the target gives objects of another kind are set aside first. */
-		const asides = asidesOf(previous, state.manifest.objects)
+		const asides = asidesOf(previous, state.manifest.objects, temporaries)
 		const plan = unwrap(
 			diff({
 				previous: setAside(previous, asides),
 				target: state,
 				installation,
 				asides,
+				temporaries,
 				abandoned: input.abandoned
 			})
 		)
 		const finished = unwrap(finishSnapshot(state))
 		const changed = plan.steps.length > 0 || comparable(finished) !== comparable(previous)
 		const snapshot = changed ? finished : previous
-		const name = unwrap(
-			folderName(
-				input.timestamp,
-				input.naming.kind === "named" ? input.naming.name : derivedMigrationName(previous, snapshot)
-			)
-		)
 		const drafted = changed ? planFiles(plan) : []
 		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(f)) }))
 		const recorded = drafted.map((f) => unwrap(recordFile(f)))
@@ -172,7 +182,7 @@ export const generateMigration = (
 		const change: DraftChange = changed ? "schema" : "none"
 		return {
 			change,
-			folder: { name, meta, metaText: unwrap(writeMeta(meta)), files },
+			folder: { meta, metaText: unwrap(writeMeta(meta)), files },
 			record: record.value,
 			snapshot,
 			snapshotText: unwrap(writeSnapshot(snapshot)),
@@ -180,10 +190,38 @@ export const generateMigration = (
 		}
 	})
 
-/** An empty migration for hand-written data steps, whose source and target are both the current snapshot. */
+/** The name a draft's folder is named by: the name `--name` gives, or the one derived from its change. */
+const draftName = (
+	naming: FolderNaming,
+	previous: DeploySnapshot,
+	draft: MigrationDraft
+): MigrationName => {
+	switch (naming.kind) {
+		case "named":
+			return naming.name
+		case "derived":
+			return derivedMigrationName(previous, draft.snapshot)
+	}
+}
+
+/** `grizzle generate` as a pure function: the draft (draftMigration), its folder named `<timestamp>_<name>`. It returns
+ * the folder and the new snapshot; the CLI writes both. The caller supplies the timestamp, since the compiler reads no
+ * clock. */
+export const generateMigration = (
+	input: GenerateInput
+): Result.Result<GenerateResult, CompileError> =>
+	Result.flatMap(draftMigration(input), (draft) =>
+		Result.map(
+			folderName(input.timestamp, draftName(input.naming, input.previous, draft)),
+			(name): GenerateResult => ({ ...draft, folder: { name, ...draft.folder } })
+		)
+	)
+
+/** `grizzle generate --custom` as a pure function: an empty migration for hand-written data steps, whose source and
+ * target are both the current snapshot. */
 export const customMigration = (input: {
 	readonly snapshot: DeploySnapshot
-	readonly name: string
+	readonly name: MigrationName
 	readonly timestamp: string
 }): Result.Result<MigrationFolder, CompileError> =>
 	catchRefusal(() => {

@@ -20,7 +20,7 @@ import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import { classMembers, type KeyProof, type ViewKey, type ViewRead } from "#compiler/ir/keys.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { type Card, type HeadingColumn, keptRowsOf, type RelNode } from "#compiler/ir/rel.ts"
@@ -116,7 +116,7 @@ export const spineObstacle = (root: RelNode): "attachment" | "headingGroups" | u
 export type DeclaredColumn = HeadingColumn & { readonly name: DeclaredName }
 
 /** A column of a derived relation's heading, with its inferred field descriptor. */
-export type DerivedColumn = DeclaredColumn & { readonly desc: FieldDesc }
+export type DerivedColumn = DeclaredColumn & { readonly desc: InferredFieldDesc }
 
 /**
  * A view's heading declared into its namespace of columns (core/identity.ts DeclaredNamespace): a derived relation's or

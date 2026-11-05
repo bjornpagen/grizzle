@@ -1,3 +1,4 @@
+import net from "node:net"
 import {
 	Array as Arr,
 	Console,
@@ -48,6 +49,10 @@ export type ProbeDatabase = {
 	readonly caFile: string
 	/** The committed snapshot.json the installation reached, which the application passes to Db.open. */
 	readonly snapshot: string
+	/** The connect timeout of the probe's connection, its parent's (bench/harness/limits.ts benchConnectTimeout). */
+	readonly connectTimeoutMs: number
+	/** The idle timeout of the probe's pool, its parent's (bench/harness/limits.ts benchIdleTimeout). */
+	readonly idleTimeoutMs: number
 	/** The account whose tasks the parameterized queries read. */
 	readonly account: Uuid
 }
@@ -170,6 +175,8 @@ const main = Effect.gen(function* () {
 		const target = input.database
 		const fs = yield* FileSystem.FileSystem
 		const ca = yield* fs.readFileString(target.caFile)
+		/** node-postgres, as an application imports it beside grizzle, read once the measured imports are done. */
+		const pg = yield* Effect.promise(() => import("pg"))
 		/**
 		 * The Work fixture under the installed schema name, its worlds over it, so the Db logs in as the installed login and
 		 * takes on the installed reader role, and its reads over it.
@@ -179,13 +186,21 @@ const main = Effect.gen(function* () {
 		const reads = W.workReads(work)
 		const password: Redacted.Redacted = Redacted.make(target.password)
 		const layer = grizzle.DbLayer.make({
-			login: worlds.server,
-			snapshot: snapshotJson(target.snapshot),
-			host: target.host,
-			port: target.port,
+			driver: pg.default,
+			transport: {
+				kind: "sslRequest",
+				host: target.host,
+				port: target.port,
+				open: () => new net.Socket(),
+				ca,
+				servername: target.host
+			},
 			database: target.database,
 			password,
-			tls: { ca }
+			connectTimeoutMs: target.connectTimeoutMs,
+			pool: { max: 1, min: 1, idleTimeoutMs: target.idleTimeoutMs },
+			login: worlds.server,
+			snapshot: snapshotJson(target.snapshot)
 		})
 		const params = { account: target.account }
 		let opened = 0

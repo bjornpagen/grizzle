@@ -512,7 +512,7 @@ export const withholdingFor = query(Payroll).rule((r) => {
 			employeeRate,
 			withheld: Compute.when(
 				Compute.within(
-					Compute.round(Compute.mul(Compute.cast(gross, pg.numeric), Compute.base(employeeRate))),
+					Compute.round(Compute.mul(Compute.numeric(gross), Compute.base(employeeRate))),
 					0n,
 					9223372036854775807n
 				),

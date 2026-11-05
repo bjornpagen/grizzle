@@ -4,11 +4,12 @@ import { type Reached, required } from "@grizzle/testing/features"
 import { constant, element, type Gen, int, oneOf, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record, Result } from "effect"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { educationInstall } from "#test/support/fixtures/education/index.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -551,28 +552,25 @@ const openFeature = (f: WorldFeature): boolean =>
 layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 	"least privilege: the worlds' privileges from above",
 	(it) => {
-		it.effect(
-			"every role's installed privileges are exactly the expected privileges",
-			(ctx) =>
-				searched(
-					ctx,
-					explore(
-						{
-							suite: "pg/world-model/privileges",
-							draw: drawn(installs),
-							literal: Formatter.format,
-							coverage: required<Feature>(situations, { cases: 8, sense: notesOnly }),
-							kept: [],
-							runs: 8,
-							shrink: { kind: "bounded", candidates: 100 },
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang: Duration.minutes(2)
-						},
-						privilegeCase
-					)
-				),
-			3_600_000
+		it.effect("every role's installed privileges are exactly the expected privileges", (ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/world-model/privileges",
+						draw: drawn(installs),
+						literal: Formatter.format,
+						coverage: required<Feature>(situations, { cases: 8, sense: notesOnly }),
+						kept: [],
+						runs: 8,
+						shrink: { kind: "bounded", candidates: 100 },
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					privilegeCase
+				)
+			)
 		)
 
 		programTests(it, {

@@ -17,7 +17,7 @@ import { lsw, passed, type WildKind } from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record, Stream } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record, Stream } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
@@ -43,6 +43,7 @@ import { schemaInputOf } from "#test/support/compile.ts"
 import { Employer, Payroll, Reporting } from "#test/support/fixtures/api/payroll.ts"
 import { Account, Kind, Reports, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
 import { dictionaryNameGen, type IdentifierFeature } from "#test/support/kernel/dict.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	compiled,
 	cs,
@@ -141,7 +142,7 @@ describe("canonical form (build order never matters within a stratum)", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([members, reordered], c) =>
 						Effect.sync(() => {
@@ -431,7 +432,7 @@ describe("the level check", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([carried, named], c) =>
 						Effect.sync(() => {
@@ -586,7 +587,7 @@ describe("bind", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(map, c) =>
 						Effect.sync(() => {
@@ -696,7 +697,7 @@ describe("bind", () => {
 					literal: Formatter.format,
 					limit: 2,
 					coverage: noCoverage,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(how) =>
 					Effect.sync(() => {

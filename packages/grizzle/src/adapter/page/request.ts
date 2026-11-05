@@ -21,9 +21,10 @@ import { hostArguments } from "#compiler/query/build/host.ts"
  * - the request is an object whose own properties are control properties of exactly one direction: `first` with an
  *   optional `after`, or `last` with an optional `before`. Both sizes (mixed directions), an anchor of the other
  *   direction, both anchors, no size, or any other own property is refused;
- * - the size is a safe integer from 1 to the fixed library limit pageMaxSize. Zero, a negative or fractional number,
- *   NaN, the infinities, a bigint and a numeric string are refused. There is no default size, and the size
- *   is not part of a cursor's identity, so it may change on continuation;
+ * - the size is a safe integer of at least 1, with no upper bound: the statements bind it, and the lookahead size plus
+ *   one, as bigint parameters, which hold every safe integer. Zero, a negative or fractional number, an integer above
+ *   Number.MAX_SAFE_INTEGER, NaN, the infinities, a bigint and a numeric string are refused. There is no default size,
+ *   and the size is not part of a cursor's identity, so it may change on continuation;
  * - an omitted anchor is genuinely absent: a property is read only when it is an own property (Record.has), so an
  *   inherited one is not an anchor, and a supplied one must be a string. An explicitly supplied null or undefined
  *   cursor, or any other non-string, is CursorError `cursorType` (codec/cursor/fault.ts), the first step of
@@ -65,17 +66,13 @@ const directions = {
 
 const controlKeys: ReadonlySet<PropertyKey> = new Set(["first", "after", "last", "before"])
 
-/** An admitted size: a safe integer from 1 to `maxSize`. */
-const isPageSize = (value: unknown, maxSize: number): value is number =>
-	typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= maxSize
+/** An admitted size: a safe integer of at least 1. */
+const isPageSize = (value: unknown): value is number =>
+	typeof value === "number" && Number.isSafeInteger(value) && value >= 1
 
-/**
- * The request a caller's value is, its size at most `maxSize` (core/policy.ts pageMaxSize in production), or its
- * refusal.
- */
+/** The request a caller's value is, or its refusal. */
 export const pageRequest = (
-	request: unknown,
-	maxSize: number
+	request: unknown
 ): Result.Result<PageRequestValue, ReadError | CursorError> => {
 	if (!Predicate.isObject(request)) {
 		return Result.fail(shapeError())
@@ -103,7 +100,7 @@ export const pageRequest = (
 		return Result.fail(shapeError())
 	}
 	const size = fields[direction.size]
-	if (!isPageSize(size, maxSize)) {
+	if (!isPageSize(size)) {
 		return Result.fail(refused("requestSize"))
 	}
 	if (!Rec.has(fields, direction.anchor)) {

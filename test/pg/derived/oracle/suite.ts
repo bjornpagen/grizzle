@@ -3,7 +3,7 @@ import { drawn } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Formatter } from "effect"
+import { Array as Arr, Formatter } from "effect"
 import { aggregateKeys, caseSketchGen, plantedAggregates } from "#test/pg/derived/oracle/gen.ts"
 import { type DerivedFeature, derivedCase } from "#test/pg/derived/oracle/property.ts"
 import { oracleCheck } from "#test/support/oracle/runner.ts"
@@ -58,7 +58,6 @@ const explored = (suite: string) =>
 			],
 			runs: casesPerSeed,
 			shrink: { kind: "complete" },
-			caseHang: Duration.minutes(2),
 			perturb: "planner"
 		},
 		derivedCase
@@ -73,8 +72,7 @@ export const suite = (name: string, seeds: ReadonlyArray<number>): void => {
 			(it) => {
 				it.effect(
 					`${casesPerSeed} generated cases: every refreshed view equals its definition, in one commit, writing nothing it need not`,
-					(ctx) => searched(ctx, explored(label)),
-					600_000
+					(ctx) => searched(ctx, explored(label))
 				)
 			}
 		)

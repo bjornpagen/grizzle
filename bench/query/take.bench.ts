@@ -1,5 +1,4 @@
 import { Array as Arr, Effect, Option, Predicate, Result } from "effect"
-import { acquisitionBudgets } from "#adapter/pool/budgets.ts"
 import { runRefresh } from "#adapter/refresh/run.ts"
 import { refreshTargets } from "#adapter/refresh/targets.ts"
 import { makePool } from "#adapter/wire/session.ts"
@@ -9,10 +8,11 @@ import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
+	type GateCheck,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
-import { compareVariants, measureVariant } from "#bench/harness/variant.ts"
+import { compareVariants, measureVariant, type VariantOptions } from "#bench/harness/variant.ts"
 import {
 	agrees,
 	autocommit,
@@ -21,6 +21,7 @@ import {
 	conditions,
 	deliver,
 	deliveredAgree,
+	fill,
 	GateSetupError,
 	handwritten,
 	handwrittenRows,
@@ -34,7 +35,8 @@ import {
 	plainExplain,
 	queryPhases,
 	rawSession,
-	runtimeSession
+	runtimeSession,
+	settle
 } from "#bench/query/support/kit.ts"
 
 import {
@@ -69,7 +71,7 @@ import {
 	scansOf
 } from "#bench/query/support/plans.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
-import { lateralParentMax, poolBounds } from "#compiler/core/policy.ts"
+import { lateralParentMax } from "#compiler/core/limits.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
@@ -79,10 +81,10 @@ import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { testArtifacts } from "#test/support/compile.ts"
-import { pgPin } from "#test/support/env.ts"
 import { ledgerPrologue } from "#test/support/flight/model.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { labeledStatements } from "#test/support/oracle/compare.ts"
+import { clusterConnection, clusterPool, parsedConnection } from "#test/support/pg.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -101,7 +103,15 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  *   to a relation parameter delivered with a few students and with every student, whose count chooses per execution;
  *   and as a derived relation's definition (support/lab.ts BestThree), which "always wants every group, so it never
  *   takes the correlated form" (:243): refreshed by the runtime's refresh transaction, its refresh time, rows written
- *   and the definition's workers launched recorded.
+ *   and the definition's workers launched recorded. The threshold between the two forms, lateralParentMax
+ *   (core/limits.ts), is an operating point between two genuinely different shapes that deliver the same rows, so the
+ *   gate also runs both over the same input across the sizes it decides by, for its evidence to be read off the
+ *   crossover: take(k) by (score desc, id) per parent, k = 1 and k = 3, for a relation parameter's parents sent as the
+ *   runtime sends a relation input, one text array per column read by unnest, as the LATERAL probe, LIMIT k per
+ *   parent, and as the whole-relation pass over every group, DISTINCT ON for k = 1 and row_number otherwise, joined to
+ *   the parents. Parent counts run from one to past the threshold, and group sizes from a few sittings per student to
+ *   many, each group size a band of students of a second Lab install; both shapes are written as grizzle emits them,
+ *   over that install's tables and access paths, and the gate checks that they agree.
  * - R27 (:313): the strict successor over every sitting agrees with the LATERAL take(1) on groups of one row, on the
  *   last row of each group (which the bound form removes) and on ties of the day broken by the key.
  * - R42 (:462): the latest price at or before each sitting, and the mirror, agree with the LATERAL form on ties at
@@ -112,9 +122,36 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly students: number
 	readonly perStudent: number
 	readonly samples: number
+	/** Students in each group-size band of the both-forms measurement of lateralParentMax. */
+	readonly studentsPerBand: number
+	readonly groupSizes: Arr.NonEmptyReadonlyArray<number>
+	readonly parentCounts: Arr.NonEmptyReadonlyArray<number>
 }
 
 type Gates = "R20" | "R27" | "R42"
+
+/** A band of students with `groupSize` sittings each: its first student, and its first sitting's id. */
+interface Band {
+	readonly groupSize: number
+	readonly firstStudent: number
+	readonly firstSitting: number
+}
+
+const bandsOf = (options: Options): ReadonlyArray<Band> => {
+	const bands: Array<Band> = []
+	let student = 1
+	let sitting = 1
+	for (const groupSize of options.groupSizes) {
+		bands.push({ groupSize, firstStudent: student, firstSitting: sitting })
+		student += options.studentsPerBand
+		sitting += options.studentsPerBand * groupSize
+	}
+	return bands
+}
+
+/** The SQL text of an int4 array of `values`, as a relation input's column travels. */
+const intArray = (values: ReadonlyArray<number>): string =>
+	`{${Arr.join(Arr.map(values, String), ",")}}`
 
 /** How many of a template's optimized statements hold a whole-relation form chosen per execution. */
 const chosenForms = (template: QueryTemplate): number =>
@@ -184,20 +221,35 @@ export default defineGate({
 	title:
 		"Bounded subsets, successors and as-of selections by the parent set against handwritten SQL",
 	scope:
-		"take(k) per parent through an attachment, bind and a relation parameter, for a few parents and for every group " +
+		"take(k) per parent through an attachment, bind and a relation parameter, for a few parents and for every group, " +
+		"and as the LATERAL probe and the whole-relation pass across parent counts and group sizes, for lateralParentMax " +
 		"(R20); the successor of every sitting (R27); the as-of price of every sitting, its mirror, and of a relation " +
 		"parameter's students (R42). A tutoring timeline is represented by the whole-input as-of over every sitting.",
 	phases: queryPhases,
 	options: {
-		full: { students: 3000, perStudent: 30, samples: 15 },
-		quick: { students: 400, perStudent: 16, samples: 2 }
+		full: {
+			students: 3000,
+			perStudent: 30,
+			samples: 15,
+			studentsPerBand: 20_000,
+			groupSizes: [2, 8, 32, 128],
+			parentCounts: [1, 4, 16, 64, 256, 1024, 4096, 16_384]
+		},
+		quick: {
+			students: 400,
+			perStudent: 16,
+			samples: 2,
+			studentsPerBand: 300,
+			groupSizes: [2, 32],
+			parentCounts: [1, 16, 300]
+		}
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
 			const fx = yield* installFixture(Lab, labPrograms, "benchtake", [])
 			const size = { students: options.students, perStudent: options.perStudent }
 			yield* loadLab(fx, size)
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b take runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b take raw")
 			const indexes = yield* installedIndexes(fx)
 			const sitting = fx.relationName("Sitting")
@@ -262,7 +314,7 @@ export default defineGate({
 			const fewAttachment = attachmentOf(sheetOne, "best")
 			const fewChild = planOf(fewM.generated, fewAttachment.index)
 			const sheets = compile(fx, studentSheets, reading)
-			const manyParents = Math.min(options.students, lateralParentMax * 2)
+			const manyParents = Math.min(options.students, lateralParentMax.value * 2)
 			const manyM = yield* measureQuery(runtime, raw, sheets, { upto: manyParents }, measure)
 			const manyChild = planOf(manyM.generated, attachmentOf(sheets, "best").index)
 			cases.push({
@@ -274,7 +326,11 @@ export default defineGate({
 						"statement with no bound",
 					schemaState: installed,
 					data,
-					parameters: { id: oneParent, many: manyParents, lateralParentMax },
+					parameters: {
+						id: oneParent,
+						many: manyParents,
+						lateralParentMax: lateralParentMax.value
+					},
 					semantics: "each parent student with its three best sittings",
 					cache: warm
 				}),
@@ -400,7 +456,7 @@ export default defineGate({
 						parameters: {
 							fewStudents: Arr.map(wanted, (w) => w.id),
 							manyStudents: everyone.length,
-							lateralParentMax
+							lateralParentMax: lateralParentMax.value
 						},
 						semantics: "each named student with its three best sittings",
 						cache: warm
@@ -442,16 +498,11 @@ export default defineGate({
 			const substrate = yield* Substrate
 			const refresherLogin = reports.installed.as(labRefreshers)
 			const pool = yield* makePool({
-				connection: {
-					host: pgPin.host,
-					port: pgPin.port,
-					database: substrate.database,
-					role: refresherLogin.role,
-					password: refresherLogin.password
-				},
-				transport: { _tag: "tls", tls: { ca: substrate.cluster.caPem, servername: pgPin.host } },
-				pool: poolBounds,
-				budgets: acquisitionBudgets,
+				connection: parsedConnection(
+					clusterConnection(substrate.cluster, substrate.database, refresherLogin.password),
+					refresherLogin.role
+				),
+				bounds: clusterPool,
 				attachPool: () => undefined
 			})
 			const reportsInput = parseSchemaInput(LabReports)
@@ -520,11 +571,7 @@ export default defineGate({
 			const definitionWorkers = planNodes(definitionPlan)
 				.flatMap((node) => Option.toArray(node.workersLaunched))
 				.reduce((n, launched) => n + launched, 0)
-			const reportsRuntime = yield* runtimeSession(
-				reports,
-				labRefresher,
-				"m15b take refreshed reader"
-			)
+			const reportsRuntime = yield* runtimeSession(reports, labRefresher)
 			const refreshed = yield* deliver(
 				reportsRuntime,
 				compile(reports, bestThreeRows, {
@@ -572,8 +619,142 @@ export default defineGate({
 					sittings
 				}
 			})
+
+			/**
+			 * R20's threshold, both forms over one input: a second Lab install whose students come in bands of one group size
+			 * each (bandsOf), every count of a band's students read as the LATERAL probe and as the whole-relation pass.
+			 */
+			const forms = yield* installFixture(Lab, labPrograms, "benchtakeforms", [])
+			const bands = bandsOf(options)
+			const bandStudents = bands.length * options.studentsPerBand
+			const bandSittings = Arr.reduce(bands, 0, (n, b) => n + options.studentsPerBand * b.groupSize)
+			/**
+			 * Each sitting's student: the band its id falls in, the last band tested first, then its place among the band's
+			 * students.
+			 */
+			const studentOf = Arr.reduce(
+				bands,
+				"NULL::int4",
+				(rest, b) =>
+					`CASE WHEN g >= ${b.firstSitting} THEN (${b.firstStudent} + (g - ${b.firstSitting}) / ${b.groupSize})::int4 ELSE ${rest} END`
+			)
+			yield* fill(forms, "Student", bandStudents, { id: "g::int4", cohort: "(g % 10)::int4" })
+			yield* fill(forms, "Sitting", bandSittings, {
+				id: "g::int8",
+				student: studentOf,
+				day: "(1 + g % 30)::int4",
+				score: "(((pg_catalog.hashint8(g) & 2147483647) % 33)::float8 / 4::float8)",
+				points: "((pg_catalog.hashint8(g + 1) & 2147483647) % 100)::int4",
+				room: "(1 + (g - 1) / 100)::int4"
+			})
+			yield* settle(forms)
+			const formsRaw = yield* rawSession(forms, forms.world.app, "m15b take forms raw")
+			const bandTable = forms.table("Sitting")
+			const bandColumn = (f: string) => forms.column("Sitting", f)
+			const formsVariants: VariantOptions = {
+				samples: options.samples,
+				warmup: 1,
+				explainSamples: 1,
+				explain: plainExplain,
+				serverPlans: []
+			}
+			const formsInstalled =
+				"fresh install of Lab with its workload's access paths; facts loaded in group-size bands, then VACUUM (ANALYZE)"
+			const formsData = `${bandStudents} students in ${bands.length} bands of ${options.studentsPerBand}, each band's students with ${Arr.join(
+				Arr.map(bands, (b) => String(b.groupSize)),
+				", "
+			)} sittings each; dyadic scores`
+			const formChecks: Array<GateCheck> = []
+			for (const band of bands) {
+				for (const perParent of [1, k]) {
+					for (const parents of Arr.filter(
+						options.parentCounts,
+						(n) => n <= options.studentsPerBand
+					)) {
+						const ids = intArray(Arr.map(indices(parents), (i) => band.firstStudent + i))
+						const lateral = yield* measureVariant(
+							formsRaw,
+							handwritten(
+								"LATERAL ... LIMIT k per parent",
+								[
+									{
+										sql:
+											`SELECT p.id::text, b.id::text, b.score::text FROM pg_catalog.unnest($1::int4[]) AS p(id) ` +
+											`CROSS JOIN LATERAL (SELECT x.${bandColumn("id")} AS id, x.${bandColumn("score")} AS score FROM ${bandTable} AS x ` +
+											`WHERE x.${bandColumn("student")} = p.id ORDER BY x.${bandColumn("score")} DESC, x.${bandColumn("id")} LIMIT ${perParent}) AS b`,
+										params: [ids]
+									}
+								],
+								autocommit
+							),
+							formsVariants
+						)
+						const perGroup =
+							perParent === 1
+								? `SELECT DISTINCT ON (x.${bandColumn("student")}) x.${bandColumn("student")} AS student, x.${bandColumn("id")} AS id, x.${bandColumn("score")} AS score ` +
+									`FROM ${bandTable} AS x ORDER BY x.${bandColumn("student")}, x.${bandColumn("score")} DESC, x.${bandColumn("id")}`
+								: `SELECT w.student, w.id, w.score FROM (SELECT x.${bandColumn("student")} AS student, x.${bandColumn("id")} AS id, ` +
+									`x.${bandColumn("score")} AS score, pg_catalog.row_number() OVER (PARTITION BY x.${bandColumn("student")} ` +
+									`ORDER BY x.${bandColumn("score")} DESC, x.${bandColumn("id")}) AS rn FROM ${bandTable} AS x) AS w WHERE w.rn <= ${perParent}`
+						const whole = yield* measureVariant(
+							formsRaw,
+							handwritten(
+								perParent === 1 ? "DISTINCT ON over every group" : "row_number over every group",
+								[
+									{
+										sql:
+											`SELECT p.id::text, d.id::text, d.score::text FROM pg_catalog.unnest($1::int4[]) AS p(id) ` +
+											`JOIN (${perGroup}) AS d ON d.student = p.id`,
+										params: [ids]
+									}
+								],
+								autocommit
+							),
+							formsVariants
+						)
+						const name = `take(${perParent}) for ${parents} parents of ${band.groupSize} sittings each`
+						const comparison = compareVariants(lateral, whole)
+						formChecks.push(
+							equivalence(
+								`${name}: both forms deliver the same rows`,
+								comparison.sameResult,
+								`${lateral.label}: ${lateral.result.digest}; ${whole.label}: ${whole.result.digest}`
+							)
+						)
+						cases.push({
+							name,
+							gates: ["R20"],
+							conditions: conditions({
+								workload: `take(${perParent}) by (score desc, id) bound to a relation parameter's students`,
+								schemaState: formsInstalled,
+								data: formsData,
+								parameters: {
+									parents,
+									groupSize: band.groupSize,
+									k: perParent,
+									lateralParentMax: lateralParentMax.value
+								},
+								semantics: "each named student with its best sittings",
+								cache: warm
+							}),
+							phases: {},
+							variants: [lateral, whole],
+							comparisons: [comparison],
+							transactions: {},
+							loads: {},
+							measures: { parents, groupSize: band.groupSize, k: perParent }
+						})
+					}
+				}
+			}
 			const r20: VerdictInput = {
 				checks: [
+					mechanism(
+						"both take forms measured at every parent count and group size",
+						formChecks.length > 0,
+						`${formChecks.length} cases`
+					),
+					...formChecks,
 					mechanism(
 						"a key-lookup parent's attachment takes the LATERAL form",
 						has(shapeOf(fewAttachment.statement.ast), "lateral") && lateralProbe(fewChild),

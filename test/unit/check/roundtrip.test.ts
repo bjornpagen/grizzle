@@ -13,7 +13,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record } from "effect"
 import { allenBit } from "#compiler/allen/mask.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import type { CheckOptions } from "#compiler/check/checker.ts"
@@ -40,6 +40,7 @@ import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, refusalLoc } from "#test/support/assert.ts"
 import { fromQueryDescription, queryFromDesc } from "#test/support/describe.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
 import { unperturbed } from "#test/support/oracle/perturb.ts"
@@ -1489,7 +1490,7 @@ describe("generated queries round-trip through their descriptions", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(source, k) =>
 						Effect.sync(() => {

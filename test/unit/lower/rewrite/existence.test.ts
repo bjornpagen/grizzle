@@ -4,7 +4,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { constant, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -27,6 +27,7 @@ import {
 	uuidOf
 } from "#test/unit/lower/conservative/fixtures.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	passContext,
 	deliversAlikeOn,
@@ -194,7 +195,7 @@ describe("an existence-only match becomes a semi-join", () => {
 							"with a constant under a fold",
 							"delivers its witness under a projection"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([account, reader], c) =>
 						Effect.sync(() => {
@@ -251,7 +252,7 @@ describe("set comparisons need a physically unique left input", () => {
 							"Difference rewritten",
 							"Difference kept"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ op, left, evidence }, c) =>
 						Effect.sync(() => {
@@ -324,7 +325,7 @@ describe("scope", () => {
 						generator: element<Scope>(["a correlated source", "a source read laterally"]),
 						limit: 2,
 						coverage: requiredInSpace<Scope>(["a correlated source", "a source read laterally"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(scope, c) =>
 						Effect.sync(() => {

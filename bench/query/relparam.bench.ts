@@ -93,7 +93,7 @@ export default defineGate({
 				price: "((pg_catalog.hashint8(g) & 2147483647) % 10000)::int4"
 			})
 			yield* settle(fx)
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b relparam runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b relparam raw")
 			const indexes = yield* installedIndexes(fx)
 			const item = fx.relationName("Item")

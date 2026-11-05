@@ -146,7 +146,7 @@ export default defineGate({
 				})
 				yield* settle(f)
 			}
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b workload runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b workload raw")
 			const installation = fx.installed.installation
 			const manifestIndexes = Arr.filter(installation.manifest.objects, (o) => o.kind === "index")

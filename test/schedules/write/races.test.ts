@@ -9,8 +9,8 @@
  *
  * A case installs the schedule schema, opens two grizzle writers and two direct sessions, and runs one
  * race: a lawful initial state and two or three sessions, each a grizzle writer's one or two ChangeSets (each its own
- * transaction, which the caller retries after a TransientFailure, as an application does) or a direct writer's one
- * transaction of one or two statements. A race of few moves runs in every order (partial-order reduced); a larger one
+ * transaction, which the caller calls again after each TransientFailure until it answers, as an application does) or a
+ * direct writer's one transaction of one or two statements. A race of few moves runs in every order (partial-order reduced); a larger one
  * under a drawn PCT schedule. Which deadlock victim PostgreSQL picks is nature's branch, judged like any run.
  *
  * The races are drawn over small domains, so keys, candidate keys, serial values and spans meet, or planted from the
@@ -51,7 +51,6 @@ import {
 	Array as Arr,
 	Cause,
 	Data,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -62,7 +61,7 @@ import {
 	String as Str
 } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
-import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
+import type { ApplyError, OpenError, TransientFailure } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
@@ -106,11 +105,12 @@ import {
 } from "#test/schedules/write/support.ts"
 import { defined } from "#test/support/assert.ts"
 import { reportedLawId } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { applyValue, type PutRealization, putRealizations } from "#test/support/oracle/write/run.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
-import { retried } from "#test/support/schedules/grizzle.ts"
+import { type Retried, untilAnswered } from "#test/support/schedules/grizzle.ts"
 import {
 	allowed,
 	every,
@@ -919,15 +919,10 @@ class RaceFailed extends Data.TaggedError("RaceFailed")<{ readonly message: stri
 /** What a grizzle write's retried call answered, its law read back to its LawId through the installation's laws. */
 const answerOf = (
 	described: ReadonlyMap<LawId, Law>,
-	r: Result.Result<
-		{ readonly refused: ReadonlyArray<TransientTag>; readonly answered: ApplyOutcome<unknown> },
-		ApplyError
-	>
+	r: Result.Result<Retried<ApplyOutcome<unknown>>, Exclude<ApplyError, TransientFailure>>
 ): { readonly refused: ReadonlyArray<TransientTag>; readonly answer: GrizzleAnswer } => {
 	if (Result.isFailure(r)) {
-		return r.failure._tag === "TransientFailure"
-			? { refused: [r.failure.reason._tag], answer: { kind: "gave up" } }
-			: { refused: [], answer: { kind: "failed", what: r.failure._tag } }
+		return { refused: [], answer: { kind: "failed", what: r.failure._tag } }
 	}
 	const value = r.success.answered
 	return {
@@ -1060,7 +1055,7 @@ const runRace = (
 						steps.push({
 							label: describeOp(op),
 							outcome: Effect.map(
-								Effect.result(retried(applyValue(ctx, built.changes, built.params))),
+								Effect.result(untilAnswered(applyValue(ctx, built.changes, built.params))),
 								(r) => {
 									seen.set(key, answerOf(ctx.artifacts.described, r))
 									return succeeded
@@ -1259,7 +1254,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							shrink: { kind: "bounded", candidates: 40 },
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(rc, c) =>
 							Effect.scoped(runRace(rc, c)).pipe(
@@ -1268,8 +1263,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								)
 							)
 					)
-				),
-			1_800_000
+				)
 		)
 	}
 )

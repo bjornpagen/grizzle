@@ -5,7 +5,7 @@ import { boolean, constant, element, type Gen, recursive } from "@grizzle/testin
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
 import { builtExpr, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
@@ -14,6 +14,7 @@ import type { Expr } from "#compiler/sql/ast.ts"
 import { col } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 
 type Carrier = "float4" | "float8"
@@ -245,7 +246,7 @@ describe("IEEE 754 forms", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ carrier, tree }, c) =>
 						Effect.sync(() => {

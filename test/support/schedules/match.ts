@@ -119,8 +119,12 @@ export const rolledBack = (): Expectation<ScheduleOutcome> =>
 	outcomeIs("rolled back", (outcome) => outcome._tag === "RolledBack")
 
 /** The first option the result meets; a miss names why each option missed. */
-export const anyOf =
-	<A>(...options: Arr.NonEmptyReadonlyArray<Expectation<A>>): Expectation<A> =>
+export const anyOf = <A>(...options: Arr.NonEmptyReadonlyArray<Expectation<A>>): Expectation<A> =>
+	firstMet(options)
+
+/** anyOf over a list of options. */
+export const firstMet =
+	<A>(options: Arr.NonEmptyReadonlyArray<Expectation<A>>): Expectation<A> =>
 	(actual) => {
 		const [first, ...rest] = options
 		const missed = first(actual)

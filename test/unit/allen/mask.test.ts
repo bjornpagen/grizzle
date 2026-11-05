@@ -3,24 +3,24 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	ALLEN,
 	AllenMask,
-	type AllenRelation,
 	allenConverseRelation,
 	allenMaskOf,
-	allenRelations,
 	checkedMask,
 	complementMask,
 	converseMask,
 	fullAllenMask,
 	parseAllenMask
 } from "#compiler/allen/mask.ts"
+import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Booking, Schedule } from "#test/unit/query/fixtures.ts"
 
 /** The relations a mask holds, in bit order: the relation of each set bit, by the declared order. */
@@ -141,7 +141,7 @@ describe("every entry point a mask reaches", () => {
 							"no integer",
 							"no number"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(g, c) =>
 						Effect.sync(() => {

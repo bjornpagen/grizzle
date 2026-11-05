@@ -16,11 +16,12 @@ import { noCoverage } from "@grizzle/testing/features"
 import { codePoint, element, oneOf, string } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import type { NamedDetailCodec } from "#compiler/ir/law.ts"
 import { decodeDetail } from "#compiler/laws/model/detail.ts"
 import { assert } from "#test/support/assert.ts"
 import { encodeDetail } from "#test/support/detail.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 const timesheet: NamedDetailCodec = { relation: "Timesheet", keys: ["employee", "week"] }
 
@@ -50,7 +51,7 @@ describe("DetailCodec", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([a, b]) =>
 					Effect.sync(() => {

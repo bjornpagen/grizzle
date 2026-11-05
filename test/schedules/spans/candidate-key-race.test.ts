@@ -41,12 +41,11 @@ import {
 	check,
 	commit,
 	complete,
-	op,
 	rollback,
 	schedule,
 	sql
 } from "#test/support/schedules/build.ts"
-import { applied, refusals, retried } from "#test/support/schedules/grizzle.ts"
+import { applied, refusals, retriedOp } from "#test/support/schedules/grizzle.ts"
 import { ok, rows } from "#test/support/schedules/match.ts"
 import { planted } from "#test/support/schedules/planted.ts"
 import { openRig } from "#test/support/schedules/rig.ts"
@@ -195,10 +194,10 @@ const identicalRepeat = (how: "insert" | "put") =>
 								ok(),
 								blocksOn("blocker")
 							),
-							op(
+							retriedOp(
 								"app",
 								`apply ${how}`,
-								retried(x.app.db.apply(changes, {})),
+								x.app.db.apply(changes, {}),
 								applied({ kind: "no-change", calls: refusals(1) }),
 								blocksOn("direct")
 							),
@@ -247,14 +246,12 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										ok(),
 										complete
 									),
-									op(
+									retriedOp(
 										"app",
 										"apply insert",
-										retried(
-											x.app.db.apply(
-												ChangeSet.empty(x.rig.worlds.schema).insert(Booking, [b.requested]),
-												{}
-											)
+										x.app.db.apply(
+											ChangeSet.empty(x.rig.worlds.schema).insert(Booking, [b.requested]),
+											{}
 										),
 										applied({
 											kind: "invariant-rejected",

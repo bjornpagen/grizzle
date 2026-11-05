@@ -56,7 +56,6 @@ export type {
 	Infer,
 	IntegerLike,
 	LiteralOf,
-	NumericField,
 	NumericTypmodField,
 	SerialField,
 	SpanField,

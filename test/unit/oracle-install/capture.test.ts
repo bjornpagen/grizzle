@@ -5,8 +5,9 @@ import { noCoverage } from "@grizzle/testing/features"
 import { string, unicodeScalar } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import { Effect, Formatter, pipe, String as Str } from "effect"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { unquoteLiteral } from "#test/support/oracle/install/capture.ts"
 
 /**
@@ -34,7 +35,7 @@ describe("unquoteLiteral", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(text) =>
 					Effect.sync(() => {

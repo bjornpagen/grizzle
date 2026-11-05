@@ -5,7 +5,7 @@ import { array, boolean, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import {
 	MalformedPlan,
 	type PlanLabel,
@@ -16,6 +16,7 @@ import {
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * A plan node as the generator states it: its type, the index it reads by name if any, the join type or strategy that
@@ -146,7 +147,7 @@ describe("the EXPLAIN readers", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ plan, text }, c) =>
 						Effect.sync(() => {
@@ -222,7 +223,7 @@ describe("the EXPLAIN readers", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ plan, break: broken }, c) =>
 					Effect.sync(() => {

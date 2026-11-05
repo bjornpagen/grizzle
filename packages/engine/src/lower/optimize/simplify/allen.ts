@@ -101,9 +101,10 @@ class Normalizer {
 
 /**
  * The endpoint comparisons and memberships between two spans among `roots`' expressions: what a normalization leaves
- * none of in the combinations it rewrites, so it is the measure every application of simplify.allen decreases.
+ * none of in the combinations it rewrites, so a normal form that leaves as many as it found rewrote nothing
+ * (allenNormal).
  */
-export const endpointPredicates = (roots: ReadonlyArray<ScalarExpr>): number => {
+const endpointPredicates = (roots: ReadonlyArray<ScalarExpr>): number => {
 	const reading = new AllenReading()
 	let count = 0
 	for (const e of exprClosure(roots)) {
@@ -135,11 +136,12 @@ export const endpointPredicates = (roots: ReadonlyArray<ScalarExpr>): number => 
  *   decides in its connective; every other mask is its table formula (check/allen.ts allenExpr).
  * - An empty or full mask drops the evaluation of its operands, none of which raises.
  *
- * It runs in the optimized lowering only, as the simplification rule simplify.allen (rules.ts), before predicate
- * movement and every other rewrite reads the filter. The conservative lowering, the differential's comparator, keeps
- * the endpoint form as written, so the optimized-vs-conservative differential judges the rewrite on every generated
- * query that states one. The workload compiler reads each query's checked IR in this normal form (allenNormalDag), so
- * the access extraction plans the span index the optimized artifact's formula is read through.
+ * It runs in the optimized lowering only, as simplify.allen, one traversal over every filter at the start of each
+ * simplification pass (rules.ts allenNormalForm), before predicate movement and every other rewrite reads the filter.
+ * The conservative lowering, the differential's comparator, keeps the endpoint form as written, so the
+ * optimized-vs-conservative differential judges the rewrite on every generated query that states one. The workload
+ * compiler reads each query's checked IR in this normal form (allenNormalDag), so the access extraction plans the span
+ * index the optimized artifact's formula is read through.
  */
 export const allenNormal = (editor: DagEditor, pred: ScalarExpr): ScalarExpr | undefined => {
 	const normal = new Normalizer(editor).normal(pred)

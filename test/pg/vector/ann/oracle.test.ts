@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { defined } from "#test/support/assert.ts"
@@ -116,7 +116,6 @@ const agree = Effect.gen(function* () {
 			kept: [],
 			runs: cases,
 			shrink: completeShrink,
-			caseHang: Duration.minutes(2),
 			perturb: "all"
 		},
 		(c, k) =>
@@ -142,7 +141,6 @@ const agree = Effect.gen(function* () {
 layer(Substrate.layer)("ApproximateNearest rows against the reference evaluator", (it) => {
 	it.effect(
 		`the conservative lowering delivers the reference's top-k on ${cases} generated cases`,
-		(ctx) => searched(ctx, agree),
-		1_800_000
+		(ctx) => searched(ctx, agree)
 	)
 })

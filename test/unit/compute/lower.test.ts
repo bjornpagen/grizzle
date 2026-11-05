@@ -16,7 +16,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import type { CompareOp, ExprDesc } from "#compiler/ir/desc.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -38,6 +38,7 @@ import {
 	termSketchGen
 } from "#test/support/oracle/gen/compute.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	compareParamType,
 	typedLiteralDesc,
@@ -58,9 +59,10 @@ import {
 
 const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
 
-const col = (f: {
-	readonly scalar: Extract<LeafBinding, { readonly kind: "column" }>["type"]
-}): LeafBinding => ({
+/** A leaf bound to a column, the one binding the column hook reads. */
+type ColumnBinding = Extract<LeafBinding, { readonly kind: "column" }>
+
+const col = (f: { readonly scalar: ColumnBinding["type"] }): ColumnBinding => ({
 	kind: "column",
 	type: f.scalar
 })
@@ -166,7 +168,7 @@ describe("lowering in query mode", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ form, column, op, literals: [a, b], fraction }, c) =>
 						Effect.sync(() => {
@@ -340,7 +342,7 @@ describe("a conversion into a contract", () => {
 		name,
 		type: described.scalar
 	}))
-	const vars: Readonly<Record<string, LeafBinding>> = Rec.fromEntries(
+	const vars: Readonly<Record<string, ColumnBinding>> = Rec.fromEntries(
 		Arr.map(Rec.toEntries(fields), ([name, described]) => [name, col(described)])
 	)
 	const contracts: { readonly [C in ContractColumn]: TestField } = {
@@ -387,7 +389,7 @@ describe("a conversion into a contract", () => {
 					kind: "column",
 					column: { node: NodeId("n0"), name: column.name },
 					args: [],
-					type: binding.kind === "column" ? binding.type : binding.field.scalar,
+					type: binding.type,
 					nonNull: "storage",
 					volatility: "immutable"
 				}
@@ -457,7 +459,7 @@ describe("a conversion into a contract", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(sketch, c) =>
 					Effect.sync(() => {
@@ -690,7 +692,7 @@ describe("a combination of two compatible terms", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.sync(() => {

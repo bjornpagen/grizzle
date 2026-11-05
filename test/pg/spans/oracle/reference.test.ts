@@ -7,8 +7,9 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
-import { AllenMask, type AllenRelation, allenRelations } from "#compiler/allen/mask.ts"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { AllenMask } from "#compiler/allen/mask.ts"
+import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import type { OwnedKey, OwnedRelation } from "#compiler/schema/own.ts"
 import { keyLayout } from "#compiler/schema/representability.ts"
@@ -24,6 +25,7 @@ import {
 	windowSpans
 } from "#test/support/oracle/allen.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	defaultSpanCaseLimits,
 	endpointMaskPredicate,
@@ -126,7 +128,7 @@ describe("the span reference on the host", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(spans) =>
 					Effect.sync(() => {
@@ -253,7 +255,7 @@ describe("the span generators", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(c, noted) =>
 					Effect.sync(() => {
@@ -354,82 +356,76 @@ const assertLawful = (
 }
 
 layer(Substrate.layer)("the span reference against PostgreSQL 19", (it) => {
-	it.effect(
-		`agrees with handwritten SQL on ${cases} generated span cases`,
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema({ ...freshSchema, label: "spans" })
-					const db = yield* s.session(ownerSession())
-					for (const statement of spanSetupStatements(schema)) {
-						yield* db.query(statement, [])
-					}
-					/** btree_gist is installed and supplies the scalar components of a span key. */
-					const gist = yield* db.values(
-						"SELECT extversion::text FROM pg_catalog.pg_extension WHERE extname = 'btree_gist'",
-						[]
-					)
-					assert.equal(gist.length, 1)
+	it.effect(`agrees with handwritten SQL on ${cases} generated span cases`, (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const schema = yield* s.schema({ ...freshSchema, label: "spans" })
+				const db = yield* s.session(ownerSession())
+				for (const statement of spanSetupStatements(schema)) {
+					yield* db.query(statement, [])
+				}
+				/** btree_gist is installed and supplies the scalar components of a span key. */
+				const gist = yield* db.values(
+					"SELECT extversion::text FROM pg_catalog.pg_extension WHERE extname = 'btree_gist'",
+					[]
+				)
+				assert.equal(gist.length, 1)
 
-					return yield* oracleCheck(
-						drawn(spanCaseGen(defaultSpanCaseLimits)),
-						{
-							suite: "spans/reference",
-							literal: Formatter.format,
-							coverage: required<SpanCaseFeature>(situations, { cases: cases, sense: notesOnly }),
-							kept: [],
-							runs: cases,
-							shrink: completeShrink,
-							caseHang: Duration.minutes(2),
-							perturb: "none"
-						},
-						(sc, c) =>
-							Effect.gen(function* () {
-								c.noteAll(caseFeatures(sc))
-								const fail = (message: string) =>
-									Effect.fail(new PropertyFailed({ report: `${printSpanCase(sc)}\n${message}` }))
-								for (const statement of spanInstallStatements(schema, sc)) {
-									yield* db.query(statement, [])
+				return yield* oracleCheck(
+					drawn(spanCaseGen(defaultSpanCaseLimits)),
+					{
+						suite: "spans/reference",
+						literal: Formatter.format,
+						coverage: required<SpanCaseFeature>(situations, { cases: cases, sense: notesOnly }),
+						kept: [],
+						runs: cases,
+						shrink: completeShrink,
+						perturb: "none"
+					},
+					(sc, c) =>
+						Effect.gen(function* () {
+							c.noteAll(caseFeatures(sc))
+							const fail = (message: string) =>
+								Effect.fail(new PropertyFailed({ report: `${printSpanCase(sc)}\n${message}` }))
+							for (const statement of spanInstallStatements(schema, sc)) {
+								yield* db.query(statement, [])
+							}
+							for (const name of spanRelationNames) {
+								if (sc.facts[name].length === 0) {
+									continue
 								}
-								for (const name of spanRelationNames) {
-									if (sc.facts[name].length === 0) {
-										continue
-									}
-									const insert = spanInsert(schema, sc, name, sc.facts[name])
-									yield* db.query(insert.sql, insert.params)
+								const insert = spanInsert(schema, sc, name, sc.facts[name])
+								yield* db.query(insert.sql, insert.params)
+							}
+							for (const dropped of sc.dropped) {
+								const insert = spanInsert(schema, sc, dropped.relation, [dropped.fact])
+								yield* expectSqlstate(db.query(insert.sql, insert.params), "23P01")
+							}
+							const expected = referenceRows(sc)
+							const byClassifier = referenceSql(schema, sc, endpointMaskPredicate)
+							const rows = yield* db.values(byClassifier.sql, byClassifier.params)
+							const classified = Arr.map(rows, (row) => Arr.map(row, String))
+							const first = sameRows("endpoint classifier", expected, classified)
+							if (first !== undefined) {
+								return yield* fail(first)
+							}
+							if (sc.query.kind === "allenFilter" || sc.query.kind === "allenJoin") {
+								const byTable = referenceSql(schema, sc, tableMaskPredicate)
+								if (regex("\\b(lower|upper)\\(").test(byTable.sql)) {
+									return yield* fail(`the shipped formula uses lower() or upper(): ${byTable.sql}`)
 								}
-								for (const dropped of sc.dropped) {
-									const insert = spanInsert(schema, sc, dropped.relation, [dropped.fact])
-									yield* expectSqlstate(db.query(insert.sql, insert.params), "23P01")
+								const rows = yield* db.values(byTable.sql, byTable.params)
+								const tabled = Arr.map(rows, (row) => Arr.map(row, String))
+								const second = sameRows("shipped mask table", expected, tabled)
+								if (second !== undefined) {
+									return yield* fail(second)
 								}
-								const expected = referenceRows(sc)
-								const byClassifier = referenceSql(schema, sc, endpointMaskPredicate)
-								const rows = yield* db.values(byClassifier.sql, byClassifier.params)
-								const classified = Arr.map(rows, (row) => Arr.map(row, String))
-								const first = sameRows("endpoint classifier", expected, classified)
-								if (first !== undefined) {
-									return yield* fail(first)
-								}
-								if (sc.query.kind === "allenFilter" || sc.query.kind === "allenJoin") {
-									const byTable = referenceSql(schema, sc, tableMaskPredicate)
-									if (regex("\\b(lower|upper)\\(").test(byTable.sql)) {
-										return yield* fail(
-											`the shipped formula uses lower() or upper(): ${byTable.sql}`
-										)
-									}
-									const rows = yield* db.values(byTable.sql, byTable.params)
-									const tabled = Arr.map(rows, (row) => Arr.map(row, String))
-									const second = sameRows("shipped mask table", expected, tabled)
-									if (second !== undefined) {
-										return yield* fail(second)
-									}
-								}
-							})
-					)
-				})
-			),
-		900_000
+							}
+						})
+				)
+			})
+		)
 	)
 })

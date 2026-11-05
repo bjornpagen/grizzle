@@ -40,18 +40,21 @@ const concurrentReasons = [
 
 /** Why a direct writer's transaction committed nothing: 40001 or 40P01. */
 export type DirectAbort = { readonly kind: "serialization failure" } | { readonly kind: "deadlock" }
-/** Why a grizzle operation committed nothing: its last attempt's TransientFailure. */
-export type GrizzleAbort = { readonly kind: "transient"; readonly reason: TransientTag }
-export type AbortCause = DirectAbort | GrizzleAbort
 
-export type Outcome<A extends AbortCause = AbortCause> =
+/**
+ * How an operation took its place: committed, with or without a change, or refused by a law. A grizzle operation always
+ * ends so: its writer calls again after each TransientFailure until a call answers (runGrizzle).
+ */
+export type Settled =
 	| { readonly kind: "accepted" | "no-change" }
 	| {
 			readonly kind: "invariant-rejected"
 			readonly law: LawId
 			readonly keys: ReadonlyArray<WitnessKey>
 	  }
-	| { readonly kind: "aborted"; readonly cause: A }
+
+/** How an operation ended: settled, or, a direct writer's alone, aborted. */
+export type Outcome = Settled | { readonly kind: "aborted"; readonly cause: DirectAbort }
 
 interface RecordedHead {
 	readonly id: number
@@ -67,11 +70,11 @@ export type Recorded = RecordedHead &
 	(
 		| {
 				readonly kind: "grizzle"
-				readonly outcome: Outcome<GrizzleAbort>
+				readonly outcome: Settled
 				/** The TransientFailure reason each discarded attempt of the operation met, in order. */
 				readonly transients: ReadonlyArray<TransientTag>
 		  }
-		| { readonly kind: "direct"; readonly outcome: Outcome<DirectAbort> }
+		| { readonly kind: "direct"; readonly outcome: Outcome }
 	)
 
 export interface History {
@@ -103,9 +106,6 @@ const showOps = (ops: ReadonlyArray<HostOp>): string =>
 		"; "
 	)
 
-const describeCause = (c: AbortCause): string =>
-	c.kind === "transient" ? `TransientFailure ${c.reason}` : c.kind
-
 const describeOutcome = (o: Outcome): string => {
 	switch (o.kind) {
 		case "accepted":
@@ -114,7 +114,7 @@ const describeOutcome = (o: Outcome): string => {
 		case "invariant-rejected":
 			return `invariant-rejected by ${o.law}${o.keys.length === 0 ? "" : ` at ${show(o.keys)}`}`
 		case "aborted":
-			return `aborted: ${describeCause(o.cause)}`
+			return `aborted: ${o.cause.kind}`
 	}
 }
 
@@ -157,11 +157,9 @@ const abortProblem = (h: History, r: Recorded): string | undefined => {
 	if (r.outcome.kind !== "aborted") {
 		return undefined
 	}
-	const cause = r.outcome.cause
-	if (cause.kind === "transient") {
-		return transient(cause.reason, "aborted with")
-	}
-	return lone ? `#${r.id} aborted (${cause.kind}) with no operation overlapping it` : undefined
+	return lone
+		? `#${r.id} aborted (${r.outcome.cause.kind}) with no operation overlapping it`
+		: undefined
 }
 
 /**

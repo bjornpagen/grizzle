@@ -4,11 +4,12 @@ import { noCoverage } from "@grizzle/testing/features"
 import { element, oneOf, string } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { isCUtf8 } from "#adapter/admission/expectation.ts"
 import { isTlsCode } from "#adapter/wire/session.ts"
 import { parseSqlstate } from "#compiler/core/sqlstate.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 import { regex } from "arkregex"
 /**
@@ -44,7 +45,7 @@ describe("scanners that replace a RegExp under src", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text) =>
 						Effect.sync(() => {
@@ -71,7 +72,7 @@ describe("scanners that replace a RegExp under src", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text) =>
 						Effect.sync(() => {
@@ -115,7 +116,7 @@ describe("scanners that replace a RegExp under src", () => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(text) =>
 							Effect.sync(() => {

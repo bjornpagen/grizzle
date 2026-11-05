@@ -289,7 +289,7 @@ export default defineGate({
 			})
 			yield* settle(fx)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b planning raw")
-			const runtime = yield* runtimeSession(fx, fx.world.app, "m15b planning runtime")
+			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const edge = fx.relationName("Edge")
 			const E = fx.table("Edge")
 			const src = fx.column("Edge", "src")
@@ -369,7 +369,7 @@ export default defineGate({
 				)
 				const versusHand = compareVariants(m.generated, hand)
 				/** The first execution of the template's statement on a backend that has run nothing, then warm ones. */
-				const fresh = yield* runtimeSession(fx, fx.world.app, `m15b planning fresh ${kind} ${size}`)
+				const fresh = yield* runtimeSession(fx, fx.world.app)
 				const first = yield* deliver(fresh, compiled, "optimized", values)
 				const warm: Array<number> = []
 				for (let i = 0; i < Math.max(2, options.samples); i++) {

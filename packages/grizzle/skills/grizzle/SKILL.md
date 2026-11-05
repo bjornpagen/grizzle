@@ -7,28 +7,52 @@ description: Load after editing a grizzle schema, role, login, workload or grizz
 # grizzle migrations
 
 grizzle drafts plain SQL migrations from a committed snapshot, never from the live database. You read the SQL, tune it
-if needed, resolve its markers, run `grizzle check`, and commit. `grizzle migrate` applies it. Edits are allowed;
+if needed, resolve its markers, run `grizzle check grizzle.config.ts`, and commit. `grizzle migrate grizzle.config.ts`
+applies it. Edits are allowed;
 drift is not: whatever the SQL does, the catalog must end where `snapshot.json` says.
 
 ## Config
 
-`grizzle.config.ts` sits in the package root. Every command reads it from the directory it runs in; there is no
-`--config` flag, so in a monorepo, run grizzle from the package.
+The config file, `grizzle.config.ts` by convention, sits in the package root. Every command names it as its one
+argument, a path relative to the directory grizzle runs in (`grizzle generate grizzle.config.ts`); no command reads a
+file it isn't given, and grizzle reads no environment variable for where to connect.
 
 ```ts
-import { defineConfig } from "@bjornpagen/grizzle"
-import { Blog, EtlJob, Web } from "./src/db.ts"
+import net from "node:net"
+import { CredentialError, defineConfig } from "@bjornpagen/grizzle"
+import { Config, Effect } from "effect"
+import pgDriver from "pg"
+import { Blog, caPem, EtlJob, Web } from "./src/db.ts"
 
 export default defineConfig({
 	/** Required: each declared schema, in its own PostgreSQL schema. */
 	schemas: [Blog],
 	/** Required: every login, and through them every role a Db opens and every workload whose access paths earn indexes. */
-	logins: [Web, EtlJob]
+	logins: [Web, EtlJob],
+	/** Required: the migrations directory, relative to this file. */
+	migrations: "migrations",
+	/** Required: where grizzle migrate and grizzle drift connect, as the role that owns the schemas. */
+	connection: {
+		driver: pgDriver,
+		transport: {
+			kind: "sslRequest",
+			host: "db.internal",
+			port: 5432,
+			open: () => new net.Socket(),
+			ca: caPem,
+			servername: "db.internal"
+		},
+		database: "app",
+		role: "app_owner",
+		password: Config.Redacted("MIGRATION_PASSWORD").pipe(
+			Effect.mapError((cause) => new CredentialError({ cause }))
+		),
+		connectTimeoutMs: 10_000
+	}
 })
 ```
 
-- Two more keys are optional: `migrations`, the migrations directory (`"migrations"` by default), and `connection`,
-  only when `DATABASE_URL` can't say where to connect.
+- Every key is required, and nothing else is configurable: an unknown key is refused.
 - Always `export default defineConfig({ ... })`. A plain object is refused.
 - Every role is in exactly one login. The config refuses a login over a schema `schemas` doesn't list (or over another
   version of it), and two logins or roles of one schema whose names convert alike. A login missing from `logins` is
@@ -37,16 +61,15 @@ export default defineConfig({
   A workload, `workload(schemaOrRole, { name: program })`, is over the login's base, a level of it, or one of its
   roles, and names queries, ordered queries, ChangeSets and relation keys. Two programs of one name across a login's
   workloads are refused when the login is built.
-- `grizzle migrate` connects with `DATABASE_URL`:
-  `postgresql://<role>[:<password>]@<host>[:<port>]/<database>[?sslrootcert=<path>]`. TLS is always verify-full.
-  The CA comes from `sslrootcert=` (a path, or `system`), else `PGSSLROOTCERT`, else the system trust store. A
-  password missing from the URL comes from `PGPASSWORD`. `sslmode` may only be `verify-full`; anything weaker is
-  refused, and so is any other parameter.
-- Never put credentials in the config. The one exception is a typed `connection` block for what a URL can't hold:
-  an RDS IAM token or a secret manager's lookup (an Effect yielding a Redacted, evaluated for each connection attempt),
-  or a CA the URL doesn't give. README's Deploying shows the RDS IAM password with `@aws-sdk/rds-signer`. Its keys are `host`, `port`, `database`,
-  `role`, `password` and `tls: { ca, servername? }`.
-- `generate` and `check` never read the connection.
+- `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
+  `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
+  to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for
+  each connection attempt: an RDS IAM token, a secret manager's lookup) and `connectTimeoutMs`, the bound of each
+  connection attempt. README's Deploying shows the RDS IAM password with `@aws-sdk/rds-signer`.
+- Never write a credential into the config file: read it where the config runs, as the password Effect does.
+- `generate`, `check` and `names` never read the connection. `migrate` and `drift` refuse a process environment that
+  sets `PGOPTIONS` or `PGREPLICATION`, which node-postgres would send at their session's startup, at the stage
+  environment.
 
 ## The loop
 
@@ -54,7 +77,7 @@ export default defineConfig({
    workload of its login: its access paths earn indexes, and DbLayer.make compiles it once, at startup. `grizzle
    generate` compiles it the same way for every role of its login first, so a program the layer would refuse fails
    generate with the same CompileError.
-2. Run `grizzle generate`. It prints one line per written file, then each marker to resolve as
+2. Run `grizzle generate grizzle.config.ts`. It prints one line per written file, then each marker to resolve as
    `<file>:<line>: <placeholder|rename candidate>: <what to do>`, then each loss to decide as `<file>: data loss:
    <what it loses>: <what to do>`, then `next: resolve the markers, then run grizzle check`. With no change it writes
    nothing and prints `no changes`.
@@ -79,19 +102,23 @@ export default defineConfig({
    (`"pg_catalog"."text"`, `"pg_catalog"."count"(*)`) or its keyword (`integer`, `bigint`, `boolean`): a statement
    of yours runs under the session's search_path, where a relation of yours named `Text` is the type `text`, and the
    drift check judges what it built.
-5. Run `grizzle check` until it passes. It prints `<schema>: ok (<n> migrations, snapshot <fingerprint>)`.
+5. Run `grizzle check grizzle.config.ts` until it passes. It prints `<schema>: ok (<n> migrations, snapshot
+   <fingerprint>)`.
 6. Commit the folder and `snapshot.json`.
-7. Run `grizzle migrate` from CI or the deploy, with `DATABASE_URL` set. It prints `<schema>: applied <n>
-   migrations, now at <fingerprint>` and each folder's files, or `<schema>: up to date at <fingerprint>`.
+7. Run `grizzle migrate grizzle.config.ts` from CI or the deploy, where its connection reaches the database. It prints
+   `<schema>: applied <n> migrations, now at <fingerprint>` and each folder's files, or `<schema>: up to date at
+   <fingerprint>`.
 
-For data-only work: `grizzle generate --custom --name <name>`, write the SQL files, then `check`, commit and
-`migrate`.
+For data-only work: `grizzle generate grizzle.config.ts --custom --name <name>`, write the SQL files, then `check`,
+commit and `migrate`.
 
-Commands: `grizzle generate [--name <name>] [--schema <schema>]`, `grizzle generate --custom [--name <name>]
-[--schema <schema>]`, `grizzle check`, `grizzle migrate`, `grizzle drift`, `grizzle skill`. A name is lowercase words joined by `_` or
-`-`, at most 100 characters. Without `--name`, a folder is named after its change (`init`, `add_task_note`,
-`<first change>_and_more`), and a custom one `custom`. `--schema` is accepted only when
-the config lists several schemas; there it is required with `--custom`. Exit codes: 0 ok, 1 refused, 2 usage error,
+Commands: `grizzle generate <config> [--name <name>] [--schema <schema>]`, `grizzle generate <config> --custom --name
+<name> [--schema <schema>]`, `grizzle check <config>`, `grizzle migrate <config>`, `grizzle drift <config>`,
+`grizzle names <config>`. Flags come anywhere after the command, as `--flag value` or `--flag=value`. A name is
+lowercase words joined by `_` or `-`, at most 240 characters, so that the folder `<timestamp>_<name>` fits one file
+name (NAME_MAX, 255 bytes). Without `--name`, a drafted folder is named after its change (`init`,
+`add_task_note`, `<first change>_and_more`); a custom one needs `--name`. `--schema` is accepted only when the config
+lists several schemas; there it is required with `--custom`. Exit codes: 0 ok, 1 refused, 2 usage error,
 130 interrupted.
 
 ## Reading a draft
@@ -319,7 +346,8 @@ written inside it.
 ## Custom migrations
 
 Use one for data work the schema doesn't describe: purges, cutovers, enum rebuilds, a backfill before a contract base
-changes. `grizzle generate --custom --name <name>` writes a folder with only `meta.json`, whose source and target are
+changes. `grizzle generate <config> --custom --name <name>` writes a folder with only `meta.json`, whose source and
+target are
 the current snapshot. Add `01-<words>.sql`, `02-<words>.sql` and so on; each is a transaction unless its first line is
 `-- grizzle: no-transaction`. The catalog must still end at the snapshot. `grizzle migrate` runs every migration file
 at SERIALIZABLE, so a reviewer's data step or a custom migration writes like any direct writer.
@@ -327,7 +355,8 @@ at SERIALIZABLE, so a reviewer's data step or a custom migration writes like any
 ## Refusals
 
 `check` and `migrate` print each finding as `<where>: <problem>; <fix>`, an unresolved data loss as `<where>: <what
-it loses>: <problem>; <fix>`. `migrate` runs every check first, and refuses before connecting.
+it loses>: <problem>; <fix>`. `migrate` refuses a connection or a process environment it cannot use first, then runs
+every check, and refuses before connecting.
 
 | Finding | Fix |
 | --- | --- |
@@ -352,13 +381,13 @@ Applied files, which only `migrate` can check against the ledger:
 
 - `<folder>/<file>` was edited after it was applied; restore it from git
 - `<folder>/<file>` was applied but is missing; restore it from git
-- `<folder>/<file>` was added after its folder was applied; move it into a new migration (grizzle generate --custom)
+- `<folder>/<file>` was added after its folder was applied; move it into a new migration (grizzle generate <config> --custom --name <name>)
 
 `migrate` names the stage it stopped at, and its fix:
 
 | Stage | Fix |
 | --- | --- |
-| connect | check DATABASE_URL (or connection in grizzle.config.ts), the password and the CA |
+| connect | check the configuration's connection: its host, port, database, role, password and CA |
 | owner | connect as the role that owns the schema |
 | input | run grizzle check and fix what it reports |
 | busy | wait for the other grizzle migrate to finish, then run it again |
@@ -370,7 +399,7 @@ Applied files, which only `migrate` can check against the ledger:
 | statement | fix the failing file (an applied file stays as it is), then run grizzle migrate again |
 | record | run grizzle migrate again: the failed file rolled back with its ledger row |
 | commit | run grizzle migrate again: the ledger tells whether the file committed |
-| drift | undo the change made outside a migration, or reach the snapshot with a new migration (grizzle generate --custom) |
+| drift | undo the change made outside a migration, or reach the snapshot with a new migration (grizzle generate <config> --custom --name <name>) |
 | unchecked | the check changed nothing: run grizzle drift again, and report it with this output if it is refused the same way |
 
 Before `statement`, nothing ran. At `statement`, `record` or `commit`, the files before the failed one stay applied
@@ -392,7 +421,8 @@ The command line's own refusals, by stage:
 | Stage | Fix |
 | --- | --- |
 | usage | run grizzle --help for the commands |
-| config | fix grizzle.config.ts: export default defineConfig({ schemas: [...], logins: [...] }) |
+| config | fix the configuration file: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: { ... } }) |
+| environment | unset the variable it names in the environment grizzle runs in, then run the command again |
 | filesystem | fix the migrations directory, then run grizzle check |
 | snapshot | restore snapshot.json and the migration folders from git |
 | generate | fix the schema or workload it names, then run grizzle generate again |
@@ -413,14 +443,28 @@ The command line's own refusals, by stage:
   database and at any isolation level (a DROP DATABASE waiting on its checkpoint included), and a long one also
   brings more 40001s.
 - Connect straight to PostgreSQL: PgBouncer is not supported.
+- Every server setting grizzle does not pin is the database owner's, set on the database or the server: a login's
+  role holds exactly its pinned defaults, and `Db.open` refuses one that holds any other. A login's role pins only
+  what a grizzle guarantee rests on: `search_path`, `extra_float_digits = 1`, `lc_monetary`, `lc_numeric` and
+  `lc_time` at `C.UTF-8`, and for a login whose roles search vectors `hnsw.iterative_scan = strict_order`. So
+  `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` decide which rows an `approximateNearest`
+  read returns and how many; JIT is the owner's too, and on a server built with LLVM `jit_above_cost` can make a large
+  statement compile its plan first; and the server's messages come in its `lc_messages` language.
 - Pass the committed snapshot to the login's `DbLayer.make`, and open each `Db` through its login:
 
   ```ts
   import snapshot from "./migrations/blog/snapshot.json" with { type: "json" }
-  export const WebLayer = DbLayer.make({ login: Web, snapshot, host, port, database, password, tls, verify })
+  export const WebLayer = DbLayer.make({ ...connection, login: Web, snapshot, password, pool, verify })
   const db = yield* Db.open(Web.roles.member, { token })
   const feed = yield* db.workload.memberFeed.execute({})
   ```
+
+  `connection` is the config's connection without its `role` and its password, which are the migration role's
+  (`DbLayer.make` refuses a `role` as an unknown setting): `driver: pgDriver` (`import pgDriver from "pg"`), the
+  `transport` (`{ kind: "sslRequest", host, port, open: () => new net.Socket(), ca, servername }`, always
+  verify-full), the `database` and `connectTimeoutMs`. `password` is the login's own, and `pool` is
+  `{ max, min, idleTimeoutMs }`. grizzle states no number of its own: a `Db` call waits for a session until it gets
+  one or is interrupted, and an interrupted statement sends one CancelRequest and destroys its session.
 
   `DbLayer.make` compiles every program of the login's workloads once and compares their access paths with the
   snapshot's: a program added, renamed or dropped, or whose access paths moved, since the snapshot was generated
@@ -439,6 +483,7 @@ The command line's own refusals, by stage:
   from CI or a schedule; it connects as the migration identity, since the check replays the snapshot into a scratch
   schema in a transaction it rolls back.
 - Open a `Db` per request or handler: admission is one round trip of a few catalog reads, so this stays cheap.
+- `db.page` takes any safe integer of at least 1 as its size: there is no default and no cap.
 - Every transaction of a `Db` checks the ledger first, in the same round trip, and runs nothing unless the database
   holds its snapshot: while a migration runs, its calls fail with `StaleSnapshot` (reason `Migrating`), and once a
   migration to another snapshot completed, with `StaleSnapshot` (reason `Migrated`). An apply with nothing to write
@@ -447,9 +492,10 @@ The command line's own refusals, by stage:
 - Handle a failure by its reason: grizzle's errors, the engine's `CompileError`, `EncodingFailure` and `CursorError`
   among them, carry what happened as a tagged `reason`, so `Effect.catchReason("TransientFailure", "PutTargetConflict",
   f)` handles one case and keeps every other, and an error's `stage` and `message` follow from it. Read a refusal's
-  facts from its reason (a `CompileError`'s `OutsideRole` names the `role` and the `access`), never from its message. Retry only `TransientFailure`, and `Db.open`'s `OpenError`
-  whose reason is `AdmissionTransient`, with `Effect.retry` and your own `Schedule`; after `CommitUnknown`, read back
-  before running the call again.
+  facts from its reason (a `CompileError`'s `OutsideRole` names the `role` and the `access`), never from its message,
+  and a server's error by its `sqlstate` and the fields it names, never by its words, which follow `lc_messages`.
+  Retry only `TransientFailure`, and `Db.open`'s `OpenError` whose reason is `AdmissionTransient`, with `Effect.retry`
+  and your own `Schedule`; after `CommitUnknown`, read back before running the call again.
 - No read raises an arithmetic error on a row: never catch 22003, 22012 or 2201F around a query. Integer arithmetic is
   exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
   partial operation needs its precondition proved, by a literal's type (`Compute.div(x, 7n)`), by a contract that
@@ -463,8 +509,10 @@ The command line's own refusals, by stage:
   divisor is a type error naming the guard; an unproved narrowing or power is `CompileError` reason
   `PartialOperation`, whose `guard` is the code to write. Narrow an exact integer into an integer field with
   `Compute.cast` under `Compute.within`.
-- Every bare `pg.numeric` column carries a bound CHECK, `__<table>_bound_<column>_<digest>`: at most 1,000 integer
-  digits. A direct SQL writer's longer value is refused by it, reporting the law `numericBound`.
+- Every numeric field declares its precision and scale, `pg.numeric(p, s)`; there is no bare `pg.numeric`. A sum,
+  a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
+  digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Compute.numeric(x)`, never a cast to
+  a typmod you do not mean.
 - Each login is a PostgreSQL role, `<schema>__<login>`, and each world a role that cannot log in, `<schema>__<role>`.
   The migration that adds a login creates it; the operator gives it a password, or, for an RDS IAM login, `GRANT
   rds_iam TO <login> WITH INHERIT TRUE, SET FALSE`. grizzle never sets either. A login holds only USAGE on the
@@ -488,5 +536,5 @@ The command line's own refusals, by stage:
   `pg_`. Everything else is `__<readable part>_<digest>` and carries a COMMENT saying what it is: `grizzle names`
   prints that mapping from the committed snapshot. Write direct SQL against those names. An outcome's `law` is the law
   as the schema states it, such as `{ kind: "key", relation: "User", fields: ["email"] }`: match on it directly.
-- `grizzle skill` installs this file as `.claude/skills/grizzle/SKILL.md` and `.agents/skills/grizzle/SKILL.md`;
-  rerun it after upgrading grizzle.
+- This file ships in the package as `skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again
+  after upgrading grizzle.

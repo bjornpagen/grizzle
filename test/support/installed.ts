@@ -41,7 +41,6 @@ import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
-import { pgPin } from "#test/support/env.ts"
 import { type Installed, installedOf } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -53,7 +52,7 @@ import {
 } from "#test/support/migrate/kit.ts"
 import { type Decisions, type Placeholder, review } from "#test/support/migrate/review.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
-import type { SqlError } from "#test/support/pg.ts"
+import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import { compileRuntime, dbReader } from "#test/support/runtime-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { dropRole, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -106,7 +105,7 @@ export const loginRoleOf = (login: AnyLogin): string => worldRoleOf(login)
 
 /**
  * The DbLayer of `login`, typed by it, given the committed `snapshot`, its role given a password in the scope this runs
- * in: verify-full TLS against the local CA, and testVerify.
+ * in: the cluster's connection (test/support/pg.ts clusterConnection), the test pool, and testVerify.
  */
 export const loginLayerOf = <L extends AnyLogin>(
 	login: L,
@@ -116,13 +115,10 @@ export const loginLayerOf = <L extends AnyLogin>(
 		const substrate = yield* Substrate
 		const given = yield* substrate.login(loginRoleOf(login))
 		return DbLayer.make({
+			...clusterConnection(substrate.cluster, substrate.database, given.password),
+			pool: clusterPool,
 			login,
 			snapshot,
-			host: pgPin.host,
-			port: pgPin.port,
-			database: substrate.database,
-			password: given.password,
-			tls: { ca: substrate.cluster.caPem },
 			verify: testVerify
 		})
 	})
@@ -198,7 +194,7 @@ const noValue =
 
 /**
  * What a version's logins' workloads add, planned as `grizzle generate` plans them with their roles' write filters
- * (cli/generate.ts draftSchema): the installer extension the plan requests, and the draft's workload. A version
+ * (cli/generate.ts draftInput): the installer extension the plan requests, and the draft's workload. A version
  * without a login plans nothing.
  */
 export const workloadOf = (

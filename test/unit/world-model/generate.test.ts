@@ -6,10 +6,11 @@ import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { notesOnly } from "@grizzle/testing/sense"
 import { sample } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record } from "effect"
 import { projection, valueText, violations } from "#test/pg/laws/families/model.ts"
 import { assert } from "#test/support/assert.ts"
 import { educationBase, educationInstall } from "#test/support/fixtures/education/index.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { serial } from "#test/support/worlds/drive/index.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import { actionGen, invalidGens } from "#test/support/worlds/generate/action.ts"
@@ -53,7 +54,7 @@ import type {
 	InvalidKind,
 	ModelState,
 	RoleSpec,
-	SessionState,
+	ModelSession,
 	HostValue
 } from "#test/support/worlds/model/types.ts"
 
@@ -240,9 +241,9 @@ const fixtures: Arr.NonEmptyReadonlyArray<{
  * The sessions a model state may hold beside its reality, drawn so every kind of handle is there to name: a Db opened
  * at the state's version, or before it, its snapshot moved past.
  */
-const sessionsGen = (state: ModelState): Gen<ReadonlyArray<SessionState>> => {
+const sessionsGen = (state: ModelState): Gen<ReadonlyArray<ModelSession>> => {
 	const install = state.install
-	const db: Gen<SessionState> = (source) => {
+	const db: Gen<ModelSession> = (source) => {
 		const role = source.draw(element(install.roles))
 		return {
 			kind: "db",
@@ -261,7 +262,7 @@ const sessionsGen = (state: ModelState): Gen<ReadonlyArray<SessionState>> => {
 			}
 		}
 	}
-	const direct: Gen<SessionState> = (source) => {
+	const direct: Gen<ModelSession> = (source) => {
 		const login = source.draw(element(install.logins))
 		const role = source.draw(boolean)
 		const aborted = source.draw(boolean)
@@ -277,9 +278,9 @@ const sessionsGen = (state: ModelState): Gen<ReadonlyArray<SessionState>> => {
 			sent: []
 		}
 	}
-	const closed: Gen<SessionState> = map(
+	const closed: Gen<ModelSession> = map(
 		element(["db", "direct"] as const),
-		(was): SessionState => ({ kind: "closed", was })
+		(was): ModelSession => ({ kind: "closed", was })
 	)
 	return (source) => [
 		...source.draw(array(oneOf([db, closed]), { min: 0, max: 3 })),
@@ -339,11 +340,11 @@ const factsMeeting = (state: ModelState, role: RoleSpec, n: number): ContextFact
  * and a closed direct writer, and then nothing more, or a direct writer's open transaction as its login's first role or
  * as the login, or one a refusal aborted.
  */
-const witnessLayouts = (state: ModelState): ReadonlyArray<ReadonlyArray<SessionState>> => {
+const witnessLayouts = (state: ModelState): ReadonlyArray<ReadonlyArray<ModelSession>> => {
 	const install = state.install
 	const [login] = install.logins
 	const dbs = Arr.flatMap(install.roles, (role) =>
-		Arr.map([0, 1, 2], (n): SessionState => ({
+		Arr.map([0, 1, 2], (n): ModelSession => ({
 			kind: "db",
 			login: Option.getOrThrowWith(
 				Arr.findFirst(install.logins, (l) => l.roles.includes(role.name)),
@@ -355,7 +356,7 @@ const witnessLayouts = (state: ModelState): ReadonlyArray<ReadonlyArray<SessionS
 			snapshot: { version: state.version, install, names: state.names, host: state.host }
 		}))
 	)
-	const shared: ReadonlyArray<SessionState> = [
+	const shared: ReadonlyArray<ModelSession> = [
 		...dbs,
 		{ kind: "closed", was: "db" },
 		{ kind: "closed", was: "direct" }
@@ -363,7 +364,7 @@ const witnessLayouts = (state: ModelState): ReadonlyArray<ReadonlyArray<SessionS
 	const direct = (
 		current: DirectSessionState["current"],
 		transaction: "open" | "aborted"
-	): SessionState => ({
+	): ModelSession => ({
 		kind: "direct",
 		login: login.name,
 		current,
@@ -557,7 +558,7 @@ describe("the worlds generators", () => {
 						coverage: requiredInSpace<Feature>(
 							Arr.map(everyInvalidKind, (k): Feature => `invalid:${k}`)
 						),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(kind, c) =>
 						Effect.gen(function* () {
@@ -614,7 +615,7 @@ describe("the worlds generators", () => {
 						shrink: { kind: "complete" },
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ state, actions }, c) =>
 						Effect.sync(() => {
@@ -656,7 +657,7 @@ describe("the worlds generators", () => {
 						shrink: { kind: "complete" },
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ base, state, reality }, c) =>
 						Effect.sync(() => {
@@ -726,7 +727,7 @@ describe("the worlds generators", () => {
 						shrink: { kind: "complete" },
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ kind, install }, c) =>
 						Effect.sync(() => {
@@ -789,7 +790,7 @@ describe("the worlds generators", () => {
 						shrink: { kind: "complete" },
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ state, action }, c) =>
 						Effect.sync(() => {
@@ -856,7 +857,7 @@ describe("the worlds generators", () => {
 						shrink: { kind: "complete" },
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ reality, steps }, c) =>
 						Effect.sync(() => {

@@ -5,7 +5,7 @@ import { element, type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { ParamId } from "#compiler/core/ids.ts"
 import { describeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
@@ -17,6 +17,7 @@ import {
 } from "#compiler/scalar/compute/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	type CatalogResult,
 	evaluate,
@@ -226,7 +227,7 @@ describe("the oracle's classes of evaluation", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(power, c) =>
 						Effect.sync(() => {
@@ -274,7 +275,7 @@ describe("the oracle's classes of evaluation", () => {
 					/** The space is the registry's nodes, each once. */
 					limit: nativeOps.length,
 					coverage: requiredInSpace<"an exact float node">(["an exact float node"]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(op, c) =>
 					Effect.sync(() => {

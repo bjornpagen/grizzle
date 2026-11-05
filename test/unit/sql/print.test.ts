@@ -18,7 +18,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { BlockLines } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -56,6 +56,7 @@ import {
 } from "#compiler/sql/print.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { statementGen } from "#test/support/kernel/sqlgen.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 
 /**
@@ -397,7 +398,7 @@ describe("PL/pgSQL through the line sink", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2),
+						caseHang,
 						coverage: required<WriteFeature>(
 							[
 								"narrow",
@@ -462,7 +463,7 @@ describe("dollar quoting", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2),
+						caseHang,
 						coverage: required<DollarTag>(["$$", "$gz$", "$gzN$"], { cases: 300, sense: notesOnly })
 					},
 					(block, c) =>
@@ -521,7 +522,7 @@ describe("a commented alternative", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2),
+						caseHang,
 						coverage: required<CommentFeature>(
 							["statement", "function", "DO block", "carriage return", "line feed"],
 							{ cases: 300, sense: notesOnly }
@@ -623,7 +624,7 @@ describe("identifiers, types and literals", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(name) =>
 					Effect.sync(() => {
@@ -675,7 +676,7 @@ describe("identifiers, types and literals", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(x, c) =>
 						Effect.sync(() => {

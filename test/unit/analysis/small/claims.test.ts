@@ -3,7 +3,7 @@ import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace, type Situations } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { TestContext } from "vitest"
 import type { MultiplicityReason } from "#compiler/analysis/certificates/reasons.ts"
 import {
@@ -13,7 +13,7 @@ import {
 	type PhysicalEnv,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
-import { isUnique, plainLosses, strongestKey } from "#compiler/analysis/physical/props.ts"
+import { isUnique, keyedBy, plainLosses } from "#compiler/analysis/physical/props.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -43,6 +43,7 @@ import {
 	printPlan
 } from "#test/unit/analysis/small/plans.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	contextsOf,
 	databases,
@@ -170,7 +171,7 @@ const claimFeatures = (
 	}
 	for (const node of physical.order) {
 		const p = propsOf(physical, node)
-		const strongest = strongestKey(p.keys)
+		const strongest = keyedBy(p, p.columns)
 		for (const reason of strongest === undefined ? [] : strongest.just.reasons) {
 			out.push(`reason ${reason}`)
 		}
@@ -469,7 +470,7 @@ const exhaustUpTo = (
 					Formatter.format({ variant: inst.variant.name, scan: plan.scan, steps: plan.steps }),
 				limit,
 				coverage: requiredInSpace<ClaimFeature>(situations),
-				caseHang: Duration.minutes(2)
+				caseHang
 			},
 			([inst, plan], c) =>
 				Effect.sync(() => {

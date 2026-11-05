@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { ExprId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -15,8 +15,10 @@ import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { compareValues } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { binaryCoercion, castOf } from "#compiler/scalar/compute/registry.ts"
+import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 
 /**
@@ -61,7 +63,7 @@ const types: Arr.NonEmptyReadonlyArray<Typed> = [
 	typed("bigint", { kind: "pg", type: "bigint" }),
 	typed("real", { kind: "pg", type: "real" }),
 	typed("double precision", { kind: "pg", type: "double precision" }),
-	typed("numeric", { kind: "numeric" }),
+	{ name: "numeric", type: anyNumeric },
 	typed("numeric(5,0)", { kind: "numeric", precision: 5, scale: 0 }),
 	typed("numeric(10,0)", { kind: "numeric", precision: 10, scale: 0 }),
 	typed("numeric(12,0)", { kind: "numeric", precision: 12, scale: 0 }),
@@ -74,7 +76,6 @@ const types: Arr.NonEmptyReadonlyArray<Typed> = [
 
 const bigint = typeOf({ kind: "pg", type: "bigint" })
 const double = typeOf({ kind: "pg", type: "double precision" })
-const numeric = typeOf({ kind: "numeric" })
 
 const decimal = (text: string): TypedLiteral => {
 	const d = Decimal.fromString(text)
@@ -168,7 +169,7 @@ const dictionary: ReadonlyArray<{ readonly literal: TypedLiteral; readonly type:
 			"Infinity",
 			"-Infinity"
 		],
-		(text) => ({ literal: decimal(text), type: numeric })
+		(text) => ({ literal: decimal(text), type: anyNumeric })
 	)
 ]
 
@@ -303,7 +304,7 @@ describe("castInjective", () => {
 						/** Every ordered pair of the types, each once. */
 						limit: types.length * types.length,
 						coverage: situations,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([from, to], c) =>
 						Effect.sync(() => {

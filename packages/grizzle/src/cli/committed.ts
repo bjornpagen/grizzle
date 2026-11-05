@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Result } from "effect"
 import { readMeta } from "#adapter/boundary/meta.ts"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import type { ConfiguredSchema } from "#cli/config.ts"
@@ -13,7 +13,7 @@ import {
 } from "#cli/errors.ts"
 import type { SchemaTree } from "#cli/files.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { isFolderName, type ReadMeta } from "#compiler/deploy/render/folder.ts"
+import { folderTimestamp, isFolderName, type ReadMeta } from "#compiler/deploy/render/folder.ts"
 import { emptyFingerprint, emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 
@@ -215,5 +215,5 @@ export const continuedChain = Effect.fn("continuedChain")(function* (
 					}
 		)
 	}
-	return { timestamps: Arr.map(folders, (f) => Str.slice(0, 14)(f.name)), folders }
+	return { timestamps: Arr.map(folders, (f) => folderTimestamp(f.name)), folders }
 })

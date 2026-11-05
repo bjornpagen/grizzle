@@ -45,7 +45,7 @@ import type { Delivered, Rows } from "#test/support/flight/scripted.ts"
 /** What a statement does on the server (scripted.ts): its label is its identity in the case. */
 export type Planned =
 	| {
-			readonly kind: "rows" | "doomed" | "nullCell" | "hold" | "late" | "stuck" | "wedged" | "lose"
+			readonly kind: "rows" | "doomed" | "nullCell" | "hold" | "late" | "stuck" | "lose"
 			readonly label: string
 	  }
 	| { readonly kind: "refused" | "fatal"; readonly label: string; readonly sqlstate: string }
@@ -419,8 +419,6 @@ export interface Observation {
 export interface Interruption {
 	/** The answers delivered when the interruption came; undefined when none came. */
 	readonly at: number | undefined
-	/** The answers delivered after it before the cancellation grace expired. */
-	readonly grace: number
 }
 
 interface Judged {
@@ -666,12 +664,11 @@ export type FlightFeature =
 	| `call ${Call["kind"]} ${FrameName}`
 	| "cancel sent"
 	| "committed after an interruption"
-	| "drained by the deadline"
+	| "drained by its destruction"
 	| "blocked without an interruption"
 	| "begin refused"
 	| `prologue ${FenceStep} ${PrologueFault}`
 	| "statement refused"
-	| "deadline during a CancelRequest"
 
 /**
  * Flights as values, and the contract they keep (packages/grizzle/src/adapter/wire/batch.ts; README "Errors and outcomes" and "Transactions and concurrency"), as a
@@ -681,9 +678,9 @@ export type FlightFeature =
  * EXPLAIN's rollback (runFramed), whose prologue takes on the Db's role right after BEGIN, or the login's statements
  * alone in front of a transaction (runAlongside, admission's form), which has no prologue; each statement answers rows,
  * rows that doom the transaction at COMMIT, a row with a NULL cell, a refusal, a FATAL report or a lost connection, or
- * runs until a CancelRequest (a hold, or one that finishes late), or until the drain deadline destroys the connection
- * (stuck, or wedged, whose backend leaves the flight's later CancelRequests open); BEGIN may be refused, the prologue
- * may be refused, answer FATAL or lose the connection, and the connection may be lost before COMMIT runs.
+ * runs until a CancelRequest (a hold, or one that finishes late), or until the connection is destroyed (stuck); BEGIN
+ * may be refused, the prologue may be refused, answer FATAL or lose the connection, and the connection may be lost
+ * before COMMIT runs.
  *
  * The model reads what the server answered, query by query, and when the interruption came, and says what the call
  * must report. Without an interruption, the first query of the transaction the server answered neither with a result
@@ -697,18 +694,20 @@ export type FlightFeature =
  * such statement, with what its transaction did. With an interruption:
  *
  * - the exit is the interruption exactly when the call had not completed when it came;
- * - the session is retired as interrupted, and CancelRequests are sent until the flight drains, exactly when a statement
- *   the call waits for was still in flight (the grace expiring before the flight drained); otherwise it is retired only
- *   as the answers say;
- * - what commits is all of a transaction or none of it, as COMMIT's answer says, whatever the interruption;
+ * - the session is retired as interrupted, sends one CancelRequest and destroys its connection, exactly when a statement
+ *   the call waits for was still in flight; otherwise it is retired only as the answers say;
+ * - what commits is all of a transaction or none of it, as the server's answer to COMMIT says, whatever the
+ *   interruption: an answer the destroyed connection never delivered is still what the server did;
  * - the server ends idle, and a session not retired ends healthy, with nothing owed.
  *
- * The model's observation of a run: the case, the answers the server gave by pipeline position (every one delivered,
- * since a call completes only once its flight drains), and when the interruption came.
+ * The model's observation of a run: the case, the answers the client was delivered by pipeline position (every one,
+ * since a call completes only once its flight drains), the answers the server made, which a destroyed connection may
+ * never have delivered, and when the interruption came.
  */
 export const expected = (
 	c: FlightCase,
 	delivered: ReadonlyArray<Delivered | undefined>,
+	made: ReadonlyArray<Answer | undefined>,
 	interruption: Interruption
 ): Observation => {
 	const layout = layoutOf(c.call)
@@ -725,12 +724,6 @@ export const expected = (
 	const endAt = layout.length - 1
 	/** The flight lost its connection: a query failed, or the server ended the session. */
 	const lostConnection = Arr.some(answers, (a) => a._tag === "failed" || a._tag === "terminated")
-	/** The query ran: it answered a result, readable or not. */
-	const ranAt = (index: number): boolean => {
-		const tag = answers[index]?._tag
-		return tag === "result" || tag === "unreadable"
-	}
-
 	/** The ending and the retirement the answers alone decide. */
 	const judged = ((): Judged => {
 		const first = Arr.headNonEmpty(answers)
@@ -800,21 +793,31 @@ export const expected = (
 	/** The answers' own retirement stands first; a lost connection retires the session whatever decided. */
 	const retired: boolean = judged.retired || lostConnection
 
+	/** The query ran on the server: it made a result, readable or not, whether or not the client read it. */
+	const serverRanAt = (index: number): boolean => {
+		const tag = made[index]?._tag
+		return tag === "result" || tag === "unreadable"
+	}
 	/**
-	 * What committed: each statement alone that ran; a transaction's statements all at once when COMMIT answered COMMIT;
-	 * and, when BEGIN was refused, each of its statements that ran, on its own.
+	 * What committed, as the server made it: each statement alone that ran; a transaction's statements all at once when
+	 * COMMIT answered COMMIT; and, when BEGIN was refused, each of its statements that ran, on its own.
 	 */
-	const closing = answers[endAt]
+	const closing = made[endAt]
 	const transactionCommitted =
 		frame.end === "COMMIT" && closing?._tag === "result" && closing.outcome.command === "COMMIT"
 	const committed = Arr.flatMap(layout, (slot, index): ReadonlyArray<string> => {
-		if (slot.role === "begin" || slot.role === "prologue" || slot.role === "end" || !ranAt(index)) {
+		if (
+			slot.role === "begin" ||
+			slot.role === "prologue" ||
+			slot.role === "end" ||
+			!serverRanAt(index)
+		) {
 			return []
 		}
 		if (
 			slot.role === "alone" ||
 			Option.isNone(beginAt) ||
-			!ranAt(beginAt.value) ||
+			!serverRanAt(beginAt.value) ||
 			transactionCommitted
 		) {
 			return [slot.planned.label]
@@ -823,8 +826,7 @@ export const expected = (
 	})
 
 	const point = interruptionPoint(c.call, delivered, interruption)
-	const interruptedAt = interruption.at
-	if (point === "none" || interruptedAt === undefined) {
+	if (point === "none" || interruption.at === undefined) {
 		return { ending: judged.ending, committed, retired, cancelled: false }
 	}
 	const inFlight = point === "in flight"
@@ -832,7 +834,7 @@ export const expected = (
 		ending: { kind: "interrupted" },
 		committed,
 		retired: inFlight || retired,
-		cancelled: inFlight && at(endAt).ordinal > interruptedAt + interruption.grace
+		cancelled: inFlight
 	}
 }
 

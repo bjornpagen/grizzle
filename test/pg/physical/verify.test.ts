@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -50,6 +50,7 @@ import {
 } from "#test/support/catalog/verify.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { installationNamesOf, namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { Ledger } from "#test/unit/physical/fixtures.ts"
 
@@ -428,7 +429,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 							literal: Formatter.format,
 							limit: drifts.length,
 							coverage: noCoverage,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([statements, expected]) =>
 							Effect.map(drifted(schema, statements), (after) =>
@@ -487,164 +488,160 @@ layer(Substrate.layer)("catalog drift", (it) => {
 					constraintsOf(expected),
 					Arr.map(reAdded, (k) => (k.name === fk.name ? { ...k, validated: true } : k))
 				)
-			}),
-		120_000
+			})
 	)
 
-	it.effect(
-		"the verifier names each drift of a world written under row security",
-		(ctx) =>
-			Effect.scoped(
-				Effect.gen(function* () {
-					const declared = driftWorlds("Drift")
-					const installed = yield* install(declared.base, {
-						ambient: ordinarySession,
-						label: "drift",
-						logins: [declared.desk],
-						extensions: []
-					})
-					const opened = driftWorlds(installed.declared)
-					const schema = installed.schema
-					const q = (name: string) => `${quoteIdent(schema)}.${quoteIdent(name)}`
-					const editor = installed.role(opened.editor)
-					const viewer = installed.role(opened.viewer)
-					const desk = installed.world(opened.editor).login.role
-					const names = namesOf(installed)
-					const ownedEditor = succeeded(
-						ownRole(defined(roleDescOf(opened.editor), "the editor's description"))
-					)
-					const world = worldNames(ownedEditor, installed.installation.names.installation)
-					const filter = world.filterFunction("Mine", []).name
-					const probe = world.keyProbe("Mine", ["no"], []).name
-					const view = roleReadNames(installed.installation.names, ownedEditor).relation("Mine")
-					const docView = roleReadNames(installed.installation.names, ownedEditor).relation("Doc")
-					const note = names.tableIdent(Note)
-					const docCount = names.tableIdent(opened.base.relations.DocCount)
-					const advance = installed.installation.names.advance("Note", "no").name
-					const noteNo = `${note}.${names.columnIdent(Note, "no")}`
-					const scope = installedScope(installed.installation, installed.snapshot)
-					const baseline = yield* drifted(schema, [])
-					const sequence = Option.getOrThrowWith(
-						Arr.findFirst(baseline.sequences, (s) => s.ownedBy === noteNo),
-						() => new Error(`the identity sequence of ${noteNo}`)
-					).name
-					const sub = names.textDomain(Note, "author").domain
-					assert.deepEqual(checkInstalled(baseline, scope), [])
-					const drifts: Arr.NonEmptyReadonlyArray<
-						readonly [ReadonlyArray<string>, ReadonlyArray<InstalledProblem>]
-					> = [
-						[
-							[`ALTER FUNCTION ${q(filter)} RESET search_path`],
-							[{ kind: "searchPathUnfixed", function: filter }]
-						],
-						[
-							[`ALTER FUNCTION ${q(filter)} VOLATILE`],
-							[{ kind: "volatility", function: filter, required: "STABLE" }]
-						],
-						[
-							[`GRANT EXECUTE ON FUNCTION ${q(filter)} TO PUBLIC`],
-							[{ kind: "publicHolds", object: fn(filter), privilege: "EXECUTE" }]
-						],
-						[
-							[`GRANT EXECUTE ON FUNCTION ${q(probe)} TO PUBLIC`],
-							[{ kind: "publicHolds", object: fn(probe), privilege: "EXECUTE" }]
-						],
-						[
-							[`GRANT EXECUTE ON FUNCTION ${q(probe)} TO ${quoteIdent(viewer)}`],
-							[
-								{
-									kind: "worldFunctionExecutors",
-									function: probe,
-									executors: Arr.sort([editor, viewer], Order.String)
-								}
-							]
-						],
-						[
-							[
-								`ALTER VIEW ${quoteIdent(view.schema)}.${quoteIdent(view.name)} SET (security_barrier = false)`
-							],
-							[{ kind: "barrierMissing", world: view.schema, view: view.name }]
-						],
-						[
-							[
-								`ALTER VIEW ${quoteIdent(docView.schema)}.${quoteIdent(docView.name)} SET (security_barrier = true)`
-							],
-							[{ kind: "barrierUnneeded", world: docView.schema, view: docView.name }]
-						],
-						[
-							[`GRANT USAGE ON SCHEMA ${quoteIdent(view.schema)} TO ${quoteIdent(desk)}`],
-							[
-								{
-									kind: "strayWorldGrant",
-									object: { kind: "world", name: view.schema },
-									grantee: desk,
-									privilege: "USAGE"
-								}
-							]
-						],
-						[
-							[`ALTER POLICY ${quoteIdent(editor)} ON ${q(note)} USING (true)`],
-							[{ kind: "policyPredicates", policy: editor, table: note }]
-						],
-						[
-							[`ALTER POLICY ${quoteIdent(editor)} ON ${q(note)} TO PUBLIC`],
-							[{ kind: "policyRoles", policy: editor, table: note, roles: ["PUBLIC"] }]
-						],
-						[
-							[`ALTER TABLE ${q(note)} DISABLE ROW LEVEL SECURITY`],
-							[{ kind: "rowSecurityMissing", table: note }]
-						],
-						[
-							[`ALTER TABLE ${q(note)} FORCE ROW LEVEL SECURITY`],
-							[{ kind: "rowSecurityForced", table: note }]
-						],
-						[
-							[`GRANT MAINTAIN ON ${q(docCount)} TO ${quoteIdent(viewer)}`],
-							[{ kind: "maintainBeyondRefresh", view: docCount, grantee: viewer }]
-						],
-						[
-							[`REVOKE MAINTAIN ON ${q(docCount)} FROM ${quoteIdent(editor)}`],
-							[{ kind: "maintainMissing", view: docCount, role: editor }]
-						],
-						[
-							[`GRANT SELECT ON SEQUENCE ${q(sequence)} TO ${quoteIdent(editor)}`],
-							[
-								{
-									kind: "roleHolds",
-									object: { kind: "sequence", name: sequence },
-									role: editor,
-									privilege: "SELECT"
-								}
-							]
-						],
-						[
-							[`REVOKE EXECUTE ON FUNCTION ${q(advance)} FROM ${quoteIdent(editor)}`],
-							[{ kind: "insertWithoutAdvance", function: advance, role: editor, table: note }]
-						],
-						[
-							[`REVOKE USAGE ON DOMAIN ${q(sub)} FROM ${quoteIdent(editor)}`],
-							[{ kind: "usageMissing", role: editor, type: { kind: "domain", name: sub } }]
-						]
-					]
-					yield* searched(
-						ctx,
-						exhaust(
-							{
-								suite: "physical/verify/world drifts",
-								generator: element(drifts),
-								literal: Formatter.format,
-								limit: drifts.length,
-								coverage: noCoverage,
-								caseHang: Duration.minutes(2)
-							},
-							([statements, expected]) =>
-								Effect.map(drifted(schema, statements), (after) =>
-									unorderedEqual(checkInstalled(after, scope), expected, Arr.join(statements, "; "))
-								)
-						)
-					)
+	it.effect("the verifier names each drift of a world written under row security", (ctx) =>
+		Effect.scoped(
+			Effect.gen(function* () {
+				const declared = driftWorlds("Drift")
+				const installed = yield* install(declared.base, {
+					ambient: ordinarySession,
+					label: "drift",
+					logins: [declared.desk],
+					extensions: []
 				})
-			),
-		120_000
+				const opened = driftWorlds(installed.declared)
+				const schema = installed.schema
+				const q = (name: string) => `${quoteIdent(schema)}.${quoteIdent(name)}`
+				const editor = installed.role(opened.editor)
+				const viewer = installed.role(opened.viewer)
+				const desk = installed.world(opened.editor).login.role
+				const names = namesOf(installed)
+				const ownedEditor = succeeded(
+					ownRole(defined(roleDescOf(opened.editor), "the editor's description"))
+				)
+				const world = worldNames(ownedEditor, installed.installation.names.installation)
+				const filter = world.filterFunction("Mine", []).name
+				const probe = world.keyProbe("Mine", ["no"], []).name
+				const view = roleReadNames(installed.installation.names, ownedEditor).relation("Mine")
+				const docView = roleReadNames(installed.installation.names, ownedEditor).relation("Doc")
+				const note = names.tableIdent(Note)
+				const docCount = names.tableIdent(opened.base.relations.DocCount)
+				const advance = installed.installation.names.advance("Note", "no").name
+				const noteNo = `${note}.${names.columnIdent(Note, "no")}`
+				const scope = installedScope(installed.installation, installed.snapshot)
+				const baseline = yield* drifted(schema, [])
+				const sequence = Option.getOrThrowWith(
+					Arr.findFirst(baseline.sequences, (s) => s.ownedBy === noteNo),
+					() => new Error(`the identity sequence of ${noteNo}`)
+				).name
+				const sub = names.textDomain(Note, "author").domain
+				assert.deepEqual(checkInstalled(baseline, scope), [])
+				const drifts: Arr.NonEmptyReadonlyArray<
+					readonly [ReadonlyArray<string>, ReadonlyArray<InstalledProblem>]
+				> = [
+					[
+						[`ALTER FUNCTION ${q(filter)} RESET search_path`],
+						[{ kind: "searchPathUnfixed", function: filter }]
+					],
+					[
+						[`ALTER FUNCTION ${q(filter)} VOLATILE`],
+						[{ kind: "volatility", function: filter, required: "STABLE" }]
+					],
+					[
+						[`GRANT EXECUTE ON FUNCTION ${q(filter)} TO PUBLIC`],
+						[{ kind: "publicHolds", object: fn(filter), privilege: "EXECUTE" }]
+					],
+					[
+						[`GRANT EXECUTE ON FUNCTION ${q(probe)} TO PUBLIC`],
+						[{ kind: "publicHolds", object: fn(probe), privilege: "EXECUTE" }]
+					],
+					[
+						[`GRANT EXECUTE ON FUNCTION ${q(probe)} TO ${quoteIdent(viewer)}`],
+						[
+							{
+								kind: "worldFunctionExecutors",
+								function: probe,
+								executors: Arr.sort([editor, viewer], Order.String)
+							}
+						]
+					],
+					[
+						[
+							`ALTER VIEW ${quoteIdent(view.schema)}.${quoteIdent(view.name)} SET (security_barrier = false)`
+						],
+						[{ kind: "barrierMissing", world: view.schema, view: view.name }]
+					],
+					[
+						[
+							`ALTER VIEW ${quoteIdent(docView.schema)}.${quoteIdent(docView.name)} SET (security_barrier = true)`
+						],
+						[{ kind: "barrierUnneeded", world: docView.schema, view: docView.name }]
+					],
+					[
+						[`GRANT USAGE ON SCHEMA ${quoteIdent(view.schema)} TO ${quoteIdent(desk)}`],
+						[
+							{
+								kind: "strayWorldGrant",
+								object: { kind: "world", name: view.schema },
+								grantee: desk,
+								privilege: "USAGE"
+							}
+						]
+					],
+					[
+						[`ALTER POLICY ${quoteIdent(editor)} ON ${q(note)} USING (true)`],
+						[{ kind: "policyPredicates", policy: editor, table: note }]
+					],
+					[
+						[`ALTER POLICY ${quoteIdent(editor)} ON ${q(note)} TO PUBLIC`],
+						[{ kind: "policyRoles", policy: editor, table: note, roles: ["PUBLIC"] }]
+					],
+					[
+						[`ALTER TABLE ${q(note)} DISABLE ROW LEVEL SECURITY`],
+						[{ kind: "rowSecurityMissing", table: note }]
+					],
+					[
+						[`ALTER TABLE ${q(note)} FORCE ROW LEVEL SECURITY`],
+						[{ kind: "rowSecurityForced", table: note }]
+					],
+					[
+						[`GRANT MAINTAIN ON ${q(docCount)} TO ${quoteIdent(viewer)}`],
+						[{ kind: "maintainBeyondRefresh", view: docCount, grantee: viewer }]
+					],
+					[
+						[`REVOKE MAINTAIN ON ${q(docCount)} FROM ${quoteIdent(editor)}`],
+						[{ kind: "maintainMissing", view: docCount, role: editor }]
+					],
+					[
+						[`GRANT SELECT ON SEQUENCE ${q(sequence)} TO ${quoteIdent(editor)}`],
+						[
+							{
+								kind: "roleHolds",
+								object: { kind: "sequence", name: sequence },
+								role: editor,
+								privilege: "SELECT"
+							}
+						]
+					],
+					[
+						[`REVOKE EXECUTE ON FUNCTION ${q(advance)} FROM ${quoteIdent(editor)}`],
+						[{ kind: "insertWithoutAdvance", function: advance, role: editor, table: note }]
+					],
+					[
+						[`REVOKE USAGE ON DOMAIN ${q(sub)} FROM ${quoteIdent(editor)}`],
+						[{ kind: "usageMissing", role: editor, type: { kind: "domain", name: sub } }]
+					]
+				]
+				yield* searched(
+					ctx,
+					exhaust(
+						{
+							suite: "physical/verify/world drifts",
+							generator: element(drifts),
+							literal: Formatter.format,
+							limit: drifts.length,
+							coverage: noCoverage,
+							caseHang
+						},
+						([statements, expected]) =>
+							Effect.map(drifted(schema, statements), (after) =>
+								unorderedEqual(checkInstalled(after, scope), expected, Arr.join(statements, "; "))
+							)
+					)
+				)
+			})
+		)
 	)
 })

@@ -56,8 +56,8 @@ export type FactSource =
 
 /**
  * What a proof rests on: an operand's fact and its source; a closed finite interval every value of the operand but NaN
- * lies in, and whether NaN is among its values, which the bound domain derived from carrier ranges, typmods, the
- * 1,000-digit bound of a bare numeric, contracts' atoms, literals, exact digit bounds, guards and recursion bounds; or
+ * lies in, and whether NaN is among its values, which the bound domain derived from carrier ranges, typmods, a
+ * computed numeric's proved bound, contracts' atoms, literals, exact digit bounds, guards and recursion bounds; or
  * an operand whose value is checked against a refinement where it is no read's evaluation: a literal at compile time
  * (ContractLiteral), a parameter at bind, or a written value by the write itself, whose refusal is the write's outcome
  * (README: writes keep their value checks).

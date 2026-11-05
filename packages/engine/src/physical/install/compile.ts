@@ -54,7 +54,6 @@ import {
 } from "#compiler/physical/indexes/engine.ts"
 import { commentsOf } from "#compiler/physical/install/comments.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
-import { numericBoundStorage } from "#compiler/physical/numeric/bound.ts"
 import { refinedConstantsExtension } from "#compiler/physical/refined/constants.ts"
 import { spanStorage } from "#compiler/physical/span/storage.ts"
 import { planStatistics, type StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
@@ -129,9 +128,12 @@ export interface Installation {
 	}
 }
 
-/** A schema identifier the installation may create: a plain lowercase identifier, at most 63 bytes, outside pg_. */
+/**
+ * A schema identifier the installation may create: a plain lowercase identifier, at most maxIdentifierBytes, outside
+ * pg_.
+ */
 const admittedSchema = (name: string): boolean => {
-	if (name.length === 0 || name.length > maxIdentifierBytes || name.startsWith("pg_")) {
+	if (name.length === 0 || name.length > maxIdentifierBytes.value || name.startsWith("pg_")) {
 		return false
 	}
 	for (let i = 0; i < name.length; i++) {
@@ -153,8 +155,7 @@ const admittedSchema = (name: string): boolean => {
  * raises through; the isolation default and guard; the enums, the structural text domains and the contract domains;
  * the tables with their identities; the tags, keys, CHECKs and references the law model specialized; the shape, width
  * and contract-endpoint CHECKs of every span column (`spanStorage`), which every installation carries because a span's
- * storage is never optional; the bound CHECK of every bare numeric column (`numericBoundStorage`), which every
- * installation carries because every numeric digit bound rests on it; the validation of every closed payload with a nontrivial refinement
+ * storage is never optional; the validation of every closed payload with a nontrivial refinement
  * (`refinedConstantsExtension`), which every installation carries because the compiler relies on a closed fact's
  * membership only once PostgreSQL has validated it; then the caller's extensions; then the law-maintenance and workload
  * indexes, deduplicated against the key indexes; then, in Publish, the worlds: the logins, their roles with their
@@ -280,12 +281,7 @@ const build = (
 		catchRefusal(() => {
 			/** The built-in span CHECKs and closed facts' validation, then each extension in the caller's order, each
 			 * once: a caller that lists a built-in extension again adds nothing twice. */
-			const extensions = new Set([
-				spanStorage,
-				numericBoundStorage,
-				refinedConstantsExtension,
-				...options.extensions
-			])
+			const extensions = new Set([spanStorage, refinedConstantsExtension, ...options.extensions])
 			const roles = settings.logins.flatMap((l) => l.roles)
 			/** The checker's reading of the schema, the law model's, whose relation handles its theory read: every extension
 			 * and world of the installation reads it. */
@@ -395,12 +391,15 @@ const build = (
 			const worlds = addWorlds(b, advance, { tables, sequences, enums, domains }, logins)
 			const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]
 			const census = censusOf(identities)
+			if (!census.ok) {
+				throw new Refusal(census.error)
+			}
 			const ordered = b.graph.manifest({
 				roleDefaults: worlds.roleDefaults,
 				publicRevokes: worlds.publicRevokes
 			})
 			const created = ordered.objects.flatMap((o) => o.ddl)
-			const comments = commentsOf(created, census)
+			const comments = commentsOf(created, census.value)
 			const manifest = { ...ordered, comments }
 			const statements = [...created, ...worlds.publicRevokes, ...worlds.roleDefaults, ...comments]
 			const derived = Object.values(owned.relations)

@@ -5,7 +5,7 @@ import { constant, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -24,6 +24,7 @@ import {
 	relKinds
 } from "#compiler/ir/rel.ts"
 import { assert, contains } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { everyKind } from "#test/unit/ir/fixture.ts"
 import { generatedDags } from "#test/unit/ir/population.ts"
 
@@ -52,7 +53,7 @@ describe("the RelNode family", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(dag, c) =>
 						Effect.sync(() => {
@@ -120,7 +121,7 @@ describe("the RelNode family", () => {
 					kept: [],
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(dag, c) =>
 					Effect.sync(() => {

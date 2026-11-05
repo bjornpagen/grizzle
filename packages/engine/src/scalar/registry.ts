@@ -22,7 +22,10 @@ import {
 	type CapabilitySet,
 	capabilitySet,
 	type Carrier,
+	type ContractBase,
 	type ContractInfo,
+	type DeclaredType,
+	type NumericBound,
 	type NumericTypmod,
 	type RegexRef,
 	type ScalarType,
@@ -185,12 +188,12 @@ export type SqlTag = (typeof carrierSql)[Carrier]
 
 /**
  * What a runtime descriptor carries for the compiler: its SQL name and column, public, and its Description and
- * ScalarType, internal.
+ * declared type (scalarTypeOf), internal.
  */
 export interface Described<out Sql extends SqlTag = SqlTag> extends Columned<unknown> {
 	readonly sql: Sql
 	readonly desc: FieldDesc
-	readonly scalar: ScalarType
+	readonly scalar: DeclaredType
 }
 
 /** The members every descriptor is defined with: its column, whose values are its host type. */
@@ -531,19 +534,14 @@ const scalarAt = (
 	desc: FieldDesc,
 	env: ScalarEnv,
 	loc: SourceLoc
-): Result.Result<ScalarType, CompileError> => {
+): Result.Result<DeclaredType, CompileError> => {
 	switch (desc.kind) {
 		case "pg": {
 			const carrier = pgCarriers[desc.type]
 			return Result.ok(plainType(carrier))
 		}
-		case "numeric": {
-			if (!("precision" in desc)) {
-				return Result.ok(numericType(undefined))
-			}
-			const { precision, scale } = desc
-			return Result.ok(numericType(Object.freeze({ precision, scale })))
-		}
+		case "numeric":
+			return Result.ok(numericType(Object.freeze({ precision: desc.precision, scale: desc.scale })))
 		case "serial": {
 			const carrier = serialCarriers[desc.type]
 			return Result.ok(
@@ -602,15 +600,28 @@ const scalarAt = (
 }
 
 /** A plain value type of `carrier`: no typmod, refinement or contract. */
-const plainType = (carrier: (typeof pgCarriers)[keyof typeof pgCarriers] | "uuid"): ValueType =>
+const plainType = (carrier: (typeof pgCarriers)[keyof typeof pgCarriers] | "uuid"): ContractBase =>
 	Object.freeze({ carrier, caps: capabilitiesOf(carrier, false), contract: undefined })
 
-const numericType = (typmod: NumericTypmod | undefined): ValueType =>
+const numericType = (typmod: NumericTypmod): ContractBase =>
 	Object.freeze({
 		carrier: "numeric",
 		caps: capabilitiesOf("numeric", false),
 		typmod,
 		contract: undefined
+	})
+
+/**
+ * A computed numeric of `bound`, frozen (ir/scalar.ts NumericBound), its keys in the decoder's order: an operation's,
+ * an aggregate's or a literal's numeric, which no declaration states.
+ */
+export const numericValue = (bound: NumericBound): ValueType =>
+	Object.freeze({
+		carrier: "numeric",
+		caps: capabilitiesOf("numeric", false),
+		typmod: undefined,
+		contract: undefined,
+		bound: Object.freeze({ digits: bound.digits, scale: bound.scale })
 	})
 
 /**
@@ -642,7 +653,7 @@ export const spanType = (
  * The descriptor of a contract over `base`: the base's carrier, typmod, refinements and capabilities, each field the
  * base's variant states, beside the contract.
  */
-const withContract = (base: ValueType, contract: ContractInfo): ValueType =>
+const withContract = (base: ContractBase, contract: ContractInfo): ContractBase =>
 	Object.freeze({ ...base, contract })
 
 /**
@@ -656,11 +667,11 @@ const withContract = (base: ValueType, contract: ContractInfo): ValueType =>
  */
 export const contractType = (
 	name: DeclaredName,
-	base: ScalarType,
+	base: DeclaredType,
 	loc: SourceLoc,
 	predicate: ExprTable | undefined,
 	facts: ReadonlyArray<Fact>
-): Result.Result<ScalarType, CompileError> =>
+): Result.Result<ContractBase, CompileError> =>
 	Result.map(contractOver(name, base, loc, predicate, facts), (info) =>
 		withContract(info.base, info)
 	)
@@ -668,7 +679,7 @@ export const contractType = (
 /** The contract `name` over `base` with `predicate`'s table: a contract over a serial is a generation refusal. */
 const contractOver = (
 	name: DeclaredName,
-	base: ScalarType,
+	base: DeclaredType,
 	loc: SourceLoc,
 	predicate: ExprTable | undefined,
 	facts: ReadonlyArray<Fact>
@@ -714,7 +725,8 @@ export const contractInfoOf = (
 }
 
 /**
- * The ScalarType of a FieldDesc: carrier, typmod, refinements and capability set. A span over an endpoint without the
+ * The declared type of a FieldDesc (ir/scalar.ts DeclaredType): carrier, typmod, refinements and capability set, never
+ * a computed numeric or an exact value, which no declaration states. A span over an endpoint without the
  * spanEndpoint capability is a capability diagnostic and a contract over a serial a generation refusal (both
  * UnsupportedOperation); an unknown roster, and a contract name the declared-name rule refuses, is MalformedDescription.
  */
@@ -722,7 +734,7 @@ export const scalarTypeOf = (
 	desc: FieldDesc,
 	env: ScalarEnv,
 	loc: SourceLoc
-): Result.Result<ScalarType, CompileError> => scalarAt(desc, env, loc)
+): Result.Result<DeclaredType, CompileError> => scalarAt(desc, env, loc)
 
 /**
  * A literal operand for a term of type `t`, as the Description boundary carries it (ir/desc.ts LiteralDesc): the

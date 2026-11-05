@@ -13,7 +13,7 @@ describe("the identifier dictionary", () => {
 			const named = identity.table(parsedName(name.declared))
 			assert.equal(named.form, "readable", name.declared)
 			assert.equal<string>(named.identifier, name.converted, name.declared)
-			assert.ok(Buffer.byteLength(named.identifier) <= maxIdentifierBytes, name.declared)
+			assert.ok(Buffer.byteLength(named.identifier) <= maxIdentifierBytes.value, name.declared)
 		}
 		const identifiers = Arr.map(
 			atLimit,
@@ -21,7 +21,7 @@ describe("the identifier dictionary", () => {
 		)
 		assert.equal(new Set(identifiers).size, identifiers.length, "names at the limit stay apart")
 		for (const identifier of identifiers) {
-			assert.equal(Buffer.byteLength(identifier), maxIdentifierBytes, identifier)
+			assert.equal(Buffer.byteLength(identifier), maxIdentifierBytes.value, identifier)
 		}
 		const past = Arr.filter(refusedNames, (name) => name.feature === "long, past the limit")
 		assert.ok(past.length > 0, "names past the limit")

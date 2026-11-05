@@ -861,6 +861,7 @@ const checks = Object.freeze({
 	greatest: variadic("greatest"),
 	widthBucket,
 	minScale: unary("minScale"),
+	numeric: unary("numeric"),
 	cond,
 	when,
 	nonzero: factGuard("nonzero"),
@@ -977,6 +978,7 @@ export const compute = Object.freeze({
 	widthBucket: (x: unknown, low: unknown, high: unknown, count: unknown) =>
 		plain(checks.widthBucket(x, low, high, count), "integer"),
 	minScale: (a: unknown) => plain(checks.minScale(a, []), "integer"),
+	numeric: (a: unknown) => plain(checks.numeric(a, []), "numeric"),
 	cond: <T, S extends SqlTag>(
 		p: unknown,
 		then: TermCarrier<T, S>,
@@ -1064,6 +1066,7 @@ export const computeCore = Object.freeze({
 	widthBucket: (x: unknown, low: unknown, high: unknown, count: unknown) =>
 		plainBy(checks.widthBucket(x, low, high, count)),
 	minScale: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.minScale(a, extra)),
+	numeric: (a: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.numeric(a, extra)),
 	cond: (p: unknown, then: unknown, otherwise: unknown): ScalarTerm => {
 		const checked = checks.cond(p, then, otherwise)
 		return scalarTerm(checked.expr, checked.type, checked.carrier)

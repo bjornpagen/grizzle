@@ -3,7 +3,8 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, pipe, Result, String as Str } from "effect"
+import { Array as Arr, Effect, pipe, Result, String as Str } from "effect"
+import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -14,6 +15,7 @@ import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { strictRead } from "#test/support/kernel/strict.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { expectConstraint, expectSqlstate } from "#test/support/substrate/expect.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -33,19 +35,23 @@ const id = (n: number): Uuid =>
 
 const embeddingType = (): ScalarType => scalarOf({ kind: "vector", dimensions: 4 }, {})
 
+const lowest = cosineNormMin.value
+const highest = cosineNormMax.value
+
 /**
- * The zero, a tiny and a huge norm: vectors outside the cosine domain, each with the row number it is tried at. The
- * database refuses each on the vector column, and the codec refuses each first, on the host.
+ * The zero, a tiny and a huge norm, and the binary32 neighbours just past each bound: vectors outside the cosine
+ * domain, each with the row number it is tried at. The database refuses each on the vector column, and the codec
+ * refuses each first, on the host.
  */
 const outside: Arr.NonEmptyReadonlyArray<readonly [row: number, value: string]> = Arr.map(
-	[
+	Arr.make(
 		"[0,0,0,0]",
-		`[${2 ** -18},0,0,0]`,
-		`[${Math.fround(2 ** -16 * (1 - 2 ** -24))},0,0,0]`,
-		"[65537,0,0,0]",
-		`[${2 ** 16 + 2 ** -7},0,0,0]`,
+		`[${lowest / 4},0,0,0]`,
+		`[${Math.fround(lowest * (1 - 2 ** -24))},0,0,0]`,
+		`[${highest * 2},0,0,0]`,
+		`[${highest * (1 + 2 ** -23)},0,0,0]`,
 		"[1e30,1e30,0,0]"
-	] as const,
+	),
 	(value, i) => [10 + i, value] as const
 )
 
@@ -61,9 +67,6 @@ const malformed: Arr.NonEmptyReadonlyArray<readonly [input: string, sqlstate: "2
 
 /** A vector refused, by its text. */
 type RefusedFeature = `refused ${string}`
-
-/** How long one storage case may run. */
-const caseHang = Duration.minutes(2)
 
 layer(Substrate.layer)("vector storage", (it) => {
 	it.effect(
@@ -129,13 +132,14 @@ layer(Substrate.layer)("vector storage", (it) => {
 					)
 
 					/**
-					 * Both bounds are admitted, by the CHECK and by the codec; four components of 2^-17 have norm 2^-16.
+					 * Both bounds are admitted, by the CHECK and by the codec; four components of half the least norm have
+					 * the least norm.
 					 */
 					const admitted = [
-						[2 ** -16, 0, 0, 0],
-						[65536, 0, 0, 0],
-						[0, -65536, 0, 0],
-						[2 ** -17, 2 ** -17, 2 ** -17, 2 ** -17],
+						[lowest, 0, 0, 0],
+						[highest, 0, 0, 0],
+						[0, -highest, 0, 0],
+						[lowest / 2, lowest / 2, lowest / 2, lowest / 2],
 						[0.6, 0.8, 0, 0]
 					]
 					for (const [i, xs] of admitted.entries()) {
@@ -154,7 +158,10 @@ layer(Substrate.layer)("vector storage", (it) => {
 						`SELECT "vector_ext"."vector_norm"("value")::text FROM ${table} WHERE "id" IN ('${id(100)}', '${id(101)}', '${id(103)}') ORDER BY "id"`,
 						[]
 					)
-					assert.deepEqual(norms, [["1.52587890625e-05"], ["65536"], ["1.52587890625e-05"]])
+					assert.deepEqual(
+						Arr.map(norms, (row) => Arr.map(row, Number)),
+						[[lowest], [highest], [lowest]]
+					)
 
 					/** Every vector column has the cosine domain: the zero vector is refused on the other column too. */
 					const raw = yield* expectConstraint(

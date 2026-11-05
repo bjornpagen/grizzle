@@ -1,8 +1,7 @@
-import { type CursorSpec, cursorCodec } from "#compiler/codec/cursor/codec.ts"
+import { type CursorSpec, cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
 import type { CursorComparator, CursorGeneration } from "#compiler/codec/cursor/identity.ts"
-import { cursorMaxBytes } from "#compiler/core/policy.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -35,7 +34,7 @@ export const cursorCodecTypes = {
 	int2: ofCarrier("int2", plainType("int2")),
 	int4: ofCarrier("int4", plainType("int4")),
 	int8: ofCarrier("int8", plainType("int8")),
-	numeric: ofCarrier("numeric", plainType("numeric")),
+	numeric: ofCarrier("numeric", anyNumeric),
 	numeric72: ofCarrier("numeric", scalarOf(f.numeric(7, 2), {})),
 	numericNeg: ofCarrier("numeric", scalarOf(f.numeric(5, -2), {})),
 	numericSmall: ofCarrier("numeric", scalarOf(f.numeric(3, 5), {})),
@@ -70,6 +69,6 @@ export const taskSpec: CursorSpec<typeof taskComparators> = {
 	generation
 }
 
-export const taskCodec = succeeded(cursorCodec(taskSpec, cursorMaxBytes))
+export const taskCodec = succeeded(cursorCodec(taskSpec, cursorTokenMaxLength))
 
 export const taskId = "3c9a8b7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d"

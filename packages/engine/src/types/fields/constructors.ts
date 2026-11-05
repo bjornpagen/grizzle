@@ -2,7 +2,6 @@ import type { Brand } from "effect"
 import type { Columned } from "#compiler/core/decoder.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
-import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
@@ -31,10 +30,11 @@ import type { AnyClosed, HandleOf } from "#compiler/types/schema/relation.ts"
 import type { VectorField } from "#compiler/types/vector/vector.ts"
 
 /**
- * numeric(p) and numeric(p, s), and their decimal spelling. An omitted scale is 0; precision 1-1000 and
- * scale -1000-1000 are checked at runtime.
+ * numeric(p, s) and its decimal spelling, precision and scale both declared: no numeric field is without them.
+ * PostgreSQL's numerictypmodin rule is checked at runtime (ir/scalar.ts numericMaxPrecision, numericMinScale and
+ * numericMaxScale).
  */
-type NumericConstructor = (precision: number, scale?: number) => NumericTypmodField
+type NumericConstructor = (precision: number, scale: number) => NumericTypmodField
 
 /** float(p): real for binary precision 1-24, double precision for 25-53, chosen at runtime. */
 type FloatConstructor = (precision: number) => FloatField
@@ -63,8 +63,8 @@ export interface Pg {
 	readonly int4: Field<number, "integer">
 	readonly bigint: Field<bigint, "bigint">
 	readonly int8: Field<bigint, "bigint">
-	readonly numeric: Field<Decimal, "numeric"> & NumericConstructor
-	readonly decimal: Field<Decimal, "numeric"> & NumericConstructor
+	readonly numeric: NumericConstructor
+	readonly decimal: NumericConstructor
 	readonly real: Field<number, "real">
 	readonly float4: Field<number, "real">
 	readonly "double precision": Field<number, "double precision">

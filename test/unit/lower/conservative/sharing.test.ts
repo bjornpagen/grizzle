@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -12,6 +12,7 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { Edge, plainRegion, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 
@@ -145,7 +146,7 @@ describe("shared nodes", () => {
 						literal: Formatter.format,
 						limit: placements.length * 2,
 						coverage: requiredInSpace<Placement>(placements),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([placement, depth], c) =>
 						Effect.sync(() => {

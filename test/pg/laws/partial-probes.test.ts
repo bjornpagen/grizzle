@@ -25,7 +25,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Option } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
@@ -43,6 +43,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { oracleLogin } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
@@ -212,7 +213,7 @@ layer(Substrate.layer)("partial law-probe indexes", (it) => {
 								"a selected-source span coverage"
 							]),
 							/** A case installs, loads and analyzes five thousand rows: it may take as long as the whole test. */
-							caseHang: Duration.minutes(10)
+							caseHang
 						},
 						(p, c) =>
 							Effect.gen(function* () {
@@ -311,7 +312,6 @@ layer(Substrate.layer)("partial law-probe indexes", (it) => {
 							})
 					)
 				})
-			),
-		600_000
+			)
 	)
 })

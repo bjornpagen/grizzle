@@ -117,42 +117,38 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						"open-refused",
 						"a plan outside the contract opens no Db"
 					)
-				}),
-			300_000
+				})
 		)
 
-		it.effect(
-			"the leak scan reports a hidden token a refusal spells",
-			() =>
-				Effect.gen(function* () {
-					const world = yield* realize(docsInstall, ordinarySession)
-					yield* world.reset(reality)
-					const begun = yield* world.perform(
-						{
-							kind: "direct-begin",
-							login: "web",
-							isolation: "serializable",
-							start: { current: { kind: "login" }, claims: { kind: "none" } }
-						},
-						new Set()
-					)
-					assert.equal(begun.kind, "opened", "the direct writer's transaction begins")
-					const table = defined(world.names.tables["Org"], "Org's table")
-					const observed = yield* world.perform(
-						{
-							kind: "direct",
-							session: 0,
-							statement: { kind: "insert", relation: "Org", fact: { id: orgs[1], plan: 1 } }
-						},
-						new Set([table])
-					)
-					assert.deepEqual(
-						observed,
-						{ kind: "leak", field: "message", token: table },
-						"the refusal names the table"
-					)
-				}),
-			300_000
+		it.effect("the leak scan reports a hidden token a refusal spells", () =>
+			Effect.gen(function* () {
+				const world = yield* realize(docsInstall, ordinarySession)
+				yield* world.reset(reality)
+				const begun = yield* world.perform(
+					{
+						kind: "direct-begin",
+						login: "web",
+						isolation: "serializable",
+						start: { current: { kind: "login" }, claims: { kind: "none" } }
+					},
+					new Set()
+				)
+				assert.equal(begun.kind, "opened", "the direct writer's transaction begins")
+				const table = defined(world.names.tables["Org"], "Org's table")
+				const observed = yield* world.perform(
+					{
+						kind: "direct",
+						session: 0,
+						statement: { kind: "insert", relation: "Org", fact: { id: orgs[1], plan: 1 } }
+					},
+					new Set([table])
+				)
+				assert.deepEqual(
+					observed,
+					{ kind: "leak", field: "message", token: table },
+					"the refusal names the table"
+				)
+			})
 		)
 	}
 )

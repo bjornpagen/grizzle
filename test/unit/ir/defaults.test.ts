@@ -5,10 +5,11 @@ import { array, boolean, constant, element, type Gen, map, oneOf } from "@grizzl
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Record } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
 import { type DescKind, decodeDesc, descText } from "#compiler/ir/desc.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 
 /** The defaults the boundary fills, and the stated values beside them that are none. */
@@ -37,7 +38,7 @@ type FieldSketch =
 const fixedFields: Arr.NonEmptyReadonlyArray<Json> = [
 	{ kind: "pg", type: "integer" },
 	{ kind: "uuid" },
-	{ kind: "numeric" },
+	{ kind: "numeric", precision: 10, scale: 2 },
 	{ kind: "text", source: "^[a-z]+$", flags: "u" }
 ]
 
@@ -309,7 +310,7 @@ describe("the Description boundary's defaults", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([schema, query], c) =>
 						Effect.sync(() => {

@@ -4,7 +4,7 @@ import { type Coverage, noCoverage, required, type Situations } from "@grizzle/t
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import * as Result from "#compiler/core/result.ts"
 import { rooted } from "#compiler/ir/dag.ts"
@@ -54,9 +54,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * pipeline, graph pass and R37 seeding included, and by the conservative lowering, run on PostgreSQL, and compared
  * statement by statement as raw text multisets, with no repeated row on the optimized side.
  *
- * - The general population covers every consumer and recursion family; core/policy.ts recursionUnrollMax decides
- *   whether a bounded walk is unrolled into the set union of joins or kept a recursive CTE, and both forms must occur
- *   (its kernel feature registry).
+ * - The general population covers every consumer and recursion family; every recursion, bounded or not, is the
+ *   recursive CTE (its kernel feature registry).
  * - The attachment population is every recursion attached to its roots by origin: each is seeded once
  *   from the delivered parents' key recordset (R37), and the suite requires every attachment statement to be seeded:
  *   equal values have one canonical cell text, so every origin type stitches by key.
@@ -66,9 +65,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   generator filters the recursion directly, the filter site; the constant and region sites agree in
  *   seed-sites.test.ts.
  * - Fixed-length connected matches give the same set through joins and through a bounded recursive relation, both
- *   optimized, unrolled and recursive (the conservative pair is test/pg/recursion/oracle/fixed-length.test.ts).
- * - In every population each case's optimized program shows every recursion its query reaches in a form, unrolled or
- *   a WITH RECURSIVE anywhere in a statement (graph/support.ts formsBroken), and a case whose recursion shows none
+ *   optimized (the conservative pair is test/pg/recursion/oracle/fixed-length.test.ts).
+ * - In every population each case's optimized program shows a WITH RECURSIVE anywhere in a statement when its query
+ *   reaches a recursion, and none when it reaches none (graph/support.ts formsBroken), and a case that breaks it
  *   fails.
  *
  * @cpu-bound
@@ -84,7 +83,7 @@ type GraphFeature = RecursiveFeature | GraphOptimizedFeature | "nonempty"
 
 /**
  * What the general population must reach: every graph shape, vertex type, recursion family
- * and consumer, both forms of a bounded recursion (unrolled into joins, kept a recursive CTE), an attachment seeded
+ * and consumer, the recursive CTE, an attachment seeded
  * from its parents' keys, an origin filter pushed into the seed, and rows.
  */
 const generalRequired: Situations<GraphFeature> = [
@@ -116,7 +115,6 @@ const generalRequired: Situations<GraphFeature> = [
 	"consumer:unreached",
 	"consumer:endFilter",
 	"consumer:originFilter",
-	"unrolled recursion",
 	"recursive CTE",
 	"seeded attachment",
 	"graph.seedPushdown.filter",
@@ -159,7 +157,6 @@ const agreeOn = (population: Population) =>
 				kept: [],
 				runs: population.runs,
 				shrink: completeShrink,
-				caseHang: Duration.minutes(2),
 				perturb: "all"
 			},
 			(c, notes) =>
@@ -181,7 +178,7 @@ const agreeOn = (population: Population) =>
 						notes.note("nonempty")
 					}
 					const program = outcome.left.program
-					const unseen = formsBroken(c.query.dag.roots[0], program, noted)
+					const unseen = formsBroken(c.query.dag.roots[0], program)
 					if (unseen !== undefined) {
 						return yield* new PropertyFailed({ report: `${unseen}\n${printOutcome(outcome)}` })
 					}
@@ -195,10 +192,7 @@ const agreeOn = (population: Population) =>
 		)
 	})
 
-/**
- * The general population: a bounded walk whose proved depth is at most recursionUnrollMax is unrolled, any other kept
- * recursive.
- */
+/** The general population: every recursion, bounded or not, kept the recursive CTE. */
 const generalPopulation: Population = {
 	limits: defaultRecursiveLimits,
 	runs: general,
@@ -235,10 +229,8 @@ const optimizedAt = (note: Note, which: 0 | 1): Lowering => ({
 })
 
 layer(Substrate.layer)("graph recognition and R37 against the conservative lowering", (it) => {
-	it.effect(
-		`agree on ${general} seeded recursive queries of every family and consumer`,
-		(ctx) => searched(ctx, agreeOn(generalPopulation)),
-		1_800_000
+	it.effect(`agree on ${general} seeded recursive queries of every family and consumer`, (ctx) =>
+		searched(ctx, agreeOn(generalPopulation))
 	)
 
 	it.effect(
@@ -268,52 +260,45 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 							: [`${seeded} of ${statements} attachment statements seeded, expected ${statements}`]
 					}
 				})
-			),
-		900_000
+			)
 	)
 
-	it.effect(
-		`push origin filters into the seed on ${filtered / 2} cases`,
-		(ctx) =>
-			searched(
-				ctx,
-				agreeOn({
-					limits: {
-						...defaultRecursiveLimits,
-						consumers: ["originFilter"]
-					},
-					runs: filtered / 2,
-					suite: "recursion/graph-origin-filter",
-					coverage: required<GraphFeature>(["graph.seedPushdown.filter"], {
-						cases: filtered / 2,
-						sense: notesOnly
-					}),
-					check: agreementOnly
-				})
-			),
-		900_000
+	it.effect(`push origin filters into the seed on ${filtered / 2} cases`, (ctx) =>
+		searched(
+			ctx,
+			agreeOn({
+				limits: {
+					...defaultRecursiveLimits,
+					consumers: ["originFilter"]
+				},
+				runs: filtered / 2,
+				suite: "recursion/graph-origin-filter",
+				coverage: required<GraphFeature>(["graph.seedPushdown.filter"], {
+					cases: filtered / 2,
+					sense: notesOnly
+				}),
+				check: agreementOnly
+			})
+		)
 	)
 
-	it.effect(
-		`move no end-vertex filter or final inequality on ${filtered / 2} cases`,
-		(ctx) =>
-			searched(
-				ctx,
-				agreeOn({
-					limits: {
-						...defaultRecursiveLimits,
-						consumers: ["endFilter", "endNe"]
-					},
-					runs: filtered / 2,
-					suite: "recursion/graph-endpoint-filter",
-					coverage: noCoverage,
-					check: ({ noted }) => {
-						const moved = Arr.filter(noted, isGraphRule)
-						return moved.length === 0 ? [] : [`the graph pass fired ${Arr.join(moved, ", ")}`]
-					}
-				})
-			),
-		900_000
+	it.effect(`move no end-vertex filter or final inequality on ${filtered / 2} cases`, (ctx) =>
+		searched(
+			ctx,
+			agreeOn({
+				limits: {
+					...defaultRecursiveLimits,
+					consumers: ["endFilter", "endNe"]
+				},
+				runs: filtered / 2,
+				suite: "recursion/graph-endpoint-filter",
+				coverage: noCoverage,
+				check: ({ noted }) => {
+					const moved = Arr.filter(noted, isGraphRule)
+					return moved.length === 0 ? [] : [`the graph pass fired ${Arr.join(moved, ", ")}`]
+				}
+			})
+		)
 	)
 
 	it.effect(
@@ -329,36 +314,25 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 						{
 							suite: "recursion/graph-fixed-length",
 							literal: Formatter.format,
-							coverage: required<GraphFeature>(["unrolled recursion", "recursive CTE"], {
+							coverage: required<GraphFeature>(["recursive CTE"], {
 								cases: fixedLength,
 								sense: notesOnly
 							}),
 							kept: [],
 							runs: fixedLength,
 							shrink: completeShrink,
-							caseHang: Duration.minutes(2),
 							perturb: "all"
 						},
 						(c, notes) =>
 							Effect.gen(function* () {
-								/** The features each root's lowering noted: the joins first, the recursive relation second. */
-								const noted: readonly [Array<GraphOptimizedFeature>, Array<GraphOptimizedFeature>] =
-									[[], []]
-								const noting =
-									(which: 0 | 1): Note =>
-									(fs) => {
-										notes.noteAll(fs)
-										appendAll(noted[which], fs)
-									}
-								const both = yield* runOracle(
-									c,
-									optimizedAt(noting(0), 0),
-									optimizedAt(noting(1), 1),
-									{
-										...defaultRunOptions,
-										schema: { kind: "named", name: schema }
-									}
-								)
+								/** The features each root's lowering noted, the joins' and the recursive relation's. */
+								const noting: Note = (fs) => {
+									notes.noteAll(fs)
+								}
+								const both = yield* runOracle(c, optimizedAt(noting, 0), optimizedAt(noting, 1), {
+									...defaultRunOptions,
+									schema: { kind: "named", name: schema }
+								})
 								const cmp = both.comparison
 								if (!cmp.equal || cmp.leftDuplicates > 0 || cmp.rightDuplicates > 0) {
 									return yield* comparisonFailed(both)
@@ -383,7 +357,7 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 											report: `no optimized program of root ${which}\n${printOutcome(both)}`
 										})
 									}
-									const unseen = formsBroken(root, program, noted[which])
+									const unseen = formsBroken(root, program)
 									if (unseen !== undefined) {
 										return yield* new PropertyFailed({
 											report: `root ${which}: ${unseen}\n${printOutcome(both)}`
@@ -393,7 +367,6 @@ layer(Substrate.layer)("graph recognition and R37 against the conservative lower
 							})
 					)
 				})
-			),
-		900_000
+			)
 	)
 })

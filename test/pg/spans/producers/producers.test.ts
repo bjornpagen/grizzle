@@ -5,7 +5,7 @@ import { exact, multiset, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -241,7 +241,6 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: correlatedCases,
 							shrink: completeShrink,
-							caseHang: Duration.minutes(2),
 							perturb: "none"
 						},
 						(c, k) =>
@@ -348,109 +347,97 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 	]
 	const sameRowSet = multiset(ordered(exact))
 
-	it.effect(
-		`agree with each other and the reference on ${cases} generated span queries`,
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema({ ...freshSchema, label: "producers" })
-					const db = yield* s.session(ownerSession())
-					for (const statement of spanSetupStatements(schema)) {
-						yield* db.query(statement, [])
-					}
-					return yield* oracleCheck(
-						drawn(spanCaseGen({ maxRows: 6, kinds, endpoints: spanEndpointKinds })),
-						{
-							suite: "spans/producers",
-							literal: Formatter.format,
-							coverage: required<ProducerFeature>(situations, { cases: cases, sense: notesOnly }),
-							kept: [],
-							runs: cases,
-							shrink: completeShrink,
-							caseHang: Duration.minutes(2),
-							perturb: "none"
-						},
-						(sc, c) =>
-							Effect.gen(function* () {
-								const fail = (message: string) =>
-									Effect.fail(new PropertyFailed({ report: `${printSpanCase(sc)}\n${message}` }))
-								yield* installSpanCase(db, schema, sc)
-								const expected = referenceRows(sc)
-								c.note(`${sc.query.kind}:${outcomeOf(expected)}`)
-								/**
-								 * Both artifacts of a template against the expected set: the optimized one delivers no
-								 * repeated row and agrees with the conservative one, which agrees
-								 * with the reference. Yields the optimized SQL.
-								 */
-								const agree = (
-									label: string,
-									template: QueryTemplate,
-									want: ReadonlyArray<RawRow>
-								) =>
-									Effect.gen(function* () {
-										const optimizedSql = onlySql(template, "optimized")
-										const conservativeSql = onlySql(template, "conservative")
-										const optimized = yield* rawRows(db, optimizedSql, [])
-										const conservative = yield* rawRows(db, conservativeSql, [])
-										if (repeats(optimized) > 0) {
-											return yield* fail(
-												`${label}: optimized repeats a row\n${optimizedSql}\n${Formatter.format(optimized)}`
-											)
-										}
-										const difference = sameRowSet(rowSet(optimized), rowSet(conservative))
-										if (Option.isSome(difference)) {
-											return yield* fail(
-												`${label}: optimized and conservative differ: ${difference.value}\n${Formatter.format(rowSet(optimized))}\n${Formatter.format(rowSet(conservative))}\n${optimizedSql}`
-											)
-										}
-										const problem = sameSet(
-											`${label}: conservative vs reference`,
-											want,
-											conservative
+	it.effect(`agree with each other and the reference on ${cases} generated span queries`, (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const schema = yield* s.schema({ ...freshSchema, label: "producers" })
+				const db = yield* s.session(ownerSession())
+				for (const statement of spanSetupStatements(schema)) {
+					yield* db.query(statement, [])
+				}
+				return yield* oracleCheck(
+					drawn(spanCaseGen({ maxRows: 6, kinds, endpoints: spanEndpointKinds })),
+					{
+						suite: "spans/producers",
+						literal: Formatter.format,
+						coverage: required<ProducerFeature>(situations, { cases: cases, sense: notesOnly }),
+						kept: [],
+						runs: cases,
+						shrink: completeShrink,
+						perturb: "none"
+					},
+					(sc, c) =>
+						Effect.gen(function* () {
+							const fail = (message: string) =>
+								Effect.fail(new PropertyFailed({ report: `${printSpanCase(sc)}\n${message}` }))
+							yield* installSpanCase(db, schema, sc)
+							const expected = referenceRows(sc)
+							c.note(`${sc.query.kind}:${outcomeOf(expected)}`)
+							/**
+							 * Both artifacts of a template against the expected set: the optimized one delivers no
+							 * repeated row and agrees with the conservative one, which agrees
+							 * with the reference. Yields the optimized SQL.
+							 */
+							const agree = (label: string, template: QueryTemplate, want: ReadonlyArray<RawRow>) =>
+								Effect.gen(function* () {
+									const optimizedSql = onlySql(template, "optimized")
+									const conservativeSql = onlySql(template, "conservative")
+									const optimized = yield* rawRows(db, optimizedSql, [])
+									const conservative = yield* rawRows(db, conservativeSql, [])
+									if (repeats(optimized) > 0) {
+										return yield* fail(
+											`${label}: optimized repeats a row\n${optimizedSql}\n${Formatter.format(optimized)}`
 										)
-										if (problem !== undefined) {
-											return yield* fail(`${problem}\n${conservativeSql}`)
-										}
-										return optimizedSql
-									})
-								yield* agree(sc.query.kind, compileSpanCase(sc, schema), expected)
-								const schemaDesc = spanSchemaDesc(sc.schema)
-								if (sc.query.kind === "pack") {
-									/** The same relation packed under a head of the pack term alone, across groups. */
-									const want = ungroupedPackReference(sc, sc.query.relation)
-									c.note(`ungroupedPack:${outcomeOf(want)}`)
-									yield* agree(
-										"ungrouped pack",
-										compileSpanQuery(schemaDesc, ungroupedPackQuery(sc.query.relation), schema),
-										want
-									)
-									return
-								}
-								/**
-								 * The bound-tuple head: the piece uniqueness proof drops the DISTINCT exactly when both
-								 * relations are span-keyed; otherwise distinct bindings may produce identical
-								 * rows and the DISTINCT collapses them.
-								 */
-								const kind = sc.query.kind
-								if (kind !== "intersection" && kind !== "difference") {
-									return yield* fail(`a ${kind} case outside the producer kinds`)
-								}
-								const { expected: want, duplicates } = tupleReference(sc, kind)
-								const proved =
-									sc.schema.relations.Left.spanKeyed && sc.schema.relations.Right.spanKeyed
+									}
+									const difference = sameRowSet(rowSet(optimized), rowSet(conservative))
+									if (Option.isSome(difference)) {
+										return yield* fail(
+											`${label}: optimized and conservative differ: ${difference.value}\n${Formatter.format(rowSet(optimized))}\n${Formatter.format(rowSet(conservative))}\n${optimizedSql}`
+										)
+									}
+									const problem = sameSet(`${label}: conservative vs reference`, want, conservative)
+									if (problem !== undefined) {
+										return yield* fail(`${problem}\n${conservativeSql}`)
+									}
+									return optimizedSql
+								})
+							yield* agree(sc.query.kind, compileSpanCase(sc, schema), expected)
+							const schemaDesc = spanSchemaDesc(sc.schema)
+							if (sc.query.kind === "pack") {
+								/** The same relation packed under a head of the pack term alone, across groups. */
+								const want = ungroupedPackReference(sc, sc.query.relation)
+								c.note(`ungroupedPack:${outcomeOf(want)}`)
 								yield* agree(
-									`${kind} bound tuple`,
-									compileSpanQuery(schemaDesc, tupleQuery(kind), schema),
+									"ungrouped pack",
+									compileSpanQuery(schemaDesc, ungroupedPackQuery(sc.query.relation), schema),
 									want
 								)
-								const shape = proved ? "proved" : duplicates > 0 ? "duplicates" : "unproved"
-								c.note(`tuple:${kind}:${shape}:${outcomeOf(want)}`)
-							})
-					)
-				})
-			),
-		900_000
+								return
+							}
+							/**
+							 * The bound-tuple head: the piece uniqueness proof drops the DISTINCT exactly when both
+							 * relations are span-keyed; otherwise distinct bindings may produce identical
+							 * rows and the DISTINCT collapses them.
+							 */
+							const kind = sc.query.kind
+							if (kind !== "intersection" && kind !== "difference") {
+								return yield* fail(`a ${kind} case outside the producer kinds`)
+							}
+							const { expected: want, duplicates } = tupleReference(sc, kind)
+							const proved =
+								sc.schema.relations.Left.spanKeyed && sc.schema.relations.Right.spanKeyed
+							yield* agree(
+								`${kind} bound tuple`,
+								compileSpanQuery(schemaDesc, tupleQuery(kind), schema),
+								want
+							)
+							const shape = proved ? "proved" : duplicates > 0 ? "duplicates" : "unproved"
+							c.note(`tuple:${kind}:${shape}:${outcomeOf(want)}`)
+						})
+				)
+			})
+		)
 	)
 })

@@ -5,7 +5,7 @@ import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { appendNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -38,6 +38,7 @@ import {
 	conservativeChannels
 } from "#test/support/oracle/verify/channels.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	type PlanUnderVerification,
 	verifyMultiplicity
@@ -783,7 +784,7 @@ describe("structural obligation verification", () => {
 					coverage: required<PlanBreak>(planBreakNames, { cases: 250, sense: notesOnly }),
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([subject, kindPick, sitePick], c) =>
 					Effect.sync(() => {
@@ -837,7 +838,7 @@ describe("structural obligation verification", () => {
 							"UNION ALL over arms not told apart",
 							"UNION ALL over tagged arms without its certificate"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(name, c) =>
 						Effect.sync(() => {
@@ -1155,7 +1156,7 @@ describe("codec and result-channel alignment", () => {
 					coverage: required<ChannelBreak>(channelBreakNames, { cases: 300, sense: notesOnly }),
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([subject, kindPick, sitePick], c) =>
 					Effect.sync(() => {
@@ -1198,7 +1199,7 @@ describe("codec and result-channel alignment", () => {
 						coverage: required<ArtifactBreak>(artifactBreakNames, { cases: 150, sense: notesOnly }),
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([subject, kindPick, sitePick], c) =>
 						Effect.sync(() => {
@@ -1296,7 +1297,7 @@ describe("codec and result-channel alignment", () => {
 						]),
 						limit: 5,
 						coverage: requiredInSpace<"matches" | "differs">(["matches", "differs"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(name, c) =>
 						Effect.sync(() => {

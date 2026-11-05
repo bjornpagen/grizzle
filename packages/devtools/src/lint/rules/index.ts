@@ -1,3 +1,5 @@
+import { limitEvidence } from "#lint/rules/limit-evidence.ts"
+import { noEnvironment } from "#lint/rules/no-environment.ts"
 import { noModuleState } from "#lint/rules/no-module-state.ts"
 import { noSpreadArgument } from "#lint/rules/no-spread-argument.ts"
 import { noNullUndefinedUnion } from "#lint/rules/null-undefined-union.ts"
@@ -12,6 +14,8 @@ type Scope = "every file" | "outside tests"
 /** Every rule superlint runs, by the id it reports under: its name in the output and its fixture directory. Every
  * rule visits every owned file of its scope; a rule whose options name nothing to guard in a repository is inert there. */
 export const RULES: ReadonlyArray<Readonly<{ id: string; visit: Visit; scope: Scope }>> = [
+	{ id: "limit-evidence", visit: limitEvidence, scope: "every file" },
+	{ id: "no-environment", visit: noEnvironment, scope: "every file" },
 	{ id: "no-module-state", visit: noModuleState, scope: "outside tests" },
 	{ id: "no-null-undefined-union", visit: noNullUndefinedUnion, scope: "every file" },
 	{ id: "no-spread-argument", visit: noSpreadArgument, scope: "every file" },

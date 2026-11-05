@@ -6,7 +6,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order, Stream } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Stream } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { hasProperties } from "#compiler/core/record.ts"
@@ -25,6 +25,7 @@ import {
 } from "#compiler/write/normalize/normalize.ts"
 import { assert, contains, defined, bareRecord, refused, succeeded } from "#test/support/assert.ts"
 import { lawIdOf, lawNamesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	type AddWinsOutcome,
 	applyAddWins,
@@ -358,7 +359,7 @@ describe("normalization against the add-wins meaning", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([start, ms]) =>
 						Effect.sync(() => {

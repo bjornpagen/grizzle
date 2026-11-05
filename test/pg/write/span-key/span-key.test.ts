@@ -5,7 +5,7 @@ import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Layer, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span, uuid } from "#compiler/public/fields.ts"
@@ -16,6 +16,7 @@ import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, containsEqual, unorderedEqual } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { type StateRow, tableState } from "#test/support/substrate/state.ts"
@@ -329,7 +330,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									shrink: completeShrink,
 									concurrency: 1,
 									steerEvery: 16,
-									caseHang: Duration.minutes(2)
+									caseHang
 								},
 								(c, cx) =>
 									Effect.gen(function* () {

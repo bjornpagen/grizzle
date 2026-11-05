@@ -5,7 +5,7 @@ import { array, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import type { CreateTable, SqlStatement } from "#compiler/sql/ast.ts"
 import { builtinType, cUtf8Collation } from "#compiler/sql/build.ts"
@@ -21,6 +21,7 @@ import {
 	type SqlColumnType,
 	statementGen
 } from "#test/support/kernel/sqlgen.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
@@ -217,7 +218,7 @@ layer(Substrate.layer)("generated SQL on PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ statement, sites }, c) =>
 							Effect.gen(function* () {
@@ -265,7 +266,6 @@ layer(Substrate.layer)("generated SQL on PostgreSQL 19", (it) => {
 							})
 					)
 				})
-			),
-		1_800_000
+			)
 	)
 })

@@ -17,8 +17,8 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
  *
  * Every error the public API's channels name (execution.ts) carries what happened as its `reason`: one of the classes
  * here, each a Data.TaggedError, so Effect.catchReason, catchReasons and unwrapReason reach it, and each rendering
- * its own `message`. A reason states only what happened, as data: whatever follows from it (an error's stage, a pool's
- * saturation) is a getter, never a stored field. `cause` is only a foreign value wrapped: what the password Effect
+ * its own `message`. A reason states only what happened, as data: whatever follows from it (an error's stage) is a
+ * getter, never a stored field. `cause` is only a foreign value wrapped: what the password Effect
  * (CredentialError) or the layer's verify (TokenError) failed with or threw. The adapter classifies each failure once,
  * where it happens: a connection attempt where pg reports it (wire/session.ts), a statement's answer where its flight
  * drains (wire/batch.ts), an admission where it compares (adapter/admission).
@@ -61,14 +61,14 @@ export class CredentialError extends Data.TaggedError("CredentialError")<{
 }
 
 /**
- * No answer came within the connect budget: the server or a waking provider took longer to reach ReadyForQuery, or
- * nothing answered at all.
+ * No answer came within the connection's connect timeout of `millis` (DbConnection.connectTimeoutMs): the server or a
+ * waking provider took longer to reach ReadyForQuery, or nothing answered at all.
  */
 export class ConnectTimedOut extends Data.TaggedError("ConnectTimedOut")<{
 	readonly millis: number
 }> {
 	override get message(): string {
-		return `no answer within the connect budget of ${this.millis} ms`
+		return `no answer within the connect timeout of ${this.millis} ms`
 	}
 }
 
@@ -98,13 +98,13 @@ export class StartupRefused extends Data.TaggedError("StartupRefused")<{
 /**
  * Why TLS failed: the handshake failed with Node's code (a certificate that does not verify, such as CERT_HAS_EXPIRED or
  * ERR_TLS_CERT_ALTNAME_INVALID, or a failed negotiation, ERR_SSL_*); the server answered the SSLRequest with N, so it
- * offers no TLS; it answered with neither S nor N; or the CA bundle is empty, so nothing could verify.
+ * offers no TLS; or it answered with neither S nor N. A CA bundle is never empty: the parse of the connection refuses
+ * one (connection/config.ts ParsedTransport).
  */
 export type TlsFault =
 	| { readonly kind: "handshake"; readonly code: string }
 	| { readonly kind: "notOffered" }
 	| { readonly kind: "unanswered" }
-	| { readonly kind: "noAuthority" }
 
 const tlsFaultText = (fault: TlsFault): string => {
 	switch (fault.kind) {
@@ -114,8 +114,6 @@ const tlsFaultText = (fault: TlsFault): string => {
 			return "the server offers no TLS"
 		case "unanswered":
 			return "the server answered the TLS request with neither yes nor no"
-		case "noAuthority":
-			return "the CA bundle is empty, so no certificate can verify"
 	}
 }
 
@@ -153,7 +151,7 @@ export class NoCancelKey extends Data.TaggedError("NoCancelKey") {
 
 /**
  * How a connection attempt failed, classified once, where pg reports it (adapter/wire/session.ts): the password Effect
- * failed; no answer within the connect budget; a socket error code; the server refused the startup; TLS; a connection
+ * failed; no answer within the connect timeout; a socket error code; the server refused the startup; TLS; a connection
  * closed before it was ready; pg's own refusal; or no cancellation key. None carries a password.
  */
 export type ConnectRefusal =
@@ -165,24 +163,6 @@ export type ConnectRefusal =
 	| ConnectionClosed
 	| DriverRefused
 	| NoCancelKey
-
-/**
- * The acquisition wait budget of `millis` ran out before a session was handed over. `sessions` counts the open
- * sessions (leased, idle, retiring or still being established, never a failed connection attempt), `leased` the ones
- * handed to a lease and not yet released, when the budget ran out, and `max` is the pool's maximum: every session up to
- * the maximum leased is a saturated pool; otherwise a session was still being established.
- */
-export class AcquisitionBudgetExceeded extends Data.TaggedError("AcquisitionBudgetExceeded")<{
-	readonly millis: number
-	readonly sessions: number
-	readonly leased: number
-	readonly max: number
-}> {
-	override get message(): string {
-		const pool = `${this.leased} of at most ${this.max} sessions leased, ${this.sessions} open`
-		return `no session within the acquisition wait budget of ${this.millis} ms: ${pool}`
-	}
-}
 
 /**
  * The DbLayer the Db was opened under has been released: its scope closed, which ended its session pools, so the Db
@@ -204,8 +184,11 @@ export class HandleReleased extends Data.TaggedError("HandleReleased") {
 	}
 }
 
-/** Why no session was acquired: a connection attempt's refusal, the acquisition wait budget, or a released layer. */
-export type AcquireRefusal = ConnectRefusal | AcquisitionBudgetExceeded | LayerReleased
+/**
+ * Why no session was acquired: a connection attempt's refusal, or a released layer. The wait for a session has no
+ * deadline of grizzle's: an interruption, the caller's own timeout among them, ends it.
+ */
+export type AcquireRefusal = ConnectRefusal | LayerReleased
 
 /** A DbConfig no connection can use: `detail` names the setting it refuses, and never quotes a password. */
 export class DbConfigRefused extends Data.TaggedError("DbConfigRefused")<{
@@ -368,9 +351,10 @@ export class CatalogRowRefused extends Data.TaggedError("CatalogRowRefused")<{
 const operationText = { query: "a query", begin: "BEGIN", commit: "COMMIT" } as const
 
 /**
- * The transport failed (socket error or close, a cancellation that never drained), or the server ended the session
- * with a FATAL or PANIC ErrorResponse (pg_terminate_backend's 57P01, a shutdown), after which it closes the connection.
- * The session is unusable and is retired; whether a statement in flight ran is unknown.
+ * The transport failed (socket error or close), or the server ended the session with a FATAL or PANIC ErrorResponse
+ * (pg_terminate_backend's 57P01, a shutdown), after which it closes the connection.
+ * The session is unusable and never reused: retired, or ended with its connection; whether a statement in flight ran is
+ * unknown.
  *
  * `operation` is what the session was doing: a query, a BEGIN the server refused, after which no transaction is open,
  * or a COMMIT whose answer never came. `ended` is how it ended: by the server, with its FATAL or PANIC report or its
@@ -401,8 +385,9 @@ export class CommitLost extends Data.TaggedError("CommitLost") {
 }
 
 /**
- * pg would not send a query, or answered what the pipeline cannot account for. The session is retired. `operation` is
- * what the session was doing: a query, or a ROLLBACK the server refused, after which the transaction's end is unknown.
+ * pg would not send a query, or answered what the pipeline cannot account for. The session is retired, never reused.
+ * `operation` is what the session was doing: a query, or a ROLLBACK the server refused, after which the transaction's
+ * end is unknown.
  */
 export class DriverFailure extends Data.TaggedError("DriverFailure")<{
 	readonly operation: "query" | "rollback"
@@ -517,10 +502,10 @@ export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law:
  * Which transport bound an execution's parameters are past, found on the host before its flight is sent:
  *
  * - message: the Bind message of the flight's statement at `statement` would be `bytes` long, as its length word
- *   counts it, past the longest message PostgreSQL reads, `limit` (core/policy.ts messageMaxBytes), past which the
+ *   counts it, past the longest message PostgreSQL reads, `limit` (core/limits.ts messageMaxBytes), past which the
  *   backend ends the connection instead of answering;
  * - literal: the array of the relation input `input`'s column `column` would be longer than the longest string the
- *   host builds, `limit` UTF-16 code units (core/policy.ts maxStringLength), so no placeholder can carry it
+ *   host builds, `limit` UTF-16 code units (core/limits.ts maxStringLength), so no placeholder can carry it
  *   (ir/products.ts LiteralBound).
  *
  * Neither bounds a count of rows: a ChangeSet input or a relation parameter of any number of facts travels whenever
@@ -566,8 +551,8 @@ export const literalBound = (bound: LiteralBound): InputTooLarge =>
 
 /**
  * Why a page request is refused: its shape (no record, one whose reading throws, a property that is no control
- * property of one direction, no size or both sizes, the other direction's anchor), or its size (no safe integer from 1
- * to the page limit).
+ * property of one direction, no size or both sizes, the other direction's anchor), or its size (no safe integer of
+ * at least 1).
  */
 export type RequestFault = "requestShape" | "requestSize"
 
@@ -578,7 +563,7 @@ export class PageRequestRefused extends Data.TaggedError("PageRequestRefused")<{
 	override get message(): string {
 		return this.fault === "requestShape"
 			? "the page request is no record of one direction's size and anchor"
-			: "the page size is no safe integer from 1 to the page limit"
+			: "the page size is no safe integer of at least 1"
 	}
 }
 

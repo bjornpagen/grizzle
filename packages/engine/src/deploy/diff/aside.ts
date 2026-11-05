@@ -1,4 +1,5 @@
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
+import { identity, type TemporaryCensus } from "#compiler/core/identity.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	inConstraints,
@@ -75,8 +76,14 @@ const heldName = (
 	return { kind: parsed.kind, name: { schema: parsed.schema, name: parsed.name } }
 }
 
-/** The name the naming door sets an object aside under (identity.aside). */
-const asideName = (name: string): string => identifierOf(identity.aside(name))
+/** The name the naming door sets an object aside under (identity.aside), as the migration's census admits it. */
+const asideName = (temporaries: TemporaryCensus, name: string): string => {
+	const named = temporaries.admit(identity.aside(name))
+	if (!named.ok) {
+		throw new Refusal(named.error)
+	}
+	return named.value
+}
 
 /** A key: a constraint with an index of its own, which takes the constraint's name: a primary key, a candidate key or
  * a span key's exclusion constraint. */
@@ -85,7 +92,11 @@ const isKey = (c: TableConstraint): boolean =>
 
 /** What a holder owns under a name of its schema's pg_class or statistics objects, read off its parts, each name once:
  * its keys, its identity sequences, the indexes and the statistics objects over it. */
-const ownedBy = (holder: ObjectName, parts: Parts): ReadonlyArray<Owned> =>
+const ownedBy = (
+	holder: ObjectName,
+	parts: Parts,
+	temporaries: TemporaryCensus
+): ReadonlyArray<Owned> =>
 	[
 		...[...parts.constraint.values()].flatMap((c) =>
 			isKey(c.constraint) ? [{ kind: "key" as const, name: c.name }] : []
@@ -97,7 +108,7 @@ const ownedBy = (holder: ObjectName, parts: Parts): ReadonlyArray<Owned> =>
 		...[...parts.statistics.values()].flatMap((x) =>
 			x.create.name.schema === holder.schema ? [{ kind: "statistics" as const, name: x.name }] : []
 		)
-	].map((f) => ({ ...f, to: asideName(f.name) }))
+	].map((f) => ({ ...f, to: asideName(temporaries, f.name) }))
 
 /** The stored relations of a manifest, each with its definition, by identity. */
 const tablesOf = (objects: ReadonlyArray<ManifestObject>): ReadonlyMap<string, CreateTable> =>
@@ -164,7 +175,8 @@ const movedOf = (
  * heading swapped stay indistinguishable, and are no change at all.
  *
  * Rule: every holder whose name the target gives an object of another kind, and every kept stored relation whose
- * identity moves, is first renamed aside, in Setup, to the name the naming door gives it set aside (identity.aside).
+ * identity moves, is first renamed aside, in Setup, to the name the naming door gives it set aside (identity.aside),
+ * which the migration's census `temporaries` admits or refuses as DigestCollision (core/identity.ts TemporaryCensus).
  * A relation holder is renamed aside whole: every name it owns in pg_class and among the statistics objects goes aside
  * with it, under its own aside name: each key's index, through its constraint; each other index over it; the identity
  * sequence of each of its columns; and each extended statistics object over it. The renames are one group under a
@@ -176,7 +188,8 @@ const movedOf = (
  * (`renameCandidateTable`), its own target name among them, so the reviewer chooses where its rows go. */
 export const asidesOf = (
 	previous: DeploySnapshot,
-	target: ReadonlyArray<ManifestObject>
+	target: ReadonlyArray<ManifestObject>,
+	temporaries: TemporaryCensus
 ): ReadonlyArray<Aside> => {
 	const kept = new Set(target.map((o) => o.ident))
 	const takers = new Map<string, { readonly kind: Holding; readonly ident: string }>()
@@ -189,14 +202,13 @@ export const asidesOf = (
 	const holders = previous.manifest.objects
 	const byIdent = new Map(holders.map((o) => [o.ident, o]))
 	const owned = (holder: ObjectName): ReadonlyArray<Owned> =>
-		ownedBy(holder, relationParts(holder, holders, byIdent))
+		ownedBy(holder, relationParts(holder, holders, byIdent), temporaries)
 	const moved = movedOf(holders, target)
 	return holders.flatMap((o): ReadonlyArray<Aside> => {
 		const held = heldName(o.ident)
 		if (held === undefined) {
 			return []
 		}
-		const to = asideName(held.name.name)
 		if (kept.has(o.ident)) {
 			const toward = moved.get(o.ident)
 			return toward === undefined || held.kind !== "table"
@@ -206,7 +218,7 @@ export const asidesOf = (
 							kind: "table",
 							name: held.name,
 							cause: { kind: "moved", toward },
-							to,
+							to: asideName(temporaries, held.name.name),
 							owned: owned(held.name)
 						}
 					]
@@ -215,7 +227,9 @@ export const asidesOf = (
 		if (taker === undefined) {
 			return []
 		}
-		return [takenAside(held, { kind: "taken", taker }, to, owned)]
+		return [
+			takenAside(held, { kind: "taken", taker }, asideName(temporaries, held.name.name), owned)
+		]
 	})
 }
 

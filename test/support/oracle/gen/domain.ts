@@ -85,9 +85,9 @@ export const vectorDimensions = 3
 const genTextFlags = "su"
 
 /**
- * The type of a generated column, before it becomes a ScalarType: bare numeric is "numeric", numeric under a typmod
- * "numericTypmod". The extended flavors (carrierDraws) are a contract over bigint, a contract over regex-refined text
- * and unbounded text.
+ * The type of a generated column, before it becomes a ScalarType: numeric is "numericTypmod", its precision and scale
+ * declared, as every numeric field's are. The extended flavors (carrierDraws) are a contract over bigint, a contract
+ * over regex-refined text and unbounded text.
  */
 type TypeSpec =
 	| {
@@ -97,7 +97,6 @@ type TypeSpec =
 			>
 	  }
 	| { readonly carrier: "uuid" | "text" | "longText" | "vector" | "range4" | "range8" }
-	| { readonly carrier: "numeric" }
 	| { readonly carrier: "numericTypmod"; readonly precision: number; readonly scale: number }
 	| {
 			readonly carrier: "enum"
@@ -141,8 +140,6 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 			return { kind: "pg", type: pgNames[spec.carrier] }
 		case "uuid":
 			return { kind: "uuid" }
-		case "numeric":
-			return { kind: "numeric" }
 		case "numericTypmod":
 			return { kind: "numeric", precision: spec.precision, scale: spec.scale }
 		case "text":
@@ -175,6 +172,14 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 			return { kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: undefined }
 	}
 }
+
+/**
+ * The widest generated numeric: numeric(161, 40), which holds every generated value, the edge classes' 121-digit
+ * integer and 30-digit fraction included, but an infinity, which no numeric(p, s) holds. A comparison parameter of a
+ * computed numeric is declared with it.
+ */
+export const wideNumericTypmod = { precision: 161, scale: 40 } as const
+const wideNumericSpec: TypeSpec = { carrier: "numericTypmod", ...wideNumericTypmod }
 
 /**
  * The text package's reading of a generated pattern: the canonical metadata the schema compiler gives a str.regex
@@ -212,14 +217,16 @@ export const scalarOfSpec = (spec: TypeSpec): ScalarType => {
  */
 export const compareParamType = (type: ScalarType): ScalarType => {
 	const base = baseOf(type)
-	return base.carrier === "text" ? wildcardText : base
+	return base.carrier === "text"
+		? wildcardText
+		: base.carrier === "numeric" && base.typmod === undefined
+			? scalarOfSpec(wideNumericSpec)
+			: base
 }
 
 /**
- * The type a key field of `type` is declared with: a key must pass the representability check,
- * and bare numeric has no size bound, so a bare numeric key field is numeric(5,2) instead. Every other generated type
- * is representable: fixed-width, an enum, or the bounded generated text. A bare numeric payload field keeps NaN,
- * Infinity and every display scale; numeric(5,2) keeps NaN and 1.0 = 1.00 in keys.
+ * The type a key field of `type` is declared with: a key must pass the representability check, which every generated
+ * type passes, fixed-width, a numeric of its typmod, an enum, or the bounded generated text.
  *
  * Of the extended flavors, unbounded text proves no bound and is keyed as the generated bounded text. A vector of the
  * generated dimensions is a key as it is, its equality pgvector's. A span in a key is a temporal key, its facts never
@@ -227,9 +234,6 @@ export const compareParamType = (type: ScalarType): ScalarType => {
  * takes its endpoint's type.
  */
 export const keyFieldType = (type: ScalarType, keep: "span" | "scalar"): ScalarType => {
-	if (type.carrier === "numeric" && type.typmod === undefined) {
-		return scalarOfSpec({ carrier: "numericTypmod", precision: 5, scale: 2 })
-	}
 	if (type.carrier === "text" && textFlavor(type) === "long") {
 		return scalarOfSpec({ carrier: "text" })
 	}
@@ -277,7 +281,7 @@ const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
 	numeric: {
 		kind: "specs",
 		base: [
-			{ carrier: "numeric" },
+			wideNumericSpec,
 			{ carrier: "numericTypmod", precision: 5, scale: 2 },
 			{ carrier: "numericTypmod", precision: 3, scale: 1 }
 		],
@@ -319,7 +323,7 @@ export const allTypeSpecs: ReadonlyArray<TypeSpec> = [...baseTypeSpecs, ...drawn
 export const bool: ScalarType = scalarOfSpec({ carrier: "bool" })
 export const int4: ScalarType = scalarOfSpec({ carrier: "int4" })
 export const int8: ScalarType = scalarOfSpec({ carrier: "int8" })
-export const numeric: ScalarType = scalarOfSpec({ carrier: "numeric" })
+export const numeric: ScalarType = scalarOfSpec(wideNumericSpec)
 export const float4: ScalarType = scalarOfSpec({ carrier: "float4" })
 export const float8: ScalarType = scalarOfSpec({ carrier: "float8" })
 export const money: ScalarType = scalarOfSpec({ carrier: "money" })
@@ -340,7 +344,7 @@ export const hasCap = (type: ScalarType, cap: Capability): boolean => type.caps.
 
 /**
  * The field descriptor a column of this type is declared with: aliases normalized, the generated text
- * as str.regex(genTextSource, genTextFlags), an enum as the closedId of its roster.
+ * as str.regex(genTextSource, genTextFlags), an enum as the closedId of its roster, a numeric as its typmod.
  */
 export const fieldDescOf = (type: ScalarType): FieldDesc => {
 	const contract = contractOf(type)
@@ -391,10 +395,10 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 				dimensions: defined(vectorTypmodOf(type), "a vector type's dimensions").dims
 			}
 		case "numeric": {
-			const typmod = numericTypmodOf(type)
-			if (typmod === undefined) {
-				return { kind: "numeric" }
-			}
+			const typmod = defined(
+				numericTypmodOf(type),
+				"a declared numeric's typmod: a computed numeric is no column's declared type"
+			)
 			return { kind: "numeric", precision: typmod.precision, scale: typmod.scale }
 		}
 	}
@@ -724,6 +728,10 @@ export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 	int2: canonicalOnly,
 	int4: canonicalOnly,
 	int8: canonicalOnly,
+	/**
+	 * A finite numeric's paddings: numeric_in stores each at its own display scale in a numeric of no typmod, and a
+	 * numeric(p, s) column stores every one at scale s, so a stored field's twins are one stored text.
+	 */
 	numeric: {
 		kind: "twins",
 		of: (literal) =>

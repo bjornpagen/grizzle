@@ -28,7 +28,7 @@ import { exprEmitter } from "#compiler/scalar/compute/lower.ts"
 import { plainColumns } from "#compiler/scalar/compute/tables.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
-import { withoutSerial } from "#compiler/scalar/compute/types.ts"
+import { anyNumeric, withoutSerial } from "#compiler/scalar/compute/types.ts"
 import { type ScalarEnv, type SqlTag, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { spanColumn } from "#compiler/scalar/span.ts"
 import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
@@ -50,11 +50,16 @@ import { succeeded } from "#test/support/assert.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 
-export interface TestField {
+/** An operand as the Compute catalogue reads one: its SQL type, its column and its ScalarType. */
+interface TestOperand {
 	readonly sql: SqlTag
 	readonly column: Column<unknown>
-	readonly desc: FieldDesc
 	readonly scalar: ScalarType
+}
+
+/** A field descriptor: an operand with the Description a declaration states it by. */
+export interface TestField extends TestOperand {
+	readonly desc: FieldDesc
 }
 
 /** The closed types a test field's handle names, by name: Mood, the aggregate suite's (test/pg/compute). */
@@ -146,9 +151,19 @@ export const testPg = {
 	double: field({ kind: "pg", type: "double precision" }, "double precision"),
 	money: field({ kind: "pg", type: "money" }, "money"),
 	boolean: field({ kind: "pg", type: "boolean" }, "boolean"),
-	numeric: field({ kind: "numeric" }, "numeric"),
+	/**
+	 * The widest numeric the compute suites declare: numeric(1000, 20), its 980 integer and 20 fraction digits holding
+	 * every operand they draw. No numeric field is without a typmod, so none holds an infinity.
+	 */
+	numeric: field({ kind: "numeric", precision: 1000, scale: 20 }, "numeric"),
 	numericOf: (precision: number, scale: number) =>
 		field({ kind: "numeric", precision, scale }, "numeric"),
+	/**
+	 * A computed numeric at numeric's own limits (types.ts anyNumeric): the type of an operand reaching every finite
+	 * value PostgreSQL's numeric holds, as a derived relation's inferred column or a Compute.numeric conversion does. No
+	 * declaration states one, so it is an operand with no Description, never a field.
+	 */
+	computedNumeric: { sql: "numeric", column: plainColumns.numeric, scalar: anyNumeric },
 	uuid: field({ kind: "uuid" }, "uuid"),
 	text: field({ kind: "text", source: "^.*$", flags: "su" }, "text"),
 	regex: (source: string, flags: "u" | "su") => field({ kind: "text", source, flags }, "text"),
@@ -203,8 +218,8 @@ export const testSpan = (endpoint: TestField): TestField =>
 /** The build the variables `v` makes belong to, which runs as long as the tests do. */
 const testBuild: BuilderScope = { active: true }
 
-/** A rule variable of a field's type, which `spelled` names `name`. */
-export const v = (name: string, of: TestField): ScalarTerm =>
+/** A rule variable of an operand's type, which `spelled` names `name`. */
+export const v = (name: string, of: TestOperand): ScalarTerm =>
 	scalarTerm(
 		{
 			kind: "var",
@@ -226,12 +241,14 @@ export const param = (name: string, of: TestField): ScalarTerm =>
 	scalarTerm({ kind: "param", name, type: of.desc }, of.scalar, of)
 
 /**
- * An env's variables: each a column of node n0, or a literal of a field's type, which lowerWith lowers as that literal
- * (withLiterals), as Compute.literal makes one.
+ * An env's variables: each a column of node n0; a literal of a field's type, as Compute.literal makes one; or a bare
+ * literal, which states no type and so has the one its kind gives it, a Decimal's a computed numeric at numeric's own
+ * limits (lower.ts bareLiteral). lowerWith lowers a literal binding as that literal (withLiterals).
  */
 export type LeafBinding =
 	| { readonly kind: "column"; readonly type: ScalarType }
 	| { readonly kind: "literal"; readonly field: TestField; readonly value: LiteralDesc }
+	| { readonly kind: "bare"; readonly value: LiteralDesc }
 
 /** An emitter under fresh labels `x#n` (lower.ts exprEmitter), and every expression it emitted, in emission order. */
 export interface Sink {
@@ -304,9 +321,9 @@ const leafName = (
 ): string => (desc.kind === "var" ? desc.var : desc.kind === "field" ? desc.field : desc.kind)
 
 /**
- * `e` with each leaf `vars` binds to a literal replaced by that literal at its field's type, the node Compute.literal
- * makes, so the lowering types it as a literal, its bounds and facts its own value's, as the product lowers every
- * literal; a leaf bound to a column stays a leaf.
+ * `e` with each leaf `vars` binds to a literal replaced by that literal, at its field's type, the node Compute.literal
+ * makes, or at none, a bare literal's, so the lowering types it as a literal, its bounds and facts its own value's, as
+ * the product lowers every literal; a leaf bound to a column stays a leaf.
  */
 const withLiterals = (e: ExprDesc, vars: Readonly<Record<string, LeafBinding>>): ExprDesc => {
 	const go = (x: ExprDesc): ExprDesc => withLiterals(x, vars)
@@ -316,9 +333,14 @@ const withLiterals = (e: ExprDesc, vars: Readonly<Record<string, LeafBinding>>):
 		case "value":
 		case "parent": {
 			const binding = vars[leafName(e)]
-			return binding?.kind === "literal"
-				? { kind: "literal", value: binding.value, type: binding.field.desc }
-				: e
+			if (binding === undefined || binding.kind === "column") {
+				return e
+			}
+			return {
+				kind: "literal",
+				value: binding.value,
+				type: binding.kind === "literal" ? binding.field.desc : undefined
+			}
 		}
 		case "param":
 		case "literal":

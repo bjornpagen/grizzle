@@ -14,7 +14,14 @@ import {
 } from "#compiler/deploy/render/markers.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
-import { cli, cliClock, viaDatabaseUrl, workspace, writeConfig } from "#test/pg/cli/support.ts"
+import {
+	cli,
+	cliClock,
+	configName,
+	unconnected,
+	workspace,
+	writeConfig
+} from "#test/pg/cli/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 
@@ -78,15 +85,15 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 			const ws = yield* workspace("check-marker")
 			yield* writeConfig(ws, {
 				schemas: [{ name: "ChkMark", fixture: "shop", version: 1, workload: "none" }],
-				connection: viaDatabaseUrl
+				connection: unconnected
 			})
-			const first = yield* cli(ws, ["generate", "--name", "init"], at(0), {})
+			const first = yield* cli(ws, ["generate", configName, "--name", "init"], at(0))
 			assert.equal(first.code, 0)
 			yield* writeConfig(ws, {
 				schemas: [{ name: "ChkMark", fixture: "shop", version: 2, workload: "none" }],
-				connection: viaDatabaseUrl
+				connection: unconnected
 			})
-			const tier = yield* cli(ws, ["generate", "--name", "tier"], at(1), {})
+			const tier = yield* cli(ws, ["generate", configName, "--name", "tier"], at(1))
 			assert.equal(tier.code, 0)
 			const rel = `migrations/${identifierOf(identity.schema(parsedSchemaName("ChkMark")))}/20261014120001_tier`
 			const folder = join(ws, rel)
@@ -112,7 +119,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 				)
 			)
 			assert.ok(markers.length > 0)
-			const marked = yield* cli(ws, ["check"], nextNow(), {})
+			const marked = yield* cli(ws, ["check", configName], nextNow())
 			assert.equal(marked.code, 1)
 			assert.deepEqual(lines(marked.stderr), markers)
 			for (const f of files) {
@@ -127,7 +134,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 					)
 				)
 			}
-			const resolved = yield* cli(ws, ["check"], nextNow(), {})
+			const resolved = yield* cli(ws, ["check", configName], nextNow())
 			assert.equal(resolved.code, 0, resolved.stderr)
 		})
 	)
@@ -139,15 +146,15 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 				const ws = yield* workspace("check-renamed")
 				yield* writeConfig(ws, {
 					schemas: [{ name: "ChkOld", fixture: "shop", version: 1, workload: "none" }],
-					connection: viaDatabaseUrl
+					connection: unconnected
 				})
-				const first = yield* cli(ws, ["generate", "--name", "init"], at(0), {})
+				const first = yield* cli(ws, ["generate", configName, "--name", "init"], at(0))
 				assert.equal(first.code, 0)
 				yield* writeConfig(ws, {
 					schemas: [{ name: "ChkNew", fixture: "shop", version: 1, workload: "none" }],
-					connection: viaDatabaseUrl
+					connection: unconnected
 				})
-				const generated = yield* cli(ws, ["generate", "--name", "init"], at(1), {})
+				const generated = yield* cli(ws, ["generate", configName, "--name", "init"], at(1))
 				assert.equal(generated.code, 0, generated.stderr)
 				const old = identifierOf(identity.schema(parsedSchemaName("ChkOld")))
 				const rel = `migrations/${identifierOf(identity.schema(parsedSchemaName("ChkNew")))}/20261014120001_init`
@@ -167,7 +174,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 					),
 					`generate lists the loss:\n${generated.stdout}`
 				)
-				const refused = yield* cli(ws, ["check"], nextNow(), {})
+				const refused = yield* cli(ws, ["check", configName], nextNow())
 				assert.equal(refused.code, 1)
 				const tail = `: ${refusalText.unresolvedLoss.problem}; ${refusalText.unresolvedLoss.fix}`
 				const [one, ...more] = Arr.filter(lines(refused.stderr), (l) =>
@@ -191,7 +198,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 						"\n"
 					)
 				)
-				const decided = yield* cli(ws, ["check"], nextNow(), {})
+				const decided = yield* cli(ws, ["check", configName], nextNow())
 				assert.equal(decided.code, 0, decided.stderr)
 			})
 	)
@@ -203,11 +210,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 				const ws = yield* workspace("check-tamper")
 				yield* writeConfig(ws, {
 					schemas: [{ name: "ChkTamp", fixture: "shop", version: 1, workload: "none" }],
-					connection: viaDatabaseUrl
+					connection: unconnected
 				})
-				const first = yield* cli(ws, ["generate", "--name", "init"], at(0), {})
+				const first = yield* cli(ws, ["generate", configName, "--name", "init"], at(0))
 				assert.equal(first.code, 0)
-				const custom = yield* cli(ws, ["generate", "--custom", "--name", "seed"], at(1), {})
+				const custom = yield* cli(ws, ["generate", configName, "--custom", "--name", "seed"], at(1))
 				assert.equal(custom.code, 0)
 				const rel = `migrations/${identifierOf(identity.schema(parsedSchemaName("ChkTamp")))}`
 				const dir = join(ws, rel)
@@ -238,7 +245,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 				const fs = yield* FileSystem.FileSystem
 				yield* fs.makeDirectory(join(dir, "draft"))
 				yield* write(join(dir, "draft", metaFileName), "{}")
-				const all = yield* cli(ws, ["check"], nextNow(), {})
+				const all = yield* cli(ws, ["check", configName], nextNow())
 				assert.equal(all.code, 1)
 				const reported = lines(all.stderr)
 				const structureText = yield* read(join(dir, init, structure))

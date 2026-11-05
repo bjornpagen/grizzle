@@ -14,7 +14,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -50,6 +49,7 @@ import {
 } from "#test/pg/migrate/support.ts"
 import { assert, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	draftedAt,
 	fromEmpty,
@@ -1374,7 +1374,7 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 						shrink: { kind: "bounded", candidates: 60 },
 						concurrency: 1,
 						steerEvery: 4,
-						caseHang: Duration.minutes(10)
+						caseHang
 					},
 					(drawnSteps, c) => {
 						const aims = pendingCommands(c.steering)

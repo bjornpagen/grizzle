@@ -6,7 +6,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Order,
@@ -41,6 +40,7 @@ import {
 } from "#test/support/oracle/reference/evaluate.ts"
 
 import type { Uuid } from "#compiler/public/fields.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	literalOf,
 	type Row,
@@ -768,7 +768,7 @@ const budget = {
 	shrink: { kind: "complete" },
 	concurrency: 1,
 	steerEvery: 16,
-	caseHang: Duration.minutes(2)
+	caseHang
 } as const
 
 describe("the worlds model's host semantics", () => {

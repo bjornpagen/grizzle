@@ -80,6 +80,23 @@ export const cast = Compute.cast(plainBigint, Cents)
 export type CastType = Expect<Equals<TypeOfTerm<typeof cast>, CentsHost>>
 
 /**
+ * numeric is x::numeric of an integer, money, an exact value, a numeric or a float: a computed numeric, a Decimal, with
+ * its operand's parameters, an integer's proved finite as a cast proves it.
+ */
+export const intNumeric = Compute.numeric(int)
+export type IntNumericType = Expect<Equals<TypeOfTerm<typeof intNumeric>, Decimal>>
+export type IntNumericSql = Expect<Equals<SqlOfTerm<typeof intNumeric>, "numeric">>
+export const intNumericScale = Compute.minScale(intNumeric)
+export const moneyNumeric = Compute.numeric(money)
+export type MoneyNumericType = Expect<Equals<TypeOfTerm<typeof moneyNumeric>, Decimal>>
+export const paramNumeric = Compute.numeric(cCents)
+export type ParamNumericParams = Expect<
+	Equals<ParamsOfT<typeof paramNumeric>, { readonly c: ParamType<CentsHost, "bigint"> }>
+>
+// @ts-expect-error -- TS2345: numeric takes a number
+export const textNumeric = Compute.numeric(text)
+
+/**
  * Arithmetic yields PostgreSQL's native result over the bases; a parameter of the operand's type contributes its own
  * parameter map.
  */
@@ -197,7 +214,12 @@ export const greatestMixed = Compute.greatest(cents, plainBigint)
 export const bucket = Compute.when(
 	Compute.isFinite(dec),
 	(x) =>
-		Compute.widthBucket(x, Compute.literal(pg.numeric, 0n), Compute.literal(pg.numeric, 10n), int),
+		Compute.widthBucket(
+			x,
+			Compute.literal(pg.numeric(1, 0), 0n),
+			Compute.literal(pg.numeric(2, 0), 10n),
+			int
+		),
 	0
 )
 export type BucketType = Expect<Equals<TypeOfTerm<typeof bucket>, number>>
@@ -384,6 +406,7 @@ export const computeCovered: { readonly [K in keyof typeof Compute]: true } = {
 	greatest: true,
 	widthBucket: true,
 	minScale: true,
+	numeric: true,
 	cond: true,
 	when: true,
 	nonzero: true,

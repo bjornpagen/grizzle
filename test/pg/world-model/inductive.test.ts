@@ -15,9 +15,10 @@ import {
 } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { notedOf, runStep } from "#test/support/worlds/drive/index.ts"
 import {
@@ -99,21 +100,6 @@ const steeredFactor = 10
 
 /** The most shrink candidates a failing case tries. */
 const shrinkCandidates = 200
-
-/**
- * A case's time bound, on average over the search: a case installs, reaches its planned state and performs one
- * action, about 2 s, 2.7 s on average in a loaded run (TEST_SEED=1759583718); a case that does not end at all is the
- * hang guard's (caseHang).
- */
-const caseMillis = 5_000
-
-/**
- * The test's time bound: every case its search may make at caseMillis each, its floor stream's quarter of its cases,
- * its steered phase, its rotating cases and a failure's shrink candidates, so the search never outlives its test.
- */
-const timeout =
-	(Math.max(1, Math.ceil(cases / 4)) + steeredFactor * cases + cases + shrinkCandidates) *
-	caseMillis
 
 const name = "every invariant holds after one action from any generated state"
 
@@ -515,76 +501,73 @@ const reachedPlan = (state: ModelState, plan: StatePlan): void => {
 layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 	"the worlds model: inductive",
 	(it) => {
-		it.effect(
-			name,
-			(ctx) =>
-				searched(
-					ctx,
-					explore(
-						{
-							suite: "pg/world-model/inductive",
-							draw: drawn(caseGen),
-							literal: Formatter.format,
-							coverage: required<WorldFeature>(situations, {
-								cases: steeredFactor * cases,
-								sense: notesOnly
-							}),
-							kept: [],
-							runs: cases,
-							shrink: { kind: "bounded", candidates: shrinkCandidates },
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang: Duration.minutes(2)
-						},
-						(ic, c) =>
-							Effect.scoped(
-								Effect.gen(function* () {
-									const world =
-										ic.pool === "default"
-											? yield* realize(ic.install, ordinarySession)
-											: yield* realizeRace(ic.install, ordinarySession, 1)
-									const staged = yield* stage(world, ic.install, c.draw, docsAtCapacityRealities)
-									const setup = setupOf(ic.plan)
-									const planned = yield* Effect.reduce(
-										setup,
-										(): ModelState => staged.start,
-										(state, action, index) =>
-											Effect.map(
-												runStep(world, state, action, index, unnoted),
-												(stepped) => stepped.next
-											)
-									)
-									reachedPlan(planned, ic.plan)
-									const led: Led =
-										ic.plan.after.kind === "led"
-											? leadOf(leads, situations, ic.weights, c)
-											: { moves: [], aims: situations }
-									const reached = yield* Effect.reduce(
-										led.moves,
-										(): ModelState => planned,
-										(state, weights, index) =>
-											Effect.map(
-												runStep(
-													world,
-													state,
-													drawAction(c.draw, state, weights),
-													setup.length + index,
-													unnoted
-												),
-												(stepped) => stepped.next
-											)
-									)
-									const action = drawAction(
-										c.draw,
-										reached,
-										steeredOnce({ ...ic.weights, aims: aimsAt(led.aims, notedOf) }, c)
-									)
-									yield* runStep(world, reached, action, setup.length + led.moves.length, c)
-								})
-							)
-					)
-				),
-			timeout
+		it.effect(name, (ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/world-model/inductive",
+						draw: drawn(caseGen),
+						literal: Formatter.format,
+						coverage: required<WorldFeature>(situations, {
+							cases: steeredFactor * cases,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: cases,
+						shrink: { kind: "bounded", candidates: shrinkCandidates },
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(ic, c) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const world =
+									ic.pool === "default"
+										? yield* realize(ic.install, ordinarySession)
+										: yield* realizeRace(ic.install, ordinarySession, 1)
+								const staged = yield* stage(world, ic.install, c.draw, docsAtCapacityRealities)
+								const setup = setupOf(ic.plan)
+								const planned = yield* Effect.reduce(
+									setup,
+									(): ModelState => staged.start,
+									(state, action, index) =>
+										Effect.map(
+											runStep(world, state, action, index, unnoted),
+											(stepped) => stepped.next
+										)
+								)
+								reachedPlan(planned, ic.plan)
+								const led: Led =
+									ic.plan.after.kind === "led"
+										? leadOf(leads, situations, ic.weights, c)
+										: { moves: [], aims: situations }
+								const reached = yield* Effect.reduce(
+									led.moves,
+									(): ModelState => planned,
+									(state, weights, index) =>
+										Effect.map(
+											runStep(
+												world,
+												state,
+												drawAction(c.draw, state, weights),
+												setup.length + index,
+												unnoted
+											),
+											(stepped) => stepped.next
+										)
+								)
+								const action = drawAction(
+									c.draw,
+									reached,
+									steeredOnce({ ...ic.weights, aims: aimsAt(led.aims, notedOf) }, c)
+								)
+								yield* runStep(world, reached, action, setup.length + led.moves.length, c)
+							})
+						)
+				)
+			)
 		)
 	}
 )

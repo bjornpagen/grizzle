@@ -1,7 +1,7 @@
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
 import { btreeEntry, keyDatums } from "#compiler/schema/representability.ts"
 
@@ -14,7 +14,7 @@ export interface DerivedKeyLayout {
 /** A column of a derived relation's heading as a key's layout reads it: its name and its inferred field descriptor. */
 interface KeyColumn {
 	readonly name: string
-	readonly desc: FieldDesc
+	readonly desc: InferredFieldDesc
 }
 
 /**
@@ -31,12 +31,14 @@ interface KeyColumn {
  *
  * A definition proved to hold at most one fact, an aggregate over no group key, proves a key narrower than any heading:
  * every single column. Its one unique index is on its first column in heading order whose entry is representable, so a
- * global total over an unbounded `sum` is indexed on a bounded column, such as its count, and refused only when no
- * column is bounded.
+ * global total whose first column is wildcard text, or a computed numeric whose entry outgrows BTMaxItemSize, is indexed
+ * on a later column, such as its count, and refused only when no column's entry fits.
  *
  * When no key narrower than the heading is proven, the index covers the full heading, which the compiler admits only
- * when the heading passes the same check; a heading holding wildcard text or an unconstrained numeric,
- * such as a `sum`, then has no unique index and is `UnrepresentableKey`, naming the key and the bound that failed.
+ * when the heading passes the same check. A computed numeric, a `sum`'s or a `mean`'s, is bounded by the digits and the
+ * scale its definition proves (schema/representability.ts datumBound), like a numeric(p, s); a heading holding wildcard
+ * text, or datums whose entry outgrows BTMaxItemSize, has no unique index and is `UnrepresentableKey`, naming the key and
+ * the bound that failed.
  * A narrower key that fails is refused the same way: every inherited key is evidence only because its
  * unique index exists ("Derived relation scan").
  */

@@ -1,12 +1,21 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { array, boolean, element, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
-import { type Identity, identity } from "#compiler/core/identity.ts"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import {
+	censusOf,
+	type Identity,
+	identity,
+	TemporaryCensus,
+	type TemporaryKind
+} from "#compiler/core/identity.ts"
 import type { IdentityKind } from "#compiler/core/ids.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
+import { hashedNames } from "#compiler/physical/install/comments.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { AnyLogin, AnySchema } from "#compiler/public/schema.ts"
 import { type Owned, ownLogin } from "#compiler/schema/own.ts"
@@ -19,6 +28,7 @@ import { installationSql } from "#test/support/compile.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { aliasGroups, refusedNames } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { ownedInput, owning } from "#test/support/policy.ts"
 
 /**
@@ -29,7 +39,12 @@ import { ownedInput, owning } from "#test/support/policy.ts"
  *   (test/pg/migrate/support.ts installationAbstraction), whatever the two names, one a prefix of the other included;
  * - a COMMENT names a hashed object only, and says what its identity is: a readable name spells its identity itself;
  * - two declared names of one namespace that convert alike are one name, refused as IdentifierCollision, and a name the
- *   rule refuses (a leading `_`, a conversion past 63 bytes) is refused as MalformedDescription.
+ *   rule refuses (a leading `_`, a conversion past maxIdentifierBytes) is refused as MalformedDescription;
+ * - the census admits distinct hashed identities of distinct identifiers, and refuses two distinct identities of one
+ *   identifier, a digest collision, as DigestCollision naming both, before anything is installed;
+ * - a migration's census of its temporaries (TemporaryCensus), over the hashed names an installed snapshot leaves
+ *   standing, admits every distinct temporary under its identifier and one minted again under the same, and refuses
+ *   one whose identifier a standing name or another temporary has as DigestCollision naming both, where it is minted.
  */
 
 /** A fixture with its login: the shop, and the ledger, whose residual law and derived relation install as extensions. */
@@ -82,6 +97,40 @@ type InstallFeature =
 	| "one name a prefix of the other"
 	| "a hashed object commented"
 
+/** Each temporary kind's constructor: the names a migration sets an object aside, swaps an index and rebuilds an enum
+ * under. */
+const temporaryOf: { readonly [K in TemporaryKind]: (of: string) => Identity<K> } = {
+	aside: identity.aside,
+	swap: identity.swap,
+	rebuild: identity.rebuild
+}
+
+/** Admits each of `temporaries` in order, each under its own identifier. */
+const admitsAll = (
+	census: TemporaryCensus,
+	temporaries: ReadonlyArray<Identity<TemporaryKind>>
+): void => {
+	for (const t of temporaries) {
+		assert.equal(succeeded(census.admit(t)), t.identifier, t.display)
+	}
+}
+
+/** Refuses `temporary` as DigestCollision of its identifier, naming `display` before it and its own display after. */
+const collides = (
+	census: TemporaryCensus,
+	temporary: Identity<TemporaryKind>,
+	display: string
+): void => {
+	const reason = refused(census.admit(temporary), "DigestCollision").reason
+	if (reason._tag !== "DigestCollision") {
+		return assert.fail(`a DigestCollision, not ${reason._tag}`)
+	}
+	assert.equal(reason.identifier, temporary.identifier)
+	assert.deepEqual([reason.display, reason.otherDisplay], [display, temporary.display])
+}
+
+type TemporaryFeature = "admitted" | "minted again" | "a standing name met" | "two temporaries met"
+
 describe("the naming door", () => {
 	it.effect(
 		"installs one schema under two schema names alike, and comments exactly its hashed objects",
@@ -107,7 +156,7 @@ describe("the naming door", () => {
 								"one name a prefix of the other",
 								"a hashed object commented"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([fixture, [a, b]], c) =>
 							Effect.sync(() => {
@@ -203,7 +252,7 @@ describe("the naming door", () => {
 								"a refused relation name",
 								"a refused field name"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(drawn, c) =>
 							Effect.sync(() => {
@@ -249,6 +298,180 @@ describe("the naming door", () => {
 											).ok,
 											drawn.p
 										)
+								}
+							})
+					)
+				)
+			})
+	)
+
+	it.effect(
+		"admits distinct hashed identities, and refuses two distinct identities of one identifier as DigestCollision",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/core/identity-census",
+						draw: drawn((source) => ({
+							fields: source.draw(array(element(["a", "b", "c", "d", "e"]), { min: 1, max: 5 })),
+							twin: source.draw(boolean),
+							at: source.draw(int(0, 4))
+						})),
+						literal: Formatter.format,
+						coverage: required<"admitted" | "a digest collision">(
+							["admitted", "a digest collision"],
+							{ cases: 50, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					({ fields, twin, at }, c) =>
+						Effect.sync(() => {
+							const minted = Arr.map(Arr.dedupe(fields), (field) =>
+								identity.sequence("Item", field)
+							)
+							const original = defined(minted[at % minted.length], "a minted identity")
+							if (!twin) {
+								c.note("admitted")
+								const census = succeeded(censusOf(minted))
+								assert.equal(census.hashed.size, minted.length)
+								return
+							}
+							c.note("a digest collision")
+							const forged: Identity<IdentityKind> = {
+								...original,
+								canonical: `${original.canonical}'`,
+								display: `a twin of ${original.display}`
+							}
+							const reason = refused(censusOf([...minted, forged]), "DigestCollision").reason
+							if (reason._tag !== "DigestCollision") {
+								return assert.fail(`a DigestCollision, not ${reason._tag}`)
+							}
+							assert.equal(reason.identifier, original.identifier)
+							assert.deepEqual(
+								[reason.display, reason.otherDisplay],
+								[original.display, forged.display]
+							)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"admits a migration's distinct temporaries, and refuses one meeting a standing name or another temporary as DigestCollision where it is minted",
+		(ctx) =>
+			Effect.gen(function* () {
+				const snapshots = new Map(
+					Arr.map(["shop", "ledger"] as const, (fixture) => {
+						const { schema, server } = fixtureOf(fixture)
+						const installation = installed(
+							owning(schema),
+							server,
+							identity.schema(parsedSchemaName("gz_naming"))
+						)
+						const names = Arr.dedupe(Arr.map(installation.identities, (i): string => i.identifier))
+						return [
+							fixture,
+							{
+								standing: hashedNames(installation.manifest.comments),
+								names: nonEmpty(names, `${fixture}'s identifiers`)
+							}
+						] as const
+					})
+				)
+				yield* searched(
+					ctx,
+					explore(
+						{
+							suite: "unit/core/identity-temporaries",
+							draw: drawn((source) => ({
+								snapshot: source.draw(element<Fixture>(["shop", "ledger"])),
+								steps: source.draw(
+									array(
+										(step) => ({
+											kind: step.draw(element<TemporaryKind>(["aside", "swap", "rebuild"])),
+											of: step.draw(int(0, 0xffff)),
+											again: step.draw(boolean)
+										}),
+										{ min: 1, max: 6 }
+									)
+								),
+								meets: source.draw(
+									element<"nothing" | "a standing name" | "another temporary">([
+										"nothing",
+										"a standing name",
+										"another temporary"
+									])
+								),
+								at: source.draw(int(0, 5))
+							})),
+							literal: Formatter.format,
+							coverage: required<TemporaryFeature>(
+								["admitted", "minted again", "a standing name met", "two temporaries met"],
+								{ cases: 50, sense: notesOnly }
+							),
+							kept: [],
+							runs: 300,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						({ snapshot, steps, meets, at }, c) =>
+							Effect.sync(() => {
+								const { standing, names } = defined(snapshots.get(snapshot), snapshot)
+								const minted: Array<Identity<TemporaryKind>> = []
+								for (const step of steps) {
+									const prior = minted[step.of % Math.max(minted.length, 1)]
+									minted.push(
+										step.again && prior !== undefined
+											? prior
+											: temporaryOf[step.kind](
+													defined(names[step.of % names.length], "a standing identifier")
+												)
+									)
+								}
+								const target = defined(minted[at % minted.length], "a minted temporary")
+								switch (meets) {
+									case "nothing": {
+										admitsAll(new TemporaryCensus(standing), minted)
+										c.note("admitted")
+										if (new Set(minted).size < minted.length) {
+											c.note("minted again")
+										}
+										return
+									}
+									case "a standing name": {
+										c.note("a standing name met")
+										const live = {
+											identifier: target.identifier,
+											display: `an object standing under ${target.display}`
+										}
+										const census = new TemporaryCensus([...standing, live])
+										const first = Option.getOrThrowWith(
+											Arr.findFirstIndex(minted, (t) => t.identifier === target.identifier),
+											() => new Error("the target among the minted temporaries")
+										)
+										admitsAll(census, minted.slice(0, first))
+										collides(census, target, live.display)
+										return
+									}
+									case "another temporary": {
+										c.note("two temporaries met")
+										const twin: Identity<TemporaryKind> = {
+											...target,
+											canonical: `${target.canonical}'`,
+											display: `a twin of ${target.display}`
+										}
+										const census = new TemporaryCensus(standing)
+										admitsAll(census, minted.slice(0, minted.indexOf(target) + 1))
+										collides(census, twin, target.display)
+									}
 								}
 							})
 					)

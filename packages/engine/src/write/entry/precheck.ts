@@ -1,6 +1,6 @@
 import type { CheckedEntry, CheckedSchema } from "#compiler/analysis/schema.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
-import type { RaisedLawId } from "#compiler/core/ids.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
@@ -62,7 +62,7 @@ export type WriteWorld =
 interface ProbeCall {
 	readonly args: ReadonlyArray<LawField>
 	readonly fn: (argTypes: ReadonlyArray<TypeRef>) => FunctionName
-	readonly law: RaisedLawId
+	readonly law: LawId
 	readonly witness: ReadonlyArray<LawField>
 }
 

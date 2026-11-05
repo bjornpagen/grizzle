@@ -42,7 +42,7 @@ export const Cell = relation(
 		bigint: pg.bigint,
 		boolean: pg.boolean,
 		uuid,
-		numeric: pg.numeric,
+		numeric: pg.numeric(10, 2),
 		money: pg.money,
 		vector: pg.vector(3),
 		tone: closedId(Tone),

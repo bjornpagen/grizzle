@@ -57,7 +57,7 @@ export type ArrayTexts = ReadonlyArray<string>
 
 /**
  * A relation input's column whose array literal would be longer than the longest string the host builds
- * (core/policy.ts maxStringLength): no placeholder can carry it, so the input is refused before any SQL is sent, which
+ * (core/limits.ts maxStringLength): no placeholder can carry it, so the input is refused before any SQL is sent, which
  * the shell raises as InputTooLarge. `input` names the relation parameter or the written relation, `column` its field.
  */
 export interface LiteralBound {
@@ -168,7 +168,9 @@ export type PageFill =
  * What fills one placeholder of a statement spec, decided where the lowering allocated it, with its encoder. For a
  * scalar or relation parameter, `param` is the declared ParamId, which is the parameter's declared name and the key of
  * its host value (check/params.ts). A member slot is a write's enumerated member input (write/insert/input.ts); a page
- * placeholder is one only the page compiler allocates.
+ * placeholder is one only the page compiler allocates, and has no encoder: the page runtime binds its fill's text
+ * (adapter/page/execute.ts), a limit or a size as the decimal digits of a bigint, `$n::bigint`, and a boundary as the
+ * text its cursor carried.
  *
  * A relation input's placeholders in one statement, one per array, share one encoder, which writes all of its arrays
  * (ArrayTexts), and each takes the array at its `part`; a binder encodes the input once per statement by that shared
@@ -188,7 +190,7 @@ export type ParamSlot =
 			readonly part: number
 			readonly encode: MemberEncoder
 	  }
-	| { readonly kind: "page"; readonly fill: PageFill; readonly encode: Encoder }
+	| { readonly kind: "page"; readonly fill: PageFill }
 
 /** A placeholder of a write's statement: a declared parameter or a member slot, never a page fill. */
 export type WriteSlot = Exclude<ParamSlot, { readonly kind: "page" }>

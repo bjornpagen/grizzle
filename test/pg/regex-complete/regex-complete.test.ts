@@ -5,7 +5,6 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Exit,
 	Formatter,
@@ -58,6 +57,7 @@ import {
 	parsedSchemaName,
 	type TextDomainNames
 } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { checking, owning } from "#test/support/policy.ts"
@@ -328,7 +328,7 @@ const everyCase = <A, E, R>(
 			literal: Formatter.format,
 			limit,
 			coverage: noCoverage,
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		property
 	)

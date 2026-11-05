@@ -278,9 +278,9 @@ export const traceApproximate = (
 	if (dimensions === undefined) {
 		return Result.err(`${prefix}: a vector field ${base.relation}.${binder.column}`)
 	}
-	if (dimensions > hnswPolicy.maxDimensions) {
+	if (dimensions > hnswPolicy.maxDimensions.value) {
 		return Result.err(
-			`${prefix}: an indexed vector of at most ${hnswPolicy.maxDimensions} dimensions, HNSW's limit; ${base.relation}.${binder.column} has ${dimensions}, and the compiler never truncates, casts to halfvec or quantizes a vector`
+			`${prefix}: an indexed vector of at most ${hnswPolicy.maxDimensions.value} dimensions, HNSW's limit; ${base.relation}.${binder.column} has ${dimensions}, and the compiler never truncates, casts to halfvec or quantizes a vector`
 		)
 	}
 	return Result.ok({

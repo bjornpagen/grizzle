@@ -1,10 +1,10 @@
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
-import { hnswSearchSettings } from "#compiler/check/approximate/policy.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
 import type { ClosedTemplate } from "#compiler/physical/ddl/closed.ts"
 import { roleIdentity, roleView } from "#compiler/physical/ddl/names.ts"
+import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { assert } from "#test/support/assert.ts"
@@ -336,23 +336,22 @@ const vectorSchemaOf = (catalog: Catalog, type: NamedType): Option.Option<string
 }
 
 /**
- * Each login's fixed defaults, `name=value` as pg_db_role_setting stores them: no JIT, float text in shortest
- * round-trip form (only when extra_float_digits is positive), every locale category at C.UTF-8, and the search path of
- * pg_catalog and the session's temporary schema alone, a list PostgreSQL stores with its schemas bare.
+ * Each login's fixed defaults, `name=value` as pg_db_role_setting stores them: float text in shortest round-trip form
+ * (only when extra_float_digits is positive), lc_monetary, lc_numeric and lc_time at C.UTF-8, and the search path of
+ * pg_catalog and the session's temporary schema alone, a list PostgreSQL stores with its schemas bare. Nothing else:
+ * jit and lc_messages are the database owner's.
  */
 export const fixedDefaults: ReadonlyArray<string> = [
 	"extra_float_digits=1",
-	"jit=off",
-	"lc_messages=C.UTF-8",
 	"lc_monetary=C.UTF-8",
 	"lc_numeric=C.UTF-8",
 	"lc_time=C.UTF-8",
 	"search_path=pg_catalog, pg_temp"
 ]
 
-/** The search policy's session parameters, stored the same way. */
+/** The search setting grizzle pins, strict-order iterative scans, stored the same way. */
 export const searchDefaults: ReadonlyArray<string> = Arr.map(
-	hnswSearchSettings(),
+	searchPolicySettings,
 	(s) => `${s.parameter}=${s.value}`
 )
 
@@ -462,10 +461,10 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  * - the vector type, by the same derivation: a world's role holds USAGE on a schema outside the installation exactly
  *   when a column it reads (of its world's views, or of its whole closed relations' payloads) or a column of a table it
  *   inserts into is, or rests through the schema's domains on, that schema's `vector`, so it can name the type a search
- *   binds; and each login stores exactly the fixed defaults (`search_path = pg_catalog, pg_temp`, `jit = off`,
- *   `extra_float_digits = 1` and the four locale categories at C.UTF-8) plus, exactly when one of its roles names the
- *   vector type, the HNSW search policy's session parameters (check/approximate/policy.ts), which PostgreSQL applies at
- *   login and never on SET ROLE.
+ *   binds; and each login stores exactly the fixed defaults (`search_path = pg_catalog, pg_temp`,
+ *   `extra_float_digits = 1` and lc_monetary, lc_numeric and lc_time at C.UTF-8) plus, exactly when one of its roles
+ *   names the vector type, `hnsw.iterative_scan = strict_order` (check/approximate/policy.ts), which PostgreSQL applies
+ *   at login and never on SET ROLE.
  *
  * The derivation reads the catalog's own grants and types; the declaration supplies only what the catalog cannot show:
  * which closed relations a world holds and which derived relations it refreshes, from the installation's owned logins

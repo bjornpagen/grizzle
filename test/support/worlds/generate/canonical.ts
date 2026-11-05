@@ -7,7 +7,7 @@ import type {
 	HostFact,
 	HostState,
 	ModelState,
-	SessionState
+	ModelSession
 } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -61,7 +61,7 @@ const claimsSettingKey = (setting: ClaimsSetting): string => {
 	}
 }
 
-const sessionKey = (session: SessionState): string => {
+const sessionKey = (session: ModelSession): string => {
 	switch (session.kind) {
 		case "db":
 			return Arr.join(

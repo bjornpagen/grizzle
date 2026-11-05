@@ -6,13 +6,14 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { Expr, Select, SelectCore, SetOperand, SqlStatement } from "#compiler/sql/ast.ts"
 import { mapTargets, target } from "#compiler/sql/build.ts"
 import { bodyPositionNames, renameToPublicHeading } from "#compiler/sql/naming.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { resolveStatement, statementGen } from "#test/support/kernel/sqlgen.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 
@@ -133,7 +134,7 @@ describe("outermost-only public renaming", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([statement, offset], c) =>
 						Effect.sync(() => {

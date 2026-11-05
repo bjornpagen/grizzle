@@ -4,7 +4,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, FileSystem, Formatter, Order, Path } from "effect"
+import { Array as Arr, Effect, FileSystem, Formatter, Order, Path } from "effect"
 import {
 	allenAtomCount,
 	allenAtoms,
@@ -13,17 +13,12 @@ import {
 	literalNegated
 } from "#compiler/allen/atoms.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
-import {
-	AllenMask,
-	type AllenRelation,
-	allenMaskOf,
-	allenRelations,
-	converseMask,
-	fullAllenMask
-} from "#compiler/allen/mask.ts"
+import { AllenMask, allenMaskOf, converseMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { allenTable } from "#compiler/allen/table.generated.ts"
+import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 import { allenTableSource, generateAllenTable } from "#scripts/gen/allen/generate.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	canonicalize,
 	everyDisjunctIndexable,
@@ -106,7 +101,7 @@ describe("the generated Allen table", () => {
 							"a negated literal",
 							"the full mask"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(mask, c) =>
 						Effect.sync(() => {
@@ -177,7 +172,7 @@ describe("the generated Allen table", () => {
 						"cost four",
 						"cost above four"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(mask, c) =>
 					Effect.sync(() => {
@@ -322,7 +317,7 @@ describe("the verification universe", () => {
 						 */
 						limit: 100_000,
 						coverage: requiredInSpace<UniverseFeature>(situations),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(item, c) =>
 						Effect.sync(() => {
@@ -373,7 +368,7 @@ describe("the verification universe", () => {
 							Arr.map(allenRelations, (r): `${RangeType} ${AllenRelation}` => `${type} ${r}`)
 						)
 					),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ type, pair }, c) =>
 					Effect.sync(() => {
@@ -416,7 +411,7 @@ describe("the exhaustive check against the brute-force classifier", () => {
 							`${atom.text} failed`
 						])
 					),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ pair }, c) =>
 					Effect.sync(() => {
@@ -454,7 +449,7 @@ describe("the exhaustive check against the brute-force classifier", () => {
 									`${type} a mask` as const
 								])
 							),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([type, mask], c) =>
 						Effect.sync(() => {
@@ -479,7 +474,7 @@ describe("the exhaustive check against the brute-force classifier", () => {
 					literal: Formatter.format,
 					limit: types.length * definingFormulas.length,
 					coverage: requiredInSpace<AllenRelation>(allenRelations),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([type, [relation, text]], c) =>
 					Effect.sync(() => {

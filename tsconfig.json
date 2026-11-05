@@ -211,6 +211,7 @@
 					},
 					{
 						"include": [
+							"test/support/memory-tls.ts",
 							"test/support/wire-tap.ts",
 							"test/unit/adapter/bind.test.ts",
 							"test/unit/adapter/pool.test.ts"

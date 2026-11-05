@@ -5,7 +5,7 @@ import { array, element, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { canonicalTextOf, catchRefusal } from "#compiler/core/canonical.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
@@ -13,6 +13,7 @@ import type { Heading } from "#compiler/ir/rel.ts"
 import { carrierDigestHex, carrierName, isCarrierName } from "#compiler/sql/naming.ts"
 import { CarrierSupply, typesDigest } from "#compiler/write/carriers/carriers.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { heading, scalarTypes } from "#test/unit/ir/fixture.ts"
 
 /**
@@ -39,7 +40,7 @@ const headings: Arr.NonEmptyReadonlyArray<Heading> = [
 const typesOf = (h: Heading): string => canonicalTextOf(Arr.map(h, (c) => c.type))
 
 /** A digest of carrierDigestHex hex digits standing for the drawn number `n`. */
-const standIn = (n: number): string => Str.padStart(carrierDigestHex, "0")(String(n))
+const standIn = (n: number): string => Str.padStart(carrierDigestHex.value, "0")(String(n))
 
 type CarrierFeature = "named" | "refused" | "a renamed heading in its class"
 
@@ -70,7 +71,7 @@ describe("a program's carriers", () => {
 						),
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ digests, picks }, c) =>
 						Effect.sync(() => {
@@ -129,7 +130,7 @@ describe("a program's carriers", () => {
 						generator: (source) => source.draw(element([oneColumn, noColumn])),
 						limit: 2,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(h) =>
 						Effect.sync(() => {
@@ -138,7 +139,7 @@ describe("a program's carriers", () => {
 							assert.equal(names.size, 70_000)
 							for (const name of names) {
 								assert.ok(isCarrierName(name), name)
-								assert.ok(utf8Length(name) <= maxIdentifierBytes, name)
+								assert.ok(utf8Length(name) <= maxIdentifierBytes.value, name)
 							}
 						})
 				)

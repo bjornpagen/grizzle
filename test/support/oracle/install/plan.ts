@@ -1,6 +1,5 @@
 import { exact, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Data, Formatter, Option, Order, Record as Rec, String as Str } from "effect"
-import { exactParts, infinityParts, nanParts } from "#compiler/core/decimal.ts"
 import { CompileError, type CompileReason, prose, type ProseTag } from "#compiler/core/errors.ts"
 
 import {
@@ -14,8 +13,10 @@ import {
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { decodeDesc, descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
+import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
 
 import type {
 	ColumnDef,
@@ -42,7 +43,6 @@ import {
 	not,
 	numericType,
 	objectName,
-	or,
 	qualifiedCall,
 	tableCol,
 	types
@@ -156,27 +156,17 @@ const spanWidth = (column: string, width: bigint): Expr => {
 	)
 }
 
-/** The documented cosine domain over a column: pgvector's norm, in double precision, between 2^-16 and 2^16. */
+/**
+ * The documented cosine domain over a column: pgvector's norm, in double precision, between the domain's derived
+ * bounds (ir/carriers.ts cosineNormMin and cosineNormMax).
+ */
 const vectorNorm = (vectorSchema: string, column: string): Expr => ({
 	kind: "between",
 	expr: qualifiedCall(vectorSchema, "vector_norm", [tableCol(column)]),
-	low: lit.float(2 ** -16, types.double),
-	high: lit.float(2 ** 16, types.double),
+	low: lit.float(cosineNormMin.value, types.double),
+	high: lit.float(cosineNormMax.value, types.double),
 	not: false
 })
-
-/**
- * The documented numeric bound over a bare numeric column: at most 1,000 integer digits, its magnitude below 10^1000,
- * or NaN, or an infinity.
- */
-const numericBound = (column: string): Expr => {
-	const c = tableCol(column)
-	return or([
-		binary("<", call("abs", [c]), lit.decimal(exactParts(10n ** 1000n, 0), types.numeric)),
-		eq(c, lit.decimal(nanParts, types.numeric)),
-		eq(call("abs", [c]), lit.decimal(infinityParts, types.numeric))
-	])
-}
 
 /** What a field descriptor stores under its contracts: the descriptor the column's storage CHECKs follow. */
 const storedDesc = (field: FieldDesc): FieldDesc =>
@@ -188,7 +178,7 @@ const describedOf = (input: unknown): unknown =>
 
 const isAdmittedSchemaName = (name: string): boolean =>
 	regex("^[a-z_][a-z0-9_]*$").test(name) &&
-	Buffer.byteLength(name, "utf8") <= maxIdentifierBytes &&
+	Buffer.byteLength(name, "utf8") <= maxIdentifierBytes.value &&
 	!Str.startsWith("pg_")(name)
 
 interface Located<A> {
@@ -382,15 +372,20 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			case "pg":
 				return plain(builtin(builtinType(field.type), pgValues[field.type]))
 			case "numeric": {
-				if (!("precision" in field)) {
-					return plain(builtin(types.numeric, { kind: "numeric" }))
-				}
 				const { precision, scale } = field
-				if (precision < 1 || precision > 1000) {
-					refuse("MalformedDescription", location, "numeric precision lies in 1..1000")
+				if (precision < 1 || precision > numericMaxPrecision.value) {
+					refuse(
+						"MalformedDescription",
+						location,
+						`numeric precision lies in 1..${numericMaxPrecision.value}`
+					)
 				}
-				if (scale < -1000 || scale > 1000) {
-					refuse("MalformedDescription", location, "a numeric scale lies in -1000..1000")
+				if (scale < numericMinScale.value || scale > numericMaxScale.value) {
+					refuse(
+						"MalformedDescription",
+						location,
+						`a numeric scale lies in ${numericMinScale.value}..${numericMaxScale.value}`
+					)
 				}
 				return plain(builtin(numericType(precision, scale), { kind: "numeric" }))
 			}
@@ -593,9 +588,9 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			)
 			const { type, serial } = resolve(fieldDesc, fieldLocation)
 			/**
-			 * The column's storage CHECKs, in the real installer's order: a span's shape and its width; a vector's norm; a
-			 * bare numeric's bound. A span endpoint's contract predicate is a predicate CHECK, which the minimal installer
-			 * leaves out (see the header).
+			 * The column's storage CHECKs, in the real installer's order: a span's shape and its width; a vector's norm. A
+			 * span endpoint's contract predicate is a predicate CHECK, which the minimal installer leaves out (see the
+			 * header).
 			 */
 			const stored = storedDesc(fieldDesc)
 			if (stored.kind === "span") {
@@ -618,9 +613,6 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					vectorNorm(vectorSchema, column),
 					fieldLocation
 				)
-			}
-			if (stored.kind === "numeric" && !("precision" in stored)) {
-				check(door.numericBound(r.name, field).identifier, numericBound(column), fieldLocation)
 			}
 			if (!serial) {
 				columns.push({ field, column, type, sequence: { kind: "none" }, location: fieldLocation })
@@ -1045,8 +1037,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
  *   UNIQUE;
  * - an enum per closed relation, in roster order, typing every closedId column;
  * - a domain per contract, with no constraint;
- * - the fixed-form CHECKs of every span, vector and bare numeric column, under the names the real installer gives them
- *   (below);
+ * - the fixed-form CHECKs of every span and vector column, under the names the real installer gives them (below);
  * - an immediate NO ACTION foreign key for each containment whose target fields are a key of a stored relation;
  * - no role: the worlds are the real installer's, held to their worlds behaviourally (test/pg/worlds), and the
  *   oracle reads and loads as the owner.
@@ -1074,15 +1065,15 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
  * every other class in test/pg/physical/checks.test.ts). A plan only restricts which facts may be stored by those
  * CHECKs, and the oracle loads only facts its generators drew inside them.
  *
- * The span, vector and numeric CHECKs are the oracle's own statement of the documented storage rules, never read from
- * src, so a catalog comparison checks the real installer's against them independently:
+ * The span and vector CHECKs are the oracle's own statement of the documented storage rules, never read from src but
+ * for the cosine domain's two limits, so a catalog comparison checks the real installer's against them independently:
  *
  * - a span is nonempty, bounded on both sides, lower bound inclusive and upper bound exclusive (its shape CHECK), and a
  *   span of a fixed width spans exactly that many endpoint steps, the endpoints compared as numeric so no width at an
  *   endpoint type's limits overflows (its width CHECK);
  * - a vector lies in the nondegenerate cosine domain: its norm, accumulated by pgvector's vector_norm in double
- *   precision, lies between 2^-16 and 2^16, both exact binary values;
- * - a bare numeric, a contract over one included, has at most 1,000 integer digits, or is NaN or an infinity.
+ *   precision, lies between cosineNormMin and cosineNormMax (2^-68 and 2^63, both exact binary values), read from
+ *   their one spelling in ir/carriers.ts.
  *
  * A span endpoint typed by a contract with a predicate also carries that predicate over each endpoint, a predicate CHECK
  * like the contract domain's own, which the minimal installer leaves out (see above).

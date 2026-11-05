@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
@@ -25,6 +25,7 @@ import {
 	uuidOf
 } from "#test/unit/lower/conservative/fixtures.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	passContext,
 	deliversAlikeOn,
@@ -117,7 +118,7 @@ describe("the complete bound tuple survives fusion", () => {
 							"id, account, amount read by a fold",
 							"id, account, amount read by the query"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([bound, reader], c) =>
 						Effect.sync(() => {
@@ -193,7 +194,7 @@ describe("fixed columns in R01 fusion", () => {
 						generator: (source) => [source.draw(uses), source.draw(uses)] as const,
 						limit: 16,
 						coverage: requiredInSpace<"fused" | "refused">(["fused", "refused"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([first, second], c) =>
 						Effect.sync(() => {
@@ -384,7 +385,7 @@ describe("boundaries and refusals", () => {
 							"a correlated inner region",
 							"a stage read laterally"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(chain, c) =>
 						Effect.sync(() => {

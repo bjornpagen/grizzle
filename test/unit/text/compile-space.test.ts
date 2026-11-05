@@ -5,22 +5,23 @@ import { array, element, string } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	regexMaxAnchors,
 	regexMaxAnchorWeight,
 	regexMaxClosurePairs,
 	regexMaxPositions
-} from "#compiler/core/policy.ts"
+} from "#compiler/core/limits.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { jsAccepts } from "#test/unit/text/generators.ts"
 
 /**
- * The compile-space measures (core/policy.ts regexMaxPositions, regexMaxClosurePairs, regexMaxAnchors,
+ * The compile-space measures (core/limits.ts regexMaxPositions, regexMaxClosurePairs, regexMaxAnchors,
  * regexMaxAnchorWeight), which stand for PostgreSQL's REG_MAX_COMPILE_SPACE: a pattern past one is refused as
  * ResourceBound with the measure it crossed, at any nesting depth, and no count of constructs refuses anything, so the
  * strict RFC 3986 URI-reference grammar, written out as one pattern, is admitted. That PostgreSQL compiles what the
@@ -37,20 +38,23 @@ type Planted = RegexSpaceMeasure["kind"]
 
 /** A pattern just past each measure, and the measure it is refused for. */
 const planted: Arr.NonEmptyReadonlyArray<readonly [string, RegexSpaceMeasure]> = [
-	["^(?:[a-z]{1,255}){17}$", { kind: "positions", limit: regexMaxPositions, needed: 17 * 255 + 2 }],
-	[optionalChain, { kind: "positions", limit: regexMaxPositions, needed: depth }],
-	["(?:$|a|){9}b", { kind: "anchors", limit: regexMaxAnchors, needed: 9 }],
+	[
+		"^(?:[a-z]{1,255}){17}$",
+		{ kind: "positions", limit: regexMaxPositions.value, needed: 17 * 255 + 2 }
+	],
+	[optionalChain, { kind: "positions", limit: regexMaxPositions.value, needed: depth }],
+	["(?:$|a|){9}b", { kind: "anchors", limit: regexMaxAnchors.value, needed: 9 }],
 	[
 		"(?:$|a|){4}(?:^|a|){4}(?:[a-z]{255}){4}b",
 		{
 			kind: "anchorWeight",
-			limit: regexMaxAnchorWeight,
+			limit: regexMaxAnchorWeight.value,
 			anchors: 8,
 			positions: 8 * 2 + 4 * 255 + 1
 		}
 	],
-	["(?:a?){255}(?:b?){255}c", { kind: "closurePairs", limit: regexMaxClosurePairs }],
-	[plusChain, { kind: "closurePairs", limit: regexMaxClosurePairs }],
+	["(?:a?){255}(?:b?){255}c", { kind: "closurePairs", limit: regexMaxClosurePairs.value }],
+	[plusChain, { kind: "closurePairs", limit: regexMaxClosurePairs.value }],
 	["(?:(?:[a-z]{255}){65}|$)*b", { kind: "anchorLoop" }]
 ]
 
@@ -73,7 +77,7 @@ describe("the compile-space measures", () => {
 							"closurePairs",
 							"anchorLoop"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([source, measure], n) =>
 						Effect.sync(() => {
@@ -216,7 +220,7 @@ describe("the RFC 3986 URI-reference grammar as one pattern", () => {
 					generator: element(examples),
 					limit: examples.length,
 					coverage: requiredInSpace<"an example">(["an example"]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(example, n) =>
 					Effect.sync(() => {
@@ -253,7 +257,7 @@ describe("the RFC 3986 URI-reference grammar as one pattern", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(parts, n) =>
 						Effect.sync(() => {

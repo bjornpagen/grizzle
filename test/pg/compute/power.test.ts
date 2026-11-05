@@ -17,9 +17,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
+import { numericMaxFractionDigits } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -32,6 +33,7 @@ import {
 	runCases
 } from "#test/pg/compute/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -141,9 +143,10 @@ const kept: ReadonlyArray<Kept<ReadonlyArray<readonly [string, string]>, PowerFe
 type GuardedFeature = "guarded power refused" | "guarded power proved"
 
 /**
- * A guard over a base column of bare numeric: above zero and within [0, high], whose least value is bare numeric's
- * least positive one, 10^-16383; or within [low, high] with low a power of ten at most one. And the exponent a power
- * raises the guarded base to: a negative integer or fraction, or a positive one.
+ * A guard over a base column of a computed numeric at numeric's own limits (testPg.computedNumeric): above zero and
+ * within [0, high], whose least value is numeric's least positive one, 10^-16383; or within [low, high] with low a power
+ * of ten at most one. And the exponent a power raises the guarded base to: a negative integer or fraction, or a positive
+ * one.
  */
 interface GuardedPower {
 	readonly guard:
@@ -152,8 +155,8 @@ interface GuardedPower {
 	readonly exponent: string
 }
 
-/** The least positive value of a bare numeric: 10^-16383, numeric's largest display scale. */
-const leastPositive = "1e-16383"
+/** The least positive value of a numeric of no typmod: 10^-numericMaxFractionDigits, 10^-16383. */
+const leastPositive = `1e-${numericMaxFractionDigits.value}`
 
 const guardedPowerGen: Gen<GuardedPower> = (source) => ({
 	guard: source.draw(
@@ -181,7 +184,7 @@ const guardedPowerGen: Gen<GuardedPower> = (source) => ({
 
 /**
  * Escaped: a base guarded above zero and within [0, 10] raised to a negative power was proved in range from its
- * interval's ends alone, though such a bare numeric reaches 10^-16383, so power(1e-16383, -10) raises 22003.
+ * interval's ends alone, though such a numeric reaches 10^-16383, so power(1e-16383, -10) raises 22003.
  */
 const guardedKept: ReadonlyArray<Kept<ReadonlyArray<GuardedPower>, GuardedFeature>> = [
 	{
@@ -279,104 +282,95 @@ const edges: ReadonlyArray<readonly [string, string]> = [
 ]
 
 layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
-	it.effect(
-		"agrees on the value, display scale and failure of every generated power",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const { session, schema } = yield* Substrate
-					const db = yield* session(ownerSession())
-					const s = yield* schema(freshSchema)
-					yield* installEvaluator(db, s)
-					const expr: ExprDesc = spelled(
-						Compute.power(v("a", testPg.numeric), v("b", testPg.numeric)).expr
-					)
-					return yield* explore(
-						{
-							suite: "pg/compute/power",
-							draw: drawn(
-								array(
-									oneOf<readonly [string, string]>([
-										(source) => [source.draw(bases), source.draw(exponents)] as const,
-										nearLimit
-									]),
-									{ min: 1, max: 1000 }
+	it.effect("agrees on the value, display scale and failure of every generated power", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const { session, schema } = yield* Substrate
+				const db = yield* session(ownerSession())
+				const s = yield* schema(freshSchema)
+				yield* installEvaluator(db, s)
+				const expr: ExprDesc = spelled(
+					Compute.power(v("a", testPg.computedNumeric), v("b", testPg.computedNumeric)).expr
+				)
+				return yield* explore(
+					{
+						suite: "pg/compute/power",
+						draw: drawn(
+							array(
+								oneOf<readonly [string, string]>([
+									(source) => [source.draw(bases), source.draw(exponents)] as const,
+									nearLimit
+								]),
+								{ min: 1, max: 1000 }
+							)
+						),
+						literal: Formatter.format,
+						coverage: required<PowerFeature>(
+							["value agreement", "refused at compilation", "underflow to zero"],
+							{ cases: 4, sense: notesOnly }
+						),
+						kept,
+						runs: 4,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(batch, c) =>
+						Effect.gen(function* () {
+							let refused = 0
+							const cases: Array<EvalCase> = Arr.flatMap([...edges, ...batch], ([a, b], ord) => {
+								const lowered = lowerWith(
+									"query",
+									expr,
+									{
+										a: { kind: "bare", value: Decimal.of(a) },
+										b: { kind: "bare", value: Decimal.of(b) }
+									},
+									false,
+									baseParams
 								)
-							),
-							literal: Formatter.format,
-							coverage: required<PowerFeature>(
-								["value agreement", "refused at compilation", "underflow to zero"],
-								{ cases: 4, sense: notesOnly }
-							),
-							kept,
-							runs: 4,
-							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang: Duration.minutes(2)
-						},
-						(batch, c) =>
-							Effect.gen(function* () {
-								let refused = 0
-								const cases: Array<EvalCase> = Arr.flatMap([...edges, ...batch], ([a, b], ord) => {
-									const lowered = lowerWith(
-										"query",
-										expr,
-										{
-											a: { kind: "literal", field: testPg.numeric, value: Decimal.of(a) },
-											b: { kind: "literal", field: testPg.numeric, value: Decimal.of(b) }
-										},
-										false,
-										baseParams
-									)
-									if (!lowered.ok) {
-										const reason = lowered.error.reason
-										if (
-											reason._tag !== "PartialOperation" ||
-											reason.precondition !== "powerDomain"
-										) {
-											throw new Error(`power(${a}, ${b}): ${String(lowered.error)}`)
-										}
-										refused++
-										return []
+								if (!lowered.ok) {
+									const reason = lowered.error.reason
+									if (reason._tag !== "PartialOperation" || reason.precondition !== "powerDomain") {
+										throw new Error(`power(${a}, ${b}): ${String(lowered.error)}`)
 									}
-									const { root } = lowered.value
-									const sql = renderSql(root.expr, plainRender)
-									return [
-										{
-											ord,
-											label: `power(${a}, ${b})`,
-											sql,
-											valueSql: sql,
-											type: root.actual,
-											host: evaluate(root.expr, constantEnv)
-										}
-									]
-								})
-								const answers = yield* runCases(db, s, cases, caseChunk)
-								const result = compareAnswers(cases, answers)
-								assert.deepEqual(result.mismatches.slice(0, 10), [])
-								assert.equal(result.typedOnly, 0)
-								if (result.values > 0) {
-									c.note("value agreement")
+									refused++
+									return []
 								}
-								if (refused > 0) {
-									c.note("refused at compilation")
-								}
-								if (
-									Arr.some(
-										answers,
-										(a) => a.kind === "value" && regex("^-?0(\\.0+)?$").test(a.text)
-									)
-								) {
-									c.note("underflow to zero")
-								}
+								const { root } = lowered.value
+								const sql = renderSql(root.expr, plainRender)
+								return [
+									{
+										ord,
+										label: `power(${a}, ${b})`,
+										sql,
+										valueSql: sql,
+										type: root.actual,
+										host: evaluate(root.expr, constantEnv)
+									}
+								]
 							})
-					)
-				})
-			),
-		300_000
+							const answers = yield* runCases(db, s, cases, caseChunk)
+							const result = compareAnswers(cases, answers)
+							assert.deepEqual(result.mismatches.slice(0, 10), [])
+							assert.equal(result.typedOnly, 0)
+							if (result.values > 0) {
+								c.note("value agreement")
+							}
+							if (refused > 0) {
+								c.note("refused at compilation")
+							}
+							if (
+								Arr.some(answers, (a) => a.kind === "value" && regex("^-?0(\\.0+)?$").test(a.text))
+							) {
+								c.note("underflow to zero")
+							}
+						})
+				)
+			})
+		)
 	)
 
 	it.effect(
@@ -406,14 +400,13 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(batch, c) =>
 							Effect.gen(function* () {
 								const proved = Arr.flatMap(batch, (g) => {
-									const x = v("x", testPg.numeric)
-									const power = (base: ScalarTerm) =>
-										Compute.power(base, Compute.literal(testPg.numeric, Decimal.of(g.exponent)))
+									const x = v("x", testPg.computedNumeric)
+									const power = (base: ScalarTerm) => Compute.power(base, Decimal.of(g.exponent))
 									const zero = Decimal.of("0")
 									const guard = g.guard
 									const term =
@@ -436,7 +429,7 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 									const lowered = lowerWith(
 										"query",
 										spelled(term.expr),
-										{ x: { kind: "column", type: testPg.numeric.scalar } },
+										{ x: { kind: "column", type: testPg.computedNumeric.scalar } },
 										false,
 										baseParams
 									)
@@ -468,7 +461,6 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 							})
 					)
 				})
-			),
-		300_000
+			)
 	)
 })

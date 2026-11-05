@@ -1,4 +1,3 @@
-import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compiler/ir/rel.ts"
@@ -6,9 +5,8 @@ import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { columnRefs, DagEditor, derivedMeta } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
-	type Measure,
-	multiset,
 	nodePremises,
+	type Potential,
 	type RewriteCx,
 	type Rule,
 	rewritePass
@@ -296,34 +294,13 @@ const fuseRule: Rule = {
 }
 
 /**
- * The nesting height of a region chain is one more than the greatest height among its region's occurrences, and an
- * occurrence over anything else has none; the measure is the multiset of the heights of every occurrence over a chain.
- * Fusing an occurrence of height h replaces it by copies of the inner region's occurrences, each of height below h,
- * and raises no other height: the fused region keeps its cell, its greatest height does not grow, and its readers reach
- * it through the filter and the rename fusion may place above it, which a chain looks through.
+ * The fusion potential: the reachable regions. Fusing an occurrence over a chain copies the chain's region's
+ * occurrences into the fused region, which keeps its cell, and leaves the chain read by nothing, since fusable()
+ * admits only a chain every node of which the occurrence alone references; the filter and the rename fusion may place
+ * above the fused region are no regions. So each fusion removes exactly one region and adds none.
  */
-const fusionMeasure: Measure = (cx) => {
-	const height = new Map<Cell, number>()
-	const heightOf = (source: Cell): number => height.get(source) ?? 0
-	const heights: Array<number> = []
-	for (const cell of cx.editor.topoOrder()) {
-		const chain = regionChain(cell)
-		if (chain !== undefined) {
-			height.set(
-				cell,
-				1 + chain.region.occurrences.reduce((m, o) => Math.max(m, heightOf(o.source)), 0)
-			)
-		}
-		const node = cell.current
-		if (node.kind === "MatchRegion") {
-			appendAll(
-				heights,
-				node.occurrences.map((o) => heightOf(o.source)).filter((h) => h > 0)
-			)
-		}
-	}
-	return multiset(heights)
-}
+const fusionPotential: Potential = (cx) =>
+	cx.editor.topoOrder().filter((cell) => cell.current.kind === "MatchRegion").length
 
 /**
  * The R01 pass.
@@ -359,9 +336,13 @@ const fusionMeasure: Measure = (cx) => {
  * another reference also reads: fusing it would copy it into each reader, so the program would grow with the paths
  * through it rather than with its nodes; it stays one shared stage, which the CTE policy places.
  *
- * Measure: the multiset of the nesting heights of the occurrences over region chains (fusionMeasure). Fusion replaces
- * one occurrence by copies of lower ones; the number of fusable occurrences alone would not fall, because a copy can
- * fuse where its original could not: a column the original bound and the outer region leaves existential no longer
- * conflicts with a fixed column carrying the same inner variable.
+ * Potential: the reachable regions (fusionPotential), which each fusion lowers by one. The number of fusable
+ * occurrences alone would not fall, because a copy can fuse where its original could not: a column the original bound
+ * and the outer region leaves existential no longer conflicts with a fixed column carrying the same inner variable;
+ * but every fusion consumes the region it inlines.
  */
-export const fusePass = rewritePass({ name: "fuse", rules: [fuseRule], measure: fusionMeasure })
+export const fusePass = rewritePass({
+	name: "fuse",
+	rules: [fuseRule],
+	potential: () => fusionPotential
+})

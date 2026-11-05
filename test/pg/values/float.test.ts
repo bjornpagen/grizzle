@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import {
 	canonicalZero,
@@ -16,6 +16,7 @@ import {
 	toReal
 } from "#compiler/scalar/values/float.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
@@ -117,7 +118,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(doubles, c) =>
 							Effect.gen(function* () {
@@ -165,7 +166,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(doubles, c) =>
 						Effect.gen(function* () {
@@ -237,7 +238,7 @@ layer(Substrate.layer)("float agreement with PostgreSQL", (it) => {
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(sample, c) =>
 								Effect.gen(function* () {

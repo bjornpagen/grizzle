@@ -5,9 +5,9 @@ import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
-import type { Realization } from "#compiler/analysis/physical/props.ts"
+import { isUnique, type Realization } from "#compiler/analysis/physical/props.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { inputsOf, type RelDag, type RelKind, type RelNode } from "#compiler/ir/rel.ts"
 import { assert } from "#test/support/assert.ts"
@@ -19,6 +19,7 @@ import {
 	soundnessGenConfig
 } from "#test/support/oracle/gen/case.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	existsOverTakeRoot,
 	fanoutJoinRoot,
@@ -116,7 +117,7 @@ const check = (
 		) {
 			c.note("a constant read laterally")
 		}
-		if (p.keys.length > 0) {
+		if (isUnique(p)) {
 			c.note("a key claimed")
 		}
 		if (p.maxCard.kind === "atMost") {
@@ -189,7 +190,7 @@ describe("every physical claim holds on the delivered rows", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(q, c) =>
 					Effect.sync(() => {
@@ -213,7 +214,7 @@ describe("every physical claim holds on the delivered rows", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(q, c) =>
 					Effect.sync(() => {
@@ -253,7 +254,7 @@ describe("every physical claim holds on the delivered rows", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([q, distinct], c) =>
 						Effect.sync(() => {
@@ -285,7 +286,7 @@ describe("every physical claim holds on the delivered rows", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([root, q], c) =>
 						Effect.sync(() => {
@@ -310,7 +311,7 @@ describe("every physical claim holds on the delivered rows", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(q, c) =>
 					Effect.sync(() => {
@@ -346,7 +347,7 @@ describe("neither analysis reads the order of a filter's conjuncts", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(q, c) =>
 					Effect.sync(() => {

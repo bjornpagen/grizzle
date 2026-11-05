@@ -1,11 +1,17 @@
+/**
+ * The rewrite frame: rewrites run only in the optimized lowering, every applied rewrite strictly lowers its pass's
+ * potential, a natural, or the pass fails (which every suite that runs a pass checks on every rewrite), the same input
+ * rewrites identically, and the worklist misses no rewrite: a pass's output is a fixed point of the pass, as a scan of
+ * the whole DAG to a fixed point would deliver.
+ */
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, int } from "@grizzle/testing/gen"
+import { element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { rebuildDag, relNode } from "#compiler/ir/dag.ts"
 import {
@@ -17,17 +23,25 @@ import {
 } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { lexLess, multiset } from "#compiler/lower/optimize/demand/frame.ts"
 import {
 	relationalRewrites,
 	semanticSimplification
 } from "#compiler/lower/optimize/demand/phases.ts"
+import { eliminatePass } from "#compiler/lower/optimize/eliminate/index.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
+import { finitePass } from "#compiler/lower/optimize/finite/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
+import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
+import { lateFetchPass } from "#compiler/lower/optimize/late-fetch/index.ts"
+import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
+import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
+import { semiPushdownPass } from "#compiler/lower/optimize/pushdown/semi.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
+import { catalogPass } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 import {
@@ -37,119 +51,6 @@ import {
 	type Ran,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
-
-/**
- * The rewrite frame: rewrites run only in the optimized lowering, every applied rewrite strictly decreases its pass's
- * measure or the pass fails, and the same input rewrites identically.
- */
-
-/**
- * A measure spelt as a string, one code unit per component: JavaScript orders strings lexicographically by code unit,
- * a proper prefix below, which is the order a measure is held to, computed by the engine and not by lexLess.
- */
-const spelt = (measure: ReadonlyArray<number>): string =>
-	Arr.join(
-		Arr.map(measure, (n) => String.fromCharCode(0x41 + n)),
-		""
-	)
-
-const count = (xs: ReadonlyArray<number>, x: number): number =>
-	Arr.filter(xs, (y) => y === x).length
-
-/**
- * The Dershowitz–Manna multiset ordering over naturals: `smaller` lies below `larger` when they differ and every
- * element `smaller` holds more often than `larger` is outweighed by a strictly greater element `larger` holds more
- * often, so replacing one element by any number of strictly smaller ones decreases the multiset.
- */
-const multisetBelow = (smaller: ReadonlyArray<number>, larger: ReadonlyArray<number>): boolean => {
-	const support = [...new Set([...smaller, ...larger])]
-	const excess = Arr.filter(support, (x) => count(smaller, x) > count(larger, x))
-	const differs = Arr.some(support, (x) => count(smaller, x) !== count(larger, x))
-	return (
-		differs &&
-		Arr.every(excess, (x) =>
-			Arr.some(support, (y) => y > x && count(larger, y) > count(smaller, y))
-		)
-	)
-}
-
-/** What the measure suites reach: which of two measures lies below, and how a lexicographic comparison is decided. */
-type MeasureFeature =
-	| "below"
-	| "equal"
-	| "above"
-	| "decided at a position"
-	| "decided by a proper prefix"
-
-describe("the measure and its order", () => {
-	it.effect("compares lexicographically, a proper prefix below", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/lower/rewrite/frame-lexicographic",
-					literal: Formatter.format,
-					generator: (source) =>
-						[
-							source.draw(array(int(0, 2), { min: 0, max: 3 })),
-							source.draw(array(int(0, 2), { min: 0, max: 3 }))
-						] as const,
-					limit: 1600,
-					coverage: requiredInSpace<MeasureFeature>([
-						"below",
-						"equal",
-						"above",
-						"decided at a position",
-						"decided by a proper prefix"
-					]),
-					caseHang: Duration.minutes(2)
-				},
-				([after, before], c) =>
-					Effect.sync(() => {
-						const a = spelt(after)
-						const b = spelt(before)
-						c.note(a < b ? "below" : a === b ? "equal" : "above")
-						if (a !== b) {
-							c.note(
-								Str.startsWith(b)(a) || Str.startsWith(a)(b)
-									? "decided by a proper prefix"
-									: "decided at a position"
-							)
-						}
-						assert.equal(lexLess(after, before), a < b)
-					})
-			)
-		)
-	)
-
-	it.effect(
-		"orders multisets as the multiset ordering does: one element replaced by any number of smaller ones",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/rewrite/frame-multiset",
-						literal: Formatter.format,
-						generator: (source) =>
-							[
-								source.draw(array(int(0, 3), { min: 0, max: 3 })),
-								source.draw(array(int(0, 3), { min: 0, max: 3 }))
-							] as const,
-						limit: 7225,
-						coverage: requiredInSpace<MeasureFeature>(["below", "equal", "above"]),
-						caseHang: Duration.minutes(2)
-					},
-					([after, before], c) =>
-						Effect.sync(() => {
-							const below = multisetBelow(after, before)
-							c.note(below ? "below" : multisetBelow(before, after) ? "above" : "equal")
-							assert.equal(lexLess(multiset(after), multiset(before)), below)
-						})
-				)
-			)
-	)
-})
 
 describe("a DAG's roots", () => {
 	it.effect(
@@ -164,7 +65,7 @@ describe("a DAG's roots", () => {
 						generator: element<"first" | "second">(["first", "second"]),
 						limit: 2,
 						coverage: requiredInSpace<"first" | "second">(["first", "second"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(at, c) =>
 						Effect.sync(() => {
@@ -224,7 +125,7 @@ describe("determinism", () => {
 						coverage: noCoverage,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c) =>
 						Effect.sync(() => {
@@ -283,7 +184,7 @@ describe("determinism", () => {
 						}),
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(q, c) =>
 						Effect.sync(() => {
@@ -350,7 +251,7 @@ describe("determinism", () => {
 						}),
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(q, c) =>
 						Effect.sync(() => {
@@ -373,7 +274,70 @@ describe("determinism", () => {
 						})
 				)
 			)
-		},
-		300_000
+		}
+	)
+})
+
+describe("the worklist", () => {
+	it.effect(
+		"every rewrite pass delivers a fixed point of itself: run again over its own output, it rewrites nothing",
+		(ctx) => {
+			const chain = [
+				simplifyPass,
+				fusePass,
+				simplifyPass,
+				prunePass,
+				eliminatePass,
+				finitePass,
+				existencePass,
+				pushdownPass,
+				semiPushdownPass,
+				simplifyPass,
+				prunePass,
+				lateFetchPass,
+				catalogPass("auto"),
+				graphPass
+			]
+			return searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/lower/rewrite/frame-fixed-point",
+						literal: Formatter.format,
+						kept: [],
+						draw: drawn(queryCaseGen(defaultGenConfig)),
+						runs: 150,
+						shrink: completeShrink,
+						/** The chain rewrites: a fixed point is checked over changed DAGs, not only ones no pass touched. */
+						coverage: required<FrameFeature>(["a pass changed the DAG"], {
+							cases: 150,
+							sense: notesOnly
+						}),
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(q, c) =>
+						Effect.sync(() => {
+							const catalog = genCatalog(q.schema)
+							const chainCtx = passContext({ catalog, evidence: "snapshot" })
+							let current = caseQuery(q)
+							for (const pass of chain) {
+								const out = succeeded(pass.run(current, chainCtx))
+								if (out.dag !== current.dag) {
+									c.note("a pass changed the DAG")
+								}
+								if (pass.measure === "bounded-worklist") {
+									const again = succeeded(
+										pass.run(out, passContext({ catalog, evidence: "snapshot" }))
+									)
+									assert.equal(again.dag, out.dag, `${pass.name} rewrote its own output`)
+								}
+								current = out
+							}
+						})
+				)
+			)
+		}
 	)
 })

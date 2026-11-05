@@ -17,7 +17,7 @@ import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Record, String as Str } from "effect"
 import type { SchemaDesc as DecodedSchemaDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { DeployPhase, PhysicalKind } from "#compiler/ir/products.ts"
 import {
@@ -31,6 +31,7 @@ import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	defaultSchemaLimits,
 	fullDataSwarm,
@@ -90,7 +91,7 @@ const valueDesc = (desc: FieldDesc): FieldDesc =>
 	desc.kind === "contract" ? valueDesc(desc.base) : desc
 
 /** The CHECKs that enforce a column's own type declaration, as manifest idents named through the door: a span column's
- * shape and, with a fixed width, its width; a vector column's cosine domain; a bare numeric column's digit bound. */
+ * shape and, with a fixed width, its width; a vector column's cosine domain. */
 const typeChecks = (i: Installation): ReadonlySet<string> => {
 	const N = installationNamesOf(i)
 	const checks = new Set<string>()
@@ -109,9 +110,6 @@ const typeChecks = (i: Installation): ReadonlySet<string> => {
 			}
 			if (value.kind === "vector") {
 				checks.add(ident(N.normCheck(r.desc, field)))
-			}
-			if (value.kind === "numeric" && !("precision" in value)) {
-				checks.add(ident(N.numericBound(r.desc, field)))
 			}
 		}
 	}
@@ -356,7 +354,7 @@ describe("the fresh installation", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(desc, c) =>
 					Effect.sync(() => {
@@ -449,7 +447,7 @@ describe("the fresh installation", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ desc, relations, statements }, c) =>
 						Effect.sync(() => {
@@ -514,7 +512,7 @@ describe("the fresh installation", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(n, c) =>
 						Effect.sync(() => {

@@ -8,7 +8,7 @@ import type {
 	Isolation,
 	ModelState,
 	RoleSpec,
-	SessionState,
+	ModelSession,
 	SnapshotRef,
 	WildSite
 } from "#test/support/worlds/model/types.ts"
@@ -20,7 +20,7 @@ import type {
 export type SessionUse = "call" | "db" | "direct" | "either"
 
 /** The invalid kind of naming a session for a use, or none when the session is a live one of that use. */
-const handleKind = (session: SessionState, use: SessionUse): InvalidKind | undefined => {
+const handleKind = (session: ModelSession, use: SessionUse): InvalidKind | undefined => {
 	const wanted = use === "call" ? "db" : use
 	switch (session.kind) {
 		case "db":
@@ -45,7 +45,7 @@ const handleKind = (session: SessionState, use: SessionUse): InvalidKind | undef
  */
 export const namingKind = (
 	state: ModelState,
-	session: SessionState,
+	session: ModelSession,
 	use: SessionUse
 ): InvalidKind | undefined =>
 	use === "call" && session.kind === "db" && staleReason(state, session) !== undefined
@@ -58,7 +58,7 @@ export const namingKind = (
  */
 const sessionKind = (
 	state: ModelState,
-	session: SessionState,
+	session: ModelSession,
 	use: SessionUse
 ): InvalidKind | undefined =>
 	use === "direct" && session.kind === "direct" && session.transaction === "aborted"

@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Record } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -16,6 +16,7 @@ import { compileTemplate, testArtifacts, testCompile } from "#test/support/compi
 import { Reporting } from "#test/support/fixtures/api/payroll.ts"
 import { AccountBudget, Reports } from "#test/support/fixtures/api/work.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
 
 /**
@@ -139,7 +140,7 @@ describe("a query over a derived relation", () => {
 								"RunTotal",
 								"read-back over a view"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ view, columns }, c) =>
 							Effect.sync(() => {

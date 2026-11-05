@@ -15,6 +15,7 @@ import { connect, ownerCredentials } from "#test/support/substrate/session.ts"
 import { networkWorkers } from "#test/support/substrate/workers.ts"
 
 import { regex } from "arkregex"
+import { testPoolMax } from "#test/support/limits.ts"
 const claimKey = 1735289960
 const claimStatement = "SELECT pg_catalog.pg_try_advisory_lock($1::int4, $2::int4)"
 
@@ -114,14 +115,19 @@ export const undoInstallEffects = (admin: PgConnection): Effect.Effect<void> =>
  * The cluster-wide connection lease. max_connections is the cluster's, not a run's: two runs, a run and an agent's
  * copy of the tree, or a bench beside a run all share it. So every process that opens test connections first takes a
  * lease, one of `leaseSlots` session-level advisory locks (leaseKey, i) in the owner's own database, held on a
- * connection of its own until the process exits, and a lease covers `connectionsPerLease` connections: the busiest test
- * file's peak plus its lease connection. The slots are max_connections less the reserved connections
- * and `unleasedConnections`, divided by the lease's width, read from the server each time, so a cluster with more
- * connections admits more processes. A process with every slot taken waits on a slot's lock in the server, never on a
+ * connection of its own until the process exits, and a lease covers `connectionsPerLease` connections: a test's full
+ * pool (testPoolMax) and the sessions the substrate holds in the process. The slots are max_connections less the
+ * reserved connections and `unleasedConnections`, divided by the lease's width, read from the server each time, so a
+ * cluster with more connections admits more processes. A process with every slot taken waits on a slot's lock in the server, never on a
  * timer; runs beside each other may start more files than there are leases, and they wait their turn.
  */
 const leaseKey = 1735289961
-export const connectionsPerLease = 12
+/**
+ * The sessions the substrate holds in a test process: its lease's, its shared database's claim and that database's
+ * owner.
+ */
+const substrateSessions = ["lease", "claim", "owner"] as const
+export const connectionsPerLease = testPoolMax + substrateSessions.length
 /** Connections no lease covers: the global setup, the doctor, the sweep, and an operator's psql. */
 const unleasedConnections = 5
 

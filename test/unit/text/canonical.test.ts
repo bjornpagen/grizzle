@@ -5,12 +5,13 @@ import { element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { canonicalText, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { families, flagsGen, nestedPattern, patternOver } from "#test/unit/text/generators.ts"
 
 /**
@@ -76,7 +77,7 @@ describe("the canonical text and order", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([source, flags], c) =>
 						Effect.sync(() => {

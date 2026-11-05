@@ -5,7 +5,7 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { contextServes, selectArtifact } from "#compiler/program/context.ts"
@@ -13,6 +13,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { AutomaticTask, Task, TaskNote, Work } from "#test/support/fixtures/api/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * Evidence-context selection (program/context.ts): which of a template's two artifacts an execution runs.
@@ -113,7 +114,7 @@ describe("selectArtifact", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([p, read, compiledFor, runIn], c) =>
 					Effect.sync(() => {
@@ -168,7 +169,7 @@ describe("a template", () => {
 							"a committed-snapshot certificate",
 							"several statements"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([p, read], c) =>
 						Effect.sync(() => {

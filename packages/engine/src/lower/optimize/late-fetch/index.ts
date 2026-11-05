@@ -1,4 +1,5 @@
 import type { JustifiedKey } from "#compiler/analysis/physical/fds.ts"
+import { keyAmong } from "#compiler/analysis/physical/props.ts"
 import type { VarId } from "#compiler/core/ids.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type {
@@ -15,7 +16,7 @@ import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { type DagEditor, restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
 import {
-	type Measure,
+	type Potential,
 	nodePremises,
 	type RewriteCx,
 	type Rule,
@@ -76,7 +77,7 @@ const lateFetchPlans = (cx: RewriteCx, takeCell: Cell, take: Take): ReadonlyArra
 	for (const [col, v] of chain.columns) {
 		columnsOf.set(v.id, [...(columnsOf.get(v.id) ?? []), col])
 	}
-	/** For each stored occurrence, the plan of its first key the stage carries whose payload is wide. */
+	/** For each stored occurrence, the plan of the one key the stage carries, when its payload is wide. */
 	const plans: Array<Plan> = []
 	for (const o of region.occurrences) {
 		const base = o.source.current
@@ -89,62 +90,68 @@ const lateFetchPlans = (cx: RewriteCx, takeCell: Cell, take: Take): ReadonlyArra
 				bound.set(b.column, b.var)
 			}
 		}
-		for (const key of cx.physical().of(o.source).props.keys) {
-			/** The stage columns that carry each column of the key. */
-			const keyColumns: Array<readonly [HeadingColumn, string]> = []
-			for (const k of key.columns) {
-				const v = bound.get(k)
-				const col = v === undefined ? undefined : columnsOf.get(v.id)?.[0]
-				const keyColumn = base.heading.find((c) => c.name === k)
-				if (col === undefined || keyColumn === undefined) {
-					break
-				}
-				keyColumns.push([keyColumn, col])
+		/** The columns of the scan the stage carries, each with the stage column carrying it. */
+		const carried = new Map<string, readonly [HeadingColumn, string]>()
+		for (const c of base.heading) {
+			const v = bound.get(c.name)
+			const col = v === undefined ? undefined : columnsOf.get(v.id)?.[0]
+			if (col !== undefined) {
+				carried.set(c.name, [c, col])
 			}
-			if (keyColumns.length !== key.columns.length) {
-				continue
-			}
-			/** The stage columns the occurrence's relation can deliver instead, outside the order and the key, each
-			 * from a column of the same type no other fetched column copies; and whether one of them is wide. */
-			const keyStage = new Set(keyColumns.map(([, c]) => c))
-			const used = new Set(key.columns)
-			const payload: Array<readonly [string, string]> = []
-			let wide = false
-			for (const col of stage.heading) {
-				if (ordered.has(col.name) || keyStage.has(col.name)) {
-					continue
-				}
-				const v = chain.columns.get(col.name)
-				const source =
-					v === undefined ? undefined : o.bindings.find((b) => b.var.id === v.id)?.column
-				if (source === undefined || used.has(source)) {
-					continue
-				}
-				if (!base.heading.some((c) => c.name === source && sameScalarType(c.type, col.type))) {
-					continue
-				}
-				used.add(source)
-				payload.push([col.name, source])
-				if (widePayload(col.type)) {
-					wide = true
-				}
-			}
-			if (!wide) {
-				continue
-			}
-			const fetched = new Set(payload.map(([c]) => c))
-			plans.push({
-				take: takeCell,
-				takeNode: take,
-				base: o.source,
-				baseNode: base,
-				key,
-				keyColumns,
-				payload,
-				narrow: stage.heading.filter((c) => !fetched.has(c.name))
-			})
-			break
 		}
+		const props = cx.physical().of(o.source).props
+		const narrowCarried = [...carried].flatMap(([name, [c]]) => (widePayload(c.type) ? [] : [name]))
+		/**
+		 * The key the narrow take sorts (keyAmong): one among the narrow carried columns, so every wide one is payload
+		 * it fetches, and otherwise one among all of them, a wide key column then carried through the sort.
+		 */
+		const key = keyAmong(props, narrowCarried) ?? keyAmong(props, carried.keys())
+		if (key === undefined) {
+			continue
+		}
+		/** The stage columns that carry each column of the key. */
+		const keyColumns = key.columns.flatMap((k) => {
+			const c = carried.get(k)
+			return c === undefined ? [] : [c]
+		})
+		/** The stage columns the occurrence's relation can deliver instead, outside the order and the key, each
+		 * from a column of the same type no other fetched column copies; and whether one of them is wide. */
+		const keyStage = new Set(keyColumns.map(([, c]) => c))
+		const used = new Set(key.columns)
+		const payload: Array<readonly [string, string]> = []
+		let wide = false
+		for (const col of stage.heading) {
+			if (ordered.has(col.name) || keyStage.has(col.name)) {
+				continue
+			}
+			const v = chain.columns.get(col.name)
+			const source = v === undefined ? undefined : o.bindings.find((b) => b.var.id === v.id)?.column
+			if (source === undefined || used.has(source)) {
+				continue
+			}
+			if (!base.heading.some((c) => c.name === source && sameScalarType(c.type, col.type))) {
+				continue
+			}
+			used.add(source)
+			payload.push([col.name, source])
+			if (widePayload(col.type)) {
+				wide = true
+			}
+		}
+		if (!wide) {
+			continue
+		}
+		const fetched = new Set(payload.map(([c]) => c))
+		plans.push({
+			take: takeCell,
+			takeNode: take,
+			base: o.source,
+			baseNode: base,
+			key,
+			keyColumns,
+			payload,
+			narrow: stage.heading.filter((c) => !fetched.has(c.name))
+		})
 	}
 	return plans
 }
@@ -246,7 +253,7 @@ const lateFetch: Rule = {
  * The wide columns every take carries outside its order: each rewrite fetches one plan's columns, a wide one among them,
  * which leave the narrowed take.
  */
-const lateFetchMeasure: Measure = (cx) => {
+const lateFetchPotential: Potential = (cx) => {
 	let count = 0
 	for (const cell of cx.editor.topoOrder()) {
 		const node = cell.current
@@ -256,7 +263,7 @@ const lateFetchMeasure: Measure = (cx) => {
 		const ordered = new Set(node.order.keys.map((k) => k.column))
 		count += node.heading.filter((c) => widePayload(c.type) && !ordered.has(c.name)).length
 	}
-	return [count]
+	return count
 }
 
 /**
@@ -291,13 +298,13 @@ const lateFetchMeasure: Measure = (cx) => {
  * every fetchable column with it, since B's row is read by key anyway. A correlated take, one on a recursive step,
  * and a stage some expression reads laterally are refused.
  *
- * Measure: the wide columns every take carries outside its order. Each rewrite replaces one take by a narrowed take
- * over the same order that carries fewer, since the fetched columns hold a wide one, and changes no other take's
- * heading. Counting only fetchable columns would not do: the fetch region the rewrite leaves is a region chain,
+ * Potential: the wide columns every take carries outside its order, at most its takes' heading widths. Each rewrite
+ * replaces one take by a narrowed take over the same order that carries fewer, since the fetched columns hold a wide
+ * one, and changes no other take's heading. Counting only fetchable columns would not do: the fetch region the rewrite leaves is a region chain,
  * so a take over the rewritten one, which had nothing to fetch through a take, now can.
  */
 export const lateFetchPass = rewritePass({
 	name: "lateFetch",
 	rules: [lateFetch],
-	measure: lateFetchMeasure
+	potential: () => lateFetchPotential
 })

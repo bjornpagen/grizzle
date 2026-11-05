@@ -19,7 +19,6 @@ import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -49,6 +48,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Select, SelectBody } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { mergeComparator } from "#test/support/merge.ts"
 import { keyed, Posting, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 import { tasksByKind } from "#test/unit/lower/shapes/queries.ts"
@@ -209,7 +209,7 @@ describe("attachments on heading groups", () => {
 							] as const,
 						limit: 4,
 						coverage: requiredInSpace<"delivered" | "refused">(["delivered", "refused"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([on, lowering], c) =>
 						Effect.sync(() => {
@@ -243,7 +243,7 @@ describe("the bounded union consumed inside a statement", () => {
 							[source.draw(int(1, 3)), source.draw(boolean), source.draw(boolean)] as const,
 						limit: 12,
 						coverage: requiredInSpace<"keyed" | "deduplicated">(["keyed", "deduplicated"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([k, keyedArms, overlap], c) =>
 						Effect.sync(() => {
@@ -376,7 +376,7 @@ describe("the runtime merge of heading groups", () => {
 						),
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(m, c) =>
 						Effect.sync(() => {
@@ -495,7 +495,7 @@ describe("the runtime merge of heading groups", () => {
 					),
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([a, b], c) =>
 					Effect.sync(() => {
@@ -530,7 +530,7 @@ describe("the runtime merge of heading groups", () => {
 						] as const,
 					limit: 16,
 					coverage: requiredInSpace<"typed" | "untyped">(["typed", "untyped"]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([ordered, typed], c) =>
 					Effect.sync(() => {

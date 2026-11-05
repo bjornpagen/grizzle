@@ -3,7 +3,7 @@ import { required } from "@grizzle/testing/features"
 import type { Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { mutantLowering, mutationSites } from "#test/support/oracle/mutants/index.ts"
 import type { Mutant } from "#test/support/oracle/mutants/mutants.ts"
@@ -60,7 +60,6 @@ export const runMutant = (mutant: Mutant, gen: Gen<QueryCase>, suite: string) =>
 				kept: [],
 				runs: within,
 				shrink: completeShrink,
-				caseHang: Duration.minutes(2),
 				perturb: "none"
 			},
 			(c, k) =>

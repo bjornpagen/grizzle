@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { provisionalTheory } from "#compiler/analysis/theory/theory.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -22,6 +22,7 @@ import { type BuiltQuery, Ir, SchemaModel } from "#test/support/fixtures/ir/buil
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
 import * as P from "#test/support/fixtures/ir/payroll.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { analyze, logicalEnv, theoryOf } from "#test/unit/analysis/logical/support.ts"
 
 /**
@@ -251,7 +252,7 @@ describe("the delivered type of an attachment", () => {
 							"stage draft",
 							"stage any"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ child, stage, correlation }, c) =>
 						Effect.sync(() => {
@@ -455,7 +456,7 @@ describe("the delivered type of an attachment", () => {
 							"secondScan varied",
 							"nonzero varied"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(v, c) =>
 						Effect.sync(() => {
@@ -531,7 +532,7 @@ describe("the delivered type of an attachment", () => {
 							"Payroll's payslip",
 							"Payroll's employee card"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(planted, c) =>
 						Effect.sync(() => {

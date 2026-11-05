@@ -1,5 +1,6 @@
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
+import { published } from "#compiler/core/limits.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	type Cell,
@@ -18,7 +19,7 @@ import {
 } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
-	type Measure,
+	type Potential,
 	nodePremises,
 	type RewriteCx,
 	type Rule,
@@ -83,8 +84,26 @@ const existenceOnly = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArray
 	})
 }
 
-/** PostgreSQL's default join_collapse_limit and from_collapse_limit, which no grizzle session changes. */
-export const collapseLimit = 8
+/**
+ * PostgreSQL's default join_collapse_limit, which is from_collapse_limit's too: the most FROM items the planner flattens
+ * one join problem into, and plans exhaustively, before it plans the rest as separate subproblems in the order written.
+ * No grizzle session sets either, so the default is the value every statement is planned under. The docs state it
+ * through from_collapse_limit, "By default, this variable is set the same as from_collapse_limit", whose "default is
+ * eight" (https://www.postgresql.org/docs/19/runtime-config-query.html).
+ */
+export const collapseLimit = published({
+	value: 8,
+	owner: "PostgreSQL 19rc1's planner",
+	unit: "FROM items",
+	scope:
+		"one join problem the planner flattens, under the session default no grizzle session changes",
+	constraint: "configurable default",
+	source:
+		"https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/misc/guc_parameters.dat#L1529-L1537",
+	quote:
+		"{ name => 'join_collapse_limit', type => 'int', context => 'PGC_USERSET', [...] boot_val => '8',",
+	verified: "2026-11-05"
+})
 
 /**
  * The number of groups `occurrences` form, two occurrences in one group when a chain of shared variables joins them; a
@@ -158,7 +177,7 @@ const existenceTest = (cx: RewriteCx, cell: Cell, region: Region): Occurrence | 
 	if (candidates.length === 0) {
 		return undefined
 	}
-	if (region.occurrences.length + stacked(cx, cell) > collapseLimit) {
+	if (region.occurrences.length + stacked(cx, cell) > collapseLimit.value) {
 		return undefined
 	}
 	const whole = groups(region, region.occurrences)
@@ -369,7 +388,7 @@ const setComparison: Rule = {
 	}
 }
 
-const existenceMeasure: Measure = (cx) => {
+const existencePotential: Potential = (cx) => {
 	let count = 0
 	for (const cell of cx.editor.topoOrder()) {
 		const node = cell.current
@@ -380,7 +399,7 @@ const existenceMeasure: Measure = (cx) => {
 			count++
 		}
 	}
-	return [count]
+	return count
 }
 
 /**
@@ -435,12 +454,13 @@ const existenceMeasure: Measure = (cx) => {
  *   it stay within that limit; past it the region stays one flat join PostgreSQL orders itself. grizzle never changes the
  *   limit, so the bound is PostgreSQL's default.
  *
- * Measure: the number of existence-only occurrences plus set comparisons, which each rewrite lowers: a region loses one
- * occurrence and the new right side has a single one, which is never existence-only; a set comparison becomes a join.
- * The choice above only selects among the counted occurrences, so the measure does not depend on it.
+ * Potential: the number of existence-only occurrences plus set comparisons, at most the DAG's nodes and occurrences,
+ * which each rewrite lowers: a region loses one occurrence and the new right side has a single one, which is never
+ * existence-only; a set comparison becomes a join. The choice above only selects among the counted occurrences, so the
+ * potential does not depend on it.
  */
 export const existencePass = rewritePass({
 	name: "existence",
 	rules: [existenceRule, setComparison],
-	measure: existenceMeasure
+	potential: () => existencePotential
 })

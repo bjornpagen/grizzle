@@ -3,19 +3,20 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
 import { attachmentFacts } from "#adapter/reader/analysis.ts"
 import { formFor } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { readExceeds, templateProgram } from "#adapter/reader/run.ts"
 import { indices } from "#compiler/core/array.ts"
-import { lateralParentMax } from "#compiler/core/policy.ts"
+import { lateralParentMax } from "#compiler/core/limits.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { Account, Task, Work } from "#test/support/fixtures/api/work.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * A read's per-execution form is chosen by the count of the relation parameter its correlated take reads, whatever the
@@ -65,12 +66,12 @@ describe("a read's per-execution choice", () => {
 						generator: (source) =>
 							[
 								source.draw(element(nonEmpty(parameterNames, "the parameter names"))),
-								source.draw(element([lateralParentMax, lateralParentMax + 1]))
+								source.draw(element([lateralParentMax.value, lateralParentMax.value + 1]))
 							] as const,
 						literal: Formatter.format,
 						limit: 2 * parameterNames.length,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([name, count]) =>
 						Effect.sync(() => {
@@ -93,7 +94,7 @@ describe("a read's per-execution choice", () => {
 							assert.ok(forms.kind === "chosen", name)
 							assert.equal(
 								formFor(record.run, readExceeds(inputs)) === forms.large,
-								count > lateralParentMax,
+								count > lateralParentMax.value,
 								name
 							)
 						})

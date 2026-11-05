@@ -4,7 +4,7 @@ import { type Reached, required, type Situations } from "@grizzle/testing/featur
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
@@ -31,6 +31,7 @@ import {
 	residualSchema,
 	residualSketchGen
 } from "#test/support/laws/residual-schemas.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { ownedInput, owning } from "#test/support/policy.ts"
 
 /**
@@ -444,7 +445,7 @@ describe("residual law participants", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(1)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.sync(() => {

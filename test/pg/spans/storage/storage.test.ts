@@ -16,7 +16,7 @@ import { boundedShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -34,6 +34,7 @@ import {
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { paramTexts } from "#test/support/compile.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	type Canonical,
 	canonicalize,
@@ -113,7 +114,7 @@ const exploration = {
 	shrink: boundedShrink(100),
 	concurrency: 1,
 	steerEvery: 16,
-	caseHang: Duration.minutes(2)
+	caseHang
 } as const
 
 /**
@@ -541,7 +542,7 @@ layer(Substrate.layer)("span storage", (it) => {
 									for (const { spec } of specs) {
 										const slot = defined(spec.paramSlots[0], "the window's placeholder")
 										assert.ok(
-											slot.kind !== "member" && !slot.encode(d.window).ok,
+											slot.kind === "scalar" && !slot.encode(d.window).ok,
 											`the window ${d.window.start}, ${d.window.end}`
 										)
 									}

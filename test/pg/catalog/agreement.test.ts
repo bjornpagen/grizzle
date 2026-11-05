@@ -5,7 +5,7 @@ import { boolean, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import type { TestContext } from "vitest"
 import { indices } from "#compiler/core/array.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
@@ -32,6 +32,7 @@ import {
 import { assert, defined } from "#test/support/assert.ts"
 import { catalogDispatch } from "#test/support/compile.ts"
 import type { AuthoredExprDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { RawRow } from "#test/support/oracle/install/capture.ts"
 import {
 	conservative,
@@ -138,7 +139,7 @@ const agree = (
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(drawnFacts, c) =>
 					Effect.gen(function* () {

@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
@@ -19,6 +19,7 @@ import {
 	uuidOf
 } from "#test/unit/lower/conservative/fixtures.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	passContext,
 	deliversAlikeOn,
@@ -248,7 +249,7 @@ describe("legal predicate movement", () => {
 						"group source moved",
 						"correlated group source stays"
 					]),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(site, c) =>
 					Effect.sync(() => {

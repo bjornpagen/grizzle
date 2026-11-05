@@ -6,16 +6,7 @@ import { exact, multiset, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	pipe,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { Compute, type Predicate } from "#compiler/public/compute.ts"
@@ -32,6 +23,7 @@ import {
 } from "#test/pg/spans/allen/support.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { type HalfOpen, type RangeType, rangeLimits, spanText } from "#test/support/oracle/allen.ts"
 import { endpointMaskPredicate } from "#test/support/oracle/gen/spans.ts"
@@ -565,7 +557,7 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 									`${carrier} some facts`
 								])
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(c, k) =>
 							Effect.map(runCase(installed, db, c), (ran) => {
@@ -576,8 +568,7 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 							})
 					)
 				})
-			),
-		900_000
+			)
 	)
 
 	it.effect(
@@ -608,7 +599,6 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
-							caseHang: Duration.minutes(2),
 							perturb: "none"
 						},
 						(c, k) =>
@@ -622,7 +612,6 @@ layer(Substrate.layer)("endpoint spellings of span relations on PostgreSQL 19", 
 							})
 					)
 				})
-			),
-		900_000
+			)
 	)
 })

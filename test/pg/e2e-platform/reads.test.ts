@@ -31,7 +31,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import type { QueryResult } from "#adapter/types/db.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
@@ -65,6 +65,7 @@ import {
 	viewOf
 } from "#test/support/platform/generate.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	cardAt,
 	chargeOf,
@@ -662,7 +663,7 @@ layer(Substrate.layer)(
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2),
+							caseHang,
 							coverage: required<ReadsFeature>(
 								[
 									"an event at a rate change",

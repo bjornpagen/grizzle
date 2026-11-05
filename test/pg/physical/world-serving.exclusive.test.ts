@@ -32,7 +32,7 @@ import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { TestContext } from "vitest"
 import {
 	fixtureRows,
@@ -47,6 +47,7 @@ import {
 	type WorldServingFeature
 } from "#test/pg/physical/world-serving.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
@@ -187,7 +188,7 @@ const populationSuite = (runs: number) => (ctx: TestContext) =>
 				shrink: { kind: "bounded", candidates: 24 },
 				concurrency: 1,
 				steerEvery: 4,
-				caseHang: Duration.minutes(5)
+				caseHang
 			},
 			(c, cx) =>
 				Effect.scoped(
@@ -245,8 +246,7 @@ const fixtureWitnesses: Arr.NonEmptyReadonlyArray<LinkWitness> = [
 layer(Substrate.layer)("world functions, judged by PostgreSQL at volume", (it) => {
 	it.effect(
 		"every world function of generated roles reads by its indexes at 20,000 facts per relation",
-		populationSuite(24),
-		1_800_000
+		populationSuite(24)
 	)
 	it.effect(
 		"the README's worlds and a witness of each arm read by their indexes at a million facts per relation",
@@ -268,7 +268,6 @@ layer(Substrate.layer)("world functions, judged by PostgreSQL at volume", (it) =
 						"the fixture reaches every situation"
 					)
 				})
-			),
-		1_800_000
+			)
 	)
 })

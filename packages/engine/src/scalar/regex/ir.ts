@@ -1,4 +1,5 @@
 import { defect } from "#compiler/core/invariant.ts"
+import { regexMaxPositions } from "#compiler/core/limits.ts"
 import { postorder } from "#compiler/ir/dag.ts"
 import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
 
@@ -284,15 +285,13 @@ const compareCanonical = (a: RegexNode, b: RegexNode, table: Map<RegexNode, Piec
 	}
 }
 
-/**
- * The largest body repeat rewrites, in written-out positions: above the compile-space measure's (core/policy.ts
- * regexMaxPositions), so a body the rewrite leaves alone is one whose rewritten pattern the measure would refuse too.
- */
-const rewriteBudget = 1 << 14
-
 /** `body*` for a body with no zero-width match, which needs none of repeat's rewrites. */
 const star = (body: RegexNode): RegexNode =>
 	body.kind === "never" ? empty : Object.freeze({ kind: "repeat", body, min: 0, max: "unbounded" })
+
+/** The iterations a repetition's maximum leaves once one more is written out: an unbounded maximum stays unbounded. */
+const lessOne = (max: number | "unbounded"): number | "unbounded" =>
+	max === "unbounded" ? max : max - 1
 
 /**
  * How many copies of its body a repetition writes out: its maximum, or for an unbounded one max(min, 1) and a loop
@@ -403,9 +402,9 @@ export class RegexBuilder {
 	 *   `(?:(?:.|$|){0,6})+b` is already too complex for it). A zero-width iteration leaves the position where it was
 	 *   and only adds tests, so it can be dropped from any sequence of iterations that keeps at least the minimum count:
 	 *   B{m,} is B{m} followed by any number of consuming iterations, which has no such cycle. The rewrite writes the
-	 *   body out again, and nested loops through assertions compound it, so it applies only to a body within
-	 *   `rewriteBudget` written-out positions; a larger one stays a constraint loop, which analyzeText refuses as
-	 *   ResourceBound (loopsThroughAnchor), as it would refuse the rewritten pattern for its size.
+	 *   body out again, and nested loops through assertions compound it, so it applies only to a body within the
+	 *   compile-space measure's regexMaxPositions written-out positions; a larger one stays a constraint loop, which
+	 *   analyzeText refuses as ResourceBound (loopsThroughAnchor), as the measure would refuse the rewritten pattern.
 	 */
 	repeat(body: RegexNode, min: number, max: number | "unbounded"): RegexNode {
 		if (max === 0) {
@@ -429,14 +428,18 @@ export class RegexBuilder {
 		if (
 			max === "unbounded" &&
 			this.#zeroPathsOf(body).asserted &&
-			this.expandedSize(body) <= rewriteBudget
+			this.expandedSize(body) <= regexMaxPositions.value
 		) {
 			return seq([this.repeat(body, min, min), star(this.#consuming(body))])
 		}
 		return Object.freeze({ kind: "repeat", body, min, max })
 	}
 
-	/** Whether a repetition still loops through an assertion: one whose rewrite exceeded `rewriteBudget`. */
+	/**
+	 * Whether a repetition still loops through an assertion: one whose body the rewrite left alone, its written-out
+	 * positions past the compile-space measure's regexMaxPositions (core/limits.ts), so the measure refuses its pattern
+	 * as it would the rewritten one.
+	 */
 	loopsThroughAnchor(node: RegexNode): boolean {
 		return folded(this.#loops, node, (n, of) => {
 			switch (n.kind) {
@@ -516,15 +519,8 @@ export class RegexBuilder {
 					const { body, min, max } = n
 					const rest = (lo: number, hi: number | "unbounded"): RegexNode =>
 						hi !== "unbounded" && hi < lo ? never : this.repeat(body, lo, hi)
-					const first = seq([
-						of(body),
-						rest(Math.max(min - 1, 0), max === "unbounded" ? max : max - 1)
-					])
-					const later = seq([
-						this.zeroPart(body),
-						of(body),
-						rest(0, max === "unbounded" ? max : max - 2)
-					])
+					const first = seq([of(body), rest(Math.max(min - 1, 0), lessOne(max))])
+					const later = seq([this.zeroPart(body), of(body), rest(0, lessOne(lessOne(max)))])
 					return this.alt([first, later])
 				}
 			}

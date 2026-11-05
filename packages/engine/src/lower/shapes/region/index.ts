@@ -3,6 +3,7 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { exprsOf, inputsOf, type NodeOf } from "#compiler/ir/rel.ts"
 import { baseOf, type Carrier } from "#compiler/ir/scalar.ts"
+import { conjuncts } from "#compiler/logical/props.ts"
 import {
 	distinctSelect,
 	type Env,
@@ -42,9 +43,9 @@ const exprReads = (e: Expr, within: ReadonlySet<string>): ReadonlySet<string> =>
 const itemReads = (item: FromItem, within: ReadonlySet<string>): ReadonlySet<string> =>
 	aliasesRead(core([target(lit.bool(true))], [item], undefined), within)
 
-/** A conjunction's terms, nested conjunctions flattened. */
-const conjuncts = (e: Expr): ReadonlyArray<Expr> =>
-	e.kind === "and" ? e.args.flatMap(conjuncts) : [e]
+/** A SQL conjunction's terms, nested conjunctions flattened. */
+const sqlConjuncts = (e: Expr): ReadonlyArray<Expr> =>
+	e.kind === "and" ? e.args.flatMap(sqlConjuncts) : [e]
 
 interface RegionColumn {
 	readonly alias: string
@@ -152,7 +153,7 @@ const chainOrder = (
 		return out
 	}
 	/** 0: at most one row per chained binding; 1: a column fixed from outside; 2: neither. */
-	const tier = (p: Pending, chained: ReadonlySet<string>): number => {
+	const tier = (p: Pending, chained: ReadonlySet<string>): 0 | 1 | 2 => {
 		const columns = [...determined(p.placed, chained)].flatMap((c) => {
 			const name = p.names.get(c)
 			return name === undefined ? [] : [name]
@@ -208,10 +209,6 @@ const orderedCarriers: ReadonlySet<Carrier> = new Set<Carrier>([
 	"enum"
 ])
 
-/** A conjunction's terms, nested conjunctions flattened, over the IR. */
-const exprConjuncts = (e: ScalarExpr): ReadonlyArray<ScalarExpr> =>
-	e.kind === "op" && nativeOp(e.op)?.fn === "and" ? e.args.flatMap((a) => exprConjuncts(a)) : [e]
-
 const orderFns: ReadonlySet<string> = new Set(["lt", "le", "gt", "ge"])
 
 /**
@@ -254,7 +251,7 @@ const impliedBounds = (
 		return []
 	}
 	const out: Array<Expr> = []
-	for (const e of exprConjuncts(filter.pred)) {
+	for (const e of conjuncts(filter.pred)) {
 		const fn = e.kind === "op" ? nativeOp(e.op) : undefined
 		if (e.kind !== "op" || fn === undefined || !orderFns.has(fn.fn) || e.args.length !== 2) {
 			continue
@@ -304,7 +301,7 @@ const impliedBounds = (
  * WHERE, the conservative form, and PostgreSQL orders all of it; a larger region is emitted as a left-deep JOIN chain,
  * which PostgreSQL divides into subproblems of at most collapseLimit relations, each planned exhaustively. That is how
  * handwritten SQL of the same join reads (bench/query/planning.bench.ts), and it is PostgreSQL's own mechanism at its
- * default setting: grizzle raises no planner limit and no login's defaults set one, unlike jit = off,
+ * default setting: grizzle raises no planner limit and no login's defaults set one,
  * because the only setting that splits a flat list is geqo_threshold, and raising it is the global change R14 rules
  * out.
  *
@@ -345,7 +342,7 @@ export const regionLowerer =
 			conditions: [...lowered.conditions, ...impliedBounds(node, cx, env, lowered)]
 		}
 		const [first, ...others] = parts.occurrences
-		if (first === undefined || parts.occurrences.length <= collapseLimit) {
+		if (first === undefined || parts.occurrences.length <= collapseLimit.value) {
 			return distinctSelect(
 				parts.targets,
 				parts.occurrences.map((o) => o.item),
@@ -353,7 +350,7 @@ export const regionLowerer =
 			)
 		}
 		const within = new Set(parts.occurrences.map((o) => o.alias))
-		const terms = parts.conditions.flatMap(conjuncts).map((e) => termOf(e, within))
+		const terms = parts.conditions.flatMap(sqlConjuncts).map((e) => termOf(e, within))
 		const { start, rest } = chainOrder(first, others, terms, facts, within)
 		/**
 		 * Each term stands at the step of the chain that brings in the last occurrence it reads: in WHERE when that is

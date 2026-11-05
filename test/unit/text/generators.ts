@@ -228,10 +228,9 @@ const hex = (c: number, width: number): string =>
  * among them), a hex, BMP or braced Unicode escape, a control escape (\cA-\cZ or \ca-\cz for U+0001-U+001A), or
  * \n, \r, \t, \v and \f.
  */
-const literal =
-	(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<string> =>
+const spelled =
+	(c: number): Gen<string> =>
 	(source) => {
-		const c = source.draw(element(alphabet))
 		const spelling = source.draw(int(0, 4))
 		const lower = source.draw(boolean)
 		const ch = String.fromCodePoint(c)
@@ -264,6 +263,12 @@ const literal =
 		}
 		return Str.includes(ch)(syntax) ? `\\${ch}` : ch
 	}
+
+/** A code point of the alphabet, spelled outside a class. */
+const literal =
+	(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<string> =>
+	(source) =>
+		source.draw(spelled(source.draw(element(alphabet))))
 
 const classChar = (c: number): string => {
 	const ch = String.fromCodePoint(c)
@@ -395,18 +400,92 @@ export const patternOver = (alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<st
 	return disjunction(0)
 }
 
-/**
- * Anchored alternations of short literal strings over an alphabet: a finite language of at most three members, which
- * patternOver, whose anchors fall anywhere among its unbounded quantifiers, draws about once in thousands of cases.
- */
-export const finitePatternOver = (alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<string> =>
-	map(
-		array(
-			map(array(literal(alphabet), { min: 1, max: 3 }), (points) => Arr.join(points, "")),
-			{ min: 1, max: 3 }
-		),
-		(arms) => `^(?:${Arr.join(arms, "|")})$`
+/** A finite language as a pattern spells it, with its members, which the pattern's construction gives. */
+export interface FiniteLanguage {
+	readonly source: string
+	readonly members: Arr.NonEmptyReadonlyArray<string>
+}
+
+/** A spelled part of a pattern, with every string it matches. */
+interface Spelled {
+	readonly spelling: string
+	readonly matches: ReadonlyArray<string>
+}
+
+/** The one string a sequence of no pieces matches. */
+const emptySequence: ReadonlyArray<string> = [""]
+
+/** Every string of `length` code points, each one of `points`. */
+const stringsOf = (points: ReadonlyArray<string>, length: number): ReadonlyArray<string> =>
+	length === 0
+		? emptySequence
+		: Arr.flatMap(stringsOf(points, length - 1), (prefix) => Arr.map(points, (p) => prefix + p))
+
+/** How many times a piece repeats, at least and at most: once, mostly, or counted from none to twice. */
+const repetition: Gen<readonly [min: number, max: number]> = weighted<
+	readonly [min: number, max: number]
+>([
+	[3, constant([1, 1] as const)],
+	[
+		1,
+		(source) => {
+			const min = source.draw(int(0, 2))
+			return [min, source.draw(int(min, 2))] as const
+		}
+	]
+])
+
+/** A code point of the alphabet, or a class of up to three, repeated: one piece of a finite pattern's arm. */
+const finitePiece =
+	(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<Spelled> =>
+	(source) => {
+		const first = source.draw(element(alphabet))
+		const more = source.draw(array(element(alphabet), { min: 0, max: 2 }))
+		const [min, max] = source.draw(repetition)
+		const points: Arr.NonEmptyReadonlyArray<number> = [first, ...more]
+		const atom =
+			more.length === 0
+				? source.draw(spelled(first))
+				: `[${Arr.join(Arr.map(points, classChar), "")}]`
+		const count = min === 1 && max === 1 ? "" : min === max ? `{${min}}` : `{${min},${max}}`
+		const chars = Arr.dedupe(Arr.map(points, (c) => String.fromCodePoint(c)))
+		return {
+			spelling: `${atom}${count}`,
+			matches: Arr.flatMap(Arr.range(min, max), (n) => stringsOf(chars, n))
+		}
+	}
+
+/** The spellings of a pattern's parts, joined by `separator`. */
+const spellingsOf = (parts: ReadonlyArray<Spelled>, separator: string): string =>
+	Arr.join(
+		Arr.map(parts, (part) => part.spelling),
+		separator
 	)
+
+/** A sequence of up to three pieces: one arm of a finite pattern, matching each concatenation of its pieces' strings. */
+const finiteArm = (alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<Spelled> =>
+	map(array(finitePiece(alphabet), { min: 0, max: 3 }), (pieces) => ({
+		spelling: spellingsOf(pieces, ""),
+		matches: Arr.reduce(pieces, emptySequence, (prefixes, p) =>
+			Arr.flatMap(prefixes, (prefix) => Arr.map(p.matches, (m) => prefix + m))
+		)
+	}))
+
+/**
+ * Anchored alternations of up to three arms over an alphabet, each a sequence of code points and classes counted up to
+ * twice: a finite language, from one member to thousands, which patternOver, whose anchors fall anywhere among its
+ * unbounded quantifiers, draws about once in thousands of cases.
+ */
+export const finiteLanguageOver =
+	(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<FiniteLanguage> =>
+	(source) => {
+		const arms = source.draw(array(finiteArm(alphabet), { min: 1, max: 3 }))
+		const members = Arr.dedupe(Arr.flatMap(arms, (arm) => arm.matches))
+		if (!Arr.isReadonlyArrayNonEmpty(members)) {
+			throw new Error("every arm of a finite pattern matches a string")
+		}
+		return { source: `^(?:${spellingsOf(arms, "|")})$`, members }
+	}
 
 export const flagsGen: Gen<Flags> = element<Flags>(["u", "su"])
 

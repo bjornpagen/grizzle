@@ -17,7 +17,6 @@ import {
 import { deliveredRows, templateProgram } from "#adapter/reader/run.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Layout, Row } from "#compiler/core/decoder.ts"
-import { pageMaxSize } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
@@ -393,7 +392,7 @@ const checkPage =
 		if (Result.isFailure(runtime)) {
 			throw new Error("a page whose page template does not compile")
 		}
-		const parsed = pageRequest(request, pageMaxSize)
+		const parsed = pageRequest(request)
 		if (Result.isFailure(parsed)) {
 			throw new Error("a page that answered a request its runtime refuses")
 		}

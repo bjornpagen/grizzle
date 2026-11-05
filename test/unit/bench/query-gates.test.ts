@@ -5,9 +5,10 @@ import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { agreementCounts, deliveredAgree, within } from "#bench/query/support/kit.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
  * The query kit's agreement judgments, against independent models.
@@ -86,7 +87,7 @@ describe("the query kit's keyed numeric agreement", () => {
 					shrink: { kind: "bounded", candidates: 150 },
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([left, right, tolerance], c) =>
 					Effect.sync(() => {
@@ -175,7 +176,7 @@ describe("the query kit's delivered agreement", () => {
 						shrink: { kind: "bounded", candidates: 150 },
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([rows, n, reverse], c) =>
 						Effect.sync(() => {

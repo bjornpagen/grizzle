@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
@@ -27,6 +27,7 @@ import {
 	type NamedRelation,
 	parsedSchemaName
 } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -402,49 +403,46 @@ const installationOf = (s: Planting) =>
 	})
 
 layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
-	it.effect(
-		"admit exactly what each declaration means",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const substrate = yield* Substrate
-					return yield* explore(
-						{
-							suite: "physical/checks",
-							draw: drawn(plantedGen),
-							literal: Formatter.format,
-							coverage: required<CheckFeature>(situations, { cases: 40, sense: notesOnly }),
-							kept: [],
-							/**
-							 * The floor stream runs 10 and the rotating stream 40 cases; each class is judged both ways in
-							 * every case by construction (probesOf), so the drawn probes only widen the values.
-							 */
-							runs: 40,
-							shrink: { kind: "complete" },
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang: Duration.minutes(2)
-						},
-						(p, c) =>
-							Effect.scoped(
-								Effect.gen(function* () {
-									const s = plantedSchema(p)
-									const installation = yield* installationOf(s)
-									const pinned = yield* substrate.admin.pin
-									const { problems, reached } = yield* inInstallation(
-										pinned,
-										installationSql(installation),
-										judgeCase(pinned, installation, s, p)
-									)
-									c.noteAll(reached)
-									assert.deepEqual(problems, [])
-								})
-							)
-					)
-				})
-			),
-		300_000
+	it.effect("admit exactly what each declaration means", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const substrate = yield* Substrate
+				return yield* explore(
+					{
+						suite: "physical/checks",
+						draw: drawn(plantedGen),
+						literal: Formatter.format,
+						coverage: required<CheckFeature>(situations, { cases: 40, sense: notesOnly }),
+						kept: [],
+						/**
+						 * The floor stream runs 10 and the rotating stream 40 cases; each class is judged both ways in
+						 * every case by construction (probesOf), so the drawn probes only widen the values.
+						 */
+						runs: 40,
+						shrink: { kind: "complete" },
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(p, c) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const s = plantedSchema(p)
+								const installation = yield* installationOf(s)
+								const pinned = yield* substrate.admin.pin
+								const { problems, reached } = yield* inInstallation(
+									pinned,
+									installationSql(installation),
+									judgeCase(pinned, installation, s, p)
+								)
+								c.noteAll(reached)
+								assert.deepEqual(problems, [])
+							})
+						)
+				)
+			})
+		)
 	)
 
 	it.effect("finds the CHECK of every class dropped from the installation", () =>

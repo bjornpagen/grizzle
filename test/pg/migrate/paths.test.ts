@@ -7,7 +7,7 @@ import type { ShrinkBudget } from "@grizzle/testing/shrink"
 import { generate, simplestChooser } from "@grizzle/testing/source"
 import { tokenOf } from "@grizzle/testing/tape"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import {
 	carryChain,
 	catalogRenamedDrawGen,
@@ -54,6 +54,7 @@ import {
 } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { installedSchemas } from "#test/support/install-migrate.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import type { ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
@@ -102,8 +103,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * ambient session, and whether a version names a relation or a closed roster as PostgreSQL names a type or function. */
 const runs = 4
 const shrink: ShrinkBudget = { kind: "bounded", candidates: 100 }
-/** A path is a handful of migrations; one that has not finished in this long is hung. */
-const caseHang = Duration.minutes(10)
 
 const featureNames = [
 	"a step applied",

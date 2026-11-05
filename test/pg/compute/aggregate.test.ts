@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Result, String as Str } from "effect"
+import { Effect, Result, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type AggregateOverload, aggregateOverload } from "#compiler/scalar/aggregate.ts"
@@ -12,6 +12,7 @@ import { valueType } from "#compiler/scalar/compute/types.ts"
 import { concreteTypeName, textCell } from "#test/pg/compute/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -45,7 +46,7 @@ const samples: readonly [Sample, ...ReadonlyArray<Sample>] = [
 	plain("int2", testPg.smallint, "(VALUES (1::smallint), (2::smallint))"),
 	plain("int4", testPg.integer, "(VALUES (1::integer), (2::integer))"),
 	plain("int8", testPg.bigint, "(VALUES (1::bigint), (2::bigint))"),
-	plain("numeric", testPg.numeric, "(VALUES (1.5::numeric), (2::numeric))"),
+	plain("numeric", testPg.numeric, "(VALUES (1.5::numeric(1000, 20)), (2::numeric(1000, 20)))"),
 	plain("float4", testPg.real, "(VALUES (1.5::real), (2::real))"),
 	plain("float8", testPg.double, "(VALUES (1.5::double precision), (2::double precision))"),
 	plain("money", testPg.money, "(VALUES (1.5::numeric::money), (2::numeric::money))"),
@@ -231,7 +232,7 @@ layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 								"checked max/Cents",
 								"checked min/bool"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([sample, name], c) =>
 							Effect.gen(function* () {

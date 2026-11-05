@@ -1,4 +1,6 @@
+import net from "node:net"
 import { type Effect, type Layer, type Option, Redacted, type Scope } from "effect"
+import pgDriver from "pg"
 import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { ApplyOutcome, Compiled, DbConstructor, QueryResult } from "#adapter/types/db.ts"
 import type { DbLayerConstructor } from "#adapter/types/layer.ts"
@@ -50,6 +52,9 @@ type Reporter = Db<typeof ReporterRole, unknown>
 
 /** Db.open takes the role reached through its login, whose layer provides it with the committed snapshot. */
 declare const snapshot: { readonly fingerprint: string }
+/** The caller's own connect and idle timeouts. */
+declare const connectTimeoutMs: number
+declare const idleTimeoutMs: number
 export const opened = Db.open(Server.roles.writer, {})
 export type Opened = Expect<
 	Equals<typeof opened, Effect.Effect<Writer, OpenError, DbLayer<typeof WriterRole>>>
@@ -59,13 +64,21 @@ export const omitted = Db.open(Server.roles.writer)
 // @ts-expect-error -- TS2739: Db.open takes a role reached through its login, never a schema
 export const unrole = Db.open(Work, {})
 export const layer = DbLayer.make({
-	host: "localhost",
-	port: 5433,
+	driver: pgDriver,
+	transport: {
+		kind: "sslRequest",
+		host: "localhost",
+		port: 5433,
+		open: () => new net.Socket(),
+		ca: "PEM",
+		servername: "localhost"
+	},
 	database: "work",
+	connectTimeoutMs,
+	pool: { max: 10, min: 1, idleTimeoutMs },
 	login: Server,
 	snapshot,
-	password: Redacted.make("secret"),
-	tls: { ca: "PEM" }
+	password: Redacted.make("secret")
 })
 
 export type LayerLogin = Expect<

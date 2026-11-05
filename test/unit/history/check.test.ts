@@ -8,8 +8,9 @@
  *
  * - the committed state holds the key;
  * - every abort, and every discarded attempt of a grizzle operation, has an operation overlapping it in real time, and
- *   a cause a concurrent transaction gives: a direct writer's 40001 or 40P01, a grizzle operation's TransientFailure of
- *   a concurrent reason (never StaleStatement);
+ *   a cause a concurrent transaction gives: a direct writer's 40001 or 40P01, a discarded attempt's TransientFailure of
+ *   a concurrent reason (never StaleStatement). Only a direct writer aborts: a grizzle writer calls again after each
+ *   TransientFailure until a call answers;
  * - some order of the committed operations that respects real time replays each through its writer's model, each
  *   committing there (a grizzle no-change exactly no-change), and ends at the committed state;
  * - each refusal has such an order of the committed operations and itself, in which the model refuses it at its place
@@ -21,8 +22,8 @@
  * The space is exhaustive: Worker holds nothing or (1, a); each of two operations inserts (1, a), (1, b) or (2, a), or
  * deletes (1, a), as a grizzle writer or a direct one, and was accepted (a grizzle one also after a discarded attempt
  * of each cause), no-change (grizzle only), refused by the key with a witness naming the written fact's key, another
- * key or none, or aborted with each cause; the second ran before, overlapping or after the first; and the committed
- * state is any, one breaking the key among them. The checker and the enumerator must agree on every history.
+ * key or none, or aborted with each cause (direct only); the second ran before, overlapping or after the first; and the
+ * committed state is any, one breaking the key among them. The checker and the enumerator must agree on every history.
  */
 
 import { describe, it } from "@effect/vitest"
@@ -30,7 +31,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import {
 	type HostFact,
 	type HostRelation,
@@ -43,6 +44,7 @@ import { assert } from "#test/support/assert.ts"
 import { checkHistory, type History, type Recorded } from "#test/support/history/check.ts"
 import { expectFor, type WriterKind } from "#test/support/history/model.ts"
 import { wild } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** The host model's own label for its one law, never compared with a production name. */
 const law = wild.lawId("the Worker key")
@@ -92,8 +94,6 @@ type GrizzleShape =
 	| "rejected"
 	| "rejected, another key"
 	| "rejected, no key"
-	| "aborted: SerializationFailure"
-	| "aborted: StaleStatement"
 type DirectShape = "accepted" | "rejected" | "rejected, a key" | "aborted: 40001" | "aborted: 40P01"
 type Shaped =
 	| { readonly kind: "grizzle"; readonly shape: GrizzleShape }
@@ -106,9 +106,7 @@ const grizzleShapes: Arr.NonEmptyReadonlyArray<GrizzleShape> = [
 	"no-change",
 	"rejected",
 	"rejected, another key",
-	"rejected, no key",
-	"aborted: SerializationFailure",
-	"aborted: StaleStatement"
+	"rejected, no key"
 ]
 
 const directShapes: Arr.NonEmptyReadonlyArray<DirectShape> = [
@@ -185,23 +183,6 @@ const recordedOf = (
 					...head,
 					kind: "grizzle",
 					outcome: { kind: "invariant-rejected", law, keys: [] },
-					transients: []
-				}
-			case "aborted: SerializationFailure":
-				return {
-					...head,
-					kind: "grizzle",
-					outcome: {
-						kind: "aborted",
-						cause: { kind: "transient", reason: "SerializationFailure" }
-					},
-					transients: []
-				}
-			case "aborted: StaleStatement":
-				return {
-					...head,
-					kind: "grizzle",
-					outcome: { kind: "aborted", cause: { kind: "transient", reason: "StaleStatement" } },
 					transients: []
 				}
 		}
@@ -399,9 +380,6 @@ const explained = (h: History): boolean => {
 		if (!Arr.some(h.recorded, (q) => overlaps(r, q))) {
 			return false
 		}
-		if (r.outcome.cause.kind === "transient" && r.outcome.cause.reason === "StaleStatement") {
-			return false
-		}
 	}
 	const committed = Arr.filter(
 		h.recorded,
@@ -443,7 +421,7 @@ describe("the history checker", () => {
 						generator: caseGen,
 						literal: Formatter.format,
 						/**
-						 * The space holds 131 712 histories (2 initial states, 56 × 56 operations, 3 timings, 7 committed
+						 * The space holds 96 768 histories (2 initial states, 48 × 48 operations, 3 timings, 7 committed
 						 * states); the limit is the cap against a space grown by mistake.
 						 */
 						limit: 140_000,
@@ -458,7 +436,7 @@ describe("the history checker", () => {
 							"explained discarded attempt",
 							"unexplained discarded attempt"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(x, noted) =>
 						Effect.sync(() => {

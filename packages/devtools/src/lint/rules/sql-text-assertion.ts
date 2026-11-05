@@ -32,13 +32,13 @@ const calleeTextOf = (call: ts.CallExpression): Option.Option<string> => {
  * person reviews. The emitted-text aliases are read through the checker once per file, at its first text assertion,
  * which also reports any alias the file's program does not hold.
  */
-export const sqlTextAssertion: Visit = ({ sourceFile, checker, semantics, options }) => {
+export const sqlTextAssertion: Visit = ({ sourceFile, checker, semantics, options, root }) => {
 	const { files, exempt, texts, matchers, equalities } = options.sqlTextAssertion
 	const { fileName } = sourceFile
 	if (
 		!Arr.isReadonlyArrayNonEmpty(texts) ||
-		!isAtAny(files, fileName) ||
-		isAtAny(exempt, fileName)
+		!isAtAny(root, files, fileName) ||
+		isAtAny(root, exempt, fileName)
 	) {
 		return () => []
 	}

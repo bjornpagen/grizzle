@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Layer, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { compiledWrite } from "#adapter/apply/compile.ts"
 import { runApplication } from "#adapter/apply/index.ts"
 import { dbContext } from "#adapter/db/context.ts"
@@ -17,6 +17,7 @@ import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, bareRecord, defined, failureOf, succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A read-back attachment whose delivered type breaks raises inside its own statement, so its write commits nothing.
@@ -175,7 +176,7 @@ const breachCases: Gen<{ readonly artifact: Artifact; readonly breach: Breach }>
 const exhaustive = {
 	literal: Formatter.format,
 	coverage: noCoverage,
-	caseHang: Duration.minutes(2)
+	caseHang
 } as const
 
 layer(Substrate.layer, { excludeTestServices: true })(

@@ -27,6 +27,7 @@ import {
 	resultMarker
 } from "#bench/cold/probe.ts"
 import { elapsed, type Summary, summarize, summarizePhases } from "#bench/cold/stats.ts"
+import { benchConnectTimeout, benchIdleTimeout } from "#bench/harness/limits.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonDocument, jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -162,7 +163,7 @@ const sample = Effect.fn("sample")(
 						Stream.mkString(Stream.decodeText(child.stderr)),
 						child.exitCode
 					],
-					{ concurrency: 3 }
+					{ concurrency: "unbounded" }
 				)
 			})
 		)
@@ -266,7 +267,9 @@ const databaseRun = Effect.fn("databaseRun")(function* (options: ColdOptions) {
 		password: Redacted.value(credentials.password),
 		caFile: s.cluster.caFile,
 		snapshot: Result.getOrThrow(toResult(writeSnapshot(work.snapshot))),
-		account: a1
+		account: a1,
+		connectTimeoutMs: benchConnectTimeout.value,
+		idleTimeoutMs: benchIdleTimeout.value
 	}
 	const raw = yield* Effect.forEach(
 		Arr.makeBy(options.databaseSamples, (i) => i),

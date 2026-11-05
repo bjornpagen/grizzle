@@ -59,9 +59,9 @@ const isEquality = (kind: ts.SyntaxKind): boolean =>
  * vocabulary the file's program does not hold.
  */
 export const uncheckedVocabularyLiteral: Visit = (context: RuleContext) => {
-	const { sourceFile, checker, semantics, options } = context
+	const { sourceFile, checker, semantics, options, root } = context
 	const { files, vocabularies, titled, explanations } = options.uncheckedVocabularyLiteral
-	if (!Arr.isReadonlyArrayNonEmpty(vocabularies) || !isAtAny(files, sourceFile.fileName)) {
+	if (!Arr.isReadonlyArrayNonEmpty(vocabularies) || !isAtAny(root, files, sourceFile.fileName)) {
 		return () => []
 	}
 	const isTitle = (literal: Literal, call: ts.CallExpression): boolean =>

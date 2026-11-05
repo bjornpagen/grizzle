@@ -42,12 +42,18 @@ import {
 	check,
 	complete,
 	mayWait,
-	op,
 	rollback,
 	schedule,
 	sql
 } from "#test/support/schedules/build.ts"
-import { applied, exactly, refusals, retried, within } from "#test/support/schedules/grizzle.ts"
+import {
+	anyRetried,
+	applied,
+	exactly,
+	refusals,
+	retriedOp,
+	within
+} from "#test/support/schedules/grizzle.ts"
 import { exploreEnv } from "#test/support/schedules/interleave.ts"
 import { anyOf, ok, rows } from "#test/support/schedules/match.ts"
 import { planted } from "#test/support/schedules/planted.ts"
@@ -144,8 +150,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 								const actors = { direct: yield* x.blockers, grizzle: { g, h } }
 								/** From 55...5 both pick kG, wanted and due, with gpu's free seat 3. */
 								const claim = (db: typeof one) =>
-									retried(db.apply(claimOf(x.queue), claimParams(digest("5"), 1, time)))
-								const item = anyOf(
+									db.apply(claimOf(x.queue), claimParams(digest("5"), 1, time))
+								const item = anyRetried(
 									applied({ kind: "accepted", calls: exactly(), counts: freshClaim }),
 									applied({ kind: "no-change", calls: refusals(1) })
 								)
@@ -159,8 +165,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 											ok(),
 											complete
 										),
-										op("g", "claim", claim(one), item, blocksOn("e")),
-										op("h", "claim", claim(two), item, blocksAny),
+										retriedOp("g", "claim", claim(one), item, blocksOn("e")),
+										retriedOp("h", "claim", claim(two), item, blocksAny),
 										rollback("e"),
 										awaits("g", mayWait),
 										awaits("h", mayWait),
@@ -197,18 +203,14 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 								const h = yield* x.worker("h", [g.pid])
 								const actors = { direct: yield* x.blockers, grizzle: { g, h } }
 								/** g picks kG and h picks kA, both with gpu's one free seat 3. */
-								const claimKG = retried(
-									one.apply(claimOf(x.queue), claimParams(digest("5"), 3, time))
-								)
-								const claimKA = retried(
-									two.apply(claimOf(x.queue), claimParams(digest("1"), 3, time))
-								)
+								const claimKG = one.apply(claimOf(x.queue), claimParams(digest("5"), 3, time))
+								const claimKA = two.apply(claimOf(x.queue), claimParams(digest("1"), 3, time))
 								/**
 								 * The loser meets the winner's lease at seat 3's candidate key, as a serialization
 								 * failure or as an occupant its snapshot did not see, once or twice, and its retry
 								 * finds no free seat.
 								 */
-								const settled = anyOf(
+								const settled = anyRetried(
 									applied({ kind: "accepted", calls: exactly(), counts: freshClaim }),
 									applied({
 										kind: "no-change",
@@ -225,8 +227,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 											ok(),
 											complete
 										),
-										op("g", "claim kG", claimKG, settled, blocksOn("w")),
-										op("h", "claim kA", claimKA, settled, blocksAny),
+										retriedOp("g", "claim kG", claimKG, settled, blocksOn("w")),
+										retriedOp("h", "claim kA", claimKA, settled, blocksAny),
 										rollback("w"),
 										awaits("g", mayWait),
 										awaits("h", mayWait),
@@ -276,16 +278,12 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 									 * The worker of kB's expired epoch-1 lease settles it; a claimer from 33...3 reclaims
 									 * it in its own seat 1 with epoch 2.
 									 */
-									const settle = retried(
-										one.apply(settleOf(x.queue), {
-											key: Q.Digest(kB),
-											epoch: 1n,
-											outcome: "succeeded"
-										})
-									)
-									const reclaim = retried(
-										two.apply(claimOf(x.queue), claimParams(digest("3"), 3, time))
-									)
+									const settle = one.apply(settleOf(x.queue), {
+										key: Q.Digest(kB),
+										epoch: 1n,
+										outcome: "succeeded"
+									})
+									const reclaim = two.apply(claimOf(x.queue), claimParams(digest("3"), 3, time))
 									return yield* runSchedule(
 										x.env,
 										schedule("a settlement and a reclaim of kB", [
@@ -296,11 +294,11 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 												ok(),
 												complete
 											),
-											op(
+											retriedOp(
 												"g",
 												"settle kB epoch 1",
 												settle,
-												anyOf(
+												anyRetried(
 													applied({
 														kind: "accepted",
 														calls: exactly(),
@@ -314,11 +312,11 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 												),
 												blocksOn("e")
 											),
-											op(
+											retriedOp(
 												"h",
 												"reclaim",
 												reclaim,
-												anyOf(
+												anyRetried(
 													applied({
 														kind: "accepted",
 														calls: exactly(),

@@ -84,7 +84,7 @@ const operand = (o: Operand<ParentColumn>): string => {
 const padding = (p: Padding): string => {
 	const v = variable(p.arg)
 	const [low, high] = paddingBounds(p.arg.field.type)
-	return `Compute.when(Compute.within(${v}, ${literal(low)}, ${literal(high)}), (${v}) => Compute.cast(Compute.cast(${v}, pg.numeric(1000, ${p.scale})), pg.numeric), Compute.cast(${v}, pg.numeric))`
+	return `Compute.when(Compute.within(${v}, ${literal(low)}, ${literal(high)}), (${v}) => Compute.numeric(Compute.cast(${v}, pg.numeric(1000, ${p.scale}))), Compute.numeric(${v}))`
 }
 
 const argTerm = (a: ArgTerm): string => (a.kind === "var" ? variable(a.var) : padding(a.padding))
@@ -94,7 +94,7 @@ const computed = (t: ComputedTerm): string => {
 		case "base":
 			return `Compute.base(${variable(t.arg)})`
 		case "cast numeric":
-			return `Compute.cast(${variable(t.arg)}, pg.numeric)`
+			return `Compute.numeric(${variable(t.arg)})`
 		case "cond":
 			return `Compute.cond(r.${t.op}(${variable(t.arg)}, ${literal(t.than)}), ${variable(t.arg)}, ${literal(t.otherwise)})`
 		case "padded":

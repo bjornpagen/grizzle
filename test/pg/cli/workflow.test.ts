@@ -15,7 +15,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	FileSystem,
 	Formatter,
@@ -45,10 +44,9 @@ import { shopV1, shopV2 } from "#test/pg/cli/fixture.ts"
 import {
 	type CliRun,
 	cli,
-	databaseUrl,
-	migrationIdentity,
 	cliClock,
-	viaDatabaseUrl,
+	configName,
+	ownerOn,
 	workspace,
 	writeConfig,
 	wrongPassword
@@ -56,10 +54,10 @@ import {
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { assert, defined, lacksText, succeeded } from "#test/support/assert.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
-import { pgPin } from "#test/support/env.ts"
 import { loginRoleOf } from "#test/support/installed.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
-import type { SqlError } from "#test/support/pg.ts"
+import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -85,7 +83,8 @@ const nextNow = cliClock()
  *   when the table existed before;
  * - review: the placeholders resolved, the marker lines deleted;
  * - `grizzle check`: passes exactly when everything is generated and resolved;
- * - `grizzle migrate` with DATABASE_URL: refuses before connecting, with nothing run, exactly when check would; else
+ * - `grizzle migrate`, with the configuration's connection: refuses before connecting, with nothing run, exactly when
+ *   check would; else
  *   applies the pending folders, stopping at a custom data step that fails, which a rerun resumes once fixed, and
  *   refuses at its drift check after applying them while a stray table stands in the schema;
  * - `grizzle drift`: applies nothing, and passes exactly when the latest complete folder's target is the committed
@@ -155,7 +154,6 @@ interface Workspace {
 	readonly database: string
 	/** The initialised cluster the substrate was built from: the migration identity's password and the CA. */
 	readonly cluster: InitializedClusterShape
-	readonly env: Readonly<Record<string, string>>
 	/** The case the exploration hands the property: every step a command reaches is noted through it. */
 	readonly c: Case<CommandKind>
 	/** The folders the ledger records complete. */
@@ -252,12 +250,8 @@ const sqlFiles = (dir: string) =>
 	})
 
 /** Runs a command line in the workspace, and holds the universal property: no password in its output. */
-const command = (
-	r: Workspace,
-	argv: ReadonlyArray<string>,
-	env: Readonly<Record<string, string>>
-) =>
-	Effect.map(cli(r.dir, argv, nextNow(), env), (ran: CliRun) => {
+const command = (r: Workspace, argv: ReadonlyArray<string>) =>
+	Effect.map(cli(r.dir, argv, nextNow()), (ran: CliRun) => {
 		for (const secret of [Redacted.value(r.cluster.devPassword), wrongPassword]) {
 			lacksText(
 				`${ran.stdout}${ran.stderr}`,
@@ -282,7 +276,7 @@ const expectCheck = (model: Readonly<Model>, r: Workspace) =>
 	Effect.gen(function* () {
 		const passes = checks(model)
 		r.c.note(passes ? "check passes" : "check refuses")
-		const ran = yield* command(r, ["check"], r.env)
+		const ran = yield* command(r, ["check", configName])
 		assert.equal(ran.code, passes ? 0 : 1, `grizzle check: ${ran.stdout}${ran.stderr}`)
 	})
 
@@ -341,17 +335,17 @@ const tamperedFile = (kind: TamperKind, model: Readonly<Model>, r: Workspace) =>
 const refusedWhileTampered = (kind: TamperKind, r: Workspace) =>
 	Effect.gen(function* () {
 		const before = yield* r.applied
-		const migrated = yield* command(r, ["migrate"], r.env)
+		const migrated = yield* command(r, ["migrate", configName])
 		assert.equal(migrated.code, 1, `migrate with ${kind} tampered: ${migrated.stdout}`)
 		const applied = yield* r.applied
 		assert.deepEqual(applied, before, "nothing ran")
 		if (kind === "an applied file") {
 			return
 		}
-		const checked = yield* command(r, ["check"], r.env)
+		const checked = yield* command(r, ["check", configName])
 		assert.equal(checked.code, 1, `check with ${kind} tampered`)
 		const listing = yield* foldersOnDisk(r)
-		const generated = yield* command(r, ["generate"], r.env)
+		const generated = yield* command(r, ["generate", configName])
 		assert.equal(generated.code, 1, `generate with ${kind} tampered`)
 		const folders = yield* foldersOnDisk(r)
 		assert.deepEqual(folders, listing, "generate wrote nothing")
@@ -505,16 +499,23 @@ const describeStep = (step: Plain): string => {
 	}
 }
 
+/**
+ * The workspace's grizzle.config.ts: the shop at `config`, its connection the migration identity's on the workspace's
+ * database, with its password or a wrong one.
+ */
+const configureAs = (r: Workspace, config: Configured, password: "owner" | "wrong") =>
+	writeConfig(r.dir, {
+		schemas: [
+			{ name: r.schema, fixture: "shop", version: config.version, workload: config.workload }
+		],
+		connection: { ...ownerOn(r.database), as: { kind: "migration identity", password } }
+	})
+
 /** A new grizzle.config.ts; `grizzle check` then refuses exactly when the configuration differs from the snapshot's. */
 const runConfigure = (r: Workspace, config: Configured, after: Model) =>
 	Effect.gen(function* () {
 		r.c.note("configure")
-		yield* writeConfig(r.dir, {
-			schemas: [
-				{ name: r.schema, fixture: "shop", version: config.version, workload: config.workload }
-			],
-			connection: viaDatabaseUrl
-		})
+		yield* configureAs(r, config, "owner")
 		yield* expectCheck(after, r)
 	})
 
@@ -528,7 +529,7 @@ const runGenerate = (r: Workspace, before: Model, after: Model) =>
 		const previous = (yield* fs.exists(snapshotFile))
 			? yield* Effect.asSome(fs.readFileString(snapshotFile))
 			: Option.none()
-		const ran = yield* command(r, ["generate"], r.env)
+		const ran = yield* command(r, ["generate", configName])
 		assert.equal(ran.code, 0, ran.stderr)
 		const written = yield* fs.readFileString(snapshotFile)
 		assert.equal(
@@ -573,7 +574,7 @@ const runReview = (r: Workspace, before: Model, after: Model) =>
 const runMigrate = (r: Workspace, before: Model, after: Model) =>
 	Effect.gen(function* () {
 		const applied = yield* r.applied
-		const ran = yield* command(r, ["migrate"], r.env)
+		const ran = yield* command(r, ["migrate", configName])
 		if (!checks(before)) {
 			r.c.note("migrate refuses before connecting")
 			assert.equal(ran.code, 1, ran.stdout)
@@ -606,7 +607,7 @@ const runDrift = (r: Workspace, model: Model) =>
 		const matches = atSnapshot(model) && !model.partial && !model.stray
 		r.c.note(matches ? "drift passes" : "drift refuses")
 		const applied = yield* r.applied
-		const ran = yield* command(r, ["drift"], r.env)
+		const ran = yield* command(r, ["drift", configName])
 		assert.equal(ran.code, matches ? 0 : 1, `grizzle drift: ${ran.stdout}${ran.stderr}`)
 		if (model.stray) {
 			assert.ok(
@@ -634,7 +635,7 @@ const runStray = (r: Workspace, plant: boolean, after: Model) =>
 const runCustom = (r: Workspace, failing: boolean, before: Model, after: Model) =>
 	Effect.gen(function* () {
 		r.c.note("custom data step")
-		const ran = yield* command(r, ["generate", "--custom", "--name", "step"], r.env)
+		const ran = yield* command(r, ["generate", configName, "--custom", "--name", "step"])
 		assert.equal(ran.code, 0, ran.stderr)
 		const folders = yield* foldersOnDisk(r)
 		const folder = Arr.last(folders)
@@ -701,12 +702,9 @@ const runOpen = (r: Workspace, model: Model) =>
 			model.applied === 0 ? Redacted.make(wrongPassword) : (yield* r.login(v1.server)).password
 		const substrate = yield* Substrate
 		const connection = {
+			...clusterConnection(substrate.cluster, substrate.database, password),
+			pool: clusterPool,
 			snapshot: snapshotJson(snapshot),
-			host: pgPin.host,
-			port: pgPin.port,
-			database: substrate.database,
-			password,
-			tls: { ca: substrate.cluster.caPem },
 			verify: testVerify
 		}
 		/** Opened as the reader of that schema value, through its login's layer given the committed snapshot. */
@@ -737,17 +735,17 @@ const runOpen = (r: Workspace, model: Model) =>
 		yield* confirm(model, r)
 	})
 
-/** `grizzle migrate` with a wrong password: refused at its connection, nothing run. */
+/**
+ * `grizzle migrate` with a configuration whose connection has a wrong password: refused at its connection, nothing
+ * run; the configuration then gets its password back.
+ */
 const runWrongPassword = (r: Workspace, model: Model) =>
 	Effect.gen(function* () {
 		r.c.note("wrong password")
 		const applied = yield* r.applied
-		const ran = yield* command(r, ["migrate"], {
-			DATABASE_URL: databaseUrl(r.database, {
-				...migrationIdentity(r.cluster),
-				password: wrongPassword
-			})
-		})
+		yield* configureAs(r, model.config, "wrong")
+		const ran = yield* command(r, ["migrate", configName])
+		yield* configureAs(r, model.config, "owner")
 		assert.equal(ran.code, 1, ran.stdout)
 		const appliedAfter = yield* r.applied
 		assert.deepEqual(appliedAfter, applied, "nothing ran")
@@ -1150,31 +1148,18 @@ const runCommands = (c: Case<CommandKind>, steps: Program<WorkflowParameters>) =
 						})
 					)
 				})
-			yield* writeConfig(ws, {
-				schemas: [
-					{
-						name: schema,
-						fixture: "shop",
-						version: initialConfig.version,
-						workload: initialConfig.workload
-					}
-				],
-				connection: viaDatabaseUrl
-			})
 			const r: Workspace = {
 				dir: ws,
 				schema,
 				database: substrate.database,
 				cluster: substrate.cluster,
-				env: {
-					DATABASE_URL: databaseUrl(substrate.database, migrationIdentity(substrate.cluster))
-				},
 				c,
 				login,
 				applied: Effect.map(readLedger(m, schema, succeeded(statementsFor(schema))), (state) =>
 					Arr.map(state.complete, (f) => f.folder)
 				)
 			}
+			yield* configureAs(r, initialConfig, "owner")
 			yield* runProgram(workflow, realOf(r), steps)
 		})
 	)
@@ -1210,7 +1195,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							 * One case runs up to 14 command lines, each a generate, check or migrate against PostgreSQL:
 							 * the existing 20-minute hang guard, kept.
 							 */
-							caseHang: Duration.minutes(20)
+							caseHang
 						},
 						(steps, c) => runCommands(c, steps)
 					)

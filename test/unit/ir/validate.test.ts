@@ -6,7 +6,7 @@ import { type Corrupted, type CorruptedFeature, corruptedFeature } from "@grizzl
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { makeIdSupply, NodeId, ParamId } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -22,6 +22,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { conformWith, decodeWith, type Shape } from "#compiler/ir/shape.ts"
 import { assert, refusalLoc, succeeded, throwsDefect } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	dagProblems,
 	dagTableShape,
@@ -237,7 +238,7 @@ describe("validateDag", () => {
 							...ruleFeatures,
 							...Arr.map(relKinds, (k): DagFeature => `node ${k}`)
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, n) =>
 						Effect.sync(() => {
@@ -273,7 +274,7 @@ describe("validateDag", () => {
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([dag, variant, site], n) =>
 						Effect.sync(() => {
@@ -363,7 +364,7 @@ describe("validateDag over a DAG of direct references", () => {
 					generator: element(clashes),
 					limit: clashes.length,
 					coverage: requiredInSpace<Clash>(clashes),
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(clash, c) =>
 					Effect.sync(() => {

@@ -1,7 +1,7 @@
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { TransientReason } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import type { ConstraintName, RaisedLawId } from "#compiler/core/ids.ts"
+import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { jsonStrings } from "#compiler/core/json-strings.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
@@ -138,7 +138,7 @@ export interface RefusedValue {
 export type ArmRefusal =
 	| {
 			readonly kind: "law"
-			readonly law: RaisedLawId
+			readonly law: LawId
 			readonly relation: string
 			readonly key: ReadonlyArray<RefusedValue>
 	  }

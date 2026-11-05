@@ -5,7 +5,7 @@ import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
@@ -36,6 +36,7 @@ import {
 	within
 } from "#test/support/fixtures/ir/desc.ts"
 import { wild } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 import { owner, requesting } from "#test/unit/physical/fixtures.ts"
 
@@ -490,7 +491,7 @@ describe("the index request engine", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ requests: sketches, arrival, planted }, c) =>
 						Effect.sync(() => {
@@ -709,7 +710,7 @@ describe("the access index name", () => {
 							"two identities one selector's literal apart",
 							"a predicate beside none"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([a, b], c) =>
 						Effect.sync(() => {

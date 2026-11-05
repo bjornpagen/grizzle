@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
@@ -22,6 +22,7 @@ import {
 	uuidOf
 } from "#test/unit/lower/conservative/fixtures.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	passContext,
 	deliversAlikeOn,
@@ -116,7 +117,7 @@ describe("demand pruning", () => {
 							"an aggregate dropped",
 							"every aggregate delivered"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([delivered, identity], c) =>
 						Effect.sync(() => {
@@ -322,7 +323,7 @@ describe("a pinned node keeps its form, and its inputs every column that form re
 							"unpinned region over a filter",
 							"unpinned region over a region"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([stageKind, reader], c) =>
 						Effect.sync(() => {
@@ -370,7 +371,7 @@ describe("a dead binding outside a named heading", () => {
 						generator: element<Passes>(["prune", "the relational rewrites"]),
 						limit: 2,
 						coverage: requiredInSpace<Passes>(["prune", "the relational rewrites"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(passes, c) =>
 						Effect.sync(() => {

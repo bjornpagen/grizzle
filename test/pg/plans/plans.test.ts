@@ -5,15 +5,7 @@ import { array, element, type Gen, int, uniqueArray } from "@grizzle/testing/gen
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import {
 	type EstimatedNode,
 	explainStatementWith,
@@ -48,6 +40,7 @@ import {
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, installationSql, paramTexts, testCompile } from "#test/support/compile.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
@@ -143,9 +136,8 @@ const automaticTask = query(Plans).rule((r) => {
 })
 
 /**
- * Each account with its first two entries by seq attached. The child delivers five fields, more than an attachment fuses
- * (attachFuseMaxFields), so it is a pipelined attachment over the delivered parent keys, whose take chooses its form
- * per execution.
+ * Each account with its first two entries by seq attached. Its parents read no approximate search, so it is a
+ * pipelined attachment over the delivered parent keys, whose take chooses its form per execution.
  */
 const accountsWithFirstEntries = query(Plans)
 	.rule((r) => {
@@ -343,7 +335,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(parents) =>
 							Effect.gen(function* () {
@@ -363,8 +355,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							})
 					)
 				})
-			),
-		300_000
+			)
 	)
 
 	it.effect(
@@ -429,7 +420,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(drawnIds) =>
 							Effect.gen(function* () {
@@ -439,8 +430,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							})
 					)
 				})
-			),
-		300_000
+			)
 	)
 
 	it.effect(
@@ -519,7 +509,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(c, cx) =>
 							Effect.gen(function* () {
@@ -549,7 +539,6 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							})
 					)
 				})
-			),
-		300_000
+			)
 	)
 })

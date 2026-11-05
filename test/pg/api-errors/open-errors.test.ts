@@ -5,18 +5,19 @@ import { boolean, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { CredentialError, Db, DbLayer, OpenError, relation, schema, uuid } from "#index.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
-import { pgPin } from "#test/support/env.ts"
 import { admittedNames, aliasGroups } from "#test/support/kernel/dict.ts"
 import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { fromEmpty, generate } from "#test/support/migrate/kit.ts"
 import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
+import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -154,7 +155,7 @@ layer(InitializedCluster.layer)("Db.open errors through the public API", (it) =>
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2),
+							caseHang,
 							coverage: required<OpenFeature>(
 								[
 									"relations collide",
@@ -196,13 +197,10 @@ layer(InitializedCluster.layer)("Db.open errors through the public API", (it) =>
 									return Effect.fail(new CredentialError({ cause: "no connection is expected" }))
 								})
 								const layer = DbLayer.make({
+									...clusterConnection(cluster, "postgres", password),
+									pool: clusterPool,
 									login: world.server,
-									snapshot: otherSnapshot,
-									host: pgPin.host,
-									port: pgPin.port,
-									database: "postgres",
-									password,
-									tls: { ca: cluster.caPem }
+									snapshot: otherSnapshot
 								})
 								/**
 								 * A schema that does not compile fails the layer; one that compiles fails it too, at the

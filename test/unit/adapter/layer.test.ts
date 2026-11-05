@@ -1,3 +1,4 @@
+import net from "node:net"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -10,7 +11,6 @@ import {
 	int,
 	map,
 	oneOf,
-	option,
 	string,
 	weighted
 } from "@grizzle/testing/gen"
@@ -20,7 +20,6 @@ import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Cause,
-	Duration,
 	Effect,
 	Exit,
 	Formatter,
@@ -30,6 +29,7 @@ import {
 	Redacted,
 	String as Str
 } from "effect"
+import pgDriver from "pg"
 import { type StartupVariable, startupVariableNames } from "#adapter/connection/environment.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { ConnectionEnvironmentRefused, DbConfigRefused } from "#adapter/errors/failures.ts"
@@ -39,8 +39,9 @@ import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { context, login, relation, role, schema } from "#compiler/public/schema.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
+import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
 import { fromEmpty, generate } from "#test/support/migrate/kit.ts"
 import {
 	processEnvironment,
@@ -55,15 +56,19 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * DbLayer.make parses its DbConfig once, where it is given (packages/grizzle/src/adapter/pool/registry.ts, connection/config.ts), and a
  * config no connection can use fails the layer before any connection.
  *
- * Over drawn configs (tricky hosts, databases and passwords; a Redacted or an Effect password; a CA as one PEM text or a
- * list; a servername or none; a pool hook and a verify or none) for a login whose roles read no context, a valid one
- * builds its layer, which opens no session until a Db is opened on it. The same config with one fault injected, each a
- * refusal the typed DbConfig already rules out but a JavaScript caller can pass (a setting of another type, missing,
- * empty or null, a port outside 1 to 65535 or no integer, an unknown key at the top or in tls, a TLS block no
- * verify-full connection can use, a login no login(...) built, a pool hook or a verify that is no function, no verify
- * for a login one of whose roles reads a context), fails the layer with OpenError{stage: "config"} whose
- * DbConfigRefused names the faulty setting and never quotes the password. The faults mirror the typed
- * migration connection's (test/unit/cli/connection.test.ts): one parser reads both blocks, under their own login key.
+ * Over drawn configs (tricky hosts, never a path, servernames, databases and passwords; a Redacted or an Effect
+ * password; a CA as one PEM text or a list; a connect timeout and pool bounds across their ranges, their ends included;
+ * a pool hook and a verify or none) for a login whose roles read no context, a valid one builds its layer, which opens
+ * no session until a Db is opened on it. The same config with one fault injected, each a refusal the typed DbConfig
+ * already rules out but a JavaScript caller can pass (a setting of another type, missing, empty or null; a driver that
+ * is no node-postgres; a host that is a path, which node-postgres would read as a Unix socket's, over which PostgreSQL
+ * offers no TLS; a port outside 1 to 65535 or no integer; a timer's delay or a pool bound outside its range, or no
+ * integer; an unknown
+ * key at the top, in the transport or in the pool, the settings the connection no longer has among them; a transport
+ * no verify-full connection can use; a login no login(...) built; a pool hook or a verify that is no function; no
+ * verify for a login one of whose roles reads a context), fails the layer with OpenError{stage: "config"} whose
+ * DbConfigRefused names the faulty setting and never quotes the password. The migration connection's role-specific
+ * faults are test/unit/cli/connection.test.ts's: one parser reads both blocks.
  *
  * The same valid configs under a drawn process environment, the one pg reads (connection/environment.ts): each startup
  * variable, `PGOPTIONS` and `PGREPLICATION`, absent, empty or at a text, beside variables pg reads that grizzle's client
@@ -91,13 +96,27 @@ const tricky: Arr.NonEmptyReadonlyArray<string> = [
 	"語",
 	"😀"
 ]
-const textGen: Gen<string> = string(
-	weighted([
-		[3, element(Str.split("abcxyz019_-.", ""))],
-		[1, element(tricky)]
-	]),
-	{ min: 1, max: 6 }
+const plainCharacters = Str.split("abcxyz019_-.", "")
+const textCharacter: Gen<string> = weighted([
+	[3, element(plainCharacters)],
+	[1, element(tricky)]
+])
+const textGen: Gen<string> = string(textCharacter, { min: 1, max: 6 })
+
+/** The tricky characters a network host may start with: all but /, with which a host is a path. */
+const hostHeads = nonEmpty(
+	Arr.filter(tricky, (c) => c !== "/"),
+	"tricky characters a host may start with"
 )
+
+/** A network host: tricky text whose first character is never the / a path starts with. */
+const hostGen: Gen<string> = (source) =>
+	`${source.draw(
+		weighted([
+			[3, element(plainCharacters)],
+			[1, element(hostHeads)]
+		])
+	)}${source.draw(string(textCharacter, { min: 0, max: 5 }))}`
 
 const pem = (body: string): string =>
 	`-----BEGIN CERTIFICATE-----\n${body}\n-----END CERTIFICATE-----\n`
@@ -139,8 +158,15 @@ interface Drawn {
 	readonly password: string
 }
 
+/** A timer's delay, from the least to the longest a Node timer keeps: its range's ends, or one between. */
+const delayGen: Gen<number> = oneOf<number>([
+	constant(nodeTimerMin.value),
+	constant(nodeTimerMax.value),
+	int(nodeTimerMin.value, nodeTimerMax.value)
+])
+
 const drawnGen: Gen<Drawn> = (source) => {
-	const host = source.draw(textGen)
+	const host = source.draw(hostGen)
 	const port = source.draw(int(1, 65535))
 	const database = source.draw(textGen)
 	/** Marked, so a refusal quoting it cannot be mistaken for one that spells a setting's name alike. */
@@ -152,7 +178,9 @@ const drawnGen: Gen<Drawn> = (source) => {
 			array(map(textGen, pem), { min: 1, max: 2 })
 		])
 	)
-	const servername = Option.getOrUndefined(source.draw(option(textGen)))
+	const servername = source.draw(textGen)
+	const max = source.draw(int(1, 20))
+	const min = source.draw(int(0, max))
 	/**
 	 * A platform's pool hook, or none: building the layer never calls it, since no pool exists before a Db.open.
 	 */
@@ -164,13 +192,21 @@ const drawnGen: Gen<Drawn> = (source) => {
 	return {
 		password,
 		config: {
-			host,
-			port,
+			driver: pgDriver,
+			transport: {
+				kind: "sslRequest",
+				host,
+				port,
+				open: () => new net.Socket(),
+				ca,
+				servername
+			},
 			database,
+			connectTimeoutMs: source.draw(delayGen),
+			pool: { max, min, idleTimeoutMs: source.draw(delayGen) },
 			login: Plain,
 			snapshot: shelfSnapshot,
 			password: lazy ? Effect.succeed(Redacted.make(password)) : Redacted.make(password),
-			tls: servername === undefined ? { ca } : { ca, servername },
 			...(attachPool ? { attachPool: () => undefined } : {}),
 			...(verify ? { verify: () => Effect.succeed({}) } : {})
 		}
@@ -179,37 +215,66 @@ const drawnGen: Gen<Drawn> = (source) => {
 
 /** A setting of DbConfig a fault breaks. */
 type Setting =
-	| "host"
+	| "driver"
+	| "transport"
+	| "transport.kind"
+	| "transport.host"
+	| "transport.port"
+	| "transport.open"
+	| "transport.ca"
+	| "transport.servername"
 	| "database"
+	| "password"
+	| "connectTimeoutMs"
+	| "pool"
+	| "pool.max"
+	| "pool.min"
+	| "pool.idleTimeoutMs"
 	| "login"
 	| "verify"
-	| "port"
-	| "password"
-	| "tls"
-	| "tls.ca"
-	| "tls.servername"
 	| "attachPool"
 
-/** What a run reaches: its valid config built, and its fault refused at the setting it breaks, or as an unknown key. */
-type LayerFeature = "valid built" | `refused DbConfig.${Setting}` | "refused an unknown setting"
+/**
+ * What a run reaches: its valid config built, and its fault refused at the setting it breaks, or as an unknown key; a
+ * host that is a path refused at the host.
+ */
+type LayerFeature =
+	| "valid built"
+	| `refused DbConfig.${Setting}`
+	| "refused an unknown setting"
+	| "refused a host that is a path"
 
 /** What a refusal must name: a setting of DbConfig, or an unknown key, quoted. */
 type Named =
 	| { readonly kind: "setting"; readonly setting: Setting }
 	| { readonly kind: "unknown"; readonly key: string }
 
-/** One fault: the settings it overrides at the top, or in tls, and what the refusal must name. */
+/** Where a fault overrides settings: at the top, in the transport, or in the pool. */
+type Place = "top" | "transport" | "pool"
+
+/** One fault: the settings it overrides at its place, what the refusal must name, and what its refusal reaches. */
 interface Fault {
+	readonly place: Place
 	readonly override: Readonly<Record<string, unknown>>
-	readonly tls: Readonly<Record<string, unknown>>
 	readonly names: Named
+	readonly reaches: LayerFeature
 }
 
-const fault = (
-	names: Named,
-	override: Readonly<Record<string, unknown>>,
-	tls: Readonly<Record<string, unknown>>
-): Fault => ({ override, tls, names })
+const fault = (names: Named, place: Place, override: Readonly<Record<string, unknown>>): Fault => ({
+	place,
+	override,
+	names,
+	reaches:
+		names.kind === "setting" ? `refused DbConfig.${names.setting}` : "refused an unknown setting"
+})
+
+/** A host that is a path, which the refusal names as the host. */
+const pathHost = (host: string): Fault => ({
+	place: "transport",
+	override: { host },
+	names: { kind: "setting", setting: "transport.host" },
+	reaches: "refused a host that is a path"
+})
 
 const setting = (s: Setting): Named => ({ kind: "setting", setting: s })
 const unknownKey = (key: string): Named => ({ kind: "unknown", key })
@@ -218,25 +283,43 @@ const unknownKey = (key: string): Named => ({ kind: "unknown", key })
 const nameText = (names: Named): string =>
 	names.kind === "setting" ? `DbConfig.${names.setting}` : Formatter.format(names.key)
 
+/** A timer's delay no timer keeps: none, one fired at once, one past the longest, or no integer. */
+const badDelays: Arr.NonEmptyReadonlyArray<unknown> = [
+	0,
+	-1,
+	nodeTimerMax.value + 1,
+	1.5,
+	Number.NaN,
+	Number.POSITIVE_INFINITY,
+	"1000",
+	undefined
+]
+
 /**
- * A login one of whose roles reads a context, without a verify: no Db of it could turn a token into claims.
+ * Each fault a JavaScript caller can pass. The last: a login one of whose roles reads a context, without a verify, so
+ * no Db of it could turn a token into claims.
  */
 const faultGen: Gen<Fault> = oneOf<Fault>([
-	map(element(["role", "user", "ssl", "sslmode", "options"]), (key) =>
-		fault(unknownKey(key), { [key]: "x" }, {})
+	map(element(["role", "user", "ssl", "sslmode", "options", "host", "port", "tls"]), (key) =>
+		fault(unknownKey(key), "top", { [key]: "x" })
 	),
-	(source) => {
-		const key = source.draw(element(["host", "database"] as const))
-		const value = source.draw(element<unknown>(["", 1, undefined, null]))
-		return fault(setting(key), { [key]: value }, {})
-	},
-	map(element<unknown>(["", 1, undefined, null, {}, Shelf, "plain"]), (value) =>
-		fault(setting("login"), { login: value }, {})
+	map(
+		element<unknown>([undefined, null, 42, {}, { Client: 1, Pool: 1, DatabaseError: 1 }]),
+		(driver) => fault(setting("driver"), "top", { driver })
 	),
-	map(element<unknown>(["verify", 1, null, {}]), (value) =>
-		fault(setting("verify"), { verify: value }, {})
+	map(element<unknown>([undefined, null, "sslRequest", []]), (transport) =>
+		fault(setting("transport"), "top", { transport })
 	),
-	constant(fault(setting("verify"), { login: Claiming, verify: undefined }, {})),
+	map(element(["mode", "sslmode", "rejectUnauthorized", "tls"]), (key) =>
+		fault(unknownKey(key), "transport", { [key]: "x" })
+	),
+	map(element<unknown>(["tls", "", undefined]), (kind) =>
+		fault(setting("transport.kind"), "transport", { kind })
+	),
+	map(element<unknown>(["", 7, undefined, null]), (host) =>
+		fault(setting("transport.host"), "transport", { host })
+	),
+	map(element(["/", "/tmp", "/var/run/postgresql", "/tmp/.s.PGSQL.5432"]), pathHost),
 	map(
 		element<unknown>([
 			0,
@@ -248,25 +331,51 @@ const faultGen: Gen<Fault> = oneOf<Fault>([
 			Number.POSITIVE_INFINITY,
 			undefined
 		]),
-		(port) => fault(setting("port"), { port }, {})
+		(port) => fault(setting("transport.port"), "transport", { port })
 	),
-	map(element<unknown>(["plain text", undefined, 42, { value: "x" }, null]), (password) =>
-		fault(setting("password"), { password }, {})
-	),
-	map(element<unknown>([undefined, "verify-full", null, []]), (tls) =>
-		fault(setting("tls"), { tls }, {})
-	),
-	map(element(["mode", "sslmode", "rejectUnauthorized"]), (key) =>
-		fault(unknownKey(key), {}, { [key]: "x" })
+	map(element<unknown>(["socket", 1, null, undefined]), (open) =>
+		fault(setting("transport.open"), "transport", { open })
 	),
 	map(element<unknown>(["", [], [""], 42, undefined]), (ca) =>
-		fault(setting("tls.ca"), {}, { ca })
+		fault(setting("transport.ca"), "transport", { ca })
 	),
-	map(element<unknown>(["", 7, null]), (servername) =>
-		fault(setting("tls.servername"), {}, { servername })
+	map(element<unknown>(["", 7, null, undefined]), (servername) =>
+		fault(setting("transport.servername"), "transport", { servername })
 	),
+	(source) => {
+		const value = source.draw(element<unknown>(["", 1, undefined, null]))
+		return fault(setting("database"), "top", { database: value })
+	},
+	map(element<unknown>(["plain text", undefined, 42, { value: "x" }, null]), (password) =>
+		fault(setting("password"), "top", { password })
+	),
+	map(element(badDelays), (connectTimeoutMs) =>
+		fault(setting("connectTimeoutMs"), "top", { connectTimeoutMs })
+	),
+	map(element<unknown>([undefined, null, 10, []]), (pool) =>
+		fault(setting("pool"), "top", { pool })
+	),
+	map(element(["size", "connectionTimeoutMillis", "waitMs"]), (key) =>
+		fault(unknownKey(key), "pool", { [key]: 1 })
+	),
+	map(element<unknown>([0, -1, 1.5, "10", Number.NaN, undefined]), (max) =>
+		fault(setting("pool.max"), "pool", { max })
+	),
+	map(element<unknown>([-1, 1.5, 21, "1", undefined]), (min) =>
+		fault(setting("pool.min"), "pool", { min })
+	),
+	map(element(badDelays), (idleTimeoutMs) =>
+		fault(setting("pool.idleTimeoutMs"), "pool", { idleTimeoutMs })
+	),
+	map(element<unknown>(["", 1, undefined, null, {}, Shelf, "plain"]), (value) =>
+		fault(setting("login"), "top", { login: value })
+	),
+	map(element<unknown>(["verify", 1, null, {}]), (value) =>
+		fault(setting("verify"), "top", { verify: value })
+	),
+	constant(fault(setting("verify"), "top", { login: Claiming, verify: undefined })),
 	map(element<unknown>(["attachDatabasePool", 1, null, {}]), (attachPool) =>
-		fault(setting("attachPool"), { attachPool }, {})
+		fault(setting("attachPool"), "top", { attachPool })
 	)
 ])
 
@@ -276,8 +385,9 @@ const built = (
 ): Effect.Effect<Exit.Exit<unknown, OpenError>> => Effect.exit(Effect.scoped(Layer.build(layer)))
 
 /**
- * Variables pg reads into a session that grizzle's client configuration sets itself, or that pg's client never uses:
- * no value of theirs reaches a session, so none refuses a layer.
+ * Variables pg reads into a session that grizzle's client configuration sets itself, that pg's client never uses, or
+ * that grizzle leaves to the environment (PGAPPNAME, the label of a session in pg_stat_activity): none changes what a
+ * session does, so none refuses a layer.
  */
 const statedVariables: Arr.NonEmptyReadonlyArray<string> = [
 	"PGAPPNAME",
@@ -345,25 +455,35 @@ describe("DbLayer.make", () => {
 						coverage: required<LayerFeature>(
 							[
 								"valid built",
-								"refused DbConfig.host",
+								"refused DbConfig.driver",
+								"refused DbConfig.transport",
+								"refused DbConfig.transport.kind",
+								"refused DbConfig.transport.host",
+								"refused DbConfig.transport.port",
+								"refused DbConfig.transport.open",
+								"refused DbConfig.transport.ca",
+								"refused DbConfig.transport.servername",
+								"refused DbConfig.database",
+								"refused DbConfig.password",
+								"refused DbConfig.connectTimeoutMs",
+								"refused DbConfig.pool",
+								"refused DbConfig.pool.max",
+								"refused DbConfig.pool.min",
+								"refused DbConfig.pool.idleTimeoutMs",
 								"refused DbConfig.login",
 								"refused DbConfig.verify",
-								"refused DbConfig.port",
-								"refused DbConfig.password",
-								"refused DbConfig.tls",
-								"refused DbConfig.tls.ca",
-								"refused DbConfig.tls.servername",
 								"refused DbConfig.attachPool",
-								"refused an unknown setting"
+								"refused an unknown setting",
+								"refused a host that is a path"
 							],
-							{ cases: 300, sense: notesOnly }
+							{ cases: 400, sense: notesOnly }
 						),
 						kept: [],
-						runs: 300,
+						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([d, f], k) =>
 						Effect.gen(function* () {
@@ -374,12 +494,23 @@ describe("DbLayer.make", () => {
 								`a valid config is refused: ${Exit.isFailure(valid) ? Cause.pretty(valid.cause) : ""}`
 							)
 							k.note("valid built")
-							/** The config with the fault injected: a fault that replaces tls whole leaves no tls to extend. */
-							const injected: DbConfigShape<typeof Plain> = Rec.has(f.override, "tls")
-								? Object.assign({ ...d.config }, f.override)
-								: Object.assign({ ...d.config }, f.override, {
-										tls: Object.assign({ ...d.config.tls }, f.tls)
-									})
+							/** The config with the fault injected at its place, the rest of the config as drawn. */
+							const injected: DbConfigShape<typeof Plain> =
+								f.place === "top"
+									? Object.assign({ ...d.config }, f.override)
+									: f.place === "transport"
+										? Object.assign(
+												{ ...d.config },
+												{
+													transport: Object.assign({ ...d.config.transport }, f.override)
+												}
+											)
+										: Object.assign(
+												{ ...d.config },
+												{
+													pool: Object.assign({ ...d.config.pool }, f.override)
+												}
+											)
 							const exit = yield* built(DbLayer.make(injected))
 							assert.ok(Exit.isFailure(exit), `the fault at ${names} builds a layer`)
 							const error = Cause.squash(exit.cause)
@@ -399,11 +530,7 @@ describe("DbLayer.make", () => {
 								!Str.includes(d.password)(error.message),
 								`${error.message} quotes the password`
 							)
-							k.note(
-								f.names.kind === "setting"
-									? `refused DbConfig.${f.names.setting}`
-									: "refused an unknown setting"
-							)
+							k.note(f.reaches)
 						})
 				)
 			)
@@ -433,7 +560,7 @@ describe("DbLayer.make", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([d, e], k) =>
 						Effect.gen(function* () {

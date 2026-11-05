@@ -10,9 +10,10 @@ import { array, constant, element, type Gen, int, weighted } from "@grizzle/test
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { anyNumeric, plainType } from "#compiler/scalar/compute/types.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { compareMultisets, compareRuns, type Run } from "#test/support/oracle/compare.ts"
 import { at } from "#test/support/oracle/pick.ts"
 
@@ -36,7 +37,7 @@ describe("row multisets", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([a, b]) =>
 						Effect.sync(() => {
@@ -92,9 +93,9 @@ const floatClasses: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>>
 	["-Infinity"]
 ]
 
-/** The columns of a drawn run: a bare numeric and a double precision, each with its classes. */
+/** The columns of a drawn run: a numeric of no typmod and a double precision, each with its classes. */
 const columns = [
-	{ type: plainType("numeric"), classes: numericClasses },
+	{ type: anyNumeric, classes: numericClasses },
 	{ type: plainType("float8"), classes: floatClasses }
 ] as const
 
@@ -194,7 +195,7 @@ describe("canonical cell multisets", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ left, right }, c) =>
 						Effect.sync(() => {

@@ -5,29 +5,27 @@ import {
 	type PhysicalNode,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
-import { checkBound } from "#compiler/core/budget.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { invariant } from "#compiler/core/invariant.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { type Certificate, makeCertificate } from "#compiler/ir/certificate.ts"
-import { type FinishedCells, topoOrder } from "#compiler/ir/dag.ts"
+import type { FinishedCells } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, Premise } from "#compiler/ir/evidence.ts"
-import { exprClosure } from "#compiler/ir/expr.ts"
 import type { Pass, PassContext } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
 	type Cell,
 	type EditNode,
 	exprsOf,
+	inputsOf,
 	type RelDag,
 	type Rooted,
 	type Roots,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
+import { columnRefs, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 
 /**
  * Demand analysis (analysis/demand) of one snapshot of the editor, read cell by cell: each cell is read as its node in
@@ -82,43 +80,26 @@ export interface RewriteCx {
 
 export interface Rule {
 	readonly name: string
-	/** Rewrites at `cell` and returns true, or changes nothing and returns false. */
+	/**
+	 * Rewrites at `cell` and returns true, or changes nothing and returns false, deciding by nothing but what it reads at
+	 * the cell (affectedBy) and the compilation's catalog.
+	 */
 	readonly at: (cell: Cell, cx: RewriteCx) => boolean
 }
 
-/** A well-founded measure of a DAG: naturals compared lexicographically. */
-export type Measure = (cx: RewriteCx) => ReadonlyArray<number>
+/**
+ * A pass's potential: a natural number of the DAG that every rewrite of the pass strictly lowers. It is polynomial in
+ * the size of the DAG the pass starts from, so the pass takes at most its first value in steps, which is the pass's
+ * whole bound: no step budget beside it.
+ */
+export type Potential = (cx: RewriteCx) => number
 
 interface RewritePassSpec {
 	readonly name: string
 	readonly rules: ReadonlyArray<Rule>
-	readonly measure: Measure
+	/** The pass's potential, chosen once from the DAG the pass starts from. */
+	readonly potential: (start: RewriteCx) => Potential
 }
-
-/**
- * Whether `after` lies strictly below `before` in the lexicographic order, a proper prefix lying below.
- *
- * `before` is a proper prefix of `after`, so `after` lies above it.
- */
-export const lexLess = (after: ReadonlyArray<number>, before: ReadonlyArray<number>): boolean => {
-	for (const [i, a] of after.entries()) {
-		const b = before[i]
-		if (b === undefined) {
-			return false
-		}
-		if (a !== b) {
-			return a < b
-		}
-	}
-	return after.length < before.length
-}
-
-/**
- * A multiset of naturals as its sorted descending sequence, so lexLess orders multisets as the multiset ordering does:
- * replacing one element by any number of strictly smaller ones decreases it.
- */
-export const multiset = (elements: Iterable<number>): ReadonlyArray<number> =>
-	[...elements].toSorted((a, b) => b - a)
 
 /** The success of a compile result, or a refusal that fails the pass with its error. */
 const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
@@ -127,9 +108,6 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 	}
 	return r.value
 }
-
-const nodeLoc = (pass: string, id: NodeId, node: EditNode): SourceLoc =>
-	node.loc ?? SourceLoc(`${pass} at node ${id}`, ["nodes", id])
 
 /** A node premise for each node a proof reads. */
 export const nodePremises = (ids: ReadonlyArray<NodeId>): ReadonlyArray<Premise> =>
@@ -169,12 +147,8 @@ class Memo<A> {
 	}
 }
 
-/** The rewrite cx over one editor, under the compilation's catalog, and the pass measure read through it. */
-const rewriteCx = (
-	editor: DagEditor,
-	ctx: PassContext,
-	pass: string
-): { readonly cx: RewriteCx; readonly measure: (measure: Measure) => ReadonlyArray<number> } => {
+/** The rewrite cx over one editor, under the compilation's catalog. */
+const rewriteCx = (editor: DagEditor, ctx: PassContext, pass: string): RewriteCx => {
 	const catalog = ctx.catalog
 	/** The editor version the memos below were computed at; undefined before the first read. */
 	let version: number | undefined
@@ -216,28 +190,25 @@ const rewriteCx = (
 			ctx.certificates.record(cert)
 		}
 	}
-	return {
-		cx,
-		measure: (measure) => measure(cx)
-	}
+	return cx
 }
 
 /**
- * The pass over a checked query: rules applied to a fixed point under the measure and the step bound.
+ * The pass over a checked query: rules applied to a fixed point, each step strictly lowering the pass's potential.
  *
  * The driver every relational rewrite pass runs under.
  *
  * A rewrite pass is a set of rules, each recognizing one pattern at one node and replacing it by an equivalent form
- * through the editor. The driver visits the reachable nodes inputs first and applies the first rule that matches, then
- * starts over on the changed DAG; it stops when no rule matches anywhere. Two independent bounds make this a bounded
- * worklist rather than an unrestricted rewrite loop:
+ * through the editor. The driver applies the first rule that matches at the first node, inputs first, where one does,
+ * and stops when no rule matches anywhere. Its termination is the pass's potential (Potential): a natural number of
+ * the DAG, polynomial in the size of the DAG the pass starts from, that every applied rewrite strictly lowers, so a
+ * pass takes at most its first value in steps and needs no step budget. A step that does not lower it is a defect of
+ * the rule, grizzle's and never the query's, so it breaks an internal invariant (core/invariant.ts).
  *
- * - a decreasing measure: every pass states a well-founded measure of the DAG, a sequence of naturals compared
- *   lexicographically (a multiset of naturals is its sorted descending sequence, which orders it as the multiset
- *   ordering does), and every applied rewrite must strictly decrease it. A step that does not is a defect of the rule,
- *   grizzle's and never the query's, so it breaks an internal invariant (core/invariant.ts) rather than risking a loop;
- * - a step bound: at most a fixed multiple of the input's size in rewrite steps, beyond which the pass fails with a
- *   source-located ResourceBound.
+ * The driver keeps a worklist of the nodes a rule may match, which it visits in topological order: after a rewrite only
+ * the nodes whose view the rewrite changed are visited again (affectedBy), so every other node, which matched no rule
+ * before, matches none now, and the first match the worklist finds is the first match anywhere: the rewrites are the
+ * ones a scan of the whole DAG from its first node after every step would apply, in the same order.
  *
  * Every applied rewrite records a certificate: its rule, the nodes it read and wrote, the premises
  * its proof used, the evidence context it requires, the heading it preserves, and through its constraint premises the
@@ -252,24 +223,19 @@ export const rewritePass = (spec: RewritePassSpec): Pass<LogicalQuery, LogicalQu
 	run: (query, ctx) =>
 		catchRefusal(() => {
 			const editor = new DagEditor(query.dag)
-			const { cx, measure } = rewriteCx(editor, ctx, spec.name)
-			const nodes = topoOrder(query.dag)
-			const size = nodes.length + exprClosure(nodes.flatMap((node) => exprsOf(node))).length
-			const limit = 8 * size + 64
-			let before = measure(spec.measure)
-			let steps = 0
+			const cx = rewriteCx(editor, ctx, spec.name)
+			const potential = spec.potential(cx)
+			const pending = new Set<Cell>(editor.topoOrder())
+			let before = potential(cx)
 			for (
-				let fired = fireOnce(editor, spec.rules, cx);
+				let fired = fireNext(editor, spec.rules, cx, pending);
 				fired !== undefined;
-				fired = fireOnce(editor, spec.rules, cx)
+				fired = fireNext(editor, spec.rules, cx, pending)
 			) {
-				steps++
-				const loc = nodeLoc(spec.name, fired.cell.id, fired.node)
-				unwrap(checkBound(spec.name, limit, steps, loc))
-				const after = spec.measure(cx)
+				const after = potential(cx)
 				invariant(
-					lexLess(after, before),
-					`the ${spec.name} rewrite ${fired.rule.name} at node ${fired.cell.id} strictly decreases its pass's measure; [${before.join(", ")}] became [${after.join(", ")}]`
+					Number.isInteger(after) && after >= 0 && after < before,
+					`the ${spec.name} rewrite ${fired.rule.name} at node ${fired.cell.id} strictly lowers its pass's potential, a natural; ${before} became ${after}`
 				)
 				before = after
 			}
@@ -277,32 +243,164 @@ export const rewritePass = (spec: RewritePassSpec): Pass<LogicalQuery, LogicalQu
 		})
 })
 
-/** A rule that fired at a cell, with the cell's node as it was before the rewrite. */
+/** A rule that fired, and the cell it fired at. */
 interface Fired {
 	readonly cell: Cell
 	readonly rule: Rule
-	readonly node: EditNode
 }
 
-/** Applies the first rule that fires, at the first cell in topological order where one does; no rule is applied at a
- * cell that reads a recursion's feedback. */
-const fireOnce = (
+/** What the driver keeps of the DAG before a step: each reachable cell's node, and how many roots stand at each. */
+interface Before {
+	readonly nodes: ReadonlyMap<Cell, EditNode>
+	readonly roots: ReadonlyMap<Cell, number>
+}
+
+/** How many of `roots` stand at each cell. */
+const rootCounts = (roots: ReadonlyArray<Cell>): ReadonlyMap<Cell, number> => {
+	const counts = new Map<Cell, number>()
+	for (const r of roots) {
+		counts.set(r, (counts.get(r) ?? 0) + 1)
+	}
+	return counts
+}
+
+/**
+ * Applies the first rule that fires at the first pending cell in topological order where one does, and makes every cell
+ * the rewrite affected pending again (affectedBy); a pending cell no rule fires at leaves the worklist. No rule is
+ * applied at a cell that reads a recursion's feedback.
+ */
+const fireNext = (
 	editor: DagEditor,
 	rules: ReadonlyArray<Rule>,
-	cx: RewriteCx
+	cx: RewriteCx,
+	pending: Set<Cell>
 ): Fired | undefined => {
-	for (const cell of editor.topoOrder()) {
+	const order = editor.topoOrder()
+	const before: Before = {
+		nodes: new Map(order.map((c) => [c, c.current])),
+		roots: rootCounts(editor.roots)
+	}
+	for (const cell of order) {
+		if (!pending.has(cell)) {
+			continue
+		}
+		pending.delete(cell)
+		if (editor.readsFeedback(cell)) {
+			continue
+		}
 		for (const rule of rules) {
-			if (editor.readsFeedback(cell)) {
-				break
-			}
-			const node = cell.current
 			if (rule.at(cell, cx)) {
-				return { cell, rule, node }
+				for (const c of affectedBy(editor, before)) {
+					pending.add(c)
+				}
+				return { cell, rule }
 			}
 		}
 	}
 	return undefined
+}
+
+/** The cells a node at `cell` reads: its data inputs and the cells its expressions name, by label, each once. */
+const nodeReads = (
+	cell: Cell,
+	node: EditNode,
+	byLabel: ReadonlyMap<NodeId, Cell>
+): ReadonlyArray<Cell> => {
+	const read = new Set<Cell>(inputsOf(node))
+	for (const r of columnRefs(exprsOf(node))) {
+		const named = byLabel.get(r.node)
+		if (named !== undefined && named !== cell) {
+			read.add(named)
+		}
+	}
+	return [...read]
+}
+
+/** Every cell `from` reaches along `next`, `from` included. */
+const reach = (
+	from: Iterable<Cell>,
+	next: (cell: Cell) => ReadonlyArray<Cell>
+): ReadonlySet<Cell> => {
+	const seen = new Set<Cell>(from)
+	const queue = [...seen]
+	for (const at of queue) {
+		for (const n of next(at)) {
+			if (!seen.has(n)) {
+				seen.add(n)
+				queue.push(n)
+			}
+		}
+	}
+	return seen
+}
+
+/**
+ * The cells whose view a rewrite changed, given the DAG before it (Before). What a rule at a cell reads is:
+ *
+ * - the cell's node;
+ * - the cells below it, through data inputs and column references: their rows, keys and dependencies (the physical
+ *   analysis), a chain, a correlation, a recursion's feedback;
+ * - the cells above it: their demand (the demand analysis), a discriminant spine, the roots at it;
+ * - who reads each cell below it, and how: its references, its lateral reads and the roots at it (DagEditor.readers,
+ *   the demand analysis's references and lateral);
+ * - what each cell above it reads beside it: the right side of every semi-join stacked over a region
+ *   (existence/index.ts stacked).
+ *
+ * So the seeds are every reachable cell whose node changed or is new, every reachable cell such a node reads or read,
+ * every reachable cell a cell no longer reachable read, which lost that reader, and every cell that gained or lost a
+ * root; and the affected cells are every cell above a seed, and every cell below a seed or a seed's reader. A cell
+ * outside them sees what it saw.
+ */
+const affectedBy = (editor: DagEditor, before: Before): ReadonlySet<Cell> => {
+	const order = editor.topoOrder()
+	const byLabel = new Map(order.map((c) => [c.id, c]))
+	const reads = new Map(order.map((c) => [c, nodeReads(c, c.current, byLabel)]))
+	const readers = new Map<Cell, Array<Cell>>()
+	for (const [c, read] of reads) {
+		for (const r of read) {
+			const list = readers.get(r)
+			if (list === undefined) {
+				readers.set(r, [c])
+			} else {
+				list.push(c)
+			}
+		}
+	}
+	const seeds = new Set<Cell>()
+	const seed = (cells: ReadonlyArray<Cell>): void => {
+		for (const c of cells) {
+			if (reads.has(c)) {
+				seeds.add(c)
+			}
+		}
+	}
+	for (const [c, read] of reads) {
+		const was = before.nodes.get(c)
+		if (was === c.current) {
+			continue
+		}
+		seed([c, ...read])
+		if (was !== undefined) {
+			seed(nodeReads(c, was, byLabel))
+		}
+	}
+	for (const [c, was] of before.nodes) {
+		if (!reads.has(c)) {
+			seed(nodeReads(c, was, byLabel))
+		}
+	}
+	const roots = rootCounts(editor.roots)
+	for (const c of new Set([...before.roots.keys(), ...roots.keys()])) {
+		if (before.roots.get(c) !== roots.get(c)) {
+			seed([c])
+		}
+	}
+	const above = reach(seeds, (c) => readers.get(c) ?? [])
+	const below = reach(
+		[...seeds, ...[...seeds].flatMap((c) => readers.get(c) ?? [])],
+		(c) => reads.get(c) ?? []
+	)
+	return new Set([...above, ...below])
 }
 
 /** A pass of one traversal: `step` edits the DAG once, so the pass terminates with it. */
@@ -315,7 +413,7 @@ export const traversalPass = (spec: {
 	run: (query, ctx) =>
 		catchRefusal(() => {
 			const editor = new DagEditor(query.dag)
-			const { cx } = rewriteCx(editor, ctx, spec.name)
+			const cx = rewriteCx(editor, ctx, spec.name)
 			spec.step(cx)
 			return settle(query, editor)
 		})

@@ -4,15 +4,7 @@ import { type Reached, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import type { ShrinkBudget } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	type Scope,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Option, type Scope, String as Str } from "effect"
 import { type Family, installFamily, populationsOf } from "#test/pg/laws/families/families.ts"
 import { type HostLaw, type HostSchema, isResidual, needs } from "#test/pg/laws/families/model.ts"
 import {
@@ -29,6 +21,7 @@ import {
 import { type AmbientSession, grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
@@ -41,23 +34,6 @@ export const casesPerTest = 120
 /** The most shrink candidates a failure runs (the header says why it is bounded). */
 const shrinkCandidates = 300
 export const shrink: ShrinkBudget = { kind: "bounded", candidates: shrinkCandidates }
-
-/** How long one case may run before the search stops it as hung: a hang, never a slow case. */
-export const caseHang = Duration.minutes(2)
-
-/**
- * A family case's time bound, on average over a test's runs: a case is at most eight ChangeSets and the reads that
- * follow each, about 0.2 s alone and 0.4 s under a load average of 40, 3 s at the slowest seen; a case that does not end
- * at all is the hang guard's (caseHang).
- */
-const caseMillis = 4_000
-
-/**
- * A test's time bound: every run a search of `runs` rotating cases may make at caseMillis each, its floor stream's
- * quarter as many (at least one) and a failure's shrink candidates among them.
- */
-export const timeoutOf = (runs: number): number =>
-	(runs + Math.max(1, Math.ceil(runs / 4)) + shrinkCandidates) * caseMillis
 
 /**
  * Installs a variant for a case, under the ambient session `ambient`: a schema that does not install fails the case that
@@ -386,8 +362,7 @@ const aimedCase = (
  *
  * A failing case shrinks through at most `shrinkCandidates` candidates, each a whole case against the server. A
  * complete shrink is unbounded in time: a failure only some runs of a case reproduce walks it from candidate to
- * candidate, accepting whichever happens to fail. The test's timeout follows from the same budget: every run it may
- * make, its streams' cases and a failure's candidates, at a family case's time bound (caseMillis).
+ * candidate, accepting whichever happens to fail.
  */
 export const familySuite = <P>(family: Family<P>, cases: number, reach: Reach): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(
@@ -465,10 +440,8 @@ export const familySuite = <P>(family: Family<P>, cases: number, reach: Reach): 
 							})
 					)
 				})
-				it.effect(
-					`${mode}: accepted iff every violation query is empty`,
-					(ctx) => searched(ctx, search),
-					timeoutOf(cases)
+				it.effect(`${mode}: accepted iff every violation query is empty`, (ctx) =>
+					searched(ctx, search)
 				)
 			}
 		}

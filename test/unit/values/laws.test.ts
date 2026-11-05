@@ -6,7 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -17,6 +17,7 @@ import { makeSpan } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { decimalGen, decimalText } from "#test/unit/values/support.ts"
 
 /** Groups of spellings of one Decimal value, and values alone. */
@@ -322,7 +323,7 @@ describe("the value carriers' laws", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(j, c) =>
 						Effect.sync(() => {
@@ -373,7 +374,7 @@ describe("the value carriers' laws", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(made, c) =>
 						Effect.sync(() => {
@@ -416,7 +417,7 @@ describe("the value carriers' laws", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(o, c) =>
 					Effect.sync(() => {

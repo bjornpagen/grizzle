@@ -4,7 +4,7 @@ import { noCoverage } from "@grizzle/testing/features"
 import { array, element, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Cause, Duration, Effect, Exit, Formatter, Result } from "effect"
+import { Array as Arr, Cause, Effect, Exit, Formatter, Result } from "effect"
 import {
 	type BatchOutcome,
 	type BatchStatement,
@@ -13,12 +13,13 @@ import {
 	runFramed,
 	writeFrame
 } from "#adapter/wire/batch.ts"
-import { type ServerStatement, serverStatement } from "#adapter/wire/session.ts"
+import { type ServerStatement, type SessionState, serverStatement } from "#adapter/wire/session.ts"
 import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, failureOf } from "#test/support/assert.ts"
 import { fenceSql, prologueIn } from "#test/support/flight/model.ts"
 import { wild } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
 import { fixtureGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
@@ -34,7 +35,7 @@ interface TappedSession {
 	) => Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure>
 	/** Releases server statements, as their owner does (wire/session.ts SessionPool.release). */
 	readonly release: (statements: ReadonlyArray<ServerStatement>) => void
-	readonly retired: () => boolean
+	readonly state: () => SessionState
 	readonly mark: () => number
 	readonly since: (mark: number) => WireWindow
 	readonly cancels: () => number
@@ -71,13 +72,12 @@ const fixture = () =>
 			cluster: s.cluster,
 			database: s.database,
 			role: s.owner.role,
-			password: s.owner.password,
-			applicationName: "grizzle-wire-tap"
+			password: s.owner.password
 		})
 		const session: TappedSession = {
 			batch: (statements) => runFramed(tapped.session, frame, statements),
 			release: (statements) => tapped.session.statements.release(statements),
-			retired: () => tapped.session.retired(),
+			state: () => tapped.session.state(),
 			mark: tapped.mark,
 			since: tapped.since,
 			cancels: tapped.cancels
@@ -110,9 +110,6 @@ const stepGen: Gen<Step> = (source) => ({
 	count: source.draw(int(0, 4)),
 	tag: source.draw(element(["a", "bé", "c\u{1F600}"] as const))
 })
-
-/** How long one case may run before the search stops it as hung. */
-const caseHang = Duration.minutes(2)
 
 const refusals = {
 	parse: { sql: testSql(`SELECT * FROM "no such table"`), params: [], sqlstate: "42P01" },
@@ -314,7 +311,11 @@ export const batchParitySuite = (): void => {
 									if (refusal === "unique") {
 										assert.equal(failure.failure.constraint, tKey)
 									}
-									assert.equal(session.retired(), false)
+									assert.equal(
+										session.state(),
+										"open",
+										"a refused statement leaves the session open"
+									)
 									const keys = yield* readBack(
 										session,
 										`SELECT "k"::text FROM ${table} ORDER BY "k"`

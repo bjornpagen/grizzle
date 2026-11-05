@@ -120,7 +120,12 @@ export type AdvanceFunctions = ReadonlyMap<string, ReadonlyMap<string, Node<"str
  * It moves the sequence to `past` when `past` is at least the next value the sequence would generate (a sequence never
  * called reports its start value with is_called false, so `(past, true) > (last_value, is_called)` is the comparison),
  * and never below the position it reads. Advancers of one sequence are serialized by a transaction-scoped advisory lock
- * keyed by the sequence's class and OID, so no advance rewinds another's. PostgreSQL locks no sequence against nextval
+ * keyed by the sequence's class and OID, so no advance rewinds another's. It is the one advisory lock grizzle keys on
+ * the server rather than by a name the host derives a key from (sql/catalog.ts AdvisoryLock): it is keyed by the
+ * sequence itself, which only the server knows, by its OID, where a key derived from the sequence's name would join the
+ * same-named sequences of two schemas, or, qualified by its schema, would differ in the drift check's scratch replay,
+ * which moves the function and the sequence it names into another schema; and it is keyed in the two-integer key
+ * space, which no bigint key meets. PostgreSQL locks no sequence against nextval
  * (LOCK refuses a sequence), so a value the identity default draws inside one advance's read-to-setval window can be
  * drawn again, which the relation's key refuses: the window is one statement, and no stored fact is lost. The function
  * returns nothing, so a caller learns nothing of the position.

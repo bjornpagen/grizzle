@@ -5,7 +5,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -24,6 +23,7 @@ import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
 import { installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	defaultSchemaLimits,
 	fullDataSwarm,
@@ -144,248 +144,236 @@ const installedCatalog = <A>(
 	)
 
 layer(Substrate.layer)("oracle and real installer", (it) => {
-	it.effect(
-		"generated schemas, extended types included, install to equivalent catalogs",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const substrate = yield* Substrate
-					return yield* explore(
-						{
-							suite: "physical/oracle",
-							draw: drawn(
-								schemaSketchGen({ ...defaultSchemaLimits, extended: true, keys: "spanKeys" })
-							),
-							literal: Formatter.format,
-							coverage: required<PhysicalFeature>(situations, { cases: 400, sense: notesOnly }),
-							kept: [],
-							/**
-							 * The floor stream runs 100 and the rotating stream 400: 500 schemas, each installed twice.
-							 */
-							runs: 400,
-							shrink: { kind: "complete" },
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang: Duration.minutes(2)
-						},
-						(sketch, c) =>
-							Effect.scoped(
-								Effect.gen(function* () {
-									/** The full data swarm keeps every place, so the resolution draws nothing. */
-									const desc: SchemaDesc = schemaDesc(
-										c.draw(resolveSchema(sketch, { mode: "drawn", edge: false }, fullDataSwarm))
+	it.effect("generated schemas, extended types included, install to equivalent catalogs", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const substrate = yield* Substrate
+				return yield* explore(
+					{
+						suite: "physical/oracle",
+						draw: drawn(
+							schemaSketchGen({ ...defaultSchemaLimits, extended: true, keys: "spanKeys" })
+						),
+						literal: Formatter.format,
+						coverage: required<PhysicalFeature>(situations, { cases: 400, sense: notesOnly }),
+						kept: [],
+						/**
+						 * The floor stream runs 100 and the rotating stream 400: 500 schemas, each installed twice.
+						 */
+						runs: 400,
+						shrink: { kind: "complete" },
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(sketch, c) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								/** The full data swarm keeps every place, so the resolution draws nothing. */
+								const desc: SchemaDesc = schemaDesc(
+									c.draw(resolveSchema(sketch, { mode: "drawn", edge: false }, fullDataSwarm))
+								)
+								/**
+								 * The schema name first, the pinned session second: the session is released before
+								 * the name's finalizer runs on the admin connection.
+								 */
+								const schema = yield* substrate.schema({ create: false, label: "physical" })
+								const pinned = yield* substrate.admin.pin
+								const plan = planInstall(desc, atName(schema), defaultPlanOptions)
+								if (!plan.ok) {
+									return yield* Effect.die(new Error(`oracle plan ${plan.error.message}`))
+								}
+								const owned = owning(desc)
+								const worlds = fixtureWorlds(desc)
+								const real = compileInstallation(owned, {
+									...installOptions(owned, substrate.owner.role),
+									installation: identity.schema(parsedSchemaName(schema)),
+									logins: [worlds.login]
+								})
+								if (!real.ok) {
+									return yield* Effect.die(new Error(`real compile ${real.error.message}`))
+								}
+								const oracle = yield* installedCatalog(pinned, schema, plan.value.sql, Effect.void)
+								/**
+								 * The real installation's text refinement domains judged by what they admit
+								 * (checks.ts).
+								 */
+								const actual = yield* installedCatalog(
+									pinned,
+									schema,
+									installationSql(real.value),
+									probeTextDomains(pinned, real.value, desc)
+								)
+								assert.deepEqual(actual.probed.problems, [])
+								if (actual.probed.admitted && actual.probed.refused) {
+									c.note("text domain judged both ways")
+								}
+								const o = oracle.projected
+								const r = actual.projected
+								/** The projected catalogs hold plain names, compared side against side. */
+								const textDomains = new Set<string>(Arr.map(real.value.textDomains, (d) => d.name))
+								const created = new Set<string>(
+									Arr.map(
+										Arr.filter(
+											real.value.indexes,
+											(x) => x.index.kind === "created" && x.requests.length > 0
+										),
+										(x) => x.index.name
 									)
-									/**
-									 * The schema name first, the pinned session second: the session is released before
-									 * the name's finalizer runs on the admin connection.
-									 */
-									const schema = yield* substrate.schema({ create: false, label: "physical" })
-									const pinned = yield* substrate.admin.pin
-									const plan = planInstall(desc, atName(schema), defaultPlanOptions)
-									if (!plan.ok) {
-										return yield* Effect.die(new Error(`oracle plan ${plan.error.message}`))
-									}
-									const owned = owning(desc)
-									const worlds = fixtureWorlds(desc)
-									const real = compileInstallation(owned, {
-										...installOptions(owned, substrate.owner.role),
-										installation: identity.schema(parsedSchemaName(schema)),
-										logins: [worlds.login]
-									})
-									if (!real.ok) {
-										return yield* Effect.die(new Error(`real compile ${real.error.message}`))
-									}
-									const oracle = yield* installedCatalog(
-										pinned,
-										schema,
-										plan.value.sql,
-										Effect.void
+								)
+								const deferred = new Set<string>(
+									Arr.flatMap(real.value.laws.natives, (n) =>
+										n.namespace === "constraint" &&
+										n.object.kind === "ForeignKey" &&
+										n.object.deferrable
+											? [identifierOf(n.named)]
+											: []
 									)
-									/**
-									 * The real installation's text refinement domains judged by what they admit
-									 * (checks.ts).
-									 */
-									const actual = yield* installedCatalog(
-										pinned,
-										schema,
-										installationSql(real.value),
-										probeTextDomains(pinned, real.value, desc)
+								)
+								/** The row and finite CHECKs, which the oracle does not model. */
+								const rowChecks = new Set<string>(
+									Arr.flatMap(real.value.laws.natives, (n) =>
+										n.namespace === "constraint" &&
+										(n.object.kind === "TableCheck" || n.object.kind === "FiniteCheck")
+											? [identifierOf(n.named)]
+											: []
 									)
-									assert.deepEqual(actual.probed.problems, [])
-									if (actual.probed.admitted && actual.probed.refused) {
-										c.note("text domain judged both ways")
-									}
-									const o = oracle.projected
-									const r = actual.projected
-									/** The projected catalogs hold plain names, compared side against side. */
-									const textDomains = new Set<string>(
-										Arr.map(real.value.textDomains, (d) => d.name)
+								)
+								const oracleTables = Rec.values(plan.value.tables)
+								if (textDomains.size > 0) {
+									c.note("text domain")
+								}
+								if (deferred.size > 0) {
+									c.note("deferred foreign key")
+								}
+								if (created.size > 0) {
+									c.note("law index")
+								}
+								if (Rec.keys(plan.value.domains).length > 0) {
+									c.note("contract domain")
+								}
+								if (
+									Arr.some(oracleTables, (x) =>
+										Arr.some([x.primaryKey, ...x.keys], (k) => k.span.kind === "span")
 									)
-									const created = new Set<string>(
-										Arr.map(
-											Arr.filter(
-												real.value.indexes,
-												(x) => x.index.kind === "created" && x.requests.length > 0
-											),
-											(x) => x.index.name
+								) {
+									c.note("span key")
+								}
+								if (
+									Arr.some(oracleTables, (x) =>
+										Arr.some(x.columns, (col) => col.type.value.kind === "vector")
+									)
+								) {
+									c.note("vector column")
+								}
+								/**
+								 * Domains: the real installer's structural text domains, over text, and its
+								 * contract domains, which are the oracle's but for their CHECKs.
+								 */
+								const textDomainsOf = Arr.filter(r.domains, (d) => textDomains.has(d.name))
+								assert.deepEqual(
+									Arr.map(textDomainsOf, (d) => d.name),
+									Arr.sort([...textDomains], Order.String)
+								)
+								for (const d of textDomainsOf) {
+									assert.deepEqual(d.base, { schema: "pg_catalog", name: "text", typmod: -1 })
+								}
+								assert.deepEqual(
+									o.domains,
+									Arr.map(
+										Arr.filter(r.domains, (d) => !textDomains.has(d.name)),
+										(d) => ({ ...d, constraints: [] })
+									)
+								)
+								/**
+								 * Tables, with domain-typed text columns read as their base, the real installer's
+								 * row and finite CHECKs left out and deferral factored out: the storage CHECKs
+								 * compare by name.
+								 */
+								const baseOf = (x: { schema: string; name: string; typmod: number }) =>
+									textDomains.has(x.name) ? { schema: "pg_catalog", name: "text", typmod: -1 } : x
+								const tables = (catalog: ProjectedCatalog, isReal: boolean) =>
+									Arr.map(catalog.tables, (x) => ({
+										...x,
+										columns: Arr.map(x.columns, (col) => ({ ...col, type: baseOf(col.type) })),
+										constraints: Arr.flatMap(x.constraints, (k) =>
+											!isReal
+												? [k]
+												: k.type === "c" && rowChecks.has(k.name)
+													? []
+													: deferred.has(k.name)
+														? [{ ...k, deferrable: false, deferred: false }]
+														: [k]
 										)
-									)
-									const deferred = new Set<string>(
-										Arr.flatMap(real.value.laws.natives, (n) =>
-											n.namespace === "constraint" &&
-											n.object.kind === "ForeignKey" &&
-											n.object.deferrable
-												? [identifierOf(n.named)]
-												: []
-										)
-									)
-									/** The row and finite CHECKs, which the oracle does not model. */
-									const rowChecks = new Set<string>(
-										Arr.flatMap(real.value.laws.natives, (n) =>
-											n.namespace === "constraint" &&
-											(n.object.kind === "TableCheck" || n.object.kind === "FiniteCheck")
-												? [identifierOf(n.named)]
-												: []
-										)
-									)
-									const oracleTables = Rec.values(plan.value.tables)
-									if (textDomains.size > 0) {
-										c.note("text domain")
-									}
-									if (deferred.size > 0) {
-										c.note("deferred foreign key")
-									}
-									if (created.size > 0) {
-										c.note("law index")
-									}
-									if (Rec.keys(plan.value.domains).length > 0) {
-										c.note("contract domain")
-									}
-									if (
-										Arr.some(oracleTables, (x) =>
-											Arr.some([x.primaryKey, ...x.keys], (k) => k.span.kind === "span")
-										)
-									) {
-										c.note("span key")
-									}
-									if (
-										Arr.some(oracleTables, (x) =>
-											Arr.some(x.columns, (col) => col.type.value.kind === "vector")
-										)
-									) {
-										c.note("vector column")
-									}
-									/**
-									 * Domains: the real installer's structural text domains, over text, and its
-									 * contract domains, which are the oracle's but for their CHECKs.
-									 */
-									const textDomainsOf = Arr.filter(r.domains, (d) => textDomains.has(d.name))
-									assert.deepEqual(
-										Arr.map(textDomainsOf, (d) => d.name),
-										Arr.sort([...textDomains], Order.String)
-									)
-									for (const d of textDomainsOf) {
-										assert.deepEqual(d.base, { schema: "pg_catalog", name: "text", typmod: -1 })
-									}
-									assert.deepEqual(
-										o.domains,
-										Arr.map(
-											Arr.filter(r.domains, (d) => !textDomains.has(d.name)),
-											(d) => ({ ...d, constraints: [] })
-										)
-									)
-									/**
-									 * Tables, with domain-typed text columns read as their base, the real installer's
-									 * row and finite CHECKs left out and deferral factored out: the storage CHECKs
-									 * compare by name.
-									 */
-									const baseOf = (x: { schema: string; name: string; typmod: number }) =>
-										textDomains.has(x.name) ? { schema: "pg_catalog", name: "text", typmod: -1 } : x
-									const tables = (catalog: ProjectedCatalog, isReal: boolean) =>
-										Arr.map(catalog.tables, (x) => ({
-											...x,
-											columns: Arr.map(x.columns, (col) => ({ ...col, type: baseOf(col.type) })),
-											constraints: Arr.flatMap(x.constraints, (k) =>
-												!isReal
-													? [k]
-													: k.type === "c" && rowChecks.has(k.name)
-														? []
-														: deferred.has(k.name)
-															? [{ ...k, deferrable: false, deferred: false }]
-															: [k]
+									}))
+								assert.deepEqual(tables(r, true), tables(o, false))
+								/**
+								 * The storage CHECKs (a span's shape and width, a vector's norm) by definition: the
+								 * oracle states each documented rule itself (plan.ts), so PostgreSQL's deparsing of
+								 * both installations' predicates agrees.
+								 */
+								const storageChecks: ReadonlyMap<string, string> = new Map(
+									Arr.filter([...actual.checks], ([key]) => !rowChecks.has(constraintOf(key)))
+								)
+								assert.deepEqual(storageChecks, oracle.checks)
+								/**
+								 * Row CHECKs: the oracle models none of the real installer's row checks (plan.ts
+								 * leaves them out), so the CHECKs the real catalog holds, table by table, are held
+								 * to the ones the real installation's DDL states, and every check law the law model
+								 * recognizes is among them: a CHECK dropped, doubled, renamed or unexpected fails.
+								 */
+								const statedChecks = Arr.flatMap(real.value.statements, (st) =>
+									st.kind === "createTable"
+										? Arr.flatMap(st.secondary, (k) =>
+												k.kind === "check" ? [`${st.table.name}.${k.name}`] : []
 											)
-										}))
-									assert.deepEqual(tables(r, true), tables(o, false))
-									/**
-									 * The storage CHECKs (a span's shape and width, a vector's norm) by definition: the
-									 * oracle states each documented rule itself (plan.ts), so PostgreSQL's deparsing of
-									 * both installations' predicates agrees.
-									 */
-									const storageChecks: ReadonlyMap<string, string> = new Map(
-										Arr.filter([...actual.checks], ([key]) => !rowChecks.has(constraintOf(key)))
-									)
-									assert.deepEqual(storageChecks, oracle.checks)
-									/**
-									 * Row CHECKs: the oracle models none of the real installer's row checks (plan.ts
-									 * leaves them out), so the CHECKs the real catalog holds, table by table, are held
-									 * to the ones the real installation's DDL states, and every check law the law model
-									 * recognizes is among them: a CHECK dropped, doubled, renamed or unexpected fails.
-									 */
-									const statedChecks = Arr.flatMap(real.value.statements, (st) =>
-										st.kind === "createTable"
-											? Arr.flatMap(st.secondary, (k) =>
-													k.kind === "check" ? [`${st.table.name}.${k.name}`] : []
+										: st.kind === "alterTable"
+											? Arr.flatMap(st.actions, (a) =>
+													a.kind === "addConstraint" && a.constraint.kind === "check"
+														? [`${st.table.name}.${a.constraint.name}`]
+														: []
 												)
-											: st.kind === "alterTable"
-												? Arr.flatMap(st.actions, (a) =>
-														a.kind === "addConstraint" && a.constraint.kind === "check"
-															? [`${st.table.name}.${a.constraint.name}`]
-															: []
-													)
-												: []
+											: []
+								)
+								const installedChecks = Arr.flatMap(r.tables, (x) =>
+									Arr.flatMap(x.constraints, (k) => (k.type === "c" ? [`${x.name}.${k.name}`] : []))
+								)
+								assert.deepEqual(
+									Arr.sort([...installedChecks], Order.String),
+									Arr.sort([...statedChecks], Order.String)
+								)
+								const checkNames = new Set(
+									Arr.flatMap(r.tables, (x) =>
+										Arr.flatMap(x.constraints, (k) => (k.type === "c" ? [k.name] : []))
 									)
-									const installedChecks = Arr.flatMap(r.tables, (x) =>
-										Arr.flatMap(x.constraints, (k) =>
-											k.type === "c" ? [`${x.name}.${k.name}`] : []
-										)
-									)
-									assert.deepEqual(
-										Arr.sort([...installedChecks], Order.String),
-										Arr.sort([...statedChecks], Order.String)
-									)
-									const checkNames = new Set(
-										Arr.flatMap(r.tables, (x) =>
-											Arr.flatMap(x.constraints, (k) => (k.type === "c" ? [k.name] : []))
-										)
-									)
-									for (const check of rowChecks) {
-										assert.ok(checkNames.has(check), `the check law ${check} is installed`)
-									}
-									for (const x of r.tables) {
-										for (const k of x.constraints) {
-											if (deferred.has(k.name)) {
-												assert.deepEqual([k.deferrable, k.deferred], [true, true])
-											}
+								)
+								for (const check of rowChecks) {
+									assert.ok(checkNames.has(check), `the check law ${check} is installed`)
+								}
+								for (const x of r.tables) {
+									for (const k of x.constraints) {
+										if (deferred.has(k.name)) {
+											assert.deepEqual([k.deferrable, k.deferred], [true, true])
 										}
 									}
-									assert.deepEqual(
-										o.indexes,
-										Arr.filter(r.indexes, (x) => !created.has(x.name))
-									)
-									for (const x of Arr.filter(r.indexes, (index) => created.has(index.name))) {
-										assert.equal(x.unique, false)
-									}
-									assert.deepEqual(r.enums, o.enums)
-									assert.deepEqual(r.sequences, o.sequences)
-									assert.deepEqual(o.roles, [])
-									assert.deepEqual(o.grants, [])
-									assert.deepEqual(r.grants, worldsGrants(desc, real.value, worlds, r))
-								})
-							)
-					)
-				})
-			),
-		600_000
+								}
+								assert.deepEqual(
+									o.indexes,
+									Arr.filter(r.indexes, (x) => !created.has(x.name))
+								)
+								for (const x of Arr.filter(r.indexes, (index) => created.has(index.name))) {
+									assert.equal(x.unique, false)
+								}
+								assert.deepEqual(r.enums, o.enums)
+								assert.deepEqual(r.sequences, o.sequences)
+								assert.deepEqual(o.roles, [])
+								assert.deepEqual(o.grants, [])
+								assert.deepEqual(r.grants, worldsGrants(desc, real.value, worlds, r))
+							})
+						)
+				)
+			})
+		)
 	)
 })

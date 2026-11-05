@@ -20,6 +20,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { compareNumbers, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
+import { integerDigits } from "#compiler/ir/carriers.ts"
 import type {
 	BoundDesc,
 	BoundValueDesc,
@@ -69,7 +70,7 @@ import {
 	noExtension,
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
-import { plainType } from "#compiler/scalar/compute/types.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 import type {
 	OwnedContract,
 	OwnedKey,
@@ -1671,7 +1672,8 @@ export type Weighed =
  * A capacity's group total (ir/law.ts CapacityAggregate). A field weight is summed exactly, so the law function's
  * running total and a Validate's full one agree and neither raises: a sum of real or double precision rounds by the
  * order the rows arrive in, and a sum of money can overflow. So a weight is of an integer or numeric type, and its
- * aggregate bigint or numeric. A duration weight's widths are summed in numeric (capacityViolation).
+ * aggregate bigint or numeric. A duration weight's widths are summed in numeric (capacityViolation): each the
+ * difference of its endpoints, one integer digit more than an endpoint has.
  */
 const capacityAggregate = (
 	s: CapacityStatement,
@@ -1681,8 +1683,13 @@ const capacityAggregate = (
 	switch (weighed.kind) {
 		case "count":
 			return { carrier: "int8", type: countOverload().result }
-		case "duration":
-			return { carrier: "numeric", type: plainType("numeric") }
+		case "duration": {
+			const width = numericValue({
+				digits: integerDigits[weighed.span.endpoint.carrier].value + 1,
+				scale: 0
+			})
+			return { carrier: "numeric", type: unwrapOr(unaryOverload("sum", width, loc)).result }
+		}
 		case "field": {
 			const sum = unwrapOr(unaryOverload("sum", weighed.field.type, loc)).result
 			const total = exactTotal(sum)

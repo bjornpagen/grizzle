@@ -5,6 +5,7 @@ import { atMost } from "#compiler/ir/cardinality.ts"
 import { makeCertificate } from "#compiler/ir/certificate.ts"
 import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { Fold } from "#compiler/ir/fold.ts"
 import {
 	type Correlation,
 	inputsOf,
@@ -104,7 +105,7 @@ const wholeRelationShape = (bound: TakeBound): "distinctOn" | "rowNumber" =>
 	bound.kind === "literal" && bound.k === 1n ? "distinctOn" : "rowNumber"
 
 /**
- * The fixed R20 policy: a parent set of at most `lateralMax` groups (core/policy.ts lateralParentMax in production)
+ * The fixed R20 policy: a parent set of at most `lateralMax` groups (core/limits.ts lateralParentMax in production)
  * takes the correlated LATERAL form.
  *
  * Bounded subsets: take(k) by the bound parent set.
@@ -321,58 +322,81 @@ type RowsBound =
  * A declared relation parameter's facts bound its rows per execution; nothing bounds a member slot's (its count
  * is no relation parameter's).
  *
- * A node whose rows no parameter or cardinality bounds by these rules.
+ * A node whose rows no parameter or cardinality bounds by these rules. Each node's bound is read from its inputs'
+ * only, so the fold (ir/fold.ts) computes the bound of each node below `root` it reads at most once, inputs first,
+ * whatever the DAG's depth: the walk is over the query DAG, which is finite and acyclic.
  */
-const rowsBound = (node: RelNode, facts: ShapeFacts, depth: number): RowsBound | undefined => {
-	const card = facts.maxCard(node)
-	if (card.kind === "atMost") {
-		return { kind: "bounded", max: card.rows }
-	}
-	if (depth > 8) {
-		return undefined
-	}
-	switch (node.kind) {
-		case "InputSet":
-			return node.input.kind === "declared"
-				? { kind: "input", source: node.input.param, factor: 1n }
-				: undefined
-		case "Filter":
-		case "ProjectSet":
-			return rowsBound(node.input, facts, depth + 1)
-		case "SemiJoin":
-			return rowsBound(node.left, facts, depth + 1) ?? rowsBound(node.right, facts, depth + 1)
-		case "MatchRegion": {
-			const b = occurrencesBound(node.occurrences, facts)
-			const [input, ...others] = b.inputs
-			if (b.open > 0 || others.length > 0) {
-				return undefined
-			}
-			return input === undefined
-				? { kind: "bounded", max: b.max }
-				: { kind: "input", source: input, factor: b.max }
+const rowsBound = (root: RelNode, facts: ShapeFacts): RowsBound | undefined =>
+	new Fold<RelNode, RowsBound | undefined>(function* (node) {
+		const card = facts.maxCard(node)
+		if (card.kind === "atMost") {
+			return { kind: "bounded", max: card.rows }
 		}
-		case "Base":
-		case "Closed":
-		case "Context":
-		case "Delta":
-		case "AntiJoin":
-		case "Union":
-		case "Intersect":
-		case "Difference":
-		case "Take":
-		case "Group":
-		case "Produce":
-		case "Recursive":
-		case "SelfRef":
-		case "ApproximateNearest":
-		case "OrderedResult":
-		case "Attach":
-		case "Forbid":
-		case "Window":
-		case "OrderedSetAggregate":
-			return undefined
+		switch (node.kind) {
+			case "InputSet":
+				return node.input.kind === "declared"
+					? { kind: "input", source: node.input.param, factor: 1n }
+					: undefined
+			case "Filter":
+			case "ProjectSet":
+				return yield node.input
+			case "SemiJoin":
+				return (yield node.left) ?? (yield node.right)
+			case "MatchRegion": {
+				const b = occurrencesBound(node.occurrences, facts)
+				const [input, ...others] = b.inputs
+				if (b.open > 0 || others.length > 0) {
+					return undefined
+				}
+				return input === undefined
+					? { kind: "bounded", max: b.max }
+					: { kind: "input", source: input, factor: b.max }
+			}
+			case "Base":
+			case "Closed":
+			case "Context":
+			case "Delta":
+			case "AntiJoin":
+			case "Union":
+			case "Intersect":
+			case "Difference":
+			case "Take":
+			case "Group":
+			case "Produce":
+			case "Recursive":
+			case "SelfRef":
+			case "ApproximateNearest":
+			case "OrderedResult":
+			case "Attach":
+			case "Forbid":
+			case "Window":
+			case "OrderedSetAggregate":
+				return undefined
+		}
+	}).of(root)
+
+/** The nodes that read each node's rows as a data input, each reader once. */
+const readersOf = (dag: RelDag): ReadonlyMap<RelNode, ReadonlyArray<RelNode>> => {
+	const readers = new Map<RelNode, Array<RelNode>>()
+	for (const n of topoOrder(dag)) {
+		for (const input of new Set(inputsOf(n))) {
+			const list = readers.get(input)
+			if (list === undefined) {
+				readers.set(input, [n])
+			} else {
+				list.push(n)
+			}
+		}
 	}
+	return readers
 }
+
+/** One step up the chain that reads a region's rows: the bound found (or none), or the reader to look above. */
+type RestrictionStep =
+	| { readonly kind: "found"; readonly bound: RowsBound | undefined }
+	| { readonly kind: "up"; readonly node: RelNode }
+
+const unrestricted: RestrictionStep = { kind: "found", bound: undefined }
 
 /**
  * The bound a region's rows are restricted to by the one chain of nodes that reads them: a semi-join against bound
@@ -380,53 +404,64 @@ const rowsBound = (node: RelNode, facts: ShapeFacts, depth: number): RowsBound |
  * delivers none of its fields (optimize/existence). A node that only names the region's columns in an expression, as
  * a take's correlation does, does not read its rows.
  *
- * A reader that does not restrict the region's rows to bound ones.
+ * A reader that does not restrict the region's rows to bound ones. Each step moves to the one reader of the node
+ * before, so the walk climbs the DAG, which is finite and acyclic, visiting each node at most once, and ends at a root,
+ * at a node read by none or by several, or at the first reader that neither restricts nor passes the rows on.
  */
 const restrictionAbove = (
 	dag: RelDag,
-	node: RelNode,
-	facts: ShapeFacts,
-	depth: number
+	region: RelNode,
+	facts: ShapeFacts
 ): RowsBound | undefined => {
-	if (depth > 8 || dag.roots.includes(node)) {
-		return undefined
+	const readers = readersOf(dag)
+	const step = (node: RelNode): RestrictionStep => {
+		if (dag.roots.includes(node)) {
+			return unrestricted
+		}
+		const [reader, ...others] = readers.get(node) ?? []
+		if (reader === undefined || others.length > 0) {
+			return unrestricted
+		}
+		switch (reader.kind) {
+			case "SemiJoin": {
+				if (reader.left !== node || reader.right === node) {
+					return unrestricted
+				}
+				const bound = rowsBound(reader.right, facts)
+				return bound === undefined ? { kind: "up", node: reader } : { kind: "found", bound }
+			}
+			case "Filter":
+			case "ProjectSet":
+				return { kind: "up", node: reader }
+			case "Base":
+			case "Closed":
+			case "Context":
+			case "InputSet":
+			case "Delta":
+			case "MatchRegion":
+			case "AntiJoin":
+			case "Union":
+			case "Intersect":
+			case "Difference":
+			case "Take":
+			case "Group":
+			case "Produce":
+			case "Recursive":
+			case "SelfRef":
+			case "ApproximateNearest":
+			case "OrderedResult":
+			case "Attach":
+			case "Forbid":
+			case "Window":
+			case "OrderedSetAggregate":
+				return unrestricted
+		}
 	}
-	const readers = topoOrder(dag).filter((n) => inputsOf(n).includes(node))
-	const [reader, ...others] = readers
-	if (reader === undefined || others.length > 0) {
-		return undefined
+	let at = step(region)
+	while (at.kind === "up") {
+		at = step(at.node)
 	}
-	switch (reader.kind) {
-		case "SemiJoin":
-			return reader.left === node && reader.right !== node
-				? (rowsBound(reader.right, facts, 0) ?? restrictionAbove(dag, reader, facts, depth + 1))
-				: undefined
-		case "Filter":
-		case "ProjectSet":
-			return restrictionAbove(dag, reader, facts, depth + 1)
-		case "Base":
-		case "Closed":
-		case "Context":
-		case "InputSet":
-		case "Delta":
-		case "MatchRegion":
-		case "AntiJoin":
-		case "Union":
-		case "Intersect":
-		case "Difference":
-		case "Take":
-		case "Group":
-		case "Produce":
-		case "Recursive":
-		case "SelfRef":
-		case "ApproximateNearest":
-		case "OrderedResult":
-		case "Attach":
-		case "Forbid":
-		case "Window":
-		case "OrderedSetAggregate":
-			return undefined
-	}
+	return at.bound
 }
 
 /** Whether a region reads a node outside itself through an occurrence constant or a correlated variable. */
@@ -470,7 +505,7 @@ export const parentSetOf = (
 			(o) => o.source !== take && !isCorrelatedSource(o.source)
 		)
 		const b = occurrencesBound(parents, facts)
-		const restriction = b.open === 0 ? undefined : restrictionAbove(dag, node, facts, 0)
+		const restriction = b.open === 0 ? undefined : restrictionAbove(dag, node, facts)
 		if (b.open > 0 && restriction === undefined) {
 			return { kind: "whole" }
 		}

@@ -300,6 +300,22 @@ export const classifyEdges = (
 	return edges
 }
 
+/** Each node's outgoing consumer edges, in edge order. */
+const edgesInto = (
+	edges: ReadonlyArray<ConsumerEdge>
+): ReadonlyMap<RelNode, ReadonlyArray<ConsumerEdge>> => {
+	const into = new Map<RelNode, Array<ConsumerEdge>>()
+	for (const e of edges) {
+		const list = into.get(e.input)
+		if (list === undefined) {
+			into.set(e.input, [e])
+		} else {
+			list.push(e)
+		}
+	}
+	return into
+}
+
 /**
  * The nodes whose repeats reach an observing edge through preserving ones. Consumers come later than their inputs in
  * `order`, so one reverse pass decides every node.
@@ -308,10 +324,7 @@ export const observedNodes = (
 	order: ReadonlyArray<RelNode>,
 	edges: ReadonlyArray<ConsumerEdge>
 ): ReadonlySet<RelNode> => {
-	const into = new Map<RelNode, Array<ConsumerEdge>>()
-	for (const e of edges) {
-		into.set(e.input, [...(into.get(e.input) ?? []), e])
-	}
+	const into = edgesInto(edges)
 	const observed = new Set<RelNode>()
 	for (const node of order.toReversed()) {
 		if (
@@ -333,44 +346,36 @@ interface ObservationStep {
 	readonly why: ObservationWhy
 }
 
-/** At most this many observation paths are reported per node, for diagnostics. */
-const observationPathBound = 8
-
 /**
- * The observation paths from a node upward: each a chain of preserving steps ending in the first step that observes or
- * ignores, or in a preserving step at the result. Bounded, depth-first in edge order.
+ * The steps that end the observation paths from a node upward, each edge once: every edge that observes or ignores the
+ * node's repeats and that a chain of preserving edges from the node reaches, and every preserving edge so reached into
+ * a node no consumer reads (a path ending at the result). The walk expands each consumer once, and reads each edge
+ * out of an expanded node once, so it is linear in the edges, where the paths themselves can be exponentially many in
+ * a DAG; a reader of one path's end reads every end here.
  */
-export const observationPaths = (
+export const observationEnds = (
 	node: RelNode,
 	edges: ReadonlyArray<ConsumerEdge>
-): ReadonlyArray<ReadonlyArray<ObservationStep>> => {
-	const into = new Map<RelNode, Array<ConsumerEdge>>()
-	for (const e of edges) {
-		into.set(e.input, [...(into.get(e.input) ?? []), e])
-	}
-	const paths: Array<ReadonlyArray<ObservationStep>> = []
-	const walk = (
-		at: RelNode,
-		prefix: ReadonlyArray<ObservationStep>,
-		seen: ReadonlySet<RelNode>
-	) => {
-		const out = into.get(at) ?? []
-		if (out.length === 0 && prefix.length > 0 && paths.length < observationPathBound) {
-			paths.push(prefix)
-		}
-		for (const e of out) {
-			if (paths.length >= observationPathBound) {
-				return
-			}
+): ReadonlyArray<ObservationStep> => {
+	const into = edgesInto(edges)
+	const ends: Array<ObservationStep> = []
+	const expanded = new Set<RelNode>([node])
+	const queue = [node]
+	for (const at of queue) {
+		for (const e of into.get(at) ?? []) {
 			const step: ObservationStep = { consumer: e.consumer, sensitivity: e.sensitivity, why: e.why }
-			const path = [...prefix, step]
-			if (e.sensitivity !== "preserves" || seen.has(e.consumer.node)) {
-				paths.push(path)
-			} else {
-				walk(e.consumer.node, path, new Set([...seen, e.consumer.node]))
+			if (e.sensitivity !== "preserves") {
+				ends.push(step)
+				continue
+			}
+			const next = e.consumer.node
+			if ((into.get(next) ?? []).length === 0) {
+				ends.push(step)
+			} else if (!expanded.has(next)) {
+				expanded.add(next)
+				queue.push(next)
 			}
 		}
 	}
-	walk(node, [], new Set([node]))
-	return paths
+	return ends
 }

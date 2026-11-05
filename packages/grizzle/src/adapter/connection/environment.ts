@@ -17,7 +17,10 @@ export type SessionKind = "login" | "owner"
  *   (physical/ddl/roles.ts loginStartupOptions), so it reaches only an owner's sessions, which set none, as they start
  *   under their role's and their database's defaults.
  * Every other variable pg reads that way, grizzle's client configuration sets (wire/session.ts clientConfig), and the
- * password pg is given is a function, so pg reads neither PGPASSWORD nor a password file.
+ * password pg is given is a function, so pg reads neither PGPASSWORD nor a password file, except `PGAPPNAME`, sent as
+ * `application_name`, which grizzle leaves to the environment: grizzle names no session, and the name is the
+ * deployment's own label for its sessions in pg_stat_activity and the server's log, which no setting, admission or
+ * statement of grizzle's reads.
  */
 const startupVariables: {
 	readonly [K in SessionKind]: Arr.NonEmptyReadonlyArray<StartupVariable>
@@ -27,16 +30,16 @@ const startupVariables: {
 }
 
 /**
- * The first of `kind`'s startup variables, in list order, that `env` sets to a text: what pg would send at the startup
- * of each such session. pg takes the empty text for unset. `env` is the process environment, the very source pg reads,
- * and never a ConfigProvider's view of it, which an application may set apart from it. DbLayer.make refuses a login's
- * (pool/registry.ts), the command line an owner's (cli/connection.ts).
+ * The first of `kind`'s startup variables, in list order, that the process environment sets to a text: what pg would
+ * send at the startup of each such session. pg takes the empty text for unset. It reads `process.env`, the very source
+ * pg reads, never a ConfigProvider's view of it, which an application may set apart from it: this module is grizzle's
+ * one reader of the environment (the no-environment gate). DbLayer.make refuses a login's (pool/registry.ts), the
+ * command line an owner's (cli/connection.ts).
  */
-export const setStartupVariable = (
-	env: Readonly<Record<string, string | undefined>>,
-	kind: SessionKind
-): Option.Option<StartupVariable> =>
-	Arr.findFirst(startupVariables[kind], (variable) => {
+export const startupVariableSet = (kind: SessionKind): Option.Option<StartupVariable> => {
+	const env = process.env
+	return Arr.findFirst(startupVariables[kind], (variable) => {
 		const value = env[variable]
 		return value !== undefined && value !== ""
 	})
+}

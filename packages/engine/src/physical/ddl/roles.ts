@@ -9,7 +9,7 @@ import {
 	type RoleWrite
 } from "#compiler/analysis/schema.ts"
 import { refuse } from "#compiler/analysis/theory/build.ts"
-import { hnswSearchSettings } from "#compiler/check/approximate/policy.ts"
+import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchCompileError, catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -58,21 +58,19 @@ import {
 import type { HeadStanding } from "#compiler/schema/entry.ts"
 import type { OwnedEntry, OwnedLogin, OwnedRole, OwnedWorldEntry } from "#compiler/schema/own.ts"
 
-import {
-	type ColumnPrivilege,
-	type Expr,
-	type FunctionName,
-	type Grant,
-	type Grantee,
-	type ObjectName,
-	type Privilege,
-	type RoleSetting,
-	type Select,
-	type SessionSetting,
-	type SqlStatement,
-	type TextSetting,
-	textParameters,
-	type TypeSchema
+import type {
+	ColumnPrivilege,
+	Expr,
+	FunctionName,
+	Grant,
+	Grantee,
+	ObjectName,
+	Privilege,
+	RoleSetting,
+	Select,
+	SqlStatement,
+	TextSetting,
+	TypeSchema
 } from "#compiler/sql/ast.ts"
 
 import {
@@ -103,44 +101,34 @@ import {
 } from "#compiler/write/insert/unique.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
 
-/** The fixed login defaults a login's own sessions may set at startup, which each of its sessions does too. */
-const sessionSettings = [
+/**
+ * The fixed login defaults, every login's, each one a grizzle guarantee rests on (sql/ast.ts textParameters): one list,
+ * which the installation stores as ALTER ROLE ... SET, admission reads back from the manifest that holds those
+ * statements (deploy/admission/roles.ts roleExpectation), and every session of a login's pool sets again at its
+ * startup (loginStartupOptions). Every other setting, jit and lc_messages among them, is the database owner's.
+ */
+export const roleDefaultSettings = [
 	{ parameter: "search_path" },
-	{ parameter: "jit", value: "off" },
 	{ parameter: "extra_float_digits", value: "1" },
 	{ parameter: "lc_monetary", value: "C.UTF-8" },
 	{ parameter: "lc_numeric", value: "C.UTF-8" },
 	{ parameter: "lc_time", value: "C.UTF-8" }
-] as const satisfies NonEmptyReadonlyArray<SessionSetting>
-
-/** The fixed login defaults only the migration identity may set, through its SET privilege on each. */
-const superuserSettings = [
-	{ parameter: "lc_messages", value: "C.UTF-8" }
-] as const satisfies ReadonlyArray<RoleSetting>
+] as const satisfies NonEmptyReadonlyArray<RoleSetting>
 
 /**
- * The fixed login defaults, every login's: one list, which the installation stores as ALTER ROLE ... SET, admission
- * reads back from the manifest that holds those statements (deploy/admission/roles.ts roleExpectation), and every
- * session of a login's pool sets again at its startup, as far as a login may (loginStartupOptions).
+ * The startup packet's `options` of every session of a login's pool (wire/session.ts): each fixed default at its
+ * stored value. The client's own options outrank every default a session starts under, a database's and a role's
+ * included, and pg sends them in place of the environment's PGOPTIONS, which it reads only when a client names none.
  */
-export const roleDefaultSettings = [...sessionSettings, ...superuserSettings] as const
+export const loginStartupOptions: string = printStartupOptions(roleDefaultSettings)
 
 /**
- * The startup packet's `options` of every session of a login's pool (wire/session.ts): each fixed default a login may
- * set itself, at its stored value. The client's own options outrank every default a session starts under, a database's
- * and a role's included, and pg sends them in place of the environment's PGOPTIONS, which it reads only when a client
- * names none. lc_messages, which no login may set (42501), stands by its role default alone.
+ * The search setting as a login default, for a login one of whose roles can name the vector type: pgvector's
+ * strict-order iterative scan (check/approximate/policy.ts hnswPolicy), the one search setting grizzle pins.
  */
-export const loginStartupOptions: string = printStartupOptions(sessionSettings)
-
-/** The search policy's session parameters as login defaults. Each is a name of
- * textParameters, which the SQL AST checks; a unit test holds this list to the policy's, entry for entry. */
-export const searchPolicySettings: ReadonlyArray<TextSetting> = hnswSearchSettings().flatMap(
-	(s) => {
-		const parameter = textParameters.find((p) => p === s.parameter)
-		return parameter === undefined ? [] : [{ parameter, value: s.value }]
-	}
-)
+export const searchPolicySettings: NonEmptyReadonlyArray<TextSetting> = [
+	{ parameter: "hnsw.iterative_scan", value: hnswPolicy.iterativeScan }
+]
 
 /** The statement that loads the vector library in the migration session, so its `hnsw.*` parameters are known when the
  * login defaults store them: a call of one of its C functions on a vector it parses. */
@@ -1116,16 +1104,15 @@ const addLogin = (
  *   (physical/ddl/ledger.ts);
  * - the login's defaults (`roleDefaultSettings`), as ALTER ROLE ... SET, which PostgreSQL applies at login and never on
  *   SET ROLE, over any default of the database's or the cluster's, and which every session of a login's pool sets
- *   again in its startup options, all but lc_messages (`loginStartupOptions`): `search_path = pg_catalog, pg_temp`
- *   (closedSearchPath), so no name a login's statement holds resolves through a path anyone else chose, `jit = off`,
- *   `extra_float_digits = 1` (float text is shortest round-trip only when it is positive) and the four locale
- *   categories at C.UTF-8. lc_messages is superuser-only: the migration identity sets it through the SET privilege
- *   the cluster grants it. For a login one of whose roles can name the vector type, the fixed HNSW search policy too
- *   (`searchPolicySettings`): an `hnsw.*` parameter is a placeholder until the vector library is loaded in the
- *   session, and the migration identity, which is no superuser, may store one only after that (42501 before), so the
- *   defaults list a statement that loads the library, `SELECT <ext>.vector_dims('[1]'::<ext>.vector)`, once, before
- *   the first of them. It is the one default statement that is not an ALTER ROLE: it installs nothing, and a migration
- *   runs it whenever it stores a default after it.
+ *   again in its startup options (`loginStartupOptions`): `search_path = pg_catalog, pg_temp` (closedSearchPath), so
+ *   no name a login's statement holds resolves through a path anyone else chose, `extra_float_digits = 1` (float text
+ *   is shortest round-trip only when it is positive) and lc_monetary, lc_numeric and lc_time at C.UTF-8. For a login
+ *   one of whose roles can name the vector type, the strict-order iterative scan too (`searchPolicySettings`): an
+ *   `hnsw.*` parameter is a placeholder until the vector library is loaded in the session, and the migration
+ *   identity, which is no superuser, may store one only after that (42501 before), so the defaults list a statement
+ *   that loads the library, `SELECT <ext>.vector_dims('[1]'::<ext>.vector)`, once, before it. It is the one default
+ *   statement that is not an ALTER ROLE: it installs nothing, and a migration runs it whenever it stores a default
+ *   after it.
  *
  * Per role of a login:
  *

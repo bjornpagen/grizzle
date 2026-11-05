@@ -14,7 +14,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Result } from "effect"
+import { Array as Arr, Effect, Result } from "effect"
 import {
 	lawBox,
 	type RefusedCapacity,
@@ -24,6 +24,7 @@ import { casesPerTest, familySuite } from "#test/pg/laws/families/suites/family.
 import { installLaws } from "#test/pg/laws/families/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 familySuite(lawBox, casesPerTest, "every schema's refusals")
@@ -47,7 +48,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							coverage: requiredInSpace<RefusedFeature>(
 								Arr.map(refusedCapacities, (r): RefusedFeature => `refused: ${r.name}`)
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(r, c) =>
 							Effect.gen(function* () {

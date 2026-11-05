@@ -5,7 +5,7 @@ import { array, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
@@ -26,6 +26,7 @@ import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { decodedQuery, type MatchDesc, type VarDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { featureCount, shapeOf } from "#test/support/kernel/shape.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickGen } from "#test/support/pick.ts"
 
 /**
@@ -218,7 +219,7 @@ describe("a region past the collapse limit is an explicit JOIN chain", () => {
 						),
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(path, c) =>
 						Effect.sync(() => {

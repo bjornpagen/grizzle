@@ -13,7 +13,7 @@ import { array, type Gen } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	type PayrollProgramName,
 	payrollPrograms,
@@ -75,7 +75,6 @@ const run = Effect.gen(function* () {
 			kept: [],
 			runs: cases,
 			shrink: completeShrink,
-			caseHang: Duration.minutes(2),
 			perturb: "planner"
 		},
 		(c, notes) =>
@@ -92,10 +91,8 @@ const run = Effect.gen(function* () {
 layer(Substrate.layer, { excludeTestServices: true })(
 	"the payroll programs, optimized against conservative on generated facts",
 	(it) => {
-		it.effect(
-			`${cases} generated payroll states: every program agrees`,
-			(ctx) => searched(ctx, run),
-			900_000
+		it.effect(`${cases} generated payroll states: every program agrees`, (ctx) =>
+			searched(ctx, run)
 		)
 	}
 )

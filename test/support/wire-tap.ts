@@ -1,32 +1,39 @@
 import { Buffer } from "node:buffer"
 import { connect as netConnect } from "node:net"
-import { Duplex } from "node:stream"
 import { type TLSSocket, connect as tlsConnect } from "node:tls"
 import { Array as Arr, Deferred, Effect, Exit, type Redacted, type Scope } from "effect"
+import pgDriver from "pg"
 import type { ConnectRefusal } from "#adapter/errors/failures.ts"
+import type { Transport } from "#adapter/types/layer.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
+import { testConnectTimeout } from "#test/support/limits.ts"
+import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
+import { parsedConnection } from "#test/support/pg.ts"
 
 /**
- * A protocol tap: a driver session that runs over a plaintext view of its own TLS connection, so a test reads every
- * message in both directions and counts round trips, Syncs and ReadyForQuery messages on the wire.
+ * A protocol tap: a session's connection that a test reads every message of in both directions, counting round trips,
+ * Syncs and ReadyForQuery messages on the wire, on grizzle's public path.
  *
- * The tap sets the transport up as a driver does, SSLRequest then verify-full TLS against the cluster's CA, and hands
- * the driver the decrypted side as its stream, with TLS off in the driver, so the driver writes and reads plaintext
- * through it: the adapter's sessions take it as their `stream` transport (packages/grizzle/src/adapter/wire/session.ts Transport). Every
- * CancelRequest a session sends opens a connection of its own through the same factory; the tap counts those.
+ * The tap is an ordinary transport (Tap.transport), which grizzle reaches as it reaches any server: each connection's
+ * socket is in memory (test/support/memory-tls.ts), whose server end answers grizzle's SSLRequest and terminates its
+ * verify-full TLS with the tap's own CA, which the transport names as `ca`. Behind it the tap opens its own verified TLS
+ * to the cluster, SSLRequest then verify-full against the cluster's CA, and carries the plaintext between the two. The
+ * first connection whose first message is a startup packet is the session the tap records and gates; a connection whose
+ * first message is a CancelRequest is counted, and goes to the server as any other; any later session passes straight.
  *
  * A round trip is a turn of the conversation: the client writes after it has read something since its last write.
- * Writes in a row with no read between them, a pipeline, count once. The tap hands each write to TLS as it is made, as
- * a socket hands it to the kernel, so writes the driver makes in one turn reach the server, and the tap's record,
+ * Writes in a row with no read between them, a pipeline, count once. The tap records each write as it arrives and
+ * hands it on to the server's TLS, so writes the driver makes in one turn reach the server, and the tap's record,
  * before any answer is read.
  *
  * The gate holds the server's bytes on their way to the session: once a given number of backend messages (of one type,
  * or any) have reached the driver, every later byte waits in the tap until the test releases it, the end of the
- * connection included. The server runs on meanwhile; only what the client has read stops. So a test can interrupt a
- * call after exactly k answers, with the server having done all it can, and then let the rest through.
+ * connection included. The server runs on meanwhile; only what the client has read stops. A byte the gate lets through
+ * reaches the driver in the same call, since the socket is in memory, so a test can interrupt a call after exactly k
+ * answers, with the server having done all it can, and then let the rest through.
  *
  * One frontend message: its type byte; the statement it names for Parse, Bind and Close ("" for the unnamed one and for
  * every other type); and the SQL text of a Parse or a simple Query ("" for every other type). The untyped startup
@@ -162,26 +169,6 @@ const framer = (untyped: boolean, onMessage: (type: string, body: Buffer) => voi
 }
 
 /**
- * The plaintext side of a connection, shaped as pg expects the stream it is given to be: like a socket, with `connect`,
- * which pg calls once and which only reports the connection, since the tap connects when it is made.
- */
-class TappedSocket extends Duplex {
-	connect(): this {
-		process.nextTick(() => this.emit("connect"))
-		return this
-	}
-	setNoDelay(): this {
-		return this
-	}
-	ref(): this {
-		return this
-	}
-	unref(): this {
-		return this
-	}
-}
-
-/**
  * What carries the server's bytes to the driver: straight through, or through a gate. `push` hands the driver bytes,
  * or null for the end of the connection.
  */
@@ -310,65 +297,39 @@ class MessageGate implements Carrier, Gate {
 	}
 }
 
+/** The tap's own connection to the cluster: what it writes the client's plaintext to, and its end. */
+interface Upstream {
+	readonly write: (chunk: Uint8Array) => void
+	readonly destroy: () => void
+}
+
 /**
- * The plaintext side of one TLS connection to `port`. Writes wait until the TLS session is up; `onWrite` and `onRead`
- * see every chunk in each direction, and `carrier` hands the read ones to the driver.
+ * The plaintext of one verified TLS connection to the cluster: SSLRequest, then verify-full against the cluster's CA
+ * naming the pin's host. Writes made before TLS is up wait for it; `onData` sees every chunk the server sends, `onEnd`
+ * its end, and `onClose` the connection's close or failure, after which nothing more arrives.
  */
-const tlsStream = (
-	port: number,
+const upstream = (
 	ca: string,
-	onWrite: (chunk: Uint8Array) => void,
-	onRead: (chunk: Uint8Array) => void,
-	carrier: Carrier
-): TappedSocket => {
+	onData: (chunk: Buffer) => void,
+	onEnd: () => void,
+	onClose: () => void
+): Upstream => {
 	let secure: TLSSocket | undefined
 	const queued: Array<Uint8Array> = []
-	const raw = netConnect({ host: pgPin.host, port, noDelay: true })
-	const stream: TappedSocket = new TappedSocket({
-		read() {},
-		write(chunk: Uint8Array, ...[, callback]) {
-			onWrite(chunk)
-			if (secure === undefined) {
-				queued.push(chunk)
-			} else {
-				secure.write(chunk)
-			}
-			callback()
-		},
-		final(callback) {
-			if (secure === undefined) {
-				raw.end()
-			} else {
-				secure.end()
-			}
-			callback()
-		},
-		destroy(error, callback) {
-			secure?.destroy()
-			raw.destroy()
-			callback(error)
-		}
-	})
-	raw.on("error", (error) => stream.destroy(error))
+	const raw = netConnect({ host: pgPin.host, port: pgPin.port, noDelay: true })
+	raw.on("error", onClose)
+	raw.once("close", onClose)
 	raw.once("connect", () => raw.write(sslRequest))
 	raw.once("data", (answer: Buffer) => {
 		if (answer.length !== 1 || answer[0] !== 0x53) {
-			stream.destroy(new Error("the server refused TLS"))
+			raw.destroy()
 			return
 		}
 		const socket = tlsConnect({ socket: raw, ca, servername: pgPin.host, rejectUnauthorized: true })
-		const push = (bytes: Buffer | null): void => {
-			stream.push(bytes)
-		}
-		socket.on("data", (chunk: Buffer) => {
-			onRead(chunk)
-			carrier.data(chunk, push)
-		})
-		socket.on("end", () => {
-			carrier.end(push)
-		})
-		socket.on("close", () => stream.destroy())
-		socket.on("error", (error: Error) => stream.destroy(error))
+		socket.on("data", onData)
+		socket.once("end", onEnd)
+		socket.once("close", onClose)
+		socket.on("error", onClose)
 		socket.once("secureConnect", () => {
 			secure = socket
 			for (const chunk of queued.splice(0)) {
@@ -376,16 +337,35 @@ const tlsStream = (
 			}
 		})
 	})
-	return stream
+	return {
+		write: (chunk) => {
+			if (secure === undefined) {
+				queued.push(chunk)
+			} else {
+				secure.write(chunk)
+			}
+		},
+		destroy: () => {
+			secure?.destroy()
+			raw.destroy()
+		}
+	}
 }
+
+/** The code of a CancelRequest, read from the first message of a connection: its length is 16 and its code 80877102. */
+const isCancelRequest = (first: Buffer): boolean =>
+	first.length >= 8 && first.readInt32BE(0) === 16 && first.readInt32BE(4) === 80877102
+
+/** The name the tap's server certificate carries, and the transport verifies. */
+const tapServername = "grizzle-tap.test"
 
 /** The recorder of one session's traffic to the cluster. */
 export interface Tap {
 	/**
-	 * A new connection: the first is the session, whose traffic the tap records; every later one is a
-	 * CancelRequest's, which the tap counts.
+	 * The transport through the tap: its sockets in memory, its CA the tap's own, verified as any server's. The first
+	 * session through it is recorded and gated; every CancelRequest through it is counted.
 	 */
-	readonly open: () => TappedSocket
+	readonly transport: Transport
 	/** A mark at the end of the traffic so far. */
 	readonly mark: () => number
 	/** The traffic since `mark`. */
@@ -399,88 +379,122 @@ export interface Tap {
 }
 
 export const makeTap = (cluster: InitializedClusterShape): Tap => {
-	const port = pgPin.port
-	const ca = cluster.caPem
+	const material = tlsMaterial(tapServername)
 	const events: Array<WireEvent> = []
 	const gate = new MessageGate()
-	let opened = 0
+	let recording = false
+	let cancels = 0
 	let ended = 0
-	const open = (): TappedSocket => {
-		opened++
-		if (opened > 1) {
-			const cancelling = tlsStream(
-				port,
-				ca,
-				() => undefined,
-				() => undefined,
-				straight
+	/**
+	 * One connection, its TLS terminated: once its first message says what it is, its plaintext goes to the cluster,
+	 * the first session's recorded and gated, and the server's back to it; either side's end ends the other.
+	 */
+	const serve = (secure: TLSSocket): void => {
+		secure.once("data", (first: Buffer) => {
+			const cancel = isCancelRequest(first)
+			const recorded = !cancel && !recording
+			if (recorded) {
+				recording = true
+			}
+			if (cancel) {
+				cancels++
+				secure.once("close", () => {
+					ended++
+				})
+			}
+			let closed = false
+			const push = (bytes: Buffer | null): void => {
+				if (closed || !secure.writable) {
+					return
+				}
+				if (bytes === null) {
+					closed = true
+					secure.end()
+					return
+				}
+				secure.write(bytes)
+			}
+			const carrier: Carrier = recorded ? gate : straight
+			let written: Array<FrontendMessage> = []
+			const frontend = framer(true, (type, body) =>
+				written.push({ type, name: statementName(type, body), text: statementText(type, body) })
 			)
-			cancelling.once("close", () => {
-				ended++
-			})
-			return cancelling
-		}
-		let written: Array<FrontendMessage> = []
-		const frontend = framer(true, (type, body) =>
-			written.push({ type, name: statementName(type, body), text: statementText(type, body) })
-		)
-		const backend = framer(false, (type, body) =>
-			events.push({
-				side: "backend",
-				message: { type, status: type === "Z" ? cString(body, 0) : "" }
-			})
-		)
-		return tlsStream(
-			port,
-			ca,
-			(chunk) => {
-				written = []
-				frontend(chunk)
-				events.push({ side: "frontend", messages: written })
-			},
-			backend,
-			gate
-		)
+			const backend = framer(false, (type, body) =>
+				events.push({
+					side: "backend",
+					message: { type, status: type === "Z" ? cString(body, 0) : "" }
+				})
+			)
+			const server = upstream(
+				cluster.caPem,
+				(chunk) => {
+					if (recorded) {
+						backend(chunk)
+					}
+					carrier.data(chunk, push)
+				},
+				() => {
+					carrier.end(push)
+				},
+				() => {
+					carrier.end(push)
+				}
+			)
+			const forward = (chunk: Buffer): void => {
+				if (recorded) {
+					written = []
+					frontend(chunk)
+					events.push({ side: "frontend", messages: written })
+				}
+				server.write(chunk)
+			}
+			forward(first)
+			secure.on("data", forward)
+			secure.once("close", server.destroy)
+			secure.on("error", server.destroy)
+		})
 	}
 	return {
-		open,
+		transport: memoryTransport(material, memoryEndpoint(material, serve)),
 		mark: () => events.length,
 		since: (mark) => windowOf(events.slice(mark)),
-		cancels: () => Math.max(0, opened - 1),
+		cancels: () => cancels,
 		cancelsEnded: () => ended,
 		gate
 	}
 }
 
 export interface TapOptions {
-	/** The cluster the session reaches, whose CA the tap's TLS verifies. */
+	/** The cluster the session reaches, whose CA the tap's own TLS to it verifies. */
 	readonly cluster: InitializedClusterShape
 	readonly database: string
 	readonly role: string
 	readonly password: Redacted.Redacted
-	readonly applicationName: string
 }
 
-export interface Tapped extends Omit<Tap, "open"> {
+export interface Tapped extends Omit<Tap, "transport"> {
 	readonly session: Session
 }
 
-/** An adapter session to the cluster whose traffic the tap records, closed with the scope. */
+/** An adapter session to the cluster through a tap that records its traffic, closed with the scope. */
 export const tappedSession = (
 	options: TapOptions
 ): Effect.Effect<Tapped, ConnectRefusal, Scope.Scope> =>
 	Effect.suspend(() => {
 		const tap = makeTap(options.cluster)
 		return Effect.map(
-			connectSession({
-				host: pgPin.host,
-				port: pgPin.port,
-				database: options.database,
-				role: options.role,
-				password: options.password,
-				transport: { _tag: "stream", open: tap.open },
-				applicationName: options.applicationName
-			}),
+			connectSession(
+				parsedConnection(
+					{
+						driver: pgDriver,
+						transport: tap.transport,
+						database: options.database,
+						password: options.password,
+						connectTimeoutMs: testConnectTimeout.value
+					},
+					options.role
+				)
+			),
 			(session) => ({
 				session,
 				mark: tap.mark,

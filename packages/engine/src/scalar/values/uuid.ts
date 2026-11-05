@@ -1,6 +1,13 @@
 import type { regex } from "arkregex"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import {
+	type UuidGroup,
+	uuidGroupStart,
+	uuidGroups,
+	uuidHyphens,
+	uuidTextLength
+} from "#compiler/ir/carriers.ts"
 
 /**
  * A uuid host value: ArkRegex's language of uuid_out's spelling, `${string}-${string}-${string}-${string}-${string}`,
@@ -22,6 +29,10 @@ export type Uuid = regex.infer<
 	"u"
 >
 
+/** One group's digits of a hyphenated text. */
+const groupText = (text: string, group: UuidGroup): string =>
+	text.slice(uuidGroupStart(group), uuidGroupStart(group) + uuidGroups[group])
+
 /**
  * The uuid admission core, canonical: UUID case and byte encodings need canonicalization.
  *
@@ -30,12 +41,13 @@ export type Uuid = regex.infer<
  * order is byte order. PostgreSQL's other accepted input spellings (braces, missing or regrouped hyphens) are refused
  * at the boundary rather than given a second host spelling.
  *
- * A per-row hot path: one allocation-free scan of the 36 code units, hex digits with hyphens at 8, 13, 18 and 23. The
+ * A per-row hot path: one allocation-free scan of the uuidTextLength code units, hex digits with hyphens between the
+ * groups (uuidHyphens). The
  * canonical spelling is the input itself when it has no uppercase digit, which is every uuid_out text, and its ASCII
  * lowercase otherwise.
  */
 export const toUuid = (value: unknown): Result.Result<string, ValueFault> => {
-	if (typeof value !== "string" || value.length !== 36) {
+	if (typeof value !== "string" || value.length !== uuidTextLength) {
 		return Result.err("uuidSyntax")
 	}
 	let upper = false
@@ -43,7 +55,7 @@ export const toUuid = (value: unknown): Result.Result<string, ValueFault> => {
 		const code = value.charCodeAt(i)
 		const upperDigit = code >= 0x41 && code <= 0x46
 		const lowerDigit = (code >= 0x30 && code <= 0x39) || (code >= 0x61 && code <= 0x66)
-		if (i === 8 || i === 13 || i === 18 || i === 23 ? code !== 0x2d : !upperDigit && !lowerDigit) {
+		if (uuidHyphens.has(i) ? code !== 0x2d : !upperDigit && !lowerDigit) {
 			return Result.err("uuidSyntax")
 		}
 		upper ||= upperDigit
@@ -53,7 +65,7 @@ export const toUuid = (value: unknown): Result.Result<string, ValueFault> => {
 
 /** A canonical uuid text toUuid admitted, as the value it spells: its five groups, hyphenated. */
 const spelled = (text: string): Uuid =>
-	`${text.slice(0, 8)}-${text.slice(9, 13)}-${text.slice(14, 18)}-${text.slice(19, 23)}-${text.slice(24)}`
+	`${groupText(text, 0)}-${groupText(text, 1)}-${groupText(text, 2)}-${groupText(text, 3)}-${groupText(text, 4)}`
 
 /**
  * The public parse of a uuid: any value, refused unless it is a hyphenated 8-4-4-4-12 hexadecimal text in either case

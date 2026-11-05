@@ -149,17 +149,12 @@ export const discretePercentiles = query(Lab).rule((r) => {
 	const half = v(scoreOrdinals, "half")
 	const quarter = v(scoreOrdinals, "quarter")
 	const at = (p: number) =>
-		Compute.ceil(
-			Compute.cast(Compute.mul(f8(p), Compute.cast(n, pg["double precision"])), pg.numeric)
-		)
+		Compute.ceil(Compute.numeric(Compute.mul(f8(p), Compute.cast(n, pg["double precision"]))))
 	return r
 		.match(perStudent, { student, n })
 		.match(scoreOrdinals, { student, score: half.score, ord: half.ord })
 		.match(scoreOrdinals, { student, score: quarter.score, ord: quarter.ord })
-		.where(
-			r.eq(Compute.cast(half.ord, pg.numeric), at(0.5)),
-			r.eq(Compute.cast(quarter.ord, pg.numeric), at(0.25))
-		)
+		.where(r.eq(Compute.numeric(half.ord), at(0.5)), r.eq(Compute.numeric(quarter.ord), at(0.25)))
 		.find({ student, median: half.score, lowerQuartile: quarter.score })
 })
 
@@ -189,12 +184,12 @@ export const roomPercentile = (p: number) =>
 		const { room, n } = v(perRoom, "perRoom")
 		const o = v(roomOrdinals, "roomOrdinals")
 		const at = Compute.ceil(
-			Compute.cast(Compute.mul(f8(p), Compute.cast(n, pg["double precision"])), pg.numeric)
+			Compute.numeric(Compute.mul(f8(p), Compute.cast(n, pg["double precision"])))
 		)
 		return r
 			.match(perRoom, { room, n })
 			.match(roomOrdinals, { room, score: o.score, ord: o.ord })
-			.where(r.eq(Compute.cast(o.ord, pg.numeric), at))
+			.where(r.eq(Compute.numeric(o.ord), at))
 			.find({ room, value: o.score })
 	})
 
@@ -206,19 +201,19 @@ export const continuousMedian = query(Lab).rule((r) => {
 	const h = Compute.mul(f8(0.5), Compute.cast(Compute.sub(n, 1n), pg["double precision"]))
 	const position = (fn: "floor" | "ceil") =>
 		fn === "floor"
-			? Compute.floor(Compute.cast(Compute.add(f8(1), h), pg.numeric))
-			: Compute.ceil(Compute.cast(Compute.add(f8(1), h), pg.numeric))
+			? Compute.floor(Compute.numeric(Compute.add(f8(1), h)))
+			: Compute.ceil(Compute.numeric(Compute.add(f8(1), h)))
 	const frac = Compute.sub(
 		h,
-		Compute.cast(Compute.floor(Compute.cast(h, pg.numeric)), pg["double precision"])
+		Compute.cast(Compute.floor(Compute.numeric(h)), pg["double precision"])
 	)
 	return r
 		.match(perStudent, { student, n })
 		.match(scoreOrdinals, { student, score: a.score, ord: a.ord })
 		.match(scoreOrdinals, { student, score: b.score, ord: b.ord })
 		.where(
-			r.eq(Compute.cast(a.ord, pg.numeric), position("floor")),
-			r.eq(Compute.cast(b.ord, pg.numeric), position("ceil"))
+			r.eq(Compute.numeric(a.ord), position("floor")),
+			r.eq(Compute.numeric(b.ord), position("ceil"))
 		)
 		.find({
 			student,
@@ -425,8 +420,8 @@ const cohortCards = query(Lab)
 	)
 
 /**
- * R20 through a pipelined attachment: students with their three best sittings attached, five array fields, above
- * attachFuseMaxFields, so the child is its own statement, which computes its parents' rows itself in the same flight. A
+ * R20 through a pipelined attachment: students with their three best sittings attached, five array fields, over exact
+ * parents, so the child is its own statement, which computes its parents' rows itself in the same flight. A
  * pipelined attachment's form is fixed by its parent rows' bound: the parents of a key lookup are bounded at one row,
  * so studentSheetOne's take is the LATERAL form, and a parent statement with no bound, studentSheets', is read for
  * every group. A take chooses its form per execution only by a relation parameter's distinct count or a page's size.

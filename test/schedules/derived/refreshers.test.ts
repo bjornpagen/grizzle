@@ -50,12 +50,11 @@ import {
 	commit,
 	complete,
 	mayWait,
-	op,
 	rollback,
 	schedule,
 	sql
 } from "#test/support/schedules/build.ts"
-import { exactly, refreshed, within } from "#test/support/schedules/grizzle.ts"
+import { exactly, refreshed, retriedOp, within } from "#test/support/schedules/grizzle.ts"
 import { ok, rowSet, rows } from "#test/support/schedules/match.ts"
 import { planted } from "#test/support/schedules/planted.ts"
 import { runSchedule } from "#test/support/schedules/runner.ts"
@@ -90,7 +89,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								sql("writer", addSitting(o, first), ok(), complete),
 								begin("holder"),
 								sql("holder", refreshSql(o, "StudentWeekly", true), ok(), complete),
-								op(
+								retriedOp(
 									"refresher",
 									"db.refresh(StudentWeekly)",
 									o.refresh("refresher", "StudentWeekly"),
@@ -98,7 +97,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									blocksOn("holder")
 								),
 								sql("writer", addSitting(o, second), ok(), complete),
-								op(
+								retriedOp(
 									"refresher2",
 									"db.refresh(StudentWeekly)",
 									o.refresh("refresher2", "StudentWeekly"),
@@ -142,7 +141,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								sql("writer", addSitting(o, first), ok(), complete),
 								begin("holder"),
 								sql("holder", refreshSql(o, "StudentTotal", true), ok(), complete),
-								op(
+								retriedOp(
 									"refresher",
 									"db.refresh(StudentTotal)",
 									o.refresh("refresher", "StudentTotal"),
@@ -150,7 +149,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									blocksOn("holder")
 								),
 								sql("writer", addSitting(o, second), ok(), complete),
-								op(
+								retriedOp(
 									"refresher2",
 									"db.refresh(StudentTotal)",
 									o.refresh("refresher2", "StudentTotal"),
@@ -201,7 +200,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								sql("writer", dropSitting(o, back), ok(), complete),
 								begin("holder"),
 								sql("holder", refreshSql(o, "StudentWeekly", true), ok(), complete),
-								op(
+								retriedOp(
 									"refresher",
 									"db.refresh(StudentTotal, StudentWeekly)",
 									o.refresh("refresher", "StudentTotal", "StudentWeekly"),
@@ -210,7 +209,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								),
 								sql("writer", addSitting(o, back), ok(), complete),
 								sql("writer", addSitting(o, newcomer), ok(), complete),
-								op(
+								retriedOp(
 									"refresher2",
 									"db.refresh(StudentTotal)",
 									o.refresh("refresher2", "StudentTotal"),
@@ -251,7 +250,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							schedule("first population", [
 								begin("holder"),
 								sql("holder", refreshSql(o, "StudentTotal", false), ok(), complete),
-								op(
+								retriedOp(
 									"refresher",
 									"db.refresh(StudentTotal)",
 									o.refresh("refresher", "StudentTotal"),
@@ -261,7 +260,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									blocksOn("holder")
 								),
 								sql("writer", addSitting(o, newcomer), ok(), complete),
-								op(
+								retriedOp(
 									"refresher2",
 									"db.refresh(StudentTotal)",
 									o.refresh("refresher2", "StudentTotal"),
@@ -308,7 +307,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								schedule("first populations, the older snapshot last", [
 									begin("holder"),
 									sql("holder", refreshSql(o, "StudentWeekly", false), ok(), complete),
-									op(
+									retriedOp(
 										"refresher",
 										"db.refresh(StudentWeekly, StudentTotal)",
 										o.refresh("refresher", "StudentWeekly", "StudentTotal"),
@@ -316,7 +315,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										blocksOn("holder")
 									),
 									sql("writer", addSitting(o, newcomer), ok(), complete),
-									op(
+									retriedOp(
 										"refresher2",
 										"db.refresh(StudentTotal)",
 										o.refresh("refresher2", "StudentTotal"),

@@ -1,8 +1,8 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { Identifier, IdentityKind } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
-import type { SourceLoc } from "#compiler/core/loc.ts"
+import { derived, type Limit, published } from "#compiler/core/limits.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -12,8 +12,8 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  * The naming door: every PostgreSQL identifier grizzle installs, declared or derived, is minted here from the object's
  * structured identity, its kind and the parts that define it, and nowhere else.
  *
- * Each kind renders by one rule: readable exactly when its identity maps one-to-one into PostgreSQL's 63
- * bytes inside the namespace PostgreSQL puts the object in, otherwise hashed, and a name never changes form for its
+ * Each kind renders by one rule: readable exactly when its identity maps one-to-one into PostgreSQL's
+ * maxIdentifierBytes inside the namespace PostgreSQL puts the object in, otherwise hashed, and a name never changes form for its
  * length or a collision.
  *
  * - Readable: a declared name's conversion (its segments, lowercased, joined by single underscores: the schema, tables,
@@ -23,16 +23,18 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  *   `__snapshot_guard`, the per-table trigger `__isolation`). The declaration rules make each one-to-one in its
  *   namespace: declared names are compared by their conversions (`DeclaredNamespace`, every namespace of declared
  *   names: the schema's relations, rosters and contracts, each relation's or view's columns, each table's row checks,
- *   each role's views), none starts with `_`, and one whose conversion is over 63 bytes is refused; a schema's
+ *   each role's views), none starts with `_`, and one whose conversion is over maxIdentifierBytes is refused; a schema's
  *   conversion does not start with `pg_`. A readable constructor takes the name parsed (`DeclaredName`, minted by
  *   `parseDeclaredName`; `SchemaName`, by `parseSchemaName`), so no readable identity has a name the rule refuses; a
  *   login's or role's name is refused when it does not fit with its schema's (physical/ddl/names.ts).
  * - Hashed: `__`, a readable stem cut to `stemBudget` bytes at a segment boundary, `_` and a digest of the identity's
- *   canonical encoding, 50 bits of SHA-256 as 10 characters of lowercase RFC 4648 base32: keys, foreign keys, span,
- *   norm and law checks, indexes and statistics, sequences, text-pattern domains, tag and arm tag columns, laws and their functions
- *   and triggers, filter functions, key and unique probes and advance functions, and a migration's temporaries. Every
- *   name grizzle derives starts with `__`, so no declared name meets one; two distinct hashed identities meet only where
- *   50 bits of two digests do, which the installation's census treats as a compiler defect, never as a refusal.
+ *   canonical encoding, the first `5 * digestChars` bits of its SHA-256 as `digestChars` characters of lowercase RFC
+ *   4648 base32: keys, foreign keys, span, norm and law checks, indexes and statistics, sequences, text-pattern domains,
+ *   tag and arm tag columns, laws and their functions and triggers, filter functions, key and unique probes and advance
+ *   functions, and a migration's temporaries. Every name grizzle derives starts with `__`, so no declared name meets
+ *   one; two distinct hashed identities meet only where their stems and their digests do, which the installation's
+ *   census refuses as DigestCollision (`censusOf`), and a migration's census (`TemporaryCensus`) where a temporary
+ *   meets a name standing while the migration runs or another temporary.
  *
  * Every identifier is quoted wherever it is printed, so a readable one that spells a keyword is still a name.
  *
@@ -45,23 +47,67 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  * order, and an installation-scoped identifier's digest differs from one installation to the next.
  */
 
-/** The bytes a hashed name's stem may take between its leading `__` and its `_` and digest: 63 less the 13 those take. */
-const stemBudget = 50
-const digestChars = 10
+/**
+ * The size of PostgreSQL's name type, NAMEDATALEN, its terminating zero byte included: what an identifier and an enum
+ * label are held in.
+ */
+export const namedatalen: Limit = published({
+	value: 64,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "a name value, its terminating zero included: an identifier, an enum label",
+	constraint: "compile-time constant",
+	source: "https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/pg_config_manual.h#L39",
+	quote: "#define NAMEDATALEN 64",
+	verified: "2026-11-05"
+})
 
 /**
  * The longest identifier PostgreSQL keeps, in bytes: a longer one is truncated, so two names that differ past it are
  * one name.
- *
- * @limitKind published
- * @owner PostgreSQL
- * @unit bytes
- * @scope one identifier: an object's, a column's, a role's or a temporary table's name
- * @constraint compile-time constant
- * @source https://www.postgresql.org/docs/19/sql-syntax-lexical.html "By default, NAMEDATALEN is 64 so the maximum identifier length is 63 bytes."
- * @verified 2026-11-04
  */
-export const maxIdentifierBytes = 63
+export const maxIdentifierBytes: Limit = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "one identifier: an object's, a column's, a role's or a temporary table's name",
+	from: [namedatalen],
+	derivation:
+		'NAMEDATALEN less its terminating zero: "The system uses no more than NAMEDATALEN-1 bytes of an identifier; longer names can be written in commands, but they will be truncated." (https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/syntax.sgml#L133-L135)',
+	compute: ([n]) => n.value - 1
+})
+
+/** A hashed name's lead, `__`, which no declared name has. */
+const hashedLead = "__"
+/** The separator of a hashed name's stem and its digest. */
+const digestSeparator = "_"
+
+/**
+ * The width of a hashed name's digest, in base32 characters of five bits each: a format constant of the naming door,
+ * whose change renames every hashed object.
+ *
+ * Collision arithmetic: two distinct hashed identities share an identifier only where their stems agree and the first
+ * 5 * digestChars = 50 bits of their canonical encodings' SHA-256 do. Over n hashed identities of one installation
+ * the chance of any shared digest is at most n(n - 1) / 2 / 2^50: below 4.5 * 10^-8 for n = 10^4 and 4.5 * 10^-6 for
+ * n = 10^5, one half only near n = 2^25. One that happens is detected and refused, never installed: `censusOf` checks
+ * every hashed identifier an installation mints, and `TemporaryCensus` every temporary a migration mints, and each
+ * refuses two identities of one as DigestCollision, which a rename of either one's declaration resolves.
+ *
+ * @formatConstant the base32 characters of a hashed name's digest
+ */
+const digestChars = 10
+
+/**
+ * The bytes a hashed name's stem may take: the longest identifier less its lead, its separator and its digest.
+ */
+const stemBudget: Limit = derived({
+	owner: "grizzle's naming door",
+	unit: "bytes",
+	scope: "the readable stem of one hashed identifier",
+	from: [maxIdentifierBytes],
+	derivation:
+		"maxIdentifierBytes - |__| - |_| - digestChars: the stem takes what the lead, the separator and the digest leave of the longest identifier",
+	compute: ([max]) => max.value - hashedLead.length - digestSeparator.length - digestChars
+})
 
 /** One part of an identity: a text, a list of parts, or a nested identity. */
 export type Part = string | ReadonlyArray<Part> | Identity<IdentityKind>
@@ -102,9 +148,15 @@ const encodePart = (part: Part): string => {
 
 const base32 = "abcdefghijklmnopqrstuvwxyz234567"
 
-/** The first 50 bits of the canonical encoding's SHA-256, ten characters of lowercase base32. */
+/** The bits of a digest: five per base32 character. */
+const digestBits = 5 * digestChars
+/** The hex digits of SHA-256 that hold them, four bits each, and the bits past them the digest drops. */
+const digestHexChars = Math.ceil(digestBits / 4)
+const digestDropped = BigInt(4 * digestHexChars - digestBits)
+
+/** The first digestBits bits of the canonical encoding's SHA-256, digestChars characters of lowercase base32. */
 const digestOf = (canonical: string): string => {
-	let bits = BigInt(`0x${sha256Hex(canonical).slice(0, 13)}`) >> 2n
+	let bits = BigInt(`0x${sha256Hex(canonical).slice(0, digestHexChars)}`) >> digestDropped
 	let out = ""
 	for (let i = 0; i < digestChars; i++) {
 		out = base32.charAt(Number(bits & 31n)) + out
@@ -201,14 +253,14 @@ export const parseNameCharacters = (name: string): Result.Result<string, string>
 
 /**
  * The rule a declared name keeps: its characters' (parseNameCharacters), and a conversion (its segments, lowercased,
- * joined by single underscores) within 63 bytes. Two declared names of one namespace whose conversions agree are one
+ * joined by single underscores) within maxIdentifierBytes. Two declared names of one namespace whose conversions agree are one
  * name, which the declaring passes refuse (`DeclaredNamespace`). The name, parsed, or the reason it breaks the rule.
  */
 export const parseDeclaredName = (name: string): Result.Result<DeclaredName, string> =>
 	Result.flatMap(parseNameCharacters(name), (named): Result.Result<DeclaredName, string> => {
 		const conversion = conversionOf(named)
-		return utf8Length(conversion) > maxIdentifierBytes
-			? Result.err(`a name whose conversion ${conversion} fits ${maxIdentifierBytes} bytes`)
+		return utf8Length(conversion) > maxIdentifierBytes.value
+			? Result.err(`a name whose conversion ${conversion} fits ${maxIdentifierBytes.value} bytes`)
 			: Result.ok(declaredNameOf(named))
 	})
 
@@ -294,8 +346,8 @@ const stemOf = (kind: IdentityKind, texts: ReadonlyArray<string>): string => {
 	let stem = ""
 	for (const segment of led) {
 		const next = stem === "" ? segment : `${stem}_${segment}`
-		if (utf8Length(next) > stemBudget) {
-			return stem === "" ? segment.slice(0, stemBudget) : stem
+		if (utf8Length(next) > stemBudget.value) {
+			return stem === "" ? segment.slice(0, stemBudget.value) : stem
 		}
 		stem = next
 	}
@@ -324,7 +376,9 @@ const mint = <K extends IdentityKind>(
 		display,
 		form: rendering.form,
 		identifier: brand<K>(
-			rendering.form === "readable" ? rendering.text : `__${stemText}_${digestOf(canonical)}`
+			rendering.form === "readable"
+				? rendering.text
+				: `${hashedLead}${stemText}${digestSeparator}${digestOf(canonical)}`
 		)
 	})
 }
@@ -384,20 +438,30 @@ export const compareIdentities: Comparator<Identity<IdentityKind>> = (a, b) => {
 	return kind === 0 ? compareLists(a.parts, b.parts) : kind
 }
 
+/** The refusal of two distinct objects, `display` and `otherDisplay`, whose hashed names are both `identifier`. */
+const digestCollision = (identifier: string, display: string, otherDisplay: string): CompileError =>
+	CompileError.make({
+		_tag: "DigestCollision",
+		at: SourceLoc("the naming door", []),
+		identifier,
+		display,
+		otherDisplay
+	})
+
 /**
- * The census of one installation: every two distinct identities have distinct identifiers. A digest collision is a
- * compiler defect, never a refusal. Returns the first collision's two canonical encodings, when there is one.
+ * The first two distinct identities of one identifier among `identities`, in their order, when there are two: what a
+ * digest collision is, since every hashed identifier is its identity's stem and digest.
  */
-export const firstCollision = (
+const firstCollision = (
 	identities: Iterable<Identity<IdentityKind>>
-): readonly [string, string] | undefined => {
-	const seen = new Map<string, string>()
+): readonly [Identity<IdentityKind>, Identity<IdentityKind>] | undefined => {
+	const seen = new Map<string, Identity<IdentityKind>>()
 	for (const i of identities) {
 		const prior = seen.get(i.identifier)
-		if (prior !== undefined && prior !== i.canonical) {
-			return [prior, i.canonical]
+		if (prior !== undefined && prior.canonical !== i.canonical) {
+			return [prior, i]
 		}
-		seen.set(i.identifier, i.canonical)
+		seen.set(i.identifier, i)
 	}
 	return undefined
 }
@@ -414,20 +478,24 @@ export interface Census {
 }
 
 /**
- * The census of every identity an installation minted. The one site of the fact that distinct hashed identities have
- * distinct identifiers: two of one identifier would be a SHA-256 collision of their canonical texts (`firstCollision`),
- * which no type can rule out, so it is a compiler defect, never a refusal.
+ * The census of every identity an installation minted, or its refusal. The one site of the fact that distinct hashed
+ * identities have distinct identifiers: two of one identifier share a stem and a digest of digestChars characters
+ * (`firstCollision`), which no type rules out and the digest's width makes rare, never impossible, so it is refused as
+ * DigestCollision, naming both, before anything is installed.
  */
-export const censusOf = (identities: ReadonlyArray<Identity<IdentityKind>>): Census => {
+export const censusOf = (
+	identities: ReadonlyArray<Identity<IdentityKind>>
+): Result.Result<Census, CompileError> => {
 	const hashedOnes = identities.filter((i) => i.form === "hashed")
 	const collision = firstCollision(hashedOnes)
 	if (collision !== undefined) {
-		throw defect(`distinct identifiers for distinct identities: ${collision.join(" and ")}`)
+		const [first, second] = collision
+		return Result.err(digestCollision(first.identifier, first.display, second.display))
 	}
-	return {
+	return Result.ok({
 		hashed: new Map(hashedOnes.map((i) => [i.identifier, i] as const)),
 		readable: new Set(identities.filter((i) => i.form === "readable").map((i) => i.identifier))
-	}
+	})
 }
 
 /** What an identifier the installation minted is: a hashed one with the identity it was minted from, or a readable one,
@@ -443,6 +511,59 @@ export const censused = (census: Census, identifier: string): Censused | undefin
 		return { form: "hashed", identity: named }
 	}
 	return census.readable.has(identifier) ? { form: "readable" } : undefined
+}
+
+/** The kinds of identity only a migration mints: the temporary names a holder is set aside under, an index is built
+ * under before it is swapped in, and an enum's new roster is built under before it replaces the old one. */
+export type TemporaryKind = Extract<IdentityKind, "aside" | "swap" | "rebuild">
+
+/**
+ * A hashed name that stands while a migration runs: one the previous installation or the target installs, by its
+ * identifier and the identity its COMMENT spells out (physical/install/comments.ts hashedNames).
+ */
+export interface StandingName {
+	readonly identifier: string
+	readonly display: string
+}
+
+/**
+ * The census of one migration's temporaries: every hashed name standing while it runs, the previous installation's and
+ * the target's, and each temporary minted so far. The one site of the fact that a temporary names no object but its
+ * own: no installation mints a temporary's kind, so a temporary whose identifier a standing name has, or another
+ * temporary of another identity, shares its stem and its digest, which no type rules out and the digest's width makes
+ * rare, never impossible. It is refused as DigestCollision where the temporary is minted, before any statement drafts
+ * it, so no statement of a migration creates, renames into or drops under a temporary name an object that stands.
+ *
+ * A readable name never meets a temporary: a declared name does not start with `_`, and no name grizzle fixes ends, as
+ * a hashed one does, in `_` and digestChars characters of base32.
+ */
+export class TemporaryCensus {
+	readonly #standing: ReadonlyMap<string, string>
+	readonly #minted = new Map<string, Identity<TemporaryKind>>()
+
+	constructor(standing: Iterable<StandingName>) {
+		this.#standing = new Map(Array.from(standing, (n) => [n.identifier, n.display] as const))
+	}
+
+	/**
+	 * `temporary` admitted to the census, as its identifier, or its refusal: DigestCollision naming it and the standing
+	 * name or the other temporary that has its identifier. A temporary minted again is the same name.
+	 */
+	admit<K extends TemporaryKind>(
+		temporary: Identity<K>
+	): Result.Result<Identifier<K>, CompileError> {
+		const { identifier } = temporary
+		const standing = this.#standing.get(identifier)
+		if (standing !== undefined) {
+			return Result.err(digestCollision(identifier, standing, temporary.display))
+		}
+		const prior = this.#minted.get(identifier)
+		if (prior !== undefined && prior.canonical !== temporary.canonical) {
+			return Result.err(digestCollision(identifier, prior.display, temporary.display))
+		}
+		this.#minted.set(identifier, temporary)
+		return Result.ok(identifier)
+	}
 }
 
 /**
@@ -634,15 +755,6 @@ export const identity = Object.freeze({
 			`span ${check.kind === "endpoint" ? `endpoint ${check.contract}` : check.kind} check of ${relation}.${field}`,
 			hashed
 		),
-	/** The CHECK that bounds a bare numeric column at 1,000 integer digits (physical/numeric/bound.ts). */
-	numericBound: (relation: string, field: string): Identity<"numericBound"> =>
-		mint(
-			"numericBound",
-			[relation, field],
-			[relation, "bound", field],
-			`numeric bound check of ${relation}.${field}`,
-			hashed
-		),
 	normCheck: (relation: string, field: string): Identity<"normCheck"> =>
 		mint(
 			"normCheck",
@@ -724,9 +836,6 @@ export const identity = Object.freeze({
 	/** The law of a structural text domain's CHECK. */
 	patternLaw: (domain: Identity<"textDomain">): Identity<"patternLaw"> =>
 		mint("patternLaw", [domain], [domain.stem], `law of ${domain.display}`, hashed),
-	/** The law of a bare numeric column's bound CHECK. */
-	boundLaw: (check: Identity<"numericBound">): Identity<"boundLaw"> =>
-		mint("boundLaw", [check], [check.stem], `law of ${check.display}`, hashed),
 	/** The function of one unit of a residual law, the one its trigger on `relation` for `event` executes. */
 	lawFunction: (law: Identity<"law">, relation: string, event: LawEvent): Identity<"lawFunction"> =>
 		mint(

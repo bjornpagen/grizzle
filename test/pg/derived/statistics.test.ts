@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { type Gen, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, Record, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record, Result } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
@@ -25,6 +25,7 @@ import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { migrated, noObservation, withDb } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fixtureLogin, planOf } from "#test/unit/workload/fixtures.ts"
@@ -227,7 +228,7 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 						shrink: { kind: "bounded", candidates: 20 },
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.scoped(

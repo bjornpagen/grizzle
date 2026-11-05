@@ -1,9 +1,8 @@
 import { Buffer } from "node:buffer"
-import { connect as netConnect } from "node:net"
+import net, { connect as netConnect } from "node:net"
 import { checkServerIdentity, type PeerCertificate, connect as tlsConnect } from "node:tls"
 import {
 	Array as Arr,
-	Clock,
 	Data,
 	DateTime,
 	Effect,
@@ -16,9 +15,11 @@ import {
 	Semaphore,
 	String as Str
 } from "effect"
-import { Client, DatabaseError } from "pg"
-import { OpenError } from "#adapter/errors/execution.ts"
-import { BatchRefused } from "#adapter/errors/failures.ts"
+import pgDriver, { Client, DatabaseError } from "pg"
+import { type ParsedConnection, parseConnection, roleSettings } from "#adapter/connection/config.ts"
+import { BatchRefused, type CredentialError } from "#adapter/errors/failures.ts"
+import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
+import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
 import {
 	type ApartFailure,
 	type BatchOutcome,
@@ -30,8 +31,10 @@ import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import { succeeded } from "#test/support/assert.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
+import { testConnectTimeout, testIdleTimeout, testPoolMax } from "#test/support/limits.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
 
 import { regex } from "arkregex"
@@ -355,7 +358,8 @@ interface Target {
 
 /**
  * One CancelRequest for the backend's running statement, over a TLS connection of its own. It ends when the server
- * closes that connection, or after a second.
+ * closes that connection, which it does once it has signalled the backend, or when the connection fails: a cancel is
+ * never left in flight to reach a later statement. A server that never closes it is its test's deadline's to report.
  */
 const cancelRequest = (target: Target, processId: number, secretKey: number): Effect.Effect<void> =>
 	Effect.callback<void>((resume) => {
@@ -384,7 +388,7 @@ const cancelRequest = (target: Target, processId: number, secretKey: number): Ef
 			secure.once("secureConnect", () => secure.write(frame))
 		})
 		return Effect.sync(finish)
-	}).pipe(Effect.timeoutOption("1 second"), Effect.asVoid)
+	})
 
 /** What pg answers a statement: its command tag, row count and rows. */
 interface Answered {
@@ -480,9 +484,10 @@ const connectOnce = (
 		const secretKey = numberOf(client, "secretKey")
 		const turn = yield* Semaphore.make(1)
 		/**
-		 * One statement, cancelled until it ends when interrupted. The cancelling runs on the live clock, whatever Clock
-		 * its caller runs under: a suite's TestClock never advances on its own, and an interruption, a hang guard's or a
-		 * test's abort, must end once the statement has.
+		 * One statement, cancelled until it ends when interrupted. A cancel that reaches the backend while it is still
+		 * reading the statement is ignored, so after each cancel the server has answered, by closing its connection,
+		 * another is sent while the statement runs: one cancel is in flight at a time, each paced by the server's own
+		 * answer to the one before, and none by a clock.
 		 */
 		const run = <R>(
 			sql: string,
@@ -506,10 +511,9 @@ const connectOnce = (
 				})
 				return Effect.whileLoop({
 					while: () => !finished,
-					body: () =>
-						Effect.andThen(cancelRequest(target, processId, secretKey), Effect.sleep("50 millis")),
+					body: () => cancelRequest(target, processId, secretKey),
 					step: Function.constVoid
-				}).pipe(Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()))
+				})
 			})
 		const query = (sql: string, params: ReadonlyArray<unknown>) =>
 			run(sql, params, "object", (result) => ({
@@ -551,45 +555,79 @@ export const session = (
 	options: SessionOptions
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> => connectOnce(cluster.caPem, options)
 
-/** A wire session's connection: a test-support connection whose application name the adapter always sends. */
-interface WireSessionOptions extends Omit<SessionOptions, "applicationName"> {
-	readonly applicationName: string
+/**
+ * The session pool of a test's DbLayer: one session per core (testPoolMax), no session closed for idleness while its
+ * test runs (testIdleTimeout), and so no floor of sessions kept for their own sake, which only an idle timeout reads.
+ */
+export const clusterPool: PoolBounds = {
+	max: testPoolMax,
+	min: 0,
+	idleTimeoutMs: testIdleTimeout.value
 }
 
 /**
- * A session of the adapter's own wire, for `grizzle migrate`'s runner (packages/grizzle/src/adapter/migrate/session.ts), closed with the
- * scope: its statements unnamed, as the command line's are. The adapter's connect budget is the production one, so an
- * attempt that fails at the connect stage, a timeout in a loaded shared test process among them, is made again, twice
- * at most.
+ * The local cluster's transport as a plain Node caller writes it: a new net.Socket for every connection, to the pin's
+ * host and port, verify-full TLS against the cluster's CA naming the pin's host.
+ */
+export const clusterTransport = (cluster: InitializedClusterShape): Transport => ({
+	kind: "sslRequest",
+	host: pgPin.host,
+	port: pgPin.port,
+	open: () => new net.Socket(),
+	ca: cluster.caPem,
+	servername: pgPin.host
+})
+
+/**
+ * A connection to the local cluster's `database` as a plain Node caller writes one, on grizzle's public path: the real
+ * pg module as the driver, the cluster's transport, `password`, and a test's connect timeout (testConnectTimeout).
+ */
+export const clusterConnection = (
+	cluster: InitializedClusterShape,
+	database: string,
+	password: Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
+): DbConnection => ({
+	driver: pgDriver,
+	transport: clusterTransport(cluster),
+	database,
+	password,
+	connectTimeoutMs: testConnectTimeout.value
+})
+
+/**
+ * `connection` for the login role `role`, parsed as grizzle parses a migration connection (connection/config.ts
+ * parseConnection, roleSettings): what a session and a pool connect with, which only the parse makes, so a test reaches
+ * them through it. A test's own connection that does not parse fails the test.
+ */
+export const parsedConnection = (
+	connection: DbConnection,
+	role: string
+): ParsedConnection & { readonly role: string } => {
+	const block: MigrationConnectionConfig = { ...connection, role }
+	return succeeded(parseConnection(block, "connection", roleSettings), "the test's connection")
+}
+
+/**
+ * A session of the adapter's own wire, for `grizzle migrate`'s runner (packages/grizzle/src/adapter/migrate/session.ts),
+ * closed with the scope: its statements unnamed, as the command line's are, over the cluster's connection, made once.
  */
 export const wireSession = (
 	cluster: InitializedClusterShape,
-	options: WireSessionOptions
-): Effect.Effect<Session, SqlError, Scope.Scope> => {
-	const attempt = connectSession({
-		host: pgPin.host,
-		port: pgPin.port,
-		database: options.database,
-		role: options.username,
-		password: options.password,
-		transport: { _tag: "tls", tls: { ca: cluster.caPem, servername: pgPin.host } },
-		applicationName: options.applicationName
-	})
-	const retried = (retries: number): typeof attempt =>
-		Effect.catchIf(
-			attempt,
-			(failure) => retries > 0 && new OpenError({ reason: failure }).stage === "connect",
-			() => retried(retries - 1)
-		)
-	return Effect.mapError(
-		retried(2),
+	options: Omit<SessionOptions, "applicationName">
+): Effect.Effect<Session, SqlError, Scope.Scope> =>
+	Effect.mapError(
+		connectSession(
+			parsedConnection(
+				clusterConnection(cluster, options.database, options.password),
+				options.username
+			)
+		),
 		(failure) =>
 			new SqlError({
 				reason: { _tag: "ConnectionError", message: failure.message },
 				cause: failure
 			})
 	)
-}
 
 /**
  * Runs `statement` alone on `session`, as its own implicit transaction, in a flight of statements apart

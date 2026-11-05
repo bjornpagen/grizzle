@@ -1,11 +1,11 @@
 import { compareText } from "#compiler/core/canonical.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { vectorFunctions } from "#compiler/lower/conservative/vector/index.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
-import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/vector.ts"
 import type { Expr, InlineConstraint } from "#compiler/sql/ast.ts"
 import { lit, qualifiedCall, tableCol, types } from "#compiler/sql/build.ts"
 
@@ -19,8 +19,8 @@ export const isVectorType = (t: ScalarType): boolean => baseOf(t).carrier === "v
 const normPredicate = (vectorSchema: string, column: Expr): Expr => ({
 	kind: "between",
 	expr: qualifiedCall(vectorSchema, vectorFunctions.norm, [column]),
-	low: lit.float(cosineNormMin, types.double),
-	high: lit.float(cosineNormMax, types.double),
+	low: lit.float(cosineNormMin.value, types.double),
+	high: lit.float(cosineNormMax.value, types.double),
 	not: false
 })
 
@@ -39,20 +39,21 @@ const vectorColumns = (heading: ReadonlyArray<HeadingColumn>): ReadonlyArray<Hea
  * CREATE TABLE to declare (`addVectorNorms` adds their objects once the tables stand).
  *
  * `pg.vector(N)` is the column `<ext>.vector(N) NOT NULL`, the extension's own type qualified by the schema the
- * installation names (`columnType`), of N dimensions, 1-16000, plus the named CHECK of the nondegenerate cosine domain:
+ * installation names (`columnType`), of N dimensions, 1-vectorMaxDimensions, plus the named CHECK of the cosine
+ * domain (ir/carriers.ts cosineNormMin and cosineNormMax, the norms for which pgvector's binary32 cosine_distance is a
+ * number in [0, 2]):
  *
- *     CONSTRAINT "document_embedding__norm__value"
- *       CHECK (("vector_ext"."vector_norm"("value") BETWEEN '1.52587890625e-05'::double precision
- *         AND '65536'::double precision) IS TRUE)
+ *     CONSTRAINT "__document_embedding_norm_value_<digest>"
+ *       CHECK (("vector_ext"."vector_norm"("value") BETWEEN '3.3881317890172014e-21'::double precision
+ *         AND '9223372036854775808'::double precision) IS TRUE)
  *
- * vector_norm accumulates in double precision, and the bounds are the exact binary values 2^-16 and 2^16, so the CHECK
- * is one exact native comparison; it never invokes a model service and never normalizes. It is declared inline by the
+ * vector_norm accumulates in double precision, and the bounds are exact powers of two, so the CHECK is one exact
+ * native comparison; it never invokes a model service and never normalizes. It is declared inline by the
  * table's CREATE TABLE beside the row's other CHECKs, and PostgreSQL enforces it on every write, grizzle's or a direct
  * SQL writer's. It is a refinement of the field, not a law of the schema: it has no law id and no witness, and
  * grizzle's own writes meet the codec's host boundary first, so it refuses only a direct writer, or a value within
- * rounding of a bound on which the host and the native summation order disagree. The CHECK is
- * `<table>__norm__<column>`: its own name segment, so no declared check of the relation, `<table>__check__<name>`, can
- * claim it.
+ * rounding of a bound on which the host and the native summation order disagree. Its name is the naming door's
+ * hashed normCheck, which no declared check of the relation can claim.
  *
  * The installation that stores or types any vector creates the extension if it is absent, `CREATE EXTENSION IF NOT
  * EXISTS vector SCHEMA <ext>`, in Setup, before the tables and domains that name its type (InstallBuilder.provider), and
@@ -102,7 +103,9 @@ export const addVectorNorms = (b: InstallBuilder, norms: ReadonlyArray<VectorNor
 				},
 				ddl: [],
 				reasons: [
-					enforcement(`the cosine domain of ${n.relation}.${n.field}: vector_norm in [2^-16, 2^16]`)
+					enforcement(
+						`the cosine domain of ${n.relation}.${n.field}: vector_norm in [${cosineNormMin.value}, ${cosineNormMax.value}]`
+					)
 				],
 				phase: "structure"
 			},

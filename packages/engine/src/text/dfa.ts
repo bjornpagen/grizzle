@@ -1,4 +1,5 @@
 import { indices } from "#compiler/core/array.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import {
@@ -8,7 +9,8 @@ import {
 	has,
 	type Interval,
 	maxUtf8Width,
-	size
+	size,
+	utf8Width
 } from "#compiler/scalar/regex/charset.ts"
 import { closure, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { entry } from "#compiler/scalar/regex/table.ts"
@@ -16,9 +18,30 @@ import { entry } from "#compiler/scalar/regex/table.ts"
 export interface DfaLimits {
 	/** The most DFA states the subset construction may create. */
 	readonly maxStates: number
-	/** The most NFA-state visits the subset construction may spend, summed over every transition. */
+	/**
+	 * The most NFA-state visits the subset construction may be charged: the initial closure's states, then for every
+	 * transition its source subset's states and its target's.
+	 */
 	readonly maxWork: number
 }
+
+/** What a subset construction spent: the DFA states it created and the NFA-state visits it was charged. */
+export interface DfaSpent {
+	readonly states: number
+	readonly work: number
+}
+
+/** A subset construction stopped where it would have passed `limit`, with what it spent up to there. */
+export interface DfaBounded {
+	readonly kind: "bounded"
+	readonly limit: keyof DfaLimits
+	readonly spent: DfaSpent
+}
+
+/** What the bounded construction of a pattern's minimal DFA came to: the minimal DFA, or the limit it stopped at. */
+export type DfaOutcome =
+	| { readonly kind: "minimal"; readonly dfa: CanonicalDfa; readonly spent: DfaSpent }
+	| DfaBounded
 
 /**
  * A minimal DFA in canonical form: states numbered breadth-first from 0, the initial state; each state's edges sorted
@@ -41,23 +64,30 @@ interface SetEdge {
 	readonly to: number
 }
 
-/** An atom: its code points, and the least of them. */
-interface Atom {
-	readonly set: CharSet
-	readonly first: number
+/** The element of `xs` at `i`, which the caller's bounds make present (scalar/regex/table.ts entry). */
+const at = (xs: ArrayLike<number>, i: number): number => entry(xs, i)
+
+/**
+ * The alphabet of a subset construction. Its segments are the maximal intervals of the admitted domain that no NFA
+ * set's boundary cuts, in code point order; its atoms are the classes of segments every NFA set holds alike, numbered
+ * in the order their first segments come, so an atom's least code point grows with its number. Each distinct set of
+ * the NFA's edges holds whole atoms, which `setAtoms` lists, and `setEdges` holds each state's set edges.
+ */
+interface Alphabet {
+	readonly segments: ReadonlyArray<Interval>
+	/** Each segment's atom. */
+	readonly atomOf: Int32Array
+	readonly atomCount: number
+	readonly setAtoms: ReadonlyArray<ReadonlyArray<number>>
+	readonly setEdges: ReadonlyArray<ReadonlyArray<SetEdge>>
 }
 
 /**
- * The partition of the admitted domain into atoms: maximal sets of code points that every NFA edge treats alike; the
- * distinct sets of the NFA's edges, in first-seen order; and each state's set edges.
+ * The alphabet of an NFA: its distinct sets in first-seen order, the segments their boundaries cut the domain into,
+ * and the atoms partition refinement makes of the segments, one split for each set, so its work is the sorting of the
+ * cuts and, for each set, the segments it holds.
  */
-const atomsOf = (
-	nfa: Nfa
-): {
-	readonly atoms: ReadonlyArray<Atom>
-	readonly sets: ReadonlyArray<CharSet>
-	readonly setEdges: ReadonlyArray<ReadonlyArray<SetEdge>>
-} => {
+const alphabetOf = (nfa: Nfa): Alphabet => {
 	const sets: Array<CharSet> = []
 	/** Each set's position by object, and by text for another object with the same intervals. */
 	const byObject = new Map<CharSet, number>()
@@ -86,39 +116,86 @@ const atomsOf = (
 		cuts.add(lo)
 		cuts.add(hi + 1)
 	}
-	for (const s of sets) {
-		for (const [lo, hi] of s) {
+	for (const set of sets) {
+		for (const [lo, hi] of set) {
 			cuts.add(lo)
 			cuts.add(hi + 1)
 		}
 	}
 	const sorted = [...cuts].toSorted((a, b) => a - b)
-	const groups = new Map<string, [Interval, ...Array<Interval>]>()
+	/** Each cut's index in `sorted`, and the segment that starts at it, or -1 outside the domain or at the end. */
+	const cutIndex = new Map(sorted.map((cut, i) => [cut, i]))
+	const indexOf = (cut: number): number => {
+		const index = cutIndex.get(cut)
+		if (index === undefined) {
+			throw defect(`a set's bound ${cut}, which the alphabet's cuts hold`)
+		}
+		return index
+	}
+	const segmentAt = new Int32Array(sorted.length).fill(-1)
+	const segments: Array<Interval> = []
 	for (const [i, lo] of sorted.entries()) {
 		const following = sorted[i + 1]
-		if (following === undefined) {
-			break
-		}
-		const hi = following - 1
-		if (!has(domain, lo)) {
-			continue
-		}
-		const signature = sets.map((s) => (has(s, lo) ? "1" : "0")).join("")
-		const group = groups.get(signature)
-		if (group === undefined) {
-			groups.set(signature, [[lo, hi]])
-		} else {
-			group.push([lo, hi])
+		if (following !== undefined && has(domain, lo)) {
+			segmentAt[i] = segments.length
+			segments.push([lo, following - 1])
 		}
 	}
-	return {
-		atoms: [...groups.values()].map((intervals) => ({
-			set: charSet(intervals),
-			first: intervals[0][0]
-		})),
-		sets,
-		setEdges
+	/** The segments of a set, in order: those starting at its intervals' cuts. */
+	const segmentsOf = function* (set: CharSet): Generator<number> {
+		for (const [lo, hi] of set) {
+			const end = indexOf(hi + 1)
+			for (let i = indexOf(lo); i < end; i++) {
+				const segment = at(segmentAt, i)
+				if (segment >= 0) {
+					yield segment
+				}
+			}
+		}
 	}
+	/**
+	 * The refinement: a block per class of segments the sets seen so far hold alike, the segments of each set moved,
+	 * block by block, into a block the set's round opened for the block they leave. A block every segment left stays
+	 * empty, and the numbering below skips it.
+	 */
+	const blockOf = new Int32Array(segments.length)
+	const openedIn: Array<number> = [-1]
+	const openedAs: Array<number> = [-1]
+	for (const [round, set] of sets.entries()) {
+		for (const segment of segmentsOf(set)) {
+			const block = at(blockOf, segment)
+			if (openedIn[block] !== round) {
+				openedIn[block] = round
+				openedAs[block] = openedIn.length
+				openedIn.push(-1)
+				openedAs.push(-1)
+			}
+			blockOf[segment] = at(openedAs, block)
+		}
+	}
+	const atomOfBlock = new Int32Array(openedIn.length).fill(-1)
+	const atomOf = new Int32Array(segments.length)
+	let atomCount = 0
+	for (const [segment, block] of blockOf.entries()) {
+		if (atomOfBlock[block] === -1) {
+			atomOfBlock[block] = atomCount
+			atomCount += 1
+		}
+		atomOf[segment] = at(atomOfBlock, block)
+	}
+	const listed = new Int32Array(atomCount).fill(-1)
+	const setAtoms = sets.map((set, s) => {
+		const atoms: Array<number> = []
+		for (const segment of segmentsOf(set)) {
+			const atom = at(atomOf, segment)
+			if (listed[atom] !== s) {
+				listed[atom] = s
+				atoms.push(atom)
+			}
+		}
+		return atoms
+	})
+	return { segments, atomOf, atomCount, setAtoms, setEdges }
 }
 
 /**
@@ -142,14 +219,22 @@ interface RawDfa {
 	/** Transition table: target per atom; one row per state. */
 	readonly next: ReadonlyArray<ReadonlyArray<number>>
 	readonly accept: ReadonlyArray<boolean>
-	readonly atoms: ReadonlyArray<Atom>
+	readonly alphabet: Alphabet
 }
 
-/** The subset construction with search semantics folded in, or undefined beyond the limits. */
-const determinize = (nfa: Nfa, limits: DfaLimits): RawDfa | undefined => {
-	const { atoms, sets, setEdges } = atomsOf(nfa)
-	/** contains[set][atom]: every code point of the atom is in the set (atoms never straddle a set boundary). */
-	const contains = sets.map((s) => atoms.map((a) => has(s, a.first)))
+/** What the subset construction came to: the raw DFA, or the limit it stopped at. */
+type Construction =
+	| { readonly kind: "built"; readonly dfa: RawDfa; readonly spent: DfaSpent }
+	| DfaBounded
+
+/**
+ * The subset construction with search semantics folded in, within the limits. Every transition counts as work its
+ * subset's states and the states it reaches. A subset's set edges are dealt to the atoms of their sets once, and an
+ * atom none of them holds reaches the restart closure, computed once, so a transition costs about the work it counts.
+ */
+const determinize = (nfa: Nfa, limits: DfaLimits): Construction => {
+	const alphabet = alphabetOf(nfa)
+	const { atomCount, setAtoms, setEdges } = alphabet
 	const mark = new Int32Array(nfa.edges.length).fill(-1)
 	let stamp = 0
 	let work = 0
@@ -186,39 +271,70 @@ const determinize = (nfa: Nfa, limits: DfaLimits): RawDfa | undefined => {
 	const settle = (states: ReadonlyArray<number>, initial: boolean): Subset =>
 		states.includes(nfa.accept) ? done : { kind: "set", states, initial }
 
+	const bounded = (limit: keyof DfaLimits): DfaBounded => ({
+		kind: "bounded",
+		limit,
+		spent: { states: members.length, work }
+	})
+
 	const initialStates = closure(nfa, [nfa.start], { atStart: true, atEnd: false }, mark, stamp++)
 	work += initialStates.length
 	if (intern(settle(initialStates, true)) === undefined) {
-		return undefined
+		return bounded("maxStates")
 	}
+	/** The states past the first code point that the start state alone reaches, where an unanchored search restarts. */
+	const restart = closure(nfa, [nfa.start], { atStart: false, atEnd: false }, mark, stamp++)
+	/** The restart subset's state, once a transition has interned it. */
+	let restartId: number | undefined
+	const restartTarget = (): number | undefined => {
+		restartId ??= intern(settle(restart, false))
+		return restartId
+	}
+	/** The targets of the expanded subset's set edges that hold each atom, and the atoms some edge holds. */
+	const moved: ReadonlyArray<Array<number>> = Array.from(
+		{ length: atomCount },
+		(): Array<number> => []
+	)
+	const touched: Array<number> = []
 	for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
 		const { id, subset, row } = item
-		for (let a = 0; a < atoms.length; a++) {
-			if (subset.kind === "done") {
+		if (subset.kind === "done") {
+			for (let a = 0; a < atomCount; a++) {
 				row.push(id)
-				continue
 			}
-			/** The NFA states the edges of the subset over the atom lead to, after the start state an unanchored
-			 * search restarts at. */
-			const moved: Array<number> = [nfa.start]
-			for (const s of subset.states) {
-				for (const edge of entry(setEdges, s)) {
-					if (entry(contains, edge.set)[a] === true) {
-						moved.push(edge.to)
+			continue
+		}
+		for (const s of subset.states) {
+			for (const edge of entry(setEdges, s)) {
+				for (const a of entry(setAtoms, edge.set)) {
+					const targets = entry(moved, a)
+					if (targets.length === 0) {
+						touched.push(a)
 					}
+					targets.push(edge.to)
 				}
 			}
-			const reached = closure(nfa, moved, { atStart: false, atEnd: false }, mark, stamp++)
+		}
+		for (let a = 0; a < atomCount; a++) {
+			const targets = entry(moved, a)
+			const reached =
+				targets.length === 0
+					? restart
+					: closure(nfa, [nfa.start, ...targets], { atStart: false, atEnd: false }, mark, stamp++)
 			work += subset.states.length + reached.length
 			if (work > limits.maxWork) {
-				return undefined
+				return bounded("maxWork")
 			}
-			const target = intern(settle(reached, false))
+			const target = targets.length === 0 ? restartTarget() : intern(settle(reached, false))
 			if (target === undefined) {
-				return undefined
+				return bounded("maxStates")
 			}
 			row.push(target)
 		}
+		for (const a of touched) {
+			entry(moved, a).length = 0
+		}
+		touched.length = 0
 	}
 	const accept = members.map((subset) => {
 		if (subset.kind === "done") {
@@ -233,11 +349,8 @@ const determinize = (nfa: Nfa, limits: DfaLimits): RawDfa | undefined => {
 		)
 		return atEnd.includes(nfa.accept)
 	})
-	return { next, accept, atoms }
+	return { kind: "built", dfa: { next, accept, alphabet }, spent: { states: members.length, work } }
 }
-
-/** The element of `xs` at `i`, which the caller's bounds make present (scalar/regex/table.ts entry). */
-const at = (xs: ArrayLike<number>, i: number): number => entry(xs, i)
 
 /**
  * A partition of a DFA's states into blocks, refined by Hopcroft's algorithm: each block is a contiguous range of
@@ -373,7 +486,7 @@ class Partition {
  */
 const minimizeClasses = (dfa: RawDfa): ReadonlyArray<number> => {
 	const n = dfa.next.length
-	const atomCount = dfa.atoms.length
+	const atomCount = dfa.alphabet.atomCount
 	/**
 	 * The states entering each state on each atom: sources[offsets[a * n + t]] up to sources[offsets[a * n + t + 1]]
 	 * are every s with next[s][a] = t.
@@ -450,29 +563,30 @@ const canonicalize = (dfa: RawDfa): CanonicalDfa => {
 			pending.push(c)
 		}
 	}
+	const { segments, atomOf } = dfa.alphabet
+	/**
+	 * A class's edges into live classes, in the order of their least code points: each target's segments, walked in
+	 * code point order with adjacent ones joined, so a target enters the map at its least code point.
+	 */
 	const edgesOf = (c: number): Array<{ set: CharSet; target: number }> => {
-		/** Each live target's atoms, and the least first code point among them. */
-		const byTarget = new Map<number, { readonly atoms: Array<Atom>; first: number }>()
-		for (const [a, t] of entry(targets, c).entries()) {
+		const row = entry(targets, c)
+		const byTarget = new Map<number, Array<[number, number]>>()
+		for (const [segment, [lo, hi]] of segments.entries()) {
+			const t = entry(row, at(atomOf, segment))
 			if (!live.has(t)) {
 				continue
 			}
-			const atom = entry(dfa.atoms, a)
-			const group = byTarget.get(t)
-			if (group === undefined) {
-				byTarget.set(t, { atoms: [atom], first: atom.first })
+			const intervals = byTarget.get(t)
+			const last = intervals?.at(-1)
+			if (intervals === undefined) {
+				byTarget.set(t, [[lo, hi]])
+			} else if (last !== undefined && last[1] + 1 === lo) {
+				last[1] = hi
 			} else {
-				group.atoms.push(atom)
-				group.first = Math.min(group.first, atom.first)
+				intervals.push([lo, hi])
 			}
 		}
-		return [...byTarget.entries()]
-			.map(([target, group]) => ({
-				set: charSet(group.atoms.flatMap((atom) => atom.set)),
-				first: group.first,
-				target
-			}))
-			.toSorted((x, y) => x.first - y.first)
+		return Array.from(byTarget, ([target, intervals]) => ({ set: charSet(intervals), target }))
 	}
 	const initial = entry(classes, 0)
 	if (!live.has(initial)) {
@@ -510,22 +624,28 @@ const canonicalize = (dfa: RawDfa): CanonicalDfa => {
  *
  * - the language is empty, so no value can ever satisfy the field;
  * - the language is every admitted value, a tautology whose CHECK erases;
- * - the language is finite and small, so membership becomes `VALUE IN (...)`;
+ * - the language is finite, so its members can be listed, `VALUE IN (...)` where that prints shorter than the regex;
  * - two patterns recognize the same values, because minimal DFAs are unique up to the canonical numbering below, which
  *   is the language proof that domain sharing needs rather than a cosmetic rewrite.
  *
- * When a bound is exceeded the analysis reports nothing, and every caller falls back to the conservative choice:
+ * When a bound is exceeded the analysis proves nothing, and every caller falls back to the conservative choice:
  * keep the regex CHECK, share only structurally equal IR. Nothing here validates application values.
  *
  * The DFA reads whole values. Search semantics are folded in: the NFA's start state is re-entered at every position,
  * `^` edges are followed only before the first code point, `$` edges only after the last, and reaching the accept
  * state before the end makes every extension a member (the absorbing state DONE).
  *
- * The canonical minimal DFA of the NFA's search language, or undefined beyond the limits.
+ * The canonical minimal DFA of the NFA's search language, or the limit its construction would have passed, with what
+ * the construction spent.
  */
-export const minimalDfa = (nfa: Nfa, limits: DfaLimits): CanonicalDfa | undefined => {
-	const raw = determinize(nfa, limits)
-	return raw === undefined ? undefined : canonicalize(raw)
+export const minimalDfa = (nfa: Nfa, limits: DfaLimits): DfaOutcome => {
+	const construction = determinize(nfa, limits)
+	switch (construction.kind) {
+		case "built":
+			return { kind: "minimal", dfa: canonicalize(construction.dfa), spent: construction.spent }
+		case "bounded":
+			return construction
+	}
 }
 
 /** The canonical text of a minimal DFA: equal texts, equal languages. */
@@ -569,54 +689,57 @@ const topologicalOrder = (dfa: CanonicalDfa): ReadonlyArray<number> | undefined 
 	return order.length === dfa.states.length ? order : undefined
 }
 
-/** The number of members of a finite language, saturating just above `cap`; undefined for an infinite one. */
-const memberCount = (dfa: CanonicalDfa, cap: number): number | undefined => {
-	const order = topologicalOrder(dfa)
-	if (order === undefined) {
-		return undefined
-	}
-	const count: Array<number> = dfa.states.map(() => 0)
-	for (const s of order.toReversed()) {
-		const state = entry(dfa.states, s)
-		let n = state.accept ? 1 : 0
-		for (const e of state.edges) {
-			n = Math.min(n + size(e.set) * entry(count, e.to), cap + 1)
-		}
-		count[s] = n
-	}
-	return entry(count, 0)
+/** A state on the path a walk of the members is on: the steps it has left, and the UTF-8 bytes of the path up to it. */
+interface PathState {
+	readonly steps: Iterator<readonly [number, number]>
+	readonly bytes: number
 }
 
-/** The members of a finite language with at most `limit` members, in code point order; undefined otherwise. */
-export const enumerate = (dfa: CanonicalDfa, limit: number): ReadonlyArray<string> | undefined => {
-	const count = memberCount(dfa, limit)
-	if (count === undefined || count > limit) {
-		return undefined
-	}
+/**
+ * The members of a language in code point order when together they weigh at most `ceiling`, undefined when they weigh
+ * more: a member weighs `each` and its UTF-8 bytes, so an infinite language always weighs more. Every state of a
+ * canonical DFA is live, so the path being walked leads to a member at least as long as itself, which the walk has not
+ * met yet; it stops as soon as the members met and that one would weigh more, so it never walks past the ceiling.
+ */
+export const membersWithin = (
+	dfa: CanonicalDfa,
+	each: number,
+	ceiling: number
+): ReadonlyArray<string> | undefined => {
 	const out: Array<string> = []
 	if (dfa.states.length === 0) {
 		return out
 	}
-	/** The path to the state being walked: its code points, and for each state on it the steps it has left. */
+	/** The path to the state being walked: its code points, and each state on it. */
 	const prefix: Array<number> = []
-	const path: Array<Iterator<readonly [number, number]>> = []
-	const enter = (s: number): void => {
+	const path: Array<PathState> = []
+	let weight = 0
+	const fits = (bytes: number): boolean => weight + each + bytes <= ceiling
+	const enter = (s: number, bytes: number): void => {
 		const state = entry(dfa.states, s)
 		if (state.accept) {
 			out.push(codePointsText(prefix))
+			weight += each + bytes
 		}
-		path.push(stepsOf(state))
+		path.push({ steps: stepsOf(state), bytes })
 	}
-	enter(0)
+	if (!fits(0)) {
+		return undefined
+	}
+	enter(0, 0)
 	for (let top = path.at(-1); top !== undefined; top = path.at(-1)) {
-		const step = top.next()
+		const step = top.steps.next()
 		if (step.done === true) {
 			path.pop()
 			prefix.pop()
 		} else {
 			const [c, to] = step.value
+			const bytes = top.bytes + utf8Width(c)
+			if (!fits(bytes)) {
+				return undefined
+			}
 			prefix.push(c)
-			enter(to)
+			enter(to, bytes)
 		}
 	}
 	return out.toSorted(compareByCodePoint)

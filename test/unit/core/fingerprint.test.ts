@@ -16,12 +16,13 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Record } from "effect"
 import { everyProperty, type Path } from "#compiler/core/canonical.ts"
 import { digest, schemaFingerprint } from "#compiler/core/fingerprint.ts"
 import { type SourceLoc, sitedLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { isList } from "#test/support/list.ts"
 
 /**
@@ -140,7 +141,7 @@ describe("fingerprints", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([{ entries, locs }, change], c) =>
 					Effect.sync(() => {
@@ -209,7 +210,7 @@ describe("fingerprints", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([value, a, b, tail], c) =>
 						Effect.sync(() => {

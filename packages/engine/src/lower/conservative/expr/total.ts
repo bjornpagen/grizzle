@@ -1,5 +1,15 @@
 import { exactParts, nanParts } from "#compiler/core/decimal.ts"
+import type { Limit } from "#compiler/core/limits.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	binary32MaxExponent,
+	binary32MinExponent,
+	binary32Precision,
+	binary64MaxExponent,
+	binary64MinExponent,
+	binary64Precision,
+	int8ExactDigits
+} from "#compiler/ir/carriers.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { ExactCarrier } from "#compiler/scalar/aggregate.ts"
@@ -34,14 +44,16 @@ import {
  * IR alone, so a CHECK, an expression index and a query render one expression alike.
  */
 
-/** The SQL space an exact value is computed in: bigint where its digit bound fits 18 digits, numeric otherwise. */
+/**
+ * The SQL space an exact value is computed in: bigint where its digit bound fits int8ExactDigits, numeric otherwise.
+ */
 type Space = "int8" | "numeric"
 
 const spaceOf = (t: ScalarType): Space | undefined => {
 	const b = baseOf(t)
 	switch (b.carrier) {
 		case "exactInteger":
-			return b.digits <= 18 ? "int8" : "numeric"
+			return b.digits <= int8ExactDigits.value ? "int8" : "numeric"
 		case "exactMoney":
 			return "numeric"
 		case "int2":
@@ -78,10 +90,10 @@ const integerWidening = (e: ScalarExpr): boolean => {
 const castInner = (e: Expr): Expr => (e.kind === "cast" ? e.expr : e)
 
 /**
- * An exact operation's SQL (T1): its operands brought into one space, bigint where its digit bounds fit 18 digits and
- * numeric otherwise, and the space's own operator, so no step overflows; a result whose own type lies in the other
- * space is cast into it, so its SQL type is its physical type (a bigint for an exact integer of at most 18 digits). An
- * overload whose Totality is exact computes over plain integers or money (int4pl is an exact sum of two integers,
+ * An exact operation's SQL (T1): its operands brought into one space, bigint where its digit bounds fit
+ * int8ExactDigits and numeric otherwise, and the space's own operator, so no step overflows; a result whose own type
+ * lies in the other space is cast into it, so its SQL type is its physical type (a bigint for an exact integer of at
+ * most int8ExactDigits digits). An overload whose Totality is exact computes over plain integers or money (int4pl is an exact sum of two integers,
  * cash_pl of two amounts); every other overload over an exact operand is the exact carriers' own. A comparison computed
  * in bigint reads a widened plain integer bare, so PostgreSQL's cross-type integer operators keep the integer column's
  * index serving it.
@@ -211,18 +223,42 @@ const exactIn = (
 /** An integer as a numeric literal. */
 const numericInteger = (n: bigint): Expr => lit.decimal(exactParts(n, 0), types.numeric)
 
-/** The binary64 and binary32 thresholds of one rounding: past `over` a value rounds to an infinity; at or below 2^-`under` to zero. */
-const thresholds = {
-	float8: {
-		over: numericInteger(2n ** 1024n - 2n ** 970n),
-		under: numericInteger(2n ** 1075n),
-		type: types.double
-	},
-	float4: {
-		over: numericInteger(2n ** 128n - 2n ** 103n),
-		under: numericInteger(2n ** 150n),
-		type: types.real
+/**
+ * What one binary format's rounding reads, from its precision p, greatest exponent emax and least normal exponent emin
+ * (ir/carriers.ts): `over`, 2^(emax + 1) - 2^(emax - p), the midpoint between the greatest finite value and
+ * 2^(emax + 1), at or past which a value rounds to an infinity; `under`, 2^(p - emin), the inverse of half the least
+ * subnormal, 2^(emin - p), at or below which a value rounds to zero; and the scale of an exact quotient
+ * (exactQuotient), 10^(p - emin), with its half unit, 5 · 10^-(p - emin + 1). Every point at which the format's
+ * rounding changes, a midpoint between two neighbours, `over` and half the least subnormal, is a multiple of
+ * 2^(emin - p), and so of 10^(emin - p): a quotient on one is exact at that scale, and one strictly between two
+ * multiples of it rounds as every value between them does.
+ */
+const formatOf = (
+	p: Limit,
+	emax: Limit,
+	emin: Limit,
+	type: TypeRef
+): {
+	readonly over: Expr
+	readonly under: Expr
+	readonly quotientScale: Expr
+	readonly halfUnit: Expr
+	readonly type: TypeRef
+} => {
+	const cell = p.value - emin.value
+	return {
+		over: numericInteger(2n ** BigInt(emax.value + 1) - 2n ** BigInt(emax.value - p.value)),
+		under: numericInteger(2n ** BigInt(cell)),
+		quotientScale: numericInteger(10n ** BigInt(cell)),
+		halfUnit: lit.decimal(exactParts(5n, cell + 1), types.numeric),
+		type
 	}
+}
+
+/** The binary64 and binary32 roundings (formatOf). */
+const thresholds = {
+	float8: formatOf(binary64Precision, binary64MaxExponent, binary64MinExponent, types.double),
+	float4: formatOf(binary32Precision, binary32MaxExponent, binary32MinExponent, types.real)
 } as const
 
 const floatLit = (value: number, carrier: "float4" | "float8"): Expr =>
@@ -370,18 +406,16 @@ const roundedOnce = (n: Expr, carrier: "float4" | "float8"): Expr =>
 /** A float operand's exact numeric value (exactNumeric), of a finite operand. */
 const exactOf = (x: Expr, carrier: "float4" | "float8"): Expr => exactNumeric(x, carrier)
 
-/** 10^700 and 5 · 10^-701: an exact quotient's scale and its half unit. */
-const quotientScale = numericInteger(10n ** 700n)
-const halfUnit = lit.decimal(exactParts(5n, 701), types.numeric)
-
 /**
  * The correctly rounded quotient of two finite floats, the divisor nonzero, from their exact values: the quotient
- * scaled by 10^700 and truncated (div, exact), doubled, and one more toward its sign where it was inexact (a sticky
- * half unit), then scaled back exactly and rounded once. The truncated quotient keeps at least 68 significant digits
- * for any two doubles, so the sticky half unit decides every rounding the true quotient does. The value rounded is
- * bound once (roundedOnce).
+ * scaled by the carrier's quotient scale 10^(p - emin) (formatOf) and truncated (div, exact), doubled, and one more
+ * toward its sign where it was inexact (a sticky half unit), then scaled back exactly and rounded once. Every point at
+ * which the carrier's rounding changes, a tie among them, is a multiple of 10^(emin - p), so a quotient on one is
+ * exact at that scale, and an inexact one and its sticky half unit lie strictly between the same two multiples, where
+ * no rounding changes, and round alike. The value rounded is bound once (roundedOnce).
  */
 const exactQuotient = (x: Expr, y: Expr, carrier: "float4" | "float8"): Expr => {
+	const { quotientScale, halfUnit } = thresholds[carrier]
 	const scaled = binary("*", exactOf(x, carrier), quotientScale)
 	const divisor = exactOf(y, carrier)
 	const truncated = call("div", [scaled, divisor])

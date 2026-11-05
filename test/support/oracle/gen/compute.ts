@@ -25,8 +25,10 @@ import {
 } from "#compiler/scalar/compute/lower.ts"
 import { firstOperand, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import {
+	anyNumeric,
 	commonType,
 	exactType,
+	isComputedNumeric,
 	meets as engineMeets,
 	meetingType,
 	type PlainCarrier,
@@ -39,6 +41,7 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	fieldDescOf,
 	floatSpecialSketches,
+	numeric,
 	numericPaddings,
 	type ValueSketch
 } from "#test/support/oracle/gen/domain.ts"
@@ -64,7 +67,7 @@ import { at, nonEmptyList } from "#test/support/oracle/pick.ts"
  * operand carriers in scope, and a choice with nothing to choose from degrading to a column, so every sketch resolves
  * and shrinking keeps it valid.
  *
- * A `pad` is a numeric padded in PostgreSQL: cast to numeric(1000, s) and back to bare numeric, a value at display scale
+ * A `pad` is a numeric padded in PostgreSQL: cast to numeric(1000, s), then its Compute.numeric, a value at display scale
  * s (domain.ts numericPaddings), which only a reading of the display scale could tell from the value; the term every
  * merge, key and reading must see as its value alone.
  */
@@ -274,11 +277,11 @@ const castTargets: ReadonlyMap<Carrier, ReadonlyArray<Carrier>> = (() => {
 })()
 
 /**
- * The numeric cast targets: the bare type, and typmods that round, keep and overflow the generated values, wide and
- * narrow (numeric(1,0) overflows 10, numeric(38,10) holds every finite generated value).
+ * The numeric cast targets: typmods that round, keep and overflow the generated values, wide and narrow
+ * (numeric(1,0) overflows 10, numeric(38,10) holds every finite generated value). Compute.numeric, the numeric of a
+ * value, is a conversion and no target: a cast term draws it beside them.
  */
 const numericTargets: ReadonlyArray<FieldDesc> = [
-	{ kind: "numeric" },
 	{ kind: "numeric", precision: 5, scale: 2 },
 	{ kind: "numeric", precision: 1, scale: 0 },
 	{ kind: "numeric", precision: 38, scale: 10 },
@@ -311,7 +314,6 @@ const isPlain = (c: Carrier): c is PlainCarrier =>
 	c === "int2" ||
 	c === "int4" ||
 	c === "int8" ||
-	c === "numeric" ||
 	c === "float4" ||
 	c === "float8" ||
 	c === "money" ||
@@ -479,7 +481,11 @@ const resolveLeaf = (
 		want === undefined ? plainColumns : Arr.filter(plainColumns, (c) => meets(c.type, want))
 	if (want !== undefined && (s.literal || columns.length === 0)) {
 		const spelled = literalCarrier(want.carrier)
-		const at = spelled === want.carrier ? want : plainOf(spelled, want)
+		const at = isComputedNumeric(want)
+			? numeric
+			: spelled === want.carrier
+				? want
+				: plainOf(spelled, want)
 		if (s.param && scope.params && want.carrier !== "enum") {
 			return {
 				desc: { kind: "param", name: scope.param(s.value, at), type: fieldDescOf(at) },
@@ -496,8 +502,12 @@ const resolveLeaf = (
 	return { desc: { kind: "var", var: c.name }, type: c.type, free: false }
 }
 
+/**
+ * The plain type of a carrier the generator tracks a term at: numeric's the widest generated numeric (domain.ts
+ * numeric), which a typed literal or a parameter can declare, as a computed numeric cannot.
+ */
 const plainOf = (c: Carrier, fallback: ScalarType): ScalarType =>
-	isPlain(c) ? plainType(c) : fallback
+	c === "numeric" ? numeric : isPlain(c) ? plainType(c) : fallback
 
 /**
  * The term a sketch resolves to, of a type meeting `want` when one is given (types.ts meets), each node typed as the
@@ -612,7 +622,7 @@ const resolveTerm = (
 				...Arr.flatMap(castTargets.get(source) ?? [], (t) =>
 					t === "numeric" ? numericTargets : isPlain(t) ? [fieldDescOf(plainType(t))] : []
 				),
-				...(source === "numeric" ? numericTargets.slice(1) : [])
+				...(source === "numeric" ? numericTargets : [])
 			]
 			const usable = Arr.filter(targets, (t) => {
 				const type = fieldTypeOf(t)
@@ -620,6 +630,16 @@ const resolveTerm = (
 			})
 			/** With no cast to a type the caller wants, the operand stands for itself only if it meets that type. */
 			const uncast = want === undefined || meets(arg.type, want) ? arg : undefined
+			const converts =
+				(castTargets.get(source) ?? []).includes("numeric") &&
+				(want === undefined || meets(anyNumeric, want))
+			if (converts && s.target % (usable.length + 1) === usable.length) {
+				return {
+					desc: { kind: "compute", fn: "numeric", args: [arg.desc] },
+					type: anyNumeric,
+					free: false
+				}
+			}
 			if (usable.length === 0) {
 				return uncast
 			}
@@ -655,20 +675,19 @@ const resolveTerm = (
 				precision: 1000,
 				scale: at(numericPaddings, s.depth)
 			}
-			const bare: FieldDesc = { kind: "numeric" }
-			const type = fieldTypeOf(bare)
-			if (type === undefined) {
-				return arg
-			}
 			return {
 				desc: {
 					kind: "when",
 					guard: withinGuard("numeric", -1000, 1000),
 					subject: arg.desc,
-					proved: { kind: "cast", to: bare, arg: { kind: "cast", to: padded, arg: arg.desc } },
+					proved: {
+						kind: "compute",
+						fn: "numeric",
+						args: [{ kind: "cast", to: padded, arg: arg.desc }]
+					},
 					otherwise: arg.desc
 				},
-				type,
+				type: anyNumeric,
 				free: false
 			}
 		}
@@ -784,11 +803,7 @@ const provesNarrowing = (source: "float4" | "float8", to: FieldDesc, bound: numb
  * the drawn edge bound where the checker proves the narrowing under it, and 9 where it does not.
  */
 const guardBound = (source: Carrier, to: FieldDesc, pick: number): number => {
-	if (
-		(source !== "float4" && source !== "float8") ||
-		to.kind !== "numeric" ||
-		!("precision" in to)
-	) {
+	if ((source !== "float4" && source !== "float8") || to.kind !== "numeric") {
 		return 9
 	}
 	const edge = floatEdges[source]

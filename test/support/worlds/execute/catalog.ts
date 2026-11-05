@@ -3,11 +3,7 @@ import { fromEngine } from "#adapter/engine.ts"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
-import {
-	applicationName as migrateApplicationName,
-	type MigrationSession,
-	migrationSession
-} from "#adapter/migrate/session.ts"
+import { type MigrationSession, migrationSession } from "#adapter/migrate/session.ts"
 import type { BatchStatement } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { nextTimestamp, parseTimestamp } from "#cli/clock.ts"
@@ -197,8 +193,7 @@ export const runFolders = (
 				wireSession(substrate.cluster, {
 					database: substrate.database,
 					username: owner.credentials.role,
-					password: owner.credentials.password,
-					applicationName: migrateApplicationName
+					password: owner.credentials.password
 				})
 			)
 			const session =
@@ -207,7 +202,7 @@ export const runFolders = (
 			if (Result.isSuccess(ran)) {
 				return { kind: "applied" }
 			}
-			return connection.lost() && end.kind === "killed"
+			return connection.state() === "ended" && end.kind === "killed"
 				? { kind: "killed" }
 				: { kind: "refused", error: ran.failure }
 		})

@@ -15,7 +15,7 @@ import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { bigint, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter, Layer, Option, pipe, Result, String as Str } from "effect"
+import { Effect, Formatter, Layer, Option, pipe, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -46,6 +46,7 @@ import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
 import { Uuid } from "#compiler/public/fields.ts"
+import { caseHang } from "#test/support/limits.ts"
 const member = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`
 
@@ -331,7 +332,7 @@ export const witnessSuite = (): void => {
 										],
 										{ cases: 60, sense: notesOnly }
 									),
-									caseHang: Duration.minutes(2)
+									caseHang
 								},
 								(key, c) =>
 									Effect.gen(function* () {
@@ -496,7 +497,7 @@ export const witnessSuite = (): void => {
 										],
 										{ cases: 60, sense: notesOnly }
 									),
-									caseHang: Duration.minutes(2)
+									caseHang
 								},
 								(k, c) =>
 									Effect.gen(function* () {

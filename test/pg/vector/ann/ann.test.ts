@@ -3,9 +3,8 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
-import { hnswPolicy, hnswSearchSettings } from "#compiler/check/approximate/policy.ts"
 import { subtree } from "#compiler/check/approximate/trace.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId } from "#compiler/core/ids.ts"
@@ -15,6 +14,7 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { RelDag } from "#compiler/ir/rel.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { compilePageOf, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
+import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -57,6 +57,7 @@ import {
 import { installedCatalog } from "#test/support/evidence.ts"
 import { namesOf, parsedSchemaName, wild } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
@@ -172,9 +173,6 @@ const probed =
 	(source) =>
 		[source.draw(element(among)), source.draw(element(probes))] as const
 
-/** How long one search case may run. */
-const caseHang = Duration.minutes(2)
-
 const searcher = (fx: Fixture) =>
 	Effect.flatMap(Substrate, (s) =>
 		s.session({ ...worldSession(fx.installed.world(fx.opened.app)), label: "searcher" })
@@ -189,7 +187,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 				Effect.gen(function* () {
 					const fx = yield* installFixture({ candidates })
 					const session = yield* searcher(fx)
-					for (const setting of hnswSearchSettings()) {
+					for (const setting of searchPolicySettings) {
 						const shown = yield* session.values(`SELECT pg_catalog.current_setting($1::text)`, [
 							setting.parameter
 						])
@@ -255,8 +253,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							})
 					)
 				})
-			),
-		300_000
+			)
 	)
 
 	it.effect(
@@ -309,8 +306,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							})
 					)
 				})
-			),
-		300_000
+			)
 	)
 
 	it.effect(
@@ -416,8 +412,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							})
 					)
 				})
-			),
-		300_000
+			)
 	)
 
 	it.effect(
@@ -445,7 +440,11 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					recalls.push(`${label}${seed}=${found}/${exact.length}`)
 				}
 				const recall = hits / wanted
-				const record = `recall@20 of approximateNearest against the exact baseline, HNSW policy (m ${hnswPolicy.build.m}, ef_construction ${hnswPolicy.build.efConstruction}, ef_search ${hnswPolicy.search.efSearch}, ${hnswPolicy.search.iterativeScan}), ${sizes.A + sizes.B + sizes.C} documents of 8 dimensions: ${recall.toFixed(4)} (${Arr.join(recalls, " ")})`
+				const pinned = Arr.join(
+					Arr.map(searchPolicySettings, (s) => `${s.parameter} ${s.value}`),
+					", "
+				)
+				const record = `recall@20 of approximateNearest against the exact baseline, HNSW at pgvector's build parameters and the cluster's search settings, ${pinned}, ${sizes.A + sizes.B + sizes.C} documents of 8 dimensions: ${recall.toFixed(4)} (${Arr.join(recalls, " ")})`
 				yield* Effect.promise(() => ctx.annotate(record))
 				yield* Effect.log(record)
 				assert.ok(recall > 0.8)
@@ -469,8 +468,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 				const [first, second] = rows
 				assert.equal(first?.[0], second?.[0])
 				assert.deepEqual([first?.[1], second?.[1]], Arr.sort([d1, d2], Order.String))
-			}),
-		300_000
+			})
 	)
 
 	it.effect(
@@ -529,8 +527,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 							})
 					)
 				})
-			),
-		300_000
+			)
 	)
 
 	it.effect(
@@ -596,8 +593,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 					}
 				}
 				assert.equal(after.length, 20)
-			}),
-		300_000
+			})
 	)
 
 	it.effect("a shared search is computed once and composes with ordinary matching", () =>

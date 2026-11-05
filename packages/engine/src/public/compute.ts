@@ -28,6 +28,7 @@ const catalogue: ComputeApi = {
 	greatest: (first, ...rest) => C.greatest(first, rest),
 	widthBucket: (x, low, high, count) => C.widthBucket(x, low, high, count),
 	minScale: (a) => C.minScale(a),
+	numeric: (a) => C.numeric(a),
 	cond: (p, then, otherwise) => C.cond(p, then, otherwise),
 	when: (guard, then, otherwise) => C.when(guard, then(guard[guarded]), otherwise),
 	nonzero: (x) => C.nonzero(x),

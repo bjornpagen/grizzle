@@ -4,7 +4,7 @@ import { required, type Situations } from "@grizzle/testing/features"
 import { constant } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record, String as Str } from "effect"
 import { sameValue } from "#test/pg/laws/families/model.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
@@ -20,6 +20,7 @@ import {
 	witnessesShowTheirOwn
 } from "#test/support/worlds/drive/acting.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	aimScope,
 	drawnRealities,
@@ -59,7 +60,7 @@ import type {
 	Observation,
 	PreparedRead,
 	RoleRef,
-	SessionState,
+	ModelSession,
 	HostValue,
 	InstallSpec,
 	WorldFeature
@@ -119,7 +120,7 @@ type Actor =
 	  }
 	| { readonly kind: "none" }
 
-const actorOfSession = (state: ModelState, held: SessionState | undefined): Actor => {
+const actorOfSession = (state: ModelState, held: ModelSession | undefined): Actor => {
 	if (held === undefined) {
 		return { kind: "none" }
 	}
@@ -1270,58 +1271,55 @@ const realizedUnder = (pc: ProgramCase, c: Case<Feature>) =>
  * features for as many cases as the suite runs.
  */
 const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): void => {
-	it.effect(
-		spec.name,
-		(ctx) =>
-			Effect.gen(function* () {
-				assert.deepEqual(
-					Arr.map(educationInstall.roles, (r) => r.name),
-					[...educationRoles],
-					"the suite names the fixture's roles"
-				)
-				const once: Option.Option<RealWorld> =
-					spec.realization === "once"
-						? yield* Effect.asSome(realize(educationInstall, ordinarySession))
-						: Option.none()
-				return yield* searched(
-					ctx,
-					explore(
-						{
-							suite: spec.suite,
-							draw: drawn(
-								programCaseGen(
-									constant(educationInstall),
-									{ kinds: spec.focus, roles: spec.roles, aims: noAims, lead: spec.lead },
-									spec.steps
-								)
-							),
-							literal: Formatter.format,
-							coverage: required<Feature>(spec.required, { cases: spec.cases, sense: notesOnly }),
-							kept: [],
-							runs: spec.cases,
-							shrink: { kind: "bounded", candidates: 200 },
-							concurrency: 1,
-							steerEvery: 16,
-							caseHang: Duration.minutes(2)
-						},
-						(pc, c) =>
-							Effect.scoped(
-								Effect.gen(function* () {
-									const world = Option.isSome(once) ? once.value : yield* realizedUnder(pc, c)
-									const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
-									const checks = Arr.map(spec.properties, checkOf)
-									yield* driveProgram(staged, pc, c, ({ seen, earlier }) => {
-										noteSeen(c, seen, earlier)
-										for (const check of checks) {
-											check({ seen, earlier })
-										}
-									})
-								})
+	it.effect(spec.name, (ctx) =>
+		Effect.gen(function* () {
+			assert.deepEqual(
+				Arr.map(educationInstall.roles, (r) => r.name),
+				[...educationRoles],
+				"the suite names the fixture's roles"
+			)
+			const once: Option.Option<RealWorld> =
+				spec.realization === "once"
+					? yield* Effect.asSome(realize(educationInstall, ordinarySession))
+					: Option.none()
+			return yield* searched(
+				ctx,
+				explore(
+					{
+						suite: spec.suite,
+						draw: drawn(
+							programCaseGen(
+								constant(educationInstall),
+								{ kinds: spec.focus, roles: spec.roles, aims: noAims, lead: spec.lead },
+								spec.steps
 							)
-					)
+						),
+						literal: Formatter.format,
+						coverage: required<Feature>(spec.required, { cases: spec.cases, sense: notesOnly }),
+						kept: [],
+						runs: spec.cases,
+						shrink: { kind: "bounded", candidates: 200 },
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(pc, c) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const world = Option.isSome(once) ? once.value : yield* realizedUnder(pc, c)
+								const staged = yield* stage(world, pc.install, c.draw, drawnRealities)
+								const checks = Arr.map(spec.properties, checkOf)
+								yield* driveProgram(staged, pc, c, ({ seen, earlier }) => {
+									noteSeen(c, seen, earlier)
+									for (const check of checks) {
+										check({ seen, earlier })
+									}
+								})
+							})
+						)
 				)
-			}),
-		3_600_000
+			)
+		})
 	)
 }
 

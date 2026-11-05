@@ -4,7 +4,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Exit, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Exit, Formatter, Option } from "effect"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { ReaderValue } from "#adapter/reader/reader.ts"
@@ -14,6 +14,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { dbReader } from "#test/support/runtime-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -143,7 +144,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a read's parameter argume
 									]),
 									...Arr.map(nonRecords, (kind): ArgumentFeature => `${kind} refused`)
 								]),
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							([call, kind], c) =>
 								Effect.gen(function* () {

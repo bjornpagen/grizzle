@@ -4,7 +4,7 @@ import {
 	reasonEffect
 } from "#compiler/analysis/certificates/reasons.ts"
 import type { PhysicalAnalysis } from "#compiler/analysis/physical/analyze.ts"
-import { type ObservationWhy, observationPaths } from "#compiler/analysis/physical/consumers.ts"
+import { type ObservationWhy, observationEnds } from "#compiler/analysis/physical/consumers.ts"
 import type { JustifiedKey } from "#compiler/analysis/physical/fds.ts"
 import { plainLosses, type Realization } from "#compiler/analysis/physical/props.ts"
 import type { Diagnostic } from "#compiler/core/diag.ts"
@@ -80,10 +80,9 @@ const nodeReasons = (
 					? lossReasons(a, node)
 					: ["exactDeduplication"]
 		case "ignored": {
-			const reasons = observationPaths(node, a.edges).flatMap(
-				(path): ReadonlyArray<MultiplicityReason> => {
-					const last = path[path.length - 1]
-					if (last === undefined || last.sensitivity === "preserves") {
+			const reasons = observationEnds(node, a.edges).flatMap(
+				(last): ReadonlyArray<MultiplicityReason> => {
+					if (last.sensitivity === "preserves") {
 						return []
 					}
 					if (last.sensitivity === "ignores") {
@@ -146,7 +145,7 @@ export const foldReasons = (
  * - kept: the set form the policy keeps (the recursive closure, a set operator, set UNION over arms not proved
  *   disjoint);
  * - ignored: why repeats cannot change the result (an existential observation, the recursive closure, an exact
- *   deduplication above), read from the node's bounded observation paths.
+ *   deduplication above), read from the ends of the node's observation paths (consumers.ts observationEnds).
  */
 export const explainPlan = (
 	a: PhysicalAnalysis,

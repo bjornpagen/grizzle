@@ -3,12 +3,13 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, int, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Effect, Formatter, Record as Rec } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { finitePassWithin } from "#compiler/lower/optimize/finite/index.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Q, T, Task, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
 import {
 	deliversAlikeOn,
@@ -22,9 +23,10 @@ import {
 /**
  * R07: keep finite schema facts visible to PostgreSQL. A membership-only match of declared facts becomes
  * native constant membership, tuple membership keeps each fact's correlation ("for tuple rosters, independent column
- * IN lists are not equivalent"), a roster-covering enum match is a tautology, and a membership of more terms than the
- * pass's bound (core/policy.ts finiteMembershipMaxTerms in production, a drawn one here, through finitePassWithin's own
- * parameter) keeps its VALUES join.
+ * IN lists are not equivalent"), a roster-covering enum match is a tautology, a one-column membership is rewritten
+ * at any size, and only a tuple membership whose disjunction holds more equalities than the pass's bound
+ * (core/limits.ts finiteMembershipMaxTerms in production, a drawn one here, through finitePassWithin's own parameter)
+ * keeps its VALUES join.
  */
 
 const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
@@ -109,7 +111,7 @@ describe("finite membership", () => {
 							"rewritten binding both",
 							"held back by its terms bound"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([facts, bound, maxTerms], c) =>
 						Effect.sync(() => {
@@ -124,8 +126,10 @@ describe("finite membership", () => {
 									})
 								)
 							)
-							const terms = facts.length * Rec.keys(bindingOf[bound]).length
-							const rewritten = terms <= maxTerms
+							/** A tuple membership of some fact is a disjunction of its facts' equalities on both columns. */
+							const disjunction = bound === "both" && facts.length > 0
+							const equalities = facts.length * Rec.keys(bindingOf[bound]).length
+							const rewritten = !disjunction || equalities <= maxTerms
 							c.note(rewritten ? `rewritten binding ${bound}` : "held back by its terms bound")
 							assert.equal(rulesOf(ran.certificates).includes("R07.finiteMembership"), rewritten)
 							deliversAlikeOn(tasks, [Task], [], queryOf(dag, []), ran.query)

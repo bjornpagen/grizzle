@@ -6,7 +6,7 @@ import { pctSchedule } from "@grizzle/testing/interleave"
 import { notesOnly } from "@grizzle/testing/sense"
 import { fullSwarm, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Formatter, Option, String as Str } from "effect"
 import { Cause, Effect, Record, type Scope } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -40,7 +40,7 @@ import {
 	stepFeatures
 } from "#test/pg/laws/families/support.ts"
 import { defined } from "#test/support/assert.ts"
-import { type AbortCause, type Outcome } from "#test/support/history/check.ts"
+import { type DirectAbort, type Outcome } from "#test/support/history/check.ts"
 import {
 	enforcementProblem,
 	type HistoryFamily,
@@ -68,6 +68,7 @@ import {
 	type HistoryEnv,
 	immediacyGen
 } from "#test/support/history/run.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
@@ -1280,7 +1281,7 @@ type RaceFeature =
 	| "every interleaving"
 	| "pct"
 	| `${WriterKind} ${Outcome["kind"]}`
-	| `aborted: ${AbortCause["kind"]}`
+	| `aborted: ${DirectAbort["kind"]}`
 	| BelowFeature
 	| `law ${string}`
 	| `variant: ${string}`
@@ -1545,7 +1546,7 @@ export const raceSuite = <P>(h: HistoryFamily<P>): void => {
 						shrink: { kind: "bounded", candidates: 300 },
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(rc, c) =>
 						Effect.gen(function* () {
@@ -1578,8 +1579,7 @@ export const raceSuite = <P>(h: HistoryFamily<P>): void => {
 			})
 			it.effect(
 				"every race is lawful, serial and every abort explained, on immutable and mutable schemas",
-				(ctx) => searched(ctx, races),
-				3_600_000
+				(ctx) => searched(ctx, races)
 			)
 		}
 	)

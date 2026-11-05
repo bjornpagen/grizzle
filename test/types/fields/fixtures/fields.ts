@@ -9,6 +9,7 @@ import {
 	contract,
 	Decimal,
 	type Field,
+	type FieldBase,
 	type FloatField,
 	type Infer,
 	type IntegerLike,
@@ -147,10 +148,15 @@ export const f24Real: Field<number, "real"> = pg.float(24)
 // @ts-expect-error -- TS2345: a float precision is a number
 export const fText = pg.float("24")
 
-/** numeric(p, s): precision and scale are runtime values; numeric(p) is numeric(p, 0). */
+/**
+ * numeric(p, s): precision and scale are runtime values, both declared. There is no bare numeric: pg.numeric is a
+ * constructor, never a field.
+ */
 export const n186 = pg.numeric(18, 6)
 export type Numeric186 = Expect<Equals<typeof n186, NumericTypmodField>>
+// @ts-expect-error -- TS2554: a numeric declares its scale
 export const n5 = pg.numeric(5)
+export type BareNumericIsNoField = Expect<Not<IsAssignable<typeof pg.numeric, FieldBase>>>
 export const d72 = pg.decimal(7, 2)
 export type Decimal72 = Expect<Equals<typeof d72, NumericTypmodField>>
 export type NumericHost = Expect<Equals<Infer<typeof n186>, Decimal>>
@@ -158,7 +164,7 @@ export type TypmodPrecision = Expect<Equals<typeof n186.precision, number>>
 export const wide = pg.numeric(1000, -1000)
 export const scaled = pg.numeric(1, 1000)
 // @ts-expect-error -- TS2345: a numeric precision is a number
-export const nText = pg.numeric("18")
+export const nText = pg.numeric("18", 0)
 
 /** pg.vector(n): model-agnostic, its dimension count an equality-only literal tag. */
 export const docs = pg.vector(1536)

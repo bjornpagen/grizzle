@@ -1,10 +1,5 @@
 import type { Justification } from "#compiler/analysis/physical/fds.ts"
-import {
-	fdsOf,
-	keyedBy,
-	type PhysicalProps,
-	plainKeyedBy
-} from "#compiler/analysis/physical/props.ts"
+import { keyedBy, type PhysicalProps, plainKeyedBy } from "#compiler/analysis/physical/props.ts"
 import type { KeySet, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 
 /**
@@ -66,16 +61,15 @@ export const contributionOf = (node: FoldNode, input: PhysicalProps): Contributi
 	const bound = boundTuple(node, input)
 	const keys =
 		node.kind === "Group" ? node.keys : node.kind === "Window" ? node.partition : node.keys
-	const fds = fdsOf(input)
 	/** Greedy minimization from the end of B: drop a column while the rest still determines all of B. */
 	let narrowest = [...bound]
 	for (let i = narrowest.length - 1; i >= 0; i--) {
 		const without = narrowest.toSpliced(i, 1)
-		if (fds.determines(without, bound)) {
+		if (input.dependencies.determines(without, bound)) {
 			narrowest = without
 		}
 	}
-	const narrowing = fds.explain(fds.closure(narrowest), bound)
+	const narrowing = input.dependencies.explain(input.dependencies.closure(narrowest), bound)
 	const found = keyedBy(input, bound)
 	if (found === undefined) {
 		return {
@@ -89,12 +83,8 @@ export const contributionOf = (node: FoldNode, input: PhysicalProps): Contributi
 		}
 	}
 	const plain = plainKeyedBy(input, bound)
-	/**
-	 * The key keyedBy (or plainKeyedBy) just proved: the first one, in key order, inside the bound's closure, which is the
-	 * first option its one requirement met.
-	 */
-	const [[proved]] = (plain ?? found).inside
-	const key = proved.columns
+	/** The key keyedBy (or plainKeyedBy) just proved: the canonical minimal key among B's columns (fds.ts keyAmong). */
+	const key = (plain ?? found).key
 	const proof = found.just
 	return {
 		node,

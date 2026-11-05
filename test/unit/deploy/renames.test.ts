@@ -5,7 +5,6 @@ import { array, boolean, element, type Gen, int, map, oneOf, shuffled } from "@g
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Formatter,
 	Option,
@@ -64,6 +63,7 @@ import {
 	within
 } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	catalogOf,
 	emptyState,
@@ -1226,7 +1226,7 @@ const prove = () =>
 			literal: Formatter.format,
 			limit: 4_000,
 			coverage: requiredInSpace<Feature>(featureNames),
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(box, c) => Effect.sync(() => forward(c, boxProved(c, box)))
 	)
@@ -1517,7 +1517,7 @@ const proveRosters = (pool: number) =>
 			literal: Formatter.format,
 			limit: 2_000,
 			coverage: requiredInSpace<RosterFeature>(rosterFeatures),
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(x, c) => Effect.sync(() => roster(c, x))
 	)
@@ -2360,7 +2360,7 @@ const proveClosed = () =>
 			literal: Formatter.format,
 			limit: 1_000,
 			coverage: requiredInSpace<ClosedFeature>(closedFeatures),
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(box, c) => Effect.sync(() => closedCase(c, box))
 	)
@@ -2373,7 +2373,7 @@ const proveContracts = () =>
 			literal: Formatter.format,
 			limit: 1_000,
 			coverage: requiredInSpace<ContractFeature>(contractFeatures),
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(box, c) => Effect.sync(() => forward(c, contractProved(c, box)))
 	)
@@ -2386,7 +2386,7 @@ const proveIndexes = () =>
 			literal: Formatter.format,
 			limit: 400,
 			coverage: requiredInSpace<IndexFeature>(indexFeatures),
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(box, c) => Effect.sync(() => forward(c, indexProved(c, box)))
 	)
@@ -2399,7 +2399,7 @@ const proveContexts = () =>
 			literal: Formatter.format,
 			limit: 1_500,
 			coverage: requiredInSpace<ContextFeature>(contextFeatures),
-			caseHang: Duration.minutes(2)
+			caseHang
 		},
 		(box, c) => Effect.sync(() => forward(c, contextProved(c, box)))
 	)

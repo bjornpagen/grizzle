@@ -6,8 +6,9 @@ import { exact, multiset, ordered } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
-import { type AllenRelation, allenRelations, fullAllenMask } from "#compiler/allen/mask.ts"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { fullAllenMask } from "#compiler/allen/mask.ts"
+import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { contract, pg, span } from "#compiler/public/fields.ts"
@@ -22,6 +23,7 @@ import {
 	runArtifact
 } from "#test/pg/spans/allen/support.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	classify,
 	type HalfOpen,
@@ -343,7 +345,7 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 						literal: Formatter.format,
 						limit: rangeTypes.length,
 						coverage: requiredInSpace<RangeType>(rangeTypes),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(type, c) =>
 						Effect.gen(function* () {
@@ -391,7 +393,7 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							literal: Formatter.format,
 							limit: rangeTypes.length * fixedMasks.length,
 							coverage: requiredInSpace<MaskFeature>(maskFeatures),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ type, mask }, c) =>
 							Effect.gen(function* () {
@@ -411,7 +413,7 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(mask, c) =>
 							Effect.gen(function* () {
@@ -423,8 +425,7 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							})
 					)
 				})
-			),
-		600_000
+			)
 	)
 
 	it.effect(
@@ -448,7 +449,7 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 									Arr.map(artifacts, (artifact): PointFeature => `${point} ${artifact}`)
 								)
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						({ point, artifact }, c) =>
 							Effect.gen(function* () {
@@ -491,7 +492,7 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(sketch, c) =>
 							Effect.gen(function* () {
@@ -532,7 +533,6 @@ layer(Substrate.layer)("Allen masks and pointIn on stored spans", (it) => {
 							})
 					)
 				})
-			),
-		600_000
+			)
 	)
 })

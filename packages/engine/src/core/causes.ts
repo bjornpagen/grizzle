@@ -34,8 +34,6 @@ type Names = ReadonlyArray<string>
  * - `unboundedState`: a state column computed from its own component with no admitted bound (termination.ts).
  * - `carrierOverflow`: a counter whose next value, `from` + `delta`, leaves its carrier's range min..max before its
  *   bound is checked (termination.ts).
- * - `stateEstimate`: a static seen-state estimate `needed` above the policy's recursionMaxStates `limit`
- *   (termination.ts).
  */
 export type RecursionRefusal =
 	| {
@@ -108,31 +106,13 @@ export type RecursionRefusal =
 			readonly min: bigint
 			readonly max: bigint
 	  }
-	| {
-			readonly kind: "stateEstimate"
-			readonly recursion: string
-			readonly limit: number
-			readonly needed: bigint
-	  }
-
-/**
- * The bound an index datum's type does not give (schema/representability.ts datumBound): `numericPrecision` for
- * numeric without a precision, `textBytes` for text whose pattern proves no byte bound.
- */
-export type DatumUnbounded = "numericPrecision" | "textBytes"
-
-const datumUnboundedText: Readonly<Record<DatumUnbounded, string>> = {
-	numericPrecision: "numeric without a precision has no size bound (up to 131072 integer digits)",
-	textBytes:
-		"text whose pattern proves no byte bound; a bounded anchored pattern or a charLength contract does"
-}
 
 /**
  * Why a key has no representable index entry: a declared key's (schema/representability.ts keyLayout) or a derived
  * relation's inherited key's (analysis/derived/keys.ts derivedKeyLayout).
  *
  * - `columns`: more fields than PostgreSQL admits in one index, `limit` (INDEX_MAX_KEYS).
- * - `unbounded`: a field whose datum has no bound.
+ * - `unboundedText`: a text field whose pattern proves no byte bound, the one datum with no bound.
  * - `btreeEntry`: an entry that can reach `bytes`, above the B-tree limit `limit` (BTMaxItemSize).
  * - `spans`: more than one span field, which no native lowering serves.
  * - `gistEntry`: a span key's GiST entry that can reach `bytes`, above the limit `limit` of a GiST page.
@@ -142,7 +122,7 @@ const datumUnboundedText: Readonly<Record<DatumUnbounded, string>> = {
  */
 export type KeyFault =
 	| { readonly kind: "columns"; readonly limit: number }
-	| { readonly kind: "unbounded"; readonly field: string; readonly datum: DatumUnbounded }
+	| { readonly kind: "unboundedText"; readonly field: string }
 	| { readonly kind: "btreeEntry"; readonly bytes: number; readonly limit: number }
 	| { readonly kind: "spans"; readonly fields: Names }
 	| { readonly kind: "gistEntry"; readonly bytes: number; readonly limit: number }
@@ -336,8 +316,6 @@ export const recursionRefusalText = (cause: RecursionRefusal): string => {
 			return `recursion: unbounded computed state: state column ${cause.column} of ${cause.recursion} is computed from the current ${list(cause.reads)} with no admitted bound, so it can take a new value on every iteration however finite the graph is; keep the state to carrier values, or advance an integer counter by a literal step under a filter bounding its current value, such as r.lt(${cause.column}, n)`
 		case "carrierOverflow":
 			return `recursion: carrier overflow: state column ${cause.column} of ${cause.recursion} advances by ${cause.delta} from ${cause.from}, which the bound admits, to ${cause.from + cause.delta}, outside ${cause.type}'s range ${cause.min}..${cause.max}; the next value may not overflow before its bound is checked`
-		case "stateEstimate":
-			return `recursionMaxStates <= ${cause.limit} (needed ${cause.needed})`
 	}
 }
 
@@ -348,8 +326,8 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 	switch (fault.kind) {
 		case "columns":
 			return `${name}: it has ${key.length} fields, above PostgreSQL's limit of ${fault.limit} columns in one index (INDEX_MAX_KEYS)`
-		case "unbounded":
-			return `${name}: field ${fault.field} is ${datumUnboundedText[fault.datum]}`
+		case "unboundedText":
+			return `${name}: field ${fault.field} is text whose pattern proves no byte bound; a bounded anchored pattern or a charLength contract does`
 		case "btreeEntry":
 			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit`
 		case "spans":

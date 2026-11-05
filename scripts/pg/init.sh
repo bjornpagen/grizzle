@@ -50,7 +50,7 @@ chmod 600 "$GRIZZLE_PG_DEV_PASSWORD_FILE"
 cat >> "$GRIZZLE_PG_DATA/postgresql.conf" <<EOF
 
 # grizzle local development, cluster $GRIZZLE_PG_CLUSTER (scripts/pg/init.sh). Everything else is the PostgreSQL
-# $PG_PIN_VERSION default, including jit = off server-wide, which grizzle also pins per login with jit = off.
+# $PG_PIN_VERSION default, including jit = off server-wide.
 port = $PG_PORT
 listen_addresses = 'localhost'
 unix_socket_directories = '$GRIZZLE_PG_SOCKET'
@@ -93,10 +93,7 @@ EOF
 dev_password="$(cat "$GRIZZLE_PG_DEV_PASSWORD_FILE")"
 admin_psql -d postgres <<SQL
 CREATE ROLE $PG_DEV_ROLE LOGIN CREATEDB CREATEROLE PASSWORD '$dev_password';
--- lc_messages is superuser-only (PGC_SUSET), so the non-superuser migration identity needs SET on it to store the
--- fourth fixed locale category as a login default in Publish.
-GRANT SET ON PARAMETER lc_messages TO $PG_DEV_ROLE;
--- deadlock_timeout is superuser-only too; every test database stores it low as its own default, so the concurrency
+-- deadlock_timeout is superuser-only; every test database stores it low as its own default, so the concurrency
 -- driver's wait for each blocked step's deadlock check is short.
 GRANT SET ON PARAMETER deadlock_timeout TO $PG_DEV_ROLE;
 -- The benchmarks read the deferred-event queue's memory context, which needs pg_read_all_stats. The migration

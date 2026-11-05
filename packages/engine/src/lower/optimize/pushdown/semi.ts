@@ -11,9 +11,8 @@ import {
 } from "#compiler/ir/rel.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
-	type Measure,
-	multiset,
 	nodePremises,
+	type Potential,
 	type RewriteCx,
 	type Rule,
 	rewritePass
@@ -199,15 +198,15 @@ const semiRule: Rule = {
 	}
 }
 
-const semiMeasure: Measure = (cx) => {
-	const sizes: Array<number> = []
+const semiPotential: Potential = (cx) => {
+	let sum = 0
 	for (const cell of cx.editor.topoOrder()) {
 		const node = cell.current
 		if (node.kind === "SemiJoin") {
-			sizes.push(cx.editor.subtree(node.left).size)
+			sum += cx.editor.subtree(node.left).size
 		}
 	}
-	return multiset(sizes)
+	return sum
 }
 
 /**
@@ -234,12 +233,12 @@ const semiMeasure: Measure = (cx) => {
  * and off any recursive step, and the right side uncorrelated: a semi-join of a node with itself references it twice,
  * so it never moves below that node, which would then read itself.
  *
- * Measure: the multiset of each semi-join's left subtree size. A move takes one semi-join from above a node onto a
- * strict part of its former left subtree; every other semi-join keeps its left subtree's size, since the moved one
- * leaves it as many nodes as it enters. So the multiset decreases.
+ * Potential: the sum of every semi-join's left subtree size, at most the semi-joins times the nodes. A move takes one
+ * semi-join from above a node onto a strict part of its former left subtree, and copies none; every other semi-join
+ * keeps its left subtree's size, since the moved one leaves it as many nodes as it enters. So the sum falls.
  */
 export const semiPushdownPass = rewritePass({
 	name: "semi-join pushdown",
 	rules: [semiRule],
-	measure: semiMeasure
+	potential: () => semiPotential
 })

@@ -54,14 +54,15 @@ import { elementAt, whereIndex } from "#test/support/oracle/pick.ts"
  *   subset taken over every group, each rule of one to three matches, joins through shared variables, literal
  *   filters, a relational negation, and a plain head or an aggregate head of group variables beside count, sum, mean,
  *   min, max and a conditional count sum(cond(p, 1, 0));
- * - one case in sixteen planted: a level-2 definition aggregating a level-1 aggregate's unconstrained numeric result
+ * - one case in sixteen planted: a level-2 definition aggregating a level-1 aggregate's computed numeric result
  *   with sum, mean, min and max, which the drawn population reaches about once in 250 cases per function.
  *
  * The kinds track what each derived column holds, so a higher level binds it to variables of the right kind:
  * count is bigint, sum and mean take the native result types, min and max keep their input's kind,
- * the contract included. An aggregate's unconstrained numeric result ("num") has no B-tree bound, so it
- * is never a group or plain head column (it would be part of a key, UnrepresentableKey); it is read only as
- * an aggregate's argument. Raw text comparison needs display-deterministic data:
+ * the contract included. An aggregate's computed numeric result ("num"), PostgreSQL's numeric of no typmod, carries the
+ * bound its definition proves, a mean's at numeric's display scale, a B-tree datum of some 520 bytes, so a key over
+ * several such columns outgrows a B-tree entry (UnrepresentableKey): it is never a group or plain head column, which a
+ * key holds, and is read only as an aggregate's argument. Raw text comparison needs display-deterministic data:
  * every stored value of a kind has one spelling, numeric(6, 2) stores two decimals whatever the input, and the double
  * precision values are exact binary fractions, so sums do not depend on the order PostgreSQL meets them in. */
 export const pick = <A>(items: ReadonlyArray<A>, choice: number): A => {
@@ -75,7 +76,7 @@ export const pick = <A>(items: ReadonlyArray<A>, choice: number): A => {
 /** The kinds a base field may have. */
 const baseKinds = ["uuid", "int4", "int8", "bool", "text", "cents", "color", "dec", "f8"] as const
 export type BaseKind = (typeof baseKinds)[number]
-/** A derived column may also hold an unconstrained numeric, the result of an aggregate. */
+/** A derived column may also hold a computed numeric, a sum's or a mean's result. */
 export type Kind = BaseKind | "num"
 
 const ordered: ReadonlySet<Kind> = new Set(["uuid", "int4", "int8", "text", "cents", "dec", "f8"])
@@ -198,10 +199,10 @@ const storedValue = (k: BaseKind, n: number): unknown => {
 	}
 }
 
-/** The n-th literal of a kind with literals: always a value of its field. An unconstrained numeric has none. */
+/** The n-th literal of a kind with literals: always a value of its field. A computed numeric, no field's, has none. */
 const literalOf = (k: Kind, n: number): unknown => {
 	if (k === "num") {
-		throw new Error("no literal of an unconstrained numeric")
+		throw new Error("no literal of a computed numeric")
 	}
 	return storedValue(k, n)
 }
@@ -398,7 +399,7 @@ const drawnCaseSketchGen: Gen<CaseSketch> = (source) => ({
 	steps: source.draw(array(stepGen, { min: 1, max: 4 }))
 })
 
-/** The planted population: a level-2 definition aggregating a level-1 aggregate's unconstrained numeric result with
+/** The planted population: a level-2 definition aggregating a level-1 aggregate's computed numeric result with
  * sum, mean, min and max, which the drawn population reaches about once in 250 cases per function. R0(f0 int8 key,
  * f1 numeric(6, 2)); L1a = R0 grouped by f0 with sum(f1), a "num" column; L2a = L1a with the four aggregates over it
  * (its sources: R0, the roster, L1a). */
@@ -454,7 +455,7 @@ export const caseSketchGen: Gen<CaseSketch> = weighted([
  * definition draws few aggregates and each over a variable of any kind. R0(f0 integer key, f1 bigint, f2 Cents, f3
  * Word) and R1(f0 numeric(6, 2) key, f1 double precision, f2 boolean), four facts each; L1a reads R0 with sum and mean
  * over each field they take, and min and max over each; L1b reads R1 the same way, with a count and a conditional count
- * of its flag; L2a reads L1a's first unconstrained numeric result, its sum of f1, with all four. The one step drops the
+ * of its flag; L2a reads L1a's first computed numeric result, its sum of f1, with all four. The one step drops the
  * first fact of each relation and adds a fact to R0. */
 const ungrouped = (
 	source: number,
@@ -622,8 +623,8 @@ interface BuiltRule {
  *
  * The a.variable-th variable of a kind fn takes, modulo those there are; none, and the aggregate is left out.
  *
- * A one-fact definition is keyed by its first representable column, so it holds at least one
- * that is not an unconstrained numeric. */
+ * A one-fact definition is keyed by its first representable column, which its first column always is: every kind's
+ * datum fits a B-tree entry alone, a computed numeric's at its proved bound among them. */
 const runRule = (
 	sources: ReadonlyArray<GenSource>,
 	sketch: RuleSketch,
@@ -688,7 +689,7 @@ const runRule = (
 	if (predicates.length > 0) {
 		rule = rule.where(...argumentsOf(predicates))
 	}
-	/** Group and plain head columns: never an unconstrained numeric, which no key may contain. */
+	/** Group and plain head columns: never a computed numeric, several of which outgrow a key's B-tree entry. */
 	const headable = Arr.filter(vars, (x) => x.kind !== "num")
 	const chosen: Array<Variable> = []
 	for (const h of sketch.head) {
@@ -709,7 +710,7 @@ const runRule = (
 	}
 	const aggregates: Array<AggregateKey> = []
 	/** A plain head with nothing to find falls back to a count alone: an aggregate column of a union or a take would be
-	 * part of its whole-heading key, and an unconstrained numeric there is UnrepresentableKey. */
+	 * part of its whole-heading key, and a few computed numerics there outgrow its B-tree entry (UnrepresentableKey). */
 	const countOnly = plain && headable.length === 0
 	if (aggregate) {
 		for (const [i, a] of (countOnly ? [] : sketch.aggs).entries()) {
@@ -744,7 +745,7 @@ const runRule = (
 			columns.push({ name: "p", kind: "int8" })
 			aggregates.push("sum(cond)")
 		}
-		if (sketch.count || aggregates.length === 0 || Arr.every(columns, (c) => c.kind === "num")) {
+		if (sketch.count || aggregates.length === 0) {
 			head["n"] = r.count()
 			columns.push({ name: "n", kind: "int8" })
 			aggregates.push("count")

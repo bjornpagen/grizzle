@@ -5,16 +5,7 @@ import { element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Layer,
-	Option,
-	pipe,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option, pipe, String as Str } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { Db } from "#adapter/public/db.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
@@ -27,6 +18,7 @@ import { countingExecutor, untyped } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	ascendingTasks,
@@ -189,7 +181,7 @@ const explorePlans = Effect.gen(function* () {
 				shrink: completeShrink,
 				concurrency: 1,
 				steerEvery: 16,
-				caseHang: Duration.minutes(2),
+				caseHang,
 				coverage: required<PlanFeature>(
 					[
 						...Arr.flatMap(["descending", "ascending", "mixed"] as const, (order) =>
@@ -278,7 +270,6 @@ const explorePlans = Effect.gen(function* () {
 layer(Substrate.layer)("the plans of the page runtime's statements", (it) => {
 	it.effect(
 		"with an order, its exact reverse and a mixed order in one workload, every page reads the task table by an index, deduplicates nothing, sorts nothing past a long remainder, and a seek reads only its page and lookahead",
-		(ctx) => searched(ctx, explorePlans),
-		300_000
+		(ctx) => searched(ctx, explorePlans)
 	)
 })

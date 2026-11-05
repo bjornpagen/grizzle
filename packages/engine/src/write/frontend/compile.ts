@@ -14,7 +14,7 @@ import {
 } from "#compiler/codec/recordset.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import { ParamId, type RaisedLawId } from "#compiler/core/ids.ts"
+import { type LawId, ParamId } from "#compiler/core/ids.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	headNonEmpty,
@@ -184,7 +184,7 @@ export interface SlotFacts {
  * description: identity must be declared honestly. */
 export interface KeyLaw {
 	readonly fields: NonEmptyReadonlyArray<LawField>
-	readonly law: RaisedLawId
+	readonly law: LawId
 	readonly described: Law
 }
 
@@ -217,7 +217,7 @@ export type NamedDelta =
 	  }
 
 /** The law of a written relation's primary key, the insert protocol's arbiter. */
-export const arbiterLaw = (relation: WrittenRelation): RaisedLawId => relation.keyLaws[0].law
+export const arbiterLaw = (relation: WrittenRelation): LawId => relation.keyLaws[0].law
 
 /** What the write lowering needs about one action beyond the WriteIR's record. */
 export interface ActionInfo {

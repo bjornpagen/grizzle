@@ -4,6 +4,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	baseOf,
 	contractOf,
+	numericBoundOf,
 	numericTypmodOf,
 	type ScalarType,
 	sameScalarType
@@ -12,17 +13,20 @@ import {
 import {
 	commonType,
 	compatible,
-	plainType,
+	exactNumericBound,
+	numericHull,
 	sameRegex,
 	wildcardText,
 	withoutSerial
 } from "#compiler/scalar/compute/types.ts"
+import { numericValue } from "#compiler/scalar/registry.ts"
 
 /**
  * Whether every value of type `a` is proved to be a value of type `b`: one carrier and nominal identity, the contract
- * chain included (compatible: within one checked schema a contract name names one domain), one numeric typmod,
- * and, for text, `b`'s pattern the canonical wildcard or proved equal to `a`'s. The serial generation flag is not a
- * value domain and does not enter. Containment between two different languages is never claimed.
+ * chain included (compatible: within one checked schema a contract name names one domain), one numeric typmod, a
+ * computed numeric's bound holding `a`'s values (types.ts exactNumericBound), and, for text, `b`'s pattern the
+ * canonical wildcard or proved equal to `a`'s. The serial generation flag is not a value domain and does not enter.
+ * Containment between two different languages is never claimed.
  */
 export const guarantees = (a: ScalarType, b: ScalarType): boolean => {
 	if (!compatible(a, b)) {
@@ -35,6 +39,14 @@ export const guarantees = (a: ScalarType, b: ScalarType): boolean => {
 		if (
 			tb !== undefined &&
 			(ba.typmod?.precision !== tb.precision || ba.typmod.scale !== tb.scale)
+		) {
+			return false
+		}
+		const boundB = numericBoundOf(bb)
+		const boundA = exactNumericBound(ba)
+		if (
+			boundB !== undefined &&
+			(boundA === undefined || boundA.digits > boundB.digits || boundA.scale > boundB.scale)
 		) {
 			return false
 		}
@@ -66,8 +78,10 @@ const combine = (a: ScalarType, b: ScalarType): ScalarType => {
 	if (x.carrier === "text" && y.carrier === "text") {
 		return sameRegex(x.text.regex, y.text.regex) ? x : wildcardText
 	}
-	if (x.carrier === "numeric") {
-		return sameGuarantees(x, y) ? x : plainType("numeric")
+	const nx = exactNumericBound(x)
+	const ny = exactNumericBound(y)
+	if (x.carrier === "numeric" && nx !== undefined && ny !== undefined) {
+		return sameGuarantees(x, y) ? x : numericValue(numericHull(nx, ny))
 	}
 	return commonType(x, y)
 }
@@ -80,12 +94,14 @@ const combine = (a: ScalarType, b: ScalarType): ScalarType => {
  *
  * - Propagation. An unchanged projection, match, import, DISTINCT, and text min and max keep their input's
  *   guarantees, because the checker gives them the input column's own type. A computed value carries the Compute
- *   catalogue's result type, a plain native type or the canonical wildcard (scalar/compute). A column that several arms
+ *   catalogue's result type, a plain native type, a computed numeric with its bound or the canonical wildcard
+ *   (scalar/compute). A column that several arms
  *   of one union deliver keeps only the guarantees common to every arm (`refinement.common` below): the arms' type when
  *   they agree, the arms' pattern when the arms' patterns are proved to recognize one language (the canonical
- *   pattern key of text/refinement.ts, the proof domain sharing uses), and otherwise the canonical
- *   wildcard or unconstrained numeric, PostgreSQL's own common-type rule. No other regex containment, disjointness, or
- *   inferred-type assignability is claimed.
+ *   pattern key of text/refinement.ts, the proof domain sharing uses), and otherwise the canonical wildcard for text
+ *   and, for numerics, the computed numeric whose bound holds both arms' values (types.ts numericHull): PostgreSQL's
+ *   own common-type rule, text and numeric of no typmod, with what grizzle proves of it. No other regex containment,
+ *   disjointness, or inferred-type assignability is claimed.
  * - Validation sites. A value written into a refined column is validated by the column's domain in the apply
  *   transaction; its refusal names the domain's constraint; the adapter classifies it by the domain PostgreSQL reports
  *   as the violation's data type. A refined output is cast to its domain in the delivered output list

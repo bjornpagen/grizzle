@@ -69,7 +69,9 @@ export type IntegerIsIntegerLike = Expect<IsAssignable<typeof pg.integer, Intege
 export type BigintIsIntegerLike = Expect<IsAssignable<typeof pg.bigint, IntegerLike>>
 export type ContractIsIntegerLike = Expect<IsAssignable<typeof Cents, IntegerLike>>
 export type SmallintIsNotIntegerLike = Expect<Not<IsAssignable<typeof pg.smallint, IntegerLike>>>
-export type NumericIsNotIntegerLike = Expect<Not<IsAssignable<typeof pg.numeric, IntegerLike>>>
+export type NumericIsNotIntegerLike = Expect<
+	Not<IsAssignable<ReturnType<typeof pg.numeric>, IntegerLike>>
+>
 /** A serial is still a field: a relation may declare one. */
 export type SerialIsAField = Expect<IsAssignable<typeof pg.serial, Field<number, "integer">>>
 

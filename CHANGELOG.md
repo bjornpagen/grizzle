@@ -11,10 +11,211 @@ How to upgrade:
 1. Run every codemod rule below over your code in one pass.
 2. Typecheck. Every remaining error is a site the rules could not rewrite mechanically, and the error names what to
    write. The type system rejects every old form, so a clean typecheck means nothing old is left.
-3. Delete your `migrations/` folders and re-create every database, then `grizzle generate`. snapshot.json and
-   meta.json changed format, and the previous files are refused, never read.
+3. Delete your `migrations/` folders and re-create every database, then run `grizzle generate <config>`. snapshot.json
+   and meta.json changed format, and the previous files are refused, never read.
 
 ### Breaking changes
+
+#### A connection is pure mechanism: the driver, transport, connect timeout and pool are yours
+
+- **`DbConnection` is `{ driver, transport, database, password, connectTimeoutMs }`, and `DbConfig` adds `pool`.**
+  grizzle imports nothing of node-postgres: `pg` (`^8.23.1`) is a peer dependency, passed as `driver`, and `@types/pg`
+  an optional one; a `pg` without pipeline mode is a type error. `host`, `port` and `tls` move into
+  `transport: { kind: "sslRequest", host, port, open, ca, servername }`, where `open` makes each connection's
+  unconnected socket (`() => new net.Socket()`), and `servername`, the name the server's certificate must carry, is
+  required where it defaulted to the host. `connectTimeoutMs` (1 to 2,147,483,647) bounds each connection attempt and
+  each CancelRequest, and `ConnectTimedOut.millis` is it. `pool: { max, min, idleTimeoutMs }` sizes the login's pool.
+  Codemod: `host: H, port: P, tls: { ca: C, servername: S }` → `driver: pgDriver, transport: { kind: "sslRequest",
+  host: H, port: P, open: () => new net.Socket(), ca: C, servername: S ?? H }, connectTimeoutMs: 5_000`, plus
+  `pool: { max: 10, min: 1, idleTimeoutMs: 5_000 }` on a DbConfig, which were the former fixed values, with
+  `import net from "node:net"` and `import pgDriver from "pg"`.
+- **A host that is a path is refused at stage config, and `TlsFault` loses `noAuthority`.** `transport.host` is a name
+  or an IP address: node-postgres reads a host starting with `/` as a Unix socket's directory, and PostgreSQL offers no
+  TLS over a Unix socket, so `DbLayer.make` fails with `DbConfigRefused` and `grizzle migrate` with
+  `ConnectionRefused`, naming `transport.host`, before any connection. An empty CA bundle is refused the same way, so no
+  connection attempt ever fails for it, and the `noAuthority` fault of `TlsRefused` is gone. Fix: connect over TCP; a
+  program that switches over `TlsFault` exhaustively drops the case.
+- **A lease's wait has no deadline, and `AcquisitionBudgetExceeded` and the stage `wait` are removed.** The wait is
+  interruptible and holds nothing: a client that arrives for an interrupted lease goes straight back to the pool. The
+  error, its `millis`, `sessions`, `leased` and `max` and its `saturated` getter go with it. Fix: bound the call with
+  your own timeout (the former wait was 15,000 ms), and handle its failure where you handled
+  `AcquisitionBudgetExceeded`; a program that switches over `AcquireRefusal` or the stage exhaustively drops the case.
+- **An interrupted statement sends one CancelRequest and destroys its session.** The request goes over a connection
+  the transport opens, with SSLRequest and verify-full TLS as a session's, within `connectTimeoutMs`; the session is
+  then retired and its connection destroyed at once, never reused. No codemod.
+- **Releasing a layer destroys every connection at once.** It writes at most a Terminate and awaits nothing from the
+  network, so a server or transport that stops answering cannot hold a release. No codemod.
+- **grizzle names no session.** The application names `grizzle` and `grizzle migrate` are gone: a session's
+  `application_name` is `PGAPPNAME`'s, the deployment's own label. No codemod.
+
+#### The command line is pure mechanism: it reads the config file you name, and no environment
+
+- **Every command names its config file.** `grizzle generate grizzle.config.ts [--name …] [--schema …]`, `grizzle
+  check <config>`, `grizzle migrate <config>`, `grizzle drift <config>` and `grizzle names <config>`, the path absolute
+  or relative to the directory grizzle runs in; no `./grizzle.config.ts` is read implicitly, and a command without its
+  config is a usage error. Codemod: append ` grizzle.config.ts` after the command in every script and CI step.
+- **`migrations` and `connection` are required in the config.** The default directory `migrations` is gone, and a
+  config without either is refused at stage config. `connection` is the migration role's `DbConnection` with its
+  `role`. Codemod: add `migrations: "migrations"` and a `connection` block to `defineConfig({ ... })`.
+- **migrate and drift read no environment.** `DATABASE_URL`, `PGPASSWORD` and `PGSSLROOTCERT` are no longer read, and
+  there is no default port 5432 and no system trust store as a CA: the config's `connection` is the only place a
+  migration connects to. The refusal of `PGOPTIONS` and `PGREPLICATION`, which node-postgres would send at a migration
+  session's startup, stays. Codemod: move a `DATABASE_URL`'s parts into `connection`, reading the password in the config
+  (for instance `Config.Redacted("MIGRATION_PASSWORD").pipe(Effect.mapError((cause) => new CredentialError({ cause
+  })))`, as the README's config does). The repository's `scripts/pg/ctl.sh env`, which printed a `DATABASE_URL`, is
+  gone with it.
+- **`--custom` needs `--name`.** A custom folder is no longer named `custom` by default. Codemod: `grizzle generate
+  <config> --custom` → `grizzle generate <config> --custom --name <data step>`.
+- **migrate refuses its connection first.** A connection or a process environment migrate and drift cannot use is
+  refused before any check runs or any directory is read; an environment's refusal is at stage `environment`, whose
+  fix is to unset the variable, no longer at stage `config`. No codemod.
+- **`grizzle skill` is removed.** The package still ships `skills/grizzle/SKILL.md`; copy it to where your agent reads
+  skills. No codemod.
+- **A migration's name holds up to 240 characters**, the bytes NAME_MAX (255) leaves after the folder's
+  `<timestamp>_` prefix, where it held 100. No codemod.
+- **migrate and check print the whole snapshot fingerprint**, not its first 16 characters. No codemod.
+
+#### Reads and settings are pure mechanism: a page of any size, a cursor bounded by its layout, and only the settings a guarantee rests on
+
+- **A page size has no upper bound.** `db.page` takes as its `first` or `last` any safe integer of at least 1, where
+  it took 1 to 1,000, and `PageRequestRefused` with fault `requestSize` refuses only what is no such integer. A page's
+  statements bind the size, and the size plus one they read ahead, as `bigint` parameters (`$n::bigint`, where they
+  were `integer`). No codemod.
+- **A cursor is bounded by its own layout.** A token held at most 1,024 bytes: a page one of whose cursors would be
+  longer failed with `CursorError` `cursorTupleOversized`, and an order whose shortest token was longer was refused
+  with `UnsupportedOperation`. A token now holds at most 268,435,455 characters (2^28 − 1), the largest length its
+  four-byte varints write, so a page ordered by long text values pages; a longer token sent back is `cursorOversized`,
+  refused before any of it is decoded. The reader compares each length and count with the bytes that follow it before
+  it reads anything for it, and reads each field as a view of the token's bytes, so a token allocates nothing in
+  proportion to what it claims. No codemod.
+- **A login pins only the settings a grizzle guarantee rests on.** Its role's defaults, which `Db.open` requires
+  exactly and every session of its pool also sends as startup options, are `search_path = pg_catalog, pg_temp`,
+  `extra_float_digits = 1`, and `lc_monetary`, `lc_numeric` and `lc_time` at `C.UTF-8`, and for a login whose roles
+  search vectors `hnsw.iterative_scan = strict_order`, on which an approximate read's order and its cursors rest.
+  `jit = off`, `lc_messages = C.UTF-8`, `hnsw.ef_search = 40`, `hnsw.max_scan_tuples = 20000` and
+  `hnsw.scan_mem_multiplier = 1` are no longer stored, sent or expected. Each is the database owner's, set on the
+  database or the server; a login's role that holds one is refused at stage `settings`, as any default the snapshot
+  does not install is. So on a server built with LLVM, `jit_above_cost` can make a large statement compile its plan
+  first; a server error's message, detail and hint come in the server's `lc_messages` language, and grizzle reads an
+  error by its SQLSTATE and the fields it names, never by its words; and the owner's pgvector settings decide which
+  rows an `approximateNearest` read returns and how many. No codemod.
+- **The migration role needs no SET on `lc_messages`.** It held the grant to store `lc_messages` as every login's
+  default; it now needs only to own the schema and the database and to have CREATEROLE. No codemod.
+- **Every advisory lock key is derived on the host.** The installation sets the database's default isolation in a
+  block that takes a transaction-level advisory lock, so concurrent installations into one database set it one at a
+  time, and `grizzle migrate` takes a session-level advisory lock per schema, so two applies of one schema never
+  interleave. The database default's key was the number 7385900293, and the apply lock's was computed by the server,
+  `hashtextextended('grizzle migrate <schema>', 0)`. Each is now the first 64 bits of the SHA-256 of its name,
+  `grizzle advisory lock: database default` or `grizzle advisory lock: apply <schema>`, read as a signed bigint and
+  printed as a literal, which the application's own locks in the database's one key space meet only by a 64-bit
+  collision. An apply by an earlier grizzle does not exclude one by this one. No codemod.
+- **Format and state:** snapshot.json changes: a login's defaults no longer hold `jit`, `lc_messages` or the three
+  `hnsw.*` settings, so every fingerprint changes. A database installed before stores them as its logins' defaults,
+  which `Db.open` refuses: re-create it (step 3 above). A drafted Setup file's database-default block holds the new
+  key.
+
+#### The compiler's reasoning has no caps: keys by closure, orders by decision diagram, every walk once per node, every rewrite pass to its fixed point
+
+- **Keys are proved by closure, with no cap.** The physical analysis kept at most 8 keys per fragment, passed at most
+  64 dependencies to its consumers and tried at most 64 combinations of its occurrences' keys for a rule region; a key
+  past them was forgotten, which kept a DISTINCT the query did not need. A fragment's dependencies are now one table
+  whose closure is linear in its size (Beeri and Bernstein), and a start is a key exactly when its closure reaches the
+  fragment's row, so every key the declared keys and the query's structure prove is found. No codemod.
+- **No proof gives up at a depth.** The walks that stopped after 8 nodes (a take's row bound, a bound parent set above
+  a region) or after 256 (the proof that a put's rows carry the keys of stored facts) now fold over the query's DAG,
+  answering each node once with their frames on the heap, so a deep query is proved as a shallow one is: a put into a
+  mutable relation that reads only existing keys runs as `UPDATE … FROM` at any depth, where past 256 it fell back to
+  the DELETE-then-insert pair. No codemod.
+- **A lexicographic comparison of any number of fields is recognized.** The rewrites of a self-match restricted by a
+  tuple comparison into window functions (an ordinal or a running fold, R26 and R41, and a neighbor, R27) recognized a
+  comparison of at most 6 field pairs, by evaluating all 3^pairs sign vectors; a longer one kept its self-join. The
+  recognizer now builds the predicate's reduced ordered decision diagram over the pairs' signs and reads the order off
+  it, a few tests per pair for the nested expansion and its disjunctive normal form, in any arrangement. Whether an
+  arbitrary predicate is lexicographic is coNP-hard, so a pathological arrangement of comparisons can take compile time
+  exponential in its pairs. No codemod.
+- **A finite text pattern's domain CHECK is the shorter of its two forms.** A pattern whose language has at most 64
+  members was enforced as `VALUE IN (...)`, a larger one as `VALUE ~ '<ARE>'`; the 64 is gone, and the domain's CHECK
+  is whichever form prints in fewer UTF-8 bytes, the IN list on a tie, with members counted only until the list
+  outgrows the pattern. Both forms admit exactly the same values. Snapshots change. No codemod.
+- **A recursion is always one recursive CTE.** A recursion whose counter proved a depth of at most 4 was unrolled into
+  a union of joins, one `NOT MATERIALIZED` CTE per level; every recursion is now `WITH RECURSIVE … UNION`, whatever
+  its proved depth. A recursion is no longer refused for its static estimate of the states it reaches, past 1,000,000
+  (`RecursionRefused`, cause `stateEstimate`): the estimate is recorded, and the states its seen-state hash holds are
+  the program's own to bound, by its data or its filters, since PostgreSQL 19's RecursiveUnion keeps that hash in
+  memory and never spills it. Fix: a program that switches over
+  `RecursionRefusal["kind"]` exhaustively drops the case `"stateEstimate"`.
+- **An attachment is pipelined unless its parent reads an approximate search.** An attachment of at most 4 fields was
+  fused into its parent's statement; every attachment is now a statement of its own in the call's one round trip, and
+  only a parent whose rows read an approximate search fuses its children, so the search runs once. A read sends one
+  statement more for each attachment it fused, and `db.explain` returns a plan for it. Answers do not change. No
+  codemod.
+- **A one-column membership of declared closed facts is rewritten at any size.** It becomes `v IN (l1, …, ln)`
+  whatever its number of facts, where it kept its VALUES join past 64 terms; PostgreSQL hashes a long constant list. A
+  tuple membership becomes its disjunction while that holds at most 64 equalities, its distinct tuples times its
+  tested columns. No codemod.
+- **A discrete percentile at any multiple of 1/128 is rewritten to `PERCENTILE_DISC`.** The rewrite (R29) admits a
+  dyadic fraction m / 2^j, at which the composition and the native aggregate provably select one value, for j at most
+  7, where it was 6: the exponent is now derived from the most rows a stored relation holds and the 15 digits a
+  double keeps through numeric. No codemod.
+- **A rewrite pass runs to its fixed point.** A pass was metered in steps and refused past its budget with
+  `ResourceBound` (`{ kind: "rewriteSteps", rewrite, limit, needed }`); each now runs over a worklist and ends because
+  every rewrite lowers a potential the query bounds, such as the occurrences left to rewrite or the regions left to
+  fuse. Fix: a program that switches over `CompileBound["kind"]` exhaustively drops the case `"rewriteSteps"`.
+- **Two operating thresholds remain, at their former values and unmeasured.** A bound parent set of at most 256
+  groups takes a take's correlated LATERAL form (R20), and a tuple membership of at most 64 equalities is rewritten
+  into its disjunction (R07). Each chooses between two plans of one answer, and its gate measures both:
+  `bench/query/take.bench.ts` for R20 and `bench/query/finite.bench.ts` for R07. No codemod.
+- **Format and state:** answers are unchanged, but the SQL a read, a write or a law check sends may change shape, and
+  with it a snapshot.json that records such a statement: regenerate (step 3 above).
+
+#### Every number grizzle bounds something by carries its evidence, and `core/policy.ts` is gone
+
+- **A limit is a value with its evidence.** Every bound the library compares, loops, sizes or waits by is a Limit,
+  minted only by `published`, `measured` or `derived` of `packages/engine/src/core/limits.ts`, or a value its caller
+  passes, but for the two unmeasured thresholds of the entry above. A published limit is a number a source states,
+  with the source's URL, a quote of it, what kind of constraint it is and the day it was checked: PostgreSQL's 1,600
+  columns, 1,664 select-list entries, 65,535 parameters, NAMEDATALEN and regex repetition bound, V8's longest string,
+  Node's longest timer, TCP's largest port, NAME_MAX, and pgvector's 2,000 indexed dimensions. A measured one is an
+  operating value with the record of its measurement, its environment and workload, and what invalidates it: the
+  regex compile-space measures, the bounds of the pattern analysis's DFA construction, and the PostgreSQL major
+  `Db.open` admits. A derived one is computed from others by the arithmetic it states: PostgreSQL's longest message
+  from MaxAllocSize, the longest identifier from NAMEDATALEN, a migration name's 240 bytes from NAME_MAX. No codemod.
+- **A float quotient's exact path rounds every tie as IEEE 754 does.** The guarded form of `/` over `real` and
+  `double precision`, which divides the operands' exact values where the native operation could overflow or
+  underflow, scaled the quotient by an invented 10^700, at which half the subnormal ties of a double quotient rounded
+  the wrong way (`5e-324 / 2` was `5e-324`, not `0`). The scale is now derived from the format, 10^(p - emin)
+  (10^1075 for double precision, 10^150 for real), at which every point where the format's rounding changes is exact.
+  The ranges inside which an IEEE operation runs natively are derived from the formats' exponents too: a product's or
+  a quotient's operands within 2^±510 for double precision and 2^±62 for real, where they were 2^±500 and 2^±60, and
+  a rounding into double precision within 2^±1021, where it was 2^±1022. Generated SQL and fingerprints change. No
+  codemod.
+- **The fixed choices `core/policy.ts` made for its caller are gone.** Its pool bounds, page limit, cursor bytes,
+  attachment width, recursion unrolling depth and state-estimate bound are deleted with the decisions they made (the
+  entries above): what was a choice is the caller's input, or is no longer made. No codemod.
+
+#### Two gates hold the library to pure mechanism: superlint's `limit-evidence` and `no-environment`
+
+- **`limit-evidence`: a bound is a Limit or a caller's input.** In `packages/engine/src` and `packages/grizzle/src`, a
+  bare number (a literal, a number constant that is no Limit's value, or arithmetic of only those) is refused where it
+  bounds something: a comparison's operand, a loop's condition, an argument of `Math.min` or `Math.max`, and a value
+  that sets a length or a count, a time, a concurrency, a retry count or a size, read off the parameter or the
+  property it sets; so is a module-level number constant whose name says it bounds something (`max`, `limit`,
+  `timeout`, `depth`, `budget` and the rest). 0 is an identity everywhere, 1 and −1 everywhere but in a time, and 2 in
+  `n < 2` and `n >= 2`, and a hexadecimal, octal or binary literal compared is a code unit or a bit pattern. A bound is
+  a Limit's `.value` or a value the caller passes; a format's defining width is a named constant documented with
+  `@formatConstant`. In `test/`, `bench/` and `scripts/` the rule checks times, concurrencies and retry counts only,
+  and a generator builder's arguments are a test's inputs, never a bound.
+- **`no-environment`: the library reads no environment.** In `packages/engine/src` and `packages/grizzle/src`, a use
+  of `process.env`, `argv`, `execArgv`, `cwd`, `chdir` or `loadEnvFile`, of `node:os`'s `homedir`, `tmpdir`,
+  `hostname`, `userInfo`, `availableParallelism` or `cpus`, or of any value of Effect's `Config` or `ConfigProvider`
+  is refused however it is spelled: a property read, an imported name, a destructuring. The one sanctioned reader is
+  `packages/grizzle/src/adapter/connection/environment.ts`, which refuses `PGOPTIONS` and `PGREPLICATION`; a
+  program's entry module, one that tests `import.meta.main` as the `grizzle` command's does, reads its own `argv` and
+  `cwd`.
+- **Both are in the gate.** They read their settings from the `superlint` field of the root `package.json`
+  (`limitEvidence`, `noEnvironment`), run in `pnpm superlint` and `pnpm check`, and are proved on their fixtures
+  (`packages/devtools/src/lint/fixtures/`) by `fixtures:superlint`. No codemod: they lint grizzle's own sources, never
+  an application's.
 
 #### A relation input of any number of rows travels as one array per column; `InputTooLarge` names its byte bound
 
@@ -32,6 +233,37 @@ How to upgrade:
   1,073,741,822 bytes (`PQ_LARGE_MESSAGE_LIMIT`), which the server would answer by closing the connection; or
   `{ kind: "literal", input, column, limit }`, one column's array literal past JavaScript's longest string. Its stage is
   still `resource`. No codemod; a handler that matched `InputTooLarge` keeps matching and may read `error.bound`.
+
+#### Every numeric field declares its precision and scale; a computed numeric carries its proved bound
+
+- **`pg.numeric` is a constructor only: `pg.numeric(p, s)`, both declared.** The bare `pg.numeric` field, its
+  invented bound of 1,000 integer digits and the CHECK `__<table>_bound_<column>_<digest>` that installed it are
+  gone, and so is `numeric(p)` with its implied scale 0. `pg.decimal` is the same constructor. A bare numeric in an
+  authored Description, `{ kind: "numeric" }`, is refused. Codemod: `pg.numeric(p)` → `pg.numeric(p, 0)`; a bare
+  numeric field → `pg.numeric(p, s)` with the precision and scale of what it stores; a parameter or typed literal
+  likewise.
+- **`Compute.numeric(x)` is the numeric of a value.** It is PostgreSQL's `x::numeric` of an integer, money, an exact
+  value, a numeric or a float (a float's as float4_numeric and float8_numeric write it, with 6 or 15 significant
+  digits), lowered exactly as the cast to bare numeric was. Codemod: `Compute.cast(x, pg.numeric)` →
+  `Compute.numeric(x)`.
+- **A computed numeric carries its bound.** A sum, a mean, an operation's numeric result and a derived relation's
+  numeric field are typed with the integer and fraction digits their making proves: a sum its argument's integer
+  digits widened by the rows' (a bigint's 19), a mean its argument's with PostgreSQL's display scale. A bound past
+  131,072 integer digits is `ResourceBound` (`numericDigits`) where the value is made, so arithmetic over a sum is
+  admitted without a cast, and a derived relation keyed by a numeric sum is representable. Fingerprints and
+  snapshots change. No codemod.
+- **`DatumUnbounded` is removed, `KeyFault`'s `unbounded` becomes `unboundedText`, the Law loses `numericBound`, and
+  `CompileReason` gains `DigestCollision`.** Text whose pattern proves no byte bound is the one datum with no bound, so
+  the fault names only its field: `{ kind: "unbounded", field, datum: "textBytes" }` →
+  `{ kind: "unboundedText", field }`. Two distinct objects of one installation whose hashed names share a stem and a 50-bit digest are
+  refused with `DigestCollision`, naming both, never installed, and so is a migration's temporary name (a holder set
+  aside, an index's swap name, an enum's rebuild name) that a name standing while it runs or another temporary has,
+  before `grizzle generate` drafts it; renaming a declaration either is built from resolves it. Fix: a program that
+  switches over these exhaustively drops or gains the case.
+- **A vector's cosine domain is derived: norms from 2^-68 to 2^63.** The bounds were 2^-16 and 2^16. They are now the
+  widest powers of two for which pgvector's `cosine_distance`, which sums in single precision, is a number in [0, 2]
+  for every pair of vectors of up to 16,000 dimensions: past the upper one a square or a dot product overflows to
+  infinity, below the lower one every square rounds to zero. Every vector a column holds stays admitted. No codemod.
 
 #### A value is only its value: `Decimal` has no display scale; float and money sums are exact (#3)
 
@@ -70,7 +302,7 @@ How to upgrade:
   no operator class for (`UnrepresentableKey`, fault `gistOperatorClass`); the `vector` fault is removed. No codemod.
 - **Format and state:** snapshot.json and meta.json fingerprints over decimal literals change (`~d:1.50` is refused;
   `~d:1.5` is the payload); CHECKs and expression indexes that divide, raise to a power or take a root gain
-  `trim_scale(...)`, which the next `grizzle generate` redrafts; cursors over bare numeric order columns change their
+  `trim_scale(...)`, which the next `grizzle generate` redrafts; cursors over numeric order columns change their
   bytes (they are now a function of the value).
 
 #### Rename candidates are a tree decided by path; meta.json records every drafted statement (#8)
@@ -133,36 +365,34 @@ How to upgrade:
 #### Every login pins its search_path, and `Db.open` refuses a login whose search_path is not the pin (#4)
 
 - **A login's sessions run under `search_path = pg_catalog, pg_temp`.** The first migration stores
-  `ALTER ROLE <login> SET search_path = "pg_catalog", "pg_temp"` beside the login's other defaults (`jit = off`,
-  `extra_float_digits = 1`, the four locale categories at `C.UTF-8`). PostgreSQL applies a role's own default over the
-  database's and the server's, so an `ALTER DATABASE ... SET search_path`, or a server's, no longer reaches a `Db`'s
-  sessions. No codemod.
+  `ALTER ROLE <login> SET search_path = "pg_catalog", "pg_temp"` beside the login's other defaults
+  (`extra_float_digits = 1`, and `lc_monetary`, `lc_numeric` and `lc_time` at `C.UTF-8`). PostgreSQL applies a role's
+  own default over the database's and the server's, so an `ALTER DATABASE ... SET search_path`, or a server's, no
+  longer reaches a `Db`'s sessions. No codemod.
 - **`Db.open` refuses a login whose search_path default is missing or another path**, as an `OpenError` at stage
   `settings` with the mismatch `role <login> default search_path`, expected `pg_catalog, pg_temp`; one set for the
   login in this database alone is refused as any such default is. The drift check after `grizzle migrate` refuses it
   the same way. Fix: re-create the database from your migrations.
-- **Every session of a login's pool sends the pinned defaults as its startup options**, all but `lc_messages`, which
-  no login may set itself and which stands by its role default: `-c search_path=pg_catalog,\ pg_temp -c jit=off -c
-  extra_float_digits=1 -c lc_monetary=C.UTF-8 -c lc_numeric=C.UTF-8 -c lc_time=C.UTF-8`. Before, node-postgres sent the
-  environment's `PGOPTIONS` instead, whose settings silently overrode the pins. After, pg never reads `PGOPTIONS` for a
-  login's session. No codemod.
+- **Every session of a login's pool sends the pinned defaults as its startup options**: `-c search_path=pg_catalog,\
+  pg_temp -c extra_float_digits=1 -c lc_monetary=C.UTF-8 -c lc_numeric=C.UTF-8 -c lc_time=C.UTF-8`. Before,
+  node-postgres sent the environment's `PGOPTIONS` instead, whose settings silently overrode the pins. After, pg never
+  reads `PGOPTIONS` for a login's session. No codemod.
 - **`DbLayer.make` refuses a process environment that sets `PGREPLICATION`**, which node-postgres would send at every
   login, making each session a replication connection: `OpenError` at stage `config`, reason
   `ConnectionEnvironmentRefused`, naming the variable and never its value. grizzle reads `process.env`, the source pg
   reads, never the ConfigProvider. Fix: unset `PGREPLICATION`.
 - **`grizzle migrate` and `grizzle drift` refuse a process environment that sets `PGOPTIONS` or `PGREPLICATION`**, at
-  stage `config` with the same reason. A migration session sets no options of its own and starts under its role's
+  stage `environment` with the same reason, before any check runs. A migration session sets no options of its own and starts under its role's
   and its database's defaults, so pg would send either at its startup. Fix: unset both for the command.
 - **No grizzle session reads `PGPASSWORD` or `~/.pgpass`.** Before, a password given as the empty text, `noPassword`
   for trust, peer or certificate logins, or an empty `Redacted`, fell back in node-postgres to `PGPASSWORD`, then to the
   password file. After, pg is always given a function that yields the configured password, and a server that asks for
-  one refuses the empty one. A `grizzle migrate` URL without a password still takes `PGPASSWORD`'s, which grizzle reads
-  itself. Fix: give every login its password in `DbConfig.password`.
+  one refuses the empty one. Fix: give every login its password in `DbConfig.password`.
 - **A session's client encoding and TLS negotiation are grizzle's own**, so `PGCLIENT_ENCODING` and `PGSSLNEGOTIATION`
   no longer reach a session. `DbConfig` has no `options` setting, and refuses one as any unknown setting. No codemod.
 - **Format and state:** snapshot.json changes: a login default's `action` holds its setting,
-  `{ "kind": "set", "setting": { "parameter": "jit", "value": "off" } }`, and the search path's names no value, since
-  the pin is the only one, `{ "kind": "set", "setting": { "parameter": "search_path" } }`. Every fingerprint changes,
+  `{ "kind": "set", "setting": { "parameter": "extra_float_digits", "value": "1" } }`, and the search path's names no
+  value, since the pin is the only one, `{ "kind": "set", "setting": { "parameter": "search_path" } }`. Every fingerprint changes,
   and a pre-cutover snapshot is refused at stage snapshot. Re-create every database installed before.
 
 #### Every generated text is built once, a text past JavaScript's longest string is refused, and a large schema no longer crashes (#6)
@@ -518,7 +748,7 @@ How to upgrade:
   ("missing the following properties … expr, column, sql"), and `r.eq(1, x)` or `Compute.add(1n, x)` a bare TS2345.
   Now each is TS2345, `Refusal<"a term first: a literal takes its place opposite a term, never first">`, the refusal
   a parameter in that place already raised.
-  - Fix: write the term first, `r.eq(x, 1)`, or type the value, `Compute.literal(pg.numeric, "1.5")`.
+  - Fix: write the term first, `r.eq(x, 1)`, or type the value, `Compute.literal(pg.numeric(2, 1), "1.5")`.
   - Codemod: a `@ts-expect-error` naming the old diagnostic of a JavaScript value first →
     `// @ts-expect-error -- TS2345 refusal: a term first: a literal takes its place opposite a term, never first`.
     Explicit type arguments of these signatures gain one for the first operand, before the old ones (after the
@@ -623,11 +853,6 @@ How to upgrade:
   its violation query reads more than once from one `MATERIALIZED` CTE. snapshot.json and every fingerprint are
   unchanged, so a folder drafted before keeps passing `grizzle check`.
 
-#### `AcquisitionBudgetExceeded.saturated` is removed
-
-- **The `saturated` getter of `AcquisitionBudgetExceeded` is removed.** It was derived from the error's own fields.
-  - Codemod: `e.saturated` → `e.leased === e.max`.
-
 #### No read raises an evaluation error: integer and money arithmetic is exact, floats are IEEE 754, partial operations are guarded (#9)
 
 - **Integer arithmetic is exact and delivers `bigint`.** `Compute.add`, `sub`, `mul`, `neg`, `abs`, `div`, `gcd` and
@@ -698,13 +923,10 @@ How to upgrade:
   type is a contract or a refined text is refused at bind, `EncodingFailure` with reason `refinedValue`, when its value
   violates them, before any SQL is sent; before, a read cast it to its domain and PostgreSQL raised 23514. A program
   that switches over the codec fault words gains `"refinedValue"`. No codemod.
-- **A bare `pg.numeric` field stores at most 1,000 integer digits.** Its encoder refuses a longer value
-  (`numericOverflow`), and every bare numeric column carries the installed CHECK `__<table>_bound_<column>_<digest>`,
-  `abs(c) < 10^1000 OR c = 'NaN' OR abs(c) = 'Infinity'` (the bound written out in full digits), whose violation, by a computed value grizzle writes or by a
-  direct SQL writer, reports the law `{ kind: "numericBound", relation, field }`. A numeric expression whose digit
-  bound passes 131,072 digits is `ResourceBound` with `bound: { kind: "numericDigits", limit, needed }`.
-  - Fix: a program that switches over `Law["kind"]` exhaustively gains `"numericBound"`, and one over
-    `CompileBound["kind"]` gains `"numericDigits"`.
+- **A numeric expression whose digit bound passes 131,072 digits is `ResourceBound`** with `bound: { kind:
+  "numericDigits", limit, needed }`; every numeric's digits are known, a field's by its typmod and a computed one's by
+  its type's bound.
+  - Fix: a program that switches over `CompileBound["kind"]` exhaustively gains `"numericDigits"`.
 - **A role entry's arithmetic is no longer refused.** A role's query entry may compute with arithmetic, casts and
   every other Compute operation, since no operation raises; the refusal of arithmetic in a role entry is removed. No
   codemod.
@@ -717,7 +939,7 @@ How to upgrade:
 - **`r.sum` over `bigint` is `numeric`, and over money exact money.** Sums over exact values are exact. No codemod for
   reads of `bigint` sums, which already delivered `Decimal`.
 - **Format and state:** snapshot.json changes: a scalar operation node carries its precondition proof, failure
-  annotations are gone, and a contract records its declared facts; every bare numeric column gains its bound CHECK.
+  annotations are gone, and a contract records its declared facts.
   Re-create every database installed before.
 
 #### Node 26 and Effect 4.1 are the floor

@@ -1,4 +1,5 @@
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
 import type {
 	AlterDatabaseDefault,
 	CatalogTypeName,
@@ -66,7 +67,6 @@ export const catalogFunctions = [
 	"has_sequence_privilege",
 	"has_table_privilege",
 	"has_type_privilege",
-	"hashtextextended",
 	"pg_advisory_unlock",
 	"pg_encoding_to_char",
 	"pg_get_constraintdef",
@@ -570,10 +570,53 @@ export const roleOid = (name: CatalogExpr): CatalogExpr => {
 export const setClosedSearchPath: SetClosedSearchPath = { kind: "setClosedSearchPath" }
 
 /**
- * The advisory lock key every installation's database-default block takes, so concurrent installations into one
- * database set the default one at a time (sql/ast.ts AlterDatabaseDefault). Any fixed key no other code takes.
+ * An advisory lock grizzle takes, by what it serializes: the database default an installation sets, so concurrent
+ * installations into one database set it one at a time (databaseDefaultBlock), or the apply of one schema's
+ * migrations, so two applies of the schema never interleave their files (adapter/migrate/apply.ts). Each lives in the
+ * database's one bigint key space, which the application's own locks share, so its key is grizzle's by derivation from
+ * its name (advisoryKey), never a chosen number, and is known on the host before any statement is sent: every statement
+ * that takes or releases one prints its key as a literal.
+ *
+ * The advance function of a serial field (physical/ddl/advance.ts) takes the one advisory lock not here: it is keyed by
+ * its sequence itself, the sequence's class and OID, which only the server knows, in the two-integer key space, which
+ * no bigint key meets; a key derived from the sequence's name would join the same-named sequences of two schemas, or,
+ * qualified by its schema, differ in the drift check's scratch replay, which moves the function into another schema.
  */
-const databaseDefaultLock = 7385900293n
+export type AdvisoryLock =
+	| { readonly kind: "databaseDefault" }
+	| { readonly kind: "apply"; readonly schema: string }
+
+/**
+ * The name of an advisory lock in grizzle's own namespace, whose digest is its key: one name per lock, since an apply
+ * lock's name ends in `apply ` and its schema's name, and the database default's does not.
+ */
+const advisoryLockName = (lock: AdvisoryLock): string => {
+	switch (lock.kind) {
+		case "databaseDefault":
+			return "grizzle advisory lock: database default"
+		case "apply":
+			return `grizzle advisory lock: apply ${lock.schema}`
+	}
+}
+
+/**
+ * The bytes of an advisory lock key, a PostgreSQL bigint, which pg_advisory_xact_lock, pg_try_advisory_lock and
+ * pg_advisory_unlock take.
+ *
+ * @formatConstant PostgreSQL's bigint: a signed integer of 8 bytes
+ */
+const advisoryKeyBytes = 8
+
+/**
+ * The key of an advisory lock: the first advisoryKeyBytes bytes of the SHA-256 of its name (advisoryLockName,
+ * core/sha256.ts), two hex digits each, read big-endian and wrapped to a signed integer of 8 * advisoryKeyBytes bits,
+ * bigint's range. Another lock, grizzle's or the application's, meets it only by a collision of those 64 bits.
+ */
+export const advisoryKey = (lock: AdvisoryLock): bigint =>
+	BigInt.asIntN(
+		8 * advisoryKeyBytes,
+		BigInt(`0x${sha256Hex(advisoryLockName(lock)).slice(0, 2 * advisoryKeyBytes)}`)
+	)
 
 /**
  * The DO block that sets the current database's default (sql/ast.ts AlterDatabaseDefault): the database default's
@@ -588,7 +631,11 @@ export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock =
 			query: {
 				body: valueCore(
 					[
-						target(valueCall("pg_advisory_xact_lock", [lit.int(databaseDefaultLock, types.bigint)]))
+						target(
+							valueCall("pg_advisory_xact_lock", [
+								lit.int(advisoryKey({ kind: "databaseDefault" }), types.bigint)
+							])
+						)
 					],
 					[],
 					undefined

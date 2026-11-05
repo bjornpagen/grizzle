@@ -106,12 +106,19 @@ const frameSharing = (frame: ShareFrame | undefined, node: RelNode): ShareFrame 
 
 const noRecursions: ReadonlySet<NodeId> = new Set()
 
+/** How often a frame's lowering lowers a node it lowers at all: once, or more than once. */
+type Lowerings = "once" | "many"
+
+/** A node's lowerings once a consumer lowers it `more` again, from `known`, none when it was not lowered yet. */
+const plus = (known: Lowerings | undefined, more: Lowerings): Lowerings =>
+	known === undefined ? more : "many"
+
 /**
  * The nodes a frame rooted at `root`, inside `outer`, shares: those its lowering would lower more than once that its
  * root's WITH can hold.
  *
  * Its lowering is counted in one pass, consumers first: the root is lowered once, and each node as many times as its
- * consumers lower it, once per reference, a count of two standing for any more. A node a frame around it shares is
+ * consumers lower it, once per reference, counted as once or many (Lowerings). A node a frame around it shares is
  * read from that frame's CTE, so its inputs are not lowered here. A node lowered at least twice is shared here, and
  * lowered once, when the root's WITH can hold it: it reads no column of a node inside the root, whose row is not in
  * scope at the root's WITH, and no feedback of a recursion around it, which only its recursive term may scan.
@@ -133,25 +140,24 @@ const sharedOf = (
 		const own = scanned.filter((id) => node.kind !== "Recursive" || id !== node.id)
 		open.set(node, own.length === 0 ? noRecursions : new Set(own))
 	}
-	const lowered = new Map<RelNode, number>([[root, 1]])
+	const lowered = new Map<RelNode, Lowerings>([[root, "once"]])
 	const shared = new Set<RelNode>()
 	for (const node of order.toReversed()) {
-		let times = lowered.get(node) ?? 0
-		if (node !== root) {
-			if (frameSharing(outer, node) !== undefined) {
-				continue
-			}
-			if (
-				times > 1 &&
-				(open.get(node) ?? noRecursions).size === 0 &&
-				[...cx.scopeOf(node).outer.keys()].every((id) => !inside.has(id))
-			) {
-				shared.add(node)
-				times = 1
-			}
+		const counted = lowered.get(node)
+		if (counted === undefined || (node !== root && frameSharing(outer, node) !== undefined)) {
+			continue
 		}
+		const shares =
+			node !== root &&
+			counted === "many" &&
+			(open.get(node) ?? noRecursions).size === 0 &&
+			[...cx.scopeOf(node).outer.keys()].every((id) => !inside.has(id))
+		if (shares) {
+			shared.add(node)
+		}
+		const times = shares ? "once" : counted
 		for (const input of loweredInputs(node)) {
-			lowered.set(input, Math.min(2, (lowered.get(input) ?? 0) + times))
+			lowered.set(input, plus(lowered.get(input), times))
 		}
 	}
 	return shared

@@ -20,7 +20,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
@@ -34,6 +34,7 @@ import { assert } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { at } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -191,7 +192,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								coverage: requiredInSpace<BoundFeature>(
 									Arr.map(bounds, (k): BoundFeature => `take ${k}`)
 								),
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(k, c) =>
 								Effect.gen(function* () {

@@ -90,7 +90,7 @@ export const inlineText = (write: (out: Lines) => void): string => {
 
 /**
  * `open`, the parts joined by `separator`, and `close`; ResourceBound (stringLength) when that would be longer than
- * `limit` UTF-16 code units, the unit of V8's string limit (core/policy.ts maxStringLength), measured before it is built.
+ * `limit` UTF-16 code units, the unit of V8's string limit (core/limits.ts maxStringLength), measured before it is built.
  */
 export const enclosedWithin = (
 	limit: number,

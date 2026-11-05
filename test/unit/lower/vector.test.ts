@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -40,6 +40,7 @@ import {
 	Search
 } from "#test/support/fixtures/api/search.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { checking, checkOptions, owning } from "#test/support/policy.ts"
 import { nodeOfKind } from "#test/unit/lower/support.ts"
@@ -352,7 +353,7 @@ describe("attachments: one search per execution, never one per parent", () => {
 						literal: Formatter.format,
 						limit: 8,
 						coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(placement, c) =>
 						Effect.sync(() => {
@@ -443,7 +444,7 @@ describe("refusals in the lowering", () => {
 						literal: Formatter.format,
 						limit: 4,
 						coverage: requiredInSpace<"admitted" | "refused">(["admitted", "refused"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([purpose, score], c) =>
 						Effect.sync(() => {

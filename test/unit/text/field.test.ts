@@ -5,13 +5,14 @@ import { element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import { decodeDesc } from "#compiler/ir/desc.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { assert, throwsRefused } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { families, flagsGen, patternOver } from "#test/unit/text/generators.ts"
 
 describe("str.regex", () => {
@@ -38,7 +39,7 @@ describe("str.regex", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					({ source, flags }, c) =>
 						Effect.sync(() => {

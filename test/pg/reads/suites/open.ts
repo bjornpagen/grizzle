@@ -4,7 +4,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Context, Duration, Effect, Formatter, Layer } from "effect"
+import { Array as Arr, Context, Effect, Formatter, Layer } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { openDb } from "#adapter/db/open.ts"
 import { OpenError, ReadFailure } from "#adapter/errors/execution.ts"
@@ -40,7 +40,6 @@ import {
 import { bareDatabase, installed } from "#test/pg/reads/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
-import { pgPin } from "#test/support/env.ts"
 import * as search from "#test/support/fixtures/api/search.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a2, t1, t4, t7, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -49,6 +48,8 @@ import {
 	installMigrated as install,
 	loadMigrated as load
 } from "#test/support/install-migrate.ts"
+import { caseHang } from "#test/support/limits.ts"
+import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 import { Substrate, type SubstrateShape } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -102,16 +103,14 @@ const vectorProbe = query(W.Work).rule((r) => {
 
 /**
  * A value admission must refuse for each role default Publish stores, as ALTER ROLE ... SET spells it: PostgreSQL's own
- * search path, jit on, no extra float digits, the C locale.
+ * search path, no extra float digits, the C locale.
  */
 const wrongRoleDefault: { readonly [P in RoleDefaultParameter]: string } = {
 	search_path: `${quoteIdent("$user")}, ${quoteIdent("public")}`,
-	jit: quoteString("on"),
 	extra_float_digits: quoteString("0"),
 	lc_monetary: quoteString("C"),
 	lc_numeric: quoteString("C"),
-	lc_time: quoteString("C"),
-	lc_messages: quoteString("C")
+	lc_time: quoteString("C")
 }
 
 /** The member's context: the account a session acts for, read from the payload's `member` claim object. */
@@ -153,13 +152,10 @@ const layerWithPassword = <L extends AnyLogin>(
 	password: Effect.Effect<never, CredentialError>
 ): Layer.Layer<DbLayerOf<L>, OpenError> =>
 	DbLayerValue.make({
+		...clusterConnection(substrate.cluster, substrate.database, password),
+		pool: clusterPool,
 		login: loginValue,
 		snapshot,
-		host: pgPin.host,
-		port: pgPin.port,
-		database: substrate.database,
-		password,
-		tls: { ca: substrate.cluster.caPem },
 		verify: testVerify
 	})
 
@@ -263,8 +259,8 @@ const openFeatures: Arr.NonEmptyReadonlyArray<OpenFeature> = Arr.map(openCases, 
  *   claim object that is no object, a field missing from it, a value its field's encoder refuses), each before any
  *   connection, the verifier's TokenError for its own refusal and ClaimRefused for grizzle's;
  * - roleDefaults: each default Publish stores on the login role, its search_path among them, removed or stored with a
- *   wrong value, read from the catalog, so a missing jit = off or extra_float_digits = 1 is refused even where the
- *   server's own default makes the effective value right;
+ *   wrong value, read from the catalog, so a missing extra_float_digits = 1 is refused even where the server's own
+ *   default makes the effective value right;
  * - locale: a libc database, with PostgreSQL's own spellings (provider 'c', a NULL datlocale read as the empty string);
  * - capability: a schema with a vector column on a builtin C.UTF-8 database without pgvector;
  * - each refusal's reason holds every mismatch of the stages judged, a later stage's included: the bare databases of
@@ -321,7 +317,7 @@ export const openSuite = (): void => {
 								literal: Formatter.format,
 								limit: 32,
 								coverage: requiredInSpace<OpenFeature>(openFeatures),
-								caseHang: Duration.minutes(2)
+								caseHang
 							},
 							(openCase, c) =>
 								Effect.gen(function* () {
@@ -464,8 +460,8 @@ export const openSuite = (): void => {
 										case "role default": {
 											/**
 											 * Admission reads the login role's own defaults from the catalog: a missing one is
-											 * refused even where the server's default makes the effective value right (jit,
-											 * extra_float_digits).
+											 * refused even where the server's default makes the effective value right
+											 * (extra_float_digits).
 											 */
 											const { setting } = openCase
 											const parameter = quoteIdent(setting.parameter)

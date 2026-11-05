@@ -1,7 +1,7 @@
 import type { Result } from "effect"
 import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -34,7 +34,7 @@ export const types = {
 	int2: ofCarrier("int2", plainType("int2")),
 	int4: ofCarrier("int4", plainType("int4")),
 	int8: ofCarrier("int8", plainType("int8")),
-	numeric: ofCarrier("numeric", plainType("numeric")),
+	numeric: ofCarrier("numeric", anyNumeric),
 	numeric72: ofCarrier("numeric", scalarOf(f.numeric(7, 2), {})),
 	numeric52: ofCarrier("numeric", scalarOf(f.numeric(5, 2), {})),
 	numericNeg: ofCarrier("numeric", scalarOf(f.numeric(5, -2), {})),

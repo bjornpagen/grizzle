@@ -1,23 +1,43 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { codePoint, element, type Gen, oneOf, string } from "@grizzle/testing/gen"
+import { array, codePoint, element, type Gen, oneOf, string } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
+import { emit } from "#compiler/sql/emit.ts"
+import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { toAre } from "#compiler/text/are.ts"
-import { analyzeText } from "#compiler/text/refinement.ts"
+import {
+	analyzeText,
+	type NontrivialCheck,
+	refinementBounds,
+	type TextRefinement,
+	textDomainDdl
+} from "#compiler/text/refinement.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
-import { families, flagsGen, nestedPattern, patternOver } from "#test/unit/text/generators.ts"
+import { caseHang } from "#test/support/limits.ts"
+import {
+	type FiniteLanguage,
+	families,
+	finiteLanguageOver,
+	flagsGen,
+	jsAccepts,
+	nestedPattern,
+	patternOver,
+	stringsOver
+} from "#test/unit/text/generators.ts"
 
 /**
  * Lowering a refinement to PostgreSQL: the canonical wildcard, the empty-language refusal, the constraint loops the IR
- * rewrites away, and the printed ARE read back for its language and for the budgets' verdict.
+ * rewrites away, the printed ARE read back for its language and for the budgets' verdict, and the form a finite
+ * language is enforced by.
  */
 const loc = SourceLoc("str.regex", ["Content", "relations", "Article", "fields", "f"])
 
@@ -149,7 +169,7 @@ describe("the text refinement", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				({ empty: [name, construct], prefix, flags }, c) =>
 					Effect.sync(() => {
@@ -221,7 +241,7 @@ describe("constraint loops (scalar/regex/ir.ts repeat)", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				([source, flags], c) =>
 					Effect.sync(() => {
@@ -259,7 +279,7 @@ describe("reading a printed ARE back", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([source, flags], c) =>
 						Effect.sync(() => {
@@ -335,7 +355,7 @@ describe("reading a printed ARE back", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(source, c) =>
 					Effect.sync(() => {
@@ -367,5 +387,150 @@ describe("reading a printed ARE back", () => {
 					})
 			)
 		)
+	)
+})
+
+/** The UTF-8 bytes of a text: what PostgreSQL measures a statement by. */
+const utf8Bytes = (text: string): number => new TextEncoder().encode(text).length
+
+/** The structural domain each form of a case's language is printed as, under one name. */
+const formDomain = identity.textDomain("finite")
+
+/** The UTF-8 bytes of the CREATE DOMAIN the compiler installs a check by, as it prints it. */
+const domainBytes = (check: NontrivialCheck): number =>
+	utf8Bytes(
+		succeeded(
+			emit(
+				textDomainDdl(check, {
+					schema: "text",
+					name: formDomain.identifier,
+					constraint: identity.domainCheck(formDomain).identifier
+				}),
+				emptyNameMap
+			),
+			"a text domain prints"
+		).text
+	)
+
+/** The two forms that enforce a finite language: the IN list of its members, and the regex of its pattern. */
+interface Forms {
+	readonly inList: NontrivialCheck
+	readonly regex: NontrivialCheck
+}
+
+const formsOf = (language: FiniteLanguage, refinement: TextRefinement): Forms => {
+	const bounds = defined(
+		refinementBounds(refinement),
+		`/${refinement.source}/${refinement.flags} bounds its finite language`
+	)
+	return {
+		inList: { kind: "finite", members: language.members, bounds },
+		regex: { kind: "regex", pattern: refinement.are, bounds }
+	}
+}
+
+/**
+ * The first run of two letters or more, `^a{k}$`, whose IN list prints as long as its regex: a list of two letters
+ * prints shorter than the counted regex, and the list then grows by a byte a letter while the regex grows only with the
+ * count's digits, so the two meet. Steered in where a tie is pending, since a drawn language rarely prints as long both
+ * ways.
+ */
+const tieFrom = (k: number): FiniteLanguage => {
+	const language: FiniteLanguage = { source: `^a{${k}}$`, members: [Str.repeat(k)("a")] }
+	const { inList, regex } = formsOf(
+		language,
+		succeeded(analyzeText(language.source, "u", loc), language.source)
+	)
+	return domainBytes(inList) < domainBytes(regex) ? tieFrom(k + 1) : language
+}
+
+const tie = tieFrom(2)
+
+/** The quote, which an IN list's literal doubles and the ARE escapes. */
+const apostrophe = 0x27
+
+type FormFeature = "IN list chosen" | "regex chosen" | "tie"
+
+describe("the enforcement of a finite language", () => {
+	it.effect(
+		"prints no longer than its other form, the IN list on a tie, and both forms recognize the language",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/text/finite-form",
+						draw: drawn((source) => {
+							const family = source.draw(element(families))
+							const alphabet: Arr.NonEmptyReadonlyArray<number> = [...family.alphabet, apostrophe]
+							return {
+								language: source.draw(finiteLanguageOver(alphabet)),
+								flags: source.draw(flagsGen),
+								strings: source.draw(array(stringsOver(alphabet, 6), { min: 1, max: 24 }))
+							}
+						}),
+						literal: Formatter.format,
+						coverage: required<FormFeature>(["IN list chosen", "regex chosen", "tie"], {
+							cases: 1000,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 1000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(drawnCase, c) =>
+						Effect.sync(() => {
+							const { language, flags, strings } = Option.getOrElse(
+								Option.flatMap(c.steering, (pending) =>
+									pending.has("tie") ? Option.some({ ...drawnCase, language: tie }) : Option.none()
+								),
+								() => drawnCase
+							)
+							const label = `/${language.source}/${flags}`
+							const r = succeeded(analyzeText(language.source, flags, loc), label)
+							const check = r.check
+							if (check.kind === "tautology") {
+								return assert.fail(`${label} is a finite language, no tautology`)
+							}
+							const { inList, regex } = formsOf(language, r)
+							const listed = domainBytes(inList)
+							const matched = domainBytes(regex)
+							c.note(check.kind === "finite" ? "IN list chosen" : "regex chosen")
+							if (listed === matched) {
+								c.note("tie")
+							}
+							assert.equal(
+								domainBytes(check),
+								Math.min(listed, matched),
+								`${label} is enforced by its shorter form`
+							)
+							assert.equal(
+								check.kind,
+								listed <= matched ? "finite" : "regex",
+								`${label} is enforced by the IN list on a tie`
+							)
+							const members = new Set(language.members)
+							if (check.kind === "finite") {
+								assert.equal(check.members.length, members.size, `${label} lists its members`)
+								for (const m of check.members) {
+									assert.equal(members.has(m), true, `${label} lists ${Formatter.format(m)}`)
+								}
+							}
+							for (const m of language.members) {
+								assert.equal(jsAccepts(language.source, flags, m), true, `${label} on ${m}`)
+							}
+							for (const s of strings) {
+								assert.equal(
+									jsAccepts(language.source, flags, s),
+									members.has(s),
+									`${label} on ${s}`
+								)
+							}
+						})
+				)
+			)
 	)
 })

@@ -24,7 +24,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
-	Duration,
 	Effect,
 	Exit,
 	FileSystem,
@@ -46,6 +45,7 @@ import {
 	substrateLogin
 } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	processEnvironment,
 	processValue,
@@ -179,7 +179,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 8,
-								caseHang: Duration.minutes(1)
+								caseHang
 							},
 							(c, k) =>
 								Effect.scoped(

@@ -439,7 +439,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 				)
 				assert.deepEqual(arkBeyondTests, [])
 				assert.deepEqual(trappedUnder(out, "packages"), [])
-			}),
-		120_000
+			})
 	)
 })

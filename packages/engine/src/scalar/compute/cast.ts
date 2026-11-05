@@ -1,4 +1,16 @@
 import * as Result from "#compiler/core/result.ts"
+import {
+	binary32DecimalDigits,
+	binary32MaxExponent,
+	binary32MinExponent,
+	binary32Precision,
+	binary64DecimalDigits,
+	binary64MaxExponent,
+	binary64MinExponent,
+	binary64Precision,
+	integerRanges,
+	moneyFractionDigits
+} from "#compiler/ir/carriers.ts"
 import { fromUnits, toInteger } from "#compiler/scalar/compute/numeric.ts"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -7,17 +19,14 @@ import { Money } from "#compiler/scalar/values/money.ts"
 
 export type IntCarrier = "int2" | "int4" | "int8"
 
-const intRange: { readonly [C in IntCarrier]: readonly [bigint, bigint] } = {
-	int2: [-32768n, 32767n],
-	int4: [-2147483648n, 2147483647n],
-	int8: [-(2n ** 63n), 2n ** 63n - 1n]
-}
+/** Money's minor units to the unit, 10^moneyFractionDigits: what numeric to money multiplies by. */
+const minorUnitsPerUnit = 10n ** BigInt(moneyFractionDigits.value)
 
 type IntResult = Result.Result<bigint, Undefined>
 
 /** An exact integer narrowed into an integer carrier: defined where it fits. */
 const inIntRange = (value: bigint, c: IntCarrier): IntResult => {
-	const [lo, hi] = intRange[c]
+	const [lo, hi] = integerRanges[c]
 	return value < lo || value > hi ? Result.err("fits") : Result.ok(value)
 }
 
@@ -25,10 +34,25 @@ const pow2 = (n: number): bigint => 1n << BigInt(n)
 
 const bitLength = (n: bigint): number => (n === 0n ? 0 : n.toString(2).length)
 
-const floatFormat = {
-	float4: { bits: 24, minExp: -126, maxExp: 127 },
-	float8: { bits: 53, minExp: -1022, maxExp: 1023 }
-} as const
+/** Each float carrier's IEEE 754 format: its precision and its least normal and greatest exponents. */
+const floatFormat: {
+	readonly [C in "float4" | "float8"]: {
+		readonly bits: number
+		readonly minExp: number
+		readonly maxExp: number
+	}
+} = {
+	float4: {
+		bits: binary32Precision.value,
+		minExp: binary32MinExponent.value,
+		maxExp: binary32MaxExponent.value
+	},
+	float8: {
+		bits: binary64Precision.value,
+		minExp: binary64MinExponent.value,
+		maxExp: binary64MaxExponent.value
+	}
+}
 
 /**
  * The nearest binary value of `width` to the positive rational num / den, ties to even, subnormals included; Infinity
@@ -78,19 +102,25 @@ const toFloat = (
 	return magnitude === 0 ? 0 : negative ? -magnitude : magnitude
 }
 
-/** The exact rational value of a finite double: sign, numerator, denominator (a power of two). */
+/** binary64's trailing significand field, p - 1 bits: the significand's bits below its leading one, left implicit. */
+const binary64TrailingBits = BigInt(binary64Precision.value - 1)
+
+/**
+ * The exact rational value of a finite double: sign, numerator, denominator (a power of two). A magnitude's encoding
+ * is its biased exponent E above its trailing significand field f: a normal double (E > 0) is 1.f · 2^(E + emin - 1)
+ * and a subnormal (E = 0) is 0.f · 2^emin, so the significand's last bit weighs 2^(max(E, 1) + emin - p).
+ */
 export const doubleParts = (
 	x: number
 ): { readonly negative: boolean; readonly num: bigint; readonly den: bigint } => {
-	const view = new DataView(new ArrayBuffer(8))
-	view.setFloat64(0, x)
-	const hi = view.getUint32(0)
-	const lo = view.getUint32(4)
-	const negative = hi >>> 31 === 1
-	const exponent = (hi >>> 20) & 0x7ff
-	const mantissa = (BigInt(hi & 0xfffff) << 32n) | BigInt(lo)
-	const significand = exponent === 0 ? mantissa : mantissa | (1n << 52n)
-	const e = (exponent === 0 ? 1 : exponent) - 1075
+	const view = new DataView(new ArrayBuffer(Float64Array.BYTES_PER_ELEMENT))
+	view.setFloat64(0, Math.abs(x))
+	const bits = view.getBigUint64(0)
+	const negative = x < 0 || Object.is(x, -0)
+	const exponent = Number(bits >> binary64TrailingBits)
+	const fraction = bits & ((1n << binary64TrailingBits) - 1n)
+	const significand = exponent === 0 ? fraction : fraction | (1n << binary64TrailingBits)
+	const e = (exponent === 0 ? 1 : exponent) + binary64MinExponent.value - binary64Precision.value
 	return e >= 0
 		? { negative, num: significand << BigInt(e), den: 1n }
 		: { negative, num: significand, den: pow2(-e) }
@@ -142,11 +172,11 @@ type FloatCarrier = "float4" | "float8"
 
 /**
  * The significant digits a float keeps cast to numeric: the %.*g precision of float4_numeric and float8_numeric,
- * FLT_DIG and DBL_DIG.
+ * FLT_DIG and DBL_DIG (ir/carriers.ts).
  */
 export const floatNumericDigits: { readonly [C in FloatCarrier]: number } = {
-	float4: 6,
-	float8: 15
+	float4: binary32DecimalDigits.value,
+	float8: binary64DecimalDigits.value
 }
 
 /**
@@ -159,10 +189,11 @@ export const floatNumericDigits: { readonly [C in FloatCarrier]: number } = {
  * - an integer, an exact integer, numeric or float8 to a float rounds the exact value once to the target's binary
  *   precision as IEEE 754 does, half to even: past the largest finite value it is ±Infinity, below half the least
  *   subnormal the one zero, and NaN and the infinities are themselves;
- * - a float to numeric is the decimal its %.*g text names, FLT_DIG = 6 or DBL_DIG = 15 significant digits rounded
- *   half to even, NaN and the infinities kept (float4_numeric, float8_numeric);
- * - money is the signed 64-bit count of minor units in the fixed C.UTF-8 monetary context, two fractional digits:
- *   numeric to money rounds amount * 100 half away from zero, money to numeric is the amount exactly, and an exact
+ * - a float to numeric is the decimal its %.*g text names, FLT_DIG or DBL_DIG significant digits rounded half to
+ *   even, NaN and the infinities kept (float4_numeric, float8_numeric);
+ * - money is the signed 64-bit count of minor units in the fixed C.UTF-8 monetary context, moneyFractionDigits fraction
+ *   digits: numeric to money rounds amount * 10^moneyFractionDigits half away from zero, money to numeric is the
+ *   amount exactly, and an exact
  *   integer or an exact amount into money is defined where it fits the count;
  * - an integer into an exact integer, and money into exact money, is the value itself.
  *
@@ -175,17 +206,12 @@ export type HostCast =
 	| { readonly from: "float"; readonly convert: (x: number) => CastResult }
 	| { readonly from: "money"; readonly convert: (m: Money) => CastResult }
 
-/** rint: round half to even. */
+/** rint: round half to even, to the nearer of the integers around x, the even one at a tie. */
 const rint = (x: number): number => {
-	const f = Math.floor(x)
-	const diff = x - f
-	if (diff < 0.5) {
-		return f
-	}
-	if (diff > 0.5) {
-		return f + 1
-	}
-	return f % 2 === 0 ? f : f + 1
+	const below = Math.floor(x)
+	const above = below + 1
+	const order = Math.sign(x - below - (above - x))
+	return order < 0 ? below : order > 0 ? above : below % 2 === 0 ? below : above
 }
 
 /**
@@ -196,7 +222,7 @@ const floatToInt = (x: number, c: IntCarrier): IntResult => {
 		return Result.err("finite")
 	}
 	const r = rint(x)
-	const [lo, hi] = intRange[c]
+	const [lo, hi] = integerRanges[c]
 	if (r < Number(lo) || r >= -Number(lo)) {
 		return Result.err("fits")
 	}
@@ -234,7 +260,7 @@ const floatToDecimal = (x: number, width: FloatCarrier): Result.Result<Decimal, 
 
 /** A count of minor units as money: defined where it fits the signed 64-bit count. */
 const storedMoney = (minor: bigint): CastResult =>
-	minor < intRange.int8[0] || minor > intRange.int8[1]
+	minor < integerRanges.int8[0] || minor > integerRanges.int8[1]
 		? Result.err("fits")
 		: Result.ok(Money.of(minor))
 
@@ -258,7 +284,7 @@ export const integerCast = (
 				convert: (x) => Result.ok(toFloat(x < 0n, x < 0n ? -x : x, 1n, target))
 			}
 		case "money":
-			return { from: "integer", convert: (x) => storedMoney(x * 100n) }
+			return { from: "integer", convert: (x) => storedMoney(x * minorUnitsPerUnit) }
 	}
 }
 
@@ -271,7 +297,7 @@ export const numericCast = (target: IntCarrier | "numeric" | FloatCarrier | "mon
 		case "int2":
 		case "int4":
 		case "int8": {
-			const [lo, hi] = intRange[target]
+			const [lo, hi] = integerRanges[target]
 			return { from: "numeric", convert: (d) => toInteger(d, lo, hi) }
 		}
 		case "numeric":
@@ -283,14 +309,17 @@ export const numericCast = (target: IntCarrier | "numeric" | FloatCarrier | "mon
 			return {
 				from: "numeric",
 				convert: (d) => {
-					/** amount * 100, then numeric_int8's rounding and its preconditions. */
 					const scaled = d.isFinite()
-						? Decimal.fromParts(d.parts.negative, d.parts.coefficient * 100n, d.parts.minScale)
+						? Decimal.fromParts(
+								d.parts.negative,
+								d.parts.coefficient * minorUnitsPerUnit,
+								d.parts.minScale
+							)
 						: Result.ok(d)
 					if (!scaled.ok) {
 						return Result.err("fits")
 					}
-					const minor = toInteger(scaled.value, intRange.int8[0], intRange.int8[1])
+					const minor = toInteger(scaled.value, integerRanges.int8[0], integerRanges.int8[1])
 					return Result.map(minor, (m) => Money.of(m))
 				}
 			}
@@ -323,7 +352,7 @@ export const floatCast = (
 export const moneyCast = (target: "numeric" | "money" | "exactMoney"): HostCast => {
 	switch (target) {
 		case "numeric":
-			return { from: "money", convert: (m) => fromUnits(m.minorUnits, 2) }
+			return { from: "money", convert: (m) => fromUnits(m.minorUnits, moneyFractionDigits.value) }
 		case "exactMoney":
 			return { from: "money", convert: Result.ok }
 		case "money":

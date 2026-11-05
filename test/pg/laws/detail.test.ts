@@ -12,7 +12,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import { Effect, Formatter, pipe, String as Str } from "effect"
 import type { NamedDetailCodec } from "#compiler/ir/law.ts"
 import { detailExpr } from "#compiler/laws/model/detail.ts"
 import { param, types } from "#compiler/sql/build.ts"
@@ -25,6 +25,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
 import type { Uuid } from "#compiler/public/fields.ts"
+import { caseHang } from "#test/support/limits.ts"
 const codec: NamedDetailCodec = { relation: "Timesheet", keys: ["employee", "week", "note"] }
 
 /** The parameter each key of the codec reads: the employee a uuid, the week a bigint and the note a text. */
@@ -144,7 +145,7 @@ layer(Substrate.layer)("DetailCodec on PostgreSQL 19", (it) => {
 								cases: 300,
 								sense: notesOnly
 							}),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([n, week, note], c) =>
 							Effect.map(roundTrip(employeeOf(n), week, note), (plain) => {

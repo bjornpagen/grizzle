@@ -10,12 +10,13 @@ import { hostRead } from "#compiler/core/host.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { phantom } from "#compiler/core/phantom.ts"
 import * as Result from "#compiler/core/result.ts"
-import { VectorText, vectorMaxDimensions } from "#compiler/ir/carriers.ts"
+import {
+	cosineNormMax,
+	cosineNormMin,
+	VectorText,
+	vectorMaxDimensions
+} from "#compiler/ir/carriers.ts"
 import { encodingFailure, faultError } from "#compiler/scalar/values/fault.ts"
-
-/** The closed cosine domain of a vector's norm: 2^-16 and 2^16, inclusive. */
-export const cosineNormMin = 2 ** -16
-export const cosineNormMax = 2 ** 16
 
 /**
  * A buffer a vector of N dimensions is made from: any Float32Array, or a Vector of N dimensions. The dimension tag rides
@@ -35,14 +36,15 @@ type VectorBuffer<N extends number = number> = Float32Array & { readonly [phanto
  * conversion, which the caller performs. The tag N is an equality-only phantom: a Vector<1536> is not a Vector<768>,
  * and the runtime checks the length. There is no number[] anywhere in the vector API.
  *
- * Dimensions are 1..16000, pgvector's storage limit (VECTOR_MAX_DIM); the 2000-dimension HNSW limit is a retrieval
- * capability, not a value limit.
+ * Dimensions are 1..vectorMaxDimensions, pgvector's storage limit (VECTOR_MAX_DIM); the 2000-dimension HNSW limit is a
+ * retrieval capability, not a value limit.
  *
  * The encode-time checks. Every component the codec writes must be finite: NaN and infinity are
  * refused with vectorNonFinite, as pgvector refuses them (CheckElement). -0 is written as 0, the signed-zero identity
  * pgvector's equality already has (vector_cmp_internal compares -0 = +0); identity texts, canonical payloads and
- * literals map it the same way. Every stored vector's native norm, pgvector's vector_norm, lies in [2^-16, 2^16]. The
- * database CHECK `<table>__norm__<column>` is the authority for stored values (physical/vector); the host boundary is
+ * literals map it the same way. Every stored vector's native norm, pgvector's vector_norm, lies in the cosine domain
+ * [cosineNormMin, cosineNormMax] (ir/carriers.ts), the norms for which pgvector's binary32 cosine_distance is a number
+ * in [0, 2]. The database CHECK is the authority for stored values (physical/vector); the host boundary is
  * `norm` and `inCosineDomain`, which the codec's admission applies to every vector parameter and member (identity.ts)
  * and `Vector.from` to an explicit check. `norm` is vector_norm's own arithmetic: each binary32 component widened to
  * double, its exact square (a 24-bit by 24-bit product fits a double's 53 bits) summed in double, then the square root.
@@ -65,7 +67,7 @@ export type Vector<N extends number = number> = VectorBuffer<N> & Brand.Brand<"V
 const brand = nominal<Float32Array, Float32Array & Brand.Brand<"Vector">>()
 
 const isDimensions = (n: unknown): n is number =>
-	typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= vectorMaxDimensions
+	typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= vectorMaxDimensions.value
 
 /** Whether a value has the vector host type: a Float32Array, branded without checking (nominal). */
 export const isVector = (value: unknown): value is Vector => value instanceof Float32Array
@@ -87,10 +89,10 @@ const nonFinite = (buffer: Float32Array): ValueFault | undefined => {
 const componentTextOf = (x: number): string => (x === 0 ? "0" : String(x))
 
 /**
- * The shape check: `buffer` is a Float32Array of exactly `dimensions` components, 1..16000. The buffer is returned
- * branded, never copied. A JavaScript caller can pass anything, so both arguments are checked. Reading the buffer can
- * run the caller's code (instanceof runs a proxy's getPrototypeOf trap), so it is read once through hostRead, and a
- * value whose reading throws is refused as no vector.
+ * The shape check: `buffer` is a Float32Array of exactly `dimensions` components, 1..vectorMaxDimensions. The buffer
+ * is returned branded, never copied. A JavaScript caller can pass anything, so both arguments are checked. Reading the
+ * buffer can run the caller's code (instanceof runs a proxy's getPrototypeOf trap), so it is read once through
+ * hostRead, and a value whose reading throws is refused as no vector.
  */
 const admit = <const N extends number>(
 	buffer: unknown,
@@ -133,10 +135,10 @@ const norm = (vector: Float32Array): number => {
 	return Math.sqrt(sum)
 }
 
-/** Whether the norm lies in the cosine domain [2^-16, 2^16]. A NaN norm lies outside. */
+/** Whether the norm lies in the cosine domain [cosineNormMin, cosineNormMax]. A NaN norm lies outside. */
 const inCosineDomain = (vector: Float32Array): boolean => {
 	const n = norm(vector)
-	return n >= cosineNormMin && n <= cosineNormMax
+	return n >= cosineNormMin.value && n <= cosineNormMax.value
 }
 
 /** The encode-time component check: every component finite, the norm in the cosine domain. */
@@ -144,9 +146,9 @@ const checkEncodable = (vector: Float32Array): ValueFault | undefined =>
 	nonFinite(vector) ?? (inCosineDomain(vector) ? undefined : "vectorNorm")
 
 /**
- * The encode-time boundary, read from the buffer as it is now: a Float32Array of `dimensions`
- * finite components whose native norm lies in the cosine domain [2^-16, 2^16]. The buffer is returned branded, never
- * copied or normalized. The codec's admission (identity.ts) and `Vector.from` both run it.
+ * The encode-time boundary, read from the buffer as it is now: a Float32Array of `dimensions` finite components whose
+ * native norm lies in the cosine domain [cosineNormMin, cosineNormMax]. The buffer is returned branded, never copied
+ * or normalized. The codec's admission (identity.ts) and `Vector.from` both run it.
  */
 export const admitEncodable = <const N extends number>(
 	buffer: unknown,

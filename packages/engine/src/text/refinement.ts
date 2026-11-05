@@ -8,8 +8,6 @@ import {
 } from "#compiler/core/errors.ts"
 import { ownedDigest } from "#compiler/core/fingerprint.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	regexDfaMaxStates,
 	regexDfaMaxWork,
@@ -17,8 +15,11 @@ import {
 	regexMaxAnchorWeight,
 	regexMaxClosurePairs,
 	regexMaxPositions
-} from "#compiler/core/policy.ts"
+} from "#compiler/core/limits.ts"
+import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import { utf8Length } from "#compiler/core/sha256.ts"
 import { codePoints } from "#compiler/core/text.ts"
 import { RegexKey, type RegexRef, type TextInfo } from "#compiler/ir/scalar.ts"
 import { utf8Width } from "#compiler/scalar/regex/charset.ts"
@@ -39,30 +40,28 @@ import {
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type { CreateDomain, Expr } from "#compiler/sql/ast.ts"
 import { binary, cUtf8Collation, lit, types } from "#compiler/sql/build.ts"
+import { printExpr } from "#compiler/sql/print.ts"
 import { toAre } from "#compiler/text/are.ts"
 import { structuralBounds } from "#compiler/text/bounds.ts"
 import {
 	type CanonicalDfa,
 	type DfaLimits,
 	dfaKey,
-	enumerate,
 	isEmptyLanguage,
 	isUniversal,
 	longest,
+	membersWithin,
 	minimalDfa
 } from "#compiler/text/dfa.ts"
 
 /**
- * The host's bounds on a pattern's subset construction (core/policy.ts regexDfaMaxStates, regexDfaMaxWork): past
+ * The host's bounds on a pattern's subset construction (core/limits.ts regexDfaMaxStates, regexDfaMaxWork): past
  * either, the analysis knows the language by its structure alone.
  */
 const dfaLimits: DfaLimits = Object.freeze({
-	maxStates: regexDfaMaxStates,
-	maxWork: regexDfaMaxWork
+	maxStates: regexDfaMaxStates.value,
+	maxWork: regexDfaMaxWork.value
 })
-
-/** The most members a finite language may have and still become `VALUE IN (...)`. */
-const finiteMembers = 64
 
 /** Proved bounds on every member of a language, in code points and UTF-8 bytes. */
 interface TextBounds {
@@ -147,9 +146,29 @@ type Known =
 	| { readonly kind: "automaton"; readonly dfa: CanonicalDfa }
 	| { readonly kind: "structure" }
 
+/** A nontrivial check with the UTF-8 bytes its predicate prints in (predicateBytes). */
+interface Measured {
+	readonly check: NontrivialCheck
+	readonly bytes: number
+}
+
+const measured = (check: NontrivialCheck): Measured => ({ check, bytes: predicateBytes(check) })
+
 /**
- * The enforcement of a language: from its automaton, a tautology, a finite language or a regex with the automaton's
- * bounds; from its structure alone, a regex with the IR's structural bounds.
+ * The enforcement of a finite language whose predicate prints in fewer bytes, the IN list where the two print alike.
+ * Both recognize exactly the language, so their printed size is all that tells them apart.
+ */
+const shorter = (inList: Measured, regex: Measured): Measured =>
+	inList.bytes <= regex.bytes ? inList : regex
+
+/**
+ * The enforcement of a language. From its automaton: a tautology, or whichever of two equivalent forms prints shorter
+ * (shorter), its regex with the automaton's bounds or, for a finite language, `VALUE IN (...)` of its members. From its
+ * structure alone: a regex with the IR's structural bounds.
+ *
+ * The regex is measured first, and the members are listed only while they could still print within its bytes: each
+ * member's literal prints in at least memberBytes and the member's own UTF-8 bytes, so the IN list of members that
+ * weigh more (membersWithin) is longer than the regex, and a large language with a short pattern is never listed.
  */
 const choose = (ir: RegexNode, known: Known, are: string): TextCheck => {
 	switch (known.kind) {
@@ -158,11 +177,13 @@ const choose = (ir: RegexNode, known: Known, are: string): TextCheck => {
 			if (isUniversal(dfa)) {
 				return { kind: "tautology" }
 			}
-			const members = enumerate(dfa, finiteMembers)
-			if (members !== undefined && isNonEmpty(members)) {
-				return { kind: "finite", members, bounds: boundsOfMembers(members) }
+			const regex = measured({ kind: "regex", pattern: are, bounds: longest(dfa) })
+			const members = membersWithin(dfa, memberBytes, regex.bytes)
+			if (members === undefined || !isNonEmpty(members)) {
+				return regex.check
 			}
-			return { kind: "regex", pattern: are, bounds: longest(dfa) }
+			const inList = measured({ kind: "finite", members, bounds: boundsOfMembers(members) })
+			return shorter(inList, regex).check
 		}
 		case "structure":
 			return { kind: "regex", pattern: are, bounds: structuralBounds(ir) }
@@ -194,13 +215,15 @@ export const languageOf = (ir: RegexNode, nfa: Nfa): Language => {
 	if (ir.kind === "never") {
 		return { kind: "empty" }
 	}
-	const dfa = minimalDfa(nfa, dfaLimits)
-	if (dfa === undefined) {
-		return { kind: "nonEmpty", ir, known: { kind: "structure" } }
+	const outcome = minimalDfa(nfa, dfaLimits)
+	switch (outcome.kind) {
+		case "bounded":
+			return { kind: "nonEmpty", ir, known: { kind: "structure" } }
+		case "minimal":
+			return isEmptyLanguage(outcome.dfa)
+				? { kind: "empty" }
+				: { kind: "nonEmpty", ir, known: { kind: "automaton", dfa: outcome.dfa } }
 	}
-	return isEmptyLanguage(dfa)
-		? { kind: "empty" }
-		: { kind: "nonEmpty", ir, known: { kind: "automaton", dfa } }
 }
 
 /**
@@ -208,13 +231,13 @@ export const languageOf = (ir: RegexNode, nfa: Nfa): Language => {
  *
  * `analyzeText` is what schema compilation calls for every `str.regex` descriptor. It parses the admitted grammar
  * (scalar/regex/parse.ts) with source-located diagnostics, at any length and nesting depth; refuses a pattern past a
- * measure of PostgreSQL's regex compile space (core/policy.ts regexMaxPositions, regexMaxAnchors, regexMaxAnchorWeight,
+ * measure of PostgreSQL's regex compile space (core/limits.ts regexMaxPositions, regexMaxAnchors, regexMaxAnchorWeight,
  * regexMaxClosurePairs) as ResourceBound, the one limit on a pattern's size, which is PostgreSQL's own; then proves
  * what it can within the host's bounds and chooses the PostgreSQL enforcement:
  *
  * - a tautology over admitted text erases: no CHECK, no domain, the column is plain text;
- * - a proved finite language of at most `finiteMembers` values becomes `VALUE IN (...)`, which recognizes exactly the
- *   same values;
+ * - a proved finite language becomes `VALUE IN (...)`, which recognizes exactly the same values, where that predicate
+ *   prints in no more bytes than the regex's (choose);
  * - anything else is `VALUE ~ '<ARE>'` with the translated pattern (are.ts).
  *
  * It also derives the canonical pattern key that domain sharing uses (core/identity.ts textDomain), and the proved length
@@ -255,19 +278,24 @@ const analyze = (
 		return tooComplex({ kind: "anchorLoop" })
 	}
 	const positions = expandedSize(ir)
-	if (positions > regexMaxPositions) {
-		return tooComplex({ kind: "positions", limit: regexMaxPositions, needed: positions })
+	if (positions > regexMaxPositions.value) {
+		return tooComplex({ kind: "positions", limit: regexMaxPositions.value, needed: positions })
 	}
 	const anchors = expandedAssertions(ir)
-	if (anchors > regexMaxAnchors) {
-		return tooComplex({ kind: "anchors", limit: regexMaxAnchors, needed: anchors })
+	if (anchors > regexMaxAnchors.value) {
+		return tooComplex({ kind: "anchors", limit: regexMaxAnchors.value, needed: anchors })
 	}
-	if (anchors * positions > regexMaxAnchorWeight) {
-		return tooComplex({ kind: "anchorWeight", limit: regexMaxAnchorWeight, anchors, positions })
+	if (anchors * positions > regexMaxAnchorWeight.value) {
+		return tooComplex({
+			kind: "anchorWeight",
+			limit: regexMaxAnchorWeight.value,
+			anchors,
+			positions
+		})
 	}
 	const nfa = buildNfa(ir)
-	if (closurePairs(nfa, regexMaxClosurePairs) > regexMaxClosurePairs) {
-		return tooComplex({ kind: "closurePairs", limit: regexMaxClosurePairs })
+	if (closurePairs(nfa, regexMaxClosurePairs.value) > regexMaxClosurePairs.value) {
+		return tooComplex({ kind: "closurePairs", limit: regexMaxClosurePairs.value })
 	}
 	const language = languageOf(ir, nfa)
 	if (language.kind === "empty") {
@@ -341,6 +369,15 @@ export const textLookup: TextLookup = (source, flags) =>
 /** A domain CHECK's VALUE. */
 export const domainValue: Expr = Object.freeze({ kind: "domainValue" })
 
+/** A member of `VALUE IN (...)`: the text literal its list holds. */
+const memberLiteral = (member: string): Expr => lit.text(member, types.text)
+
+/**
+ * The fewest UTF-8 bytes a member adds to `VALUE IN (...)`, the empty text's literal: any member's literal is that one
+ * with the member's UTF-8 bytes inside its quotes, and more where a quote is doubled.
+ */
+const memberBytes = utf8Length(printExpr(memberLiteral("")))
+
 /**
  * The membership predicate over `value` (domainValue inside a domain CHECK), without the IS TRUE wrapper, which the
  * printer adds to every CHECK.
@@ -351,13 +388,21 @@ export const membership = (check: NontrivialCheck, value: Expr): Expr => {
 			return {
 				kind: "inList",
 				expr: value,
-				list: mapNonEmpty(check.members, (m) => lit.text(m, types.text)),
+				list: mapNonEmpty(check.members, memberLiteral),
 				not: false
 			}
 		case "regex":
 			return binary("~", value, lit.text(check.pattern, types.text))
 	}
 }
+
+/**
+ * The UTF-8 bytes a check's predicate over VALUE prints in, what choose compares two equivalent checks by. Every CHECK
+ * prints its predicate in one place whatever its form, alone inside `CHECK ((...) IS TRUE)` or as a term of a
+ * contract's conjunction, so the predicates' bytes order the statements as the statements' own bytes do.
+ */
+const predicateBytes = (check: NontrivialCheck): number =>
+	utf8Length(printExpr(membership(check, domainValue)))
 
 /**
  * The compiler-owned structural domain of a nontrivial refinement:

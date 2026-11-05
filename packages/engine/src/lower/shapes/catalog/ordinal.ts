@@ -24,6 +24,7 @@ import {
 	type WindowFrame
 } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { conjuncts } from "#compiler/logical/props.ts"
 import {
 	bindingsByVar,
 	type CatalogContext,
@@ -40,7 +41,6 @@ import {
 	colExpr,
 	columnsRead,
 	compareExpr,
-	conjuncts,
 	demand,
 	literalOf,
 	noMatch,

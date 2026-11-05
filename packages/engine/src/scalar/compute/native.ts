@@ -1,4 +1,11 @@
+import type { Limit } from "#compiler/core/limits.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
+import {
+	binary32MaxExponent,
+	binary32MinExponent,
+	binary64MaxExponent,
+	binary64MinExponent
+} from "#compiler/ir/carriers.ts"
 import type { Exact, NativeProof, OperandIndex, OperandPremise } from "#compiler/ir/proof.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -20,21 +27,34 @@ import type { IeeeOp, NativeOp } from "#compiler/scalar/compute/registry.ts"
 /** A float carrier, the result of every IEEE 754 operation and rounding. */
 export type FloatCarrier = "float4" | "float8"
 
+/** The binary exponents of one width's native range (nativeRange). */
+interface NativeRange {
+	readonly sum: number
+	readonly product: number
+	readonly rounding: number
+}
+
 /**
- * The binary exponents inside which each width's native operations meet no overflow and no underflow: a sum's operands
- * of magnitude at most 2^sum, a product's and a quotient's in [2^-product, 2^product], a rounding's value in
- * [2^-rounding, 2^rounding]. Each leaves a factor of two at least before an infinity or the subnormals, so the rounding
- * of the operations an operand's interval was computed through, which interval arithmetic leaves out, never crosses it.
+ * The binary exponents inside which one width of greatest exponent emax and least normal exponent emin (ir/carriers.ts)
+ * computes natively with no overflow and no underflow, each a factor of two at least inside the finite values and the
+ * normal ones, so the rounding of the operations an operand's interval was computed through, which interval arithmetic
+ * leaves out, never crosses an end:
+ *
+ * - a sum's operands of magnitude at most 2^sum, sum = emax - 1: the sum is at most 2^emax, and a sum never
+ *   underflows (it is exact once subnormal);
+ * - a rounding's value in [2^-rounding, 2^rounding], rounding = min(emax, -emin) - 1;
+ * - a product's and a quotient's operands in [2^-product, 2^product], product = floor(rounding / 2): their product or
+ *   quotient lies in [2^-rounding, 2^rounding].
  */
-export const nativeRange = {
-	float8: { sum: 1022, product: 500, rounding: 1022 },
-	float4: { sum: 126, product: 60, rounding: 125 }
-} as const satisfies {
-	readonly [C in FloatCarrier]: {
-		readonly sum: number
-		readonly product: number
-		readonly rounding: number
-	}
+const nativeRangeOf = (emax: Limit, emin: Limit): NativeRange => {
+	const rounding = Math.min(emax.value, -emin.value) - 1
+	return { sum: emax.value - 1, product: Math.floor(rounding / 2), rounding }
+}
+
+/** Each width's native range (nativeRangeOf). */
+export const nativeRange: { readonly [C in FloatCarrier]: NativeRange } = {
+	float8: nativeRangeOf(binary64MaxExponent, binary64MinExponent),
+	float4: nativeRangeOf(binary32MaxExponent, binary32MinExponent)
 }
 
 /** 2^k as an exact value, k of either sign: 2^-k is 5^k · 10^-k. */
@@ -44,14 +64,15 @@ const power2 = (k: number): Exact =>
 const zero: Exact = exactOf(0n, 0)
 
 /**
- * The binary exponents of each width's rounding of an exact result: one of magnitude above 2^overflow may round to an
- * infinity, and a nonzero one below 2^-underflow, the least normal value, may round to zero.
+ * The binary exponents of each width's rounding of an exact result, its greatest exponent emax and its least normal
+ * exponent emin (ir/carriers.ts): one of magnitude above 2^overflow, overflow = emax, may round to an infinity, and a
+ * nonzero one below 2^-underflow, underflow = -emin, the least normal value, may round to zero.
  */
-const ieeeRange = {
-	float8: { overflow: 1023, underflow: 1022 },
-	float4: { overflow: 127, underflow: 126 }
-} as const satisfies {
+const ieeeRange: {
 	readonly [C in FloatCarrier]: { readonly overflow: number; readonly underflow: number }
+} = {
+	float8: { overflow: binary64MaxExponent.value, underflow: -binary64MinExponent.value },
+	float4: { overflow: binary32MaxExponent.value, underflow: -binary32MinExponent.value }
 }
 
 /**

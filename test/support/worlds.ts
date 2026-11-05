@@ -15,10 +15,9 @@ import {
 	role
 } from "#compiler/public/schema.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
-import { pgPin } from "#test/support/env.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { soleWorldOf } from "#test/support/kernel/naming.ts"
-import type { SqlError } from "#test/support/pg.ts"
+import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -64,8 +63,8 @@ export const testVerify = (token: string): Effect.Effect<unknown, TokenError> =>
 	})
 
 /**
- * The DbLayer of `login` over `installed`, in `database`: the snapshot its migrations reached, verify-full TLS against
- * the local CA, the login's password, and testVerify.
+ * The DbLayer of `login` over `installed`, in `database`: the snapshot its migrations reached, the cluster's connection
+ * with the login's password (test/support/pg.ts clusterConnection), the test pool, and testVerify.
  */
 export const loginLayerIn = <L extends AnyLogin>(
 	database: string,
@@ -73,13 +72,10 @@ export const loginLayerIn = <L extends AnyLogin>(
 	account: L
 ): Layer.Layer<DbLayerOf<L>, OpenError> =>
 	DbLayer.make({
+		...clusterConnection(installed.cluster, database, installed.as(account).password),
+		pool: clusterPool,
 		login: account,
 		snapshot: installed.snapshot,
-		host: pgPin.host,
-		port: pgPin.port,
-		database,
-		password: installed.as(account).password,
-		tls: { ca: installed.cluster.caPem },
 		verify: testVerify
 	})
 

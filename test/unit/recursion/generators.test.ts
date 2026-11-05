@@ -4,9 +4,10 @@ import { noCoverage, required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { assert, containsEqual, defined, like, matchers } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import {
 	defaultRecursiveLimits,
 	edgePairs,
@@ -46,7 +47,7 @@ describe("graph-shaped recursive generators", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch) =>
 						Effect.sync(() => {
@@ -179,7 +180,7 @@ describe("graph-shaped recursive generators", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, n) =>
 						Effect.sync(() => {

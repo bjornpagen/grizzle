@@ -6,9 +6,10 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
@@ -18,6 +19,7 @@ import { type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
+import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import {
 	f,
@@ -27,6 +29,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { WorkDesc } from "#test/support/fixtures/ir/work.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking, checkMemberOf, checkOptions, checkReadBackOf } from "#test/support/policy.ts"
 import {
 	compute,
@@ -257,7 +260,7 @@ const negatedFixed = (source: "Wide" | "Tag", column: "price" | "label") =>
 		where: [
 			not(relationSource(source), {
 				[source === "Wide" ? "id" : "item"]: ref("Item", "id"),
-				[column]: param("p", source === "Wide" ? f.unconstrainedNumeric : Code)
+				[column]: param("p", source === "Wide" ? f.numeric(20, 6) : Code)
 			})
 		],
 		head: { id: ref("Item", "id") }
@@ -539,10 +542,12 @@ const planted: Arr.NonEmptyReadonlyArray<Planted> = [
 		expected: refusedFor("UnsupportedOperation")
 	},
 	{
-		/** A parameter at a typmod would round the value it is compared with: it binds unconstrained. */
-		what: "a negated source's numeric typmod column fixed to a parameter, unconstrained",
+		/** A parameter of its own typmod: the column's typmod would round the value it is compared with. */
+		what: "a negated source's numeric typmod column fixed to a parameter of another typmod",
 		check: lab(negatedFixed("Wide", "price")),
-		expected: admittedWith([{ name: "p", type: plainType("numeric") }])
+		expected: admittedWith([
+			{ name: "p", type: succeeded(scalarTypeOf(f.numeric(20, 6), bareEnv, SourceLoc("p", []))) }
+		])
 	},
 	{
 		what: "a negated source's regex column fixed to a parameter, which keeps the column's language",
@@ -785,7 +790,7 @@ describe("the checker's binding, typing and scope rules", () => {
 						literal: Formatter.format,
 						limit: planted.length,
 						coverage: requiredInSpace<Answer>(["refused", "admitted", "a read-back admitted"]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(p, c) =>
 						Effect.sync(() => {
@@ -850,7 +855,7 @@ describe("the checker's binding, typing and scope rules", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(bound, c) =>
 						Effect.sync(() => {

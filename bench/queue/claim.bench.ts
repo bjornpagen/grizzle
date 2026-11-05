@@ -7,7 +7,6 @@ import {
 	Option,
 	Record as Rec,
 	Result,
-	Schedule,
 	type Scope,
 	String as Str
 } from "effect"
@@ -27,8 +26,9 @@ import {
 	type LoadMeasure,
 	type LoadOptions,
 	type OperationResult,
+	backoffOf,
+	type RetryPolicy,
 	retried,
-	retryPolicy,
 	runLoad,
 	sqlAttempted,
 	withRetries
@@ -137,6 +137,14 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly enqueueBatch: number
 	/** Leases a dead worker leaves behind for the reclaim case. */
 	readonly dead: number
+	/** The holders' and the baseline's retry policy, an application's own. */
+	readonly retry: RetryPolicy
+	/** The retry policy of the enqueue beside the claimers, a patient application's. */
+	readonly enqueueRetry: RetryPolicy
+	/** How often the role sampler reads the claimers' backends, in milliseconds. */
+	readonly roleSampleMs: number
+	/** How often the predicate-lock sampler reads the claimers' locks, in milliseconds. */
+	readonly lockSampleMs: number
 }
 
 /**
@@ -349,9 +357,22 @@ export default defineGate({
 			pending: 1_200_000,
 			bound: { kind: "deadline", ms: 60_000 },
 			enqueueBatch: 5000,
-			dead: 64
+			dead: 64,
+			retry: { times: 4, baseMs: 5 },
+			enqueueRetry: { times: 10, baseMs: 10 },
+			roleSampleMs: 20,
+			lockSampleMs: 1000
 		},
-		quick: { pending: 3000, bound: { kind: "operations", n: 4 }, enqueueBatch: 50, dead: 3 }
+		quick: {
+			pending: 3000,
+			bound: { kind: "operations", n: 4 },
+			enqueueBatch: 50,
+			dead: 3,
+			retry: { times: 4, baseMs: 5 },
+			enqueueRetry: { times: 10, baseMs: 10 },
+			roleSampleMs: 20,
+			lockSampleMs: 1000
+		}
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
@@ -508,7 +529,7 @@ export default defineGate({
 											expires: Instant(forever)
 										}),
 									(o) => o.attempted.transient,
-									retryPolicy
+									options.retry
 								)
 							)
 							stats.claims.push(performance.now() - t0)
@@ -538,7 +559,7 @@ export default defineGate({
 										retried(
 											() => h.settle(row.key, row.epoch),
 											(o) => o.attempted.transient,
-											retryPolicy
+											options.retry
 										)
 									)
 									stats.settles.push(performance.now() - t1)
@@ -562,8 +583,8 @@ export default defineGate({
 				)
 			}
 			/**
-			 * The workers' SSI read locks sampled once a second during a run: the most of each relation and granularity, and the
-			 * most in all, seen in one sample. Only the fresh mutable run samples them.
+			 * The workers' SSI read locks sampled every lockSampleMs during a run: the most of each relation and granularity,
+			 * and the most in all, seen in one sample. Only the fresh mutable run samples them.
 			 */
 			type LockSamples =
 				| { readonly kind: "notSampled" }
@@ -620,7 +641,9 @@ export default defineGate({
 				)
 				const lockFiber = sampleLocks
 					? yield* Effect.forkChild(
-							Effect.forever(Effect.andThen(Effect.sleep(Duration.millis(1000)), lockSample))
+							Effect.forever(
+								Effect.andThen(Effect.sleep(Duration.millis(options.lockSampleMs)), lockSample)
+							)
 						)
 					: undefined
 				const claimers = Effect.ensuring(
@@ -632,7 +655,7 @@ export default defineGate({
 				const sampled = yield* sampleRole(
 					observer,
 					role,
-					20,
+					options.roleSampleMs,
 					beside.kind === "none"
 						? claimers
 						: Effect.map(
@@ -707,13 +730,13 @@ export default defineGate({
 						const t = performance.now()
 						/**
 						 * Beside the claimers an enqueue can meet one of their commits: a TransientFailure, which the enqueuer retries as
-						 * a patient application does, up to ten times with exponential backoff from 10 milliseconds. An enqueue whose
-						 * every attempt failed is tallied as `transient`.
+						 * a patient application does, by the gate's enqueueRetry policy. An enqueue whose every attempt failed is
+						 * tallied as `transient`.
 						 */
 						const outcome = yield* enqueuer.apply(change, {}).pipe(
 							Effect.retry({
-								times: 10,
-								schedule: Schedule.exponential(Duration.millis(10)),
+								times: options.enqueueRetry.times,
+								schedule: backoffOf(options.enqueueRetry),
 								while: (e) => e._tag === "TransientFailure"
 							}),
 							Effect.catchTag("TransientFailure", () =>
@@ -1068,7 +1091,7 @@ export default defineGate({
 						Effect.map(attempt, (outcome) =>
 							sqlAttempted(outcome, { uniqueAborts: [], label: () => undefined })
 						),
-					retryPolicy
+					options.retry
 				)
 			}
 			const baselineSampled = yield* Effect.scoped(
@@ -1080,7 +1103,7 @@ export default defineGate({
 					return yield* sampleRole(
 						observer,
 						s.owner.role,
-						20,
+						options.roleSampleMs,
 						runLoad(baselineSessions, (session, w) => baselineOp(session, w), loadOptions)
 					)
 				})

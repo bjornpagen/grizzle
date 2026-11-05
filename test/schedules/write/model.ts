@@ -409,11 +409,12 @@ export interface Span {
 
 /**
  * What a grizzle write's calls did: the TransientFailure reasons its refused calls carried, in order, then the answer.
+ * The caller calls again after every TransientFailure until a call answers (untilAnswered), so a write ends answered or
+ * failed otherwise, never refused.
  */
 export type GrizzleAnswer =
 	| { readonly kind: "accepted" | "no-change" }
 	| { readonly kind: "invariant-rejected"; readonly law: LawId }
-	| { readonly kind: "gave up" }
 	| { readonly kind: "failed"; readonly what: string }
 
 /** What a direct transaction did, as the driver recorded it. */
@@ -680,7 +681,6 @@ export const judgeRun = (
 						: undefined
 				case "invariant-rejected":
 					return meant.kind === "refused" && meant.laws.includes(o.answer.law) ? state : undefined
-				case "gave up":
 				case "failed":
 					return undefined
 			}

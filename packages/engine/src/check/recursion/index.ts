@@ -7,7 +7,6 @@ import { conform, declaredRow, requireHashing } from "#compiler/check/recursion/
 import { certificate, terminationVerdict } from "#compiler/check/recursion/termination.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { recursionMaxStates } from "#compiler/core/policy.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 
 /** The location of a list's one member, or `fallback` for a list of none or several. */
@@ -29,9 +28,9 @@ const only = (list: ReadonlyArray<{ readonly loc: SourceLoc }>, fallback: Source
  *    state, so the traversals of different parents never merge. A correlation
  *    column the checker names after a head key, because that key delivers the parent variable unchanged, is a declared
  *    row column and part of the origin as well.
- * 4. Termination (termination.ts), read from the arms as written: the certificate family and the static seen-state
- *    estimate, refused above the recursionMaxStates (core/policy.ts) with ResourceBound, and each counter column's
- *    interval. It precedes the step, so unbounded state is refused as such, not as a narrowing it leaves unproved.
+ * 4. Termination (termination.ts), read from the arms as written: the certificate family, the static seen-state
+ *    estimate it records, and each counter column's interval. It precedes the step, so unbounded state is refused as
+ *    such, not as a narrowing it leaves unproved.
  * 5. The step: a SelfRef over the state heading, read by the recursive arms. One arm is checked as it is; several are
  *    factored into one rule that reads `self` once (factor.ts), each delivering a counter column as an exact integer.
  *    In an attachment's child the step's `self` match also binds each origin column to its parent variable, so every
@@ -45,7 +44,7 @@ const only = (list: ReadonlyArray<{ readonly loc: SourceLoc }>, fallback: Source
  * union with the base, so no Recursive node is built.
  *
  * Every refusal is a RecursionRefused at the arm or clause that causes it, its cause a RecursionRefusal
- * (core/causes.ts) naming the rule; a state estimate above the bound is its ResourceBound stateEstimate.
+ * (core/causes.ts) naming the rule.
  */
 export const recursion: RecursionPlugin = {
 	check: (stage, scope, loc, cx) => {
@@ -94,8 +93,6 @@ export const recursion: RecursionPlugin = {
 			row,
 			base: arms.base,
 			rec,
-			maxStates: recursionMaxStates,
-			loc,
 			cx
 		})
 		const recursive = cx.reserve()

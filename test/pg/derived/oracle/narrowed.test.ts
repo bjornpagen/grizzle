@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { refreshReport } from "#adapter/refresh/index.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -175,13 +175,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							kept: [],
 							runs: cases,
 							shrink: { kind: "complete" },
-							caseHang: Duration.minutes(2),
 							perturb: "planner"
 						},
 						property
 					)
-				),
-			600_000
+				)
 		)
 	}
 )

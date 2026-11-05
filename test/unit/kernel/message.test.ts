@@ -14,10 +14,11 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
-import { Data, Duration, Effect, Formatter, Option } from "effect"
+import { Data, Effect, Formatter, Option } from "effect"
 import { compileReasonText, malformedDescription } from "#compiler/core/errors.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { containsText, refusalLoc } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 
 /** A tagged failure whose message is empty, and a server error it may be caused by. */
@@ -161,7 +162,7 @@ describe("a failure's message", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(k, c) =>
 						Effect.sync(() => {
@@ -212,7 +213,7 @@ describe("a failure's message", () => {
 					shrink: completeShrink,
 					concurrency: 1,
 					steerEvery: 16,
-					caseHang: Duration.minutes(2)
+					caseHang
 				},
 				(end, c) =>
 					Effect.sync(() => {

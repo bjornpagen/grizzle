@@ -33,11 +33,10 @@ import {
 	check,
 	commit,
 	complete,
-	op,
 	schedule,
 	sql
 } from "#test/support/schedules/build.ts"
-import { applied, refusals, retried } from "#test/support/schedules/grizzle.ts"
+import { applied, refusals, retriedOp } from "#test/support/schedules/grizzle.ts"
 import { exploreEnv } from "#test/support/schedules/interleave.ts"
 import { ok, rows } from "#test/support/schedules/match.ts"
 import { planted } from "#test/support/schedules/planted.ts"
@@ -113,16 +112,14 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										ok(),
 										complete
 									),
-									op(
+									retriedOp(
 										"g",
 										"insert ada's leave",
-										retried(
-											r.hr.apply(
-												ChangeSet.empty(r.s).insert(P.Leave, [
-													{ employee: ada, during: span(t5, t9), reason }
-												]),
-												{}
-											)
+										r.hr.apply(
+											ChangeSet.empty(r.s).insert(P.Leave, [
+												{ employee: ada, during: span(t5, t9), reason }
+											]),
+											{}
 										),
 										applied({ kind: "no-change", calls: refusals(1) }),
 										blocksOn("h")

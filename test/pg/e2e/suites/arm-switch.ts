@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Layer, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
@@ -16,6 +16,7 @@ import { Cents } from "#test/support/fixtures/api/contracts.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t2, t4, t7, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { recordEntryOf } from "#test/support/oracle/pick.ts"
 import { tableState } from "#test/support/substrate/state.ts"
@@ -241,7 +242,7 @@ export const armSwitchSuite = (): void => {
 										generator: switches,
 										literal: Formatter.format,
 										limit: 30,
-										caseHang: Duration.minutes(2),
+										caseHang,
 										coverage: requiredInSpace<SwitchFeature>([
 											"enumerated automatic accepted",
 											"enumerated automatic rejected",

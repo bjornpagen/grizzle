@@ -2,6 +2,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { FieldId, NodeId, OccurrenceId, ParamId, VarId } from "#compiler/core/ids.ts"
+import { derived } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { OrderItem, Select, SelectBody, SelectCore, SetOperand } from "#compiler/sql/ast.ts"
@@ -68,27 +69,31 @@ const carrierPrefix = "__carrier_"
 const carrierSeparator = "_"
 
 /**
- * The decimal digits of the longest ordinal a carrier's name holds.
+ * The decimal digits of the longest ordinal a carrier's name holds: Number.MAX_SAFE_INTEGER's decimal length. An
+ * ordinal counts the carriers of one column-type class that one program holds, each an object the program keeps, so
+ * the count stays a safe integer, which this many decimal digits write.
  *
- * @limitKind derived
- * @owner grizzle
- * @unit decimal digits
- * @scope the ordinal of one carrier's name
- * @derivation Number.MAX_SAFE_INTEGER's decimal length: an ordinal counts the carriers of one column-type class that one program holds, each an object the program keeps, so the count stays a safe integer, which this many decimal digits write.
+ * @formatConstant a carrier's ordinal: a safe integer, in decimal
  */
 const ordinalDigits = String(Number.MAX_SAFE_INTEGER).length
 
 /**
  * The hex digits of a carrier's types digest: the leading digits of SHA-256 over its column types' canonical text.
- *
- * @limitKind derived
- * @owner grizzle
- * @unit hex digits
- * @scope the types digest of one carrier's name
- * @derivation maxIdentifierBytes less carrierPrefix, carrierSeparator and ordinalDigits: 63 - 10 - 1 - 16 = 36 hex digits, 144 bits, the widest digest a name with the longest ordinal still fits in PostgreSQL's identifier, which would truncate a longer one. Collision arithmetic: n distinct column-type lists in one process share a digest with probability at most n(n - 1) / 2 / 2^144, below 2^-81 for n = 2^32; two programs that share one meet only PostgreSQL's refusal of a cached plan whose result type changed (StaleStatement), and one program that holds both is refused at compile time (write/carriers CarrierSupply).
+ * Collision arithmetic: n distinct column-type lists in one process share a digest with probability at most
+ * n(n - 1) / 2 / 2^144, below 2^-81 for n = 2^32; two programs that share one meet only PostgreSQL's refusal of a cached
+ * plan whose result type changed (StaleStatement), and one program that holds both is refused at compile time
+ * (write/carriers CarrierSupply).
  */
-export const carrierDigestHex =
-	maxIdentifierBytes - carrierPrefix.length - carrierSeparator.length - ordinalDigits
+export const carrierDigestHex = derived({
+	owner: "grizzle's carrier names (sql/naming.ts carrierName)",
+	unit: "hex digits",
+	scope: "the types digest of one carrier's name",
+	from: [maxIdentifierBytes],
+	derivation:
+		"maxIdentifierBytes less the lengths of carrierPrefix, carrierSeparator and the longest ordinal (ordinalDigits): the widest digest a name with the longest ordinal still fits in PostgreSQL's identifier, which would truncate a longer one",
+	compute: ([identifier]) =>
+		identifier.value - carrierPrefix.length - carrierSeparator.length - ordinalDigits
+})
 
 /**
  * __carrier_<digest>_<ordinal>: a write program's transaction-scoped carrier (write/carriers), the one name CREATE
@@ -124,10 +129,10 @@ export const isCarrierName = (u: unknown): u is CarrierName => {
 	if (typeof u !== "string" || !u.startsWith(carrierPrefix)) {
 		return false
 	}
-	const digest = u.slice(carrierPrefix.length, carrierPrefix.length + carrierDigestHex)
-	const rest = u.slice(carrierPrefix.length + carrierDigestHex)
+	const digest = u.slice(carrierPrefix.length, carrierPrefix.length + carrierDigestHex.value)
+	const rest = u.slice(carrierPrefix.length + carrierDigestHex.value)
 	if (
-		digest.length !== carrierDigestHex ||
+		digest.length !== carrierDigestHex.value ||
 		!isLowerHex(digest) ||
 		!rest.startsWith(carrierSeparator)
 	) {

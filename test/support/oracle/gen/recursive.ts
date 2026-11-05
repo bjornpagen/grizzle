@@ -2,7 +2,6 @@ import { array, boolean, constant, type Gen, int, map, weighted } from "@grizzle
 import { Array as Arr, Formatter, Option, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
-import { recursionUnrollMax } from "#compiler/core/policy.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { type DefinedOp, OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import {
@@ -160,9 +159,7 @@ interface GenEdge {
  *
  * fixedLengthCaseGen pairs two lowerings of one answer in one DAG: a fixed-length connected match of k edges through
  * joins and the same set through a bounded recursive relation filtered to hops = k, for the
- * check that join and recursive-CTE lowerings agree. The lengths straddle the optimizer's unroll limit: the relation
- * bounded at k has a proved depth of k - 1 (its seed is the first hop), so k up to recursionUnrollMax + 1 is unrolled
- * into joins and the length beyond stays a recursive CTE.
+ * check that join and recursive-CTE lowerings agree, at lengths of one edge to a few.
  *
  * Every sketch resolves (each choice is reduced modulo what is in scope, and a choice with nothing to pick from
  * degrades to a simpler valid form), so shrinking any number toward zero keeps the case valid. A DAG that fails
@@ -2015,7 +2012,7 @@ interface FixedLengthSketch {
 
 const fixedLengthSketchGen: Gen<FixedLengthSketch> = (source) => ({
 	graph: source.draw(graphSketchGen),
-	length: source.draw(int(1, recursionUnrollMax + 2)),
+	length: source.draw(int(1, 6)),
 	allRoots: source.draw(boolean),
 	rootPick: source.draw(int(0, 15)),
 	exists: source.draw(boolean),

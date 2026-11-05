@@ -538,8 +538,9 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  *   integer, delivered as bigint; money + and - are `exact` money. The exact carriers' own overloads (OpIds prefixed
  *   "exact:" and "exactMoney:") take exact operands and are numeric's, total within the digit bounds;
  * - float +, -, *, / and the square root over double precision are `ieee`;
- * - numeric arithmetic, rounding, ceiling, floor, trunc, gcd and lcm are total: every numeric expression's integer
- *   digits are bounded (a bare numeric field's by 1000, README Limits), so none reaches numeric's limit of 131072;
+ * - numeric arithmetic, rounding, ceiling, floor, trunc, gcd and lcm are total: every numeric field declares its
+ *   precision and every computed numeric carries the bound its making proved, a making past numericMaxIntegerDigits
+ *   being ResourceBound where the value is made, so none reaches numeric's limit;
  * - a divisor (/, %, div, mod over numeric, the exact integers, the integers' %, money / money) is `nonzero`; numeric
  *   sqrt's radicand `nonnegative`; min_scale's operand `finite`; power its `powerDomain`; width_bucket its
  *   `bucketDomain`;

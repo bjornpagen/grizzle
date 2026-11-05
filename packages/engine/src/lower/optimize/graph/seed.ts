@@ -4,15 +4,14 @@ import type { ParamId } from "#compiler/core/ids.ts"
 import type { ColumnRef, DefinedOp, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Cell, EditNode, EditRefs, HeadingColumn, KindOver } from "#compiler/ir/rel.ts"
 import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
+import { conjuncts } from "#compiler/logical/props.ts"
 import { columnRefs, DagEditor, paramRefs } from "#compiler/lower/optimize/demand/editor.ts"
 import {
-	type Measure,
-	multiset,
 	nodePremises,
+	type Potential,
 	type RewriteCx,
 	type Rule
 } from "#compiler/lower/optimize/demand/frame.ts"
-import { conjuncts } from "#compiler/lower/optimize/simplify/boolean.ts"
 import { carriedColumns, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
 import { definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
@@ -48,9 +47,9 @@ import { plainType } from "#compiler/scalar/compute/types.ts"
  * linear. The predicate is added to R's base as a filter and also stays where it was: the consumer's predicate is then
  * implied, and keeping it changes nothing and needs no proof that the consumer's own value is the state's.
  *
- * Measure: the multiset, over every site predicate not yet in its recursion's seed, of the number of Recursive nodes
- * in that recursion's subtree. A push places the predicate in the seed, which removes it from the multiset; the new
- * seed filter can itself be a site only of a recursion inside R's base, whose subtree holds fewer Recursive nodes.
+ * Potential (seedPotential): the site predicates not yet in their recursion's seed. A push places the predicate in the
+ * seed, and the new seed filter's own sites, each a recursion inside R's base, in theirs, down to the last recursion
+ * the predicate reaches, so a push closes sites and opens none.
  */
 export const seedRules = {
 	filter: "graph.seedPushdown.filter",
@@ -375,11 +374,13 @@ const openSites = (cx: RewriteCx): ReadonlyArray<Site> => {
 	return out
 }
 
-const recursionsBelow = (cx: RewriteCx, cell: Cell): number =>
-	[...cx.editor.subtree(cell)].filter((c) => c.current.kind === "Recursive").length
-
-export const seedMeasure: Measure = (cx) =>
-	multiset(openSites(cx).map((s) => recursionsBelow(cx, s.recursive)))
+/**
+ * The seed pushdown's potential: the open sites. A push closes its site and every site its filters open, since it
+ * carries the predicate into every recursion below (push), and changes no other site, since a filter over a seed adds
+ * no consumer of another recursion. So each push lowers it by at least one, and its first value is at most the
+ * conjuncts and constants times the recursion occurrences.
+ */
+export const seedPotential: Potential = (cx) => openSites(cx).length
 
 /** The site's predicate over the recursion's current base. */
 const seedPredicate = (cx: RewriteCx, site: Site): ScalarExpr => {
@@ -411,6 +412,11 @@ const seedPredicate = (cx: RewriteCx, site: Site): ScalarExpr => {
 	})
 }
 
+/**
+ * Places the site's predicate in its recursion's seed as a filter, and then the new filter's own open sites, each a
+ * recursion inside that seed, the same way: one push carries the predicate down every recursion it reaches, so it
+ * leaves no site it opened.
+ */
 const push = (cx: RewriteCx, site: Site): void => {
 	const ed: DagEditor = cx.editor
 	const rec = site.rec
@@ -439,6 +445,9 @@ const push = (cx: RewriteCx, site: Site): void => {
 		coercion: [],
 		params: params.length === 0 ? undefined : params
 	})
+	for (const below of sitesAt(cx, filter).filter((s) => !pushed(s))) {
+		push(cx, below)
+	}
 }
 
 export const seedPushdown: Rule = {

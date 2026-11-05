@@ -5,17 +5,18 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Redacted, String as Str } from "effect"
+import { Array as Arr, Effect, Redacted, String as Str } from "effect"
+import pgDriver from "pg"
 import { OpenError, type OpenStage } from "#adapter/errors/execution.ts"
 import { type ConnectRefusal, CredentialError } from "#adapter/errors/failures.ts"
 import { openMigrationSession } from "#adapter/migrate/session.ts"
-import { acquisitionBudgets, connectBudgetMs } from "#adapter/pool/budgets.ts"
 import { isTlsCode, makePool, noPassword, type Password } from "#adapter/wire/session.ts"
-import { poolBounds } from "#compiler/core/policy.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { substrateLogin } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { pgPin } from "#test/support/env.ts"
+import { caseHang, nodeTimerMin, testConnectTimeout } from "#test/support/limits.ts"
+import { clusterPool, clusterTransport, parsedConnection } from "#test/support/pg.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -23,12 +24,13 @@ import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
  * through Db.open, never with a password (packages/grizzle/src/adapter/errors/failures.ts ConnectRefusal).
  *
  * The property, exhausted over planted failures, each opened by the migration identity's session (MigrateError whose
- * reason, ConnectRefused, carries the refusal) and by a pool's lease as Db.open opens one (OpenError, its reason): no answer within the
- * connect budget (a server that accepts and never answers), a refused socket (nothing listening), the server's
+ * reason, ConnectRefused, carries the refusal) and by a pool's lease as Db.open opens one (OpenError, its reason): no
+ * answer within the attempt's connect timeout (a server that accepts and never answers), a refused socket (nothing listening), the server's
  * SQLSTATE (a role over its connection limit, 53300; a wrong password, 28P01; no such database, 3D000), TLS (a CA that
- * is not the server's; a server that answers the SSLRequest with N, or with neither S nor N; an empty CA bundle), a
- * server that closes the connection at once, a failing password Effect, and no password for a role SCRAM
- * authenticates. The oracle is the class each plant is: its tag, the fact that tells it apart, and its stage. Both
+ * is not the server's; a server that answers the SSLRequest with N, or with neither S nor N), a server that closes the
+ * connection at once, a failing password Effect, and no password for a role SCRAM authenticates. Each attempt's
+ * connection is parsed as grizzle parses one (test/support/pg.ts parsedConnection), so an empty CA bundle never reaches
+ * a connection: the parse refuses it at stage config (test/unit/adapter/layer.test.ts). The oracle is the class each plant is: its tag, the fact that tells it apart, and its stage. Both
  * paths carry the same class; the migrate reason names the role, host and port and states the class's message; no
  * password, given or wrong, appears in a message or anywhere in either error; and the messages of the plants are all
  * distinct.
@@ -42,7 +44,6 @@ const plants = [
 	"a CA that is not the server's",
 	"a server that offers no TLS",
 	"a server that answers neither",
-	"an empty CA bundle",
 	"a server that closes at once",
 	"a failing password Effect",
 	"no password for a SCRAM role"
@@ -85,10 +86,16 @@ const classOf = (refusal: ConnectRefusal): string => {
 	}
 }
 
+/**
+ * The connect timeout of the attempts to a server that never answers: the least delay a Node timer waits, since nothing
+ * will answer it, so any delay times the attempt out and the case spends none of the run waiting longer.
+ */
+const silentTimeout = nodeTimerMin.value
+
 const plantedClass: {
 	readonly [P in Plant]: { readonly fact: string; readonly stage: OpenStage }
 } = {
-	"a server that never answers": { fact: `timed out after ${connectBudgetMs}`, stage: "connect" },
+	"a server that never answers": { fact: `timed out after ${silentTimeout}`, stage: "connect" },
 	"nothing listening": { fact: "socket ECONNREFUSED", stage: "connect" },
 	"a role over its connection limit": { fact: "server 53300", stage: "connect" },
 	"a wrong password": { fact: "server 28P01", stage: "authentication" },
@@ -96,7 +103,6 @@ const plantedClass: {
 	"a CA that is not the server's": { fact: "tls handshake verification", stage: "tls" },
 	"a server that offers no TLS": { fact: "tls notOffered", stage: "tls" },
 	"a server that answers neither": { fact: "tls unanswered", stage: "tls" },
-	"an empty CA bundle": { fact: "tls noAuthority", stage: "tls" },
 	"a server that closes at once": { fact: "closed", stage: "connect" },
 	"a failing password Effect": { fact: "credential", stage: "credential" },
 	"no password for a SCRAM role": { fact: "driver", stage: "connect" }
@@ -164,6 +170,7 @@ interface Attempt {
 	readonly role: string
 	readonly password: Password
 	readonly ca: string
+	readonly connectTimeoutMs: number
 	/** The password texts no report may hold. */
 	readonly secrets: ReadonlyArray<string>
 }
@@ -191,11 +198,16 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 								role: writer.role,
 								password: writer.password,
 								ca: s.cluster.caPem,
+								connectTimeoutMs: testConnectTimeout.value,
 								secrets: [own]
 							}
 							switch (plant) {
 								case "a server that never answers":
-									return { ...direct, port: (yield* fakeServer("silent")).port }
+									return {
+										...direct,
+										port: (yield* fakeServer("silent")).port,
+										connectTimeoutMs: silentTimeout
+									}
 								case "nothing listening":
 									return { ...direct, port: yield* freedPort }
 								case "a role over its connection limit":
@@ -216,8 +228,6 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 									return { ...direct, port: (yield* fakeServer("N")).port }
 								case "a server that answers neither":
 									return { ...direct, port: (yield* fakeServer("E")).port }
-								case "an empty CA bundle":
-									return { ...direct, ca: "" }
 								case "a server that closes at once":
 									return { ...direct, port: (yield* fakeServer("close")).port }
 								case "a failing password Effect":
@@ -233,22 +243,29 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 						})
 
 					/**
+					 * The connection an attempt makes, parsed as grizzle parses one: the cluster's transport, at its port, with
+					 * its CA.
+					 */
+					const connectionOf = (attempt: Attempt) =>
+						parsedConnection(
+							{
+								driver: pgDriver,
+								transport: { ...clusterTransport(s.cluster), port: attempt.port, ca: attempt.ca },
+								database: attempt.database,
+								password: attempt.password,
+								connectTimeoutMs: attempt.connectTimeoutMs
+							},
+							attempt.role
+						)
+
+					/**
 					 * The attempt's failure through `grizzle migrate`: its class, its stage, its reason's statement of the class
 					 * after the role, host and port it names, and the whole error as text.
 					 */
 					const throughMigrate = (attempt: Attempt) =>
 						Effect.gen(function* () {
 							const failure = yield* Effect.flip(
-								Effect.scoped(
-									openMigrationSession({
-										host: pgPin.host,
-										port: attempt.port,
-										database: attempt.database,
-										role: attempt.role,
-										password: attempt.password,
-										tls: { ca: attempt.ca, servername: pgPin.host }
-									})
-								)
+								Effect.scoped(openMigrationSession(connectionOf(attempt)))
 							)
 							const reason = failure.reason
 							assert.ok(reason._tag === "ConnectRefused", `a connect refusal, not ${failure.stage}`)
@@ -271,22 +288,14 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 					const throughOpen = (attempt: Attempt) =>
 						Effect.gen(function* () {
 							const pool = yield* makePool({
-								connection: {
-									host: pgPin.host,
-									port: attempt.port,
-									database: attempt.database,
-									role: attempt.role,
-									password: attempt.password
-								},
-								transport: { _tag: "tls", tls: { ca: attempt.ca, servername: pgPin.host } },
-								pool: poolBounds,
-								budgets: acquisitionBudgets,
+								connection: connectionOf(attempt),
+								bounds: clusterPool,
 								attachPool: () => undefined
 							})
 							const refusal = yield* Effect.flip(Effect.scoped(pool.lease))
 							const failure = new OpenError({ reason: refusal })
 							assert.ok(
-								refusal._tag !== "AcquisitionBudgetExceeded" && refusal._tag !== "LayerReleased",
+								refusal._tag !== "LayerReleased",
 								`the reason of OpenError at stage ${failure.stage} is a connection attempt's class`
 							)
 							return {
@@ -315,7 +324,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 									`${p} through Db.open`
 								])
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([plant, path], c) =>
 							Effect.gen(function* () {

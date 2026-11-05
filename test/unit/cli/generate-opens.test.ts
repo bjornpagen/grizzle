@@ -1,18 +1,22 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Exit, Layer, Record as Rec, Redacted, Result } from "effect"
+import { Array as Arr, Effect, Exit, Layer, Record as Rec, Result } from "effect"
 import { loginRoles } from "#adapter/pool/registry.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
+import type { GrizzleConfig } from "#adapter/types/config.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
+import { selectMaxEntries } from "#compiler/core/limits.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { defineConfig } from "#index.ts"
+import { offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
+import { clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 
 /**
@@ -20,10 +24,10 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * function the layer runs at startup (adapter/pool/registry.ts loginRoles), so a program generate admits is one the
  * layer opens, and one the layer would refuse refuses the draft first, with the same CompileError.
  *
- * Each case is a login whose workload holds one ordered query over a relation of uuid fields: one ordered by a few of
- * them, which compiles, and one ordered by all of them, whose shortest cursor token is past cursorMaxBytes, which only
- * the page template the layer compiles refuses (adapter/page/template.ts). The checker and the access extraction admit
- * both, which is all generate once ran. The first drafts, and its snapshot opens a DbLayer, which builds without a
+ * Each case is a login whose workload holds one query: an ordered query over a relation of uuid fields, which
+ * compiles; and a query whose head is every field of two joined relations, one entry past PostgreSQL's select list
+ * (core/limits.ts selectMaxEntries), which the checker admits and the statements the layer compiles refuse when they
+ * are printed (ResourceBound, selectList). The first drafts, and its snapshot opens a DbLayer, which builds without a
  * connection; the second refuses the draft with the CompileError the layer's compilation refuses it with.
  */
 const Visit = relation("Visit", Rec.fromEntries(Arr.makeBy(24, (i) => [`u${i}`, uuid] as const)), [
@@ -37,49 +41,56 @@ const visits = query(Visits).rule((r) => {
 	return r.match(Visit, visit).find(visit)
 })
 
-/** Ordered by four uuids, a token far within cursorMaxBytes. */
+/** Ordered by four uuids. */
 const fewKeys = visits.orderBy(["u0", "asc"], ["u1", "asc"], ["u2", "asc"], ["u3", "asc"])
-/** Ordered by all 24, a shortest token of 24 uuids, past cursorMaxBytes. */
-const everyKey = visits.orderBy(
-	["u0", "asc"],
-	["u1", "asc"],
-	["u2", "asc"],
-	["u3", "asc"],
-	["u4", "asc"],
-	["u5", "asc"],
-	["u6", "asc"],
-	["u7", "asc"],
-	["u8", "asc"],
-	["u9", "asc"],
-	["u10", "asc"],
-	["u11", "asc"],
-	["u12", "asc"],
-	["u13", "asc"],
-	["u14", "asc"],
-	["u15", "asc"],
-	["u16", "asc"],
-	["u17", "asc"],
-	["u18", "asc"],
-	["u19", "asc"],
-	["u20", "asc"],
-	["u21", "asc"],
-	["u22", "asc"],
-	["u23", "asc"]
-)
 
-const loginOf = (program: typeof fewKeys) =>
-	login(Visits, "server", [role(Visits, "reader", { Visit })], {
-		workload: [workload(Visits, { visits: program })]
-	})
+const visitsLogin = login(Visits, "server", [role(Visits, "reader", { Visit })], {
+	workload: [workload(Visits, { visits: fewKeys })]
+})
+
+/** The fields of each joined relation beside its key: both relations' and the key are one entry past a select list. */
+const sideFields = Math.ceil(selectMaxEntries.value / 2)
+
+/** A relation keyed by `id`, with `sideFields` uuid fields named `<prefix><i>` beside it. */
+const side = <const Name extends string, const Prefix extends string>(name: Name, prefix: Prefix) =>
+	relation(
+		name,
+		{
+			id: uuid,
+			...Rec.fromEntries(Arr.makeBy(sideFields, (i) => [`${prefix}${i}`, uuid] as const))
+		},
+		["id"]
+	)
+const Left = side("Left", "l")
+const Right = side("Right", "r")
+const Pairs = schema("Pairs", { Left, Right }, [])
+
+/** Every field of a left and of the right of its id: a head of 2 * sideFields + 1 entries. */
+const pairs = query(Pairs).rule((r) => {
+	const left = v(Left, "left")
+	const right = v(Right, "right")
+	return r
+		.match(Left, left)
+		.match(Right, { ...right, id: left.id })
+		.find({ ...right, ...left })
+})
+
+const pairsLogin = login(Pairs, "server", [role(Pairs, "reader", { Left, Right })], {
+	workload: [workload(Pairs, { pairs })]
+})
 
 const file = `${repoRoot}app/grizzle.config.ts`
 
-const pem = "-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n"
-
-/** A login's draft from an empty migrations directory, as generate drafts it, and its programs as the layer compiles them. */
-const draftAndCompile = (server: ReturnType<typeof loginOf>) =>
+/**
+ * The draft of a configuration's one schema and login from an empty migrations directory, as generate drafts it, and
+ * the login's programs as the layer compiles them.
+ */
+const draftAndCompile = (given: Pick<GrizzleConfig, "schemas" | "logins">) =>
 	Effect.gen(function* () {
-		const config = yield* resolveConfig(defineConfig({ schemas: [Visits], logins: [server] }), file)
+		const config = yield* resolveConfig(
+			defineConfig({ ...given, migrations: "migrations", connection: offlineOwner }),
+			file
+		)
 		const configured = defined(config.schemas[0], "the configured schema")
 		const login = defined(configured.workloads[0], "the login's workloads")
 		const compiled = yield* Effect.result(loginRoles(login.roles, login.workloads))
@@ -87,8 +98,6 @@ const draftAndCompile = (server: ReturnType<typeof loginOf>) =>
 			draftSchema(
 				configured,
 				emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
-				{ kind: "named", name: "visits" },
-				"20261104000000",
 				[]
 			)
 		)
@@ -98,8 +107,10 @@ const draftAndCompile = (server: ReturnType<typeof loginOf>) =>
 layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.make", (it) => {
 	it.effect("open a DbLayer from what generate drafts for a program both compile", () =>
 		Effect.gen(function* () {
-			const server = loginOf(fewKeys)
-			const { compiled, draft } = yield* draftAndCompile(server)
+			const { compiled, draft } = yield* draftAndCompile({
+				schemas: [Visits],
+				logins: [visitsLogin]
+			})
 			assert.ok(Result.isSuccess(compiled), "the layer compiles the program")
 			assert.ok(Result.isSuccess(draft), "generate drafts the program")
 			if (Result.isFailure(draft)) {
@@ -109,13 +120,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 				Effect.scoped(
 					Layer.build(
 						DbLayer.make({
-							host: "localhost",
-							port: 5433,
-							database: "visits",
-							login: server,
-							snapshot: snapshotJson(draft.success.snapshotText),
-							password: Redacted.make("unused"),
-							tls: { ca: pem }
+							...offlineConnection,
+							pool: clusterPool,
+							login: visitsLogin,
+							snapshot: snapshotJson(draft.success.snapshotText)
 						})
 					)
 				)
@@ -126,7 +134,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 
 	it.effect("refuse the draft of a program the layer refuses, with the layer's own refusal", () =>
 		Effect.gen(function* () {
-			const { compiled, draft } = yield* draftAndCompile(loginOf(everyKey))
+			const { compiled, draft } = yield* draftAndCompile({ schemas: [Pairs], logins: [pairsLogin] })
 			assert.ok(Result.isFailure(compiled), "the layer refuses the program")
 			assert.ok(Result.isFailure(draft), "generate refuses the program")
 			if (Result.isSuccess(compiled) || Result.isSuccess(draft)) {
@@ -137,7 +145,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 			if (refusal._tag === "DraftRefused") {
 				assert.equal(refusal.step, "workload")
 				assert.equal(refusal.error.message, compiled.failure.message)
-				assert.equal(refusal.error.reason._tag, "UnsupportedOperation", refusal.error.message)
+				const reason = refusal.error.reason
+				assert.ok(
+					reason._tag === "ResourceBound" && reason.bound.kind === "selectList",
+					`refused past the select list, not: ${refusal.error.message}`
+				)
 			}
 		})
 	)

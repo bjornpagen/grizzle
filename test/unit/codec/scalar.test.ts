@@ -19,18 +19,19 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, float } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import type { CodecFault } from "#compiler/core/errors.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
-import { int8Max, int8Min } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import type { StrictFault } from "#test/support/kernel/strict.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { codecOf, types } from "#test/unit/codec/support.ts"
 import { asVector } from "#test/unit/codec/values.ts"
 
@@ -125,7 +126,7 @@ interface Carried {
 }
 
 const fixed4 = scalarOf(f.span(f.integer, 15n), {})
-const fixed8 = scalarOf(f.span(f.bigint, int8Max), {})
+const fixed8 = scalarOf(f.span(f.bigint, int8Max.value), {})
 const refined = scalarOf(f.regex("^[a-z]+$", "u"), {})
 const integerSyntax = ["", "+1", "01", "-0", "1.0", " 1", "1e3", "١"]
 
@@ -157,7 +158,7 @@ const carried = {
 	},
 	int8: {
 		type: types.int8,
-		live: map(bigint(int8Min, int8Max), (n) => ({ value: n, text: digitsOf(n) })),
+		live: map(bigint(int8Min.value, int8Max.value), (n) => ({ value: n, text: digitsOf(n) })),
 		refusedValues: [[1, "integerType"]],
 		refusedTexts: [
 			["9223372036854775808", "integerRange"],
@@ -210,7 +211,7 @@ const carried = {
 	},
 	money: {
 		type: types.money,
-		live: map(bigint(int8Min, int8Max), (minor) => ({
+		live: map(bigint(int8Min.value, int8Max.value), (minor) => ({
 			value: Money.of(minor),
 			text: decimalText(minor < 0n, minor < 0n ? -minor : minor, 2)
 		})),
@@ -267,7 +268,7 @@ const carried = {
 	},
 	int8range: {
 		type: types.range8,
-		live: writtenSpan8(bigint(int8Min, int8Max)),
+		live: writtenSpan8(bigint(int8Min.value, int8Max.value)),
 		refusedValues: [[{ start: 1, end: 2 }, "spanEndpoint"]],
 		refusedTexts: []
 	},
@@ -288,12 +289,12 @@ const carried = {
 		type: fixed8,
 		/** The width is exact over bigint, where end - start can exceed every bigint. */
 		live: map(bigint(-1n, 0n), (start) => ({
-			value: { start, end: start + int8Max },
-			text: `[${start},${start + int8Max})`
+			value: { start, end: start + int8Max.value },
+			text: `[${start},${start + int8Max.value})`
 		})),
 		refusedValues: [
-			[{ start: int8Min, end: int8Max }, "spanWidth"],
-			[{ start: 1n, end: int8Max }, "spanWidth"]
+			[{ start: int8Min.value, end: int8Max.value }, "spanWidth"],
+			[{ start: 1n, end: int8Max.value }, "spanWidth"]
 		],
 		refusedTexts: []
 	},
@@ -415,7 +416,7 @@ describe("each carrier's codec", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					([name, sketch], c) =>
 						Effect.sync(() => {
@@ -463,7 +464,7 @@ describe("integer and span text, scanned without RegExp", () => {
 			return undefined
 		}
 		const n = BigInt(t)
-		return n >= int8Min && n <= int8Max ? n : undefined
+		return n >= int8Min.value && n <= int8Max.value ? n : undefined
 	}
 
 	it.effect("reads int8 text exactly where the integer output grammar admits it", (ctx) =>
@@ -471,7 +472,7 @@ describe("integer and span text, scanned without RegExp", () => {
 			const int8 = codecOf(types.int8)
 			const texts = oneOf([
 				string(element(Str.split("0123456789-+. ", "")), { min: 0, max: 22 }),
-				map(bigint(int8Min * 2n, int8Max * 2n), String)
+				map(bigint(int8Min.value * 2n, int8Max.value * 2n), String)
 			])
 			yield* searched(
 				ctx,
@@ -486,7 +487,7 @@ describe("integer and span text, scanned without RegExp", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text) =>
 						Effect.sync(() => {
@@ -516,7 +517,10 @@ describe("integer and span text, scanned without RegExp", () => {
 				string(element(Str.split("[](),-0123456789", "")), { min: 0, max: 16 }),
 				map(
 					(source) =>
-						[source.draw(bigint(int8Min, int8Max)), source.draw(bigint(int8Min, int8Max))] as const,
+						[
+							source.draw(bigint(int8Min.value, int8Max.value)),
+							source.draw(bigint(int8Min.value, int8Max.value))
+						] as const,
 					([a, b]) => `[${a},${b})`
 				)
 			])
@@ -533,7 +537,7 @@ describe("integer and span text, scanned without RegExp", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(text) =>
 						Effect.sync(() => {
@@ -576,7 +580,7 @@ describe("vectors", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(xs) =>
 						Effect.sync(() => {

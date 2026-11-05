@@ -3,11 +3,15 @@ import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { rewritePass } from "#compiler/lower/optimize/demand/frame.ts"
-import { seedMeasure, seedPushdown, seedRules } from "#compiler/lower/optimize/graph/seed.ts"
+import { seedPotential, seedPushdown, seedRules } from "#compiler/lower/optimize/graph/seed.ts"
 
 const graphPassName = "graph"
 
-const rewrites = rewritePass({ name: graphPassName, rules: [seedPushdown], measure: seedMeasure })
+const rewrites = rewritePass({
+	name: graphPassName,
+	rules: [seedPushdown],
+	potential: () => seedPotential
+})
 
 const graphRules: ReadonlySet<CertificateRule> = new Set(Object.values(seedRules))
 
@@ -34,9 +38,8 @@ const graphRules: ReadonlySet<CertificateRule> = new Set(Object.values(seedRules
  * - adjacency indexes: a containment's reverse probe is the law model's request (physical/indexes), and a workload
  *   program's probes are the workload extraction's (physical/access).
  *
- * Bounded unrolling of a small statically bounded traversal into a union of joins is the recursive lowering's, under
- * its policy (shapes/recursion); a recursion here keeps its WITH RECURSIVE feedback and its
- * complete state. Where no rule applies the pass returns its input unchanged.
+ * A recursion here keeps its WITH RECURSIVE feedback and its complete state, as its lowering does at every depth
+ * (shapes/recursion). Where no rule applies the pass returns its input unchanged.
  */
 export const graphPass: Pass<LogicalQuery, LogicalQuery> = {
 	name: graphPassName,

@@ -6,7 +6,7 @@ import { passed, type Wild, WILD_KINDS, type WildKind, wild, wildOf } from "@gri
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Result, Stream } from "effect"
+import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
 import { isCompileError, type ValueFault } from "#compiler/core/errors.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { Db, EncodingFailure, pg, query, relation, schema, span, str, uuid, v } from "#index.ts"
@@ -15,6 +15,7 @@ import { tappedDb } from "#test/pg/api-errors/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { applyRuntime } from "#test/support/runtime-db.ts"
 import {
@@ -244,7 +245,7 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 								shrink: completeShrink,
 								concurrency: 1,
 								steerEvery: 16,
-								caseHang: Duration.minutes(2),
+								caseHang,
 								coverage: required<EncodingFeature>(
 									[
 										...Arr.map(

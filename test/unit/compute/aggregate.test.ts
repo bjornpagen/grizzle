@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, map, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Record } from "effect"
 import { type CompareOp, type ComputeFn, computeFns } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -15,6 +15,7 @@ import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /** Whether a lowered program counts by FILTER: a count(*) with a FILTER clause in any statement. */
 const countsByFilter = (statements: ReadonlyArray<{ readonly ast: SqlStatement }>): boolean => {
@@ -114,7 +115,7 @@ describe("R24 conditional aggregates", () => {
 								"counted by FILTER",
 								"left composed"
 							]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						([shape, then, otherwise], c) =>
 							Effect.sync(() => {
@@ -212,7 +213,7 @@ describe("the overload registry", () => {
 							"word connective",
 							"word cast"
 						]),
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(word, c) =>
 						Effect.sync(() => {

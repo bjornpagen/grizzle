@@ -5,7 +5,7 @@ import { element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -18,6 +18,7 @@ import { buildSchema, caseSketchGen } from "#test/pg/derived/oracle/gen.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checkedIn, checking } from "#test/support/policy.ts"
 
 /** A declared field's descriptor as a view column carries it: a serial as its plain width.
@@ -73,7 +74,7 @@ describe("derived field inference", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.sync(() => {
@@ -147,7 +148,6 @@ describe("derived field inference", () => {
 				field.pg("money"),
 				field.boolean,
 				field.uuid,
-				field.unconstrainedNumeric,
 				field.numeric(7, 3),
 				{ kind: "vector", dimensions: 4 },
 				field.span(field.bigint, 7n),
@@ -169,7 +169,7 @@ describe("derived field inference", () => {
 						literal: Formatter.format,
 						limit: kinds.length,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(d) =>
 						Effect.sync(() => {
@@ -199,7 +199,7 @@ describe("derived field inference", () => {
 							literal: Formatter.format,
 							limit: 2,
 							coverage: requiredInSpace<"declared" | "undeclared">(["declared", "undeclared"]),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(declaration, c) =>
 							Effect.sync(() => {

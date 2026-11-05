@@ -9,21 +9,25 @@ import {
 	compareStrings,
 	mapInput
 } from "#compiler/core/order.ts"
-import { maxMigrationNameLength } from "#compiler/deploy/render/folder.ts"
+import {
+	type ChangeVerb,
+	changeMigrationName,
+	initMigrationName,
+	type MigrationName,
+	updateMigrationName
+} from "#compiler/deploy/render/folder.ts"
 import type { DeploySnapshot, SnapshotField } from "#compiler/deploy/snapshot/types.ts"
 import { targetKey } from "#compiler/physical/install/comments.ts"
 import { type GraphIdent, innerIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
 import type { CommentTarget } from "#compiler/sql/ast.ts"
 
-type Verb = "add" | "drop" | "change"
-
 interface Change {
-	readonly verb: Verb
+	readonly verb: ChangeVerb
 	readonly ident: string
 }
 
 /** The verbs in naming order: add, drop, change. */
-const verbRank: Readonly<Record<Verb, number>> = { add: 0, drop: 1, change: 2 }
+const verbRank: Readonly<Record<ChangeVerb, number>> = { add: 0, drop: 1, change: 2 }
 
 /** The rank of each kind of identity among the changes of one verb: a table before its columns, indexes and grants. An
  * identity that names no kind, such as a validation's, comes last. */
@@ -88,20 +92,6 @@ const nameOf = (ident: GraphIdent): string => {
 	}
 }
 
-/** Lowercase words joined by single underscores. */
-const words = (text: string): string => {
-	let out = ""
-	for (const ch of text.toLowerCase()) {
-		const keep = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")
-		if (keep) {
-			out += ch
-		} else if (out.length > 0 && !out.endsWith("_")) {
-			out += "_"
-		}
-	}
-	return out.endsWith("_") ? out.slice(0, -1) : out
-}
-
 /** What a COMMENT names for an object identity: its object's target, or none for an identity no comment names (an
  * extension, a membership, a role's privileges, row security, a validation). */
 const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
@@ -154,9 +144,10 @@ const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
 	}
 }
 
-/** What an object identity names, as a migration's name reads it: a hashed object's COMMENT's words, what the naming
- * door says it is (`drop_btree_index_account_region`), or its name without its schema, for a readable name, which
- * spells what it is (`add_task_note`), and for an identity no comment names. */
+/** What an object identity names, as a migration's name reads it (folder.ts changeMigrationName takes its words): a
+ * hashed object's COMMENT's words, what the naming door says it is (`drop_btree_index_account_region`), or its name
+ * without its schema, for a readable name, which spells what it is (`add_task_note`), and for an identity no comment
+ * names. */
 const label = (ident: string, schema: string, comments: ReadonlyMap<string, string>): string => {
 	const parsed = parseIdent(ident)
 	const target = commentTarget(parsed)
@@ -165,7 +156,7 @@ const label = (ident: string, schema: string, comments: ReadonlyMap<string, stri
 		return conversionOf(text)
 	}
 	const rest = nameOf(parsed)
-	return words(rest.startsWith(`${schema}.`) ? rest.slice(schema.length + 1) : rest)
+	return rest.startsWith(`${schema}.`) ? rest.slice(schema.length + 1) : rest
 }
 
 /** Each comment of a snapshot by its target's key. */
@@ -195,10 +186,14 @@ const inside = (inner: string, outer: string): boolean =>
  * object inside it changes as well (a table whose column is added is named by the column), and the first change is the
  * first by verb (add, drop, change), then by kind (a table before its columns, indexes and grants), then by name.
  *
- * A schema's first migration, from the empty snapshot, is `init`. The name is lowercase ASCII words joined by `_`, at most maxMigrationNameLength characters, as any `--name` must be. */
-export const derivedMigrationName = (previous: DeploySnapshot, next: DeploySnapshot): string => {
+ * A schema's first migration, from the empty snapshot, is `init`, and a migration whose change names no object is
+ * `update`. The name is a MigrationName, as any `--name` is (folder.ts changeMigrationName). */
+export const derivedMigrationName = (
+	previous: DeploySnapshot,
+	next: DeploySnapshot
+): MigrationName => {
 	if (previous.manifest.objects.length === 0) {
-		return "init"
+		return initMigrationName
 	}
 	const before = new Map(
 		previous.manifest.objects.map((o) => [o.ident, canonicalTextOf(o.ddl)] as const)
@@ -249,14 +244,13 @@ export const derivedMigrationName = (previous: DeploySnapshot, next: DeploySnaps
 		.filter((c) => c.verb !== "change" || !changes.some((d) => inside(d.ident, c.ident)))
 		.toSorted(changeOrder)
 	if (!isNonEmpty(named)) {
-		return "update"
+		return updateMigrationName
 	}
 	const [first] = named
-	/** The verb leads, so the head is never empty. */
 	const comments = first.verb === "drop" ? commentsOf(previous) : commentsOf(next)
-	const head = words(`${first.verb}_${label(first.ident, next.schema, comments)}`)
-	const more = named.length > 1 ? "_and_more" : ""
-	const room = maxMigrationNameLength - more.length
-	const cut = head.length <= room ? head : head.slice(0, room)
-	return `${cut.endsWith("_") ? cut.slice(0, -1) : cut}${more}`
+	return changeMigrationName(
+		first.verb,
+		label(first.ident, next.schema, comments),
+		named.length > 1
+	)
 }

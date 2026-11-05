@@ -1,11 +1,12 @@
+import { type Limit, published } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { Undefined } from "#compiler/scalar/compute/registry.ts"
 import {
-	Decimal,
-	type FiniteParts,
 	numericMaxDisplayScale,
-	roundedUnits
-} from "#compiler/scalar/values/decimal.ts"
+	numericMaxFractionDigits,
+	numericMinSigDigits
+} from "#compiler/ir/scalar.ts"
+import type { Undefined } from "#compiler/scalar/compute/registry.ts"
+import { Decimal, type FiniteParts, roundedUnits } from "#compiler/scalar/values/decimal.ts"
 
 /**
  * PostgreSQL numeric arithmetic over the exact Decimal carrier, and the conversion to an integer: each defined where
@@ -23,13 +24,22 @@ import {
  */
 export type NumericResult = Result.Result<Decimal, Undefined>
 
-/** numeric.c's constants. */
-/** NUMERIC_MIN_SIG_DIGITS */
-const minSigDigits = 16
-/** NUMERIC_MAX_DISPLAY_SCALE */
-const maxDisplayScale = 1000
-/** DEC_DIGITS: one NBASE digit is four decimal digits. */
-const decDigits = 4
+/**
+ * The decimal digits of one of numeric's NBASE digits, DEC_DIGITS: a weight counts NBASE digits, which
+ * select_div_scale reads a quotient's weight in. A format constant of PostgreSQL's numeric, which grizzle's division
+ * reproduces.
+ */
+export const decDigits: Limit = published({
+	value: 4,
+	owner: "PostgreSQL 19rc1",
+	unit: "decimal digits",
+	scope: "one NBASE digit of a numeric value, the unit of its weight",
+	constraint: "compile-time constant",
+	source:
+		"https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/numeric.c#L99",
+	quote: "#define DEC_DIGITS\t4\t\t\t/* decimal digits per NBASE digit */",
+	verified: "2026-11-05"
+})
 
 const pow10 = (n: number): bigint => 10n ** BigInt(n)
 
@@ -129,17 +139,17 @@ export const mul = (a: Decimal, b: Decimal): NumericResult => {
 	}
 	const scale = x.minScale + y.minScale
 	const product = units(x) * units(y)
-	if (scale <= numericMaxDisplayScale) {
+	if (scale <= numericMaxFractionDigits.value) {
 		return fromUnits(product, scale)
 	}
 	/**
 	 * The exact product has more fractional digits than a numeric stores: round_var to NUMERIC_DSCALE_MAX, half away
 	 * from zero, before make_result.
 	 */
-	const divisor = pow10(scale - numericMaxDisplayScale)
+	const divisor = pow10(scale - numericMaxFractionDigits.value)
 	const magnitude = product < 0n ? -product : product
 	const rounded = magnitude / divisor + ((magnitude % divisor) * 2n >= divisor ? 1n : 0n)
-	return fromUnits(product < 0n ? -rounded : rounded, numericMaxDisplayScale)
+	return fromUnits(product < 0n ? -rounded : rounded, numericMaxFractionDigits.value)
 }
 
 /**
@@ -151,8 +161,8 @@ const weightAndFirst = (p: FiniteParts): { readonly weight: number; readonly fir
 	}
 	/** The decimal exponent of the leading digit. */
 	const exponent = p.coefficient.toString().length - 1 - p.minScale
-	const weight = Math.floor(exponent / decDigits)
-	const shift = weight * decDigits + p.minScale
+	const weight = Math.floor(exponent / decDigits.value)
+	const shift = weight * decDigits.value + p.minScale
 	/** first = floor(coefficient / 10^(weight*4 + minScale)). */
 	const first = shift >= 0 ? p.coefficient / pow10(shift) : p.coefficient * pow10(-shift)
 	return { weight, first }
@@ -169,9 +179,13 @@ const divScale = (x: FiniteParts, y: FiniteParts): number => {
 	if (a.first <= b.first) {
 		qweight--
 	}
-	let rscale = minSigDigits - qweight * decDigits
-	rscale = Math.max(rscale, x.minScale, y.minScale, 0)
-	return Math.min(rscale, maxDisplayScale)
+	const rscale = Math.max(
+		numericMinSigDigits.value - qweight * decDigits.value,
+		x.minScale,
+		y.minScale,
+		0
+	)
+	return Math.min(rscale, numericMaxDisplayScale.value)
 }
 
 /**

@@ -7,7 +7,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import type { AccessPath, StatisticsShape } from "#compiler/ir/products.ts"
 import {
 	mergeStatistics,
@@ -16,6 +16,7 @@ import {
 	statisticsKinds
 } from "#compiler/physical/statistics/statistics.ts"
 import { assert, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { fixtureLogin, planOf, W, workPrograms } from "#test/unit/workload/fixtures.ts"
 
 import { regex } from "arkregex"
@@ -91,7 +92,7 @@ describe("the workload plan", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(entries, c) =>
 						Effect.sync(() => {
@@ -213,7 +214,7 @@ describe("mergeStatistics", () => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(requests) =>
 						Effect.sync(() => {

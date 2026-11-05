@@ -3,7 +3,6 @@
 #   ctl.sh [--coverage] start | stop | status
 #   ctl.sh [--coverage] psql [database] [psql args...]    verify-full TLS as grizzle_dev
 #   ctl.sh [--coverage] admin [database] [psql args...]   bootstrap superuser over the socket
-#   ctl.sh [--coverage] env [database]                    print DATABASE_URL for grizzle migrate as grizzle_dev (eval it)
 #   ctl.sh [--coverage] admin-env [database]              print DATABASE_URL for the bootstrap superuser over the socket
 #   ctl.sh [--coverage] reset                             drop test databases and every non-bootstrap role
 set -euo pipefail
@@ -36,11 +35,6 @@ case "${1:-}" in
 		shift; db="${1:-$PG_DEV_ROLE}"; shift || true
 		tls_psql "$PG_DEV_ROLE" "$db" "$@"
 		;;
-	env)
-		db="${2:-$PG_DEV_ROLE}"
-		printf 'export DATABASE_URL=%q\n' \
-			"postgresql://$(encode "$PG_DEV_ROLE"):$(encode "$(cat "$GRIZZLE_PG_DEV_PASSWORD_FILE")")@localhost:$PG_PORT/$(encode "$db")?sslrootcert=$(encode "$GRIZZLE_PG_TLS/ca.crt")"
-		;;
 	admin-env)
 		db="${2:-postgres}"
 		printf 'export DATABASE_URL=%q\n' \
@@ -63,7 +57,7 @@ case "${1:-}" in
 		echo "Test databases and non-bootstrap roles dropped"
 		;;
 	*)
-		sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2
+		sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2
 		exit 2
 		;;
 esac

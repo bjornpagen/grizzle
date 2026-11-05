@@ -3,12 +3,7 @@ import { Effect, Exit, Fiber, Layer, Option, Ref } from "effect"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, matchesObject } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
-import {
-	expectationAttempts,
-	expectConstraint,
-	expectSqlstate,
-	inTransaction
-} from "#test/support/substrate/expect.ts"
+import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { leftovers } from "#test/support/substrate/shared.ts"
 import { freshSchema, rolePsql, roleSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -191,7 +186,7 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 	)
 
 	it.effect(
-		"an expectation observes a fresh attempt after SERIALIZABLE's refusal, a bounded number of times, and fails closed",
+		"an expectation judges its one attempt: SERIALIZABLE's refusal fails it unless it is the SQLSTATE expected",
 		() =>
 			Effect.gen(function* () {
 				/** An attempt failing its n-th run with the SQLSTATE `codeOf` gives n, counting its runs. */
@@ -203,20 +198,16 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 						),
 						runs: Ref.get(runs)
 					}))
-				const refusedTwice = yield* scripted((n) =>
-					n === 0 ? "40001" : n === 1 ? "40P01" : "23505"
-				)
-				const observed = yield* expectSqlstate(refusedTwice.attempt, "23505")
-				assert.equal(observed.code, "23505")
-				const refusedTwiceRuns = yield* refusedTwice.runs
-				assert.equal(refusedTwiceRuns, 3)
-				const alwaysRefused = yield* scripted(() => "40001")
-				const exhausted = yield* Effect.flip(
-					expectConstraint(alwaysRefused.attempt, factKey, "23505")
-				)
-				assert.equal(exhausted._tag, "ExpectationFailed")
-				const alwaysRefusedRuns = yield* alwaysRefused.runs
-				assert.equal(alwaysRefusedRuns, expectationAttempts)
+				const serialized = yield* scripted((n) => (n === 0 ? "40001" : "23505"))
+				const unexpected = yield* Effect.flip(expectSqlstate(serialized.attempt, "23505"))
+				assert.equal(unexpected._tag, "ExpectationFailed")
+				const serializedRuns = yield* serialized.runs
+				assert.equal(serializedRuns, 1)
+				const deadlocked = yield* scripted((n) => (n === 0 ? "40P01" : "23505"))
+				const deadlock = yield* Effect.flip(expectConstraint(deadlocked.attempt, factKey, "23505"))
+				assert.equal(deadlock._tag, "ExpectationFailed")
+				const deadlockedRuns = yield* deadlocked.runs
+				assert.equal(deadlockedRuns, 1)
 				const refusalExpected = yield* scripted((n) => (n === 0 ? "40001" : "23505"))
 				yield* expectSqlstate(refusalExpected.attempt, "40001")
 				const refusalExpectedRuns = yield* refusalExpected.runs

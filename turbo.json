@@ -34,8 +34,8 @@
 			"outputs": []
 		},
 		"superlint": {
-			"description": "The dev tools' rules and the superlint options in the root package.json are inputs too.",
-			"dependsOn": ["^source"],
+			"description": "The dev tools' rules and the superlint options in the root package.json are inputs too. It reads the declarations its dependencies' typechecks emit through their project references, so it runs after those typechecks, never while they rewrite them.",
+			"dependsOn": ["^source", "^typecheck"],
 			"inputs": [
 				"$TURBO_DEFAULT$",
 				"$TURBO_ROOT$/package.json",
@@ -54,7 +54,10 @@
 			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which tsrs -b then finds up to date. A root task's inputs are the whole repository.",
 			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"]
 		},
-		"//#superlint": {},
+		"//#superlint": {
+			"description": "The tooling program follows its project references into both packages' emitted declarations, so it runs after the typechecks that write them.",
+			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"]
+		},
 		"//#oxlint": {},
 		"//#format": {},
 		"//#dead-code": {},

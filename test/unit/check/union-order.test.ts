@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { type Array as Arr, Duration, Effect, Formatter } from "effect"
+import { type Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
@@ -15,6 +15,7 @@ import type {
 	RuleDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { WorkDesc } from "#test/support/fixtures/ir/work.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
 	attach,
@@ -166,7 +167,7 @@ describe("a union of different headings", () => {
 						literal: Formatter.format,
 						limit: refusals.length,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(r) =>
 						Effect.sync(() => {

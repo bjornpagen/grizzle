@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Layer, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Layer, Option, Record as Rec } from "effect"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -32,7 +32,6 @@ import {
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
-import { pgPin } from "#test/support/env.ts"
 import * as graphApi from "#test/support/fixtures/api/graph.ts"
 import * as ledgerApi from "#test/support/fixtures/api/ledger.ts"
 import * as payrollApi from "#test/support/fixtures/api/payroll.ts"
@@ -43,9 +42,11 @@ import * as workApi from "#test/support/fixtures/api/work.ts"
 import { installMigrated, runsInstallScript } from "#test/support/install-migrate.ts"
 import { rebuild } from "#test/support/installed.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { fromEmpty, fromSnapshot, generate, draftedAt } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
+import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -278,13 +279,10 @@ const migrates = (history: History) =>
 			)
 			const credentials = yield* substrate.login(installedLogin.role)
 			const loginLayer = DbLayer.make({
+				...clusterConnection(substrate.cluster, substrate.database, credentials.password),
+				pool: clusterPool,
 				login,
 				snapshot: snapshotJson(committed.snapshotText),
-				host: pgPin.host,
-				port: pgPin.port,
-				database: substrate.database,
-				password: credentials.password,
-				tls: { ca: substrate.cluster.caPem },
 				verify: testVerify
 			})
 			for (const role of Rec.values(login.roles)) {
@@ -308,13 +306,13 @@ layer(Substrate.layer)("the worked examples migrate version by version", (it) =>
 				exhaust(
 					{
 						/** Every history, each its own case: a history drafts, applies and compares at most four versions and opens every role
-						 * of the last, so it may run ten minutes before it counts as hung. */
+						 * of the last. */
 						suite: "pg/migrate/fixtures",
 						generator: historyGen,
 						literal: (history: History) => history.label,
 						limit: histories.length,
 						coverage: requiredInSpace<HistoryLabel>(historyLabels),
-						caseHang: Duration.minutes(10)
+						caseHang
 					},
 					(history, c) => {
 						c.note(history.label)

@@ -10,7 +10,6 @@ import {
 	type Cause,
 	Data,
 	Deferred,
-	Duration,
 	Effect,
 	Exit,
 	Option,
@@ -53,7 +52,7 @@ import {
 } from "#adapter/wire/session.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { messageMaxBytes } from "#compiler/core/policy.ts"
+import { messageMaxBytes } from "#compiler/core/limits.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 
@@ -401,12 +400,12 @@ type Decided = Exclude<Received, Unanswered>
 type Broken = Exclude<Unanswered, { readonly _tag: "refused" }>
 
 /**
- * The failure of a query no ErrorResponse explains, the session retired: the connection was lost, or pg would not send
- * the query or answered what the pipeline cannot account for.
+ * The failure of a query no ErrorResponse explains, the session retired, or ended already: the connection was lost,
+ * or pg would not send the query or answered what the pipeline cannot account for.
  */
 const broken = (session: Session): ConnectionLost | DriverFailure => {
 	session.retire()
-	return session.lost()
+	return session.state() === "ended"
 		? new ConnectionLost({ operation: "query", ended: { by: "transport" } })
 		: new DriverFailure({ operation: "query" })
 }
@@ -594,62 +593,23 @@ const flightOutcomes = <P, F>(
 		outcomesOf(plan, answers, decided)
 	)
 
-const cancelGraceMs = 10
-const cancelRetryMs = 50
-const cancelRetryMaxMs = 1_000
-const drainDeadlineMs = 5_000
-
-/** Resolves after `millis` of the Clock's time, or once `done` is. */
-const pause = (done: Deferred.Deferred<void>, millis: number): Effect.Effect<void> =>
-	Effect.asVoid(Effect.timeoutOption(Deferred.await(done), Duration.millis(millis)))
-
 /**
- * Cancels the statement the backend is running until the flight drains (`done`): the first CancelRequest after a short
- * grace, then again, backing off. Once the first request has been delivered, or has failed, the flight has the drain
- * deadline to drain, so a slow side connection does not lose the race to it; after the deadline its connection is
- * destroyed, which fails every query still in flight, and the flight drains. Every wait is on the Clock, so a TestClock
- * drives the deadlines.
+ * An interrupted flight's end (execute): one CancelRequest for the statement the backend runs, unless the flight has
+ * drained or the session has ended, so nothing runs; then the session's connection destroyed at once, which fails
+ * every query still in flight, so the flight drains without waiting on the server. The request is bounded by the
+ * connection's connect timeout (session.ts Session.cancel), and the destroyed session, ended, never runs again.
  */
-const cancelUntilDrained = (
-	session: Session,
-	done: Deferred.Deferred<void>
-): Effect.Effect<void> => {
-	const drained = (): boolean => Deferred.isDoneUnsafe(done) || session.lost()
-	const cancelling = (millis: number): Effect.Effect<void> =>
-		Effect.suspend(() =>
-			drained()
-				? Deferred.await(done)
-				: session.cancel.pipe(
-						Effect.andThen(pause(done, millis)),
-						Effect.andThen(cancelling(Math.min(millis * 2, cancelRetryMaxMs)))
-					)
-		)
-	const deadline = Effect.sleep(Duration.millis(drainDeadlineMs)).pipe(
+const abandon = (session: Session, drained: Deferred.Deferred<void>): Effect.Effect<void> =>
+	Effect.suspend(() =>
+		Deferred.isDoneUnsafe(drained) || session.state() === "ended" ? Effect.void : session.cancel
+	).pipe(
 		Effect.andThen(
 			Effect.sync(() => {
 				session.destroy()
 			})
 		),
-		Effect.andThen(Deferred.await(done))
+		Effect.andThen(Deferred.await(drained))
 	)
-	return Effect.andThen(
-		pause(done, cancelGraceMs),
-		Effect.suspend(() =>
-			drained()
-				? Deferred.await(done)
-				: Effect.andThen(
-						session.cancel,
-						Effect.raceFirst(
-							Effect.andThen(
-								pause(done, cancelRetryMs),
-								cancelling(Math.min(cancelRetryMs * 2, cancelRetryMaxMs))
-							),
-							deadline
-						)
-					)
-		)
-	)
-}
 
 /**
  * A flight as written: its answers by pipeline position as they arrive, and when its statements, and then every
@@ -698,20 +658,10 @@ const send = (
 }
 
 /**
- * A flight that ended on a lost connection retires its session, whatever decided its outcome: a refusal the server
- * gave before the connection ended still decides the failure. Every path of a flight ends once it has drained, after
- * its own retirement.
- */
-const retireLost = (session: Session): Effect.Effect<void> =>
-	Effect.sync(() => {
-		if (session.lost()) {
-			session.retire()
-		}
-	})
-
-/**
- * Runs `flight` on a session that can still send, uninterruptibly but for what it restores: a lost session fails at
- * once.
+ * Runs `flight` on a session that can still send, uninterruptibly but for what it restores: an ended session fails at
+ * once. A flight whose connection ends while it runs leaves its session ended (session.ts SessionState), whatever
+ * decided its outcome: a refusal the server gave before the connection ended still decides the failure, and the ended
+ * session is never reused.
  */
 const onSession = <A, E>(
 	session: Session,
@@ -719,17 +669,15 @@ const onSession = <A, E>(
 		restore: <X, Y, Z>(self: Effect.Effect<X, Y, Z>) => Effect.Effect<X, Y, Z>
 	) => Effect.Effect<A, E>
 ): Effect.Effect<A, E | ConnectionLost> =>
-	Effect.suspend((): Effect.Effect<A, E | ConnectionLost> => {
-		if (!session.lost()) {
-			return Effect.ensuring(Effect.uninterruptibleMask(flight), retireLost(session))
-		}
-		session.retire()
-		return Effect.fail(new ConnectionLost({ operation: "query", ended: { by: "transport" } }))
-	})
+	Effect.suspend((): Effect.Effect<A, E | ConnectionLost> =>
+		session.state() === "ended"
+			? Effect.fail(new ConnectionLost({ operation: "query", ended: { by: "transport" } }))
+			: Effect.uninterruptibleMask(flight)
+	)
 
 /**
- * Waits interruptibly for `answered`; an interruption retires the session, cancels the flight until it drains and ends
- * the flight with the interruption.
+ * Waits interruptibly for `answered`; an interruption retires the session, abandons the flight (one CancelRequest, then
+ * the connection destroyed) and ends the flight with the interruption once it has drained.
  */
 const execute = (
 	session: Session,
@@ -743,7 +691,7 @@ const execute = (
 			: Effect.sync(() => {
 					session.retire()
 				}).pipe(
-					Effect.andThen(cancelUntilDrained(session, sent.drained)),
+					Effect.andThen(abandon(session, sent.drained)),
 					Effect.andThen(Effect.failCause(waited.cause))
 				)
 	)
@@ -787,7 +735,7 @@ const apartAnswer = (
  * Sends `statements`, each alone as its own implicit transaction, as one flight, and returns each one's answer, its
  * outcome or the server's refusal, in order. Every statement is written before any answer is read, so none waits on
  * another's answer, and a refusal reaches no other statement. A lost connection, an answer the pipeline cannot account
- * for, or an unreadable answer fails the flight, at the first in order. An interruption cancels and drains the flight
+ * for, or an unreadable answer fails the flight, at the first in order. An interruption abandons the flight
  * as every flight's does (runTransaction).
  */
 export const runApart = (
@@ -954,12 +902,15 @@ const runEntered = <P, F>(
  *   programs grizzle compiled ahead. Every name a failed flight was parsing at or after its first refusal is closed and
  *   forgotten, since its Parse may not have run, and the next flight that runs it parses it afresh. A name the server no
  *   longer honors (26000, or 0A000 for a cached plan whose result type changed) is forgotten too.
- * - Retirement. An interruption, a lost connection, a refused BEGIN and an answer that does not fit retire the session.
- *   A refused statement or COMMIT does not, nor does a transaction's or a lone statement's unreadable answer: the
- *   session is idle and healthy, unless the connection ended later in the flight, which retires it whatever decided.
- * - Interruption. A flight interrupted while its statements run sends CancelRequests until it drains, the first after
- *   a short grace, then backing off; one that has not drained 5 seconds after the first request was delivered destroys
- *   its connection. The interruption ends once the flight has drained. Once every statement of a flight that carries
+ * - State. A refused BEGIN, an answer that does not fit and an interruption retire the session, and a lost connection
+ *   ends it (session.ts SessionState): either way it is never reused. A refused statement or COMMIT does not, nor does
+ *   a transaction's or a lone statement's unreadable answer: the session stays open and idle, unless the connection
+ *   ended later in the flight, which ends it whatever decided.
+ * - Interruption. A flight interrupted while its statements run sends one CancelRequest, bounded by the connection's
+ *   connect timeout, so the backend stops the statement it runs, and then destroys its connection at once: the session
+ *   is ended, never reused, and released closed, which counts it out of the pool before its permit admits another
+ *   lease. The interruption ends once the flight has drained, which the destroyed connection makes immediate: nothing
+ *   waits on the server or the transport. Once every statement of a flight that carries
  *   COMMIT has answered, the wait for COMMIT's answer cancels nothing and retires nothing: an interruption that arrives
  *   meanwhile takes effect once COMMIT has answered or the connection is known lost, which pg reports as the
  *   connection's error or close, so the wait ends however the server behaves. The drain after a failure the
@@ -997,7 +948,7 @@ export interface Alongside {
  * and returns both parts' answers. A lost connection or an answer the pipeline cannot account for fails the whole
  * flight, as runTransaction's would; so does an unreadable answer of a statement alone here, since the statements alone
  * sent through it read only texts: admission's minimal reads (format('%s')) and the ledger's reads (a count, and each
- * row's JSON text). An interruption cancels and drains the flight as runTransaction does.
+ * row's JSON text). An interruption abandons the flight as runTransaction's does (execute).
  */
 export const runAlongside = (
 	session: Session,
@@ -1056,23 +1007,57 @@ export const writeFrame = (prologue: Prologue): Frame => ({
 })
 
 /**
+ * The bytes of the fields of fixed size one Bind message holds, as pg 8.23 writes it (pg-protocol 1.16 serializer.ts
+ * `bind`): its Int32 length word, the NUL ending the unnamed portal's empty name and the NUL ending the statement's
+ * name, the Int16 count of parameter format codes, the Int16 count of parameters, and the Int16 count of result format
+ * codes with its one Int16 code.
+ *
+ * @formatConstant a Bind message's Int32 length word, the NULs ending its two names, and its Int16 counts and code
+ */
+const bindFields = {
+	length: 4,
+	portalEnd: 1,
+	nameEnd: 1,
+	formats: 2,
+	params: 2,
+	results: 2,
+	result: 2
+} as const
+
+/**
+ * The bytes of the fields of fixed size a Bind message holds for each parameter, as pg-protocol 1.16's serializer
+ * writes them: its Int16 format code and its Int32 length.
+ *
+ * @formatConstant a Bind message parameter's Int16 format code and Int32 length
+ */
+const bindParamFields = { format: 2, length: 4 } as const
+
+/**
  * The length the Bind message of one execution of `statement` declares, its Int32 length word included and its type
- * byte not, as pg 8.23 writes it (pg-protocol 1.16 serializer.ts `bind`): the unnamed portal's empty name, the
- * statement's name (none, or its server statement's), the count of parameter format codes and one code per parameter,
- * the count of parameters and each as its length and its UTF-8 bytes, and the one result format code with its count.
+ * byte not, as pg 8.23 writes it (pg-protocol 1.16 serializer.ts `bind`): its fields of fixed size (bindFields), the
+ * statement's name (none, or its server statement's), and each parameter's fields of fixed size (bindParamFields) and
+ * UTF-8 bytes.
  */
 export const bindLength = (statement: FlightStatement): number => {
 	const name = "server" in statement ? statement.server.name : ""
-	let length = 4 + 1 + Buffer.byteLength(name, "utf8") + 1 + 2 + 2 + 2 + 2
+	let length =
+		bindFields.length +
+		bindFields.portalEnd +
+		Buffer.byteLength(name, "utf8") +
+		bindFields.nameEnd +
+		bindFields.formats +
+		bindFields.params +
+		bindFields.results +
+		bindFields.result
 	for (const param of statement.params) {
-		length += 2 + 4 + Buffer.byteLength(param, "utf8")
+		length += bindParamFields.format + bindParamFields.length + Buffer.byteLength(param, "utf8")
 	}
 	return length
 }
 
 /**
  * The first of `statements` whose Bind message would be longer than `limit`, the longest message PostgreSQL reads from a
- * client in production (core/policy.ts messageMaxBytes), as the InputTooLarge of its position and length, or none.
+ * client in production (core/limits.ts messageMaxBytes), as the InputTooLarge of its position and length, or none.
  * PostgreSQL answers a longer message by ending the connection without an ErrorResponse ("invalid message length",
  * pqcomm.c pq_getmessage), which a flight carrying COMMIT would report as CommitLost though nothing ran; so it is
  * refused here, before anything is sent. The prologue's statements and the controls carry no parameter of the caller's.
@@ -1109,7 +1094,7 @@ export const runFramed = (
 	statements: ReadonlyArray<FlightStatement>
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> =>
 	Effect.suspend((): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> => {
-		const overrun = bindOverrun(statements, messageMaxBytes)
+		const overrun = bindOverrun(statements, messageMaxBytes.value)
 		return overrun === undefined
 			? runEntered(session, asDb(frame.prologue), statements, frame)
 			: Effect.fail(overrun)

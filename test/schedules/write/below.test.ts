@@ -22,8 +22,9 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { Item, Note, type Opened, open } from "#test/schedules/write/support.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { type DirectActor, openActors } from "#test/support/schedules/actors.ts"
 import {
 	begin,
@@ -209,7 +210,7 @@ layer(Substrate.layer, { excludeTestServices: true })("writers below SERIALIZABL
 									(c): BelowFeature => `${c.level} ${c.role} ${c.statement} ${c.target}`
 								)
 							),
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(c, k) =>
 							Effect.gen(function* () {

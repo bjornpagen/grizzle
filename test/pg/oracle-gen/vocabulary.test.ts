@@ -16,7 +16,7 @@ import { element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -32,6 +32,7 @@ import {
 	literalEqualityKey
 } from "#test/support/oracle/gen/domain.ts"
 
+import { caseHang } from "#test/support/limits.ts"
 import {
 	aggregateApplies,
 	aggregateResult,
@@ -252,7 +253,7 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 						literal: Formatter.format,
 						limit: generatedTypes.length,
 						coverage: noCoverage,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(t) =>
 						Effect.gen(function* () {
@@ -298,7 +299,7 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
-						caseHang: Duration.minutes(2)
+						caseHang
 					},
 					(c, k) =>
 						Effect.gen(function* () {

@@ -28,10 +28,11 @@ import { element, type Gen } from "@grizzle/testing/gen"
 import { floorSeed, rotatingSeed } from "@grizzle/testing/random"
 import { sample } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { columnOf, fieldsOf, racesAt, tableOf } from "#test/schedules/platform/support.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { loadOrder } from "#test/support/platform/generate.ts"
 import type { RelationName } from "#test/support/platform/laws.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
@@ -191,54 +192,51 @@ const everyPoint: Arr.NonEmptyReadonlyArray<Point> = Arr.flatMap(writers, (write
 layer(Substrate.layer, { excludeTestServices: true })(
 	"planted writers below SERIALIZABLE on the platform",
 	(it) => {
-		it.effect(
-			"every write below SERIALIZABLE is refused before it writes a row",
-			(ctx) =>
-				searched(
-					ctx,
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const run = yield* Run
-						const immutableRelation = immutableOf(run.seed)
-						const rig = yield* openRig("Platform", racesAt)
-						const names = namesOf(rig.installed)
-						const actors = yield* openActors(s, {
-							owner: { kind: "psql", as: s.owner },
-							direct: { kind: "psql", as: rig.direct }
-						})
-						return yield* exhaust(
-							{
-								suite: "platform/planted",
-								generator: pointGen,
-								literal: Formatter.format,
-								limit: everyPoint.length,
-								coverage: requiredInSpace<PlantedFeature>(Arr.map(everyPoint, featureOf)),
-								caseHang: Duration.minutes(2)
-							},
-							(p, c) =>
-								Effect.gen(function* () {
-									const relation = p.mutability === "mutable" ? mutableRelation : immutableRelation
-									const refusal = refusalOf(p.writer, p.statement, p.mutability)
-									yield* runSchedule(
-										rig.env,
-										schedule(`${p.writer}: ${p.statement} of ${relation} at ${p.level}`, [
-											beginBelow(p.writer, p.level),
-											sql(
-												p.writer,
-												statementSql(names, relation, p.statement),
-												refusedWith(refusal, names, relation),
-												complete
-											),
-											rollback(p.writer)
-										]),
-										{ direct: actors, grizzle: {} }
-									)
-									c.note(featureOf(p))
-								})
-						)
+		it.effect("every write below SERIALIZABLE is refused before it writes a row", (ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const run = yield* Run
+					const immutableRelation = immutableOf(run.seed)
+					const rig = yield* openRig("Platform", racesAt)
+					const names = namesOf(rig.installed)
+					const actors = yield* openActors(s, {
+						owner: { kind: "psql", as: s.owner },
+						direct: { kind: "psql", as: rig.direct }
 					})
-				),
-			600_000
+					return yield* exhaust(
+						{
+							suite: "platform/planted",
+							generator: pointGen,
+							literal: Formatter.format,
+							limit: everyPoint.length,
+							coverage: requiredInSpace<PlantedFeature>(Arr.map(everyPoint, featureOf)),
+							caseHang
+						},
+						(p, c) =>
+							Effect.gen(function* () {
+								const relation = p.mutability === "mutable" ? mutableRelation : immutableRelation
+								const refusal = refusalOf(p.writer, p.statement, p.mutability)
+								yield* runSchedule(
+									rig.env,
+									schedule(`${p.writer}: ${p.statement} of ${relation} at ${p.level}`, [
+										beginBelow(p.writer, p.level),
+										sql(
+											p.writer,
+											statementSql(names, relation, p.statement),
+											refusedWith(refusal, names, relation),
+											complete
+										),
+										rollback(p.writer)
+									]),
+									{ direct: actors, grizzle: {} }
+								)
+								c.note(featureOf(p))
+							})
+					)
+				})
+			)
 		)
 	}
 )

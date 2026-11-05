@@ -1,3 +1,5 @@
+import type { DecimalParts } from "#compiler/core/decimal.ts"
+import { integerDigits, moneyDigits, moneyFractionDigits } from "#compiler/ir/carriers.ts"
 import type { DefinedOp } from "#compiler/ir/expr.ts"
 import {
 	baseOf,
@@ -7,6 +9,10 @@ import {
 	contractOf,
 	type ExactValueCarrier,
 	exactDigitsOf,
+	type NumericBound,
+	numericBoundOf,
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
 	numericTypmodOf,
 	rosterOf,
 	type ScalarType,
@@ -23,7 +29,7 @@ import {
 	castOf,
 	definedIdOf
 } from "#compiler/scalar/compute/registry.ts"
-import { nativeCapabilities } from "#compiler/scalar/registry.ts"
+import { nativeCapabilities, numericValue } from "#compiler/scalar/registry.ts"
 
 /**
  * The native capabilities of each carrier: the field registry's table (scalar/registry.ts), so a
@@ -32,36 +38,90 @@ import { nativeCapabilities } from "#compiler/scalar/registry.ts"
 const carrierCapabilities: { readonly [C in Carrier]: ReadonlyArray<Capability> } =
 	nativeCapabilities
 
-/** The plain carriers an operation result can have without further metadata. */
-export type PlainCarrier =
-	| "int2"
-	| "int4"
-	| "int8"
-	| "numeric"
-	| "float4"
-	| "float8"
-	| "money"
-	| "bool"
+/**
+ * The plain carriers an operation result can have without further metadata. numeric is none: a computed numeric
+ * carries its bound (numericValue).
+ */
+export type PlainCarrier = "int2" | "int4" | "int8" | "float4" | "float8" | "money" | "bool"
 
-/** A registered result: a plain carrier, or an exact one, whose digit bound the lowering derives (exactType). */
-export type ResultCarrier = PlainCarrier | ExactValueCarrier
+/** A registered result: a plain carrier, numeric, or an exact one, whose bound the lowering derives. */
+export type ResultCarrier = PlainCarrier | "numeric" | ExactValueCarrier
 
-/** The plain value type of a carrier, unfrozen: no contract and, for numeric, no typmod. */
-const plainOf = (carrier: PlainCarrier): ValueType => {
-	const caps = capabilitySet(carrierCapabilities[carrier])
-	return carrier === "numeric"
-		? { carrier, caps, typmod: undefined, contract: undefined }
-		: { carrier, caps, contract: undefined }
-}
-
-/** The plain result type of a carrier, frozen. */
-export const plainType = (carrier: PlainCarrier): ValueType => {
-	return Object.freeze(plainOf(carrier))
-}
+/** The plain result type of a carrier, frozen: no contract. */
+export const plainType = (carrier: PlainCarrier): ValueType =>
+	Object.freeze({ carrier, caps: capabilitySet(carrierCapabilities[carrier]), contract: undefined })
 
 /** The exact type of `carrier` whose values lie below 10^digits (ir/scalar.ts ExactType), frozen. */
 export const exactType = (carrier: ExactValueCarrier, digits: number): ValueType =>
 	Object.freeze({ carrier, caps: capabilitySet(carrierCapabilities[carrier]), digits })
+
+/** Whether a type is a computed numeric (ir/scalar.ts NumericBound): numeric of no typmod. */
+export const isComputedNumeric = (t: ScalarType): boolean =>
+	t.carrier === "numeric" && t.typmod === undefined
+
+/**
+ * The computed numeric a numeric literal is: its own value's integer digits and least scale; NaN's and an infinity's
+ * none.
+ */
+export const literalNumeric = (parts: DecimalParts): ValueType =>
+	numericValue(
+		parts.kind === "finite"
+			? {
+					digits: Math.max(0, parts.coefficient.toString().length - parts.minScale),
+					scale: parts.minScale
+				}
+			: { digits: 0, scale: 0 }
+	)
+
+/**
+ * Every numeric value: a computed numeric at numeric's own limits. What a literal adopts before its own value bounds it,
+ * and what an overload is looked up by, never a node's type.
+ */
+export const anyNumeric: ValueType = numericValue({
+	digits: numericMaxIntegerDigits.value,
+	scale: numericMaxFractionDigits.value
+})
+
+/**
+ * The bound every value of a numeric-convertible type has once converted into numeric exactly: an integer's or
+ * money's range, an exact value's digits, numeric(p, s)'s p - s integer and (for s > 0) s fraction digits, a computed
+ * numeric's own; undefined for every other type.
+ */
+export const exactNumericBound = (t: ScalarType): NumericBound | undefined => {
+	const v = baseOf(t)
+	switch (v.carrier) {
+		case "int2":
+		case "int4":
+		case "int8":
+			return { digits: integerDigits[v.carrier].value, scale: 0 }
+		case "money":
+			return { digits: moneyDigits.value, scale: moneyFractionDigits.value }
+		case "exactInteger":
+			return { digits: v.digits, scale: 0 }
+		case "exactMoney":
+			return { digits: v.digits, scale: moneyFractionDigits.value }
+		case "numeric":
+			return v.typmod === undefined
+				? v.bound
+				: { digits: v.typmod.precision - v.typmod.scale, scale: Math.max(v.typmod.scale, 0) }
+		case "float4":
+		case "float8":
+		case "bool":
+		case "uuid":
+		case "text":
+		case "enum":
+		case "range4":
+		case "range8":
+		case "vector":
+			return undefined
+	}
+}
+
+/** The least bound holding both: the more integer and the more fraction digits. */
+export const numericHull = (a: NumericBound, b: NumericBound): NumericBound => ({
+	digits: Math.max(a.digits, b.digits),
+	scale: Math.max(a.scale, b.scale)
+})
 
 /**
  * The integer digits every value of an integer or money type is below, |x| < 10^digits (of the amount, for money): the
@@ -70,13 +130,11 @@ export const exactType = (carrier: ExactValueCarrier, digits: number): ValueType
 export const familyDigits = (t: ScalarType): number | undefined => {
 	switch (t.carrier) {
 		case "int2":
-			return 5
 		case "int4":
-			return 10
 		case "int8":
-			return 19
+			return integerDigits[t.carrier].value
 		case "money":
-			return 17
+			return moneyDigits.value
 		case "exactInteger":
 		case "exactMoney":
 			return t.digits
@@ -170,9 +228,9 @@ const sameEndpoint = (a: SpanInfo | undefined, b: SpanInfo | undefined): boolean
 /**
  * The type two operands that meet combine to in a conditional or LEAST/GREATEST: their common type when they agree
  * in every meaning-changing field, the exact carrier where one is exact and the other a plain value of its family,
- * otherwise the shared type with the numeric typmod, text refinement or span width widened, as PostgreSQL's
- * select_common_type and select_common_typmod do (a common typmod survives only when all agree). It is the same
- * whichever operand comes first.
+ * otherwise the shared type with the text refinement or span width widened, and two numerics of different typmods or
+ * bounds a computed numeric of both bounds' hull, as PostgreSQL's select_common_type and select_common_typmod do (a
+ * common typmod survives only when all agree). It is the same whichever operand comes first.
  */
 export const commonType = (a: ScalarType, b: ScalarType): ScalarType => {
 	const x = withoutSerial(a)
@@ -189,8 +247,10 @@ export const commonType = (a: ScalarType, b: ScalarType): ScalarType => {
 	if (family !== undefined && family === exactFamily(y) && dx !== undefined && dy !== undefined) {
 		return exactType(family, Math.max(dx, dy))
 	}
-	if (x.carrier === "numeric") {
-		return plainType("numeric")
+	const nx = exactNumericBound(x)
+	const ny = exactNumericBound(y)
+	if (x.carrier === "numeric" && nx !== undefined && ny !== undefined) {
+		return numericValue(numericHull(nx, ny))
 	}
 	if (x.carrier === "text") {
 		return wildcardText
@@ -211,6 +271,11 @@ const sameMeaning = (a: ScalarType, b: ScalarType): boolean => {
 	const ta = numericTypmodOf(a)
 	const tb = numericTypmodOf(b)
 	if (ta?.precision !== tb?.precision || ta?.scale !== tb?.scale) {
+		return false
+	}
+	const ba = numericBoundOf(a)
+	const bb = numericBoundOf(b)
+	if (ba?.digits !== bb?.digits || ba?.scale !== bb?.scale) {
 		return false
 	}
 	if (spanOf(a)?.width !== spanOf(b)?.width || exactDigitsOf(a) !== exactDigitsOf(b)) {

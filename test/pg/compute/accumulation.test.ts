@@ -5,7 +5,7 @@ import { array, boolean, constant, element, type Gen, int, weighted } from "@gri
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -28,6 +28,7 @@ import type {
 	HeadTermDesc,
 	QueryDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { valueClasses } from "#test/support/oracle/gen/domain.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenSchema, schemaDesc } from "#test/support/oracle/gen/schema.ts"
@@ -512,7 +513,7 @@ layer(Substrate.layer)("aggregates against the exact reference on PostgreSQL 19"
 							shrink: completeShrink,
 							concurrency: 1,
 							steerEvery: 16,
-							caseHang: Duration.minutes(2)
+							caseHang
 						},
 						(drawnCase, c) => {
 							const k = aimed(drawnCase, c)
