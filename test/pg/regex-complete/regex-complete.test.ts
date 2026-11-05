@@ -14,7 +14,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
+import { executionInputs, type InputRefusal, paramCodecs } from "#adapter/reader/relations.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import { indices } from "#compiler/core/array.ts"
@@ -348,6 +348,11 @@ const refused: Bound = { kind: "refused" }
 
 const rows = (count: number): Bound => ({ kind: "rows", count })
 
+/** The word a bind refuses with: an encoding failure's reason, or the refusal itself. */
+type BindRefusal =
+	| Extract<InputRefusal, { readonly _tag: "EncodingFailure" }>["reason"]["_tag"]
+	| Exclude<InputRefusal, { readonly _tag: "EncodingFailure" }>["_tag"]
+
 /**
  * The codec fault the reader's bind refuses `params` with before any SQL (adapter/reader/relations.ts
  * executionInputs, over the template's declared parameters), the refusal's own tag where it is no codec fault, or
@@ -356,7 +361,7 @@ const rows = (count: number): Bound => ({ kind: "rows", count })
 const bindRefusal = (
 	template: QueryTemplate,
 	params: Readonly<Record<string, unknown>>
-): string | undefined => {
+): BindRefusal | undefined => {
 	const bound = executionInputs(paramCodecs(template.params), params, transportLimits)
 	if (bound._tag === "Success") {
 		return undefined

@@ -725,7 +725,7 @@ const requiredBreakTable = breakTable([
 				}
 				const body = item.query.body
 				const [first, ...rest] = body.targets
-				if (first?.alias === undefined) {
+				if (first.alias === undefined) {
 					return []
 				}
 				return Arr.map(

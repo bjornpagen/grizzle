@@ -13,7 +13,7 @@ import { plainType } from "#compiler/scalar/compute/types.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { col } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, assertVariant } from "#test/support/assert.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 
 type Carrier = "float4" | "float8"
@@ -105,7 +105,7 @@ const operation = (
 		},
 		ExprId(`e#${id}`)
 	)
-	assert.ok(node.kind === "op")
+	assertVariant(node, "kind", "op")
 	const form = ieeeForm(
 		node,
 		Arr.map(args, (a) => a.sql)

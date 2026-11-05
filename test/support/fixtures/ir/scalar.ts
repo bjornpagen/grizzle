@@ -99,7 +99,16 @@ const exactWidening = (
 		case "exactInteger":
 		case "exactMoney":
 			return { into: t.carrier, digits: t.digits }
-		default:
+		case "bool":
+		case "enum":
+		case "float4":
+		case "float8":
+		case "numeric":
+		case "range4":
+		case "range8":
+		case "text":
+		case "uuid":
+		case "vector":
 			return undefined
 	}
 }

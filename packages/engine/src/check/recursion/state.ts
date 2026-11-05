@@ -139,7 +139,7 @@ const counterNarrowing = (
 		ends !== undefined &&
 		insideRange(exactOf(interval[0], 0), exactOf(interval[1], 0), ends[0], ends[1])
 	const proof =
-		op === undefined || op.totality.kind !== "requires" || interval === undefined || !fits
+		op?.totality.kind !== "requires" || interval === undefined || !fits
 			? undefined
 			: intervalCastProof(
 					op.totality.preconditions,

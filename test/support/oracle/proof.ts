@@ -64,7 +64,7 @@ const checkProof = (
  * its first operand's. A contract proof's premises are judged again against the node's own contract when its value's
  * interval is all it has.
  */
-export const proofHolds = (
+const proofHolds = (
 	proof: PreconditionProof,
 	node: { readonly type: ScalarType; readonly operand: ScalarType | undefined }
 ): boolean =>

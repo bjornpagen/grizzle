@@ -526,8 +526,7 @@ export const ieeeForm = (
 	if (
 		totality?.kind !== "ieee" ||
 		(carrier !== "float4" && carrier !== "float8") ||
-		first === undefined ||
-		source === undefined
+		first === undefined
 	) {
 		return undefined
 	}

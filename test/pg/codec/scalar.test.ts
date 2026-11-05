@@ -455,7 +455,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 								const mismatches = Arr.flatMap(admitted, (d, i) => {
 									const pg = rows[i]?.[0]
 									return typeof pg === "string" &&
-										Decimal.fromOutput(pg).toString() === succeeded(codec.encode(d))
+										Decimal.fromOutput(pg).equals(Decimal.fromOutput(succeeded(codec.encode(d))))
 										? []
 										: [{ raw: d.toString(), pg }]
 								})

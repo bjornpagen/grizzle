@@ -61,7 +61,7 @@ const ieeeRange = {
  * on that side, which the bounds then reach. Every proof over a float operation's value rests on these, never on the
  * exact result's, so no operand interval claims a value IEEE 754 rounded away.
  */
-export const ieeeBounds = (b: Bounds, carrier: FloatCarrier): Bounds => {
+const ieeeBounds = (b: Bounds, carrier: FloatCarrier): Bounds => {
 	const { overflow, underflow } = ieeeRange[carrier]
 	const least = power2(-underflow)
 	const greatest = power2(overflow)

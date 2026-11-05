@@ -321,16 +321,13 @@ describe("every physical claim holds on the delivered rows", () => {
 	)
 })
 
-/** What a case's filters reached: two conjuncts to reverse, and a column they fix to two values. */
+/**
+ * What a case's filters reached: two conjuncts to reverse, and a column they fix to two values. Each generated case's
+ * equalities of a column to a value fixed per evaluation are doubled by a twin over a parameter of their own
+ * (twiceFixed), so the cases hold such columns wherever their filters fix one.
+ */
 type OrderFeature = "a filter of two conjuncts" | "a column fixed to two values"
 
-/**
- * The order of a filter's conjuncts is no part of its meaning: every claim either analysis makes of every node, its
- * keys, bounds, uniqueness and the values it fixes each column to, is the same with every filter's conjuncts reversed.
- * A column two conjuncts fix to two values is fixed to both, whichever comes first: each generated case's equalities
- * of a column to a value fixed per evaluation are doubled by a twin over a parameter of their own (twiceFixed), so
- * the cases hold such columns wherever their filters fix one.
- */
 describe("neither analysis reads the order of a filter's conjuncts", () => {
 	it.effect("generated cases, every filter's conjuncts reversed", (ctx) =>
 		searched(

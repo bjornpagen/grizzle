@@ -51,7 +51,7 @@ export type CounterAnalysis =
 	| { readonly kind: "unbounded"; readonly reason: UnrollRefusal }
 
 /** What a counter analysis reads of a recursion: its seeds, its step, its feedback and its state heading. */
-export type RecursionParts = Pick<NodeOf<"Recursive">, "base" | "step" | "self" | "heading">
+type RecursionParts = Pick<NodeOf<"Recursive">, "base" | "step" | "self" | "heading">
 
 /** One side of what holds of the current counter: no bound on that side, or an inclusive bound. */
 type Bound = { readonly kind: "unbounded" } | { readonly kind: "at"; readonly value: bigint }

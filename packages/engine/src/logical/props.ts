@@ -1332,12 +1332,12 @@ export const propsOf = (node: RelNode, reading: PropsReading, env: PropsEnv): Pr
 			return regionProps(subject, reading, env)
 		case "Filter": {
 			const input = reading.input
-			const own = filterDependencies(reading)
+			const filtered = filterDependencies(reading)
 			const rest = keptRest(reading, input, input.context)
-			return finish(subject, [...carried(input, () => true, rowsKeep), ...own.dependencies], {
+			return finish(subject, [...carried(input, () => true, rowsKeep), ...filtered.dependencies], {
 				...rest,
 				exactlyOne: false,
-				equal: [...rest.equal, ...own.equal]
+				equal: [...rest.equal, ...filtered.equal]
 			})
 		}
 		case "ProjectSet":
@@ -1746,9 +1746,9 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 	 * column that determines it.
 	 */
 	const standFor = (c: string): string | undefined => {
-		const own = copies.get(c)
-		if (own !== undefined) {
-			return own
+		const copy = copies.get(c)
+		if (copy !== undefined) {
+			return copy
 		}
 		for (const m of classOf(input, c)) {
 			const out = copies.get(m)
