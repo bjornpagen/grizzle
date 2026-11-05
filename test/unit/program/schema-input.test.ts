@@ -16,14 +16,15 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { FieldDesc, SchemaDesc } from "#compiler/ir/desc.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
+import type { FieldDecl, SchemaDesc } from "#compiler/ir/desc.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { type QueryTemplate, queryInput, querySchema } from "#compiler/program/compile.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { own } from "#compiler/schema/own.ts"
+import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { assert, containsText, defined, refusalLoc, succeeded } from "#test/support/assert.ts"
 import {
@@ -244,7 +245,7 @@ describe("the artifacts of a schema", () => {
 								c.note("names of its own")
 							}
 							const owned = ownedOf(s)
-							const options = naming
+							const options = { ...naming, codes: firstCodebook(rostersOf(owned)) }
 							const artifactsOf = (arm: Arm) =>
 								succeeded(
 									Result.flatMap(parseSchemaInput(inputOf(s, arm)), (input) =>
@@ -348,10 +349,13 @@ type Db =
 type ContentFeature = `renamed: ${IdentifierFeature}` | ContentChange
 
 /** The type a changed field takes: integer, or bigint for a field that is an integer. */
-const otherType = (field: FieldDesc): FieldDesc =>
-	field.kind === "pg" && field.type === "integer"
-		? { kind: "pg", type: "bigint" }
-		: { kind: "pg", type: "integer" }
+const otherType = (field: FieldDecl): FieldDecl => ({
+	type:
+		field.type.kind === "pg" && field.type.type === "integer"
+			? { kind: "pg", type: "bigint" }
+			: { kind: "pg", type: "integer" },
+	writing: { kind: "caller" }
+})
 
 /**
  * A description with one change of content made, or none where the picks select no site of the change: a relation
@@ -375,7 +379,7 @@ const changedDesc = (
 		throw new Error(`a stored relation of ${base.name}`)
 	}
 	const { relation, index } = pickFrom(stored, relationPick)
-	const withFields = (fields: Readonly<Record<string, FieldDesc>>): Changed => ({
+	const withFields = (fields: Readonly<Record<string, FieldDecl>>): Changed => ({
 		kind: "changed",
 		desc: {
 			...base,
@@ -390,7 +394,10 @@ const changedDesc = (
 		case "a field added":
 			return Rec.has(relation.fields, "extra")
 				? noSite
-				: withFields({ ...relation.fields, extra: { kind: "pg", type: "integer" } })
+				: withFields({
+						...relation.fields,
+						extra: { type: { kind: "pg", type: "integer" }, writing: { kind: "caller" } }
+					})
 		case "a field removed": {
 			if (!Arr.isReadonlyArrayNonEmpty(others)) {
 				return noSite

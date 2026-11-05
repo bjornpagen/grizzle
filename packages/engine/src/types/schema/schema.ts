@@ -2,23 +2,34 @@ import type { Built, Phantom } from "#compiler/core/phantom.ts"
 import type { Carriers, Headed, Invariant, Refusal } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived, Derived } from "#compiler/types/derived/derived.ts"
 import type { QueryOver } from "#compiler/types/query/query.ts"
-import type { AnyClosed, AnyRelation, NameOf } from "#compiler/types/schema/relation.ts"
+import type {
+	AnyClosed,
+	AnyClosedRelation,
+	AnyRelation,
+	AnyRoster,
+	NameOf
+} from "#compiler/types/schema/relation.ts"
 import type {
 	Alternatives,
 	AlternativesBase,
+	AnyFin,
 	CandidateKey,
-	Capacity,
 	Check,
 	Containment,
+	Counted,
 	ExpansionOf,
+	Fin,
+	Fold,
 	Key,
 	Mirrors,
 	MirrorsBase,
 	Mutable,
+	Ordered,
 	RelationOfKey,
 	Side,
 	SideRelation,
-	Statement
+	Statement,
+	Tree
 } from "#compiler/types/schema/statements.ts"
 import type { AnyWorld } from "#compiler/types/schema/world.ts"
 
@@ -62,7 +73,8 @@ export type DerivedAt<L> = L extends unknown
 
 /**
  * The relations a statement names: the relation of a mutable or a check; the source of each law side (a selection's
- * relation), a key's included; and an alternatives law's parent, roster and arms.
+ * relation), a key's, a family's, a tree's and a fold's included; a family's and a tree's owner; and an alternatives
+ * law's parent, roster and arms.
  */
 type SideNames<X> = X extends Side<infer Src> ? SideRelation<Src> : never
 export type NamedBy<St> =
@@ -76,11 +88,18 @@ export type NamedBy<St> =
 					? SideNames<L> | SideNames<R>
 					: St extends Mirrors<infer L, infer R>
 						? SideNames<L> | SideNames<R>
-						: St extends Capacity<infer T, infer F>
-							? SideNames<T> | SideNames<F>
-							: St extends Alternatives<infer P, string, infer C, infer Arms>
-								? RelationOfKey<P> | C | RelationOfKey<Exclude<Arms[keyof Arms], undefined>>
-								: never
+						: St extends Alternatives<infer P, string, infer C, infer Arms>
+							? RelationOfKey<P> | C | RelationOfKey<Exclude<Arms[keyof Arms], undefined>>
+							: St extends Ordered<infer F, infer Fi> | Counted<infer F, infer Fi>
+								? SideNames<F> | OwnerOf<Fi>
+								: St extends Tree<infer F, infer Fi, string>
+									? SideNames<F> | OwnerOf<Fi>
+									: St extends Fold<unknown, unknown, infer S, infer E>
+										? SideNames<S> | SideNames<E>
+										: never
+
+/** The owner a family's slots count over. */
+type OwnerOf<Fi> = Fi extends Fin<infer O, string> ? O : never
 
 /**
  * The relations a statement names that are none of the record's relations. A relation whose name the type does not
@@ -178,27 +197,23 @@ export type StatementsOf<S> = S extends {
 type StatementOf<S> = StatementsOf<S>[number]
 
 /**
- * The keys of R in S: its primary key, the keys a derived or world relation's definition proves, and every
- * candidate key declared for R with key(). Each key is a list of field names. A context holds at most one fact, so
- * its key is the empty one.
+ * The keys of R in S: its primary key, a roster's handle and a closed relation's declared key, the keys a derived or
+ * world relation's definition proves, and every candidate key declared for R with key(). Each key is a list of field
+ * names. A context holds at most one fact, so its key is the empty one.
  */
 export type KeysOf<S, R> = R extends { readonly kind: "context" }
 	? readonly []
 	:
 			| (R extends { readonly primaryKey: infer P }
 					? P
-					: R extends AnyClosed
+					: R extends AnyRoster
 						? readonly ["id"]
-						: R extends { readonly kind: "derived" | "world"; readonly definition: infer Q }
+						: R extends AnyClosedRelation
+							? R["key"]
+							: R extends { readonly kind: "derived" | "world"; readonly definition: infer Q }
 							? DefinitionKeysOf<Q>
 							: never)
 			| Lookup<KeyIndexOf<S>, NameOf<R>>
-
-/**
- * The key statements of S that are candidate keys: over a side of a whole relation, every term a field. A key over a
- * selection or a pred term constrains only the facts its side reads, so it is no key of the relation.
- */
-type KeyStatementOf<S> = Extract<StatementOf<S>, CandidateKey<AnyRelation>>
 
 /**
  * The candidate keys of every relation of S, keyed by its own domain, the names S's key statements declare. It is
@@ -207,11 +222,27 @@ type KeyStatementOf<S> = Extract<StatementOf<S>, CandidateKey<AnyRelation>>
  * schema, so the name identifies the relation.
  */
 type KeyIndexOf<S> = {
-	readonly [N in NameOf<KeyStatementOf<S>["side"]["source"]>]: Extract<
-		KeyStatementOf<S>,
-		{ readonly side: { readonly source: { readonly name: N } } }
-	>["side"]["terms"]
+	readonly [N in NameOf<SourceOf<KeySideOf<StatementOf<S>>>>]: TermsOf<
+		Extract<KeySideOf<StatementOf<S>>, { readonly source: { readonly name: N } }>
+	>
 }
+
+type SourceOf<X> = X extends Side<infer R> ? R : never
+type TermsOf<X> = X extends Side<unknown, infer T> ? T : never
+
+/**
+ * The side of every candidate key a statement declares: a key statement's, an ordered family's (its group and index),
+ * and a tree's document order, (root, start). A counted family's index is in no heading, and a tree's (parent, at) is
+ * a key of its members alone, so neither is a key of the relation.
+ */
+type KeySideOf<St> =
+	St extends CandidateKey<AnyRelation>
+		? St["side"]
+		: St extends Ordered<infer F, AnyFin>
+			? F
+			: St extends Tree<Side<infer T>, AnyFin, infer Root>
+				? Side<T, readonly [Root, "start"]>
+				: never
 
 /** The proved keys a query's evidence carries. */
 type DefinitionKeysOf<Q> =

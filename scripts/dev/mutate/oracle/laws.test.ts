@@ -2,21 +2,18 @@ import { layer } from "@effect/vitest"
 import { searched } from "@grizzle/testing/vitest"
 import { Effect } from "effect"
 import { firstFailure, oracleCases } from "#scripts/dev/mutate/oracle/check.ts"
+import { projectedMirrors, projectedSource } from "#test/pg/laws/projections/families.ts"
+import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import {
-	alternativesFamily,
-	capacityFamily,
-	depositsFamily,
+	alternativesBox,
 	type Family,
 	installFamily,
 	populationsOf,
 	queueFamily,
-	sharedTablesFamily,
 	spanCoverage,
 	timekeepingFamily
-} from "#test/pg/laws/families/families.ts"
-import { familyCaseGen, runSteps } from "#test/pg/laws/families/support.ts"
-import { projectedMirrors, projectedSource } from "#test/pg/laws/projections/families.ts"
-import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
+} from "#test/support/laws/boxes.ts"
+import { familyCaseGen, runSteps } from "#test/support/laws/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Cases per drawn schema; each case is several transactions. */
@@ -52,11 +49,8 @@ layer(Substrate.layer, { excludeTestServices: true })("mutation stage 2: law fam
 	}
 	familyTests(projectedSource)
 	familyTests(projectedMirrors)
-	familyTests(alternativesFamily)
-	familyTests(capacityFamily)
-	familyTests(sharedTablesFamily)
+	familyTests(alternativesBox)
 	familyTests(spanCoverage)
 	familyTests(queueFamily)
 	familyTests(timekeepingFamily)
-	familyTests(depositsFamily)
 })

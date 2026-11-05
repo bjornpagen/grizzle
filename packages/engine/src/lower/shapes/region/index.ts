@@ -206,7 +206,7 @@ const orderedCarriers: ReadonlySet<Carrier> = new Set<Carrier>([
 	"money",
 	"uuid",
 	"text",
-	"enum"
+	"code"
 ])
 
 const orderFns: ReadonlySet<string> = new Set(["lt", "le", "gt", "ge"])

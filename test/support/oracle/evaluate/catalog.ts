@@ -58,6 +58,10 @@ import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
  *   choices, and declines the rest (power.ts libmEstimate);
  * - "database": never, PostgreSQL alone computes it: a float's pow goes through the platform libm, which V8's Math.pow
  *   does not reproduce in the last place, and pgvector's operations are the extension's.
+ *
+ * A set's algebra over a roster's handles (union, intersection, difference, cardinality, subset, disjoint) is exact: a
+ * bits value is the set of its handles, and bit(n)'s &, | and bit_count compute exactly the Set operations over them.
+ * There is no complement (OPEN-4), which PostgreSQL alone would compute over the roster's live codes.
  */
 export type Evaluation = "exact" | "estimated" | "database"
 
@@ -67,7 +71,14 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "power":
 			return firstOperand(op.operands) === "numeric" ? "estimated" : "database"
 		case "cosineDistance":
+		case "complement":
 			return "database"
+		case "union":
+		case "intersection":
+		case "difference":
+		case "cardinality":
+		case "subset":
+		case "disjoint":
 		case "add":
 		case "sub":
 		case "mul":
@@ -191,6 +202,37 @@ const isSpanValue = (v: unknown): v is SpanValue =>
 
 const isIntCarrier = (c: string | undefined): c is IntCarrier | "exactInteger" =>
 	c === "int2" || c === "int4" || c === "int8" || c === "exactInteger"
+
+const isHandleSet = (v: unknown): v is ReadonlySet<string> => v instanceof Set
+
+/**
+ * A set operation over bits values, each the set of its roster's handles: union, intersection and difference are the
+ * Set operations, cardinality the count, subset and disjointness the membership tests, as bit(n)'s |, & and bit_count
+ * compute them over one roster's codes.
+ */
+type SetFn = "union" | "intersection" | "difference" | "cardinality" | "subset" | "disjoint"
+
+const setAlgebra = (fn: SetFn, op: NativeOp, args: ReadonlyArray<CarrierValue>): CatalogResult => {
+	const [a, b] = args
+	if (!isHandleSet(a) || (fn !== "cardinality" && !isHandleSet(b))) {
+		return mismatch(op)
+	}
+	const other: ReadonlySet<string> = isHandleSet(b) ? b : new Set()
+	switch (fn) {
+		case "union":
+			return Result.succeed(new Set([...a, ...other]))
+		case "intersection":
+			return Result.succeed(new Set(Arr.filter([...a], (h) => other.has(h))))
+		case "difference":
+			return Result.succeed(new Set(Arr.filter([...a], (h) => !other.has(h))))
+		case "cardinality":
+			return Result.succeed(BigInt(a.size))
+		case "subset":
+			return Result.succeed(Arr.every([...a], (h) => other.has(h)))
+		case "disjoint":
+			return Result.succeed(!Arr.some([...a], (h) => other.has(h)))
+	}
+}
 
 /** An operand of a kind the IR's typing rules out. */
 const mismatch = (op: NativeOp): CatalogResult =>
@@ -494,7 +536,15 @@ const catalogApply = (
 		case "not":
 			return typeof a === "boolean" ? Result.succeed(!a) : mismatch(op)
 		case "cosineDistance":
+		case "complement":
 			return declined(op, "database", "PostgreSQL alone evaluates it")
+		case "union":
+		case "intersection":
+		case "difference":
+		case "cardinality":
+		case "subset":
+		case "disjoint":
+			return setAlgebra(op.fn, op, args)
 		case "and":
 		case "or":
 		case "cast":
@@ -663,6 +713,10 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 				}
 				return member.success ? coerced : undefinedAt("contract")
 			}
+			case "closedAt":
+			case "closedRow":
+			case "closedHas":
+				return unsupported(`the closed read ${expr.kind} of ${expr.relation}`)
 			case "op": {
 				const op = nativeOp(expr.op)
 				if (op === undefined) {

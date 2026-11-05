@@ -277,7 +277,6 @@ export const generatedRules = [
 	"R01.fusion",
 	"R02.semiJoin",
 	"R02.antiJoin",
-	"R07.finiteMembership",
 	"prune.heading",
 	"cte.notMaterialized",
 	"cte.materialized"

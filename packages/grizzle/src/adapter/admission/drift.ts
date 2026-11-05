@@ -61,17 +61,22 @@ import {
  * check creates a scratch schema for the installed schema and for each role's schema, replays into them the manifest's
  * object statements with each installed schema renamed to its scratch one (no role, membership, grant, default
  * privilege, database default, extension or query runs there; a policy names its installed role), and reads each pair
- * of schemas through one description statement: every relation, column, constraint, domain constraint, type, enum
- * label list, function, trigger, statistics object, row security policy and rewrite rule, each keyed by its kind and
- * its names (quote_ident, so a key is injective) and described by PostgreSQL's own deparse (pg_get_constraintdef,
+ * of schemas through one description statement: every relation, column, constraint, domain constraint, type,
+ * function, trigger, statistics object, row security policy and rewrite rule, each keyed by its kind and its names
+ * (quote_ident, so a key is injective) and described by PostgreSQL's own deparse (pg_get_constraintdef,
  * pg_get_indexdef, pg_get_functiondef, pg_get_triggerdef, pg_get_viewdef, pg_get_statisticsobjdef, pg_get_expr and
  * format_type) with its owner and its state: an index not valid, a trigger not enabled, row security on a table. The
  * two descriptions are compared key by key: a key only the snapshot's has is missing, one only the installed schema's
  * has is unexpected, and a key both have with two definitions is both. Deparsed text is compared only with deparsed
- * text from the same server, so no model of PostgreSQL's deparser exists anywhere. A column, a statistics object's
- * column list and a set of enum labels in their sort order are read so that the attribute order a migrated table
- * differs from a fresh one by never enters a description: columns are keyed by name, and statistics columns listed by
- * name.
+ * text from the same server, so no model of PostgreSQL's deparser exists anywhere. A column and a statistics object's
+ * column list are read so that the attribute order a migrated table differs from a fresh one by never enters a
+ * description: columns are keyed by name, and statistics columns listed by name.
+ *
+ * An IMMUTABLE function is one of the installation's constants (a roster's names, a closed relation's packed cells),
+ * and grizzle installs no other: a constant is named by its content's digest, so its key already says what it holds,
+ * and it is described by its owner and its result type alone, never by its body, which for a closed relation runs to
+ * many kilobytes. A constant the snapshot names is installed or missing by its key; one only the database holds, as a
+ * migration that did not drop a replaced constant leaves, is unexpected by its key.
  *
  * The scratch name is `grizzle_admission_` and 24 hex digits of the schema name's SHA-256: lower case, no keyword, so
  * PostgreSQL never quotes it, and a description of the scratch schema reads as the installed schema's once each
@@ -317,24 +322,6 @@ const descriptionSelect = (): C.CatalogSelect => {
 			)
 		)
 	}
-	const labels = (): C.CatalogExpr => {
-		const e = C.from("pg_enum", "e")
-		return C.scalar(
-			C.select({
-				...C.core(
-					[
-						labelled(
-							"labels ",
-							C.asText(C.aggregate("array_agg", [e.col("enumlabel")], [e.col("enumsortorder")]))
-						)
-					],
-					[e.item],
-					C.eq(e.col("enumtypid"), t.col("oid"))
-				),
-				having: C.gt(C.countStar, C.literal(0n, "integer"))
-			})
-		)
-	}
 	const statisticsColumns = (): C.CatalogExpr => {
 		const u = C.fromFunction(C.call("unnest", [x.col("stxkeys")]), "u", ["n"], false)
 		const sa = C.from("pg_attribute", "a")
@@ -536,8 +523,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 					labelled(
 						"default ",
 						C.call("pg_get_expr", [t.col("typdefaultbin"), C.literal(0n, "oid")])
-					),
-					labels()
+					)
 				])
 			],
 			[inNamespace(t.item, n, t.col("typnamespace"))],
@@ -555,6 +541,13 @@ const descriptionSelect = (): C.CatalogSelect => {
 					owner(p.col("proowner")),
 					C.caseWhen(
 						[
+							{
+								when: C.eq(p.col("provolatile"), C.letter("i")),
+								result: labelled(
+									"constant returning ",
+									C.call("format_type", [p.col("prorettype"), C.literal(-1n, "integer")])
+								)
+							},
 							{
 								when: C.inList(p.col("prokind"), C.letters(["f", "p"])),
 								result: C.call("pg_get_functiondef", [p.col("oid")])
@@ -721,12 +714,12 @@ const inScratch = (
 		case "createTable":
 		case "alterTable":
 		case "createDomain":
-		case "createEnum":
+		case "createConstant":
+		case "packConstant":
 		case "createMaterializedView":
 		case "createView":
 		case "createPolicy":
 		case "createFunction":
-		case "createConstraintTrigger":
 		case "createGuardTrigger":
 		case "createStatistics":
 			return [transformStatement(s, hooks)]

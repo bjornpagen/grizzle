@@ -99,12 +99,19 @@ const toClosed = (
 	})
 }
 
-/** The name an empty relation the simplifier introduces carries; it names no declared closed relation. */
+/**
+ * The names of the closed relations the simplifier introduces: an empty relation, and the facts of a declared closed
+ * relation a filter keeps, fewer than all of them. A declared name starts with no underscore (core/identity.ts
+ * parseNameCharacters), so neither names a declared closed relation, and a Closed node that carries a declared name
+ * holds that relation's every fact: the closed rewrite (lower/optimize/closed) reads such a node as the relation's
+ * installed constants, which hold every fact.
+ */
 const emptyClosedName = "__empty"
+const narrowedClosedName = "__narrowed"
 
 /** `cell`, whose node is `node`, becomes the empty relation of its heading. */
 const toEmpty = (cx: RewriteCx, cell: Cell, node: EditNode): void => {
-	toClosed(cx, cell, node, node.kind === "Closed" ? node.closed : emptyClosedName, [])
+	toClosed(cx, cell, node, emptyClosedName, [])
 }
 
 /**
@@ -215,7 +222,13 @@ const finiteFold: Rule = {
 			}
 		}
 		certify(cx, simplifyRules.finiteFold, [sourceCell.id], node.heading, [cell.id])
-		toClosed(cx, cell, node, source.closed, kept)
+		toClosed(
+			cx,
+			cell,
+			node,
+			kept.length === source.rows.length ? source.closed : narrowedClosedName,
+			kept
+		)
 		return true
 	}
 }

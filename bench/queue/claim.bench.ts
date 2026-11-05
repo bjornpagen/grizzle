@@ -387,9 +387,9 @@ export default defineGate({
 			const seed = <F>(fx: Fixture<F>) =>
 				Effect.gen(function* () {
 					const c = (rel: string, f: string) => fx.column(rel, f)
-					const kind = fx.enumType("Kind")
-					const standing = fx.enumType("Standing")
-					const resource = fx.enumType("Resource")
+					const kind = (handle: string) => fx.handle("Kind", handle)
+					const standing = (handle: string) => fx.handle("Standing", handle)
+					const resource = (handle: string) => fx.handle("Resource", handle)
 					const work = (from: number, n: number, k: string) =>
 						`INSERT INTO ${fx.table("Work")} (${Arr.join(
 							Arr.map(["key", "kind", "slot", "standing", "epoch", "enqueued"], (f) =>
@@ -397,7 +397,7 @@ export default defineGate({
 							),
 							", "
 						)}) ` +
-						`SELECT ${digestOf("g")}, '${k}'::${kind}, 0, 'wanted'::${standing}, 0, g FROM pg_catalog.generate_series(${from}, ${from + n - 1}) AS g`
+						`SELECT ${digestOf("g")}, ${kind(k)}, 0, ${standing("wanted")}, 0, g FROM pg_catalog.generate_series(${from}, ${from + n - 1}) AS g`
 					const wanted = (from: number, n: number) =>
 						`INSERT INTO ${fx.table("Wanted")} (${Arr.join(
 							Arr.map(["key", "due", "attempts"], (f) => c("Wanted", f)),
@@ -417,9 +417,9 @@ export default defineGate({
 					for (const t of governed) {
 						yield* owner(`ALTER TABLE ${fx.table(t)} ENABLE TRIGGER USER`)
 					}
-					yield* fill(fx, "Seat", seats, { resource: `'gpu'::${resource}`, seat: "(g - 1)::int4" })
+					yield* fill(fx, "Seat", seats, { resource: resource("gpu"), seat: "(g - 1)::int4" })
 					yield* fill(fx, "Seat", options.dead, {
-						resource: `'cpu'::${resource}`,
+						resource: resource("cpu"),
 						seat: "(g - 1)::int4"
 					})
 					yield* settle(fx)
@@ -997,15 +997,15 @@ export default defineGate({
 			/** The hand-written SKIP LOCKED claim on the same schema, as the owner. */
 			const c = (rel: string, f: string) => fx.column(rel, f)
 			const W = fx.table("Work")
-			const kind = fx.enumType("Kind")
-			const standing = fx.enumType("Standing")
-			const resource = fx.enumType("Resource")
+			const kind = (handle: string) => fx.handle("Kind", handle)
+			const standing = (handle: string) => fx.handle("Standing", handle)
+			const resource = (handle: string) => fx.handle("Resource", handle)
 			const baselineStats = newStats()
 			const pick = (side: ">=" | "<") =>
-				`SELECT w.${c("Work", "key")}::text, w.${c("Work", "epoch")}::text FROM ${W} AS w WHERE w.${c("Work", "kind")} = 'render'::${kind} AND w.${c("Work", "slot")} = 0 AND w.${c("Work", "standing")} = 'wanted'::${standing} AND w.${c("Work", "key")} ${side} $1::text ` +
+				`SELECT w.${c("Work", "key")}::text, w.${c("Work", "epoch")}::text FROM ${W} AS w WHERE w.${c("Work", "kind")} = ${kind("render")} AND w.${c("Work", "slot")} = 0 AND w.${c("Work", "standing")} = ${standing("wanted")} AND w.${c("Work", "key")} ${side} $1::text ` +
 				`AND EXISTS (SELECT 1 FROM ${fx.table("Wanted")} AS x WHERE x.${c("Wanted", "key")} = w.${c("Work", "key")} AND x.${c("Wanted", "due")} <= ${now}) ORDER BY w.${c("Work", "key")} LIMIT 1 FOR UPDATE OF w SKIP LOCKED`
 			const seat = (side: ">=" | "<") =>
-				`SELECT s.${c("Seat", "seat")}::text FROM ${fx.table("Seat")} AS s WHERE s.${c("Seat", "resource")} = 'gpu'::${resource} AND s.${c("Seat", "seat")} ${side} $1::int4 ` +
+				`SELECT s.${c("Seat", "seat")}::text FROM ${fx.table("Seat")} AS s WHERE s.${c("Seat", "resource")} = ${resource("gpu")} AND s.${c("Seat", "seat")} ${side} $1::int4 ` +
 				`AND NOT EXISTS (SELECT 1 FROM ${fx.table("Leased")} AS l WHERE l.${c("Leased", "resource")} = s.${c("Seat", "resource")} AND l.${c("Leased", "seat")} = s.${c("Seat", "seat")}) ORDER BY s.${c("Seat", "seat")} LIMIT 1 FOR UPDATE OF s SKIP LOCKED`
 			const baselineOp = (session: RawSession, w: number): Effect.Effect<OperationResult> => {
 				const step = (at: BaselineStep, sql: string, params: ReadonlyArray<string>) =>
@@ -1038,7 +1038,7 @@ export default defineGate({
 					const epoch = BigInt(current) + 1n
 					yield* statement(
 						"lease item",
-						`UPDATE ${W} SET ${c("Work", "standing")} = 'leased'::${standing}, ${c("Work", "epoch")} = ${epoch} WHERE ${c("Work", "key")} = $1::text`,
+						`UPDATE ${W} SET ${c("Work", "standing")} = ${standing("leased")}, ${c("Work", "epoch")} = ${epoch} WHERE ${c("Work", "key")} = $1::text`,
 						[key]
 					)
 					yield* statement(
@@ -1051,7 +1051,7 @@ export default defineGate({
 						`INSERT INTO ${fx.table("Leased")} (${Arr.join(
 							Arr.map(["key", "resource", "seat", "epoch", "expires"], (f) => c("Leased", f)),
 							", "
-						)}) VALUES ($1::text, 'gpu'::${resource}, $2::int4, ${epoch}, ${forever})`,
+						)}) VALUES ($1::text, ${resource("gpu")}, $2::int4, ${epoch}, ${forever})`,
 						[key, free[0]]
 					)
 					yield* commit
@@ -1066,12 +1066,12 @@ export default defineGate({
 					)
 					yield* statement(
 						"insert done",
-						`INSERT INTO ${fx.table("Done")} (${c("Done", "key")}, ${c("Done", "outcome")}) VALUES ($1::text, 'succeeded'::${fx.enumType("Outcome")})`,
+						`INSERT INTO ${fx.table("Done")} (${c("Done", "key")}, ${c("Done", "outcome")}) VALUES ($1::text, ${fx.handle("Outcome", "succeeded")})`,
 						[key]
 					)
 					yield* statement(
 						"settle item",
-						`UPDATE ${W} SET ${c("Work", "standing")} = 'done'::${standing} WHERE ${c("Work", "key")} = $1::text`,
+						`UPDATE ${W} SET ${c("Work", "standing")} = ${standing("done")} WHERE ${c("Work", "key")} = $1::text`,
 						[key]
 					)
 					yield* commit

@@ -6,7 +6,7 @@ import {
 	type SendableFact,
 	sameValue,
 	sendableFact
-} from "#test/pg/laws/families/model.ts"
+} from "#test/support/laws/model.ts"
 import { factsIn, relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import type {
 	BaseSpec,

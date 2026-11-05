@@ -1,5 +1,6 @@
 import { Array as Arr } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 
 /**
@@ -22,9 +23,12 @@ const cell = (row: ReadonlyArray<string>, i: number): string => {
 	return text
 }
 
-/** The record of a row's first heading.length texts: each column's host value. */
-export const headingRecord = (heading: Heading): ((row: ReadonlyArray<string>) => RowRecord) => {
-	const converts = Arr.map(heading, (c) => [c.name, scalarCodec(c.type).convert] as const)
+/** The record of a row's first heading.length texts: each column's host value, a closed id's read through `codes`. */
+export const headingRecord = (
+	heading: Heading,
+	codes: Codebook
+): ((row: ReadonlyArray<string>) => RowRecord) => {
+	const converts = Arr.map(heading, (c) => [c.name, scalarCodec(c.type, codes).convert] as const)
 	return (row) => {
 		const out: Record<string, unknown> = { __proto__: null }
 		for (const [i, [name, convert]] of converts.entries()) {

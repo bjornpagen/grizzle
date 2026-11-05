@@ -1,28 +1,27 @@
 import type { Brand } from "effect"
-import { closedId, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
+import { accumulated, closedId, drawn, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import {
 	alternatives,
-	capacity,
 	check,
 	closed,
 	contained,
-	duration,
+	counted,
+	fin,
+	fold,
 	key,
+	Monoid,
 	mirrors,
 	mutable,
 	on,
-	ref,
 	relation,
 	role,
 	schema,
-	select,
-	weigh,
-	within
+	select
 } from "#compiler/public/schema.ts"
 import type { Addition } from "#compiler/types/changeset/changeset.ts"
 import type { Fact, SerialFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { KeysOf } from "#compiler/types/schema/schema.ts"
-import type { Capacity, KeyValues, Side } from "#compiler/types/schema/statements.ts"
+import type { Counted, Fin, KeyValues, Side } from "#compiler/types/schema/statements.ts"
 import type { WriteListOf } from "#compiler/types/schema/world.ts"
 import {
 	Account,
@@ -37,6 +36,7 @@ import {
 	TaskNote,
 	type Ticket,
 	Tier,
+	TierBudget,
 	Work,
 	type Writer
 } from "#test/types/skeleton/fixtures/work.ts"
@@ -45,7 +45,7 @@ import type { Equals, Expect } from "#test/types/skeleton/support.ts"
 /**
  * Relations, statements and the schema projections over declare-only values. Every `@ts-expect-error -- TSnnnn` names the diagnostic the harness requires.
  *
- * Facts are host values; a closed relation's fact is { id } & payload.
+ * Facts are host values; a roster's fact is { id }, and a closed relation's a fact of its fields.
  */
 export type TaskFact = Expect<
 	Equals<
@@ -54,10 +54,10 @@ export type TaskFact = Expect<
 	>
 >
 
-export type TierFact = Expect<
+export type TierBudgetFact = Expect<
 	Equals<
-		Fact<typeof Tier>,
-		{ readonly id: "Free" | "Pro"; readonly budget: bigint & Brand.Brand<"Cents"> }
+		Fact<typeof TierBudget>,
+		{ readonly tier: "Free" | "Pro"; readonly budget: bigint & Brand.Brand<"Cents"> }
 	>
 >
 export type KindFact = Expect<Equals<Fact<typeof Kind>, { readonly id: "Automatic" | "Manual" }>>
@@ -67,11 +67,15 @@ export type KindFact = Expect<Equals<Fact<typeof Kind>, { readonly id: "Automati
 export const NoKey = relation("NoKey", { id: uuid }, [])
 // @ts-expect-error -- TS2322: the primary key names declared fields
 export const BadKey = relation("BadKey", { id: uuid }, ["nope"])
-/** The roster's facts are complete and typed. */
-export const PartialTier = closed("PartialTier", ["Free", "Pro"]).with(
-	{ budget: Cents },
-	// @ts-expect-error -- TS2741: every handle has a fact
-	{ Free: { budget: Cents(1n) } }
+/** A closed relation's rows are whole facts of its fields. */
+export const PartialTier = closed.relation(
+	"PartialTier",
+	{ tier: closedId(Tier), budget: Cents },
+	["tier"],
+	[
+		// @ts-expect-error -- TS2741: a row holds every field
+		{ tier: "Free" }
+	]
 )
 
 /** KeysOf reads the primary key and every key() over a whole relation that the schema captures. */
@@ -172,24 +176,30 @@ export const derivedArms = alternatives(StudentWeekly, "week", Kind, {})
 export const derivedWrite = role(Reports, "bad", Reports.relations, { write: ["StudentWeekly"] })
 export const labelled = relation("Labelled", { label: Label }, ["label"])
 
-/** Capacity: a bound on the count or total weight of source facts per target fact. */
-export const Pool = relation("Pool", { id: uuid, budget: pg.bigint }, ["id"])
+/**
+ * Capacity's replacement (fin §6): a pool's claims are a counted family over its drawn count n, so a count of at least
+ * one is a row check on n, and a weight within the budget is a sum fold of the claims' units into the pool's total,
+ * checked against its budget.
+ */
+export const Pool = relation(
+	"Pool",
+	{ id: uuid, budget: pg.bigint, n: drawn(natural), total: accumulated(pg.bigint, 0n) },
+	["id"]
+)
 export const Claim = relation("Claim", { id: uuid, pool: uuid, units: pg.bigint }, ["id"])
-export const poolBudget = capacity(on(Pool, "id"), {
-	from: on(Claim, "pool"),
-	weight: weigh("units"),
-	within: within(0n, ref("budget"))
-})
-
-export const poolCount = capacity(on(Pool, "id"), {
-	from: on(Claim, "pool"),
-	within: within(1n, "*")
-})
-export const spanWeight = weigh(duration("during"))
-export const WorkPools = schema("WorkPools", { Pool, Claim }, [poolBudget, poolCount])
-export type PoolsCapacity = Expect<
+export const claims = counted(on(Claim, "pool"), fin(Pool, "n"))
+export const claimUnits = fold(claims, Monoid.sum, on(Claim, "pool", "units"), on(Pool, "id", "total"))
+export const poolBudget = check("ClaimsWithinBudget", Pool, (p) => p.le(p.total, p.budget))
+export const poolCount = check("AtLeastOneClaim", Pool, (p) => p.n.ge(1n))
+export const WorkPools = schema("WorkPools", { Pool, Claim }, [
+	claims,
+	claimUnits,
+	poolBudget,
+	poolCount
+])
+export type PoolsClaims = Expect<
 	Equals<
 		(typeof WorkPools)["statements"][0],
-		Capacity<Side<typeof Pool, readonly ["id"]>, Side<typeof Claim, readonly ["pool"]>>
+		Counted<Side<typeof Claim, readonly ["pool"]>, Fin<typeof Pool, "n">>
 	>
 >

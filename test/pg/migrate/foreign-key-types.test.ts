@@ -35,7 +35,7 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
  * in the unit box as it does on PostgreSQL.
  *
  * The space is exhaustive: every ordered pair of column types from the types a column can have (each builtin with an
- * index, two enums of one roster, and a domain over bigint), and a key from a column of the first to a key of the
+ * index, two rosters' domains over smallint, as two rosters' closed ids are, and a domain over bigint), and a key from a column of the first to a key of the
  * second made three ways: with the two tables; over the second type with the referencing column then converted to
  * the first; over the first type with the referenced column then converted to the second. PostgreSQL, each case in a
  * transaction it rolls back, and the model, from the same statements, implement the key or refuse it with 42804 at the
@@ -50,8 +50,8 @@ const ownKeyColumn = "id"
 const keyName = wild.constraint("referenced_key")
 const ownKeyName = wild.constraint("referencing_own_key")
 const referenceName = wild.constraint("referencing_key")
-const enumA = "kind_a"
-const enumB = "kind_b"
+const rosterA = "kind_a"
+const rosterB = "kind_b"
 const bigDomain = "big"
 
 /** A column type of the space: its name in features, the type, and a text of a value of it, which a conversion writes. */
@@ -84,8 +84,8 @@ const columnTypes: Arr.NonEmptyReadonlyArray<ColumnType> = [
 	builtin("text", types.text, "a"),
 	builtin("uuid", types.uuid, "00000000-0000-4000-8000-000000000001"),
 	builtin("money", types.money, "1"),
-	named("enum a", enumA, "x"),
-	named("enum b", enumB, "x"),
+	named("roster domain a", rosterA, "1"),
+	named("roster domain b", rosterB, "1"),
 	named("domain over bigint", bigDomain, "1")
 ]
 
@@ -115,10 +115,19 @@ const column = (name: string, type: TypeRef): ColumnDef => ({
 	generated: undefined
 })
 
-/** The two types the schema's columns may have that are none of PostgreSQL's: the enums and the domain. */
+/** A domain over smallint with no constraint: what a roster's closed ids are typed by, its CHECK aside. */
+const rosterDomain = (schema: string, name: string): SqlStatement => ({
+	kind: "createDomain",
+	name: { schema, name },
+	base: types.smallint,
+	collation: undefined,
+	constraints: []
+})
+
+/** The types the schema's columns may have that are none of PostgreSQL's: the two roster domains and the domain. */
 const setup = (schema: string): ReadonlyArray<SqlStatement> => [
-	{ kind: "createEnum", name: { schema, name: enumA }, labels: ["x", "y"] },
-	{ kind: "createEnum", name: { schema, name: enumB }, labels: ["x", "y"] },
+	rosterDomain(schema, rosterA),
+	rosterDomain(schema, rosterB),
 	{
 		kind: "createDomain",
 		name: { schema, name: bigDomain },
@@ -153,7 +162,8 @@ const statementsOf = (
 		columns: [{ column: referenceColumn, period: false }],
 		references: referenced,
 		referencedColumns: [{ column: keyColumn, period: false }],
-		deferrable: undefined
+		deferrable: undefined,
+		onUpdate: undefined
 	}
 	const tables = (keyType: ColumnType, referenceType: ColumnType): ReadonlyArray<SqlStatement> => [
 		{

@@ -7,6 +7,7 @@ import {
 	type AuthoredExprDesc as ExprDesc,
 	type HeadTermDesc,
 	type AuthoredRelationDesc as RelationDesc,
+	relation as storedRelation,
 	type RuleDesc,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
@@ -186,7 +187,7 @@ export const spanSchemaDesc = (schema: SpanSchema): SchemaDesc => {
 			fields[field] =
 				field === "during" ? spanFieldDesc(schema.endpoint) : { kind: "pg", type: "integer" }
 		}
-		return { kind: "relation", name: relation.name, fields, primaryKey: spanPrimaryKey(relation) }
+		return storedRelation(relation.name, fields, spanPrimaryKey(relation))
 	}
 	return {
 		name: spanSchemaName,

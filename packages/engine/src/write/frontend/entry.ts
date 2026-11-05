@@ -14,7 +14,7 @@ import type {
 	VarDesc
 } from "#compiler/ir/desc.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { plainDesc, type WritableEntry } from "#compiler/schema/entry.ts"
+import type { WritableEntry } from "#compiler/schema/entry.ts"
 import { isSerialField } from "#compiler/write/insert/statement.ts"
 import type { HostChecks, HostKeyField } from "#compiler/write/normalize/normalize.ts"
 
@@ -67,13 +67,24 @@ export const entryDraws = (entry: CheckedEntry): ReadonlyArray<SerialDraw> => {
 	)
 }
 
-/** E's facts as a member relation: each head field typed as the field of T it writes, in E's field order, and the head
- * fields an addition may omit for grizzle to generate (`entryDraws`). */
-export const entryRelation = (entry: CheckedEntry): MemberRelation => ({
-	name: entry.entry,
-	heading: [...entry.head].map(([head, { field }]) => ({ name: head, type: field.type })),
-	serial: entryDraws(entry).map((d) => d.carried)
-})
+/** E's facts as a member relation: each head field typed as the field of T it writes, in E's field order, and written
+ * as serial exactly where an addition may omit it for its identity to draw it (`entryDraws`), as the caller's where
+ * it writes a serial field the filter reads, and otherwise as that field is written. */
+export const entryRelation = (entry: CheckedEntry): MemberRelation => {
+	const drawn = new Set(entryDraws(entry).map((d) => d.carried))
+	return {
+		name: entry.entry,
+		heading: [...entry.head].map(([head, { field }]) => ({
+			name: head,
+			type: field.type,
+			writing: drawn.has(head)
+				? { kind: "serial" }
+				: field.writing.kind === "serial"
+					? { kind: "caller" }
+					: field.writing
+		}))
+	}
+}
 
 const varOf = (id: string): ExprDesc => ({ kind: "var", var: id })
 
@@ -92,7 +103,7 @@ export const fillQuery = (entry: CheckedEntry, input: Heading, loc: SourceLoc): 
 			continue
 		}
 		const id = `entry_${headField}`
-		heading[headField] = plainDesc(field.desc)
+		heading[headField] = field.desc
 		rowBindings[headField] = varOf(id)
 		vars.push({ loc, id, origin: undefined })
 		head[field.name] = varOf(id)

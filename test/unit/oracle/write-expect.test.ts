@@ -36,6 +36,7 @@ import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { Fact } from "#test/support/oracle/addwins.ts"
@@ -67,12 +68,14 @@ import { nothingReported, serverError } from "#test/support/server-error.ts"
  */
 const writeLawNames = (schema: WSchema): WriteLawNames => {
 	const declared = "Wo"
+	const value = buildSchema(schema, declared).value
 	const plan = succeeded(
-		planRealInstall(buildSchema(schema, declared).value, {
+		planRealInstall(value, {
 			installation: identity.schema(parsedSchemaName(declared)),
 			owner: "grizzle_dev",
 			logins: [],
-			extensions: []
+			extensions: [],
+			codes: succeeded(codebookFor(schemaInputOf(value), firstCodes))
 		})
 	)
 	return lawNames(plan)
@@ -92,7 +95,7 @@ const groupLaws = (group: WGroup, laws: WriteLawNames): ReadonlyArray<LawId> => 
 const unreported: OutcomeWitness = { kind: "unreported" }
 
 const refused = (law: LawId, witness: OutcomeWitness): Result.Result<WriteOutcome, unknown> =>
-	Result.succeed({ kind: "invariant-rejected", law, witness })
+	Result.succeed({ kind: "invariant-rejected", laws: [law], witness })
 
 /** A violator's values at the refusal's fields: the key a faithful witness carries. */
 const keyAt = (refusal: AcceptableRefusal, fact: Fact): Fact =>

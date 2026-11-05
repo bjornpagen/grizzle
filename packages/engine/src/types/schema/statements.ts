@@ -1,3 +1,4 @@
+import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { ScalarHelpers } from "#compiler/types/compute/compute.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
@@ -8,8 +9,15 @@ import type {
 	Refusal,
 	SqlOfCarrier
 } from "#compiler/types/core/phantom.ts"
-import type { HandleOf } from "#compiler/types/fields/field.ts"
-import type { AnyClosed, AnyRelation, Fact, NameOf } from "#compiler/types/schema/relation.ts"
+import type {
+	AccumulatedField,
+	BitsField,
+	DrawnField,
+	FieldBase,
+	HandleOf,
+	WritingTag
+} from "#compiler/types/fields/field.ts"
+import type { AnyRelation, AnyRoster, Fact, NameOf } from "#compiler/types/schema/relation.ts"
 
 /**
  * pred(field), a law side's term over a natural field: the field's value less one, defined only where the value is
@@ -74,7 +82,7 @@ export interface Selection<R> {
 }
 
 /**
- * Statements: keys, mutability, checks, law sides, containment, mirrors, alternatives and capacity. The
+ * Statements: keys, mutability, checks, law sides, containment, mirrors, alternatives, families, trees and folds. The
  * constructors are the typed schema facade's (schema/api.ts), written under these types over the admission cores of
  * packages/engine/src/schema.
  *
@@ -96,40 +104,319 @@ export interface Mirrors<L = Side<unknown>, R = Side<unknown>> {
 	readonly right: R
 }
 
-export interface Capacity<T = Side<unknown>, F = Side<unknown>> {
-	readonly kind: "capacity"
-	readonly target: T
-	readonly from: F
+/**
+ * fin(O, n): the slots of O's drawn count n, the facts (key(o), i) for 0 ≤ i < o.n: a family's second argument, never a
+ * law side and never a schema member.
+ */
+export interface Fin<O, N extends string> {
+	readonly kind: "fin"
+	readonly owner: O
+	readonly count: N
+}
+export type AnyFin = Fin<unknown, string>
+
+/** ordered(on(F, g…, i), fin(O, n)): each owner's members indexed by their drawn index i, exactly 0 … n − 1. */
+export interface Ordered<F, Fi> {
+	readonly kind: "ordered"
+	readonly family: F
+	readonly slots: Fi
 }
 
-export interface Ref {
-	readonly ref: string
-}
-
-export interface Duration {
-	readonly duration: string
-}
-
-export interface Weight {
-	readonly weight: string | Duration
-}
-
-export interface Bound {
-	readonly low: bigint | Ref
-	readonly high: bigint | Ref | "*"
+/** counted(on(F, g…), fin(O, n)): each owner's n members, whose index is hidden and in no heading. */
+export interface Counted<F, Fi> {
+	readonly kind: "counted"
+	readonly family: F
+	readonly slots: Fi
 }
 
 /**
- * What a capacity bounds: the facts it counts from, how each fact weighs (one, when the rule names no weight), and the
- * bounds.
+ * tree(on(T, "parent", "at"), fin(T, "children"), { root: r }): the ordered family of T over itself, every row but
+ * the self-parented root a member, with T's drawn `start` and `end` its pre-order interval and r the caller's field
+ * each tree's rows share.
  */
-export interface CapacityRule<F> {
-	readonly from: F
-	readonly weight?: Weight
-	readonly within: Bound
+export interface Tree<F, Fi, Root extends string> {
+	readonly kind: "tree"
+	readonly family: F
+	readonly slots: Fi
+	readonly root: Root
 }
-/** within(n) is exactly n, within(low, high) the inclusive range, within(low, "*") unbounded above. */
-export type WithinConstructor = (low: bigint | Ref, high?: bigint | Ref | "*") => Bound
+
+/** Any family: each is covariant in what it names. */
+export type AnyFamily =
+	| Ordered<unknown, unknown>
+	| Counted<unknown, unknown>
+	| Tree<unknown, unknown, string>
+
+/** A closed monoid a fold combines by: twos keeps two planes (ones and twos), the others one. */
+export interface Monoid<M extends MonoidName> {
+	readonly kind: "monoid"
+	readonly name: M
+	readonly planes: M extends "twos" ? 2 : 1
+}
+export type AnyMonoid = Monoid<MonoidName>
+
+/**
+ * fold(family, Monoid.m, step, end): the family's members' step values combined by the monoid in slot order, each
+ * owner's result in its end fields.
+ */
+export interface Fold<Fa, M, S, E> {
+	readonly kind: "fold"
+	readonly family: Fa
+	readonly monoid: M
+	readonly step: S
+	readonly end: E
+}
+
+/** A key lists no set: a set's bit string is wider than an index entry holds. */
+export type NoSetKey<S> =
+	S extends Side<infer Src, infer T>
+		? [Extract<T[number], string> & SetFieldOf<SideRelation<Src>>] extends [never]
+			? unknown
+			: Refusal<"a key lists no set: a set's bit string is too wide for an index entry">
+		: unknown
+
+type SetFieldOf<R> =
+	R extends Headed<infer C>
+		? { [K in keyof C]-?: C[K] extends BitsField<unknown> ? K : never }[keyof C] & string
+		: never
+
+/** The fields of R its family or tree draws: its drawn naturals, read off its heading. */
+export type DrawnFieldOf<R> =
+	R extends Headed<infer C>
+		? { [K in keyof C]-?: C[K] extends DrawnField ? K : never }[keyof C] & string
+		: never
+
+/** The fields of R its caller writes: those whose descriptor states no writing of its own. */
+type CallerFieldOf<R> =
+	R extends Headed<infer C>
+		? { [K in keyof C]-?: C[K] extends { readonly writing: WritingTag } ? never : K }[keyof C] &
+				string
+		: never
+
+/** The join types of R's fields T, in order. */
+type TypesOf<R, T> = { readonly [I in keyof T]: FieldTypeOf<R, T[I]> }
+
+type PrimaryKeyOf<O> = O extends { readonly primaryKey: infer P extends ReadonlyArray<string> }
+	? P
+	: never
+
+/** Whether R's fields G have the types of O's primary key, in order: a family's group pairs with its owner's key. */
+type GroupOfOwner<R, G, O> = [TypesOf<R, G>] extends [TypesOf<O, PrimaryKeyOf<O>>]
+	? [TypesOf<O, PrimaryKeyOf<O>>] extends [TypesOf<R, G>]
+		? true
+		: false
+	: false
+
+/** The owner a family's slots count over. */
+type OwnerOfSlots<Fi> = Fi extends Fin<infer O, string> ? O : never
+
+/** An ordered family's side is its owner's key, then its drawn index. */
+export type OrderedMember<F, Fi> =
+	F extends Side<
+		infer R,
+		readonly [...infer G extends ReadonlyArray<AnyTerm>, infer I extends AnyTerm]
+	>
+		? GroupOfOwner<R, G, OwnerOfSlots<Fi>> extends true
+			? I extends DrawnFieldOf<R>
+				? unknown
+				: Refusal<"an ordered family's side is its owner's key, then its drawn index">
+			: Refusal<"an ordered family's side is its owner's key, then its drawn index">
+		: Refusal<"an ordered family's side is its owner's key, then its drawn index">
+
+/** A counted family's side is its owner's key. */
+export type CountedMember<F, Fi> =
+	F extends Side<infer R, infer G>
+		? GroupOfOwner<R, G, OwnerOfSlots<Fi>> extends true
+			? unknown
+			: Refusal<"a counted family's side is its owner's key">
+		: Refusal<"a counted family's side is its owner's key">
+
+/**
+ * A tree is a family of T over itself, on(T, parent, at) with fin(T, n): parent of T's one-field primary key's type,
+ * and at, n, start and end drawn.
+ */
+export type SelfFamily<F, Fi> =
+	F extends Side<infer T, readonly [infer P extends AnyTerm, infer I extends AnyTerm]>
+		? SameRelation<T, OwnerOfSlots<Fi>> extends true
+			? GroupOfOwner<T, readonly [P], T> extends true
+				? [I | CountOfSlots<Fi> | "start" | "end"] extends [DrawnFieldOf<T>]
+					? unknown
+					: Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
+				: Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
+			: Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
+		: Refusal<"a tree is a family of T over itself, on(T, parent, at), with drawn start and end">
+
+type CountOfSlots<Fi> = Fi extends Fin<unknown, infer N> ? N : never
+
+/** A tree's root field is a caller's field of its relation. */
+export type TreeRootOf<F, Root> =
+	F extends Side<infer T>
+		? Root extends CallerFieldOf<T>
+			? unknown
+			: Refusal<"a tree's root field is a caller's field of its relation">
+		: Refusal<"a tree's root field is a caller's field of its relation">
+
+/** A family's member relation and group terms, and its owner. */
+type MemberOf<Fa> =
+	Fa extends Ordered<
+		Side<infer R, readonly [...infer G extends ReadonlyArray<AnyTerm>, AnyTerm]>,
+		infer Fi
+	>
+		? {
+				readonly relation: R
+				readonly group: G
+				readonly owner: OwnerOfSlots<Fi>
+				readonly hidden: false
+			}
+		: Fa extends Counted<Side<infer R, infer G extends ReadonlyArray<AnyTerm>>, infer Fi>
+			? {
+					readonly relation: R
+					readonly group: G
+					readonly owner: OwnerOfSlots<Fi>
+					readonly hidden: true
+				}
+			: Fa extends Tree<
+						Side<infer R, readonly [infer P extends AnyTerm, AnyTerm]>,
+						infer Fi,
+						string
+				  >
+				? {
+						readonly relation: R
+						readonly group: readonly [P]
+						readonly owner: OwnerOfSlots<Fi>
+						readonly hidden: false
+					}
+				: never
+
+/** The SQL types a monoid's step value may be of: exact numbers for sum, sets for or and twos, least-valued ones for max. */
+type MonoidSql = {
+	readonly count: never
+	readonly sum: "smallint" | "integer" | "bigint" | "numeric" | "money"
+	readonly or: "bits"
+	readonly twos: "bits"
+	readonly max: "smallint" | "integer" | "bigint" | "code" | "money"
+}
+
+type NameOfMonoid<M> = M extends Monoid<infer N> ? N : never
+
+/** An accumulator of R's field X's type: an accumulated field of R whose domain and SQL type are X's. */
+type Accumulator<R, A, X> =
+	FieldOfHeading<R, A> extends AccumulatedField<FieldBase>
+		? [FieldTypeOf<R, A>] extends [X]
+			? [X] extends [FieldTypeOf<R, A>]
+				? true
+				: false
+			: false
+		: false
+
+type FieldOfHeading<R, K> = R extends Headed<infer C> ? (K extends keyof C ? C[K] : never) : never
+
+/** The accumulators a step names after its value: none, or one (before, after) pair per plane, of the value's type. */
+type Accumulators<R, Rest, X, Planes> = Rest extends readonly []
+	? true
+	: Rest extends readonly [infer B, infer A]
+		? Planes extends 1
+			? [Accumulator<R, B, X>, Accumulator<R, A, X>] extends [true, true]
+				? true
+				: false
+			: false
+		: Rest extends readonly [infer B1, infer A1, infer B2, infer A2]
+			? Planes extends 2
+				? [
+						Accumulator<R, B1, X>,
+						Accumulator<R, A1, X>,
+						Accumulator<R, B2, X>,
+						Accumulator<R, A2, X>
+					] extends [true, true, true, true]
+					? true
+					: false
+				: false
+			: false
+
+/** count's value and accumulators are naturals. */
+type NaturalType = readonly [bigint, "bigint"]
+
+/**
+ * A fold's step: the family's member side (or a selection of it), its group, then its value (none for count) of a type
+ * the monoid admits, then none or one accumulated (before, after) pair per plane of the value's type; over a counted
+ * family, no pair, since a visible accumulator would show the hidden order.
+ */
+export type FoldStep<Fa, M, S> =
+	S extends Side<infer Src, infer T>
+		? SameRelation<SideRelation<Src>, MemberOf<Fa>["relation"]> extends true
+			? T extends readonly [...MemberOf<Fa>["group"], ...infer Rest]
+				? StepRest<MemberOf<Fa>, NameOfMonoid<M>, M, Rest>
+				: Refusal<"a fold's step is its family's member: its group, its value, then an accumulated pair per plane">
+			: Refusal<"a fold's step is its family's member: its group, its value, then an accumulated pair per plane">
+		: Refusal<"a fold's step is its family's member: its group, its value, then an accumulated pair per plane">
+
+type StepRest<Mb extends MemberShape, N extends MonoidName, M, Rest> = N extends "count"
+	? PairsAllowed<Mb, Accumulators<Mb["relation"], Rest, NaturalType, 1>, Rest>
+	: Rest extends readonly [infer X, ...infer Pairs]
+		? FieldTypeOf<Mb["relation"], X> extends readonly [unknown, MonoidSql[N]]
+			? PairsAllowed<
+					Mb,
+					Accumulators<Mb["relation"], Pairs, FieldTypeOf<Mb["relation"], X>, PlanesOf<M>>,
+					Pairs
+				>
+			: Refusal<"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one">
+		: Refusal<"a fold's step is its family's member: its group, its value, then an accumulated pair per plane">
+
+type MemberShape = {
+	readonly relation: unknown
+	readonly group: ReadonlyArray<AnyTerm>
+	readonly owner: unknown
+	readonly hidden: boolean
+}
+
+type PlanesOf<M> = M extends Monoid<infer N> ? (N extends "twos" ? 2 : 1) : never
+
+type PairsAllowed<Mb extends MemberShape, Holds, Pairs> = Holds extends true
+	? Mb["hidden"] extends true
+		? Pairs extends readonly []
+			? unknown
+			: Refusal<"a fold over a counted family hides its accumulators: name the step's value alone">
+		: unknown
+	: Refusal<"a fold's step is its family's member: its group, its value, then an accumulated pair per plane">
+
+/** The step value's type a fold's ends hold: count's natural, every other monoid's step value's. */
+type StepType<Fa, M, S> =
+	NameOfMonoid<M> extends "count"
+		? NaturalType
+		: S extends Side<
+					unknown,
+					readonly [...MemberOf<Fa>["group"], infer X extends AnyTerm, ...ReadonlyArray<AnyTerm>]
+			  >
+			? FieldTypeOf<MemberOf<Fa>["relation"], X>
+			: never
+
+/**
+ * A fold's end: the owner's side, its primary key then one accumulated field per plane of the step value's type
+ * (count's a natural).
+ */
+export type FoldEnd<Fa, M, E, S> =
+	E extends Side<
+		infer O,
+		readonly [...PrimaryKeyOf<MemberOf<Fa>["owner"]>, ...infer Ends extends ReadonlyArray<AnyTerm>]
+	>
+		? SameRelation<O, MemberOf<Fa>["owner"]> extends true
+			? EndsHold<O, Ends, StepType<Fa, M, S>, PlanesOf<M>> extends true
+				? unknown
+				: Refusal<"a fold's end names one accumulated field of the owner per plane">
+			: Refusal<"a fold's end names one accumulated field of the owner per plane">
+		: Refusal<"a fold's end names one accumulated field of the owner per plane">
+
+type EndsHold<O, Ends, X, Planes> = Ends extends readonly [infer E1]
+	? Planes extends 1
+		? Accumulator<O, E1, X>
+		: false
+	: Ends extends readonly [infer E1, infer E2]
+		? Planes extends 2
+			? [Accumulator<O, E1, X>, Accumulator<O, E2, X>] extends [true, true]
+				? true
+				: false
+			: false
+		: false
 
 /** Any mirrors statement, whatever its sides. */
 export type MirrorsBase = Mirrors<unknown, unknown>
@@ -141,8 +428,9 @@ export type Statement =
 	| Check<string, unknown>
 	| Containment<unknown, unknown>
 	| MirrorsBase
-	| Capacity<unknown, unknown>
 	| AlternativesBase
+	| AnyFamily
+	| Fold<unknown, unknown, unknown, unknown>
 
 /**
  * Each field of R as a Scalar of its field's domain and SQL type, whose language is the field's values, beside the
@@ -174,8 +462,7 @@ export type TermOf<R> = (keyof SideHeading<R> & string) | Pred<NaturalFieldOf<Si
 /**
  * What a field joins as: its domain and its PostgreSQL type, read off the carrier of its heading. Text and uuid are
  * different carriers; two text fields with different patterns share both, because a pattern restricts values without
- * changing text equality, so their domain is text. A closed relation's id is its roster's enum, of its roster's
- * identity.
+ * changing text equality, so their domain is text. A roster's id is its closed id, of its roster's identity.
  */
 type FieldTypeOf<R, K> =
 	R extends Headed<infer C>
@@ -210,9 +497,14 @@ export type KeyFieldsOf<K> =
 		? F
 		: K extends { readonly primaryKey: infer P extends ReadonlyArray<string> }
 			? P
-			: K extends AnyClosed
+			: K extends AnyRoster
 				? readonly ["id"]
-				: never
+				: K extends {
+							readonly kind: "closedRelation"
+							readonly key: infer P extends ReadonlyArray<string>
+					  }
+					? P
+					: never
 
 export type KeyValues<K> = Pick<
 	Fact<RelationOfKey<K>>,
@@ -277,17 +569,17 @@ export type ArmsApartFromParent<PK, Arms> = {
 }
 
 /**
- * One arm's statement: the parent's facts whose discriminator is the arm's handle, projected onto the parent key,
- * mirror the arm's key. The selection's handle is its Description's; ArmProofOf reads it from the alternatives law.
+ * One arm's containments: the arm's key among the parent's facts its handles select, and the parent's facts its
+ * handle selects, projected onto the parent key, among the arm's keys. The selection's handles are its Description's;
+ * ArmProofOf reads them from the alternatives law.
  */
-type ArmMirrors<P, PK, A> = Mirrors<
-	Side<Selection<P>, KeyFieldsOf<PK>>,
-	Side<RelationOfKey<A>, KeyFieldsOf<A>>
->
+type ArmContainments<P, PK, A> =
+	| Containment<Side<RelationOfKey<A>, KeyFieldsOf<A>>, Side<Selection<P>, KeyFieldsOf<PK>>>
+	| Containment<Side<Selection<P>, KeyFieldsOf<PK>>, Side<RelationOfKey<A>, KeyFieldsOf<A>>>
 
 /**
- * An alternatives law: one statement of a schema, which the schema expands into a containment and one mirrors per
- * arm, each the two containments it is sugar for. P is the parent in key position (a relation, standing for its
+ * An alternatives law: one statement of a schema, which states one containment per arm relation into the parent and
+ * one per armed handle from the parent, with no head: the discriminator's roster domain types it. P is the parent in key position (a relation, standing for its
  * primary key, or a Key), D the discriminator, C the closed roster, and Arms the arm map from handles to arms in key
  * position. The value keeps its four inputs, so a reader of the schema (ContainmentsOf, the alternatives row of
  * types/evidence) reads the expansion from its type (ExpansionOf).
@@ -304,18 +596,16 @@ export interface Alternatives<P, D extends string, C, Arms> {
 export type AlternativesBase = Alternatives<unknown, string, unknown, unknown>
 
 /**
- * The statements an alternatives law expands to: contained(on(parent, discriminator), on(roster, "id")) and one
- * mirrors per handle the arm map gives an arm, as a union. The schema expands them in roster order.
+ * The containments an alternatives law states, as a union: each arm's key among the parent's facts its handles select,
+ * and the parent's facts each armed handle selects among its arm's keys (ir/desc.ts expandAlternatives).
  */
 export type ExpansionOf<A> =
-	A extends Alternatives<infer P, infer D, infer C, infer Arms>
-		?
-				| Containment<Side<RelationOfKey<P>, readonly [D]>, Side<C, readonly ["id"]>>
-				| {
-						[H in keyof Arms]-?: [Exclude<Arms[H], undefined>] extends [never]
-							? never
-							: ArmMirrors<RelationOfKey<P>, P, Exclude<Arms[H], undefined>>
-				  }[keyof Arms]
+	A extends Alternatives<infer P, string, unknown, infer Arms>
+		? {
+				[H in keyof Arms]-?: [Exclude<Arms[H], undefined>] extends [never]
+					? never
+					: ArmContainments<RelationOfKey<P>, P, Exclude<Arms[H], undefined>>
+			}[keyof Arms]
 		: never
 
 /** The arm map names at least one handle. */

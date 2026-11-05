@@ -3,15 +3,25 @@ import type { RelationNormalizer } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type EncodingFailure, KeyConflict } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { NormalFacts } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
-import { admitted, admittedText, type CarrierSpec } from "#compiler/scalar/values/identity.ts"
+import {
+	admitted,
+	admittedText,
+	type Carrier,
+	type CarrierHost,
+	type CarrierSpec
+} from "#compiler/scalar/values/identity.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { KeyHost, Law } from "#compiler/types/changeset/changeset.ts"
+import type { Row } from "#compiler/write/family/draw.ts"
+import { nestedRows } from "#compiler/write/family/nesting.ts"
 import type { MemberSlot, WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type { RelationUniques } from "#compiler/write/insert/unique.ts"
 
@@ -40,6 +50,8 @@ interface KeyRefusal {
 export interface Normalized {
 	readonly kind: "normalized"
 	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
+	/** Each nested write's rows, by its member slot and then by relation, in the order they are inserted. */
+	readonly nested: ReadonlyMap<ParamId, ReadonlyMap<string, ReadonlyArray<Row>>>
 }
 
 export type Normalization = Normalized | KeyRefusal
@@ -158,8 +170,10 @@ export interface HostChecks {
 
 export type Range = "range4" | "range8"
 
-/** A key field of the relation's facts, by its name, with its spec. */
-const hostKeyField = (f: LawField): HostKeyField => ({ field: f.name, spec: carrierSpecOf(f.type) })
+/** A key field of the relation's facts, by its name, with its spec under the installation's codes. */
+const hostKeyField =
+	(codes: Codebook) =>
+	(f: LawField): HostKeyField => ({ field: f.name, spec: carrierSpecOf(f.type, codes) })
 
 /** The host checks of a relation's keys and span candidate keys, each field's spec its type's carrier's. */
 export const hostChecks = (
@@ -168,11 +182,16 @@ export const hostChecks = (
 		readonly law: LawId
 		readonly described: Law
 	}>,
-	uniques: RelationUniques
+	uniques: RelationUniques,
+	codes: Codebook
 ): HostChecks =>
 	Object.freeze({
 		keys: keyLaws.map((k) =>
-			Object.freeze({ law: k.law, described: k.described, fields: k.fields.map(hostKeyField) })
+			Object.freeze({
+				law: k.law,
+				described: k.described,
+				fields: k.fields.map(hostKeyField(codes))
+			})
 		),
 		spans: uniques.checks.flatMap(({ object: check, pairs }) => {
 			if (check.kind !== "span" || pairs !== "host") {
@@ -182,7 +201,7 @@ export const hostChecks = (
 				field: check.span.name,
 				spec: { carrier: check.span.type.carrier, width: check.span.type.span.width }
 			}
-			const equal = check.equal.map(hostKeyField)
+			const equal = check.equal.map(hostKeyField(codes))
 			return [
 				Object.freeze({
 					law: check.law,
@@ -217,13 +236,26 @@ const spanStartOrder = (a: HostSpan["start"], b: HostSpan["start"]): number =>
 /** An admitted span: a nonempty half-open interval of integers or bigints. */
 type HostSpan = Span<number> | Span<bigint>
 
+/** Whether an admitted value is a set's. */
+const isSet = (value: CarrierHost[Carrier]): value is ReadonlySet<string> => value instanceof Set
+
+/** A key field's admitted value as a key value: ownership refuses a key over a set, so a set is no key field's. */
+const keyHost = (value: CarrierHost[Carrier]): KeyHost => {
+	if (isSet(value)) {
+		throw defect("a key field over a set, which ownership refuses")
+	}
+	return value
+}
+
 /** A refused fact's values at a key's fields, each narrowed by its field's carrier (`admitted`). */
 const keyValues = (
 	fact: Fact,
 	fields: ReadonlyArray<HostKeyField>
 ): Readonly<Record<string, KeyHost>> =>
 	Object.freeze(
-		Object.fromEntries(fields.map(({ field, spec }) => [field, admitted(spec, fact[field])]))
+		Object.fromEntries(
+			fields.map(({ field, spec }) => [field, keyHost(admitted(spec, fact[field]))])
+		)
 	)
 
 const names = (fields: ReadonlyArray<HostKeyField>): KeySet => fields.map((f) => f.field)
@@ -273,7 +305,10 @@ export const normalizeChangeSet = (
 	inputs: MemberFacts
 ): Result.Result<Normalization, EncodingFailure> => {
 	const out = new Map<ParamId, NormalizedSlot>()
+	const nested = new Map<ParamId, Map<string, Array<Row>>>()
 	for (const { stratum, facts: relation, inputs: enumerated } of frontend.slots) {
+		/** The own row of a nested fact at a key an earlier nested fact holds with other rows nested. */
+		let nestedConflict: { readonly [field: string]: unknown } | undefined
 		const sets: Record<"insert" | "generated" | "put" | "delete", Map<string, Entry>> = {
 			insert: new Map(),
 			generated: new Map(),
@@ -286,6 +321,38 @@ export const normalizeChangeSet = (
 		const serial = enumerated.flatMap((input) => (input.kind === "classed" ? input.serial : []))
 		for (const input of enumerated) {
 			switch (input.kind) {
+				case "nested": {
+					slotOf.set("insert", input.slot)
+					for (const member of input.members) {
+						const given = inputs.get(member.name)
+						if (given === undefined) {
+							return Result.err(encodeFailure("factShape", slotPlace(member.name)))
+						}
+						const rows = nestedRows(input.nesting, member.name, given)
+						if (!rows.ok) {
+							if (rows.error.kind === "encoding") {
+								return Result.err(rows.error.failure)
+							}
+							nestedConflict = rows.error.fact
+							break
+						}
+						const own = admit(member.normalize, rows.value.tops)
+						if (!own.ok) {
+							return own
+						}
+						collect(sets.insert, own.value)
+						const mine = nested.get(input.slot.slot) ?? new Map<string, Array<Row>>()
+						for (const [written, list] of rows.value.rows) {
+							const known = mine.get(written) ?? []
+							for (const row of list) {
+								known.push(row)
+							}
+							mine.set(written, known)
+						}
+						nested.set(input.slot.slot, mine)
+					}
+					break
+				}
 				case "single": {
 					const category = input.act.op
 					slotOf.set(category, input.slot)
@@ -354,6 +421,10 @@ export const normalizeChangeSet = (
 				})
 			}
 		}
+		const [primary] = relation.host.keys
+		if (nestedConflict !== undefined && primary !== undefined) {
+			return Result.ok(conflict(nestedConflict, primary.fields, primary))
+		}
 		/** Same-key refusal over the stratum's additions: the first candidate sharing a key value with an earlier
 		 * different fact. */
 		const complete = sorted([...sets.put.values(), ...sets.insert.values()])
@@ -416,5 +487,5 @@ export const normalizeChangeSet = (
 			out.set(slot.slot, Object.freeze({ ...normal, slot, count: normal.facts.length }))
 		}
 	}
-	return Result.ok({ kind: "normalized", slots: out })
+	return Result.ok({ kind: "normalized", slots: out, nested })
 }

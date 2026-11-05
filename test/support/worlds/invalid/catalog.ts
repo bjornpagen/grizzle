@@ -1,7 +1,6 @@
 import { boolean, constant, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
 import { Array as Arr, Record } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
-import { isResidual } from "#test/pg/laws/families/model.ts"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
 import type { Variant } from "#test/support/worlds/invalid/kinds.ts"
 import { rowSecured } from "#test/support/worlds/model/session/catalog.ts"
@@ -55,7 +54,7 @@ export const lawIdsOf = (state: ModelState): Arr.NonEmptyReadonlyArray<LawId> =>
 		"the installation's law identities"
 	)
 
-/** Every identity one declared law carries: its own, or an alternatives law's arms and reverse. */
+/** Every identity one declared law carries: its own, or an alternatives law's arms and reverses. */
 const identitiesOf = (ids: LawIds): ReadonlyArray<LawId> => {
 	switch (ids.kind) {
 		case "key":
@@ -63,16 +62,14 @@ const identitiesOf = (ids: LawIds): ReadonlyArray<LawId> => {
 		case "check":
 		case "contained":
 		case "covered":
-		case "capacity":
 			return [ids.law]
 		case "alternatives":
-			return [...Record.values(ids.arms), ids.reverse]
+			return [...Record.values(ids.arms), ...Record.values(ids.reverse)]
 	}
 }
 
 /**
- * Every function a direct writer may try to call: the installation's own, and a function for every law, native ones
- * included.
+ * Every function a direct writer may try to call: the installation's own. No law has a function (fin.md §7).
  */
 export const worldFunctionsOf = (state: ModelState): Arr.NonEmptyReadonlyArray<WorldFunction> => {
 	const base = state.install.base
@@ -94,39 +91,25 @@ export const worldFunctionsOf = (state: ModelState): Arr.NonEmptyReadonlyArray<W
 				Arr.flatMap(r.fields, (f): ReadonlyArray<WorldFunction> =>
 					f.domain.kind === "serial" ? [{ kind: "advance", relation: r.name, field: f.name }] : []
 				)
-			),
-			...Arr.map(lawIdsOf(state), (law): WorldFunction => ({ kind: "law", law }))
+			)
 		],
 		"the installation's functions"
 	)
 }
 
 /**
- * The identities of the laws the installation enforces by its own function and triggers: the residual ones. A native law
- * is a constraint, with no function or trigger to perturb.
+ * Every function the installation defines, which a perturbation may redefine: its world functions alone, since every law
+ * is a native constraint with no function to perturb (fin.md §7).
  */
-const residualLawIds = (state: ModelState): ReadonlyArray<LawId> => [
-	...new Set(Arr.flatMap(state.host.laws, (l) => (isResidual(l) ? [l.law] : [])))
-]
+const installedFunctionsOf = (state: ModelState): ReadonlyArray<WorldFunction> =>
+	definedWorldFunctions(state.install)
 
-/** Every function the installation defines, which a perturbation may redefine: a native law's is none of them. */
-const installedFunctionsOf = (state: ModelState): ReadonlyArray<WorldFunction> => [
-	...definedWorldFunctions(state.install),
-	...Arr.map(residualLawIds(state), (law): WorldFunction => ({ kind: "law", law }))
-]
-
-/** Every trigger the installation defines: each residual law's, and each relation's below-SERIALIZABLE guard. */
+/** Every trigger the installation defines: each relation's below-SERIALIZABLE guard, and no law's (fin.md §7). */
 const triggersOf = (state: ModelState): Arr.NonEmptyReadonlyArray<TriggerRef> =>
-	knownNonEmpty(
-		[
-			...Arr.map(residualLawIds(state), (law): TriggerRef => ({ kind: "law", law })),
-			...Arr.map(state.install.base.relations, (r): TriggerRef => ({
-				kind: "isolation-guard",
-				relation: r.name
-			}))
-		],
-		"the installation's triggers"
-	)
+	Arr.map(state.install.base.relations, (r): TriggerRef => ({
+		kind: "isolation-guard",
+		relation: r.name
+	}))
 
 /**
  * The entries that hold a row-security policy: those their role writes into a table with row security, which some

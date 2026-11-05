@@ -1,9 +1,16 @@
 import { Array as Arr } from "effect"
-import { wild } from "#test/support/kernel/naming.ts"
+import { rosterCodec } from "#compiler/ir/codes.ts"
+import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { OracleChangeSet, type OracleSchema } from "#test/support/oracle/addwins.ts"
 
 export const kinds = ["a", "b"] as const
+
+/** The codes a fresh installation gives the roster of kinds: a is 0 and b is 1. */
+const kindCodec = rosterCodec(
+	parsedName("Kind"),
+	Arr.map(kinds, (handle) => ({ kind: "live" as const, handle }))
+)
 
 /**
  * A small schema for the add-wins and delta oracle tests: keyed, pure-set, candidate-keyed and serial relations. The
@@ -16,7 +23,7 @@ export const schema: OracleSchema = {
 			heading: [
 				{ name: "id", spec: { carrier: "int4" } },
 				{ name: "account", spec: { carrier: "int4" } },
-				{ name: "kind", spec: { carrier: "enum", handles: kinds } }
+				{ name: "kind", spec: { carrier: "code", roster: kindCodec } }
 			],
 			primaryKey: { law: wild.lawId("task_pk"), fields: ["id"] },
 			keys: [],

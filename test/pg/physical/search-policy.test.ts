@@ -17,6 +17,7 @@ import { assert, defined } from "#test/support/assert.ts"
 import { fixedDefaults, searchDefaults } from "#test/support/catalog/installed.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { migrated, type Version, worldRoleOf } from "#test/support/installed.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { whereIndex } from "#test/support/oracle/pick.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -314,7 +315,7 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 						later,
 						apply: { kind: "noPlaceholders" },
 						register: false,
-						renames: "kept",
+						declared: () => noDeclarations,
 						observe: Option.some((i: number, owner: RawSession) =>
 							Effect.gen(function* () {
 								const worlds = defined(built[i], `version ${i}`)

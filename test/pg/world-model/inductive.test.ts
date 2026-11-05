@@ -23,7 +23,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { notedOf, runStep } from "#test/support/worlds/drive/index.ts"
 import {
 	aimsAt,
-	docsAtCapacityRealities,
+	docsAtBoundRealities,
 	docsInstalls,
 	drawAction,
 	inductiveLeads,
@@ -65,7 +65,7 @@ import type {
  * The worlds invariants, checked inductively: rather than reaching states by walks of actions, a case draws a state
  * directly (an installation, the documents base's own, one with an editor beside or one writing Visit through its
  * serial shapes (installsGen), a lawful reality the owner loads,
- * half the time with a document at its capacity, Db sessions of any roles of any logins with any claims their tokens
+ * half the time with a document at its bound of shares, Db sessions of any roles of any logins with any claims their tokens
  * carry, those Dbs' reads spread over the logins' pooled connections, a pool of one connection per login half the
  * time, so its Dbs of every role share it, and then a direct writer with any current role of its login and any claims,
  * malformed ones among them, set for the transaction or the session; or a migration past the Dbs' snapshot, completed
@@ -527,7 +527,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 									ic.pool === "default"
 										? yield* realize(ic.install, ordinarySession)
 										: yield* realizeRace(ic.install, ordinarySession, 1)
-								const staged = yield* stage(world, ic.install, c.draw, docsAtCapacityRealities)
+								const staged = yield* stage(world, ic.install, c.draw, docsAtBoundRealities)
 								const setup = setupOf(ic.plan)
 								const planned = yield* Effect.reduce(
 									setup,

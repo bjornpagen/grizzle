@@ -336,6 +336,9 @@ class Agreement {
 			case "plSpecial":
 			case "field":
 			case "regclass":
+			case "complement":
+			case "nullif":
+			case "subscript":
 				return undefined
 		}
 	}
@@ -558,6 +561,9 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 			case "plSpecial":
 			case "field":
 			case "regclass":
+			case "complement":
+			case "nullif":
+			case "subscript":
 				return e
 		}
 	}

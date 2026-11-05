@@ -14,8 +14,8 @@ import {
 	String as Str
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { sameValue, valueText } from "#test/pg/laws/families/model.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
+import { sameValue, valueText } from "#test/support/laws/model.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
@@ -536,16 +536,14 @@ const staleDerivedMoves = (
 	dbCall(weights, "apply", targets, afterApply)
 ]
 
-/** A direct writer's COMMIT a law refused, and the law function's witness there: what a COMMIT-law lead reaches. */
+/** A direct writer's COMMIT a law refused: what a COMMIT-law lead reaches. */
 const atCommitRefusals = (feature: WorldFeature): boolean =>
-	opIn({ kinds: ["direct-end"], writers: ["direct-role"], observations: ["law-refused"] })(
-		feature
-	) || Str.startsWith("object:law-function:witness")(feature)
+	opIn({ kinds: ["direct-end"], writers: ["direct-role"], observations: ["law-refused"] })(feature)
 
 /**
  * What a COMMIT right after a direct statement reaches, read of the statement's outcome: the features of the
- * transaction's COMMIT, as the model predicts it, in each state the statement leaves. A law checked at COMMIT (a
- * capacity's residual law, a deferred reference) that the statement breaks shows only there.
+ * transaction's COMMIT, as the model predicts it, in each state the statement leaves. A law checked at COMMIT (a deferred
+ * foreign key) that the statement breaks shows only there.
  */
 const commitAfter = (
 	state: ModelState,
@@ -647,7 +645,7 @@ const oneStatementIn = (
 ]
 
 /**
- * A lead for a suite requiring laws a direct writer breaks at its COMMIT, and the law function's witness there: a BEGIN
+ * A lead for a suite requiring laws a direct writer breaks at its COMMIT: a BEGIN
  * from which such a refusal still pending is a statement and the COMMIT away, a statement after which the COMMIT
  * reaches one (commitAfter), and the COMMIT, each aimed on every draw at the required features of a refused COMMIT. The
  * refusal comes two moves after the BEGIN that decides whose law it is, past the one-step reach of a suite's own aims.
@@ -813,21 +811,26 @@ export const docsTenantRealities = (base: BaseSpec, host: HostSchema): Gen<HostS
 		: realityGen(base, host)
 
 /**
- * A documents reality whose first document is shared as often as its capacity admits (two over the base, one over its
- * one-share variant), by subjects the reality holds (a document's owner, a share's user, a note's author) that do not
- * share it yet, and the whole repaired to lawful: a writer adding its own share of that document breaks the capacity
- * there. A reality with no document, or no subject to share it with, keeps what it has.
+ * A documents reality whose first document is shared as often as its base admits (once over the one-share variant, by
+ * its key on Share's `doc`), by subjects the reality holds (a document's owner, a share's user, a note's author) that do
+ * not share it yet, and the whole repaired to lawful: a writer adding its own share of that document breaks the key
+ * there. A reality over a base with no such key, with no document, or with no subject to share it with, keeps what it
+ * has.
  */
-const atCapacity = (base: BaseSpec, host: HostSchema, reality: HostState): HostState => {
+const atBound = (base: BaseSpec, host: HostSchema, reality: HostState): HostState => {
 	const [doc] = Arr.flatMap(factsOf(reality, "Doc"), (d) =>
 		Option.toArray(Option.fromNullishOr(d["id"]))
 	)
-	const [bound] = Arr.flatMap(base.laws, (law) =>
-		law.kind === "capacity" && law.source.relation === "Share" && typeof law.high === "bigint"
-			? [Number(law.high)]
-			: []
+	const keyed = Arr.some(
+		base.laws,
+		(law) =>
+			law.kind === "key" &&
+			law.relation === "Share" &&
+			law.fields.length === 1 &&
+			law.fields[0] === "doc"
 	)
-	if (doc === undefined || bound === undefined) {
+	const bound = 1
+	if (doc === undefined || !keyed) {
 		return reality
 	}
 	const shares = factsOf(reality, "Share")
@@ -856,16 +859,15 @@ const atCapacity = (base: BaseSpec, host: HostSchema, reality: HostState): HostS
 }
 
 /**
- * The documents base's realities for a suite whose refusals need a capacity's target at its bound: docsTenantRealities'
- * draws, half of them with the first document holding as many shares as its capacity admits (atCapacity), so a writer
- * adding its own share of that document breaks the capacity, a residual law over the base and a unique index over its
- * one-share variant.
+ * The documents bases' realities for a suite whose refusals need a document at its bound of shares: docsTenantRealities'
+ * draws, half of them with the first document holding as many shares as its base admits (atBound), so a writer adding
+ * its own share of that document breaks the one-share variant's key on Share's `doc`, a unique index.
  */
-export const docsAtCapacityRealities = (base: BaseSpec, host: HostSchema): Gen<HostState> =>
+export const docsAtBoundRealities = (base: BaseSpec, host: HostSchema): Gen<HostState> =>
 	docsBases.includes(base)
 		? oneOf([
 				docsTenantRealities(base, host),
-				map(docsTenantRealities(base, host), (reality) => atCapacity(base, host, reality))
+				map(docsTenantRealities(base, host), (reality) => atBound(base, host, reality))
 			])
 		: realityGen(base, host)
 
@@ -1212,7 +1214,7 @@ interface InductiveShape {
  *   (appliedProbe): the role it took on and the claims it set, none, some or malformed, decide which facts lie inside,
  *   outside and hidden from its world and which world function it may call;
  * - a transaction one statement in, aimed so that its COMMIT or, after a delete, a read of it reaches a feature
- *   (afterWrite): a law checked at COMMIT that the statement broke, and the law function's witness there, or a fact
+ *   (afterWrite): a law checked at COMMIT that the statement broke, or a fact
  *   the transaction deleted, gone from what it reads;
  * - a Db that deleted a fact a derived relation is computed from, one read or refresh before the derived relation shows
  *   it or drops it (staleDerivedMoves);

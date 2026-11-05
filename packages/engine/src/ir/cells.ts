@@ -9,17 +9,13 @@
  *   cell per point of the key's space, and a `fin(O, n)` coordinate over a closed O numbers its slots owner by owner
  *   from a prefix offset, so a dependent coordinate stays dense;
  * - a cell is 0 where the relation holds no row and 1 + c where it does, c the payload's mixed-radix code, and its width
- *   is ⌈log₂(1 + |payload space|)⌉, so a relation with no payload, a set, has cells of one bit;
- * - a law that reads several codes packs them into one integer, 16 bits a code, so a roster's growth changes the
- *   constant and never a stored cell.
+ *   is ⌈log₂(1 + |payload space|)⌉, so a relation with no payload, a set, has cells of one bit.
  *
  * Sizes, indexes and payload codes are bigints, exact over any space. A bound on them is the caller's.
  */
 import { everyProperty } from "#compiler/core/canonical.ts"
-import type { CompileBound, CompileError } from "#compiler/core/errors.ts"
-import { digest } from "#compiler/core/fingerprint.ts"
-import { defect, defined, invariant } from "#compiler/core/invariant.ts"
-import { cellDigitBits } from "#compiler/core/limits.ts"
+import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { lastNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Comparator } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -311,46 +307,13 @@ export const constantOf = (
 	})
 }
 
-/** A roster as the set of its live codes, over every code it has minted: a hole is a 0. */
-export const rosterConstant = (codes: RosterCodes): Constant => {
-	const live = codes.flatMap((slot, code): ReadonlyArray<Tuple> =>
-		slot.kind === "live" ? [{ key: [code], payload: [] }] : []
-	)
-	const constant = constantOf({ key: [codes.length], payload: [] }, live)
-	if (!constant.ok) {
-		throw defect("a roster's live codes are distinct points of its code space")
-	}
-	return constant.value
-}
-
-/**
- * The constant as PostgreSQL's bit-string text: each cell's bits, most significant first, from cell 0. ResourceBound
- * (stringLength) when the text would be longer than `limit` characters, measured before it is built.
- */
-export const bitText = (constant: Constant, limit: number): Result.Result<string, CompileBound> => {
-	const bits = constant.cells * BigInt(constant.width)
-	if (bits > BigInt(limit)) {
-		return Result.err({ kind: "stringLength", limit, needed: Number(bits) })
-	}
-	const width = constant.width
-	const parts: Array<string> = []
-	let written = 0
-	for (const entry of constant.entries) {
-		const start = Number(entry.index) * width
-		parts.push("0".repeat(start - written), (1n + entry.payload).toString(2).padStart(width, "0"))
-		written = start + width
-	}
-	parts.push("0".repeat(Number(bits) - written))
-	return Result.ok(parts.join(""))
-}
-
 /**
  * The digest a constant's function is named by: SHA-256 over the constant's canonical content (its cells, its width and
  * its entries) under the fingerprint domain "closed-constant", so equal constants share one function and a changed one
  * is a new function.
  */
-export const constantDigest = (constant: Constant): Result.Result<string, CompileError> =>
-	digest(
+export const constantDigestOf = (constant: Constant): ConstantDigest<"closed-constant"> =>
+	constantDigest(
 		"closed-constant",
 		{
 			cells: constant.cells,
@@ -410,29 +373,3 @@ export const sideOf = <V>(
 		}))
 	}
 }
-
-/**
- * The mask that reads one code out of a law's cell once it is shifted down: a digit's bits (cellDigitBits), all set. A
- * roster's codes are int2 values from 0, so every code fits one digit, and a roster that grows never moves another.
- */
-export const codeMask = 2 ** cellDigitBits.value - 1
-
-/**
- * The shift of the code at `position` among `count` codes in a law's cell: the last code sits in the lowest digit and
- * each earlier one a digit above the next, so the cell of (c₁, c₂, c₃) is (c₁ << 32) | (c₂ << 16) | c₃.
- */
-export const codeShift = (count: number, position: number): number =>
-	cellDigitBits.value * (count - 1 - position)
-
-/**
- * The cell of a law that reads `codes`: each code in its own 16-bit digit at its shift, ORed together. Four codes of
- * int2 values from 0 fill an int8 and leave it non-negative.
- */
-export const packCodes = (codes: ReadonlyArray<number>): bigint =>
-	codes.reduce((cell, code, position) => {
-		invariant(
-			Number.isInteger(code) && code >= 0 && code <= codeMask,
-			"a code fits one 16-bit digit of a law's cell"
-		)
-		return cell | (BigInt(code) << BigInt(codeShift(codes.length, position)))
-	}, 0n)

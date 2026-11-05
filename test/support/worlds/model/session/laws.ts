@@ -7,7 +7,7 @@ import {
 	type Violation,
 	violations,
 	witnessOf
-} from "#test/pg/laws/families/model.ts"
+} from "#test/support/laws/model.ts"
 import { holdsWhole } from "#test/support/worlds/model/session/state.ts"
 import type { HostFact, RoleSpec, SqlState, Witness } from "#test/support/worlds/model/types.ts"
 
@@ -17,17 +17,13 @@ import type { HostFact, RoleSpec, SqlState, Witness } from "#test/support/worlds
  * CHECK (23514), all at the statement. A containment is a foreign key (23503), a selected source's over its law
  * columns, deferred exactly when a lawful ChangeSet could break it in passing: its target has a field outside the
  * referenced ones, or it lies on a cycle of foreign keys; a containment into a selected target is deferred too, and one
- * into a closed roster is a row CHECK. A coverage the target can state natively is a PERIOD foreign key, always
- * deferred. A capacity whose source is its own target on one key is a row CHECK. Every other law is residual: its law
- * function raises 23000 at COMMIT.
+ * into a closed roster is a row CHECK. A coverage is a PERIOD foreign key, from a selected source's range law column
+ * where it has one, always deferred. Every law is native (fin.md §7): nothing raises 23000.
  */
 export interface LawMeeting {
 	readonly sqlstate: SqlState
 	readonly at: "statement" | "commit"
 }
-
-const sameFields = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-	a.length === b.length && Arr.every(a, (f) => b.includes(f))
 
 /** Whether a containment's foreign key lies on a cycle of plain foreign keys: its target reaches its source. */
 const onCycle = (
@@ -70,19 +66,7 @@ export const meetingOf = (host: HostSchema, law: HostLaw): LawMeeting => {
 			return { sqlstate: "23503", at: deferred ? "commit" : "statement" }
 		}
 		case "covered":
-			return law.residual
-				? { sqlstate: "23000", at: "commit" }
-				: { sqlstate: "23503", at: "commit" }
-		case "obliged":
-			return { sqlstate: "23000", at: "commit" }
-		case "capacity":
-			if (
-				law.source.relation === law.target.relation &&
-				sameFields(law.source.fields, law.target.fields)
-			) {
-				return { sqlstate: "23514", at: "statement" }
-			}
-			return { sqlstate: "23000", at: "commit" }
+			return { sqlstate: "23503", at: "commit" }
 	}
 }
 
@@ -127,7 +111,7 @@ export const statementRefusals = (host: HostSchema, after: HostState): ReadonlyA
 	return uniques.length > 0 ? uniques : stage(["23503"])
 }
 
-/** The laws COMMIT may fail on: a deferred foreign key, or a residual law, whichever trigger fires first. */
+/** The laws COMMIT may fail on: a deferred foreign key, whichever fires first. */
 export const commitRefusals = (host: HostSchema, view: HostState): ReadonlyArray<Refusal> =>
 	brokenAt(host, view, "commit")
 
@@ -159,7 +143,7 @@ export const witnessFor = (
 	submitted: ReadonlyArray<Submitted>
 ): Witness => {
 	const law = lawNamed(host, violation)
-	const witnessed = law === undefined ? undefined : witnessOf(host, law)
+	const witnessed = law === undefined ? undefined : witnessOf(law)
 	if (witnessed === undefined || witnessed.kind === "unnamed") {
 		return { kind: "withheld" }
 	}

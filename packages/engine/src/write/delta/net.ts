@@ -1,6 +1,7 @@
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import * as Order from "#compiler/core/order.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 
 /** Strings by code point. */
@@ -193,10 +194,10 @@ export const outcomeCounts = (
 
 /** The identity function of a heading's facts as a write statement's rows convert them: each field's canonical text in
  * field-name order, written as factIdentity writes it (`identity.ts`). The rows are PostgreSQL's output,
- * converted by the fields' own codecs, so nothing is admitted again. */
-export const relationIdentity = (heading: Heading): ((fact: Fact) => string) => {
+ * converted by the fields' own codecs under the installation's codes, so nothing is admitted again. */
+export const relationIdentity = (heading: Heading, codes: Codebook): ((fact: Fact) => string) => {
 	const fields = heading
-		.map((column) => ({ name: column.name, codec: scalarCodec(column.type) }))
+		.map((column) => ({ name: column.name, codec: scalarCodec(column.type, codes) }))
 		.toSorted(Order.mapInput(codePointOrder, (field: { readonly name: string }) => field.name))
 		.map((field, i) => ({
 			...field,

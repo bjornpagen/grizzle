@@ -16,9 +16,12 @@ import {
 import { type Claims, claimsOf, type TypedContext, typedContext } from "#adapter/db/claims.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { owning } from "#test/support/policy.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { claimsText, payloadFacts } from "#test/support/worlds/model/session/claims.ts"
@@ -75,7 +78,8 @@ const memberContexts: ReadonlyArray<TypedContext> = (() => {
 	}
 	const artifacts = schemaArtifacts(input.value, {
 		installation: undefined,
-		vectorSchema: undefined
+		vectorSchema: undefined,
+		codes: firstCodebook(rostersOf(owning(role)))
 	})
 	if (!artifacts.ok) {
 		throw new Error(`the member role did not compile: ${artifacts.error.message}`)
@@ -87,8 +91,10 @@ const memberContexts: ReadonlyArray<TypedContext> = (() => {
 		throw new Error(`the member role's schema did not check: ${checked.error.message}`)
 	}
 	return Arr.map(contexts, (context) =>
-		typedContext(context, (field) =>
-			checked.value.fieldType(field, SourceLoc(`context ${context.name}`, []))
+		typedContext(
+			context,
+			(field) => checked.value.fieldType(field, SourceLoc(`context ${context.name}`, [])),
+			artifacts.value.names.codes
 		)
 	)
 })()

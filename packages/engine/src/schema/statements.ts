@@ -1,10 +1,9 @@
 import { CompileError } from "#compiler/core/errors.ts"
-import { FieldId } from "#compiler/core/ids.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import {
-	type BoundDesc,
-	type BoundValueDesc,
+	type ArmDesc,
+	type ContainedDesc,
 	candidateKeyFields,
 	conjunctsOf,
 	decodeContainedStatement,
@@ -12,12 +11,14 @@ import {
 	decodeSide,
 	type ExprDesc,
 	type FieldDesc,
+	type MonoidName,
+	monoidNames,
 	type SelectionDesc,
 	type SideDesc,
+	type SlotsDesc,
 	type StatementDesc,
 	type TermDesc,
-	termText,
-	type WeightDesc
+	termText
 } from "#compiler/ir/desc.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import {
@@ -44,16 +45,20 @@ import { checkPredicate, rowScalars } from "#compiler/schema/terms.ts"
 import type {
 	Alternatives,
 	AnyTerm,
-	Capacity,
-	CapacityRule,
 	Check,
 	Containment,
+	Counted,
+	Fin,
+	Fold,
 	Key,
 	Mirrors,
+	Monoid,
 	Mutable,
+	Ordered,
 	Pred,
 	Selection,
-	Side
+	Side,
+	Tree
 } from "#compiler/types/schema/statements.ts"
 
 /**
@@ -66,9 +71,10 @@ const admitted = (desc: StatementDesc): StatementDesc => orThrow(decodeDesc("sta
  * The statement builders.
  *
  * key, mutable and check name one relation or side; on, select and pred build law sides; contained relates two sides;
- * mirrors is sugar for the two containments between its sides, and alternatives one statement, which the schema
- * expands to a containment and one mirrors per arm; capacity bounds a group with ref, weigh, duration and within. Each
- * returns a frozen value with its StatementDesc (or SideDesc, or the ExpansionDesc of the statements it is sugar for)
+ * mirrors is sugar for the two containments between its sides; alternatives is one statement, whose containments
+ * ir/desc.ts expandAlternatives states; fin names a count's slots, which ordered, counted and tree index a family by,
+ * and fold combines a family's members into its owner. Each returns a frozen value with its StatementDesc (or
+ * SideDesc, or the ExpansionDesc of the containments mirrors is sugar for)
  * under a non-enumerable `desc`. Only `check` and `contract` take a name, which is their identity; every other
  * statement's SQL identity derives from what it names.
  *
@@ -369,30 +375,20 @@ const sidePair = (left: unknown, right: unknown, label: string): readonly [SideD
 	return [l, r]
 }
 
-/** The containment of `left` in `right`, two sides of one width, declared at `loc` by `origin`. */
+/** The containment of `left` in `right`, two sides of one width, declared at `loc`. */
 const containedDesc = (
 	left: SideDesc,
 	right: SideDesc,
-	origin: { readonly alternatives: string } | undefined,
 	label: string,
 	path: ReadonlyArray<string>
-): Extract<StatementDesc, { readonly kind: "contained" }> =>
+): ContainedDesc =>
 	orThrow(
-		decodeContainedStatement({
-			kind: "contained",
-			left,
-			right,
-			origin,
-			loc: builderLoc(label, path)
-		})
+		decodeContainedStatement({ kind: "contained", left, right, loc: builderLoc(label, path) })
 	)
 
-const admitContained = (
-	left: unknown,
-	right: unknown
-): Extract<StatementDesc, { readonly kind: "contained" }> => {
+const admitContained = (left: unknown, right: unknown): ContainedDesc => {
 	const [l, r] = sidePair(left, right, "contained")
-	return containedDesc(l, r, undefined, `contained ${sideLabel(l)} in ${sideLabel(r)}`, [
+	return containedDesc(l, r, `contained ${sideLabel(l)} in ${sideLabel(r)}`, [
 		l.relation,
 		"contained"
 	])
@@ -401,34 +397,23 @@ const admitContained = (
 export const containedBuilder = <L, R>(left: L, right: R): Containment<L, R> =>
 	ownValue({ kind: "contained", left, right }, "statement", admitContained(left, right))
 
-/**
- * The statements a sugar value states, which the schema holds in its place: a mirrors' two containments, or an
- * alternatives law's arms' mirrors.
- */
+/** The statements mirrors states, which the schema holds in its place: its two containments. */
 export interface ExpansionDesc {
-	readonly statements: NonEmptyReadonlyArray<StatementDesc>
+	readonly statements: readonly [ContainedDesc, ContainedDesc]
 }
 
 export const expansionDescOf = (value: unknown): ExpansionDesc | undefined =>
 	ownedDesc(value, "expansion")
 
-/** The two containments mirrors(left, right) is sugar for, left in right and right in left, from `origin`. */
-const mirrored = (
-	l: SideDesc,
-	r: SideDesc,
-	origin: { readonly alternatives: string } | undefined,
-	label: string,
-	path: ReadonlyArray<string>
-): readonly [StatementDesc, StatementDesc] => [
-	containedDesc(l, r, origin, label, path),
-	containedDesc(r, l, origin, label, path)
-]
-
 const admitMirrors = (left: unknown, right: unknown): ExpansionDesc => {
 	const [l, r] = sidePair(left, right, "mirrors")
 	const label = `mirrors ${sideLabel(l)} and ${sideLabel(r)}`
+	const path = [l.relation, "mirrors"]
 	return Object.freeze({
-		statements: frozenTuple(mirrored(l, r, undefined, label, [l.relation, "mirrors"]))
+		statements: Object.freeze([
+			containedDesc(l, r, label, path),
+			containedDesc(r, l, label, path)
+		] as const)
 	})
 }
 
@@ -436,66 +421,53 @@ const admitMirrors = (left: unknown, right: unknown): ExpansionDesc => {
 export const mirrorsBuilder = <L, R>(left: L, right: R): Mirrors<L, R> =>
 	ownValue({ kind: "mirrors", left, right }, "expansion", admitMirrors(left, right))
 
-/** The origin marker of an alternatives expansion: the parent relation and discriminator, as one injective spelling. */
-export const alternativesId = (parent: string, discriminator: string): string =>
-	FieldId(parent, discriminator)
-
 /**
- * The admission core of alternatives(...): the arguments checked and the expansion described.
+ * The admission core of alternatives(...): the arguments checked and the statement described.
  *
- * alternatives(parentKey, discriminator, roster, arms) is one statement of a schema, which the schema expands to, per
- * handle with an arm, in roster order, the two containments of mirrors(on(select(parent, (p) =>
- * p[discriminator].eq(h)), ...parentKey), on(arm, ...armKey)), the selection's predicate stated as that plain spelling
- * builds it, the handle an untyped literal its field types. No statement holds the discriminator to the roster's
- * handles: its closedId type does. Every statement of the expansion carries the origin marker, so ownership can refuse
- * the helper and its manual expansion together.
+ * alternatives(parentKey, discriminator, roster, arms) is one statement of a schema (ir/desc.ts expandAlternatives
+ * states its containments): its parent's key side, its discriminator, its roster, and per handle with an arm, in roster
+ * order, the arm's key side. No statement holds the discriminator to the roster's handles: its closedId type does.
  *
- * The discriminator must be a closedId field of the roster itself: the expansion's selection refuses only a handle the
- * roster lacks, so a discriminator over another roster with the same handles would pass it. Each arm is keyed like the
- * parent, refused here rather than by the expanded statements, which the caller never wrote; and each is a relation
- * other than the parent, whose own arm, keyed by a key of the parent, would hold every parent at its handle.
+ * The discriminator must be a closedId field of the roster itself: the containments' selections refuse only a handle
+ * the roster lacks, so a discriminator over another roster with the same handles would pass them. Each arm is keyed
+ * like the parent, refused here rather than by the stated containments, which the caller never wrote; and each is a
+ * relation other than the parent, whose own arm, keyed by a key of the parent, would hold every parent at its handle.
  */
 const admitAlternatives = (
 	parent: unknown,
 	discriminator: unknown,
 	roster: unknown,
 	arms: unknown
-): ExpansionDesc => {
+): StatementDesc => {
 	const parentKey = keyRef(parent, "alternatives parent")
 	const parentRel = parentKey.rel
 	const label = `alternatives ${parentRel.name}`
 	const disc = requireName(discriminator, label, "a discriminator field")
 	requireFields(parentRel, [disc], label)
-	const rosterRel = namedRelation(roster, `${label} roster`)
-	if (rosterRel.kind !== "closed") {
-		throw malformed(label, "a closed relation as the roster")
+	const rosterDesc = relationDescOf(roster, `${label} roster`)
+	if (rosterDesc.kind !== "closed") {
+		throw malformed(label, "a roster built by closed(name, handles)")
 	}
 	const discDesc = parentRel.kind === "derived" ? undefined : parentRel.fields[disc]
 	if (
 		discDesc !== undefined &&
-		!(discDesc.kind === "closedId" && discDesc.roster === rosterRel.name)
+		!(discDesc.kind === "closedId" && discDesc.roster === rosterDesc.name)
 	) {
 		throw malformed(
 			label,
-			`a discriminator that is a closedId(${rosterRel.name}) field of ${parentRel.name}`
+			`a discriminator that is a closedId(${rosterDesc.name}) field of ${parentRel.name}`
 		)
 	}
 	if (!isPlainRecord(arms) || Object.keys(arms).length === 0) {
 		throw malformed(label, "an arm map from handles to key descriptors, with at least one arm")
 	}
-	const rosterDesc = relationDescOf(roster, `${label} roster`)
-	if (rosterDesc.kind !== "closed") {
-		throw malformed(label, "a closed relation as the roster")
-	}
-	const rosterHandles = rosterDesc.handles
 	for (const h of Object.keys(arms)) {
-		if (!rosterHandles.includes(h)) {
-			throw malformed(label, `arms keyed by ${rosterRel.name}'s handles; ${h} is not one`)
+		if (!rosterDesc.handles.includes(h)) {
+			throw malformed(label, `arms keyed by ${rosterDesc.name}'s handles; ${h} is not one`)
 		}
 	}
-	const origin = { alternatives: alternativesId(parentRel.name, disc) }
-	const armStatements: Array<StatementDesc> = []
-	for (const h of rosterHandles) {
+	const armDescs: Array<ArmDesc> = []
+	for (const h of rosterDesc.handles) {
 		const arm = arms[h]
 		if (arm === undefined) {
 			continue
@@ -510,30 +482,20 @@ const admitAlternatives = (
 				`the arm ${h} keyed like the parent: ${armKey.fields.length} key field(s) against ${parentKey.fields.length}`
 			)
 		}
-		const ofHandle = selectionOf(parentKey.value, {
-			relation: parentRel.name,
-			predicate: {
-				kind: "compare",
-				op: "eq",
-				left: { kind: "field", field: disc },
-				right: { kind: "literal", value: h, type: undefined }
-			}
-		})
-		armStatements.push(
-			...mirrored(
-				admitOn(ofHandle, parentKey.fields),
-				admitOn(armKey.value, armKey.fields),
-				origin,
-				`${label} arm ${h}`,
-				[parentRel.name, "alternatives", h]
-			)
-		)
+		armDescs.push({ handle: h, arm: admitOn(armKey.value, armKey.fields) })
 	}
-	const statements: ReadonlyArray<StatementDesc> = armStatements
-	if (!isNonEmpty(statements)) {
+	const [first, ...rest] = armDescs
+	if (first === undefined) {
 		throw malformed(label, "an arm map from handles to key descriptors, with at least one arm")
 	}
-	return Object.freeze({ statements: frozenTuple(statements) })
+	return admitted({
+		kind: "alternatives",
+		parent: admitOn(parentKey.value, parentKey.fields),
+		discriminator: disc,
+		roster: rosterDesc.name,
+		arms: [first, ...rest],
+		loc: builderLoc(label, [parentRel.name, "alternatives", disc])
+	})
 }
 
 /** The value holds its four inputs, the arm map a frozen copy. */
@@ -546,141 +508,138 @@ export const alternativesBuilder = <P, const D extends string, C, Arms extends o
 	const desc = admitAlternatives(parent, discriminator, roster, arms)
 	return ownValue(
 		{ kind: "alternatives", parent, discriminator, roster, arms: frozenCopy(arms) },
-		"expansion",
+		"statement",
 		desc
 	)
 }
 
-interface RefValue {
-	readonly ref: string
+/**
+ * fin(O, n): the slots of O's count n, data a family's former reads: O an ordinary relation and n one of its fields.
+ * Whether n is drawn is the theory's to judge, which reads the whole schema.
+ */
+export const finBuilder = <O, const N extends string>(owner: O, count: N): Fin<O, N> => {
+	slotsOf({ kind: "fin", owner, count }, "fin")
+	return Object.freeze({ kind: "fin", owner, count })
 }
 
-interface DurationValue {
-	readonly duration: string
+/** The slots a fin value names, its owner an ordinary relation and its count a field of it. */
+const slotsOf = (value: unknown, label: string): SlotsDesc => {
+	if (!hasProperties(value) || value["kind"] !== "fin") {
+		throw malformed(label, "the slots of a count, built by fin(owner, count)")
+	}
+	const owner = namedRelation(value["owner"], `${label} owner`)
+	if (owner.kind !== "relation") {
+		throw malformed(label, `an ordinary relation's count; ${owner.name} is none`)
+	}
+	const count = requireName(value["count"], label, "a count field of the owner")
+	fieldOf(owner, count, label)
+	return { owner: owner.name, count }
 }
 
-interface WeightValue {
-	readonly weight: string | DurationValue
-}
-
-interface BoundValue {
-	readonly low: bigint | RefValue
-	readonly high: bigint | RefValue | "*"
-}
-
-/** A bound naming a field of the target fact. */
-export const runtimeRef = (field: unknown): RefValue =>
-	Object.freeze({ ref: requireName(field, "ref", "a field of the capacity target") })
-
-/** A span field whose width is a source fact's weight. */
-export const runtimeDuration = (spanField: unknown): DurationValue =>
-	Object.freeze({
-		duration: requireName(spanField, "duration", "a span field of the capacity source")
-	})
-
-export const runtimeWeigh = (field: unknown): WeightValue => {
-	if (hasProperties(field) && typeof field["duration"] === "string") {
-		return Object.freeze({ weight: runtimeDuration(field["duration"]) })
-	}
-	return Object.freeze({
-		weight: requireName(field, "weigh", "a field of the capacity source, or a duration(...)")
-	})
-}
-
-const isRef = (value: unknown): value is RefValue => hasProperties(value) && isName(value["ref"])
-
-const boundValue = (value: unknown, label: string): bigint | RefValue => {
-	if (typeof value === "bigint") {
-		if (value < 0n) {
-			throw malformed(label, "a nonnegative bound")
-		}
-		return value
-	}
-	if (isRef(value)) {
-		return Object.freeze({ ref: value.ref })
-	}
-	throw malformed(label, "a bigint bound or ref(field)")
-}
-
-/** within(n) is exactly n, within(low, high) the inclusive range, within(low, "*") no upper bound. */
-export const runtimeWithin = (low: unknown, ...rest: ReadonlyArray<unknown>): BoundValue => {
-	if (rest.length > 1) {
-		throw malformed("within", 'within(n), within(low, high) or within(low, "*")')
-	}
-	const lo = boundValue(low, "within low")
-	if (rest.length === 0) {
-		return Object.freeze({ low: lo, high: lo })
-	}
-	const high = rest[0]
-	if (high === "*") {
-		return Object.freeze({ low: lo, high: "*" })
-	}
-	const hi = boundValue(high, "within high")
-	if (typeof lo === "bigint" && typeof hi === "bigint" && lo > hi) {
-		throw malformed("within", "a bound whose low does not exceed its high")
-	}
-	return Object.freeze({ low: lo, high: hi })
-}
-
-const boundDesc = (value: bigint | RefValue): BoundValueDesc =>
-	typeof value === "bigint" ? value : { ref: value.ref }
-
-const weightDesc = (value: unknown, label: string): WeightDesc => {
-	if (!hasProperties(value)) {
-		throw malformed(label, "a weight built by weigh(...)")
-	}
-	const w = value["weight"]
-	if (typeof w === "string" && isName(w)) {
-		return { kind: "field", field: w }
-	}
-	if (hasProperties(w) && isName(w["duration"])) {
-		return { kind: "duration", field: w["duration"] }
-	}
-	throw malformed(label, "a weight built by weigh(field) or weigh(duration(spanField))")
-}
-
-const withinDesc = (value: unknown, label: string): BoundDesc => {
-	if (!hasProperties(value)) {
-		throw malformed(label, "a bound built by within(...)")
-	}
-	const low = boundValue(value["low"], `${label} low`)
-	const high = value["high"] === "*" ? "*" : boundValue(value["high"], `${label} high`)
-	return { low: boundDesc(low), high: high === "*" ? "*" : boundDesc(high) }
-}
-
-/** A bound on the count or total weight of source facts whose projection matches each target fact's. */
-export const admitCapacity = (target: unknown, rule: unknown): StatementDesc => {
-	const t = sideOf(target, "capacity target")
-	if (!isPlainRecord(rule)) {
-		throw malformed("capacity", "a rule { from, weight?, within }")
-	}
-	for (const k of Object.keys(rule)) {
-		if (k !== "from" && k !== "weight" && k !== "within") {
-			throw malformed("capacity", `a rule without ${k}`)
-		}
-	}
-	const f = sideOf(rule["from"], "capacity from")
-	if (t.terms.length !== f.terms.length) {
+/** A family's or a tree's member side: a side of an ordinary relation, over every fact. */
+const memberSide = (value: unknown, label: string): SideDesc => {
+	const side = sideOf(value, `${label} member`)
+	if (side.selection.conjuncts.length > 0) {
 		throw malformed(
-			"capacity",
-			`sides of one width: ${t.terms.length} term(s) against ${f.terms.length}`
+			label,
+			"a member side over every fact of its relation, which no selection narrows"
 		)
 	}
-	const label = `capacity ${sideLabel(t)} from ${sideLabel(f)}`
+	return side
+}
+
+const admitFamily = (
+	order: "ordered" | "counted",
+	family: unknown,
+	slots: unknown
+): StatementDesc => {
+	const member = memberSide(family, order)
+	const slotsDesc = slotsOf(slots, `${order} slots`)
 	return admitted({
-		kind: "capacity",
-		target: t,
-		from: f,
-		weight:
-			rule["weight"] === undefined
-				? { kind: "count" }
-				: weightDesc(rule["weight"], `${label} weight`),
-		within: withinDesc(rule["within"], `${label} within`),
-		loc: builderLoc(label, [t.relation, "capacity"])
+		kind: "family",
+		order,
+		member,
+		slots: slotsDesc,
+		loc: builderLoc(`${order} ${member.relation}`, [member.relation, order, slotsDesc.count])
 	})
 }
 
-export const capacityBuilder = <T, F>(target: T, rule: CapacityRule<F>): Capacity<T, F> => {
-	const desc = admitCapacity(target, rule)
-	return ownValue({ kind: "capacity", target, from: rule.from }, "statement", desc)
+/** ordered(on(F, g…, i), fin(O, n)): the value holds its two inputs. */
+export const orderedBuilder = <F, Fi>(family: F, slots: Fi): Ordered<F, Fi> =>
+	ownValue({ kind: "ordered", family, slots }, "statement", admitFamily("ordered", family, slots))
+
+/** counted(on(F, g…), fin(O, n)): the value holds its two inputs. */
+export const countedBuilder = <F, Fi>(family: F, slots: Fi): Counted<F, Fi> =>
+	ownValue({ kind: "counted", family, slots }, "statement", admitFamily("counted", family, slots))
+
+/** tree(on(T, "parent", "at"), fin(T, n), { root }): the value holds its inputs, `root` the root field's name. */
+export const treeBuilder = <F, Fi, const Root extends string>(
+	family: F,
+	slots: Fi,
+	root: { readonly root: Root }
+): Tree<F, Fi, Root> => {
+	const member = memberSide(family, "tree")
+	const slotsDesc = slotsOf(slots, "tree slots")
+	if (!isPlainRecord(root)) {
+		throw malformed("tree", "{ root }: the root field each tree's rows share")
+	}
+	const rootField = requireName(root.root, "tree", "the root field each tree's rows share")
+	const desc = admitted({
+		kind: "tree",
+		member,
+		slots: slotsDesc,
+		root: rootField,
+		loc: builderLoc(`tree ${member.relation}`, [member.relation, "tree"])
+	})
+	return ownValue({ kind: "tree", family, slots, root: root.root }, "statement", desc)
+}
+
+/** The closed set of monoids, each a frozen value its fold names. */
+export const monoids: { readonly [M in MonoidName]: Monoid<M> } = Object.freeze({
+	count: Object.freeze({ kind: "monoid", name: "count", planes: 1 }),
+	sum: Object.freeze({ kind: "monoid", name: "sum", planes: 1 }),
+	or: Object.freeze({ kind: "monoid", name: "or", planes: 1 }),
+	twos: Object.freeze({ kind: "monoid", name: "twos", planes: 2 }),
+	max: Object.freeze({ kind: "monoid", name: "max", planes: 1 })
+})
+
+/** The monoid a fold names: one of the closed set's values. */
+const monoidOf = (value: unknown, label: string): MonoidName => {
+	const name = hasProperties(value) && value["kind"] === "monoid" ? value["name"] : undefined
+	const found = monoidNames.find((m) => m === name)
+	if (found === undefined) {
+		throw malformed(label, `a monoid of the closed set, Monoid.${monoidNames.join(", Monoid.")}`)
+	}
+	return found
+}
+
+/** The slots of the family a fold folds: a family's or a tree's statement value. */
+const foldedSlots = (value: unknown, label: string): SlotsDesc => {
+	const desc = statementDescOf(value)
+	if (desc?.kind !== "family" && desc?.kind !== "tree") {
+		throw malformed(label, "a family built by ordered, counted or tree")
+	}
+	return desc.slots
+}
+
+/** fold(family, Monoid.m, step, end): the value holds its four inputs. */
+export const foldBuilder = <Fa, M, S, E>(
+	family: Fa,
+	monoid: M,
+	step: S,
+	end: E
+): Fold<Fa, M, S, E> => {
+	const slots = foldedSlots(family, "fold family")
+	const name = monoidOf(monoid, "fold monoid")
+	const stepSide = sideOf(step, "fold step")
+	const endSide = sideOf(end, "fold end")
+	const desc = admitted({
+		kind: "fold",
+		family: slots,
+		monoid: name,
+		step: stepSide,
+		end: endSide,
+		loc: builderLoc(`fold ${stepSide.relation}`, [stepSide.relation, "fold", name])
+	})
+	return ownValue({ kind: "fold", family, monoid, step, end }, "statement", desc)
 }

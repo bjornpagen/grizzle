@@ -11,31 +11,16 @@ import {
 	type HostSchema,
 	type HostState,
 	isDrawn,
-	isResidual,
 	isSpan,
 	needs,
 	type HostOp,
 	relationOf,
 	hostSpan,
-	type HostValue,
-	witnessOf
-} from "#test/pg/laws/families/model.ts"
+	type HostValue
+} from "#test/support/laws/model.ts"
 
 import { quoteIdent } from "#compiler/sql/print.ts"
-import {
-	type CaseSketch,
-	caseSketchGen,
-	changeSetOf,
-	type Domains,
-	domainFacts,
-	plantedGroup,
-	plantedInsert,
-	resolveStep,
-	type StepSketch,
-	stepSwarmGen
-} from "#test/pg/laws/families/support.ts"
 import { defined } from "#test/support/assert.ts"
-import { strictDetail } from "#test/support/detail.ts"
 import type { Outcome, Settled, WitnessKey } from "#test/support/history/check.ts"
 import type { GrizzleWriter, HistoryRig } from "#test/support/history/families.ts"
 import { directOps, expectDirect, type Immediacy } from "#test/support/history/model.ts"
@@ -48,6 +33,18 @@ import {
 	type Cell
 } from "#test/support/history/refused.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	changeSetOf,
+	type Domains,
+	domainFacts,
+	plantedGroup,
+	plantedInsert,
+	resolveStep,
+	type StepSketch,
+	stepSwarmGen
+} from "#test/support/laws/support.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -63,8 +60,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 import { regex } from "arkregex"
 /**
- * The features a history's swarm turns on, off or weighs: each writer kind, immediate constraints, the law triggers
- * named instead of every constraint, a writer copying another's list, and each choice of a planted writer. The sketch
+ * The features a history's swarm turns on, off or weighs: each writer kind, immediate constraints, a writer copying
+ * another's list, and each choice of a planted writer. The sketch
  * states what the swarm chose by name, so resolving a history reads no swarm and a kept case names its writers.
  */
 const historyFeatures = [
@@ -72,7 +69,6 @@ const historyFeatures = [
 	"direct",
 	"below",
 	"immediate",
-	"law triggers",
 	"repeats",
 	...belowForms,
 	"read only",
@@ -87,16 +83,12 @@ const writerChoices = ["grizzle", "direct", "below"] as const
 
 /**
  * What a direct writer makes immediate after its last statement, drawn under its swarm: nothing, unless the swarm keeps
- * immediate constraints, and then its law triggers by name or every constraint, as the swarm chooses.
+ * immediate constraints, and then every constraint.
  */
 export const immediacyGen =
-	(drawn: Swarm<"immediate" | "law triggers">): Gen<Immediacy> =>
+	(drawn: Swarm<"immediate">): Gen<Immediacy> =>
 	(source) =>
-		!source.draw(keep(drawn, "immediate"))
-			? "deferred"
-			: source.draw(swarmChoice(drawn, ["immediate", "law triggers"])) === "law triggers"
-				? "law triggers"
-				: "every constraint"
+		source.draw(keep(drawn, "immediate")) ? "every constraint" : "deferred"
 
 /**
  * A planted writer's level and statement, as its swarm chose them: a write of a form, reading the relation first when
@@ -361,7 +353,7 @@ const resolveBelow = (
  *   grizzle writer runs db.apply of an enumerated ChangeSet on a Db of `app` with a pool of its own, so two grizzle
  *   writers hold two sessions. A direct writer is a psql child that has taken on the role `direct` and runs the same
  *   operations as plain SQL, each in one SERIALIZABLE transaction, setting, when the swarm says so, every
- *   constraint IMMEDIATE after its last statement, or its schema's law triggers by their schema-qualified names. A
+ *   constraint IMMEDIATE after its last statement. A
  *   planted writer is a psql child too, that begins below SERIALIZABLE and runs one write of a drawn form on a drawn
  *   relation, or only reads: it must be refused at its write, and commits nothing.
  *
@@ -555,7 +547,7 @@ export interface HistoryEnv {
 	readonly host: HostSchema
 	readonly domains: Domains
 	readonly rig: HistoryRig
-	/** The installation's names, through the naming door: tables, constraints' laws and law triggers. */
+	/** The installation's names, through the naming door: tables and constraints' laws. */
 	readonly names: Names
 }
 
@@ -759,7 +751,7 @@ const grizzleOutcome = (names: Names, o: ApplyOutcome<unknown>): Effect.Effect<S
 	}
 	return Effect.succeed({
 		kind: "invariant-rejected",
-		law: names.reported(o.law),
+		laws: Arr.map(o.laws, names.reported),
 		keys: o.witness.kind === "key" ? hostKeys([o.witness]) : []
 	})
 }
@@ -811,11 +803,9 @@ export const directClassifier = (env: HistoryEnv): DirectClassifier => ({
 })
 
 /**
- * A direct SERIALIZABLE writer's PostgreSQL error as an outcome: 40001 and 40P01 abort it; a residual law's 23000 and a
- * native constraint's violation refuse it with the law the constraint reports. A residual law's DETAIL is read through
- * the codec the host model states for its witness (witnessOf: the relation and the key it names a violating fact by),
- * never the installation's, so a law function that names another key fails here. Any other error is a defect of the
- * history. A native constraint's violation: a foreign key, a unique key, a row check, a span key's exclusion.
+ * A direct SERIALIZABLE writer's PostgreSQL error as an outcome: 40001 and 40P01 abort it; a native constraint's
+ * violation refuses it with the law the constraint reports: a foreign key, a unique key, a row check, a span key's
+ * exclusion. Every law is native (fin.md §7), so no 23000 is a law's. Any other error is a defect of the history.
  * PostgreSQL states the violating key only in prose.
  */
 export const classifyDirect = (
@@ -829,40 +819,6 @@ export const classifyDirect = (
 				return { kind: "aborted", cause: { kind: "serialization failure" } }
 			case "40P01":
 				return { kind: "aborted", cause: { kind: "deadlock" } }
-			case "23000": {
-				if (constraint === undefined || Option.isNone(fields.detail)) {
-					throw new Error(`SQLSTATE 23000 without a law's identity and DETAIL: ${fields.message}`)
-				}
-				/** A law function raises its law's identity as the constraint. */
-				const hostLaw = Option.getOrThrowWith(
-					Arr.findFirst(env.host.laws, (l) => l.law === constraint && isResidual(l)),
-					() => new Error(`SQLSTATE 23000 from ${constraint}, no residual law of the host`)
-				)
-				const law = hostLaw.law
-				const witness = witnessOf(env.host, hostLaw)
-				if (witness.kind === "unnamed") {
-					throw new Error(`the residual law ${law}'s witness names no key`)
-				}
-				const [key, ...more] = witness.key
-				if (key === undefined) {
-					throw new Error(`the residual law ${law}'s witness names an empty key`)
-				}
-				const texts = strictDetail(
-					{ relation: witness.relation, keys: [key, ...more] },
-					fields.detail.value
-				)
-				const values = Record.fromEntries(
-					Arr.map(
-						witness.key,
-						(field, i) =>
-							[
-								field,
-								env.value(witness.relation, field, defined(texts[i], `the DETAIL's key ${field}`))
-							] as const
-					)
-				)
-				return { kind: "invariant-rejected", law, keys: [{ relation: witness.relation, values }] }
-			}
 			case "23503":
 			case "23505":
 			case "23514":
@@ -873,7 +829,7 @@ export const classifyDirect = (
 				}
 				return {
 					kind: "invariant-rejected",
-					law: env.names.lawOfConstraint(owner, constraint),
+					laws: [env.names.lawOfConstraint(owner, constraint)],
 					keys: []
 				}
 			}

@@ -31,11 +31,13 @@ const runStage = alternatives(Run, "stage", Stage, { paid: Payment, voided: Void
 
 /**
  * Ledger: a partial arm map over a composite parent key, `alternatives(Run, "stage", Stage, { paid: Payment, voided:
- * Voiding })` with `draft` and `approved` unarmed. `mutable` adds every relation's UPDATE events.
+ * Voiding })` with `draft` and `approved` unarmed, one statement whose expansion is every arm's forward containment and
+ * every armed handle's reverse one, each a native foreign key (fin.md §7). `mutable` adds every relation's UPDATE
+ * events.
  */
 export const ledger = (options: { readonly mutable: boolean }): SchemaDesc => ({
 	name: "Ledger",
 	relations: [Stage, Run, Payment, Voiding],
-	statements: [...runStage, ...(options.mutable ? Arr.map(ledgerRelations, mutable) : [])],
+	statements: [runStage, ...(options.mutable ? Arr.map(ledgerRelations, mutable) : [])],
 	extends: undefined
 })

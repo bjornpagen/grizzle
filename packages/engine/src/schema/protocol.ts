@@ -1,5 +1,4 @@
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { derived, type Limit, namedatalen } from "#compiler/core/limits.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -22,15 +21,15 @@ import { type Described, describeField } from "#compiler/scalar/registry.ts"
 import type {
 	ClosedRelationDesc,
 	DerivedDraft,
-	OrdinaryRelationDesc
+	OrdinaryRelationDesc,
+	RosterDesc
 } from "#compiler/schema/relation.ts"
 import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
 import type { WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
-import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
+import type { AnyClosedRelation, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type {
-	AlternativesBase,
 	AnySide,
 	MirrorsBase,
 	Selection,
@@ -156,17 +155,6 @@ export const rosterHandlesOf = (value: unknown): ReadonlyArray<string> | undefin
 	return isList(handles) && handles.every(isName) ? handles : undefined
 }
 
-/** The most UTF-8 bytes of a closed handle: it becomes a PostgreSQL enum label, a name. */
-export const maxEnumLabelBytes: Limit = derived({
-	owner: "PostgreSQL 19rc1",
-	unit: "bytes",
-	scope: "one closed relation's handle, its enum label",
-	from: [namedatalen],
-	derivation:
-		'NAMEDATALEN less its terminating zero: "The length of an enum value\'s textual label is limited by the NAMEDATALEN setting compiled into PostgreSQL; in standard builds this means at most 63 bytes." (https://github.com/postgres/postgres/blob/REL_19_RC1/doc/src/sgml/datatype.sgml#L3339-L3342)',
-	compute: ([n]) => n.value - 1
-})
-
 export interface PredicateValue extends Built {
 	readonly predicate: true
 	readonly expr: OpenExpr
@@ -202,19 +190,20 @@ export const querySchemaOf = (value: unknown): object | undefined =>
 
 /**
  * Each kind of owned value: the value a builder returns, at the widest of its public type, and the Description it
- * carries. A mirrors and an alternatives law are sugar, owned as an expansion, the statements they state, never as a
+ * carries. A mirrors is sugar, owned as an expansion, the two containments it states, never as a
  * statement.
  */
 interface OwnedKinds {
 	readonly relation: { readonly value: AnyRelation; readonly desc: OrdinaryRelationDesc }
-	readonly closed: { readonly value: AnyClosed; readonly desc: ClosedRelationDesc }
+	readonly closed: { readonly value: AnyRoster; readonly desc: RosterDesc }
+	readonly closedRelation: { readonly value: AnyClosedRelation; readonly desc: ClosedRelationDesc }
 	readonly derived: { readonly value: AnyDerived; readonly desc: DerivedDraft }
 	readonly statement: {
-		readonly value: Exclude<Statement, AlternativesBase | MirrorsBase>
+		readonly value: Exclude<Statement, MirrorsBase>
 		readonly desc: StatementDesc
 	}
 	readonly expansion: {
-		readonly value: AlternativesBase | MirrorsBase
+		readonly value: MirrorsBase
 		readonly desc: ExpansionDesc
 	}
 	readonly side: { readonly value: AnySide; readonly desc: SideDesc }
@@ -231,6 +220,7 @@ export type OwnedKind = keyof OwnedKinds
 const ownedKinds: ReadonlyArray<OwnedKind> = [
 	"relation",
 	"closed",
+	"closedRelation",
 	"derived",
 	"statement",
 	"expansion",
@@ -255,6 +245,7 @@ interface OwnedEntry<K extends OwnedKind> {
 const owned: { readonly [K in OwnedKind]: WeakMap<object, OwnedEntry<K>> } = {
 	relation: new WeakMap(),
 	closed: new WeakMap(),
+	closedRelation: new WeakMap(),
 	derived: new WeakMap(),
 	statement: new WeakMap(),
 	expansion: new WeakMap(),

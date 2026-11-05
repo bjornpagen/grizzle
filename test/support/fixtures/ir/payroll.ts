@@ -19,17 +19,19 @@ import {
 	type AuthoredStatementDesc,
 	alternatives,
 	betweenExpr,
-	capacity,
 	charLength,
 	check,
 	closed,
-	closedWith,
+	closedRelation,
 	contained,
+	counted,
 	decodedQuery,
 	decodedSchema,
 	eq,
 	f,
 	field,
+	fin,
+	fold,
 	ge,
 	key,
 	le,
@@ -40,8 +42,7 @@ import {
 	on,
 	onWhere,
 	relation,
-	value,
-	within
+	value
 } from "#test/support/fixtures/ir/desc.ts"
 
 /** Contracts, each a domain named after it, and the structural text refinements. */
@@ -73,19 +74,27 @@ const LeaveReason = closed("LeaveReason", ["vacation", "sick", "unpaid"])
 const Filing = closed("Filing", ["single", "joint", "head"])
 const LedgerAccount = closed("LedgerAccount", ["GrossWages", "NetPay", "Withholding"])
 const Side = closed("Side", ["debit", "credit"])
-const Levy = closedWith(
-	"Levy",
-	["SocialSecurity", "Medicare", "Futa"],
-	{ employeeRate: Rate, employerRate: Rate },
-	{
-		SocialSecurity: { employeeRate: dec("0.062"), employerRate: dec("0.062") },
-		Medicare: { employeeRate: dec("0.0145"), employerRate: dec("0.0145") },
-		Futa: { employeeRate: dec("0"), employerRate: dec("0.006") }
-	}
+const Levy = closed("Levy", ["SocialSecurity", "Medicare", "Futa"])
+
+/** Each levy's rates: a closed relation keyed by its levy. */
+const LevyRate = closedRelation(
+	"LevyRate",
+	{ levy: f.closedId("Levy"), employeeRate: Rate, employerRate: Rate },
+	["levy"],
+	[
+		{ levy: "SocialSecurity", employeeRate: dec("0.062"), employerRate: dec("0.062") },
+		{ levy: "Medicare", employeeRate: dec("0.0145"), employerRate: dec("0.0145") },
+		{ levy: "Futa", employeeRate: dec("0"), employerRate: dec("0.006") }
+	]
 )
 
 /** The relations. */
-const Employer = relation("Employer", { id: f.uuid, ein: Ein, name: LegalName }, ["id"])
+/** An employer: its approvers a counted family, `approvers` their drawn count. */
+const Employer = relation(
+	"Employer",
+	{ id: f.uuid, ein: Ein, name: LegalName, approvers: f.drawn },
+	["id"]
+)
 const Employee = relation(
 	"Employee",
 	{ id: f.uuid, employer: f.uuid, code: EmployeeCode, name: LegalName },
@@ -127,18 +136,38 @@ const Leave = relation(
 	["employee", "during"]
 )
 
-const Timesheet = relation("Timesheet", { employee: f.uuid, week: Week, ceiling: Micros }, [
-	"employee",
-	"week"
-])
+/** A timesheet: its shifts a counted family, `approvedHours` the sum fold of its approved shifts' hours. */
+const Timesheet = relation(
+	"Timesheet",
+	{
+		employee: f.uuid,
+		week: Week,
+		ceiling: Micros,
+		shifts: f.drawn,
+		approvedHours: f.accumulated(f.bigint, 0n)
+	},
+	["employee", "week"]
+)
 
+/** A shift, whose `hours` PostgreSQL generates from its span: its width (fin.md §6, "duration"). */
 const Shift = relation(
 	"Shift",
 	{
 		employee: f.uuid,
 		during: f.span(Instant, undefined),
 		week: Week,
-		status: f.closedId("ShiftStatus")
+		status: f.closedId("ShiftStatus"),
+		hours: f.generated(f.bigint, {
+			kind: "when",
+			guard: { kind: "within", low: 0n, high: 9223372036854775807n },
+			subject: { kind: "compute", fn: "width", args: [field("during")] },
+			proved: {
+				kind: "cast",
+				to: f.bigint,
+				arg: { kind: "compute", fn: "width", args: [field("during")] }
+			},
+			otherwise: literal(0n)
+		})
 	},
 	["employee", "during"]
 )
@@ -152,9 +181,19 @@ const Approval = relation("Approval", { run: f.uuid, approver: f.uuid, at: Insta
 const Payment = relation("Payment", { run: f.uuid, settled: Instant }, ["run"])
 const Voiding = relation("Voiding", { run: f.uuid, reason: Memo }, ["run"])
 const Reissue = relation("Reissue", { run: f.uuid, replaces: f.uuid }, ["run"])
+/** A pay line: its deposits a counted family, `deposited` the sum fold of their amounts. */
 const PayLine = relation(
 	"PayLine",
-	{ id: f.uuid, run: f.uuid, employee: f.uuid, gross: Cents, net: Cents, offCycle: f.boolean },
+	{
+		id: f.uuid,
+		run: f.uuid,
+		employee: f.uuid,
+		gross: Cents,
+		net: Cents,
+		offCycle: f.boolean,
+		deposits: f.drawn,
+		deposited: f.accumulated(Cents, 0n)
+	},
 	["id"]
 )
 const OffCycleReason = relation("OffCycleReason", { line: f.uuid, reason: Memo }, ["line"])
@@ -192,6 +231,7 @@ const payrollRelations = [
 	LedgerAccount,
 	Side,
 	Levy,
+	LevyRate,
 	Employer,
 	Employee,
 	ReportsTo,
@@ -228,7 +268,11 @@ const alternativeStatements = alternatives(PayRun, "stage", Stage, {
  * containments into keyed relations and into closed facts (a roster, and closed tuples); keyed equality, unconditional
  * and conditional outside alternatives; exhaustive alternatives with a partial arm map, where draft and approved runs
  * carry no payload; a selected target and selected sources; span coverage (mirrors, plain, selected target, selected
- * source); and scalar-group capacity.
+ * source); and the counting and summing laws, each by fin.md §6, as test/support/fixtures/api/payroll.ts states them: at
+ * most one reissue per run and one remainder deposit per line, keys over a side; at least one approver per employer
+ * and at most four deposits per line, counted families with a row check on the owner's count; the deposits' amounts
+ * summing to the line's net and its approved shifts' hours within its timesheet's ceiling, sum folds with a row check
+ * on the end; and a line's net within its gross, a row check.
  */
 const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 	key(on("Employer", ["ein"])),
@@ -258,13 +302,13 @@ const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 	contained(on("LevyLine", ["line"]), on("PayLine", ["id"])),
 	contained(on("Posting", ["line"]), on("PayLine", ["id"])),
 	contained(on("Employment", ["basis"]), on("Basis", ["id"])),
-	contained(on("LevyLine", ["levy", "employeeRate"]), on("Levy", ["id", "employeeRate"])),
+	contained(on("LevyLine", ["levy", "employeeRate"]), on("LevyRate", ["levy", "employeeRate"])),
 	...mirrors(on("Employee", ["id"]), on("TaxProfile", ["employee"])),
 	...mirrors(
 		onWhere("PayLine", ["id"], eq(field("offCycle"), literal(true))),
 		on("OffCycleReason", ["line"])
 	),
-	...alternativeStatements,
+	alternativeStatements,
 	contained(
 		on("Reissue", ["replaces"]),
 		onWhere("PayRun", ["id"], eq(field("stage"), literal("voided")))
@@ -279,6 +323,7 @@ const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 	),
 	...mirrors(on("Assignment", ["employee", "during"]), on("Employment", ["employee", "during"])),
 	contained(on("Leave", ["employee", "during"]), on("Employment", ["employee", "during"])),
+	key(onWhere("Employment", ["employee", "during"], eq(field("basis"), literal("salaried")))),
 	contained(
 		on("Salary", ["employee", "during"]),
 		onWhere("Employment", ["employee", "during"], eq(field("basis"), literal("salaried")))
@@ -287,32 +332,31 @@ const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 		onWhere("Shift", ["employee", "during"], eq(field("status"), literal("approved"))),
 		on("Employment", ["employee", "during"])
 	),
-	capacity(on("Employer", ["id"]), on("Approver", ["employer"]), within(1n, "*"), {
-		kind: "count"
-	}),
-	capacity(on("PayRun", ["id"]), on("Reissue", ["replaces"]), within(0n, 1n), { kind: "count" }),
-	capacity(
-		on("PayLine", ["id"]),
-		onWhere("Deposit", ["line"], eq(field("remainder"), literal(true))),
-		within(0n, 1n),
-		{
-			kind: "count"
-		}
+	counted(on("Approver", ["employer"]), fin("Employer", "approvers")),
+	check("AtLeastOneApprover", "Employer", ge(field("approvers"), literal(1n))),
+	key(on("Reissue", ["replaces"])),
+	key(onWhere("Deposit", ["line"], eq(field("remainder"), literal(true)))),
+	counted(on("Deposit", ["line"]), fin("PayLine", "deposits")),
+	check("AtMostFourDeposits", "PayLine", le(field("deposits"), literal(4n))),
+	fold(
+		fin("PayLine", "deposits"),
+		"sum",
+		on("Deposit", ["line", "amount"]),
+		on("PayLine", ["id", "deposited"])
 	),
-	capacity(on("PayLine", ["id"]), on("Deposit", ["line"]), within(0n, 4n), { kind: "count" }),
-	capacity(on("PayLine", ["id"]), on("Deposit", ["line"]), within("net", "net"), {
-		kind: "field",
-		field: "amount"
-	}),
-	capacity(on("PayLine", ["id"]), on("PayLine", ["id"]), within(0n, "gross"), {
-		kind: "field",
-		field: "net"
-	}),
-	capacity(
-		on("Timesheet", ["employee", "week"]),
-		onWhere("Shift", ["employee", "week"], eq(field("status"), literal("approved"))),
-		within(0n, "ceiling"),
-		{ kind: "duration", field: "during" }
+	check("DepositsSumToNet", "PayLine", eq(field("deposited"), field("net"))),
+	check("NetWithinGross", "PayLine", le(field("net"), field("gross"))),
+	counted(on("Shift", ["employee", "week"]), fin("Timesheet", "shifts")),
+	fold(
+		fin("Timesheet", "shifts"),
+		"sum",
+		onWhere("Shift", ["employee", "week", "hours"], eq(field("status"), literal("approved"))),
+		on("Timesheet", ["employee", "week", "approvedHours"])
+	),
+	check(
+		"ApprovedHoursWithinCeiling",
+		"Timesheet",
+		le(field("approvedHours"), { kind: "base", arg: field("ceiling") })
 	)
 ]
 
@@ -422,21 +466,6 @@ export const refusals: ReadonlyArray<Refusal> = [
 		},
 		reason: "UnrepresentableKey",
 		refusedBy: "ownership"
-	},
-	{
-		name: "pointwise capacity",
-		schema: withStatement(
-			capacity(
-				on("Employment", ["employee", "during"]),
-				on("Shift", ["employee", "during"]),
-				within(0n, 1n),
-				{
-					kind: "count"
-				}
-			)
-		),
-		reason: "UnsupportedLawFamily",
-		refusedBy: "law recognition"
 	},
 	{
 		name: "coverage into a target without a span key",
@@ -827,7 +856,7 @@ const splitSegments = (): BuiltQuery => {
 const withholdingFor = (): BuiltQuery => {
 	const q = new Ir(payrollModel())
 	const line = q.base("PayLine")
-	const levy = q.closed("Levy")
+	const levy = q.closed("LevyRate")
 	const m = q.region(
 		[
 			{
@@ -835,7 +864,7 @@ const withholdingFor = (): BuiltQuery => {
 				bind: { id: "id", gross: "gross" },
 				constants: { run: q.param("run", q.column(line, "run").type, "compare") }
 			},
-			{ source: levy, bind: { id: "levy", employeeRate: "employeeRate" }, constants: {} }
+			{ source: levy, bind: { levy: "levy", employeeRate: "employeeRate" }, constants: {} }
 		],
 		conservativeMeta
 	)

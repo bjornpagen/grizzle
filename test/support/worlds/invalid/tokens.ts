@@ -10,8 +10,8 @@ import {
 } from "@grizzle/testing/gen"
 import { Array as Arr, Option, pipe, Record as Rec, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
-import { valueText } from "#test/pg/laws/families/model.ts"
 import { defined } from "#test/support/assert.ts"
+import { valueText } from "#test/support/laws/model.ts"
 import {
 	inDomain,
 	isInt8Domain,

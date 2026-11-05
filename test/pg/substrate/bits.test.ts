@@ -26,6 +26,7 @@ import {
 	and,
 	andNot,
 	cell,
+	copy,
 	count,
 	fromText,
 	members,
@@ -273,11 +274,11 @@ layer(Substrate.layer)("the bit algebra of fin.md §16 on PostgreSQL 19rc1", (it
 									twos: spelt(n, (i) => (counts[i] ?? 0) >= 2),
 									foldMost: Arr.every(Array.from(K), (i) => (counts[i] ?? 0) <= 1)
 								}
-								const hostAnd = fromText(textOf(c.a))
+								const hostAnd = copy(fromText(textOf(c.a)))
 								and(hostAnd, fromText(textOf(c.b)))
-								const hostOr = fromText(textOf(c.a))
+								const hostOr = copy(fromText(textOf(c.a)))
 								or(hostOr, fromText(textOf(c.b)))
-								const hostDiff = fromText(textOf(c.a))
+								const hostDiff = copy(fromText(textOf(c.a)))
 								andNot(hostDiff, fromText(textOf(c.b)))
 								const hostA = fromText(textOf(c.a))
 								const fold = hostFold(n, c.folded)

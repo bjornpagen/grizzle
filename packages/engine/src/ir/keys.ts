@@ -360,14 +360,15 @@ export const implication = (
 
 /**
  * The context an at-most-one witness holds in by itself: a session's one fact, a membership's one row and a closed
- * relation of one fact are descriptor facts; a take or a search of one, and a false conjunct, hold by the query alone.
+ * relation of one fact are the query's own facts, which hold wherever it runs; a take or a search of one, and a false
+ * conjunct, hold by the query alone as well, which the rule's premises state.
  */
 const atMostOneContext = (witness: AtMostOneWitness): EvidenceContext | undefined => {
 	switch (witness.kind) {
 		case "context":
 		case "row":
 		case "singleFact":
-			return "descriptor"
+			return "queryLocal"
 		case "takeOne":
 		case "nearestOne":
 		case "falseConjunct":
@@ -377,18 +378,18 @@ const atMostOneContext = (witness: AtMostOneWitness): EvidenceContext | undefine
 
 /**
  * The context a rule holds in by itself: a closed relation's facts, a session's one fact and a membership's one row are
- * descriptor facts.
+ * the query's own facts, which hold wherever it runs.
  */
 const ruleContext = (rule: Rule): EvidenceContext | undefined => {
 	switch (rule.rule) {
 		case "declared":
 			return rule.context
 		case "distinct":
-			return "descriptor"
+			return "queryLocal"
 		case "atMostOne":
 			return atMostOneContext(rule.witness)
 		case "fixed":
-			return rule.witness.kind === "closedValue" ? "descriptor" : undefined
+			return rule.witness.kind === "closedValue" ? "queryLocal" : undefined
 		case "equal":
 		case "correlated":
 		case "match":

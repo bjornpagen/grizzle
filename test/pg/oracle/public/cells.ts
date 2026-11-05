@@ -19,6 +19,7 @@ import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Layout, Row } from "#compiler/core/decoder.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -29,7 +30,7 @@ import { queryInput } from "#compiler/program/compile.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
 import { isHostValue } from "#compiler/scalar/values/identity.ts"
 import type { Page } from "#compiler/types/page/page.ts"
-import type { Conversion } from "#test/pg/oracle/public/planted.ts"
+import { type Conversion, freshCodesOf } from "#test/pg/oracle/public/planted.ts"
 import { strictArrayText, strictReader as strictCellReader } from "#test/support/kernel/strict.ts"
 
 export class CellDisagreement extends Data.TaggedError("CellDisagreement")<{
@@ -48,8 +49,8 @@ const misread = (type: ScalarType, text: string, what: string): never =>
 	disagree(`a ${type.carrier} cell ${Formatter.format(text)}: ${what}`)
 
 const readsAs = (type: ScalarType, text: string, value: unknown, what: string): void => {
-	const codec = scalarCodec(type)
-	const read = strictCellReader(type)(text)
+	const codec = scalarCodec(type, freshCodesOf(type))
+	const read = strictCellReader(type, freshCodesOf(type))(text)
 	if (Result.isFailure(read)) {
 		misread(type, text, `no output text of its type (${read.failure})`)
 	} else if (
@@ -320,7 +321,7 @@ const sentRow = (row: Row, layout: Layout): SentRow => ({
 })
 
 const checkRead =
-	(conversion: Conversion) =>
+	(conversion: Conversion, codes: Codebook) =>
 	(
 		recorded: Option.Option<Recorded>,
 		sent: SentRuns,
@@ -334,7 +335,8 @@ const checkRead =
 		const program = templateProgram(
 			prepared.template,
 			prepared.selection.artifact,
-			attachmentFacts(prepared.template, desc)
+			attachmentFacts(prepared.template, desc),
+			codes
 		)
 		const statements = Arr.map(
 			program.records,
@@ -475,7 +477,7 @@ export const strictReaderOf = (ctx: DbContext, conversion: Conversion): StrictRe
 			})
 	}
 	const reader: ReaderValue = makeReader(context, executor)
-	const read = checkRead(conversion)
+	const read = checkRead(conversion, ctx.artifacts.names.codes)
 	const paged = checkPage(ctx, conversion)
 
 	const checked = <A, E>(

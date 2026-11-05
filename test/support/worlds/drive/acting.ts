@@ -1,6 +1,6 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { valueText } from "#test/pg/laws/families/model.ts"
 import { assert } from "#test/support/assert.ts"
+import { valueText } from "#test/support/laws/model.ts"
 import { submittedTexts } from "#test/support/worlds/drive/index.ts"
 import type { Checked, Seen, StepCheck } from "#test/support/worlds/drive/suite.ts"
 import { loginOf, roleOf, sessionAt } from "#test/support/worlds/model/session/state.ts"

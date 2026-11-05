@@ -321,6 +321,14 @@ const sameAtSeed = (
 			return y.kind === "op" && x.op === y.op && argsAlike()
 		case "cast":
 			return y.kind === "cast" && x.cast === y.cast && argsAlike()
+		case "closedAt":
+			return (
+				y.kind === "closedAt" && x.relation === y.relation && x.field === y.field && argsAlike()
+			)
+		case "closedRow":
+			return y.kind === "closedRow" && x.relation === y.relation && argsAlike()
+		case "closedHas":
+			return y.kind === "closedHas" && x.relation === y.relation && argsAlike()
 		case "value":
 		case "domainCast":
 		case "cond":

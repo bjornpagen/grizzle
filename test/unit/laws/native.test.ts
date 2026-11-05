@@ -1,35 +1,88 @@
 import { describe, it } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { boolean, element, type Gen, nondecreasing, subset } from "@grizzle/testing/gen"
+import { runProgram } from "@grizzle/testing/commands"
+import { type Case, drawn, exhaust, explore, type Oracle } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { violations } from "#test/pg/laws/families/model.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { assert, assertVariant, nonEmpty } from "#test/support/assert.ts"
+import {
+	applied,
+	machineOf,
+	type MutationStatement as FamilyStatement,
+	type Program,
+	programGen,
+	realOf,
+	run
+} from "#test/support/families/mutate.ts"
+import {
+	type Breach,
+	breachesOf,
+	type Constraint,
+	type Families,
+	type FamilyRow,
+	SHAPES,
+	type Shape,
+	type Stored,
+	storedOf,
+	theorem,
+	familyViolations
+} from "#test/support/families/theorem.ts"
+import {
+	counted,
+	relation as descRelation,
+	f,
+	fin,
+	on,
+	ordered,
+	type SchemaDesc
+} from "#test/support/fixtures/ir/desc.ts"
+import { lawNamesOf } from "#test/support/kernel/naming.ts"
+import { violations } from "#test/support/laws/model.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
+	type BoxCase,
+	boxGen,
+	SPAN_BOX_CASES,
+	type SpanBoxCase,
+	spanBoxGen,
+	type Explored,
+	exploredGen,
+	FIN_BOX_CASES,
+	finBoxGen,
+	VARIANTS,
+	type Variant
+} from "#test/support/native/generate.ts"
+import {
+	immediateReferences,
 	type NativeConstraint,
-	type Duplicate,
 	type NativeInstallation,
+	type NativeMatch,
+	type NativeRow,
+	type NativeState,
 	type NativeStatement,
 	type NativeViolation,
 	nativeInstallation,
 	nullUseOf,
-	immediateReferences,
 	stateViolations,
 	transact
 } from "#test/support/native/model.ts"
 import {
-	compiled,
 	type Compiled,
+	compiled,
+	fieldTerm,
 	type Law,
 	lawsOf,
 	nativeRow,
 	nativeState,
+	over,
+	overWhere,
 	type Phi,
-	phiFields,
+	predTerm,
 	RELATIONS,
 	type Relations,
 	type Row,
@@ -37,24 +90,29 @@ import {
 	type Rule,
 	type RuleKind,
 	ruleText,
-	type State,
-	hostState
+	SPAN_RELATIONS,
+	SPAN_RULE_KINDS,
+	spanLawsOf,
+	type SpanRule,
+	type SpanRuleKind,
+	spanRuleText,
+	type State
 } from "#test/support/native/schemas.ts"
 
 /**
  * The native constraints grizzle installs mean what its laws mean. Three readings of one schema meet here: the host
- * law model (test/pg/laws/families/model.ts) reads each statement's meaning; the native model
+ * law model (test/support/laws/model.ts) reads each statement's meaning; the native model
  * (test/support/native/model.ts) evaluates the native objects the law model installs, UNIQUE NULLS DISTINCT, FOREIGN
  * KEY … MATCH SIMPLE immediate or deferred, CHECK, the generated law columns and the contract domains, with
- * PostgreSQL's semantics; and test/pg holds PostgreSQL itself to the same states. Oracle: the host law model, a second
+ * PostgreSQL's semantics; PostgreSQL itself is the third, at the pg tier. Oracle: the host law model, a second
  * implementation of the laws' meaning, never the compiler's.
  *
  * Over every state, every law the host model finds broken is refused by a constraint that discharges it, and every
  * constraint the state breaks discharges a law it breaks, so the installation accepts a state exactly when every law
- * holds. Over every transaction from a committed state, each order a writer may send its statements in (one per table
- * and change, a table's removals before its additions, and each immediate reference's target added before and removed
- * after its source) commits exactly when the state it leaves is lawful, and a refusal names a law broken at that
- * moment.
+ * holds. Over every transaction from a committed state, each order
+ * a writer may send its statements in (one per table and change, a table's removals before its additions, and each
+ * immediate reference's target added before and removed after its source) commits exactly when the state it leaves is
+ * lawful, and a refusal names a law broken at that moment.
  */
 
 const relations = RELATIONS
@@ -67,13 +125,13 @@ interface Installed {
 
 const installations = new Map<string, Installed>()
 
-/** The installation of `laws` over `over`, compiled once under `label`. */
-const installedOf = (label: string, over: Relations, laws: ReadonlyArray<Law>): Installed => {
+/** The installation of `laws` over `declared`, compiled once under `label`. */
+const installedOf = (label: string, declared: Relations, laws: ReadonlyArray<Law>): Installed => {
 	const known = installations.get(label)
 	if (known !== undefined) {
 		return known
 	}
-	const schema = compiled(over, laws)
+	const schema = compiled(declared, laws)
 	const installation = nativeInstallation(schema.model)
 	if (Result.isFailure(installation)) {
 		throw new Error(
@@ -90,7 +148,7 @@ const installedRules = (rules: ReadonlyArray<Rule>): Installed =>
 
 /** A statement of a transaction as the suite writes it: an INSERT of rows, or a DELETE of rows equal to these. */
 interface Write {
-	readonly kind: NativeStatement["kind"]
+	readonly kind: "insert" | "delete"
 	readonly relation: string
 	readonly rows: NonEmptyReadonlyArray<Row>
 }
@@ -114,11 +172,10 @@ const statementOf = (on: Relations, w: Write): NativeStatement => {
 	if (spec === undefined) {
 		throw new Error(`a write to ${w.relation}, which the schema does not declare`)
 	}
-	return {
-		kind: w.kind,
-		relation: w.relation,
-		rows: Arr.map(w.rows, (row) => nativeRow(spec, row))
-	}
+	const rows = Arr.map(w.rows, (row) => nativeRow(spec, row))
+	return w.kind === "insert"
+		? { kind: "insert", relation: w.relation, rows }
+		: { kind: "delete", relation: w.relation, where: rows }
 }
 
 /**
@@ -171,38 +228,14 @@ type Verdict =
 	| "a reference a NULL skips"
 	| "a put"
 	| "a removal"
-	| "a key refusal a broken key implies"
 
 /** The laws a state breaks, by the host law model. */
-const brokenIn = (installed: Installed, on: Relations, state: State): ReadonlySet<LawId> =>
-	new Set(Arr.map(violations(installed.schema.host, hostState(on, state)), (v) => v.law))
+const brokenIn = (installed: Installed, state: State): ReadonlySet<LawId> =>
+	new Set(
+		Arr.map(violations(installed.schema.host, installed.schema.hostStateOf(state)), (v) => v.law)
+	)
 
 const lawsText = (laws: Iterable<LawId>): string => Arr.join([...laws], ", ") || "none"
-
-const sameDuplicate = (a: Duplicate, b: Duplicate): boolean =>
-	a.relation === b.relation && a.first === b.first && a.second === b.second
-
-/**
- * Whether a key's refusal is implied by a broken law's: every pair of rows it holds equal, a key of a broken law holds
- * equal too, so a write it refuses breaks that law. A generated UNIQUE that a reference's target needs (a superkey, a
- * selected target's law column) discharges the containment it serves, and refuses only duplicates of the relation's
- * own key.
- */
-const impliedBy = (
-	v: NativeViolation,
-	refused: ReadonlyArray<NativeViolation>,
-	broken: ReadonlySet<LawId>
-): boolean =>
-	v.duplicates.length > 0 &&
-	Arr.every(v.duplicates, (d) =>
-		Arr.some(
-			refused,
-			(w) =>
-				w !== v &&
-				Arr.some(w.laws, (law) => broken.has(law)) &&
-				Arr.some(w.duplicates, (e) => sameDuplicate(d, e))
-		)
-	)
 
 /**
  * One state judged: every law it breaks is refused by a constraint discharging that law, and every constraint it
@@ -214,7 +247,7 @@ const judgeState = <F extends string>(
 	state: State,
 	c: Case<F | Verdict>
 ): ReadonlySet<LawId> => {
-	const broken = brokenIn(installed, on, state)
+	const broken = brokenIn(installed, state)
 	const native = nativeState(on, state)
 	const refused = stateViolations(installed.installation, native)
 	for (const law of broken) {
@@ -227,15 +260,10 @@ const judgeState = <F extends string>(
 		)
 	}
 	for (const v of refused) {
-		const own = Arr.some(v.laws, (law) => broken.has(law))
-		const implied = !own && impliedBy(v, refused, broken)
 		assert.ok(
-			own || implied,
+			Arr.some(v.laws, (law) => broken.has(law)),
 			`the ${v.kind} ${v.constraint} refuses the state, and none of its laws (${lawsText(v.laws)}) is broken; the laws broken: ${lawsText(broken)}`
 		)
-		if (implied) {
-			c.note("a key refusal a broken key implies")
-		}
 		c.note(`refused by ${v.kind}`)
 	}
 	c.note(refused.length === 0 ? "accepted" : "refused")
@@ -261,7 +289,7 @@ const judgeTransaction = <F extends string>(
 	c: Case<F | Verdict>
 ): void => {
 	const after = Arr.reduce(writes, before, appliedWrite)
-	const lawful = brokenIn(installed, on, after).size === 0
+	const lawful = brokenIn(installed, after).size === 0
 	for (const order of ordersOf(installed.installation, writes)) {
 		const sent = Arr.join(
 			Arr.map(order, (w) => `${w.kind} ${w.relation}`),
@@ -284,14 +312,14 @@ const judgeTransaction = <F extends string>(
 						", "
 					)}`
 				)
-				const at =
+				const moment =
 					verdict.at.kind === "commit"
 						? after
 						: Arr.reduce(order.slice(0, verdict.at.index + 1), before, appliedWrite)
-				const broken = brokenIn(installed, on, at)
+				const broken = brokenIn(installed, moment)
 				for (const v of verdict.violations) {
 					assert.ok(
-						Arr.some(v.laws, (law) => broken.has(law)) || impliedBy(v, verdict.violations, broken),
+						Arr.some(v.laws, (law) => broken.has(law)),
 						`a transaction sent as ${sent} is refused by the ${v.kind} ${v.constraint}, none of whose laws is broken there`
 					)
 				}
@@ -330,219 +358,617 @@ const judgeWrites = <F extends string>(
 	}
 }
 
-/** The value a box gives a field it does not vary. */
-const FIXED: Readonly<Record<string, Row>> = {
-	Owner: { id: 0, rank: 0, live: true, slots: 0 },
-	Item: { id: 0, owner: 0, code: 0, live: true, at: 0 },
-	Profile: { owner: 0 },
-	Seat: { owner: 0 }
-}
-
-type Value = number | boolean
-
-/** The values a box gives each field it varies. */
-const VALUES: Readonly<Record<string, Readonly<Record<string, NonEmptyReadonlyArray<Value>>>>> = {
-	Owner: { id: [0, 1], rank: [0, 1], live: [true, false], slots: [0, 1] },
-	Item: { owner: [0, 1], code: [0, 1], live: [true, false], at: [0, 1, 2] },
-	Profile: { owner: [0, 1] },
-	Seat: { owner: [0, 1] }
-}
-
-/** The natural fields' box reaches below zero, where the contract refuses, and pred is undefined. */
-const NATURAL_VALUES: Readonly<
-	Record<string, Readonly<Record<string, NonEmptyReadonlyArray<Value>>>>
-> = { Owner: { slots: [-1, 0] }, Item: { at: [-1, 0, 1] } }
-
-/** How many rows a box holds of each relation: at most two owners and three of every other relation. */
-const ROWS: Readonly<Record<string, number>> = { Owner: 2, Item: 3, Profile: 2, Seat: 2 }
-
-/** A relation's box: the fields it varies with their values, and how many rows it holds. */
-interface RelationBox {
-	readonly relation: string
-	readonly varies: ReadonlyArray<readonly [field: string, values: NonEmptyReadonlyArray<Value>]>
-	readonly rows: number
-}
-
-/** The fields a rule's sides and checks read, by relation. */
-const readsOf = (laws: ReadonlyArray<Law>): ReadonlyMap<string, ReadonlySet<string>> => {
-	const reads = new Map<string, Set<string>>()
-	const add = (relation: string, fields: ReadonlyArray<string>) => {
-		const of = reads.get(relation) ?? new Set<string>()
-		for (const field of fields) {
-			of.add(field)
-		}
-		reads.set(relation, of)
-	}
-	for (const law of laws) {
-		const sides =
-			law.kind === "key" ? [law.side] : law.kind === "check" ? [] : [law.left, law.right]
-		for (const side of sides) {
-			add(side.relation, [
-				...Arr.map(side.terms, (t) => t.field),
-				...(side.where._tag === "Some" ? phiFields(side.where.value) : [])
-			])
-		}
-		if (law.kind === "check") {
-			add(law.relation, phiFields(law.phi))
-		}
-	}
-	return reads
-}
-
-/**
- * A rule's box: each relation its laws read, varying exactly the fields they read (an Owner its id besides), every
- * other field fixed; the natural-fields rule varies each natural field below zero, and mirrors over Item's ids lets a
- * Profile name any of the three.
- */
-const boxOf = (r: Rule): ReadonlyArray<RelationBox> => {
-	const reads =
-		r.rule === "natural fields"
-			? new Map([
-					["Owner", new Set(["slots"])],
-					["Item", new Set(["at"])]
-				])
-			: readsOf(lawsOf(r))
-	return Arr.map([...reads], ([relation, fields]): RelationBox => {
-		const domain =
-			r.rule === "natural fields" ? (NATURAL_VALUES[relation] ?? {}) : (VALUES[relation] ?? {})
-		const varied = relation === "Owner" ? new Set([...fields, "id"]) : fields
-		return {
-			relation,
-			varies: Arr.flatMap([...varied], (field) => {
-				const values =
-					r.rule === "mirrors over a selected side" && relation === "Profile"
-						? [0, 1, 2]
-						: domain[field]
-				return values === undefined || (field === "id" && relation === "Item")
-					? []
-					: [[field, nonEmpty([...values])] as const]
-			}),
-			rows:
-				r.rule === "mirrors over a selected side" && relation === "Profile"
-					? 3
-					: (ROWS[relation] ?? 0)
-		}
-	})
-}
-
-/** Every row a box's relation may hold, each varied field at each of its values, every other at its fixed value. */
-const universeOf = (box: RelationBox): ReadonlyArray<Row> =>
-	Arr.reduce(box.varies, [FIXED[box.relation] ?? {}], (rows, [field, values]) =>
-		Arr.flatMap(rows, (row) => Arr.map(values, (v): Row => ({ ...row, [field]: v })))
-	)
-
-/**
- * A box's rows of one relation. Item's ids are its rows' positions, so its states are the multisets of its varied
- * fields, and its last row may repeat the first's id, the primary key's breach; every other relation's states are the
- * sets of its universe's rows, an Owner's primary key breached by two rows of one id.
- */
-const boxRowsGen = (box: RelationBox): Gen<ReadonlyArray<Row>> => {
-	const universe = universeOf(box)
-	if (box.relation !== "Item") {
-		return subset(universe, { min: 0, max: box.rows })
-	}
-	return (source) => {
-		const at = source.draw(nondecreasing(0, universe.length - 1, { min: 0, max: box.rows }))
-		const repeated = at.length >= 2 && source.draw(boolean)
-		return Arr.map(at, (u, i): Row => ({
-			...universe[u],
-			id: repeated && i === at.length - 1 ? 0 : i
-		}))
+/** A row's twin: the same row with one field changed, which a put of its key writes in its place. */
+const twinOf = (row: Row, field: string): Row => {
+	const v = row[field]
+	return {
+		...row,
+		[field]:
+			typeof v === "boolean"
+				? !v
+				: typeof v === "number"
+					? v + 1
+					: v === undefined
+						? 0
+						: { start: v.start + 1, end: v.end + 1 }
 	}
 }
 
-const boxStateGen =
-	(boxes: ReadonlyArray<RelationBox>): Gen<State> =>
-	(source) =>
-		Rec.fromEntries(Arr.map(boxes, (box) => [box.relation, source.draw(boxRowsGen(box))]))
+/** The fields outside a relation's primary key: the ones a put may change. */
+const payloadOf = (on: Relations, relation: string): ReadonlyArray<string> => {
+	const spec = on[relation]
+	return spec === undefined
+		? []
+		: Arr.flatMap(spec.fields, ([field]) => (spec.key.includes(field) ? [] : [field]))
+}
 
-const live: Phi = { kind: "is", field: "live", value: true }
-const coded: Phi = { kind: "compare", op: "gt", field: "code", value: 0 }
-
-/** Each rule with the selections the box draws it with: a boolean field, comparisons, connectives, BETWEEN and IN. */
-const BOX_RULES: NonEmptyReadonlyArray<Rule> = [
-	{ rule: "a key over fields" },
-	...Arr.map(
-		[
-			live,
-			coded,
-			{ kind: "and", left: live, right: coded },
-			{ kind: "or", left: live, right: { kind: "compare", op: "eq", field: "code", value: 0 } },
-			{ kind: "not", arg: { kind: "compare", op: "eq", field: "code", value: 1 } }
-		] satisfies ReadonlyArray<Phi>,
-		(phi): Rule => ({ rule: "a key over a selected side", phi })
-	),
-	{ rule: "a key over a pred term" },
-	...Arr.map(
-		[
-			live,
-			{ kind: "compare", op: "ge", field: "at", value: 2 },
-			{ kind: "in", field: "at", values: [0, 2] }
-		] satisfies ReadonlyArray<Phi>,
-		(phi): Rule => ({ rule: "a key over a selected pred term", phi })
-	),
-	{ rule: "a containment" },
-	{ rule: "a containment into a superkey" },
-	...Arr.map(
-		[
-			live,
-			coded,
-			{ kind: "fields", op: "lt", left: "code", right: "owner" }
-		] satisfies ReadonlyArray<Phi>,
-		(phi): Rule => ({ rule: "a containment from a selected side", phi })
-	),
-	...Arr.map(
-		[
-			live,
-			{ kind: "compare", op: "gt", field: "rank", value: 0 },
-			{ kind: "or", left: live, right: { kind: "compare", op: "gt", field: "rank", value: 0 } },
-			{ kind: "and", left: { kind: "compare", op: "eq", field: "rank", value: 1 }, right: live }
-		] satisfies ReadonlyArray<Phi>,
-		(psi): Rule => ({ rule: "a containment into a selected side", psi })
-	),
-	...Arr.map(
-		[live, { kind: "compare", op: "gt", field: "rank", value: 0 }] satisfies ReadonlyArray<Phi>,
-		(psi): Rule => ({ rule: "a containment between selected sides", phi: live, psi })
-	),
-	{ rule: "a closure under pred" },
-	...Arr.map(
-		[live, { kind: "between", field: "at", low: 0, high: 1 }] satisfies ReadonlyArray<Phi>,
-		(phi): Rule => ({ rule: "a closure under pred over a selected side", phi })
-	),
-	{ rule: "a cycle" },
-	{ rule: "mirrors over whole relations" },
-	...Arr.map([live, coded] satisfies ReadonlyArray<Phi>, (phi): Rule => ({
-		rule: "mirrors over a selected side",
-		phi
-	})),
-	...Arr.map(
-		[
-			coded,
-			{ kind: "or", left: live, right: { kind: "compare", op: "eq", field: "code", value: 0 } },
-			{ kind: "between", field: "at", low: 0, high: 1 }
-		] satisfies ReadonlyArray<Phi>,
-		(phi): Rule => ({ rule: "a row check", phi })
-	),
-	{ rule: "natural fields" }
+/** A put of one row's twin at its key: a DELETE and an INSERT of its table, which a reference into it sees in passing. */
+const putOf = (relation: string, row: Row, field: string): ReadonlyArray<Write> => [
+	{ kind: "delete", relation, rows: [row] },
+	{ kind: "insert", relation, rows: [twinOf(row, field)] }
 ]
 
-/** A box case: one rule, with its selections, and one state of its box. */
-interface BoxCase {
-	readonly rule: Rule
-	readonly state: State
+/** Every put on a lawful state: each row of each relation replaced by its twin at each field outside its key. */
+const judgePuts = <F extends string>(
+	installed: Installed,
+	on: Relations,
+	state: State,
+	c: Case<F | Verdict>
+): void => {
+	for (const relation of Rec.keys(on)) {
+		for (const row of state[relation] ?? []) {
+			for (const field of payloadOf(on, relation)) {
+				judgeTransaction(installed, on, state, putOf(relation, row, field), c)
+				c.note("a put")
+			}
+		}
+	}
 }
 
-const boxGen: Gen<BoxCase> = (source) => {
-	const rule = source.draw(element(BOX_RULES))
-	return { rule, state: source.draw(boxStateGen(boxOf(rule))) }
+/**
+ * A put on a lawful state: one row, drawn, replaced by its twin at the same key, as one DELETE and one INSERT of its
+ * table, which a reference into that table sees in passing.
+ */
+const judgePut = <F extends string>(
+	installed: Installed,
+	on: Relations,
+	state: State,
+	c: Case<F | Verdict>
+): void => {
+	const puttable = Arr.filter(
+		Rec.keys(on),
+		(relation) => (state[relation] ?? []).length > 0 && payloadOf(on, relation).length > 0
+	)
+	if (!Arr.isReadonlyArrayNonEmpty(puttable)) {
+		return
+	}
+	const relation = c.draw(element(puttable))
+	const row = c.draw(element(nonEmpty([...(state[relation] ?? [])])))
+	const field = c.draw(element(nonEmpty([...payloadOf(on, relation)])))
+	judgeTransaction(installed, on, state, putOf(relation, row, field), c)
+	c.note("a put")
 }
 
 type RuleFeature = RuleKind | Verdict
 
 const boxLiteral = (b: BoxCase): string => `${ruleText(b.rule)}: ${Formatter.format(b.state)}`
 
-/** The box's size, counted by the library. */
-const BOX_CASES = 60_000
+/** The box's size, counted by the library's own enumeration. */
+const BOX_CASES = 9_016
+
+/** The oracle of the state and transaction suites: the laws' meaning, read from each statement by the host. */
+const HOST_ORACLE: Oracle = {
+	kind: "second-implementation",
+	name: "the host law model's violation of each law, over the states the native model evaluates the installed natives on"
+}
+
+/** The oracle of the fin suites: the family theorem's model of the lowering, beside the host law model. */
+const FAMILY_ORACLE: Oracle = {
+	kind: "specification",
+	name: "the family theorem and its constraints (test/support/families/theorem.ts), and the host law model"
+}
+
+/** The oracle of grizzle's own families: the family model, which states each constraint's moment, and the theorem. */
+const LEMMA_ORACLE: Oracle = {
+	kind: "specification",
+	name: "the family model's run of each transaction and its constraints (test/support/families/mutate.ts, theorem.ts)"
+}
+
+const spanInstalled = (r: SpanRule): Installed =>
+	installedOf(spanRuleText(r), SPAN_RELATIONS, spanLawsOf(r))
+
+type SpanFeature = SpanRuleKind | Verdict
+
+const spanLiteral = (b: SpanBoxCase): string =>
+	`${spanRuleText(b.rule)}: ${Formatter.format(b.state)}`
+
+type ExploredFeature = RuleKind | Verdict | Variant
+
+const exploredLiteral = (e: Explored): string =>
+	`${Arr.join(Arr.map(e.rules, ruleText), " + ")}: ${Formatter.format(e.state)}`
+
+/** The relations of the fin lemma's lowering in today's language: an owner counting its family's rows. */
+const FIN: Relations = {
+	O: {
+		fields: [
+			["id", "int"],
+			["n", "natural"],
+			["live", "boolean"]
+		],
+		key: ["id"]
+	},
+	F: {
+		fields: [
+			["id", "int"],
+			["g", "int"],
+			["at", "natural"],
+			["n", "natural"]
+		],
+		key: ["id"]
+	}
+}
+
+const g = fieldTerm("g")
+const at = fieldTerm("at")
+const n = fieldTerm("n")
+const below: Phi = { kind: "fields", op: "lt", left: "at", right: "n" }
+
+/**
+ * The fin lemma's four constraints stated as laws, each with the family theorem's name for the constraint that holds
+ * it: the slot key (g, at); the copy of the owner's count, (g, n) ⊆ O(id, n); the bound at < n; the last slot,
+ * O(id, pred(n)) ⊆ F(g, at); and the closure below the copy, F(g, pred(at)) where at < n ⊆ F(g, at).
+ */
+const FIN_LAWS: ReadonlyArray<readonly [Constraint, Law]> = [
+	["key", { kind: "key", side: over("F", [g, at]) }],
+	["copy", { kind: "contained", left: over("F", [g, n]), right: over("O", [fieldTerm("id"), n]) }],
+	["bound", { kind: "check", name: "bound", relation: "F", phi: below }],
+	[
+		"last",
+		{
+			kind: "contained",
+			left: over("O", [fieldTerm("id"), predTerm("n")]),
+			right: over("F", [g, at])
+		}
+	],
+	[
+		"closure",
+		{
+			kind: "contained",
+			left: overWhere("F", [g, predTerm("at")], below),
+			right: over("F", [g, at])
+		}
+	]
+]
+
+const finInstalled = (): Installed =>
+	installedOf(
+		"the fin lemma",
+		FIN,
+		Arr.map(FIN_LAWS, ([, law]) => law)
+	)
+
+/** A family state as the two relations store it: each owner with its count, each row with its group, index and copy. */
+const finState = (stored: Stored): State => ({
+	O: Arr.map([...stored.owners], ([id, count]): Row => ({ id, n: count, live: true })),
+	F: Arr.map(stored.rows, (r): Row => ({ id: r.member, g: r.group, at: r.at, n: r.copy }))
+})
+
+/** The law of each constraint the family theorem names: its identity is the family relation's primary key. */
+const finLawOf = (installed: Installed): ((constraint: Constraint) => LawId) => {
+	const laws = installed.schema.statementLaws
+	return (constraint) => {
+		if (constraint === "identity") {
+			return installed.schema.primaryKey("F")
+		}
+		const position = Arr.findFirstIndex(FIN_LAWS, ([name]) => name === constraint)
+		const law = Option.flatMap(position, (i) => Option.fromNullishOr(laws[i]?.[0]))
+		if (Option.isNone(law)) {
+			throw new Error(`the fin lemma states no law for the ${constraint} constraint`)
+		}
+		return law.value
+	}
+}
+
+type FinFeature =
+	| Verdict
+	| "the theorem holds"
+	| `breach ${Breach["kind"]}`
+	| `violates ${Constraint}`
+
+/**
+ * A family state judged three ways: the host law model's broken laws are exactly the laws of the constraints the
+ * family theorem's own model of the lowering finds broken, and the native model refuses them as the state judge
+ * requires; where every copy is its owner's count, the installation accepts exactly the states the theorem holds of.
+ */
+const judgeFamily = (installed: Installed, stored: Stored, c: Case<FinFeature>): void => {
+	const broken = judgeState(installed, FIN, finState(stored), c)
+	const lawOf = finLawOf(installed)
+	const modelled = familyViolations(stored)
+	assert.deepEqual(
+		new Set(Arr.map(modelled, (v) => lawOf(v.constraint))),
+		new Set(broken),
+		"the laws the host breaks are the laws of the constraints the family model breaks"
+	)
+	for (const v of modelled) {
+		c.note(`violates ${v.constraint}`)
+	}
+	const breaches = breachesOf(stored)
+	for (const b of breaches) {
+		c.note(`breach ${b.kind}`)
+	}
+	const copied = Arr.every(stored.rows, (r) => stored.owners.get(r.group) === r.copy)
+	const members = new Set(Arr.map(stored.rows, (r) => r.member))
+	if (copied && members.size === stored.rows.length) {
+		assert.equal(
+			broken.size === 0,
+			breaches.length === 0,
+			"where every copy is its owner's count, the installation accepts exactly the families the theorem holds of"
+		)
+	}
+	if (Result.isSuccess(theorem(stored))) {
+		c.note("the theorem holds")
+	}
+}
+
+const programs: Gen<Program> = (source) =>
+	source.draw(
+		programGen(source.draw(element(SHAPES)), {
+			families: { owners: { min: 0, max: 2 }, long: { min: 3, max: 4 } },
+			steps: { min: 1, max: 6 }
+		})
+	)
+
+/** A family's lowering as the native model reads it: its installation and the drawn columns its rows write. */
+interface FamilyInstalled {
+	readonly installation: NativeInstallation
+	/** The member's index: its field when ordered, the drawn ‹i› when counted. */
+	readonly index: string
+	/** ‹n›, the owner's count each member copies. */
+	readonly copy: string
+}
+
+const familyInstallations = new Map<Shape, FamilyInstalled>()
+
+/**
+ * grizzle's own family, ordered or counted: Owner(id, n) counts its members Member(id, g), ordered(on(Member, g, at),
+ * fin(Owner, n)) or counted(on(Member, g), fin(Owner, n)), n and an ordered member's at drawn naturals.
+ */
+const familyInstalled = (shape: Shape): FamilyInstalled => {
+	const known = familyInstallations.get(shape)
+	if (known !== undefined) {
+		return known
+	}
+	const desc: SchemaDesc = {
+		name: "Natives",
+		relations: [
+			descRelation("Owner", { id: f.integer, n: f.drawn }, ["id"]),
+			descRelation(
+				"Member",
+				shape === "ordered"
+					? { id: f.integer, g: f.integer, at: f.drawn }
+					: { id: f.integer, g: f.integer },
+				["id"]
+			)
+		],
+		statements: [
+			shape === "ordered"
+				? ordered(on("Member", ["g", "at"]), fin("Owner", "n"))
+				: counted(on("Member", ["g"]), fin("Owner", "n"))
+		],
+		extends: undefined
+	}
+	const model = lawNamesOf(desc).model
+	const installation = nativeInstallation(model)
+	if (Result.isFailure(installation)) {
+		throw new Error(
+			`the native model does not evaluate the ${shape} family: ${Formatter.format(installation.failure)}`
+		)
+	}
+	const [family, ...more] = model.families
+	if (family === undefined || more.length > 0) {
+		throw new Error(`the ${shape} family's schema holds one family, not ${model.families.length}`)
+	}
+	const made = {
+		installation: installation.success,
+		index: family.index.kind === "field" ? family.index.field.name : family.index.column,
+		copy: family.copy
+	}
+	familyInstallations.set(shape, made)
+	return made
+}
+
+const int = (n: number): bigint => BigInt(n)
+
+/** A family state as its two tables store it, each member writing its group, its index and its copy of the count. */
+const familyNative = (fam: FamilyInstalled, stored: Stored): NativeState =>
+	new Map([
+		[
+			"Owner",
+			Arr.map(
+				[...stored.owners],
+				([id, count]): NativeRow =>
+					new Map([
+						["id", int(id)],
+						["n", int(count)]
+					])
+			)
+		],
+		[
+			"Member",
+			Arr.map(
+				stored.rows,
+				(r): NativeRow =>
+					new Map([
+						["id", int(r.member)],
+						["g", int(r.group)],
+						[fam.index, int(r.at)],
+						[fam.copy, int(r.copy)]
+					])
+			)
+		]
+	])
+
+const numberAt = (row: NativeRow, column: string): number => {
+	const v = row.get(column)
+	if (typeof v !== "bigint") {
+		throw new Error(`a family row holds no integer at ${column}`)
+	}
+	return Number(v)
+}
+
+/** A stored family state read back from its tables. */
+const familyStored = (fam: FamilyInstalled, state: NativeState): Stored => ({
+	owners: new Map(
+		Arr.map(state.get("Owner") ?? [], (row) => [numberAt(row, "id"), numberAt(row, "n")] as const)
+	),
+	rows: Arr.map(state.get("Member") ?? [], (row): FamilyRow => ({
+		group: numberAt(row, "g"),
+		at: numberAt(row, fam.index),
+		copy: numberAt(row, fam.copy),
+		member: numberAt(row, "id")
+	}))
+})
+
+/** A family statement as SQL over the two tables: a count's update cascades into the copies along the owner axis. */
+const familyStatement = (fam: FamilyInstalled, statement: FamilyStatement): NativeStatement => {
+	const keyed = (id: number): NativeMatch => new Map([["id", int(id)]])
+	switch (statement.kind) {
+		case "create":
+			return {
+				kind: "insert",
+				relation: "Owner",
+				rows: [
+					new Map([
+						["id", int(statement.owner)],
+						["n", int(statement.count)]
+					])
+				]
+			}
+		case "drop":
+			return { kind: "delete", relation: "Owner", where: [keyed(statement.owner)] }
+		case "count":
+			return {
+				kind: "update",
+				relation: "Owner",
+				where: keyed(statement.owner),
+				set: new Map([["n", int(statement.count)]])
+			}
+		case "insert":
+			return {
+				kind: "insert",
+				relation: "Member",
+				rows: Arr.map(
+					statement.rows,
+					(r): NativeRow =>
+						new Map([
+							["id", int(r.member)],
+							["g", int(r.group)],
+							[fam.index, int(r.at)],
+							[fam.copy, int(r.copy)]
+						])
+				)
+			}
+		case "delete":
+			return { kind: "delete", relation: "Member", where: Arr.map(statement.members, keyed) }
+		case "move":
+			return {
+				kind: "update",
+				relation: "Member",
+				where: keyed(statement.member),
+				set: new Map([[fam.index, int(statement.at)]])
+			}
+	}
+}
+
+/**
+ * The family theorem's name for the constraint a native violation reports: the member's key is its identity, its
+ * UNIQUE the slot key, its CHECK the bound, and its three foreign keys the owner, last and predecessor axes. The
+ * owner's own keys hold whatever a family writes, so they have no name there.
+ */
+const lemmaName = (k: NativeConstraint): string => {
+	switch (k.kind) {
+		case "PrimaryKey":
+			return k.relation === "Member" ? "identity" : "the owner's key"
+		case "Unique":
+			return k.relation === "Member" ? "key" : "the owner's key"
+		case "TableCheck":
+			return "bound"
+		case "ForeignKey":
+			return k.relation === "Member" ? (k.target === "Owner" ? "copy" : "closure") : "last"
+		case "WithoutOverlaps":
+		case "PeriodForeignKey":
+		case "Domain":
+			return k.kind
+	}
+}
+
+const constraintOf = (v: NativeViolation, constraints: ReadonlyArray<NativeConstraint>): string => {
+	const k = Arr.findFirst(constraints, (c) => c.name === v.constraint)
+	if (Option.isNone(k)) {
+		throw new Error(`a violation of ${v.constraint}, which the installation does not hold`)
+	}
+	return lemmaName(k.value)
+}
+
+const sortedRows = (stored: Stored): ReadonlyArray<string> =>
+	Arr.sort(
+		[
+			...Arr.map([...stored.owners], ([o, n]) => `owner ${o} ${n}`),
+			...Arr.map(stored.rows, (r) => `row ${r.member} ${r.group} ${r.at} ${r.copy}`)
+		],
+		(a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+	)
+
+type FamilyFeature =
+	| Shape
+	| "committed"
+	| "refused at a statement"
+	| "refused at commit"
+	| `refused by ${Constraint}`
+	| "a count's cascade"
+	| "an unrestricted closure beside the bound"
+	| "the theorem holds"
+	| `breach ${Breach["kind"]}`
+
+/**
+ * The constraints the installation breaks against the family model's: the laws they report are exactly the laws of the
+ * lemma's constraints the model finds broken, and the installation breaks every one of those. The lemma restricts its
+ * closure to indices below the copy, which the bound makes vacuous for a family that mirrors its slots (fin.md §5.2), so
+ * the installation's closure, unrestricted, may refuse a row beyond the count too, and only where the bound does.
+ */
+const judgeBroken = (
+	fam: FamilyInstalled,
+	broken: ReadonlyArray<NativeViolation>,
+	modelled: ReadonlyArray<Constraint>,
+	c: Case<FamilyFeature>
+): void => {
+	const constraints = fam.installation.constraints
+	const names = new Set(Arr.map(broken, (v) => constraintOf(v, constraints)))
+	const lawsOfName = (name: string): ReadonlyArray<LawId> =>
+		Arr.flatMap(constraints, (k) => (lemmaName(k) === name ? k.laws : []))
+	assert.deepEqual(
+		new Set(Arr.flatMap(broken, (v) => v.laws)),
+		new Set(Arr.flatMap(modelled, lawsOfName)),
+		"the installation's refusals report the laws of the constraints the family model breaks"
+	)
+	for (const name of modelled) {
+		assert.ok(
+			names.has(name),
+			`the installation breaks the ${name} constraint the family model breaks`
+		)
+	}
+	const extra = Arr.filter([...names], (name) => !Arr.some(modelled, (m) => m === name))
+	if (extra.length > 0) {
+		assert.deepEqual(
+			extra,
+			["closure"],
+			"beyond the family model's, the installation breaks its unrestricted closure alone"
+		)
+		assert.ok(
+			Arr.some(modelled, (m) => m === "bound"),
+			"and only where the bound refuses the row"
+		)
+		c.note("an unrestricted closure beside the bound")
+	}
+}
+
+/**
+ * One transaction of family statements, run on grizzle's installation by the native model and by the family model
+ * (test/support/families/mutate.ts run), which states when PostgreSQL checks each of the lemma's constraints: both
+ * commit, to one state, or both refuse at one statement or at COMMIT, with one set of constraints broken there.
+ */
+const judgeFamilyTransaction = (
+	shape: Shape,
+	before: Families,
+	statements: ReadonlyArray<FamilyStatement>,
+	c: Case<FamilyFeature>
+): void => {
+	const fam = familyInstalled(shape)
+	const expected = run(shape, before, statements)
+	const verdict = transact(
+		fam.installation,
+		familyNative(fam, storedOf(before)),
+		Arr.map(statements, (st) => familyStatement(fam, st))
+	)
+	c.note(shape)
+	if (Arr.some(statements, (st) => st.kind === "count")) {
+		c.note("a count's cascade")
+		c.pair(shape, "a count's cascade")
+	}
+	switch (expected.kind) {
+		case "committed":
+			assertVariant(
+				verdict,
+				"kind",
+				"committed",
+				"the installation commits what the family model commits"
+			)
+			assert.deepEqual(
+				sortedRows(familyStored(fam, verdict.state)),
+				sortedRows(storedOf(expected.after)),
+				"to the families the family model commits to"
+			)
+			c.note("committed")
+			return
+		case "refused": {
+			assertVariant(
+				verdict,
+				"kind",
+				"refused",
+				"the installation refuses what the family model refuses"
+			)
+			assert.deepEqual(
+				verdict.at,
+				expected.moment.kind === "commit"
+					? { kind: "commit" }
+					: { kind: "statement", index: expected.moment.index },
+				"at the moment the family model refuses it"
+			)
+			judgeBroken(
+				fam,
+				verdict.violations,
+				Arr.map(expected.violations, (v) => v.constraint),
+				c
+			)
+			for (const v of expected.violations) {
+				c.note(`refused by ${v.constraint}`)
+				c.pair(shape, `refused by ${v.constraint}`)
+			}
+			c.note(expected.moment.kind === "commit" ? "refused at commit" : "refused at a statement")
+		}
+	}
+}
+
+/**
+ * A family state judged on grizzle's installation: the constraints it breaks are exactly the family model's, and,
+ * where every copy is its owner's count, it is accepted exactly when the theorem holds.
+ */
+const judgeFamilyState = (shape: Shape, stored: Stored, c: Case<FamilyFeature>): void => {
+	const fam = familyInstalled(shape)
+	const broken = stateViolations(fam.installation, familyNative(fam, stored))
+	judgeBroken(
+		fam,
+		broken,
+		Arr.map(familyViolations(stored), (v) => v.constraint),
+		c
+	)
+	const breaches = breachesOf(stored)
+	for (const b of breaches) {
+		c.note(`breach ${b.kind}`)
+	}
+	const copied = Arr.every(stored.rows, (r) => stored.owners.get(r.group) === r.copy)
+	if (copied && new Set(Arr.map(stored.rows, (r) => r.member)).size === stored.rows.length) {
+		assert.equal(
+			broken.length === 0,
+			breaches.length === 0,
+			"where every copy is its owner's count, the installation accepts exactly the families the theorem holds of"
+		)
+	}
+	if (breaches.length === 0) {
+		c.note("the theorem holds")
+	}
+	c.note(shape)
+}
+
+const familyBoxGen: Gen<readonly [Shape, Stored]> = (source) => [
+	source.draw(element(SHAPES)),
+	source.draw(finBoxGen)
+]
+
+const VERDICTS: NonEmptyReadonlyArray<Verdict> = [
+	"accepted",
+	"refused",
+	"refused by PrimaryKey",
+	"refused by Unique",
+	"refused by ForeignKey",
+	"refused by TableCheck",
+	"refused by Domain",
+	"refused at a statement",
+	"refused at commit",
+	"rows a NULL holds apart",
+	"a reference a NULL skips",
+	"a removal"
+]
 
 describe("the native constraints grizzle installs", () => {
 	it.effect(
@@ -555,28 +981,10 @@ describe("the native constraints grizzle installs", () => {
 						suite: "unit/laws/native/box",
 						generator: boxGen,
 						literal: boxLiteral,
-						/**
-						 * A proof inside the box: every rule of the partial-projection lowering with each of its selections, over
-						 * every state of at most two Owner rows and three of every other relation, each varying exactly the
-						 * fields its laws read over two or three values (Item's ids its positions, its last row may repeat the
-						 * first's), every other field fixed.
-						 */
 						limit: BOX_CASES,
-						coverage: requiredInSpace<RuleFeature>([
-							...RULE_KINDS,
-							"accepted",
-							"refused",
-							"refused by PrimaryKey",
-							"refused by Unique",
-							"refused by ForeignKey",
-							"refused by TableCheck",
-							"refused by Domain",
-							"refused at a statement",
-							"refused at commit",
-							"rows a NULL holds apart",
-							"a reference a NULL skips",
-							"a removal"
-						]),
+						box: "every rule of the partial-projection lowering with each of its selections, over every state of at most two Owner rows and three of every other relation, each varying the fields its laws read over two or three values",
+						oracle: HOST_ORACLE,
+						coverage: requiredInSpace<RuleFeature>([...RULE_KINDS, ...VERDICTS, "a put"]),
 						caseHang
 					},
 					(b, c) =>
@@ -585,6 +993,293 @@ describe("the native constraints grizzle installs", () => {
 							const installed = installedRules([b.rule])
 							const broken = judgeState(installed, relations, b.state, c)
 							judgeWrites(installed, relations, b.state, broken.size === 0, c)
+							if (broken.size === 0) {
+								judgePuts(installed, relations, b.state, c)
+							}
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"accept a drawn schema's states exactly when its laws hold, over selections of the whole predicate language, puts included",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/laws/native/explored",
+						draw: drawn(exploredGen),
+						oracle: HOST_ORACLE,
+						literal: exploredLiteral,
+						coverage: required<ExploredFeature>(
+							[
+								...RULE_KINDS,
+								...VERDICTS,
+								"a put",
+								...VARIANTS,
+								...Arr.flatMap(RULE_KINDS, (kind): ReadonlyArray<readonly [RuleKind, Verdict]> =>
+									kind === "natural fields"
+										? []
+										: [
+												[kind, "accepted"],
+												[kind, "refused"]
+											]
+								)
+							],
+							{ cases: 2_000, sense: notesOnly }
+						),
+						kept: [],
+						runs: 1_000,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(e, c) =>
+						Effect.sync(() => {
+							const installed = installedRules(e.rules)
+							for (const variant of e.applied) {
+								c.note(variant)
+							}
+							const broken = judgeState(installed, relations, e.state, c)
+							for (const r of e.rules) {
+								c.note(r.rule)
+								c.pair(r.rule, broken.size === 0 ? "accepted" : "refused")
+							}
+							judgeWrites(installed, relations, e.state, broken.size === 0, c)
+							if (broken.size === 0) {
+								judgePut(installed, relations, e.state, c)
+							}
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"hold the fin lemma's laws exactly as the family theorem's constraints, over every state of one owner's first four slots",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/laws/native/fin-box",
+						generator: finBoxGen,
+						literal: Formatter.format,
+						limit: FIN_BOX_CASES,
+						box: "no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every copy the count",
+						oracle: FAMILY_ORACLE,
+						coverage: requiredInSpace<FinFeature>([
+							"the theorem holds",
+							"breach twice",
+							"breach orphan",
+							"breach beyond",
+							"breach gap",
+							"violates key",
+							"violates bound",
+							"violates copy",
+							"violates last",
+							"violates closure",
+							"refused by ForeignKey",
+							"refused by TableCheck",
+							"refused by Unique",
+							"refused at commit",
+							"refused at a statement",
+							"a removal"
+						]),
+						caseHang
+					},
+					(stored, c) =>
+						Effect.sync(() => {
+							const installed = finInstalled()
+							judgeFamily(installed, stored, c)
+							const state = finState(stored)
+							judgeWrites(installed, FIN, state, brokenIn(installed, state).size === 0, c)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"hold the fin lemma's laws on every state a family program's statements leave, lawful, breaking and misordered",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/laws/native/fin-programs",
+						draw: drawn(programs),
+						oracle: FAMILY_ORACLE,
+						literal: Formatter.format,
+						coverage: required<FinFeature>(
+							[
+								"the theorem holds",
+								"breach twice",
+								"breach orphan",
+								"breach beyond",
+								"breach gap",
+								"violates identity",
+								"violates key",
+								"violates bound",
+								"violates copy",
+								"violates last",
+								"violates closure"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(p, c) => {
+						const installed = finInstalled()
+						const every = (before: Families, statements: ReadonlyArray<FamilyStatement>) =>
+							Effect.sync(() => {
+								for (const stored of Arr.scan(statements, storedOf(before), applied)) {
+									judgeFamily(installed, stored, c)
+								}
+							})
+						return runProgram(
+							machineOf(p.shape, p.families, p.forms),
+							realOf({
+								lawful: (_form, m, before) => every(before, m.statements),
+								breaking: (_form, m, before) => every(before, m.statements),
+								misordered: (m, before) => every(before, m.statements)
+							}),
+							p.steps
+						)
+					}
+				)
+			)
+	)
+	it.effect(
+		"hold grizzle's own families, ordered and counted, as the family theorem's constraints, over every state of one owner's first four slots",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/laws/native/family-box",
+						generator: familyBoxGen,
+						literal: Formatter.format,
+						limit: SHAPES.length * FIN_BOX_CASES,
+						box: "each shape, ordered and counted, with no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every copy the count",
+						oracle: LEMMA_ORACLE,
+						coverage: requiredInSpace<FamilyFeature>([
+							"ordered",
+							"counted",
+							"the theorem holds",
+							"breach twice",
+							"breach orphan",
+							"breach beyond",
+							"breach gap",
+							"an unrestricted closure beside the bound"
+						]),
+						caseHang
+					},
+					([shape, stored], c) => Effect.sync(() => judgeFamilyState(shape, stored, c))
+				)
+			)
+	)
+
+	it.effect(
+		"run every family program's transactions on grizzle's own families as the family model runs them: drawn copies, the count's cascade and each axis's deferral",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/laws/native/family-programs",
+						draw: drawn(programs),
+						oracle: LEMMA_ORACLE,
+						literal: Formatter.format,
+						coverage: required<FamilyFeature>(
+							[
+								"ordered",
+								"counted",
+								"committed",
+								"refused at a statement",
+								"refused at commit",
+								"a count's cascade",
+								"refused by identity",
+								"refused by key",
+								"refused by bound",
+								"refused by copy",
+								"refused by last",
+								"refused by closure",
+								["ordered", "refused by closure"],
+								["counted", "refused by closure"],
+								["ordered", "a count's cascade"],
+								["counted", "a count's cascade"]
+							],
+							{ cases: 400, sense: notesOnly }
+						),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(p, c) => {
+						const every = (before: Families, statements: ReadonlyArray<FamilyStatement>) =>
+							Effect.sync(() => {
+								judgeFamilyTransaction(p.shape, before, statements, c)
+								for (const stored of Arr.scan(statements, storedOf(before), applied)) {
+									judgeFamilyState(p.shape, stored, c)
+								}
+							})
+						return runProgram(
+							machineOf(p.shape, p.families, p.forms),
+							realOf({
+								lawful: (_form, m, before) => every(before, m.statements),
+								breaking: (_form, m, before) => every(before, m.statements),
+								misordered: (m, before) => every(before, m.statements)
+							}),
+							p.steps
+						)
+					}
+				)
+			)
+	)
+	it.effect(
+		"accept every state of a span rule's box exactly when its laws hold: keys WITHOUT OVERLAPS over fields and law columns, and PERIOD foreign keys from and into selected sides",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/laws/native/span-box",
+						generator: spanBoxGen,
+						literal: spanLiteral,
+						limit: SPAN_BOX_CASES,
+						box: "every span rule over at most two rows of Visit and of Shift, each varying the fields its laws read, its owner over two values and its span over two adjacent halves and their whole",
+						oracle: HOST_ORACLE,
+						coverage: requiredInSpace<SpanFeature>([
+							...SPAN_RULE_KINDS,
+							"accepted",
+							"refused",
+							"refused by WithoutOverlaps",
+							"refused by PeriodForeignKey",
+							"refused at a statement",
+							"refused at commit",
+							"a put",
+							"a removal"
+						]),
+						caseHang
+					},
+					(b, c) =>
+						Effect.sync(() => {
+							c.note(b.rule.rule)
+							const installed = spanInstalled(b.rule)
+							const broken = judgeState(installed, SPAN_RELATIONS, b.state, c)
+							judgeWrites(installed, SPAN_RELATIONS, b.state, broken.size === 0, c)
+							if (broken.size === 0) {
+								judgePuts(installed, SPAN_RELATIONS, b.state, c)
+							}
 						})
 				)
 			)

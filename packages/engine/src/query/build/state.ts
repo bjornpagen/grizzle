@@ -1,4 +1,4 @@
-import { binding, handleColumn, type RowDecoder, refuseLayout } from "#compiler/core/decoder.ts"
+import { binding, codeColumn, type RowDecoder, refuseLayout } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties } from "#compiler/core/record.ts"
@@ -226,8 +226,8 @@ const descriptorCarrier = (descriptor: unknown, label: string): Carrier => {
 }
 
 /**
- * The carriers of a stored or closed relation value's heading: each field's descriptor's, and a closed relation's id
- * the handle column of its own roster.
+ * The carriers of a stored or closed relation value's heading: each field's descriptor's, and a roster's id the code
+ * column of the roster itself, read through the installation's names for its codes.
  */
 const relationCarriers = (value: unknown, label: string): Carriers => {
 	const named = namedRelation(value, label)
@@ -236,9 +236,10 @@ const relationCarriers = (value: unknown, label: string): Carriers => {
 		case "derived":
 			return Object.freeze(out)
 		case "relation":
+		case "closedRelation":
 			break
 		case "closed":
-			out["id"] = Object.freeze({ column: handleColumn(named.roster), sql: "enum" })
+			out["id"] = Object.freeze({ column: codeColumn(named.name, named.roster), sql: "code" })
 			break
 	}
 	for (const [field, descriptor] of Object.entries(named.descriptors)) {
@@ -320,12 +321,14 @@ const relationKindOf = (value: Readonly<Record<string, unknown>>): OwnedKind | u
 		return owned
 	}
 	const spelled = value["kind"]
-	return spelled === "relation" || spelled === "closed" ? spelled : undefined
+	return spelled === "relation" || spelled === "closed" || spelled === "closedRelation"
+		? spelled
+		: undefined
 }
 
-/** Whether a relation kind is an ordinary or a closed relation's: none when there is no kind. */
+/** Whether a relation kind is an ordinary relation's, a roster's or a closed relation's: none when there is no kind. */
 const isOrdinaryOrClosed = (kind: OwnedKind | undefined): boolean =>
-	kind === "relation" || kind === "closed"
+	kind === "relation" || kind === "closed" || kind === "closedRelation"
 
 export const sourceInfo = (value: unknown, label: string, env: ScalarEnv): SourceInfo => {
 	if (!hasProperties(value)) {

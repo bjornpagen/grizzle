@@ -10,7 +10,7 @@ import {
 } from "#adapter/wire/batch.ts"
 import * as EngineResult from "#compiler/core/result.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
-import { sameValues } from "#test/pg/laws/families/model.ts"
+import { sameValues } from "#test/support/laws/model.ts"
 import type { HostFact } from "#test/support/worlds/model/types.ts"
 
 /**

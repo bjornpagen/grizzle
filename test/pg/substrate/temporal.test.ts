@@ -21,6 +21,16 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import {
+	covered,
+	INTERVALS,
+	isEmpty,
+	keyRefusal,
+	overlaps,
+	type Row,
+	type Span,
+	SPANS
+} from "#test/pg/substrate/temporal.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -39,83 +49,6 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
 
 /** PostgreSQL's disagreement with the coverage model, with both sides spelt out. */
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
-
-/** A row's span: an interval [lo, hi) of the box's points, empty where lo = hi, or NULL outside φ. */
-type Span =
-	| { readonly kind: "null" }
-	| { readonly kind: "span"; readonly lo: number; readonly hi: number }
-
-/** The box's points. */
-const points = [0, 1, 2, 3] as const
-
-/** Every non-empty interval over the box's points. */
-const INTERVALS: Arr.NonEmptyReadonlyArray<Span> = nonEmpty(
-	Arr.flatMap(points, (lo) =>
-		Arr.map(
-			Arr.filter(points, (hi) => hi > lo),
-			(hi): Span => ({ kind: "span", lo, hi })
-		)
-	)
-)
-
-/** Every span a row of the box may hold: the intervals, an empty one, and NULL. */
-const SPANS: Arr.NonEmptyReadonlyArray<Span> = [
-	...INTERVALS,
-	{ kind: "span", lo: 1, hi: 1 },
-	{ kind: "null" }
-]
-
-const isEmpty = (s: Span): boolean => s.kind === "span" && s.lo === s.hi
-
-const overlaps = (a: Span, b: Span): boolean =>
-	a.kind === "span" && b.kind === "span" && a.lo < b.hi && b.lo < a.hi && !isEmpty(a) && !isEmpty(b)
-
-/** A row of either table: its key and its span. */
-interface Row {
-	readonly k: number
-	readonly span: Span
-}
-
-/** Whether a source row is covered by the target rows: NULL, or non-empty and inside its key's union. */
-const covered = (targets: ReadonlyArray<Row>, source: Row): boolean => {
-	if (source.span.kind === "null") {
-		return true
-	}
-	const { lo, hi } = source.span
-	return (
-		lo < hi &&
-		Arr.every(
-			Arr.filter(indices(hi), (p) => p >= lo),
-			(p) =>
-				Arr.some(
-					targets,
-					(t) => t.k === source.k && t.span.kind === "span" && t.span.lo <= p && p < t.span.hi
-				)
-		)
-	)
-}
-
-/**
- * What the target key does with rows inserted in order: the first row whose span is empty (23514, which PostgreSQL
- * raises with no constraint named: executor/execIndexing.c), or that overlaps an earlier row of its key (23P01, the
- * key's exclusion), or none.
- */
-const keyRefusal = (rows: ReadonlyArray<Row>): Option.Option<"23514" | "23P01"> => {
-	for (const [i, row] of rows.entries()) {
-		if (row.span.kind === "span" && isEmpty(row.span)) {
-			return Option.some("23514")
-		}
-		if (
-			Arr.some(
-				rows.slice(0, i),
-				(earlier) => earlier.k === row.k && overlaps(earlier.span, row.span)
-			)
-		) {
-			return Option.some("23P01")
-		}
-	}
-	return Option.none()
-}
 
 /** The column values of a row, `(id, k, lo, hi, φ)`, a NULL span stored as φ false over a placeholder interval. */
 const valuesOf = (id: number, row: Row): string =>

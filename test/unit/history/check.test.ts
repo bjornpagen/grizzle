@@ -32,6 +32,10 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { assert } from "#test/support/assert.ts"
+import { checkHistory, type History, type Recorded } from "#test/support/history/check.ts"
+import { expectFor, type WriterKind } from "#test/support/history/model.ts"
+import { wild } from "#test/support/kernel/naming.ts"
 import {
 	everyFact,
 	type HostFact,
@@ -40,11 +44,7 @@ import {
 	type HostState,
 	type HostOp,
 	valueText
-} from "#test/pg/laws/families/model.ts"
-import { assert } from "#test/support/assert.ts"
-import { checkHistory, type History, type Recorded } from "#test/support/history/check.ts"
-import { expectFor, type WriterKind } from "#test/support/history/model.ts"
-import { wild } from "#test/support/kernel/naming.ts"
+} from "#test/support/laws/model.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /** The host model's own label for its one law, never compared with a production name. */
@@ -169,21 +169,21 @@ const recordedOf = (
 				return {
 					...head,
 					kind: "grizzle",
-					outcome: { kind: "invariant-rejected", law, keys: witnessOf("grizzle", [op]) },
+					outcome: { kind: "invariant-rejected", laws: [law], keys: witnessOf("grizzle", [op]) },
 					transients: []
 				}
 			case "rejected, another key":
 				return {
 					...head,
 					kind: "grizzle",
-					outcome: { kind: "invariant-rejected", law, keys: anotherKey },
+					outcome: { kind: "invariant-rejected", laws: [law], keys: anotherKey },
 					transients: []
 				}
 			case "rejected, no key":
 				return {
 					...head,
 					kind: "grizzle",
-					outcome: { kind: "invariant-rejected", law, keys: [] },
+					outcome: { kind: "invariant-rejected", laws: [law], keys: [] },
 					transients: []
 				}
 		}
@@ -192,12 +192,16 @@ const recordedOf = (
 		case "accepted":
 			return { ...head, kind: "direct", outcome: { kind: "accepted" } }
 		case "rejected":
-			return { ...head, kind: "direct", outcome: { kind: "invariant-rejected", law, keys: [] } }
+			return {
+				...head,
+				kind: "direct",
+				outcome: { kind: "invariant-rejected", laws: [law], keys: [] }
+			}
 		case "rejected, a key":
 			return {
 				...head,
 				kind: "direct",
-				outcome: { kind: "invariant-rejected", law, keys: witnessOf("grizzle", [op]) }
+				outcome: { kind: "invariant-rejected", laws: [law], keys: witnessOf("grizzle", [op]) }
 			}
 		case "aborted: 40001":
 			return {
@@ -283,7 +287,7 @@ const replay = (r: Recorded, state: HostState): HostState | undefined => {
 	switch (o.kind) {
 		case "invariant-rejected":
 			return e.kind === "invariant-rejected" &&
-				Arr.some(e.violations, (v) => v.law === o.law) &&
+				Arr.some(e.violations, (v) => o.laws.includes(v.law)) &&
 				sameKeys(o.keys, witnessOf(r.kind, r.ops))
 				? state
 				: undefined
@@ -312,7 +316,7 @@ const unseenOccupant = (r: Recorded, state: HostState, later: ReadonlyArray<Reco
 	if (
 		r.kind !== "direct" ||
 		o.kind !== "invariant-rejected" ||
-		o.law !== law ||
+		!o.laws.includes(law) ||
 		!sameKeys(o.keys, witnessOf(r.kind, r.ops))
 	) {
 		return false

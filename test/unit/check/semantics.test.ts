@@ -13,6 +13,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
+import { type PhysicalNames } from "#compiler/ir/physical.ts"
 import { type LogicalQuery, paramColumns } from "#compiler/ir/products.ts"
 import { exprsOf } from "#compiler/ir/rel.ts"
 import { type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
@@ -28,9 +29,15 @@ import {
 	type RuleDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { WorkDesc } from "#test/support/fixtures/ir/work.ts"
-import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
+import { installationOf, localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { checking, checkMemberOf, checkOptions, checkReadBackOf } from "#test/support/policy.ts"
+import {
+	checking,
+	checkMemberOf,
+	checkOptions,
+	checkReadBackOf,
+	owning
+} from "#test/support/policy.ts"
 import {
 	compute,
 	count,
@@ -57,11 +64,27 @@ import {
 import { Code, Lab, Lower, Qty } from "#test/unit/check/schemas.ts"
 import { taskPayloads } from "#test/unit/check/work-queries.ts"
 
+/**
+ * The names a checked query of Lab or Work lowers under: production's stand-ins for their relations, the codes of a
+ * fresh installation of each, which a Color or a Kind literal lowers to, and each contract's domain as its schema's
+ * installation names it, by its definition's digest, which only an installation holds.
+ */
+const labNames = installationOf(Lab, { kind: "declared" }).names
+const workNames = installationOf(WorkDesc, { kind: "declared" }).names
+const labContracts = new Set<string>(Object.keys(owning(Lab).contracts))
+const checkedNames: PhysicalNames = {
+	...productionNames("lab", { kind: "declared" }, localVectorSchema, {
+		rosters: new Map([...labNames.codes.rosters, ...workNames.codes.rosters])
+	}),
+	contractDomain: (contract) =>
+		(labContracts.has(contract) ? labNames : workNames).contractDomain(contract)
+}
+
 /** The conservative program of a checked query, which must lower. */
 const lowers = (q: LogicalQuery): void => {
 	succeeded(
 		lowerConservative(conservativeInput(q), {
-			names: productionNames("lab", { kind: "declared" }, localVectorSchema),
+			names: checkedNames,
 			params: q.params,
 			subject: { kind: "query" }
 		}),

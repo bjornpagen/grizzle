@@ -31,6 +31,7 @@ import type { TestContext } from "vitest"
 import { Db } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import { codeOf } from "#compiler/ir/codes.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -114,13 +115,13 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 					Arr.map(fields, (f) => quoteIdent(names.column(relation, f))),
 					", "
 				)
-			const kind = printObjectName(names.enumType(parsedName("Kind")))
+			const kind = defined(names.codes.rosters.get(parsedName("Kind")), "the codes of Kind")
 			const load = [
 				`INSERT INTO ${table("Account")} (${columns("Account", ["id", "name"])}) ` +
 					`SELECT md5('account:' || g)::uuid, 'account ' || lpad(g::text, 6, '0') ${series(sizes.accounts)}`,
 				`INSERT INTO ${table("Task")} (${columns("Task", ["id", "account", "kind"])}) ` +
 					`SELECT md5('task:' || g)::uuid, md5('account:' || ${spread(1, sizes.accounts)})::uuid, ` +
-					`(CASE WHEN g % 2 = 0 THEN 'Automatic' ELSE 'Manual' END)::${kind} ${series(sizes.tasks)}`,
+					`(CASE WHEN g % 2 = 0 THEN ${codeOf(kind, "Automatic")} ELSE ${codeOf(kind, "Manual")} END)::smallint ${series(sizes.tasks)}`,
 				`INSERT INTO ${table("AutomaticTask")} (${columns("AutomaticTask", ["task", "budget"])}) ` +
 					`SELECT md5('task:' || (2 * g))::uuid, ${spread(2, 10_000)} ${series(sizes.tasks / 2)}`,
 				`INSERT INTO ${table("ManualTask")} (${columns("ManualTask", ["task", "operator"])}) ` +

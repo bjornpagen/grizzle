@@ -197,11 +197,6 @@
 			"types": "./dist/deploy/ledger/ledger.d.ts",
 			"default": "./dist/deploy/ledger/ledger.js"
 		},
-		"./internal/deploy/render/chosen.ts": {
-			"grizzle-source": "./src/deploy/render/chosen.ts",
-			"types": "./dist/deploy/render/chosen.d.ts",
-			"default": "./dist/deploy/render/chosen.js"
-		},
 		"./internal/deploy/render/folder.ts": {
 			"grizzle-source": "./src/deploy/render/folder.ts",
 			"types": "./dist/deploy/render/folder.d.ts",
@@ -236,6 +231,21 @@
 			"grizzle-source": "./src/ir/desc.ts",
 			"types": "./dist/ir/desc.d.ts",
 			"default": "./dist/ir/desc.js"
+		},
+		"./internal/ir/codes.ts": {
+			"grizzle-source": "./src/ir/codes.ts",
+			"types": "./dist/ir/codes.d.ts",
+			"default": "./dist/ir/codes.js"
+		},
+		"./internal/ir/family.ts": {
+			"grizzle-source": "./src/ir/family.ts",
+			"types": "./dist/ir/family.d.ts",
+			"default": "./dist/ir/family.js"
+		},
+		"./internal/write/family/order.ts": {
+			"grizzle-source": "./src/write/family/order.ts",
+			"types": "./dist/write/family/order.d.ts",
+			"default": "./dist/write/family/order.js"
 		},
 		"./internal/ir/law.ts": {
 			"grizzle-source": "./src/ir/law.ts",

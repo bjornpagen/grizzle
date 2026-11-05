@@ -1,5 +1,6 @@
 import type { RefinementPlugin } from "#compiler/check/context.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	baseOf,
@@ -16,8 +17,7 @@ import {
 	exactNumericBound,
 	numericHull,
 	sameRegex,
-	wildcardText,
-	withoutSerial
+	wildcardText
 } from "#compiler/scalar/compute/types.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
 
@@ -66,9 +66,7 @@ const sameGuarantees = (a: ScalarType, b: ScalarType): boolean =>
  *
  * One contract identity, which compatible arms share: the contract's domain guarantees both arms' values.
  */
-const combine = (a: ScalarType, b: ScalarType): ScalarType => {
-	const x = withoutSerial(a)
-	const y = withoutSerial(b)
+const combine = (x: ScalarType, y: ScalarType): ScalarType => {
 	if (sameScalarType(x, y)) {
 		return x
 	}
@@ -117,7 +115,7 @@ const combine = (a: ScalarType, b: ScalarType): ScalarType => {
 export const refinement: RefinementPlugin = {
 	common: (types) => {
 		const [first, ...rest] = types
-		return rest.reduce((a, b) => combine(a, b), withoutSerial(first))
+		return rest.reduce((a, b) => combine(a, b), first)
 	}
 }
 
@@ -141,25 +139,29 @@ export const hasConstraint = (t: ScalarType): boolean => {
 export interface RefinedConstant {
 	readonly literal: TypedLiteral
 	readonly type: ScalarType
-	/** Where the constant is declared, for diagnostics: `closed Tier.label of Pro`. */
+	/** Where the constant is declared, for diagnostics: `closed Tier.label at (pro)`, its row named by its key. */
 	readonly site: string
 }
 
-/** The closed payload values whose fields carry a nontrivial refinement, in relation, roster and heading order. */
+/** A key literal as a refinement site names its row: a handle by itself, any other by its canonical text. */
+const keyText = (literal: TypedLiteral): string =>
+	literal.kind === "handle" ? literal.handle : canonicalTextOf(literal)
+
+/**
+ * The closed relations' payload values whose fields carry a nontrivial refinement, in relation, row and heading order.
+ * A closed relation's heading is its key fields, then its payload, so a row's first `primaryFields.length` literals
+ * are its key, which names the row, and the rest its payload; a roster's one field is its key.
+ */
 export const refinedConstants = (schema: SchemaReading): ReadonlyArray<RefinedConstant> =>
-	[...schema.closed.values()].flatMap((info) =>
-		info.rows.flatMap((row) =>
-			info.heading.flatMap((column, i): ReadonlyArray<RefinedConstant> => {
+	[...schema.closed.values()].flatMap((info) => {
+		const keyed = info.relation.primaryFields.length
+		return info.rows.flatMap((row) => {
+			const site = `at (${row.slice(0, keyed).map(keyText).join(", ")})`
+			return info.heading.flatMap((column, i): ReadonlyArray<RefinedConstant> => {
 				const literal = row[i]
-				return i === 0 || literal === undefined || !hasConstraint(column.type)
+				return i < keyed || literal === undefined || !hasConstraint(column.type)
 					? []
-					: [
-							{
-								literal,
-								type: column.type,
-								site: `closed ${info.name}.${column.name} of ${row[0].handle}`
-							}
-						]
+					: [{ literal, type: column.type, site: `closed ${info.name}.${column.name} ${site}` }]
 			})
-		)
-	)
+		})
+	})

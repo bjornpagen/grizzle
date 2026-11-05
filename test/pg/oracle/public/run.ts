@@ -44,7 +44,7 @@ import {
 	type StrictReader,
 	strictReaderOf
 } from "#test/pg/oracle/public/cells.ts"
-import type { Conversion, Stitch } from "#test/pg/oracle/public/planted.ts"
+import { type Conversion, freshCodesOf, type Stitch } from "#test/pg/oracle/public/planted.ts"
 import type { PublicFeature } from "#test/pg/oracle/public/suite.ts"
 import { defined } from "#test/support/assert.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
@@ -314,7 +314,8 @@ const noteSpellings = (
 }
 
 /** The native identity of a sent key cell: its codec's one text of the value the cell spells. */
-const sentKey = (type: ScalarType, text: string): string => scalarCodec(type).cellText(text)
+const sentKey = (type: ScalarType, text: string): string =>
+	scalarCodec(type, freshCodesOf(type)).cellText(text)
 
 /** A stored value's spelling: its one form, or its twin text. */
 const spellingOf = (v: SpelledValue): string =>

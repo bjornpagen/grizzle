@@ -2,8 +2,8 @@ import { layer } from "@effect/vitest"
 import type { Situations } from "@grizzle/testing/features"
 import { constant, type Gen, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option } from "effect"
-import { isImmediate } from "#test/pg/laws/families/model.ts"
 import { assert } from "#test/support/assert.ts"
+import { isImmediate } from "#test/support/laws/model.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { witnessesShowTheirOwn } from "#test/support/worlds/drive/acting.ts"
 import {
@@ -20,15 +20,14 @@ import {
 	opIn,
 	programTests,
 	requiredWhere,
-	startingWith,
 	type StepCheck
 } from "#test/support/worlds/drive/suite.ts"
 import { docsVisitsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types.ts"
 
 /**
- * Every law of the documents base (a foreign key, a candidate key, a capacity, a row check, a contract's domain CHECK,
- * and every relation's primary key) under every writer: grizzle's Db through whole and query entries, and direct SQL writers that took on a
+ * Every law of the documents base (a foreign key, a candidate key, a row check, a contract's domain CHECK, and every
+ * relation's primary key, each a native constraint) under every writer: grizzle's Db through whole and query entries, and direct SQL writers that took on a
  * role. Programs draw writes, live, stale and wild, with laws broken by the facts they submit, by facts outside the
  * writer's world, by references to hidden or deleted facts and by duplicates within one input, and insertions whose
  * facts leave out their serial fields, through an entry whose every carried field is serial among them; the worlds
@@ -83,8 +82,6 @@ const committed = opIn({
 	observations: ["applied", "ok"]
 })
 
-const lawFunction = startingWith("object:law-function:")
-
 /** A law a direct writer breaks at COMMIT is checked at COMMIT: never a key, a span key or a row check. */
 const deferredAtCommit: StepCheck = ({ seen }) => {
 	const o = seen.observation
@@ -117,7 +114,7 @@ const installs: Gen<InstallSpec> = weighted([
 ])
 
 const required: Situations<WorldFeature> = [
-	...requiredWhere((f: WorldFeature) => refusedByLaw(f) || committed(f) || lawFunction(f)),
+	...requiredWhere((f: WorldFeature) => refusedByLaw(f) || committed(f)),
 	...lawInputs,
 	...unitAdditions
 ]

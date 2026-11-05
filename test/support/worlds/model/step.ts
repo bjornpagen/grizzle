@@ -1,5 +1,5 @@
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { sameValue, valueText } from "#test/pg/laws/families/model.ts"
+import { sameValue, valueText } from "#test/support/laws/model.ts"
 import {
 	type Binding,
 	bindFacts,

@@ -9,8 +9,10 @@ import type {
 	RelationIdent
 } from "#compiler/core/ids.ts"
 import type { Sqlstate } from "#compiler/core/sqlstate.ts"
+import type { Family } from "#compiler/ir/family.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { Unsendable } from "#compiler/write/family/order.ts"
 
 /**
  * The reasons of grizzle's errors, and the wire's own classification of a flight's failure.
@@ -506,10 +508,13 @@ export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law:
  *   backend ends the connection instead of answering;
  * - literal: the array of the relation input `input`'s column `column` would be longer than the longest string the
  *   host builds, `limit` UTF-16 code units (core/limits.ts maxStringLength), so no placeholder can carry it
- *   (ir/products.ts LiteralBound).
+ *   (ir/products.ts LiteralBound);
+ * - familyRow: one row a family write places, vacates or recounts, a `member` row of the family `owner.count`, is past
+ *   one of those bounds alone, so no `statement` of the write's plan can carry it however its rows are cut
+ *   (write/family/order.ts Unsendable).
  *
- * Neither bounds a count of rows: a ChangeSet input or a relation parameter of any number of facts travels whenever
- * its texts fit.
+ * None bounds a count of rows: a ChangeSet input, a relation parameter or a family of any number of facts travels
+ * whenever each row's texts fit.
  */
 export type InputBound =
 	| {
@@ -523,6 +528,13 @@ export type InputBound =
 			readonly input: string
 			readonly column: string
 			readonly limit: number
+	  }
+	| {
+			readonly kind: "familyRow"
+			readonly owner: string
+			readonly count: string
+			readonly member: string
+			readonly row: Unsendable
 	  }
 
 /**
@@ -539,9 +551,29 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 				return `statement ${bound.statement} of the call would send a Bind message of ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}; split the input across calls`
 			case "literal":
 				return `the array of column ${bound.column} of input ${bound.input} would be longer than ${bound.limit} UTF-16 code units, the longest string the host builds; split the input across calls`
+			case "familyRow": {
+				const row = bound.row
+				const past =
+					row.kind === "literal"
+						? `its column ${row.column} would be an array longer than ${row.limit} UTF-16 code units, the longest string the host builds`
+						: `its ${row.statement} statement would send a Bind message of ${row.bytes} bytes, past PostgreSQL's limit of ${row.limit}`
+				return `a ${bound.member} row of the family ${bound.owner}.${bound.count} fits no ${row.statement} statement even alone: ${past}; shorten the row's values`
+			}
 		}
 	}
 }
+
+/** A family write's row no statement of its plan can carry (write/family/order.ts plan), as the family names it. */
+export const familyRowBound = (family: Family, row: Unsendable): InputTooLarge =>
+	new InputTooLarge({
+		bound: {
+			kind: "familyRow",
+			owner: family.owner.name,
+			count: family.count.name,
+			member: family.member.name,
+			row
+		}
+	})
 
 /** The bound of a relation input's column whose array no string can hold, as the engine reports it. */
 export const literalBound = (bound: LiteralBound): InputTooLarge =>

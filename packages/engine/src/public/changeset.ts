@@ -30,9 +30,7 @@ export type {
 	DeltaSource,
 	KeyHost,
 	Law,
-	LawBounds,
 	LawSide,
-	LawWeight,
 	Member,
 	Witness,
 	WritableOf

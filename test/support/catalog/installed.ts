@@ -2,11 +2,11 @@ import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
-import type { ClosedTemplate } from "#compiler/physical/ddl/closed.ts"
 import { roleIdentity, roleView } from "#compiler/physical/ddl/names.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type { Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
+import type { CreateDomain, Expr, SqlStatement } from "#compiler/sql/ast.ts"
+import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import { assert } from "#test/support/assert.ts"
 import { type Catalog, type CatalogGrant, readCatalog } from "#test/support/catalog/read.ts"
 import {
@@ -27,8 +27,8 @@ interface NamedType {
 }
 
 /**
- * What one world's role's whole closed relations justify beyond its privileges: each closed relation's enum and the
- * named types of its payload.
+ * What one world's role's whole rosters justify beyond its privileges: each roster's domain, which a query casts a
+ * code to.
  */
 export interface RoleScope {
 	readonly role: string
@@ -61,9 +61,6 @@ const viewOf = (s: SqlStatement): Option.Option<string> =>
 const functionOf = (s: SqlStatement): Option.Option<string> =>
 	s.kind === "createFunction" ? Option.some(s.name.name) : Option.none()
 
-const lawTriggerOf = (s: SqlStatement): Option.Option<string> =>
-	s.kind === "createConstraintTrigger" ? Option.some(s.name) : Option.none()
-
 const guardTriggerOf = (s: SqlStatement): Option.Option<string> =>
 	s.kind === "createGuardTrigger" ? Option.some(s.name) : Option.none()
 
@@ -72,27 +69,64 @@ const rowSecureOf = (s: SqlStatement): Option.Option<string> =>
 		? Option.some(s.table.name)
 		: Option.none()
 
-const namedOf = (type: TypeRef): ReadonlyArray<NamedType> =>
-	type.kind === "named" ? [{ schema: type.schema, name: type.name }] : []
-
-/**
- * The named types a closed template's typed payload values carry: each value is a typed literal or a cast to its type.
- */
-const namedTypes = (expr: Expr): ReadonlyArray<NamedType> => {
-	if (expr.kind === "cast") {
-		return [...namedOf(expr.type), ...namedTypes(expr.expr)]
-	}
-	if (expr.kind === "literal" || expr.kind === "param") {
-		return namedOf(expr.type)
-	}
-	return []
+/** The functions an expression calls, by name. */
+const callsOf = (e: Expr): ReadonlyArray<string> => {
+	const out: Array<string> = []
+	transformExpr(e, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind === "call" && x.fn.kind === "qualified") {
+				out.push(x.fn.name)
+			}
+			return x
+		}
+	})
+	return out
 }
 
-/** The named types of a closed relation a role holds whole: its enum and the types of its payload's values. */
-const closedTypesOf = (template: ClosedTemplate): ReadonlyArray<NamedType> => [
-	{ schema: template.enum.schema, name: template.enum.name },
-	...Arr.flatMap(template.rows, (row) => Arr.flatMap(row, (value) => namedTypes(value)))
-]
+/**
+ * The constants the manifest's constant objects create, each as what it is: a names constant (it returns name[]) and a
+ * live-codes constant (it returns bit varying from a subquery over a names constant), each with the domain whose CHECK
+ * calls it among the manifest's domains; every other, a pack or a dictionary, a closed relation's constant.
+ */
+const constantsOf = (
+	snapshot: DeploySnapshot
+): ReadonlyArray<readonly [string, InstalledFunction]> => {
+	const domains = Arr.flatMap(snapshot.manifest.objects, (o) =>
+		o.kind === "domain"
+			? Arr.flatMap(o.ddl, (s): ReadonlyArray<CreateDomain> =>
+					s.kind === "createDomain" ? [s] : []
+				)
+			: []
+	)
+	const checking = (fn: string): string =>
+		Option.getOrThrowWith(
+			Arr.findFirst(domains, (d) =>
+				Arr.some(d.constraints, (c) => Arr.contains(callsOf(c.predicate), fn))
+			),
+			() => new Error(`the manifest's constant ${fn} is read by no domain's CHECK`)
+		).name.name
+	return Arr.flatMap(snapshot.manifest.objects, (o) =>
+		o.kind === "constant"
+			? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledFunction]> => {
+					if (s.kind === "packConstant") {
+						return [[s.function.name, { kind: "closedConstant" }]]
+					}
+					if (s.kind !== "createConstant") {
+						return []
+					}
+					const name = s.name.name
+					if (s.returns.kind === "builtin" && s.returns.name === "name" && s.returns.array) {
+						return [[name, { kind: "names", domain: checking(name) }]]
+					}
+					const [names] = callsOf(s.body)
+					return s.body.kind === "subquery" && names !== undefined
+						? [[name, { kind: "live", names, domain: checking(name) }]]
+						: [[name, { kind: "closedConstant" }]]
+				})
+			: []
+	)
+}
 
 /**
  * The scope an installation and its snapshot declare: the erasure expectation and each world's role's closed whole
@@ -125,12 +159,10 @@ export const installedScope = (
 				),
 				() => new Error(`the installation names no role ${r.name}`)
 			)
-			const closedTypes = Arr.flatMap(Rec.values(r.relations), (entry) =>
-				entry.kind === "whole"
-					? Arr.flatMap(
-							Option.toArray(Rec.get(installation.closedTemplates, entry.name)),
-							closedTypesOf
-						)
+			const closedTypes = Arr.flatMap(Rec.values(r.relations), (entry): ReadonlyArray<NamedType> =>
+				entry.kind === "whole" &&
+				Option.exists(Rec.get(snapshot.theory.relations, entry.name), (x) => x.kind === "closed")
+					? [installation.names.rosterDomain(parsedName(entry.name))]
 					: []
 			)
 			/** Each refreshed derived relation's materialized view, by the snapshot's theory. */
@@ -166,12 +198,12 @@ export const installedScope = (
 				...functionsOf("refusalFunction", { kind: "refusal" }),
 				...functionsOf("isolationFunction", { kind: "isolationGuard" }),
 				...functionsOf("snapshotGuard", { kind: "snapshotGuard" }),
-				...functionsOf("lawFunction", { kind: "law" }),
 				...functionsOf("worldFunction", { kind: "world" }),
+				...constantsOf(snapshot),
 				...Arr.flatMap(Rec.toEntries(snapshot.theory.relations), ([name, r]) =>
 					r.kind === "relation"
 						? Arr.flatMap(r.fields, (f) =>
-								f.serial
+								f.writing === "serial"
 									? [
 											[
 												identifierOf(identity.advance(name, f.name)),
@@ -183,10 +215,9 @@ export const installedScope = (
 						: []
 				)
 			]),
-			triggers: new Map<string, InstalledTrigger>([
-				...triggersOf("lawTrigger", lawTriggerOf, "law"),
-				...triggersOf("isolationTrigger", guardTriggerOf, "isolation")
-			]),
+			triggers: new Map<string, InstalledTrigger>(
+				triggersOf("isolationTrigger", guardTriggerOf, "isolation")
+			),
 			rowSecure: created(snapshot, "rowSecurity", rowSecureOf),
 			logins: new Map(
 				Arr.map(
@@ -195,15 +226,19 @@ export const installedScope = (
 				)
 			),
 			refreshes: new Map(Arr.map(scoped, (s) => s.refreshes)),
-			barrierViews: new Set(Arr.flatMap(scoped, (s) => s.barrierViews))
+			barrierViews: new Set(Arr.flatMap(scoped, (s) => s.barrierViews)),
+			closedConstants: Arr.some(
+				Rec.values(installation.owned.relations),
+				(r) => r.kind === "closedRelation"
+			)
 		},
 		roles: Arr.map(scoped, (s) => s.scope)
 	}
 }
 
-/** A type of the schema a role's USAGE is judged on. */
+/** A type of the schema a role's USAGE is judged on: a domain, the one kind of type grizzle installs. */
 export interface SchemaType {
-	readonly kind: "enum" | "domain"
+	readonly kind: "domain"
 	readonly name: string
 }
 
@@ -257,9 +292,9 @@ const viewedTypes = (catalog: Catalog, role: string): ReadonlyArray<NamedType> =
 	)
 
 /**
- * The problems of least privilege on types: every USAGE a role holds on an enum or a domain of the schema that its
- * table privileges and its closed reads do not need, and every such type of its views, of the tables it inserts into
- * and of its closed reads it holds no USAGE on.
+ * The problems of least privilege on types: every USAGE a role holds on a domain of the schema that its table
+ * privileges and its roster reads do not need, and every such domain of its views, of the tables it inserts into and
+ * of its roster reads it holds no USAGE on.
  */
 const usageProblems = (
 	catalog: Catalog,
@@ -306,10 +341,7 @@ const usageProblems = (
 				...unless(holds || !bound.has(type.name), { kind: "usageMissing", role: role.name, type })
 			]
 		}
-		return [
-			...Arr.flatMap(catalog.enums, (e) => judged({ kind: "enum", name: e.name }, e.grants)),
-			...Arr.flatMap(catalog.domains, (d) => judged({ kind: "domain", name: d.name }, d.grants))
-		]
+		return Arr.flatMap(catalog.domains, (d) => judged({ kind: "domain", name: d.name }, d.grants))
 	})
 }
 

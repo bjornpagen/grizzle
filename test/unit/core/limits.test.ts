@@ -1,9 +1,9 @@
 /**
- * The limits of a closed relation's codes, cells and constants, and of a heap tuple (core/limits.ts), each derived
- * again by another route than its own `compute`, against a second implementation where Node holds one:
+ * The limits of a closed relation's codes and constants, and of a heap tuple (core/limits.ts), each derived again by
+ * another route than its own `compute`, against a second implementation where Node holds one:
  *
  * - smallint, integer and bigint are the two's-complement integers Int16Array, Int32Array and BigInt64Array hold, so
- *   their published ranges and typlens, rosterMaxCodes, cellDigitBits and cellMaxCodes are read off Node's typed arrays;
+ *   their published ranges and typlens and rosterMaxCodes are read off Node's typed arrays;
  * - constantMaxBits is the longest bit length whose rounding up to whole bytes still fits an Int32Array slot;
  * - heapTupleMaxBytes is the largest tuple PageAddItem's fit test admits on an empty heap page, found by search, and
  *   alignUp is TYPEALIGN's bit arithmetic.
@@ -16,12 +16,10 @@ import { type Case, exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Effect, Formatter } from "effect"
 import {
 	alignUp,
 	blockSize,
-	cellDigitBits,
-	cellMaxCodes,
 	constantMaxBits,
 	heapTupleMaxBytes,
 	int2Max,
@@ -117,98 +115,6 @@ describe("PostgreSQL's integers", () => {
 		}
 		assert.equal(rosterMaxCodes.value, codes, "the non-negative smallints, counted")
 	})
-})
-
-describe("a law's cell", () => {
-	type Packed =
-		| "no code"
-		| "cellMaxCodes codes"
-		| "one code too many"
-		| "a greatest code in the top digit"
-
-	/** How many codes a cell packs, and which of them are a roster's greatest code rather than 0. */
-	interface Corner {
-		readonly count: number
-		readonly greatest: number
-	}
-
-	/**
-	 * Every cell of 0 to cellMaxCodes + 2 codes, each code 0 or a roster's greatest: 127 cells. A digit's bits are its
-	 * code's own, so a carry into the next digit or into the cell's sign needs a code at its greatest, and these corners
-	 * hold every case either reaches.
-	 */
-	const corners: Gen<Corner> = (s) => {
-		const count = s.draw(int(0, cellMaxCodes.value + 2))
-		return { count, greatest: s.draw(int(0, 2 ** count - 1)) }
-	}
-
-	/**
-	 * A cell of codes, each cellDigitBits from the next, is stored in a bigint column and read back digit by digit
-	 * exactly when no code past its lowest cellMaxCodes digits is set: up to cellMaxCodes codes always, and a fifth only
-	 * as 0. A digit is exactly a smallint's width. Oracle: Node's BigInt64Array, a bigint column's integers, and
-	 * Int16Array's element size.
-	 */
-	const packs = ({ count, greatest }: Corner, c: Case<Packed>) =>
-		Effect.sync(() => {
-			assert.equal(
-				cellDigitBits.value,
-				Int16Array.BYTES_PER_ELEMENT * 8,
-				"a digit is a smallint's width"
-			)
-			const digit = BigInt(cellDigitBits.value)
-			const codes = Array.from({ length: count }, (_, at) =>
-				((greatest >> at) & 1) === 1 ? BigInt(rosterMaxCodes.value - 1) : 0n
-			)
-			const cell = Arr.reduce(codes, 0n, (packed, code) => (packed << digit) | code)
-			const stored = BigInt64Array.of(BigInt.asIntN(64, cell))[0] ?? 0n
-			const read = Array.from(
-				{ length: count },
-				(_, at) => (stored >> (BigInt(count - 1 - at) * digit)) & ((1n << digit) - 1n)
-			)
-			const roundTrips = stored === cell && Arr.every(read, (code, at) => code === codes[at])
-			const beyond = codes.slice(0, Math.max(0, count - cellMaxCodes.value))
-			assert.equal(
-				roundTrips,
-				Arr.every(beyond, (code) => code === 0n),
-				`${count} codes, a greatest code at ${greatest.toString(2)}`
-			)
-			if (count === 0) {
-				c.note("no code")
-			}
-			if (count === cellMaxCodes.value) {
-				c.note("cellMaxCodes codes")
-			}
-			if (count === cellMaxCodes.value + 1) {
-				c.note("one code too many")
-			}
-			if (count > 0 && codes[0] !== 0n) {
-				c.note("a greatest code in the top digit")
-			}
-		})
-
-	it.effect(
-		"holds cellMaxCodes codes in one bigint and no more, each read back from its own digit",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/core/limits-cell",
-						generator: corners,
-						literal: Formatter.format,
-						limit: 127,
-						coverage: requiredInSpace<Packed>([
-							"no code",
-							"cellMaxCodes codes",
-							"one code too many",
-							"a greatest code in the top digit"
-						]),
-						caseHang
-					},
-					packs
-				)
-			)
-	)
 })
 
 describe("a constant's length", () => {

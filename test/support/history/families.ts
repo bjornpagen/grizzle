@@ -3,24 +3,17 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import type { HistoryEnv } from "#test/support/history/run.ts"
+import type { Installed } from "#test/support/install-migrate.ts"
+import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import {
-	alternativesFamily,
-	Crew,
-	type CrewsParams,
-	capacityFamily,
-	crews,
-	Deposit,
-	type DepositsParams,
+	alternativesBox,
 	Done,
-	Duty,
-	deposits,
-	depositsFamily,
 	Employment,
 	type Family,
 	installFamily,
 	Leased,
-	Member,
-	PayLine,
 	type QueueParams,
 	queue,
 	queueFamily,
@@ -32,13 +25,9 @@ import {
 	runsRelations,
 	Seat,
 	Shift,
-	sharedTablesFamily,
 	spanCoverage,
-	Team,
-	type TeamsParams,
 	type TimekeepingParams,
 	Timesheet,
-	teams,
 	timekeeping,
 	timekeepingFamily,
 	Visit,
@@ -46,13 +35,9 @@ import {
 	visits,
 	Wanted,
 	Work
-} from "#test/pg/laws/families/families.ts"
-import { type HostSchema, isResidual } from "#test/pg/laws/families/model.ts"
-import { type Domains, familyWriters, openWriter } from "#test/pg/laws/families/support.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
-import type { HistoryEnv } from "#test/support/history/run.ts"
-import type { Installed } from "#test/support/install-migrate.ts"
-import { type Names, namesOf } from "#test/support/kernel/naming.ts"
+} from "#test/support/laws/boxes.ts"
+import type { HostSchema } from "#test/support/laws/model.ts"
+import { type Domains, familyWriters, openWriter } from "#test/support/laws/support.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { type DbRuntime, dbRuntime } from "#test/support/runtime-db.ts"
 import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.ts"
@@ -103,7 +88,7 @@ export interface HistoryInstall<P> {
  * opened twice as `app`, each writer's actor resolved as it opens, and the relation values by name, over which a writer
  * builds the ChangeSet of a list of host operations at run time. The host model states each law and how it is enforced,
  * independently of the compiler; the suites check, before they run, that the installation agrees (enforcementProblem):
- * its residual laws are exactly the host's, and each native law of the host is reported by an installed constraint.
+ * each law of the host is reported by an installed constraint, since every law is native (fin.md §7).
  *
  * A family installs and connects in two steps, because the two have different lifetimes: an installation holds no
  * connection and is costly to make, so a test installs each drawn schema once; its writers' connections are cheap to
@@ -129,27 +114,17 @@ export interface HistoryFamily<P> {
 }
 
 /**
- * Why the installation does not enforce the host's laws as the host states them, or undefined: a residual law of one
- * and not the other, or a native law of the host no installed constraint reports.
+ * Why the installation does not enforce the host's laws as the host states them, or undefined: a law of the host no
+ * installed constraint reports.
  */
 export const enforcementProblem = (host: HostSchema, names: Names): string | undefined => {
-	const installedResiduals = new Set<LawId>(Arr.map(names.model.residuals, (r) => r.lawId))
-	const hostResiduals = new Set(Arr.map(Arr.filter(host.laws, isResidual), (l) => l.law))
-	const reported = new Set<LawId>(Arr.map(names.model.constraints, (c) => c.law))
-	const problems = [
-		...Arr.map(
-			Arr.filter([...hostResiduals], (l) => !installedResiduals.has(l)),
-			(l) => `${l} is residual in the host only`
-		),
-		...Arr.map(
-			Arr.filter([...installedResiduals], (l) => !hostResiduals.has(l)),
-			(l) => `${l} is residual in the installation only`
-		),
-		...Arr.map(
-			Arr.filter(host.laws, (l) => !isResidual(l) && !reported.has(l.law)),
-			(l) => `the host's native law ${l.law} is reported by no installed constraint`
-		)
-	]
+	const reported = new Set<LawId>(
+		Arr.flatMap(names.model.constraints, (c) => Arr.map(c.laws, (l) => l.law))
+	)
+	const problems = Arr.map(
+		Arr.filter(host.laws, (l) => !reported.has(l.law)),
+		(l) => `the host's law ${l.law} is reported by no installed constraint`
+	)
 	return problems.length === 0 ? undefined : Arr.join(problems, "; ")
 }
 
@@ -206,29 +181,11 @@ const historyEnv = <P>(
 	})
 
 export const alternativesHistory: HistoryFamily<RunsParams> = {
-	family: alternativesFamily,
-	install: (p) => historyInstall(alternativesFamily, p),
+	family: alternativesBox,
+	install: (p) => historyInstall(alternativesBox, p),
 	connect: (i) => {
 		const schema = runs(i.params)(i.installed.declared)
 		return historyEnv(i, schema, runsRelations(i.params))
-	}
-}
-
-export const capacityHistory: HistoryFamily<TeamsParams> = {
-	family: capacityFamily,
-	install: (p) => historyInstall(capacityFamily, p),
-	connect: (i) => {
-		const schema = teams(i.params)(i.installed.declared)
-		return historyEnv(i, schema, { Team, Member })
-	}
-}
-
-export const sharedTablesHistory: HistoryFamily<CrewsParams> = {
-	family: sharedTablesFamily,
-	install: (p) => historyInstall(sharedTablesFamily, p),
-	connect: (i) => {
-		const schema = crews(i.params)(i.installed.declared)
-		return historyEnv(i, schema, { Crew, Duty })
 	}
 }
 
@@ -264,14 +221,5 @@ export const timekeepingHistory: HistoryFamily<TimekeepingParams> = {
 	connect: (i) => {
 		const schema = timekeeping(i.params)(i.installed.declared)
 		return historyEnv(i, schema, { Employment, Timesheet, Shift })
-	}
-}
-
-export const depositsHistory: HistoryFamily<DepositsParams> = {
-	family: depositsFamily,
-	install: (p) => historyInstall(depositsFamily, p),
-	connect: (i) => {
-		const schema = deposits(i.params)(i.installed.declared)
-		return historyEnv(i, schema, { PayLine, Deposit })
 	}
 }

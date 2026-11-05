@@ -78,8 +78,10 @@ export const declaredDescOf = (
 					: { kind: "text", source: regex.source, flags: regex.flags }
 			)
 		}
-		case "enum":
+		case "code":
 			return Result.ok({ kind: "closedId", roster: type.roster.closed })
+		case "bits":
+			return Result.ok({ kind: "bits", roster: type.roster.closed })
 		case "range4":
 		case "range8": {
 			const endpoint = declaredDescOf(type.span.endpoint, contracts)

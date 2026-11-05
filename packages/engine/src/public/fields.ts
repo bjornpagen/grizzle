@@ -1,6 +1,7 @@
 import type { Brand } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
-import { brandColumn, type Columned, handleColumn } from "#compiler/core/decoder.ts"
+import { bitsColumn, brandColumn, type Columned, codeColumn } from "#compiler/core/decoder.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { closedIdParts } from "#compiler/scalar/closed-id.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
@@ -10,6 +11,7 @@ import { bareEnv, carrierSql, defineField } from "#compiler/scalar/registry.ts"
 import { spanColumn, spanParts } from "#compiler/scalar/span.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
+import { accumulatedField, bitsOf, drawnField, generatedField } from "#compiler/schema/relation.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
 	BaseOf,
@@ -19,9 +21,14 @@ import type {
 	Predicate
 } from "#compiler/types/core/phantom.ts"
 import type {
+	AccumulatedConstructor,
+	BitsConstructor,
 	ClosedIdConstructor,
 	ContractBase,
 	ContractConstructor,
+	DrawnConstructor,
+	GeneratedConstructor,
+	GeneratedTermOf,
 	NotSerialBase,
 	OneContractName,
 	Pg,
@@ -29,17 +36,23 @@ import type {
 } from "#compiler/types/fields/constructors.ts"
 
 import type {
+	AccumulatedField,
+	Bits as BitsValue,
+	BitsField,
 	ClosedIdField,
 	Contract,
+	DrawnField,
 	Field,
 	FieldBase,
+	GeneratedField,
 	HandleOf,
 	Infer,
 	IntegerLike,
 	NaturalField,
+	NotSerial,
 	SpanField
 } from "#compiler/types/fields/field.ts"
-import type { AnyClosed } from "#compiler/types/schema/relation.ts"
+import type { AnyRoster, DistinctMembers } from "#compiler/types/schema/relation.ts"
 
 export { Decimal } from "#compiler/scalar/values/decimal.ts"
 export { Money } from "#compiler/scalar/values/money.ts"
@@ -49,11 +62,15 @@ export { Uuid } from "#compiler/scalar/values/uuid.ts"
 /** pgvector's carrier, a branded Float32Array. */
 export { Vector } from "#compiler/scalar/values/vector.ts"
 export type {
+	AccumulatedField,
+	BitsField,
 	ClosedIdField,
 	Contract,
+	DrawnField,
 	Field,
 	FieldBase,
 	FloatField,
+	GeneratedField,
 	HandleOf,
 	Infer,
 	IntegerLike,
@@ -63,7 +80,8 @@ export type {
 	SerialField,
 	SpanField,
 	SqlOf,
-	TextField
+	TextField,
+	WritingTag
 } from "#compiler/types/fields/field.ts"
 export type { VectorField } from "#compiler/types/vector/vector.ts"
 
@@ -131,17 +149,75 @@ export const span: SpanConstructor = <E extends IntegerLike>(
 	)
 }
 
-/** A reference to the roster the admission core admitted, its column the closed relation's literal handles. */
-export const closedId: ClosedIdConstructor = <C extends AnyClosed>(
-	closed: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
+/** A reference to the roster the admission core admitted, its column the roster's codes read as its literal handles. */
+export const closedId: ClosedIdConstructor = <C extends AnyRoster>(
+	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
 ): ClosedIdField<C> => {
-	const parts = closedIdParts(closed)
+	const parts = closedIdParts(roster)
 	return defineField(
 		{},
-		carrierSql.enum,
+		carrierSql.code,
 		parts.desc,
-		{ roster: closed, column: handleColumn<HandleOf<C>>(closed.handles) },
+		{ roster, column: codeColumn<HandleOf<C>>(parts.roster.closed, roster.handles) },
 		parts.loc,
 		parts.env
 	)
 }
+
+/** A set over the roster the admission core admitted, its column a bit string read as the set of its codes' handles. */
+export const bits: BitsConstructor = <C extends AnyRoster>(
+	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
+): BitsField<C> => {
+	const parts = closedIdParts(roster)
+	return defineField(
+		{},
+		carrierSql.bits,
+		{ kind: "bits", roster: parts.roster.closed },
+		{ roster, column: bitsColumn<BitsValue<C>>(parts.roster.closed) },
+		SourceLoc(`bits(${parts.roster.closed})`, []),
+		parts.env
+	)
+}
+
+/**
+ * Bits.of(roster, handles): the set of `handles`, each a handle of `roster`, each once; a fresh frozen Set, branded by
+ * the roster. A JavaScript caller's handle outside the roster, or a repeat, is MalformedDescription.
+ */
+export const Bits: {
+	readonly of: <C extends AnyRoster, const H extends ReadonlyArray<HandleOf<C>>>(
+		roster: C,
+		handles: H & DistinctMembers<H>
+	) => BitsValue<C>
+} = Object.freeze({
+	of: <C extends AnyRoster, const H extends ReadonlyArray<HandleOf<C>>>(
+		roster: C,
+		handles: H & DistinctMembers<H>,
+		...extra: ReadonlyArray<never>
+	): BitsValue<C> => bitsOf<C>(roster, handles, extra)
+})
+
+/**
+ * generated(type, term): a field PostgreSQL writes from its row, of `type`, whose value is `term`; it stands in the
+ * record relation.generated's callback returns (schema/relation.ts generatedField).
+ */
+export const generated: GeneratedConstructor = <F extends FieldBase>(
+	type: F & NotSerial,
+	term: GeneratedTermOf<F>,
+	...extra: ReadonlyArray<never>
+): GeneratedField<F> => generatedField<F>(type, term, extra)
+
+/** drawn(natural): a natural grizzle draws from the nested arrays its caller writes (schema/relation.ts drawnField). */
+export const drawn: DrawnConstructor = (
+	type: NaturalField,
+	...extra: ReadonlyArray<never>
+): DrawnField => drawnField(type, extra)
+
+/**
+ * accumulated(type, start): a field grizzle fills on the host, `start` at its axis's base (schema/relation.ts
+ * accumulatedField).
+ */
+export const accumulated: AccumulatedConstructor = <const F extends FieldBase>(
+	type: F,
+	start: Infer<F>,
+	...extra: ReadonlyArray<never>
+): AccumulatedField<F> => accumulatedField<F>(type, start, extra)

@@ -314,8 +314,10 @@ export type WorkloadHandles<R, P> = { readonly [K in keyof P]: Compiled<R, P[K],
 
 /**
  * What db.apply and a compiled ChangeSet's apply answer: the ChangeSet was accepted, with each written relation's counts
- * and the read-backs; it changed nothing; a law rejected it, with the witness; or a fact it inserts or puts lies outside
- * the written world relation.
+ * and the read-backs; it changed nothing; laws rejected it, with the witness; or a fact it inserts or puts lies outside
+ * the written world relation. A rejection names one law wherever what grizzle controls decides which, and the laws one
+ * native object discharges together where it cannot, as a family's axis foreign key does every containment merged
+ * into it (packages/grizzle/src/adapter/witness/classify.ts).
  */
 export type ApplyOutcome<Reads> =
 	| {
@@ -329,7 +331,11 @@ export type ApplyOutcome<Reads> =
 			readonly reads: Reads
 	  }
 	| { readonly kind: "no-change"; readonly reads: Reads }
-	| { readonly kind: "invariant-rejected"; readonly law: Law; readonly witness: Witness }
+	| {
+			readonly kind: "invariant-rejected"
+			readonly laws: Arr.NonEmptyReadonlyArray<Law>
+			readonly witness: Witness
+	  }
 	| { readonly kind: "outside-world"; readonly relation: string }
 
 export interface QueryResult<Head> {

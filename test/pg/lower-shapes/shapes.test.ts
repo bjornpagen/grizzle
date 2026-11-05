@@ -10,6 +10,7 @@ import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as
 import { resultTextCasts, type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { type Codebook, codecOf, codeOf } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type {
@@ -84,6 +85,18 @@ import {
  * array_out quoting the public-boundary differential's (test/pg/oracle/public), decoded as an application reads them.
  */
 
+/** The fixture's physical names, its codebook among them: the names the lowerings under test emit. */
+const namesOf = (schema: string) => testOptions(schema).names
+
+/** The fixture's codes, which no schema name changes: what every delivered closed id decodes by. */
+const fixtureCodes = (): Codebook => namesOf("shapes").codes
+
+/** A roster's domain in the fixture's schema, quoted: what a closed id's column and literal are typed by. */
+const rosterDomainSql = (schema: string, roster: string): string => {
+	const domain = namesOf(schema).rosterDomain(parsedName(roster))
+	return `"${domain.schema}"."${domain.name}"`
+}
+
 const sqlType = (schema: string, c: HeadingColumn): string => {
 	switch (c.type.carrier) {
 		case "uuid":
@@ -102,13 +115,14 @@ const sqlType = (schema: string, c: HeadingColumn): string => {
 			return "boolean"
 		case "text":
 			return "text COLLATE pg_catalog.pg_c_utf8"
-		case "enum":
-			return `"${schema}"."${identifierOf(identity.enumType(parsedName(c.type.roster.closed)))}"`
+		case "code":
+			return rosterDomainSql(schema, c.type.roster.closed)
 		case "float4":
 		case "int2":
 		case "range4":
 		case "range8":
 		case "vector":
+		case "bits":
 		case "exactInteger":
 		case "exactMoney":
 			throw new Error(`no fixture column type for ${c.type.carrier}`)
@@ -116,6 +130,12 @@ const sqlType = (schema: string, c: HeadingColumn): string => {
 }
 
 const quote = (value: string): string => `'${Str.replaceAll("'", "''")(value)}'`
+
+/** A fixture fact's value as a typed literal: a closed id's handle as its code under the fixture's codebook. */
+const literalOf = (schema: string, c: HeadingColumn, value: string): string =>
+	c.type.carrier === "code"
+		? `${codeOf(codecOf(namesOf(schema).codes, c.type.roster), value)}::smallint::${sqlType(schema, c)}`
+		: `${quote(value)}::${pipe(sqlType(schema, c), Str.replace(" COLLATE pg_catalog.pg_c_utf8", ""))}`
 
 type Relation = (typeof relations)[number]
 
@@ -128,11 +148,7 @@ const factInserts = (schema: string, r: Relation): ReadonlyArray<string> => {
 		Cases.facts[r.name] ?? [],
 		(row) =>
 			`(${Arr.join(
-				Arr.map(
-					row,
-					(v, i) =>
-						`${quote(v)}::${pipe(sqlType(schema, defined(r.heading[i], "column")), Str.replace(" COLLATE pg_catalog.pg_c_utf8", ""))}`
-				),
+				Arr.map(row, (v, i) => literalOf(schema, defined(r.heading[i], "column"), v)),
 				", "
 			)})`
 	)
@@ -146,7 +162,7 @@ const fixtureTables = (schema: string): ResetGroup =>
 	fixtureGroup(Arr.map(relations, (r) => tableOf(schema, r)))
 
 const install = (schema: string): ReadonlyArray<string> => [
-	`CREATE TYPE "${schema}"."${identifierOf(identity.enumType(parsedName("Kind")))}" AS ENUM ('Automatic', 'Manual')`,
+	`CREATE DOMAIN ${rosterDomainSql(schema, "Kind")} AS smallint`,
 	...Arr.flatMap(relations, (r) => {
 		const columns = Arr.map(
 			r.heading,
@@ -357,7 +373,7 @@ const childSets = (
 	keyCount: number,
 	child: Heading
 ) => {
-	const codecs = Arr.map(child, (h) => scalarCodec(h.type))
+	const codecs = Arr.map(child, (h) => scalarCodec(h.type, fixtureCodes()))
 	const sets = new Map<string, Array<string>>()
 	for (const row of rows) {
 		const key = Arr.join(row.slice(0, keyCount), "|")
@@ -535,7 +551,7 @@ const fusedNested = (attached: Attached, facts: ShapeFacts, schema: string) =>
 				)
 				return (row) => defined(row[p], `the parent column ${column}`)
 			})
-			const codecs = Arr.map(child.heading, (h) => scalarCodec(h.type))
+			const codecs = Arr.map(child.heading, (h) => scalarCodec(h.type, fixtureCodes()))
 			const keys = Arr.map(
 				Arr.filter(parent.heading, (h) => Arr.some(attach.correlation, (c) => c.parent === h.name)),
 				(h) => h.name

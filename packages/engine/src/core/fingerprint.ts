@@ -1,3 +1,4 @@
+import { nominal } from "#compiler/core/brand.ts"
 import {
 	canonicalFormat,
 	type EncodeOptions,
@@ -32,8 +33,27 @@ export const digest = (
 	)
 }
 
-/** The domains the compiler digests the values it owns under: one-line names, each a fingerprint domain. */
-export type OwnedDomain = "empty-snapshot" | "regex-language"
+/**
+ * The domains the compiler digests the values it owns under: one-line names, each a fingerprint domain. A constant's
+ * domain digests the content its function is named by (ConstantDomain).
+ */
+export type OwnedDomain = "empty-snapshot" | "regex-language" | "domain-definition" | ConstantDomain
+
+/**
+ * The domains of an installed constant's content: a closed relation's or side's string of cells, and a roster's names
+ * in code order.
+ */
+export type ConstantDomain = "closed-constant" | "roster-names"
+
+declare const constantDigestBrand: unique symbol
+
+/**
+ * The digest of a constant's content under its domain, minted only by constantDigest: what the naming door names the
+ * constant's function by (core/identity.ts), so equal contents share one function and changed contents are a new one.
+ */
+export type ConstantDigest<D extends ConstantDomain = ConstantDomain> = string & {
+	readonly [constantDigestBrand]: D
+}
 
 /**
  * The digest of a value the compiler owns under a domain it names, which digests by construction (canonical.ts
@@ -41,6 +61,26 @@ export type OwnedDomain = "empty-snapshot" | "regex-language"
  */
 export const ownedDigest = (domain: OwnedDomain, value: unknown, options: EncodeOptions): string =>
 	sha256Hex(`${canonicalFormat}\n${domain}\n${ownedText(value, options)}`)
+
+declare const domainDigestBrand: unique symbol
+
+/**
+ * The digest of a domain's physical definition, its base type and its checks, minted only by domainDigest: what the
+ * naming door names a contract's or a text refinement's domain by (core/identity.ts), so two contracts, or two
+ * refinements, of one definition share one domain, and nominal distinctness stays the contract's type-level brand.
+ */
+export type DomainDigest = string & { readonly [domainDigestBrand]: true }
+
+/** The digest of a domain's physical definition: ownedDigest's under "domain-definition", branded. */
+export const domainDigest = (definition: unknown, options: EncodeOptions): DomainDigest =>
+	nominal<string, DomainDigest>()(ownedDigest("domain-definition", definition, options))
+
+/** The digest of a constant's content under its domain: ownedDigest's, branded by the domain. */
+export const constantDigest = <D extends ConstantDomain>(
+	domain: D,
+	value: unknown,
+	options: EncodeOptions
+): ConstantDigest<D> => nominal<string, ConstantDigest<D>>()(ownedDigest(domain, value, options))
 
 /**
  * The fixed-shape entry points below hash content that carries SourceLocs under "loc" (the descs of ir/desc.ts). A

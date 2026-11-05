@@ -734,9 +734,11 @@ export class LowerContext {
 }
 
 /**
- * The PostgreSQL type of a value of `t`: a contract's domain, a regex refinement's __text_ domain, a roster's enum, an
- * extension's vector, or the builtin with its typmod; or, for a regex refinement whose __text_ domain the names do not
- * name (a contract's base pattern no stored column carries), that refinement.
+ * The PostgreSQL type of a value of `t`: a contract's domain, a regex refinement's __text_ domain, an extension's
+ * vector, or the builtin with its typmod, a closed id's smallint code and a set's bit(n) among them; or, for a regex
+ * refinement whose __text_ domain the names do not name (a contract's base pattern no stored column carries), that
+ * refinement. A closed id's value is no domain's: its column is its roster's domain, which checks a code where it is
+ * stored, and a code computed or compared in a query is the smallint it is.
  */
 type PhysicalType =
 	| { readonly kind: "type"; readonly ref: TypeRef }

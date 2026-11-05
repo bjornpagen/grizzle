@@ -20,9 +20,11 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
 
-/** The kinds of PL/pgSQL function grizzle installs, and `other` for any other PL/pgSQL function in its schemas. */
+/**
+ * The kinds of PL/pgSQL function grizzle installs, and `other` for any other PL/pgSQL function in its schemas: no law
+ * function, since every law is a native constraint (fin.md §7).
+ */
 export const kinds = [
-	"law function",
 	"advance function",
 	"below-SERIALIZABLE guard",
 	"refusal function",
@@ -31,14 +33,10 @@ export const kinds = [
 export type Kind = (typeof kinds)[number]
 
 /**
- * The kind of a function, by the name the compiler gives it: `__law_<law>` for a residual law's function,
- * `__advance_<table>__<column>` for a serial field's advance function, the isolation guard's and the refusal
- * function's fixed names.
+ * The kind of a function, by the name the compiler gives it: `__advance_<table>__<column>` for a serial field's
+ * advance function, the isolation guard's and the refusal function's fixed names.
  */
 const kindOf = (name: string): Kind => {
-	if (Str.startsWith("__law_")(name)) {
-		return "law function"
-	}
 	if (Str.startsWith("__advance_")(name)) {
 		return "advance function"
 	}
@@ -235,7 +233,7 @@ export const plpgsqlCoverageReport = (
  * a transaction that always rolls back, so the database is left as it was; plpgsql_check is not a trusted extension,
  * hence the superuser.
  *
- * It prints, per kind of function (law function, advance function, below-SERIALIZABLE guard, refusal function, other),
+ * It prints, per kind of function (advance function, below-SERIALIZABLE guard, refusal function, other),
  * the statements executed of all and the branches taken, then per function the same with every statement no run
  * executed and its source line. A statement counts when it has a source line, as plpgsql_check counts them; branch
  * coverage is plpgsql_check's ratio of the branches of IF, CASE and loops taken.

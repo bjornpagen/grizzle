@@ -35,6 +35,7 @@
  */
 import { Array as Arr, Effect, Option, Record as Rec, Result, type Scope } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
 import {
 	explainStatementWith,
 	type PlanNode,
@@ -59,6 +60,7 @@ import {
 	quoteString
 } from "#compiler/sql/print.ts"
 import { changeSetOver, parseChangeSet } from "#compiler/write/changeset/value.ts"
+import { inForce } from "#compiler/write/family/order.ts"
 import { relationUniques } from "#compiler/write/insert/unique.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -401,7 +403,8 @@ const claimSql = (domain: FieldDomain): string => {
  * - Org: an id per number, plans 0 to 5, which its check admits;
  * - Doc: an id per number, words the number itself, so (org, words) is a key whatever the org, an org and an owner
  *   each spread over rows / 50 values;
- * - Share: a document per number, at most one per document under either capacity, a user spread over rows / 50;
+ * - Share: a document per number, at most one per document as the one-share variant's key admits, a user spread over
+ *   rows / 50;
  * - Note: its identity numbers it, a document and an author each spread over rows / 50, every document one Doc holds;
  * - Visit: its two serials number it, so it writes no field of its own.
  *
@@ -867,7 +870,8 @@ const precheck = (
 			Engine.flatMap(parseSchemaInput(entry.role), (input) =>
 				schemaArtifacts(input, {
 					installation: cx.installed.installation.names.installation,
-					vectorSchema: undefined
+					vectorSchema: undefined,
+					codes: cx.installed.installation.names.codes
 				})
 			)
 		)
@@ -898,7 +902,9 @@ const precheck = (
 			})
 		)
 		const members = yield* Effect.orDie(collectInputs(program.frontend, change.inputs))
-		const bound = succeeded(bindWrite(program, { members, params: {} }))
+		const bound = succeeded(
+			bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+		)
 		if (bound.kind !== "bound") {
 			return assert.fail(`${label}: the fact is refused before any SQL`)
 		}

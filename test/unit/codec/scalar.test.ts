@@ -32,7 +32,7 @@ import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import type { StrictFault } from "#test/support/kernel/strict.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { codecOf, types } from "#test/unit/codec/support.ts"
+import { codecOf, kindCodes, types } from "#test/unit/codec/support.ts"
 import { asVector } from "#test/unit/codec/values.ts"
 
 import { regex } from "arkregex"
@@ -248,11 +248,40 @@ const carried = {
 		refusedValues: [],
 		refusedTexts: []
 	},
-	enum: {
+	/** A closed id's text is its code's digits under kindCodes: Manual 0, Automatic 1, Ünïcode 2. */
+	code: {
 		type: types.kind,
-		live: map(element(["Manual", "Automatic", "Ünïcode"]), (h) => ({ value: h, text: h })),
-		refusedValues: [["manual", "enumHandle"]],
-		refusedTexts: [["Other", "enumHandle"]]
+		live: map(element(["Manual", "Automatic", "Ünïcode"] as const), (h) => ({
+			value: h,
+			text: String(["Manual", "Automatic", "Ünïcode"].indexOf(h))
+		})),
+		refusedValues: [["manual", "codeHandle"]],
+		refusedTexts: [
+			["3", "codeHandle"],
+			["-1", "codeHandle"],
+			["Manual", "integerSyntax"],
+			["01", "integerSyntax"]
+		]
+	},
+	/** A set's text is bit(3), position c code c under kindCodes. */
+	bits: {
+		type: types.kinds,
+		live: map(array(boolean, { min: 3, max: 3 }), (held) => ({
+			value: new Set(Arr.filter(["Manual", "Automatic", "Ünïcode"], (_, c) => held[c] === true)),
+			text: Arr.join(
+				Arr.map(held, (b) => (b ? "1" : "0")),
+				""
+			)
+		})),
+		refusedValues: [
+			[new Set(["Other"]), "bitsMember"],
+			[["Manual"], "bitsType"]
+		],
+		refusedTexts: [
+			["10", "bitsSyntax"],
+			["1010", "bitsSyntax"],
+			["1x0", "bitsSyntax"]
+		]
 	},
 	int4range: {
 		type: types.range4,
@@ -333,7 +362,8 @@ const carriedNames: Arr.NonEmptyReadonlyArray<CarriedName> = [
 	"bool",
 	"text",
 	"regex text",
-	"enum",
+	"code",
+	"bits",
 	"int4range",
 	"int8range",
 	"int4range of width 15",
@@ -421,7 +451,7 @@ describe("each carrier's codec", () => {
 					([name, sketch], c) =>
 						Effect.sync(() => {
 							const carrier: Carried = carried[name]
-							const codec = codecOf(carrier.type)
+							const codec = codecOf(carrier.type, kindCodes)
 							switch (sketch.kind) {
 								case "written": {
 									c.note(`${name} written`)
@@ -469,7 +499,7 @@ describe("integer and span text, scanned without RegExp", () => {
 
 	it.effect("reads int8 text exactly where the integer output grammar admits it", (ctx) =>
 		Effect.gen(function* () {
-			const int8 = codecOf(types.int8)
+			const int8 = codecOf(types.int8, kindCodes)
 			const texts = oneOf([
 				string(element(Str.split("0123456789-+. ", "")), { min: 0, max: 22 }),
 				map(bigint(int8Min.value * 2n, int8Max.value * 2n), String)
@@ -512,7 +542,7 @@ describe("integer and span text, scanned without RegExp", () => {
 
 	it.effect("reads int8range text exactly where the span output grammar admits it", (ctx) =>
 		Effect.gen(function* () {
-			const r8 = codecOf(types.range8)
+			const r8 = codecOf(types.range8, kindCodes)
 			const texts = oneOf([
 				string(element(Str.split("[](),-0123456789", "")), { min: 0, max: 16 }),
 				map(
@@ -561,7 +591,7 @@ describe("integer and span text, scanned without RegExp", () => {
 describe("vectors", () => {
 	it.effect("round-trips random float32 vectors of the cosine domain", (ctx) =>
 		Effect.gen(function* () {
-			const vector3 = codecOf(types.vector3)
+			const vector3 = codecOf(types.vector3, kindCodes)
 			/**
 			 * Components bounded by 2^16 / sqrt(3), subnormals included; a vector whose norm falls below the domain has its
 			 * first component set to 1.

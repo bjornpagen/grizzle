@@ -2,8 +2,9 @@ import { describe, it } from "@effect/vitest"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { snapshotMismatch } from "#compiler/deploy/admission/target.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { draftChain, fromEmpty, unowned } from "#test/support/migrate/kit.ts"
+import { draftChain, fromEmpty, noDeclarations, unowned } from "#test/support/migrate/kit.ts"
 import { withB } from "#test/unit/deploy/schemas.ts"
 
 describe("the registered snapshot", () => {
@@ -15,7 +16,13 @@ describe("the registered snapshot", () => {
 					[
 						{
 							desc: withB,
-							options: { schema: atName(schema), owner: unowned, extensions: [] }
+							options: {
+								schema: atName(schema),
+								owner: unowned,
+								extensions: [],
+								codes: firstCodes
+							},
+							declared: noDeclarations
 						}
 					],
 					fromEmpty
@@ -32,7 +39,13 @@ describe("the registered snapshot", () => {
 				[
 					{
 						desc: { ...withB, name: "Other" },
-						options: { schema: atName("app_one"), owner: unowned, extensions: [] }
+						options: {
+							schema: atName("app_one"),
+							owner: unowned,
+							extensions: [],
+							codes: firstCodes
+						},
+						declared: noDeclarations
 					}
 				],
 				fromEmpty

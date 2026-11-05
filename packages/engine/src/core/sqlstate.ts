@@ -54,7 +54,7 @@ export const sqlstates = {
 	 */
 	invalidSqlStatementName: brand("26000"),
 	featureNotSupported: brand("0A000"),
-	/** Integrity: a residual law's function raises the class code itself. */
+	/** Integrity: a write statement's refusal, and a migration's closed-only law, raise the class code itself. */
 	integrityConstraintViolation: brand("23000"),
 	uniqueViolation: brand("23505"),
 	exclusionViolation: brand("23P01"),

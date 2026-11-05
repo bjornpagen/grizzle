@@ -45,7 +45,7 @@ import { catalogDispatch } from "#test/support/compile.ts"
 import type { AuthoredExprDesc as ExprDesc, QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
+import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import * as D from "#test/unit/check/dsl.ts"
 
@@ -88,7 +88,12 @@ const sql = (q: LogicalQuery, r: CatalogResult<Rooted>): ReadonlyArray<string> =
 						new LowerContext(
 							r.dag,
 							{
-								names: productionNames("lab", { kind: "declared" }, localVectorSchema),
+								names: productionNames(
+									"lab",
+									{ kind: "declared" },
+									localVectorSchema,
+									schemaCodes(lab)
+								),
 								params: q.params,
 								subject: { kind: "query" }
 							},

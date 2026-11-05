@@ -63,6 +63,10 @@ const substExpr = (e: ResolvedExpr, s: Subst): ResolvedExpr => {
 			return { ...e, point: sub(e.point), span: sub(e.span) }
 		case "absent":
 			return { ...e, source: substSource(e.source, s), bindings: substBindings(e.bindings, s) }
+		case "closedAt":
+			return { ...e, args: mapNonEmpty(e.args, sub) }
+		case "closedRow":
+			return { ...e, args: e.args.map(sub) }
 	}
 }
 

@@ -210,6 +210,15 @@ const mintServerStatement = Brand.nominal<ServerStatement>()
  */
 const statementDigestHex = 40
 
+/** What every server statement's name begins with. */
+const statementNamePrefix = "grizzle_"
+
+/**
+ * The bytes of every server statement's name, the one length a name a statement runs under has beside the unnamed
+ * statement's empty one: its prefix and its digits, all ASCII.
+ */
+export const serverStatementNameBytes = statementNamePrefix.length + statementDigestHex
+
 /**
  * The server statement of `sql`, named `grizzle_` and the first statementDigestHex hex digits of the text's SHA-256: one
  * name for one text on every session, whichever pool's Db minted it. Two programs of one text share the name;
@@ -218,7 +227,7 @@ const statementDigestHex = 40
  */
 export const serverStatement = (sql: EmittedText): ServerStatement =>
 	mintServerStatement({
-		name: `grizzle_${pipe(sha256Hex(sql), Str.slice(0, statementDigestHex))}`,
+		name: `${statementNamePrefix}${pipe(sha256Hex(sql), Str.slice(0, statementDigestHex))}`,
 		sql
 	})
 

@@ -15,21 +15,17 @@
 import type { Kept } from "@grizzle/testing/explore"
 import { Array as Arr, Option } from "effect"
 import {
-	type DirectCase,
-	type DirectFeature,
-	plantedUpdate
-} from "#test/pg/laws/families/direct.ts"
-import { type Mode, variantsOf } from "#test/pg/laws/families/families.ts"
-import { directSuite, type Planted } from "#test/pg/laws/families/suites/direct.ts"
-import { casesPerTest, familySuite } from "#test/pg/laws/families/suites/family.ts"
-import { plantedInsert } from "#test/pg/laws/families/support.ts"
-import {
 	employees,
 	projectedSource,
 	shifts,
 	sourceShapes,
 	weeks
 } from "#test/pg/laws/projections/families.ts"
+import { type Mode, variantsOf } from "#test/support/laws/boxes.ts"
+import { type DirectCase, type DirectFeature, plantedUpdate } from "#test/support/laws/direct.ts"
+import { directSuite, type Planted } from "#test/support/laws/suites/direct.ts"
+import { casesPerTest, familySuite } from "#test/support/laws/suites/family.ts"
+import { plantedInsert } from "#test/support/laws/support.ts"
 
 familySuite(projectedSource, casesPerTest, "the family")
 familySuite(sourceShapes, casesPerTest, "every schema's refusals by every law but a key")

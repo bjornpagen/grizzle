@@ -8,35 +8,39 @@ import type {
 
 export {
 	alternatives,
-	capacity,
 	check,
 	closed,
 	contained,
 	context,
-	duration,
+	counted,
+	fin,
+	fold,
 	key,
+	Monoid,
 	mirrors,
 	mutable,
 	on,
+	ordered,
 	pred,
-	ref,
 	relation,
 	role,
 	schema,
 	select,
-	weigh,
-	within
+	tree
 } from "#compiler/schema/api.ts"
 export { login } from "#compiler/program/workload/login.ts"
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"
 export type {
 	Alternatives,
-	Bound,
-	Capacity,
+	AnyFamily,
+	AnyFin,
+	AnyMonoid,
 	Check,
 	Containment,
-	Duration,
+	Counted,
 	ExpansionOf,
+	Fin,
+	Fold,
 	Key,
 	KeyFieldsOf,
 	KeyRef,
@@ -44,24 +48,25 @@ export type {
 	Mirrors,
 	Mutable,
 	Pred,
-	Ref,
 	RelationOfKey,
 	RowScalars,
 	Selection,
 	Side,
 	Statement,
-	Weight
+	Tree
 } from "#compiler/types/schema/statements.ts"
 
 export type {
 	AnyClosed,
+	AnyClosedRelation,
 	AnyRelation,
-	Closed,
-	EnumClosed,
+	AnyRoster,
+	ClosedRelation,
 	Fact,
 	HeadingOf,
 	NameOf,
 	Relation,
+	Roster,
 	SerialFieldsOf
 } from "#compiler/types/schema/relation.ts"
 
@@ -100,8 +105,8 @@ export type {
 } from "#compiler/types/schema/schema.ts"
 
 /**
- * Public barrel: relation, closed, derived, schema, the statement constructors, and the worlds: context, role and
- * login.
+ * Public barrel: relation (and relation.generated), closed (and closed.relation), derived, schema, the statement
+ * constructors, and the worlds: context, role and login.
  *
  * relation, closed, schema and the statement constructors are the typed schema facade's (schema/api.ts), and login,
  * which admits the workloads it owns, the workload program's (program/workload/login.ts). derived's

@@ -24,7 +24,13 @@ import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { asDrafted, type CompileOver, draftChain, fromEmpty } from "#test/support/migrate/kit.ts"
+import {
+	asDrafted,
+	type CompileOver,
+	draftChain,
+	fromEmpty,
+	noDeclarations
+} from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** The account budgets with at least `least` automatic tasks: a range on the view's `tasks` column.
@@ -163,7 +169,9 @@ describe("workload indexes on a derived relation", () => {
 							)
 							assert.ok(Option.isSome(index), "the view's workload index")
 							assert.deepEqual(
-								Arr.map(index.value.keys, (k) => k.field),
+								Arr.map(index.value.keys, (k) =>
+									k.column.kind === "field" ? k.column.field : k.column.column
+								),
 								[column]
 							)
 							assert.ok(Arr.every(index.value.requests, (r) => r.role === "access"))
@@ -201,8 +209,8 @@ describe("workload indexes on a derived relation", () => {
 									? defined(
 											draftChain(
 												[
-													{ desc: W.Reports, options: asDrafted },
-													{ desc: W.Reports, options: draftedWith(busy) }
+													{ desc: W.Reports, options: asDrafted, declared: noDeclarations },
+													{ desc: W.Reports, options: draftedWith(busy), declared: noDeclarations }
 												],
 												fromEmpty
 											)[1]
@@ -210,10 +218,13 @@ describe("workload indexes on a derived relation", () => {
 									: defined(
 											draftChain(
 												[
-													{ desc: W.Reports, options: draftedWith(busy) },
+													{ desc: W.Reports, options: draftedWith(busy), declared: noDeclarations },
 													{
 														desc: Redefined,
-														options: draftedWith(planOf(Redefined, { busyAccounts: busyRedefined }))
+														options: draftedWith(
+															planOf(Redefined, { busyAccounts: busyRedefined })
+														),
+														declared: noDeclarations
 													}
 												],
 												fromEmpty

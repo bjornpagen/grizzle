@@ -11,14 +11,25 @@ import {
 import { exact, set } from "@grizzle/testing/oracle"
 import { fullSwarm, keep, type Swarm, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Option } from "effect"
-import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
+import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
+import type { RosterCodes } from "#compiler/ir/cells.ts"
+import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading, KeySet } from "#compiler/ir/rel.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
+	codesOf,
+	liveOf,
+	patternGen,
+	type RosterState,
+	sizeOf
+} from "#test/support/closed/generate.ts"
+import {
 	contained,
 	key as keyOf,
 	on,
+	relation,
 	type AuthoredRelationDesc as RelationDesc,
 	type SchemaDesc,
 	type AuthoredStatementDesc as StatementDesc
@@ -28,7 +39,6 @@ import {
 	baseTypeSpecs,
 	fieldDescOf,
 	keyFieldType,
-	typedLiteralDesc,
 	resolveValue,
 	type Spelling,
 	scalarOfSpec,
@@ -69,10 +79,15 @@ export interface GenRelation {
 	readonly mutable: boolean
 }
 
-/** A closed relation: its roster of handles and its payload facts. Its rows are [handle, ...payload]. */
+/**
+ * A roster: its live handles in declared order, which is their codes' order, and its codes in the installation, holes
+ * included, so a handle's code need not be its position. A query reads it as a Closed node: `rows` are
+ * [handle, ...payload], one per live handle, the payload a query-local VALUES column the schema does not declare.
+ */
 export interface GenClosed {
 	readonly name: string
 	readonly handles: Arr.NonEmptyReadonlyArray<string>
+	readonly codes: RosterCodes
 	readonly payload: ReadonlyArray<GenColumn>
 	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
 }
@@ -89,7 +104,7 @@ export interface GenContainment {
  * A generated schema has one to four stored relations and up to two closed rosters. Every relation declares its
  * primary key, which a pure set makes its whole heading, and up to two candidate keys; nothing else
  * implies uniqueness. Every key is representable: a numeric key field is declared numeric(5,2),
- * and generated text is bounded (domain.ts). A relation may hold a closedId (enum) field of a roster and one containment of some of its
+ * and generated text is bounded (domain.ts). A relation may hold a closedId field of a roster and one containment of some of its
  * fields into an earlier relation's primary key, so the containment graph is acyclic and the fact generator can fill
  * referenced relations first. Some relations are declared mutable; immutable is the pinned default.
  *
@@ -109,6 +124,25 @@ export interface GenSchema {
 }
 
 export const schemaName = "Oracle"
+
+/** A generated roster's name, as the naming door parses it; one it refuses is a defect of the generator. */
+const rosterName = (name: string): DeclaredName => {
+	const parsed = parseDeclaredName(name)
+	if (!parsed.ok) {
+		throw new Error(`the generated roster name ${name}: ${parsed.error}`)
+	}
+	return parsed.value
+}
+
+/** The installation's codes of a generated schema's rosters: what its real installation and its codecs read. */
+export const schemaCodes = (schema: Pick<GenSchema, "closed">): Codebook => ({
+	rosters: new Map(
+		Arr.map(schema.closed, (c) => {
+			const name = rosterName(c.name)
+			return [name, rosterCodec(name, c.codes)] as const
+		})
+	)
+})
 
 const columnIndex = (relation: GenRelation, name: string): number => {
 	const i = Arr.findFirstIndex(relation.columns, (c) => c.name === name)
@@ -142,7 +176,7 @@ const isSpanType = (type: ScalarType): boolean =>
 const isVectorType = (type: ScalarType): boolean => type.carrier === "vector"
 
 export const closedIdType = (closed: Pick<GenClosed, "name" | "handles">): ScalarType =>
-	scalarOfSpec({ carrier: "enum", roster: { closed: closed.name, handles: closed.handles } })
+	scalarOfSpec({ carrier: "code", roster: { closed: closed.name, handles: closed.handles } })
 
 /** A closed relation's heading: the handle column `id`, typed by its roster, then the payload. */
 export const closedHeading = (closed: GenClosed): Heading => [
@@ -161,44 +195,21 @@ export const relationNamed = (schema: GenSchema, name: string): GenRelation => {
 /**
  * The schema's Description: relation, closed, key, mutable and contained, exactly what the
  * public constructors record for this schema. It is an admissible schema: ownership (packages/engine/src/schema/own.ts)
- * accepts it, every key representable.
+ * accepts it, every key representable. A roster declares its live handles alone: its codes are the installation's
+ * (schemaCodes), and a Closed node's payload is the query's own.
  */
 export const schemaDesc = (schema: GenSchema): SchemaDesc => {
-	const closed: Array<RelationDesc> = Arr.map(schema.closed, (c) => {
-		const payload: Record<string, FieldDesc> = {}
-		for (const col of c.payload) {
-			payload[col.name] = fieldDescOf(col.type)
-		}
-		const facts: Record<string, Record<string, LiteralDesc>> = {}
-		for (const row of c.rows) {
-			const handle = elementAt(row, 0, "a closed row")
-			if (handle.kind !== "enum") {
-				throw new Error("a closed row starts with its handle")
-			}
-			const fact: Record<string, LiteralDesc> = {}
-			for (const [i, col] of c.payload.entries()) {
-				fact[col.name] = typedLiteralDesc(elementAt(row, i + 1, "a closed row"), col.type)
-			}
-			facts[handle.handle] = fact
-		}
-		return {
-			kind: "closed",
-			name: c.name,
-			handles: c.handles,
-			payload,
-			facts
-		}
-	})
+	const closed: Array<RelationDesc> = Arr.map(schema.closed, (c) => ({
+		kind: "closed",
+		name: c.name,
+		handles: c.handles
+	}))
 	const relations: Array<RelationDesc> = Arr.map(schema.relations, (r) => {
 		const fields: Record<string, FieldDesc> = {}
 		for (const col of r.columns) {
 			fields[col.name] = fieldDescOf(col.type)
 		}
-		const [key, ...rest] = r.primaryKey
-		if (key === undefined) {
-			throw new Error(`the generated relation ${r.name} has no primary key`)
-		}
-		return { kind: "relation", name: r.name, fields, primaryKey: [key, ...rest] }
+		return relation(r.name, fields, r.primaryKey)
 	})
 	const statements: Array<StatementDesc> = []
 	for (const r of schema.relations) {
@@ -215,8 +226,12 @@ export const schemaDesc = (schema: GenSchema): SchemaDesc => {
 	return { name: schema.name, relations: [...closed, ...relations], statements, extends: undefined }
 }
 
+/**
+ * A roster's sketch: its hole pattern (closed/generate.ts patternGen), and each query-local payload column's type and
+ * one value per code, so a live handle reads the value of its own code.
+ */
 interface ClosedSketch {
-	readonly handles: number
+	readonly pattern: RosterState
 	readonly payload: ReadonlyArray<{
 		readonly type: number
 		readonly values: ReadonlyArray<ValueSketch>
@@ -294,18 +309,29 @@ export const valueSketchGen: Gen<ValueSketch> = (source) => ({
 	sp: source.draw(int(0, 3))
 })
 
-const closedSketchGen: Gen<ClosedSketch> = (source) => ({
-	handles: source.draw(int(1, 3)),
-	payload: source.draw(
-		array(
-			(payload) => ({
-				type: payload.draw(int(0, baseTypeSpecs.length - 1)),
-				values: payload.draw(array(valueSketchGen, { min: 3, max: 3 }))
-			}),
-			{ min: 0, max: 2 }
+/** The name a roster's pattern is drawn under; resolution names it K<i>. */
+const sketchedRoster = rosterName("K")
+
+/**
+ * A roster of one to four codes in every hole pattern, a live code at least: most patterns hold a hole, so a code is
+ * often not its handle's declared position. Each payload column draws one value per code.
+ */
+const closedSketchGen: Gen<ClosedSketch> = (source) => {
+	const pattern = source.draw(patternGen(sketchedRoster, source.draw(int(1, 4))))
+	const codes = sizeOf(pattern)
+	return {
+		pattern,
+		payload: source.draw(
+			array(
+				(payload) => ({
+					type: payload.draw(int(0, baseTypeSpecs.length - 1)),
+					values: payload.draw(array(valueSketchGen, { min: codes, max: codes }))
+				}),
+				{ min: 0, max: 2 }
+			)
 		)
-	)
-})
+	}
+}
 
 const fkSketchGen = (containments: SchemaLimits["containments"]): Gen<RelationSketch["fk"]> => {
 	switch (containments) {
@@ -402,20 +428,30 @@ export const resolveSchema =
 	(source) => {
 		const rosters = weightOf(swarm, "closed") > 0 ? sketch.closed : []
 		const closed: Array<GenClosed> = Arr.map(rosters, (c, ci) => {
-			const name = `K${ci}`
-			const handles = Arr.makeBy(c.handles, (h) => `H${h}`)
+			const handles = liveOf(c.pattern)
+			const codes = codesOf(c.pattern)
 			const payload: Array<GenColumn> = Arr.map(c.payload, (p, pi) => ({
 				name: `p${pi}`,
-				type: scalarOfSpec(cyclicAt(baseTypeSpecs, p.type, "the base type specs"))
+				type: scalarOfSpec(elementAt(baseTypeSpecs, p.type, "the base type specs"))
 			}))
-			const rows = Arr.map(handles, (handle, h) => [
-				{ kind: "enum", handle } satisfies TypedLiteral,
-				...Arr.map(payload, (col, pi) => {
-					const values = elementAt(c.payload, pi, "a closed sketch's payload").values
-					return resolveValue(col.type, cyclicAt(values, h, "a payload's values"), spelling.edge)
-				})
-			])
-			return { name, handles, payload, rows }
+			const rows = Arr.map(handles, (handle) => {
+				const code = Arr.findFirstIndex(
+					codes,
+					(slot) => slot.kind === "live" && slot.handle === handle
+				)
+				return [
+					{ kind: "handle", handle } satisfies TypedLiteral,
+					...Arr.map(payload, (col, pi) => {
+						const values = elementAt(c.payload, pi, "a closed sketch's payload").values
+						return resolveValue(
+							col.type,
+							elementAt(values, Option.getOrThrow(code), "a payload's value of a live code"),
+							spelling.edge
+						)
+					})
+				]
+			})
+			return { name: `K${ci}`, handles, codes, payload, rows }
 		})
 		const palette: Array<ScalarType> = []
 		const addType = (t: ScalarType) => {

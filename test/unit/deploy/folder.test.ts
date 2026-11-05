@@ -10,7 +10,6 @@ import {
 	type Gen,
 	int,
 	map,
-	oneOf,
 	string,
 	subarray,
 	type Weighted,
@@ -33,22 +32,12 @@ import { decodeMeta, readMeta } from "#adapter/boundary/meta.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
-import {
-	type CandidatePath,
-	type EndsPath,
-	type FieldPath,
-	samePath
-} from "#compiler/deploy/diff/plan.ts"
+import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import {
 	folderName,
 	isFolderName,
 	type MetaFile,
-	type MetaPlainOffer,
-	type MetaRelationStep,
-	type MetaRequires,
-	type MetaRootRename,
 	type MetaStep,
-	type MetaTopOffer,
 	type CustomMeta,
 	type MigrationMeta,
 	maxMigrationNameLength,
@@ -62,8 +51,16 @@ import { generateMigration } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { asDrafted, draftChain, compile, fromEmpty, draftedAt } from "#test/support/migrate/kit.ts"
+import {
+	asDrafted,
+	compile,
+	draftChain,
+	draftedAt,
+	fromEmpty,
+	noDeclarations
+} from "#test/support/migrate/kit.ts"
 import { plansRepriced } from "#test/unit/deploy/schemas.ts"
 
 import { regex } from "arkregex"
@@ -76,12 +73,10 @@ import { regex } from "arkregex"
  * - A drafted file is `NN-<words>.sql`, NN two or more ASCII digits and positive; a folder holds such files beside
  *   meta.json, one per ordinal, applied in ordinal order.
  * - meta.json holds four nonempty strings and its kind, drafted or custom; a custom migration's source is its target. A
- *   drafted folder also holds its decisions, empty when it has none: each candidate rename's label, what it renames,
- *   those before it that it requires and its witness, and each choice's file, kept statement and offers, every offer
- *   and nesting naming one of them; each group of statements it confirms, with its file and its statements, one at
- *   least; and each loss of stored data, with its file, where it is, what it loses, its statement and the candidates
- *   that carry it. A value short of any of it is refused as malformed, and a valid one reads back as written, byte for
- *   byte when written again.
+ *   drafted folder also holds the renames and drops it was drafted under, and its decisions, empty when it has none:
+ *   each drafted statement in its place, each group of statements it confirms, one at least, and each loss of stored
+ *   data, what it loses and its statement. A value short of any of it is refused as malformed, a decision written as
+ *   another recorded statement among it, and a valid one reads back as written, byte for byte when written again.
  * - A drafted folder is named after its change. */
 const words = regex("^[a-z0-9]+(?:[_-][a-z0-9]+)*$")
 const isWordsOracle = (text: string): boolean => words.test(text)
@@ -282,13 +277,19 @@ describe("migration folders, generated", () => {
 	)
 
 	it("derives a folder name for a draft whose first change is the refined constants' validation", () => {
-		const first = defined(draftChain([{ desc: work.PlansDesc, options: asDrafted }], fromEmpty)[0])
+		const first = defined(
+			draftChain(
+				[{ desc: work.PlansDesc, options: asDrafted, declared: noDeclarations }],
+				fromEmpty
+			)[0]
+		)
 		/** The name is generate's own: undefined asks it to derive one. */
 		const g = succeeded(
 			generateMigration({
 				previous: first.snapshot,
 				installation: compile(plansRepriced(), asDrafted),
 				workload: noWorkload,
+				declared: noDeclarations,
 				naming: { kind: "derived" },
 				timestamp: draftedAt(2),
 				abandoned: []
@@ -300,16 +301,11 @@ describe("migration folders, generated", () => {
 
 /** What a meta.json value is short of.
  * A key of meta.json, of either kind of folder. */
-type MetaKey = "schemaName" | "schema" | "source" | "target" | "kind" | "files"
+type MetaKey = "schemaName" | "schema" | "source" | "target" | "kind" | "declared" | "files"
 
-/** A decision record short of its form or its proof, each refused: a reference naming no rename offer; two rename offers
- * of one path; a nested field's rename at the top of a file, or a relation's inside an alternative; a field's
- * `requires` naming a relation; a statement whose presence decides something written as another that can stand beside
- * it; a delete offer with statements; a choice offering nothing. */
-type RecordMiss =
-	| "a dangling path"
-	| "two rename offers of one path"
-	| "a head written as another statement"
+/** A decision record short of its proof, refused: a statement whose presence decides something, a loss's or a
+ * confirmed one, written as another recorded statement, which a review could not tell apart from it. */
+type RecordMiss = "a loss written as another statement" | "a confirmed statement written twice"
 
 type Fault =
 	| { readonly kind: "none" }
@@ -321,227 +317,74 @@ type Fault =
 
 const fingerprintGen = matching(regex("^[0-9a-f]{64}$"))
 
-const fileNames = ["02-structure.sql", "05-publish.sql"] as const
+const fileNames = ["01-setup.sql", "05-publish.sql"] as const
 
-const name = (n: string): string => `"repro"."${n}"`
-const quoted = (n: string): string => `"${n}"`
-
-/** A record's roots as the generator draws them, each with its path and its head: the relations' renames with their
- * nested fields' renames, a type's, a login's and a kept relation's field's. */
-interface RelationDraw {
-	readonly path: EndsPath<"relation">
-	readonly nested: ReadonlyArray<{ readonly removed: string; readonly added: string }>
-}
-
-interface Roots {
-	readonly relations: ReadonlyArray<RelationDraw>
-	readonly type: EndsPath<"type"> | undefined
-	readonly login: EndsPath<"login"> | undefined
-	readonly field: FieldPath | undefined
-}
-
-/** Relations of removed and added names from two small pools, each pair at most once: two removed relations onto one
- * added one are rivals, their nested fields' renames of one pair of fields spelt alike. */
-const relationsGen: Gen<ReadonlyArray<RelationDraw>> = (source) => {
-	const pairs = source.draw(
-		subarray([
-			["first", "third"],
-			["second", "third"],
-			["first", "fourth"]
-		] as const)
-	)
-	return Arr.map(pairs, ([removed, added]) => ({
-		path: { kind: "relation", removed: name(removed), added: name(added) },
-		nested: source.draw(
-			subarray([
-				{ removed: quoted("value"), added: quoted("amount") },
-				{ removed: quoted("value"), added: quoted("price") }
-			])
-		)
-	}))
-}
-
-const rootsGen: Gen<Roots> = (source) => ({
-	relations: source.draw(relationsGen),
-	type: source.draw(
-		oneOf<EndsPath<"type"> | undefined>([
-			constant(undefined),
-			constant({ kind: "type", removed: name("kind"), added: name("category") })
+/** The renames and drops a draft declares, from small pools of each kind (`--rename`, `--drop`). */
+const declaredGen: Gen<Declarations> = (source) => ({
+	renames: source.draw(
+		subarray<Rename>([
+			{
+				from: { kind: "relation", relation: parsedName("Old") },
+				to: { kind: "relation", relation: parsedName("New") }
+			},
+			{
+				from: { kind: "field", relation: parsedName("Kept"), field: parsedName("a") },
+				to: { kind: "field", relation: parsedName("Kept"), field: parsedName("b") }
+			},
+			{
+				from: { kind: "handle", roster: parsedName("Kind"), handle: "Low" },
+				to: { kind: "handle", roster: parsedName("Kind"), handle: "Lesser" }
+			}
 		])
 	),
-	login: source.draw(
-		oneOf<EndsPath<"login"> | undefined>([
-			constant(undefined),
-			constant({ kind: "login", removed: quoted("old"), added: quoted("new") })
-		])
-	),
-	field: source.draw(
-		oneOf<FieldPath | undefined>([
-			constant(undefined),
-			constant({ kind: "field", relation: name("kept"), removed: quoted("a"), added: quoted("b") })
+	drops: source.draw(
+		subarray<Named>([
+			{ kind: "relation", relation: parsedName("Gone") },
+			{ kind: "field", relation: parsedName("Kept"), field: parsedName("c") },
+			{ kind: "handle", roster: parsedName("Kind"), handle: "High" }
 		])
 	)
 })
 
-/** Every path of a record's roots, nested fields' after their relation's. */
-const pathsOf = (roots: Roots): ReadonlyArray<CandidatePath> => [
-	...Arr.flatMap(roots.relations, (r): ReadonlyArray<CandidatePath> => [
-		r.path,
-		...Arr.map(r.nested, (n): CandidatePath => ({
-			kind: "nested field",
-			parent: r.path,
-			removed: n.removed,
-			added: n.added
-		}))
-	]),
-	...(roots.type === undefined ? [] : [roots.type]),
-	...(roots.login === undefined ? [] : [roots.login]),
-	...(roots.field === undefined ? [] : [roots.field])
-]
+/** The loss a schema's first migration states when its directory holds an abandoned schema: their rows. */
+const abandonedLoss = (statement: string): MetaStep => ({
+	kind: "loss",
+	loses: {
+		kind: "schema",
+		schema: `"repro"`,
+		abandoned: [{ schema: `"repro_old"`, directory: "repro_old" }]
+	},
+	statement
+})
 
-/** A record of a draft's roots: each root's rename offer in a choice of its own, a relation's alternative with a
- * statement, its nested fields' renames each in a choice of its own that a placeholder column's DROP DEFAULT follows,
- * and the loss of its dropped field that the nested renames carry; then a plain choice whose replace and delete offers
- * name drawn candidates, a confirmed group and a relation's loss. Every statement is spelt apart from every other but
- * the heads: a nested field's head names its relation's added relation and its two fields, so rivals spell theirs
- * alike. */
-const recordOf = (roots: Roots, draw: <A>(gen: Gen<A>) => A): ReadonlyArray<MetaFile> => {
+/** A record of a draft: statements spelt each apart from every other, a confirmed group of two, and in Setup the loss of
+ * an abandoned schema's rows where the draft starts its schema beside one. */
+const recordOf = (lossDrawn: boolean): ReadonlyArray<MetaFile> => {
 	let n = 0
 	const fresh = (verb: string): string => {
 		n++
 		return `ALTER TABLE "repro"."t${n}" ${verb}`
 	}
-	const requires: MetaRequires = roots.type ?? { kind: "nothing" }
-	const paths = pathsOf(roots)
-	const some = (): ReadonlyArray<CandidatePath> => draw(subarray(paths))
-	const relationSteps = Arr.map(roots.relations, (r): MetaStep => ({
-		kind: "choice",
-		keep: fresh(`CREATE ${n}`),
-		follows: [],
-		offers: [
-			{
-				kind: "relation rename",
-				removed: r.path.removed,
-				added: r.path.added,
-				head: `ALTER TABLE ${r.path.removed} RENAME TO ${r.path.added}`,
-				alternative: [
-					{ kind: "statement", statement: fresh("RENAME CONSTRAINT") },
-					...Arr.map(r.nested, (x): MetaRelationStep => ({
-						kind: "choice",
-						keep: fresh("ADD COLUMN"),
-						follows: [fresh("ALTER COLUMN DROP DEFAULT")],
-						offers: [
-							{
-								kind: "nested rename",
-								removed: x.removed,
-								added: x.added,
-								requires,
-								head: `ALTER TABLE ${r.path.added} RENAME COLUMN ${x.removed} TO ${x.added}`,
-								alternative: []
-							}
-						]
-					})),
-					{
-						kind: "loss",
-						loses: { kind: "field", relation: r.path.removed, field: quoted("value") },
-						statement: fresh("DROP COLUMN"),
-						carriers: Arr.map(r.nested, (x): CandidatePath => ({
-							kind: "nested field",
-							parent: r.path,
-							removed: x.removed,
-							added: x.added
-						}))
-					}
-				]
-			}
-		]
-	}))
-	const rootStep = (offer: MetaRootRename, keep: string): MetaStep => ({
-		kind: "choice",
-		keep,
-		follows: [],
-		offers: [offer]
-	})
-	const others = [
-		...(roots.type === undefined
-			? []
-			: [
-					rootStep(
-						{
-							kind: "rename",
-							renames: {
-								kind: "type",
-								object: "TYPE",
-								removed: roots.type.removed,
-								added: roots.type.added
-							},
-							head: `ALTER TYPE ${roots.type.removed} RENAME TO ${roots.type.added}`,
-							alternative: []
-						},
-						fresh("CREATE TYPE")
-					)
-				]),
-		...(roots.login === undefined
-			? []
-			: [
-					rootStep(
-						{
-							kind: "rename",
-							renames: roots.login,
-							head: `ALTER ROLE ${roots.login.removed} RENAME TO ${roots.login.added}`,
-							alternative: []
-						},
-						fresh("CREATE ROLE")
-					)
-				]),
-		...(roots.field === undefined
-			? []
-			: [
-					rootStep(
-						{
-							kind: "rename",
-							renames: { ...roots.field, requires },
-							head: `ALTER TABLE ${roots.field.relation} RENAME COLUMN ${roots.field.removed} TO ${roots.field.added}`,
-							alternative: []
-						},
-						fresh("ADD COLUMN")
-					)
-				])
-	]
-	const named = some()
-	const [replaced, ...deleted] = named
-	const plain: ReadonlyArray<MetaStep> =
-		replaced === undefined
-			? []
-			: [
-					{
-						kind: "choice",
-						keep: fresh("DROP CONSTRAINT"),
-						follows: [],
-						offers: [
-							{ kind: "replace", candidate: replaced, statements: [fresh("DROP CONSTRAINT")] },
-							...Arr.map(deleted, (candidate): MetaPlainOffer => ({ kind: "delete", candidate }))
-						]
-					}
-				]
-	const publish: ReadonlyArray<MetaStep> = [
-		{ kind: "statement", statement: fresh("OWNER") },
-		{ kind: "confirm", statements: [fresh("RENAME ASIDE"), fresh("RENAME ASIDE")] },
-		{
-			kind: "loss",
-			loses: { kind: "relation", relation: name("gone") },
-			statement: fresh("DROP"),
-			carriers: some()
-		}
-	]
 	return [
-		{ name: fileNames[0], steps: [...relationSteps, ...others, ...plain] },
-		{ name: fileNames[1], steps: publish }
+		{
+			name: fileNames[0],
+			steps: [
+				...(lossDrawn ? [abandonedLoss(`CREATE SCHEMA "repro${n}"`)] : []),
+				{ kind: "statement", statement: fresh("ADD COLUMN") }
+			]
+		},
+		{
+			name: fileNames[1],
+			steps: [
+				{ kind: "statement", statement: fresh("OWNER") },
+				{ kind: "confirm", statements: [fresh("RENAME ASIDE"), fresh("RENAME ASIDE")] }
+			]
+		}
 	]
 }
 
 /** A custom migration's source and target are one snapshot, and it drafts nothing, so it records no files. */
-const metaGen: Gen<readonly [MigrationMeta, Roots]> = (source) => {
+const metaGen: Gen<MigrationMeta> = (source) => {
 	const fields = {
 		schemaName: source.draw(matching(regex("^[A-Z][A-Za-z0-9]{0,8}$"))),
 		schema: source.draw(matching(regex("^[a-z][a-z0-9_]{0,8}$"))),
@@ -549,17 +392,14 @@ const metaGen: Gen<readonly [MigrationMeta, Roots]> = (source) => {
 	}
 	const target = SchemaFingerprint(source.draw(fingerprintGen))
 	const custom = source.draw(boolean)
-	const roots = source.draw(rootsGen)
-	const files = recordOf(roots, (gen) => source.draw(gen))
-	return [
-		custom
-			? { kind: "custom", ...fields, target: fields.source }
-			: { kind: "drafted", ...fields, target, files },
-		roots
-	]
+	const declared = source.draw(declaredGen)
+	const files = recordOf(source.draw(boolean))
+	return custom
+		? { kind: "custom", ...fields, target: fields.source }
+		: { kind: "drafted", ...fields, target, declared, files }
 }
 
-/** The values a field must not hold, by field: a custom migration's meta holds no files at all. */
+/** The values a field must not hold, by field: a custom migration's meta holds no declarations or files at all. */
 const wrong: Arr.NonEmptyReadonlyArray<{
 	readonly key: MetaKey
 	readonly values: Arr.NonEmptyReadonlyArray<unknown>
@@ -569,61 +409,44 @@ const wrong: Arr.NonEmptyReadonlyArray<{
 	{ key: "source", values: ["", 1, null] },
 	{ key: "target", values: ["", [], null] },
 	{ key: "kind", values: ["Drafted", "", true, 0, null] },
+	{
+		key: "declared",
+		values: [
+			null,
+			{},
+			{ renames: [], drops: [{ kind: "type", type: "x" }] },
+			{ renames: [{}], drops: [] }
+		]
+	},
 	{ key: "files", values: [null, {}, [{ name: "", steps: [] }], [{ name: "01-setup.sql" }]] }
 ]
 
-/** A record's near miss, made from a valid record whose roots are `roots`; none where the record has nothing to make
- * it of. */
+/** A record's near miss, made from a valid record: the first decision's statement recorded again as a plain
+ * statement, or none where the record holds no such decision. */
 const missed = (
 	files: ReadonlyArray<MetaFile>,
-	roots: Roots,
 	miss: RecordMiss
 ): ReadonlyArray<MetaFile> | undefined => {
+	const decided = Arr.flatMap(files, (f) =>
+		Arr.flatMap(f.steps, (step): ReadonlyArray<string> => {
+			switch (miss) {
+				case "a loss written as another statement":
+					return step.kind === "loss" ? [step.statement] : []
+				case "a confirmed statement written twice":
+					return step.kind === "confirm" ? [step.statements[0]] : []
+			}
+		})
+	)
+	const [statement] = decided
 	const [top, ...rest] = files
-	if (top === undefined) {
-		return undefined
-	}
-	const added = (step: MetaStep): ReadonlyArray<MetaFile> => [
-		{ name: top.name, steps: [...top.steps, step] },
-		...rest
-	]
-	const [relation] = roots.relations
-	switch (miss) {
-		case "a dangling path":
-			return added({
-				kind: "choice",
-				keep: "SELECT 1",
-				follows: [],
-				offers: [
-					{ kind: "delete", candidate: { kind: "relation", removed: name("x"), added: name("y") } }
-				]
-			})
-		case "two rename offers of one path": {
-			const [own] = Arr.filter(
-				top.steps,
-				(step) =>
-					step.kind === "choice" &&
-					Arr.some(
-						step.offers,
-						(o: MetaTopOffer) => o.kind === "rename" || o.kind === "relation rename"
-					)
-			)
-			return own === undefined ? undefined : added(own)
-		}
-		case "a head written as another statement":
-			return relation === undefined
-				? undefined
-				: added({
-						kind: "statement",
-						statement: `ALTER TABLE ${relation.path.removed} RENAME TO ${relation.path.added}`
-					})
-	}
+	return statement === undefined || top === undefined
+		? undefined
+		: [{ name: top.name, steps: [...top.steps, { kind: "statement", statement }] }, ...rest]
 }
 
 const recordMisses: Arr.NonEmptyReadonlyArray<RecordMiss> = [
-	"a dangling path",
-	"two rename offers of one path",
-	"a head written as another statement"
+	"a loss written as another statement",
+	"a confirmed statement written twice"
 ]
 
 /** The faults of a meta: a field holding a wrong value, one of its keys removed, or its record, of the form, short of
@@ -701,24 +524,24 @@ const faulted = (
 	}
 }
 
-type MetaFeature = "two rival relations whose nested heads are spelt alike, read" | RecordMiss
+type MetaFeature = "a drafted meta with a loss, read" | "declarations, read" | RecordMiss
 
 describe("meta.json, generated", () => {
 	it.effect(
-		"reads back exactly what it writes, byte for byte, every candidate by its path, and refuses a value short of the format or its proof",
+		"reads back exactly what it writes, byte for byte, its declarations and every decision, and refuses a value short of the format or its proof",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
 						suite: "unit/deploy/meta",
-						draw: drawn((source): readonly [MigrationMeta, Roots, Fault] => {
-							const [meta, roots] = source.draw(metaGen)
-							return [meta, roots, source.draw(faultGen(meta))]
+						draw: drawn((source): readonly [MigrationMeta, Fault] => {
+							const meta = source.draw(metaGen)
+							return [meta, source.draw(faultGen(meta))]
 						}),
 						literal: Formatter.format,
 						coverage: required<MetaFeature>(
-							["two rival relations whose nested heads are spelt alike, read", ...recordMisses],
+							["a drafted meta with a loss, read", "declarations, read", ...recordMisses],
 							{ cases: 400, sense: notesOnly }
 						),
 						kept: [],
@@ -728,7 +551,7 @@ describe("meta.json, generated", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([meta, roots, fault], c) =>
+					([meta, fault], c) =>
 						Effect.sync(() => {
 							const written = succeeded(writeMeta(meta))
 							if (fault.kind === "none") {
@@ -740,30 +563,24 @@ describe("meta.json, generated", () => {
 									return
 								}
 								assertVariant(read, "kind", "drafted", "a drafted meta reads back drafted")
-								const paths = Arr.flatMap(
-									read.record.candidates,
-									(r): ReadonlyArray<CandidatePath> =>
-										r.kind === "relation" ? [r.path, ...Arr.map(r.fields, (x) => x.path)] : [r.path]
+								assert.deepEqual(read.declared, meta.declared, "the declarations read back")
+								if (meta.declared.renames.length + meta.declared.drops.length > 0) {
+									c.note("declarations, read")
+								}
+								const kinds = (
+									files: ReadonlyArray<{
+										readonly steps: ReadonlyArray<MetaStep | { readonly kind: string }>
+									}>
+								) => Arr.map(files, (f) => Arr.map(f.steps, (step) => step.kind))
+								assert.deepEqual(
+									kinds(read.record.files),
+									kinds(meta.files),
+									"every decision, in its place"
 								)
-								const drawnPaths = pathsOf(roots)
-								assert.ok(
-									paths.length === drawnPaths.length &&
-										Arr.every(drawnPaths, (p) => Arr.some(paths, (q) => samePath(p, q))),
-									"every candidate the record offers is read, by its path"
-								)
-								const rivalNested = Arr.some(roots.relations, (x) =>
-									Arr.some(
-										roots.relations,
-										(y) =>
-											x !== y &&
-											x.path.added === y.path.added &&
-											Arr.some(x.nested, (n) =>
-												Arr.some(y.nested, (m) => n.removed === m.removed && n.added === m.added)
-											)
-									)
-								)
-								if (rivalNested) {
-									c.note("two rival relations whose nested heads are spelt alike, read")
+								if (
+									Arr.some(meta.files, (f) => Arr.some(f.steps, (step) => step.kind === "loss"))
+								) {
+									c.note("a drafted meta with a loss, read")
 								}
 								return
 							}
@@ -771,7 +588,7 @@ describe("meta.json, generated", () => {
 								if (meta.kind !== "drafted") {
 									return
 								}
-								const files = missed(meta.files, roots, fault.miss)
+								const files = missed(meta.files, fault.miss)
 								if (files === undefined) {
 									return
 								}

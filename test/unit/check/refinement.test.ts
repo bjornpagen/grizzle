@@ -23,7 +23,7 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -42,24 +42,37 @@ const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 const Brand = contract("Brand", pg.bigint)
 const Handle = contract("Handle", Slug, (x) => Compute.charLength(x).le(20))
 
-const Tier = closed("Tier", ["Free", "Pro"]).with(
-	{ label: Slug, budget: Cents, rank: Brand, note: Prose, handle: Handle },
+const Tier = closed("Tier", ["Free", "Pro"])
+/** Each tier's plan: a closed relation keyed by its tier, one payload field of each refinement. */
+const TierPlan = closed.relation(
+	"TierPlan",
 	{
-		Free: {
+		tier: closedId(Tier),
+		label: Slug,
+		budget: Cents,
+		rank: Brand,
+		note: Prose,
+		handle: Handle
+	},
+	["tier"],
+	[
+		{
+			tier: "Free",
 			label: "free",
 			budget: Cents(100n),
 			rank: Brand(1n),
 			note: "anything",
 			handle: Handle("free-tier")
 		},
-		Pro: {
+		{
+			tier: "Pro",
 			label: "pro",
 			budget: Cents(1000n),
 			rank: Brand(2n),
 			note: "Anything At All",
 			handle: Handle("pro-tier")
 		}
-	}
+	]
 )
 
 const Article = relation(
@@ -74,7 +87,7 @@ const Draft = relation(
 	["id"]
 )
 const Sheet = relation("Sheet", { id: uuid, amount: pg.numeric(12, 2) }, ["id"])
-const Content = schema("Content", { Tier, Article, Draft, Sheet }, [])
+const Content = schema("Content", { Tier, TierPlan, Article, Draft, Sheet }, [])
 
 const checked = (q: unknown): LogicalQuery =>
 	succeeded(
@@ -122,7 +135,7 @@ const pool: Arr.NonEmptyReadonlyArray<readonly [string, ScalarType]> = [
 	["Draft.amount, numeric(10,2)", fieldType(Draft, "amount")],
 	["Sheet.amount, numeric(12,2)", fieldType(Sheet, "amount")],
 	["Article.amount, the Cents contract", fieldType(Article, "amount")],
-	["Tier.rank, the Brand contract over the same base", payloadType("Tier", "rank")],
+	["TierPlan.rank, the Brand contract over the same base", payloadType("TierPlan", "rank")],
 	["plain bigint", plainType("int8")]
 ]
 
@@ -285,8 +298,8 @@ const unioned: Arr.NonEmptyReadonlyArray<Unioned> = [
 					return r.match(Article, { id, amount }).find({ id, value: amount })
 				})
 				.rule((r) => {
-					const { budget } = v(Tier, "tier")
-					return r.match(Tier, { id: "Free", budget }).find({
+					const { budget } = v(TierPlan, "plan")
+					return r.match(TierPlan, { tier: "Free", budget }).find({
 						id: Compute.literal(uuid, "00000000-0000-4000-8000-000000000001"),
 						value: budget
 					})
@@ -349,7 +362,7 @@ describe("union propagation", () => {
 })
 
 /**
- * Every payload cell of Tier: its handle, field, value, and whether its type carries a CHECK (Slug's pattern, Cents'
+ * Every payload cell of TierPlan: its handle, field, value, and whether its type carries a CHECK (Slug's pattern, Cents'
  * predicate, Handle's pattern and length); Brand has no predicate and Prose is the wildcard.
  */
 const payloadCells: Arr.NonEmptyReadonlyArray<{
@@ -401,7 +414,7 @@ describe("refined constants", () => {
 			Arr.map(listed, (x) => ({ literal: x.literal, type: x.type })),
 			Arr.map(
 				Arr.filter(payloadCells, (x) => x.refined),
-				(x) => ({ literal: x.value, type: payloadType("Tier", x.field) })
+				(x) => ({ literal: x.value, type: payloadType("TierPlan", x.field) })
 			)
 		)
 	})

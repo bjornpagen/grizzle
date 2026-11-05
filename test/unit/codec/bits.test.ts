@@ -32,8 +32,10 @@ import {
 	add,
 	and,
 	andNot,
+	type Accumulator,
 	type BitString,
 	cell,
+	copy,
 	count,
 	empty,
 	fromText,
@@ -335,7 +337,7 @@ describe("bit strings on the host", () => {
 	 */
 	const setAndCount = ({ text, fresh, positions }: Additions, c: Case<Added>) =>
 		Effect.sync(() => {
-			const bits = fresh ? empty(text.length) : fromText(text)
+			const bits = fresh ? empty(text.length) : copy(fromText(text))
 			const ones = new Set<number>(fresh ? [] : modelOf(text).ones)
 			const before = ones.size
 			let added = 0
@@ -400,7 +402,7 @@ describe("bit strings on the host", () => {
 
 	const combinations: {
 		readonly [C in Combination]: readonly [
-			host: (target: BitString, source: BitString) => void,
+			host: (target: Accumulator, source: BitString) => void,
 			model: (target: ReadonlySet<number>, source: ReadonlySet<number>) => ReadonlySet<number>
 		]
 	} = {
@@ -422,7 +424,7 @@ describe("bit strings on the host", () => {
 	const algebra = ({ combination, target, operand }: Combining, c: Case<Combined>) =>
 		Effect.sync(() => {
 			const [host, model] = combinations[combination]
-			const bits = fromText(target)
+			const bits = copy(fromText(target))
 			const by = fromText(operand)
 			if (target.length === operand.length) {
 				c.note(combination)
@@ -619,9 +621,9 @@ describe("bit strings on the host", () => {
 				add(mask, defined(placed[code]))
 			}
 			const times = (code: number): number => Arr.filter(folded, (member) => member === code).length
-			const twosInK = fromText(toText(fold.twos))
+			const twosInK = copy(fold.twos)
 			and(twosInK, mask)
-			const onesInK = fromText(toText(fold.ones))
+			const onesInK = copy(fold.ones)
 			and(onesInK, mask)
 			const once = Arr.every(k, (code) => times(code) <= 1)
 			assert.equal(count(twosInK) === 0, once, "at most one of K")

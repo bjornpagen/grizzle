@@ -168,7 +168,11 @@ const judgeCap = (
 		const before = beforeOf(e, id)
 		const cap = W.capIn(before)
 		const q = requestAt(id)
-		if (q === undefined && id < changes && observed.law.family === "containment") {
+		if (
+			q === undefined &&
+			id < changes &&
+			Arr.some(observed.laws, (law) => law.family === "containment")
+		) {
 			reached.push("planted: a caps merge refused by the month's charges")
 		}
 		if (q === undefined) {
@@ -197,7 +201,7 @@ raceSuite<CapSketch>({
 	kept: [],
 	required: [
 		...commonRequired,
-		"law family hit: capacity",
+		"law family hit: check",
 		"law family hit: containment",
 		"planted: the cap is hit exactly",
 		"planted: a request one micro over the cap refused",

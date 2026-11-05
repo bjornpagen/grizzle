@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
+import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import {
 	Array as Arr,
 	Duration,
@@ -30,9 +30,12 @@ import {
 import {
 	type Coverage,
 	noCoverage,
+	RISK_BOUND_MISS,
+	type Risk,
 	required,
 	requiredInSpace,
 	residualOf,
+	riskBoundOf,
 	tallyOf
 } from "#features.ts"
 import { array, boolean, constant, element, filter, type Gen, int } from "#gen.ts"
@@ -60,6 +63,7 @@ const searchOf = <A, F extends string>(
 	concurrency: number
 ): Exploration<A, A, F> => ({
 	suite,
+	oracle: { kind: "specification", name: "a property planted to exercise the search itself" },
 	draw: drawn(generator),
 	literal: Formatter.format,
 	coverage,
@@ -262,6 +266,8 @@ describe("explore", () => {
 describe("exhaust", () => {
 	const pairs: Exhaustion<readonly [number, number], never> = {
 		suite: "pairs",
+		oracle: { kind: "specification", name: "a property planted to exercise the search itself" },
+		box: "every pair of 0..2 and 0..1",
 		generator: (source) => [source.draw(int(0, 2)), source.draw(int(0, 1))] as const,
 		literal: Formatter.format,
 		limit: 6,
@@ -280,6 +286,11 @@ describe("exhaust", () => {
 			const kept = yield* exhaust(
 				{
 					suite: "filtered",
+					oracle: {
+						kind: "specification",
+						name: "a property planted to exercise the search itself"
+					},
+					box: "every value of 0..11 the filter keeps",
 					generator: filter(int(0, 11), (n) => n < 10, 1),
 					literal: String,
 					limit: 10,
@@ -311,6 +322,8 @@ describe("exhaust", () => {
 		Effect.gen(function* () {
 			const flags: Exhaustion<boolean, never> = {
 				suite: "flags",
+				oracle: { kind: "specification", name: "a property planted to exercise the search itself" },
+				box: "both booleans, with every draw of 0..2 the property makes",
 				generator: boolean,
 				literal: Formatter.format,
 				limit: 10,
@@ -328,6 +341,55 @@ const SITUATIONS = ["a", "b", "c", "d", "e"] as const
 
 /** The situations of the Good–Turing identity's space, each noted by a case with the chance its weight gives. */
 const NOTED = ["x", "y", "z"] as const
+
+/** What a residual's risk can be, as the residual test notes it. */
+const RISK_SHAPES = ["no cases", "nothing noted", "saturated", "seen once"] as const
+
+type RiskShape = (typeof RISK_SHAPES)[number]
+
+/** How many cases the bound's box runs to. */
+const BOUND_RUNS = 10
+
+/**
+ * For each run of 1 to `most` cases, each noting one situation drawn with the chance its weight gives, the chance that
+ * the next case reaches a situation none reached with a chance above the residual's bound: the bound's miss. It is
+ * computed exactly over the distribution of each run's seen situations, as a bit mask, and its last new case, which
+ * are all the bound and the missing mass depend on.
+ */
+const missesOf = (weights: ReadonlyArray<number>, most: number): ReadonlyArray<number> => {
+	const total = Arr.reduce(weights, 0, (sum, weight) => sum + weight)
+	const missingOf = (seen: number) =>
+		Arr.reduce(weights, 0, (mass, weight, situation) =>
+			(seen & (1 << situation)) === 0 ? mass + weight / total : mass
+		)
+	let runs = new Map<string, Readonly<{ seen: number; lastNew: number; chance: number }>>([
+		["0:0", { seen: 0, lastNew: 0, chance: 1 }]
+	])
+	const misses: Array<number> = []
+	for (let cases = 1; cases <= most; cases += 1) {
+		const next = new Map<string, Readonly<{ seen: number; lastNew: number; chance: number }>>()
+		for (const run of runs.values()) {
+			for (const [situation, weight] of weights.entries()) {
+				const bit = 1 << situation
+				const seen = run.seen | bit
+				const lastNew = (run.seen & bit) === 0 ? cases : run.lastNew
+				const key = `${seen}:${lastNew}`
+				next.set(key, {
+					seen,
+					lastNew,
+					chance: (next.get(key)?.chance ?? 0) + (run.chance * weight) / total
+				})
+			}
+		}
+		runs = next
+		misses.push(
+			Arr.reduce(Arr.fromIterable(runs.values()), 0, (missed, run) =>
+				missingOf(run.seen) > riskBoundOf(cases, cases - run.lastNew) ? missed + run.chance : missed
+			)
+		)
+	}
+	return misses
+}
 
 /** Every sequence of `length` situations of NOTED, each with its chance under `weights`. */
 const sequencesOf = (
@@ -352,7 +414,7 @@ const sequencesOf = (
 
 describe("the residual", () => {
 	it.effect(
-		"counts each situation once per case that noted it, and those seen once and twice",
+		"counts each situation once per case that noted it, those seen once and twice, and the cases since the last new one, and knows no risk when nothing was noted",
 		(ctx) =>
 			searched(
 				ctx,
@@ -361,11 +423,11 @@ describe("the residual", () => {
 						suite: "the residual",
 						oracle: {
 							kind: "second-implementation",
-							name: "an independent recount of the cases that noted each situation"
+							name: "an independent recount of the cases that noted each situation, in order"
 						},
 						draw: drawn(array(array(element(SITUATIONS), { min: 0, max: 3 }), { min: 0, max: 12 })),
 						literal: Formatter.format,
-						coverage: noCoverage,
+						coverage: required<RiskShape>(RISK_SHAPES, { cases: 400, sense: notesOnly }),
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
@@ -373,7 +435,7 @@ describe("the residual", () => {
 						steerEvery: 200,
 						caseHang: Duration.seconds(30)
 					},
-					(cases) =>
+					(cases, c) =>
 						Effect.sync(() => {
 							const tally = tallyOf("independent")
 							for (const notes of cases) {
@@ -383,6 +445,33 @@ describe("the residual", () => {
 								Arr.dedupe(Arr.flatten(cases)),
 								(situation) => Arr.filter(cases, (notes) => Arr.contains(notes, situation)).length
 							)
+							const singletons = Arr.filter(counts, (count) => count === 1).length
+							const lastNew = Arr.reduce(cases, 0, (last, notes, at) =>
+								Arr.some(notes, (situation) =>
+									Arr.every(Arr.take(cases, at), (earlier) => !Arr.contains(earlier, situation))
+								)
+									? at + 1
+									: last
+							)
+							const risk: Risk =
+								cases.length === 0
+									? { kind: "unknown", why: "no-cases" }
+									: counts.length === 0
+										? { kind: "unknown", why: "nothing-noted" }
+										: {
+												kind: "estimated",
+												estimate: singletons / cases.length,
+												bound: riskBoundOf(cases.length, cases.length - lastNew)
+											}
+							c.note(
+								risk.kind === "unknown"
+									? risk.why === "no-cases"
+										? "no cases"
+										: "nothing noted"
+									: singletons === 0
+										? "saturated"
+										: "seen once"
+							)
 							const residual = residualOf(tally.tally())
 							deepStrictEqual(
 								{
@@ -390,16 +479,52 @@ describe("the residual", () => {
 									observed: residual.observed,
 									singletons: residual.singletons,
 									doubletons: residual.doubletons,
-									estimated: Option.isSome(residual.risk) && Option.isSome(residual.unseen)
+									sinceNew: residual.sinceNew,
+									risk: residual.risk,
+									estimated: Option.isSome(residual.unseen)
 								},
 								{
 									cases: cases.length,
 									observed: counts.length,
-									singletons: Arr.filter(counts, (count) => count === 1).length,
+									singletons,
 									doubletons: Arr.filter(counts, (count) => count === 2).length,
-									estimated: cases.length > 0
+									sinceNew: cases.length - lastNew,
+									risk,
+									estimated: risk.kind === "estimated"
 								}
 							)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"bounds the risk at 95%: after every run of 1 to 10 cases, over every distribution in the box, the next case's chance of a situation none reached exceeds the bound with chance at most 5%",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "the residual's bound",
+						box: "every distribution of one situation a case over 1 to 4 situations, each weighted 1 to 4, after each of 1 to 10 cases",
+						oracle: {
+							kind: "specification",
+							name: "the chance the bound is exceeded, by the exact distribution of each run's seen situations and its last new case"
+						},
+						generator: (source) => Arr.makeBy(source.draw(int(1, 4)), () => source.draw(int(1, 4))),
+						literal: Formatter.format,
+						limit: 400,
+						coverage: noCoverage,
+						caseHang: Duration.minutes(1)
+					},
+					(weights) =>
+						Effect.sync(() => {
+							for (const [at, missed] of missesOf(weights, BOUND_RUNS).entries()) {
+								assertTrue(
+									missed <= RISK_BOUND_MISS,
+									`after ${at + 1} cases the bound is exceeded with chance ${missed}`
+								)
+							}
 						})
 				)
 			)
@@ -413,6 +538,7 @@ describe("the residual", () => {
 				exhaust(
 					{
 						suite: "the residual's identity",
+						box: "every sequence of up to 5 cases over 3 situations, under every weighting by 1 to 3",
 						oracle: {
 							kind: "universal",
 							name: "Good–Turing: E[singletons(n)]/n equals E[missing mass(n − 1)], by exact enumeration"
@@ -437,8 +563,13 @@ describe("the residual", () => {
 									for (const situation of sequence) {
 										tally.add(new Set([Arr.getUnsafe(NOTED, situation)]))
 									}
-									const risk = Option.getOrThrow(residualOf(tally.tally()).risk)
-									return plus(sum, times(chance, fraction(BigInt(Math.round(risk * n)), BigInt(n))))
+									const { risk } = residualOf(tally.tally())
+									strictEqual(risk.kind, "estimated", "every case notes a situation")
+									const estimate = risk.kind === "estimated" ? risk.estimate : Number.NaN
+									return plus(
+										sum,
+										times(chance, fraction(BigInt(Math.round(estimate * n)), BigInt(n)))
+									)
 								}
 							)
 							const missingMass = Arr.reduce(
@@ -820,6 +951,10 @@ describe("the coverage verdict", () => {
 				explore(
 					{
 						suite: "the coverage verdict",
+						oracle: {
+							kind: "universal",
+							name: "metamorphic: the coverage verdict is unchanged under another run seed and another concurrency"
+						},
 						draw: drawn(verdictSketches),
 						literal: Formatter.format,
 						coverage: required<Outcome["kind"]>(["explored", "unreached", "stalled"], {
@@ -954,6 +1089,11 @@ const fidelitySearch = (
 					exhaust(
 						{
 							suite: sketch.label,
+							oracle: {
+								kind: "specification",
+								name: "a property planted to fail as its sketch says"
+							},
+							box: "every value of 0..59, with the draw its property makes",
 							generator: spaceValues,
 							literal: String,
 							limit: 10_000,
@@ -1006,6 +1146,10 @@ describe("replay fidelity", () => {
 				explore(
 					{
 						suite: "replay fidelity",
+						oracle: {
+							kind: "universal",
+							name: "round trip: a failure's replay token reruns the same case under the same steering"
+						},
 						draw: drawn(fidelitySketches),
 						literal: Formatter.format,
 						coverage: required<CasePhase>(

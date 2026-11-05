@@ -2,8 +2,9 @@
  * The golden capture's own schema histories: versions built with the public builders only, in the call forms both the
  * baseline and the working tree accept, so capture.ts drafts each one in either tree. They reach what the fixture
  * modules do not: candidate renames (a relation, a field, a login, two relations swapping names), a field's type
- * change, a closed type's handles reordered, added and removed, a residual law added to a schema, and a residual law
- * kept while only a participant's mutability changes and then only the roles that read its relation whole.
+ * change, a roster's handles added and removed (the next code, then a hole), a residual law added to a schema, and a
+ * residual law kept while only a participant's mutability changes and then only the roles that read its relation
+ * whole.
  */
 import { closedId, pg, uuid } from "#compiler/public/fields.ts"
 import {
@@ -59,14 +60,17 @@ const renames = (): ReadonlyArray<ScenarioVersion> => {
 	]
 }
 
-/** A closed type whose handles are reordered and extended, then one removed. */
-const enums = (): ReadonlyArray<ScenarioVersion> => {
+/**
+ * A roster whose handles grow by one, which takes the next code, then lose one, whose code becomes a hole: each draft in
+ * declared order, since a roster's order is its codes' order.
+ */
+const rosters = (): ReadonlyArray<ScenarioVersion> => {
 	const at = (handles: readonly [string, ...Array<string>]): ScenarioVersion => {
 		const Status = closed("Status", handles)
 		const Ticket = relation("Ticket", { id: uuid, status: closedId(Status), title: name }, ["id"])
-		return { schema: schema("golden_enums", { Status, Ticket }, []), logins: [] }
+		return { schema: schema("golden_rosters", { Status, Ticket }, []), logins: [] }
 	}
-	return [at(["Open", "Closed"]), at(["Closed", "Open", "Archived"]), at(["Open", "Archived"])]
+	return [at(["Open", "Closed"]), at(["Open", "Closed", "Archived"]), at(["Open", "Archived"])]
 }
 
 /** A payment schema that gains a residual law (an alternatives choice over two arms), then loses an arm's field. */
@@ -127,7 +131,7 @@ const lawSteps = (): ReadonlyArray<ScenarioVersion> => {
 /** The scenarios by name, each built fresh. */
 export const scenarios: ReadonlyArray<readonly [string, () => ReadonlyArray<ScenarioVersion>]> = [
 	["renames", renames],
-	["enums", enums],
+	["rosters", rosters],
 	["laws", laws],
 	["law-steps", lawSteps]
 ]

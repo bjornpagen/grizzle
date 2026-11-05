@@ -1,26 +1,32 @@
 /**
- * The statements of a family write, in the one order PostgreSQL admits, cut into statements the transport carries.
+ * The statements of a family write, in the one order PostgreSQL admits, cut into statements the transport carries
+ * (rows-first.md §2).
  *
- * PostgreSQL never defers a check, nor the unique slot (group, index), and it checks an ordered family's predecessor
- * key at the end of every statement. So every write runs its statements in one order, which also keeps each member's
- * copy of its owner's count right at every statement's end, whether the copy's foreign key is deferred or not:
+ * PostgreSQL never defers a check nor a unique slot (group, index), and checks a sequence's predecessor key and every
+ * owner axis at the end of each statement; a counted family's closure and every family's last axis wait for commit. So
+ * a write's statements go in one order:
  *
- * - deletes first, of every slot an owner vacates;
- * - then one count update for each owner whose count changes, which the copy's foreign key cascades into every member
- *   the deletes left;
- * - then inserts, each owner's members in ascending slot order, every one copying its owner's new count.
+ * - deletes first: every removed member, every member a sequence's suffix rewrite re-places, and every member a move
+ *   between groups re-places, by key, members before their owners (deepest relation first), and a tree rewritten whole
+ *   by its root field;
+ * - then updates in place, by key: a counted member moved into a slot a delete freed, a member whose accumulators a
+ *   refill changes, and a member whose caller fields change; each sets every column but its key, its groups and its
+ *   copies of its owners' counts, which the owner axes cascade. A move goes only into a freed slot, so no slot is held
+ *   twice at any row's update, and every member below its owner's new count holds a slot below it before the count
+ *   falls;
+ * - then each changed owner's one count statement, its count and ends together, which the owner axis cascades into
+ *   every member's copy;
+ * - then inserts: new and re-placed members, whole, owners before their members (shallowest relation first), a
+ *   sequence's members in ascending slot order per owner and a tree's in pre-order, so each statement's first member of
+ *   an owner finds its predecessor already written.
  *
- * Updating a count that falls before its deletes would cascade it into the member at the old last slot, which the
- * check refuses. Inserting before the deletes would put a member in a slot another still holds. A count updated more
- * than once would pass through counts no family has, which the owner's own checks on its count may refuse, and each
- * update rewrites the copy on every member. So a plan updates each count once, and an append is one update however
- * many members it adds.
+ * Updating a count before its deletes and moves would cascade it into a member at or beyond the new count, which the
+ * bound refuses: the shrink-order cascade failure. A count updated twice would pass through counts no family has. So
+ * a plan updates each count once, and an append is one update however many members it adds.
  *
  * Each phase is cut into consecutive statements, each holding as many rows as fit: its arrays' literals within V8's
  * longest string, and its Bind message within PostgreSQL's longest message. A family larger than one statement goes as
- * consecutive inserts after its one count update. Each insert keeps every slot below its owner's new count and none
- * twice, and an ordered family's members go in ascending slot order, so every insert's first member of an owner finds
- * its predecessor already written. Only the owner's last slot and a counted family's closure wait for commit.
+ * consecutive inserts after its one count update, in ascending slot order.
  */
 import { arrayTexts } from "#compiler/codec/recordset.ts"
 import { defined, invariant } from "#compiler/core/invariant.ts"
@@ -28,57 +34,35 @@ import { maxStringLength, messageMaxBytes } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import type { FamilyId } from "#compiler/ir/law.ts"
 import {
-	type Member,
+	keyTexts,
+	type MemberKey,
 	type Owner,
-	type Placed,
-	placed,
-	placedTexts,
 	type Recount,
 	recountTexts,
-	type Vacated,
-	vacatedTexts
+	type Row,
+	rowTexts
 } from "#compiler/write/family/draw.ts"
 
 /**
- * One owner's change of an ordered family, as a rewrite of its tail. Its first `kept` members stay, the `dropped`
- * members after them go, and `suffix` follows the kept ones, so the family it leaves is the kept members then the
- * suffix, counted by their number. `kept + dropped` is the count the family has.
- *
- * Every form of change is a rewrite:
- * - an append keeps every member and drops none;
- * - a put keeps none and drops every one;
- * - an insert or a removal at a slot keeps the members before it and writes the rest again, one slot along.
+ * One member relation's rows of a write: those deleted by key, its trees deleted whole by their root fields' texts, its
+ * kept rows updated in place, and its new and re-placed rows inserted, in the order they go: a sequence's members in
+ * ascending slot order per owner, a tree's in pre-order.
  */
-export interface Rewrite {
-	readonly owner: Owner
-	readonly kept: number
-	readonly dropped: number
-	readonly suffix: ReadonlyArray<Member>
+export interface RelationWrite {
+	readonly relation: string
+	readonly deletes: ReadonlyArray<MemberKey>
+	readonly trees: ReadonlyArray<Owner>
+	readonly updates: ReadonlyArray<Row>
+	readonly inserts: ReadonlyArray<Row>
 }
 
-/** A kept slot of a counted family given a new member, as swap-with-last moves the last member into a removed one's slot. */
-export interface Refill {
-	readonly slot: number
-	readonly member: Member
+/** One family's owners whose count or ends change, each set by one count statement (draw.ts Recount). */
+export interface OwnerWrite {
+	readonly family: FamilyId
+	readonly recounts: ReadonlyArray<Recount>
 }
-
-/**
- * One owner's change of a counted family: a rewrite whose kept slots may also take new members, in ascending slot
- * order. Removing the member at slot i of n by swap-with-last keeps n − 1 members, drops the last, and refills slot i
- * with it.
- *
- * Only a counted family has refills. A refilled slot is empty between its delete and its insert, which leaves the
- * member at the next slot without its predecessor, and only a counted family's closure waits for commit.
- */
-export interface CountedRewrite extends Rewrite {
-	readonly refills: ReadonlyArray<Refill>
-}
-
-/** One family relation's write: its changes, one for each owner it changes, by the kind of family it is. */
-export type FamilyWrite =
-	| { readonly kind: "ordered"; readonly rewrites: ReadonlyArray<Rewrite> }
-	| { readonly kind: "counted"; readonly rewrites: ReadonlyArray<CountedRewrite> }
 
 /**
  * The bytes of a Bind message beside its parameters' texts, as the wire writes it: `statement`, its own fields and its
@@ -106,24 +90,49 @@ export const inForce = (frame: BindFrame): Transport => ({
 	frame
 })
 
-/** One statement of a family write: what it does, and the rows its arrays carry. */
+/**
+ * One statement of a family write: what it does, the relation it writes or the family whose owners it counts, and the
+ * rows its arrays carry.
+ */
 export type FamilyStatement =
-	| { readonly kind: "delete"; readonly rows: NonEmptyReadonlyArray<Vacated> }
-	| { readonly kind: "count"; readonly rows: NonEmptyReadonlyArray<Recount> }
-	| { readonly kind: "insert"; readonly rows: NonEmptyReadonlyArray<Placed> }
+	| {
+			readonly kind: "delete"
+			readonly relation: string
+			readonly rows: NonEmptyReadonlyArray<MemberKey>
+	  }
+	| {
+			readonly kind: "deleteTree"
+			readonly relation: string
+			readonly rows: NonEmptyReadonlyArray<Owner>
+	  }
+	| {
+			readonly kind: "update"
+			readonly relation: string
+			readonly rows: NonEmptyReadonlyArray<Row>
+	  }
+	| {
+			readonly kind: "count"
+			readonly family: FamilyId
+			readonly rows: NonEmptyReadonlyArray<Recount>
+	  }
+	| {
+			readonly kind: "insert"
+			readonly relation: string
+			readonly rows: NonEmptyReadonlyArray<Row>
+	  }
 
-/** The statements of one kind, in the order they run. */
-type Phase<K extends FamilyStatement["kind"]> = ReadonlyArray<
+/** The statements of the kinds `K`, in the order they run. */
+export type Phase<K extends FamilyStatement["kind"]> = ReadonlyArray<
 	Extract<FamilyStatement, { readonly kind: K }>
 >
 
 /**
- * A family write's statements, phase by phase in the one order they run: its deletes, then its counts, then its
- * inserts. The order is the tuple's, so no plan holds another, and `plan.flat()` lists the statements as they are
- * sent.
+ * A write's statements, phase by phase in the one order they run: its deletes, its updates in place, its counts, its
+ * inserts. The order is the tuple's, so no plan holds another, and `plan.flat()` lists the statements as they are sent.
  */
 export type Plan = readonly [
-	deletes: Phase<"delete">,
+	deletes: Phase<"delete" | "deleteTree">,
+	updates: Phase<"update">,
 	counts: Phase<"count">,
 	inserts: Phase<"insert">
 ]
@@ -132,11 +141,14 @@ export type Plan = readonly [
 export const textsOf = (statement: FamilyStatement): ReadonlyArray<ReadonlyArray<string>> => {
 	switch (statement.kind) {
 		case "delete":
-			return statement.rows.map(vacatedTexts)
+			return statement.rows.map(keyTexts)
+		case "deleteTree":
+			return statement.rows
+		case "update":
+		case "insert":
+			return statement.rows.map(rowTexts)
 		case "count":
 			return statement.rows.map(recountTexts)
-		case "insert":
-			return statement.rows.map(placedTexts)
 	}
 }
 
@@ -150,74 +162,6 @@ type Bound =
 
 /** A row of a `statement` that no statement can carry, even alone: the write is refused before any statement is sent. */
 export type Unsendable = Bound & { readonly statement: FamilyStatement["kind"] }
-
-/**
- * One owner's part of a write: the count its family has and the count it leaves, the runs of slots it vacates and the
- * members it places, in ascending slot order.
- */
-interface Part {
-	readonly owner: Owner
-	readonly before: number
-	readonly after: number
-	readonly vacated: ReadonlyArray<Vacated>
-	readonly placed: ReadonlyArray<Placed>
-}
-
-/**
- * The part of one owner's rewrite: each refilled slot vacated and placed again, and the dropped tail vacated and the
- * suffix placed after the kept members, every placed member copying the count the rewrite leaves.
- */
-const partOf = (rewrite: Rewrite, refills: ReadonlyArray<Refill>): Part => {
-	const { owner, kept, dropped, suffix } = rewrite
-	let below = -1
-	for (const refill of refills) {
-		invariant(
-			below < refill.slot && refill.slot < kept,
-			"a counted rewrite refills distinct kept slots, in ascending order"
-		)
-		below = refill.slot
-	}
-	const after = kept + suffix.length
-	return {
-		owner,
-		before: kept + dropped,
-		after,
-		vacated: [
-			...refills.map((refill) => ({ owner, from: refill.slot, to: refill.slot + 1 })),
-			{ owner, from: kept, to: kept + dropped }
-		].filter((run) => run.from < run.to),
-		placed: [
-			...refills.map((refill) => ({ owner, at: refill.slot, copy: after, member: refill.member })),
-			...placed(owner, kept, after, suffix)
-		]
-	}
-}
-
-/** Each rewrite's part, an ordered family's refilling no slot. */
-const rewritten = (write: FamilyWrite): ReadonlyArray<Part> => {
-	switch (write.kind) {
-		case "ordered":
-			return write.rewrites.map((rewrite) => partOf(rewrite, []))
-		case "counted":
-			return write.rewrites.map((rewrite) => partOf(rewrite, rewrite.refills))
-	}
-}
-
-/** Each owner's part of a write, which changes each owner once. */
-const partsOf = (write: FamilyWrite): ReadonlyArray<Part> => {
-	const parts = rewritten(write)
-	const owners = new Set<string>()
-	for (const part of parts) {
-		const owner = JSON.stringify(part.owner)
-		invariant(!owners.has(owner), "a family write changes each owner once")
-		owners.add(owner)
-	}
-	return parts
-}
-
-/** The count update of an owner's part: none when its count stays, so a write updates each count at most once. */
-const recountOf = (part: Part): readonly [] | readonly [Recount] =>
-	part.after === part.before ? [] : [{ owner: part.owner, count: part.after }]
 
 /** A text's array literal written alone, as the transport writes it: its length in UTF-16 code units and UTF-8 bytes. */
 interface Alone {
@@ -321,37 +265,92 @@ const unsendable = (statement: FamilyStatement["kind"], bound: Bound): Unsendabl
 	statement
 })
 
+/** Each of `keys` once. */
+const once = (keys: ReadonlyArray<ReadonlyArray<string>>, what: string): void => {
+	const seen = new Set<string>()
+	for (const key of keys) {
+		const text = JSON.stringify(key)
+		invariant(!seen.has(text), what)
+		seen.add(text)
+	}
+}
+
+/** A relation's write's statements: its deletes, its updates and its inserts. */
+export type RelationPlan = readonly [
+	deletes: Phase<"delete" | "deleteTree">,
+	updates: Phase<"update">,
+	inserts: Phase<"insert">
+]
+
 /**
- * A family write's plan: each owner's vacated runs, then the count of each owner whose count changes, then each
- * owner's placed members, each phase cut into the statements the transport carries; or the first row no statement can
- * carry, before any statement is planned.
+ * A member relation's write cut into the statements the transport carries: its deletes by key, then its trees by root
+ * field, its updates, and its inserts in their order; or the first row no statement can carry, before any statement is
+ * planned. A row is deleted, updated and inserted at most once each, and updated only if neither deleted nor inserted.
  */
-export const plan = (write: FamilyWrite, transport: Transport): Result.Result<Plan, Unsendable> => {
-	const parts = partsOf(write)
-	const deletes = cut(
-		parts.flatMap((part) => part.vacated),
-		vacatedTexts,
-		transport
+export const planRelation = (
+	write: RelationWrite,
+	transport: Transport
+): Result.Result<RelationPlan, Unsendable> => {
+	const { relation } = write
+	once(write.deletes, "a write deletes each row once")
+	once(
+		write.inserts.map((r) => r.key),
+		"a write inserts each row once"
 	)
+	once(
+		write.updates.map((r) => r.key),
+		"a write updates each row once"
+	)
+	const touched = new Set([
+		...write.inserts.map((r) => JSON.stringify(r.key)),
+		...write.deletes.map((k) => JSON.stringify(k))
+	])
+	invariant(
+		write.updates.every((r) => !touched.has(JSON.stringify(r.key))),
+		"a row updated in place is neither deleted nor inserted"
+	)
+	const deletes = cut(write.deletes, keyTexts, transport)
 	if (!deletes.ok) {
 		return Result.err(unsendable("delete", deletes.error))
 	}
-	const counts = cut(parts.flatMap(recountOf), recountTexts, transport)
-	if (!counts.ok) {
-		return Result.err(unsendable("count", counts.error))
+	const trees = cut(write.trees, (t: Owner): ReadonlyArray<string> => t, transport)
+	if (!trees.ok) {
+		return Result.err(unsendable("deleteTree", trees.error))
 	}
-	const inserts = cut(
-		parts.flatMap((part) => part.placed),
-		placedTexts,
-		transport
-	)
+	const updates = cut(write.updates, rowTexts, transport)
+	if (!updates.ok) {
+		return Result.err(unsendable("update", updates.error))
+	}
+	const inserts = cut(write.inserts, rowTexts, transport)
 	if (!inserts.ok) {
 		return Result.err(unsendable("insert", inserts.error))
 	}
-	const planned: Plan = [
-		deletes.value.map((rows) => ({ kind: "delete", rows }) as const),
-		counts.value.map((rows) => ({ kind: "count", rows }) as const),
-		inserts.value.map((rows) => ({ kind: "insert", rows }) as const)
+	const planned: RelationPlan = [
+		[
+			...deletes.value.map((rows) => ({ kind: "delete", relation, rows }) as const),
+			...trees.value.map((rows) => ({ kind: "deleteTree", relation, rows }) as const)
+		],
+		updates.value.map((rows) => ({ kind: "update", relation, rows }) as const),
+		inserts.value.map((rows) => ({ kind: "insert", relation, rows }) as const)
 	]
+	return Result.ok(planned)
+}
+
+/** A family's owners' counts cut into the statements the transport carries, each owner counted once. */
+export const planOwners = (
+	write: OwnerWrite,
+	transport: Transport
+): Result.Result<Phase<"count">, Unsendable> => {
+	once(
+		write.recounts.map((r) => r.owner),
+		"a write counts each owner once"
+	)
+	const counts = cut(write.recounts, recountTexts, transport)
+	if (!counts.ok) {
+		return Result.err(unsendable("count", counts.error))
+	}
+	const planned: Phase<"count"> = counts.value.map(
+		(rows) => ({ kind: "count", family: write.family, rows }) as const
+	)
 	return Result.ok(planned)
 }

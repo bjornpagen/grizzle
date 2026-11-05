@@ -4,6 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { conservativeMeta, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
@@ -68,7 +69,7 @@ const pruned = (
 		runPasses(query, [prunePass], passContext({ catalog: ledgerCatalog, evidence: "snapshot" }))
 	)
 	deliversAlikeOn(databases, relations, [], query, ran.query)
-	lowersConservatively(ran.query)
+	lowersConservatively(ran.query, emptyCodebook)
 	/** The relational rewrites composed, pruning among them, deliver alike too. */
 	const composed = succeeded(
 		runPasses(
@@ -401,7 +402,7 @@ describe("a dead binding outside a named heading", () => {
 							contains(rulesOf(ran.certificates), "prune.heading")
 							assert.deepEqual(bindingsOf(ran.query.dag, region), [["id"]])
 							deliversAlikeOn(postings, [Posting], [], query, ran.query)
-							lowersConservatively(ran.query)
+							lowersConservatively(ran.query, emptyCodebook)
 						})
 				)
 			)

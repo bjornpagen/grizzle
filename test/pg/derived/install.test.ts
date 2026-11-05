@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "eff
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import { codeOf } from "#compiler/ir/codes.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
@@ -20,7 +21,7 @@ import { str } from "#compiler/public/text.ts"
 import { printObjectName, printType, quoteIdent } from "#compiler/sql/print.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, lacks, succeeded } from "#test/support/assert.ts"
+import { assert, defined as present, lacks, succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import {
 	type Installed,
@@ -288,11 +289,20 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 				const [[deferrable]] = trusted<Arr.NonEmptyReadonlyArray<readonly [string]>>(constraint)
 				assert.equal(deferrable, "true")
 				yield* load(installed, workFacts)
+				/** A handle of Kind as the code the installation's codebook gives it. */
+				const kindCode = (handle: string): number =>
+					codeOf(
+						present(
+							installed.names.codes.rosters.get(parsedName(W.Kind.name)),
+							"the installation's codes of Kind"
+						),
+						handle
+					)
 				yield* owner.query(`REFRESH MATERIALIZED VIEW ${view}`, [])
 				yield* owner.begin
 				yield* owner.query("SET CONSTRAINTS ALL DEFERRED", [])
 				yield* owner.query(
-					`INSERT INTO ${names.table(W.Task)} (${names.column(W.Task, "id")}, ${names.column(W.Task, "account")}, ${names.column(W.Task, "kind")}) VALUES ('${id(16)}'::uuid, '${id(7)}'::uuid, 'Manual'::${printObjectName(installed.names.enumType(parsedName(W.Kind.name)))})`,
+					`INSERT INTO ${names.table(W.Task)} (${names.column(W.Task, "id")}, ${names.column(W.Task, "account")}, ${names.column(W.Task, "kind")}) VALUES ('${id(16)}'::uuid, '${id(7)}'::uuid, ${kindCode("Manual")}::smallint)`,
 					[]
 				)
 				yield* owner.query(

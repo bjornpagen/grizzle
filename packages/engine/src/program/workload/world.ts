@@ -95,6 +95,10 @@ export const inlineWorlds = (query: QueryDesc, role: OwnedRole): QueryDesc => {
 				return { ...e, point: expr(e.point), span: expr(e.span) }
 			case "compute":
 				return { ...e, args: e.args.map(expr) }
+			case "closedAt":
+				return { ...e, args: mapNonEmpty(e.args, expr) }
+			case "closedRow":
+				return { ...e, args: e.args.map(expr) }
 			case "var":
 			case "field":
 			case "value":
@@ -130,6 +134,8 @@ export const inlineWorlds = (query: QueryDesc, role: OwnedRole): QueryDesc => {
 			case "pointIn":
 			case "value":
 			case "var":
+			case "closedAt":
+			case "closedRow":
 				return expr(t)
 		}
 	}

@@ -12,8 +12,8 @@
  * source's middle row, probes the source at values it holds, and at values no row holds probes it in vain; its key
  * probes read T at a key it holds and at one it does not; its policy row calls the filter function under row security;
  * and its precheck calls the filter function and every probe. The witness's arm chooses what its link reads: an
- * ordinary relation, the derived relation, or, over the base whose capacity holds at most one share per document, an
- * ordinary relation from Share, whose unique probe is that capacity's. Its link may bind a second field of the source,
+ * ordinary relation, the derived relation, or an ordinary relation a declared key reads, such as Share under the
+ * base's one-share variant, `key(on(Share, "doc"))`, whose unique probe is that key's. Its link may bind a second field of the source,
  * to another field of T or to a context's claim, as the documents base's notes bind their document's
  * organization to the tenant's (test/support/worlds/model/bases/docs.ts), so a probe binds what the row and the claim fix together. The joined arm binds it to a field of a third
  * source that another field of T links into, `T ⋈ Y{to: T.from} ⋈ X{to: T.from2, h: Y.g}`, so X's probe binds what
@@ -24,7 +24,7 @@
  * The drawn population holds 20,000 facts per relation, where a scan of a relation reads its index's hundred pages and
  * more against a bound of a few: a lowering that deduplicates each relation a filter reads, which PostgreSQL cannot
  * pull into its join, fails here, the judge naming the scan. One fixed fixture holds a million facts per relation: the
- * documents base's README-shaped worlds over the one-share capacity, beside a witness of each arm.
+ * documents base's README-shaped worlds over the one-share key, beside a witness of each arm.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -54,16 +54,17 @@ import { installGen } from "#test/support/worlds/generate/install.ts"
 import { docsBases, docsOneShareInstall } from "#test/support/worlds/model/bases/docs.ts"
 import type { BaseSpec } from "#test/support/worlds/model/types.ts"
 
-/** What a witness's link reads: an ordinary relation, a derived one, an ordinary one from the relation an at-most-one
- * capacity counts, whose unique probe is the capacity's, or any source joined to another that a second field of T links
- * into (world-serving.ts Second, `joined`). */
+/** What a witness's link reads: an ordinary relation, a derived one, an ordinary one from a relation a declared key
+ * reads, whose unique probe is the key's, or any source joined to another that a second field of T links into
+ * (world-serving.ts Second, `joined`). */
 type Arm = "ordinary" | "derived" | "unique" | "joined"
 
-/** The relations whose facts an at-most-one capacity counts: each holds a unique object no key subsumes. */
+/**
+ * The relations a declared key reads, each once: each holds a unique object besides its primary key, which an insert
+ * through it probes (fin.md §6, "at most one").
+ */
 const atMostOne = (base: BaseSpec): ReadonlyArray<string> =>
-	Arr.flatMap(base.laws, (law) =>
-		law.kind === "capacity" && law.high === 1n ? [law.source.relation] : []
-	)
+	Arr.dedupe(Arr.flatMap(base.laws, (law) => (law.kind === "key" ? [law.relation] : [])))
 
 /** A link of an arm: from a target, into a source, by a pair of their fields. */
 interface ArmLink {

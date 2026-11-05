@@ -12,7 +12,9 @@ import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { completedFiles } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
+import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
@@ -43,7 +45,14 @@ import { installMigrated, runsInstallScript } from "#test/support/install-migrat
 import { rebuild } from "#test/support/installed.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { fromEmpty, fromSnapshot, generate, draftedAt } from "#test/support/migrate/kit.ts"
+import {
+	draftCodes,
+	draftedAt,
+	fromEmpty,
+	fromSnapshot,
+	generate,
+	noDeclarations
+} from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
@@ -171,16 +180,21 @@ const histories: Arr.NonEmptyReadonlyArray<History> = [
 	)
 ]
 
-/** A version's installation under `name`, owned by `owner`, with its logins: the complete installation, its residual
- * laws and derived relations included, as `grizzle generate` compiles it. */
-const compiledAt = (version: Version, name: string, owner: string): Installation => {
+/** A version's installation under `name`, owned by `owner`, with its logins: the complete installation, its derived
+ * relations included, as `grizzle generate` compiles it. */
+const compiledAt = (
+	version: Version,
+	name: string,
+	owner: string,
+	codes: Codebook
+): Installation => {
 	const owned = owning(renamed(version.desc, name))
 	const logins = Arr.map(version.logins(name), (l) =>
 		succeeded(ownLogin(defined(loginDescOf(l), "a login value")))
 	)
 	return succeeded(
 		compileInstallation(owned, {
-			...completeInstallOptions(owned, identity.schema(parsedSchemaName(name)), logins, []),
+			...completeInstallOptions(owned, identity.schema(parsedSchemaName(name)), logins, [], codes),
 			owner
 		})
 	)
@@ -199,14 +213,21 @@ const migrates = (history: History) =>
 		const drafted: Array<GenerateResult> = []
 		let previous = fromEmpty
 		for (const [i, version] of history.versions.entries()) {
-			const installation = compiledAt(version, name, owner)
+			const installation = compiledAt(
+				version,
+				name,
+				owner,
+				succeeded(draftCodes(renamed(version.desc, name), previous, noDeclarations))
+			)
 			const g: GenerateResult = succeeded(
 				generate({
 					previous,
 					installation,
 					name: `step_${i + 1}`,
 					timestamp: draftedAt(i + 1),
-					workload: noWorkload
+					workload: noWorkload,
+					/** Every history drops only a derived relation, whose rows are no stored data: nothing to declare. */
+					declared: noDeclarations
 				})
 			)
 			if (i > 0 && history.versions[i - 1] === version) {
@@ -234,10 +255,10 @@ const migrates = (history: History) =>
 		yield* Effect.scoped(
 			Effect.gen(function* () {
 				const schema = yield* substrate.schema({ create: false, label: `${history.label}_fresh` })
-				const fresh = compiledAt(last, schema, owner)
+				const fresh = compiledAt(last, schema, owner, codebookOf(snapshot))
 				yield* transaction(substrate.admin, installationSql(fresh))
 				yield* sameCatalog(
-					compiledAt(last, name, owner),
+					compiledAt(last, name, owner, codebookOf(snapshot)),
 					fresh,
 					`${history.label}: the migrated history against a fresh install`
 				)
@@ -271,7 +292,7 @@ const migrates = (history: History) =>
 		assert.deepEqual(again.applied, [])
 
 		/** Db.open of every role of the last version's logins, each login's layer given the committed snapshot. */
-		const installation = compiledAt(last, name, owner)
+		const installation = compiledAt(last, name, owner, codebookOf(snapshot))
 		for (const login of last.logins(name)) {
 			const installedLogin = Option.getOrThrowWith(
 				Arr.findFirst(installation.worlds, (l) => l.name === login.name),

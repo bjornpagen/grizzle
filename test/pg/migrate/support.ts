@@ -31,7 +31,7 @@ import {
 import { sentAnswer } from "#adapter/wire/batch.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { type Candidate, candidateLabel } from "#compiler/deploy/diff/plan.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { MigrationFolder } from "#compiler/deploy/render/folder.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
@@ -43,9 +43,9 @@ import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import {
 	aliasRenames,
 	bothRenames,
-	chosenCandidates,
 	chosenRenames,
 	codedFacts,
+	declaredOf,
 	extensionsOf,
 	noRenames,
 	type Origins,
@@ -62,6 +62,7 @@ import { checkInstalled, installedScope } from "#test/support/catalog/installed.
 import { type Catalog, readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
 import { isLedgerObject, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
+	draftCodes,
 	fromEmpty,
 	fromSnapshot,
 	generate,
@@ -137,32 +138,22 @@ export interface Reviewer {
 
 const unedited: Reviewer["edit"] = (file) => file.text
 
-/** Every candidate kept, every placeholder given `value`, an SQL literal each of the folder's placeholders accepts. */
+/** Every loss written, every placeholder given `value`, an SQL literal each of the folder's placeholders accepts. */
 export const keeping = (value: string): Decisions => ({
-	chosen: new Set<Candidate>(),
 	losses: "written",
 	value: () => value
 })
 
-/** Every candidate kept, '0' for every placeholder: an untyped literal every numeric and text type accepts. */
+/** Every loss written, '0' for every placeholder: an untyped literal every numeric and text type accepts. */
 export const kept: Reviewer = { decisions: () => keeping("'0'"), edit: unedited }
 
-/** A drafted folder reviewed as the command line reads it; decisions two chosen candidates both decide are a defect
- * of the test. */
+/** A drafted folder reviewed as the command line reads it. */
 export const reviewedSource = (g: GenerateResult, reviewer: Reviewer): FolderSource => {
 	const reviewed = review(g, reviewer.decisions(g))
-	if (Result.isFailure(reviewed)) {
-		return assert.fail(
-			`${g.folder.name}/${reviewed.failure.file}: the test chose ${Arr.join(
-				Arr.map(reviewed.failure.candidates, (c) => candidateLabel(c)),
-				", "
-			)}, which all decide one statement`
-		)
-	}
 	return {
 		name: g.folder.name,
 		metaText: g.folder.metaText,
-		files: Arr.map(reviewed.success.files, (f) => ({
+		files: Arr.map(reviewed.files, (f) => ({
 			name: f.name,
 			text: reviewer.edit(f)
 		}))
@@ -465,7 +456,7 @@ const comparable = (
 			Arr.filter(c.indexes, (x) => !isLedgerObject(schema, x.name)),
 			[(x) => x.name]
 		),
-		enums: ordered(c.enums, [(x) => x.name]),
+		enumLabels: c["enumLabels"],
 		domains: ordered(c.domains, [(x) => x.name]),
 		sequences: ordered(c.sequences, [(x) => x.name]),
 		/** By name, then by arguments, which tell overloads of one name apart. */
@@ -527,7 +518,7 @@ export interface Traced {
 	readonly origins: Origins
 }
 
-/** The renames the carry model carries: every alias, and the path's renames when the reviewer chooses them. */
+/** The renames the carry model carries: every alias, and the path's renames when the draft declares them. */
 export const carried = (from: Traced, to: Traced, choose: boolean): Renames =>
 	bothRenames(aliasRenames(from, to), choose ? chosenRenames(from, to) : noRenames)
 
@@ -537,14 +528,15 @@ interface Step {
 	readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>
 }
 
-/** A chain drafted and reviewed whole, or ended by the documented inexpressible review. */
-export type Drafted =
-	| { readonly kind: "drafted"; readonly steps: ReadonlyArray<Step> }
-	| { readonly kind: "inexpressible" }
-
 /** The complete installation of a version under `schema`, owned by `owner`, with its worlds: as `grizzle generate`
  * compiles it (`completeInstallOptions`). */
-const installationOf = (version: Version, schema: string, owner: string): Installation => {
+const installationOf = (
+	version: Version,
+	schema: string,
+	owner: string,
+	previous: Previous,
+	declared: Declarations
+): Installation => {
 	const owned = owning(version.desc)
 	const logins = Arr.map(versionLogins(version), (l) => succeeded(ownLogin(l)))
 	return succeeded(
@@ -553,7 +545,8 @@ const installationOf = (version: Version, schema: string, owner: string): Instal
 				owned,
 				identity.schema(parsedSchemaName(schema)),
 				logins,
-				extensionsOf(version)
+				extensionsOf(version),
+				succeeded(draftCodes(version.desc, previous, declared))
 			),
 			owner
 		})
@@ -596,25 +589,31 @@ export const identitiesPast = (
 		}
 	})
 
-/** The steps of `versions` into `schema`, each drafted from the snapshot before and reviewed: the path's renames chosen
- * where the draft offers them when `choose`, every candidate kept otherwise. */
+/**
+ * The steps of `versions` into `schema`, each drafted from the snapshot before under the renames and drops it declares
+ * (`--rename`, `--drop`: migrate-gen declaredOf), the path's renames declared when `choose` and every removal declared
+ * a drop otherwise, and reviewed with every loss written. Nothing is guessed, so every review is expressible; a draft
+ * refused is a failure of the property.
+ */
 export const drafted = (
 	versions: ReadonlyArray<Traced>,
 	schema: string,
 	owner: string,
 	choose: boolean
-): Result.Result<Drafted, PropertyFailed> => {
+): Result.Result<ReadonlyArray<Step>, PropertyFailed> => {
 	const steps: Array<Step> = []
 	let previous: Previous = fromEmpty
 	for (const [i, step] of versions.entries()) {
 		const prior = versions[i - 1] ?? step
-		const installation = installationOf(step.version, schema, owner)
+		const declared = declaredOf(prior, step, choose && i > 0)
+		const installation = installationOf(step.version, schema, owner, previous, declared)
 		const g = generate({
 			previous,
 			installation,
 			name: `step_${i + 1}`,
 			timestamp: draftedAt(i + 1),
-			workload: noWorkload
+			workload: noWorkload,
+			declared
 		})
 		if (!g.ok) {
 			return Result.fail(
@@ -622,23 +621,14 @@ export const drafted = (
 			)
 		}
 		previous = fromSnapshot(g.value.snapshot)
-		const before = planOf(prior.version, schema, owner)
 		const after = planOf(step.version, schema, owner)
-		const chosen =
-			choose && i > 0
-				? chosenCandidates(g.value, chosenRenames(prior, step), before, after)
-				: new Set<Candidate>()
 		const reviewed = review(g.value, {
-			chosen,
 			losses: "written",
 			value: typedValue({ plan: after, version: step.version })
 		})
-		if (Result.isFailure(reviewed)) {
-			return Result.succeed({ kind: "inexpressible" })
-		}
-		steps.push({ generated: g.value, files: reviewed.success.files })
+		steps.push({ generated: g.value, files: reviewed.files })
 	}
-	return Result.succeed({ kind: "drafted", steps })
+	return Result.succeed(steps)
 }
 
 /** The migrations directory as of step `i`: every folder up to it that changes something, as its reviewer left it. */

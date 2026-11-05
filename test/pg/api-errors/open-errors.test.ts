@@ -15,7 +15,7 @@ import { InitializedCluster } from "#test/support/cluster.ts"
 import { admittedNames, aliasGroups } from "#test/support/kernel/dict.ts"
 import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { fromEmpty, generate } from "#test/support/migrate/kit.ts"
+import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
@@ -97,6 +97,7 @@ type OpenFeature =
 const otherSnapshot = snapshotJson(
 	succeeded(
 		generate({
+			declared: noDeclarations,
 			installation: installationOf(
 				schema("Other", { Thing: relation("Thing", { id: uuid }, ["id"]) }, []),
 				atDeclaredName

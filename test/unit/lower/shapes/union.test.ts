@@ -29,6 +29,7 @@ import {
 	String as Str
 } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
@@ -50,6 +51,7 @@ import { lit, types } from "#compiler/sql/build.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { mergeComparator } from "#test/support/merge.ts"
+import { fixtureCodes } from "#test/unit/ir/fixture.ts"
 import { keyed, Posting, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 import { tasksByKind } from "#test/unit/lower/shapes/queries.ts"
 import {
@@ -139,7 +141,7 @@ describe("attachments on heading groups", () => {
 	const tasksWithPostings = (on: "lone" | "shared") => {
 		const q = new Q()
 		const arm = (handle: "Automatic" | "Manual", withAmount: boolean, small: boolean) => {
-			const kind = q.lit({ kind: "enum", handle }, T.kind)
+			const kind = q.lit({ kind: "handle", handle }, T.kind)
 			const r = q.region([
 				{
 					source: q.base(Task, conservativeMeta),
@@ -154,7 +156,7 @@ describe("attachments on heading groups", () => {
 			return q.project(
 				f,
 				[
-					["kind", [q.lit({ kind: "enum", handle }, T.kind), T.kind]],
+					["kind", [q.lit({ kind: "handle", handle }, T.kind), T.kind]],
 					["id", "id"],
 					...(withAmount ? [["amount", "amount"] as const] : [])
 				],
@@ -388,7 +390,11 @@ describe("the runtime merge of heading groups", () => {
 								]
 							}
 							const compare = succeeded(
-								mergeComparator({ order, types: { score: T.float8, kind: T.kind, id: T.int4 } })
+								mergeComparator({
+									order,
+									types: { score: T.float8, kind: T.kind, id: T.int4 },
+									codes: fixtureCodes
+								})
 							)
 							const merged = mergeHeadingGroups(
 								m.groups,
@@ -458,7 +464,11 @@ describe("the runtime merge of heading groups", () => {
 
 	it.effect("compares exact decimals by value, whatever their scale", (ctx) => {
 		const exact = succeeded(
-			mergeComparator({ order: { keys: [{ column: "x", dir: "asc" }] }, types: { x: T.numeric } })
+			mergeComparator({
+				order: { keys: [{ column: "x", dir: "asc" }] },
+				types: { x: T.numeric },
+				codes: emptyCodebook
+			})
 		)
 		return searched(
 			ctx,
@@ -536,7 +546,8 @@ describe("the runtime merge of heading groups", () => {
 					Effect.sync(() => {
 						const r = mergeComparator({
 							order: { keys: Arr.map(ordered, (column) => ({ column, dir: "asc" as const })) },
-							types: Rec.fromEntries(Arr.map(typed, (column) => [column, T.int4]))
+							types: Rec.fromEntries(Arr.map(typed, (column) => [column, T.int4])),
+							codes: emptyCodebook
 						})
 						if (Arr.every(ordered, (column) => typed.includes(column))) {
 							succeeded(r)

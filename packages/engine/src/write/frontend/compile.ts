@@ -2,7 +2,7 @@ import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
-import type { MemberRelation } from "#compiler/check/schema.ts"
+import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import {
 	type NormalForm,
 	normalForm,
@@ -24,11 +24,12 @@ import {
 } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc, MemberDesc } from "#compiler/ir/desc.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
-import type { Heading, RelNode, ValidDag } from "#compiler/ir/rel.ts"
+import type { Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { slotSpelling } from "#compiler/ir/slots.ts"
 import {
@@ -44,10 +45,10 @@ import {
 } from "#compiler/ir/write.ts"
 import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { keyWitness } from "#compiler/laws/model/uniques.ts"
+import { keyWitness, readFields } from "#compiler/laws/model/uniques.ts"
 import { analyzeLogical, type LogicalAnalysis } from "#compiler/logical/annotate.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
-import { withoutSerial } from "#compiler/scalar/compute/types.ts"
+import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { groupBy } from "#compiler/write/defined.ts"
@@ -64,12 +65,15 @@ import {
 	type SerialDraw
 } from "#compiler/write/frontend/entry.ts"
 
+import { closedLeaf, type ClosedRows, hostEvaluator } from "#compiler/write/family/fold.ts"
+import { isTreeOf, type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import {
 	canonicalActionOrder,
 	type ImmediateReference,
 	scheduleStratum
 } from "#compiler/write/frontend/schedule.ts"
 import { type RelationInput, relationInput } from "#compiler/write/insert/input.ts"
+import { isSerialField } from "#compiler/write/insert/statement.ts"
 import { type RelationUniques, relationUniques } from "#compiler/write/insert/unique.ts"
 import { type HostChecks, hostChecks } from "#compiler/write/normalize/normalize.ts"
 
@@ -83,6 +87,8 @@ export interface FrontendOptions {
 	readonly derived: DerivedAnalysis
 	/** The world the compilation's statements are named in: a role's names its query entries' checks call. */
 	readonly world: WriteWorld
+	/** The installation's codes, which every member's normalizer admits a closed id's and a set's values by. */
+	readonly codes: Codebook
 }
 
 /** The classes an insertion into a target's facts fall in, each with what it carries, decided once per target where
@@ -107,8 +113,7 @@ export interface MemberSlot {
 	readonly slot: ParamId
 	/** stream when some member is a Stream, collected on the host, whole. */
 	readonly transport: "enumerated" | "stream"
-	/** The fields its facts carry, in heading order, typed without the serial generation flag: its class's
-	 * (`InsertClasses`), none for the unit relation. */
+	/** The fields its facts carry, in heading order: its class's (`InsertClasses`), none for the unit relation. */
 	readonly heading: Heading
 	/** The normal form of its admitted facts, which its relation parameter's placeholders encode. */
 	readonly normalForm: NormalForm
@@ -130,9 +135,19 @@ export type SingleAct =
 	| { readonly op: "insert"; readonly serial: Extract<SerialClass, { readonly kind: "complete" }> }
 
 /** The enumerated members of one operation on one relation in one stratum, and the slot each of their facts travels
- * in: one slot, for a deletion, a put and an insertion into an unclassed target; or an insertion into a classed
- * target, every fact of which the host routes to exactly one of its two slots or refuses. */
+ * in: one slot, for a deletion, a put and an insertion into an unclassed target; an insertion into a classed target,
+ * every fact of which the host routes to exactly one of its two slots or refuses; or an insertion whose facts nest
+ * families at their count fields (write/family/nesting.ts), split, filled and cut into its families' writes on the
+ * host, its relation's own rows in its slot, every column but a generated one, and none for a tree's roots, which
+ * their tree's write inserts. */
 export type EnumeratedInput =
+	| {
+			readonly kind: "nested"
+			readonly act: Extract<SingleAct, { readonly op: "insert" }>
+			readonly slot: MemberSlot
+			readonly nesting: Nesting
+			readonly members: NonEmptyReadonlyArray<InputMember<RelationNormalizer>>
+	  }
 	| {
 			readonly kind: "single"
 			readonly act: SingleAct
@@ -157,6 +172,7 @@ export type EnumeratedInput =
 export const inputSlots = (input: EnumeratedInput): NonEmptyReadonlyArray<MemberSlot> => {
 	switch (input.kind) {
 		case "single":
+		case "nested":
 			return [input.slot]
 		case "classed":
 			return [input.complete, input.generated]
@@ -178,6 +194,13 @@ export interface SlotGroup {
 export interface SlotFacts {
 	readonly name: string
 	readonly host: HostChecks
+}
+
+/** A nested write of a stratum: the insert's relation's nesting and the slot its facts travel in. */
+export interface NestedWrite {
+	readonly stratum: number
+	readonly nesting: Nesting
+	readonly slot: MemberSlot
 }
 
 /** A declared key, its fields' handles in its object's order, a span last, and the law its object reports with its
@@ -351,11 +374,16 @@ export interface WriteFrontend extends WriteQueries {
 	readonly bindings: ReadonlyArray<string>
 	/** The enumerated slots, by stratum and relation in code point order. */
 	readonly slots: ReadonlyArray<SlotGroup>
+	/** Each stratum's nested writes, by stratum and relation: the families each reaches, whose statements follow the
+	 * stratum's own. */
+	readonly nested: ReadonlyArray<NestedWrite>
 	/** The relations whose deltas the read-backs name, in code point order. */
 	readonly deltas: ReadonlyArray<NamedDelta>
 	readonly references: ReadonlyArray<ImmediateReference>
 	/** The query entries whose deltas a read-back names as their targets' projected, by name (see deltaOf). */
 	readonly deltaEntries: ReadonlyMap<string, CheckedEntry>
+	/** The installation's codes, which binding encodes the declared parameters' closed ids and sets by. */
+	readonly codes: Codebook
 }
 
 const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
@@ -408,14 +436,54 @@ const sameHeading = (a: Heading, b: Heading): boolean =>
 		return d !== undefined && sameScalarType(c.type, d.type)
 	})
 
-/** A member relation's classes, each the heading its facts carry, typed without the serial generation flag, by the
- * serial fields of its target an addition may leave out (`draws`): an entry's serial head fields its filter does not
- * read (entry.ts entryDraws), a whole relation's every serial field. */
+/**
+ * Refuses an addition to a relation one of whose unique objects reads a field PostgreSQL generates: no addition's fact
+ * carries that field's value, so neither the host's same-key check nor a statement's probe can meet the object, and a
+ * conflict there would surface only as a 23505 the protocol does not attribute.
+ */
+const refuseGeneratedUnique = (relation: WrittenRelation, loc: SourceLoc): void => {
+	const { arbiter, others } = relation.uniques
+	for (const u of [arbiter, ...others]) {
+		const generated = readFields(u).find((f) => f.writing.kind === "generated")
+		if (generated !== undefined) {
+			refuse(
+				"UnsupportedOperation",
+				loc,
+				`an addition to ${relation.name} whose unique objects read caller-written fields alone; one over (${readFields(
+					u
+				)
+					.map((f) => f.name)
+					.join(", ")}) reads ${generated.name}, which PostgreSQL generates and no fact carries`
+			)
+		}
+	}
+}
+
+/** A column as a member's facts carry it: its name and its type. */
+const carriedColumn = (c: MemberColumn): HeadingColumn => ({
+	name: c.name,
+	type: c.type
+})
+
+/**
+ * Whether an addition's facts carry a field written so: a caller's, and a serial one, which an insert may leave to its
+ * sequence; never one PostgreSQL generates, which is never written, so no INSERT or UPDATE lists its column
+ * (check/member.ts memberWrites, types/changeset UnwrittenFieldsOf).
+ */
+const additionCarries = (c: MemberColumn): boolean =>
+	c.writing.kind === "caller" || c.writing.kind === "serial"
+
+/** The heading a deletion's facts carry: every field of the relation, a generated one too, since a fact is matched
+ * with every field. */
+const factHeading = (member: MemberRelation): Heading => member.heading.map(carriedColumn)
+
+/** A member relation's classes, each the heading an addition's facts carry (`additionCarries`), by the serial fields of its target an addition may leave out (`draws`): an entry's serial head
+ * fields its filter does not read (entry.ts entryDraws), a whole relation's every serial field. */
 const classesOf = (
 	member: MemberRelation,
 	draws: ReadonlyArray<SerialDraw>
 ): InsertClasses<Heading> => {
-	const complete = member.heading.map((c) => ({ name: c.name, type: withoutSerial(c.type) }))
+	const complete = member.heading.filter(additionCarries).map(carriedColumn)
 	const [first, ...rest] = draws
 	if (first === undefined) {
 		return { kind: "unclassed", complete }
@@ -605,7 +673,7 @@ const compile = (
 	options: FrontendOptions
 ): WriteFrontend => {
 	const at = SourceLoc("ChangeSet", [])
-	const { laws, derived } = options
+	const { laws, derived, codes } = options
 	const views = derivedKeyConstraints(derived)
 	/** The base every written relation is an ordinary relation of: reality's own, or the role's base. */
 	const base = checked.definitions()
@@ -629,7 +697,7 @@ const compile = (
 					...written.relation,
 					keyLaws,
 					uniques,
-					host: hostChecks(keyLaws, uniques)
+					host: hostChecks(keyLaws, uniques, codes)
 				})
 			]
 		})
@@ -637,6 +705,41 @@ const compile = (
 	const writtenOf = (name: string, loc: SourceLoc): WrittenRelation =>
 		writable.get(name) ??
 		refuse("MalformedDescription", loc, `an ordinary relation of the schema, not ${name}`)
+	/** The schema's families: a nested insert reaches some of them (write/family/nesting.ts). */
+	const families = laws.families
+	/** The host's evaluation of the generated fields a nesting's copies, steps and selections read, over the schema's
+	 * closed relations, as PostgreSQL generates them. */
+	const evaluate = hostEvaluator(
+		codes,
+		closedLeaf(
+			new Map(
+				[...checked.closed].map(([name, c]): readonly [string, ClosedRows] => [
+					name,
+					{ heading: c.heading, key: c.relation.primaryFields.length, rows: c.rows }
+				])
+			)
+		),
+		regexMember
+	)
+	const nestings = new Map<string, Nesting>()
+	/** The nesting of an insert into `relation`, built once. */
+	const nestingFor = (relation: RelationInfo, loc: SourceLoc): Nesting => {
+		const known = nestings.get(relation.name)
+		if (known !== undefined) {
+			return known
+		}
+		const built = nestingOf(relation, families, codes, evaluate)
+		if (!built.ok) {
+			return refuse("UnsupportedOperation", loc, built.error.message)
+		}
+		nestings.set(relation.name, built.value)
+		return built.value
+	}
+	/** The family `name` is a member of, a tree's aside: its rows are written only under their owner. */
+	const memberFamily = (name: string) =>
+		families.find((f) => f.member.name === name && !isTreeOf(f, name))
+	/** Whether an insert into `name` nests families: it owns one, or is a tree's relation. */
+	const nests = (name: string): boolean => families.some((f) => f.owner.name === name)
 	/** A relation written whole, its classes its own serial fields'. */
 	const wholeTarget = (name: string, loc: SourceLoc): CheckedTarget => {
 		const relation = writtenOf(name, loc)
@@ -645,7 +748,9 @@ const compile = (
 			entry: { kind: "whole" },
 			classes: classesOf(
 				relation,
-				relation.serial.map((field) => ({ carried: field, field }))
+				relation.heading.flatMap((f) =>
+					isSerialField(f) ? [{ carried: f.name, field: f.name }] : []
+				)
 			)
 		}
 	}
@@ -700,7 +805,42 @@ const compile = (
 	const strataMembers = desc.strata.map((stratum) =>
 		stratum.members.map((member): CheckedMember => {
 			const loc = member.loc
-			const { relation, entry, classes } = targetOf(member.relation, loc)
+			const target = targetOf(member.relation, loc)
+			const { relation, entry } = target
+			const family = memberFamily(relation.name)
+			if (family !== undefined && (member.op === "insert" || member.op === "delete")) {
+				const slots = `${family.id.owner}.${family.id.count}`
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					member.op === "insert"
+						? `an insert into ${relation.name}, a member of the family ${slots}: a family is written under its owner, so nest its members at the owner's count field`
+						: !writtenOf(family.owner.name, loc).mutable
+							? `a delete of ${relation.name}, a member of the family ${slots} of the immutable ${family.owner.name}: an immutable owner's family is fixed when its owner is inserted; declare mutable(${family.owner.name}) to change it`
+							: `a delete of ${relation.name}, a member of the family ${slots}: a member's slot is drawn, so its removal rewrites its family, which grizzle plans only under an owner the same ChangeSet inserts`
+				)
+			}
+			const drawnField = relation.fields.find(
+				(f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated"
+			)
+			if (member.op === "put" && drawnField !== undefined) {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					`a put of ${relation.name}, whose ${drawnField.name} grizzle ${drawnField.writing.kind === "drawn" ? "draws" : "accumulates"} from its family: a put that inserts or displaces a fact of it would write its family's drawn and accumulated columns, which grizzle plans only for an insert that nests the family`
+				)
+			}
+			const nested = member.op === "insert" && nests(relation.name)
+			if (nested && (entry.kind !== "whole" || member.member.kind === "query")) {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					`an insert into ${relation.name}, which owns a family, ${entry.kind !== "whole" ? "through a query entry" : "by a query"}: a family is written as nested arrays, so insert ${relation.name} whole from an array or a Stream`
+				)
+			}
+			const classes: InsertClasses<Heading> = nested
+				? { kind: "unclassed", complete: nestingFor(relation, loc).top }
+				: target.classes
 			const written: MemberRelation = entry.kind === "entry" ? entry.member : relation
 			const source = member.member
 			if (source.kind !== "query") {
@@ -781,10 +921,15 @@ const compile = (
 		input: Heading,
 		loc: SourceLoc
 	): RelNode => {
+		const drawn: ReadonlyArray<string> = classes.kind === "classed" ? classes.drawn.drawn : []
 		const target: MemberRelation = {
 			name: relation.name,
-			heading: relation.heading,
-			serial: classes.kind === "classed" ? classes.drawn.drawn : []
+			heading: relation.heading.map((f) => ({
+				name: f.name,
+				type: f.type,
+				writing:
+					f.writing.kind !== "serial" || drawn.includes(f.name) ? f.writing : { kind: "caller" }
+			}))
 		}
 		return merger.add(
 			unwrap(
@@ -810,7 +955,9 @@ const compile = (
 	 * sources, so the one SELECT DISTINCT over its head makes equal generated additions one new fact
 	 * whichever sources requested them. Every other insert member is its own action: the insert
 	 * protocol makes a second equal fact an exact repeat. */
-	const draftsByStratum = occupied.map(({ s, members }) => {
+	/** Each stratum's nested writes, by its position among the occupied strata, the stratum its statements run in. */
+	const nestedWrites: Array<NestedWrite> = []
+	const draftsByStratum = occupied.map(({ s, members }, stratum) => {
 		const drafts: Array<Draft> = []
 		const outside: Array<OutsideDraft> = []
 		const byRelation = [...groupBy(members, (m) => m.relation.name)].toSorted(
@@ -848,7 +995,8 @@ const compile = (
 					const spec = (slot: RelationSlot): RelationSpec => ({
 						relation: written.name,
 						columns,
-						slot
+						slot,
+						codes
 					})
 					const id = writeSlotId(s, act, classes, written.name)
 					return {
@@ -949,6 +1097,9 @@ const compile = (
 						entry: { kind: "entry", entry: target.entry, names: target.names, fill }
 					})
 				}
+				if (op !== "delete") {
+					refuseGeneratedUnique(relation, loc)
+				}
 				switch (op) {
 					case "put": {
 						const act = { op }
@@ -962,14 +1113,39 @@ const compile = (
 					}
 					case "delete": {
 						const act = { op }
-						draft(act, classes.complete, singleInput(act, classes.complete), [])
+						const facts = factHeading(written)
+						draft(act, facts, singleInput(act, facts), [])
 						for (const q of queries) {
-							draft(act, classes.complete, undefined, [q.root])
+							draft(act, facts, undefined, [q.root])
 						}
 						break
 					}
 					case "insert": {
 						const complete: SingleAct = { op, serial: completeClass }
+						if (nests(relation.name)) {
+							const nesting = nestingFor(relation, loc)
+							if (isNonEmpty(enumerated)) {
+								const { slot, normalizer } = classSlot(complete, nesting.top)
+								groupInputs.push(
+									Object.freeze({
+										kind: "nested",
+										act: complete,
+										slot,
+										nesting,
+										members: Object.freeze(
+											mapNonEmpty(enumerated, (m) =>
+												Object.freeze({ name: m.slot, normalize: normalizer(m.slot) })
+											)
+										)
+									})
+								)
+								nestedWrites.push(Object.freeze({ stratum, nesting, slot }))
+								if (nesting.tree === undefined) {
+									draft(complete, nesting.top, slot, [])
+								}
+							}
+							break
+						}
 						const described = queries.map((q) => ({
 							root: q.root,
 							serial: describedClass(classes, q.query.dag.roots[0].heading)
@@ -1228,6 +1404,22 @@ const compile = (
 		deltaEntries.set(name, entry)
 		return { kind: "relation", relation: entry.target.name, via: { kind: "entry", entry } }
 	}
+	/** The relations a nested write writes through its families' statements: every reached family's member, a tree's
+	 * relation among them. Their statements fill no delta carrier, so no read-back names their deltas. */
+	const nestedRelations = new Set(
+		nestedWrites.flatMap((n) => n.nesting.reached.map((r) => r.family.member.name))
+	)
+	for (const r of readBacks) {
+		for (const d of r.deltas) {
+			if (nestedRelations.has(d.relation)) {
+				refuse(
+					"UnsupportedOperation",
+					childLoc(at, "reads", r.name),
+					`a delta of ${d.relation}, which a nested write writes through its family's statements: read ${d.relation} itself after the change`
+				)
+			}
+		}
+	}
 	const classified = readBacks.flatMap((r) =>
 		r.deltas.map((d) => ({ delta: d, side: d.side, of: deltaOf(d.relation) }))
 	)
@@ -1261,7 +1453,7 @@ const compile = (
 		Object.freeze({
 			kind: "empty",
 			name,
-			heading: named[0].delta.heading.map((c) => ({ name: c.name, type: withoutSerial(c.type) })),
+			heading: named[0].delta.heading.map((c) => ({ name: c.name, type: c.type })),
 			sides: sidesOf(named)
 		})
 	)
@@ -1311,15 +1503,20 @@ const compile = (
 		laws,
 		views,
 		written: Object.freeze(
-			[...new Set(strataMembers.flat().map((m) => m.relation))].toSorted(
-				Order.mapInput(Order.compareStrings, (r: WrittenRelation) => r.name)
-			)
+			[
+				...new Set([
+					...strataMembers.flat().map((m) => m.relation),
+					...[...nestedRelations].map((name) => writtenOf(name, at))
+				])
+			].toSorted(Order.mapInput(Order.compareStrings, (r: WrittenRelation) => r.name))
 		),
 		params: Object.freeze(userParams),
 		bindings: Object.freeze([...desc.bindings]),
 		slots: Object.freeze(slots),
+		nested: Object.freeze(nestedWrites),
 		deltas: Object.freeze(namedDeltas),
 		references: Object.freeze(references),
-		deltaEntries
+		deltaEntries,
+		codes
 	})
 }

@@ -5,6 +5,7 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -173,8 +174,10 @@ const optimizedIn = (context: TemplateContext): Lowering => ({
 /** The rules a case's optimized lowering certifies in `context`, under its schema's stand-in names. */
 const certifiedIn = (c: LabelledCase, context: TemplateContext): ReadonlyArray<CertificateRule> =>
 	Arr.map(
-		succeeded(optimized(c, standInNames(c.schema.name), context), `${c.label}: its lowering`)
-			.certificates,
+		succeeded(
+			optimized(c, standInNames(c.schema.name, emptyCodebook), context),
+			`${c.label}: its lowering`
+		).certificates,
 		(x) => x.rule
 	)
 

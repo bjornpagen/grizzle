@@ -1,7 +1,7 @@
 import type { Phantom } from "#compiler/core/phantom.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, uuid } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { Bits, contract, pg, uuid } from "#compiler/public/fields.ts"
+import { closed, relation, schema } from "#compiler/public/schema.ts"
 import type { AggregateLowering, AggregateOverload } from "#compiler/scalar/aggregate.ts"
 import type { FixedOp, OperandReading } from "#compiler/scalar/compute/registry.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
@@ -19,7 +19,7 @@ import type {
 	Term,
 	TypeOfTerm
 } from "#compiler/types/core/phantom.ts"
-import type { Infer } from "#compiler/types/fields/field.ts"
+import type { Bits as BitsOf, Infer } from "#compiler/types/fields/field.ts"
 import type { ParamsOf } from "#compiler/types/query/query.ts"
 import { derived, query, v } from "#index.ts"
 import { Cents, type Rate } from "#test/types/skeleton/fixtures/work.ts"
@@ -379,6 +379,35 @@ export type GuardedParams = Expect<
 	Equals<ParamsOfT<typeof guardedParams>, { readonly hi: ParamType<Decimal, "numeric"> }>
 >
 
+/**
+ * The set algebra over sets of one roster: union, intersection and difference keep the set's type, a set value of its
+ * roster standing for the second operand; cardinality is a count; subset and disjoint compare two sets of the roster.
+ */
+export const Flag = closed("Flag", ["on", "off"])
+export const Shade = closed("Shade", ["light", "dark"])
+type FlagSet = BitsOf<typeof Flag>
+declare const flags: Of<FlagSet, "bits">
+declare const otherFlags: Of<FlagSet, "bits">
+declare const shades: Of<BitsOf<typeof Shade>, "bits">
+export const unioned = Compute.union(flags, otherFlags)
+export type UnionType = Expect<Equals<TypeOfTerm<typeof unioned>, FlagSet>>
+export const intersected = Compute.intersection(flags, Bits.of(Flag, ["on"]))
+export type IntersectionType = Expect<Equals<TypeOfTerm<typeof intersected>, FlagSet>>
+export const differed = Compute.difference(flags, otherFlags)
+export type DifferenceSql = Expect<Equals<SqlOfTerm<typeof differed>, "bits">>
+export const handleCount = Compute.cardinality(flags)
+export type CardinalityType = Expect<Equals<TypeOfTerm<typeof handleCount>, bigint>>
+export const contained = Compute.subset(flags, otherFlags)
+export type SubsetType = Expect<Equals<TypeOfTerm<typeof contained>, boolean>>
+export const apart = Compute.disjoint(flags, Bits.of(Flag, ["off"]))
+export type DisjointType = Expect<Equals<TypeOfTerm<typeof apart>, boolean>>
+// @ts-expect-error -- TS2345: the set algebra takes two sets of one roster
+export const crossUnion = Compute.union(flags, shades)
+// @ts-expect-error -- TS2345: a set value is of the first operand's roster
+export const crossValue = Compute.subset(flags, Bits.of(Shade, ["dark"]))
+// @ts-expect-error -- TS2345: cardinality counts a set's handles
+export const intCount = Compute.cardinality(int)
+
 /** Every member of the catalogue has assertions above. A member added without an entry here is TS2741. */
 export const computeCovered: { readonly [K in keyof typeof Compute]: true } = {
 	literal: true,
@@ -429,7 +458,13 @@ export const computeCovered: { readonly [K in keyof typeof Compute]: true } = {
 	upper: true,
 	width: true,
 	charLength: true,
-	cosineDistance: true
+	cosineDistance: true,
+	union: true,
+	intersection: true,
+	difference: true,
+	cardinality: true,
+	subset: true,
+	disjoint: true
 }
 
 /**

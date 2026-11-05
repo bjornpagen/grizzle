@@ -7,7 +7,7 @@ import {
 	type StateRows,
 	valueText,
 	violations
-} from "#test/pg/laws/families/model.ts"
+} from "#test/support/laws/model.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import { canonicalForms } from "#test/support/worlds/generate/canonical.ts"
 import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
@@ -134,8 +134,6 @@ const installLiterals = (install: InstallSpec): ReadonlyArray<HostValue> => {
 			}
 			case "contained":
 			case "covered":
-				return [...Rec.values(law.source.where), ...Rec.values(law.target.where)]
-			case "capacity":
 				return [...Rec.values(law.source.where), ...Rec.values(law.target.where)]
 			case "key":
 			case "spanKey":
@@ -1450,7 +1448,6 @@ const baseLiterals = (base: BaseSpec): ReadonlySet<string> =>
 					switch (law.kind) {
 						case "contained":
 						case "covered":
-						case "capacity":
 							return [...Rec.values(law.source.where), ...Rec.values(law.target.where)]
 						case "key":
 						case "spanKey":

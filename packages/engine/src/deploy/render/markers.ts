@@ -4,7 +4,8 @@ import { placeholderToken } from "#compiler/sql/print.ts"
 
 export const noTransactionMarker = "-- grizzle: no-transaction"
 export const placeholderMarker = "-- grizzle: placeholder"
-export const renameMarker = "-- grizzle: rename candidate"
+/** A confirm: statements the reviewer keeps whole or removes whole, drafted below this line, which says why and how. */
+export const confirmMarker = "-- grizzle: confirm"
 /** A loss: a statement that loses stored data, drafted commented below this line, which says what it loses and how to
  * decide it. The decision is the statement itself, written in or left out (`lossDecisions`), so the
  * line is no marker `grizzle migrate` refuses: it may stay. */
@@ -31,7 +32,7 @@ export const isWords = (text: string): boolean => {
 	return !separator
 }
 
-type MarkerKind = "placeholder" | "rename"
+type MarkerKind = "placeholder" | "confirm"
 
 interface FoundMarker {
 	readonly kind: MarkerKind
@@ -100,7 +101,7 @@ const placeholderLines = (text: string): ReadonlySet<number> => {
 	return lines
 }
 
-/** Every unresolved placeholder and candidate rename in a file's text: a line that starts with a marker, or holds a
+/** Every unresolved placeholder and confirm in a file's text: a line that starts with a marker, or holds a
  * placeholder token in its SQL.
  *
  * The markers of drafted migration files, and the reading of a file `grizzle migrate` runs.
@@ -109,8 +110,8 @@ const placeholderLines = (text: string): ReadonlySet<number> => {
  * - A placeholder: a drafted value the generator cannot invent, which the reviewer must supply. It is
  *   the bare token `__GRIZZLE_PLACEHOLDER__` where the value goes, which no SQL accepts as a value (PostgreSQL reads it
  *   as a column reference, refused in DEFAULT), preceded by a `-- grizzle: placeholder` line that says what to supply.
- * - A candidate rename: a `-- grizzle: rename candidate` line before a drafted addition whose heading or type matches a
- *   removal, with the commented rename beside it.
+ * - A confirm: a `-- grizzle: confirm` line before drafted statements the reviewer keeps whole or removes whole, such
+ *   as a holder renamed aside.
  * - A loss: a `-- grizzle: data loss` line above a commented statement that loses stored data, which the reviewer
  *   writes in to accept the loss; meta.json records it, and `grizzle check` reads the decision from the SQL.
  *
@@ -118,9 +119,9 @@ const placeholderLines = (text: string): ReadonlySet<number> => {
  * never as text.
  *
  * `grizzle migrate` refuses a file that still contains a placeholder token in its SQL or either marker line, before any
- * statement of its folder runs (findMarkers). A reviewer resolves a marker by supplying the value or choosing the
- * rename, and then deletes the marker line. A token in a comment is no placeholder: a kept candidate's commented
- * alternative may hold one, and it becomes SQL, with its placeholder line, only when the reviewer uncomments it. */
+ * statement of its folder runs (findMarkers). A reviewer resolves a marker by supplying the value or confirming the
+ * statements, and then deletes the marker line. A token in a comment is no placeholder: a commented loss may hold one,
+ * and it becomes SQL, with its placeholder line, only when the reviewer uncomments it. */
 export const findMarkers = (text: string): ReadonlyArray<FoundMarker> => {
 	const out: Array<FoundMarker> = []
 	const placeholders = placeholderLines(text)
@@ -128,8 +129,8 @@ export const findMarkers = (text: string): ReadonlyArray<FoundMarker> => {
 		const line = raw.trimStart()
 		if (line.startsWith(placeholderMarker) || placeholders.has(i)) {
 			out.push({ kind: "placeholder", line: i + 1 })
-		} else if (line.startsWith(renameMarker)) {
-			out.push({ kind: "rename", line: i + 1 })
+		} else if (line.startsWith(confirmMarker)) {
+			out.push({ kind: "confirm", line: i + 1 })
 		}
 	}
 	return out
@@ -173,7 +174,7 @@ export const splitStatements = (text: string): ReadonlyArray<string> => {
 
 /** A statement from its first token as PostgreSQL's scanner reads it: without its leading whitespace and
  * comments of both kinds, otherwise as written. A statement the scanner cannot read keeps the text from where it stops.
- * meta.json records each statement a candidate decides in this form, which a person reading it recognizes in the file. */
+ * meta.json records each drafted statement in this form, which a person reading it recognizes in the file. */
 export const fromFirstToken = (statement: string): string => {
 	const { tokens, error } = lex(statement)
 	const [first] = tokens

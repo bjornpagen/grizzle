@@ -63,10 +63,9 @@ const renderGenerate = (
 		...(r.kind === "drafted" ? [relative(r.snapshotPath)] : [])
 	])
 	const markers = Arr.flatMap(written, (r) =>
-		Arr.map(r.markers, (m) =>
-			m.kind === "placeholder"
-				? `${folderOf(r)}/${m.file}:${m.line}: placeholder: ${refusalText.placeholder.fix}`
-				: `${folderOf(r)}/${m.file}:${m.line}: rename candidate: ${refusalText.renameCandidate.fix}`
+		Arr.map(
+			r.markers,
+			(m) => `${folderOf(r)}/${m.file}:${m.line}: placeholder: ${refusalText.placeholder.fix}`
 		)
 	)
 	const losses = Arr.flatMap(written, (r) =>
@@ -154,8 +153,7 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 		case "MarkersUnresolved":
 			return Arr.map(
 				reason.markers,
-				(m) =>
-					`  ${m.folder}/${m.file}:${m.line}: unresolved ${m.kind === "placeholder" ? "placeholder" : "candidate rename"}`
+				(m) => `  ${m.folder}/${m.file}:${m.line}: unresolved placeholder`
 			)
 		case "LossesUndecided":
 			return Arr.map(
@@ -320,7 +318,12 @@ const program = Effect.fn("program")(function* (
 		)
 	}
 	const now = yield* DateTime.now
-	const reports = yield* generate(config, { mode: command.mode, schema: command.schema, now })
+	const reports = yield* generate(config, {
+		mode: command.mode,
+		schema: command.schema,
+		declared: command.declared,
+		now
+	})
 	return ran(
 		exitCodes.ok,
 		renderGenerate(reports, (p) => path.relative(cwd, p)),

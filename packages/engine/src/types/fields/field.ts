@@ -11,7 +11,14 @@ import type {
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
-import type { BaseOf, DomainOf, Facts, FactsOf, Rostered } from "#compiler/types/core/phantom.ts"
+import type {
+	BaseOf,
+	DomainOf,
+	Facts,
+	FactsOf,
+	LanguageOf,
+	Rostered
+} from "#compiler/types/core/phantom.ts"
 
 /**
  * Any descriptor: the members every runtime descriptor has, its PostgreSQL type name and its column, and the domain
@@ -87,11 +94,18 @@ export interface NaturalField extends Field<
 	readonly natural: true
 }
 /**
+ * How a field is written, as its descriptor's type states it under `writing`; a caller's field carries none.
+ * generated: by PostgreSQL from its row; drawn: by grizzle from the nested arrays its caller writes; accumulated: by
+ * grizzle on the host, proved by PostgreSQL; serial: by its sequence.
+ */
+export type WritingTag = "generated" | "drawn" | "accumulated" | "serial"
+
+/**
  * Lowers to GENERATED ALWAYS AS IDENTITY, with the sequence owned by the column. It is a column
  * generation declaration over an integer type, not a value domain, so it is not a span endpoint.
  */
 export interface SerialField<out Host, out Sql extends SqlTag> extends Field<Host, Sql> {
-	readonly generated: "always"
+	readonly writing: "serial"
 }
 
 /**
@@ -144,13 +158,14 @@ export interface Contract<
 }
 
 /**
- * Not a serial generation declaration, at any depth of contract bases. Field descriptors carry no `generated` member,
- * so an absent optional `never` admits them and refuses SerialField's `"always"`; a contract carries its base, so the
+ * Not a field of a writing of its own, a serial generation declaration among them, at any depth of contract bases. A
+ * caller's descriptor carries no `writing` member, so an absent optional `never` admits it and refuses a serial's,
+ * a drawn field's and an accumulated field's; a contract carries its base, so the
  * same test on `base` refuses a contract over a serial. The base is also a Field, which keeps the nested target from
  * being a weak type that a plain descriptor, sharing none of its optional members, would fail to match.
  */
 export interface NotSerial {
-	readonly generated?: never
+	readonly writing?: never
 	readonly base?: FieldBase & NotSerial
 }
 
@@ -176,23 +191,81 @@ type PlainIntegerField<Host, Sql extends SqlTag> = Field<Host, Sql> & NotSerial
 export type IntegerLike = PlainIntegerField<number, "integer"> | PlainIntegerField<bigint, "bigint">
 
 /**
- * A closed reference: the roster's handles as a PostgreSQL enum, whose domain is its handles under the roster's
- * identity (Rostered), so two rosters of one member set never meet.
+ * A closed reference: one of the roster's handles, stored as its code under the roster's domain, whose domain is its
+ * handles under the roster's identity (Rostered), so two rosters of one member set never meet.
  */
 export interface ClosedIdField<out C> extends Field<
 	HandleOf<C>,
-	"enum",
+	"code",
 	HandleOf<C> & Rostered<RosterName<C>>
 > {
 	readonly roster: C
 }
 
-/** A closed relation's name, its roster's identity. */
-type RosterName<C> = C extends { readonly kind: "closed"; readonly name: infer N extends string }
+/**
+ * A set over a roster: bit(n), one bit per code the roster has minted, holes included. Its host value is Bits<C>, and
+ * its domain the same, so a set over one roster never meets a set over another.
+ */
+export interface BitsField<out C> extends Field<Bits<C>, "bits", Bits<C>> {
+	readonly roster: C
+}
+
+/** A set of a roster's handles, branded by the roster: a set over one roster is never one over another. */
+export type Bits<C> = ReadonlySet<HandleOf<C>> & Rostered<RosterName<C>>
+
+/**
+ * A field no insert's head holds: one that states under `writing` that PostgreSQL or grizzle writes it. A serial is
+ * written by its sequence, and an addition supplies all of its relation's serials or none (SerialFieldsOf), so it is
+ * none of these.
+ */
+export interface UnwrittenField {
+	readonly writing: Exclude<WritingTag, "serial">
+}
+
+/** A natural grizzle draws: a family's index or count, or a tree's start or end. In a Fact, never in an Addition. */
+export interface DrawnField extends NaturalField, UnwrittenField {
+	readonly writing: "drawn"
+}
+
+/**
+ * A field grizzle fills on the host from `start` at its axis's base, of the declared type F: a fold's accumulator or a
+ * copy along a family axis. In a Fact, never in an Addition.
+ */
+export interface AccumulatedField<out F extends FieldBase>
+	extends
+		Built,
+		UnwrittenField,
+		Domained<DomainOf<F>>,
+		Proving<FactsOf<F>>,
+		Languaged<LanguageOf<F>> {
+	readonly writing: "accumulated"
+	readonly field: F
+	readonly column: F["column"]
+	readonly sql: F["sql"]
+}
+
+/**
+ * A field PostgreSQL writes from its row (relation.generated): a STORED generated column of the declared type F. It
+ * carries F's column, SQL type, domain, facts and language, so it is read as every field of F is; it is no descriptor a
+ * builder made (no Built brand), so no contract, span, closed id, cast or parameter takes it as a type.
+ */
+export interface GeneratedField<out F extends FieldBase>
+	extends UnwrittenField, Domained<DomainOf<F>>, Proving<FactsOf<F>>, Languaged<LanguageOf<F>> {
+	readonly writing: "generated"
+	readonly type: F
+	readonly column: F["column"]
+	readonly sql: F["sql"]
+}
+
+/** A roster's name, its identity, read from its `name` member. */
+export type RosterName<C> = C extends {
+	readonly kind: "closed"
+	readonly name: infer N extends string
+}
 	? N
 	: never
 
-/** The roster handles of a closed relation, read from its `handles` member. */
+/** The roster handles of a roster, read from its `handles` member. */
 export type HandleOf<C> = C extends {
 	readonly kind: "closed"
 	readonly handles: ReadonlyArray<infer H>

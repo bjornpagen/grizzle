@@ -1,7 +1,7 @@
 import { Brand, Effect, Option, Result } from "effect"
 import { missingExtension } from "#adapter/admission/expectation.ts"
 import type { DbContext, RoleContext } from "#adapter/db/context.ts"
-import { fromEngine, rowOptions, toResult } from "#adapter/engine.ts"
+import { fromEngine, toResult } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { MissingCapability } from "#adapter/errors/failures.ts"
 import { type PageCall, type PageRows, pageFlight } from "#adapter/page/execute.ts"
@@ -151,7 +151,7 @@ export const compiledPageTemplate = (
 				(runtime): CompiledPage => ({
 					compiled,
 					runtime,
-					codecs: paramCodecs(compiled.template.params)
+					codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
 				})
 			)
 	)
@@ -225,7 +225,7 @@ export const runPage = <A, Q>(
 		const read = bindGroups(
 			run.decoder(),
 			runtime.artifacts[artifact].requests[request.variant].layouts,
-			rowOptions
+			run.ctx.bind
 		)
 		if (!read.ok) {
 			return yield* new ReadFailure({ reason: read.error })

@@ -450,6 +450,43 @@ export const loginRuleText = (rule: LoginRule): string => {
 	}
 }
 
+/**
+ * Why a generated field's expression is refused: it reads generated field `read` (itself among them), which no
+ * generation expression reads, as PostgreSQL's never does; it reads an input beyond its own row, `input` the
+ * description kind of the first in expression order; or its type `expression` is not the field's declared `declared`
+ * (each a type label), with no implicit cast.
+ */
+export type GeneratedRule =
+	| { readonly kind: "readsGenerated"; readonly read: string }
+	| {
+			readonly kind: "notRowLocal"
+			readonly input: "var" | "param" | "parent" | "value" | "absent"
+	  }
+	| { readonly kind: "type"; readonly declared: string; readonly expression: string }
+
+/** What each input beyond a row is, in a generated field's refusal. */
+const rowInputWords: {
+	readonly [I in Extract<GeneratedRule, { readonly kind: "notRowLocal" }>["input"]]: string
+} = {
+	var: "a query variable",
+	param: "a parameter",
+	parent: "a parent column",
+	value: "a contract's value",
+	absent: "a relational negation"
+}
+
+/** A generated field rule's sentence. */
+export const generatedRuleText = (rule: GeneratedRule): string => {
+	switch (rule.kind) {
+		case "readsGenerated":
+			return `reads ${rule.read}, a generated field; a generation expression reads its row's written fields only`
+		case "notRowLocal":
+			return `reads ${rowInputWords[rule.input]}; a generation expression reads its own row and closed relations only`
+		case "type":
+			return `its expression is ${rule.expression}, not its declared ${rule.declared}: PostgreSQL types a generation expression by its column, with no implicit cast`
+	}
+}
+
 /** A claim rule's sentence. */
 export const claimRuleText = (rule: ClaimRule): string =>
 	`a claim of text, uuid, boolean, an integer type, a contract over one, or a closed handle; field ${rule.field} is none`

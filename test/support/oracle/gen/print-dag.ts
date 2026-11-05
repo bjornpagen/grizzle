@@ -37,8 +37,13 @@ export const printLiteral = (literal: TypedLiteral, type: ScalarType): string =>
 			return `${Formatter.format(literal.value)}::${label}`
 		case "uuid":
 			return `'${literal.value}'::${label}`
-		case "enum":
+		case "handle":
 			return `'${literal.handle}'::${label}`
+		case "handles":
+			return `{${Arr.join(
+				Arr.map(literal.handles, (h) => Formatter.format(h)),
+				","
+			)}}::${label}`
 		case "span":
 			return `[${bigintText(literal.start)},${bigintText(literal.end)})::${label}`
 		case "vector":
@@ -153,6 +158,12 @@ class ExprPrinter {
 				return `(domain ${args[0]} ${typeLabel(expr.type)})`
 			case "cond":
 				return `(case ${args[0]} ${args[1]} else ${args[2]})`
+			case "closedAt":
+				return `${expr.relation}.at(${expr.field}, ${Arr.join(args, ", ")})`
+			case "closedRow":
+				return `${expr.relation}.row(${Arr.join(args, ", ")})`
+			case "closedHas":
+				return `${expr.relation}.has(${Arr.join(args, ", ")})`
 		}
 	}
 }

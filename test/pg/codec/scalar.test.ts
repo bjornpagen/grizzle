@@ -12,6 +12,7 @@ import {
 	map,
 	oneOf,
 	string,
+	subset,
 	uniqueArray,
 	weighted
 } from "@grizzle/testing/gen"
@@ -26,6 +27,7 @@ import type { ScalarCodec } from "#compiler/codec/scalar.ts"
 import { int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import { type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -46,6 +48,7 @@ import {
 } from "#test/pg/codec/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -69,14 +72,30 @@ import { decimalGen } from "#test/unit/values/support.ts"
  * Each property searches through the library's exploration over a batch of values, sent in one statement per case, so
  * a failure shrinks to the value that fails.
  *
- * The handles of the test's own enum, and the cases' scalar types beyond the plain carriers, each the registry's.
+ * The handles of the test's own roster, the codes they hold, with a hole before each of the last two so no handle's code
+ * is its position, and the cases' scalar types beyond the plain carriers, each the registry's.
  */
 const kindHandles = ["Manual", "Automatic", "Ünïcode"] as const
+const kindCodes: Codebook = {
+	rosters: new Map([
+		[
+			parsedName("Kind"),
+			rosterCodec(parsedName("Kind"), [
+				{ kind: "live", handle: "Manual" },
+				{ kind: "hole" },
+				{ kind: "live", handle: "Automatic" },
+				{ kind: "hole" },
+				{ kind: "live", handle: "Ünïcode" }
+			])
+		]
+	])
+}
 const scalars = {
 	uuid: scalarOf({ kind: "uuid" }, {}),
 	numeric52: scalarOf({ kind: "numeric", precision: 5, scale: 2 }, {}),
 	numeric72: scalarOf({ kind: "numeric", precision: 7, scale: 2 }, {}),
 	kind: scalarOf({ kind: "closedId", roster: "Kind" }, { Kind: kindHandles }),
+	kinds: scalarOf({ kind: "bits", roster: "Kind" }, { Kind: kindHandles }),
 	range4: scalarOf(
 		{ kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined },
 		{}
@@ -225,7 +244,7 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	{
 		label: "numeric(7,2)",
 		type: scalars.numeric72,
-		values: filter(decimalGen, (d) => codecOf(scalars.numeric72).encode(d).ok, 100)
+		values: filter(decimalGen, (d) => codecOf(scalars.numeric72, kindCodes).encode(d).ok, 100)
 	},
 	{ label: "real", type: plainType("float4"), values: realGen },
 	{ label: "double precision", type: plainType("float8"), values: doubleGen },
@@ -234,6 +253,11 @@ const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	{ label: "uuid", type: scalars.uuid, values: caseShuffled },
 	{ label: "text", type: wildcardText, values: textGen },
 	{ label: "closed id", type: scalars.kind, values: element(kindHandles) },
+	{
+		label: "set",
+		type: scalars.kinds,
+		values: map(subset(kindHandles, { min: 0, max: kindHandles.length }), (hs) => new Set(hs))
+	},
 	{ label: "int4range", type: scalars.range4, values: span(int4Gen) },
 	{ label: "int8range", type: scalars.range8, values: span(int8Gen) },
 	{ label: "vector(3)", type: scalars.vector3, values: vectorGen(3) },
@@ -303,12 +327,8 @@ const setup = Effect.gen(function* () {
 	const db = yield* session(ownerSession())
 	yield* monetaryContext(db)
 	const name = yield* schema(freshSchema)
-	const names: SqlNames = { schema: quoteIdent(name), vector: yield* vectorSchemaOf(db) }
-	const labels = Arr.join(
-		Arr.map(kindHandles, (h) => `'${h}'`),
-		", "
-	)
-	yield* db.values(`CREATE TYPE ${names.schema}."kind" AS ENUM (${labels})`, [])
+	const vector = yield* vectorSchemaOf(db)
+	const names: SqlNames = { schema: quoteIdent(name), vector, codes: kindCodes }
 	yield* db.values(
 		`CREATE DOMAIN ${names.schema}."cents" AS bigint CONSTRAINT "cents_check" CHECK ((VALUE >= 0) IS TRUE)`,
 		[]
@@ -319,7 +339,7 @@ const setup = Effect.gen(function* () {
 /** One batch of a carrier's values through the recordset, and its first values through a cast parameter. */
 const roundTrip = (db: RawSession, names: SqlNames, c: Case, batch: ReadonlyArray<unknown>) =>
 	Effect.gen(function* () {
-		const codec = codecOf(c.type)
+		const codec = codecOf(c.type, kindCodes)
 		const texts = Arr.map(batch, (v) => succeeded(codec.encode(v)))
 		const rows = yield* recordset(db, textOut(c.type, "r.v"), wireSql(c.type, names), texts)
 		const viaRecordset = Arr.flatMap(batch, (v, i) => {
@@ -446,7 +466,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 									{ kind: "numeric", precision: typmod.precision, scale: typmod.scale },
 									{}
 								)
-								const codec = codecOf(type)
+								const codec = codecOf(type, kindCodes)
 								const sql = typmodName(typmod)
 								const admitted = Arr.filter(batch, (d) => codec.encode(d).ok)
 								const refusedValues = Arr.filter(batch, (d) => !codec.encode(d).ok)
@@ -490,7 +510,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 				ctx,
 				Effect.gen(function* () {
 					const { db } = yield* setup
-					const real = codecOf(plainType("float4"))
+					const real = codecOf(plainType("float4"), kindCodes)
 					const float8Text = (x: number) => (Object.is(x, -0) ? "-0" : String(x))
 					/** 30 batches: the 3000 values the cast was sampled with before the search. */
 					const sampled = batches("pg/codec/scalar/real-cast", realGen, 30)
@@ -528,7 +548,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						Arr.map(xs, (x) => (Object.is(x, -0) ? "-0" : String(x))),
 						","
 					)}}`
-				const codec = codecOf(scalars.vector16)
+				const codec = codecOf(scalars.vector16, kindCodes)
 				/** 5 batches: the 500 vectors sampled before the search. */
 				const sampled = batches(
 					"pg/codec/scalar/vector-rounding",
@@ -573,7 +593,8 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 					{ field: "rate", type: scalars.numeric72, sql: "numeric(7,2)" },
 					{ field: "raw", type: plainType("float4"), sql: "real" },
 					{ field: "charge", type: plainType("money"), sql: "money" },
-					{ field: "kind", type: scalars.kind, sql: `${names.schema}."kind"` },
+					{ field: "kind", type: scalars.kind, sql: "smallint" },
+					{ field: "kinds", type: scalars.kinds, sql: wireSql(scalars.kinds, names) },
 					{ field: "label", type: wildcardText, sql: "text COLLATE pg_catalog.pg_c_utf8" },
 					{ field: "during", type: scalars.range8, sql: "int8range" },
 					{ field: "value", type: scalars.vector16, sql: `${names.vector}."vector"(16)` }
@@ -592,6 +613,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 					raw: source.draw(realGen),
 					charge: source.draw(map(int8Gen, (u) => Money.of(u))),
 					kind: source.draw(element(kindHandles)),
+					kinds: new Set(source.draw(subset(kindHandles, { min: 0, max: kindHandles.length }))),
 					label: source.draw(textGen),
 					during: source.draw(span(int8Gen)),
 					value: source.draw(vectorGen(16))
@@ -599,7 +621,8 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 				const encode = arraysEncoder({
 					relation: "Reading",
 					columns: positionalColumns(Arr.map(columns, (c) => ({ name: c.field, type: c.type }))),
-					slot: { kind: "none" }
+					slot: { kind: "none" },
+					codes: kindCodes
 				})
 				/** Each column's array as the lowering reads it: its base type made an array, a typmod cast back. */
 				const arrayColumns = Arr.join(
@@ -627,7 +650,10 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 					}),
 					", "
 				)
-				const decodeRow = headingRecord(Arr.map(columns, (c) => ({ name: c.field, type: c.type })))
+				const decodeRow = headingRecord(
+					Arr.map(columns, (c) => ({ name: c.field, type: c.type })),
+					kindCodes
+				)
 				return yield* explore(
 					{
 						/**
@@ -672,7 +698,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 									return assert.fail(`a stored row of no fact: ${String(row["id"])}`)
 								}
 								for (const c of columns) {
-									const codec = codecOf(c.type)
+									const codec = codecOf(c.type, kindCodes)
 									const value = row[c.field]
 									assert.ok(
 										isHostValue(codec.spec.carrier, value),

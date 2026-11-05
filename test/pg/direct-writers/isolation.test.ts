@@ -3,8 +3,8 @@
  * over the whole small box of planted writers.
  *
  * One schema of four relations, one per kind of table a writer meets: a law-bearing mutable relation (Team, the target
- * of a residual capacity), a law-bearing immutable one (Member, the capacity's source and a foreign key's), and a
- * lawless immutable and mutable one (Note, Tag). Every point of the box is a transaction: a level (SERIALIZABLE, READ
+ * of a foreign key and the relation of a row check), a law-bearing immutable one (Member, the foreign key's source),
+ * and a lawless immutable and mutable one (Note, Tag). Every law is native, so a table's guard is its one trigger. Every point of the box is a transaction: a level (SERIALIZABLE, READ
  * COMMITTED, REPEATABLE READ, READ UNCOMMITTED), an actor (the `writer`, a session in the schema's full world, granted
  * every write grizzle grants, or the schema's owner, who holds every privilege), a statement (an INSERT, an UPDATE, a DELETE of one
  * row, a DELETE of no row, a TRUNCATE ... CASCADE, a MERGE that inserts, a MERGE that deletes, a SELECT) and a table.
@@ -36,17 +36,7 @@ import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { pg } from "#compiler/public/fields.ts"
-import {
-	capacity,
-	contained,
-	mutable,
-	on,
-	ref,
-	relation,
-	schema,
-	select,
-	within
-} from "#compiler/public/schema.ts"
+import { check, contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
@@ -65,13 +55,7 @@ const Note = relation("Note", { id: pg.integer, body: pg.integer }, ["id"])
 const Tag = relation("Tag", { id: pg.integer, body: pg.integer }, ["id"])
 
 const Guarded = schema("Guarded", { Team, Member, Note, Tag }, [
-	capacity(on(Team, "id"), {
-		from: on(
-			select(Member, (x) => x.eq(x.active, true)),
-			"team"
-		),
-		within: within(0n, ref("cap"))
-	}),
+	check("CapNotNegative", Team, (x) => x.ge(x.cap, 0)),
 	contained(on(Member, "team"), on(Team, "id")),
 	mutable(Team),
 	mutable(Tag)

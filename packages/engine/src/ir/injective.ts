@@ -3,6 +3,7 @@ import {
 	baseOf,
 	type Carrier,
 	numericTypmodOf,
+	rosterOf,
 	type ScalarType,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
@@ -31,7 +32,7 @@ const crossCarrier: ReadonlySet<string> = new Set([
  *
  * - a cast within one carrier that keeps every value: dropping or adding a contract or text refinement (a domain cast
  *   only validates membership), a numeric cast whose target scale does not round the source's, a vector cast that
- *   keeps the dimension;
+ *   keeps the dimension, a closed id's or a set's cast within its roster;
  * - a widening integer cast, a proved integer narrowing (it is exact where it stands, never merges two values), an
  *   integer into numeric at a scale that does not round, a smallint into real or double precision, an integer into
  *   double precision, and real into double precision (every binary32 value is exact in binary64, and NaN and the two
@@ -53,6 +54,9 @@ export const castInjective = (from: ScalarType, to: ScalarType): boolean => {
 			}
 			case "vector":
 				return f.typmod.dims === vectorTypmodOf(t)?.dims
+			case "code":
+			case "bits":
+				return f.roster.closed === rosterOf(t)?.closed
 			case "int2":
 			case "int4":
 			case "int8":
@@ -62,7 +66,6 @@ export const castInjective = (from: ScalarType, to: ScalarType): boolean => {
 			case "bool":
 			case "uuid":
 			case "text":
-			case "enum":
 			case "range4":
 			case "range8":
 			case "exactInteger":

@@ -41,6 +41,7 @@ import * as Engine from "#compiler/core/result.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { codeNames, codeOf } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -61,6 +62,7 @@ import {
 	schemaInputOf,
 	type TestNaming,
 	testArtifacts,
+	installedCodes,
 	testCompile
 } from "#test/support/compile.ts"
 import { ledgerPrologue } from "#test/support/flight/model.ts"
@@ -132,8 +134,13 @@ export interface Fixture<S> {
 	readonly columnName: (relation: string, field: string) => string
 	/** The unqualified table name of a relation, as EXPLAIN names the relation a scan reads. */
 	readonly relationName: (relation: string) => string
-	/** The qualified, quoted enum type of a closed roster. */
-	readonly enumType: (closed: string) => string
+	/** The qualified, quoted domain of a roster: what a code column, a code literal and a code array are typed by. */
+	readonly rosterDomain: (closed: string) => string
+	/**
+	 * A roster handle as SQL: its code in the installation's codebook, cast to the roster's domain, which a column of
+	 * the roster compares and stores. A handle the roster does not hold live is a defect of the gate.
+	 */
+	readonly handle: (closed: string, handle: string) => string
 	/** Every table of the fixture, for VACUUM ANALYZE. */
 	readonly tables: ReadonlyArray<string>
 }
@@ -184,6 +191,10 @@ export const installFixture = Effect.fn("installFixture")(function* <
 		return `${quoteIdent(n.schema)}.${quoteIdent(n.name)}`
 	}
 	const columnName = (relation: string, field: string): string => names.column(relation, field)
+	const rosterDomain = (closed: string): string => {
+		const n = names.rosterDomain(parsedName(closed))
+		return `${quoteIdent(n.schema)}.${quoteIdent(n.name)}`
+	}
 	const column = (relation: string, field: string): string =>
 		quoteIdent(columnName(relation, field))
 	const tables = installed.installation.owned.relations
@@ -194,15 +205,21 @@ export const installFixture = Effect.fn("installFixture")(function* <
 		workload: plan,
 		naming: {
 			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
+			installation: identity.schema(parsedSchemaName(installed.declared)),
+			codes: installedCodes(names.codes)
 		},
 		table,
 		column,
 		columnName,
 		relationName: (relation: string) => names.relation(relation).name,
-		enumType: (closed: string) => {
-			const n = names.enumType(parsedName(closed))
-			return `${quoteIdent(n.schema)}.${quoteIdent(n.name)}`
+		rosterDomain,
+		handle: (closed: string, handle: string) => {
+			const roster = parsedName(closed)
+			const codec = names.codes.rosters.get(roster)
+			if (codec === undefined) {
+				throw new GateSetupError({ what: `the fixture's codebook holds no roster ${closed}` })
+			}
+			return `${codeOf(codec, handle)}::${rosterDomain(closed)}`
 		},
 		tables: Arr.flatMap(Rec.values(tables), (r) => (r.kind === "relation" ? [table(r.name)] : []))
 	}
@@ -526,13 +543,17 @@ export const deliver = Effect.fn("deliver")(
 		values: HostParams
 	): Effect.fn.Return<Delivered, DeliveryFailed | ReadError | FlightFailure> {
 		const start = performance.now()
-		const inputs = executionInputs(paramCodecs(compiled.compiled.template.params), values)
+		const codes = compiled.artifacts.names.codes
+		const inputs = executionInputs(paramCodecs(compiled.compiled.template.params, codes), values)
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}
-		const program = templateProgram(compiled.compiled.template, artifact, compiled.facts)
+		const program = templateProgram(compiled.compiled.template, artifact, compiled.facts, codes)
 		const read = unwrap(
-			bindGroups(compiled.decoder, program.layouts, rowOptions),
+			bindGroups(compiled.decoder, program.layouts, {
+				options: rowOptions,
+				names: codeNames(codes)
+			}),
 			"the query's decoder bound"
 		)
 		const flight = yield* Effect.mapError(

@@ -276,6 +276,11 @@ describe("a state machine", () => {
 					exhaust(
 						{
 							suite: "writable programs",
+							oracle: {
+								kind: "second-implementation",
+								name: "the programs a naive recursion over the queue model writes"
+							},
+							box: "every program of up to 3 steps, pushes of 0 or 1",
 							generator: program(twoValued, { min: 0, max: 3 }, fullSwarm(COMMANDS)),
 							literal: Formatter.format,
 							limit: 2000,
@@ -300,6 +305,10 @@ describe("a state machine", () => {
 				explore(
 					{
 						suite: "verdicts",
+						oracle: {
+							kind: "second-implementation",
+							name: "the machine's own judge folded over the program"
+						},
 						draw: drawn(swarmed(QUEUE, { min: 0, max: 8 })),
 						literal: Formatter.format,
 						coverage: required<"agrees" | "diverges">(["agrees", "diverges"], {
@@ -384,6 +393,10 @@ describe("a state machine", () => {
 				explore(
 					{
 						suite: "ring buffer",
+						oracle: {
+							kind: "second-implementation",
+							name: "the bounded queue model's verdicts and states"
+						},
 						draw: drawn(swarmed(QUEUE, { min: 0, max: 12 })),
 						literal: Formatter.format,
 						coverage: required(STEP_FEATURES, { cases: 400, sense: notesOnly }),
@@ -411,6 +424,10 @@ describe("a state machine", () => {
 				explore(
 					{
 						suite: "command weights",
+						oracle: {
+							kind: "specification",
+							name: "each command's weight times its presence over the total, by exact enumeration"
+						},
 						draw: drawn((source) => ({
 							weights: {
 								push: source.draw(element(WEIGHTS)),
@@ -471,6 +488,10 @@ describe("a state machine", () => {
 							explore(
 								{
 									suite: `ring buffer that ${fault}`,
+									oracle: {
+										kind: "specification",
+										name: "a ring buffer planted with a fault, for the search to find and shrink"
+									},
 									draw: drawn(generator),
 									literal: Formatter.format,
 									coverage: noCoverage,

@@ -6,6 +6,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
@@ -64,7 +65,7 @@ const recursiveNode = (q: LogicalQuery): NodeOf<"Recursive"> => {
 /** The graph schema's own catalog, every key named as ownership installs it. */
 const graphCatalog = ownedSchemaFixture(Graph).catalog
 
-const names = productionNames("Graph", { kind: "declared" }, localVectorSchema)
+const names = productionNames("Graph", { kind: "declared" }, localVectorSchema, emptyCodebook)
 
 const optimize = (q: LogicalQuery): OptimizedProgram =>
 	succeeded(

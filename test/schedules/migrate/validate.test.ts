@@ -37,10 +37,11 @@ import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import { type ConstraintLaws, constraintLaw } from "#compiler/ir/products.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import {
 	check,
 	closed,
@@ -68,7 +69,7 @@ import {
 	parsedSchemaName,
 	type TextDomainNames
 } from "#test/support/kernel/naming.ts"
-import { fromSnapshot, generate } from "#test/support/migrate/kit.ts"
+import { draftCodes, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 import { type GrizzleActor, openActors } from "#test/support/schedules/actors.ts"
 import {
@@ -96,7 +97,7 @@ const label = str.regex("^[a-z]{0,8}$")
 /**
  * The domains a version changes: an assignment's rate, a contract whose predicate the tightened version tightens from
  * 1000 to 100 in place, and a desk's code, a text pattern it narrows from seven letters to three, which the closed
- * relation Floor's payload shares (a pattern of its own, so its domain is no other field's), each version's pattern a
+ * relation FloorCode's payload shares (a pattern of its own, so its domain is no other field's), each version's pattern a
  * domain of its own.
  */
 const domains = (tightened: boolean) => {
@@ -110,14 +111,20 @@ const domains = (tightened: boolean) => {
 	)
 	const Desk = relation("Desk", { id: pg.integer, code }, ["id"])
 	const Badge = relation("Badge", { id: pg.integer, desk: pg.integer, issued: pg.boolean }, ["id"])
-	const Floor = closed("Floor", ["Ground", "Top"]).with(
-		{ code },
-		{ Ground: { code: "grd" }, Top: { code: "top" } }
+	const Floor = closed("Floor", ["Ground", "Top"])
+	const FloorCode = closed.relation(
+		"FloorCode",
+		{ floor: closedId(Floor), code },
+		["floor"],
+		[
+			{ floor: "Ground", code: "grd" },
+			{ floor: "Top", code: "top" }
+		]
 	)
-	return { Worker, Assignment, Desk, Badge, Floor }
+	return { Worker, Assignment, Desk, Badge, Floor, FloorCode }
 }
 const relations = domains(false)
-const { Worker, Assignment, Desk, Badge, Floor } = relations
+const { Worker, Assignment, Desk, Badge, FloorCode } = relations
 
 /**
  * Every version's world is its full world (fullWorld): the role `app`, writing every relation, in
@@ -165,7 +172,12 @@ const staffed = (name: string) => schema(name, relations, [staffing])
  * A version's complete installation under `schema`, owned by `owner`, with its full world, as `grizzle generate`
  * compiles it.
  */
-const withWorld = (value: Parameters<typeof fullWorld>[0], schemaIdent: string, owner: string) => {
+const withWorld = (
+	value: Parameters<typeof fullWorld>[0],
+	schemaIdent: string,
+	owner: string,
+	codes: Codebook
+) => {
 	const owned = owning(value)
 	const server = succeeded(ownLogin(defined(loginDescOf(fullWorld(value).server), "a login value")))
 	return succeeded(
@@ -174,7 +186,8 @@ const withWorld = (value: Parameters<typeof fullWorld>[0], schemaIdent: string, 
 				owned,
 				identity.schema(parsedSchemaName(schemaIdent)),
 				[server],
-				[]
+				[],
+				codes
 			),
 			owner
 		})
@@ -253,9 +266,15 @@ const prepare = (
 		for (const statement of seed(names)) {
 			yield* s.admin.query(statement, [])
 		}
-		const installation = withWorld(next("Staff"), done.schema, s.owner.role)
+		const installation = withWorld(
+			next("Staff"),
+			done.schema,
+			s.owner.role,
+			succeeded(draftCodes(next("Staff"), fromSnapshot(done.snapshot), noDeclarations))
+		)
 		const g = succeeded(
 			generate({
+				declared: noDeclarations,
 				previous: fromSnapshot(done.snapshot),
 				installation,
 				name: "tighten",
@@ -431,9 +450,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 							constraintLaw(tightenedLaws, owner, server.error.constraint) === id
 						)
 					}
-				/** The narrowed pattern's domain, which types the desk's code and Floor's payload in the next version. */
+				/**
+				 * The narrowed pattern's domain, which types the desk's code and FloorCode's payload in the next version.
+				 */
 				const codeDomain = x.nextNames.textDomain(Desk, "code")
-				const floorDomain = x.nextNames.textDomain(Floor, "code")
+				const floorDomain = x.nextNames.textDomain(FloorCode, "code")
 				/**
 				 * The reviewer writes Ground's payload out of the narrowed pattern into Publish's validation of the
 				 * closed facts; restoring the folder as drafted is the fix. The file the edit changes is the one
@@ -444,8 +465,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 					drafted.files,
 					(file) => narrowedPayload(file.text) !== file.text
 				)
-				assert.equal(payloadFiles.length, 1, "Publish validates Floor's payloads in one file")
-				const payloadFile = defined(payloadFiles[0], "the file validating Floor's payloads").name
+				assert.equal(payloadFiles.length, 1, "Publish validates FloorCode's payloads in one file")
+				const payloadFile = defined(
+					payloadFiles[0],
+					"the file validating FloorCode's payloads"
+				).name
 				/** Whether a refusal is in the file validating the closed facts. */
 				const inPayloadFile = (place: MigrationPlace): boolean =>
 					(place.kind === "file" || place.kind === "statement") && place.file === payloadFile

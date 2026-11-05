@@ -106,6 +106,12 @@ const exprLabel = (e: ScalarExpr): string => {
 			return "a conditional"
 		case "value":
 			return "a domain value"
+		case "closedAt":
+			return `a read of closed relation ${e.relation}'s ${e.field}`
+		case "closedRow":
+			return `a row of closed relation ${e.relation}`
+		case "closedHas":
+			return `a membership test of closed relation ${e.relation}`
 	}
 }
 

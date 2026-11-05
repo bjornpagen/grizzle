@@ -14,7 +14,7 @@ import {
 	worldRaceSuite
 } from "#test/schedules/worlds/support.ts"
 import type { RaceSession, WorldRace } from "#test/support/schedules/worlds.ts"
-import { docsInstall } from "#test/support/worlds/model/bases/docs.ts"
+import { docsOneShareInstall } from "#test/support/worlds/model/bases/docs.ts"
 import type { DirectStatement, SettingScope } from "#test/support/worlds/model/types.ts"
 
 interface Case {
@@ -51,10 +51,11 @@ const caseGen: Gen<Case> = (source) => ({
  * Direct writers with hand-set claims racing grizzle writes: dan logs in as the login `web`, sets the role `member`
  * and sets `grizzle.claims` by hand, for the transaction or the session, claiming himself or another subject, reads
  * his shares when the case says so, and inserts his share of a document straight into the Share table, where row
- * security admits it only when the claims make it his. ann shares the same document through her Db meanwhile, and the
- * document holds at most two shares, eve's among them when the case says so. Serially the direct insert is refused
- * with 42501 outside its world, the share that would make three is refused by the capacity (at COMMIT for dan, naming
- * the law), and concurrently a writer may fail with a typed transient failure; a carl reads his own shares, which no
+ * security admits it only when the claims make it his. ann shares the same document through her Db meanwhile, and,
+ * under the documents base's one-share variant, the document holds at most one share (`key(on(Share, "doc"))`), eve's
+ * when the case says so. Serially the direct insert is refused with 42501 outside its world, every share but the first
+ * is refused at its statement by the key (23505 naming its constraint for dan), and concurrently a writer may fail
+ * with a typed transient failure; a carl reads his own shares, which no
  * other writer's claims ever reach. Every order of the moves is explored, with reduction.
  */
 const race = (c: Case): WorldRace => {
@@ -84,7 +85,7 @@ const race = (c: Case): WorldRace => {
 	}
 	return {
 		name: "a direct writer with hand-set claims races a grizzle write",
-		install: docsInstall,
+		install: docsOneShareInstall,
 		reality: new Map([
 			["Org", [{ id: orgA, plan: 1 }]],
 			["Doc", [docOf(doc1, orgA, "u_eve", c.words)]],

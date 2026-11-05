@@ -1,9 +1,11 @@
 import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, assertVariant, succeeded } from "#test/support/assert.ts"
@@ -44,7 +46,7 @@ const cs = () => ChangeSet.empty(U)
 const bind = Effect.fn("bind")(function* (value: ReturnType<typeof cs>) {
 	const p = program(value)
 	const members = yield* collectInputs(p.frontend, parsedOf(value).inputs)
-	return succeeded(bindWrite(p, { members, params: {} }))
+	return succeeded(bindWrite(p, { members, params: {}, transport: inForce(bindFrame) }))
 })
 
 describe("host normalization of a span candidate key", () => {

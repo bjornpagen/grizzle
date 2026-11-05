@@ -31,6 +31,7 @@ import { type Carrier, carrierField, carrierScan } from "#compiler/write/carrier
 import type { FieldColumns } from "#compiler/write/defined.ts"
 import {
 	type InputColumnType,
+	isSerialField,
 	keyFirst,
 	type KeyPart,
 	type Made,
@@ -434,6 +435,10 @@ export const distinctByEvidence = (
 	}
 	const kept = node.heading
 		.map((c) => c.name)
-		.filter((f) => !relation.serial.includes(f) && castKeeps(node.heading, relation, f))
+		.filter(
+			(f) =>
+				!relation.fields.some((r) => r.name === f && isSerialField(r)) &&
+				castKeeps(node.heading, relation, f)
+		)
 	return facts.keyedBy(node, kept)
 }

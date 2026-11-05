@@ -45,8 +45,8 @@ import type { NameSupply } from "#compiler/sql/naming.ts"
  * role that writes or reads a context executes, a write statement's refusals and a context source's (sql/print.ts
  * contextClaims). It raises its arguments, the SQLSTATE, the constraint name and the DETAIL, and never returns; it
  * reads and writes nothing, so its header, the one every installed function has (`CreateFunction`), confers nothing,
- * and it is PARALLEL SAFE, so a statement that reads the claims still plans in parallel. Like a law function, it has
- * one name and is replaced in place when its body changes. */
+ * and it is PARALLEL SAFE, so a statement that reads the claims still plans in parallel. It has one name and is
+ * replaced in place when its body changes. */
 export const refusalFunctionName: string = identifierOf(identity.refusal())
 const refusalParams: ReadonlyArray<FunctionParam> = [
 	{ name: "state", type: types.text },
@@ -63,7 +63,7 @@ export const refusalFunction = (schema: string): FunctionName => ({
 const arg = (name: string): Expr => ({ kind: "plVar", name })
 
 /** The refusal function's DDL: its CREATE FUNCTION, then the REVOKE EXECUTE ... FROM PUBLIC that follows it at once, so
- * PUBLIC never holds EXECUTE, as a law function's. */
+ * PUBLIC never holds EXECUTE. */
 export const refusalFunctionDdl = (schema: string): readonly [CreateFunction, Revoke] => {
 	const fn = refusalFunction(schema)
 	return [
@@ -317,15 +317,14 @@ interface RefusalGuardInput {
  * - The guard reads the verdict CTE, which holds a row whenever a refusal does, so the refusal is raised wherever the
  *   plan evaluates the guard: once before the scan, or at the first row.
  *
- * The channel is the one a residual law function raises through (packages/grizzle/src/adapter/witness), and it carries
- * fields grizzle controls only:
+ * The channel is read by the shell's classifier (packages/grizzle/src/adapter/witness), and it carries fields grizzle
+ * controls only:
  *
  * - a law's refusal: SQLSTATE 23000 (integrity_constraint_violation), the law's stable identity as the constraint name,
  *   and the DETAIL `k["<relation>",["<field>",...],["<text>",...]]`: the refused fact's relation and its values at the
  *   law's key fields, each its column's result text, which the column's codec decodes. The fields travel with the
- *   values, so a DETAIL decodes without knowing which object of the law refused, and the `k` tag keeps it apart from a
- *   law function's DetailCodec DETAIL (`w`), which one law can raise too: a capacity of at most one is a partial
- *   unique index the statement probes and a residual existence law;
+ *   values, so a DETAIL decodes without knowing which object of the law refused, and the `k` tag keeps it apart from
+ *   any DETAIL grizzle did not raise;
  * - a concurrent change the statement met: SQLSTATE 40Z01, of class 40 (transaction rollback) and outside every code
  *   PostgreSQL defines, the relation's primary key constraint as the constraint name, where the change was met, and the
  *   DETAIL `a["<reason>","<relation>",["<field>",...],["<text>",...]]`: the TransientFailure reason, the relation and
@@ -348,9 +347,9 @@ interface RefusalGuardInput {
  *   a claims document by construction (adapter/db/claims.ts).
  *
  * Each DETAIL is composed from builtin operators alone: the constant prefix, then `to_jsonb(<value>::text)::text` per
- * value. JSON string escaping is the escape, as in DetailCodec. readLawDetail and readChangeDetail
- * convert a DETAIL without a check, each under the SQLSTATE that raises it: the runtime reads one only under grizzle's
- * own SQLSTATEs, from grizzle's own statements and law functions, so the text is this encoding's. */
+ * value. JSON string escaping is the escape. readLawDetail and readChangeDetail convert a DETAIL without a check, each
+ * under the SQLSTATE that raises it: the runtime reads one only under grizzle's own SQLSTATEs, from grizzle's own
+ * statements, so the text is this encoding's, and a 23000 DETAIL under no tag of grizzle's is reported unclassified. */
 export const refusalGuard = (
 	input: RefusalGuardInput
 ): { readonly cte: Cte; readonly guard: Expr } => {
@@ -428,16 +427,16 @@ const sourcedGuard = (
 	}
 }
 
-/** What a DETAIL raised under SQLSTATE 23000 says, read by its tag: a write statement's refusal of a law, or, under any
- * other tag, a residual law function's DetailCodec DETAIL, which its reader converts through
- * that law's own codec. */
+/** What a DETAIL raised under SQLSTATE 23000 says, read by its tag: a write statement's refusal of a law; or, under no
+ * tag of grizzle's, a DETAIL no write statement raised, a foreign trigger's or a defect's, which its reader reports as
+ * a statement it cannot classify, with its text. Every other law of grizzle's is a native, named by its constraint. */
 export type LawDetail =
 	| {
 			readonly kind: "law"
 			readonly relation: string
 			readonly key: ReadonlyArray<{ readonly field: string; readonly text: string }>
 	  }
-	| { readonly kind: "lawFunction" }
+	| { readonly kind: "foreign"; readonly detail: string }
 
 /** What a DETAIL raised under SQLSTATE 40Z01 says: the concurrent change a write statement met. */
 export interface ChangeDetail {
@@ -514,10 +513,10 @@ const escaped = (code: number): string => {
 }
 
 /** The refusal a 23000 DETAIL text says, converted without a check (see `refusalGuard`): a write statement's refusal of a
- * law under its tag, a law function's DETAIL otherwise. */
+ * law under its tag; any other text a DETAIL grizzle did not raise. */
 export const readLawDetail = (text: string): LawDetail => {
 	if (!text.startsWith(`${keyTag}[`)) {
-		return { kind: "lawFunction" }
+		return { kind: "foreign", detail: text }
 	}
 	const { relation, fields, texts } = detailStrings(text)
 	return {

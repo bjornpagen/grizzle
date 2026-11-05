@@ -4,9 +4,10 @@ import {
 	cellAt,
 	columnAt,
 	constantOf,
+	type BindContext,
+	type CodeNames,
 	type Decoded,
 	type Layout,
-	type OptionVocabulary,
 	Named,
 	type Part,
 	type RecordFieldOf,
@@ -69,18 +70,35 @@ const fieldsOf = (
 }
 
 /**
- * A cell's conversion under its column: the convert closure, the head literal it converts to, or the text itself for a
- * handle or a refined text.
+ * A cell's conversion under its column: the convert closure, the head literal it converts to, the text itself for a
+ * refined text, the handle the installation's names give a closed id's code, and the frozen set of the handles a bit
+ * string's 1 bits name, position i code i.
  */
-const conversion = (column: Column<unknown>): ((text: string) => unknown) => {
+const conversion = (column: Column<unknown>, names: CodeNames): ((text: string) => unknown) => {
 	switch (column.kind) {
 		case "convert":
 			return column.convert
 		case "constant":
 			return constantOf(column)
-		case "handle":
 		case "text":
 			return (text) => text
+		case "code": {
+			const handles = names(column.roster)
+			return (text) => handles[Number(text)]
+		}
+		case "bits": {
+			const handles = names(column.roster)
+			return (text) => {
+				const members = new Set<string>()
+				for (let code = 0; code < text.length; code++) {
+					const handle = handles[code]
+					if (text[code] === "1" && handle !== undefined) {
+						members.add(handle)
+					}
+				}
+				return Object.freeze(members)
+			}
+		}
 	}
 }
 
@@ -88,14 +106,14 @@ const readerOf = (
 	field: RecordFieldOf<unknown>,
 	key: string,
 	layout: Layout,
-	options: OptionVocabulary
+	context: BindContext
 ): ((row: Row) => unknown) => {
 	if ("column" in field) {
-		const convert = conversion(field.column)
+		const convert = conversion(field.column, context.names)
 		const position = columnAt(layout, key)
 		return (row) => convert(cellAt(row, position))
 	}
-	return field.bind(layout, key, options).read
+	return field.bind(layout, key, context).read
 }
 
 /**
@@ -151,10 +169,10 @@ export const record = <const Ps extends ReadonlyArray<Part>>(
 	const fields = fieldsOf(parts)
 	return {
 		headings: [fields.map(([key]) => key)],
-		bind: (layout, options) =>
+		bind: (layout, context) =>
 			binding(() => {
 				const readers = fields.map(
-					([key, field]) => [key, readerOf(field, key, layout, options)] as const
+					([key, field]) => [key, readerOf(field, key, layout, context)] as const
 				)
 				return (row: Row) => assembled<Decoded<Ps>, Row>(readers, row)
 			})
@@ -195,12 +213,55 @@ export const headRecord = <const H extends HeadShape>(
 		undefined
 	)
 
-/** The carrier of a key both arms of a union deliver, x in one and y in the other (see the header). */
-const unionCarrier = (x: Carrier, y: Carrier): Carrier =>
-	Object.freeze({
+/** A column as a refusal names it: a closed id's or a set's by its roster, any other by its SQL type. */
+const columnText = (carrier: Carrier): string => {
+	switch (carrier.column.kind) {
+		case "code":
+			return `closedId(${carrier.column.roster})`
+		case "bits":
+			return `bits(${carrier.column.roster})`
+		case "convert":
+		case "text":
+		case "constant":
+			return carrier.sql
+	}
+}
+
+/**
+ * Whether two arms' columns of one key meet: a set's only a set's of its roster, since no head literal is a set; a
+ * closed id's only a closed id's of its roster, or a head literal, a handle; any other two by their SQL types, which
+ * the checker judges.
+ */
+const columnsMeet = (x: Column<unknown>, y: Column<unknown>): boolean => {
+	if (x.kind === "bits" || y.kind === "bits") {
+		return x.kind === "bits" && y.kind === "bits" && x.roster === y.roster
+	}
+	if (x.kind === "constant" || y.kind === "constant") {
+		return true
+	}
+	if (x.kind === "code" || y.kind === "code") {
+		return x.kind === "code" && y.kind === "code" && x.roster === y.roster
+	}
+	return true
+}
+
+/**
+ * The carrier of a key both arms of a union deliver, x in one and y in the other (see the header). Two arms that
+ * deliver a closed id or a set against anything but one of the same roster are a caller's union no column reads,
+ * refused here, before their columns meet.
+ */
+const unionCarrier = (key: string, x: Carrier, y: Carrier): Carrier => {
+	if (!columnsMeet(x.column, y.column)) {
+		throw malformedDescription(
+			SourceLoc(`union field ${key}`, []),
+			`arms that deliver ${key} at one type; one arm delivers ${columnText(x)}, the other ${columnText(y)}`
+		)
+	}
+	return Object.freeze({
 		column: unionColumn(x.column, y.column),
 		sql: x.column.kind === "constant" && y.column.kind !== "constant" ? y.sql : x.sql
 	})
+}
 
 /**
  * The heading of a union of two arms' headings (see the header): a's keys in order, each united with b's carrier where
@@ -214,7 +275,7 @@ export const carrierUnion = <A extends Carriers, B extends Carriers>(
 		[
 			...Object.entries(a).map(([key, x]) => {
 				const y = b[key]
-				return [key, () => (y === undefined ? x : unionCarrier(x, y))] as const
+				return [key, () => (y === undefined ? x : unionCarrier(key, x, y))] as const
 			}),
 			...Object.entries(b).flatMap(([key, y]) =>
 				a[key] === undefined ? [[key, () => y] as const] : []
@@ -230,10 +291,10 @@ export const carrierUnion = <A extends Carriers, B extends Carriers>(
  */
 export const sameHeadingRecord = <A, B>(carriers: Carriers): RowDecoder<A | B> => ({
 	headings: [Object.keys(carriers)],
-	bind: (layout, options) =>
+	bind: (layout, context) =>
 		binding(() => {
 			const readers = Object.entries(carriers).map(
-				([key, c]) => [key, readerOf(c, key, layout, options)] as const
+				([key, c]) => [key, readerOf(c, key, layout, context)] as const
 			)
 			return (row: Row) => assembled<A | B, Row>(readers, row)
 		})

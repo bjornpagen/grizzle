@@ -17,8 +17,10 @@ import { readExceeds, templateStatements } from "#adapter/reader/run.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import {
 	asReadFailure,
+	type BatchOutcome,
 	type BatchStatement,
 	runFramed,
+	runFramedTwice,
 	type Transaction
 } from "#adapter/wire/batch.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
@@ -31,6 +33,7 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
 import { explainOf } from "#compiler/sql/emit.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
+import type { Chunks } from "#compiler/write/program/bind.ts"
 
 /**
  * One statement the program would run: planned by EXPLAIN (FORMAT JSON) with its placeholder texts, or, for a carrier's
@@ -52,6 +55,30 @@ const planned = (sql: EmittedText, params: ReadonlyArray<string>): Explained => 
 const queryFrame: Transaction = { access: "readOnly", end: "ROLLBACK" }
 const changeSetFrame: Transaction = { access: "readWrite", end: "ROLLBACK" }
 
+/**
+ * The Plan of each planned statement of `explained`, one outcome each in order; a planned statement whose answer is no
+ * plan is UnreadableAnswer at its index.
+ */
+const decodedPlans = (
+	explained: ReadonlyArray<Explained>,
+	outcomes: ReadonlyArray<BatchOutcome>
+): Result.Result<ReadonlyArray<Plan>, ReadFailure> => {
+	const plans: Array<Plan> = []
+	for (const [index, [e, outcome]] of Arr.zip(explained, outcomes).entries()) {
+		if (!e.planned) {
+			continue
+		}
+		const plan = decodePlan(outcome.rows[0]?.[0])
+		if (Result.isFailure(plan)) {
+			return Result.fail(
+				new ReadFailure({ reason: new UnreadableAnswer({ index, fate: "rolledBack" }) })
+			)
+		}
+		plans.push(plan.success)
+	}
+	return Result.succeed(plans)
+}
+
 /** Sends `statements` in one flight on a leased session and decodes the Plan of each planned one. */
 const plansOf = Effect.fn("plansOf")(function* (
 	ctx: DbContext,
@@ -67,20 +94,39 @@ const plansOf = Effect.fn("plansOf")(function* (
 		),
 		asReadFailure
 	)
-	const plans: Array<Plan> = []
-	for (const [index, [e, outcome]] of Arr.zip(statements, outcomes).entries()) {
-		if (!e.planned) {
-			continue
-		}
-		const plan = decodePlan(outcome.rows[0]?.[0])
-		if (Result.isFailure(plan)) {
-			return yield* new ReadFailure({
-				reason: new UnreadableAnswer({ index, fate: "rolledBack" })
-			})
-		}
-		plans.push(plan.success)
-	}
-	return plans
+	return yield* Effect.fromResult(decodedPlans(statements, outcomes))
+}, Effect.scoped)
+
+/**
+ * Sends `first`, then the statements `second` makes from `first`'s outcomes, in one transaction of two flights on a
+ * leased session (wire/batch.ts runFramedTwice), and decodes the Plan of each planned one across both.
+ */
+const plansAfter = Effect.fn("plansAfter")(function* (
+	ctx: DbContext,
+	frame: Transaction,
+	first: ReadonlyArray<Explained>,
+	second: (
+		outcomes: ReadonlyArray<BatchOutcome>
+	) => Result.Result<ReadonlyArray<Explained>, ReadFailure>
+): Effect.fn.Return<ReadonlyArray<Plan>, ReadError, Scope.Scope> {
+	const session = yield* Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason }))
+	let explained: ReadonlyArray<Explained> = first
+	const outcomes = yield* Effect.mapError(
+		runFramedTwice(
+			session,
+			{ ...frame, prologue: ctx.prologue },
+			Arr.map(first, (e) => e.statement),
+			(read) =>
+				Effect.fromResult(
+					Result.map(second(read), (made) => {
+						explained = [...first, ...made]
+						return Arr.map(made, (e) => e.statement)
+					})
+				)
+		),
+		(failure) => (failure._tag === "ReadFailure" ? failure : asReadFailure(failure))
+	)
+	return yield* Effect.fromResult(decodedPlans(explained, outcomes))
 }, Effect.scoped)
 
 const explainQuery = Effect.fn("explainQuery")(function* (
@@ -104,7 +150,7 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 		return yield* new ReadFailure({ reason: new MissingCapability({ capability: missing }) })
 	}
 	const values = yield* hostParams(template.params, params)
-	const ready = executionInputs(paramCodecs(template.params), values)
+	const ready = executionInputs(paramCodecs(template.params, ctx.artifacts.names.codes), values)
 	if (Result.isFailure(ready)) {
 		return yield* new ReadFailure({ reason: ready.failure })
 	}
@@ -146,25 +192,52 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 	const program = entry.program
 	const artifact = program.artifacts.optimized
 	const skip = inputs.bound.skip(artifact)
-	const statements: Array<Explained> = []
-	for (const s of artifact.statements) {
-		if (skip.has(s.index)) {
-			continue
+	/**
+	 * Every statement of the artifact as the application sends it, the placeholder texts of each of its executions, a
+	 * family step's one per statement its plan cuts (write/program/bind.ts Chunks).
+	 */
+	const explainedOf = (chunks: Chunks): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
+		const statements: Array<Explained> = []
+		for (const s of artifact.statements) {
+			if (skip.has(s.index)) {
+				continue
+			}
+			const sql = inputs.bound.form(s).sql
+			const executions = chunks(s)
+			if (!executions.ok) {
+				return Result.fail(new ReadFailure({ reason: valuesFailure(executions.error) }))
+			}
+			const step = s.step
+			for (const texts of executions.value) {
+				statements.push(
+					(step.kind === "carrier" && step.step === "create") || step.kind === "analyze"
+						? { statement: { sql, params: texts }, planned: false }
+						: planned(sql, texts)
+				)
+			}
 		}
-		/** The form of the statement the application sends, with its placeholder texts (write/program/bind.ts). */
-		const sql = inputs.bound.form(s).sql
-		const texts = inputs.bound.values(s)
-		if (!texts.ok) {
-			return yield* new ReadFailure({ reason: valuesFailure(texts.error) })
-		}
-		const step = s.step
-		statements.push(
-			(step.kind === "carrier" && step.step === "create") || step.kind === "analyze"
-				? { statement: { sql, params: texts.value }, planned: false }
-				: planned(sql, texts.value)
-		)
+		return Result.succeed(statements)
 	}
-	return yield* plansOf(ctx, changeSetFrame, statements)
+	const flights = inputs.bound.flights
+	if (flights.kind === "write") {
+		const statements = yield* Effect.fromResult(explainedOf(flights.chunks))
+		return yield* plansOf(ctx, changeSetFrame, statements)
+	}
+	/**
+	 * A plan that reads before it writes: each family's read planned, then run, its rows filling the statements the
+	 * plan writes, which are planned in the second flight of the same transaction, rolled back like the first.
+	 */
+	const reads = Arr.flatMap(flights.reads, (r): ReadonlyArray<Explained> => [
+		planned(r.sql, r.params),
+		{ statement: { sql: r.sql, params: r.params }, planned: false }
+	])
+	return yield* plansAfter(ctx, changeSetFrame, reads, (outcomes) => {
+		const rows = Arr.flatMap(outcomes, (outcome, at) => (at % 2 === 1 ? [outcome.rows] : []))
+		const filled = flights.then(rows)
+		return filled.ok
+			? explainedOf(filled.value)
+			: Result.fail(new ReadFailure({ reason: valuesFailure(filled.error) }))
+	})
 })
 
 /**
@@ -175,7 +248,8 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
  * statement in execution order. The statements are planned as they would run: the parameters bound through each
  * statement's own encoders, on a session leased like any other. Bound parameters
  * are planned with their values, a custom plan. Every EXPLAIN goes in one flight, in one transaction of the Db's role
- * that is rolled back.
+ * that is rolled back; a ChangeSet whose plan reads before it writes plans and runs its reads in a first flight of that
+ * transaction, and plans the writes it fills from their rows in a second.
  *
  * A query, an ordered query: the template a direct read would select (`snapshot` context, the Db's role), its
  * statements in order. A relation parameter travels as its arrays, as it does on a read, and a statement with

@@ -49,8 +49,10 @@ const literal = (l: TypedLiteral): string => {
 		case "text":
 		case "uuid":
 			return Formatter.format(l.value)
-		case "enum":
+		case "handle":
 			return l.handle
+		case "handles":
+			return `{${Arr.join(l.handles, ",")}}`
 		case "span":
 			return `[${l.start},${l.end})`
 		case "vector":

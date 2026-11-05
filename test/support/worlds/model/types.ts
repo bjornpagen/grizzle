@@ -2,25 +2,18 @@ import type { WildKind } from "@grizzle/testing/lsw"
 import type { Array as Arr } from "effect"
 import type { Identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import type {
-	HostBound,
-	HostFact,
-	HostSchema,
-	HostState,
-	HostValue,
-	HostWeight
-} from "#test/pg/laws/families/model.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
 import type { IdentifierFeature } from "#test/support/kernel/dict.ts"
+import type { HostFact, HostSchema, HostState, HostValue } from "#test/support/laws/model.ts"
 
 /**
  * The worlds model's shared vocabulary: what a base, an installation, a session, an action and an observation are, as
  * the model, the real-system executor, the generators, the drivers, the feature map and the suites all name them.
  *
  * The model is independent of grizzle's source: it reads no compiler representation. Laws are judged by the host law
- * model (test/pg/laws/families/model.ts). Facts and values are that model's `HostFact` and `Value`.
+ * model (test/support/laws/model.ts). Facts and values are that model's `HostFact` and `Value`.
  */
-export type { HostBound, HostFact, HostSchema, HostState, HostValue, HostWeight }
+export type { HostFact, HostSchema, HostState, HostValue }
 
 /** The domain a field's values are drawn from, as the base declares it. */
 export type FieldDomain =
@@ -121,14 +114,6 @@ export type LawSpec =
 			readonly closed: string
 			readonly arms: Readonly<Record<string, string>>
 	  }
-	| {
-			readonly kind: "capacity"
-			readonly target: SideSpec
-			readonly source: SideSpec
-			readonly weight: HostWeight
-			readonly low: HostBound
-			readonly high: HostBound | "*"
-	  }
 
 /** Where a context reads its fields in the verified token's payload: the top level, or one named claim object. */
 export type ClaimSource =
@@ -226,17 +211,21 @@ export interface InstallSpec {
 	readonly logins: Arr.NonEmptyReadonlyArray<LoginSpec>
 }
 
-/** The law identities the compiler gave one declared law: one for most laws, one per arm for alternatives. */
+/**
+ * The law identities the compiler gave one declared law: one for most laws, and for alternatives two per armed handle,
+ * the containments it states (fin.md §7).
+ */
 export type LawIds =
 	| {
-			readonly kind: "key" | "spanKey" | "check" | "contained" | "covered" | "capacity"
+			readonly kind: "key" | "spanKey" | "check" | "contained" | "covered"
 			readonly law: LawId
 	  }
 	| {
 			readonly kind: "alternatives"
-			/** Each armed handle's law, keyed by the handle. */
+			/** Each armed handle's arm in the parent selected by it, keyed by the handle. */
 			readonly arms: Readonly<Record<string, LawId>>
-			readonly reverse: LawId
+			/** The parent selected by each armed handle in that handle's arm, keyed by the handle. */
+			readonly reverse: Readonly<Record<string, LawId>>
 	  }
 
 /** The names the compiler gave an installation, read back from it by the executor: never spelled by a test. */
@@ -260,6 +249,12 @@ export interface InstalledNames {
 	/** The PostgreSQL role of each grizzle role and login. */
 	readonly roles: Readonly<Record<string, string>>
 	readonly logins: Readonly<Record<string, string>>
+	/**
+	 * Each roster's names constant, by the roster's name: the function its domain's CHECK and every role view's decoded
+	 * column call, named by the digest of its names in code order, so a removal's hole names a new one. A role that
+	 * holds USAGE on the roster's domain, or reads a view that decodes through it, holds EXECUTE on it.
+	 */
+	readonly rosterConstants: Readonly<Record<string, string>>
 }
 
 /**
@@ -359,7 +354,7 @@ export type ClaimsSetting =
 	| { readonly kind: "facts"; readonly facts: ContextFacts; readonly scope: SettingScope }
 	| { readonly kind: "malformed"; readonly text: string; readonly scope: SettingScope }
 
-/** A function the installation defines that a direct writer may try to call. */
+/** A function the installation defines that a direct writer may try to call: no law function is one (fin.md §7). */
 export type WorldFunction =
 	| { readonly kind: "filter"; readonly role: string; readonly entry: string }
 	| {
@@ -369,7 +364,6 @@ export type WorldFunction =
 			readonly key: number
 	  }
 	| { readonly kind: "advance"; readonly relation: string; readonly field: string }
-	| { readonly kind: "law"; readonly law: LawId }
 
 export type Isolation = "serializable" | "repeatable read" | "read committed" | "read uncommitted"
 
@@ -438,10 +432,11 @@ export interface EntryOp {
 
 export type TablePrivilege = "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "TRUNCATE"
 
-/** A trigger the installation defines: a residual law's, or a table's below-SERIALIZABLE guard. */
-export type TriggerRef =
-	| { readonly kind: "law"; readonly law: LawId }
-	| { readonly kind: "isolation-guard"; readonly relation: string }
+/**
+ * A trigger the installation defines: a table's below-SERIALIZABLE guard, the only trigger grizzle installs, since every
+ * law is native (fin.md §7).
+ */
+export type TriggerRef = { readonly kind: "isolation-guard"; readonly relation: string }
 
 /**
  * A change to the installed catalog behind grizzle's back. `Db.open` judges what a login can do (memberships, settings,
@@ -911,6 +906,8 @@ export type InvalidKind =
 	| "migration:half-applied"
 	| "migration:hand-edited"
 	| "migration:law-over-violating-data"
+	| "migration:roster-removal-held"
+	| "migration:roster-reorder"
 	| "install:unwritable-write"
 	| "install:two-writes-one-relation"
 	| `isolation:${Exclude<Isolation, "serializable">}`
@@ -930,7 +927,6 @@ export type ObjectKind =
 	| "policy"
 	| "filter-function"
 	| "key-probe"
-	| "law-function"
 	| "advance-function"
 	| "grant"
 	| "revoke"
@@ -956,6 +952,7 @@ export type WorldFeature =
 	| `readback:${"empty-delta" | "projected-delta" | "refused-delta"}`
 	| `strata:${"one" | "union" | "sequence" | "refused-order"}`
 	| AdditionFeature
+	| `migration:${MigrationKind}:${ActionOutcome["kind"]}`
 	| "addition:generated:entry:supplied-serial"
 	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-transient" | "after-interrupted" | "after-stale-snapshot"}`
 
@@ -966,6 +963,21 @@ export type WorldFeature =
  */
 export type AdditionFeature =
 	`addition:${"complete" | "generated"}:${"whole" | "entry"}:${"carried" | "unit"}`
+
+/**
+ * What a migration changes, as its (migration kind, verdict) feature reads it: a roster grown by a handle, a roster
+ * losing one (a hole its VALIDATE judges), a roster declared out of its codes' order (D1), a law added, or the
+ * installation otherwise.
+ */
+export const MIGRATION_KINDS = [
+	"roster-growth",
+	"roster-removal",
+	"roster-reorder",
+	"law-added",
+	"install"
+] as const
+
+export type MigrationKind = (typeof MIGRATION_KINDS)[number]
 
 /** The weights a run draws its actions with: swarm testing draws a fresh set per run. */
 export type ActionWeights = Readonly<Record<ActionKind, number>>

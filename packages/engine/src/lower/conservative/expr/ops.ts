@@ -14,15 +14,15 @@ import {
 	builtinFunctionNames,
 	type Expr
 } from "#compiler/sql/ast.ts"
-import { and, binary, call, lit, not, or } from "#compiler/sql/build.ts"
+import { and, binary, call, lit, not, or, types } from "#compiler/sql/build.ts"
 
 type OpForm = { readonly kind: "binary"; readonly op: BinaryOperator } | { readonly kind: "negate" }
 
 /**
  * The operator forms by oprcode:
  *
- * - comparisons: int2eq .. int84ge, float4eq .. float84ge, booleq; numeric_eq, cash_eq, uuid_eq, enum_eq; texteq and
- *   textne, then text_lt .. text_ge;
+ * - comparisons: int2eq .. int84ge, float4eq .. float84ge, booleq; numeric_eq, cash_eq, uuid_eq; texteq and textne,
+ *   then text_lt .. text_ge;
  * - arithmetic: + - * / over the integer and float pairs, % over the integers; numeric's named forms; money;
  * - text: concatenation and regex membership (equality, ordering and regex membership are all a query does with text).
  */
@@ -62,7 +62,7 @@ const opTable = (): ReadonlyMap<string, OpForm> => {
 		)
 		put(
 			{ kind: "binary", op },
-			["numeric", "cash", "uuid", "enum"].map((p) => `${p}_${suffix}`)
+			["numeric", "cash", "uuid"].map((p) => `${p}_${suffix}`)
 		)
 		put({ kind: "binary", op }, [
 			suffix === "eq" || suffix === "ne" ? `text${suffix}` : `text_${suffix}`
@@ -116,6 +116,30 @@ const keywordOps = ["and", "or", "not"] as const
 
 /** The constructs spelled by a keyword: the connectives and the registry's constructs. */
 type Construct = "and" | "or" | "not" | "least" | "greatest" | "between" | "in"
+
+/** A set's constructs, each of bit's own operators (scalar/compute/registry.ts SqlForm). */
+type SetConstruct = "difference" | "subset" | "disjoint"
+
+/**
+ * A set construct's SQL over its two operands: the difference `a & ~b`, and the tests `bit_count(a & ~b) = 0` (a is a
+ * subset of b) and `bit_count(a & b) = 0` (they are disjoint). The complement sets a's hole and padding bits too, but
+ * only beside an AND with a, whose own are clear, so no hole is ever a member of what these deliver.
+ */
+const setConstruct = (name: SetConstruct, args: ReadonlyArray<Expr>): Expr | undefined => {
+	const [a, b] = args
+	if (args.length !== 2 || a === undefined || b === undefined) {
+		return undefined
+	}
+	const without = binary("&", a, { kind: "complement", expr: b })
+	switch (name) {
+		case "difference":
+			return without
+		case "subset":
+			return binary("=", call("bit_count", [without]), lit.int(0n, types.bigint))
+		case "disjoint":
+			return binary("=", call("bit_count", [binary("&", a, b)]), lit.int(0n, types.bigint))
+	}
+}
 
 /** A construct's SQL form: a connective by its bare identity, or a registry construct by its keyword. */
 const keyword = (name: Construct, args: ReadonlyArray<Expr>): Expr | undefined => {
@@ -172,7 +196,11 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 				? binary(sql.op, first, second)
 				: undefined
 		case "prefix":
-			return args.length === 1 && first !== undefined ? { kind: "negate", expr: first } : undefined
+			return args.length === 1 && first !== undefined
+				? sql.op === "-"
+					? { kind: "negate", expr: first }
+					: { kind: "complement", expr: first }
+				: undefined
 		case "function":
 			return sql.owner === "catalog" &&
 				isBuiltin(sql.name) &&
@@ -189,6 +217,10 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined => 
 		case "or":
 		case "not":
 			return keyword(sql.kind, args)
+		case "difference":
+		case "subset":
+		case "disjoint":
+			return setConstruct(sql.kind, args)
 	}
 }
 

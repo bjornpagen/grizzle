@@ -6,6 +6,7 @@ import type * as Result from "#compiler/core/result.ts"
 import { initMigrationName } from "#compiler/deploy/render/folder.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { workloadRequests, withWorkload } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
@@ -18,7 +19,7 @@ import { query, v } from "#compiler/public/query.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { isOrderedValue, isQueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { own } from "#compiler/schema/own.ts"
+import { own, rostersOf } from "#compiler/schema/own.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { changeSetDesc, changeSetOver } from "#compiler/write/changeset/value.ts"
@@ -39,9 +40,9 @@ import { switchToManualDescribed, workPrograms } from "#test/unit/workload/fixtu
  * The compile phases of a fixture's install path, with no database: what scripts/dev/profile/compile.ts times.
  *
  * Each worked example (Work with its Reports level and Plans, the payroll ledger with its Reporting level, the queue,
- * spans and calendar, the graph, vector search, and the ledger) is compiled with residual laws, derived relations and
+ * spans and calendar, the graph, vector search, and the ledger) is compiled with its native laws, derived relations and
  * its workload where the fixtures give one: own, the law model, the workload, the full installation (the law model again,
- * the physical DDL, the closed templates, the residual-law, derived-relation and workload extensions, the index plan, the
+ * the physical DDL, the closed constants, the derived-relation and workload extensions, the index plan, the
  * grants and the emitted script), the first migration with its snapshot, the lowered statements of every query and
  * ordered query the fixture exports, and the write programs of a generic set of ChangeSets over each stored relation (an
  * enumerated insert, delete and put; a described insert from a relation parameter; a described delete over the stored
@@ -209,7 +210,9 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 		ok(own(input.kind === "role" ? input.desc.base : input.desc), "own")
 	)
 	timed(`${f.label} laws`, () => ok(compileLaws(owned), "laws"))
-	const base = { ...completeInstallOptions(owned, installedAt, [], []), owner }
+	/** A fresh installation's codes: every roster's handles in declared order. */
+	const codes = firstCodebook(rostersOf(owned))
+	const base = { ...completeInstallOptions(owned, installedAt, [], [], codes), owner }
 	const programsGiven = f.programs
 	const plan =
 		programsGiven === undefined
@@ -238,7 +241,8 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 				workload: { access, accessPaths: paths },
 				naming: { kind: "named", name: initMigrationName },
 				timestamp: "20261012000001",
-				abandoned: []
+				abandoned: [],
+				declared: { renames: [], drops: [] }
 			}),
 			"generateMigration"
 		)
@@ -257,7 +261,7 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 	const checked = ok(checkedSchema(owned), "checked")
 	/** The keys of every view a write program's members and read-backs read, as the schema's artifacts know them. */
 	const artifacts = ok(
-		schemaArtifacts(input, { installation: installedAt, vectorSchema: undefined }),
+		schemaArtifacts(input, { installation: installedAt, vectorSchema: undefined, codes }),
 		"artifacts"
 	)
 	const writes = timed(`${f.label} writes`, () =>

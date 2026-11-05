@@ -9,6 +9,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { makeIdSupply, type ParamId } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
+import { type PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import {
 	type CompletedOrder,
@@ -31,7 +32,9 @@ import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
 import { assert, nonEmpty, refused, succeeded, throwsDefect } from "#test/support/assert.ts"
+import { closed, decodedSchema, f, relation } from "#test/support/fixtures/ir/desc.ts"
 import {
+	installationOf,
 	localVectorSchema,
 	productionNames,
 	standInNames,
@@ -42,8 +45,9 @@ import { caseHang } from "#test/support/limits.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
-import { everyKind } from "#test/unit/ir/fixture.ts"
+import { everyKind, fixtureCodes } from "#test/unit/ir/fixture.ts"
 import {
 	Account,
 	asc,
@@ -72,7 +76,27 @@ import { present } from "#test/unit/lower/support.ts"
  * - an outer reference resolves only to a node in scope that one occurrence reads.
  */
 
-const names = productionNames("Ledger", { kind: "declared" }, localVectorSchema)
+/**
+ * The names a hand-built DAG lowers under: production's stand-ins for its relations, under Kind's codes, and the domain
+ * of the fixtures' Cents contract as an installation declaring it names it, by its definition's digest, which only an
+ * installation holds.
+ */
+const centsDomain = installationOf(
+	decodedSchema({
+		name: "Ledger",
+		relations: [
+			closed("Kind", ["Automatic", "Manual"]),
+			relation("Ledger", { id: f.uuid, cents: f.contract("Cents", f.bigint, undefined) }, ["id"])
+		],
+		statements: [],
+		extends: undefined
+	}),
+	{ kind: "declared" }
+).names.contractDomain
+const names: PhysicalNames = {
+	...productionNames("Ledger", { kind: "declared" }, localVectorSchema, fixtureCodes),
+	contractDomain: centsDomain
+}
 
 type Subject = "query" | "readBack"
 
@@ -224,7 +248,7 @@ const orderBy = (direction: Direction): CompletedOrder => ({
 
 const heterogeneousRead = (consumer: Consumer): LogicalQuery => {
 	const q = new Q()
-	const kind = (handle: "Automatic" | "Manual") => q.lit({ kind: "enum", handle }, T.kind)
+	const kind = (handle: "Automatic" | "Manual") => q.lit({ kind: "handle", handle }, T.kind)
 	const auto = q.region([
 		{
 			source: q.base(Task, conservativeMeta),
@@ -655,10 +679,9 @@ describe("take bound parameters", () => {
 		},
 		swarm: false
 	})
-	const generatedNames = standInNames("Ledger")
 	const lowered = (c: QueryCase, params: ReadonlyArray<ParamDecl>) =>
 		lowerConservative(conservativeInput(c.query), {
-			names: generatedNames,
+			names: standInNames(c.schema.name, schemaCodes(c.schema)),
 			params,
 			subject: { kind: "query" }
 		})

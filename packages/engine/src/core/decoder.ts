@@ -15,13 +15,25 @@ interface ConvertColumn<out A> {
 }
 
 /**
- * A closed handle's column: an enum cell is one of its roster's handles, which PostgreSQL's enum type enforces, so the
- * handle is the cell's text itself, read without a membership check under the record assembly's one claim
- * (schema/record.ts). The roster is never empty, and its handles are strings.
+ * A closed id's column: the cell is its code's int2out text, one of its roster's live codes, which the roster's domain
+ * admits alone, read as the handle the installation's names give the code (BindContext names), without a membership
+ * check, under the record assembly's one claim (schema/record.ts). A hole names no handle, and no stored code is one.
+ * `handles` are the values the column may deliver, its roster's handles or the literals of a head, never empty.
  */
-interface HandleColumn<out A> {
-	readonly kind: "handle"
+interface CodeColumn<out A> {
+	readonly kind: "code"
+	readonly roster: string
 	readonly handles: NonEmptyReadonlyArray<A>
+}
+
+/**
+ * A set's column: the cell is its bit(n) text, position i code i, read into a frozen Set of the handles the
+ * installation's names give its 1 bits, under the record assembly's one claim. A is the set's host type, a phantom of
+ * the descriptor's roster.
+ */
+interface BitsColumn<out A> extends Phantom<{ readonly host: A }> {
+	readonly kind: "bits"
+	readonly roster: string
 }
 
 /**
@@ -52,7 +64,12 @@ interface ConstantColumn<out A> {
 	readonly equal: (literal: unknown, host: unknown) => boolean
 }
 
-export type Column<A> = ConvertColumn<A> | HandleColumn<A> | TextColumn<A> | ConstantColumn<A>
+export type Column<A> =
+	| ConvertColumn<A>
+	| CodeColumn<A>
+	| BitsColumn<A>
+	| TextColumn<A>
+	| ConstantColumn<A>
 
 /** What carries a column: a field descriptor, a term, an aggregate, a producer, a parameter, a head literal. */
 export interface Columned<out A> {
@@ -62,8 +79,13 @@ export interface Columned<out A> {
 export const convertColumn = <A>(convert: (text: string) => A): Column<A> =>
 	Object.freeze({ kind: "convert", convert })
 
-export const handleColumn = <A>(handles: NonEmptyReadonlyArray<A>): Column<A> =>
-	Object.freeze({ kind: "handle", handles })
+/** A closed id's column over roster `roster`, which may deliver `handles`. */
+export const codeColumn = <A>(roster: string, handles: NonEmptyReadonlyArray<A>): Column<A> =>
+	Object.freeze({ kind: "code", roster, handles })
+
+/** A set's column over roster `roster`, whose values are A. */
+export const bitsColumn = <A>(roster: string): Column<A> =>
+	Object.freeze({ ...builtMark, kind: "bits", roster })
 
 /** A text column over the language A its cells are in: a refined text's pattern's (str.regex), or uuid_out's. */
 export const textColumn = <A extends string>(): Column<A> =>
@@ -72,14 +94,19 @@ export const textColumn = <A extends string>(): Column<A> =>
 /**
  * A contract's column over its base's: the brand, which has no runtime form (core/brand.ts nominal is the identity),
  * applied to every value the base's column yields, the handles of a closed base included; a refined text stays its
- * text.
+ * text. No contract is over a set, so a set's column is a defect here.
  */
 export const brandColumn = <A, B>(base: Column<A>, brand: (value: A) => B): Column<B> => {
 	switch (base.kind) {
 		case "convert":
 			return convertColumn((text) => brand(base.convert(text)))
-		case "handle":
-			return handleColumn(mapNonEmpty(base.handles, (handle) => brand(handle)))
+		case "code":
+			return codeColumn(
+				base.roster,
+				mapNonEmpty(base.handles, (handle) => brand(handle))
+			)
+		case "bits":
+			throw defect("no contract is over a set over a roster")
 		case "text":
 			return Object.freeze({ ...builtMark, kind: "text" })
 		case "constant":
@@ -133,8 +160,10 @@ const claimedText = <A>(): Column<A> => Object.freeze({ ...builtMark, kind: "tex
  * and is the output text of the one type the checker gave the key in every arm, so it is read by that type, whichever
  * arm wrote it. Head literals with head literals are head literals' column, read by their type's conversion; a head
  * literal with a conversion is that conversion, which reads a literal's text as the literal; head literals with a
- * roster are the roster with them; two rosters read as their union; a refined text with a roster or a text reads as a
- * text of either language; two conversions are one conversion.
+ * closed id are that closed id with them; two closed ids of one roster read as their union, and two sets of one
+ * roster as one; a refined text with a text reads as a text of either language; two conversions are one conversion.
+ * A closed id's or a set's cell is its type's alone, so one beside a column of another roster, or of any other kind
+ * but head literals, is a defect: the checker gives the key one type in every arm.
  */
 export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => {
 	if (a.kind === "constant") {
@@ -143,8 +172,10 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 				return constants<A | B>([...a.values, ...b.values], a.convert, a.equal)
 			case "convert":
 				return b
-			case "handle":
-				return handleColumn<A | B>([...a.values, ...b.handles])
+			case "code":
+				return codeColumn<A | B>(b.roster, [...a.values, ...b.handles])
+			case "bits":
+				throw defect("a set's column meets only a set's column of its roster")
 			case "text":
 				return claimedText()
 		}
@@ -152,8 +183,17 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 	if (b.kind === "constant") {
 		return unionColumn(b, a)
 	}
-	if (a.kind === "handle" && b.kind === "handle") {
-		return handleColumn<A | B>([...a.handles, ...b.handles])
+	if (a.kind === "code" || b.kind === "code") {
+		if (a.kind !== "code" || b.kind !== "code" || a.roster !== b.roster) {
+			throw defect("a closed id's column meets only a closed id's column of its roster")
+		}
+		return codeColumn<A | B>(a.roster, [...a.handles, ...b.handles])
+	}
+	if (a.kind === "bits" || b.kind === "bits") {
+		if (a.kind !== "bits" || b.kind !== "bits" || a.roster !== b.roster) {
+			throw defect("a set's column meets only a set's column of its roster")
+		}
+		return bitsColumn<A | B>(a.roster)
 	}
 	if (a.kind === "convert") {
 		return a
@@ -196,6 +236,18 @@ export interface OptionVocabulary {
 }
 
 /**
+ * Each roster's names in code order, a hole the empty name, by the roster's declared name: the installation's, which
+ * its codebook gives (ir/codes.ts codeNames). A closed id's cell is read as names(roster)[code].
+ */
+export type CodeNames = (roster: string) => ReadonlyArray<string>
+
+/** What a decoder binds under besides its layout: how its Options are spelled, and the installation's names. */
+export interface BindContext {
+	readonly options: OptionVocabulary
+	readonly names: CodeNames
+}
+
+/**
  * Whether a delivery the analysis proved licenses the stated one: an array always; an Option where at most one child
  * is proved; the one child only where exactly one is.
  */
@@ -231,10 +283,10 @@ interface Bound<out A> {
 
 /**
  * A record field that is no column: it binds to a layout under its key, throwing a Refusal when the layout does not
- * hold it as it needs; an Option it delivers is spelled by `options`.
+ * hold it as it needs; an Option it delivers is spelled by its context's options.
  */
 export interface RecordField<out A> {
-	readonly bind: (layout: Layout, key: string, options: OptionVocabulary) => Bound<A>
+	readonly bind: (layout: Layout, key: string, context: BindContext) => Bound<A>
 }
 
 /**
@@ -242,7 +294,7 @@ export interface RecordField<out A> {
  * construction.
  *
  * - A field descriptor and a term carry a Column of their host type: the trusting conversion of a cell's text, or, for
- *   a closed handle, the roster the text is one of.
+ *   a closed id or a set over a roster, the roster whose names its cell's codes are read by.
  * - A record (a relation's facts, a query's head, a ChangeSet's read-backs) is assembled from its fields by
  *   schema/record.ts, the one place TypeScript is told a record's type: a homomorphic mapped type over a runtime record
  *   is beyond what it can check, however the record is built.
@@ -264,7 +316,7 @@ export interface RowDecoder<out A> {
 	readonly headings: ReadonlyArray<ReadonlyArray<string>>
 	readonly bind: (
 		layout: Layout,
-		options: OptionVocabulary
+		context: BindContext
 	) => Result.Result<(row: Row) => A, CompileError>
 }
 
@@ -275,15 +327,15 @@ export interface RowDecoder<out A> {
 export const bindGroups = <A>(
 	decoder: RowDecoder<A>,
 	layouts: NonEmptyReadonlyArray<Layout>,
-	options: OptionVocabulary
+	context: BindContext
 ): Result.Result<(row: Row) => A, CompileError> => {
 	const [first, ...rest] = layouts
 	if (rest.length === 0) {
-		return decoder.bind(first, options)
+		return decoder.bind(first, context)
 	}
 	const readers: Array<(row: Row) => A> = []
 	for (const layout of layouts) {
-		const bound = decoder.bind(layout, options)
+		const bound = decoder.bind(layout, context)
 		if (!bound.ok) {
 			return bound
 		}
@@ -365,7 +417,7 @@ export const attachment = <A, D extends Delivery>(
 	child: RowDecoder<A>,
 	delivery: D
 ): RecordField<Delivered<A>[D]> => ({
-	bind: (layout, key, options) => {
+	bind: (layout, key, context) => {
 		const at =
 			layout.attachments.get(key) ?? refuseLayout(key, "an attachment of the statement's layout")
 		if (!licenses(at.proved, delivery)) {
@@ -374,13 +426,14 @@ export const attachment = <A, D extends Delivery>(
 				`an attachment the analysis proves to deliver as ${delivery}; it proves ${at.proved}`
 			)
 		}
-		const bound = bindGroups(child, at.layouts, options)
+		const bound = bindGroups(child, at.layouts, context)
 		if (!bound.ok) {
 			throw new Refusal(bound.error)
 		}
 		const read = bound.value
-		const deliver: (children: ReadonlyArray<A>) => Delivered<A>[D] =
-			deliveries<A>(options)[delivery]
+		const deliver: (children: ReadonlyArray<A>) => Delivered<A>[D] = deliveries<A>(context.options)[
+			delivery
+		]
 		const { slot } = at
 		return {
 			read: (row) => deliver(Object.freeze(childrenAt(row, slot, read)))
@@ -394,10 +447,10 @@ export const attachment = <A, D extends Delivery>(
  */
 export const merge = <A, B>(a: RowDecoder<A>, b: RowDecoder<B>): RowDecoder<A & B> => ({
 	headings: a.headings.flatMap((x) => b.headings.map((y) => [...x, ...y])),
-	bind: (layout, options) =>
-		Result.flatMap(a.bind(layout, options), (readA) =>
+	bind: (layout, context) =>
+		Result.flatMap(a.bind(layout, context), (readA) =>
 			Result.map(
-				b.bind(layout, options),
+				b.bind(layout, context),
 				(readB) =>
 					(row: Row): A & B =>
 						Object.freeze({ ...readA(row), ...readB(row) })
@@ -430,7 +483,7 @@ const larger = (x: number | undefined, y: number | undefined): boolean =>
  */
 export const oneOf = <A, B>(a: RowDecoder<A>, b: RowDecoder<B>): RowDecoder<A | B> => ({
 	headings: [...a.headings, ...b.headings],
-	bind: (layout, options) => {
+	bind: (layout, context) => {
 		const names = new Set(layoutNames(layout))
 		const inA = largestIn(a.headings, names)
 		const inB = largestIn(b.headings, names)
@@ -442,7 +495,7 @@ export const oneOf = <A, B>(a: RowDecoder<A>, b: RowDecoder<B>): RowDecoder<A | 
 				)
 			)
 		}
-		return larger(inA, inB) ? a.bind(layout, options) : b.bind(layout, options)
+		return larger(inA, inB) ? a.bind(layout, context) : b.bind(layout, context)
 	}
 })
 
@@ -451,7 +504,7 @@ const optionChildren = <A>(
 	child: RowDecoder<A>,
 	layout: Layout,
 	key: string,
-	options: OptionVocabulary
+	context: BindContext
 ): ((row: Row) => ReadonlyArray<A>) => {
 	const at =
 		layout.attachments.get(key) ?? refuseLayout(key, "an attachment of the statement's layout")
@@ -461,7 +514,7 @@ const optionChildren = <A>(
 			`an alternatives arm the analysis proves at most one child of; it proves ${at.proved}`
 		)
 	}
-	const bound = bindGroups(child, at.layouts, options)
+	const bound = bindGroups(child, at.layouts, context)
 	if (!bound.ok) {
 		throw new Refusal(bound.error)
 	}
@@ -472,10 +525,10 @@ const optionChildren = <A>(
 
 /** An alternatives arm's attachment on a row whose handle selects the arm: its one child, as Some. */
 export const someChild = <A>(child: RowDecoder<A>): RecordField<Option.Some<A>> => ({
-	bind: (layout, key, options) => {
-		const children = optionChildren(child, layout, key, options)
+	bind: (layout, key, context) => {
+		const children = optionChildren(child, layout, key, context)
 		return {
-			read: (row) => options.some(provenChild(children(row)))
+			read: (row) => context.options.some(provenChild(children(row)))
 		}
 	}
 })
@@ -486,9 +539,9 @@ export const someChild = <A>(child: RowDecoder<A>): RecordField<Option.Some<A>> 
  * holds them empty.
  */
 export const noChild = <A>(child: RowDecoder<A>): RecordField<Option.None<A>> => ({
-	bind: (layout, key, options) => {
-		optionChildren(child, layout, key, options)
-		return { read: () => options.none }
+	bind: (layout, key, context) => {
+		optionChildren(child, layout, key, context)
+		return { read: () => context.options.none }
 	}
 })
 

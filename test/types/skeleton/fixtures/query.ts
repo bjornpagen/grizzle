@@ -343,7 +343,7 @@ export type ByRoleParams = Expect<
 		{
 			readonly role: ParamType<
 				("reported" | "rejected" | "omitted") & Rostered<"Role">,
-				"enum",
+				"code",
 				"reported" | "rejected" | "omitted"
 			>
 		}

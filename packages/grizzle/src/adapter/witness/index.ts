@@ -30,12 +30,11 @@ const writtenEntries = (
  * installation:
  *
  * - keylaw.ts: the key-law tables, installed constraint and unique index names to laws under their owners, a domain
- *   constraint's under the domain PostgreSQL reports as the data type, and every law of the theory under its identity,
- *   each law carrying its description;
+ *   constraint's under the domain PostgreSQL reports as the data type, every law of the theory under its identity,
+ *   each law carrying its description, and each roster's domain, which is no law's;
  * - classify.ts: the classifier, a write statement's raised refusal through its DETAIL into the refused key or the
- *   concurrent change it met, a law function's 23000 through its DetailCodec DETAIL into the violating key or its
- *   withholding, a native violation through its constraint identity into the law with an unreported key, anything
- *   else not a law outcome.
+ *   concurrent change it met, a native violation through its constraint identity into the laws it breaks with an
+ *   unreported key, a roster domain's violation into grizzle's own defect, anything else not a law outcome.
  *
  * The classifier is the hook the outcome mapping of packages/grizzle/src/adapter/outcomes consumes after the aborts are decided:
  * db.apply, a prepared apply and the COMMIT of each classify through it (packages/grizzle/src/adapter/apply WriteEntry).
@@ -53,23 +52,24 @@ export interface InstallationWitness {
  * schema whose snapshot the database holds (adapter/db/open.ts), so their key-law map names the installed constraints.
  */
 export const installationWitness = (
-	artifacts: Pick<
-		SchemaArtifacts,
-		"names" | "laws" | "constraintLaws" | "theoryLaws" | "world" | "derived"
-	>
+	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">
 ): InstallationWitness => {
 	const checked = artifacts.derived.schema
 	const laws = keyLaws({
-		schema: artifacts.names.schema,
+		names: artifacts.names,
 		constraintLaws: artifacts.constraintLaws,
 		theoryLaws: artifacts.theoryLaws
 	})
 	/**
-	 * The WriteProgram's decoder over the whole schema: a DETAIL decodes through the raising law's own codec and
-	 * each key text through its column's result codec, exactly as a compiled program reads it. A role names a key
-	 * of a relation it writes through a query entry in the entry's vocabulary (write/frontend/entry.ts entryKey).
+	 * The WriteProgram's decoder over the whole schema: a refusal's key text decodes through its column's result
+	 * codec, exactly as a compiled program reads it. A role names a key of a relation it writes through a query entry
+	 * in the entry's vocabulary (write/frontend/entry.ts entryKey).
 	 */
-	const base = witnessDecoder({ written: [], relations: checked.relations }, artifacts.laws)
+	const base = witnessDecoder({
+		written: [],
+		relations: checked.relations,
+		codes: artifacts.names.codes
+	})
 	const entries = writtenEntries(artifacts)
 	const decoder: KeyDecoder = {
 		fromRefusal: (relation, key) => {
@@ -79,8 +79,7 @@ export const installationWitness = (
 			}
 			const entry = entries.get(found.relation)
 			return entry === undefined ? found : keyWitness(entry.entry, entryKey(entry, found.values))
-		},
-		fromDetail: base.fromDetail
+		}
 	}
 	return { laws, classify: violationClassifier(laws, decoder) }
 }

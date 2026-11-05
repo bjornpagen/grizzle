@@ -15,9 +15,9 @@ import type { ConfiguredSchema, ResolvedConfig } from "#cli/config.ts"
 import { readSchemaTree, type SchemaTree } from "#cli/files.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { refusalText } from "#cli/refusals.ts"
+import { namedText, noDeclarations } from "#cli/renames.ts"
 import { compileReasonText } from "#compiler/core/errors.ts"
-import { lossDecisions, lossText, splitRenames } from "#compiler/deploy/render/chosen.ts"
-import { orderFolderFiles } from "#compiler/deploy/render/folder.ts"
+import { lossDecisions, lossText, orderFolderFiles } from "#compiler/deploy/render/folder.ts"
 import {
 	findMarkers,
 	noTransactionMarker,
@@ -51,22 +51,19 @@ interface CheckFinding {
  *   that does not read or names another schema;
  * - a broken chain: a folder whose source is not the previous folder's target (the empty snapshot's for the first), or
  *   a newest target that is not snapshot.json's;
- * - an unresolved marker, a placeholder or a candidate rename, in any folder: `migrate` refused it before the folder
- *   ran and refuses an applied file edited afterwards, so an applied folder holds none either;
- * - a candidate rename decided one way at one statement it marks and another way at another, a statement it decides
- *   that is neither kept as drafted nor replaced as its marker says, two chosen candidates that rename one name, a loss
- *   decided both ways, or a statement of a branch the reviewer did not take written in, wherever it stands, in any
- *   folder whose meta.json records its decision record, every drafted statement in its place (render/chosen.ts
- *   splitRenames, which decides each candidate from its head and compares statements as PostgreSQL's scanner reads
- *   them);
- * - an unresolved loss: a statement that loses stored data, a relation with its rows or a field with its values, that
- *   is neither written in nor carried by a chosen candidate rename (render/chosen.ts lossDecisions), each named with
- *   what it loses;
+ * - an unresolved placeholder, in any folder: `migrate` refused it before the folder ran and refuses an applied file
+ *   edited afterwards, so an applied folder holds none either;
+ * - an unresolved loss: a schema's first migration beside the schemas the configuration no longer lists, whose loss of
+ *   their rows the reviewer has neither written in nor left out (lossDecisions), each named with what it loses;
  * - a workload program whose access moved: each login's workloads' programs read through other access paths or
  *   statistics than snapshot.json records, or a program it does not record, or it records one no workload holds, each
  *   finding naming the login's program (program/workload/compile.ts accessDrift), as DbLayer.make refuses at startup;
+ * - a roster reordered: a roster declares a handle before one that holds a lower code in snapshot.json, which no
+ *   draft can keep every stored code's meaning across (cli/errors.ts RosterReordered), so nothing else of the schema
+ *   is compared;
  * - an ungenerated change: the schemas and their logins compile to another snapshot than snapshot.json, so `grizzle
- *   generate` has something to draft.
+ *   generate` has something to draft; and among them a name the snapshot holds that the schema drops, which the draft
+ *   refuses until `--drop` or `--rename` declares it (UndeclaredDrop).
  *
  * Whether a folder is applied, and whether an applied file was edited, only the database knows; `migrate` checks them.
  * check never reads the configuration's connection.
@@ -131,13 +128,6 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				break
 		}
 		if (m.kind !== "unreadable" && m.meta.kind === "drafted") {
-			for (const r of splitRenames(m.meta.record, folder.files)) {
-				at(
-					"splitRename",
-					path(folder.name, r.file),
-					`${r.detail}: ${refusalText.splitRename.problem}`
-				)
-			}
 			for (const d of lossDecisions(m.meta.record, folder.files)) {
 				if (d.kind === "unresolved") {
 					at(
@@ -175,8 +165,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				}
 			}
 			for (const marker of findMarkers(file.text)) {
-				const kind = marker.kind === "placeholder" ? "placeholder" : "renameCandidate"
-				at(kind, `${where}:${marker.line}`, refusalText[kind].problem)
+				at("placeholder", `${where}:${marker.line}`, refusalText.placeholder.problem)
 			}
 		}
 	}
@@ -190,13 +179,24 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 
 	if (Option.isSome(snapshot)) {
 		const committedWorkload = snapshot.value.workload
-		const draft = yield* Effect.result(draftSchema(schema, snapshot.value, []))
+		const draft = yield* Effect.result(draftSchema(schema, snapshot.value, [], noDeclarations))
 		if (Result.isFailure(draft)) {
-			at(
-				"compile",
-				schema.declared,
-				`${refusalText.compile.problem}: ${draft.failure.reason.message}`
-			)
+			const reason = draft.failure.reason
+			if (reason._tag === "RosterReordered") {
+				at(
+					"rosterReordered",
+					schema.declared,
+					`${reason.message}: ${refusalText.rosterReordered.problem}`
+				)
+			} else if (reason._tag === "DraftRefused" && reason.error.reason._tag === "UndeclaredDrop") {
+				at(
+					"undeclaredDrop",
+					schema.declared,
+					`${namedText(reason.error.reason.dropped)}: ${refusalText.undeclaredDrop.problem}`
+				)
+			} else {
+				at("compile", schema.declared, `${refusalText.compile.problem}: ${reason.message}`)
+			}
 		} else {
 			const current = draft.success.snapshot.workload
 			const logins: ReadonlyArray<string> = Arr.sort(

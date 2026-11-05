@@ -20,7 +20,6 @@ import {
 	spanOf,
 	type TextInfo,
 	textOf,
-	type ValueType,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
 import {
@@ -48,11 +47,11 @@ export type PlainCarrier = "int2" | "int4" | "int8" | "float4" | "float8" | "mon
 export type ResultCarrier = PlainCarrier | "numeric" | ExactValueCarrier
 
 /** The plain result type of a carrier, frozen: no contract. */
-export const plainType = (carrier: PlainCarrier): ValueType =>
+export const plainType = (carrier: PlainCarrier): ScalarType =>
 	Object.freeze({ carrier, caps: capabilitySet(carrierCapabilities[carrier]), contract: undefined })
 
 /** The exact type of `carrier` whose values lie below 10^digits (ir/scalar.ts ExactType), frozen. */
-export const exactType = (carrier: ExactValueCarrier, digits: number): ValueType =>
+export const exactType = (carrier: ExactValueCarrier, digits: number): ScalarType =>
 	Object.freeze({ carrier, caps: capabilitySet(carrierCapabilities[carrier]), digits })
 
 /** Whether a type is a computed numeric (ir/scalar.ts NumericBound): numeric of no typmod. */
@@ -63,7 +62,7 @@ export const isComputedNumeric = (t: ScalarType): boolean =>
  * The computed numeric a numeric literal is: its own value's integer digits and least scale; NaN's and an infinity's
  * none.
  */
-export const literalNumeric = (parts: DecimalParts): ValueType =>
+export const literalNumeric = (parts: DecimalParts): ScalarType =>
 	numericValue(
 		parts.kind === "finite"
 			? {
@@ -77,7 +76,7 @@ export const literalNumeric = (parts: DecimalParts): ValueType =>
  * Every numeric value: a computed numeric at numeric's own limits. What a literal adopts before its own value bounds it,
  * and what an overload is looked up by, never a node's type.
  */
-export const anyNumeric: ValueType = numericValue({
+export const anyNumeric: ScalarType = numericValue({
 	digits: numericMaxIntegerDigits.value,
 	scale: numericMaxFractionDigits.value
 })
@@ -109,7 +108,8 @@ export const exactNumericBound = (t: ScalarType): NumericBound | undefined => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -144,7 +144,8 @@ export const familyDigits = (t: ScalarType): number | undefined => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -153,7 +154,7 @@ export const familyDigits = (t: ScalarType): number | undefined => {
 }
 
 /** The canonical wildcard text type: what a text literal that meets no term has. */
-export const wildcardText: ValueType = Object.freeze({
+export const wildcardText: ScalarType = Object.freeze({
 	carrier: "text",
 	caps: capabilitySet(carrierCapabilities.text),
 	contract: undefined,
@@ -161,20 +162,13 @@ export const wildcardText: ValueType = Object.freeze({
 })
 
 /**
- * A type's value type, its serial declaration dropped: a serial is an integer column's generation, and its values
- * are the integer's, with the integer's capabilities.
+ * A type as itself. No type is a serial declaration, since how a field is written is its writing, never its type, so
+ * a caller that dropped a serial declaration drops nothing; each caller deletes its call.
  */
-export const withoutSerial = (t: ScalarType): ValueType =>
-	"serial" in t
-		? Object.freeze({
-				carrier: t.carrier,
-				caps: capabilitySet(carrierCapabilities[t.carrier]),
-				contract: undefined
-			})
-		: t
+export const withoutSerial = (t: ScalarType): ScalarType => t
 
-/** The base of a type with its serial declaration dropped: what an expression over a field computes with. */
-export const valueType = (t: ScalarType): ValueType => withoutSerial(baseOf(t))
+/** The base of a type: what an expression over a field computes with. */
+export const valueType = (t: ScalarType): ScalarType => baseOf(t)
 
 /**
  * A span type with its fixed width dropped: what a value compared with a fixed-width span adopts. A width refines the
@@ -233,8 +227,8 @@ const sameEndpoint = (a: SpanInfo | undefined, b: SpanInfo | undefined): boolean
  * common typmod survives only when all agree). It is the same whichever operand comes first.
  */
 export const commonType = (a: ScalarType, b: ScalarType): ScalarType => {
-	const x = withoutSerial(a)
-	const y = withoutSerial(b)
+	const x = a
+	const y = b
 	if (sameMeaning(x, y)) {
 		return x
 	}
@@ -325,7 +319,8 @@ export const exactFamily = (t: ScalarType): "exactInteger" | "exactMoney" | unde
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -343,12 +338,8 @@ export const meets = (a: ScalarType, b: ScalarType): boolean => {
 	if (compatible(a, b)) {
 		return true
 	}
-	const fa = exactFamily(withoutSerial(a))
-	return (
-		fa !== undefined &&
-		fa === exactFamily(withoutSerial(b)) &&
-		(a.carrier === fa || b.carrier === fa)
-	)
+	const fa = exactFamily(a)
+	return fa !== undefined && fa === exactFamily(b) && (a.carrier === fa || b.carrier === fa)
 }
 
 /**
@@ -356,7 +347,7 @@ export const meets = (a: ScalarType, b: ScalarType): boolean => {
  * widened into that exact carrier, at its own digit bound; every other operand stands at its own type.
  */
 export const meetingType = (operand: ScalarType, partner: ScalarType): ScalarType => {
-	const family = exactFamily(withoutSerial(partner))
+	const family = exactFamily(partner)
 	const value = valueType(operand)
 	const digits = familyDigits(value)
 	return family !== undefined &&

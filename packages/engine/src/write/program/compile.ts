@@ -1,9 +1,11 @@
 import type { CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -41,7 +43,6 @@ import {
 } from "#compiler/lower/shapes/share/statements.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { declaredSlotOf, statementSpec, writeSlotOf } from "#compiler/lower/template.ts"
-import { withoutSerial } from "#compiler/scalar/compute/types.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
@@ -70,6 +71,7 @@ import {
 	type WriteWorld
 } from "#compiler/write/entry/precheck.ts"
 
+import { type FamilySql, rowStatement } from "#compiler/write/family/statements.ts"
 import {
 	compileChangeSet,
 	type SlotGroup,
@@ -93,6 +95,7 @@ import {
 } from "#compiler/write/insert/statement.ts"
 import { readsDrawn } from "#compiler/write/insert/unique.ts"
 import { withCarrierAnalysis } from "#compiler/write/program/analyze.ts"
+import type { FamilyStep } from "#compiler/write/program/artifact.ts"
 import {
 	type ArtifactForms,
 	byStratum,
@@ -229,14 +232,114 @@ interface ArtifactBuilder {
 	/** Each statement placed so far, a read-back's naming its read-back, with its audited AST for the carriers'
 	 * analysis; its length is the position the next statement placed takes. */
 	readonly statements: Array<PlacedStatement>
+	/** The installation's codes, which every placeholder's encoder writes a closed id's and a set's values by. */
+	readonly codes: Codebook
 }
 
-const newBuilder = (): ArtifactBuilder => ({ statements: [] })
+const newBuilder = (codes: Codebook): ArtifactBuilder => ({ statements: [], codes })
+
+/**
+ * A stratum's nested write's family statements, built once over the installed names: each member relation it reaches,
+ * one insert of its whole rows (write/family/statements.ts rowStatement), shallowest first, as its plan composes them
+ * (write/family/compose.ts). An owner the changeset inserts has empty families, so its nesting deletes nothing, and a
+ * sequence's count rides its owner's own row, so no count statement.
+ */
+interface FamilyPlacement {
+	readonly stratum: number
+	readonly statements: ReadonlyArray<{ readonly step: FamilyStep; readonly sql: FamilySql }>
+}
+
+const familyPlacements = (
+	frontend: WriteFrontend,
+	w: WriteContext
+): ReadonlyArray<FamilyPlacement> =>
+	frontend.nested.map((nested) => {
+		const relations = [...new Set(nested.nesting.reached.map((r) => r.family.member.name))]
+		return Object.freeze({
+			stratum: nested.stratum,
+			statements: Object.freeze(
+				relations.map((name) => {
+					const info = defined(frontend.schema.relations.get(name), `the reached relation ${name}`)
+					const layout = defined(nested.nesting.layouts.get(name), `the row layout of ${name}`)
+					const sql = unwrap(rowStatement(info, layout, "insert", w))
+					const step: FamilyStep = {
+						kind: "family",
+						stratum: nested.stratum,
+						slot: nested.slot.slot,
+						target: { kind: "rows", relation: name },
+						statement: sql.kind,
+						relation: sql.result.relation,
+						result: sql.result
+					}
+					return Object.freeze({ step: Object.freeze(step), sql })
+				})
+			)
+		})
+	})
+
+/**
+ * Places each nested write's family statements of the strata before `before`, or of every stratum, after the
+ * statements placed so far, each after its own earlier ones and those `deps` gives: every statement of its stratum's
+ * own follows its owner's insert.
+ */
+const placeFamilies = (
+	b: ArtifactBuilder,
+	pending: Array<FamilyPlacement>,
+	before: number | "all",
+	deps: (step: FamilyStep) => ReadonlyArray<number>
+): void => {
+	for (let i = 0; i < pending.length;) {
+		const placement = pending[i]
+		if (placement === undefined || (before !== "all" && placement.stratum >= before)) {
+			i += 1
+			continue
+		}
+		pending.splice(i, 1)
+		for (const { step, sql } of placement.statements) {
+			placeSpec(
+				b,
+				step,
+				Object.freeze({
+					sql: sql.sql.text,
+					paramSlots: Object.freeze([]),
+					heading: resultHeading(sql.result),
+					role: "member",
+					dependsOn: Object.freeze([...deps(step)])
+				}),
+				sql.ast,
+				sql.sql.nameMap,
+				oneForm
+			)
+		}
+	}
+}
+
+/** The stratum a plan step runs in, none for a delta carrier around the strata and a read-back. */
+const planStratum = (step: PlanStep): number | undefined => {
+	switch (step.kind) {
+		case "createCarrier":
+			return step.stratum
+		case "fillMember":
+		case "fillShare":
+		case "single":
+		case "check":
+			return step.stratum
+		case "write":
+		case "advance":
+		case "classify":
+			return step.action.stratum
+		case "readBack":
+			return undefined
+	}
+}
 
 /** A statement placed at the next position: its step, its spec, its audited AST and its forms. */
 const placeSpec = (
 	b: ArtifactBuilder,
-	step: Extract<WriteStep, { readonly kind: "write" | "advance" | "carrier" | "single" | "check" }>,
+	step: Extract<
+		WriteStep,
+		{ readonly kind: "write" | "advance" | "carrier" | "single" | "check" | "family" }
+	>,
 	spec: StatementSpec<WriteSlot>,
 	ast: SqlStatement,
 	nameMap: WriteStatement["sql"]["nameMap"],
@@ -264,34 +367,38 @@ const place = (
 	placeSpec(
 		b,
 		step,
-		writeStatementSpec(statement, dependsOn),
+		writeStatementSpec(statement, dependsOn, b.codes),
 		statement.ast,
 		statement.sql.nameMap,
 		oneForm
 	)
 
-/** The form of a built statement as an execution sends it: its text, its placeholders' encoders and its AST. */
-const sentOf = (statement: {
-	readonly sql: { readonly text: EmittedText }
-	readonly params: ReadonlyArray<WriteParamSlot>
-	readonly ast: SqlStatement
-}): SentForm =>
-	Object.freeze({
-		sql: statement.sql.text,
-		paramSlots: Object.freeze(statement.params.map(writeSlotOf)),
-		ast: statement.ast
-	})
+/** The form of a built statement as an execution sends it under the installation's codes: its text, its
+ * placeholders' encoders and its AST. */
+const sentOf =
+	(codes: Codebook) =>
+	(statement: {
+		readonly sql: { readonly text: EmittedText }
+		readonly params: ReadonlyArray<WriteParamSlot>
+		readonly ast: SqlStatement
+	}): SentForm =>
+		Object.freeze({
+			sql: statement.sql.text,
+			paramSlots: Object.freeze(statement.params.map(writeSlotOf(codes))),
+			ast: statement.ast
+		})
 
 /** A read-back statement with its forms as placed: when its lowering made per-execution choices, its whole-relation
  * form with the executable text and encoders an execution sends. */
 const placedRun = (
-	statement: OptimizedStatement<RelationChoice, FusedStatement>
+	statement: OptimizedStatement<RelationChoice, FusedStatement>,
+	codes: Codebook
 ): OptimizedStatement<RelationChoice, PlacedLarge> => {
 	const forms = statement.forms
 	if (forms.kind === "one") {
 		return { ...statement, forms }
 	}
-	const spec = unwrap(statementSpec(forms.large, declaredSlotOf))
+	const spec = unwrap(statementSpec(forms.large, declaredSlotOf(codes)))
 	return {
 		...statement,
 		forms: Object.freeze({
@@ -319,11 +426,11 @@ const placeReadBack = (
 	extraDeps: ReadonlyArray<number>
 ): void => {
 	const offset = b.statements.length
-	const placed = mapTree(readBackSpecs(program.roots, offset), ({ statement, spec }) => {
+	const placed = mapTree(readBackSpecs(program.roots, offset, b.codes), ({ statement, spec }) => {
 		const deps = new Set([...spec.dependsOn, ...extraDeps])
 		return {
 			statement,
-			run: placedRun(statement),
+			run: placedRun(statement, b.codes),
 			spec: Object.freeze({
 				...spec,
 				dependsOn: Object.freeze([...deps].toSorted((x, y) => x - y))
@@ -388,7 +495,7 @@ const optimizedPlacement = (
 	options: CompileWriteOptions
 ): ArtifactBuilder => {
 	const { w, sharing, state } = lowering
-	const b = newBuilder()
+	const b = newBuilder(w.cx.names.codes)
 	/**
 	 * A statement in its forms: built by `build` in the small per-execution mode, and, when that build made choices,
 	 * built again in the large mode, whose sent form (`sent`) is its large form. Each build begins its statement
@@ -416,11 +523,11 @@ const optimizedPlacement = (
 			statement: S
 		) => Extract<WriteStep, { readonly kind: "write" | "advance" | "carrier" | "check" }>
 	): number => {
-		const { statement, forms } = formed(build, sentOf)
+		const { statement, forms } = formed(build, sentOf(b.codes))
 		return placeSpec(
 			b,
 			step(statement),
-			writeStatementSpec(statement, dependsOn),
+			writeStatementSpec(statement, dependsOn, b.codes),
 			statement.ast,
 			statement.sql.nameMap,
 			forms
@@ -490,7 +597,15 @@ const optimizedPlacement = (
 			actionDeps(step.action)
 		]
 	}
+	/** The nested writes' family statements, each placed after every statement of its stratum. */
+	const families = [...familyPlacements(frontend, w)]
+	const familyDeps = (step: FamilyStep): ReadonlyArray<number> =>
+		tracker.add(step.target.kind === "owners" ? [`relation:${step.relation}`] : [], [
+			`relation:${step.relation}`
+		])
 	for (const step of plan.steps) {
+		const stratum = planStratum(step)
+		placeFamilies(b, families, stratum ?? (step.kind === "readBack" ? "all" : 0), familyDeps)
 		switch (step.kind) {
 			case "createCarrier": {
 				const deps = tracker.add([], [`carrier:${step.carrier.name}`])
@@ -569,7 +684,7 @@ const optimizedPlacement = (
 					for (const share of step.shares) {
 						const heading = share.node.heading.map((c) => ({
 							name: c.name,
-							type: withoutSerial(c.type)
+							type: c.type
 						}))
 						/** A shared sub-query's CTE lowers its own copies rather than reading itself. */
 						const fill = { ...w, start, cx: w.cx.withDispatch(sharing.filling(share)) }
@@ -612,7 +727,7 @@ const optimizedPlacement = (
 					)
 					return { single, writes }
 				}
-				const { statement, forms } = formed(buildSingle, (large) => sentOf(large.single))
+				const { statement, forms } = formed(buildSingle, (large) => sentOf(b.codes)(large.single))
 				const { single, writes } = statement
 				/** What the parts read, past the shared sub-queries the statement now carries. */
 				const accesses = mapNonEmpty(step.writes, (planned) => writeAccess(planned))
@@ -632,7 +747,7 @@ const optimizedPlacement = (
 						})),
 						uniqueAborts: writes.flatMap((x) => x.step.uniqueAborts)
 					},
-					singleStatementSpec(single, deps),
+					singleStatementSpec(single, deps, b.codes),
 					single.ast,
 					single.sql.nameMap,
 					forms
@@ -750,6 +865,7 @@ const optimizedPlacement = (
 			}
 		}
 	}
+	placeFamilies(b, families, "all", familyDeps)
 	return b
 }
 
@@ -822,11 +938,20 @@ const abortsOf = (step: PlannedWrite): AbortKind => {
 	}
 }
 
-/** The conservative artifact: the conservative realization's steps, every statement after the one before it. */
-const conservativeArtifact = (write: ConservativeWrite): WriteArtifact => {
-	const b = newBuilder()
+/** The conservative artifact: the conservative realization's steps, every statement after the one before it, and each
+ * stratum's nested writes' family statements after its own. */
+const conservativeArtifact = (
+	write: ConservativeWrite,
+	codes: Codebook,
+	placements: ReadonlyArray<FamilyPlacement>
+): WriteArtifact => {
+	const b = newBuilder(codes)
+	const families = [...placements]
+	const after = (): ReadonlyArray<number> =>
+		b.statements.length === 0 ? [] : [b.statements.length - 1]
 	for (const step of write.steps) {
-		const previous = b.statements.length === 0 ? [] : [b.statements.length - 1]
+		placeFamilies(b, families, step.kind === "readBack" ? "all" : (step.stratum ?? 0), after)
+		const previous = after()
 		switch (step.kind) {
 			case "readBack":
 				placeReadBack(b, step.read, deliveredAsOptimized(step.program), previous)
@@ -895,6 +1020,7 @@ const conservativeArtifact = (write: ConservativeWrite): WriteArtifact => {
 			}
 		}
 	}
+	placeFamilies(b, families, "all", after)
 	return finish(b, write.carriers)
 }
 
@@ -999,7 +1125,8 @@ const compile = (
 			claims: options.claims,
 			laws: options.laws,
 			derived: options.derived,
-			world: options.world
+			world: options.world,
+			codes: options.names.codes
 		})
 	)
 	const chosen = choosePutTargets(frontend)
@@ -1040,16 +1167,19 @@ const compile = (
 				reads: options.reads,
 				share
 			})
-		)
+		),
+		options.names.codes,
+		familyPlacements(frontend, lowering.w)
 	)
 	const ir = frontend.ir
 	const vector =
 		topoOrder(ir.dag).some((n) => n.heading.some((c) => c.type.carrier === "vector")) ||
 		frontend.written.some((r) => r.heading.some((c) => c.type.carrier === "vector"))
 	const outcomeContext: OutcomeContext = Object.freeze({
-		written: frontend.written.map(writtenOutcome),
+		written: frontend.written.map(writtenOutcome(options.names.codes)),
 		/** Every written relation and every witness relation is an ordinary relation of the base, whole entry or not. */
-		relations: frontend.schema.definitions().relations
+		relations: frontend.schema.definitions().relations,
+		codes: options.names.codes
 	})
 	const reads: Record<string, number> = {}
 	for (const r of optimized.readBacks) {
@@ -1075,7 +1205,7 @@ const compile = (
 		reads,
 		outcome: {
 			counts: countRulesOf(optimized),
-			witness: witnessDecoder(outcomeContext, frontend.laws)
+			witness: witnessDecoder(outcomeContext)
 		},
 		frontend,
 		choices: chosen.choices,

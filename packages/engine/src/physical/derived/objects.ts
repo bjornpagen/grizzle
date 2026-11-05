@@ -53,10 +53,9 @@ const unwrapResult = <A>(result: Result.Result<A, CompileError>): A => {
 	return result.value
 }
 
-/** The enums and domains a column of type `t` names, down a contract's base chain, each with its object when the
+/** The domains a column of type `t` names, down a contract's base chain, each with its object when the
  * installation creates one. */
 interface TypeUse {
-	readonly enums: Map<string, Node<"setup"> | undefined>
 	readonly domains: Map<string, Node<"setup"> | undefined>
 }
 
@@ -68,9 +67,13 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 		useType(b, contract.base, use)
 		return
 	}
-	if (t.carrier === "enum") {
-		const name = b.names.enumType(t.roster.closed)
-		use.enums.set(name.name, b.typeNamed(name))
+	if (t.carrier === "code") {
+		const name = b.names.rosterDomain(t.roster.closed)
+		use.domains.set(name.name, b.typeNamed(name))
+	}
+	if (t.carrier === "bits") {
+		const name = b.names.bitsDomain(t.roster.closed)
+		use.domains.set(name.name, b.typeNamed(name))
 	}
 	const span = spanOf(t)
 	if (span !== undefined) {
@@ -85,7 +88,7 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	}
 }
 
-const emptyUse = (): TypeUse => ({ enums: new Map(), domains: new Map() })
+const emptyUse = (): TypeUse => ({ domains: new Map() })
 
 /**
  * The laws a derived key's proof rests on, by their identities and each once: a stored relation's key law for each declared key
@@ -190,9 +193,8 @@ const viewObjects = (
 				const from = b.readObject(read)
 				return from === undefined ? [] : [from]
 			}),
-			...[...use.enums.values(), ...use.domains.values()].flatMap((t) =>
-				t === undefined ? [] : [t]
-			)
+			...[...use.domains.values()].flatMap((t) => (t === undefined ? [] : [t])),
+			...b.constantNodes([create])
 		]
 	)
 
@@ -273,8 +275,8 @@ const textColumnUses = (analysis: DerivedAnalysis): ReadonlyArray<TextColumnUse>
  * - the materialized view `materializedView:<schema>.<view>`, in Structure: `CREATE MATERIALIZED VIEW
  *   <schema>.<view> (<columns>) AS <definition> WITH NO DATA`, the definition being the compiler's ordinary lowering
  *   of the query (`lowerDefinition`), then `REVOKE ALL ON TABLE <view> FROM PUBLIC` at once, so PUBLIC never holds a
- *   privilege on it. It is created after the tables, closed enums and lower views its definition reads
- *   and after the enums and domains its columns are typed by; a lower view joins the graph with this extension's
+ *   privilege on it. It is created after the tables, roster domains, constants and lower views its definition reads
+ *   and after the domains its columns are typed by; a lower view joins the graph with this extension's
  *   contribution. WITH NO DATA makes creation cost nothing; the view is
  *   unpopulated, and unreadable, until its first `db.refresh`;
  * - one unique index per inherited key, in Structure beside its view: `CREATE UNIQUE INDEX <key> ON <schema>.<view>

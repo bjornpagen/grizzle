@@ -1,5 +1,5 @@
 import { Effect, Predicate, Record as Rec } from "effect"
-import { isDrawn, type Sendable } from "#test/pg/laws/families/model.ts"
+import { isDrawn, type Sendable } from "#test/support/laws/model.ts"
 import type { FieldDomain, HostFact, HostValue } from "#test/support/worlds/model/types.ts"
 
 import { regex } from "arkregex"

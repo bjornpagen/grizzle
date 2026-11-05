@@ -1,6 +1,11 @@
 /**
- * Generated alternatives schemas: over a single key, and over a composite key; and every armed handle of every schema of
- * the box written.
+ * Generated alternatives schemas, over a single key and over a composite key (test/support/laws/boxes.ts), every law
+ * native: per arm relation, a forward containment into the parent selected by its handles, and per armed handle, a
+ * reverse containment from the parent selected by the handle, deferred on the cycle (fin.md §7). The oracle is the host
+ * model (test/support/laws/model.ts), a second implementation judging each generated write sequence.
+ *
+ * Beside them, every armed handle of every schema of the box written once, exhausted: a run of the handle with its
+ * payload commits, a payload relation shared by several handles taking each one's.
  */
 
 import { layer } from "@effect/vitest"
@@ -9,21 +14,21 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
+import { assert } from "#test/support/assert.ts"
 import {
-	alternativesFamily,
+	alternativesBox,
 	compositeAlternatives,
 	modeOf,
 	type RunsParams,
 	stageName
-} from "#test/pg/laws/families/families.ts"
-import { casesPerTest, familySuite, installVariant } from "#test/pg/laws/families/suites/family.ts"
-import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
+} from "#test/support/laws/boxes.ts"
+import { casesPerTest, familySuite, installVariant } from "#test/support/laws/suites/family.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-familySuite(alternativesFamily, casesPerTest, "the family")
-familySuite(compositeAlternatives, casesPerTest, "every schema's refusals of stored and new facts")
+familySuite(alternativesBox, casesPerTest, "the family")
+familySuite(compositeAlternatives, casesPerTest, "every schema's refusals")
 
 /**
  * An armed handle of a schema of the box: the schema, the position of its payload relation and the handle's, and whether
@@ -40,7 +45,7 @@ type ArmedFeature =
 	| "a handle of a payload relation shared"
 	| "a handle of a payload relation of its own"
 
-const armedHandles = Arr.flatMap(alternativesFamily.variants, (schema) =>
+const armedHandles = Arr.flatMap(alternativesBox.variants, (schema) =>
 	Arr.flatMap(schema.arms, (arm, pay) =>
 		Arr.map(arm.handles, (handle): ArmedHandle => ({
 			schema,
@@ -79,13 +84,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										: "a handle of a payload relation of its own"
 								)
 								const installed = yield* installVariant(
-									alternativesFamily,
+									alternativesBox,
 									schema,
-									modeOf(alternativesFamily.host(schema)) === "mutable"
+									modeOf(alternativesBox.host(schema)) === "mutable"
 										? grizzleFirstSession
 										: ordinarySession
 								)
-								const session = yield* alternativesFamily.connect(schema, installed)
+								const session = yield* alternativesBox.connect(schema, installed)
 								yield* session.reset
 								const outcome = yield* session.apply([
 									{
@@ -97,7 +102,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								])
 								if (outcome.kind !== "accepted") {
 									return assert.fail(
-										`${alternativesFamily.describe(schema)}: a run of ${stageName(handle)} with its payload in Pay${pay} answered ${Formatter.format(outcome)}`
+										`${alternativesBox.describe(schema)}: a run of ${stageName(handle)} with its payload in Pay${pay} answered ${Formatter.format(outcome)}`
 									)
 								}
 							})

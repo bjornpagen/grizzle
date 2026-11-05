@@ -25,7 +25,7 @@ import {
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { commonType, compatible, withoutSerial } from "#compiler/scalar/compute/types.ts"
+import { commonType, compatible } from "#compiler/scalar/compute/types.ts"
 
 /**
  * A parameter is of one kind once a use types it: a scalar of the type its uses declare, or a relation of the heading
@@ -71,7 +71,6 @@ export class ParamCell {
 	/** Records a use of the parameter as a scalar at `type`, the type the use declares. */
 	use(type: ScalarType, loc: SourceLoc): ParamId {
 		const prior = this.#entry
-		const adopted = withoutSerial(type)
 		switch (prior.kind) {
 			case "relation":
 				return fail(
@@ -80,17 +79,17 @@ export class ParamCell {
 					`parameter ${this.name} as one kind: it is also a relation parameter`
 				)
 			case "untyped":
-				this.#entry = { kind: "scalar", type: adopted }
+				this.#entry = { kind: "scalar", type }
 				return this.id
 			case "scalar":
-				if (!compatible(prior.type, adopted)) {
+				if (!compatible(prior.type, type)) {
 					fail(
 						"MalformedDescription",
 						loc,
-						`compatible uses of parameter ${this.name}: it is used as ${typeLabel(prior.type)} and as ${typeLabel(adopted)}`
+						`compatible uses of parameter ${this.name}: it is used as ${typeLabel(prior.type)} and as ${typeLabel(type)}`
 					)
 				}
-				this.#entry = { kind: "scalar", type: commonType(prior.type, adopted) }
+				this.#entry = { kind: "scalar", type: commonType(prior.type, type) }
 				return this.id
 		}
 	}

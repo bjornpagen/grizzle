@@ -88,7 +88,6 @@ import {
 	contains,
 	defined,
 	faulted,
-	lacks,
 	nonEmpty,
 	refused,
 	succeeded,
@@ -118,12 +117,13 @@ import { regex } from "arkregex"
 const caps = (field: unknown) => succeeded(describeField(field, SourceLoc("test", []))).scalar.caps
 
 describe("the capability registry", () => {
-	it.effect("adjusts for serials and contracts, and gives every vector its distance", (ctx) =>
+	it.effect("gives a serial and a contract their base's, and every vector its distance", (ctx) =>
 		Effect.gen(function* () {
 			type CapsCase =
 				| { readonly kind: "serial"; readonly field: unknown; readonly base: unknown }
 				| { readonly kind: "contract"; readonly field: unknown; readonly base: unknown }
 				| { readonly kind: "vector"; readonly field: unknown }
+			/** A serial field's type is its integer's: how a field is written changes none of what its type can do. */
 			const cases: Arr.NonEmptyReadonlyArray<CapsCase> = [
 				{ kind: "serial", field: pgDescriptors.smallserial, base: pgDescriptors.smallint },
 				{ kind: "serial", field: pgDescriptors.serial, base: pgDescriptors.integer },
@@ -133,7 +133,7 @@ describe("the capability registry", () => {
 						pgDescriptors.smallint,
 						pgDescriptors.integer,
 						pgDescriptors.bigint,
-						pgDescriptors.numeric,
+						pgDescriptors.numeric(9, 2),
 						pgDescriptors.money,
 						pgDescriptors.boolean,
 						uuidDescriptor,
@@ -167,11 +167,6 @@ describe("the capability registry", () => {
 							c.note(cs.kind)
 							switch (cs.kind) {
 								case "serial":
-									unorderedEqual(
-										caps(cs.field),
-										Arr.filter(caps(cs.base), (cap) => cap !== "spanEndpoint")
-									)
-									return
 								case "contract":
 									unorderedEqual(caps(cs.field), caps(cs.base))
 									return
@@ -193,7 +188,6 @@ describe("the capability registry", () => {
 						})
 				)
 			)
-			lacks(capabilitiesOf("int4", true), "spanEndpoint")
 		})
 	)
 })
@@ -249,12 +243,10 @@ const fixtureTypes = nonEmpty<readonly [string, ScalarType]>(
 	"the fixture types"
 )
 
-const serialDescs = { int2: "smallserial", int4: "serial", int8: "bigserial" } as const
-
 /**
  * The FieldDesc the registry reads `t` from: the derived analysis's inverse (declaredDescOf), but for a contract, which
- * a schema declares by name over its base's FieldDesc (identity ignores the predicate), a span over such an endpoint,
- * and a serial generation declaration, which no derived column has.
+ * a schema declares by name over its base's FieldDesc (identity ignores the predicate), and a span over such an
+ * endpoint.
  */
 const fieldDescFor = (t: Exclude<ScalarType, NumericValueType>): FieldDesc => {
 	const contract = contractOf(t)
@@ -270,9 +262,6 @@ const fieldDescFor = (t: Exclude<ScalarType, NumericValueType>): FieldDesc => {
 	const s = spanOf(t)
 	if (s !== undefined && contractOf(s.endpoint) !== undefined) {
 		return { kind: "span", endpoint: fieldDescFor(s.endpoint), width: s.width }
-	}
-	if ("serial" in t) {
-		return { kind: "serial", type: serialDescs[t.carrier] }
 	}
 	return succeeded(declaredDescOf(t, {}))
 }
@@ -557,10 +546,6 @@ const readingDescGen: Gen<FieldDesc> = oneOf([
 		precision: source.draw(element([9, 10])),
 		scale: source.draw(element([2, 3]))
 	}),
-	map(element(["smallserial" as const, "serial" as const]), (type): FieldDesc => ({
-		kind: "serial",
-		type
-	})),
 	constant<FieldDesc>({ kind: "uuid" }),
 	(source) => ({
 		kind: "text" as const,
@@ -568,6 +553,7 @@ const readingDescGen: Gen<FieldDesc> = oneOf([
 		flags: source.draw(element(["u" as const, "su" as const]))
 	}),
 	map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "closedId", roster })),
+	map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "bits", roster })),
 	map(element([3, 4]), (dimensions): FieldDesc => ({ kind: "vector", dimensions })),
 	(source) => ({
 		kind: "span" as const,
@@ -637,7 +623,7 @@ const pgCarrier = {
 /** Asserts that `t` is a plain value type of `carrier`: its capabilities, and no typmod, refinement or contract. */
 const plain = (t: ScalarType, carrier: Carrier, at: string): void => {
 	assert.equal(t.carrier, carrier, at)
-	assert.deepEqual(t.caps, capabilitiesOf(carrier, false), at)
+	assert.deepEqual(t.caps, capabilitiesOf(carrier), at)
 	const fields: Readonly<Record<string, unknown>> = { ...t }
 	assert.deepEqual(Arr.sort(Rec.keys(fields), Order.String), ["caps", "carrier", "contract"], at)
 	assert.equal(contractOf(t), undefined, at)
@@ -658,10 +644,6 @@ const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: string): 
 			)
 			assert.deepEqual(numericBoundOf(t), undefined, at)
 			return
-		case "serial":
-			assert.ok("serial" in t, at)
-			assert.equal(t.carrier, desc.type === "smallserial" ? "int2" : "int4", at)
-			return
 		case "uuid":
 			plain(t, "uuid", at)
 			return
@@ -669,6 +651,11 @@ const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: string): 
 			assert.deepEqual(textOf(t), succeeded(env.text(desc.source, desc.flags)), at)
 			return
 		case "closedId":
+			assert.equal(t.carrier, "code", at)
+			assert.deepEqual(rosterOf(t), envRoster(env, desc.roster), at)
+			return
+		case "bits":
+			assert.equal(t.carrier, "bits", at)
 			assert.deepEqual(rosterOf(t), envRoster(env, desc.roster), at)
 			return
 		case "vector":
@@ -701,9 +688,9 @@ type Content =
 			readonly kind: "numeric"
 			readonly typmod: { readonly precision: number; readonly scale: number }
 	  }
-	| { readonly kind: "serial"; readonly carrier: Carrier }
 	| { readonly kind: "text"; readonly text: TextInfo }
 	| { readonly kind: "closedId"; readonly roster: Roster }
+	| { readonly kind: "bits"; readonly roster: Roster }
 	| { readonly kind: "vector"; readonly dims: number }
 	| { readonly kind: "span"; readonly endpoint: Content; readonly width: bigint | undefined }
 	| {
@@ -720,14 +707,14 @@ const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 			return { kind: "plain", carrier: pgCarrier[desc.type] }
 		case "numeric":
 			return { kind: "numeric", typmod: { precision: desc.precision, scale: desc.scale } }
-		case "serial":
-			return { kind: "serial", carrier: desc.type === "smallserial" ? "int2" : "int4" }
 		case "uuid":
 			return { kind: "plain", carrier: "uuid" }
 		case "text":
 			return { kind: "text", text: succeeded(env.text(desc.source, desc.flags)) }
 		case "closedId":
 			return { kind: "closedId", roster: envRoster(env, desc.roster) }
+		case "bits":
+			return { kind: "bits", roster: envRoster(env, desc.roster) }
 		case "vector":
 			return { kind: "vector", dims: desc.dimensions }
 		case "span":
@@ -752,10 +739,10 @@ describe("scalarTypeOf builds each type from its content", () => {
 					"different contents",
 					"kind pg",
 					"kind numeric",
-					"kind serial",
 					"kind uuid",
 					"kind text",
 					"kind closedId",
+					"kind bits",
 					"kind vector",
 					"kind span",
 					"kind contract"
@@ -986,7 +973,7 @@ const literalCases: Arr.NonEmptyReadonlyArray<LiteralCase> = [
 	},
 	{
 		carrier: "numeric",
-		type: scalarOf(pgDescriptors.numeric),
+		type: scalarOf(pgDescriptors.numeric(9, 2)),
 		live: oneOf<unknown>([
 			decimalText,
 			element<unknown>(["1.50", "1e", "0x10", " 1", "NaN", Decimal.of("0.062"), 2n, 1])
@@ -1202,13 +1189,15 @@ describe("literalDescFor: literal operands adopt the base's host type", () => {
 
 /**
  * The descriptor boundary: describeField reads a descriptor a builder made, span takes one as its endpoint, and closedId
- * takes a closed relation. A copy of a descriptor's members (a look-alike) and any wild value is no descriptor:
- * MalformedDescription at describeField and span; any wild value is no closed relation: MalformedDescription at
- * closedId. A live descriptor is read; span builds over integer, bigint and contracts over them, and refuses any other
- * endpoint by its capability; closedId builds the closed relation's handle descriptor.
+ * takes a closed relation. A copy of a descriptor's members (a look-alike), pg.numeric itself, the builder whose
+ * precision and scale a caller left undeclared, and any wild value are no descriptor: MalformedDescription at
+ * describeField and span; any wild value is no closed relation: MalformedDescription at closedId. A live descriptor is
+ * read; span builds over integer, bigint and contracts over them, and refuses any other endpoint by its capability;
+ * closedId builds the closed relation's handle descriptor.
  */
 type Boundary = "describeField" | "span" | "closedId"
-type DescribeFeature = DrawnFeature<"look-alike"> | `boundary ${Boundary}`
+type NoDescriptor = "look-alike" | "numeric builder"
+type DescribeFeature = DrawnFeature<NoDescriptor> | `boundary ${Boundary}`
 
 const Cents = contractDescriptor("Cents", pgDescriptors.bigint)
 const Day = contractDescriptor("Day", pgDescriptors.integer)
@@ -1221,8 +1210,8 @@ const endpoints: Arr.NonEmptyReadonlyArray<object> = [
 const descriptors: Arr.NonEmptyReadonlyArray<object> = [
 	...endpoints,
 	pgDescriptors.smallint,
-	pgDescriptors.numeric,
 	pgDescriptors.numeric(9, 2),
+	pgDescriptors.numeric(1000, -1000),
 	pgDescriptors.real,
 	pgDescriptors["double precision"],
 	pgDescriptors.money,
@@ -1240,17 +1229,23 @@ const descriptors: Arr.NonEmptyReadonlyArray<object> = [
  * A descriptor (live, a look-alike or wild) for describeField and span, or a closed relation (live Kind, or wild) for
  * closedId.
  */
-const boundaryCaseGen: Gen<readonly [Drawn<object, "look-alike">, Boundary]> = oneOf([
+const boundaryCaseGen: Gen<readonly [Drawn<object, NoDescriptor>, Boundary]> = oneOf([
 	(source) =>
 		[
 			source.draw(
-				lsw<object, "look-alike">({
+				lsw<object, NoDescriptor>({
 					live: element(descriptors),
 					stale: Option.some(
-						map(element(descriptors), (field): Stale<object, "look-alike"> => ({
-							value: { ...field },
-							from: "look-alike"
-						}))
+						oneOf([
+							map(element(descriptors), (field): Stale<object, NoDescriptor> => ({
+								value: { ...field },
+								from: "look-alike"
+							})),
+							constant<Stale<object, NoDescriptor>>({
+								value: pgDescriptors.numeric,
+								from: "numeric builder"
+							})
+						])
 					),
 					wild: WILD_KINDS
 				})
@@ -1260,7 +1255,7 @@ const boundaryCaseGen: Gen<readonly [Drawn<object, "look-alike">, Boundary]> = o
 	(source) =>
 		[
 			source.draw(
-				lsw<object, "look-alike">({ live: constant(Kind), stale: Option.none(), wild: WILD_KINDS })
+				lsw<object, NoDescriptor>({ live: constant(Kind), stale: Option.none(), wild: WILD_KINDS })
 			),
 			source.draw(constant<Boundary>("closedId"))
 		] as const
@@ -1268,7 +1263,7 @@ const boundaryCaseGen: Gen<readonly [Drawn<object, "look-alike">, Boundary]> = o
 
 describe("describeField", () => {
 	it.effect(
-		"reads every descriptor a builder made, and refuses a look-alike and every wild value as malformed, at describeField, span and closedId",
+		"reads every descriptor a builder made, and refuses a look-alike, the undeclared numeric builder and every wild value as malformed, at describeField, span and closedId",
 		(ctx) =>
 			searched(
 				ctx,
@@ -1281,6 +1276,7 @@ describe("describeField", () => {
 							[
 								"live",
 								"stale look-alike",
+								"stale numeric builder",
 								...Arr.map(WILD_KINDS, (kind): DescribeFeature => `wild ${kind}`),
 								"boundary describeField",
 								"boundary span",

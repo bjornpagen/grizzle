@@ -1,10 +1,11 @@
 import { Array as Arr } from "effect"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import {
 	alternatives,
 	check,
 	closed,
-	closedWith,
+	closedRelation,
 	contained,
 	f,
 	field,
@@ -18,6 +19,7 @@ import {
 	value
 } from "#test/support/fixtures/ir/desc.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 
 /** The evolving schemas of the deployment tests: each version exercises migration object rules against the one
  * before it. */
@@ -27,8 +29,8 @@ const CentsV2 = f.contract("Cents", f.bigint, ge(value, literal(1n)))
 
 const Kind = closed("Kind", ["Automatic", "Manual"])
 const Priority = closed("Priority", ["low", "high"])
-/** A handle added between the existing ones. */
-const PriorityV2 = closed("Priority", ["low", "medium", "high"])
+/** A handle appended: a roster's order is its codes' order, so a new handle comes last. */
+const PriorityV2 = closed("Priority", ["low", "high", "medium"])
 const AccountName = f.regex("^.{1,200}$", "su")
 
 const Account = relation("Account", { id: f.uuid, name: AccountName }, ["id"])
@@ -37,7 +39,7 @@ const automatic = (budget: FieldDesc) =>
 	relation("AutomaticTask", { task: f.uuid, budget }, ["task"])
 const ManualTask = relation("ManualTask", { task: f.uuid, operator: f.wildcard }, ["task"])
 
-/** Version 1: tables and a containment; no residual law yet. */
+/** Version 1: tables and a containment; no alternatives yet. */
 export const shopV1: SchemaDesc = {
 	name: "Shop",
 	relations: [Kind, Account, Task, automatic(Cents), ManualTask],
@@ -45,9 +47,9 @@ export const shopV1: SchemaDesc = {
 	extends: undefined
 }
 
-/** Version 2: the alternatives law over existing tables (tags, a composite key, tagged references and the residual
- * reverse obligation), a field added, a candidate key, a row check, the contract tightened, a closed relation added,
- * and Task declared mutable. */
+/** Version 2: the alternatives over existing tables (each arm's containment into its parent and each handle's reverse
+ * containment), a field added, a candidate key, a row check, the contract tightened, a roster added, and Task declared
+ * mutable. */
 export const shopV2: SchemaDesc = {
 	name: "Shop",
 	relations: [
@@ -62,7 +64,7 @@ export const shopV2: SchemaDesc = {
 	],
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
-		...alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
+		alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
 		key(on("Account", ["name"])),
 		check("WeightNonNegative", "Task", ge(field("weight"), literal(0))),
 		mutable("Task")
@@ -83,42 +85,42 @@ export const shopV3: SchemaDesc = {
 	],
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
-		...alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
+		alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
 		key(on("Account", ["name"]))
 	],
 	extends: undefined
 }
 
-/** The worked example's Plans with Pro's budget changed and the labels unchanged. */
-export const plansRepriced = (): SchemaDesc => ({
+/** What shopV3 declares against shopV2, the one drop it makes: Task.weight (`--drop Task.weight`). */
+export const shopV3Declared: Declarations = {
+	renames: [],
+	drops: [{ kind: "field", relation: parsedName("Task"), field: parsedName("weight") }]
+}
+
+/** The worked example's Plans with TierBudget's budget `budget` and Pro's row `pro`, the roster Tier unchanged. */
+const plansWith = (budget: FieldDesc, pro: bigint): SchemaDesc => ({
 	...work.PlansDesc,
 	relations: Arr.map(work.PlansDesc.relations, (r) =>
-		r.kind === "closed" && r.name === "Tier"
-			? closedWith(
-					"Tier",
-					["Free", "Pro"],
-					{ budget: work.CentsDesc },
-					{ Free: { budget: 100n }, Pro: { budget: 2000n } }
+		r.kind === "closedRelation" && r.name === "TierBudget"
+			? closedRelation(
+					"TierBudget",
+					{ tier: f.closedId("Tier"), budget },
+					["tier"],
+					[
+						{ tier: "Free", budget: 100n },
+						{ tier: "Pro", budget: pro }
+					]
 				)
 			: r
 	)
 })
 
-/** The worked example's Plans with Tier's budget a plain bigint and Pro's budget `pro`: a payload no refinement constrains, so a
- * change to it has nothing to validate. */
-export const plainPlans = (pro: bigint): SchemaDesc => ({
-	...work.PlansDesc,
-	relations: Arr.map(work.PlansDesc.relations, (r) =>
-		r.kind === "closed" && r.name === "Tier"
-			? closedWith(
-					"Tier",
-					["Free", "Pro"],
-					{ budget: f.bigint },
-					{ Free: { budget: 100n }, Pro: { budget: pro } }
-				)
-			: r
-	)
-})
+/** The worked example's Plans with Pro's budget changed and the handles unchanged. */
+export const plansRepriced = (): SchemaDesc => plansWith(work.CentsDesc, 2000n)
+
+/** The worked example's Plans with TierBudget's budget a plain bigint and Pro's budget `pro`: a payload no refinement
+ * constrains, so a change to it has nothing to validate. */
+export const plainPlans = (pro: bigint): SchemaDesc => plansWith(f.bigint, pro)
 
 /** A schema whose Entry changes a field's type, its primary key and a field's name, and whose Note is renamed. */
 export const books1: SchemaDesc = {
@@ -144,8 +146,8 @@ export const books2: SchemaDesc = {
 	extends: undefined
 }
 
-/** Version 4 of the shop: a third Kind handle and its arm, which changes the alternatives law for a reason other
- * than `mutable`: its function and triggers replaced in place in its Validate transaction. */
+/** Version 4 of the shop: a third Kind handle, appended, and its arm, which adds that arm's containment and its
+ * handle's reverse containment. */
 const Kind3 = closed("Kind", ["Automatic", "Manual", "Scheduled"])
 const ScheduledTask = relation("ScheduledTask", { task: f.uuid, at: f.bigint }, ["task"])
 export const shopV4: SchemaDesc = {
@@ -161,7 +163,7 @@ export const shopV4: SchemaDesc = {
 	],
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
-		...alternatives(Task, "kind", Kind3, {
+		alternatives(Task, "kind", Kind3, {
 			Automatic: automatic(Cents),
 			Manual: ManualTask,
 			Scheduled: ScheduledTask

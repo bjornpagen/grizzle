@@ -25,10 +25,9 @@ import {
 import { headerBytes, readCursor, writeCursor } from "#compiler/codec/cursor/layout.ts"
 import { boundaryValue } from "#compiler/codec/cursor/value.ts"
 import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
-import { maxOf, minOf } from "#compiler/core/array.ts"
 import { type CompileError, type CursorError, unsupported } from "#compiler/core/errors.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
@@ -37,6 +36,7 @@ import {
 	moneyFractionDigits,
 	uuidTextLength
 } from "#compiler/ir/carriers.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { IntegerCarrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { type CarrierHost, isHostValue } from "#compiler/scalar/values/identity.ts"
 
@@ -176,8 +176,10 @@ export const cursorValueMaxBytes = (type: ScalarType): number | "unbounded" => {
 			return uuidTextLength
 		case "text":
 			return type.text.byteBound ?? "unbounded"
-		case "enum":
-			return maxOf(type.roster.handles.map(utf8ByteLength), 0)
+		case "code":
+			return integerMaxText("int2")
+		case "bits":
+			throw defect("a set over a roster has no order, so no cursor compares one")
 		case "range4":
 			return rangeMaxText("int4")
 		case "range8":
@@ -213,8 +215,10 @@ export const cursorValueMinBytes = (type: ScalarType): number => {
 			return uuidTextLength
 		case "text":
 			return 0
-		case "enum":
-			return minOf(mapNonEmpty(type.roster.handles, utf8ByteLength))
+		case "code":
+			return 1
+		case "bits":
+			throw defect("a set over a roster has no order, so no cursor compares one")
 		case "range4":
 		case "range8":
 			return "[0,1)".length
@@ -295,13 +299,16 @@ export const cursorTokenMaxLength = varintMax
  * Every token is stateless: it names a boundary of the live query and is accepted by any later page of that query.
  *
  * Builds the cursor codec of an ordered query, whose tokens are at most `maxLength` characters long
- * (cursorTokenMaxLength in production, the layout's own bound, and at most it). Refuses an inconsistent spec as
+ * (cursorTokenMaxLength in production, the layout's own bound, and at most it), under the installation's codes: a
+ * closed id's boundary is its code, which never changes meaning, so a token stays valid across migrations, and one
+ * whose code a removed handle left is refused as its value. Refuses an inconsistent spec as
  * MalformedDescription, a comparator without an equality-compatible native order as UnsupportedOperation, and an order
  * whose shortest token already exceeds `maxLength` as UnsupportedOperation: no correct bounded representation exists.
  */
 export const cursorCodec = <const Cs extends ReadonlyArray<CursorComparator>>(
 	spec: CursorSpec<Cs>,
-	maxLength: number
+	maxLength: number,
+	codes: Codebook
 ): Result.Result<CursorCodec<Cs>, CompileError> => {
 	if (maxLength > cursorTokenMaxLength) {
 		return Result.err(
@@ -323,7 +330,7 @@ export const cursorCodec = <const Cs extends ReadonlyArray<CursorComparator>>(
 	if (!comparators.ok) {
 		return Result.err(comparators.error)
 	}
-	const codecs: ReadonlyArray<ScalarCodec> = spec.comparators.map((c) => scalarCodec(c.type))
+	const codecs: ReadonlyArray<ScalarCodec> = spec.comparators.map((c) => scalarCodec(c.type, codes))
 	/** Each comparator's codec, with its reader of a token's value text (value.ts). */
 	const readers = codecs.map((codec) => ({ codec, read: boundaryValue(codec) }))
 	const bound = tokenBound(spec.comparators, maxLength)

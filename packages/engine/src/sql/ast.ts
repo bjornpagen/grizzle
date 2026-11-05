@@ -45,7 +45,9 @@ export const builtinTypeNames = [
 	"int8range",
 	"int4multirange",
 	"int8multirange",
-	"record"
+	"record",
+	"bit varying",
+	"name"
 ] as const
 export type BuiltinTypeName = (typeof builtinTypeNames)[number]
 
@@ -54,7 +56,6 @@ export type FunctionReturns = "trigger" | "boolean" | "void"
 
 /** The pg_catalog types only a catalog read, or a relation reference, names. */
 export type CatalogReadType =
-	| "name"
 	| "oid"
 	| "char"
 	| "regclass"
@@ -63,7 +64,12 @@ export type CatalogReadType =
 	| "regprocedure"
 
 /** Every pg_catalog type grizzle's SQL names. */
-export type CatalogTypeName = BuiltinTypeName | FunctionReturns | CatalogReadType | "jsonpath"
+export type CatalogTypeName =
+	| BuiltinTypeName
+	| FunctionReturns
+	| CatalogReadType
+	| "jsonpath"
+	| "bit"
 
 /**
  * How a pg_catalog type is spelled so that it names pg_catalog's type under every search_path: an SQL keyword, which
@@ -89,6 +95,8 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 	int4multirange: "qualified",
 	int8multirange: "qualified",
 	record: "qualified",
+	bit: "keyword",
+	"bit varying": "keyword",
 	trigger: "qualified",
 	void: "qualified",
 	name: "qualified",
@@ -101,14 +109,14 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 }
 
 /**
- * The schema of a named type: the installation's, for a domain or an enum, or the vector extension's. Only the doors
+ * The schema of a named type: the installation's, for a domain, or the vector extension's. Only the doors
  * that name those schemas mint it (physical/ddl/names.ts, physical/install/extension.ts), and a snapshot read back holds
  * the ones they minted, so no named type sits in pg_catalog: a pg_catalog type is builtin.
  */
 export type TypeSchema = string & { readonly [typeSchemaBrand]: true }
 declare const typeSchemaBrand: unique symbol
 
-/** A named type by its schema and its name: a domain's, an enum's, or the vector extension's vector. */
+/** A named type by its schema and its name: a domain's, or the vector extension's vector. */
 export interface TypeName {
 	readonly schema: TypeSchema
 	readonly name: string
@@ -129,6 +137,15 @@ export type TypeRef =
 			readonly precision: number
 			readonly scale: number | undefined
 			readonly array: boolean
+	  }
+	| {
+			readonly kind: "builtin"
+			readonly name: "bit"
+			readonly precision: undefined
+			readonly scale: undefined
+			/** n of bit(n): a set over a roster has one bit per code, holes included. */
+			readonly length: number
+			readonly array: false
 	  }
 	| {
 			readonly kind: "named"
@@ -163,7 +180,7 @@ declare const finiteFloatBrand: unique symbol
  *   quoted literal;
  * - floatSpecial: NaN, an infinity or -0, for real or double precision, printed as its quoted spelling, which the
  *   float input function reads as exactly that double;
- * - text: any value spelled by its type's input function: text, uuid, enum labels, ranges, money, vectors.
+ * - text: any value spelled by its type's input function: text, uuid, bit strings, ranges, money, vectors.
  */
 export type LiteralValue =
 	| { readonly kind: "bool"; readonly value: boolean }
@@ -192,6 +209,8 @@ export const binaryOperators = [
 	"<@",
 	"<<",
 	">>",
+	"&",
+	"|",
 	"&<",
 	"&>",
 	"-|-",
@@ -261,11 +280,19 @@ export const builtinFunctionNames = [
 	"set_config",
 	"pg_jit_available",
 	"format",
-	"current_database"
+	"current_database",
+	"substring",
+	"bit_count",
+	"bit_or",
+	"string_agg",
+	"generate_subscripts"
 ] as const
 export type BuiltinFunctionName = (typeof builtinFunctionNames)[number]
 
-/** An extension's function, qualified by its schema and quoted. */
+/**
+ * A function of a named schema, qualified by it and quoted: an extension's, or one of the installation's constants, a
+ * call of which with no arguments reads the constant.
+ */
 export interface QualifiedFunctionRef {
 	readonly kind: "qualified"
 	readonly schema: string
@@ -407,6 +434,23 @@ export type Expr =
 	| { readonly kind: "plSpecial"; readonly name: "TG_TABLE_NAME" | "TG_TABLE_SCHEMA" }
 	| { readonly kind: "field"; readonly record: PlRecord; readonly field: string }
 	| RegclassRef
+	| {
+			/** ~ x, PostgreSQL's prefix bitnot of a bit string: it sets the hole and padding bits, so no set is read off it. */
+			readonly kind: "complement"
+			readonly expr: Expr
+	  }
+	| {
+			/** NULLIF(expr, absent): a closed relation's absent cell as NULL, never a value that could feed another read. */
+			readonly kind: "nullif"
+			readonly expr: Expr
+			readonly absent: Expr
+	  }
+	| {
+			/** (array)[index], counted from 1, NULL past either end: a names constant's element. */
+			readonly kind: "subscript"
+			readonly array: Expr
+			readonly index: Expr
+	  }
 
 /**
  * A relation as a regclass value, by its name: it prints as the quoted qualified name in a string literal cast to
@@ -823,6 +867,8 @@ export type TableConstraint =
 			readonly referencedColumns: NonEmptyReadonlyArray<ForeignKeyColumn>
 			/** Undefined: NOT DEFERRABLE. */
 			readonly deferrable: "INITIALLY DEFERRED" | "INITIALLY IMMEDIATE" | undefined
+			/** ON UPDATE CASCADE, or undefined for NO ACTION, PostgreSQL's default, which prints no clause. */
+			readonly onUpdate: "CASCADE" | undefined
 	  }
 	| { readonly kind: "check"; readonly name: string; readonly predicate: Expr }
 	| {
@@ -891,6 +937,15 @@ export type AlterTableAction =
 			readonly kind: "addColumnPlaceholder"
 			readonly column: ColumnDef
 	  }
+	| {
+			/**
+			 * ADD COLUMN ... DEFAULT <default> NOT NULL: a column grizzle draws, added to a table that may hold rows under a
+			 * value its migration's backfill overwrites before the DROP DEFAULT (deploy/diff/backfill.ts).
+			 */
+			readonly kind: "addColumnDefault"
+			readonly column: ColumnDef
+			readonly default: Expr
+	  }
 	| { readonly kind: "dropColumn"; readonly column: string }
 	| { readonly kind: "dropDefault"; readonly column: string }
 	| {
@@ -918,6 +973,15 @@ export type AlterTableAction =
 	| { readonly kind: "dropConstraint"; readonly name: string }
 	| { readonly kind: "enableRowSecurity" }
 	| { readonly kind: "disableRowSecurity" }
+	| {
+			/**
+			 * ALTER COLUMN <column> SET EXPRESSION AS (<expr>): a generated column's expression replaced, which rewrites
+			 * the table once for every column the statement re-expresses.
+			 */
+			readonly kind: "setExpression"
+			readonly column: string
+			readonly expr: Expr
+	  }
 
 /**
  * An ALTER COLUMN ... TYPE's USING: the conversion of each stored value, or a drafted placeholder the reviewer replaces
@@ -937,7 +1001,6 @@ type RenamableObject =
 	| "TABLE"
 	| "INDEX"
 	| "MATERIALIZED VIEW"
-	| "TYPE"
 	| "DOMAIN"
 	| "SEQUENCE"
 	| "STATISTICS"
@@ -1004,34 +1067,6 @@ export interface AlterDomain {
 	readonly kind: "alterDomain"
 	readonly name: ObjectName
 	readonly action: AlterDomainAction
-}
-
-export interface CreateEnum {
-	readonly kind: "createEnum"
-	readonly name: ObjectName
-	/** Labels in declared order. */
-	readonly labels: ReadonlyArray<string>
-}
-
-/**
- * ALTER TYPE ... ADD VALUE [IF NOT EXISTS]. A label goes in a no-transaction Setup file, which a failure reruns
- * from the top, so the drafted statement says IF NOT EXISTS: a label cannot be dropped and re-added.
- */
-export interface AlterEnumAddValue {
-	readonly kind: "alterEnumAddValue"
-	readonly name: ObjectName
-	readonly label: string
-	readonly ifNotExists: boolean
-	/** Undefined: after the last label. */
-	readonly position: { readonly kind: "BEFORE" | "AFTER"; readonly label: string } | undefined
-}
-
-/** ALTER TYPE ... RENAME VALUE: a closed handle renamed in place, every row holding it then holding the new label. */
-export interface AlterEnumRenameValue {
-	readonly kind: "alterEnumRenameValue"
-	readonly name: ObjectName
-	readonly from: string
-	readonly to: string
 }
 
 /** An undefined collation or operator class is the column's or type's default; ASC, the default order, prints bare. */
@@ -1117,7 +1152,7 @@ export interface DropPolicy {
 export type DropObject =
 	| {
 			readonly kind: "drop"
-			readonly object: "TABLE" | "MATERIALIZED VIEW" | "VIEW" | "TYPE" | "DOMAIN" | "SEQUENCE"
+			readonly object: "TABLE" | "MATERIALIZED VIEW" | "VIEW" | "DOMAIN" | "SEQUENCE"
 			readonly name: ObjectName
 			readonly ifExists: boolean
 	  }
@@ -1145,26 +1180,6 @@ export interface DropTrigger {
 	readonly name: string
 	readonly table: ObjectName
 	readonly ifExists: boolean
-}
-
-export type TriggerEvent =
-	| { readonly kind: "INSERT" }
-	| { readonly kind: "DELETE" }
-	| { readonly kind: "UPDATE"; readonly of: NonEmptyReadonlyArray<string> }
-
-/**
- * CREATE CONSTRAINT TRIGGER ... AFTER <event> ON <table> DEFERRABLE INITIALLY DEFERRED FOR EACH ROW [WHEN (<when>)]
- * EXECUTE FUNCTION <function>(): a law unit's trigger, for one event.
- */
-export interface CreateConstraintTrigger {
-	readonly kind: "createConstraintTrigger"
-	readonly name: string
-	readonly table: ObjectName
-	readonly event: TriggerEvent
-	/** The row filter PostgreSQL evaluates when the row event happens, before it queues the deferred event; none when
-	 * every row of the event threatens the law. */
-	readonly when: Expr | undefined
-	readonly function: ObjectName
 }
 
 /**
@@ -1291,7 +1306,6 @@ export type GrantObjects =
 	| { readonly kind: "TABLE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "SEQUENCE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "SCHEMA"; readonly names: NonEmptyReadonlyArray<string> }
-	| { readonly kind: "TYPE"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "DOMAIN"; readonly names: NonEmptyReadonlyArray<ObjectName> }
 	| { readonly kind: "FUNCTION"; readonly names: NonEmptyReadonlyArray<FunctionName> }
 
@@ -1509,6 +1523,49 @@ export type CreateFunction =
 export type PlFunction = Extract<CreateFunction, { readonly language: "plpgsql" }>
 export type SqlFunction = Extract<CreateFunction, { readonly language: "sql" }>
 
+/**
+ * The migration's pack of a closed relation into its constant, printed as one DO block: the string of cells built
+ * from rows of codes in one LEFT JOIN over the key space, then EXECUTE format('CREATE FUNCTION … RETURN %L::bit
+ * varying', cells). Its outer join and its PL/pgSQL exist only inside this printed form: no Select and no PlStatement
+ * can hold either.
+ */
+export interface PackConstant {
+	readonly kind: "packConstant"
+	readonly function: ObjectName
+	/** Each key field's code space, holes included, in key order; their product is the count of cells. */
+	readonly radices: NonEmptyReadonlyArray<number>
+	/** w, a cell's bits: 1 for a set. */
+	readonly width: number
+	/**
+	 * The relation's tuples, its key checked before the pack: none for a relation that holds no fact, whose constant is
+	 * its cells' zero bits, which the printer builds with no VALUES list, since PostgreSQL has no empty one.
+	 */
+	readonly rows: ReadonlyArray<PackRow>
+}
+
+/** One tuple of a packed relation: its key's codes in key order, its payload's code, and the names they stand for. */
+export interface PackRow {
+	readonly key: NonEmptyReadonlyArray<number>
+	/** The payload's mixed-radix code, exact over any payload space. */
+	readonly payload: bigint
+	/** The handles the codes stand for, printed as the row's comment, each a JSON string. */
+	readonly names: NonEmptyReadonlyArray<string>
+}
+
+/**
+ * CREATE FUNCTION <name>(<params>) RETURNS <type> LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN <body>: a constant.
+ * Never OR REPLACE: a domain's planned check keeps the constant it folded, so a function changed under it would go
+ * unseen, and a new constant is a new name. No SET clause: a function with one is never inlined, and its body names
+ * every type and function by its schema. A parameter is read by position, $n, as every grizzle SQL body reads.
+ */
+export interface CreateConstant {
+	readonly kind: "createConstant"
+	readonly name: ObjectName
+	readonly params: ReadonlyArray<FunctionParam>
+	readonly returns: TypeRef
+	readonly body: Expr
+}
+
 /** Every transaction is SERIALIZABLE. */
 export type Txn =
 	| { readonly kind: "begin"; readonly readOnly: boolean }
@@ -1547,7 +1604,6 @@ export type CommentTarget =
 				| "TABLE"
 				| "VIEW"
 				| "MATERIALIZED VIEW"
-				| "TYPE"
 				| "DOMAIN"
 				| "SEQUENCE"
 				| "INDEX"
@@ -1591,9 +1647,6 @@ export type Ddl =
 	| RenameConstraint
 	| CreateDomain
 	| AlterDomain
-	| CreateEnum
-	| AlterEnumAddValue
-	| AlterEnumRenameValue
 	| CreateIndex
 	| DropIndex
 	| CreateMaterializedView
@@ -1604,7 +1657,8 @@ export type Ddl =
 	| DropFunction
 	| DropTrigger
 	| CreateFunction
-	| CreateConstraintTrigger
+	| PackConstant
+	| CreateConstant
 	| CreateGuardTrigger
 	| AlterDatabaseDefault
 	| CreateRole

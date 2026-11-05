@@ -151,7 +151,7 @@ const boolLiteral = (editor: DagEditor, like: ScalarExpr, value: boolean): Scala
  * - the comparisons `=`, `<>`, `<`, `<=`, `>`, `>=`, BETWEEN and IN between operands that are literals, or columns
  *   whose value the caller fixes (a closed relation's declared fact), compared under PostgreSQL's own total orders
  *   (compute/evaluate.ts compareValues: NaN above every number and equal to itself, -0 equal to 0, numeric scale
- *   ignored, text in code-point order under C.UTF-8, enums in roster order).
+ *   ignored, text in code-point order under C.UTF-8, closed ids in roster order).
  *
  * Anything else, a parameter, an arithmetic operator, a cast, a conditional, is left to PostgreSQL. A connective whose
  * value an operand decides drops the other operands, which raise nothing: every expression is total.
@@ -247,6 +247,13 @@ export const foldBoolean = (editor: DagEditor, expr: ScalarExpr, column: ColumnV
 		case "upper":
 		case "charLength":
 		case "cosineDistance":
+		case "union":
+		case "intersection":
+		case "difference":
+		case "complement":
+		case "cardinality":
+		case "subset":
+		case "disjoint":
 		case "cast":
 			return { kind: "expr", expr }
 	}
@@ -313,6 +320,13 @@ export const folds = (expr: ScalarExpr, column: ColumnValue): boolean => {
 		case "upper":
 		case "charLength":
 		case "cosineDistance":
+		case "union":
+		case "intersection":
+		case "difference":
+		case "complement":
+		case "cardinality":
+		case "subset":
+		case "disjoint":
 		case "cast":
 			return false
 	}

@@ -1,4 +1,4 @@
-import { handleColumn } from "#compiler/core/decoder.ts"
+import { codeColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -89,7 +89,7 @@ const typingOf = (
 			carrier: { column: described.value.column, sql: described.value.sql }
 		}
 	}
-	if (roster === undefined || !isNonEmpty(roster)) {
+	if (roster === undefined || !isNonEmpty(roster) || desc.kind !== "closedId") {
 		return { kind: "untyped" }
 	}
 	const scalar = scalarTypeOf(
@@ -101,7 +101,7 @@ const typingOf = (
 		? {
 				kind: "typed",
 				scalar: scalar.value,
-				carrier: { column: handleColumn(roster), sql: "enum" }
+				carrier: { column: codeColumn(desc.roster, roster), sql: "code" }
 			}
 		: { kind: "untyped" }
 }
@@ -362,6 +362,9 @@ export const foreignInput = <R extends Refs>(expr: ExprDesc<Located, R>): string
 			return firstForeign([expr.left, expr.right])
 		case "pointIn":
 			return firstForeign([expr.point, expr.span])
+		case "closedAt":
+		case "closedRow":
+			return firstForeign(expr.args)
 	}
 }
 

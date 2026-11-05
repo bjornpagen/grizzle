@@ -9,14 +9,15 @@ import type { Session } from "#adapter/wire/session.ts"
 import { nextTimestamp, parseTimestamp } from "#cli/clock.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
+import { codebookOf, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { lawUnits } from "#compiler/ir/law.ts"
+import { draftCodebook, noRenames, reorderRefusal } from "#compiler/ir/codes.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { roleIdentity, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
-import type { OwnedRole } from "#compiler/schema/own.ts"
+import { type Owned, type OwnedRole, own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { CreatePolicy, CreateView, RoleSetting } from "#compiler/sql/ast.ts"
 import { and, col, derived, lit, simpleSelect, target } from "#compiler/sql/build.ts"
@@ -30,7 +31,7 @@ import { type PgConnection, type SqlError, wireSession } from "#test/support/pg.
 import type { SubstrateShape } from "#test/support/substrate/substrate.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { sqlStateOf } from "#test/support/worlds/execute/observe.ts"
-import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
+import { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import type { Seen } from "#test/support/worlds/execute/session.ts"
 import { refusedWith, seen } from "#test/support/worlds/execute/session.ts"
 import type {
@@ -528,36 +529,19 @@ const defaultOf = (domain: FieldDomain): Effect.Effect<string> => {
 	}
 }
 
-/** The functions the triggers of a trigger reference run, each with the table it is on when that names it: every unit
- * function of a residual law, or a table's isolation guard. */
+/**
+ * The functions the triggers of a trigger reference run, each with the table it is on when that names it: a table's
+ * isolation guard, the one trigger grizzle installs (fin.md §7).
+ */
 const triggerFunctions = (
 	catalog: Catalog,
 	trigger: TriggerRef
 ): Effect.Effect<
 	Arr.NonEmptyReadonlyArray<{ readonly name: string; readonly table: Option.Option<string> }>
-> => {
-	switch (trigger.kind) {
-		case "law":
-			return Option.match(
-				Arr.findFirst(catalog.installation.laws.residuals, (r) => r.lawId === trigger.law),
-				{
-					onNone: () =>
-						Effect.die(new Error(`the installation has no residual law ${trigger.law}`)),
-					onSome: (residual) =>
-						Effect.succeed(
-							Arr.map(lawUnits(residual), (u) => ({
-								name: identifierOf(u.unit.function),
-								table: Option.none()
-							}))
-						)
-				}
-			)
-		case "isolation-guard":
-			return Effect.map(rawName(catalog.names.tables, trigger.relation, "table"), (table) => [
-				{ name: isolationGuardName, table: Option.some(table) }
-			])
-	}
-}
+> =>
+	Effect.map(rawName(catalog.names.tables, trigger.relation, "table"), (table) => [
+		{ name: isolationGuardName, table: Option.some(table) }
+	])
 
 /** Every trigger of the installation's schema that runs a function of it, by its name: each one's table and name. */
 const triggersQuery =
@@ -780,9 +764,46 @@ interface Continued {
 }
 
 /**
+ * Every drop of stored data from `previous` to `owned`, declared as a reviewer declares it (`--drop`): each stored
+ * relation or roster the snapshot holds that the next version lacks, each field of a relation both hold that the next
+ * version's lacks, and each live handle of a roster both hold that the next version no longer declares. The worlds
+ * declare no rename: a relation or handle that goes is dropped, and one that comes is new.
+ */
+const dropsOf = (previous: DeploySnapshot, owned: Owned): Declarations => {
+	const drops: Array<Named> = []
+	for (const [name, r] of Rec.toEntries(previous.theory.relations)) {
+		const now = owned.relations[name]
+		const relation = parsedName(name)
+		if (r.kind === "derived") {
+			continue
+		}
+		if (now === undefined) {
+			drops.push({ kind: "relation", relation })
+			continue
+		}
+		if (r.kind === "relation" && now.kind === "relation") {
+			for (const f of r.fields) {
+				if (!Rec.has(now.fields, f.name)) {
+					drops.push({ kind: "field", relation, field: parsedName(f.name) })
+				}
+			}
+		}
+		if (r.kind === "closed" && now.kind === "closed") {
+			for (const slot of r.codes) {
+				if (slot.kind === "live" && !now.desc.handles.includes(slot.handle)) {
+					drops.push({ kind: "handle", roster: relation, handle: slot.handle })
+				}
+			}
+		}
+	}
+	return { renames: [], drops }
+}
+
+/**
  * The next migration of an installation under `schema`, drafted from the directory's snapshot as `grizzle generate`
- * drafts it, every rename declined and every loss written in, at the CLI's timestamp. A draft that needs a placeholder
- * value is a defect of the drawn spec.
+ * drafts it, no rename declared, every drop declared (dropsOf) and every loss written in, at the CLI's timestamp. A
+ * version that declares a roster out of its codes' order is refused as generate refuses it (D1), before anything is
+ * drafted. A draft that needs a placeholder value is a defect of the drawn spec.
  */
 export const draftNext = (
 	declared: AnySchema,
@@ -790,7 +811,7 @@ export const draftNext = (
 	schema: string,
 	owner: string,
 	previous: Continued
-): Effect.Effect<Drafted> =>
+): Effect.Effect<Drafted, RealizeRefused> =>
 	Effect.gen(function* () {
 		const now = parseTimestamp(draftedAt(1))
 		if (Option.isNone(now)) {
@@ -805,13 +826,24 @@ export const draftNext = (
 		if (desc === undefined) {
 			return yield* Effect.die(new Error("the next version's base is no schema value"))
 		}
+		const owned = yield* Effect.orDie(fromEngine(own(desc)))
+		/** The codes the next version's rosters take, every handle the snapshot holds keeping its own (D1). */
+		const drafted = draftCodebook(codebookOf(previous.snapshot), noRenames, rostersOf(owned))
+		if (!drafted.ok) {
+			return yield* new RealizeRefused({
+				what: `the codes of roster ${drafted.error.roster}`,
+				refusal: reorderRefusal(drafted.error)
+			})
+		}
+		const drops = dropsOf(previous.snapshot, owned)
 		const plan = yield* Effect.orDie(
 			fromEngine(
 				planRealInstall(desc, {
 					installation: identity.schema(parsedSchemaName(schema)),
 					owner,
 					logins,
-					extensions: []
+					extensions: [],
+					codes: drafted.value
 				})
 			)
 		)
@@ -822,12 +854,12 @@ export const draftNext = (
 					name: "next",
 					timestamp,
 					previous: fromSnapshot(previous.snapshot),
-					workload: noWorkload
+					workload: noWorkload,
+					declared: drops
 				})
 			)
 		)
 		const reviewed = review(g, {
-			chosen: new Set(),
 			losses: "written",
 			value: (placeholder) => {
 				throw new Error(
@@ -835,12 +867,7 @@ export const draftNext = (
 				)
 			}
 		})
-		if (Result.isFailure(reviewed)) {
-			return yield* Effect.die(
-				new Error(`the next migration's review is inexpressible in ${reviewed.failure.file}`)
-			)
-		}
-		const files = Arr.map(reviewed.success.files, (f) => ({ name: f.name, text: f.text }))
+		const files = Arr.map(reviewed.files, (f) => ({ name: f.name, text: f.text }))
 		return {
 			plan,
 			folder: { name: g.folder.name, metaText: g.folder.metaText, files },

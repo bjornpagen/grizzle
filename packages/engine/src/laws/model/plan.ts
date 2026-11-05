@@ -1,75 +1,60 @@
-import {
-	fixedSelection,
-	type ResolvedSelection,
-	type ResolvedSelector,
-	type ResolvedSide,
-	type ResolvedTerm,
-	selectorsOf,
-	type TheoryArm,
-	type TheoryLaw,
-	type Weighed
+import { familyKey, familyText, membersSelection } from "#compiler/analysis/theory/families.ts"
+import type {
+	ResolvedConjunct,
+	ResolvedSelection,
+	ResolvedSelector,
+	ResolvedSide,
+	ResolvedTerm,
+	TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import type { Identity } from "#compiler/core/identity.ts"
+import type { DeclaredName, Identity, LawColumnStatement } from "#compiler/core/identity.ts"
+import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
-	dedupeNonEmpty,
 	extendNonEmpty,
-	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
-	type NonEmptyReadonlyArray,
-	sortNonEmpty
+	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
-import * as Order from "#compiler/core/order.ts"
-import { fieldTermsOf, type LiteralDesc, type Refs, termText } from "#compiler/ir/desc.ts"
+import { descText, type ExprDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
+import type { AxisKind, AxisPair, Family, FamilyFold } from "#compiler/ir/family.ts"
 import {
-	type AlternativesArm,
-	type AlternativesCheck,
-	type Anchor,
-	type AnchorPair,
-	type CapacityBound,
-	type CheckedBound,
 	type ClosedTheoryRelation,
-	type DetailCodec,
-	type EventsOf,
-	type FamilyDetail,
+	type Drawn,
+	type FamilyId,
 	fieldNames,
-	type FieldSelector,
-	type FieldValue,
-	type ImageGuard,
 	isSpanField,
 	type KeyName,
 	type LawField,
-	type LawWeight,
-	participantEvents,
-	plainFields,
-	type RosterHandle,
-	type Selector,
+	type NativeColumn,
+	type RelationInfo,
 	type SpanField,
 	type SpanKeyScalars,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
+import { monoids } from "#compiler/ir/monoid.ts"
 
-import {
-	allRows,
-	defaultOpclass,
-	type IndexRequest,
-	type IndexRows,
-	type LawIndexRequest
-} from "#compiler/ir/products.ts"
-import { closedCell, type KeySet, type RelNode } from "#compiler/ir/rel.ts"
-import { baseOf, type Carrier, rosterOf, type SpanInfo } from "#compiler/ir/scalar.ts"
+import { type Side, sideOf } from "#compiler/ir/cells.ts"
+import { closedCell } from "#compiler/ir/rel.ts"
+import { baseOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
+import { indexMaxKeys } from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */
 const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, loc, capability)))
+}
+
+/** What the planner always holds where it reads it: its absence is a defect. */
+const missing = (what: string): never => {
+	throw defect(what)
 }
 
 /** A key of `relation` over `key` whose index entry is unrepresentable, for `fault`. */
@@ -82,42 +67,54 @@ const unrepresentable = (
 	throw new Refusal(CompileError.make({ _tag: "UnrepresentableKey", at: loc, subject, key, fault }))
 }
 
-/** A selector as a residual law, its guards and its indexes record it: its column's name and its value, the resolved
- * column left with the theory, so what the law's digest reads is the names alone. */
-const plainSelector = (s: Selector): Selector => ({ column: s.column, value: s.value })
-
-/** Literal selectors in their relation's declared field order. */
-const orderedSelectors = (
-	selection: ReadonlyArray<ResolvedSelector>
-): ReadonlyArray<ResolvedSelector> => selection.toSorted((a, b) => a.col.position - b.col.position)
-
-/** A selection as an index's rows record it, by name, in the relation's declared field order. */
-const orderedSelection = (selection: ReadonlyArray<ResolvedSelector>): ReadonlyArray<Selector> =>
-	orderedSelectors(selection).map(plainSelector)
-
-/** A selector as a native object, a residual law and its guards read it: the handle of its field, and its literal. */
-const fieldSelector = (s: ResolvedSelector): FieldSelector => ({ field: s.col, value: s.value })
-
 /**
- * A column a law adds to its relation, as planned (ir/law.ts LawColumn), its name and expressions still to settle: a
- * constant a selected target fixes on its source `relation`, the value of the target's `field`; or a term of a side of
- * `relation` under the side's selection, a pred term or any term of a selected side. A field term over every fact is
- * the field itself, never a law column (`sideColumns`).
+ * A column a law adds to its relation, as planned (ir/law.ts LawColumn), its name and expressions still to settle:
+ *
+ * - a constant a selected target fixes on its source `relation`, the value of the target's `field`;
+ * - a term of a side of `relation` under the side's selection, a pred term or any term of a selected side, generated
+ *   from the row;
+ * - a drawn column of a family (`Drawn`), a plain column the host writes and the family's foreign keys and CHECKs
+ *   prove, holding values of `field`;
+ * - a counted family's ‹p›, pred of its drawn index, generated from the row.
+ *
+ * A field term over every fact is the field itself, never a law column (`sideColumns`).
  */
 export type LawColumnPlan =
 	| {
 			readonly kind: "constant"
-			readonly relation: TheoryRelation
-			readonly target: TheoryRelation
+			readonly relation: RelationInfo
+			readonly target: RelationInfo
 			readonly field: LawField
 			readonly value: TypedLiteral
 	  }
 	| {
 			readonly kind: "term"
-			readonly relation: TheoryRelation
+			readonly relation: RelationInfo
 			readonly term: ResolvedTerm
 			readonly selection: ResolvedSelection
 	  }
+	| {
+			readonly kind: "drawn"
+			readonly relation: RelationInfo
+			/** The field whose values it holds, which types it and sizes an index entry over it. */
+			readonly field: LawField
+			readonly draws: Drawn
+			/** What it is at the naming door: its family and what it draws, a hidden accumulator by its fold's law. */
+			readonly named: DrawnStatement
+	  }
+	| {
+			readonly kind: "indexPred"
+			readonly relation: RelationInfo
+			readonly family: FamilyId
+			/** The family's count, whose values the index and its predecessor hold. */
+			readonly field: LawField
+			/** The drawn index the predecessor is pred of. */
+			readonly index: LawColumnPlan
+	  }
+
+/** A family's law column as the naming door states it (core/identity.ts LawColumnStatement): a drawn one's, by its
+ * family and what it draws. */
+export type DrawnStatement = Exclude<LawColumnStatement, { readonly kind: "constant" | "term" }>
 
 /** A constant law column, which a constant selection places on its source. */
 type ConstantColumn = Extract<LawColumnPlan, { readonly kind: "constant" }>
@@ -130,82 +127,127 @@ export type PlannedColumn =
 /** A field as a planned native reads it. */
 const fieldColumn = (field: LawField): PlannedColumn => ({ kind: "field", field })
 
+/** A law column as a planned native reads it. */
+const lawColumn = (column: LawColumnPlan): PlannedColumn => ({ kind: "law", column })
+
+/**
+ * What a leaf of a generated CHECK's predicate names beyond its relation's fields: a law column of the relation at the
+ * type of the values it holds, or a literal at its type.
+ */
+export type CheckLeaf =
+	| { readonly kind: "law"; readonly column: LawColumnPlan; readonly type: ScalarType }
+	| { readonly kind: "literal"; readonly literal: TypedLiteral; readonly type: ScalarType }
+
+/**
+ * A generated CHECK's predicate over one row of its relation: a predicate whose field leaves each name a field of the
+ * relation, or one of `leaves`, by its name there. A leaf's name is never a field's.
+ */
+export interface CheckPredicate {
+	readonly predicate: ExprDesc
+	readonly leaves: ReadonlyMap<string, CheckLeaf>
+}
+
+/**
+ * How a planned foreign key is deferred: by the schema-wide rule (on a cycle of the rule's foreign keys, or into a
+ * replaceable target), or as its family axis fixes it.
+ */
+export type ForeignKeyDeferral = "rule" | "immediate" | "deferred"
+
 /** A native object as planned: the frozen NativeObject kinds, with a law column still symbolic, a foreign key's deferral
  * still to decide, and a generated CHECK still to lower. */
 export type NativePlan =
 	| {
 			readonly kind: "PrimaryKey"
-			readonly relation: TheoryRelation
+			readonly relation: RelationInfo
 			readonly columns: NonEmptyReadonlyArray<LawField>
 			readonly named: Identity<"primaryKey" | "key">
 	  }
 	| {
 			readonly kind: "Unique"
-			readonly relation: TheoryRelation
+			readonly relation: RelationInfo
 			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
 	  }
 	| { readonly kind: "Domain"; readonly contract: OwnedContract }
 	| {
 			readonly kind: "TableCheck"
-			readonly relation: TheoryRelation
+			readonly relation: RelationInfo
 			readonly name: string
 			readonly named: Identity<"check">
 			/** The predicate as the check law's violation query lowers it. */
 			readonly predicate: ScalarExpr
 	  }
 	| {
+			/** One CHECK a law generates on `relation`: the conjunction of every row condition it states there. */
 			readonly kind: "GeneratedCheck"
-			readonly relation: TheoryRelation
-			/** The predicate over the table's own columns, lowered in "check" mode, where no operation raises. */
-			readonly predicate: CheckPredicate
+			readonly relation: RelationInfo
+			readonly check: CheckPredicate
 	  }
-	| { readonly kind: "Enum"; readonly name: string; readonly handles: ReadonlyArray<string> }
+	| { readonly kind: "RosterDomain"; readonly name: DeclaredName }
 	| {
-			readonly kind: "FiniteCheck"
-			readonly relation: TheoryRelation
-			readonly facts: ReadonlyArray<NonEmptyReadonlyArray<FieldValue>>
+			/** A containment into a closed side (`#intoClosed`), its source's selection still to lower over its row. */
+			readonly kind: "ClosedCheck"
+			readonly relation: RelationInfo
+			readonly target: ClosedTheoryRelation
+			readonly side: Side<TypedLiteral>
+			readonly pairs: NonEmptyReadonlyArray<{
+				readonly source: PlannedColumn
+				readonly target: LawField
+			}>
+			readonly guard: ReadonlyArray<ResolvedConjunct>
 	  }
 	| {
 			readonly kind: "ForeignKey"
-			readonly relation: TheoryRelation
+			readonly relation: RelationInfo
 			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
-			readonly target: TheoryRelation
+			readonly target: RelationInfo
 			readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
+			readonly onUpdate: "cascade" | "noAction"
+			readonly deferral: ForeignKeyDeferral
+			/**
+			 * The laws it discharges, the reported one first, where it is a family axis whose pairs state several (its
+			 * former's and every containment that rides it); undefined for a foreign key of one law, the law that plans it.
+			 */
+			readonly laws: NonEmptyReadonlyArray<LawId> | undefined
 	  }
 	| { readonly kind: "LawColumn"; readonly column: LawColumnPlan }
 	| {
 			readonly kind: "WithoutOverlaps"
-			readonly relation: TheoryRelation
-			readonly span: SpanField
-			readonly key: SpanKeyScalars
-			readonly named: Identity<"primaryKey" | "key">
+			readonly relation: RelationInfo
+			readonly span: PlannedColumn
+			readonly key: PlannedSpanKey
+			/** The identity ownership named a declared span key's constraint by; undefined for a key over a projected side,
+			 * which the naming door names by its columns. */
+			readonly named: Identity<"primaryKey" | "key"> | undefined
 	  }
 	| {
 			readonly kind: "PeriodForeignKey"
-			readonly relation: TheoryRelation
-			readonly columns: ReadonlyArray<PlannedColumn>
-			readonly span: SpanField
-			readonly target: TheoryRelation
-			readonly targetColumns: ReadonlyArray<PlannedColumn>
-			readonly targetSpan: SpanField
-	  }
-	| {
-			readonly kind: "TemporalUnique"
-			readonly relation: TheoryRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
-			readonly span: SpanField
+			readonly relation: RelationInfo
+			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
+			readonly span: PlannedColumn
+			readonly target: RelationInfo
+			readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
+			readonly targetSpan: PlannedColumn
 	  }
 	| {
 			readonly kind: "ReverseIndex"
-			readonly relation: TheoryRelation
+			readonly relation: RelationInfo
 			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
 	  }
+
+/** A span key's scalar columns as planned (ir/law.ts SpanKeyScalars). */
+export type PlannedSpanKey =
+	| { readonly kind: "primary"; readonly scalars: NonEmptyReadonlyArray<PlannedColumn> }
+	| { readonly kind: "unique"; readonly scalars: ReadonlyArray<PlannedColumn> }
 
 /** The law column natives a list of planned columns reads, each once. */
 const lawColumns = (columns: ReadonlyArray<PlannedColumn>): ReadonlyArray<NativePlan> =>
 	columns.flatMap((c): ReadonlyArray<NativePlan> =>
-		c.kind === "law" ? [{ kind: "LawColumn", column: c.column }] : []
+		c.kind === "law" ? [...dependencies(c.column), { kind: "LawColumn", column: c.column }] : []
 	)
+
+/** The law columns a law column's value reads, which must stand beside it: a counted predecessor reads its index. */
+const dependencies = (column: LawColumnPlan): ReadonlyArray<NativePlan> =>
+	column.kind === "indexPred" ? [{ kind: "LawColumn", column: column.index }] : []
 
 /**
  * The columns a side lowers to, one per term (§ partial projections): a field term of an unselected side is its field;
@@ -214,20 +256,39 @@ const lawColumns = (columns: ReadonlyArray<PlannedColumn>): ReadonlyArray<Native
  * references only from them.
  */
 const sideColumns = (side: ResolvedSide): NonEmptyReadonlyArray<PlannedColumn> =>
-	mapNonEmpty(side.terms, (term): PlannedColumn =>
-		term.kind === "field" && side.selection.conjuncts.length === 0
-			? fieldColumn(term.column)
-			: {
-					kind: "law",
-					column: { kind: "term", relation: side.rel, term, selection: side.selection }
-				}
-	)
+	mapNonEmpty(side.terms, (term) => termColumn(tableOf(side.rel), term, side.selection))
+
+/** One term of a side over `relation` under `selection` as a column (`sideColumns`). */
+const termColumn = (
+	relation: RelationInfo,
+	term: ResolvedTerm,
+	selection: ResolvedSelection
+): PlannedColumn =>
+	term.kind === "field" && selection.conjuncts.length === 0
+		? fieldColumn(term.column)
+		: lawColumn({ kind: "term", relation, term, selection })
+
+/**
+ * `r` as the ordinary relation a native object is installed on. `plan` routes every law over a closed relation alone to
+ * the migration (`migrationPlan`) and every containment into one to a ClosedCheck on its open source (`#intoClosed`)
+ * before it plans any other object, and the theory admits no family over a closed relation, so a closed relation here
+ * is a defect.
+ */
+const tableOf = (r: TheoryRelation): RelationInfo => {
+	if (r.kind === "closed") {
+		throw defect(
+			`an object of an ordinary relation; ${r.name} is closed, which plan routes elsewhere`
+		)
+	}
+	return r
+}
 
 /** A primary key's native object as planned: a PRIMARY KEY, or a primary key WITHOUT OVERLAPS. */
 export type PrimaryKeyPlan =
 	| Extract<NativePlan, { readonly kind: "PrimaryKey" }>
 	| (Extract<NativePlan, { readonly kind: "WithoutOverlaps" }> & {
-			readonly key: Extract<SpanKeyScalars, { readonly kind: "primary" }>
+			readonly key: Extract<PlannedSpanKey, { readonly kind: "primary" }>
+			readonly named: Identity<"primaryKey" | "key">
 	  })
 
 /**
@@ -235,7 +296,7 @@ export type PrimaryKeyPlan =
  * OVERLAPS. A primary key whose only field is a span has no native lowering: PostgreSQL's PRIMARY KEY needs a column
  * before WITHOUT OVERLAPS (42601), and an exclusion constraint is no primary key, so it is UnrepresentableKey.
  */
-export const primaryKeyPlan = (r: TheoryRelation, key: KeyName, loc: SourceLoc): PrimaryKeyPlan => {
+export const primaryKeyPlan = (r: RelationInfo, key: KeyName, loc: SourceLoc): PrimaryKeyPlan => {
 	const { fields, span, named } = key
 	if (span === undefined) {
 		return { kind: "PrimaryKey", relation: r, columns: fields, named }
@@ -247,134 +308,43 @@ export const primaryKeyPlan = (r: TheoryRelation, key: KeyName, loc: SourceLoc):
 			field: span.name
 		})
 	}
-	return { kind: "WithoutOverlaps", relation: r, span, key: { kind: "primary", scalars }, named }
+	return {
+		kind: "WithoutOverlaps",
+		relation: r,
+		span: fieldColumn(span),
+		key: { kind: "primary", scalars: mapNonEmpty(scalars, fieldColumn) },
+		named
+	}
 }
 
-/** A participant field and its family's pairing at the anchor-key field its value gives (ir/law.ts KeyComponent). */
-export interface KeyColumn {
-	readonly field: LawField
-	readonly pair: AnchorPair
-}
-
-/** One row image of an event, each participant field that gives the anchor key from it with the anchor-key column it
- * gives, in anchor-key order, and its guard: the selection of the side the image plays, which a row outside it fails
- * (`ImageGuard`). An INSERT's image is of NEW and a DELETE's of OLD, so the event it belongs to is its side. */
-export interface ImagePlan {
-	readonly key: NonEmptyReadonlyArray<KeyColumn>
-	readonly guard: ImageGuard
-}
-
-/** The image key of the anchor itself: each pair's anchor-key field gives its own column. */
-const anchorColumns = (
-	pairs: NonEmptyReadonlyArray<AnchorPair>
-): NonEmptyReadonlyArray<KeyColumn> => mapNonEmpty(pairs, (pair) => ({ field: pair.anchor, pair }))
-
-/** The image key of the paired side: each pair's own field gives its anchor-key column. */
-const pairedColumns = (
-	pairs: NonEmptyReadonlyArray<AnchorPair>
-): NonEmptyReadonlyArray<KeyColumn> => mapNonEmpty(pairs, (pair) => ({ field: pair.field, pair }))
-
-/** The anchor key paired with itself: the pairs of a family that pairs no side by the key. */
-const ownPairs = (key: NonEmptyReadonlyArray<LawField>): NonEmptyReadonlyArray<AnchorPair> =>
-	mapNonEmpty(key, (f) => ({ field: f, anchor: f }))
-
-/** Each pair's field of one side with the anchor-key field it meets. */
-const anchorPairs = <P>(
-	pairs: NonEmptyReadonlyArray<P>,
-	field: (pair: P) => LawField,
-	anchor: (pair: P) => LawField
-): NonEmptyReadonlyArray<AnchorPair> =>
-	mapNonEmpty(pairs, (p) => ({ field: field(p), anchor: anchor(p) }))
-
-/** An image every row of its relation gives. */
-const always: ImageGuard = { kind: "always" }
-
-/** An image of a side chosen by `selection`: a row the selection rejects gives none, an unselected side's every row does. */
-const guardBy = (selection: ReadonlyArray<ResolvedSelector>): ImageGuard =>
-	isNonEmpty(selection)
-		? { kind: "selected", selections: [mapNonEmpty(selection, fieldSelector)] }
-		: always
-
-/** A participant's threatening events as planned: an INSERT, a DELETE or both, each with the row images that give its
- * affected anchor keys, and for a mutable relation the fields whose UPDATE matters, an UPDATE being the deletion of OLD
- * and the insertion of NEW, so its images are theirs. */
-export type PlanEvents = EventsOf<NonEmptyReadonlyArray<ImagePlan>, NonEmptyReadonlyArray<LawField>>
-
-/** One participating table of a residual law and its threatening events. */
-export interface ParticipantPlan {
-	readonly relation: TheoryRelation
-	readonly events: PlanEvents
-}
-
-/** An alternatives law's participant plan, with what its writes can leave unpaid. */
-export interface AlternativesPlan extends ParticipantPlan {
-	readonly check: AlternativesCheck
-}
-
-/** What an arm relation's writes can leave unpaid: its own arms. */
-type ArmsCheck = Extract<AlternativesCheck, { readonly kind: "arms" }>
-
-/** An arm relation's participant plan, re-checking its own arms. */
-interface ArmPlan extends ParticipantPlan {
-	readonly check: ArmsCheck
-}
-
-/** The UPDATE OF fields of a participant: only a mutable relation has an UPDATE, no role holding UPDATE on an
- * immutable relation. Its images are its DELETE's and its INSERT's (ir/law.ts updateImages). */
-const updateOf = (
-	relation: TheoryRelation,
-	of: NonEmptyReadonlyArray<LawField>
-): NonEmptyReadonlyArray<LawField> | undefined => (relation.mutable ? of : undefined)
-
-/** A participant whose INSERT threatens, at `image` of NEW, and whose UPDATE OF `of` does for a mutable relation. */
-const inserting = (
-	relation: TheoryRelation,
-	image: ImagePlan,
-	of: NonEmptyReadonlyArray<LawField>
-): ParticipantPlan => ({
-	relation,
-	events: { insert: [image], delete: undefined, update: updateOf(relation, of) }
+/** A primary key's planned span key as the native object reads it: its scalar columns, each a field. */
+export const primarySpanScalars = (
+	key: Extract<PlannedSpanKey, { readonly kind: "primary" }>,
+	column: (c: PlannedColumn) => NativeColumn
+): Extract<SpanKeyScalars, { readonly kind: "primary" }> => ({
+	kind: "primary",
+	scalars: mapNonEmpty(key.scalars, column)
 })
-
-/** A participant whose DELETE threatens, at `image` of OLD, and whose UPDATE OF `of` does for a mutable relation. */
-const deleting = (
-	relation: TheoryRelation,
-	image: ImagePlan,
-	of: NonEmptyReadonlyArray<LawField>
-): ParticipantPlan => ({
-	relation,
-	events: { insert: undefined, delete: [image], update: updateOf(relation, of) }
-})
-
-/** What each family checks beyond its anchor, with its participants as planned: one per relation. */
-type PlannedDetail = FamilyDetail<
-	NonEmptyReadonlyArray<ParticipantPlan>,
-	NonEmptyReadonlyArray<AlternativesPlan>
->
-
-interface ResidualPlan {
-	/** The family, what it checks beyond the anchor, and its participants. */
-	readonly checks: PlannedDetail
-	readonly anchor: Anchor
-	readonly violation: RelNode
-	readonly indexes: NonEmptyReadonlyArray<Omit<LawIndexRequest, "justification">>
-	readonly detail: DetailCodec
-}
 
 export interface LawPlan {
 	readonly law: TheoryLaw
 	readonly natives: ReadonlyArray<NativePlan>
-	/** The law's residual check, none for a law its natives enforce alone. */
-	readonly residual: ResidualPlan | undefined
+	/**
+	 * Where the law is discharged: on every write, by its natives; or, for a law that reads closed relations alone,
+	 * once by PostgreSQL in the migration that installs them, as its violation query over their rows, so it installs
+	 * nothing (fin.md §17, "Where each law is discharged").
+	 */
+	readonly discharge: "write" | "migration"
 }
+
+/** A law that reads closed relations alone, discharged by the migration: no native. */
+const migrationPlan = (law: TheoryLaw): LawPlan => ({ law, natives: [], discharge: "migration" })
 
 const sameSet = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean =>
 	a.length === b.length && new Set(a).size === a.length && a.every((x) => b.includes(x))
 
 const contains = <T>(outer: ReadonlyArray<T>, inner: ReadonlyArray<T>): boolean =>
 	inner.every((x) => outer.includes(x))
-
-const declaredKeys = (r: TheoryRelation): ReadonlyArray<KeySet> => [r.primaryKey, ...r.keys]
 
 /** The handles of each declared key's fields, the primary key's first. */
 const declaredFields = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<LawField>> => [
@@ -385,181 +355,6 @@ const declaredFields = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<
 /** The declared keys of `r` with no span field. */
 const scalarKeys = (r: TheoryRelation): ReadonlyArray<NonEmptyReadonlyArray<LawField>> =>
 	declaredFields(r).filter((k) => !k.some(isSpanField))
-
-/** The DETAIL codec of a residual law whose violating facts are facts of `r`: their key
- * columns only, never a payload column. A projection that is exactly a declared key of `r` is spelled in the
- * projection's order, which is the order the function holds it in; any other projection, a superkey or a group key
- * that some payload field enters, is replaced by the primary key, which the function reads from the violating fact. */
-const detailOf = (r: TheoryRelation, fields: NonEmptyReadonlyArray<LawField>): DetailCodec => ({
-	relation: r,
-	keys: declaredFields(r).some((k) => sameSet<LawField>(k, fields)) ? fields : r.primaryFields
-})
-
-/** `fields`, each a field of `r`, once each in declared field order. */
-const inHeadingOrder = (fields: NonEmptyReadonlyArray<LawField>): NonEmptyReadonlyArray<LawField> =>
-	sortNonEmpty(
-		dedupeNonEmpty(fields),
-		Order.mapInput(Order.compareNumbers, (f: LawField) => f.position)
-	)
-
-/** A term of a generated CHECK: a field of the row, a literal, or the width of a span field. A field carries its
- * handle beside its name, and a width the span its field holds, which the lowering reads them at. */
-type FieldTerm = { readonly kind: "field"; readonly field: string; readonly column: LawField }
-
-/** The references of a generated CHECK's predicate lowered as an expression: its table's own fields, each with its
- * handle, and no other leaf. */
-export interface CheckRefs extends Refs {
-	readonly var: never
-	readonly parent: never
-	readonly interior: never
-	readonly leaf: FieldTerm
-}
-
-export type CheckTerm =
-	| FieldTerm
-	| { readonly kind: "literal"; readonly value: LiteralDesc; readonly type: undefined }
-	| {
-			readonly kind: "compute"
-			readonly fn: "width"
-			readonly args: readonly [FieldTerm]
-			readonly span: SpanInfo
-	  }
-/** A term a literal meets: a field of the row, or a span field's width. A literal never stands first. */
-type MetTerm = Exclude<CheckTerm, { readonly kind: "literal" }>
-
-/** A generated CHECK's predicate over its table's own fields: comparisons of terms under and, or and not. */
-export type CheckPredicate =
-	| {
-			readonly kind: "compare"
-			readonly op: "eq" | "ne" | "ge" | "le"
-			readonly left: CheckTerm
-			readonly right: CheckTerm
-	  }
-	| { readonly kind: "and"; readonly args: NonEmptyReadonlyArray<CheckPredicate> }
-	| { readonly kind: "or"; readonly args: NonEmptyReadonlyArray<CheckPredicate> }
-	| { readonly kind: "not"; readonly arg: CheckPredicate }
-
-const field = (column: LawField): FieldTerm => ({ kind: "field", field: column.name, column })
-
-/** The carrier a literal opposite `term` is lowered at, which the generated CHECK's lowering adopts from the term it
- * meets (`operand`): a field's own, or a width's, an exact integer, the difference of its span's endpoints. */
-const metCarrier = (term: MetTerm): Carrier => {
-	switch (term.kind) {
-		case "field":
-			return baseOf(term.column.type).carrier
-		case "compute":
-			return "exactInteger"
-	}
-}
-
-/** The literal `literal` stated in the host convention of the carrier it meets, which the Description lowering reads it
- * in (`irLiteral`): an integer is a JavaScript number at int2 and int4 and a bigint elsewhere.
- * A bound the carrier cannot hold stays irLiteral's typed refusal: beyond 2^53 - 1 the number is no safe integer, and
- * within it the range check refuses what int2 or int4 cannot hold. */
-const literalAt = (carrier: Carrier, literal: TypedLiteral): CheckTerm => {
-	switch (literal.kind) {
-		case "int": {
-			return {
-				kind: "literal",
-				value: carrier === "int2" || carrier === "int4" ? Number(literal.value) : literal.value,
-				type: undefined
-			}
-		}
-		case "numeric":
-		case "float":
-		case "money":
-		case "bool":
-		case "text":
-		case "uuid":
-		case "vector":
-			return { kind: "literal", value: literal.value, type: undefined }
-		case "floatSpecial":
-			return { kind: "literal", value: { float: literal.value }, type: undefined }
-		case "enum":
-			return { kind: "literal", value: literal.handle, type: undefined }
-		case "span":
-			return {
-				kind: "literal",
-				value: { span: { start: literal.start, end: literal.end } },
-				type: undefined
-			}
-	}
-}
-
-/** `left <op> literal`, the literal typed at the term it meets. */
-const compareLiteral = (
-	op: "eq" | "ne" | "ge" | "le",
-	left: MetTerm,
-	literal: TypedLiteral
-): CheckPredicate => ({
-	kind: "compare",
-	op,
-	left,
-	right: literalAt(metCarrier(left), literal)
-})
-
-/** A predicate over a row with its statically known parts folded: `true` and `false` are decided, anything else is a
- * CheckPredicate. */
-type Pred = boolean | CheckPredicate
-
-const andP = (ps: ReadonlyArray<Pred>): Pred => {
-	if (ps.includes(false)) {
-		return false
-	}
-	const rest = ps.flatMap((p) => (typeof p === "boolean" ? [] : [p]))
-	if (!isNonEmpty(rest)) {
-		return true
-	}
-	return rest.length === 1 ? headNonEmpty(rest) : { kind: "and", args: rest }
-}
-
-const orP = (ps: ReadonlyArray<Pred>): Pred => {
-	if (ps.includes(true)) {
-		return true
-	}
-	const rest = ps.flatMap((p) => (typeof p === "boolean" ? [] : [p]))
-	if (!isNonEmpty(rest)) {
-		return false
-	}
-	return rest.length === 1 ? headNonEmpty(rest) : { kind: "or", args: rest }
-}
-
-const notP = (p: Pred): Pred => (typeof p === "boolean" ? !p : { kind: "not", arg: p })
-
-/** A literal selection over a row of its relation, each selector compared at its column's type. */
-const selectionPred = (selection: ReadonlyArray<ResolvedSelector>): Pred =>
-	andP(
-		selection.map((s): Pred => ({
-			kind: "compare",
-			op: "eq",
-			left: field(s.col),
-			right: literalAt(baseOf(s.col.type).carrier, s.value)
-		}))
-	)
-
-/** A closed fact projected onto columns: each column with the fact's value of it. */
-type ClosedTuple<C> = NonEmptyReadonlyArray<{ readonly column: C; readonly value: TypedLiteral }>
-
-/** A closed tuple's values as one comparable text. */
-const tupleKey = <C>(tuple: ClosedTuple<C>): string =>
-	tuple.map((c) => literalKey(c.value)).join("\u0000")
-
-/** A side's selectors, or the refusal of `what` over a side with a conjunct that fixes no field, which `what` reads as
- * a conjunction of field = literal alone. */
-const literalsOf = (
-	side: ResolvedSide,
-	loc: SourceLoc,
-	what: string
-): ReadonlyArray<ResolvedSelector> => {
-	const fixed = fixedSelection(side.selection)
-	return fixed === undefined
-		? refuse(
-				"UnsupportedLawFamily",
-				loc,
-				`${what} whose sides select by conjunctions of field = literal; select(${side.relation}, ...) selects by another predicate`
-			)
-		: selectorsOf(fixed)
-}
 
 /** A side's fields, or the refusal of `what` over a side with a pred term, which `what` reads as fields alone. */
 const fieldsOf = (
@@ -577,6 +372,22 @@ const fieldsOf = (
 		: mapNonEmpty(fields, (t) => t.column)
 }
 
+/** A side's selectors, or the refusal of `what` over a side with a conjunct that fixes no field. */
+const literalsOf = (
+	side: ResolvedSide,
+	loc: SourceLoc,
+	what: string
+): ReadonlyArray<ResolvedSelector> =>
+	side.selection.conjuncts.map((c) =>
+		c.kind === "fixed"
+			? c.selector
+			: refuse(
+					"UnsupportedLawFamily",
+					loc,
+					`${what} whose sides select by conjunctions of field = literal; select(${side.relation}, ...) selects by another predicate`
+				)
+	)
+
 /** Whether a key over `key` keys `target`: every conjunct of the key's selection is one of the target's, which so
  * reads only facts the key holds apart, and the target's terms hold every term of the key, each of one kind over one
  * field. */
@@ -584,13 +395,174 @@ const keyedBy = (key: ResolvedSide, target: ResolvedSide): boolean =>
 	key.selection.conjuncts.every((k) => target.selection.conjuncts.some((c) => c.text === k.text)) &&
 	key.terms.every((k) => target.terms.some((t) => t.kind === k.kind && t.column === k.column))
 
-/** The recognition table: each normalized law to its plan of native objects and at most one residual law. Laws are
- * database obligations.
+/** Whether `key` is exactly `side`: the same conjuncts and the same terms, each of one kind over one field. */
+const sameSide = (key: ResolvedSide, side: ResolvedSide): boolean =>
+	keyedBy(key, side) &&
+	key.selection.conjuncts.length === side.selection.conjuncts.length &&
+	key.terms.length === side.terms.length
+
+/** The one span field term of a side, if it has exactly one; the refusal of a key holding two. */
+const spanTermOf = (side: ResolvedSide, loc: SourceLoc): ResolvedTerm | undefined => {
+	const spans = side.terms.filter((t) => isSpanField(t.column))
+	if (spans.length > 1) {
+		return unrepresentable(
+			loc,
+			`the key over ${side.relation}(${side.terms.map(termText).join(", ")})`,
+			side.terms.map(termText),
+			{ kind: "spans", fields: spans.map((t) => t.field) }
+		)
+	}
+	return spans[0]
+}
+
+/** The coverage refusal of an unkeyed target: a temporal reference needs the target's spans disjoint within a key. */
+const coverageKeySentence =
+	"a coverage target needs a `WITHOUT OVERLAPS` key over its span; coalesce the spans, or key them"
+
+/** A literal expression of a small natural, which every comparison of a family's drawn naturals reads. */
+const naturalLiteral = (value: 0n | 1n): ExprDesc => ({ kind: "literal", value, type: undefined })
+
+const cmp = (
+	op: "eq" | "ne" | "lt" | "le" | "gt" | "ge",
+	left: ExprDesc,
+	right: ExprDesc
+): ExprDesc => ({
+	kind: "compare",
+	op,
+	left,
+	right
+})
+
+const or = (args: NonEmptyReadonlyArray<ExprDesc>): ExprDesc =>
+	args.length === 1 ? args[0] : { kind: "or", args }
+
+const and = (args: NonEmptyReadonlyArray<ExprDesc>): ExprDesc =>
+	args.length === 1 ? args[0] : { kind: "and", args }
+
+/**
+ * The row conditions one law states on one relation, gathered into the one generated CHECK the law installs there: each
+ * column it reads a leaf, a field by its name and every other by a name no field has.
+ */
+class RowConditions {
+	readonly relation: RelationInfo
+	readonly #leaves = new Map<string, CheckLeaf>()
+	readonly #conjuncts: Array<ExprDesc> = []
+
+	constructor(relation: RelationInfo) {
+		this.relation = relation
+	}
+
+	/** A column of the relation, a field by its name and a law column as a leaf of the type of the values it holds. */
+	column(c: PlannedColumn): ExprDesc {
+		if (c.kind === "field") {
+			return { kind: "field", field: c.field.name }
+		}
+		return this.#leaf({ kind: "law", column: c.column, type: heldType(c.column) })
+	}
+
+	literal(literal: TypedLiteral, type: ScalarType): ExprDesc {
+		return this.#leaf({ kind: "literal", literal, type })
+	}
+
+	add(conjunct: ExprDesc): void {
+		this.#conjuncts.push(conjunct)
+	}
+
+	native(): NativePlan | undefined {
+		const [first, ...rest] = this.#conjuncts
+		return first === undefined
+			? undefined
+			: {
+					kind: "GeneratedCheck",
+					relation: this.relation,
+					check: { predicate: and([first, ...rest]), leaves: new Map(this.#leaves) }
+				}
+	}
+
+	#leaf(leaf: CheckLeaf): ExprDesc {
+		const name = `‹${this.#leaves.size}›`
+		if (this.relation.fields.some((f) => f.name === name)) {
+			throw defect(`a leaf name no field of ${this.relation.name} has; ${name} is one`)
+		}
+		this.#leaves.set(name, leaf)
+		return { kind: "field", field: name }
+	}
+}
+
+/** The type of the values a law column holds: its field's. */
+const heldType = (column: LawColumnPlan): ScalarType => {
+	switch (column.kind) {
+		case "constant":
+		case "drawn":
+		case "indexPred":
+			return column.field.type
+		case "term":
+			return column.term.column.type
+	}
+}
+
+/** Whether PostgreSQL generates a column: a generated field, or a law column generated from its row. */
+const isGenerated = (c: PlannedColumn): boolean => {
+	if (c.kind === "field") {
+		return c.field.writing.kind === "generated"
+	}
+	switch (c.column.kind) {
+		case "term":
+		case "constant":
+		case "indexPred":
+			return true
+		case "drawn":
+			return false
+	}
+}
+
+/** The key a law column's plan is known by within a family: a drawn column's identifier. */
+const columnKey = (c: NativeColumn): string =>
+	c.kind === "field" ? `f ${c.field.name}` : `l ${c.column}`
+
+/**
+ * One axis of a family as planned: its foreign key and the UNIQUE over its target's columns it references, the law
+ * columns either side reads, and every law its pairs state.
+ */
+interface AxisPlan {
+	readonly natives: ReadonlyArray<NativePlan>
+	readonly foreignKey: Extract<NativePlan, { readonly kind: "ForeignKey" }>
+}
+
+/** A carried pair as planned: its two columns, each with its key in its row, and the laws it states. */
+interface CarriedPair {
+	readonly from: PlannedColumn
+	readonly to: PlannedColumn
+	readonly fromKey: string
+	readonly toKey: string
+	readonly laws: NonEmptyReadonlyArray<LawId>
+}
+
+/**
+ * A family's natives as planned once for every law that reads them: its axes, its key, and every row condition each
+ * law states on each relation of the family.
+ */
+interface FamilyPlan {
+	readonly family: Family
+	readonly law: TheoryLaw
+	readonly member: RelationInfo
+	readonly owner: RelationInfo
+	/** The family's own natives: its law columns, its key and its three axes. */
+	readonly natives: ReadonlyArray<NativePlan>
+	readonly axes: { readonly [A in AxisKind]: AxisPlan }
+	/** Each law's row conditions, by relation name, the family's own law's among them. */
+	readonly conditions: ReadonlyMap<LawId, ReadonlyMap<string, RowConditions>>
+	/** Each hidden fold accumulator's law column natives, by fold. */
+	readonly folds: ReadonlyArray<ReadonlyArray<NativePlan>>
+}
+
+/**
+ * The recognition table: each normalized law to its plan of native objects. Laws are database obligations.
  *
- * A shape the recognizer does not know is rejected, never interpreted. Each case below states the row it
- * implements; everything else is refused with UnsupportedLawFamily, naming what the compiler admits. A plan is
- * pure data: law column names, foreign key deferral and the generated CHECK predicates are settled afterwards, over
- * every plan at once (`compileLaws`), because they depend on the whole schema.
+ * A shape the recognizer does not know is rejected, never interpreted. Each case below states the row it implements;
+ * everything else is refused with UnsupportedLawFamily, naming what the compiler admits. A plan is pure data: law
+ * column names, foreign key deferral and the generated CHECK predicates are settled afterwards, over every plan at once
+ * (`compileLaws`), because they depend on the whole schema.
  *
  * The rules it implements, the partial projections first:
  *
@@ -598,7 +570,8 @@ const keyedBy = (key: ResolvedSide, target: ResolvedSide): boolean =>
  *   of a selected side and every pred term is a law column generated `CASE WHEN φ₁ AND … THEN t END` STORED over its
  *   selection's conjuncts, pred(x) being `CASE WHEN x > 0 THEN x - 1 END` (scalar/natural.ts guardedTerm). A row whose
  *   side reads no tuple holds a null there.
- * - A key over a side is UNIQUE NULLS DISTINCT over its columns, which holds apart only the rows the side reads.
+ * - A key over a side is UNIQUE NULLS DISTINCT over its columns, which holds apart only the rows the side reads; one
+ *   whose terms hold a span field is WITHOUT OVERLAPS over them, the span last.
  * - A containment is FOREIGN KEY MATCH SIMPLE from the source's columns, which references nothing from a row whose side
  *   reads no tuple, into a UNIQUE over exactly the target's columns, and its referencing columns are indexed. The
  *   target must contain a key: a declared key of its relation among its field terms, or a projected key of the
@@ -609,92 +582,128 @@ const keyedBy = (key: ResolvedSide, target: ResolvedSide): boolean =>
  *   terms, contain a declared key of the target, are a constant law column each on the source instead, matched against
  *   the target's terms under its other conjuncts and then its fixed fields, so every constant shares one target
  *   UNIQUE. An alternatives arm of one handle is one: its parent selected by the handle.
- * - A selected source into closed facts is a row CHECK conditional on its selector: `NOT <selector> OR <tuple in the
- *   facts>`. A capacity whose source is its target on one key is a row CHECK too: each selected target fact's own
- *   weight, or zero when the source selection rejects it, lies within its bounds. Both read selections every conjunct
- *   of which is fixed, over fields.
- * - A capacity whose weight is a count or a span width can only grow by an insertion and shrink by a deletion, so its
- *   event table drops a source insertion when it has no upper bound and a source deletion when its lower bound is a
- *   literal of zero or less; a field weight may be negative, so both stay. A count or width capacity whose bounds are
- *   vacuous, a lower bound of at most zero and no upper bound, holds in every state and installs nothing.
- * - A residual capacity is admitted only when its target projection contains a declared key of the target; otherwise
- *   it is UnsupportedLawFamily (`#capacityAnchor`). The three residual families (alternatives reverse, capacity and
- *   selected-source coverage) read selections every conjunct of which is fixed, over fields alone.
- * - Each probe of a residual law asks for an index on the keys it fixes by equality and states the rows it reads
- *   (`IndexRows`): a probe of a selected source (a capacity's group aggregate, a coverage's uncovered-span probe) reads
- *   only the rows of the source's selection, listed in declared field order, which the index engine serves by a
- *   partial index of that selection; an anchor read reads every row.
+ * - A coverage, a containment pairing a span field of each side, is a PERIOD foreign key from the source's columns into
+ *   the target's, which must be keyed WITHOUT OVERLAPS over exactly its terms: a declared span key, or a key over its
+ *   projected side. A target whose spans may overlap within a key is refused.
+ * - A family is its three axes (`#familyPlan`): the owner axis, member to owner carrying the owner's count ‹n› and ON
+ *   UPDATE CASCADE, a tree's from its plain parent with no action, its root referencing itself; the predecessor axis,
+ *   each member to the one before it; and the last axis, the owner to its last member. A containment that rides an axis has no native of its own: its pairs and its law are on the axis's foreign
+ *   key. A tree adds its interval laws as CHECKs and its copies as pairs, and a fold its accumulators' CHECK and pins.
  * - A key containing a span field is a pointwise nonoverlap rule: facts may share its scalar fields provided their
  *   spans share no point. Its native lowering places the span last WITHOUT OVERLAPS, as the primary key or as
- *   `UNIQUE (..., span WITHOUT OVERLAPS)` for a candidate key, both under the key's own constraint name; every scalar component needs a btree_gist operator class, which Setup creates if absent
- *   and verifies. A key whose only field is a span needs none: it is `EXCLUDE USING gist (span WITH &&)` under the same
- *   name, and since an exclusion constraint is no primary key, every span-only key is a candidate key. A key with two
- *   span fields, and a primary key whose only field is a span, have no native lowering and are UnrepresentableKey at
- *   recognition: an exclusion constraint is no PRIMARY KEY, and PostgreSQL's PRIMARY KEY needs a column before WITHOUT
- *   OVERLAPS (42601), while the same rule as a candidate key, key(on(R, span)), has its lowering.
+ *   `UNIQUE (..., span WITHOUT OVERLAPS)` for a candidate key, both under the key's own constraint name; every scalar
+ *   component needs a btree_gist operator class, which Setup creates if absent and verifies. A key whose only field is
+ *   a span needs none: it is `EXCLUDE USING gist (span WITH &&)` under the same name, and since an exclusion constraint
+ *   is no primary key, every span-only key is a candidate key. A key with two span fields, and a primary key whose
+ *   only field is a span, have no native lowering and are UnrepresentableKey at recognition.
  * - Every writer meets a span key's overlap as SQLSTATE 23P01 under the key's constraint name, which the
- *   constraint-to-LawId map turns into the span key law: a grizzle writer reports it as invariant-rejected with that
- *   law, and its witness carries the law id alone, because PostgreSQL reports the conflicting key only in its message
- *   text, which grizzle never parses. The complete key tuple of a span key is unique, because an equal nonempty span
- *   overlaps itself: that is why the target's span key identifies one row of a coverage group and
- *   why the span key's GiST index serves equality on the whole tuple. A span key is no ON CONFLICT ... DO SELECT
- *   arbiter: PostgreSQL refuses an exclusion constraint there, and a B-tree UNIQUE beside it as the arbiter reports a
- *   concurrent exact repeat as an overlap. The write compiler's insert into a span key names it as a DO NOTHING arbiter
- *   and classifies each fact it did not insert in a later statement. */
+ *   constraint-to-LawId map turns into the span key law. A span key is no ON CONFLICT ... DO SELECT arbiter:
+ *   PostgreSQL refuses an exclusion constraint there. */
 export class Recognizer {
 	/** Each relation's keys over projected sides, by relation name, which a containment's target may contain. */
 	readonly #projectedKeys: ReadonlyMap<string, ReadonlyArray<ResolvedSide>>
+	readonly #relations: Readonly<Record<string, TheoryRelation>>
+	readonly #families: ReadonlyMap<string, Family>
+	/** Each family's or tree's own law, by family key. */
+	readonly #familyLaws: ReadonlyMap<string, TheoryLaw>
+	/** Each family's fold laws, by family key, each at its fold's position. */
+	readonly #foldLaws: ReadonlyMap<string, ReadonlyMap<number, FoldLaw>>
+	/** Each family's plan, built once for every law that reads it. */
+	readonly #planned = new Map<string, FamilyPlan>()
+	/** The columns each relation's owner axes write by ON UPDATE CASCADE, by relation name and column key. */
+	readonly #cascaded: ReadonlyMap<string, ReadonlySet<string>>
 
-	constructor(laws: ReadonlyArray<TheoryLaw>) {
+	constructor(
+		laws: ReadonlyArray<TheoryLaw>,
+		families: ReadonlyArray<Family>,
+		relations: Readonly<Record<string, TheoryRelation>>
+	) {
 		const keys = new Map<string, Array<ResolvedSide>>()
+		const familyLaws = new Map<string, TheoryLaw>()
+		const foldLaws = new Map<string, Map<number, FoldLaw>>()
 		for (const law of laws) {
-			if (law.detail.kind === "projectedKey") {
-				const side = law.detail.side
-				keys.set(side.relation, [...(keys.get(side.relation) ?? []), side])
+			const d = law.detail
+			switch (d.kind) {
+				case "projectedKey":
+					keys.set(d.side.relation, [...(keys.get(d.side.relation) ?? []), d.side])
+					break
+				case "family":
+				case "tree":
+					familyLaws.set(familyKey(d.family.id), law)
+					break
+				case "fold": {
+					const own = foldLaws.get(familyKey(d.family)) ?? new Map<number, FoldLaw>()
+					own.set(d.fold, { law, detail: d })
+					foldLaws.set(familyKey(d.family), own)
+					break
+				}
+				case "key":
+				case "check":
+				case "contract":
+				case "containment":
+					break
 			}
 		}
 		this.#projectedKeys = keys
+		this.#relations = relations
+		this.#families = new Map(families.map((f) => [familyKey(f.id), f] as const))
+		this.#familyLaws = familyLaws
+		this.#foldLaws = foldLaws
+		const cascaded = new Map<string, Set<string>>()
+		for (const f of families) {
+			const own = cascaded.get(f.member.name) ?? new Set<string>()
+			for (const c of ownerSources(f)) {
+				own.add(columnKey(c))
+			}
+			cascaded.set(f.member.name, own)
+		}
+		this.#cascaded = cascaded
 	}
 
 	plan(law: TheoryLaw): LawPlan {
 		const loc = law.loc
 		const d = law.detail
-		const done = (
-			natives: ReadonlyArray<NativePlan>,
-			residual: ResidualPlan | undefined
-		): LawPlan => ({
+		const done = (natives: ReadonlyArray<NativePlan>): LawPlan => ({
 			law,
 			natives,
-			residual
+			discharge: "write"
 		})
 		switch (d.kind) {
 			case "key":
-				return done(this.#key(d, loc), undefined)
+				return d.rel.kind === "closed" ? migrationPlan(law) : done(this.#key(d, d.rel, loc))
 			case "projectedKey":
-				return done(this.#projectedKey(d.side, loc), undefined)
+				return d.side.rel.kind === "closed"
+					? migrationPlan(law)
+					: done(this.#projectedKey(d.side, loc))
 			case "check":
-				return done(
-					[
-						{
-							kind: "TableCheck",
-							relation: d.rel,
-							name: d.name,
-							named: d.named,
-							predicate: d.lowered
-						}
-					],
-					undefined
-				)
+				return d.rel.kind === "closed"
+					? migrationPlan(law)
+					: done([
+							{
+								kind: "TableCheck",
+								relation: d.rel,
+								name: d.name,
+								named: d.named,
+								predicate: d.lowered
+							}
+						])
 			case "contract":
-				return done([{ kind: "Domain", contract: d.owned }], undefined)
-			case "alternatives":
-				return done([], this.#alternatives(law, d))
-			case "alternativesArm":
-				return done(this.#alternativesArm(d, loc), undefined)
+				return done([{ kind: "Domain", contract: d.owned }])
 			case "containment":
 				return this.#containment(law, d, loc, done)
-			case "capacity":
-				return this.#capacity(law, d, loc, done)
+			case "family":
+			case "tree":
+				return done(this.#familyNatives(this.#familyPlan(d.family.id, loc), law.id))
+			case "fold": {
+				const planned = this.#familyPlan(d.family, loc)
+				return done([
+					...(planned.folds[d.fold] ?? []),
+					planned.axes.predecessor.foreignKey,
+					planned.axes.last.foreignKey,
+					...this.#axisNatives(planned, ["predecessor", "last"]),
+					...conditionsOf(planned, law.id)
+				])
+			}
 		}
 	}
 
@@ -702,167 +711,67 @@ export class Recognizer {
 	 * WITHOUT OVERLAPS, or, alone, is an exclusion constraint under the key's name. */
 	#key(
 		d: Extract<TheoryLaw["detail"], { readonly kind: "key" }>,
+		rel: RelationInfo,
 		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
 		const { fields, span, primary, named } = d.key
 		if (primary) {
-			return [primaryKeyPlan(d.rel, d.key, loc)]
+			return [primaryKeyPlan(rel, d.key, loc)]
 		}
 		if (span === undefined) {
-			return [{ kind: "Unique", relation: d.rel, columns: mapNonEmpty(fields, fieldColumn) }]
+			return [{ kind: "Unique", relation: rel, columns: mapNonEmpty(fields, fieldColumn) }]
 		}
 		return [
 			{
 				kind: "WithoutOverlaps",
-				relation: d.rel,
-				span,
-				key: { kind: "unique", scalars: fields.filter((f) => f !== span) },
+				relation: rel,
+				span: fieldColumn(span),
+				key: { kind: "unique", scalars: fields.filter((f) => f !== span).map(fieldColumn) },
 				named
 			}
 		]
 	}
 
-	/** A key over a projected side: UNIQUE NULLS DISTINCT over its columns, a stored relation's. */
+	/** A key over a projected side: UNIQUE NULLS DISTINCT over its columns, or WITHOUT OVERLAPS over them where one term
+	 * is a span field, its law column last. */
 	#projectedKey(side: ResolvedSide, loc: SourceLoc): ReadonlyArray<NativePlan> {
-		if (side.rel.kind === "closed") {
-			return refuse(
-				"UnsupportedLawFamily",
-				loc,
-				`a key over a side of a stored relation; ${side.relation} is closed, and its facts are declared`
-			)
-		}
+		const relation = tableOf(side.rel)
 		const columns = sideColumns(side)
-		return [...lawColumns(columns), { kind: "Unique", relation: side.rel, columns }]
-	}
-
-	/** An alternatives arm relation's native half: its forward law, each of its facts contained in the parent over the
-	 * parent key, selected by the handles it is the arm of (analysis/theory/laws.ts), lowered as every containment is.
-	 * An arm of one handle selects the parent by a constant, so it references the parent's UNIQUE (key, discriminator)
-	 * through a constant law column of its own; an arm of several references law columns of the parent, its key where
-	 * its discriminator is among them. */
-	#alternativesArm(
-		d: Extract<TheoryLaw["detail"], { readonly kind: "alternativesArm" }>,
-		loc: SourceLoc
-	): ReadonlyArray<NativePlan> {
-		return this.#scalarContainment(d.from, d.to, loc)
-	}
-
-	/** The alternatives family's reverse obligation, anchored on the parent row; the native half is the arms'
-	 * references (their own laws). The violation is a union of one term per armed handle, each reading the parent and
-	 * that handle's arm relation alone, so a write to an arm relation can break only its own arms' terms: the parent
-	 * re-checks the whole roster, each arm relation its own arms. A parent deletion and an arm insertion break no term.
-	 * The parent is no arm relation (the theory refuses its own arm), so its participant is its own, and an arm relation
-	 * of several handles is one participant re-checking each of its arms. */
-	#alternatives(
-		law: TheoryLaw,
-		family: Extract<TheoryLaw["detail"], { readonly kind: "alternatives" }>
-	): ResidualPlan {
-		const parentKey = anchorColumns(ownPairs(family.parentFields))
-		const armOf = (arm: TheoryArm): AlternativesArm => ({
-			handle: arm.handle,
-			relation: arm.rel,
-			pairs: anchorPairs(
-				arm.key,
-				(p) => p.armColumn,
-				(p) => p.parentColumn
-			)
-		})
-		const parent: AlternativesPlan = {
-			...inserting(
-				family.parentRel,
-				{ key: parentKey, guard: always },
-				inHeadingOrder([...family.parentFields, family.discriminatorField])
-			),
-			check: {
-				kind: "roster",
-				handles: mapNonEmpty(family.handles, (h): RosterHandle => {
-					switch (h.kind) {
-						case "armed":
-							return { kind: "armed", arm: armOf(h.arm) }
-						case "unarmed":
-							return h
-					}
-				})
+		const span = spanTermOf(side, loc)
+		if (span === undefined) {
+			return [...lawColumns(columns), { kind: "Unique", relation, columns }]
+		}
+		const at = side.terms.indexOf(span)
+		const spanColumn = columns[at] ?? missing(`the column of the span term of ${side.relation}`)
+		return [
+			...lawColumns(columns),
+			{
+				kind: "WithoutOverlaps",
+				relation,
+				span: spanColumn,
+				key: { kind: "unique", scalars: columns.filter((_, i) => i !== at) },
+				named: undefined
 			}
-		}
-		const arms = family.handles.flatMap((h): ReadonlyArray<ArmPlan> => {
-			if (h.kind === "unarmed") {
-				return []
-			}
-			const arm = h.arm
-			const key = mapNonEmpty(arm.key, (p) => ({
-				field: p.armColumn,
-				pair: { field: p.parentColumn, anchor: p.parentColumn }
-			}))
-			return [
-				{
-					...deleting(
-						arm.rel,
-						{ key, guard: always },
-						inHeadingOrder(mapNonEmpty(arm.key, (p) => p.armColumn))
-					),
-					check: { kind: "arms", arms: [armOf(arm)] }
-				}
-			]
-		})
-		return {
-			checks: {
-				family: "alternativesReverse",
-				discriminator: family.discriminatorField,
-				participants: [
-					parent,
-					...(isNonEmpty(arms)
-						? mergeParticipants(arms, (prior, p) => ({
-								...mergeTwo(prior, p),
-								check: uniteArms(prior.check, p.check)
-							}))
-						: [])
-				]
-			},
-			anchor: { relation: family.parentRel, key: family.parentFields },
-			violation: law.violation,
-			indexes: [
-				this.#indexRequest(family.parent, family.parentKey, "btree", "anchor read", allRows)
-			],
-			detail: detailOf(family.parentRel, family.parentFields)
-		}
-	}
-
-	/** A probe's index request: its relation's keys, every one fixed by equality, and the rows the probe reads. */
-	#indexRequest(
-		relation: string,
-		keys: KeySet,
-		method: IndexRequest["method"],
-		use: string,
-		rows: IndexRows
-	): Omit<LawIndexRequest, "justification"> {
-		return {
-			relation,
-			keys: keys.map((k) => ({ expr: k, dir: "asc" as const, opclass: defaultOpclass })),
-			method,
-			role: "lawMaintenance",
-			use,
-			rows
-		}
-	}
-
-	/** The rows a probe reads: the rows its literal selection chooses, in the relation's declared field order, or every
-	 * row of an unselected side. */
-	#rowsOf(selection: ReadonlyArray<ResolvedSelector>): IndexRows {
-		const ordered = orderedSelection(selection)
-		return isNonEmpty(ordered) ? { kind: "selected", selection: ordered } : allRows
+		]
 	}
 
 	#containment(
 		law: TheoryLaw,
 		d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>,
 		loc: SourceLoc,
-		done: (natives: ReadonlyArray<NativePlan>, residual: ResidualPlan | undefined) => LawPlan
+		done: (natives: ReadonlyArray<NativePlan>) => LawPlan
 	): LawPlan {
 		const fromRel = d.from.rel
 		const toRel = d.to.rel
 		if (fromRel.kind === "closed") {
-			return done(this.#fromClosed(d, fromRel, toRel, loc), undefined)
+			if (toRel.kind !== "closed") {
+				return refuse(
+					"UnsupportedLawFamily",
+					loc,
+					`a containment into a closed relation, or between closed ones; ${d.from.relation}'s rows into the open ${d.to.relation} would require rows of an open relation: state those rows as a closed relation`
+				)
+			}
+			return migrationPlan(law)
 		}
 		if (toRel.kind === "closed") {
 			switch (d.pairing.kind) {
@@ -873,152 +782,105 @@ export class Recognizer {
 						`a coverage law into a span-keyed stored relation; ${d.to.relation} is closed`
 					)
 				case "scalar":
-					return done(this.#intoClosed(d, fromRel, toRel, loc), undefined)
+					return done(this.#intoClosed(d, fromRel, toRel, loc))
 			}
+		}
+		const lowers = d.lowers
+		if (lowers.kind === "rides") {
+			const planned = this.#familyPlan(lowers.family, loc)
+			return done([
+				planned.axes[lowers.axis].foreignKey,
+				...this.#axisNatives(planned, [lowers.axis]),
+				...conditionsOf(planned, law.id)
+			])
 		}
 		switch (d.pairing.kind) {
 			case "span":
-				return this.#coverage(law, d, fromRel, toRel, loc, done)
+				return done(this.#coverage(d, d.pairing, loc))
 			case "scalar":
-				return done(this.#scalarContainment(d.from, d.to, loc), undefined)
+				return done(this.#scalarContainment(d.from, d.to, loc))
 		}
 	}
 
-	/** A containment between closed relations is decided by their declared facts: nothing to install when they satisfy
-	 * it, a malformed schema when they do not. Closed facts into a stored relation require stored rows to exist, which
-	 * no admitted family enforces. */
-	#fromClosed(
-		d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>,
-		fromRel: ClosedTheoryRelation,
-		toRel: TheoryRelation,
-		loc: SourceLoc
-	): ReadonlyArray<NativePlan> {
-		if (toRel.kind !== "closed") {
-			return refuse(
-				"UnsupportedLawFamily",
-				loc,
-				`a containment whose source is a stored relation or whose target is closed; ${d.from.relation}'s closed facts into the stored ${d.to.relation} would require its rows to exist`
-			)
-		}
-		const what = "a containment between closed relations"
-		const fromFields = fieldsOf(d.from, loc, what)
-		const toFields = fieldsOf(d.to, loc, what)
-		const targets = new Set(
-			this.#closedTuples(toRel, literalsOf(d.to, loc, what), toFields).map(tupleKey)
-		)
-		for (const t of this.#closedTuples(fromRel, literalsOf(d.from, loc, what), fromFields)) {
-			if (!targets.has(tupleKey(t))) {
-				return refuse(
-					"MalformedDescription",
-					loc,
-					`a containment the declared facts of ${d.from.relation} and ${d.to.relation} satisfy; one fact of ${d.from.relation} has no match`
-				)
-			}
-		}
-		return []
-	}
-
-	/** The distinct facts of a closed relation that a literal selection selects, each projected onto `columns`, a
-	 * column's cell the fact's value of its field. */
-	#closedTuples(
-		r: ClosedTheoryRelation,
-		selection: ReadonlyArray<ResolvedSelector>,
-		columns: NonEmptyReadonlyArray<LawField>
-	): ReadonlyArray<ClosedTuple<number>> {
-		const cell = (row: ReadonlyArray<TypedLiteral>, f: LawField): TypedLiteral =>
-			closedCell(row, f.position)
-		const seen = new Set<string>()
-		const out: Array<ClosedTuple<number>> = []
-		for (const row of r.rows) {
-			const selected = selection.every((s) => literalKey(cell(row, s.col)) === literalKey(s.value))
-			if (!selected) {
-				continue
-			}
-			const tuple = mapNonEmpty(columns, (column, i) => ({
-				column: i,
-				value: cell(row, column)
-			}))
-			const key = tupleKey(tuple)
-			if (seen.has(key)) {
-				continue
-			}
-			seen.add(key)
-			out.push(tuple)
-		}
-		return out
-	}
-
-	/** Membership in closed facts, of a containment over scalar fields, is the enum type when a single field of the
-	 * roster's type references every handle, and otherwise an exact row-local CHECK over the complete closed tuples; a
-	 * selected source makes the CHECK conditional on its selector. */
+	/**
+	 * A containment of an open relation's side into a closed relation's (U3): a lone closed-id field contained in its own
+	 * roster's unselected id is discharged by the roster's domain, which types the field, whatever rows the source
+	 * selects; every other is a ClosedCheck, a table CHECK on the source reading the target side's constant at the row's
+	 * codes, holding vacuously outside the source's selection. The target side is a closed relation of its own
+	 * (ir/cells.ts sideOf), its rows the target's facts its fixed selection keeps, keyed by the smallest declared key it
+	 * contains or else by all its fields. Each of its key fields is a closed id, and its source a field of that
+	 * roster's type, so every digit of its mixed-radix index is a code its column's roster domain proves in range; a
+	 * side keyed by an open-typed field has no such index, and is refused.
+	 */
 	#intoClosed(
 		d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>,
-		fromRel: TheoryRelation,
+		fromRel: RelationInfo,
 		toRel: ClosedTheoryRelation,
 		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
 		const what = "a containment into a closed relation"
 		const fromFields = fieldsOf(d.from, loc, what)
 		const toFields = fieldsOf(d.to, loc, what)
-		const fromSelection = literalsOf(d.from, loc, what)
 		const toSelection = literalsOf(d.to, loc, what)
-		const tuples = this.#closedTuples(toRel, toSelection, toFields)
-		const sourceOf = (i: number): LawField => fromFields[i] ?? headNonEmpty(fromFields)
-		if (fromSelection.length === 0) {
-			const [only, ...more] = d.pairs
-			const roster = rosterOf(baseOf(only.from.column.type))
-			if (
-				more.length === 0 &&
-				only.to.column.name === "id" &&
-				toSelection.length === 0 &&
-				roster?.closed === toRel.name
-			) {
-				return [{ kind: "Enum", name: toRel.name, handles: roster.handles }]
-			}
-			return [
-				{
-					kind: "FiniteCheck",
-					relation: fromRel,
-					facts: tuples.map((t) =>
-						mapNonEmpty(t, (c): FieldValue => ({ field: sourceOf(c.column), value: c.value }))
-					)
-				}
-			]
+		const [only, ...more] = d.pairs
+		const roster = rosterOf(baseOf(only.from.column.type))
+		if (
+			more.length === 0 &&
+			only.to.column.name === "id" &&
+			toSelection.length === 0 &&
+			roster?.closed === toRel.name
+		) {
+			return [{ kind: "RosterDomain", name: roster.closed }]
 		}
-		const membership = orP(
-			tuples.map((t) =>
-				andP(
-					t.map(({ column, value }): Pred => ({
-						kind: "compare",
-						op: "eq",
-						left: field(sourceOf(column)),
-						right: literalAt(baseOf(sourceOf(column).type).carrier, value)
-					}))
+		const rows = toRel.rows.filter((row) =>
+			toSelection.every((s) => literalKey(closedCell(row, s.col.position)) === literalKey(s.value))
+		)
+		const side = sideOf(
+			{ fields: mapNonEmpty(toRel.fields, (f) => f.name), keys: [toRel.primaryKey] },
+			mapNonEmpty(toFields, (f) => f.name),
+			rows
+		)
+		/** The source field each target field meets, by the containment's pairs. */
+		const sourceOf = (target: LawField): LawField =>
+			fromFields[toFields.indexOf(target)] ??
+			refuse("MalformedDescription", loc, `${what} pairing every field of ${d.to.relation}`)
+		const targetField = (name: string): LawField =>
+			toFields.find((f) => f.name === name) ??
+			refuse("MalformedDescription", loc, `${what} over fields of ${d.to.relation}, not ${name}`)
+		const keyPairs = mapNonEmpty(side.key, (name) => {
+			const target = targetField(name)
+			const source = sourceOf(target)
+			const targetRoster = rosterOf(baseOf(target.type))
+			if (targetRoster === undefined) {
+				return refuse(
+					"UnsupportedLawFamily",
+					loc,
+					`${what} whose side is keyed by closed ids, each a code its column's roster domain keeps in range; ${d.to.relation}(${toFields.map((f) => f.name).join(", ")}) is keyed by ${name}, which is open-typed`
 				)
-			)
-		)
-		const check = this.#generatedCheck(
-			fromRel,
-			orP([notP(selectionPred(fromSelection)), membership])
-		)
-		return check === undefined ? [] : [check]
-	}
-
-	/** A generated CHECK from a folded predicate. One that always holds needs no object; one that never holds forbids
-	 * every row, as `<field> <> <field>` over a NOT NULL column, which is false on every row. */
-	#generatedCheck(relation: TheoryRelation, predicate: Pred): NativePlan | undefined {
-		if (predicate === true) {
-			return undefined
-		}
-		if (predicate === false) {
-			const first = headNonEmpty(relation.fields)
-			return {
-				kind: "GeneratedCheck",
-				relation,
-				predicate: { kind: "compare", op: "ne", left: field(first), right: field(first) }
 			}
-		}
-		return { kind: "GeneratedCheck", relation, predicate }
+			if (rosterOf(baseOf(source.type))?.closed !== targetRoster.closed) {
+				return refuse(
+					"UnsupportedLawFamily",
+					loc,
+					`${what} whose key fields each meet a field of their roster's type; ${d.from.relation}.${source.name} is no closed id of ${targetRoster.closed}`
+				)
+			}
+			return { source: fieldColumn(source), target }
+		})
+		const payloadPairs = side.payload.map((name) => {
+			const target = targetField(name)
+			return { source: fieldColumn(sourceOf(target)), target }
+		})
+		return [
+			{
+				kind: "ClosedCheck",
+				relation: fromRel,
+				target: toRel,
+				side,
+				pairs: extendNonEmpty(keyPairs, payloadPairs),
+				guard: d.from.selection.conjuncts
+			}
+		]
 	}
 
 	/** Whether `fields` contain a declared scalar key of `r`. */
@@ -1037,17 +899,14 @@ export class Recognizer {
 		to: ResolvedSide,
 		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
-		const fromRel = from.rel
-		const toRel = to.rel
+		const fromRel = tableOf(from.rel)
+		const toRel = tableOf(to.rel)
 		const sourceColumns = sideColumns(from)
 		const constant = this.#constantTarget(to, fromRel)
 		const columns: NonEmptyReadonlyArray<PlannedColumn> =
 			constant === undefined
 				? sourceColumns
-				: extendNonEmpty(
-						sourceColumns,
-						constant.tags.map((column): PlannedColumn => ({ kind: "law", column }))
-					)
+				: extendNonEmpty(sourceColumns, constant.tags.map(lawColumn))
 		const targetColumns = constant === undefined ? sideColumns(to) : constant.columns
 		if (constant === undefined && !this.#targetKeyed(to)) {
 			return refuse(
@@ -1056,17 +915,34 @@ export class Recognizer {
 				`a containment into a side that contains a key of ${toRel.name}; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no declared key among its fields and no key over its own selection, and a containment into an unkeyed side is not admitted`
 			)
 		}
-		/** A generated unique over the target's columns, but where they are exactly a declared scalar key's fields. */
-		const fields = plainFields(targetColumns)
-		const declared =
-			fields !== undefined && scalarKeys(toRel).some((k) => sameSet<LawField>(k, fields))
 		return [
 			...lawColumns(columns),
 			...lawColumns(targetColumns),
-			...(declared ? [] : [{ kind: "Unique" as const, relation: toRel, columns: targetColumns }]),
-			{ kind: "ForeignKey", relation: fromRel, columns, target: toRel, targetColumns },
+			...this.#targetUnique(toRel, targetColumns),
+			{
+				kind: "ForeignKey",
+				relation: fromRel,
+				columns,
+				target: toRel,
+				targetColumns,
+				onUpdate: "noAction",
+				deferral: "rule",
+				laws: undefined
+			},
 			{ kind: "ReverseIndex", relation: fromRel, columns: sourceColumns }
 		]
+	}
+
+	/** The UNIQUE a reference into `columns` of `r` needs: none where they are exactly a declared scalar key's fields,
+	 * which its own key law installs, else a generated one. */
+	#targetUnique(
+		r: RelationInfo,
+		columns: NonEmptyReadonlyArray<PlannedColumn>
+	): ReadonlyArray<NativePlan> {
+		const fields = columns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
+		const declared =
+			fields.length === columns.length && scalarKeys(r).some((k) => sameSet<LawField>(k, fields))
+		return declared ? [] : [{ kind: "Unique", relation: r, columns }]
 	}
 
 	/**
@@ -1079,7 +955,7 @@ export class Recognizer {
 	 */
 	#constantTarget(
 		to: ResolvedSide,
-		fromRel: TheoryRelation
+		fromRel: RelationInfo
 	):
 		| {
 				readonly tags: NonEmptyReadonlyArray<ConstantColumn>
@@ -1091,11 +967,11 @@ export class Recognizer {
 			return undefined
 		}
 		const terms = fields.map((t) => t.column)
-		const fixes = (c: ResolvedSelection["conjuncts"][number]): boolean =>
+		const fixes = (c: ResolvedConjunct): boolean =>
 			c.kind === "fixed" && !terms.includes(c.selector.col)
-		const selected = orderedSelectors(
-			to.selection.conjuncts.flatMap((c) => (c.kind === "fixed" && fixes(c) ? [c.selector] : []))
-		)
+		const selected = to.selection.conjuncts
+			.flatMap((c) => (c.kind === "fixed" && fixes(c) ? [c.selector] : []))
+			.toSorted((a, b) => a.col.position - b.col.position)
 		if (
 			!isNonEmpty(selected) ||
 			!this.#containsKey(to.rel, [...terms, ...selected.map((s) => s.col)])
@@ -1110,7 +986,7 @@ export class Recognizer {
 			tags: mapNonEmpty(selected, (s): ConstantColumn => ({
 				kind: "constant",
 				relation: fromRel,
-				target: to.rel,
+				target: tableOf(to.rel),
 				field: s.col,
 				value: s.value
 			})),
@@ -1131,463 +1007,754 @@ export class Recognizer {
 		)
 	}
 
-	/** Coverage into a target whose span key it matches is a PERIOD foreign key, a
-	 * selected target adds a constant law column and a generated temporal unique constraint, and a selected source is
-	 * the residual range_agg coverage law anchored on the target rows of the source's scalar group. Its sides pair fields
-	 * and select by literal equalities. */
+	/**
+	 * A coverage: each source fact's span covered by the union of the spans of the target facts it meets at its scalar
+	 * terms. Each selected side's terms are law columns (`sideColumns`); the target must be keyed WITHOUT OVERLAPS over
+	 * exactly its terms, by a declared span key of an unselected target or by a key over its projected side, so the
+	 * target facts one source fact meets hold disjoint spans; and the law is `FOREIGN KEY (f…, PERIOD s) REFERENCES B
+	 * (g…, PERIOD t)`, NO ACTION, deferred by the schema-wide rule, with the index over its referencing columns. A target
+	 * whose spans may overlap within a key is refused. Grouped by at least one scalar term: PostgreSQL's PERIOD foreign
+	 * key compares a scalar column before its period.
+	 */
 	#coverage(
-		law: TheoryLaw,
 		d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>,
-		fromRel: TheoryRelation,
-		toRel: TheoryRelation,
-		loc: SourceLoc,
-		done: (natives: ReadonlyArray<NativePlan>, residual: ResidualPlan | undefined) => LawPlan
-	): LawPlan {
-		const span = d.pairing
-		if (span.kind !== "span") {
-			return refuse("UnsupportedLawFamily", loc, "a coverage law pairing a span")
-		}
-		const what = "a coverage law"
+		pairing: {
+			readonly from: SpanField
+			readonly to: SpanField
+			readonly pair: (typeof d.pairs)[number]
+		},
+		loc: SourceLoc
+	): ReadonlyArray<NativePlan> {
 		const from = d.from
 		const to = d.to
-		const fromFields = fieldsOf(from, loc, what)
-		const toFields = fieldsOf(to, loc, what)
-		const fromSelection = literalsOf(from, loc, what)
-		const toSelection = literalsOf(to, loc, what)
-		if (isNonEmpty(fromSelection) && isNonEmpty(toSelection)) {
+		const fromRel = tableOf(from.rel)
+		const toRel = tableOf(to.rel)
+		const at = d.pairs.indexOf(pairing.pair)
+		if (at === -1) {
 			return refuse(
-				"UnsupportedLawFamily",
+				"MalformedDescription",
 				loc,
-				`a coverage law with at most one selected side; ${from.relation} and ${to.relation} are both selected`
+				"a coverage law whose span pair is one of its pairs"
 			)
 		}
-		const pair = span.pair
-		const hasSpanKey = declaredFields(toRel).some(
-			(k) =>
-				sameSet<LawField>(k, toFields) && k.filter(isSpanField).length === 1 && k.includes(span.to)
-		)
-		if (!hasSpanKey) {
-			return refuse(
-				"UnsupportedLawFamily",
-				loc,
-				`coverage into a target whose span key it matches; ${to.relation} has no span key over (${fieldNames(toFields).join(", ")}), and coverage into a target without a span key needs an exact lowering the first compiler does not have`
-			)
-		}
-		/** The scalar pairs: every pair but the spans'. */
-		const scalars = d.pairs.filter((p) => p !== pair)
-		if (!isNonEmpty(scalars)) {
+		const sourceColumns = sideColumns(from)
+		const targetColumns = sideColumns(to)
+		const sourceSpan = sourceColumns[at] ?? missing("a coverage source's span column")
+		const targetSpan = targetColumns[at] ?? missing("a coverage target's span column")
+		const sourceScalars = sourceColumns.filter((_, i) => i !== at)
+		const targetScalars = targetColumns.filter((_, i) => i !== at)
+		if (!isNonEmpty(sourceScalars) || !isNonEmpty(targetScalars)) {
 			return refuse(
 				"UnsupportedLawFamily",
 				loc,
 				`coverage grouped by at least one scalar field; ${from.relation} into ${to.relation} pairs only spans, an ungrouped span law`
 			)
 		}
-		const toScalarFields = mapNonEmpty(scalars, (p) => p.to.column)
-		const fromScalarFields = mapNonEmpty(scalars, (p) => p.from.column)
-		if (isNonEmpty(fromSelection)) {
-			const selection = mapNonEmpty(fromSelection, fieldSelector)
-			const sourcePairs = anchorPairs(
-				scalars,
-				(p) => p.from.column,
-				(p) => p.to.column
-			)
-			const sourceKey = pairedColumns(sourcePairs)
-			const sourceUpdate = inHeadingOrder([...fromFields, ...fromSelection.map((s) => s.col)])
-			return done([], {
-				checks: {
-					family: "selectedSourceCoverage",
-					target: {
-						relation: toRel,
-						pairs: anchorPairs(
-							scalars,
-							(p) => p.to.column,
-							(p) => p.to.column
-						),
-						span: span.to,
-						/** The residual accumulates the target spans into a multirange of the target span's carrier. */
-						carrier: span.to.type.carrier
-					},
-					source: { relation: fromRel, pairs: sourcePairs, span: span.from, selection },
-					participants: mergeParticipants(
-						[
-							inserting(fromRel, { key: sourceKey, guard: guardBy(fromSelection) }, sourceUpdate),
-							deleting(
-								toRel,
-								{ key: anchorColumns(sourcePairs), guard: always },
-								inHeadingOrder(toFields)
-							)
-						],
-						mergeTwo
-					)
-				},
-				anchor: { relation: toRel, key: toScalarFields },
-				violation: law.violation,
-				indexes: [
-					this.#indexRequest(
-						toRel.name,
-						[...fieldNames(toScalarFields), pair.to.column.name],
-						"gist",
-						"group listing",
-						allRows
-					),
-					this.#indexRequest(
-						fromRel.name,
-						fieldNames(fromScalarFields),
-						"btree",
-						"coverage probe",
-						this.#rowsOf(fromSelection)
-					)
-				],
-				detail: detailOf(fromRel, fromFields)
-			})
+		const toFields = to.terms.map((t) => t.column)
+		const declared =
+			to.selection.conjuncts.length === 0 &&
+			to.terms.every((t) => t.kind === "field") &&
+			toRel.keyNames.some((k) => k.span === pairing.to && sameSet<LawField>(k.fields, toFields))
+		const projected = (this.#projectedKeys.get(to.relation) ?? []).some((k) => sameSide(k, to))
+		if (!declared && !projected) {
+			return refuse("UnsupportedLawFamily", loc, coverageKeySentence)
 		}
-		const reverse: NativePlan = {
-			kind: "ReverseIndex",
-			relation: fromRel,
-			columns: mapNonEmpty(appendNonEmpty(fromScalarFields, span.from), fieldColumn)
+		return [
+			...lawColumns(sourceColumns),
+			...lawColumns(targetColumns),
+			{
+				kind: "PeriodForeignKey",
+				relation: fromRel,
+				columns: sourceScalars,
+				span: sourceSpan,
+				target: toRel,
+				targetColumns: targetScalars,
+				targetSpan
+			},
+			{
+				kind: "ReverseIndex",
+				relation: fromRel,
+				columns: appendNonEmpty(sourceScalars, sourceSpan)
+			}
+		]
+	}
+
+	/** The relation a family names, an ordinary one: the theory admits no family over a closed relation. */
+	relation(name: string): RelationInfo {
+		const r = this.#relations[name]
+		if (r === undefined) {
+			throw defect(`the relation ${name} a family names, which the theory typed`)
 		}
-		const [selector, ...moreSelectors] = toSelection
-		if (selector === undefined) {
-			return done(
-				[
-					{
-						kind: "PeriodForeignKey",
-						relation: fromRel,
-						columns: fromScalarFields.map(fieldColumn),
-						span: span.from,
-						target: toRel,
-						targetColumns: toScalarFields.map(fieldColumn),
-						targetSpan: span.to
-					},
-					reverse
-				],
-				undefined
-			)
-		}
-		if (moreSelectors.length > 0) {
-			return refuse(
-				"UnsupportedLawFamily",
-				loc,
-				`a selected coverage target with one selector field, which becomes its source's constant law column; select(${to.relation}, ...) has ${toSelection.length}`
-			)
-		}
-		if (toFields.includes(selector.col)) {
-			return refuse(
-				"UnsupportedLawFamily",
-				loc,
-				`a selected target whose selector ${selector.column} is not a referenced field`
-			)
-		}
-		const tag: ConstantColumn = {
-			kind: "constant",
-			relation: fromRel,
-			target: toRel,
-			field: selector.col,
-			value: selector.value
-		}
-		const targetColumns = appendNonEmpty(toScalarFields, selector.col)
-		/** The temporal unique compares its scalar fields through btree_gist, which has no operator class for a vector. */
-		const temporal = mapNonEmpty(targetColumns, (f) =>
-			f.type.carrier !== "vector"
-				? f
-				: unrepresentable(
-						loc,
-						`the temporal unique (${fieldNames(targetColumns).join(", ")}) of ${to.relation}`,
-						fieldNames(targetColumns),
-						{ kind: "gistOperatorClass", field: f.name }
-					)
-		)
-		return done(
-			[
-				{ kind: "LawColumn", column: tag },
-				{ kind: "TemporalUnique", relation: toRel, columns: temporal, span: span.to },
-				{
-					kind: "PeriodForeignKey",
-					relation: fromRel,
-					columns: [...fromScalarFields.map(fieldColumn), { kind: "law", column: tag }],
-					span: span.from,
-					target: toRel,
-					targetColumns: targetColumns.map(fieldColumn),
-					targetSpan: span.to
-				},
-				reverse
-			],
-			undefined
+		return tableOf(r)
+	}
+
+	/** The fold law at `fold` of the family `key`, which the theory states for every fold it resolves. */
+	foldLaw(key: string, fold: number): FoldLaw {
+		return (
+			this.#foldLaws.get(key)?.get(fold) ?? missing(`the law of fold ${fold} of the family ${key}`)
 		)
 	}
 
-	/** Scalar-group capacity. */
-	#capacity(
-		law: TheoryLaw,
-		d: Extract<TheoryLaw["detail"], { readonly kind: "capacity" }>,
-		loc: SourceLoc,
-		done: (natives: ReadonlyArray<NativePlan>, residual: ResidualPlan | undefined) => LawPlan
-	): LawPlan {
-		const target = d.target.rel
-		const source = d.from.rel
-		if (target.kind === "closed" || source.kind === "closed") {
-			return refuse(
-				"UnsupportedLawFamily",
-				loc,
-				`a capacity over stored relations; ${target.kind === "closed" ? d.target.relation : d.from.relation} is closed, and its facts fire no law`
+	/** The natives of the family's own law: everything the family plans, and its own row conditions. */
+	#familyNatives(planned: FamilyPlan, law: LawId): ReadonlyArray<NativePlan> {
+		return [...planned.natives, ...conditionsOf(planned, law)]
+	}
+
+	/** The law column and UNIQUE natives the named axes' foreign keys read. */
+	#axisNatives(planned: FamilyPlan, axes: ReadonlyArray<AxisKind>): ReadonlyArray<NativePlan> {
+		return axes.flatMap((a) => planned.axes[a].natives)
+	}
+
+	/**
+	 * A family's natives, planned once (fin.md §5.2, trees.md §2):
+	 *
+	 * - its columns: the index, a field when ordered and a drawn ‹i› when counted; the drawn ‹n› on each member; ‹p›,
+	 *   the generated pred of the index; ‹pn›, the generated pred of the count on the owner; and for a tree ‹parent₀›,
+	 *   its parent where its start is above 0, the one guarded group column, and the drawn ‹ps›. One guarded column per
+	 *   side is exact: MATCH SIMPLE and UNIQUE NULLS DISTINCT both pass over a row with any null column;
+	 * - its key, `UNIQUE (‹g₀›, g₂…, i)`, and its bound `CHECK (i < ‹n›)`, with `‹i› >= 0` beside it for a counted index,
+	 *   which as a law column has no natural domain to keep it there;
+	 * - its three axes (`#axis`), each carrying its pairs: the former's (a tree's ‹ps›, interval and root copies, a fold's
+	 *   accumulators) and every containment's that rides it;
+	 * - every base pin of a carried copy, the copy's first law's: `i > 0 OR f = s` on a predecessor copy and `n > 0 OR
+	 *   f = s` on a last copy, `s` the copy's start: an accumulated field's, or a hidden accumulator's identity;
+	 * - a tree's owner axis from its plain parent, so the root, which references itself, holds its own count as ‹n›,
+	 *   its own start as ‹ps› and its own value of every copy by the axis's foreign key, with no action: PostgreSQL
+	 *   refuses a cascade over a generated column (42601), and a tree is written whole and rewritten by deletion;
+	 * - for a tree, T1's `UNIQUE (r, start)`, and the CHECK of the family bound, T2, the root pin (the root, outside the
+	 *   family, holds `at = 0`), T3 and T6;
+	 * - for each fold, its hidden accumulators and the CHECK of its combine, `after = combine(before, x)` where its step
+	 *   selection holds and `after = before` where it does not, compared in exact arithmetic: an after is drawn, never
+	 *   generated, since a count's, a sum's and a max's combine is not total in its carrier.
+	 */
+	#familyPlan(id: FamilyId, loc: SourceLoc): FamilyPlan {
+		const key = familyKey(id)
+		const known = this.#planned.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		const family =
+			this.#families.get(key) ?? missing(`the family ${key}, which the theory resolved`)
+		const law = this.#familyLaws.get(key) ?? missing(`the law of the family ${key}`)
+		const planned = new FamilyPlanner(this, family, law, loc).plan()
+		this.#planned.set(key, planned)
+		return planned
+	}
+
+	/**
+	 * Whether an owner axis into `owner` over `targets` is cascade-fed: the owner is mutable, so its rows are updated, and
+	 * one of the target columns is written by an owner axis's ON UPDATE CASCADE, or generated from one. Its foreign
+	 * key is then deferred: RI fires per row event, with no order across a statement's rows.
+	 */
+	cascadeFed(owner: RelationInfo, targets: ReadonlyArray<PlannedColumn>): boolean {
+		if (!owner.mutable) {
+			return false
+		}
+		const cascaded = this.#cascaded.get(owner.name) ?? new Set<string>()
+		const fed = (field: LawField): boolean => cascaded.has(columnKey({ kind: "field", field }))
+		const written = (field: LawField): boolean =>
+			fed(field) || owner.fields.some((f) => fed(f) && readsField(field.writing, f))
+		/** A law column is fed where its term's field or its guard's are; a drawn one is written by its host fill or its
+		 * axis, so it is fed. */
+		const lawFed = (column: LawColumnPlan): boolean => {
+			switch (column.kind) {
+				case "term":
+					return (
+						written(column.term.column) ||
+						column.selection.conjuncts.some((k) => k.reads.some(written))
+					)
+				case "constant":
+					return false
+				case "drawn":
+				case "indexPred":
+					return true
+			}
+		}
+		return targets.some((c) => (c.kind === "field" ? written(c.field) : lawFed(c.column)))
+	}
+}
+
+/** A fold's law with its detail, which names its step side. */
+interface FoldLaw {
+	readonly law: TheoryLaw
+	readonly detail: Extract<TheoryLaw["detail"], { readonly kind: "fold" }>
+}
+
+/** Whether a field's writing generates it by an expression that reads `field`. */
+const readsField = (writing: LawField["writing"], field: LawField): boolean => {
+	if (writing.kind !== "generated") {
+		return false
+	}
+	const names = new Set<string>()
+	const visit = (e: ScalarExpr): void => {
+		if (e.kind === "column") {
+			names.add(e.column.name)
+		}
+		for (const a of e.args) {
+			visit(a)
+		}
+	}
+	visit(writing.expr)
+	return names.has(field.name)
+}
+
+/** The columns a family's owner axis writes on its members by ON UPDATE CASCADE: its group, ‹n›, and every carried
+ * source; none for a tree's, which takes no action, since a tree is written whole and rewritten by deletion. */
+const ownerSources = (f: Family): ReadonlyArray<NativeColumn> =>
+	f.members.kind === "tree"
+		? []
+		: [
+				...f.group.map((g): NativeColumn => ({ kind: "field", field: g.member })),
+				{ kind: "law", column: f.copy },
+				...f.axes.owner.map((p) => p.from)
+			]
+
+/** The row conditions `law` states over a family, one generated CHECK per relation. */
+const conditionsOf = (planned: FamilyPlan, law: LawId): ReadonlyArray<NativePlan> =>
+	[...(planned.conditions.get(law)?.values() ?? [])].flatMap((c) => {
+		const native = c.native()
+		return native === undefined ? [] : [native]
+	})
+
+/** The literal one a count's combine adds, and the application of a combine's operation, as a description. */
+const combineBuild = {
+	one: naturalLiteral(1n),
+	apply: (
+		fn: "add" | "union" | "intersection" | "greatest",
+		left: ExprDesc,
+		right: ExprDesc
+	): ExprDesc => ({
+		kind: "compute",
+		fn,
+		args: [left, right]
+	})
+}
+
+/** The start of a carried copy's source: an accumulated field's, or a hidden accumulator's identity; none for any other. */
+interface CopyStart {
+	readonly start: TypedLiteral
+	readonly type: ScalarType
+}
+
+/** One family's natives as `Recognizer.#familyPlan` states them, planned by one walk. */
+class FamilyPlanner {
+	readonly #recognizer: Recognizer
+	readonly #family: Family
+	readonly #law: TheoryLaw
+	readonly #loc: SourceLoc
+	readonly #member: RelationInfo
+	readonly #owner: RelationInfo
+	/** Each drawn law column of the family, by its identifier. */
+	readonly #drawn = new Map<ColumnIdent, LawColumnPlan>()
+	/** Each hidden fold accumulator's start, its plane's identity, by its identifier. */
+	readonly #hidden = new Map<ColumnIdent, CopyStart>()
+	readonly #conditions = new Map<LawId, Map<string, RowConditions>>()
+
+	constructor(recognizer: Recognizer, family: Family, law: TheoryLaw, loc: SourceLoc) {
+		this.#recognizer = recognizer
+		this.#family = family
+		this.#law = law
+		this.#loc = loc
+		this.#member = recognizer.relation(family.member.name)
+		this.#owner = recognizer.relation(family.owner.name)
+	}
+
+	plan(): FamilyPlan {
+		const f = this.#family
+		const member = this.#member
+		const owner = this.#owner
+		const tree = f.members.kind === "tree" ? f.members : undefined
+		const copy = lawColumn(
+			this.#draw(f.copy, member, f.count, { kind: "copy", family: f.id }, this.#familyNamed("copy"))
+		)
+		const index: PlannedColumn =
+			f.index.kind === "field"
+				? fieldColumn(f.index.field)
+				: lawColumn(
+						this.#draw(
+							f.index.column,
+							member,
+							f.count,
+							{ kind: "index", family: f.id },
+							this.#familyNamed("index")
+						)
+					)
+		const parentStart =
+			tree === undefined
+				? undefined
+				: lawColumn(
+						this.#draw(
+							tree.parentStart,
+							member,
+							tree.start,
+							{ kind: "parentStart", family: f.id },
+							this.#familyNamed("parentStart")
+						)
+					)
+		const folds = f.folds.map((fold, i) => this.#foldColumns(fold, i))
+		const [g0, ...grest] = f.group
+		const group: NonEmptyReadonlyArray<PlannedColumn> = [
+			tree === undefined
+				? fieldColumn(g0.member)
+				: lawColumn({
+						kind: "term",
+						relation: member,
+						term: { kind: "field", field: g0.member.name, column: g0.member },
+						selection: this.#members(tree.start)
+					}),
+			...grest.map((g) => fieldColumn(g.member))
+		]
+		const ownerKey = mapNonEmpty(f.group, (g) => fieldColumn(g.owner))
+		const pred: PlannedColumn =
+			index.kind === "field"
+				? lawColumn({
+						kind: "term",
+						relation: member,
+						term: { kind: "pred", field: index.field.name, column: index.field },
+						selection: { conjuncts: [] }
+					})
+				: lawColumn({
+						kind: "indexPred",
+						relation: member,
+						family: f.id,
+						field: f.count,
+						index: index.column
+					})
+		const lastPred = lawColumn({
+			kind: "term",
+			relation: owner,
+			term: { kind: "pred", field: f.count.name, column: f.count },
+			selection: { conjuncts: [] }
+		})
+		const familyKeyColumns = appendNonEmpty(group, index)
+		const ownerTargets = appendNonEmpty(ownerKey, fieldColumn(f.count))
+		const carried = {
+			owner: this.#carried("owner", f.axes.owner, extendNonEmpty(group, [copy]), ownerTargets),
+			predecessor: this.#carried(
+				"predecessor",
+				f.axes.predecessor,
+				appendNonEmpty(group, pred),
+				familyKeyColumns
+			),
+			last: this.#carried("last", f.axes.last, appendNonEmpty(ownerKey, lastPred), familyKeyColumns)
+		}
+		const ownerTargetColumns = extendNonEmpty(
+			ownerTargets,
+			carried.owner.map((p) => p.to)
+		)
+		const axes: FamilyPlan["axes"] = {
+			owner:
+				tree === undefined
+					? this.#axis(
+							"owner",
+							carried.owner,
+							{ relation: member, base: extendNonEmpty(group, [copy]) },
+							{ relation: owner, base: ownerTargets },
+							"cascade",
+							this.#recognizer.cascadeFed(owner, ownerTargetColumns) ? "deferred" : "immediate"
+						)
+					: this.#axis(
+							"owner",
+							carried.owner,
+							{
+								relation: member,
+								base: [...mapNonEmpty(f.group, (g) => fieldColumn(g.member)), copy]
+							},
+							{ relation: owner, base: ownerTargets },
+							"noAction",
+							"immediate"
+						),
+			predecessor: this.#axis(
+				"predecessor",
+				carried.predecessor,
+				{ relation: member, base: appendNonEmpty(group, pred) },
+				{ relation: member, base: familyKeyColumns },
+				"noAction",
+				index.kind === "field" ? "immediate" : "deferred"
+			),
+			last: this.#axis(
+				"last",
+				carried.last,
+				{ relation: owner, base: appendNonEmpty(ownerKey, lastPred) },
+				{ relation: member, base: familyKeyColumns },
+				"noAction",
+				"deferred"
 			)
 		}
-		const targetFields = mapNonEmpty(d.pairs, (p) => p.targetColumn)
-		const fromFields = mapNonEmpty(d.pairs, (p) => p.fromColumn)
-		const { low } = d.within
-		const nonnegative = d.weight.kind !== "field"
-		if (
-			d.target.relation === d.from.relation &&
-			d.pairs.every((p) => p.target === p.from) &&
-			declaredKeys(target).some((k) => contains(fieldNames(targetFields), k))
-		) {
-			const check = this.#selfCapacity(d, target)
-			return done(check === undefined ? [] : [check], undefined)
-		}
-		/** The bounds a group can break, low before high: a count or a width is never negative, so a literal lower bound
-		 * of zero or less holds for every group. With none left the law holds in every state, and needs no function. */
-		const removes = nonnegative ? typeof low !== "bigint" || low > 0n : true
-		const checkedHigh = d.bounds.high
-		const lowBounds: ReadonlyArray<CheckedBound> = removes
-			? [{ side: "low", value: d.bounds.low }]
-			: []
-		const bounds: ReadonlyArray<CheckedBound> =
-			checkedHigh === undefined ? lowBounds : [...lowBounds, { side: "high", value: checkedHigh }]
-		if (!isNonEmpty(bounds)) {
-			return done([], undefined)
-		}
-		this.#capacityAnchor(d, target, loc)
-		const adds = nonnegative ? checkedHigh !== undefined : true
-		const refs = [d.bounds.low, d.bounds.high].flatMap((b) => (b?.kind === "ref" ? [b.field] : []))
-		const fromSelection = selectorsOf(d.from.selection)
-		const targetSelection = selectorsOf(d.target.selection)
-		const sourceGuard = guardBy(fromSelection)
-		const sourcePairs = anchorPairs(
-			d.pairs,
-			(p) => p.fromColumn,
-			(p) => p.targetColumn
-		)
-		const sourceKey = pairedColumns(sourcePairs)
-		/** A source's insertion threatens a bound above and its deletion one below; a source neither threatens is no
-		 * participant. */
-		const sourceImage: ImagePlan = { key: sourceKey, guard: sourceGuard }
-		const sourceEvents: PlanEvents | undefined = participantEvents(
-			adds ? [sourceImage] : undefined,
-			removes ? [sourceImage] : undefined,
-			updateOf(
-				source,
-				inHeadingOrder([
-					...fromFields,
-					...weightFields(d.weighed),
-					...fromSelection.map((s) => s.col)
-				])
+
+		const own = this.#conditionsFor(this.#law.id, member)
+		if (tree === undefined) {
+			const i = own.column(index)
+			const n = own.column(copy)
+			own.add(
+				index.kind === "field"
+					? cmp("lt", i, n)
+					: and([cmp("ge", i, naturalLiteral(0n)), cmp("lt", i, n)])
 			)
-		)
-		const targetPlan = inserting(
-			target,
-			{ key: anchorColumns(sourcePairs), guard: guardBy(targetSelection) },
-			inHeadingOrder([...targetFields, ...refs, ...targetSelection.map((s) => s.col)])
-		)
-		return done([], {
-			checks: {
-				family: "scalarCapacity",
-				selection: targetSelection.map(fieldSelector),
-				source: {
-					relation: source,
-					pairs: sourcePairs,
-					selection: fromSelection.map(fieldSelector)
-				},
-				weight: lawWeight(d.weighed),
-				aggregate: d.aggregate,
-				bounds,
-				participants: mergeParticipants(
-					sourceEvents === undefined
-						? [targetPlan]
-						: [targetPlan, { relation: source, events: sourceEvents }],
-					mergeTwo
+		} else if (parentStart !== undefined) {
+			this.#treeConditions(own, tree, index, copy, parentStart)
+		}
+		for (const kind of ["owner", "predecessor", "last"] as const) {
+			for (const p of carried[kind]) {
+				this.#pin(kind, p, index)
+			}
+		}
+		for (const [i, fold] of f.folds.entries()) {
+			this.#combine(fold, i)
+		}
+
+		const natives: ReadonlyArray<NativePlan> = [
+			...lawColumns([copy, index, pred, ...group, lastPred]),
+			...(parentStart === undefined ? [] : lawColumns([parentStart])),
+			{ kind: "Unique", relation: member, columns: familyKeyColumns },
+			...(tree === undefined
+				? []
+				: [
+						{
+							kind: "Unique" as const,
+							relation: member,
+							columns: mapNonEmpty([tree.root, tree.start] as const, fieldColumn)
+						}
+					]),
+			...(["owner", "predecessor", "last"] as const).flatMap((a) => [
+				...axes[a].natives,
+				axes[a].foreignKey
+			])
+		]
+		return {
+			family: f,
+			law: this.#law,
+			member,
+			owner,
+			natives,
+			axes,
+			conditions: this.#conditions,
+			folds
+		}
+	}
+
+	/** A drawn law column of the family, `ident` the identifier the theory named it by, `named` what it is at the
+	 * naming door. */
+	#draw(
+		ident: ColumnIdent,
+		relation: RelationInfo,
+		field: LawField,
+		draws: Drawn,
+		named: DrawnStatement
+	): LawColumnPlan {
+		const column: LawColumnPlan = { kind: "drawn", relation, field, draws, named }
+		this.#drawn.set(ident, column)
+		return column
+	}
+
+	/** A drawn column of the family that is no fold's, at the naming door. */
+	#familyNamed(kind: "copy" | "index" | "parentStart"): DrawnStatement {
+		const id = this.#family.id
+		switch (kind) {
+			case "copy":
+				return { kind: "copy", owner: id.owner, count: id.count }
+			case "index":
+				return { kind: "index", owner: id.owner, count: id.count }
+			case "parentStart":
+				return { kind: "parentStart", owner: id.owner, count: id.count }
+		}
+	}
+
+	/** A tree's members as a resolved selection: every row whose start is above 0 (φ₀). */
+	#members(start: LawField): ResolvedSelection {
+		const conjuncts = membersSelection({
+			...this.#family,
+			owner: this.#owner,
+			member: this.#member
+		})
+		return {
+			conjuncts: conjuncts.map((predicate): ResolvedConjunct => {
+				const text = descText(predicate)
+				if (!text.ok) {
+					throw defect("a tree's member selection has a canonical text")
+				}
+				return { kind: "general", predicate, text: text.value, reads: [start] }
+			})
+		}
+	}
+
+	/** A fold's hidden accumulators, drawn law columns of the member, each holding its plane's end's values. */
+	#foldColumns(fold: FamilyFold, at: number): ReadonlyArray<NativePlan> {
+		const id = this.#family.id
+		const law = this.#recognizer.foldLaw(familyKey(id), at).law.id
+		return fold.planes.flatMap((plane, p) => {
+			const index: 0 | 1 = p === 0 ? 0 : 1
+			return (["before", "after"] as const).flatMap((kind): ReadonlyArray<NativePlan> => {
+				const c = plane[kind]
+				if (c.kind === "field") {
+					return []
+				}
+				const column = this.#draw(
+					c.column,
+					this.#member,
+					plane.end,
+					{ kind, family: id, fold: at, plane: index },
+					{ kind, owner: id.owner, count: id.count, fold: law, plane: index }
 				)
-			},
-			anchor: { relation: target, key: targetFields },
-			violation: law.violation,
-			indexes: [
-				this.#indexRequest(
-					source.name,
-					fieldNames(fromFields),
-					"btree",
-					"group aggregate",
-					this.#rowsOf(fromSelection)
-				)
-			],
-			detail: detailOf(target, targetFields)
+				if (kind === "before") {
+					this.#hidden.set(c.column, { start: plane.identity, type: plane.end.type })
+				}
+				return [{ kind: "LawColumn", column }]
+			})
 		})
 	}
 
-	/** What a residual capacity needs of its anchor: its target projection contains a declared key of the target, so the
-	 * anchor is one row found by a key probe and the family's body runs once for it. A
-	 * projection containing no key groups several target facts under one key. */
-	#capacityAnchor(
-		d: Extract<TheoryLaw["detail"], { readonly kind: "capacity" }>,
-		target: TheoryRelation,
-		loc: SourceLoc
-	): void {
-		const fields = d.pairs.map((p) => p.target)
-		if (!declaredKeys(target).some((k) => contains(fields, k))) {
-			refuse(
+	/** A native column of the family as planned: a field, or one of the family's drawn law columns. */
+	#planned(c: NativeColumn): PlannedColumn {
+		if (c.kind === "field") {
+			return fieldColumn(c.field)
+		}
+		const column = this.#drawn.get(c.column)
+		if (column === undefined) {
+			return refuse(
 				"UnsupportedLawFamily",
-				loc,
-				`a residual capacity whose target projection (${fields.join(", ")}) contains a declared key of ${d.target.relation}, so that its anchor is one target row`
+				this.#loc,
+				`a family axis carrying fields and its family's drawn columns; ${familyText(this.#shape())} carries the law column ${c.column}, which is neither`
 			)
+		}
+		return lawColumn(column)
+	}
+
+	/** The family as its refusals describe it. */
+	#shape() {
+		return { ...this.#family, owner: this.#owner, member: this.#member }
+	}
+
+	/**
+	 * The pairs `axis` carries beyond its key columns `base` → `targetBase`, each once, in the order of their target
+	 * columns, so two axes carrying one set reference one UNIQUE. A pair that repeats a key column is the key itself; a
+	 * target column carried twice, or a key column carried from another source, is refused: a reference names each
+	 * referenced column once.
+	 */
+	#carried(
+		axis: AxisKind,
+		pairs: ReadonlyArray<AxisPair>,
+		base: NonEmptyReadonlyArray<PlannedColumn>,
+		targetBase: NonEmptyReadonlyArray<PlannedColumn>
+	): ReadonlyArray<CarriedPair> {
+		const keyOf = (c: PlannedColumn): string =>
+			c.kind === "field" ? `f ${c.field.name}` : `l ${lawColumnText(c.column)}`
+		const baseKeys = base.map(keyOf)
+		const targetKeys = targetBase.map(keyOf)
+		const out: Array<CarriedPair> = []
+		for (const p of pairs) {
+			const from = this.#planned(p.from)
+			const to = this.#planned(p.to)
+			const fromKey = keyOf(from)
+			const toKey = keyOf(to)
+			const at = targetKeys.indexOf(toKey)
+			if (at !== -1 && baseKeys[at] === fromKey) {
+				continue
+			}
+			if (at !== -1 || out.some((q) => q.toKey === toKey)) {
+				return refuse(
+					"UnsupportedLawFamily",
+					this.#loc,
+					`a family axis whose foreign key references each column once; the ${axis} axis of ${familyText(this.#shape())} carries ${toKey.slice(2)} twice`
+				)
+			}
+			out.push({ from, to, fromKey, toKey, laws: p.laws })
+		}
+		return out.toSorted((a, b) => (a.toKey < b.toKey ? -1 : a.toKey > b.toKey ? 1 : 0))
+	}
+
+	/** One axis's foreign key, its law columns and the UNIQUE over its target columns, which INDEX_MAX_KEYS bounds. */
+	#axis(
+		kind: AxisKind,
+		pairs: ReadonlyArray<CarriedPair>,
+		source: {
+			readonly relation: RelationInfo
+			readonly base: NonEmptyReadonlyArray<PlannedColumn>
+		},
+		target: {
+			readonly relation: RelationInfo
+			readonly base: NonEmptyReadonlyArray<PlannedColumn>
+		},
+		onUpdate: "cascade" | "noAction",
+		deferral: ForeignKeyDeferral
+	): AxisPlan {
+		const columns = extendNonEmpty(
+			source.base,
+			pairs.map((p) => p.from)
+		)
+		const targetColumns = extendNonEmpty(
+			target.base,
+			pairs.map((p) => p.to)
+		)
+		const generated = columns.find(isGenerated)
+		if (onUpdate === "cascade" && generated !== undefined) {
+			return refuse(
+				"UnsupportedLawFamily",
+				this.#loc,
+				`a family's owner axis over columns the caller or grizzle writes, which its ON UPDATE CASCADE rewrites; the owner axis of ${familyText(this.#shape())} carries ${generated.kind === "field" ? generated.field.name : "a generated law column"}, which PostgreSQL generates and no cascade may write (42601): copy a written field instead`
+			)
+		}
+		if (targetColumns.length > indexMaxKeys.value) {
+			return refuse(
+				"UnsupportedLawFamily",
+				this.#loc,
+				`a family axis of at most ${indexMaxKeys.value} columns, which one UNIQUE holds (INDEX_MAX_KEYS); the ${kind} axis of ${familyText(this.#shape())} carries ${targetColumns.length}: carry fewer copies on it`
+			)
+		}
+		const own = this.#law.id
+		const laws = [...new Set(pairs.flatMap((p) => p.laws))].filter((l) => l !== own)
+		return {
+			foreignKey: {
+				kind: "ForeignKey",
+				relation: source.relation,
+				columns,
+				target: target.relation,
+				targetColumns,
+				onUpdate,
+				deferral,
+				laws: [own, ...laws]
+			},
+			natives: [
+				...lawColumns(columns),
+				...lawColumns(targetColumns),
+				{ kind: "Unique", relation: target.relation, columns: targetColumns }
+			]
 		}
 	}
 
-	/** The row check of a capacity whose source is its target on one key: the group of a target fact is the fact itself
-	 * when it satisfies the source selection, and empty otherwise, so the law is that each target fact's own weight, or
-	 * zero, lies within its bounds.
-	 * `target` is the relation of both sides. */
-	#selfCapacity(
-		d: Extract<TheoryLaw["detail"], { readonly kind: "capacity" }>,
-		target: TheoryRelation
-	): NativePlan | undefined {
-		const value = weightTerm(d.weighed)
-		const high = d.bounds.high
-		const within = (v: MetTerm | 0n | 1n): Pred =>
-			andP([boundPred(v, d.bounds.low, "ge"), high === undefined ? true : boundPred(v, high, "le")])
-		const selected = selectionPred(selectorsOf(d.from.selection))
-		const body = orP([andP([selected, within(value)]), andP([notP(selected), within(0n)])])
-		return this.#generatedCheck(
-			target,
-			orP([notP(selectionPred(selectorsOf(d.target.selection))), body])
+	/** The row conditions `law` states on `relation`, gathered into its one CHECK there. */
+	#conditionsFor(law: LawId, relation: RelationInfo): RowConditions {
+		const own = this.#conditions.get(law) ?? new Map<string, RowConditions>()
+		this.#conditions.set(law, own)
+		const known = own.get(relation.name)
+		if (known !== undefined) {
+			return known
+		}
+		const made = new RowConditions(relation)
+		own.set(relation.name, made)
+		return made
+	}
+
+	/** A tree's own CHECK conjuncts on its relation: the family bound, T2, the root pin, T3 and T6. */
+	#treeConditions(
+		own: RowConditions,
+		tree: Extract<Family["members"], { readonly kind: "tree" }>,
+		index: PlannedColumn,
+		copy: PlannedColumn,
+		parentStart: PlannedColumn
+	): void {
+		const [g0] = this.#family.group
+		const field = (f: LawField): ExprDesc => own.column(fieldColumn(f))
+		const start = field(tree.start)
+		const end = field(tree.end)
+		const at = own.column(index)
+		const n = own.column(copy)
+		const ps = own.column(parentStart)
+		const children = field(this.#family.count)
+		const zero = naturalLiteral(0n)
+		const one = naturalLiteral(1n)
+		const plus = (x: ExprDesc): ExprDesc => ({ kind: "compute", fn: "add", args: [x, one] })
+		own.add(or([cmp("eq", start, zero), cmp("lt", at, n)]))
+		own.add(
+			or([
+				and([cmp("eq", field(g0.member), field(g0.owner)), cmp("eq", start, zero)]),
+				and([cmp("ne", field(g0.member), field(g0.owner)), cmp("gt", start, zero)])
+			])
+		)
+		own.add(or([cmp("gt", start, zero), cmp("eq", at, zero)]))
+		own.add(or([cmp("eq", start, zero), cmp("gt", at, zero), cmp("eq", start, plus(ps))]))
+		own.add(
+			and([cmp("gt", end, start), or([cmp("gt", children, zero), cmp("eq", end, plus(start))])])
+		)
+	}
+
+	/**
+	 * The base pin of a carried copy, where its source has a start: on its axis's source relation, under the copy's
+	 * first law, `at > 0 OR f = s` (predecessor, the index at its first slot, a tree's root included, which the root
+	 * pin holds at slot 0) or `n > 0 OR f = s` (last, an empty family). The owner axis has no base: every member has an
+	 * owner, and a tree's root references itself, so the axis's own foreign key holds its copy at its own value.
+	 */
+	#pin(axis: AxisKind, pair: CarriedPair, index: PlannedColumn): void {
+		const start = this.#startOf(pair.from)
+		if (start === undefined || axis === "owner") {
+			return
+		}
+		const at = axis === "predecessor" ? index : fieldColumn(this.#family.count)
+		const relation = axis === "last" ? this.#owner : this.#member
+		const conditions = this.#conditionsFor(pair.laws[0], relation)
+		conditions.add(
+			or([
+				cmp("gt", conditions.column(at), naturalLiteral(0n)),
+				cmp("eq", conditions.column(pair.from), conditions.literal(start.start, start.type))
+			])
+		)
+	}
+
+	/** A copy source's start: an accumulated field's, or a hidden accumulator's identity. */
+	#startOf(c: PlannedColumn): CopyStart | undefined {
+		if (c.kind === "field") {
+			const w = c.field.writing
+			return w.kind === "accumulated" ? { start: w.start, type: c.field.type } : undefined
+		}
+		const column = c.column
+		if (column.kind !== "drawn" || column.draws.kind !== "before") {
+			return undefined
+		}
+		const plane = this.#family.folds[column.draws.fold]?.planes[column.draws.plane]
+		return plane === undefined ? undefined : { start: plane.identity, type: plane.end.type }
+	}
+
+	/**
+	 * A fold's combine CHECK on the member, under the fold's law: every plane's after is `combine(befores, x)` where the
+	 * step side's selection holds, and its before where it does not, compared in exact arithmetic.
+	 */
+	#combine(fold: FamilyFold, at: number): void {
+		const { law, detail } = this.#recognizer.foldLaw(familyKey(this.#family.id), at)
+		const conditions = this.#conditionsFor(law.id, this.#member)
+		const befores = mapNonEmpty(fold.planes, (p) => conditions.column(this.#planned(p.before)))
+		const afters = mapNonEmpty(fold.planes, (p) => conditions.column(this.#planned(p.after)))
+		const step =
+			fold.step.kind === "one"
+				? { kind: "one" as const }
+				: { kind: "value" as const, expr: conditions.column(fieldColumn(fold.step.field)) }
+		const combined = monoids[fold.monoid].combine(befores, step, combineBuild)
+		const stepped = and(
+			mapNonEmpty(afters, (a, p) => cmp("eq", a, combined[p] ?? missing("a combine per plane")))
+		)
+		const where = detail.step.selection.conjuncts.map((c) => c.predicate)
+		if (!isNonEmpty(where)) {
+			conditions.add(stepped)
+			return
+		}
+		const phi = and(where)
+		conditions.add(
+			or([
+				and([phi, stepped]),
+				and([
+					{ kind: "not", arg: phi },
+					and(
+						mapNonEmpty(afters, (a, p) => cmp("eq", a, befores[p] ?? missing("a before per plane")))
+					)
+				])
+			])
 		)
 	}
 }
 
-const weightTerm = (weight: Weighed): MetTerm | 1n => {
-	switch (weight.kind) {
-		case "count":
-			return 1n
-		case "field":
-			return field(weight.field)
-		case "duration":
-			return { kind: "compute", fn: "width", args: [field(weight.field)], span: weight.span }
+/** A law column's plan as a key within its relation: what it is, each handle by its name. */
+const lawColumnText = (c: LawColumnPlan): string => {
+	switch (c.kind) {
+		case "constant":
+			return `constant ${c.target.name}.${c.field.name}`
+		case "term":
+			return `${c.term.kind} ${c.term.field} ${c.selection.conjuncts.map((k) => k.text).join(" and ")}`
+		case "drawn":
+			return `${c.draws.kind} ${c.draws.family.owner}.${c.draws.family.count}${
+				c.draws.kind === "before" || c.draws.kind === "after"
+					? ` ${c.draws.fold} ${c.draws.plane}`
+					: ""
+			}`
+		case "indexPred":
+			return `indexPred ${c.family.owner}.${c.family.count}`
 	}
-}
-
-/** The source fields a weight reads. */
-const weightFields = (weight: Weighed): ReadonlyArray<LawField> =>
-	weight.kind === "count" ? [] : [weight.field]
-
-/** A weight as the residual law reads it. */
-const lawWeight = (weight: Weighed): LawWeight =>
-	weight.kind === "count" ? weight : { kind: weight.kind, field: weight.field }
-
-const flip = { ge: "le", le: "ge" } as const
-
-/** `value <op> bound` over a row of `relation`, decided when both are literals; a literal operand never stands first,
- * and a literal bound or count weight enters as an IR integer typed at the term it meets. */
-const boundPred = (value: MetTerm | 0n | 1n, bound: CapacityBound, op: "ge" | "le"): Pred => {
-	if (bound.kind === "literal") {
-		if (typeof value === "bigint") {
-			return op === "ge" ? value >= bound.stated : value <= bound.stated
-		}
-		return compareLiteral(op, value, { kind: "int", value: bound.stated })
-	}
-	if (typeof value === "bigint") {
-		return compareLiteral(flip[op], field(bound.field), { kind: "int", value })
-	}
-	return { kind: "compare", op, left: value, right: field(bound.field) }
-}
-
-/** The guard of one image two sides of a relation share: always when either side's image is, else the union of their
- * selections, the earlier plan's first. */
-const uniteGuards = (a: ImageGuard, b: ImageGuard): ImageGuard =>
-	a.kind === "always" || b.kind === "always"
-		? { kind: "always" }
-		: { kind: "selected", selections: [...a.selections, ...b.selections] }
-
-const imageKey = (i: ImagePlan) => i.key.map((c) => c.field.name).join("\u0000")
-
-/** `a`'s images of one event with `b`'s: each of `a`'s under the union of its guard and its twin's in `b`, then the ones
- * of `b` that `a` lacks, each under its own. */
-const extend = (
-	a: NonEmptyReadonlyArray<ImagePlan>,
-	b: NonEmptyReadonlyArray<ImagePlan> | undefined
-): NonEmptyReadonlyArray<ImagePlan> => {
-	if (b === undefined) {
-		return a
-	}
-	const twins = new Map(b.map((x) => [imageKey(x), x] as const))
-	const known = new Set(a.map(imageKey))
-	return [
-		...mapNonEmpty(a, (i) => {
-			const twin = twins.get(imageKey(i))
-			return twin === undefined ? i : { key: i.key, guard: uniteGuards(i.guard, twin.guard) }
-		}),
-		...b.filter((i) => !known.has(imageKey(i)))
-	]
-}
-
-/** Two image lists of one event as one (`extend`), none when neither has any. */
-const uniteImages = (
-	a: NonEmptyReadonlyArray<ImagePlan> | undefined,
-	b: NonEmptyReadonlyArray<ImagePlan> | undefined
-): NonEmptyReadonlyArray<ImagePlan> | undefined => (a === undefined ? b : extend(a, b))
-
-/** Two UPDATE OF lists of one relation as one: the fields of either, in heading order. */
-const uniteUpdates = (
-	a: NonEmptyReadonlyArray<LawField> | undefined,
-	b: NonEmptyReadonlyArray<LawField> | undefined
-): NonEmptyReadonlyArray<LawField> | undefined =>
-	a === undefined
-		? b
-		: b === undefined
-			? a
-			: sortNonEmpty(
-					dedupeNonEmpty([...a, ...b]),
-					Order.mapInput(Order.compareNumbers, (f: LawField) => f.position)
-				)
-
-/** Two plans' events of one relation as one, each kind united. */
-const uniteEvents = (a: PlanEvents, b: PlanEvents): PlanEvents => {
-	const update = uniteUpdates(a.update, b.update)
-	if (a.insert !== undefined) {
-		return { insert: extend(a.insert, b.insert), delete: uniteImages(a.delete, b.delete), update }
-	}
-	if (b.insert !== undefined) {
-		return { insert: b.insert, delete: extend(a.delete, b.delete), update }
-	}
-	return { insert: undefined, delete: extend(a.delete, b.delete), update }
-}
-
-/** Two plans of one relation as one. */
-const mergeTwo = (prior: ParticipantPlan, p: ParticipantPlan): ParticipantPlan => ({
-	relation: p.relation,
-	events: uniteEvents(prior.events, p.events)
-})
-
-/** What two arm plans of one relation re-check, as one: the earlier plan's arms, then the later's. The planner visits
- * the arms in roster order, so these are too. */
-const uniteArms = (a: ArmsCheck, b: ArmsCheck): ArmsCheck => ({
-	kind: "arms",
-	arms: [...a.arms, ...b.arms]
-})
-
-/** One participant per participating table, in the order each relation is first planned: the plans of one relation
- * merged by `merge`, events and images united. Two images of one event and fields are one image, under the union of
- * their guards; an image one plan has and the other lacks keeps its own guard. */
-const mergeParticipants = <P extends ParticipantPlan>(
-	plans: NonEmptyReadonlyArray<P>,
-	merge: (prior: P, p: P) => P
-): NonEmptyReadonlyArray<P> => {
-	const [first, ...rest] = plans
-	let head = first
-	const byRelation = new Map<string, P>()
-	for (const p of rest) {
-		if (p.relation.name === head.relation.name) {
-			head = merge(head, p)
-			continue
-		}
-		const prior = byRelation.get(p.relation.name)
-		byRelation.set(p.relation.name, prior === undefined ? p : merge(prior, p))
-	}
-	return [head, ...byRelation.values()]
 }

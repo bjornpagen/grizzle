@@ -15,6 +15,7 @@ import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ArrayTexts, Encoder, ParamDecl, RelationParamDecl } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { RelationColumn } from "#compiler/lower/conservative/types.ts"
@@ -65,20 +66,28 @@ interface RelationInput {
 
 export type RelationInputs = ReadonlyMap<ParamId, RelationInput>
 
-/** The spec of a relation parameter's columns `columns`, in the order a statement's slot lists them. */
-const specOver = (decl: RelationParamDecl, columns: SlotColumns): RelationSpec => ({
+/**
+ * The spec of a relation parameter's columns `columns`, in the order a statement's slot lists them, under the
+ * installation's codes `codes`.
+ */
+const specOver = (
+	decl: RelationParamDecl,
+	columns: SlotColumns,
+	codes: Codebook
+): RelationSpec => ({
 	relation: decl.name,
 	slot: { kind: "slot", name: decl.name },
-	columns: positionalColumns(columns)
+	columns: positionalColumns(columns),
+	codes
 })
 
 /** The normalizer of a relation input over `columns`: a relation parameter's, which refuses a value outside its refinements. */
-const normalizerOver = (decl: RelationParamDecl, columns: SlotColumns) =>
-	parameterNormalizer(specOver(decl, columns))
+const normalizerOver = (decl: RelationParamDecl, columns: SlotColumns, codes: Codebook) =>
+	parameterNormalizer(specOver(decl, columns, codes))
 
 /** The rows of a relation input's normal facts over `columns`, as normalizerOver's heading writes them. */
-const rowsOver = (decl: RelationParamDecl, columns: SlotColumns) =>
-	normalRows(specOver(decl, columns))
+const rowsOver = (decl: RelationParamDecl, columns: SlotColumns, codes: Codebook) =>
+	normalRows(specOver(decl, columns, codes))
 
 const sameColumns = (a: SlotColumns, b: SlotColumns): boolean =>
 	a.length === b.length &&
@@ -91,7 +100,8 @@ type Normalizer = ReturnType<typeof normalizerOver>
 
 /**
  * The codec of one declared parameter: a scalar parameter's encoder, by its declared type; a relation parameter's
- * normalizer, over its declared heading.
+ * normalizer, over its declared heading, with the installation's codes its normal facts are written again under in a
+ * statement's own column order.
  */
 export type ParamCodec =
 	| {
@@ -99,7 +109,12 @@ export type ParamCodec =
 			readonly decl: Extract<ParamDecl, { readonly kind: "scalar" }>
 			readonly encode: Encoder
 	  }
-	| { readonly kind: "relation"; readonly decl: RelationParamDecl; readonly normalize: Normalizer }
+	| {
+			readonly kind: "relation"
+			readonly decl: RelationParamDecl
+			readonly normalize: Normalizer
+			readonly codes: Codebook
+	  }
 
 /**
  * The codecs of a read's or write's declared parameters, in declaration order, built once where its template is
@@ -108,11 +123,11 @@ export type ParamCodec =
  */
 export type ParamCodecs = ReadonlyArray<ParamCodec>
 
-export const paramCodecs = (declared: ReadonlyArray<ParamDecl>): ParamCodecs =>
+export const paramCodecs = (declared: ReadonlyArray<ParamDecl>, codes: Codebook): ParamCodecs =>
 	Arr.map(declared, (decl): ParamCodec =>
 		decl.kind === "relation"
-			? { kind: "relation", decl, normalize: normalizerOver(decl, decl.heading) }
-			: { kind: "scalar", decl, encode: paramEncoder(decl.type, decl.name) }
+			? { kind: "relation", decl, normalize: normalizerOver(decl, decl.heading, codes), codes }
+			: { kind: "scalar", decl, encode: paramEncoder(decl.type, decl.name, codes) }
 	)
 
 /**
@@ -143,7 +158,7 @@ const prepareInput = (
 		if (sameColumns(columns, declared)) {
 			return Result.succeed(normal)
 		}
-		const again = rowsOver(decl, columns)(normal)
+		const again = rowsOver(decl, columns, codec.codes)(normal)
 		return again.ok ? Result.succeed(again.value) : Result.fail(again.error)
 	}
 	/** Each statement reading's arrays, by the columns its placeholders share, written once per execution. */

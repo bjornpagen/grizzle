@@ -270,8 +270,8 @@ const outcomeMeets = (want: Applied, value: ApplyOutcome<unknown>, shown: string
 					`expected invariant-rejected by ${Formatter.format(want.law)}, the outcome is ${value.kind}`
 				)
 			}
-			if (!sameLaw(value.law, want.law)) {
-				return misses(shown, `expected invariant-rejected by ${Formatter.format(want.law)}`)
+			if (!Arr.every(value.laws, (law) => sameLaw(law, want.law))) {
+				return misses(shown, `expected invariant-rejected by ${Formatter.format(want.law)} alone`)
 			}
 			if (!Equal.equals(value.witness, want.witness)) {
 				return misses(shown, `expected exactly the witness ${Formatter.format(want.witness)}`)

@@ -12,7 +12,7 @@ import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import { LowerContext, WriteParams } from "#compiler/lower/conservative/context.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import { wildcardText, withoutSerial } from "#compiler/scalar/compute/types.ts"
+import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import type {
 	EmittedSql,
 	Expr,
@@ -44,7 +44,7 @@ export interface ResultColumn {
 	readonly type: ScalarType
 }
 
-export type InsertVariant = "protocol" | "pureSet" | "generated" | "spanKey"
+export type InsertVariant = "protocol" | "pureSet" | "generated" | "spanKey" | "family"
 
 /** The action an insert statement realizes: an insertion, or a put's insert half. Its rows are facts made present
  * under that tag (`AddedTag`). */
@@ -383,13 +383,27 @@ export const keyFirst = (relation: RelationInfo): NonEmptyReadonlyArray<LawField
 	return [...key, ...relation.heading.filter((f) => !key.includes(f))]
 }
 
-/** Whether a field is declared a serial generation request. */
-export const isSerialField = (field: LawField): boolean => "serial" in field.type
+/** Whether a statement writes a field's column: every field but one PostgreSQL generates from its row, which no
+ * INSERT, UPDATE or MERGE lists (428C9) and no addition's facts carry; it is read back with the rest. */
+export const isWritten = (field: LawField): boolean => field.writing.kind !== "generated"
 
-/** The value type of a stored field as rows carry it: the serial generation flag dropped. */
-export const rowType = (field: LawField): ScalarType => withoutSerial(field.type)
+/**
+ * The fields an addition writes, key first (`keyFirst`): every field but a generated one (`isWritten`). The primary
+ * key is never generated (ownership refuses it), so the list leads with it.
+ */
+export const writtenFields = (relation: RelationInfo): NonEmptyReadonlyArray<LawField> => {
+	const key: NonEmptyReadonlyArray<LawField> = relation.primaryFields
+	return [...key, ...relation.heading.filter((f) => !key.includes(f) && isWritten(f))]
+}
 
-/** The heading of a relation's facts over `fields`, serial generation flags dropped. */
+/** Whether a field is written by its sequence: its writing says so (ir/law.ts FieldWriting). */
+export const isSerialField = (field: Pick<LawField, "writing">): boolean =>
+	field.writing.kind === "serial"
+
+/** The value type of a stored field as rows carry it: its type. */
+export const rowType = (field: LawField): ScalarType => field.type
+
+/** The heading of a relation's facts over `fields`. */
 export const factHeading = (fields: ReadonlyArray<LawField>): Heading =>
 	fields.map((f) => ({ name: f.name, type: rowType(f) }))
 
@@ -399,7 +413,7 @@ export const factHeading = (fields: ReadonlyArray<LawField>): Heading =>
  * A text base is always built with the text carrier's own capabilities (`scalarAt`), so its
  * unrefined type is exactly the wildcard text. */
 export const unrefined = (t: ScalarType): ScalarType => {
-	const base = withoutSerial(baseOf(t))
+	const base = baseOf(t)
 	return base.carrier === "text" ? wildcardText : base
 }
 

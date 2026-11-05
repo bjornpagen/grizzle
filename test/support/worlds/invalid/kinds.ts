@@ -97,6 +97,8 @@ const boundaryOf: { readonly [K in InvalidKind]: Boundary } = {
 	"migration:half-applied": "migration",
 	"migration:hand-edited": "migration",
 	"migration:law-over-violating-data": "migration",
+	"migration:roster-removal-held": "migration",
+	"migration:roster-reorder": "migration",
 	"install:unwritable-write": "install",
 	"install:two-writes-one-relation": "install",
 	"isolation:repeatable read": "isolation",

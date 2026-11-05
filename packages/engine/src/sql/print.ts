@@ -8,7 +8,7 @@ import {
 } from "#compiler/core/limits.ts"
 import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	type AlterDomainAction,
@@ -34,6 +34,7 @@ import {
 	type FromItem,
 	type FunctionCall,
 	type FunctionName,
+	type FunctionParam,
 	type FunctionRef,
 	type Grantee,
 	type GrantObjects,
@@ -46,6 +47,7 @@ import {
 	type ObjectName,
 	type OnConflict,
 	type OrderItem,
+	type PackConstant,
 	type PerformQuery,
 	type PlBlock,
 	type PlStatement,
@@ -58,7 +60,6 @@ import {
 	type TableConstraint,
 	type TableName,
 	type Target,
-	type TriggerEvent,
 	type TypeRef,
 	tableConstraints,
 	type Update,
@@ -66,6 +67,7 @@ import {
 	type WindowSpec,
 	type With
 } from "#compiler/sql/ast.ts"
+import { binary, col, eq, lit, types } from "#compiler/sql/build.ts"
 import {
 	type CatalogCall,
 	type CatalogCast,
@@ -78,7 +80,11 @@ import {
 	type DoStatement,
 	databaseDefaultBlock
 } from "#compiler/sql/catalog.ts"
+import { mixedRadix } from "#compiler/sql/constants.ts"
 import { statementParams } from "#compiler/sql/transform.ts"
+
+/** An integer literal of PostgreSQL's integer type, which prints bare. */
+const int4 = (value: number): Expr => lit.int(value, types.integer)
 
 const sqlUnit = "  "
 
@@ -257,13 +263,17 @@ const printContextSource = (source: ContextSource): string => {
 	return `(SELECT ${reads.join(", ")} FROM (SELECT ${contextClaims(source)} AS "j") AS "m" WHERE "m"."j" ? ${quoteString(source.context)}${castTo("text")}) AS ${quoteIdent(source.alias)}(${printIdentList(source.columns.map((c) => c.column.name))})`
 }
 
-/** numeric's precision and scale. */
-const builtinTypmod = (type: Extract<TypeRef, { readonly kind: "builtin" }>): string =>
-	type.precision === undefined
+/** numeric's precision and scale, or bit(n)'s length. */
+const builtinTypmod = (type: Extract<TypeRef, { readonly kind: "builtin" }>): string => {
+	if (type.name === "bit") {
+		return `(${type.length})`
+	}
+	return type.precision === undefined
 		? ""
 		: type.scale === undefined
 			? `(${type.precision})`
 			: `(${type.precision}, ${type.scale})`
+}
 
 export const printType = (type: TypeRef): string => {
 	const array = type.array ? "[]" : ""
@@ -584,6 +594,12 @@ const expr = (e: Expr): Printed => {
 			return printed(`${expr(e.record).text}.${quoteIdent(e.field)}`, "atom")
 		case "regclass":
 			return printed(regclassText(e.relation), "cast")
+		case "complement":
+			return printed(`~ ${wrap(expr(e.expr), "cast")}`, "other")
+		case "nullif":
+			return printed(`NULLIF(${printExpr(e.expr)}, ${printExpr(e.absent)})`, "atom")
+		case "subscript":
+			return printed(`(${printExpr(e.array)})[${printExpr(e.index)}]`, "atom")
 	}
 }
 
@@ -621,9 +637,14 @@ const printIdentList = (names: ReadonlyArray<string>): string => names.map(quote
 const aliasList = (columns: ReadonlyArray<string>): string =>
 	isNonEmpty(columns) ? `(${printIdentList(columns)})` : ""
 
-/** Whether a type carries a typmod: numeric(p) or numeric(p, s), or a named type's, vector(n). */
+/** Whether a type carries a typmod: numeric(p) or numeric(p, s), bit(n), or a named type's, vector(n). */
 const hasTypmod = (type: TypeRef): boolean =>
-	type.kind === "builtin" ? type.precision !== undefined : type.typmod.length > 0
+	type.kind === "builtin"
+		? type.name === "bit" || type.precision !== undefined
+		: type.typmod.length > 0
+
+/** The array type of a column's values: its type, made an array unless it is one. */
+const arrayOf = (type: TypeRef): string => (type.array ? printType(type) : `${printType(type)}[]`)
 
 /**
  * One column of a relation input's arrays: the unnest of its array, the column's element type made an array and
@@ -634,7 +655,7 @@ const hasTypmod = (type: TypeRef): boolean =>
  * 42804 otherwise).
  */
 const printArrayColumn = ({ definition, array }: ArrayColumn): string => {
-	const elements = `$${array.number}::${printType({ ...definition.type, array: true })}`
+	const elements = `$${array.number}::${arrayOf(definition.type)}`
 	const collated =
 		definition.collation === undefined
 			? elements
@@ -1034,9 +1055,10 @@ const printConstraint = (constraint: TableConstraint): string => {
 		case "unique":
 			return `${head} UNIQUE NULLS DISTINCT (${printKeyColumns(constraint.columns)})`
 		case "foreignKey": {
+			const onUpdate = constraint.onUpdate === undefined ? "" : ` ON UPDATE ${constraint.onUpdate}`
 			const deferrable =
 				constraint.deferrable === undefined ? "" : ` DEFERRABLE ${constraint.deferrable}`
-			return `${head} FOREIGN KEY (${printForeignKeyColumns(constraint.columns)}) REFERENCES ${printObjectName(constraint.references)} (${printForeignKeyColumns(constraint.referencedColumns)}) MATCH SIMPLE${deferrable}`
+			return `${head} FOREIGN KEY (${printForeignKeyColumns(constraint.columns)}) REFERENCES ${printObjectName(constraint.references)} (${printForeignKeyColumns(constraint.referencedColumns)}) MATCH SIMPLE${onUpdate}${deferrable}`
 		}
 		case "check":
 			return `${head} ${printCheck(constraint.predicate)}`
@@ -1051,6 +1073,8 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return `ADD COLUMN ${printColumnDef(action.column)}`
 		case "addColumnPlaceholder":
 			return `ADD COLUMN ${columnHead(action.column)} DEFAULT ${placeholderToken} NOT NULL`
+		case "addColumnDefault":
+			return `ADD COLUMN ${columnHead(action.column)} DEFAULT ${printExpr(action.default)} NOT NULL`
 		case "dropColumn":
 			return `DROP COLUMN ${quoteIdent(action.column)}`
 		case "dropDefault":
@@ -1073,6 +1097,8 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return "ENABLE ROW LEVEL SECURITY"
 		case "disableRowSecurity":
 			return "DISABLE ROW LEVEL SECURITY"
+		case "setExpression":
+			return `ALTER COLUMN ${quoteIdent(action.column)} SET EXPRESSION AS (${printExpr(action.expr)})`
 	}
 }
 
@@ -1119,7 +1145,6 @@ const printGrantObjects = (on: GrantObjects): string => {
 			return `FUNCTION ${on.names.map(printFunctionSignature).join(", ")}`
 		case "TABLE":
 		case "SEQUENCE":
-		case "TYPE":
 		case "DOMAIN":
 			return `${on.kind} ${on.names.map(printObjectName).join(", ")}`
 	}
@@ -1133,9 +1158,6 @@ const printAlterRoleAction = (action: AlterRoleAction): string => {
 			return `RESET ${action.parameter}`
 	}
 }
-
-const printTriggerEvent = (event: TriggerEvent): string =>
-	event.kind === "UPDATE" ? `UPDATE OF ${printIdentList(event.of)}` : event.kind
 
 /** `PERFORM` in place of the query's leading SELECT keyword, through the same core and tail clauses, on one line. */
 const performLine = (out: Lines, query: PerformQuery): void =>
@@ -1234,7 +1256,7 @@ const plBlock = (out: Lines, block: PlBlock): void => {
  * The dollar-quote tag for a body's lines: `$$` unless a line holds it, then `$gz$`, `$gz1$`, …. No tag holds a
  * newline, so an occurrence in the joined body lies inside one line.
  */
-const dollarQuoteTag = (body: ReadonlyArray<string>): string => {
+export const dollarQuoteTag = (body: ReadonlyArray<string>): string => {
 	const free = (tag: string): boolean => !body.some((line) => line.includes(tag))
 	if (free("$$")) {
 		return "$$"
@@ -1280,6 +1302,116 @@ const createFunctionBlock = (out: Lines, fn: CreateFunction): void => {
 			return out.line(`RETURN ${printExpr(fn.body)}`)
 	}
 }
+
+/** A constant's head, CREATE FUNCTION <name>(<params>) RETURNS <type>. */
+const constantHead = (
+	name: ObjectName,
+	params: ReadonlyArray<FunctionParam>,
+	returns: TypeRef
+): string =>
+	`CREATE FUNCTION ${printObjectName(name)}(${params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${printType(returns)}`
+
+/** What every constant is: an SQL function PostgreSQL evaluates once and may run in parallel. */
+const constantClauses = "LANGUAGE sql IMMUTABLE PARALLEL SAFE"
+
+/** The pack's variable, which holds the cells' text. */
+const cellsVariable = quoteIdent("cells")
+
+/** The pack's series alias and its column, the cell index. */
+const cellIndex = col("g", "i")
+
+/** The pack's rows alias, and its payload code column; the key's codes are k1, k2, …. */
+const rowsAlias = "r"
+const payloadColumn = "c"
+const keyColumn = (i: number): string => `k${i + 1}`
+
+/**
+ * A row's names as an SQL line comment, each a JSON string: a line break or quote in a name is escaped, so nothing a
+ * name holds ends the comment.
+ */
+const namesComment = (names: NonEmptyReadonlyArray<string>): string =>
+	`-- ${names.map((name) => JSON.stringify(name)).join(", ")}`
+
+/**
+ * The text format() turns into the constant's CREATE FUNCTION, its value the literal %L quotes: every other % is
+ * doubled, so a name holding one is read as itself.
+ */
+const packedFunction = (fn: ObjectName): string =>
+	`${constantHead(fn, [], types.varbit).replaceAll("%", "%%")} ${constantClauses} RETURN %L::${printType(types.varbit)}`
+
+/**
+ * The migration's pack of a relation into its constant (sql/ast.ts PackConstant), a DO block:
+ *
+ *   DO $$
+ *   DECLARE
+ *     "cells" text;
+ *   BEGIN
+ *     SELECT string_agg(COALESCE(1 + "r"."c", 0)::bit(w)::text, '' ORDER BY "g"."i")
+ *     INTO "cells"
+ *     FROM generate_series(0, r1 * r2 * … - 1) AS "g"("i")
+ *     LEFT JOIN (VALUES
+ *       (k1, k2, …, c), -- names
+ *       …
+ *     ) AS "r"("k1", "k2", …, "c")
+ *     ON <the mixed-radix index of k1, k2, …> = "g"."i";
+ *     EXECUTE format('CREATE FUNCTION <function>() RETURNS bit varying LANGUAGE sql IMMUTABLE PARALLEL SAFE
+ *       RETURN %L::bit varying', "cells");
+ *   END
+ *   $$
+ *
+ * PostgreSQL builds the string from the rows of codes in one hash join over the key space, and the function's body is
+ * the string itself, every name and function qualified as the printer qualifies them. A relation of no row has no
+ * VALUES list, which PostgreSQL has none of, and no join: each cell is 0. Its outer join and its PL/pgSQL exist only in
+ * this printed form.
+ */
+const writePack = (out: Lines, pack: PackConstant): void => {
+	const body: Array<string> = []
+	const lines = new BlockLines(body, sqlUnit, "")
+	const text = printType(types.text)
+	const count = pack.radices
+		.slice(1)
+		.reduce<Expr>((product, radix) => binary("*", product, int4(radix)), int4(pack.radices[0]))
+	const keys = mapNonEmpty(pack.radices, (radix, i) => ({ name: keyColumn(i), radix }))
+	const index = mixedRadix(
+		mapNonEmpty(keys, (key) => ({ digit: col(rowsAlias, key.name), radix: key.radix }))
+	)
+	const columns = [...keys.map((key) => key.name), payloadColumn]
+	lines.line("DECLARE")
+	lines.nested().line(`${cellsVariable} ${text};`)
+	lines.line("BEGIN")
+	const block = lines.nested()
+	const held = isNonEmpty(pack.rows)
+	const cell = held ? `COALESCE(1 + ${printExpr(col(rowsAlias, payloadColumn))}, 0)` : "0"
+	block.line(
+		`SELECT ${inCatalog("string_agg")}(${cell}::${printType(types.bit(pack.width))}::${text}, ${quoteString("")}::${text} ORDER BY ${printExpr(cellIndex)})`
+	)
+	block.line(`INTO ${cellsVariable}`)
+	const series = `FROM ${inCatalog("generate_series")}(0, ${printExpr(binary("-", count, int4(1)))}) AS ${quoteIdent("g")}(${quoteIdent("i")})`
+	if (!held) {
+		block.line(`${series};`)
+	} else {
+		block.line(series)
+		block.line("LEFT JOIN (VALUES")
+		const rows = block.nested()
+		for (const [i, row] of pack.rows.entries()) {
+			const comma = i === pack.rows.length - 1 ? "" : ","
+			rows.line(`(${[...row.key, row.payload].join(", ")})${comma} ${namesComment(row.names)}`)
+		}
+		block.line(`) AS ${quoteIdent(rowsAlias)}(${printIdentList(columns)})`)
+		block.line(`ON ${printExpr(eq(index, cellIndex))};`)
+	}
+	block.line(
+		`EXECUTE ${inCatalog("format")}(${quoteString(packedFunction(pack.function))}::${text}, ${cellsVariable});`
+	)
+	lines.line("END")
+	const tag = dollarQuoteTag(body)
+	out.line(`DO ${tag}`)
+	for (const line of body) {
+		out.line(line)
+	}
+	out.line(tag)
+}
+
 /** What a COMMENT names, as it prints after COMMENT ON, and as `grizzle names` lists it. */
 export const printCommentTarget = (on: CommentTarget): string => {
 	switch (on.kind) {
@@ -1289,7 +1421,6 @@ export const printCommentTarget = (on: CommentTarget): string => {
 		case "TABLE":
 		case "VIEW":
 		case "MATERIALIZED VIEW":
-		case "TYPE":
 		case "DOMAIN":
 		case "SEQUENCE":
 		case "INDEX":
@@ -1385,24 +1516,6 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			return out.line(
 				`ALTER DOMAIN ${printObjectName(statement.name)} ${printAlterDomainAction(statement.action)}`
 			)
-		case "createEnum":
-			return out.line(
-				`CREATE TYPE ${printObjectName(statement.name)} AS ENUM (${statement.labels.map(quoteString).join(", ")})`
-			)
-		case "alterEnumAddValue": {
-			const position =
-				statement.position === undefined
-					? ""
-					: ` ${statement.position.kind} ${quoteString(statement.position.label)}`
-			const ifNotExists = statement.ifNotExists ? "IF NOT EXISTS " : ""
-			return out.line(
-				`ALTER TYPE ${printObjectName(statement.name)} ADD VALUE ${ifNotExists}${quoteString(statement.label)}${position}`
-			)
-		}
-		case "alterEnumRenameValue":
-			return out.line(
-				`ALTER TYPE ${printObjectName(statement.name)} RENAME VALUE ${quoteString(statement.from)} TO ${quoteString(statement.to)}`
-			)
 		case "createIndex": {
 			const include =
 				statement.include.length > 0 ? ` INCLUDE (${printIdentList(statement.include)})` : ""
@@ -1444,7 +1557,7 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			)
 		case "dropFunction":
 			return out.line(
-				`DROP FUNCTION ${statement.ifExists ? "IF EXISTS " : ""}${printFunctionSignature(statement.name)}`
+				`DROP FUNCTION ${statement.ifExists ? "IF EXISTS " : ""}${printFunctionSignature(statement.name)} RESTRICT`
 			)
 		case "dropTrigger":
 			return out.line(
@@ -1452,19 +1565,12 @@ export const writeStatement = (out: Lines, statement: SqlStatement): void => {
 			)
 		case "createFunction":
 			return createFunctionBlock(out, statement)
-		case "createConstraintTrigger": {
-			out.line(`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)}`)
-			const clauses = out.nested()
-			clauses.line(
-				`AFTER ${printTriggerEvent(statement.event)} ON ${printObjectName(statement.table)}`
-			)
-			clauses.line("DEFERRABLE INITIALLY DEFERRED")
-			if (statement.when !== undefined) {
-				clauses.line(`FOR EACH ROW WHEN (${printExpr(statement.when)})`)
-				return clauses.line(`EXECUTE FUNCTION ${printObjectName(statement.function)}()`)
-			}
-			return clauses.line(`FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}()`)
-		}
+		case "packConstant":
+			return writePack(out, statement)
+		case "createConstant":
+			out.line(constantHead(statement.name, statement.params, statement.returns))
+			out.line(constantClauses)
+			return out.line(`RETURN ${printExpr(statement.body)}`)
 		case "createGuardTrigger": {
 			out.line(`CREATE TRIGGER ${quoteIdent(statement.name)}`)
 			const clauses = out.nested()

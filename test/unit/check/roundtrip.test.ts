@@ -1342,7 +1342,7 @@ const spanCase: ProgramCase = (() => {
 	const level = makeField(
 		"id",
 		"handle",
-		scalarOfSpec({ carrier: "enum", roster: { closed: "Level", handles: [...handles] } })
+		scalarOfSpec({ carrier: "code", roster: { closed: "Level", handles: [...handles] } })
 	)
 	const key: Var = { id: 0, field: k }
 	const first: Var = { id: 1, field: during }

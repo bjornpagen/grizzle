@@ -40,8 +40,8 @@ interface AdvanceSpec {
 
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
-/** The advance of one serial field `field`. A serial field is typed by its serial declaration (`SerialType`), over an
- * integer carrier, so its value casts to the advance function's bigint parameter. */
+/** The advance of one serial field `field`. A serial field's type is its integer, written by its sequence (its
+ * writing, ir/law.ts FieldWriting), so its value casts to the advance function's bigint parameter. */
 export const buildSequenceAdvance = (
 	w: WriteContext,
 	spec: AdvanceSpec,

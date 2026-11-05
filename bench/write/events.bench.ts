@@ -20,24 +20,13 @@ import {
 	loadedByOwner,
 	loginRoleOf,
 	plainStatement,
-	probeLaws,
 	writeConditions,
 	writePhases,
 	writerSession
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
 import { pg } from "#compiler/public/fields.ts"
-import {
-	capacity,
-	contained,
-	mutable,
-	on,
-	ref,
-	relation,
-	schema,
-	within
-} from "#compiler/public/schema.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
+import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -49,29 +38,26 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * - the AFTER-trigger event list grows with the events a transaction queues, in chunks of at most 1MB under
  *   TopTransactionContext, with no spill: its memory is read from the backend's AfterTriggerEvents
  *   context after the statements and before the end, when every deferred event is still queued (bench/harness
- *   transaction.ts), for growing batches of a law's custom events beside native foreign-key events ("Measure custom and
- *   native event memory together"). An unreadable reading is a defect of the gate's setup, never a figure;
+ *   transaction.ts), for growing batches of deferred foreign-key events. Every law is native (fin.md §7), so every
+ *   deferred event is a foreign key's RI check. An unreadable reading is a defect of the gate's setup, never a figure;
  * - splitting a ChangeSet into smaller statements in one transaction "does not bound accumulated deferred events": the
  *   same rows in ten statements queue the same memory as in one;
  * - "A key changed many times in one transaction is checked many times; ... nothing deduplicates the keys": a `mutable`
- *   member moved between two groups K times calls the law K times, and the commit-time work grows with K;
- * - an UPDATE that changes no field its law trigger's UPDATE OF lists queues no law event at all: the trigger's WHEN
- *   compares OLD with NEW at the row event, so a batch of such UPDATEs calls the law zero times.
+ *   member moved between two groups K times queues K deferred checks, and the commit-time work grows with K;
+ * - an UPDATE that changes no referencing column queues no event at all: PostgreSQL's RI trigger skips the row when its
+ *   keys are unchanged (RI_FKey_fk_upd_check_required), so a batch of such UPDATEs queues nothing beside one insert's
+ *   event.
  *
- * The fixture is a residual count capacity, Grp and a `mutable` Member contained in it.
+ * The fixture is a cycle of two containments, which grizzle defers (fin.md §5.1): a `mutable` Member in its Grp, and
+ * each Grp's lead among the members.
  */
-const Grp = relation("Grp", { id: pg.integer, bound: pg.integer }, ["id"])
+const Grp = relation("Grp", { id: pg.integer, lead: pg.bigint }, ["id"])
 const Member = relation("Member", { id: pg.bigint, grp: pg.integer }, ["id"])
-/** The capacity whose events the gate queues: a group's members within its bound. */
-const groupCapacity = capacity(on(Grp, "id"), {
-	from: on(Member, "grp"),
-	within: within(0n, ref("bound"))
-})
 
 const build = (name: string) =>
 	schema(name, { Grp, Member }, [
-		groupCapacity,
 		contained(on(Member, "grp"), on(Grp, "id")),
+		contained(on(Grp, "lead"), on(Member, "id")),
 		mutable(Member)
 	])
 
@@ -83,8 +69,6 @@ interface Options extends Readonly<Record<string, unknown>> {
 	readonly groups: number
 	readonly samples: number
 }
-
-const bound = 1000000000
 
 /**
  * The bytes a transaction's queued events use in the AfterTriggerEvents context, read before its end; its allocated
@@ -108,8 +92,8 @@ export default defineGate({
 	title:
 		"The deferred-event queue: its memory by events, split statements, and repeated checks of one key",
 	scope:
-		"AfterTriggerEvents memory before COMMIT for growing batches with a law's and native events; one batch in one " +
-		"statement and in ten; a key moved K times in one transaction: law calls and the deferred checks' time.",
+		"AfterTriggerEvents memory before COMMIT for growing batches of deferred foreign-key events; one batch in one " +
+		"statement and in ten; a key moved K times in one transaction: its queued events and the deferred checks' time.",
 	phases: writePhases,
 	options: {
 		full: { sizes: [10000, 100000, 1000000], moves: [1, 10, 100, 1000], groups: 1000, samples: 5 },
@@ -122,10 +106,9 @@ export default defineGate({
 				programs: {},
 				logins: []
 			})
-			const law = namesOf(fx.installed).lawOf(groupCapacity)
 			const M = fx.table("Member")
 			const c = (rel: string, f: string) => fx.column(rel, f)
-			yield* fill(fx, "Grp", options.groups, { id: "g::int4", bound: `${bound}::int4` })
+			yield* fill(fx, "Grp", options.groups, { id: "g::int4", lead: "g::int8" })
 			yield* fill(fx, "Member", options.groups, { id: "g::int8", grp: "g::int4" })
 			yield* settle(fx)
 			yield* grantMemoryReading(s.admin, loginRoleOf(fx))
@@ -134,7 +117,7 @@ export default defineGate({
 				`INSERT INTO ${M} (${c("Member", "id")}, ${c("Member", "grp")}) SELECT ${first} + g, 1 + (g % ${options.groups}) FROM pg_catalog.generate_series(1, ${n}) AS g`
 			/**
 			 * Rolled back: the queue is read before the end, and rolling back skips the queued checks, so a size's memory is
-			 * measured without paying for its law calls.
+			 * measured without paying for its checks.
 			 */
 			const queued = (statements: ReadonlyArray<string>) =>
 				measureTransaction(writer, {
@@ -149,12 +132,12 @@ export default defineGate({
 			const splitReadings: Array<string> = []
 			let splitHolds = true
 			for (const n of options.sizes) {
-				const lawAndNative: Array<TransactionMeasure> = []
+				const deferred: Array<TransactionMeasure> = []
 				const split: Array<TransactionMeasure> = []
 				for (let i = 0; i < options.samples; i++) {
 					const first = 10000000 + i * n
-					const lawAndNativeRun = yield* queued([generated(first, n)])
-					lawAndNative.push(lawAndNativeRun)
+					const deferredRun = yield* queued([generated(first, n)])
+					deferred.push(deferredRun)
 					const tenth = Math.ceil(n / 10)
 					const splitRun = yield* queued(
 						Arr.map(indices(10), (k) =>
@@ -163,7 +146,7 @@ export default defineGate({
 					)
 					split.push(splitRun)
 				}
-				const [one] = lawAndNative
+				const [one] = deferred
 				const [ten] = split
 				if (one === undefined || ten === undefined) {
 					throw new GateSetupError({ what: `no sample of ${n} rows` })
@@ -190,12 +173,12 @@ export default defineGate({
 					variants: [],
 					comparisons: [],
 					transactions: {
-						lawAndNativeFk: summarizeTransactions(lawAndNative),
-						lawAndNativeFkTenStatements: summarizeTransactions(split)
+						deferredFk: summarizeTransactions(deferred),
+						deferredFkTenStatements: summarizeTransactions(split)
 					},
 					loads: {},
 					measures: {
-						lawAndNativeBytes: oneBytes,
+						deferredBytes: oneBytes,
 						tenStatementsBytes: tenBytes,
 						bytesPerRow: oneBytes / n
 					}
@@ -205,8 +188,7 @@ export default defineGate({
 			/** A key moved K times between two groups in one transaction. */
 			const moveCases: Array<CaseRecord<"R12">> = []
 			const moveSeries: Array<TransactionSeries> = []
-			const moveCalls: Array<number> = []
-			let callsMatch = true
+			const moveBytes: Array<number> = []
 			const moveSql = (k: number) =>
 				Arr.map(
 					indices(k),
@@ -214,11 +196,8 @@ export default defineGate({
 						`UPDATE ${M} SET ${c("Member", "grp")} = ${i % 2 === 0 ? 2 : 1} WHERE ${c("Member", "id")} = 1`
 				)
 			for (const k of options.moves) {
-				const probe = yield* probeLaws(writer, fx, law, moveSql(k), [])
-				moveCalls.push(probe.total)
-				if (probe.total !== k) {
-					callsMatch = false
-				}
+				const moved = yield* queued(moveSql(k))
+				moveBytes.push(usedBytes(moved))
 				const committed: Array<TransactionMeasure> = []
 				for (let i = 0; i < options.samples; i++) {
 					const committedRun = yield* measureTransaction(writer, {
@@ -249,7 +228,7 @@ export default defineGate({
 						schemaState: loadedByOwner,
 						data: `${options.groups} groups of one member each`,
 						parameters: { moves: k },
-						semantics: "every move keeps the bound; the transaction commits",
+						semantics: "every move keeps its foreign key; the transaction commits",
 						cache: "each sample a fresh transaction on a warm session"
 					}),
 					phases: {},
@@ -257,17 +236,20 @@ export default defineGate({
 					comparisons: [],
 					transactions: { moves: series },
 					loads: {},
-					measures: { lawCalls: probe.total }
+					measures: { queuedBytes: usedBytes(moved) }
 				})
 			}
-			/** Every member's group assigned to itself: an UPDATE OF its field that changes nothing. */
-			const unchanged = yield* probeLaws(
-				writer,
-				fx,
-				law,
-				[`UPDATE ${M} SET ${c("Member", "grp")} = ${c("Member", "grp")}`],
-				[]
-			)
+			/**
+			 * Every member's group assigned to itself, an UPDATE of its referencing column that changes nothing, beside one
+			 * insert, against the insert alone: the same queue, so the UPDATE queued no event.
+			 */
+			const insertAlone = yield* queued([generated(30000000, 1)])
+			const insertBesideUnchanged = yield* queued([
+				`UPDATE ${M} SET ${c("Member", "grp")} = ${c("Member", "grp")}`,
+				generated(30000000, 1)
+			])
+			const oneInsert = usedBytes(insertAlone)
+			const withUnchanged = usedBytes(insertBesideUnchanged)
 			const cases: Array<CaseRecord<"R12">> = [...sizeCases, ...moveCases]
 			const [smallest] = perEvent
 			const largest = perEvent.at(-1)
@@ -290,14 +272,15 @@ export default defineGate({
 						Arr.join(splitReadings, ", ")
 					),
 					mechanism(
-						`an UPDATE of ${options.groups} members that changes no UPDATE OF field queues no law event: it calls the law zero times`,
-						unchanged.total === 0,
-						`calls ${unchanged.total}`
+						`an UPDATE of ${options.groups} members that changes no referencing column queues no event: the queue is one insert's`,
+						withUnchanged === oneInsert,
+						`${withUnchanged} bytes beside the UPDATE, ${oneInsert} alone`
 					),
 					mechanism(
-						"a key moved K times calls the law K times: nothing deduplicates the keys",
-						callsMatch,
-						`calls ${Arr.join(Arr.map(moveCalls, String), ", ")} for moves ${Arr.join(Arr.map(options.moves, String), ", ")}`
+						"a key moved K times queues K checks: the queue grows with K, nothing deduplicates the keys",
+						Arr.every(moveBytes, (b, i) => i === 0 || b >= (moveBytes[i - 1] ?? 0)) &&
+							(moveBytes.at(-1) ?? 0) > (moveBytes[0] ?? 0),
+						`${Arr.join(Arr.map(moveBytes, String), ", ")} bytes for moves ${Arr.join(Arr.map(options.moves, String), ", ")}`
 					),
 					equivalence(
 						"every repeated-move transaction committed",

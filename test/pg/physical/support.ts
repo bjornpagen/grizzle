@@ -242,7 +242,7 @@ export const worldsGrants = (
 			...on("table", `${writer.role}.${table}`, [writer.role], ["SELECT"]),
 			...on("table", `${reader}.${table}`, [reader], ["SELECT"])
 		]),
-		...Arr.flatMap([...catalog.enums, ...catalog.domains], (type) =>
+		...Arr.flatMap(catalog.domains, (type) =>
 			on("type", type.name, [writer.role, reader], ["USAGE"])
 		),
 		...Arr.flatMap([...declared.views], (view) => [
@@ -258,9 +258,12 @@ export const worldsGrants = (
 					return on("function", name, [writer.role], ["EXECUTE"])
 				case "snapshotGuard":
 					return on("function", name, [writer.login], ["EXECUTE"])
+				case "names":
+				case "live":
+					return on("function", name, [writer.role, reader], ["EXECUTE"])
 				case "world":
-				case "law":
 				case "isolationGuard":
+				case "closedConstant":
 					return []
 			}
 		})

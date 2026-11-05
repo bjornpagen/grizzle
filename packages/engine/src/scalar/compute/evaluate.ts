@@ -2,7 +2,13 @@ import type { ExprId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
-import { describeOp, type ExprTable, type TableExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	type ColumnRef,
+	describeOp,
+	type ExprTable,
+	type TableExpr,
+	type TypedLiteral
+} from "#compiler/ir/expr.ts"
 import {
 	baseOf,
 	type Carrier,
@@ -38,11 +44,28 @@ import { Money } from "#compiler/scalar/values/money.ts"
  * (every partial operation stands with its proof), or an expression the evaluator does not evaluate (a read other than
  * the VALUE, an operation outside a check's vocabulary, an operand of another kind).
  */
-type EvalStop =
+export type EvalStop =
 	| { readonly kind: "undefined"; readonly precondition: Undefined }
 	| { readonly kind: "unsupported"; readonly what: string }
 
 type EvalResult = Result.Result<CarrierValue, EvalStop>
+
+/**
+ * What an evaluated expression's leaves read: a contract predicate's VALUE, a row's columns, each by its name, its
+ * value or undefined where the row holds none, which the evaluation then refuses as unsupported; and the closed
+ * relations a closed read applies: `closed(relation, field, args)` is C.at's cell, the value of `field` at the key
+ * `args`, and with no field C.row's set, the completions of the key prefix `args`; undefined where the reader holds no
+ * closed relation, or C.at's relation holds no tuple at the key, which the evaluation refuses as unsupported.
+ */
+export interface EvalLeaves {
+	readonly value: CarrierValue | undefined
+	readonly column: (ref: ColumnRef) => CarrierValue | undefined
+	readonly closed: (
+		relation: string,
+		field: string | undefined,
+		args: ReadonlyArray<CarrierValue>
+	) => CarrierValue | undefined
+}
 
 /**
  * Membership of a text value in a regex refinement: the text package's NFA (never RegExp), which the caller supplies,
@@ -89,8 +112,10 @@ export const literalValue = (literal: TypedLiteral): CarrierValue => {
 		case "text":
 		case "uuid":
 			return literal.value
-		case "enum":
+		case "handle":
 			return literal.handle
+		case "handles":
+			return Object.freeze(new Set(literal.handles))
 		case "span":
 			return { start: literal.start, end: literal.end }
 		case "vector":
@@ -106,6 +131,20 @@ const isNumber = (v: unknown): v is number => typeof v === "number"
 const isString = (v: unknown): v is string => typeof v === "string"
 const isDecimal = (v: unknown): v is Decimal => v instanceof Decimal
 const isMoney = (v: unknown): v is Money => v instanceof Money
+const isSet = (v: unknown): v is ReadonlySet<string> => v instanceof Set
+
+/**
+ * A set's membership over its roster's handles in declared order, one 0 or 1 per handle: two sets of one roster are
+ * equal exactly when their texts are, and the texts' order is the host's own total order of sets, since a set has no
+ * order of PostgreSQL's. Undefined when the set holds a member the roster does not.
+ */
+const membershipText = (
+	set: ReadonlySet<string>,
+	roster: ReadonlyArray<string>
+): string | undefined =>
+	[...set].every((member) => roster.includes(member))
+		? roster.map((handle) => (set.has(handle) ? "1" : "0")).join("")
+		: undefined
 type SpanValue = { readonly start: bigint; readonly end: bigint }
 const isSpanValue = (v: unknown): v is SpanValue =>
 	typeof v === "object" &&
@@ -154,7 +193,7 @@ export const compareValues = (
 			return a === b ? 0 : a < b ? -1 : 1
 		case "text":
 			return isString(a) && isString(b) ? compareCodePoints(a, b) : undefined
-		case "enum": {
+		case "code": {
 			if (!isString(a) || !isString(b)) {
 				return undefined
 			}
@@ -165,6 +204,17 @@ export const compareValues = (
 				return undefined
 			}
 			return i < j ? -1 : i > j ? 1 : 0
+		}
+		case "bits": {
+			if (!isSet(a) || !isSet(b)) {
+				return undefined
+			}
+			const x = membershipText(a, base.roster.handles)
+			const y = membershipText(b, base.roster.handles)
+			if (x === undefined || y === undefined) {
+				return undefined
+			}
+			return x === y ? 0 : x < y ? -1 : 1
 		}
 		case "range4":
 		case "range8": {
@@ -220,8 +270,9 @@ const gcdOf = (a: bigint, b: bigint): bigint => {
 /**
  * The native operations a check admits (lower.ts checkMembers) applied to their evaluated operands, each defined on
  * every value or where its proved precondition holds: integer and money arithmetic exactly (an exact integer, exact
- * money), numeric as numeric.c computes it, floats as IEEE 754, comparisons, BETWEEN, IN, NOT, char_length and span
- * endpoints. Each case checks its operands' host kinds; the IR's typing guarantees them, so a mismatch is
+ * money), numeric as numeric.c computes it, floats as IEEE 754, comparisons, BETWEEN, IN, NOT, char_length, span
+ * endpoints, LEAST and GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset
+ * and disjointness, over its handles. Each case checks its operands' host kinds; the IR's typing guarantees them, so a mismatch is
  * `unsupported`. `and`, `or` and casts are evaluated by their nodes, never applied.
  */
 const apply = (
@@ -370,14 +421,48 @@ const apply = (
 		}
 		case "not":
 			return typeof a === "boolean" ? Result.ok(!a) : mismatch(op)
+		case "union":
+			return isSet(a) && isSet(b) ? Result.ok(Object.freeze(new Set([...a, ...b]))) : mismatch(op)
+		case "intersection":
+			return isSet(a) && isSet(b)
+				? Result.ok(Object.freeze(new Set([...a].filter((h) => b.has(h)))))
+				: mismatch(op)
+		case "difference":
+			return isSet(a) && isSet(b)
+				? Result.ok(Object.freeze(new Set([...a].filter((h) => !b.has(h)))))
+				: mismatch(op)
+		case "cardinality":
+			return isSet(a) ? Result.ok(BigInt(a.size)) : mismatch(op)
+		case "subset":
+			return isSet(a) && isSet(b) ? Result.ok([...a].every((h) => b.has(h))) : mismatch(op)
+		case "disjoint":
+			return isSet(a) && isSet(b) ? Result.ok(![...a].some((h) => b.has(h))) : mismatch(op)
+		case "complement":
+			return unsupported("complement, which no Compute operation yields")
 		case "round":
 		case "trunc":
 		case "ceil":
 		case "floor":
+		case "least":
+		case "greatest": {
+			const [t] = argTypes
+			if (a === undefined || t === undefined) {
+				return mismatch(op)
+			}
+			let chosen: CarrierValue = a
+			for (const v of args.slice(1)) {
+				const cmp = compareValues(v, chosen, t)
+				if (cmp === undefined) {
+					return unsupported(`${op.fn} over ${c}`)
+				}
+				if (op.fn === "greatest" ? cmp > 0 : cmp < 0) {
+					chosen = v
+				}
+			}
+			return Result.ok(chosen)
+		}
 		case "power":
 		case "sqrt":
-		case "least":
-		case "greatest":
 		case "widthBucket":
 		case "minScale":
 		case "cosineDistance":
@@ -397,6 +482,24 @@ const evaluatePredicate = (
 	exprs: Readonly<Record<ExprId, TableExpr>>,
 	root: ExprId,
 	value: CarrierValue,
+	regexMember: RegexMember
+): EvalResult =>
+	evaluateTable(
+		exprs,
+		root,
+		{ value, column: () => undefined, closed: () => undefined },
+		regexMember
+	)
+
+/**
+ * The host's value of the expression `root` in its table `exprs`, its leaves read from `leaves` and regex membership
+ * by `regexMember`: the value PostgreSQL computes for it, or why the host has none (EvalStop). The one evaluation of a
+ * contract predicate over its VALUE and of a generation expression or a row check over its row.
+ */
+export const evaluateTable = (
+	exprs: Readonly<Record<ExprId, TableExpr>>,
+	root: ExprId,
+	leaves: EvalLeaves,
 	regexMember: RegexMember
 ): EvalResult => {
 	const at = (id: ExprId): TableExpr | undefined =>
@@ -433,9 +536,13 @@ const evaluatePredicate = (
 		}
 		switch (expr.kind) {
 			case "value":
-				return Result.ok(value)
-			case "column":
-				return unsupported(`the column ${expr.column.name}`)
+				return leaves.value === undefined
+					? unsupported("a contract's VALUE outside a contract predicate")
+					: Result.ok(leaves.value)
+			case "column": {
+				const read = leaves.column(expr.column)
+				return read === undefined ? unsupported(`the column ${expr.column.name}`) : Result.ok(read)
+			}
 			case "param":
 				return unsupported(`the parameter ${expr.param}`)
 			case "literal":
@@ -485,6 +592,29 @@ const evaluatePredicate = (
 				return op.fn === "and" || op.fn === "or"
 					? connective(op.fn, expr.args)
 					: applied(op, expr.args)
+			}
+			case "closedHas":
+				return unsupported(
+					`the membership test of the closed relation ${expr.relation}, which only a query's closed rewrite states`
+				)
+			case "closedAt":
+			case "closedRow": {
+				const args: Array<CarrierValue> = []
+				for (const a of expr.args) {
+					const v = run(a)
+					if (!v.ok) {
+						return v
+					}
+					args.push(v.value)
+				}
+				const read = leaves.closed(
+					expr.relation,
+					expr.kind === "closedAt" ? expr.field : undefined,
+					args
+				)
+				return read === undefined
+					? unsupported(`a read of the closed relation ${expr.relation}`)
+					: Result.ok(read)
 			}
 		}
 	}
@@ -565,15 +695,16 @@ interface LiteralRefusal {
  * every operation is total or proved where it stands, so its evaluation never meets an undefined operation, and this
  * evaluator covers exactly that: comparisons, BETWEEN, IN, boolean composition, integer arithmetic exactly (bigint),
  * money exactly, numeric as numeric.c computes it, floats as IEEE 754, abs, sign and neg, gcd and lcm of integers,
- * char_length, span endpoints, conditionals, guards and the casts between them. Any other operation, and any read but
- * the VALUE, is `unsupported`, never an approximation. The host never substitutes JavaScript arithmetic for a SQL
+ * char_length, span endpoints, a set's algebra, conditionals, guards and the casts between them, and the closed reads its
+ * leaves answer (EvalLeaves closed). Any other operation, and any read its leaves do not hold, is `unsupported`, never
+ * an approximation. The host never substitutes JavaScript arithmetic for a SQL
  * expression in a query.
  *
  * Values are exact carriers: integers and exact integers as bigint, numeric as Decimal, floats as number, money and
  * exact money as Money, booleans, text,
- * uuids and enum handles as primitives, spans as { start, end } bigints. Comparison follows PostgreSQL's total orders:
- * NaN above every number and equal to itself, -0 equal to 0, numeric by value, text in code point order
- * under the fixed C.UTF-8 collation, enums in roster order. A regex refinement's membership is the text package's NFA,
+ * uuids and closed ids' handles as primitives, sets as frozen Sets of handles, spans as { start, end } bigints.
+ * Comparison follows PostgreSQL's total orders: NaN above every number and equal to itself, -0 equal to 0, numeric by
+ * value, text in code point order under the fixed C.UTF-8 collation, closed ids in roster order, which is code order. A regex refinement's membership is the text package's NFA,
  * which the caller supplies.
  *
  * The one admission of a literal at a typed slot, in one order wherever it appears, bound by a match, compared, cast or

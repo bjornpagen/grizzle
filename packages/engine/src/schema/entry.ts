@@ -119,24 +119,6 @@ const refused = (
 	reason: WritabilityReason
 ): Result.Result<never, WritabilityRefused> => Result.err({ entry, reason })
 
-/**
- * A serial field's descriptor as the plain integer type a fact carries, any other descriptor as it is: what a relation
- * parameter carrying T's fields declares.
- */
-export const plainDesc = (desc: FieldDesc): FieldDesc => {
-	if (desc.kind !== "serial") {
-		return desc
-	}
-	switch (desc.type) {
-		case "smallserial":
-			return { kind: "pg", type: "smallint" }
-		case "serial":
-			return { kind: "pg", type: "integer" }
-		case "bigserial":
-			return { kind: "pg", type: "bigint" }
-	}
-}
-
 /** The rules stage under any names `.named()` gives a definition. */
 const unnamed = (stage: QueryStageDesc): QueryStageDesc =>
 	stage.kind === "named" ? unnamed(stage.input) : stage
@@ -218,6 +200,8 @@ const exprVars = (e: ExprDesc, into: Set<string>): void => {
 			return
 		case "and":
 		case "or":
+		case "closedAt":
+		case "closedRow":
 			for (const a of e.args) {
 				exprVars(a, into)
 			}
@@ -433,15 +417,15 @@ export const writableEntry = (
 	const filterFields: Array<string> = []
 	for (const field of fields) {
 		const binding = occurrence.bindings[field]
-		const type = target.fields[field]
-		if (binding === undefined || type === undefined) {
+		const decl = target.fields[field]
+		if (binding === undefined || decl === undefined) {
 			continue
 		}
 		if (binding.kind === "var" && !read.has(binding.var)) {
 			continue
 		}
 		kept[field] = binding
-		heading[field] = plainDesc(type)
+		heading[field] = decl.type
 		filterFields.push(field)
 	}
 	const filtersNothing = others.length === 0 && arm.where.length === 0 && arm.interiors.length === 0

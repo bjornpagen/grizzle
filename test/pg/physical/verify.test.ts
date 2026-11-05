@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -49,7 +49,7 @@ import {
 	verifyErasure
 } from "#test/support/catalog/verify.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
-import { installationNamesOf, namesOf } from "#test/support/kernel/naming.ts"
+import { installationNamesOf, namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { Ledger } from "#test/unit/physical/fixtures.ts"
@@ -171,10 +171,14 @@ layer(Substrate.layer)("catalog drift", (it) => {
 				const entry = names.tableIdent({ name: "Entry" })
 				const payout = names.tableIdent({ name: "Payout" })
 				const relation = (name: string): CatalogObject => ({ kind: "relation", name })
-				const currency = Option.getOrThrowWith(
-					Rec.get(installation.closedTemplates, "Currency"),
-					() => new Error("Ledger's Currency enum")
-				).enum.name
+				/** Ledger's Currency roster: its domain, and the names constant the domain's CHECK reads. */
+				const currencyDomain = installation.names.rosterDomain(parsedName("Currency"))
+				const currency = currencyDomain.name
+				const [currencyNames] = yield* substrate.admin.queryValues(
+					`SELECT p.proname::text FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc AS p ON p.oid = d.refobjid WHERE c.contypid = $1::text::regtype`,
+					[q(currency)]
+				)
+				const namesConstant = String(defined(currencyNames, "the names constant of Currency")[0])
 				/** Entry's serial field: its identity sequence and its advance function. */
 				const entryId = `${entry}.${names.columnIdent({ name: "Entry" }, "id")}`
 				const entrySequence = Option.getOrThrowWith(
@@ -203,8 +207,18 @@ layer(Substrate.layer)("catalog drift", (it) => {
 						]
 					],
 					[
-						[`GRANT USAGE ON TYPE ${q(currency)} TO PUBLIC`],
-						[{ kind: "publicHolds", object: { kind: "enum", name: currency }, privilege: "USAGE" }]
+						[`GRANT USAGE ON DOMAIN ${q(currency)} TO PUBLIC`],
+						[
+							{
+								kind: "publicHolds",
+								object: { kind: "domain", name: currency },
+								privilege: "USAGE"
+							}
+						]
+					],
+					[
+						[`GRANT EXECUTE ON FUNCTION ${q(namesConstant)}() TO PUBLIC`],
+						[{ kind: "publicHolds", object: fn(namesConstant), privilege: "EXECUTE" }]
 					],
 					[
 						[`GRANT USAGE ON TYPE ${q(codeDomain)} TO PUBLIC`],
@@ -259,10 +273,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 						[
 							`CREATE TRIGGER "audit" BEFORE UPDATE ON ${q(entry)} FOR EACH ROW EXECUTE FUNCTION pg_catalog.suppress_redundant_updates_trigger()`
 						],
-						[
-							{ kind: "foreignTrigger", trigger: "audit", table: entry },
-							{ kind: "triggerNotDeferred", trigger: "audit", table: entry }
-						]
+						[{ kind: "foreignTrigger", trigger: "audit", table: entry }]
 					],
 					[[`ALTER ROLE ${quoteIdent(writer)} CREATEDB`], [{ kind: "elevated", role: writer }]],
 					[

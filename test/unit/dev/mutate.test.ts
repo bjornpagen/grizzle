@@ -1,13 +1,16 @@
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, String as Str } from "effect"
+import { NodeServices } from "@effect/platform-node"
+import { layer } from "@effect/vitest"
+import { applied, type Mutant, mutantsOf } from "@grizzle/testing/mutants"
+import { Array as Arr, Effect, String as Str } from "effect"
 import {
-	applyMutant,
 	classicOperators,
-	mutantsOf,
-	parsed,
-	type Mutant
-} from "#scripts/dev/mutate/operators.ts"
-import { type WorldOperator, worldOperators } from "#scripts/dev/mutate/world.ts"
+	type Operator,
+	setSemantics,
+	sqlWorld,
+	type WorldOperator,
+	worldOperators
+} from "#scripts/dev/mutate/world.ts"
+import { withNativeSyntax } from "#scripts/dev/shared/native-syntax.ts"
 import { assert } from "#test/support/assert.ts"
 
 import { regex } from "arkregex"
@@ -110,21 +113,22 @@ const worldProbes: ReadonlyArray<{ readonly file: string; readonly text: string 
 	}
 ]
 
-const classicMutants = Arr.flatMap(
-	mutantsOf([{ file: "src/probe.ts", text: classicProbe }]),
-	(m) => m.mutants
-)
+/** Every mutant of some sources by the library's operators and grizzle's two families. */
+const mutantsOfProbes = (
+	sources: ReadonlyArray<{ readonly file: string; readonly text: string }>
+) => mutantsOf(sources, [setSemantics, sqlWorld])
 
-const worldMutants = Arr.flatMap(mutantsOf(worldProbes), ({ input, mutants }) =>
-	Arr.map(mutants, (mutant) => ({
-		mutant,
-		mutated: applyMutant(input.text, mutant),
-		file: input.file
-	}))
-)
-
-const isWorld = (m: Mutant): m is Mutant & { readonly operator: WorldOperator } =>
+const isWorld = (m: Mutant<Operator>): m is Mutant<WorldOperator> =>
 	Arr.some(worldOperators, (o) => o === m.operator)
+
+const isClassic = (m: Mutant<Operator>): boolean =>
+	Arr.some(classicOperators, (o) => o === m.operator)
+
+/** Whether each text parses with no syntax error, by the native parser, for checking a mutant keeps its file valid. */
+const parses = (inputs: ReadonlyArray<{ readonly file: string; readonly text: string }>) =>
+	withNativeSyntax(inputs, (sources) =>
+		Arr.map(sources, (source) => ({ file: source.file, parses: source.diagnostics.length === 0 }))
+	)
 
 /**
  * What each world operator's fault is, read off the mutated text: the defining change, so a mutant that passes is the
@@ -163,54 +167,67 @@ const faults: Readonly<Record<WorldOperator, (mutated: string) => boolean>> = {
 		Str.includes("const divisor = total")(t) || Str.includes(', total, "')(t)
 }
 
-describe("mutation operators", () => {
-	it("keeps every mutant parseable, with distinct identities", () => {
-		const all = [
-			...Arr.map(classicMutants, (m) => ({
-				file: "src/probe.ts",
-				text: applyMutant(classicProbe, m),
-				mutant: m
-			})),
-			...Arr.map(worldMutants, (w) => ({ file: w.file, text: w.mutated, mutant: w.mutant }))
-		]
-		for (const { input, parses } of parsed(all)) {
-			assert.ok(parses, `${input.mutant.operator} at ${input.file}:${input.mutant.line}`)
-		}
-		assert.equal(new Set(Arr.map(all, (a) => a.mutant.id)).size, all.length)
-	})
-
-	it("reaches every classic operator with its probe, and no world operator outside the world files", () => {
-		assert.deepEqual(new Set(Arr.map(classicMutants, (m) => m.operator)), new Set(classicOperators))
-	})
-
-	it("reaches every world operator with the world probes", () => {
-		assert.deepEqual(
-			new Set(
-				Arr.map(
-					Arr.filter(worldMutants, (w) => isWorld(w.mutant)),
-					(w) => w.mutant.operator
-				)
-			),
-			new Set(worldOperators)
-		)
-	})
-
-	it("plants in each world mutant the fault its operator names", () => {
-		for (const { mutant, mutated, file } of worldMutants) {
-			if (isWorld(mutant)) {
-				assert.ok(
-					faults[mutant.operator](mutated),
-					`${mutant.operator} at ${file}: ${mutant.replacement}`
-				)
+layer(NodeServices.layer)("mutation operators", (it) => {
+	it.effect("keeps every mutant parseable, with distinct identities", () =>
+		Effect.gen(function* () {
+			const mutants = yield* mutantsOfProbes([
+				{ file: "src/probe.ts", text: classicProbe },
+				...worldProbes
+			])
+			const all = Arr.map(mutants, (mutant) => ({
+				file: `${mutant.file}:${mutant.line} ${mutant.operator}`,
+				text: applied(mutant)
+			}))
+			for (const { file, parses: valid } of parses(all)) {
+				assert.ok(valid, file)
 			}
-		}
-	})
+			assert.equal(new Set(Arr.map(mutants, (m) => m.id)).size, mutants.length)
+		})
+	)
 
-	it("swaps a policy's clauses only where they differ", () => {
-		const same = `export const p = (f: string) => [\`  USING (\${f})\`, \`  WITH CHECK (\${f})\`]`
-		const [only] = mutantsOf([{ file: "packages/engine/src/sql/print.ts", text: same }])
-		assert.ok(
-			only !== undefined && !Arr.some(only.mutants, (m) => m.operator === "world-policy-swap")
-		)
-	})
+	it.effect(
+		"reaches every classic operator with its probe, and no world operator outside the world files",
+		() =>
+			Effect.gen(function* () {
+				const mutants = yield* mutantsOfProbes([{ file: "src/probe.ts", text: classicProbe }])
+				assert.deepEqual(
+					new Set(Arr.map(Arr.filter(mutants, isClassic), (m) => m.operator)),
+					new Set(classicOperators)
+				)
+				assert.ok(!Arr.some(mutants, isWorld), "no world mutant outside the world files")
+			})
+	)
+
+	it.effect("reaches every world operator with the world probes", () =>
+		Effect.gen(function* () {
+			const mutants = yield* mutantsOfProbes(worldProbes)
+			assert.deepEqual(
+				new Set(Arr.map(Arr.filter(mutants, isWorld), (m) => m.operator)),
+				new Set(worldOperators)
+			)
+		})
+	)
+
+	it.effect("plants in each world mutant the fault its operator names", () =>
+		Effect.gen(function* () {
+			for (const mutant of yield* mutantsOfProbes(worldProbes)) {
+				if (isWorld(mutant)) {
+					assert.ok(
+						faults[mutant.operator](applied(mutant)),
+						`${mutant.operator} at ${mutant.file}: ${mutant.replacement}`
+					)
+				}
+			}
+		})
+	)
+
+	it.effect("swaps a policy's clauses only where they differ", () =>
+		Effect.gen(function* () {
+			const same = `export const p = (f: string) => [\`  USING (\${f})\`, \`  WITH CHECK (\${f})\`]`
+			const mutants = yield* mutantsOfProbes([
+				{ file: "packages/engine/src/sql/print.ts", text: same }
+			])
+			assert.ok(!Arr.some(mutants, (m) => m.operator === "world-policy-swap"))
+		})
+	)
 })

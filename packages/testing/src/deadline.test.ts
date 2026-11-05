@@ -45,6 +45,10 @@ const cutSearch = (
 	steerEvery: number
 ): Exploration<number, number, never> => ({
 	suite,
+	oracle: {
+		kind: "specification",
+		name: "a property planted to fail and shrink past its test's deadline"
+	},
 	draw: drawn(values),
 	literal: String,
 	coverage: noCoverage,
@@ -95,6 +99,10 @@ const items = array(int(0, 1000), { min: 0, max: 8 })
 /** A search of `items` that shrinks until it is done. */
 const timedSearch: Exploration<ReadonlyArray<number>, ReadonlyArray<number>, never> = {
 	suite: "the search given time",
+	oracle: {
+		kind: "specification",
+		name: "a property planted to fail and shrink within the time it is given"
+	},
 	draw: drawn(items),
 	literal: Formatter.format,
 	coverage: noCoverage,
@@ -254,6 +262,10 @@ describe("a search under its test's deadline", () => {
 				explore(
 					{
 						suite: "a deadline with time to spare",
+						oracle: {
+							kind: "specification",
+							name: "a property planted to fail, shrunk as it would be with no deadline"
+						},
 						draw: drawn(int(1, 1000)),
 						literal: Formatter.format,
 						coverage: required<"falsified" | "held">(["falsified"], {

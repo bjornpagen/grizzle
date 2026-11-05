@@ -111,7 +111,7 @@ export default defineGate({
 			const shiftTable = fx.relationName("Shift")
 			const timesheetTable = fx.relationName("Timesheet")
 			const c = (rel: string, f: string) => fx.column(rel, f)
-			const status = fx.enumType("ShiftStatus")
+			const status = (handle: string) => fx.handle("ShiftStatus", handle)
 			const writer = yield* writerSession(fx, fx.world.app, "m15c containment writer")
 			let loadedEmployees = 0
 			let nextShift = 1
@@ -122,7 +122,7 @@ export default defineGate({
 			const grow = Effect.fn("grow")(function* (employees: number) {
 				const from = loadedEmployees + 1
 				const sheets = `SELECT e, w FROM pg_catalog.generate_series(${from}, ${employees}) AS e, pg_catalog.generate_series(1, ${options.weeks}) AS w`
-				const shifts = `SELECT ${nextShift} + (row_number() OVER ())::int8, e, w, 'approved'::${status} FROM (${sheets}) AS x(e, w), pg_catalog.generate_series(1, ${options.shifts}) AS k`
+				const shifts = `SELECT ${nextShift} + (row_number() OVER ())::int8, e, w, ${status("approved")} FROM (${sheets}) AS x(e, w), pg_catalog.generate_series(1, ${options.shifts}) AS k`
 				yield* owner(
 					"BEGIN",
 					`INSERT INTO ${T} (${c("Timesheet", "employee")}, ${c("Timesheet", "week")}) ${sheets}`,
@@ -142,7 +142,7 @@ export default defineGate({
 			)})`
 			/** A batch of `n` approved shifts, each on a distinct existing timesheet of week `weekOf`. */
 			const batchSql = (first: number) =>
-				`INSERT INTO ${S} ${shiftCols} SELECT ${first} + g, 1 + ((g * 7919) % ${loadedEmployees}), ${weekOf}, 'approved'::${status} FROM pg_catalog.generate_series(1, ${options.batch}) AS g`
+				`INSERT INTO ${S} ${shiftCols} SELECT ${first} + g, 1 + ((g * 7919) % ${loadedEmployees}), ${weekOf}, ${status("approved")} FROM pg_catalog.generate_series(1, ${options.batch}) AS g`
 			const measureAt = Effect.fn("measureAt")(function* (label: string) {
 				const generated: Array<TransactionMeasure> = []
 				for (let i = 0; i < options.samples; i++) {
@@ -167,10 +167,10 @@ export default defineGate({
 			const lonely = loadedEmployees + 1
 			const events = {
 				approvedInsert: yield* probeScans(writer, fx, [
-					`INSERT INTO ${S} ${shiftCols} VALUES (-1, 1, ${weekOf}, 'approved'::${status})`
+					`INSERT INTO ${S} ${shiftCols} VALUES (-1, 1, ${weekOf}, ${status("approved")})`
 				]),
 				draftInsert: yield* probeScans(writer, fx, [
-					`INSERT INTO ${S} ${shiftCols} VALUES (-2, 1, ${weekOf}, 'draft'::${status})`
+					`INSERT INTO ${S} ${shiftCols} VALUES (-2, 1, ${weekOf}, ${status("draft")})`
 				]),
 				sourceDelete: yield* probeScans(writer, fx, [
 					`DELETE FROM ${S} WHERE ${c("Shift", "id")} = 1`
@@ -188,11 +188,11 @@ export default defineGate({
 				measureTransaction(writer, transactionOf([plainStatement(label, sql, [])], "plain"))
 			const orphan = yield* atCommit(
 				"orphan",
-				`INSERT INTO ${S} ${shiftCols} VALUES (-3, ${lonely + 1}, 1, 'approved'::${status})`
+				`INSERT INTO ${S} ${shiftCols} VALUES (-3, ${lonely + 1}, 1, ${status("approved")})`
 			)
 			const draft = yield* atCommit(
 				"draft",
-				`INSERT INTO ${S} ${shiftCols} VALUES (-4, ${lonely + 1}, 1, 'draft'::${status})`
+				`INSERT INTO ${S} ${shiftCols} VALUES (-4, ${lonely + 1}, 1, ${status("draft")})`
 			)
 			const removeSheet = yield* atCommit(
 				"sheet",
@@ -272,12 +272,12 @@ export default defineGate({
 			const r11: VerdictInput = {
 				checks: [
 					mechanism(
-						"no residual law: the selected containment is a native foreign key",
-						fx.installed.installation.laws.residuals.length === 0,
-						`${Arr.join(
-							Arr.map(fx.installed.installation.laws.residuals, (r) => r.lawId),
-							", "
-						)} | ${foreignKey}`
+						"the selected containment is a native foreign key, installed under the name its law reports",
+						Arr.some(
+							fx.installed.installation.laws.constraints,
+							(c) => c.name === foreignKey && Arr.some(c.laws, (l) => l.law === law)
+						),
+						foreignKey
 					),
 					mechanism(
 						"an approved insertion probes Timesheet and a target deletion probes Shift; a draft insertion, a source deletion and a target insertion probe nothing",

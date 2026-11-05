@@ -1,15 +1,16 @@
 import { identity } from "#compiler/core/identity.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
+import { drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import {
-	capacity,
+	check,
 	contained,
+	counted,
+	fin,
 	key,
 	mutable,
 	on,
 	relation,
-	schema,
-	within
+	schema
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
@@ -29,8 +30,8 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Shared fixtures for the put, read-back, scheduling and WriteProgram tests: a small schema whose
  * relations cover every put target (immutable and mutable relations, a serial key, a serial field outside the key, a
- * candidate key, an at-most-one capacity index, a residual law, a pure set), its installed names, and ChangeSet
- * builders over it. */
+ * candidate key, a key over a field outside the primary key, a counted family with a check on its count, a pure set),
+ * its installed names, and ChangeSet builders over it. */
 const label = str.regex("^[a-z]{1,8}$")
 
 /** Item is immutable, the pinned default; Stock is its mutable twin. */
@@ -47,13 +48,13 @@ export const Counter = relation("Counter", { name: label, n: pg.bigint, seq: pg.
 /** An immutable relation referencing Stock: a put on Stock can replace a referenced row, so the reference is deferred
  * and its check is a deferred event of each Line fact. */
 const Line = relation("Line", { id: uuid, stock: uuid }, ["id"])
-/** A mutable relation whose at-most-one capacity law specializes to a partial unique index on a field outside its
- * primary key: at most one Task per Worker. The index is not a declared key. */
+/** A mutable relation keyed on a field outside its primary key: at most one Task per Worker, a key over Task's worker
+ * (fin.md §6, at most one). */
 const Worker = relation("Worker", { id: uuid }, ["id"])
 const Task = relation("Task", { id: uuid, worker: uuid }, ["id"])
-/** A mutable relation with a residual law: every Crew has one or two Hands, a count law whose triggers list a Hand's
- * insertion, deletion and update of crew, so a put's deferred events depend on its statement. */
-const Crew = relation("Crew", { id: uuid }, ["id"])
+/** Every Crew has one or two Hands: Hand a counted family of Crew over its drawn count, and a check on the count
+ * (fin.md §6, a count in [lo, hi]). */
+const Crew = relation("Crew", { id: uuid, hands: drawn(natural) }, ["id"])
 export const Hand = relation("Hand", { id: uuid, crew: uuid, label }, ["id"])
 
 export const Shop = schema(
@@ -70,9 +71,10 @@ export const Shop = schema(
 		key(on(Code, "code")),
 		contained(on(Line, "stock"), on(Stock, "id")),
 		contained(on(Task, "worker"), on(Worker, "id")),
-		capacity(on(Worker, "id"), { from: on(Task, "worker"), within: within(0n, 1n) }),
+		key(on(Task, "worker")),
 		contained(on(Hand, "crew"), on(Crew, "id")),
-		capacity(on(Crew, "id"), { from: on(Hand, "crew"), within: within(1n, 2n) })
+		counted(on(Hand, "crew"), fin(Crew, "hands")),
+		check("OneOrTwoHands", Crew, (r) => r.hands.between(1n, 2n))
 	]
 )
 

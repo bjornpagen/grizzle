@@ -11,6 +11,7 @@ import {
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
+	concatNonEmpty,
 	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
@@ -42,7 +43,8 @@ import { reservedSlots } from "#compiler/ir/slots.ts"
  * exact decimal string the checker parses; a JavaScript number is a smallint, integer, real or double precision
  * literal. A Money is its owned value (Money.of), carried as "~m:"; a Vector, a caller's mutable Float32Array, is the
  * frozen snapshot of its components Vector.canonical takes, carried as "~v:". Spans and the float special values are
- * wrapped so that no literal is mistaken for a record.
+ * wrapped so that no literal is mistaken for a record. A set over a roster is its handles in the roster's declared order,
+ * each once; none is the empty set.
  */
 export type LiteralDesc =
 	| string
@@ -52,6 +54,7 @@ export type LiteralDesc =
 	| Canonicalizable
 	| { readonly span: { readonly start: number | bigint; readonly end: number | bigint } }
 	| { readonly float: "NaN" | "Infinity" | "-Infinity" }
+	| { readonly handles: ReadonlyArray<string> }
 
 /** Field descriptors, aliases already normalized: decimal is numeric, bool is boolean. */
 const pgScalarNames = [
@@ -68,12 +71,12 @@ export type PgScalarName = (typeof pgScalarNames)[number]
 /**
  * An authored field's descriptor, as a declaration states it and the Description boundary carries it
  * (fieldDescShape): numeric is numeric(p, s), its precision and scale both declared. No declaration states a computed
- * numeric, so none has an arm here; a derived relation's inferred field is an InferredFieldDesc.
+ * numeric, so none has an arm here; a derived relation's inferred field is an InferredFieldDesc. A set over a roster
+ * (bits) is bit(n), one bit per code the roster has minted, holes included.
  */
 export type FieldDesc =
 	| { readonly kind: "pg"; readonly type: PgScalarName }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
-	| { readonly kind: "serial"; readonly type: "smallserial" | "serial" | "bigserial" }
 	| { readonly kind: "uuid" }
 	| { readonly kind: "text"; readonly source: string; readonly flags: "u" | "su" }
 	| {
@@ -86,6 +89,7 @@ export type FieldDesc =
 	  }
 	| { readonly kind: "span"; readonly endpoint: FieldDesc; readonly width: bigint | undefined }
 	| { readonly kind: "closedId"; readonly roster: string }
+	| { readonly kind: "bits"; readonly roster: string }
 	| { readonly kind: "vector"; readonly dimensions: number }
 
 /**
@@ -127,7 +131,13 @@ export const computeFns = [
 	"upper",
 	"width",
 	"charLength",
-	"cosineDistance"
+	"cosineDistance",
+	"union",
+	"intersection",
+	"difference",
+	"cardinality",
+	"subset",
+	"disjoint"
 ] as const
 export type ComputeFn = (typeof computeFns)[number]
 /** The functions that take a scale argument: round(a, scale) and trunc(a, scale). */
@@ -288,6 +298,27 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 			readonly source: SourceDesc<L, R>
 			readonly bindings: BindingsDesc<L, R>
 	  }
+	| {
+			/**
+			 * C.at(field, t…): payload field `field` of the fact of closed relation `relation` whose key is `args`, one term
+			 * per key field in key order. A key no fact holds reads NULL, never a value, so a predicate's IS TRUE refuses it
+			 * and a generated column's NOT NULL does.
+			 */
+			readonly kind: "closedAt"
+			readonly relation: string
+			readonly field: string
+			readonly args: NonEmptyReadonlyArray<ExprDesc<L, R>>
+	  }
+	| {
+			/**
+			 * C.row(t…): the values of the last key field of closed relation `relation` that complete the key prefix `args`,
+			 * one term per key field but the last, in key order: a set over that field's roster. A prefix that leaves more
+			 * than one key field open is no set over one roster, so none is expressible.
+			 */
+			readonly kind: "closedRow"
+			readonly relation: string
+			readonly args: ReadonlyArray<ExprDesc<L, R>>
+	  }
 
 /** The boolean field descriptor, the one a connective's unit is typed by. */
 export const booleanField: { readonly kind: "pg"; readonly type: "boolean" } = Object.freeze({
@@ -396,8 +427,8 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 		case "contract":
 			return contextFieldAdmits(desc.base)
 		case "numeric":
-		case "serial":
 		case "span":
+		case "bits":
 		case "vector":
 			return false
 	}
@@ -609,6 +640,8 @@ export const conjunctsOf = (predicate: ExprDesc): ReadonlyArray<ExprDesc> => {
 		case "allen":
 		case "pointIn":
 		case "absent":
+		case "closedAt":
+		case "closedRow":
 			return [predicate]
 	}
 }
@@ -633,28 +666,35 @@ export const candidateKeyFields = (side: SideDesc): NonEmptyReadonlyArray<string
 	return fields === undefined ? undefined : mapNonEmpty(fields, (t) => t.field)
 }
 
-/** What a capacity weighs each source fact by: one each, a field's value, or the width of a span field. */
-export type WeightDesc =
-	| { readonly kind: "count" }
-	| { readonly kind: "field"; readonly field: string }
-	| { readonly kind: "duration"; readonly field: string }
+/** The closed set of monoids a fold combines by: one vocabulary, which the fold's description and the IR read. */
+export const monoidNames = ["count", "sum", "or", "twos", "max"] as const
+export type MonoidName = (typeof monoidNames)[number]
 
-export type BoundValueDesc = bigint | { readonly ref: string }
-
-export interface BoundDesc {
-	readonly low: BoundValueDesc
-	readonly high: BoundValueDesc | "*"
+/** fin(O, n): the slots of O's drawn count n, a family's second argument and never a side. */
+export interface SlotsDesc {
+	readonly owner: string
+	readonly count: string
 }
 
-/**
- * The alternatives expansion a contained statement came from, or undefined for one declared directly; only an
- * alternatives expansion's members carry one.
- */
-type StatementOrigin = { readonly alternatives: string } | undefined
+/** An alternatives arm: a roster handle and its arm relation's key side. */
+export interface ArmDesc {
+	readonly handle: string
+	readonly arm: SideDesc
+}
 
 /**
  * A schema's laws. A key is UNIQUE over one side's terms. A containment states that its left side's tuples are among
  * its right side's; mirrors is no statement of its own, but the two containments it is sugar for.
+ *
+ * - A family, ordered(on(F, g…, i), fin(O, n)) or counted(on(F, g…), fin(O, n)), indexes each owner's members by
+ *   exactly 0 … n − 1: `member` reads every fact of F, its terms the group g… paired with O's primary key, then an
+ *   ordered family's drawn index.
+ * - A tree, tree(on(T, "parent", "at"), fin(T, n), { root }), is the ordered family of T over itself whose every row
+ *   but its root, the one self-parented row, is a member, with T's drawn `start` and `end` its pre-order interval and
+ *   `root` the caller's field each tree's rows share.
+ * - A fold, fold(family, Monoid.m, step, end), combines its family's members' step values by `monoid` in slot order
+ *   into each owner's end fields: the family by its slots, `step` over the member and `end` over the owner.
+ * - alternatives(parent, discriminator, roster, arms) is its own statement, which expandAlternatives states.
  */
 export type StatementDesc<L = Located> = L &
 	(
@@ -666,35 +706,164 @@ export type StatementDesc<L = Located> = L &
 				readonly relation: string
 				readonly predicate: ExprDesc<L>
 		  }
+		| { readonly kind: "contained"; readonly left: SideDesc; readonly right: SideDesc }
 		| {
-				readonly kind: "contained"
-				readonly left: SideDesc
-				readonly right: SideDesc
-				readonly origin: StatementOrigin
+				readonly kind: "family"
+				readonly order: "ordered" | "counted"
+				readonly member: SideDesc
+				readonly slots: SlotsDesc
 		  }
 		| {
-				readonly kind: "capacity"
-				readonly target: SideDesc
-				readonly from: SideDesc
-				readonly weight: WeightDesc
-				readonly within: BoundDesc
+				readonly kind: "tree"
+				readonly member: SideDesc
+				readonly slots: SlotsDesc
+				readonly root: string
+		  }
+		| {
+				readonly kind: "fold"
+				readonly family: SlotsDesc
+				readonly monoid: MonoidName
+				readonly step: SideDesc
+				readonly end: SideDesc
+		  }
+		| {
+				readonly kind: "alternatives"
+				/** The parent's key side, every fact of the parent relation. */
+				readonly parent: SideDesc
+				/** The parent's closed-id field over `roster` whose handle selects each fact's arm. */
+				readonly discriminator: string
+				readonly roster: string
+				readonly arms: NonEmptyReadonlyArray<ArmDesc>
 		  }
 	)
 
+/** A contained statement's Description. */
+export type ContainedDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "contained" }>
+
+/** An alternatives statement's Description. */
+export type AlternativesDesc<L = Located> = Extract<
+	StatementDesc<L>,
+	{ readonly kind: "alternatives" }
+>
+
+/** The parent side selected by its discriminator holding one of `handles`: `eq` for one, `in` for several. */
+const discriminated = (a: AlternativesDesc, handles: NonEmptyReadonlyArray<string>): SideDesc => {
+	const tag: ExprDesc = { kind: "field", field: a.discriminator }
+	const [only, ...rest] = handles
+	const predicate: ExprDesc =
+		rest.length === 0
+			? {
+					kind: "compare",
+					op: "eq",
+					left: tag,
+					right: { kind: "literal", value: only, type: undefined }
+				}
+			: { kind: "in", arg: tag, values: handles }
+	return { ...a.parent, selection: { conjuncts: [predicate] } }
+}
+
+/**
+ * The containments an alternatives statement states: per arm relation, its key in the parent selected by the handles
+ * it is the arm of (`in` for several, `eq` for one); per armed handle, the parent selected by that handle in its arm.
+ * There is no head: the discriminator's roster domain types the discriminator. Arm relations are in the order their
+ * first handle has in `arms`; the reverse containments follow, in `arms`' order. Pure: ownership and the theory call it.
+ */
+export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<ContainedDesc> => {
+	const byRelation = new Map<string, { readonly arm: SideDesc; readonly handles: Array<string> }>()
+	for (const { handle, arm } of a.arms) {
+		const group = byRelation.get(arm.relation)
+		if (group === undefined) {
+			byRelation.set(arm.relation, { arm, handles: [handle] })
+		} else {
+			group.handles.push(handle)
+		}
+	}
+	const forward = [...byRelation.values()].flatMap(
+		({ arm, handles }): ReadonlyArray<ContainedDesc> => {
+			const [first, ...rest] = handles
+			return first === undefined
+				? []
+				: [{ kind: "contained", left: arm, right: discriminated(a, [first, ...rest]), loc: a.loc }]
+		}
+	)
+	const reverse = mapNonEmpty(a.arms, ({ handle, arm }): ContainedDesc => ({
+		kind: "contained",
+		left: discriminated(a, [handle]),
+		right: arm,
+		loc: a.loc
+	}))
+	return concatNonEmpty(forward, reverse)
+}
+
+/**
+ * How a stored relation's field is written; only a caller's field is in an insert's head. The union is closed: a way of
+ * writing a field is an arm here, which every consumer handles.
+ *
+ * - caller: by the caller.
+ * - generated: by PostgreSQL from the field's own row, a STORED generated column.
+ * - drawn: by grizzle from the nested arrays its caller writes: a family's index or count, or a tree's start or end,
+ *   which exactly one family or tree statement names.
+ * - accumulated: by grizzle on the host, and proved by PostgreSQL: a fold's accumulator or a copy along a family axis,
+ *   `start` at the axis's base, which exactly one fold or axis containment carries.
+ * - serial: by its sequence, GENERATED ALWAYS AS IDENTITY, its field's type its integer.
+ */
+export type Writing<L = Located> =
+	| { readonly kind: "caller" }
+	| {
+			readonly kind: "generated"
+			/** A row-local expression over the relation's own fields and closed reads, of the field's declared type. */
+			readonly expr: ExprDesc<L>
+	  }
+	| { readonly kind: "drawn" }
+	| {
+			readonly kind: "accumulated"
+			/** The field's value at its axis's base: slot 0, the empty family, or a tree's root. */
+			readonly start: LiteralDesc
+	  }
+	| { readonly kind: "serial" }
+
+/** A stored relation's field as declared: its type, and how it is written. */
+export interface FieldDecl<L = Located> {
+	readonly type: FieldDesc
+	readonly writing: Writing<L>
+}
+
+/**
+ * The field descriptors of a relation's declarations: each field's type alone, as a heading, a cast or a context reads
+ * it.
+ */
+export const fieldTypes = <L>(
+	fields: Readonly<Record<string, FieldDecl<L>>>
+): Readonly<Record<string, FieldDesc>> =>
+	Object.fromEntries(Object.entries(fields).map(([name, decl]) => [name, decl.type]))
+
+/**
+ * A schema's relations. An ordinary relation stores the facts its callers write. A roster (closed) introduces its
+ * handles, in declared order, which is their codes' order. A closed relation (closedRelation) relates existing values,
+ * the closed ids of its key and its payload, by rows fixed when the schema compiles: its key is required, a set lists
+ * every field, and no two rows share a key. A derived relation is a stored query.
+ */
 export type RelationDesc<L = Located> = L &
 	(
 		| {
 				readonly kind: "relation"
 				readonly name: string
-				readonly fields: Readonly<Record<string, FieldDesc>>
+				readonly fields: Readonly<Record<string, FieldDecl<L>>>
 				readonly primaryKey: readonly [string, ...Array<string>]
 		  }
 		| {
 				readonly kind: "closed"
 				readonly name: string
 				readonly handles: NonEmptyReadonlyArray<string>
-				readonly payload: Readonly<Record<string, FieldDesc>>
-				readonly facts: Readonly<Record<string, Readonly<Record<string, LiteralDesc>>>>
+		  }
+		| {
+				readonly kind: "closedRelation"
+				readonly name: string
+				readonly fields: Readonly<Record<string, FieldDesc>>
+				/** The key fields, closed ids, in the order the key's mixed radix reads them. */
+				readonly key: NonEmptyReadonlyArray<string>
+				/** Each row a value of every field, its key fields' values handles of their rosters. */
+				readonly rows: ReadonlyArray<Readonly<Record<string, LiteralDesc>>>
 		  }
 		| {
 				readonly kind: "derived"
@@ -934,6 +1103,10 @@ class ParamWalk<P extends object> {
 				return { ...e, point: this.expr(e.point), span: this.expr(e.span) }
 			case "absent":
 				return { ...e, source: this.source(e.source), bindings: this.bindings(e.bindings) }
+			case "closedAt":
+				return { ...e, args: mapNonEmpty(e.args, (a) => this.expr(a)) }
+			case "closedRow":
+				return { ...e, args: e.args.map((a) => this.expr(a)) }
 		}
 	}
 }
@@ -1022,7 +1195,8 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
 	moneyShape,
 	vectorShape,
 	S.struct({ span: S.struct({ start: integerOrBigint, end: integerOrBigint }) }),
-	S.struct({ float: S.literalsShape(["NaN", "Infinity", "-Infinity"]) })
+	S.struct({ float: S.literalsShape(["NaN", "Infinity", "-Infinity"]) }),
+	S.struct({ handles: S.uniqueStrings("a set's handles", S.nonEmptyString) })
 )
 
 const regexFlags = S.literalsShape(["u", "su"])
@@ -1039,7 +1213,6 @@ const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 				f.scale <= numericMaxScale.value,
 			`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
 		),
-		serial: S.struct({ type: S.literalsShape(["smallserial", "serial", "bigserial"]) }),
 		uuid: S.struct({}),
 		text: S.struct({ source: S.string, flags: regexFlags }),
 		contract: S.structStated(
@@ -1061,6 +1234,7 @@ const fieldDescShape: S.Shape<FieldDesc> = S.lazy("a field descriptor", () =>
 			{}
 		),
 		closedId: S.struct({ roster: name }),
+		bits: S.struct({ roster: name }),
 		vector: S.struct({
 			dimensions: S.refine(
 				S.positiveInteger,
@@ -1124,7 +1298,13 @@ const computeCases: {
 	upper: unscaledCompute,
 	width: unscaledCompute,
 	charLength: unscaledCompute,
-	cosineDistance: unscaledCompute
+	cosineDistance: unscaledCompute,
+	union: unscaledCompute,
+	intersection: unscaledCompute,
+	difference: unscaledCompute,
+	cardinality: unscaledCompute,
+	subset: unscaledCompute,
+	disjoint: unscaledCompute
 }
 
 const exprCases = {
@@ -1194,6 +1374,15 @@ const exprCases = {
 	absent: S.struct({
 		source: S.lazy("a source", () => sourceDescShape),
 		bindings: bindingsDescShape
+	}),
+	closedAt: S.struct({
+		relation: name,
+		field: name,
+		args: S.nonEmptyArray(S.lazy("an expression", () => exprDescShape))
+	}),
+	closedRow: S.struct({
+		relation: name,
+		args: S.array(S.lazy("an expression", () => exprDescShape))
 	})
 } as const
 
@@ -1428,16 +1617,19 @@ const sideDescShape: S.Shape<SideDesc> = S.struct({
 	selection: selectionDescShape
 })
 
-const boundValueShape: S.Shape<BoundValueDesc> = S.unionShape(
-	S.refine(S.bigint, (n) => n >= 0n, "a nonnegative bound"),
-	S.struct({ ref: name })
-)
+/** A contained statement's fields: its two sides. */
+const sideLinkShape = S.located(S.structWith({ left: sideDescShape, right: sideDescShape }, loc))
 
-const statementOrigin = { origin: S.struct({ alternatives: name }) } as const
+const slotsDescShape: S.Shape<SlotsDesc> = S.struct({ owner: name, count: name })
 
-/** A contained statement's fields: two sides and the alternatives expansion it came from, if any. */
-const sideLinkShape = S.located(
-	S.structStated({ left: sideDescShape, right: sideDescShape }, statementOrigin, loc)
+/**
+ * A side over every fact of its relation, which no selection narrows: a family's or a tree's member, whose slots are
+ * counted over every fact, and an alternatives statement's parent and arms, its relations' keys.
+ */
+const memberShape: S.Shape<SideDesc> = S.refine(
+	sideDescShape,
+	(side) => side.selection.conjuncts.length === 0,
+	"a member side over every fact of its relation, which no selection narrows"
 )
 
 const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
@@ -1445,25 +1637,113 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 	mutable: S.located(S.structWith({ relation: name }, loc)),
 	check: S.located(S.structWith({ name, relation: name, predicate: exprDescShape }, loc)),
 	contained: sideLinkShape,
-	capacity: S.located(
+	family: S.located(
 		S.structWith(
 			{
-				target: sideDescShape,
-				from: sideDescShape,
-				weight: S.tagged("kind", {
-					count: S.struct({}),
-					field: S.struct({ field: name }),
-					duration: S.struct({ field: name })
-				}),
-				within: S.struct({
-					low: boundValueShape,
-					high: S.unionShape(S.literalsShape(["*"]), boundValueShape)
-				})
+				order: S.literalsShape(["ordered", "counted"]),
+				member: memberShape,
+				slots: slotsDescShape
+			},
+			loc
+		)
+	),
+	tree: S.located(S.structWith({ member: memberShape, slots: slotsDescShape, root: name }, loc)),
+	fold: S.located(
+		S.structWith(
+			{
+				family: slotsDescShape,
+				monoid: S.literalsShape(monoidNames),
+				step: sideDescShape,
+				end: sideDescShape
+			},
+			loc
+		)
+	),
+	alternatives: S.located(
+		S.structWith(
+			{
+				parent: memberShape,
+				discriminator: name,
+				roster: name,
+				arms: S.nonEmptyUniqueArray(
+					S.struct({ handle: name, arm: memberShape }),
+					(a) => a.handle,
+					"arm handles"
+				)
 			},
 			loc
 		)
 	)
 })
+
+const writingShape: S.Shape<Writing> = S.tagged("kind", {
+	caller: S.struct({}),
+	generated: S.struct({ expr: exprDescShape }),
+	drawn: S.struct({}),
+	accumulated: S.struct({ start: literalDescShape }),
+	serial: S.struct({})
+})
+
+/** The integer types a sequence draws: smallint, integer and bigint. */
+const serialTypes: ReadonlyArray<PgScalarName> = ["smallint", "integer", "bigint"]
+
+/** A serial field is of an integer type, which its sequence draws. */
+const fieldDeclShape: S.Shape<FieldDecl> = S.refine(
+	S.struct({ type: fieldDescShape, writing: writingShape }),
+	(d) => d.writing.kind !== "serial" || (d.type.kind === "pg" && serialTypes.includes(d.type.type)),
+	"a serial field of smallint, integer or bigint, which its sequence draws"
+)
+
+/**
+ * Whether a field may be in a primary key: one whose value a fact holds when it is written, its caller's, its
+ * sequence's or its family's. A generated or accumulated field is computed from the row it would identify.
+ */
+const keyWriting = (decl: FieldDecl | undefined): boolean => {
+	switch (decl?.writing.kind) {
+		case "caller":
+		case "serial":
+		case "drawn":
+			return true
+		case "generated":
+		case "accumulated":
+		case undefined:
+			return false
+	}
+}
+
+/**
+ * The field types a closed relation's field may have: a closed id, which a key field always is, or an open type its
+ * rows' values are coded by within the relation. A span and a vector have no finite code space a cell reads, and a set
+ * is no row's value.
+ */
+const closedFieldAdmits = (desc: FieldDesc): boolean => {
+	switch (desc.kind) {
+		case "pg":
+		case "numeric":
+		case "uuid":
+		case "text":
+		case "closedId":
+			return true
+		case "contract":
+			return closedFieldAdmits(desc.base)
+		case "span":
+		case "bits":
+		case "vector":
+			return false
+	}
+}
+
+/**
+ * The text that tells two rows' keys apart: their key fields' values, in key order, when each is a handle, the one
+ * value a closed id holds; undefined when one is not.
+ */
+const rowKeyText = (
+	key: NonEmptyReadonlyArray<string>,
+	row: Readonly<Record<string, LiteralDesc>>
+): string | undefined => {
+	const values = key.map((f) => row[f])
+	return values.every((v): v is string => typeof v === "string") ? values.join("\u0000") : undefined
+}
 
 const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 	relation: S.located(
@@ -1472,7 +1752,7 @@ const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 				{
 					name,
 					fields: S.refine(
-						fieldMapShape,
+						S.recordShape(fieldDeclShape, name),
 						(f) => Object.keys(f).length > 0,
 						"a relation with at least one field"
 					),
@@ -1480,39 +1760,46 @@ const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 				},
 				loc
 			),
-			(r) => r.primaryKey.every((f) => Object.hasOwn(r.fields, f)),
-			"a primary key over the relation's own fields"
+			(r) => r.primaryKey.every((f) => keyWriting(r.fields[f])),
+			"a primary key over the relation's own fields, each one its caller writes, its sequence draws or its family draws"
 		)
 	),
-	closed: S.located(
+	closed: S.located(S.structWith({ name, handles: S.nonEmptyUniqueStrings("handles") }, loc)),
+	closedRelation: S.located(
 		S.refine(
 			S.structWith(
 				{
 					name,
-					handles: S.nonEmptyUniqueStrings("handles"),
-					payload: fieldMapShape,
-					facts: S.recordShape(S.recordShape(literalDescShape, S.nonEmptyString), S.nonEmptyString)
+					fields: S.refine(
+						fieldMapShape,
+						(f) => Object.keys(f).length > 0 && Object.values(f).every(closedFieldAdmits),
+						"a closed relation of at least one field, each a closed id or an open type that is no serial, span, set or vector"
+					),
+					key: S.nonEmptyUniqueStrings("key fields"),
+					rows: S.array(S.recordShape(literalDescShape, name))
 				},
 				loc
 			),
 			(c) => {
-				const payload = Object.keys(c.payload).toSorted(compareStrings)
-				const facts = Object.entries(c.facts)
-				if (!facts.every(([h]) => c.handles.includes(h))) {
+				const fields = Object.keys(c.fields).toSorted(compareStrings)
+				if (!c.key.every((f) => c.fields[f]?.kind === "closedId")) {
 					return false
 				}
-				if (payload.length > 0 && facts.length !== c.handles.length) {
-					return false
+				const keys = new Set<string>()
+				for (const row of c.rows) {
+					const own = Object.keys(row).toSorted(compareStrings)
+					if (own.length !== fields.length || !own.every((f, i) => f === fields[i])) {
+						return false
+					}
+					const text = rowKeyText(c.key, row)
+					if (text === undefined || keys.has(text)) {
+						return false
+					}
+					keys.add(text)
 				}
-				if (Object.hasOwn(c.payload, "id")) {
-					return false
-				}
-				return facts.every(([, fields]) => {
-					const fact = Object.keys(fields).toSorted(compareStrings)
-					return fact.length === payload.length && fact.every((f, i) => f === payload[i])
-				})
+				return true
 			},
-			"one fact per handle with exactly the payload fields, and no payload field named id"
+			"a key of the relation's own closed-id fields, each row a value of exactly its fields, its key values handles, and no two rows of one key"
 		)
 	),
 	derived: S.located(

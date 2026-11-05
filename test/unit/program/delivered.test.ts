@@ -17,10 +17,16 @@ import {
 import { rowOptions } from "#adapter/engine.ts"
 import { attachmentFacts } from "#adapter/reader/analysis.ts"
 import { templateProgram } from "#adapter/reader/run.ts"
-import { type AttachmentLayout, bindGroups, type Layout } from "#compiler/core/decoder.ts"
+import {
+	type AttachmentLayout,
+	type BindContext,
+	bindGroups,
+	type Layout
+} from "#compiler/core/decoder.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { codeNames } from "#compiler/ir/codes.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -28,7 +34,13 @@ import { queryOver as query, varsOver as v } from "#compiler/query/build/query.t
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { Decoders } from "#compiler/types/query/query.ts"
 import { assert, defined, refusalLoc, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import {
+	codebookFor,
+	compileTemplate,
+	firstCodes,
+	schemaInputOf,
+	testCompile
+} from "#test/support/compile.ts"
 import { queryFromDescription } from "#test/support/describe.ts"
 import {
 	answerEquivalence,
@@ -165,6 +177,8 @@ const refusedAt = (
  */
 interface Compiled {
 	readonly template: QueryTemplate
+	/** What a decoder binds under: the row vocabulary, and the names of a fresh installation's codes. */
+	readonly bind: BindContext
 	readonly layouts: ReadonlyArray<{
 		readonly artifact: string
 		readonly layouts: ReadonlyArray<Layout>
@@ -179,11 +193,13 @@ const compiled = (c: ProgramCase, value: SchemaValue, query: unknown): Compiled 
 	)
 	const desc = ok(queryInput(query), "the builder refuses a generated query", c).desc
 	const facts = attachmentFacts(template, desc)
+	const codes = succeeded(codebookFor(schemaInputOf(value), firstCodes))
 	return {
 		template,
+		bind: { options: rowOptions, names: codeNames(codes) },
 		layouts: Arr.map(artifactNames, (artifact) => ({
 			artifact,
-			layouts: templateProgram(template, artifact, facts).layouts
+			layouts: templateProgram(template, artifact, facts, codes).layouts
 		}))
 	}
 }
@@ -204,7 +220,7 @@ const binds = (
 			throw new Error(`${what}: a program of no layout`)
 		}
 		return refusedAt(
-			bindGroups(decoders.rows, [first, ...rest], rowOptions),
+			bindGroups(decoders.rows, [first, ...rest], read.bind),
 			`${what} (${program.artifact})`,
 			c
 		)
@@ -262,7 +278,7 @@ const restated = <Q extends Query<ParentColumn>>(
 
 /** Whether a parent delivers a handle column, which an arm restates its attachment over. */
 const handled = (parent: Query<ParentColumn>): boolean =>
-	Arr.some(parent.heading, (f) => f.type.carrier === "enum")
+	Arr.some(parent.heading, (f) => f.type.carrier === "code")
 
 /**
  * The precondition of "arm the facts break", planted. The facts break an arm where a parent has more than one child,
@@ -366,7 +382,7 @@ const deliveriesOf = (
 	{ kind: "option" },
 	{ kind: "one" },
 	...Arr.flatMap(parent.heading, (field) =>
-		field.type.carrier === "enum"
+		field.type.carrier === "code"
 			? Arr.map(c.schema.roster.handles, (handle): StatedDelivery => ({
 					kind: "arm",
 					field,
@@ -518,7 +534,8 @@ const removedKeys = (
 	const value = built.schema
 	const query = buildRoot(built, value, read.query)
 	const shape = shapeOf(read.query)
-	for (const program of compiled(c, value, query).layouts) {
+	const compiledRead = compiled(c, value, query)
+	for (const program of compiledRead.layouts) {
 		for (const [g, layout] of program.layouts.entries()) {
 			for (const { path, key } of recordKeys(shape, layout, [])) {
 				const layouts = Arr.map(program.layouts, (l, i) => (i === g ? without(l, path, key) : l))
@@ -528,7 +545,8 @@ const removedKeys = (
 				}
 				const what = `the ${program.artifact} layout without ${key}`
 				assert.ok(
-					refusedAt(bindGroups(query.rows, [first, ...rest], rowOptions), what, c) !== undefined,
+					refusedAt(bindGroups(query.rows, [first, ...rest], compiledRead.bind), what, c) !==
+						undefined,
 					`${what} binds\n${printCase(c)}`
 				)
 				note(
@@ -607,7 +625,7 @@ const mixedRead = (
 			throw new Error(`a mixed root's ${artifact} program of no layout`)
 		}
 		const read = succeeded(
-			bindGroups(mixed.rows, [first, ...rest], rowOptions),
+			bindGroups(mixed.rows, [first, ...rest], program.bind),
 			`a mixed root's rows bind (${artifact})`
 		)
 		const rows = Arr.flatMap(cells, (groupRows, g) => {

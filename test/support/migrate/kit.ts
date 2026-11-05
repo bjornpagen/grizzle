@@ -1,17 +1,33 @@
-import { DateTime, Formatter } from "effect"
+import { DateTime, Formatter, Result as EffectResult } from "effect"
 import { formatTimestamp } from "#cli/clock.ts"
+import { rosterRenames } from "#cli/renames.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Result from "#compiler/core/result.ts"
+import * as Result from "#compiler/core/result.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type MigrationName, parseMigrationName } from "#compiler/deploy/render/folder.ts"
 import { type GenerateResult, generateMigration } from "#compiler/deploy/render/generate.ts"
-import { type DraftWorkload, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import {
+	codebookOf,
+	type DraftWorkload,
+	emptySnapshot,
+	noWorkload
+} from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import {
+	type Codebook,
+	draftCodebook,
+	emptyCodebook,
+	firstCodebook,
+	reorderRefusal
+} from "#compiler/ir/codes.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { type TestCodes, firstCodes, installedCodes } from "#test/support/compile.ts"
 import type { SchemaDesc as AuthoredSchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atDeclaredName, type InstalledAt } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
@@ -27,15 +43,22 @@ export type InstallOwner =
 export const unowned: InstallOwner = { kind: "unowned" }
 export const ownedBy = (ident: string): InstallOwner => ({ kind: "role", ident })
 
-/** What an installation is compiled under: its schema, its owner, and the installer extensions besides the residual
- * laws' and the derived relations' (a workload's index requests). */
+/** What an installation is compiled under: its schema, its owner, the installer extensions besides the residual
+ * laws' and the derived relations' (a workload's index requests), and its codes, a fresh installation's or those a
+ * draft drafted from the snapshot it continues (draftCodes). */
 export interface CompileOver {
 	readonly schema: InstalledAt
 	readonly owner: InstallOwner
 	readonly extensions: ReadonlyArray<InstallExtension>
+	readonly codes: TestCodes
 }
-/** As `grizzle generate` drafts an installation: its declared schema, no owner, no workload. */
-export const asDrafted: CompileOver = { schema: atDeclaredName, owner: unowned, extensions: [] }
+/** As `grizzle generate` drafts a first installation: its declared schema, no owner, no workload, a fresh one's codes. */
+export const asDrafted: CompileOver = {
+	schema: atDeclaredName,
+	owner: unowned,
+	extensions: [],
+	codes: firstCodes
+}
 
 /** The complete installation of a schema: natives, residual laws and derived relations (completeInstallOptions, the
  * options generate composes), under `over`. */
@@ -43,11 +66,40 @@ export const compile = (desc: DeploySubject, over: CompileOver): Installation =>
 	const owned = owning(desc)
 	const installation =
 		over.schema.kind === "declared" ? owned.installation : over.schema.installation
+	const codes = over.codes.kind === "installed" ? over.codes.codes : firstCodebook(rostersOf(owned))
 	return succeeded(
 		compileInstallation(owned, {
-			...completeInstallOptions(owned, installation, [], over.extensions),
+			...completeInstallOptions(owned, installation, [], over.extensions, codes),
 			owner: over.owner.kind === "unowned" ? undefined : over.owner.ident
 		})
+	)
+}
+
+/** The codes the snapshot `previous` records: none for an empty migrations directory. */
+export const previousCodes = (previous: Previous): Codebook =>
+	previous.kind === "snapshot" ? codebookOf(previous.snapshot) : emptyCodebook
+
+/** No rename and no drop declared: a draft that only adds, or whose drops a test means to see refused. */
+export const noDeclarations: Declarations = { renames: [], drops: [] }
+
+/**
+ * The codes `grizzle generate` drafts for `desc` from `previous` (cli/generate.ts draftInput): each roster's codes
+ * continued from the snapshot's under the handle renames `declared` declares (cli/renames.ts rosterRenames), or D1's
+ * refusal of a roster declared out of its codes' order. A malformed rename is a defect of the test.
+ */
+export const draftCodes = (
+	desc: DeploySubject,
+	previous: Previous,
+	declared: Declarations
+): Result.Result<Codebook, CompileError> => {
+	const rosters = rostersOf(owning(desc))
+	const renames = rosterRenames(declared, rosters)
+	if (EffectResult.isFailure(renames)) {
+		throw new Error(`the test declares a rename the CLI refuses: ${renames.failure.message}`)
+	}
+	return Result.mapError(
+		draftCodebook(previousCodes(previous), renames.success, rosters),
+		reorderRefusal
 	)
 }
 
@@ -79,12 +131,14 @@ export const parsedMigrationName = (name: string): MigrationName => {
 }
 
 /** A draft as `grizzle generate` makes it, every input stated: the snapshot it continues, its workload (noWorkload for
- * none) and its folder name, parsed as `--name` is (parsedMigrationName). */
+ * none), the renames and drops it declares (noDeclarations for none, `--rename` and `--drop`) and its folder name,
+ * parsed as `--name` is (parsedMigrationName). */
 export interface DraftInput {
 	readonly installation: Installation
 	readonly timestamp: string
 	readonly previous: Previous
 	readonly workload: DraftWorkload
+	readonly declared: Declarations
 	readonly name: string
 }
 
@@ -99,19 +153,22 @@ export const generate = (input: DraftInput): Result.Result<GenerateResult, Compi
 					}),
 		installation: input.installation,
 		workload: input.workload,
+		declared: input.declared,
 		naming: { kind: "named", name: parsedMigrationName(input.name) },
 		timestamp: input.timestamp,
 		abandoned: []
 	})
 
-/** One step of a chain: the schema drafted and what it is compiled under. */
+/** One step of a chain: the schema drafted, what it is compiled under, and the renames and drops it declares. */
 interface Step {
 	readonly desc: DeploySubject
 	readonly options: CompileOver
+	readonly declared: Declarations
 }
 
-/** Drafts a chain of migrations, each from the previous step's snapshot, the first from `previous`; step i is named
- * `step_<i + 1>`, with no workload. */
+/** Drafts a chain of migrations, each from the previous step's snapshot, the first from `previous`, its codes drafted
+ * from that snapshot's (draftCodes) whatever codes the step's options state; step i is named `step_<i + 1>`, with no
+ * workload. */
 export const draftChain = (
 	steps: ReadonlyArray<Step>,
 	previous: Previous
@@ -119,12 +176,14 @@ export const draftChain = (
 	const out: Array<GenerateResult> = []
 	let from = previous
 	for (const [i, s] of steps.entries()) {
+		const codes = succeeded(draftCodes(s.desc, from, s.declared))
 		const g = succeeded(
 			generate({
-				installation: compile(s.desc, s.options),
+				installation: compile(s.desc, { ...s.options, codes: installedCodes(codes) }),
 				timestamp: draftedAt(i + 1),
 				previous: from,
 				workload: noWorkload,
+				declared: s.declared,
 				name: `step_${i + 1}`
 			})
 		)

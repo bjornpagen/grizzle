@@ -24,11 +24,13 @@ import { indices } from "#compiler/core/array.ts"
 import { conversionOf as converts, identity, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as EngineResult from "#compiler/core/result.ts"
-import { type Candidate, candidatesOf } from "#compiler/deploy/diff/plan.ts"
-import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
+import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
+import type { CodeSlot } from "#compiler/ir/cells.ts"
+import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import {
 	decodeDesc,
 	everyFact,
+	type FieldDecl,
 	type FieldDesc,
 	type LiteralDesc,
 	type LoginDesc,
@@ -81,7 +83,7 @@ import {
 	type ValueFacts
 } from "#test/support/oracle/gen/facts.ts"
 
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	allKeys,
 	closedIdType,
@@ -182,9 +184,7 @@ const extraKinds = [
 	"addIdentity",
 	"dropIdentity",
 	"toggleRead",
-	"addCapacity",
-	"changeCapacity",
-	"removeCapacity"
+	"addCoded"
 ] as const
 type ExtraKind = (typeof extraKinds)[number]
 
@@ -201,9 +201,7 @@ const renameKinds = [
 	"dictionary",
 	"catalog",
 	"ontoRemoved",
-	"reorderRoster",
-	"removeHandle",
-	"handle"
+	"removeHandle"
 ] as const
 type RenameKind = (typeof renameKinds)[number]
 
@@ -348,10 +346,16 @@ const applyEdit = (
 		case "addHandle": {
 			const k = indexIn(picks.first, closed.length)
 			const c = closed[k]
-			if (c === undefined || c.handles >= maxHandles) {
+			if (c === undefined || c.pattern.slots.length >= maxHandles) {
 				return sketch
 			}
-			closed[k] = { ...c, handles: c.handles + 1 }
+			closed[k] = {
+				...c,
+				pattern: {
+					...c.pattern,
+					slots: [...c.pattern.slots, { kind: "live", handle: `G${c.pattern.slots.length}` }]
+				}
+			}
 			return { ...sketch, closed }
 		}
 		case "payload": {
@@ -449,18 +453,8 @@ export interface Extras {
 }
 
 /** The coded pair: CodeTarget keyed by a field of the contract Code over refined text, and CodeSource whose field of
- * Code references it, with fixed rows; and, at a version that declares one, the residual capacity of at most `high`
- * sources per target, a law whose function a successor installs, replaces with another bound or removes, and whose
- * Validate probe reads the refined text no domain of its own names. Its relations are declared in every version of a
- * path that draws it, so the law changes over rows that are there. */
-export type Coded =
-	| { readonly kind: "absent" }
-	| { readonly kind: "present"; readonly capacity: { readonly kind: "none" } | CodedCapacity }
-
-interface CodedCapacity {
-	readonly kind: "atMost"
-	readonly high: 2n | 3n
-}
+ * Code references it, with fixed rows, under the native foreign key of their containment. */
+export type Coded = { readonly kind: "absent" } | { readonly kind: "present" }
 
 export const noExtras: Extras = {
 	checks: [],
@@ -495,8 +489,6 @@ export const codedFacts: Readonly<
 		})
 	)
 }
-
-const codedHigh = (flag: boolean): 2n | 3n => (flag ? 3n : 2n)
 
 const without = <A>(xs: ReadonlyArray<A>, pick: number): ReadonlyArray<A> =>
 	xs.length === 0 ? xs : Arr.remove(xs, pickIndex(pick, xs.length))
@@ -551,29 +543,8 @@ const applyExtraEdit = (x: Extras, { kind, picks }: ExtraEdit): Extras => {
 					: [...x.unread, relation]
 			}
 		}
-		case "addCapacity":
-			return x.coded.kind === "absent"
-				? x
-				: {
-						...x,
-						coded: { kind: "present", capacity: { kind: "atMost", high: codedHigh(picks.flag) } }
-					}
-		case "changeCapacity": {
-			const capacity = x.coded.kind === "present" ? x.coded.capacity : undefined
-			return capacity?.kind === "atMost"
-				? {
-						...x,
-						coded: {
-							kind: "present",
-							capacity: { kind: "atMost", high: capacity.high === 2n ? 3n : 2n }
-						}
-					}
-				: x
-		}
-		case "removeCapacity":
-			return x.coded.kind === "absent"
-				? x
-				: { ...x, coded: { kind: "present", capacity: { kind: "none" } } }
+		case "addCoded":
+			return x.coded.kind === "absent" ? { ...x, coded: { kind: "present" } } : x
 	}
 }
 
@@ -587,8 +558,6 @@ interface ExtrasSketch {
 	readonly serials: ReadonlyArray<Picks>
 	readonly identities: ReadonlyArray<Picks>
 	readonly unread: ReadonlyArray<number>
-	/** Whether A's coded capacity allows three sources per target, else two. */
-	readonly codedHigh: boolean
 }
 
 const extrasSketchGen: Gen<ExtrasSketch> = (source) => ({
@@ -596,8 +565,7 @@ const extrasSketchGen: Gen<ExtrasSketch> = (source) => ({
 	statistics: source.draw(array(picksGen, { min: 0, max: 2 })),
 	serials: source.draw(array(picksGen, { min: 0, max: 1 })),
 	identities: source.draw(array(picksGen, { min: 0, max: 1 })),
-	unread: source.draw(array(pickGen, { min: 0, max: 1 })),
-	codedHigh: source.draw(boolean)
+	unread: source.draw(array(pickGen, { min: 0, max: 1 }))
 })
 
 export interface PathSketch {
@@ -680,7 +648,8 @@ const boundsOf = (type: ScalarType): readonly [LiteralDesc, LiteralDesc] | undef
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -690,12 +659,17 @@ const boundsOf = (type: ScalarType): readonly [LiteralDesc, LiteralDesc] | undef
 	}
 }
 
-/** The serial descriptor of an integer field's type, which an identity over the column takes. */
-const serialOf: Readonly<Record<string, "smallserial" | "serial" | "bigserial">> = {
-	smallint: "smallserial",
-	integer: "serial",
-	bigint: "bigserial"
-}
+/** The integer types a serial field may have, whose sequence draws its values. */
+const serialTypes: ReadonlySet<string> = new Set(["smallint", "integer", "bigint"])
+
+/** A field its caller writes. */
+const callerWritten = (type: FieldDesc): FieldDecl => ({ type, writing: { kind: "caller" } })
+
+/** A serial field of an integer type: GENERATED ALWAYS AS IDENTITY, its sequence drawing its values. */
+const serialDecl = (type: "integer" | "bigint" | "smallint"): FieldDecl => ({
+	type: { kind: "pg", type },
+	writing: { kind: "serial" }
+})
 
 /** The bound checks of a version: each on its integer field, skipped where the field is of another type. */
 const checksOf = (schema: GenSchema, extras: Extras): ReadonlyArray<StatementDesc> =>
@@ -745,7 +719,7 @@ export const serialFields = (v: Version): ReadonlySet<string> =>
 		Arr.flatMap(v.desc.relations, (r) =>
 			r.kind === "relation"
 				? Arr.flatMap(Rec.toEntries(r.fields), ([f, d]) =>
-						d.kind === "serial" ? [`${r.name}.${f}`] : []
+						d.writing.kind === "serial" ? [`${r.name}.${f}`] : []
 					)
 				: []
 		)
@@ -763,20 +737,23 @@ const serialRelations = (
 		})
 	)
 
-/** The fields of a version declared serial, `<relation>.<field>`, with their serial descriptor: integer fields only. */
-const identityFields = (schema: GenSchema, extras: Extras): ReadonlyMap<string, FieldDesc> =>
+/** The fields of a version declared serial, `<relation>.<field>`, with their declaration: integer fields only. */
+const identityFields = (schema: GenSchema, extras: Extras): ReadonlyMap<string, FieldDecl> =>
 	new Map(
 		Arr.flatMap(extras.identities, (x) => {
 			const r = at(schema.relations, x.relation)
 			const col = r === undefined ? undefined : at(r.columns, x.column)
 			const desc = col === undefined ? undefined : fieldDescOf(col.type)
-			const serial = desc?.kind === "pg" ? serialOf[desc.type] : undefined
-			if (r === undefined || col === undefined || serial === undefined) {
+			if (
+				r === undefined ||
+				col === undefined ||
+				desc?.kind !== "pg" ||
+				!serialTypes.has(desc.type)
+			) {
 				return []
 			}
-			return [
-				[`${r.name}.${col.name}`, { kind: "serial", type: serial } satisfies FieldDesc] as const
-			]
+			const decl: FieldDecl = { type: desc, writing: { kind: "serial" } }
+			return [[`${r.name}.${col.name}`, decl] as const]
 		})
 	)
 
@@ -804,7 +781,10 @@ const withExtras = (schema: GenSchema, extras: Extras): SchemaDesc => {
 					fields:
 						serial === undefined
 							? fields
-							: { ...fields, [serialField]: { kind: "serial", type: serial } }
+							: {
+									...fields,
+									[serialField]: serialDecl(serial === "bigserial" ? "bigint" : "integer")
+								}
 				}
 			}),
 			...coded.relations
@@ -877,7 +857,7 @@ const codedOf = (
 	if (coded.kind === "absent") {
 		return { relations: [], statements: [] }
 	}
-	const code = fieldDescOf(codeType)
+	const code = callerWritten(fieldDescOf(codeType))
 	const { target, source } = codedRelations
 	return {
 		relations: [
@@ -885,24 +865,11 @@ const codedOf = (
 			{
 				kind: "relation",
 				name: source,
-				fields: { id: fieldDescOf(int4), code },
+				fields: { id: callerWritten(fieldDescOf(int4)), code },
 				primaryKey: ["id"]
 			}
 		],
-		statements: [
-			{ kind: "contained", left: on(source), right: on(target), origin: undefined },
-			...(coded.capacity.kind === "atMost"
-				? [
-						{
-							kind: "capacity" as const,
-							target: on(target),
-							from: on(source),
-							weight: { kind: "count" as const },
-							within: { low: 0n, high: coded.capacity.high }
-						}
-					]
-				: [])
-		]
+		statements: [{ kind: "contained", left: on(source), right: on(target) }]
 	}
 }
 
@@ -970,9 +937,7 @@ const initialExtras = (drawn: Swarm<PathKind>, sketch: ExtrasSketch): Extras => 
 	unread: kindOn(drawn, "toggleRead")
 		? Arr.map(sketch.unread, (p) => pickIndex(p, pathLimits.maxRelations))
 		: [],
-	coded: kindOn(drawn, "addCapacity")
-		? { kind: "present", capacity: { kind: "atMost", high: codedHigh(sketch.codedHigh) } }
-		: { kind: "absent" }
+	coded: kindOn(drawn, "addCoded") ? { kind: "present" } : { kind: "absent" }
 })
 
 /** A version's schema, resolved under the full data swarm: the path's own swarm already decides which edits, extras and
@@ -1374,32 +1339,8 @@ const renamed = (
 		}
 		case "closed":
 			return renamedRoster(t, indexIn(picks.second, t.schema.closed.length), upper)
-		case "reorderRoster":
-			return rosterHandles(t, indexIn(picks.second, t.schema.closed.length), 2, (rows) =>
-				Arr.reverse([...rows])
-			)
 		case "removeHandle":
-			return rosterHandles(t, indexIn(picks.second, t.schema.closed.length), 2, (rows) =>
-				rows.slice(0, -1)
-			)
-		case "handle": {
-			/** One handle renamed in place, the roster keeping as many handles: a label no other handle has, `<prefix><k>`. */
-			const k = indexIn(picks.second, t.schema.closed.length)
-			const roster = t.schema.closed[k]
-			if (roster === undefined) {
-				return t
-			}
-			const h = indexIn(picks.third, roster.handles.length)
-			const label = `${upper}${h}`
-			if (roster.handles.includes(label)) {
-				return t
-			}
-			return rosterHandles(t, k, 1, (rows) =>
-				Arr.map(rows, (row, i): ReadonlyArray<TypedLiteral> =>
-					i === h ? [{ kind: "enum", handle: label }, ...row.slice(1)] : row
-				)
-			)
-		}
+			return lastHandleRemoved(t, indexIn(picks.second, t.schema.closed.length))
 		case "alias": {
 			if (relation === undefined) {
 				return t
@@ -1492,29 +1433,29 @@ const renamedRosterTo = (t: TracedSchema, k: number, name: string): TracedSchema
 	}
 }
 
-/** A closed roster whose handles, with their payload rows, `change` reorders, shortens or renames, which retypes every
- * field it types; a roster of fewer than `least` handles is left as it is. */
-const rosterHandles = (
-	t: TracedSchema,
-	k: number,
-	least: number,
-	change: (
-		rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
-	) => ReadonlyArray<ReadonlyArray<TypedLiteral>>
-): TracedSchema => {
+/**
+ * Roster `k` with its last live handle removed: its code becomes a hole no handle takes again, its payload row goes,
+ * and every field it types is retyped to the roster's live handles; a roster of fewer than two live handles is left as
+ * it is, since a roster holds one at least.
+ */
+const lastHandleRemoved = (t: TracedSchema, k: number): TracedSchema => {
 	const closed = t.schema.closed[k]
-	if (closed === undefined || closed.handles.length < least) {
+	if (closed === undefined || closed.handles.length < 2) {
 		return t
 	}
-	const rows = change(closed.rows)
-	const handles = Arr.flatMap(rows, (row) => {
-		const [id] = row
-		return id?.kind === "enum" ? [id.handle] : []
-	})
-	if (!Arr.isReadonlyArrayNonEmpty(handles) || handles.length !== rows.length) {
-		return t
+	const last = Arr.lastNonEmpty(closed.handles)
+	const handles = nonEmptyList(closed.handles.slice(0, -1), "a roster keeps one live handle")
+	const to: GenClosed = {
+		...closed,
+		handles,
+		codes: Arr.map(closed.codes, (slot): CodeSlot =>
+			slot.kind === "live" && slot.handle === last ? { kind: "hole" } : slot
+		),
+		rows: Arr.filter(closed.rows, (row) => {
+			const [id] = row
+			return !(id?.kind === "handle" && id.handle === last)
+		})
 	}
-	const to = { ...closed, handles, rows }
 	const roster = (type: GenRelation["columns"][number]["type"]) =>
 		rosterOf(type)?.closed === closed.name ? closedIdType(to) : type
 	return {
@@ -1645,6 +1586,26 @@ export const catalogRenamedDrawGen: Gen<RenamedDraw> = (source) => {
 	const catalog = source.draw(changeGen(sketch.path.swarm, ["catalog"]))
 	return { kind: "drawn", sketch: { ...sketch, toB: [...sketch.toB, catalog] } }
 }
+
+/**
+ * A drawn renamed path whose B also swaps the names of two of its relations, whatever the path's swarm left on, its
+ * picks drawn: each relation keeps its rows under the other's name, so where their headings differ the draft sets both
+ * aside with the keys, indexes, sequences and statistics objects they own, renames the reviewer confirms as one group.
+ * What a suite aims a drawn path at while such a group is pending; a joint rename and a stated path are as they are.
+ */
+export const swappingRelations =
+	(d: RenamedDraw): Gen<RenamedDraw> =>
+	(source) => {
+		switch (d.kind) {
+			case "drawn": {
+				const swapped = source.draw(changeGen(d.sketch.path.swarm, ["swapRelations"]))
+				return { kind: "drawn", sketch: { ...d.sketch, toB: [...d.sketch.toB, swapped] } }
+			}
+			case "joint":
+			case "stated":
+				return d
+		}
+	}
 
 /** A stated renamed path as the suites take it. */
 const statedRenamed = (stated: StatedRenamedPath): RenamedPath => ({
@@ -1927,95 +1888,105 @@ export const bothRenames = (a: Renames, b: Renames): Renames => ({
 	columns: new Map([...a.columns, ...b.columns])
 })
 
-/** A rename a reviewer makes, by the physical names drafted from (`from`) and to (`to`): a relation's, or a field's of
- * the relation the target names `table`. */
-interface PhysicalRename {
-	readonly from: string
-	readonly to: string
+/**
+ * What a draft from `a` to `b` declares (`--rename`, `--drop`): each relation rename and each field rename of
+ * `declared`, a field renamed on its relation under the target's name; every relation and field `a` holds that `b`
+ * carries nowhere, by a declared rename, an alias (`aliases`, a rename between names of one identifier, which the draft
+ * holds as no change) or its own name, dropped; and each removed handle, a code `b` holds as a hole, dropped.
+ */
+const declarationsOf = (
+	a: Version,
+	b: Version,
+	declared: Renames,
+	aliases: Renames
+): Declarations => {
+	const renames: Array<Rename> = []
+	const drops: Array<Named> = []
+	const named = (name: string) => parsedName(name)
+	const renamedFrom = (map: ReadonlyMap<string, string>, from: string): string | undefined => {
+		for (const [to, was] of map) {
+			if (was === from) {
+				return to
+			}
+		}
+		return undefined
+	}
+	const carriedTo = (
+		from: string
+	): { readonly to: string; readonly declared: boolean } | undefined => {
+		const viaDeclared = renamedFrom(declared.relations, from)
+		if (viaDeclared !== undefined) {
+			return { to: viaDeclared, declared: true }
+		}
+		const viaAlias = renamedFrom(aliases.relations, from)
+		if (viaAlias !== undefined) {
+			return { to: viaAlias, declared: false }
+		}
+		return Arr.some(b.schema.relations, (r) => r.name === from) &&
+			!declared.relations.has(from) &&
+			!aliases.relations.has(from)
+			? { to: from, declared: false }
+			: undefined
+	}
+	for (const ar of a.schema.relations) {
+		const carried = carriedTo(ar.name)
+		const br =
+			carried === undefined
+				? Option.none()
+				: Arr.findFirst(b.schema.relations, (r) => r.name === carried.to)
+		if (carried === undefined || Option.isNone(br)) {
+			drops.push({ kind: "relation", relation: named(ar.name) })
+			continue
+		}
+		if (carried.declared) {
+			renames.push({
+				from: { kind: "relation", relation: named(ar.name) },
+				to: { kind: "relation", relation: named(carried.to) }
+			})
+		}
+		for (const ac of ar.columns) {
+			const key = (bc: GenColumn) => `${carried.to}.${bc.name}`
+			const into = Arr.findFirst(br.value.columns, (bc) => {
+				const was = declared.columns.get(key(bc)) ?? aliases.columns.get(key(bc))
+				return was === undefined ? bc.name === ac.name : was === ac.name
+			})
+			if (Option.isNone(into)) {
+				drops.push({ kind: "field", relation: named(ar.name), field: named(ac.name) })
+			} else if (declared.columns.get(key(into.value)) === ac.name && into.value.name !== ac.name) {
+				renames.push({
+					from: { kind: "field", relation: named(carried.to), field: named(ac.name) },
+					to: { kind: "field", relation: named(carried.to), field: named(into.value.name) }
+				})
+			}
+		}
+	}
+	for (const ac of a.schema.closed) {
+		const bc = Arr.findFirst(b.schema.closed, (c) => c.name === ac.name)
+		if (Option.isNone(bc)) {
+			drops.push({ kind: "relation", relation: named(ac.name) })
+			continue
+		}
+		for (const [code, slot] of ac.codes.entries()) {
+			if (slot.kind === "live" && bc.value.codes[code]?.kind !== "live") {
+				drops.push({ kind: "handle", roster: named(ac.name), handle: slot.handle })
+			}
+		}
+	}
+	return { renames, drops }
 }
 
-interface PhysicalFieldRename extends PhysicalRename {
-	readonly table: string
-}
-
-/** The candidates of a draft a reviewer chooses: each relation's rename whose ends are a relation rename of `renames`,
- * by the physical names of the version drafted from (`before`) and to (`after`); each field's rename on a kept relation
- * whose relation and fields are a field rename of `renames`; each field's rename nested in a chosen relation's rename
- * whose fields are one of the renamed relation's; and every candidate a chosen one requires, as the draft tells the
- * reviewer: a field's rename whose types agree only under its type's rename is chosen with that type's rename, which
- * the path made too, the field's type having moved with its roster. A nested field's rename is chosen only under its
- * chosen relation's, never by its spelling, so the rival renames of one added relation, which offer the same field
- * renames, are told apart by their relations. */
-export const chosenCandidates = (
-	g: GenerateResult,
-	renames: Renames,
-	before: RealInstallPlan,
-	after: RealInstallPlan
-): ReadonlySet<Candidate> => {
-	/** A relation set aside is renamed from its aside name (identity.aside, the naming door's own). */
-	const tables = Arr.flatMap(
-		[...renames.relations],
-		([to, from]): ReadonlyArray<PhysicalRename> => {
-			const a = before.tables[from]?.name.name
-			const b = after.tables[to]?.name.name
-			return a === undefined || b === undefined
-				? []
-				: [
-						{ from: a, to: b },
-						{ from: identity.aside(a).identifier, to: b }
-					]
-		}
+/**
+ * What a step of a path from `from` to `to` declares: with `choose`, the path's renames (chosenRenames) as `--rename`s;
+ * every other relation, field or handle removed as a `--drop`; an alias rename, which the draft holds as no change,
+ * neither. The draft then drafts what a reviewer choosing the path's renames chose.
+ */
+export const declaredOf = (from: TracedVersion, to: TracedVersion, choose: boolean): Declarations =>
+	declarationsOf(
+		from.version,
+		to.version,
+		choose ? chosenRenames(from, to) : noRenames,
+		aliasRenames(from, to)
 	)
-	const columns = Arr.flatMap(
-		[...renames.columns],
-		([key, from]): ReadonlyArray<PhysicalFieldRename> => {
-			const dot = Option.getOrThrowWith(
-				pipe(key, Str.indexOf(".")),
-				() => new Error(`the column key ${key} holds a dot`)
-			)
-			const relation = Str.slice(0, dot)(key)
-			const table = Rec.get(after.tables, relation)
-			const was = renames.relations.get(relation) ?? relation
-			const a = Option.flatMap(Rec.get(before.tables, was), (t) =>
-				Arr.findFirst(t.columns, (c) => c.field === from)
-			)
-			const b = Option.flatMap(table, (t) =>
-				Arr.findFirst(t.columns, (c) => c.field === Str.slice(dot + 1)(key))
-			)
-			return Option.isNone(table) || Option.isNone(a) || Option.isNone(b)
-				? []
-				: [{ table: table.value.name.name, from: a.value.column, to: b.value.column }]
-		}
-	)
-	const renamesField = (table: string, removed: string, added: string): boolean =>
-		Arr.some(columns, (c) => c.table === table && c.from === removed && c.to === added)
-	const offered = candidatesOf(g.plan)
-	const roots = Arr.filter(offered, (c): boolean => {
-		switch (c.kind) {
-			case "relation":
-				return Arr.some(tables, (t) => t.from === c.removed.name && t.to === c.added.name)
-			case "field":
-				return renamesField(c.relation.name, c.removed, c.added)
-			case "type":
-			case "login":
-			case "nested field":
-				return false
-		}
-	})
-	const nested = Arr.filter(
-		offered,
-		(c) =>
-			c.kind === "nested field" &&
-			roots.includes(c.parent) &&
-			renamesField(c.parent.added.name, c.removed, c.added)
-	)
-	const situations = Arr.flatMap([...roots, ...nested], (c): ReadonlyArray<Candidate> =>
-		(c.kind === "field" || c.kind === "nested field") && c.requires.kind === "type"
-			? [c.requires.candidate]
-			: []
-	)
-	return new Set([...roots, ...nested, ...situations])
-}
 
 /** Renamed paths stated by value, every candidate
  * kept, each relation with no candidate key and each value its first spelling (the edits that led to them are not restated: no property reads
@@ -2027,11 +1998,13 @@ const statedRelation = (
 	mutable: boolean
 ): GenRelation => ({ name, columns, primaryKey, keys: [], mutable })
 
+/** A roster stated by its handles, each holding the code of its position, as a fresh installation gives them. */
 const statedRoster = (name: string, handles: Arr.NonEmptyReadonlyArray<string>): GenClosed => ({
 	name,
 	handles,
+	codes: Arr.map(handles, (handle): CodeSlot => ({ kind: "live", handle })),
 	payload: [],
-	rows: Arr.map(handles, (handle) => [{ kind: "enum", handle }])
+	rows: Arr.map(handles, (handle) => [{ kind: "handle", handle }])
 })
 
 const statedSchema = (
@@ -2178,38 +2151,6 @@ export const hoppedRosterDeclaredAgain: StatedRenamedPath = {
 	choose: false,
 	chained: false,
 	renames: { toB: ["hop"], toC: ["removeHandle"] }
-}
-
-/** C removes R0's field a, of the roster K0, and renames both of K0's handles in place: its draft renames them in Prepare
- * and drops the column at the end (a statement over the dropped column must not name an old label, 22P02). */
-const rosterField = (roster: GenClosed): GenRelation =>
-	statedRelation(
-		"R0",
-		[
-			{ name: "a", type: closedIdType(roster) },
-			{ name: "b", type: int4 }
-		],
-		["b"],
-		false
-	)
-
-export const removedUnderRenamedHandles: StatedRenamedPath = {
-	path: {
-		a: statedSchema([rosterField(keptRoster)], [keptRoster]),
-		b: statedSchema([rosterField(keptRoster)], [keptRoster]),
-		c: statedSchema(
-			[statedRelation("R0", [{ name: "b", type: int4 }], ["b"], false)],
-			[statedRoster("K0", ["P0", "P1"])]
-		),
-		extras: noStatedExtras,
-		facts: { R0: [] },
-		spelling: firstSpellings,
-		edits: { toB: [], toC: [] }
-	},
-	origins: { a: ownR0, b: ownR0, c: statedOrigins([["R0", "R0"]], [["R0.b", "R0.b"]]) },
-	choose: false,
-	chained: false,
-	renames: { toB: [], toC: ["handle"] }
 }
 
 /** B swaps the names of R0 and R1 and spells R0's new name R1_, an identifier R1 held: the draft keeps each table under
@@ -2867,20 +2808,16 @@ export const typedValue = (to: {
 		)
 	return (p) => {
 		switch (p.kind) {
-			case "placeholderHandles": {
-				const column = quoteIdent(p.column)
-				const [first] = p.labels
-				return `CASE ${column}::text ${Arr.join(
-					Arr.map(p.removed, (h) => `WHEN ${quoteString(h)} THEN ${quoteString(first)}`),
-					" "
-				)} ELSE ${column}::text END::${printType(p.type)}`
-			}
 			case "placeholderRetype":
 				return castsSerial(to, p)
 					? `${quoteIdent(p.column.name)}::${printType(p.column.type)}`
-					: quoteString(inputText(typedDefault(typeOf(p))))
+					: quoteString(
+							inputText(typedDefault(typeOf(p)), typeOf(p), to.plan.installation.names.codes)
+						)
 			case "placeholderColumn":
-				return quoteString(inputText(typedDefault(typeOf(p))))
+				return quoteString(
+					inputText(typedDefault(typeOf(p)), typeOf(p), to.plan.installation.names.codes)
+				)
 		}
 	}
 }
@@ -2913,30 +2850,6 @@ export interface Carry {
 	readonly sources: ReadonlyMap<string, string>
 }
 
-/** The handles a roster renames in place, old label to new, by the contract the draft documents for two rosters:
- * as many handles, and every label that differs one the other roster lacks;
- * otherwise none is renamed and the enum is rebuilt, its removed handles mapped by the reviewer. */
-const handleRenames = (
-	before: ReadonlyArray<string>,
-	after: ReadonlyArray<string>
-): ReadonlyMap<string, string> => {
-	if (before.length !== after.length) {
-		return new Map()
-	}
-	const renames = new Map<string, string>()
-	for (const [i, from] of before.entries()) {
-		const to = after[i]
-		if (to === undefined || to === from) {
-			continue
-		}
-		if (after.includes(from) || before.includes(to)) {
-			return new Map()
-		}
-		renames.set(from, to)
-	}
-	return renames
-}
-
 /** Whether the field `bc` of B is numbered when the rows of A's relation `a` are carried into B's `b` (Carry.numbered). */
 const isNumbered = (
 	a: GenRelation,
@@ -2960,7 +2873,10 @@ const columnWas = (
 	)
 }
 
-/** The row of `a` carried into `b`, numbered `ordinal` among the carried rows. */
+/**
+ * The row of `a` carried into `b`, numbered `ordinal` among the carried rows; none where it holds a handle B's roster
+ * removed, a hole B's domain refuses, which no reviewed data step keeps.
+ */
 const carriedRow = (
 	a: GenRelation,
 	b: GenRelation,
@@ -2968,8 +2884,8 @@ const carriedRow = (
 	renames: Renames,
 	serial: ReadonlySet<string>,
 	ordinal: number
-): LiteralRow =>
-	Arr.map(b.columns, (bc) => {
+): LiteralRow | undefined => {
+	const image = Arr.map(b.columns, (bc): TypedLiteral | undefined => {
 		if (isNumbered(a, b, bc, renames, serial)) {
 			return { kind: "int", value: BigInt(ordinal) }
 		}
@@ -2989,22 +2905,23 @@ const carriedRow = (
 		const handles = rosterOf(bc.type)?.handles
 		if (
 			Option.isSome(kept) &&
-			kept.value.value.kind === "enum" &&
+			kept.value.value.kind === "handle" &&
 			handles !== undefined &&
 			!handles.includes(kept.value.value.handle)
 		) {
-			/** A handle renamed in place holds its new label; one the roster no longer has takes the roster's first,
-			 * as the reviewer maps it. */
-			const renamedTo = handleRenames(rosterOf(kept.value.was.type)?.handles ?? [], handles).get(
-				kept.value.value.handle
-			)
-			if (renamedTo !== undefined) {
-				return { kind: "enum", handle: renamedTo }
-			}
-			return { kind: "enum", handle: handles[0] }
+			return undefined
 		}
 		return Option.isSome(kept) ? kept.value.value : typedDefault(bc.type)
 	})
+	const carried: Array<TypedLiteral> = []
+	for (const v of image) {
+		if (v === undefined) {
+			return undefined
+		}
+		carried.push(v)
+	}
+	return carried
+}
 
 /** Whether `row` of `relation` names a kept row of its containment's target. */
 const contains = (
@@ -3093,6 +3010,10 @@ export const carry = (
 			const keep: Array<LiteralRow> = []
 			for (const row of rows) {
 				const image = carriedRow(ar, br, row, renames, serial, out.length + 1)
+				if (image === undefined) {
+					removed = true
+					continue
+				}
 				const conflict = Arr.some(allKeys(br), (key) => {
 					const cols = keyIndices(br, key)
 					const k = literalRowKey(image, cols)
@@ -3160,14 +3081,25 @@ export const carryChain = (
 	}
 }
 
-/** The installation plan of a version under `schema`, for its physical names and its fact statements: a fresh install,
- * so it installs every residual law and derived relation, as a draft's compilation does. */
+/** The codes a version's rosters hold, holes included, as its history drafted them (GenClosed.codes). */
+const versionCodes = (v: Version): Codebook => ({
+	rosters: new Map(
+		Arr.map(
+			v.schema.closed,
+			(c) => [parsedName(c.name), rosterCodec(parsedName(c.name), c.codes)] as const
+		)
+	)
+})
+
+/** The installation plan of a version under `schema`, for its physical names and its fact statements: a fresh install
+ * under the version's codes, so it installs every law and derived relation, as a draft's compilation does. */
 export const planOf = (v: Version, schema: string, owner: string): RealInstallPlan => {
 	const planned = planRealInstall(v.desc, {
 		installation: identity.schema(parsedSchemaName(schema)),
 		owner,
 		logins: versionLogins(v),
-		extensions: extensionsOf(v)
+		extensions: extensionsOf(v),
+		codes: versionCodes(v)
 	})
 	if (!planned.ok) {
 		throw new Error(planned.error.message)
@@ -3475,16 +3407,14 @@ export const referrerRetypedWithKey: StatedRenamedPath = plantedRename(
  * - swapFields: R1's contained r and its c, under statistics, exchange names;
  * - retypeKey: R0's key k and R1's r, the two sides of the containment, widened to int8 (a key over retyped columns);
  * - renameRetyped: R1's c renamed with its type widened; relationAndField: R1 renamed and its c renamed with it;
- * - renameRoster, renameHandle: K0 renamed, or its last handle renamed in place;
- * - rebuildRoster: K0's handles reordered or its last removed, which rebuilds the enum under R0's a;
- * - retypeRosterField: R0's a, of K0, retyped to an integer, a column both converted and of the enum a rebuild
- *   replaces when rebuildRoster comes with it;
+ * - renameRoster: K0 renamed;
+ * - removeLastHandle: K0's last handle removed, its code a hole R0's a then refuses;
+ * - retypeRosterField: R0's a, of K0, retyped to an integer, a code column converted to the integer it holds;
  * - hop: K0 renamed afresh and R1 renamed to K0's old name, a name hopping across the relation and type namespaces;
  * - retypeSerial: R1's serial field widened to bigserial;
  * - retypedOffRebuilt, relationRetypedOffRebuilt: K0's last handle removed while R0's a, of K0, is renamed with its
- *   type changed to an integer, or while R0 is renamed with a so retyped: a removed column of the enum a rebuild
- *   replaces, which a chosen candidate converts, the residual double conversion (one conversion, at the rebuild's own
- *   step, whichever way the reviewer decides).
+ *   type changed to an integer, or while R0 is renamed with a so retyped: one conversion of a code column, whichever
+ *   way the reviewer decides.
  *
  * And, at the path's level, takeDropped: B drops R1's c, and C renames R1's r to the name B dropped; and
  * freshRelations: whether the names intents give relations sort before the base's or after them (FreshRelations).
@@ -3505,8 +3435,7 @@ const legalIntents = [
 	"renameRetyped",
 	"relationAndField",
 	"renameRoster",
-	"renameHandle",
-	"rebuildRoster",
+	"removeLastHandle",
 	"retypeRosterField",
 	"hop",
 	"retypeSerial",
@@ -3515,10 +3444,8 @@ const legalIntents = [
 ] as const
 export type LegalIntentKind = (typeof legalIntents)[number]
 
-/** One legal intent; a rebuild reorders the roster's handles or removes its last. */
-export type LegalIntent =
-	| { readonly kind: Exclude<LegalIntentKind, "rebuildRoster"> }
-	| { readonly kind: "rebuildRoster"; readonly how: "reorder" | "remove" }
+/** One legal intent. */
+export type LegalIntent = { readonly kind: LegalIntentKind }
 
 /** Where the fresh names intents give relations sort against the base's R0 and R1: before them, each its step's
  * letter and its position (Q0 in B, P0 in C), or after them, T before the same (TQ0, TP0). The draft plans and drafts
@@ -3552,16 +3479,11 @@ const namingDropped: ReadonlySet<LegalIntentKind> = new Set([
 
 /**
  * A legal intent among `kinds`, each kind as likely as any other, so every intent a suite requires is drawn as often as
- * the rest; a rebuild then reorders or removes.
+ * the rest.
  */
 const legalIntentGen =
 	(kinds: Arr.NonEmptyReadonlyArray<LegalIntentKind>): Gen<LegalIntent> =>
-	(source) => {
-		const kind = source.draw(element(kinds))
-		return kind === "rebuildRoster"
-			? { kind, how: source.draw(element(["reorder", "remove"] as const)) }
-			: { kind }
-	}
+	(source) => ({ kind: source.draw(element(kinds)) })
 const everyIntentGen = legalIntentGen(legalIntents)
 const keptNameIntentGen = legalIntentGen(
 	nonEmptyList(
@@ -3633,7 +3555,7 @@ const hazardFacts: ValueFacts = {
 	R0: [
 		[
 			{ kind: "int", value: 1n },
-			{ kind: "enum", handle: "H0" },
+			{ kind: "handle", handle: "H0" },
 			{ kind: "int", value: 2n }
 		]
 	],
@@ -3776,20 +3698,8 @@ const applyIntent = (
 		}
 		case "renameRoster":
 			return step(rosterRenamedTo(t, fresh.roster))
-		case "renameHandle":
-			return step(
-				rosterHandles(t, 0, 1, (rows) =>
-					Arr.map(rows, (row, i): ReadonlyArray<TypedLiteral> =>
-						i === rows.length - 1 ? [{ kind: "enum", handle: fresh.handle }, ...row.slice(1)] : row
-					)
-				)
-			)
-		case "rebuildRoster":
-			return step(
-				rosterHandles(t, 0, 2, (rows) =>
-					intent.how === "reorder" ? Arr.reverse([...rows]) : rows.slice(0, -1)
-				)
-			)
+		case "removeLastHandle":
+			return step(lastHandleRemoved(t, 0))
 		case "retypeRosterField": {
 			const a = fieldOfOrigin(t, "R0", "a")
 			return step(retypedField(t, a.relation.name, a.field, int4))
@@ -3805,13 +3715,13 @@ const applyIntent = (
 				extras: { ...extras, serials: Arr.map(extras.serials, (s) => ({ ...s, big: true })) }
 			}
 		case "retypedOffRebuilt": {
-			const shortened = rosterHandles(t, 0, 2, (rows) => rows.slice(0, -1))
+			const shortened = lastHandleRemoved(t, 0)
 			const a = fieldOfOrigin(shortened, "R0", "a")
 			const renamedA = renameField(shortened, a.relation, a.field, fresh.field)
 			return step(retypedField(renamedA, a.relation.name, fresh.field, int4))
 		}
 		case "relationRetypedOffRebuilt": {
-			const shortened = rosterHandles(t, 0, 2, (rows) => rows.slice(0, -1))
+			const shortened = lastHandleRemoved(t, 0)
 			const a = fieldOfOrigin(shortened, "R0", "a")
 			const retypedA = retypedField(shortened, a.relation.name, a.field, int4)
 			return step(renameRelation(retypedA, relationOfOrigin(retypedA, "R0"), fresh.relation))
@@ -3848,8 +3758,7 @@ const intentRenameKinds: { readonly [K in LegalIntentKind]: ReadonlyArray<Rename
 	renameRetyped: ["retyped"],
 	relationAndField: ["relation", "column"],
 	renameRoster: ["closed"],
-	renameHandle: ["handle"],
-	rebuildRoster: [],
+	removeLastHandle: ["removeHandle"],
 	retypeRosterField: [],
 	hop: ["hop"],
 	retypeSerial: [],
@@ -3858,11 +3767,7 @@ const intentRenameKinds: { readonly [K in LegalIntentKind]: ReadonlyArray<Rename
 }
 
 const renameKindsOf = (intents: ReadonlyArray<LegalIntent>): ReadonlyArray<RenameKind> =>
-	Arr.flatMap(intents, (i) =>
-		i.kind === "rebuildRoster"
-			? [i.how === "reorder" ? "reorderRoster" : "removeHandle"]
-			: intentRenameKinds[i.kind]
-	)
+	Arr.flatMap(intents, (i) => intentRenameKinds[i.kind])
 
 /** A path of intents, resolved: a legal path, as every renamed path is; the version that renames onto a taken name,
  * for the boundary to refuse; or the ambiguous path, with the removed relation and the two added ones of its heading. */

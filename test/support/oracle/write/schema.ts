@@ -790,8 +790,8 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 	/** The law an installed constraint or unique index of the relation's table reports. */
 	const lawOf = (relation: string, constraint: ConstraintName): LawId => {
 		const owned = plan.installation.owned.relations[relation]
-		if (owned === undefined) {
-			throw new Error(`no owned relation ${relation}`)
+		if (owned?.kind !== "relation") {
+			throw new Error(`no owned stored relation ${relation}`)
 		}
 		const owner = { kind: "table", name: owned.ident } as const
 		const law = constraintLaw(laws.constraintToLaw, owner, constraint)

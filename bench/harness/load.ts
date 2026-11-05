@@ -17,8 +17,7 @@ import { nothingReported, serverError } from "#test/support/server-error.ts"
 
 /**
  * Concurrent load for the contention gates: lock waits, deadlock rate and transient failure rate by reason under
- * contention on one row; the queue claim's throughput, tail latency and transient failure rate by reason; and
- * the lock-wait time and throughput of one hot group (R19, R23).
+ * contention on one row; and the queue claim's throughput, tail latency and transient failure rate by reason.
  *
  * A load is a set of workers, each holding its own session, running one operation after another: a fixed number each,
  * or until a deadline. Every operation reports its outcome and the attempts it discarded; the load reports

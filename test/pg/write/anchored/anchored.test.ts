@@ -14,6 +14,7 @@ import {
 	Slot,
 	Wanted
 } from "#bench/queue/support/queue.ts"
+import { codeOf } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -21,8 +22,8 @@ import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
-import { realityWrite, testArtifacts } from "#test/support/compile.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { installedCodes, realityWrite, testArtifacts } from "#test/support/compile.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -128,15 +129,16 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 					succeeded(
 						testArtifacts(S, {
 							installation: o.installation.settings.installation,
-							vectorSchema: undefined
+							vectorSchema: undefined,
+							codes: installedCodes(names.codes)
 						})
 					)
 				)
 				const table = (relation: string) => printObjectName(names.relation(relation))
 				const column = (relation: string, field: string) =>
 					quoteIdent(names.column(relation, field))
-				const kind = printObjectName(names.enumType(parsedName("Kind")))
-				const standing = printObjectName(names.enumType(parsedName("Standing")))
+				const codeIn = (roster: string, handle: string): string =>
+					`${codeOf(defined(names.codes.rosters.get(parsedName(roster)), `the codes of ${roster}`), handle)}::smallint`
 				const governed = ["Work", "Wanted"]
 				yield* transaction(
 					s.admin,
@@ -148,7 +150,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 							column("Work", f)
 						),
 						", "
-					)}) SELECT ${digestOf("g")}, 'render'::${kind}, 0, 'wanted'::${standing}, 0, g FROM pg_catalog.generate_series(1, ${items}) AS g`,
+					)}) SELECT ${digestOf("g")}, ${codeIn("Kind", "render")}, 0, ${codeIn("Standing", "wanted")}, 0, g FROM pg_catalog.generate_series(1, ${items}) AS g`,
 					`INSERT INTO ${table("Wanted")} (${Arr.join(
 						Arr.map(["key", "due", "attempts"], (f) => column("Wanted", f)),
 						", "

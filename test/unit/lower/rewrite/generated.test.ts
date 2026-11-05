@@ -13,13 +13,13 @@ import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { RelDag, RelKind } from "#compiler/ir/rel.ts"
+import { closedPass } from "#compiler/lower/optimize/closed/index.ts"
 import {
 	relationalRewrites,
 	semanticSimplification
 } from "#compiler/lower/optimize/demand/phases.ts"
 import { eliminatePass } from "#compiler/lower/optimize/eliminate/index.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
-import { finitePass } from "#compiler/lower/optimize/finite/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { lateFetchPass } from "#compiler/lower/optimize/late-fetch/index.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
@@ -27,6 +27,7 @@ import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	defaultGenConfig,
@@ -39,6 +40,7 @@ import {
 	rewriteGenConfig
 } from "#test/support/oracle/gen/case.ts"
 import { type QuerySketch, undrawn } from "#test/support/oracle/gen/query.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import {
 	existsOverTakeRoot,
 	fanoutJoinRoot,
@@ -159,7 +161,7 @@ const preserves = (
 		}
 	}
 	c.note(`reference ${agrees(q, ran.query)}`)
-	succeeded(lowerConservatively(ran.query))
+	succeeded(lowerConservatively(ran.query, schemaCodes(q.schema)))
 }
 
 /** A case of the population, drawn as its sketch, which a failure prints and a kept case states. */
@@ -254,9 +256,10 @@ const bind = (mode: number) => ({ mode, pick: 0, value: { cls: 0, sp: 0 } })
 /**
  * Planted: the rules the composed pipeline's search fires a few times a run (simplify.equality 3 to 23 times on four
  * seeds). Each is a smallest sketch of the population that fires it, over
- * R0 of one or two integer columns holding three facts (finite membership: of the roster's enum, holding both
+ * R0 of one or two integer columns holding three facts (closed membership: of the roster's codes, holding both
  * handles):
- * - finite membership: the roster's occurrence matched with R0 on one variable, the roster first;
+ * - closed membership: the roster's occurrence matched with R0 on one variable, the roster first, the roster's
+ *   tautology;
  * - a filter equating R0's two variables (simplify.equality);
  * - a projection of R0's (b, a) to its first column (simplify.mergeProjections);
  * - R1 matched through its containment into R0, which the foreign key makes redundant (R03.elimination);
@@ -309,9 +312,26 @@ const keptRules: ReadonlyArray<Kept<QueryCaseSketch, RewriteFeature>> = (() => {
 	}
 	return [
 		planted(
-			["R07.finiteMembership"],
+			["R07.closedMembership"],
 			"a roster occurrence joined to a relation on its handle",
-			{ palette: [0], closed: [{ handles: 2, payload: [] }], relations: [relation([1], false)] },
+			{
+				palette: [0],
+				closed: [
+					{
+						/** Two codes, both live: the roster of two handles. */
+						pattern: {
+							closed: parsedName("K"),
+							slots: [
+								{ kind: "live", handle: "Open" },
+								{ kind: "live", handle: "Done" }
+							],
+							spellings: { plain: 3 }
+						},
+						payload: []
+					}
+				],
+				relations: [relation([1], false)]
+			},
 			[[fact(0, 1), fact(1, 1)]],
 			{
 				tag: "match",
@@ -382,7 +402,7 @@ const singlePasses = {
 	eliminate: [prunePass, eliminatePass],
 	existence: [prunePass, existencePass],
 	pushdown: [pushdownPass],
-	finite: [finitePass],
+	closed: [closedPass],
 	lateFetch: [lateFetchPass]
 } as const satisfies Readonly<Record<string, Passes>>
 
@@ -395,7 +415,7 @@ const passNames: Arr.NonEmptyReadonlyArray<PassName> = [
 	"eliminate",
 	"existence",
 	"pushdown",
-	"finite",
+	"closed",
 	"lateFetch"
 ]
 

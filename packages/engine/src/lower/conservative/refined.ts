@@ -168,6 +168,9 @@ export class Tracer {
 			case "plSpecial":
 			case "field":
 			case "regclass":
+			case "complement":
+			case "nullif":
+			case "subscript":
 				return ["unproved"]
 		}
 	}
@@ -390,9 +393,10 @@ export const castDomain = (
  *    list, and an ORDER BY item that is the cast column is cast alike, which SELECT DISTINCT needs of an ORDER BY
  *    expression. A refined output whose domain the installation does not name cannot be validated and is refused.
  *
- * A residual law's violation probe (deploy/diff) delivers to no host: its rows are stored values, which already satisfy
- * their refinements, and the migration reads only whether one exists. It claims nothing of its outputs, so step 2
- * casts none of them, a contract's base pattern no domain names among them.
+ * A law's violation probe (deploy/diff), the migration's check of a law over closed relations alone, delivers to no
+ * host: its rows are declared values, which already satisfy their refinements, and the migration reads only whether one
+ * exists. It claims nothing of its outputs, so step 2 casts none of them, a contract's base pattern no domain names
+ * among them.
  */
 export const refineConservative = (
 	cx: LowerContext,

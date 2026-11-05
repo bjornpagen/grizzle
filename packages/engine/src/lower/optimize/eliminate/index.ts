@@ -43,7 +43,7 @@ interface Elimination {
 	readonly via: Occurrence
 	readonly containment: ExistenceConstraint
 	readonly key: JustifiedKey
-	/** The containment's premises: its constraint's, or none when its enum type enforces it. */
+	/** The containment's premises: its constraint's, or none when its roster's domain enforces it. */
 	readonly existence: ReadonlyArray<Premise>
 	readonly existenceContext: EvidenceContext
 }

@@ -1,32 +1,50 @@
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { closed as closedBuilder, relation as relationBuilder } from "#compiler/schema/relation.ts"
+import {
+	closed as closedBuilder,
+	closedRelation as closedRelationBuilder,
+	generatedRelation,
+	relation as relationBuilder
+} from "#compiler/schema/relation.ts"
 import { schema as schemaBuilder } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
-	capacityBuilder,
 	checkBuilder,
 	containedBuilder,
+	countedBuilder,
+	finBuilder,
+	foldBuilder,
 	keyBuilder,
 	mirrorsBuilder,
+	monoids,
 	mutableBuilder,
 	onBuilder,
+	orderedBuilder,
 	predBuilder,
-	runtimeDuration,
-	runtimeRef,
-	runtimeWeigh,
-	runtimeWithin,
-	selectBuilder
+	selectBuilder,
+	treeBuilder
 } from "#compiler/schema/statements.ts"
 import { context as contextBuilder, role as roleBuilder } from "#compiler/schema/world.ts"
-import type { Parameterless, Predicate } from "#compiler/types/core/phantom.ts"
-import type { FieldBase, HandleOf } from "#compiler/types/fields/field.ts"
+import type { Parameterless, Predicate, Refusal, Simplify } from "#compiler/types/core/phantom.ts"
+import type {
+	FieldBase,
+	GeneratedField,
+	HandleOf,
+	WritingTag
+} from "#compiler/types/fields/field.ts"
 import type {
 	AnyClosed,
 	AnyRelation,
+	AnyRoster,
+	ClosedIdFieldOf,
+	ClosedRelation,
 	DistinctFields,
+	DistinctHandles,
 	DistinctTerms,
-	EnumClosed,
-	Relation
+	FactOfFields,
+	KeyFieldOf,
+	Relation,
+	Roster,
+	SharesKey
 } from "#compiler/types/schema/relation.ts"
 
 import type {
@@ -38,34 +56,46 @@ import type {
 	UnderOwnNames
 } from "#compiler/types/schema/schema.ts"
 
+import type { MonoidName } from "#compiler/ir/desc.ts"
 import type {
 	Alternatives,
+	AnyFamily,
+	AnyFin,
+	AnyMonoid,
 	AnySide,
 	ArmsApartFromParent,
 	ArmsCompatible,
 	ArmsOfRoster,
 	AtLeastOneArm,
-	Capacity,
-	CapacityRule,
 	Check,
 	Containment,
+	Counted,
+	CountedMember,
 	DiscriminatorsOf,
-	Duration,
+	DrawnFieldOf,
+	Fin,
+	Fold,
+	FoldEnd,
+	FoldStep,
 	Key,
 	KeyRef,
 	Mirrors,
+	Monoid as MonoidOf,
 	Mutable,
+	NoSetKey,
+	Ordered,
+	OrderedMember,
 	Pred,
-	Ref,
 	RelationOfKey,
 	RowScalars,
 	Selection,
+	SelfFamily,
 	Side,
 	SidesCompatible,
 	Statement,
 	TermOf,
-	Weight,
-	WithinConstructor
+	Tree,
+	TreeRootOf
 } from "#compiler/types/schema/statements.ts"
 
 import type {
@@ -83,25 +113,25 @@ import type {
 } from "#compiler/types/schema/world.ts"
 
 /**
- * The typed schema facade: relation, closed, schema, schema.extend, the statement constructors, context and role under
- * their precise public signatures (types/schema; login, which admits its workloads, is program/workload/login.ts),
- * each a view over the one builder of its value in this package (relation.ts, schema.ts, statements.ts, world.ts),
- * and the one module that exports the public names. A builder checks a JavaScript caller's arguments through its
- * admission core, records the Description, and owns the literal of its arguments, frozen copies (protocol.ts
- * ownValue), so the value has its public type by construction; its type parameters are as wide as that value allows,
- * and a view here narrows them to what the public signature states and calls the builder with them. A list a builder
- * copies is typed `readonly [...T]`, which is T itself for every list a call writes. A JavaScript caller's extra
- * argument is refused; the types admit none. The public barrel public/schema.ts exports these; test/unit/schema pins
- * the runtime behavior and test/types/schema the signatures.
+ * The typed schema facade: relation, relation.generated, closed, closed.relation, schema, schema.extend, the statement
+ * constructors, context and role under their precise public signatures (types/schema; login, which admits its
+ * workloads, is program/workload/login.ts), each a view over the one builder of its value in this package
+ * (relation.ts, schema.ts, statements.ts, world.ts), and the one module that exports the public names. A builder checks
+ * a JavaScript caller's arguments through its admission core, records the Description, and owns the literal of its
+ * arguments, frozen copies (protocol.ts ownValue), so the value has its public type by construction; its type
+ * parameters are as wide as that value allows, and a view here narrows them to what the public signature states and
+ * calls the builder with them. A list a builder copies is typed `readonly [...T]`, which is T itself for every list a
+ * call writes. A JavaScript caller's extra argument is refused; the types admit none. The public barrel
+ * public/schema.ts exports these; test/unit/schema pins the runtime behavior and test/types/schema the signatures.
  *
  * The third argument is the primary key: a required, nonempty list of the relation's own field names, each once, in
  * the order written. The value holds a frozen copy of it, `readonly [...PrimaryKey]`, which is PrimaryKey itself for
  * every key a call writes.
  */
-export const relation = <
+const ordinaryRelation = <
 	const Name extends string,
 	const Fields extends Record<string, FieldBase>,
-	const PrimaryKey extends readonly [keyof Fields & string, ...(keyof Fields & string)[]]
+	const PrimaryKey extends readonly [KeyFieldOf<Fields>, ...KeyFieldOf<Fields>[]]
 >(
 	name: Name,
 	fields: Fields,
@@ -110,19 +140,89 @@ export const relation = <
 ): Relation<Name, Fields, readonly [...PrimaryKey]> =>
 	relationBuilder<Name, Fields, PrimaryKey>(name, fields, primaryKey, extra)
 
+/** A relation's generated fields are named apart from its written ones: a field is written one way. */
+export type GeneratedApart<Written, G> = [keyof Written & keyof G] extends [never]
+	? unknown
+	: Refusal<"a generated field is named apart from the relation's written fields">
+
 /**
- * closed(name, handles) is the enum-only form. Its `with(payload, facts)` builds a new closed relation of the same name
- * and roster with a typed payload fact for every handle; the enum-only form is that relation with the empty payload,
- * one Description. Every form's `handle(member)` is the typed head term of a member of its roster.
+ * relation.generated(name, written, primaryKey, (row) => ({ f: generated(type, term), ... })): a relation whose
+ * written fields its caller writes and whose generated fields PostgreSQL writes, each a STORED generated column whose
+ * term reads `row`, the row of the written fields alone: a generation expression reads no generated column. The
+ * primary key is over written fields. Its fields are both, and its facts hold both; its additions hold only the written.
  */
-export const closed = <
+const generated = <
+	const Name extends string,
+	const Written extends Record<string, FieldBase>,
+	const PrimaryKey extends readonly [KeyFieldOf<Written>, ...KeyFieldOf<Written>[]],
+	const G extends Record<string, GeneratedField<FieldBase>>
+>(
+	name: Name,
+	written: Written,
+	primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
+	generate: (
+		row: RowScalars<Relation<Name, Written, readonly [...PrimaryKey]>>
+	) => G & GeneratedApart<Written, G>,
+	...extra: ReadonlyArray<never>
+): Relation<Name, Simplify<Written & G>, readonly [...PrimaryKey]> =>
+	generatedRelation<Name, Written, PrimaryKey, G>(name, written, primaryKey, generate, extra)
+
+export const relation: typeof ordinaryRelation & { readonly generated: typeof generated } =
+	Object.freeze(Object.assign(ordinaryRelation, { generated }))
+
+/** A closed relation's fields are closed ids, and open-typed values that are no serial, span, set or vector. */
+export type ClosedFieldsCheck<Fields> = [
+	{
+		[K in keyof Fields]-?: Fields[K] extends
+			| { readonly writing: WritingTag }
+			| { readonly sql: "range" | "vector" | "bits" }
+			? K
+			: never
+	}[keyof Fields]
+] extends [never]
+	? unknown
+	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no serial, span, set or vector">
+
+/**
+ * closed(name, handles): a roster, the handles it introduces, each once, in declared order, which is their codes'
+ * order and comparison order. Its `handle(member)` is the typed constant of a member.
+ */
+const closedRoster = <
 	const Name extends string,
 	const Handles extends readonly [string, ...string[]]
 >(
 	name: Name,
-	handles: Handles & NonEmptyReadonlyArray<Handles[number]>,
+	handles: Handles & NonEmptyReadonlyArray<Handles[number]> & DistinctHandles<Handles>,
 	...extra: ReadonlyArray<never>
-): EnumClosed<Name, readonly [...Handles]> => closedBuilder<Name, Handles>(name, handles, extra)
+): Roster<Name, readonly [...Handles]> => closedBuilder<Name, Handles>(name, handles, extra)
+
+/**
+ * closed.relation(name, fields, key, rows): a closed relation, its rows fixed when the schema compiles. The key is
+ * required, a nonempty list of its closed-id fields, each once; a set lists every field. Its rows are facts of its
+ * fields, no two of one key. `at` and `row` are its closed reads.
+ */
+const closedRelation = <
+	const Name extends string,
+	const Fields extends Record<string, FieldBase>,
+	const KeyFields extends readonly [ClosedIdFieldOf<Fields>, ...ClosedIdFieldOf<Fields>[]],
+	const Rows extends ReadonlyArray<FactOfFields<Fields>>
+>(
+	name: Name,
+	fields: Fields & ClosedFieldsCheck<Fields>,
+	key: KeyFields & DistinctFields<KeyFields>,
+	rows: Rows & DistinctRows<Rows, KeyFields>,
+	...extra: ReadonlyArray<never>
+): ClosedRelation<Name, Fields, readonly [...KeyFields]> =>
+	closedRelationBuilder<Name, Fields, KeyFields>(name, fields, key, rows, extra)
+
+/** A closed relation's rows are a set: no two written out share a key (SharesKey). */
+export type DistinctRows<Rows, KeyFields extends ReadonlyArray<string>> =
+	SharesKey<Rows, KeyFields> extends true
+		? Refusal<"a closed relation's rows are a set: two rows share a key">
+		: unknown
+
+export const closed: typeof closedRoster & { readonly relation: typeof closedRelation } =
+	Object.freeze(Object.assign(closedRoster, { relation: closedRelation }))
 
 /**
  * schema(name, relations, statements). Each relation sits under its own name, so the record is the schema's index by
@@ -168,11 +268,12 @@ export const schema: typeof rootSchema & { readonly extend: typeof extend } = Ob
 
 /**
  * key(side): no two of the side's facts share its terms, UNIQUE NULLS DISTINCT. Over a whole relation and its fields
- * it is a candidate key; over a selection or a pred term it constrains only the facts the side reads. A closed relation
- * is keyed by its handle alone, so no side of one is keyed.
+ * it is a candidate key; over a selection or a pred term it constrains only the facts the side reads. A roster is keyed
+ * by its handle and a closed relation by its declared key, so no side of either is keyed.
  */
-export const key = <S extends Side<AnyRelation | Selection<AnyRelation>>>(side: S): Key<S> =>
-	keyBuilder<S>(side)
+export const key = <S extends Side<AnyRelation | Selection<AnyRelation>>>(
+	side: S & NoSetKey<S>
+): Key<S> => keyBuilder<S>(side)
 
 /**
  * Opt in to in-place change. Without it a relation is immutable: facts are added and deleted, never changed. The
@@ -226,7 +327,7 @@ export const mirrors = <L extends AnySide, R extends AnySide>(
 
 export const alternatives = <
 	PK extends AnyRelation | Key<Side<AnyRelation, ReadonlyArray<string>>>,
-	C extends AnyClosed,
+	C extends AnyRoster,
 	const D extends DiscriminatorsOf<RelationOfKey<PK>, C>,
 	const Arms extends Partial<{ readonly [H in HandleOf<C>]: KeyRef<AnyRelation> }>
 >(
@@ -241,15 +342,58 @@ export const alternatives = <
 ): Alternatives<PK, D, C, Arms> =>
 	alternativesBuilder<PK, D, C, Arms>(parent, discriminator, roster, arms)
 
-export const capacity = <T extends AnySide, F extends AnySide>(
-	target: T,
-	rule: CapacityRule<F>
-): Capacity<T, F> => capacityBuilder<T, F>(target, rule)
+/** fin(O, n): the slots of O's drawn count n, a family's second argument. Never a side, never a schema member. */
+export const fin = <O extends AnyRelation, const N extends DrawnFieldOf<O>>(
+	owner: O,
+	count: N
+): Fin<O, N> => finBuilder<O, N>(owner, count)
 
-export const ref: (field: string) => Ref = runtimeRef
-export const weigh: (field: string | Duration) => Weight = runtimeWeigh
-export const duration: (spanField: string) => Duration = runtimeDuration
-export const within: WithinConstructor = runtimeWithin
+/**
+ * ordered(on(F, g…, i), fin(O, n)): each owner's members, its group g… paired with O's primary key, indexed by their
+ * drawn index i exactly 0 … n − 1, in order.
+ */
+export const ordered = <F extends Side<AnyRelation>, Fi extends AnyFin>(
+	family: F & OrderedMember<F, Fi>,
+	slots: Fi
+): Ordered<F, Fi> => orderedBuilder<F, Fi>(family, slots)
+
+/** counted(on(F, g…), fin(O, n)): each owner's n members, their index hidden. */
+export const counted = <F extends Side<AnyRelation>, Fi extends AnyFin>(
+	family: F & CountedMember<F, Fi>,
+	slots: Fi
+): Counted<F, Fi> => countedBuilder<F, Fi>(family, slots)
+
+/**
+ * tree(on(T, "parent", "at"), fin(T, "children"), { root: r }): the ordered family of T over itself, every row but its
+ * self-parented root a member, with T's drawn `start` and `end` its pre-order interval and r the caller's field each
+ * tree's rows share.
+ */
+export const tree = <F extends Side<AnyRelation>, Fi extends AnyFin, const Root extends string>(
+	family: F & SelfFamily<F, Fi>,
+	slots: Fi,
+	root: { readonly root: Root & TreeRootOf<F, Root> }
+): Tree<F, Fi, Root> => treeBuilder<F, Fi, Root>(family, slots, root)
+
+/**
+ * fold(family, Monoid.m, step, end): the family's members' step values combined by the monoid in slot order, each
+ * owner's result in its end fields. `step` is on(member | select(member, φ), g…, x, …accumulators): the group, the
+ * value (none for count), then none or one accumulated (before, after) pair per plane; `end` is on(owner, k…, …ends),
+ * one accumulated field per plane.
+ */
+export const fold = <
+	Fa extends AnyFamily,
+	M extends AnyMonoid,
+	S extends Side<AnyRelation | Selection<AnyRelation>>,
+	E extends Side<AnyRelation>
+>(
+	family: Fa,
+	monoid: M,
+	step: S & FoldStep<Fa, M, S>,
+	end: E & FoldEnd<Fa, M, E, S>
+): Fold<Fa, M, S, E> => foldBuilder<Fa, M, S, E>(family, monoid, step, end)
+
+/** The closed set of monoids a fold combines by: count, sum, or, twos (two planes) and max. */
+export const Monoid: { readonly [M in MonoidName]: MonoidOf<M> } = monoids
 
 /**
  * The session's relation parameters: a source of at most one fact, matched by a rule of any query over any schema.

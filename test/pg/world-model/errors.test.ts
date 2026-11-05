@@ -4,7 +4,7 @@ import {
 	breakingAtCommit,
 	dbSession,
 	directTransaction,
-	docsAtCapacityRealities,
+	docsAtBoundRealities,
 	docsInstalls,
 	everyAction,
 	everyWriter,
@@ -26,9 +26,9 @@ import type { ActionOutcome } from "#test/support/worlds/model/types.ts"
  * refusal carries (message, detail, hint, every notice, the witness) and reports any token of reality hidden from the
  * acting session that the action did not submit, which the driver never allows: no error quotes a value from outside
  * the world. The worlds model names the typed error or outcome of each refusal, and the driver holds the real one to
- * it. A law function withholds its witness from a writer that does not hold the witness relation whole, so half the
- * realities hold a document at its capacity (drive/suite.ts docsAtCapacityRealities), which a member's own share of it
- * breaks. A tamper changes database settings, so the file runs in a database of its own. A token that does not decode
+ * it. Half the realities hold a document at its bound of shares (drive/suite.ts docsAtBoundRealities), so a member's
+ * own share of it breaks the one-share variant's key on a fact hidden from it, and the key's refusal must quote none of
+ * that fact's values. A tamper changes database settings, so the file runs in a database of its own. A token that does not decode
  * through a role's contexts is the claims suite's (isolation.test.ts).
  */
 const refusals: ReadonlyArray<ActionOutcome["kind"]> = [
@@ -48,7 +48,7 @@ const refusals: ReadonlyArray<ActionOutcome["kind"]> = [
 const required = requiredWhere(
 	(f) =>
 		opIn({ kinds: everyAction, writers: everyWriter, observations: refusals })(f) ||
-		startingWith("object:law-function:witness", "invariant:no-hidden-value")(f)
+		startingWith("invariant:no-hidden-value")(f)
 )
 
 layer(Substrate.isolatedLayer, { excludeTestServices: true })("the worlds model: errors", (it) => {
@@ -61,7 +61,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })("the worlds model:
 		steps: 10,
 		cases: 32,
 		required,
-		realities: docsAtCapacityRealities,
+		realities: docsAtBoundRealities,
 		lead: leadsOf(
 			directTransaction(required),
 			dbSession(required),

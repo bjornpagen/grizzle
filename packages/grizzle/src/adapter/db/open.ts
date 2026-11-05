@@ -142,7 +142,8 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 			reason: new RoleOutsideLayers({ role: reached.role.name, login: sessions.login.name })
 		})
 	}
-	const { schema, declared, artifacts, compile, theory, contexts, witness, workload } = held.value
+	const { schema, declared, artifacts, compile, theory, contexts, witness, bind, workload } =
+		held.value
 	const desc = schema.desc
 	yield* Effect.mapError(
 		fromEngine(
@@ -184,6 +185,7 @@ export const openDb = Effect.fn("openDb")(function* <R extends AnyRole, P>(
 		artifacts,
 		compile,
 		witness,
+		bind,
 		pool,
 		installedExtensions: admitted.extensions
 	}

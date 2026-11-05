@@ -24,6 +24,7 @@ import { workload } from "#compiler/public/workload.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { migrated, noObservation, withDb } from "#test/support/installed.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -246,7 +247,7 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 									later: [],
 									register: true,
 									observe: noObservation,
-									renames: "kept"
+									declared: () => noDeclarations
 								})
 								const b = defined(built[0], "the schema")
 								const derivedNames = new Set(["Totals", "Placed"])

@@ -1,15 +1,30 @@
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
-import { parameterNormalizer, positionalColumns } from "#compiler/codec/recordset.ts"
+import { arrayTexts, parameterNormalizer, positionalColumns } from "#compiler/codec/recordset.ts"
 import { paramEncoder } from "#compiler/codec/scalar.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
+import { maxStringLength } from "#compiler/core/limits.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { Family } from "#compiler/ir/family.ts"
+import type { FamilyId } from "#compiler/ir/law.ts"
 import type { ArrayTexts, LiteralBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { RelationChoice } from "#compiler/lower/shapes/index.ts"
 import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
+import { compose, type RelationPlanAt } from "#compiler/write/family/compose.ts"
+import { familyKey } from "#compiler/write/family/fold.ts"
+import {
+	type FamilyStatement,
+	type Plan,
+	planRelation,
+	textsOf,
+	type Transport,
+	type Unsendable
+} from "#compiler/write/family/order.ts"
 import {
 	type MemberFacts,
 	type Normalized,
@@ -31,6 +46,16 @@ interface BindInputs {
 	/** The declared parameters' values, by name: the caller's, and the values ChangeSet.bind closed under the private
 	 * names the Description lists. */
 	readonly params: Readonly<Record<string, unknown>>
+	/** What one statement carries, which a family's statements are cut to (write/family/order.ts inForce over the
+	 * wire's Bind frame). */
+	readonly transport: Transport
+}
+
+/** A row of a nested write's family that no statement can carry even alone, as the family names it. */
+export interface FamilyRowBound {
+	readonly _tag: "FamilyRowBound"
+	readonly family: Family
+	readonly row: Unsendable
 }
 
 export type Raw = ReadonlyArray<ReadonlyArray<string>>
@@ -49,7 +74,50 @@ export interface BoundWrite {
 	readonly values: (
 		statement: ArtifactStatement
 	) => Result.Result<ReadonlyArray<string>, EncodingFailure | LiteralBound>
+	/** How the application's statements reach the server: one flight, or a read flight first (`Flights`). */
+	readonly flights: Flights
 }
+
+/**
+ * The placeholder texts of each execution of a statement, in the order they are sent: one, its `values`, for every
+ * statement but a family step's; a family step's, one per statement of its kind in its family's plan (write/family/
+ * order.ts plan), each its rows' arrays, none when the application writes no row of that kind. Every execution sends
+ * the statement's one text, and its rows are every execution's, in order. A row no statement carries even alone is its
+ * family's FamilyRowBound, before any statement is sent.
+ */
+export type Chunks = (
+	statement: ArtifactStatement
+) => Result.Result<
+	ReadonlyArray<ReadonlyArray<string>>,
+	EncodingFailure | LiteralBound | FamilyRowBound
+>
+
+/** One family's read as one execution sends it (write/family/edit.ts SuffixRead): its text and its placeholders' texts. */
+export interface ReadStatement {
+	/** The family whose stored suffixes it reads, which a failure the read meets is attributed to. */
+	readonly family: FamilyId
+	readonly sql: EmittedText
+	readonly params: ReadonlyArray<string>
+}
+
+/**
+ * How one application's statements reach the server, in its one transaction (rows-first.md §2):
+ * - `write`: one flight of the artifact's statements, every family write planned already, since every group it touches
+ *   is an owner's the changeset inserts, empty before;
+ * - `read`: first a flight of the family reads, one batched SELECT per family of the stored suffixes and the owners'
+ *   counts and ends of every touched group, then the artifact's statements, whose family writes `then` plans from the
+ *   reads' rows, one array of rows per read in order. Under SERIALIZABLE a concurrent writer to a group the reads read
+ *   meets 40001 at one of the two, and grizzle does not retry.
+ */
+export type Flights =
+	| { readonly kind: "write"; readonly chunks: Chunks }
+	| {
+			readonly kind: "read"
+			readonly reads: NonEmptyReadonlyArray<ReadStatement>
+			readonly then: (
+				rows: ReadonlyArray<Raw>
+			) => Result.Result<Chunks, EncodingFailure | FamilyRowBound>
+	  }
 
 type BindResult =
 	| BoundWrite
@@ -108,7 +176,8 @@ export const bindWrite = (
 			const normalize = parameterNormalizer({
 				relation: decl.name,
 				slot: { kind: "slot", name: decl.name },
-				columns: positionalColumns(decl.heading)
+				columns: positionalColumns(decl.heading),
+				codes: frontend.codes
 			})
 			if (!isIterable(value)) {
 				return Result.err(encodeFailure("factShape", slotPlace(decl.name)))
@@ -120,7 +189,7 @@ export const bindWrite = (
 			counted.push({ param: decl.id, count: normal.value.count })
 			continue
 		}
-		const text = paramEncoder(decl.type, decl.name)(value)
+		const text = paramEncoder(decl.type, decl.name, frontend.codes)(value)
 		if (!text.ok) {
 			return Result.err(text.error)
 		}
@@ -185,5 +254,102 @@ export const bindWrite = (
 		}
 		return Result.ok(out)
 	}
-	return Result.ok({ kind: "bound", normalized, skip, form, values })
+	/** Each nested write by its member slot, as its program reached it. */
+	const nestedOf = new Map(frontend.nested.map((n) => [n.slot.slot, n] as const))
+	/** Each nested write's plan, planned once, at its first step: its relations' rows, composed by depth. */
+	const plans = new Map<ParamId, Result.Result<Plan, FamilyRowBound>>()
+	const planOf = (slot: ParamId): Result.Result<Plan, FamilyRowBound> | undefined => {
+		const known = plans.get(slot)
+		if (known !== undefined) {
+			return known
+		}
+		const rows = normalized.nested.get(slot)
+		const nested = nestedOf.get(slot)
+		if (rows === undefined || nested === undefined) {
+			return undefined
+		}
+		const relations: Array<RelationPlanAt> = []
+		for (const [relation, inserts] of rows) {
+			const reached = defined(
+				nested.nesting.reached.find((r) => r.family.member.name === relation),
+				`the family a nested write reaches ${relation} by`
+			)
+			const planned = planRelation(
+				{ relation, deletes: [], trees: [], updates: [], inserts },
+				inputs.transport
+			)
+			if (!planned.ok) {
+				const refused: Result.Result<Plan, FamilyRowBound> = Result.err({
+					_tag: "FamilyRowBound",
+					family: reached.family,
+					row: planned.error
+				})
+				plans.set(slot, refused)
+				return refused
+			}
+			relations.push({ depth: reached.depth, plan: planned.value })
+		}
+		const result: Result.Result<Plan, FamilyRowBound> = Result.ok(compose(relations, []))
+		plans.set(slot, result)
+		return result
+	}
+	/** A planned statement's arrays: its rows' texts, column by column, each array within the longest string. */
+	const arraysOf = (
+		relation: string,
+		statement: FamilyStatement
+	): Result.Result<ReadonlyArray<string>, LiteralBound> => {
+		const rows = textsOf(statement)
+		const width = rows[0]?.length ?? 0
+		return arrayTexts(
+			relation,
+			Array.from({ length: width }, (_, i) => `column ${i + 1}`),
+			rows,
+			maxStringLength.value
+		)
+	}
+	const chunks = (
+		statement: ArtifactStatement
+	): Result.Result<
+		ReadonlyArray<ReadonlyArray<string>>,
+		EncodingFailure | LiteralBound | FamilyRowBound
+	> => {
+		const step = statement.step
+		if (step.kind !== "family") {
+			return Result.map(values(statement), (one) => [one])
+		}
+		const planned = planOf(step.slot)
+		if (planned === undefined) {
+			return Result.ok([])
+		}
+		if (!planned.ok) {
+			return planned
+		}
+		const target = step.target
+		const sent: ReadonlyArray<FamilyStatement> = planned.value
+			.flat()
+			.filter(
+				(s) =>
+					s.kind === step.statement &&
+					(s.kind === "count"
+						? target.kind === "owners" && familyKey(s.family) === familyKey(target.family)
+						: target.kind === "rows" && s.relation === target.relation)
+			)
+		const out: Array<ReadonlyArray<string>> = []
+		for (const s of sent) {
+			const arrays = arraysOf(step.relation, s)
+			if (!arrays.ok) {
+				return arrays
+			}
+			out.push(arrays.value)
+		}
+		return Result.ok(out)
+	}
+	return Result.ok({
+		kind: "bound",
+		normalized,
+		skip,
+		form,
+		values,
+		flights: { kind: "write", chunks }
+	})
 }

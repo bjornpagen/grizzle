@@ -5,34 +5,48 @@ import {
 	type Json,
 	Refusal,
 	toJson,
+	withoutSourceLocs,
 	writeCanonicalJson
 } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
+import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import { type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { Declarations, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
 import {
 	ledgerGuardObject,
 	ledgerObject,
 	ledgerPrivilegesObject
 } from "#compiler/deploy/ledger/ledger.ts"
-import type { ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
-import { residualDigests } from "#compiler/deploy/snapshot/residual.ts"
+import { installed, type ManifestObject } from "#compiler/deploy/snapshot/objects.ts"
 import type {
 	DeploySnapshot,
 	SnapshotContent,
 	SnapshotField,
 	SnapshotLaw,
 	SnapshotRelation,
-	SnapshotTheory
+	SnapshotTheory,
+	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
-import type { ResidualLaw, TheoryRelation } from "#compiler/ir/law.ts"
+import { migrationChecks } from "#compiler/deploy/snapshot/violation.ts"
+import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
+import {
+	type Codebook,
+	codecOf,
+	emptyCodebook,
+	type RosterCodec,
+	rosterCodec
+} from "#compiler/ir/codes.ts"
+import type { Writing } from "#compiler/ir/desc.ts"
+import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import {
 	type AccessIndexRequest,
 	type InstallationManifest,
@@ -77,7 +91,8 @@ export const emptyFingerprint = (schema: string): SchemaFingerprint => {
 	return toSchemaFingerprint(ownedDigest("empty-snapshot", { schema }, everyProperty))
 }
 
-/** The empty snapshot of a schema: no object. Its fingerprint is emptyFingerprint, not the digest of its content. */
+/** The empty snapshot of a schema: no object and no roster, so its codebook is the empty one (codebookOf). Its
+ * fingerprint is emptyFingerprint, not the digest of its content. */
 export const emptySnapshot = (input: {
 	readonly schemaName: string
 	readonly schema: string
@@ -101,73 +116,261 @@ const storedRequest = (r: AccessIndexRequest): StoredIndexRequest => ({
 export const isEmptySnapshot = (s: DeploySnapshot): boolean =>
 	s.fingerprint === emptyFingerprint(s.schema)
 
+/**
+ * Every property of a type but its rosters' handles: a type's recorded identity names each roster by its name, since a
+ * roster's handles are its codes, which the roster's own record holds, and its columns keep their type when it grows.
+ */
+const rostersByName: EncodeOptions = {
+	omit: (key, _value, path) => key === "handles" && path.at(-1) === "roster"
+}
+
+/** A digest the snapshot records, of a value the compiler built: its failure is a kernel refusal. */
+const recordedDigest = (domain: string, value: unknown, options: EncodeOptions): string => {
+	const d = digest(domain, value, options)
+	if (!d.ok) {
+		throw new Refusal(d.error)
+	}
+	return d.value
+}
+
+/** How a field is written, as the snapshot records it: a generated field by the digest of its expression, an
+ * accumulated one by the digest of its start value. */
+const writingOf = (w: Writing): SnapshotWriting => {
+	switch (w.kind) {
+		case "caller":
+		case "drawn":
+		case "serial":
+			return w.kind
+		case "generated":
+			return { generated: recordedDigest("generation", w.expr, withoutSourceLocs) }
+		case "accumulated":
+			return { accumulated: recordedDigest("accumulated-start", w.start, everyProperty) }
+	}
+}
+
 const theoryOf = (installation: Installation): SnapshotTheory => {
 	const owned = installation.owned
 	const theory = installation.laws.theory
-	/** A stored or closed relation's heading as the snapshot records it, from its handle. */
-	const heading = (t: TheoryRelation) => ({
+	/** A stored relation's field as the snapshot records it, its writing read off its ownership. */
+	const fieldOf = (relation: string, f: LawField): SnapshotField => {
+		const declared = owned.relations[relation]?.fields[f.name]
+		if (declared === undefined) {
+			throw defect(`ownership holds the field ${f.name} of the stored relation ${relation}`)
+		}
+		return {
+			name: f.name,
+			column: f.column,
+			type: recordedDigest("scalar-type", f.type, rostersByName),
+			writing: writingOf(declared.writing)
+		}
+	}
+	/** A stored relation's record, from its handle. */
+	/** The columns each table of the installation is created with: its CREATE TABLE's and its law columns', by name. */
+	const created = new Map<string, number>()
+	for (const o of installation.manifest.objects) {
+		const v = installed(o)
+		const table =
+			v.kind === "table" ? v.create.table.name : v.kind === "lawColumn" ? v.table.name : undefined
+		if (table !== undefined) {
+			created.set(
+				table,
+				(created.get(table) ?? 0) + (v.kind === "table" ? v.create.columns.length : 1)
+			)
+		}
+	}
+	const stored = (t: RelationInfo): SnapshotRelation => ({
+		kind: "relation",
 		ident: t.ident,
 		mutable: t.mutable,
 		level: t.level,
-		fields: t.fields.map((f) => ({
-			name: f.name,
-			column: f.column,
-			type: canonicalDigest(f.type),
-			serial: "serial" in f.type
-		})),
-		primaryKey: t.primaryKey
+		fields: t.fields.map((f) => fieldOf(t.name, f)),
+		primaryKey: t.primaryKey,
+		attnums: created.get(t.ident) ?? t.fields.length
 	})
+	/** A derived relation's or a roster's record, from its ownership; a stored relation's is its theory handle's. */
+	const ownedRecord = (
+		o: (typeof owned.relations)[string]
+	): ReadonlyArray<readonly [string, SnapshotRelation]> => {
+		switch (o.kind) {
+			case "derived":
+				return [
+					[o.name, { kind: "derived", ident: o.ident, mutable: o.mutable, level: o.desc.level }]
+				]
+			case "closed":
+				return [
+					[
+						o.name,
+						{
+							kind: "closed",
+							ident: o.ident,
+							mutable: false,
+							level: o.level,
+							codes: codecOf(installation.names.codes, { closed: o.name, handles: o.desc.handles })
+								.codes
+						}
+					]
+				]
+			case "relation":
+			case "closedRelation":
+				return []
+		}
+	}
 	const entries: ReadonlyArray<readonly [string, SnapshotRelation]> = [
-		...Object.values(owned.relations).flatMap(
-			(o): ReadonlyArray<readonly [string, SnapshotRelation]> =>
-				o.kind === "derived"
-					? [[o.name, { kind: "derived", ident: o.ident, mutable: o.mutable, level: o.desc.level }]]
-					: []
-		),
+		...Object.values(owned.relations).flatMap(ownedRecord),
 		...Object.values(theory.relations).flatMap(
 			(t): ReadonlyArray<readonly [string, SnapshotRelation]> =>
-				t.kind === "relation" ? [[t.name, { kind: "relation", ...heading(t) }]] : []
-		),
-		...Object.values(installation.closedTemplates).map((c): readonly [string, SnapshotRelation] => [
-			c.relation.name,
-			{ kind: "closed", ...heading(c.relation), template: c.fingerprint }
-		])
+				t.kind === "relation" ? [[t.name, stored(t)]] : []
+		)
 	]
 	const relations: Record<string, SnapshotRelation> = {}
 	for (const [name, relation] of entries.toSorted(byKey)) {
 		relations[name] = relation
 	}
 	const laws: Record<string, SnapshotLaw> = {}
-	const residuals = new Map<string, ResidualLaw>(
-		installation.laws.residuals.map((r) => [r.lawId, r] as const)
-	)
+	const migrations = new Map(migrationChecks(installation).map((c) => [c.law, c.digest] as const))
 	for (const law of theory.laws.toSorted(
 		mapInput(compareStrings, (l: { readonly id: string }) => l.id)
 	)) {
-		const r = residuals.get(law.id)
+		const checked = migrations.get(law.id)
 		laws[law.id] =
-			r === undefined
+			checked === undefined
 				? { kind: "native", shape: law.shape }
-				: {
-						kind: "residual",
-						shape: law.shape,
-						residual: {
-							family: r.family,
-							...residualDigests(r),
-							participants: r.participants.map((p) => p.relation.name)
-						}
-					}
+				: { kind: "migration", shape: law.shape, digest: checked }
 	}
 	return { schema: owned.fingerprint, relations, laws }
 }
 
-const canonicalDigest = (value: unknown): string => {
-	const d = digest("scalar-type", value, everyProperty)
-	if (!d.ok) {
-		throw new Refusal(d.error)
+/**
+ * The codebook a snapshot records: each roster's codes, by its declared name. The empty snapshot holds none. A snapshot
+ * is read only once its fingerprint holds, so a roster recorded under a name the declared-name rule refuses is a defect
+ * of the compiler that wrote it.
+ */
+export const codebookOf = (snapshot: DeploySnapshot): Codebook => {
+	const rosters = new Map<DeclaredName, RosterCodec>()
+	for (const [name, r] of Object.entries(snapshot.theory.relations)) {
+		if (r.kind !== "closed") {
+			continue
+		}
+		const roster = parseDeclaredName(name)
+		if (!roster.ok) {
+			throw defect(`the snapshot records roster ${JSON.stringify(name)} under a declared name`)
+		}
+		rosters.set(roster.value, rosterCodec(roster.value, r.codes))
 	}
-	return d.value
+	return rosters.size === 0 ? emptyCodebook : Object.freeze({ rosters })
 }
+
+/** The columns a migration adds to each table, by its name: each ADD COLUMN its plan drafts, and each column of a
+ * CREATE TABLE. */
+const addedColumns = (plan: MigrationPlan): ReadonlyMap<string, number> => {
+	const out = new Map<string, number>()
+	const add = (table: string, n: number): void => {
+		out.set(table, (out.get(table) ?? 0) + n)
+	}
+	for (const { draft: d } of plan.steps) {
+		if (d.kind === "placeholderColumn") {
+			add(d.table.name, 1)
+			continue
+		}
+		const statements = d.kind === "statement" ? [d.statement] : d.kind === "confirm" ? d.keep : []
+		for (const s of statements) {
+			if (s.kind === "createTable") {
+				add(s.table.name, s.columns.length)
+			} else if (s.kind === "alterTable") {
+				add(s.table.name, s.actions.filter((a) => a.kind === "addColumn").length)
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * The target state with each table's attribute numbers as the migration leaves them: a table the previous snapshot
+ * holds keeps every number it used and takes one per column the plan adds; a new one, one per column it is created
+ * with. A table past `limit` counting its dropped columns is refused: PostgreSQL never reuses an attribute number, so
+ * only recreating the table frees them. A draft's limit is PostgreSQL's (tableMaxColumns).
+ */
+export const withAttnums = (
+	state: SnapshotContent,
+	previous: DeploySnapshot,
+	plan: MigrationPlan,
+	limit: number
+): Result.Result<SnapshotContent, CompileError> => {
+	const added = addedColumns(plan)
+	const relations: Record<string, SnapshotRelation> = {}
+	for (const [name, r] of Object.entries(state.theory.relations)) {
+		if (r.kind !== "relation") {
+			relations[name] = r
+			continue
+		}
+		const was = previous.theory.relations[name]
+		const attnums =
+			was?.kind === "relation" && was.ident === r.ident
+				? was.attnums + (added.get(r.ident) ?? 0)
+				: r.attnums
+		if (attnums > limit) {
+			return Result.err(
+				unsupported(
+					SourceLoc(`grizzle generate of schema ${state.schemaName}`, [name]),
+					`a column of ${name} past its ${limit} attribute numbers, ${attnums} counting the dropped columns', which PostgreSQL never reuses: recreate the table`
+				)
+			)
+		}
+		relations[name] = { ...r, attnums }
+	}
+	return Result.ok({ ...state, theory: { ...state.theory, relations } })
+}
+
+/**
+ * The codebook a draft under `declared` drafts its codes from (ir/codes.ts draftCodebook): the previous snapshot's,
+ * each roster a declared rename moves keyed by its new name, so a renamed roster keeps its codes.
+ */
+export const codebookUnder = (previous: DeploySnapshot, declared: Declarations): Codebook => {
+	const book = codebookOf(previous)
+	const renames = new Map(
+		declared.renames.flatMap((r) =>
+			r.from.kind === "relation" && r.to.kind === "relation"
+				? [[r.from.relation, r.to.relation] as const]
+				: []
+		)
+	)
+	if (![...book.rosters.keys()].some((roster) => renames.has(roster))) {
+		return book
+	}
+	const rosters = new Map<DeclaredName, RosterCodec>()
+	for (const [roster, codec] of book.rosters) {
+		const to = renames.get(roster)
+		rosters.set(to ?? roster, to === undefined ? codec : rosterCodec(to, codec.codes))
+	}
+	return Object.freeze({ rosters })
+}
+
+/**
+ * Whether one slot continues another: a hole stays a hole, and a live code stays live, by the same handle or by the one
+ * a declared rename names it, or becomes a hole. A code never takes another meaning, so no stored code is read as
+ * another handle.
+ */
+const continuesSlot = (before: CodeSlot, after: CodeSlot): boolean =>
+	before.kind === "live" || after.kind === "hole"
+
+/** Whether `after` continues `before`: every code `before` minted kept in place (continuesSlot), and new codes after. */
+const continuesCodes = (before: RosterCodes, after: RosterCodes): boolean =>
+	after.length >= before.length &&
+	before.every((slot, code) => {
+		const now = after[code]
+		return now !== undefined && continuesSlot(slot, now)
+	})
+
+/**
+ * The first roster whose codes `next` records otherwise than as a continuation of `previous`'s, or undefined when every
+ * roster both record continues: what a draft checks the compiled installation's codebook by, since a codebook drafted
+ * from another snapshot would give stored codes other meanings.
+ */
+export const discontinuedRoster = (previous: Codebook, next: Codebook): string | undefined =>
+	[...next.rosters].find(([roster, codec]) => {
+		const before = previous.rosters.get(roster)
+		return before !== undefined && !continuesCodes(before.codes, codec.codes)
+	})?.[0]
 
 /** The roles of the installation's logins, in login name order, which Db.open's admission reads the ledger as. */
 const installationLogins = (installation: Installation): ReadonlyArray<string> =>
@@ -283,12 +486,25 @@ const asStatement: Statement<SqlStatement> = (s) => s
 /** Each statement as its line of snapshot.json. */
 const asLine: Statement<StatementLine> = (s) => new StatementLine(s)
 
+const writingForm = (w: SnapshotWriting): FormOf<never> =>
+	typeof w === "string"
+		? w
+		: "generated" in w
+			? { generated: w.generated }
+			: { accumulated: w.accumulated }
+
 const fieldForm = (f: SnapshotField): SnapshotForm => ({
 	name: f.name,
 	column: f.column,
 	type: f.type,
-	serial: f.serial
+	writing: writingForm(f.writing)
 })
+
+/** A roster's codes as the snapshot writes them: `[{"kind":"live","handle":"a"},{"kind":"hole"},…]`. */
+const codesForm = (codes: RosterCodes): FormOf<never> =>
+	codes.map((slot): SnapshotForm =>
+		slot.kind === "live" ? { kind: slot.kind, handle: slot.handle } : { kind: slot.kind }
+	)
 
 const relationForm = (r: SnapshotRelation): SnapshotForm => {
 	const of = { kind: r.kind, ident: r.ident, mutable: r.mutable, level: r.level }
@@ -296,14 +512,14 @@ const relationForm = (r: SnapshotRelation): SnapshotForm => {
 		case "derived":
 			return of
 		case "relation":
-			return { ...of, fields: r.fields.map(fieldForm), primaryKey: r.primaryKey }
-		case "closed":
 			return {
 				...of,
 				fields: r.fields.map(fieldForm),
 				primaryKey: r.primaryKey,
-				template: r.template
+				attnums: r.attnums
 			}
+		case "closed":
+			return { ...of, codes: codesForm(r.codes) }
 	}
 }
 
@@ -311,17 +527,8 @@ const lawForm = (l: SnapshotLaw): SnapshotForm => {
 	switch (l.kind) {
 		case "native":
 			return { kind: l.kind, shape: l.shape }
-		case "residual":
-			return {
-				kind: l.kind,
-				shape: l.shape,
-				residual: {
-					family: l.residual.family,
-					digest: l.residual.digest,
-					withoutUpdates: l.residual.withoutUpdates,
-					participants: l.residual.participants
-				}
-			}
+		case "migration":
+			return { kind: l.kind, shape: l.shape, digest: l.digest }
 	}
 }
 

@@ -4,8 +4,8 @@ import type { StaleReason } from "#adapter/errors/failures.ts"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Law, Witness as GrizzleWitness } from "#compiler/types/changeset/changeset.ts"
-import { valueText } from "#test/pg/laws/families/model.ts"
 import { reportedLawId } from "#test/support/kernel/naming.ts"
+import { valueText } from "#test/support/laws/model.ts"
 import { factOfKey } from "#test/support/worlds/execute/host.ts"
 import type {
 	Observation,
@@ -191,7 +191,19 @@ export const applied = (
 		case "invariant-rejected":
 			return Effect.gen(function* () {
 				const witness = yield* witnessOf(outcome.witness)
-				const law = yield* Effect.sync(() => reportedLawId(described, outcome.law))
+				/**
+				 * A refusal reports several laws only from a foreign key a containment merges into a family's axis
+				 * (fin.md §15 rule 3), and no worlds base states a family: one law, or a defect of the executor.
+				 */
+				const [reported, ...more] = outcome.laws
+				if (more.length > 0) {
+					return yield* Effect.die(
+						new Error(
+							`a worlds refusal reports ${outcome.laws.length} laws, where no base merges one`
+						)
+					)
+				}
+				const law = yield* Effect.sync(() => reportedLawId(described, reported))
 				const observation: Observation = { kind: "invariant-rejected", law, witness }
 				return observation
 			})

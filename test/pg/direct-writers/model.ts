@@ -16,6 +16,7 @@ import type { Expr, Insert, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, col, eq, lit, simpleSelect } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
+import { ALIAS_CODE } from "#test/support/closed/generate.ts"
 import { type OracleState, oracleState, type SequenceState } from "#test/support/oracle/addwins.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
 import type { OracleTable } from "#test/support/oracle/install/model.ts"
@@ -68,8 +69,8 @@ interface StatementSketch {
 	readonly pick: number
 	readonly row: RowSketch
 	/**
-	 * 0 every value tame, 1 a refined text past its bound, 2 a numeric past its precision, 3 a handle outside the
-	 * roster.
+	 * 0 every value tame, 1 a refined text past its bound, 2 a numeric past its precision, 3 a code outside the
+	 * roster's live codes.
 	 */
 	readonly wild: number
 }
@@ -209,10 +210,11 @@ type Prediction =
 
 const wildText = "abcd"
 const wildNumeric = "1000"
-const wildHandle = "H9"
+/** A code no roster of the generated schemas holds live: 400, the mixed-radix alias, past every roster's codes. */
+const wildCode = ALIAS_CODE
 
-/** The column kind each wild sketch value targets: none, a refined text, a typmod numeric, an enum. */
-const wildKinds = [undefined, "text", "numeric(3, 0)", "enum"] as const
+/** The column kind each wild sketch value targets: none, a refined text, a typmod numeric, a closed id. */
+const wildKinds = [undefined, "text", "numeric(3, 0)", "code"] as const
 
 /**
  * The statement a sketch draws on a group and its stored facts. A wild statement draws its relation among the group's
@@ -259,7 +261,7 @@ const resolveStatement = (
 				? Option.none()
 				: Arr.findFirst(relation.columns, (c) => c.kind === wildKind)
 		if (Option.isSome(target)) {
-			out[target.value.name] = s.wild === 1 ? wildText : s.wild === 2 ? wildNumeric : wildHandle
+			out[target.value.name] = s.wild === 1 ? wildText : s.wild === 2 ? wildNumeric : wildCode
 		}
 		return out
 	}
@@ -377,11 +379,11 @@ const breakingStatement = (
 	)
 }
 
-/** Where PostgreSQL meets each wild value (see the header): the parser, the planner, or the row it builds. */
+/** Where PostgreSQL meets each wild value (see the header): the planner, or the row it builds. */
 const wildFaults = [
-	{ stage: "parse", kind: "enum", value: wildHandle, sqlstate: "22P02" },
 	{ stage: "plan", kind: "numeric(3, 0)", value: wildNumeric, sqlstate: "22003" },
-	{ stage: "row", kind: "text", value: wildText, sqlstate: "23514" }
+	{ stage: "row", kind: "text", value: wildText, sqlstate: "23514" },
+	{ stage: "row", kind: "code", value: wildCode, sqlstate: "23514" }
 ] as const
 type Stage = (typeof wildFaults)[number]["stage"]
 
@@ -539,7 +541,6 @@ const predictStep = (
 			 * whatever it matches.
 			 */
 			const fault = firstFault([
-				wildFault(r, set, "parse"),
 				Arr.some(serial, (c) => Rec.has(set, c.name)) ? error("428C9", nothing) : ok,
 				wildFault(r, set, "plan"),
 				r.mutable ? ok : error("42501", nothing),
@@ -562,7 +563,6 @@ const predictStep = (
 		}
 		case "insert": {
 			const fault = firstFault([
-				wildFault(r, s.fact, "parse"),
 				serial.length > 0 && !s.overriding ? error("428C9", nothing) : ok,
 				wildFault(r, s.fact, "plan"),
 				belowSerializable(r, level),
@@ -579,7 +579,6 @@ const predictStep = (
 		}
 		case "insert generated": {
 			const fault = firstFault([
-				wildFault(r, s.fact, "parse"),
 				wildFault(r, s.fact, "plan"),
 				belowSerializable(r, level),
 				wildFault(r, s.fact, "row"),
@@ -662,18 +661,18 @@ const predict = (
 /**
  * The typed literal of a value in a column.
  *
- * A handle outside the roster is its text typed by the column's enum, for PostgreSQL's input function to refuse
- * (22P02): literalFor refuses it on the host.
+ * A code outside the roster's live codes is its integer typed by the column's roster domain, for the domain's CHECK
+ * to refuse (23514) as the row is built: literalFor refuses it on the host.
  */
 const literalOf = (table: OracleTable, field: string, value: unknown): Expr => {
 	const column = Arr.findFirst(table.columns, (c) => c.field === field)
 	if (Option.isNone(column)) {
 		throw new Error(`${table.relation} has no column ${field}`)
 	}
-	if (value === wildHandle) {
+	if (value === wildCode) {
 		return {
 			kind: "literal",
-			value: { kind: "text", value: wildHandle },
+			value: { kind: "int", value: BigInt(wildCode) },
 			type: column.value.type.sql
 		}
 	}
@@ -882,7 +881,7 @@ const firstChanged = (
  * and emitted: an INSERT of a complete fact (with OVERRIDING SYSTEM VALUE on an identity column, or without it), a
  * generated INSERT that leaves the identity columns to their sequences, an INSERT that leaves out a field, an exact
  * DELETE, an UPDATE of a fact's payload, an UPDATE of an identity column, and a TRUNCATE; an inserted or updated value
- * may be wild (a text past its refinement's bound, a numeric past its precision, a handle outside the roster). A case
+ * may be wild (a text past its refinement's bound, a numeric past its precision, a code outside the roster). A case
  * on a group with a foreign key may open with a statement that breaks it, or be that statement alone: the deletion of
  * a target fact a stored source fact references, or, with no source fact stored, an insert of a source fact that
  * references no target fact; an immediate key refuses it at once, a deferred one at COMMIT or at SET CONSTRAINTS. The
@@ -891,13 +890,13 @@ const firstChanged = (
  *
  * The model predicts every statement's outcome and when the transaction fails, from the host state alone:
  *
- * - each statement's refusals in the order PostgreSQL meets them: a handle outside the roster, 22P02, as the parser
- *   reads the enum literal; an explicit value into an identity column without OVERRIDING SYSTEM VALUE, and any UPDATE
- *   of one, 428C9, in the rewriter; a numeric past its precision, 22003, as the planner folds its typmod coercion; an
+ * - each statement's refusals in the order PostgreSQL meets them: an explicit value into an identity column without
+ *   OVERRIDING SYSTEM VALUE, and any UPDATE of one, 428C9, in the rewriter; a numeric past its precision, 22003, as the planner folds its typmod coercion; an
  *   UPDATE of an immutable relation, and any TRUNCATE, by privilege at executor start, 42501 (immutability is
  *   privilege, and TRUNCATE is granted to no one); then, below SERIALIZABLE, the table's guard trigger, a BEFORE
  *   statement trigger that fires whatever rows the statement matches, 25000 naming the table; then a refined text past
- *   its bound, 23514, by its domain's CHECK as the row is built, so never by an UPDATE that matches no row;
+ *   its bound or a code outside its roster's live codes, 23514, by its domain's CHECK as the row is built, so never by
+ *   an UPDATE that matches no row;
  * - a field left out of an INSERT, an identity column apart, is NULL, at the statement: a refined text's domain refuses
  *   it by its CHECK, `(<membership>) IS TRUE`, 23514, as the row is built, and every other column by its NOT NULL,
  *   23502: no field is nullable. An INSERT that leaves out a relation's one field is DEFAULT VALUES;

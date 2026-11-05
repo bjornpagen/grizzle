@@ -26,7 +26,7 @@ import {
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
-import { valueText } from "#test/pg/laws/families/model.ts"
+import { valueText } from "#test/support/laws/model.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
 import type { OracleTable } from "#test/support/oracle/install/model.ts"
 import { carrierOf, sendable } from "#test/support/worlds/execute/host.ts"

@@ -31,7 +31,6 @@ import {
 import { identity } from "#compiler/core/identity.ts"
 import { withWorkload } from "#compiler/physical/access/extension.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { withResidualLaws } from "#compiler/physical/laws/objects.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -201,14 +200,12 @@ export default defineGate({
 				}
 				const installed = compileInstallation(
 					owned,
-					withResidualLaws(
-						withWorkload(
-							{
-								...installOptions(owned, s.owner.role),
-								installation: identity.schema(parsedSchemaName(fx.installed.declared))
-							},
-							planned.value
-						)
+					withWorkload(
+						{
+							...installOptions(owned, s.owner.role),
+							installation: identity.schema(parsedSchemaName(fx.installed.declared))
+						},
+						planned.value
 					)
 				)
 				if (!installed.ok) {

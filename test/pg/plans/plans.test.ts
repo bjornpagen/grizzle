@@ -37,7 +37,7 @@ import {
 	Task,
 	uid
 } from "#test/pg/plans/fixture.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, installationSql, paramTexts, testCompile } from "#test/support/compile.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -276,7 +276,10 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 		const table = (relation: string) => printObjectName(names.relation(relation))
 		yield* transaction(s.admin, [
 			...installationSql(installation.value),
-			...factSql({ table, kindType: printObjectName(names.enumType(parsedName("Kind"))) })
+			...factSql({
+				table,
+				kinds: defined(names.codes.rosters.get(parsedName("Kind")), "the codes of Kind")
+			})
 		])
 		for (const relation of relationNames) {
 			yield* s.admin.query(`VACUUM (ANALYZE) ${table(relation)}`, [])

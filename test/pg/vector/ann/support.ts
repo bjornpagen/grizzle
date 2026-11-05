@@ -495,7 +495,7 @@ export const compile = (
 	if (!program.ok) {
 		throw failed("lower", program.error)
 	}
-	const specs = specifiedStatements(program.value.roots)
+	const specs = specifiedStatements(program.value.roots, installed.names.codes)
 	if (!specs.ok) {
 		throw failed("specs", specs.error)
 	}

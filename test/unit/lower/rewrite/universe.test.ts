@@ -10,7 +10,6 @@ import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import { rewritePipeline } from "#compiler/lower/optimize/pipeline.ts"
 import { defined } from "#test/support/assert.ts"
-import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { type ReferenceInput, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
@@ -71,7 +70,7 @@ type UniverseFeature =
  */
 const preserves = (inst: Installed, plan: Plan, c: Case<UniverseFeature>): void => {
 	const where = `${inst.variant.name}: ${printPlan(plan)}`
-	const checked = checkQuery(checking(schemaDesc(inst.schema)), descOf(plan), checkOptions("query"))
+	const checked = checkQuery(checking(inst.desc), descOf(plan), checkOptions("query"))
 	if (!checked.ok) {
 		throw new Error(
 			`the checker refuses a plan the space offers: ${checked.error.message}\n${where}`

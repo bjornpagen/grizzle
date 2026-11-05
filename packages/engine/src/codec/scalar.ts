@@ -1,6 +1,7 @@
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type Codebook, codecOf as rosterCodecOf } from "#compiler/ir/codes.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
 import { type Carrier, isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
 import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
@@ -44,7 +45,9 @@ import {
  * | money | the amount as numeric text at scale 2, cast ($n::numeric)::money | money::numeric text |
  * | bool | true, false | true, false (bool::text), t, f (boolout) |
  * | uuid | lowercase hyphenated | uuid_out text |
- * | text, enum | the string, the handle | the same |
+ * | text | the string | the same |
+ * | code | the handle's code, decimal digits | int2out text, read as the handle the code names |
+ * | bits | bit(n)'s text, n characters of 0 and 1, position i code i, a hole 0 | bit_out text, read as the set of handles |
  * | range4, range8 | [start,end) | range_out of a bounded half-open range |
  * | vector | [c1,...,cn], shortest binary32 texts, one zero | vector_out text, components read exactly as binary32, -0 as 0 |
  *
@@ -85,16 +88,18 @@ export interface ScalarCodec {
 
 /**
  * The carrier admission spec of a descriptor. A contract shares its base's carrier, typmod, roster and span
- * (ir/scalar.ts), so the outer descriptor already carries everything the spec needs.
+ * (ir/scalar.ts), so the outer descriptor already carries everything the spec needs but a roster's codes, which the
+ * installation's codebook holds.
  */
-export const carrierSpecOf = (type: ScalarType): CarrierSpec => {
+export const carrierSpecOf = (type: ScalarType, codes: Codebook): CarrierSpec => {
 	switch (type.carrier) {
 		case "vector":
 			return { carrier: "vector", dimensions: type.typmod.dims }
 		case "numeric":
 			return { carrier: "numeric", typmod: type.typmod }
-		case "enum":
-			return { carrier: "enum", handles: type.roster.handles }
+		case "code":
+		case "bits":
+			return { carrier: type.carrier, roster: rosterCodecOf(codes, type.roster) }
 		case "range4":
 		case "range8":
 			return { carrier: type.carrier, width: type.span.width }
@@ -171,7 +176,8 @@ const cellTextByCarrier: { readonly [C in Carrier]: (cell: string) => string } =
 	bool: boolCellText,
 	uuid: itself,
 	text: itself,
-	enum: itself,
+	code: itself,
+	bits: itself,
 	range4: itself,
 	range8: itself,
 	vector: vectorCellText,
@@ -204,8 +210,9 @@ const codecOf = <C extends Carrier>(
 	return Object.freeze({ type, spec, encode, text, convert, cellText })
 }
 
-/** The codec of a descriptor: every descriptor has one, its carrier's. */
-export const scalarCodec = (type: ScalarType): ScalarCodec => codecOf(type, carrierSpecOf(type))
+/** The codec of a descriptor under an installation's codes: every descriptor has one, its carrier's. */
+export const scalarCodec = (type: ScalarType, codes: Codebook): ScalarCodec =>
+	codecOf(type, carrierSpecOf(type, codes))
 
 /**
  * Whether a value is one of a refined type's: every contract level's predicate and every regex holds of it, judged as a
@@ -227,8 +234,8 @@ export const refinedMember = (type: ScalarType): ((value: unknown) => boolean) |
  * The parameter encoder of a template slot (ir/products.ts Encoder, ParamSlot.encode): the codec's encode, then the
  * value's refinements (refinedMember), with a refusal as EncodingFailure naming the slot.
  */
-export const paramEncoder = (type: ScalarType, slot: string): Encoder => {
-	const { encode } = scalarCodec(type)
+export const paramEncoder = (type: ScalarType, slot: string, codes: Codebook): Encoder => {
+	const { encode } = scalarCodec(type, codes)
 	const member = refinedMember(type)
 	const place = slotPlace(slot)
 	const encoder: Encoder = (value) => {

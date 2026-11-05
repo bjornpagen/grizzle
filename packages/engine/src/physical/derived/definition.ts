@@ -1,4 +1,5 @@
 import { type CompileError, malformedDescription, unsupported } from "#compiler/core/errors.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
@@ -17,7 +18,17 @@ import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipelin
 import { structuralRegex } from "#compiler/physical/ddl/domains.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
 import { deliveredTypes } from "#compiler/physical/derived/delivered.ts"
-import type { Collation, Expr, Select, SelectCore, Target, TypeRef } from "#compiler/sql/ast.ts"
+import type {
+	Collation,
+	Expr,
+	FromSource,
+	Select,
+	SelectBody,
+	SelectCore,
+	SetOperand,
+	Target,
+	TypeRef
+} from "#compiler/sql/ast.ts"
 import {
 	cast,
 	col,
@@ -29,7 +40,7 @@ import {
 	target,
 	targetAs
 } from "#compiler/sql/build.ts"
-import { NameSupply } from "#compiler/sql/naming.ts"
+import { type NameMap, NameSupply } from "#compiler/sql/naming.ts"
 
 interface DefinitionOptions {
 	readonly names: PhysicalNames
@@ -37,18 +48,18 @@ interface DefinitionOptions {
 	readonly catalog: EvidenceCatalog
 }
 
-interface LoweredDefinition {
+export interface LoweredDefinition {
 	/** The view's defining SELECT: its output columns, position by position, are `heading`. */
 	readonly query: Select
 	readonly heading: Heading
 	/** The rewrite, placement and shape certificates the optimized lowering recorded. */
 	readonly certificates: ReadonlyArray<Certificate>
+	/** Every generated name the statement holds, the lowering's and the closing's, so a reader of it mints past them. */
+	readonly nameMap: NameMap
 }
 
 /** The first relation and column numbers the statement's generated names leave free. */
-const freshSupply = (
-	nameMap: ReadonlyArray<{ readonly name: string; readonly role: string }>
-): NameSupply => {
+const freshSupply = (nameMap: NameMap): NameSupply => {
 	let relation = 0
 	let column = 0
 	for (const entry of nameMap) {
@@ -106,13 +117,13 @@ const withColumnTypes = (
 	heading: Heading,
 	dag: RootedDag,
 	names: PhysicalNames,
-	nameMap: ReadonlyArray<{ readonly name: string; readonly role: string }>,
+	nameMap: NameMap,
 	relation: string
-): Result.Result<Select, CompileError> => {
+): Result.Result<{ readonly query: Select; readonly nameMap: NameMap }, CompileError> => {
 	const delivered = deliveredTypes(ast, dag, names)
 	const closings = heading.map((c, i) => closingOf(names, c.type, delivered(i)))
 	if (closings.every((c) => c.cast === undefined && c.collation === undefined)) {
-		return Result.ok(ast)
+		return Result.ok({ query: ast, nameMap })
 	}
 	const at = SourceLoc(`derived ${relation}`, [])
 	const outer: SelectCore | undefined = ast.body.kind === "core" ? ast.body : undefined
@@ -127,7 +138,7 @@ const withColumnTypes = (
 			...t,
 			expr: closed(t.expr, closings[i])
 		}))
-		return Result.ok({ ...ast, body: { ...outer, targets } })
+		return Result.ok({ query: { ...ast, body: { ...outer, targets } }, nameMap })
 	}
 	const supply = freshSupply(nameMap)
 	const origin = { kind: "internal", purpose: "derived view column types" } as const
@@ -143,7 +154,62 @@ const withColumnTypes = (
 		targetAs(closed(col(alias, c.column), c.closing), c.name)
 	)
 	const generated = columns.map((c) => c.column)
-	return Result.ok(select(core(targets, [derived(inner, alias, generated, false)], undefined)))
+	return Result.ok({
+		query: select(core(targets, [derived(inner, alias, generated, false)], undefined)),
+		nameMap: [...nameMap, ...supply.map()]
+	})
+}
+
+/** A body's outputs left unaliased, every arm of a set operation's alike: a derived table's column list names them. */
+const unaliased = (body: SelectBody): SelectBody => {
+	switch (body.kind) {
+		case "core":
+			return mapTargets(body, (t) => target(t.expr))
+		case "select":
+			return { ...body, body: unaliased(body.body) }
+		case "setOp": {
+			const operand = (arm: SetOperand): SetOperand =>
+				arm.kind === "core"
+					? mapTargets(arm, (t) => target(t.expr))
+					: { ...arm, body: unaliased(arm.body) }
+			const [first, second, ...rest] = body.arms
+			return { ...body, arms: [operand(first), operand(second), ...rest.map(operand)] }
+		}
+	}
+}
+
+/** A lowered definition as a derived table a reader's query reads: the FROM item, and its i-th output's column. */
+export interface DerivedReading {
+	readonly from: FromSource
+	readonly read: (position: number) => Expr
+}
+
+/**
+ * A lowered definition read as a derived table, so a view can pass its outputs on beside columns it computes from them
+ * (a role view's decoded names): the statement under a fresh generated relation alias, its outputs as fresh generated
+ * columns, each minted past every name the statement holds (`nameMap`), and its own outputs unaliased. Every alias the
+ * reading emits is a generated r<n> or c<n>, as every statement grizzle emits names them. A set operation ordered by
+ * its outputs' names, which no definition lowers to, is refused: unaliased outputs would leave its ORDER BY reading
+ * nothing.
+ */
+export const derivedReading = (
+	lowered: LoweredDefinition,
+	purpose: string
+): Result.Result<DerivedReading, CompileError> => {
+	const query = lowered.query
+	if (query.body.kind !== "core" && query.orderBy.length > 0) {
+		return Result.err(
+			unsupported(SourceLoc(purpose, []), "a definition read as a derived table, unordered")
+		)
+	}
+	const supply = freshSupply(lowered.nameMap)
+	const origin = { kind: "internal", purpose } as const
+	const alias = supply.relation(origin)
+	const generated = lowered.heading.map(() => supply.column(origin))
+	return Result.ok({
+		from: derived({ ...query, body: unaliased(query.body) }, alias, generated, false),
+		read: (position) => col(alias, defined(generated[position], "an output per heading column"))
+	})
 }
 
 /** The defining SELECT of derived relation `relation`, from its checked definition.
@@ -240,10 +306,11 @@ export const lowerDefinition = (
 	}
 	return Result.map(
 		withColumnTypes(main.ast, main.heading, query.dag, options.names, main.sql.nameMap, relation),
-		(ast) => ({
-			query: ast,
+		(typed) => ({
+			query: typed.query,
 			heading: main.heading,
-			certificates: optimized.certificates
+			certificates: optimized.certificates,
+			nameMap: typed.nameMap
 		})
 	)
 }

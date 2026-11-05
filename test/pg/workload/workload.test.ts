@@ -22,7 +22,7 @@ import {
 /**
  * The workload's indexes and statistics on PostgreSQL 19: statistics are a compilation product like indexes.
  *
- * Each schema is installed with its residual laws and its workload. The catalog holds exactly the indexes the
+ * Each schema is installed with its native laws and its workload. The catalog holds exactly the indexes the
  * installation's own DDL creates, every one valid; an ordered program and a take per group over the same keys share one
  * installed index; a span predicate's access path is GiST; an HNSW index's cosine class is the one in the installation's
  * vector schema; the justified extended statistics are installed with all three kinds; and every installed index and
@@ -139,7 +139,11 @@ layer(Substrate.layer)("workload indexes and statistics on PostgreSQL 19", (it) 
 				)
 				assert.deepEqual(
 					installed,
-					Arr.map(shared.keys, (k) => [shared.index.name, column(k.field), k.dir])
+					Arr.map(shared.keys, (k) => [
+						shared.index.name,
+						column(k.column.kind === "field" ? k.column.field : k.column.column),
+						k.dir
+					])
 				)
 				assert.deepEqual(
 					Arr.map(installed, ([, key]) => key),

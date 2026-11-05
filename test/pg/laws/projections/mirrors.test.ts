@@ -13,12 +13,12 @@
  */
 
 import { Array as Arr, Option } from "effect"
-import { plantedUpdate } from "#test/pg/laws/families/direct.ts"
-import { variantsOf } from "#test/pg/laws/families/families.ts"
-import { directSuite, type Planted } from "#test/pg/laws/families/suites/direct.ts"
-import { casesPerTest, familySuite } from "#test/pg/laws/families/suites/family.ts"
-import { plantedInsert } from "#test/pg/laws/families/support.ts"
 import { mirrorShapes, projectedMirrors, tickets } from "#test/pg/laws/projections/families.ts"
+import { variantsOf } from "#test/support/laws/boxes.ts"
+import { plantedUpdate } from "#test/support/laws/direct.ts"
+import { directSuite, type Planted } from "#test/support/laws/suites/direct.ts"
+import { casesPerTest, familySuite } from "#test/support/laws/suites/family.ts"
+import { plantedInsert } from "#test/support/laws/support.ts"
 
 familySuite(projectedMirrors, casesPerTest, "the family")
 familySuite(mirrorShapes, casesPerTest, "every schema's refusals by every law but a key")

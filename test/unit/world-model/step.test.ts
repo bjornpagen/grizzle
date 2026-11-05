@@ -6,8 +6,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
-import { isDrawn, sameValues } from "#test/pg/laws/families/model.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { isDrawn, sameValues } from "#test/support/laws/model.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { draftedPhases } from "#test/support/worlds/execute/catalog.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
@@ -262,10 +262,9 @@ const nativeLaws = (base: BaseSpec): ReadonlyArray<LawSpec> => [
 	)
 ]
 
-/** The phase a folder file's name carries (`NN-<phase>.sql`): the labels' and Setup's both setup, and so on. */
+/** The phase a folder file's name carries (`NN-<phase>.sql`): Setup's setup, the concurrent indexes' indexes, and so on. */
 const phaseOf = (file: FolderFile): string => {
 	switch (file) {
-		case "labels":
 		case "setup":
 			return "setup"
 		case "structure":
@@ -274,7 +273,6 @@ const phaseOf = (file: FolderFile): string => {
 		case "concurrent":
 			return "indexes"
 		case "validate":
-		case "law":
 			return "validate"
 		case "publish":
 			return "publish"

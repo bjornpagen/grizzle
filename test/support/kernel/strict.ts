@@ -5,6 +5,7 @@ import type { ValueFault } from "#compiler/core/errors.ts"
 import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import { validateText } from "#compiler/core/text.ts"
 import { moneyFractionDigits } from "#compiler/ir/carriers.ts"
+import { type Codebook, emptyCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
 import {
 	type Carrier,
 	type NumericBound,
@@ -27,7 +28,7 @@ import { Vector } from "#compiler/scalar/values/vector.ts"
 /**
  * Why a text is no output text of the type: the words the library's decoders used before the conversions trusted their
  * texts, and the value words of the carriers whose boundaries the strict reading shares (uuidSyntax, textNul,
- * textSurrogate, integerRange, enumHandle, vectorDimensions).
+ * textSurrogate, integerRange, codeHandle, bitsMember, vectorDimensions).
  */
 const strictFaults = [
 	"integerSyntax",
@@ -39,6 +40,7 @@ const strictFaults = [
 	"boolSyntax",
 	"moneyShape",
 	"spanSyntax",
+	"bitsSyntax",
 	"vectorSyntax",
 	"vectorOverflow"
 ] as const
@@ -412,6 +414,46 @@ const readVector =
 		return toResult(Vector.admit(buffer, spec.dimensions))
 	}
 
+/**
+ * int2out of a closed id's code: digits without a leading zero, no sign, naming a live code of the roster (a domain
+ * admits no other), read as the handle it names. A hole, a code past the roster's size or a negative one is codeHandle.
+ */
+const readCode =
+	(roster: RosterCodec) =>
+	(text: string): Result.Result<string, StrictFault> => {
+		if (!isIntegerText(text) || text === "-0") {
+			return Result.fail("integerSyntax")
+		}
+		const name = roster.names[Number(text)]
+		return name === undefined || name === "" ? Result.fail("codeHandle") : Result.succeed(name)
+	}
+
+/**
+ * bit(n)'s output text of a set over the roster: exactly `size` characters, each 0 or 1, position c code c, every 1 at
+ * a live code (a set holds no hole). Another length or character is bitsSyntax; a 1 at a hole is bitsMember.
+ */
+const readBits =
+	(roster: RosterCodec) =>
+	(text: string): Result.Result<ReadonlySet<string>, StrictFault> => {
+		if (text.length !== roster.size) {
+			return Result.fail("bitsSyntax")
+		}
+		const handles = new Set<string>()
+		for (let code = 0; code < text.length; code++) {
+			const bit = unitAt(text, code)
+			if (bit === "1") {
+				const name = roster.names[code]
+				if (name === undefined || name === "") {
+					return Result.fail("bitsMember")
+				}
+				handles.add(name)
+			} else if (bit !== "0") {
+				return Result.fail("bitsSyntax")
+			}
+		}
+		return Result.succeed(handles)
+	}
+
 const readers: {
 	readonly [C in Carrier]: (
 		spec: SpecOf<C>
@@ -427,8 +469,8 @@ const readers: {
 	bool: () => readBool,
 	uuid: () => (text) => toResult(toUuid(text)),
 	text: () => (text) => toResult(validateText(text)),
-	enum: (spec) => (text) =>
-		spec.handles.includes(text) ? Result.succeed(text) : Result.fail("enumHandle"),
+	code: (spec) => readCode(spec.roster),
+	bits: (spec) => readBits(spec.roster),
 	range4: () => readSpan("int4"),
 	range8: () => readSpan("int8"),
 	vector: (spec) => readVector(spec),
@@ -446,7 +488,8 @@ const readerOf = <C extends Carrier>(
 }
 
 /**
- * The strict reader of a column type's output texts, built once per type.
+ * The strict reader of a column type's output texts, built once per type, a closed id's or a set's under the
+ * installation's codes.
  *
  * The strict readers of PostgreSQL's output texts, one per carrier: the test kernel's side of the trusting conversions.
  *
@@ -466,16 +509,18 @@ const readerOf = <C extends Carrier>(
  * | bool | t, f, true, false |
  * | uuid | a hyphenated uuid, read as its lowercase spelling |
  * | text | well-formed text without NUL |
- * | enum | a handle of the roster |
+ * | code | int2out of a live code of the roster, read as its handle |
+ * | bits | bit(n) text of exactly the roster's size, every 1 at a live code, read as its handles |
  * | range4, range8 | [start,end) of in-range endpoints, start < end |
  * | vector | [c1,...,cn] of exactly the dimensions, finite binary32 components |
  * | exact integer | an optional minus sign and digits without a leading zero, of any length, no -0 |
  * | exact money | numeric_out text of a finite amount with at most two fractional digits, of any magnitude |
  */
 export const strictReader = (
-	type: ScalarType
+	type: ScalarType,
+	codes: Codebook
 ): ((text: string) => Result.Result<CarrierHost[Carrier], StrictFault>) => {
-	const read = readerOf(carrierSpecOf(type))
+	const read = readerOf(carrierSpecOf(type, codes))
 	const bound = numericBoundOf(type)
 	return bound === undefined
 		? read
@@ -501,11 +546,14 @@ const withinBound = (value: Decimal, bound: NumericBound): boolean => {
 	return digits <= bound.digits && p.minScale <= bound.scale
 }
 
-/** The value of PostgreSQL's output `text` of a value of `type`, or why it is no such text. */
+/**
+ * The value of PostgreSQL's output `text` of a value of `type`, or why it is no such text: a type of no roster, which
+ * reads no codes. A closed id's or a set's text is read under its installation's codes (strictReader).
+ */
 export const strictRead = (
 	type: ScalarType,
 	text: string
-): Result.Result<CarrierHost[Carrier], StrictFault> => strictReader(type)(text)
+): Result.Result<CarrierHost[Carrier], StrictFault> => strictReader(type, emptyCodebook)(text)
 
 /** An element of array_out's text: its value, `null` for a NULL element, and the index just past it. */
 interface ArrayElement {

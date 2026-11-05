@@ -22,6 +22,7 @@ import { cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -38,6 +39,7 @@ import {
 } from "#test/pg/codec/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -122,6 +124,25 @@ const smallRange: Gen<{ readonly start: bigint; readonly end: bigint }> = (sourc
 /** The closed relation Kind's handles, in declared order: the enum the test creates. */
 const kindHandles = ["Manual", "Automatic", "Ünïcode"] as const
 
+/**
+ * Kind's codes, with a hole before each of its last two handles, so a code is no handle's position and PostgreSQL's
+ * order of codes is the roster's declared order only because every handle keeps its code.
+ */
+const kindCodes: Codebook = {
+	rosters: new Map([
+		[
+			parsedName("Kind"),
+			rosterCodec(parsedName("Kind"), [
+				{ kind: "live", handle: "Manual" },
+				{ kind: "hole" },
+				{ kind: "live", handle: "Automatic" },
+				{ kind: "hole" },
+				{ kind: "live", handle: "Ünïcode" }
+			])
+		]
+	])
+}
+
 const cases: Arr.NonEmptyReadonlyArray<Case> = [
 	{
 		label: "double precision",
@@ -205,12 +226,8 @@ const setup = Effect.gen(function* () {
 	const db = yield* session(ownerSession())
 	yield* monetaryContext(db)
 	const name = yield* schema(freshSchema)
-	const names: SqlNames = { schema: quoteIdent(name), vector: yield* vectorSchemaOf(db) }
-	const labels = Arr.join(
-		Arr.map(kindHandles, (h) => `'${h}'`),
-		", "
-	)
-	yield* db.values(`CREATE TYPE ${names.schema}."kind" AS ENUM (${labels})`, [])
+	const vector = yield* vectorSchemaOf(db)
+	const names: SqlNames = { schema: quoteIdent(name), vector, codes: kindCodes }
 	return { db, names }
 })
 
@@ -227,7 +244,7 @@ const batches: Gen<ReadonlyArray<ReadonlyArray<unknown>>> = (source) =>
 
 const agreement = (db: RawSession, names: SqlNames, c: Case, batch: ReadonlyArray<unknown>) =>
 	Effect.gen(function* () {
-		const scalar = scalarCodec(c.type)
+		const scalar = scalarCodec(c.type, kindCodes)
 		const codec = succeeded(
 			cursorCodec(
 				{
@@ -235,7 +252,8 @@ const agreement = (db: RawSession, names: SqlNames, c: Case, batch: ReadonlyArra
 					comparators: [{ field: "v", direction: "asc", type: c.type }],
 					generation
 				},
-				cursorTokenMaxLength
+				cursorTokenMaxLength,
+				kindCodes
 			)
 		)
 		const sample = [...c.edge, ...batch]

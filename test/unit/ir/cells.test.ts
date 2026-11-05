@@ -34,29 +34,25 @@ import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "e
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareNumbers } from "#compiler/core/order.ts"
 import {
-	bitText,
 	cellWidth,
 	type CodeSlot,
-	codeMask,
-	codeShift,
 	type Constant,
-	constantDigest,
+	constantDigestOf,
 	constantOf,
 	dictionaryOf,
 	finDigit,
 	finSize,
 	finSpace,
 	type Layout,
-	packCodes,
 	rosterCodes,
 	type RosterCodes,
-	rosterConstant,
 	rowMajorIndex,
 	sideOf,
 	spaceSize,
 	type Tuple
 } from "#compiler/ir/cells.ts"
-import { assert, defined, failed, nonEmpty, succeeded, throwsDefect } from "#test/support/assert.ts"
+import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { bitText } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /** Every point of the space whose coordinates hold `sizes` codes each, first coordinate most significant: an odometer. */
@@ -632,7 +628,16 @@ describe("a roster's codes", () => {
 				...Arr.map(added, (handle): CodeSlot => ({ kind: "live", handle }))
 			]
 			assert.deepEqual(next, expected)
-			const text = succeeded(bitText(rosterConstant(next), next.length))
+			/** The roster's live codes as a constant over its one coordinate, its code space, with no payload. */
+			const liveCodes = succeeded(
+				constantOf(
+					{ key: [next.length], payload: [] },
+					Arr.flatMap(next, (slot, code) =>
+						slot.kind === "live" ? [{ key: [code], payload: [] }] : []
+					)
+				)
+			)
+			const text = succeeded(bitText(liveCodes, next.length))
 			for (let code = -2; code < next.length + 2; code += 1) {
 				const slot = next[code]
 				assert.equal(readCell(text, 1, code), slot?.kind === "live" ? 1n : 0n, `code ${code}`)
@@ -1075,114 +1080,6 @@ describe("an open-typed field's dictionary", () => {
 	)
 })
 
-describe("a law's cell", () => {
-	type Packed =
-		| "no code"
-		| "fewer than four codes"
-		| "four codes fill an int8"
-		| "more than four codes"
-		| "a code past its digit"
-
-	/** An int2 code from 0, weighted toward its ends. */
-	const code: Gen<number> = weighted([
-		[1, constant(0)],
-		[1, constant(32_767)],
-		[4, int(0, 32_767)]
-	])
-
-	interface Codes {
-		readonly codes: ReadonlyArray<number>
-		readonly outside: Option.Option<number>
-		readonly at: number
-	}
-
-	/** Zero to six codes over a roster's whole code space, and in the named invalid variant a code that is no digit. */
-	const lawCodes: Gen<Codes> = (s) => {
-		const codes = s.draw(array(code, { min: 0, max: 6 }))
-		const outside = s.draw(
-			weighted([
-				[6, constant(Option.none<number>())],
-				[1, constant(Option.some(-1))],
-				[1, constant(Option.some(codeMask + 1))],
-				[1, constant(Option.some(0.5))]
-			])
-		)
-		return { codes, outside, at: s.draw(int(0, codes.length)) }
-	}
-
-	/**
-	 * The cell is the codes' base-65536 numeral, the first most significant; a shift and the mask read each back; at most
-	 * four int2 codes fill a non-negative int8; a code that is no 16-bit digit is a defect. Oracle: bigint's arithmetic.
-	 */
-	const digits = ({ codes, outside, at }: Codes, c: Case<Packed>) =>
-		Effect.sync(() => {
-			if (Option.isSome(outside)) {
-				throwsDefect(() => packCodes([...codes.slice(0, at), outside.value, ...codes.slice(at)]))
-				c.note("a code past its digit")
-				return
-			}
-			const cell = packCodes(codes)
-			const count = codes.length
-			assert.equal(
-				cell,
-				Arr.reduce(codes, 0n, (numeral, next) => numeral * 65_536n + BigInt(next)),
-				"the codes are the cell's base-65536 digits, the first most significant"
-			)
-			const read: ReadonlyArray<number> = Array.from({ length: count }, (_, position) =>
-				Number((cell >> BigInt(codeShift(count, position))) & BigInt(codeMask))
-			)
-			assert.deepEqual(read, codes, "a shift and the mask read each code back")
-			if (count <= 4) {
-				assert.equal(
-					BigInt.asIntN(64, cell),
-					cell,
-					"a cell of at most four int2 codes is a non-negative int8"
-				)
-			}
-			c.note(
-				count === 0
-					? "no code"
-					: count < 4
-						? "fewer than four codes"
-						: count === 4
-							? "four codes fill an int8"
-							: "more than four codes"
-			)
-		})
-
-	it.effect(
-		"holds each code in its own 16-bit digit, which a shift and the mask read back",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/ir/cells-pack",
-						draw: drawn(lawCodes),
-						literal: Formatter.format,
-						coverage: required<Packed>(
-							[
-								"no code",
-								"fewer than four codes",
-								"four codes fill an int8",
-								"more than four codes",
-								"a code past its digit"
-							],
-							{ cases: 200, sense: notesOnly }
-						),
-						kept: [],
-						runs: 300,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					digits
-				)
-			)
-	)
-})
-
 describe("a constant's digest", () => {
 	type Edited =
 		| "a cell made present"
@@ -1200,7 +1097,7 @@ describe("a constant's digest", () => {
 	const encode = (layout: Layout, rows: ReadonlyArray<Tuple>): Constant =>
 		succeeded(constantOf(layout, rows))
 
-	const digestOf = (c: Constant): string => succeeded(constantDigest(c))
+	const digestOf = (c: Constant): string => constantDigestOf(c)
 
 	/**
 	 * Content addressing: the digest is a function of the constant alone (its rows restated in reverse and repeated, or

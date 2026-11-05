@@ -32,6 +32,7 @@ import type {
 
 import {
 	cast,
+	cUtf8Collation,
 	lit,
 	namedType,
 	objectName,
@@ -299,9 +300,11 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 			yield* m.query(sql(probe(schema, 1)), [])
 			yield* m.query(
 				sql({
-					kind: "createEnum",
+					kind: "createDomain",
 					name: objectName(schema, "kind"),
-					labels: ["Automatic", "Manual"]
+					base: types.smallint,
+					collation: undefined,
+					constraints: []
 				}),
 				[]
 			)
@@ -311,7 +314,13 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 			yield* run([reset("FUNCTIONS", { kind: "global" }), reset("TYPES", { kind: "global" })])
 			yield* m.query(sql(probe(schema, 2)), [])
 			yield* m.query(
-				sql({ kind: "createEnum", name: objectName(schema, "state"), labels: ["Open"] }),
+				sql({
+					kind: "createDomain",
+					name: objectName(schema, "state"),
+					base: types.smallint,
+					collation: undefined,
+					constraints: []
+				}),
 				[]
 			)
 			const stateGrants = yield* publicCan(2, "state")
@@ -517,7 +526,15 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 				const s = yield* Substrate
 				const schema = yield* s.schema(freshSchema)
 				const labels = ["it's", "\u00dcn\u00efc\u00f6d\u00e9", 'a"b', "\u{1f600}"]
-				yield* run([{ kind: "createEnum", name: { schema, name: "label" }, labels }])
+				yield* run([
+					{
+						kind: "createDomain",
+						name: { schema, name: "label" },
+						base: types.text,
+						collation: cUtf8Collation,
+						constraints: []
+					}
+				])
 				const asText = (e: Expr) => printExpr(cast(e, types.text))
 				const values = (exprs: ReadonlyArray<string>) =>
 					Effect.map(s.admin.queryValues(`SELECT ${Arr.join(exprs, ", ")}`, []), ([row]) =>

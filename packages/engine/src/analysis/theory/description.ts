@@ -1,6 +1,7 @@
 import type { LawIdentity, ResolvedSide } from "#compiler/analysis/theory/laws.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { everyFact, type SideDesc, type TermDesc } from "#compiler/ir/desc.ts"
+import type { Family } from "#compiler/ir/family.ts"
 import { fieldNames } from "#compiler/ir/law.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
@@ -45,36 +46,27 @@ export const lawDescription = (law: LawIdentity): Law => {
 				from: side(d.from),
 				to: side(d.to)
 			})
-		case "alternatives":
-			return Object.freeze({ kind: "alternatives", relation: d.parent, field: d.discriminator })
-		case "alternativesArm":
+		case "family":
 			return Object.freeze({
-				kind: "alternativesArm",
-				relation: d.parent,
-				field: d.discriminator,
-				arm: d.arm,
-				handles: Object.freeze(mapNonEmpty(d.handles, (h) => h))
+				kind: "family",
+				order: d.family.index.kind === "field" ? "ordered" : "counted",
+				member: memberSide(d.family),
+				slots: Object.freeze({ owner: d.family.id.owner, count: d.family.id.count })
 			})
-		case "capacity":
+		case "tree":
 			return Object.freeze({
-				kind: "capacity",
-				target: side(d.target),
-				from: side(d.from),
-				weight: Object.freeze(
-					d.weight.kind === "count"
-						? { kind: "count" }
-						: { kind: d.weight.kind, field: d.weight.field }
-				),
-				within: Object.freeze({
-					low:
-						typeof d.within.low === "bigint"
-							? d.within.low
-							: Object.freeze({ ref: d.within.low.ref }),
-					high:
-						typeof d.within.high === "bigint" || d.within.high === "*"
-							? d.within.high
-							: Object.freeze({ ref: d.within.high.ref })
-				})
+				kind: "tree",
+				member: memberSide(d.family),
+				slots: Object.freeze({ owner: d.family.id.owner, count: d.family.id.count }),
+				root: d.family.members.root.name
+			})
+		case "fold":
+			return Object.freeze({
+				kind: "fold",
+				family: Object.freeze({ owner: d.family.owner, count: d.family.count }),
+				monoid: d.monoid,
+				step: side(d.step),
+				end: side(d.end)
 			})
 	}
 }
@@ -93,3 +85,19 @@ const sideOf = (side: ResolvedSide): SideDesc =>
 			conjuncts: Object.freeze(side.selection.conjuncts.map((c) => c.predicate))
 		})
 	})
+
+/** A family's member side as its statement declares it: every fact of its member, over its group then its index. */
+const memberSide = (f: Pick<Family, "member" | "group" | "index">): SideDesc => {
+	const group = mapNonEmpty(f.group, (p): TermDesc =>
+		Object.freeze({ kind: "field", field: p.member.name })
+	)
+	const terms: SideDesc["terms"] =
+		f.index.kind === "field"
+			? [...group, Object.freeze({ kind: "field", field: f.index.field.name })]
+			: group
+	return Object.freeze({
+		relation: f.member.name,
+		terms: Object.freeze(terms),
+		selection: everyFact
+	})
+}

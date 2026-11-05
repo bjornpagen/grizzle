@@ -153,8 +153,10 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 			return prose
 		case "uuid":
 			return uuid
-		case "enum":
+		case "code":
 			return closedId(roster)
+		case "bits":
+			throw new Error("a parameter of a set, which no drawn field declares")
 		case "range4":
 			return span(pg.integer)
 		case "range8":
@@ -284,7 +286,8 @@ export const buildSchema = (s: ProgramSchema): BuiltSchema => {
 
 /**
  * The host value an application passes for a literal of `type`: an integer as a number, a bigint as a bigint, numeric
- * as a Decimal, a float as a number (NaN and the infinities included), money as a Money, a handle as its name.
+ * as a Decimal, a float as a number (NaN and the infinities included), money as a Money, a handle as its name, a set as
+ * the Set of its handles.
  */
 export const hostValue = (literal: TypedLiteral, type: ScalarType): unknown => {
 	switch (literal.kind) {
@@ -307,8 +310,10 @@ export const hostValue = (literal: TypedLiteral, type: ScalarType): unknown => {
 		case "text":
 		case "uuid":
 			return literal.value
-		case "enum":
+		case "handle":
 			return literal.handle
+		case "handles":
+			return new Set(literal.handles)
 		case "span":
 			return {
 				start: type.carrier === "range8" ? literal.start : Number(literal.start),

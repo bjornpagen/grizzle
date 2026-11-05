@@ -489,26 +489,32 @@ export const refusedReads = (db: DbOf<typeof Reader, unknown>) => {
 	return [many, wrong, above]
 }
 
-/** Closed facts with payloads stay queryable; budget is the payload's contract. */
-export const Tier = closed("Tier", ["Free", "Pro"]).with(
-	{ budget: Cents },
-	{ Free: { budget: Cents(100n) }, Pro: { budget: Cents(1000n) } }
+/** A closed relation's rows stay queryable: TierBudget keys each tier to a budget of the payload's contract. */
+export const Tier = closed("Tier", ["Free", "Pro"])
+export const TierBudget = closed.relation(
+	"TierBudget",
+	{ tier: closedId(Tier), budget: Cents },
+	["tier"],
+	[
+		{ tier: "Free", budget: Cents(100n) },
+		{ tier: "Pro", budget: Cents(1000n) }
+	]
 )
 
 export const Subscription = relation("Subscription", { account: uuid, tier: closedId(Tier) }, [
 	"account"
 ])
 
-export const Plans = schema("Plans", { Tier, Subscription }, [
+export const Plans = schema("Plans", { Tier, TierBudget, Subscription }, [
 	contained(on(Subscription, "tier"), on(Tier, "id"))
 ])
 
 export const budgets = query(Plans).rule((r) => {
 	const { account, tier } = v(Subscription, "subscription")
-	const { budget } = v(Tier, "tier")
+	const { budget } = v(TierBudget, "tier")
 	return r
 		.match(Subscription, { account, tier })
-		.match(Tier, { id: tier, budget })
+		.match(TierBudget, { tier, budget })
 		.find({ account, budget })
 })
 

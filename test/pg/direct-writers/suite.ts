@@ -39,7 +39,7 @@ import { Substrate, worldPsql } from "#test/support/substrate/substrate.ts"
 
 /** The errors a run plants, one case each. */
 const plantKinds = [
-	"handle outside the roster",
+	"code outside the roster",
 	"numeric past its precision",
 	"text past its bound",
 	"immediate reference broken",
@@ -95,7 +95,7 @@ const plantedGroup = (index: number): WGroup => {
 		name: name(0),
 		columns: [
 			{ name: "a", kind: "int4" },
-			{ name: "b", kind: "enum" },
+			{ name: "b", kind: "code" },
 			{ name: "c", kind: "numeric(3, 0)" },
 			{ name: "d", kind: "text" }
 		],
@@ -159,7 +159,7 @@ const plantedCase = (p: Plant): DirectCase => {
 		statements: []
 	} as const
 	switch (p.kind) {
-		case "handle outside the roster":
+		case "code outside the roster":
 			return { ...base, statements: wild(3) }
 		case "numeric past its precision":
 			return { ...base, statements: wild(2) }
@@ -218,9 +218,9 @@ const runs = 40
  * (25000 naming the table, nothing committed).
  *
  * Six of those errors need a column kind or a foreign key a third of the generated schemas hold, and a case that meets
- * them first: a handle outside the roster (22P02), a numeric past its precision (22003), a refined text past its bound
- * (23514), an immediate foreign key at its statement and a deferred one at COMMIT and at SET CONSTRAINTS (23503). Each
- * run plants them: its schema holds one more group of its own (plantedGroup, a parent with an enum, a numeric(3, 0)
+ * them first: a code outside the roster's live codes (23514), a numeric past its precision (22003), a refined text past
+ * its bound (23514), an immediate foreign key at its statement and a deferred one at COMMIT and at SET CONSTRAINTS (23503). Each
+ * run plants them: its schema holds one more group of its own (plantedGroup, a parent with a closed id, a numeric(3, 0)
  * and a refined text column, a pure set, and a child of each, the one into the parent deferred, the one into the pure
  * set immediate), and among its drawn cases, at drawn positions, one planted case of each, its stored facts, row,
  * level and sequences drawn: the wild value inserted alone, or the breaking statement alone. So every required

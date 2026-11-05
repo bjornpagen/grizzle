@@ -214,13 +214,16 @@ export type Kept<S, F extends string> = Readonly<{
 /**
  * What a search's property is checked against, which its report prints beside what it measured: a second
  * implementation (a naive model, a reference evaluator), the specification turned into a checker, a universal oracle (a
- * round trip, an idempotence, a law any correct answer obeys), or PostgreSQL as the judge of a law; `name` says which
- * one, as "a Set<number> against the bitset algebra" or "decode ∘ encode = id".
+ * round trip, an idempotence, a law any correct answer obeys), or PostgreSQL as the judge of a law, with `name` saying
+ * which one, as "a Set<number> against the bitset algebra" or "decode ∘ encode = id"; or `unstated`, a suite that has
+ * not yet said, which every report prints and counts as such.
  */
-export type Oracle = Readonly<{
-	kind: "second-implementation" | "specification" | "universal" | "postgresql"
-	name: string
-}>
+export type Oracle =
+	| Readonly<{
+			kind: "second-implementation" | "specification" | "universal" | "postgresql"
+			name: string
+	  }>
+	| Readonly<{ kind: "unstated" }>
 
 /**
  * A property search over one draw. Every field is stated by the suite, so its budget is on the page:

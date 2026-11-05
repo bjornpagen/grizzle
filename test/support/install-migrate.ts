@@ -20,10 +20,12 @@ import type * as Engine from "#compiler/core/result.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { LoginDesc, RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
 import { folderSource, installationAbstraction, sameCatalog } from "#test/pg/migrate/support.ts"
@@ -33,7 +35,7 @@ import { checkInstallation } from "#test/support/catalog/installed.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { fromEmpty, generate } from "#test/support/migrate/kit.ts"
+import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { type FactSet, factStatements, loadFacts } from "#test/support/oracle/install/load.ts"
 import {
 	planRealInstall,
@@ -42,7 +44,7 @@ import {
 } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { type SqlError, wireSession } from "#test/support/pg.ts"
-import { schemaDescIn } from "#test/support/policy.ts"
+import { owning, schemaDescIn } from "#test/support/policy.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { Credentials, SubstrateWorld } from "#test/support/substrate/session.ts"
@@ -142,7 +144,7 @@ const renamed = (desc: SchemaDesc, name: string): SchemaDesc => ({
 })
 
 /** The plan of the complete installation under `installation` (oracle/install/real.ts), with the caller's logins and
- * extensions. */
+ * extensions, and a fresh installation's codes, as the first migration from an empty directory drafts them. */
 const completePlan = (
 	desc: SchemaDesc,
 	installation: Identity<"schema">,
@@ -153,7 +155,8 @@ const completePlan = (
 		installation,
 		owner,
 		logins: options.logins,
-		extensions: options.extensions
+		extensions: options.extensions,
+		codes: firstCodebook(rostersOf(owning(desc)))
 	})
 
 /** The installation's script with every name minted under its schema's identity abstracted
@@ -464,7 +467,8 @@ export const installMigrated = (
 				name: installName,
 				timestamp: installTimestamp,
 				previous: fromEmpty,
-				workload: noWorkload
+				workload: noWorkload,
+				declared: noDeclarations
 			})
 		)
 		const folder = folderSource(g.folder)

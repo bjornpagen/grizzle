@@ -38,7 +38,8 @@ import { regex } from "arkregex"
  *
  * Each case declares one CHECK of every predicate class over a small schema, its thresholds and the closed facts drawn:
  * - a row check, `check("AtLeast", Gauge, level >= k)` (a law model TableCheck);
- * - a finite check, the containment of Mark's (grade, score) in the closed Grade's (id, score) facts (a FiniteCheck);
+ * - a closed check, the containment of Mark's (grade, score) in GradeScore's (grade, score) rows, a closed relation
+ *   over the roster Grade (a ClosedCheck);
  * - a contract's predicate, `Level` between lo and hi, as the domain's CHECK on a plain column, and as the endpoint
  *   CHECK of a span over Level, the predicate over the lower and then the upper endpoint (physical/span/storage.ts);
  * - a text refinement, `^[ab]{1,2}$`, as its text domain's CHECK on a plain column, probed with checks.ts textProbes
@@ -95,9 +96,16 @@ const codeFlags = "u"
 const plantedSchema = (p: Planted) => {
 	const hi = p.lo + p.width
 	const Level = contract("Level", pg.integer, (x) => x.between(p.lo, hi))
-	const Grade = closed("Grade", handles).with(
-		{ score: pg.integer },
-		{ G0: { score: p.scores[0] }, G1: { score: p.scores[1] }, G2: { score: p.scores[2] } }
+	const Grade = closed("Grade", handles)
+	const GradeScore = closed.relation(
+		"GradeScore",
+		{ grade: closedId(Grade), score: pg.integer },
+		["grade"],
+		[
+			{ grade: "G0", score: p.scores[0] },
+			{ grade: "G1", score: p.scores[1] },
+			{ grade: "G2", score: p.scores[2] }
+		]
 	)
 	const Gauge = relation("Gauge", { id: pg.integer, level: pg.integer }, ["id"])
 	const Mark = relation("Mark", { id: pg.integer, grade: closedId(Grade), score: pg.integer }, [
@@ -109,8 +117,11 @@ const plantedSchema = (p: Planted) => {
 		"id"
 	])
 	const atLeast = check("AtLeast", Gauge, (x) => x.level.ge(p.k))
-	const graded = contained(on(Mark, "grade", "score"), on(Grade, "id", "score"))
-	const value = schema("Checks", { Grade, Gauge, Mark, Stay, Amount, Tagged }, [atLeast, graded])
+	const graded = contained(on(Mark, "grade", "score"), on(GradeScore, "grade", "score"))
+	const value = schema("Checks", { Grade, GradeScore, Gauge, Mark, Stay, Amount, Tagged }, [
+		atLeast,
+		graded
+	])
 	return { value, Gauge, Mark, Stay, Amount, Tagged, atLeast, graded, hi }
 }
 
@@ -128,7 +139,7 @@ interface InstalledCheck {
 /** The CHECK each class installs, as the naming door names it. */
 interface Checks {
 	readonly row: InstalledCheck
-	readonly finite: InstalledCheck
+	readonly closed: InstalledCheck
 	readonly endpoint: InstalledCheck
 	readonly domain: InstalledCheck
 	readonly text: InstalledCheck
@@ -147,7 +158,7 @@ const checksOf = (installation: Installation, s: Planting): Checks => {
 	})
 	return {
 		row: onTable(s.Gauge, names.constraintOf(names.lawOf(s.atLeast), "TableCheck")),
-		finite: onTable(s.Mark, names.constraintOf(names.lawOf(s.graded), "FiniteCheck")),
+		closed: onTable(s.Mark, names.constraintOf(names.lawOf(s.graded), "ClosedCheck")),
 		endpoint: onTable(
 			s.Stay,
 			names.spanCheck(s.Stay, "during", { kind: "endpoint", contract: "Level" })
@@ -161,8 +172,8 @@ const checksOf = (installation: Installation, s: Planting): Checks => {
 type CheckFeature =
 	| "row check admits"
 	| "row check refuses"
-	| "finite check admits"
-	| "finite check refuses"
+	| "closed check admits"
+	| "closed check refuses"
 	| "endpoint check admits"
 	| "endpoint check refuses"
 	| "endpoint check refuses by its upper endpoint alone"
@@ -174,8 +185,8 @@ type CheckFeature =
 const situations = [
 	"row check admits",
 	"row check refuses",
-	"finite check admits",
-	"finite check refuses",
+	"closed check admits",
+	"closed check refuses",
 	"endpoint check admits",
 	"endpoint check refuses",
 	"endpoint check refuses by its upper endpoint alone",
@@ -246,9 +257,9 @@ const judgeCase = (
 			)
 			appendAll(
 				problems,
-				judged(`Mark (${grade}, ${m.score}) in Grade's facts`, holds, verdict, checks.finite.name)
+				judged(`Mark (${grade}, ${m.score}) in Grade's facts`, holds, verdict, checks.closed.name)
 			)
-			reached.add(holds ? "finite check admits" : "finite check refuses")
+			reached.add(holds ? "closed check admits" : "closed check refuses")
 		}
 		for (const st of all.stay) {
 			const upper = st.lower + st.width

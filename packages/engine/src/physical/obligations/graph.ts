@@ -28,7 +28,6 @@ import type { SqlStatement } from "#compiler/sql/ast.ts"
  * spelling, such as a validation's identity, which names no kind, parses as other. */
 type NamedKind = "schema" | "extension" | "role" | "membership" | "privileges"
 export type QualifiedKind =
-	| "enum"
 	| "domain"
 	| "table"
 	| "materializedView"
@@ -71,7 +70,6 @@ const namedKinds: ReadonlyArray<NamedKind> = [
 ]
 
 const qualifiedKinds: ReadonlyArray<QualifiedKind> = [
-	"enum",
 	"domain",
 	"table",
 	"materializedView",
@@ -144,7 +142,6 @@ export const identText = (ident: NodeIdent): string => {
 			return namedIdent(ident.kind, ident.name)
 		case "text":
 			return ident.text
-		case "enum":
 		case "domain":
 		case "table":
 		case "materializedView":
@@ -199,7 +196,6 @@ const keyOf = (ident: NodeIdent): ObjectKey => {
 			return { kind: ident.kind, names: [{ kind: "readable", name: ident.name }] }
 		case "text":
 			return { kind: ident.kind, names: [{ kind: "readable", name: ident.text }] }
-		case "enum":
 		case "domain":
 		case "table":
 		case "materializedView":
@@ -363,7 +359,7 @@ const priority: Comparator<Node<DeployPhase>> = combineAll([
  * Each object is added after the objects it is created after (`to` depends on `from`), each named by the handle its own
  * addition returned and each of its phase or an earlier one, so the graph is acyclic and its edges follow the phase
  * order by construction. The install order is a topological order of the edges that is also ordered by phase, Setup,
- * Structure, Indexes, Validate, Publish, which refines the dependency order: namespaces; enums, domains and helper
+ * Structure, Indexes, Validate, Publish, which refines the dependency order: namespaces; constants, domains and helper
  * types; tables, columns and identities; native references; the refusal function, law functions and their triggers;
  * materialized views; key, law and workload indexes; validation; grants and publication. Ties are broken by a fixed
  * kind rank and then by the objects' names, a hashed name by the identity it was minted from, never by its digest,

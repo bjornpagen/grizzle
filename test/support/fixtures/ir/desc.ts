@@ -8,14 +8,12 @@
  * alternatives helper expands to both containments per arm, each carrying the origin marker, and a relation used in key
  * position stands for its primary key.
  */
-import { Array as Arr } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { FieldId } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
 import {
 	type AttachDesc as AttachOf,
 	type BindingsDesc as BindingsOf,
-	type BoundDesc,
 	type ChangeSetDesc as ChangeSetOf,
 	type WorkloadDesc as WorkloadOf,
 	conjunctsOf,
@@ -23,10 +21,12 @@ import {
 	everyFact,
 	type ExprDesc,
 	type ExprDesc as ExprOf,
+	type FieldDecl,
 	type FieldDesc,
 	type HeadTermDesc as HeadTermOf,
 	type LiteralDesc,
 	type MatchDesc as MatchOf,
+	type MonoidName,
 	type MemberDesc as MemberOf,
 	type PgScalarName,
 	type QueryDesc as QueryOf,
@@ -36,11 +36,11 @@ import {
 	type RuleDesc as RuleOf,
 	type SchemaDesc as SchemaOf,
 	type SideDesc,
+	type SlotsDesc,
 	type SourceDesc as SourceOf,
 	type StatementDesc as StatementOf,
 	type TermDesc,
-	type VarDesc as VarOf,
-	type WeightDesc
+	type VarDesc as VarOf
 } from "#compiler/ir/desc.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 
@@ -112,6 +112,20 @@ export const decodedReadBack = (readBack: ReadBackDesc): ReadBackOf => {
 
 const fieldDesc = (desc: FieldDesc): FieldDesc => desc
 
+/** natural: the builtin contract over bigint, never below zero, that pred reads (scalar/natural.ts). */
+const naturalDesc: FieldDesc = {
+	kind: "contract",
+	name: "natural",
+	base: { kind: "pg", type: "bigint" },
+	predicate: {
+		kind: "compare",
+		op: "ge",
+		left: { kind: "value" },
+		right: { kind: "literal", value: 0n, type: undefined }
+	},
+	facts: ["nonnegative"]
+}
+
 /** Field descriptors. */
 export const f = {
 	pg: (type: PgScalarName): FieldDesc => ({ kind: "pg", type }),
@@ -120,7 +134,24 @@ export const f = {
 	bigint: fieldDesc({ kind: "pg", type: "bigint" }),
 	boolean: fieldDesc({ kind: "pg", type: "boolean" }),
 	numeric: (precision: number, scale: number): FieldDesc => ({ kind: "numeric", precision, scale }),
-	bigserial: fieldDesc({ kind: "serial", type: "bigserial" }),
+	natural: naturalDesc,
+	/** A family's index or count, drawn(natural): grizzle draws it from the nested arrays its caller writes. */
+	drawn: { type: naturalDesc, writing: { kind: "drawn" } } satisfies FieldDecl<object>,
+	/** A fold's end or a copy along a family axis: grizzle fills it on the host, `start` at its axis's base. */
+	accumulated: (type: FieldDesc, start: LiteralDesc): FieldDecl<object> => ({
+		type,
+		writing: { kind: "accumulated", start }
+	}),
+	/** A field PostgreSQL generates from its row, `expr` of its type exactly. */
+	generated: (type: FieldDesc, expr: ExprDesc): FieldDecl<object> => ({
+		type,
+		writing: { kind: "generated", expr }
+	}),
+	/** A bigint field its sequence draws, GENERATED ALWAYS AS IDENTITY. */
+	bigserial: {
+		type: { kind: "pg", type: "bigint" },
+		writing: { kind: "serial" }
+	} satisfies FieldDecl<object>,
 	uuid: fieldDesc({ kind: "uuid" }),
 	regex: (source: string, flags: "u" | "su"): FieldDesc => ({ kind: "text", source, flags }),
 	/** str.regex("^.*$", "su"): the explicit wildcard. */
@@ -201,37 +232,56 @@ export const charLength = (arg: ExprDesc): ExprDesc => ({
 })
 export const field = (name: string): ExprDesc => ({ kind: "field", field: name })
 
+/** A relation's field as a fixture states it: a type the caller writes, or a declaration that says how it is written. */
+export type FixtureField = FieldDesc | FieldDecl<object>
+
+/** A fixture field as its relation declares it: a bare type is written by the caller. */
+const declOf = (field: FixtureField): FieldDecl<object> =>
+	"writing" in field ? field : { type: field, writing: { kind: "caller" } }
+
 /** Relations. */
 export const relation = (
 	name: string,
-	fields: Readonly<Record<string, FieldDesc>>,
+	fields: Readonly<Record<string, FixtureField>>,
 	primaryKey: ReadonlyArray<string>
 ): AuthoredRelationDesc & { readonly kind: "relation" } => {
 	const [key, ...rest] = primaryKey
 	if (key === undefined) {
 		throw new Error(`the fixture relation ${name} has no primary key`)
 	}
-	return { kind: "relation", name, fields, primaryKey: [key, ...rest] }
+	return {
+		kind: "relation",
+		name,
+		fields: Rec.map(fields, declOf),
+		primaryKey: [key, ...rest]
+	}
 }
 
-/** A closed relation of handles alone: no payload, so no facts. */
+/** A roster: its handles in declared order, which is their codes' order. */
 export const closed = (
 	name: string,
 	handles: ReadonlyArray<string>
-): AuthoredRelationDesc & { readonly kind: "closed" } => closedWith(name, handles, {}, {})
-
-/** A closed relation with a payload and each handle's facts. */
-export const closedWith = (
-	name: string,
-	handles: ReadonlyArray<string>,
-	payload: Readonly<Record<string, FieldDesc>>,
-	facts: Readonly<Record<string, Readonly<Record<string, LiteralDesc>>>>
 ): AuthoredRelationDesc & { readonly kind: "closed" } => ({
 	kind: "closed",
 	name,
-	handles: nonEmptyList(handles, "a closed relation's handles"),
-	payload,
-	facts
+	handles: nonEmptyList(handles, "a roster's handles")
+})
+
+/**
+ * A closed relation: its fields, its key of closed-id fields in the order its mixed radix reads them, and its rows, each
+ * a value of every field.
+ */
+export const closedRelation = (
+	name: string,
+	fields: Readonly<Record<string, FieldDesc>>,
+	key: ReadonlyArray<string>,
+	rows: ReadonlyArray<Readonly<Record<string, LiteralDesc>>>
+): AuthoredRelationDesc & { readonly kind: "closedRelation" } => ({
+	kind: "closedRelation",
+	name,
+	fields,
+	key: nonEmptyList(key, "a closed relation's key"),
+	rows
 })
 
 /** ℕ's destructor over a natural field, one level deep: the term defined where the field is above zero. */
@@ -284,16 +334,42 @@ export const check = (
 	predicate
 })
 
-/** A contained statement declared directly: no alternatives expansion marks it. */
+/** A contained statement: the left side's tuples are among the right side's. */
 export const contained = (
 	left: SideDesc,
 	right: SideDesc
 ): Extract<AuthoredStatementDesc, { readonly kind: "contained" }> => ({
 	kind: "contained",
 	left,
-	right,
-	origin: undefined
+	right
 })
+
+/** fin(owner, count): the slots of an owner's drawn count, a family's second argument. */
+export const fin = (owner: string, count: string): SlotsDesc => ({ owner, count })
+
+/** counted(member, fin(owner, count)): each owner's members, its group paired with its primary key, their index hidden. */
+export const counted = (member: SideDesc, slots: SlotsDesc): AuthoredStatementDesc => ({
+	kind: "family",
+	order: "counted",
+	member,
+	slots
+})
+
+/** ordered(member, fin(owner, count)): each owner's members by their group, then their drawn index 0 … n − 1. */
+export const ordered = (member: SideDesc, slots: SlotsDesc): AuthoredStatementDesc => ({
+	kind: "family",
+	order: "ordered",
+	member,
+	slots
+})
+
+/** fold(family, monoid, step, end): the family's step values combined by the monoid into each owner's end fields. */
+export const fold = (
+	family: SlotsDesc,
+	monoid: MonoidName,
+	step: SideDesc,
+	end: SideDesc
+): AuthoredStatementDesc => ({ kind: "fold", family, monoid, step, end })
 
 /** mirrors(left, right), declared directly: its two containments, left into right and then right into left. */
 export const mirrors = (
@@ -304,34 +380,10 @@ export const mirrors = (
 	Extract<AuthoredStatementDesc, { readonly kind: "contained" }>
 ] => [contained(left, right), contained(right, left)]
 
-/** A capacity statement. */
-export const capacity = (
-	target: SideDesc,
-	from: SideDesc,
-	within: BoundDesc,
-	weight: WeightDesc
-): AuthoredStatementDesc => ({
-	kind: "capacity",
-	target,
-	from,
-	weight,
-	within
-})
-
 /**
- * A capacity's bounds: each a literal, or the name of a field of the target fact; a high bound of `*` is no upper
- * bound.
- */
-export const within = (low: bigint | string, high: bigint | string): BoundDesc => ({
-	low: typeof low === "bigint" ? low : { ref: low },
-	high: high === "*" ? "*" : typeof high === "bigint" ? high : { ref: high }
-})
-
-/**
- * alternatives(parent, discriminator, roster, arms): the two containments of mirrors(on(select(parent, (p) =>
- * p.eq(p[discriminator], roster.handle(h))), ...parentKey), on(arm, ...armKey)) per handle with an arm, in roster order,
- * every statement marked with the expansion's origin. The discriminator's containment in the roster is its closedId
- * field's type, no statement.
+ * alternatives(parent, discriminator, roster, arms): its own statement, over every fact of the parent by its primary
+ * key and each handle's arm by its primary key, in roster order. The discriminator's containment in the roster is its
+ * closedId field's type, no statement.
  */
 export const alternatives = (
 	parent: { readonly name: string; readonly primaryKey: ReadonlyArray<string> },
@@ -340,19 +392,16 @@ export const alternatives = (
 	arms: Readonly<
 		Record<string, { readonly name: string; readonly primaryKey: ReadonlyArray<string> }>
 	>
-): ReadonlyArray<AuthoredStatementDesc> => {
-	const origin = { alternatives: FieldId(parent.name, discriminator) }
-	return Arr.flatMap(roster.handles, (handle): ReadonlyArray<AuthoredStatementDesc> => {
-		const arm = arms[handle]
-		if (arm === undefined) {
-			return []
-		}
-		return Arr.map(
-			mirrors(
-				onWhere(parent.name, parent.primaryKey, eq(field(discriminator), literal(handle))),
-				on(arm.name, arm.primaryKey)
-			),
-			(statement): AuthoredStatementDesc => ({ ...statement, origin })
-		)
-	})
-}
+): AuthoredStatementDesc => ({
+	kind: "alternatives",
+	parent: on(parent.name, parent.primaryKey),
+	discriminator,
+	roster: roster.name,
+	arms: nonEmptyList(
+		Arr.flatMap(roster.handles, (handle) => {
+			const arm = arms[handle]
+			return arm === undefined ? [] : [{ handle, arm: on(arm.name, arm.primaryKey) }]
+		}),
+		`the arms of alternatives over ${parent.name}.${discriminator}`
+	)
+})

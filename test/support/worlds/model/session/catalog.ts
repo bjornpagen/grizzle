@@ -283,7 +283,6 @@ const readOf = (base: BaseSpec, name: string): unknown => {
 					return law.relation === name
 				case "contained":
 				case "covered":
-				case "capacity":
 					return false
 			}
 		})
@@ -431,8 +430,7 @@ const rewritten = (from: InstallSpec, to: InstallSpec, role: string, identity: s
 }
 
 /**
- * The world object of a function a perturbation changed: a role's filter or key probe; an advance or law function is
- * none.
+ * The world object of a function a perturbation changed: a role's filter or key probe; an advance function is none.
  */
 const functionObject = (
 	install: InstallSpec,
@@ -465,7 +463,6 @@ const functionObject = (
 			return identity === undefined ? undefined : { role: fn.role, identity }
 		}
 		case "advance":
-		case "law":
 			return undefined
 	}
 }
@@ -860,7 +857,7 @@ const labelOf = (p: CatalogPerturbation): string => {
 		case "extra-table":
 			return p.kind
 		case "trigger-disabled":
-			return `${p.kind} ${p.trigger.kind === "law" ? p.trigger.law : p.trigger.relation}`
+			return `${p.kind} ${p.trigger.relation}`
 	}
 }
 

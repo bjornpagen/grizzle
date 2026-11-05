@@ -1,6 +1,7 @@
 import { type Frame, type Prologue, readFrame, writeFrame } from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
+import type { BindContext } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Engine from "#compiler/core/result.ts"
 import type { RoleDesc } from "#compiler/ir/desc.ts"
@@ -46,6 +47,12 @@ export interface RoleContext {
 	) => Engine.Result<CompiledTemplate, CompileError>
 	/** The installation's witness decoding for the role, the layer's (witness/index.ts). */
 	readonly witness: InstallationWitness
+	/**
+	 * What every decoder of the role's programs binds under besides its layout, the layer's: the shell's Option
+	 * vocabulary, and each roster's names in code order from the installation's codes, which a closed id's or a set's
+	 * cell is read by.
+	 */
+	readonly bind: BindContext
 }
 
 export interface DbContext extends RoleContext {

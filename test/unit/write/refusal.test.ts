@@ -12,7 +12,6 @@ import {
 	readLawDetail
 } from "#compiler/write/refusal.ts"
 import { assert } from "#test/support/assert.ts"
-import { encodeDetail } from "#test/support/detail.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /** The write refusal channel, without a database.
@@ -119,10 +118,9 @@ describe("the write refusal channel", () => {
 			})
 		})
 
-		it("reads a law function's DetailCodec DETAIL as another encoding's", () => {
-			assert.deepEqual(readLawDetail(encodeDetail({ relation: "Task", keys: ["id"] }, ["x"])), {
-				kind: "lawFunction"
-			})
+		it("reads a DETAIL under no tag of grizzle's as foreign, keeping its text", () => {
+			const foreign = 'w["Task","x"]'
+			assert.deepEqual(readLawDetail(foreign), { kind: "foreign", detail: foreign })
 		})
 	})
 })

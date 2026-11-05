@@ -1,16 +1,10 @@
-import type {
-	ConstraintName,
-	LawFunctionName,
-	NodeId,
-	ParamId,
-	PremiseObject
-} from "#compiler/core/ids.ts"
+import type { DeclaredName } from "#compiler/core/identity.ts"
+import type { ConstraintName, NodeId, ParamId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 
 /** The validity contexts evidence can hold in, from strongest to weakest scope. */
 export const evidenceContexts = [
-	"descriptor",
 	"immediate",
 	"committedSnapshot",
 	"validatedTx",
@@ -34,12 +28,11 @@ export const constraintKinds = [
 	"unique",
 	"check",
 	"domain",
-	"enum",
+	"rosterDomain",
 	"foreignKey",
 	"deferredForeignKey",
 	"withoutOverlaps",
 	"periodForeignKey",
-	"residualLaw",
 	"uniqueIndex"
 ] as const
 export type ConstraintKind = (typeof constraintKinds)[number]
@@ -61,14 +54,12 @@ export interface KeyConstraint {
 }
 
 /**
- * What enforces a containment: an installed constraint; a residual law's units, each function a premise, since every
- * unit checks what its own event can break; or the closed relation's enum type itself, whose roster the schema
- * fingerprint covers, so it is no premise.
+ * What enforces a containment: an installed constraint, or the roster's domain itself, which types the field, so every
+ * value is a live code of the roster, whose handles the schema fingerprint covers: no premise.
  */
 export type Enforcement =
 	| { readonly kind: "constraint"; readonly name: ConstraintName }
-	| { readonly kind: "residualLaw"; readonly functions: NonEmptyReadonlyArray<LawFunctionName> }
-	| { readonly kind: "type"; readonly enum: string }
+	| { readonly kind: "type"; readonly roster: DeclaredName }
 
 /** An installed containment proving that a referencing fact has a referenced one. */
 export interface ExistenceConstraint {
@@ -76,14 +67,28 @@ export interface ExistenceConstraint {
 	readonly to: { readonly relation: string; readonly fields: ReadonlyArray<string> }
 	readonly kind: Extract<
 		ConstraintKind,
-		"foreignKey" | "deferredForeignKey" | "periodForeignKey" | "residualLaw" | "enum"
+		"foreignKey" | "deferredForeignKey" | "periodForeignKey" | "rosterDomain" | "check"
 	>
 	readonly enforcement: Enforcement
 	/** The theory's validity context for the containment (theory/theory.ts ContainmentEvidence). */
 	readonly context: EvidenceContext
 }
 
-/** Resolves declared keys and containments to their installed constraints. */
+/**
+ * A declared closed relation as a query reads it whole (ir/rel.ts Closed, as the checker builds it), and what answers
+ * a membership of it without its facts: a roster, whose domain types every value of its closed id, so it holds every
+ * value a column of its type can hold; or a relation keyed by closed ids, whose installed key set (ir/physical.ts
+ * ClosedConstant keys) holds one bit per point of its key space. Its key fields in key order, then its payload fields,
+ * are its heading, and `facts` counts its facts.
+ */
+export interface ClosedEvidence {
+	readonly kind: "roster" | "relation"
+	readonly key: NonEmptyReadonlyArray<string>
+	readonly payload: ReadonlyArray<string>
+	readonly facts: number
+}
+
+/** Resolves declared keys, containments and closed relations to their installed constraints and constants. */
 export interface EvidenceCatalog {
 	/**
 	 * The constraint backing a declared key of a relation (its primary key, an additional key, or a derived
@@ -96,6 +101,8 @@ export interface EvidenceCatalog {
 	) => KeyConstraint | undefined
 	/** The containments the schema installs. */
 	readonly containments: ReadonlyArray<ExistenceConstraint>
+	/** A declared closed relation by its name, or undefined when the schema declares none of that name. */
+	readonly closed: (relation: string) => ClosedEvidence | undefined
 }
 
 /**
@@ -111,7 +118,7 @@ export interface EvidenceCatalog {
 export type Premise =
 	| {
 			readonly kind: "constraint"
-			readonly constraint: PremiseObject
+			readonly constraint: ConstraintName
 			readonly constraintKind: ConstraintKind
 	  }
 	| { readonly kind: "node"; readonly node: NodeId }
@@ -163,15 +170,14 @@ export const samePremise = (a: Premise, b: Premise): boolean => {
  * which no execution context provides, so neither admits it.
  */
 const admits: Readonly<Record<TemplateContext, ReadonlyArray<EvidenceContext>>> = {
-	snapshot: ["descriptor", "immediate", "committedSnapshot", "queryLocal"],
-	transaction: ["descriptor", "immediate", "queryLocal"]
+	snapshot: ["immediate", "committedSnapshot", "queryLocal"],
+	transaction: ["immediate", "queryLocal"]
 }
 
 export const contextAdmits = (execution: TemplateContext, item: EvidenceContext): boolean =>
 	admits[execution].includes(item)
 
 const contextRank: Readonly<Record<EvidenceContext, number>> = {
-	descriptor: 0,
 	queryLocal: 0,
 	immediate: 1,
 	validatedTx: 2,

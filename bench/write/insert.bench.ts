@@ -433,7 +433,10 @@ export default defineGate({
 						describedRepeat: scheduleText(describedRepeat),
 						conflict:
 							conflict.value.kind === "invariant-rejected"
-								? `invariant-rejected ${conflict.value.law.kind}`
+								? `invariant-rejected ${Arr.join(
+										Arr.map(conflict.value.laws, (l) => l.kind),
+										", "
+									)}`
 								: conflict.value.kind,
 						repeat: `${first.value.kind} then ${repeat.value.kind}`
 					}
@@ -573,7 +576,7 @@ export default defineGate({
 					equivalence(
 						"a committed different payload is a conflict, invariant-rejected with the key law",
 						conflict.value.kind === "invariant-rejected" &&
-							reported(conflict.value.law) === itemKey,
+							Arr.every(conflict.value.laws, (l) => reported(l) === itemKey),
 						outcomeText(conflict)
 					),
 					equivalence(

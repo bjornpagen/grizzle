@@ -1,5 +1,6 @@
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { rowText } from "#compiler/core/decoder.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /** One positional row of PostgreSQL's output texts to a host value, trusting the texts. */
@@ -23,12 +24,14 @@ interface DecodedColumn {
  * output of a value of its column's type, so a conversion checks nothing (values/convert.ts), and a row of the wrong
  * width is a defect of grizzle's own SQL.
  *
- * The converter of rows with this heading into frozen positional arrays, whose column names need not be distinct.
+ * The converter of rows with this heading into frozen positional arrays, whose column names need not be distinct, a
+ * closed id's and a set's cells read by the installation's codes.
  */
 export const tupleConverter = (
-	columns: ReadonlyArray<DecodedColumn>
+	columns: ReadonlyArray<DecodedColumn>,
+	codes: Codebook
 ): RowConverter<ReadonlyArray<unknown>> => {
-	const converters = columns.map((column) => scalarCodec(column.type).convert)
+	const converters = columns.map((column) => scalarCodec(column.type, codes).convert)
 	return (row) => {
 		const out: Array<unknown> = []
 		let i = 0

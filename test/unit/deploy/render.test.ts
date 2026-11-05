@@ -1,11 +1,11 @@
 import { describe, it } from "@effect/vitest"
 import { Array as Arr } from "effect"
 import {
+	confirmMarker,
 	findMarkers,
 	isNoTransaction,
 	noTransactionMarker,
-	placeholderMarker,
-	renameMarker
+	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
@@ -21,12 +21,12 @@ describe("markers", () => {
 		assert.equal(isNoTransaction(`SELECT 1; ${noTransactionMarker}`), false)
 	})
 
-	it("finds every unresolved placeholder and candidate rename, by line", () => {
+	it("finds every unresolved placeholder and confirmation, by line", () => {
 		const text = Arr.join(
 			[
 				`${placeholderMarker}: supply the value`,
 				`ALTER TABLE "s"."t" ADD COLUMN "c" integer DEFAULT ${placeholderToken} NOT NULL;`,
-				`  ${renameMarker}: maybe`,
+				`  ${confirmMarker}: the roster drops a handle`,
 				"SELECT 1;"
 			],
 			"\n"
@@ -34,7 +34,7 @@ describe("markers", () => {
 		assert.deepEqual(findMarkers(text), [
 			{ kind: "placeholder", line: 1 },
 			{ kind: "placeholder", line: 2 },
-			{ kind: "rename", line: 3 }
+			{ kind: "confirm", line: 3 }
 		])
 		assert.deepEqual(
 			findMarkers(`ALTER TABLE "s"."t" ADD COLUMN "c" integer DEFAULT 0 NOT NULL;`),

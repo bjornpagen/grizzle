@@ -1,5 +1,6 @@
 import type { Result } from "effect"
 import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
@@ -45,16 +46,22 @@ export const types = {
 	uuid: ofCarrier("uuid", scalarOf(f.uuid, {})),
 	text: ofCarrier("text", wildcardText),
 	kind: ofCarrier(
-		"enum",
+		"code",
 		scalarOf(f.closedId("Kind"), { Kind: ["Manual", "Automatic", "Ünïcode"] })
+	),
+	kinds: ofCarrier(
+		"bits",
+		scalarOf({ kind: "bits", roster: "Kind" }, { Kind: ["Manual", "Automatic", "Ünïcode"] })
 	),
 	range4: ofCarrier("range4", scalarOf(f.span(f.integer, undefined), {})),
 	range8: ofCarrier("range8", scalarOf(f.span(f.bigint, undefined), {})),
 	vector3: ofCarrier("vector", scalarOf({ kind: "vector", dimensions: 3 }, {})),
 	embedding: ofCarrier("vector", scalarOf({ kind: "vector", dimensions: 4 }, {})),
-	cents: ofCarrier("int8", scalarOf(f.contract("Cents", f.bigint, undefined), {})),
-	serial8: ofCarrier("int8", scalarOf({ kind: "serial", type: "bigserial" }, {}))
+	cents: ofCarrier("int8", scalarOf(f.contract("Cents", f.bigint, undefined), {}))
 } as const satisfies Readonly<Record<string, ScalarType>>
+
+/** The codes a fresh installation gives the codec tests' one roster, Kind: Manual 0, Automatic 1, Ünïcode 2. */
+export const kindCodes: Codebook = firstCodebook([types.kind.roster])
 
 /**
  * A type's codec beside the kernel's strict reader of its output texts (test/support/kernel/strict.ts): `read` is what
@@ -64,5 +71,6 @@ export interface TestCodec extends ScalarCodec {
 	readonly read: (text: string) => Result.Result<CarrierHost[Carrier], StrictFault>
 }
 
-export const codecOf = (type: ScalarType): TestCodec =>
-	Object.freeze({ ...scalarCodec(type), read: strictReader(type) })
+/** The codec of `type` under the installation's codes `codes`, which a closed id or a set encodes against. */
+export const codecOf = (type: ScalarType, codes: Codebook): TestCodec =>
+	Object.freeze({ ...scalarCodec(type, codes), read: strictReader(type, codes) })

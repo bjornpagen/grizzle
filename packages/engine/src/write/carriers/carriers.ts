@@ -10,7 +10,6 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
 import { columnIn, columnType, emptyEnv } from "#compiler/lower/conservative/context.ts"
-import { withoutSerial } from "#compiler/scalar/compute/types.ts"
 import type {
 	Analyze,
 	ColumnDef,
@@ -352,7 +351,7 @@ export const buildFillCarrier = (
 	})
 }
 
-/** A carrier for the facts of a relation, its fields in heading order, serial generation flags dropped, the order a
+/** A carrier for the facts of a relation, its fields in heading order, the order a
  * read-back's Delta node reads position by position. */
 export const relationCarrier = (supply: CarrierSupply, relation: RelationInfo): Carrier =>
-	supply.next(relation.heading.map((f) => ({ name: f.name, type: withoutSerial(f.type) })))
+	supply.next(relation.heading.map((f) => ({ name: f.name, type: f.type })))

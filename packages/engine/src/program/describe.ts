@@ -1,10 +1,12 @@
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LoweredProgram } from "#compiler/ir/products.ts"
 import { compileQuery, queryInput, querySchema } from "#compiler/program/compile.ts"
-import { schemaArtifacts } from "#compiler/program/schema.ts"
+import { type SchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
+import { type Owned, own, ownRole, rostersOf } from "#compiler/schema/own.ts"
 
 /**
  * describeQuery and lowerQuery: the inspection vocabulary over query values, internal to the engine (tests, the golden
@@ -27,7 +29,21 @@ export const describeQuery = (query: unknown): Json => {
 	return description.value
 }
 
-/** The entry point compiles for the snapshot context, before any admission, read as rows. */
+/** The schema a query's artifacts are computed over, owned: a role's base, or the schema itself. */
+const ownedOf = (input: SchemaInput): Result.Result<Owned, CompileError> => {
+	switch (input.kind) {
+		case "owned":
+			return Result.ok(input.owned)
+		case "role":
+			return Result.map(ownRole(input.desc), (role) => role.base)
+		case "built":
+		case "desc":
+			return own(input.desc)
+	}
+}
+
+/** The entry point compiles for the snapshot context, before any admission, read as rows, under a fresh installation's
+ * codes of the schema's rosters (ir/codes.ts firstCodebook). */
 export const lowerQuery = (query: unknown): Result.Result<LoweredProgram, CompileError> => {
 	const input = queryInput(query)
 	if (!input.ok) {
@@ -37,9 +53,14 @@ export const lowerQuery = (query: unknown): Result.Result<LoweredProgram, Compil
 	if (!source.ok) {
 		return source
 	}
+	const owned = ownedOf(source.value.schema)
+	if (!owned.ok) {
+		return owned
+	}
 	const artifacts = schemaArtifacts(source.value.schema, {
 		installation: undefined,
-		vectorSchema: undefined
+		vectorSchema: undefined,
+		codes: firstCodebook(rostersOf(owned.value))
 	})
 	if (!artifacts.ok) {
 		return artifacts

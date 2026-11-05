@@ -158,7 +158,7 @@ raceSuite<RefundSketch>({
 	kept: [],
 	required: [
 		...commonRequired,
-		"law family hit: capacity",
+		"law family hit: check",
 		"law family hit: containment",
 		"planted: refunds summing to the invoice exactly",
 		"planted: a refund one micro over what is left refused",

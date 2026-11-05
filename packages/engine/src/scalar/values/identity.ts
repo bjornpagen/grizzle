@@ -4,6 +4,7 @@ import { hostRead } from "#compiler/core/host.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints, validateText } from "#compiler/core/text.ts"
+import { codeOf, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { Decimal, type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { compareFloat, floatText, toDouble, toReal } from "#compiler/scalar/values/float.ts"
@@ -15,15 +16,38 @@ import { admitEncodable, isVector, Vector } from "#compiler/scalar/values/vector
 
 export type { Carrier }
 
-type PlainCarrier = Exclude<Carrier, "numeric" | "enum" | "vector" | "range4" | "range8">
+type PlainCarrier = Exclude<Carrier, "numeric" | "code" | "bits" | "vector" | "range4" | "range8">
 
-/** What a carrier needs beyond its name to admit a value. */
+/**
+ * What a carrier needs beyond its name to admit a value. A closed id and a set over a roster carry the roster's codes,
+ * which the installation holds: a handle is written as its code, and a set as one bit per code.
+ */
 export type CarrierSpec =
 	| { readonly carrier: PlainCarrier }
 	| { readonly carrier: "numeric"; readonly typmod: NumericTypmod | undefined }
-	| { readonly carrier: "enum"; readonly handles: ReadonlyArray<string> }
+	| { readonly carrier: "code"; readonly roster: RosterCodec }
+	| { readonly carrier: "bits"; readonly roster: RosterCodec }
 	| { readonly carrier: "vector"; readonly dimensions: number }
 	| { readonly carrier: "range4" | "range8"; readonly width: bigint | undefined }
+
+/**
+ * A carrier spec as plain data, what its canonical text encodes: a closed id's or a set's spec by its roster's name
+ * and its names in code order, a hole the empty name, which are its codec's whole content; its lookup Map is derived
+ * from them and no canonical encoding reads one. Two specs of equal content encode equally.
+ */
+export type SpecContent =
+	| Exclude<CarrierSpec, { readonly carrier: "code" | "bits" }>
+	| {
+			readonly carrier: "code" | "bits"
+			readonly roster: string
+			readonly names: ReadonlyArray<string>
+	  }
+
+/** A spec's content (SpecContent). */
+export const specContent = (spec: CarrierSpec): SpecContent =>
+	spec.carrier === "code" || spec.carrier === "bits"
+		? { carrier: spec.carrier, roster: spec.roster.roster, names: spec.roster.names }
+		: spec
 
 export interface CarrierHost {
 	readonly int2: number
@@ -36,7 +60,10 @@ export interface CarrierHost {
 	readonly bool: boolean
 	readonly uuid: string
 	readonly text: string
-	readonly enum: string
+	/** A closed id's host value is its handle. */
+	readonly code: string
+	/** A set's host value is its handles. */
+	readonly bits: ReadonlySet<string>
 	readonly range4: Span<number>
 	readonly range8: Span<bigint>
 	readonly vector: Vector
@@ -58,7 +85,8 @@ interface SpecExtras {
 	readonly bool: unknown
 	readonly uuid: unknown
 	readonly text: unknown
-	readonly enum: { readonly handles: ReadonlyArray<string> }
+	readonly code: { readonly roster: RosterCodec }
+	readonly bits: { readonly roster: RosterCodec }
 	readonly vector: { readonly dimensions: number }
 	readonly range4: { readonly width: bigint | undefined }
 	readonly range8: { readonly width: bigint | undefined }
@@ -79,7 +107,9 @@ type Admitters = {
 		spec: SpecOf<C>
 	) => Result.Result<CarrierHost[C], ValueFault>
 }
-type CanonicalTexts = { readonly [C in Carrier]: (value: CarrierHost[C]) => string }
+type CanonicalTexts = {
+	readonly [C in Carrier]: (value: CarrierHost[C], spec: SpecOf<C>) => string
+}
 type Comparators = {
 	readonly [C in Carrier]: (a: CarrierHost[C], b: CarrierHost[C], spec: SpecOf<C>) => -1 | 0 | 1
 }
@@ -106,6 +136,36 @@ const admitDecimal = (
 const admitVector = (value: unknown, dimensions: number): Result.Result<Vector, ValueFault> =>
 	admitEncodable(value, dimensions)
 
+/** A closed id's handle: a string the roster holds live, whose code the codec writes. */
+const admitHandle = (value: unknown, roster: RosterCodec): Result.Result<string, ValueFault> =>
+	typeof value === "string" && roster.codeOf.has(value)
+		? Result.ok(value)
+		: Result.err("codeHandle")
+
+/**
+ * A set of a roster's handles, read once into a fresh frozen Set, so a later change to the caller's Set changes no
+ * admitted value: a Set whose members are strings, each a handle the roster holds live.
+ */
+const admitHandles = (
+	value: unknown,
+	roster: RosterCodec
+): Result.Result<ReadonlySet<string>, ValueFault> => {
+	if (!(value instanceof Set)) {
+		return Result.err("bitsType")
+	}
+	const handles = new Set<string>()
+	for (const member of value) {
+		if (typeof member !== "string") {
+			return Result.err("bitsType")
+		}
+		if (!roster.codeOf.has(member)) {
+			return Result.err("bitsMember")
+		}
+		handles.add(member)
+	}
+	return Result.ok(Object.freeze(handles))
+}
+
 const admitters: Admitters = {
 	int2: (value) => toInt2(value),
 	int4: (value) => toInt4(value),
@@ -117,10 +177,8 @@ const admitters: Admitters = {
 	bool: (value) => (typeof value === "boolean" ? Result.ok(value) : Result.err("boolType")),
 	uuid: (value) => toUuid(value),
 	text: (value) => validateText(value),
-	enum: (value, spec) =>
-		typeof value === "string" && spec.handles.includes(value)
-			? Result.ok(value)
-			: Result.err("enumHandle"),
+	code: (value, spec) => admitHandle(value, spec.roster),
+	bits: (value, spec) => admitHandles(value, spec.roster),
 	range4: (value, spec) => admitSpan("int4", value, spec.width),
 	range8: (value, spec) => admitSpan("int8", value, spec.width),
 	vector: (value, spec) => admitVector(value, spec.dimensions),
@@ -145,7 +203,8 @@ export const unreadableFault: { readonly [C in Carrier]: ValueFault } = {
 	bool: "boolType",
 	uuid: "uuidSyntax",
 	text: "textType",
-	enum: "enumHandle",
+	code: "codeHandle",
+	bits: "bitsType",
 	range4: "spanType",
 	range8: "spanType",
 	vector: "vectorType",
@@ -167,6 +226,8 @@ export const admitValue = <C extends Carrier>(
 const isNumber = (value: unknown): value is number => typeof value === "number"
 const isBigint = (value: unknown): value is bigint => typeof value === "bigint"
 const isString = (value: unknown): value is string => typeof value === "string"
+const isStringSet = (value: unknown): value is ReadonlySet<string> =>
+	value instanceof Set && Array.from(value).every(isString)
 const isSpanOf =
 	<E extends number | bigint>(isEndpoint: (value: unknown) => value is E) =>
 	(value: unknown): value is Span<E> =>
@@ -189,7 +250,8 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	bool: (value) => typeof value === "boolean",
 	uuid: isString,
 	text: isString,
-	enum: isString,
+	code: isString,
+	bits: isStringSet,
 	range4: isSpanOf(isNumber),
 	range8: isSpanOf(isBigint),
 	vector: isVector,
@@ -217,7 +279,8 @@ const canonicalTexts: CanonicalTexts = {
 	money: (v) => v.toString(),
 	uuid: (v) => v,
 	text: (v) => v,
-	enum: (v) => v,
+	code: (v, spec) => String(codeOf(spec.roster, v)),
+	bits: (v, spec) => handlesText(spec.roster, v),
 	range4: (v) => spanText(v),
 	range8: (v) => spanText(v),
 	vector: (v) => Vector.componentText(v),
@@ -240,7 +303,8 @@ const canonicalTexts: CanonicalTexts = {
  *   one zero): numeric 1.0 = 1.00 are one Decimal written 1, NaN = NaN, -0 = +0, text by exact scalar sequence. It is
  *   the parameter text, the array element and the fact identity's part alike (codec/scalar.ts text).
  * - `compareValues` is PostgreSQL's B-tree order for the type: float and numeric total orders with NaN last, text in
- *   code point order, uuid by bytes, closed handles in roster order, spans by start then end, vectors as vector_cmp.
+ *   code point order, uuid by bytes, closed ids by code, which is roster order, spans by start then end, vectors as
+ *   vector_cmp, and sets by their bit strings, an order internal to the host, since a set has no ordering.
  * - `factIdentity` admits a whole fact against its heading and gives it one text, so two facts are the same fact
  *   exactly when their texts are equal: the identity ChangeSet normalization and exact-repeat checks use.
  *
@@ -253,8 +317,8 @@ export const canonicalText = <C extends Carrier>(
 	value: CarrierHost[C]
 ): string => {
 	const own: SpecOf<C> = spec
-	const text: (value: CarrierHost[C]) => string = canonicalTexts[own.carrier]
-	return text(value)
+	const text: (value: CarrierHost[C], spec: SpecOf<C>) => string = canonicalTexts[own.carrier]
+	return text(value, own)
 }
 
 const sign = (n: number): -1 | 0 | 1 => (n < 0 ? -1 : n > 0 ? 1 : 0)
@@ -273,7 +337,8 @@ const comparators: Comparators = {
 	bool: (x, y) => (x === y ? 0 : x ? 1 : -1),
 	uuid: (x, y) => compareOrdered(x, y),
 	text: (x, y) => compareCodePoints(x, y),
-	enum: (x, y, spec) => sign(spec.handles.indexOf(x) - spec.handles.indexOf(y)),
+	code: (x, y, spec) => sign(codeOf(spec.roster, x) - codeOf(spec.roster, y)),
+	bits: (x, y, spec) => compareOrdered(handlesText(spec.roster, x), handlesText(spec.roster, y)),
 	range4: (x, y) => compareSpan(x, y),
 	range8: (x, y) => compareSpan(x, y),
 	vector: (x, y) => Vector.compare(x, y),

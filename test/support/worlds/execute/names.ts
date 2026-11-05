@@ -1,18 +1,24 @@
 import { Array as Arr, Effect, Record as Rec } from "effect"
-import { identifierOf } from "#compiler/core/identity.ts"
+import { fromEngine } from "#adapter/engine.ts"
+import { everyProperty } from "#compiler/core/canonical.ts"
+import { constantDigest } from "#compiler/core/fingerprint.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { loginIdentity, roleIdentity } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Statement } from "#compiler/public/schema.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { namedRelation } from "#compiler/schema/relation.ts"
 import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
 import {
 	type InstalledAt,
 	installationNamesOf,
-	installationOf,
+	installationWith,
 	parsedName
 } from "#test/support/kernel/naming.ts"
+import { ownedInput } from "#test/support/policy.ts"
 import { type Built, buildInstall } from "#test/support/worlds/execute/build.ts"
 import { domainLawKey } from "#test/support/worlds/model/session/domains.ts"
 import type {
@@ -25,7 +31,7 @@ import type {
 
 /**
  * The names the compiler gives an installation, read from its compilation through the kernel's naming door
- * (kernel/naming.ts installationOf and installationNamesOf), never spelled: each relation's table and columns, each
+ * (kernel/naming.ts installationWith and installationNamesOf), never spelled: each relation's table and columns, each
  * law's identities, and each role's and login's PostgreSQL role.
  */
 const isAlternatives = (statement: Statement): statement is AlternativesBase & Statement =>
@@ -45,18 +51,13 @@ const lawIdsOf = (
 				)
 			}
 			const laws = names.alternativesOf(statement)
-			return Effect.succeed({
-				kind: "alternatives",
-				arms: laws.arms,
-				reverse: laws.reverse
-			})
+			return Effect.succeed({ kind: "alternatives", arms: laws.arms, reverse: laws.reverse })
 		}
 		case "key":
 		case "spanKey":
 		case "check":
 		case "contained":
 		case "covered":
-		case "capacity":
 			return Effect.succeed({ kind: law.kind, law: names.lawOf(statement) })
 	}
 }
@@ -70,14 +71,32 @@ export const installedRoleName = (installation: Installation, name: string): str
 		roleIdentity(installation.names.installation, parsedName(name), SourceLoc(`world ${name}`, []))
 	)
 
-/** The names of the installation of `built` (the values of `spec`), installed under the schema `at` names. */
+/**
+ * The names of a fresh installation of `built` (the values of `spec`), installed under the schema `at` names: its
+ * rosters' codes a first installation's, every handle in declared order.
+ */
 export const namesOfBuilt = (
 	spec: InstallSpec,
 	built: Built,
 	at: InstalledAt
 ): Effect.Effect<InstalledNames> =>
+	Effect.flatMap(Effect.orDie(fromEngine(ownedInput(built.base))), (owned) =>
+		namesOfBuiltAt(spec, built, at, firstCodebook(rostersOf(owned)))
+	)
+
+/**
+ * The names of the installation of `built` (the values of `spec`), installed under the schema `at` names with the
+ * roster codes `codes`, those the installed snapshot holds, holes and all (D17), which a roster's names constant is
+ * named by.
+ */
+export const namesOfBuiltAt = (
+	spec: InstallSpec,
+	built: Built,
+	at: InstalledAt,
+	codes: Codebook
+): Effect.Effect<InstalledNames> =>
 	Effect.gen(function* () {
-		const installation = yield* Effect.sync(() => installationOf(built.base, at))
+		const installation = yield* Effect.sync(() => installationWith(built.base, at, codes))
 		const names = installationNamesOf(installation)
 		const schema = installation.names.schema
 		const laws = yield* Effect.forEach(spec.base.laws, (law, i) => {
@@ -151,6 +170,21 @@ export const namesOfBuilt = (
 				Arr.map(spec.base.relations, (r) => [r.name, names.primaryKeyLaw(r)] as const)
 			),
 			laws,
+			rosterConstants: Rec.fromEntries(
+				Arr.map(
+					[...installation.names.codes.rosters],
+					([roster, codec]) =>
+						[
+							roster,
+							identifierOf(
+								identity.rosterConstant(
+									roster,
+									constantDigest("roster-names", codec.names, everyProperty)
+								)
+							)
+						] as const
+				)
+			),
 			roles: Rec.fromEntries(Arr.map(spec.roles, (r) => [r.name, roleOf(r.name)] as const)),
 			logins: Rec.fromEntries(
 				Arr.map(

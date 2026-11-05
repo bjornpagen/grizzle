@@ -40,7 +40,7 @@ import {
 	netStrata as oracleNetStrata,
 	stateDelta
 } from "#test/support/oracle/delta.ts"
-import { compiled, cs, Ledger } from "#test/unit/write/changeset/fixtures.ts"
+import { codesOf, compiled, cs, Ledger } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Deltas and counts netted across strata, checked against the
  * test oracle's definitions over every sequence of per-stratum changes, and over the
@@ -215,7 +215,7 @@ describe("a stratum's change is a set difference", () => {
 				if (ticket === undefined) {
 					throw new Error("Ticket")
 				}
-				const identity = relationIdentity(ticket.heading)
+				const identity = relationIdentity(ticket.heading, codesOf(Ledger))
 				const factSet = (facts: Iterable<Fact>): FactSet =>
 					new Map(Arr.map([...facts], (f) => [identity(f), f]))
 				yield* searched(
@@ -401,10 +401,11 @@ describe("relation identity", () => {
 				if (note === undefined) {
 					throw new Error("TaskNote")
 				}
-				const id = relationIdentity(note.heading)
+				const codes = codesOf(Work)
+				const id = relationIdentity(note.heading, codes)
 				const fields = Arr.map(note.heading, (c) => ({
 					name: c.name,
-					spec: scalarCodec(c.type).spec
+					spec: scalarCodec(c.type, codes).spec
 				}))
 				yield* searched(
 					ctx,

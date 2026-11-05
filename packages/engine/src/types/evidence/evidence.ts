@@ -69,9 +69,8 @@ type Card = "many" | "atMostOne" | "one"
  *
  * The query type serves Db's reads, which may rely on lawful committed snapshots. A read inside a write transaction, a
  * read-back (changes.read), uses immediate evidence only. Of the two proofs, only a containment that is not immediate
- * differs: a containment into closed facts whose source field is already of the roster's type is a descriptor fact
- * (analysis/theory/theory.ts), and every other containment lowers to a deferrable foreign key or a residual law that
- * may be false before COMMIT. A read-back reads a stated one child as an Option whatever the proof (query.ts
+ * differs: a containment into a roster is its domain's, and one into a closed relation a table CHECK, both immediate;
+ * every other containment lowers to a foreign key, which may be deferred and so false before COMMIT. A read-back reads a stated one child as an Option whatever the proof (query.ts
  * ReadBack), which is at most one child under either reading, so the evidence carries the snapshot card alone. An
  * alternatives arm keyed by the parent's key is at most one child under both readings: its stated arm narrows it to
  * Some in the records the parent's handle selects and None in the others, which the `arm` the evidence records

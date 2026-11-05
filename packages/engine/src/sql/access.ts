@@ -115,9 +115,6 @@ export const relationAccess = (statement: SqlStatement): RelationAccess => {
 		case "renameConstraint":
 		case "createDomain":
 		case "alterDomain":
-		case "createEnum":
-		case "alterEnumAddValue":
-		case "alterEnumRenameValue":
 		case "createIndex":
 		case "dropIndex":
 		case "createMaterializedView":
@@ -128,7 +125,8 @@ export const relationAccess = (statement: SqlStatement): RelationAccess => {
 		case "dropFunction":
 		case "dropTrigger":
 		case "createFunction":
-		case "createConstraintTrigger":
+		case "packConstant":
+		case "createConstant":
 		case "createGuardTrigger":
 		case "alterDatabaseDefault":
 		case "createRole":

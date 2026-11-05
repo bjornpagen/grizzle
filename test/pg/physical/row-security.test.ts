@@ -8,6 +8,7 @@ import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
 import { migrated, type Version, withDb, worldRoleOf } from "#test/support/installed.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -112,7 +113,7 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 						later,
 						apply: { kind: "noPlaceholders" },
 						register: true,
-						renames: "kept",
+						declared: () => noDeclarations,
 						observe: Option.some((i: number, owner: RawSession) =>
 							Effect.gen(function* () {
 								const b = defined(built[i], `version ${i}`)

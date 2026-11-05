@@ -73,8 +73,8 @@ export const factStatements = (
 		if (!Rec.has(plan.tables, relation)) {
 			return refuse(
 				formatLoc(SourceLoc(`facts of ${relation}`, [plan.declared, "facts", relation])),
-				Rec.has(plan.enums, relation)
-					? `${relation} is a closed relation, whose facts the schema declares`
+				Rec.has(plan.rosters, relation)
+					? `${relation} is a roster, whose handles the schema declares`
 					: `${relation} is no stored relation of the installed schema`
 			)
 		}

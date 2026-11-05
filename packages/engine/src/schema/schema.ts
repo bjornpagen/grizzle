@@ -74,7 +74,7 @@ const statementList = (
 		if (desc === undefined) {
 			throw malformed(
 				`${label} statement ${i}`,
-				"a statement built by key, mutable, check, contained, mirrors, alternatives or capacity"
+				"a statement built by key, mutable, check, contained, mirrors, alternatives, ordered, counted, tree or fold"
 			)
 		}
 		return [desc]

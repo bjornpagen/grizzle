@@ -5,6 +5,7 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { Compute, type Predicate, type Term } from "#compiler/public/compute.ts"
@@ -414,7 +415,12 @@ layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => 
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const names = productionNames("Network", { kind: "declared" }, localVectorSchema)
+					const names = productionNames(
+						"Network",
+						{ kind: "declared" },
+						localVectorSchema,
+						emptyCodebook
+					)
 					return yield* exhaust(
 						{
 							suite: "recursion/lowering/counters",

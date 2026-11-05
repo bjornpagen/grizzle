@@ -82,7 +82,8 @@ export interface ProjectedCatalog {
 		/** pg_index.indisvalid: a fresh install builds every index valid. */
 		readonly valid: boolean
 	}>
-	readonly enums: ReadonlyArray<{ readonly name: string; readonly labels: ReadonlyArray<string> }>
+	/** The pg_enum rows of the schema's types: none, a roster being a smallint domain. */
+	readonly enumLabels: number
 	readonly domains: ReadonlyArray<{
 		readonly name: string
 		readonly base: ProjectedType
@@ -127,7 +128,9 @@ const builtinTypname: { readonly [K in BuiltinTypeName]: string } = {
 	int8range: "int8range",
 	int4multirange: "int4multirange",
 	int8multirange: "int8multirange",
-	record: "record"
+	record: "record",
+	"bit varying": "varbit",
+	name: "name"
 }
 
 const cUtf8 = "pg_catalog.pg_c_utf8"
@@ -204,9 +207,6 @@ export const projectCatalog = (catalog: Catalog): ProjectedCatalog => {
 	for (const s of catalog.sequences) {
 		put("sequence", s.name, s.grants)
 	}
-	for (const e of catalog.enums) {
-		put("type", e.name, e.grants)
-	}
 	for (const d of catalog.domains) {
 		put("type", d.name, d.grants)
 	}
@@ -254,7 +254,7 @@ export const projectCatalog = (catalog: Catalog): ProjectedCatalog => {
 				valid: i.valid
 			}))
 		),
-		enums: byName(Arr.map(catalog.enums, (e) => ({ name: e.name, labels: e.labels }))),
+		enumLabels: catalog.enumLabels,
 		domains: byName(
 			Arr.map(catalog.domains, (d) => ({
 				name: d.name,
@@ -326,8 +326,8 @@ const expectedGeneration = (g: ColumnDef["generated"]): ProjectedGeneration => {
  *
  * The expectation is derived from the installation's structured SQL AST, never from its text, and the projection keeps
  * what the manifest decides: names, column order and types, NOT NULL, collation, identities and generated columns,
- * constraint kinds, columns, references, deferral and validation, index methods, columns, uniqueness and validity, enum
- * labels in order, domain bases and constraint names, sequence ownership, role defaults, and every non-owner grant.
+ * constraint kinds, columns, references, deferral and validation, index methods, columns, uniqueness and validity, no
+ * pg_enum row, domain bases and constraint names, sequence ownership, role defaults, and every non-owner grant.
  * Expression texts (CHECK bodies, predicates, generation expressions) are PostgreSQL's deparse and are checked by the
  * erasure verifier's shape rules instead (verify.ts).
  *
@@ -343,6 +343,9 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 		}
 	}
 	const projectType = (t: TypeRef): ProjectedType => {
+		if (t.kind === "builtin" && t.name === "bit") {
+			return { schema: "pg_catalog", name: "bit", typmod: t.length }
+		}
 		if (t.kind === "builtin") {
 			const name = builtinTypname[t.name]
 			const typmod =
@@ -379,7 +382,6 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 		}
 	>()
 	const indexes: Array<ProjectedCatalog["indexes"][number]> = []
-	const enums: Array<ProjectedCatalog["enums"][number]> = []
 	const sequences: Array<ProjectedCatalog["sequences"][number]> = []
 	const grants: Array<ProjectedGrant> = []
 	const roles = new Map<
@@ -428,7 +430,6 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 				return Arr.map(g.on.names, (n) => ["table", objectKey(n)] as const)
 			case "SEQUENCE":
 				return Arr.map(g.on.names, (n) => ["sequence", n.name] as const)
-			case "TYPE":
 			case "DOMAIN":
 				return Arr.map(g.on.names, (n) => ["type", n.name] as const)
 			case "FUNCTION":
@@ -509,9 +510,6 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 				})
 				break
 			}
-			case "createEnum":
-				enums.push({ name: s.name.name, labels: s.labels })
-				break
 			case "createRole":
 				roles.set(s.name, { login: s.login, config: [], memberOf: [] })
 				break
@@ -534,19 +532,18 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			case "renameColumn":
 			case "renameConstraint":
 			case "lockTable":
-			case "createConstraintTrigger":
 			case "createGuardTrigger":
 			case "dropTrigger":
 			case "createMaterializedView":
 			case "drop":
 			case "revoke":
 			case "createStatistics":
-			case "alterEnumAddValue":
-			case "alterEnumRenameValue":
 			case "dropIndex":
 			case "createDomain":
 			case "alterDomain":
 			case "createFunction":
+			case "createConstant":
+			case "packConstant":
 			case "dropFunction":
 			case "refresh":
 			case "dropPolicy":
@@ -616,7 +613,7 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			}))
 		),
 		indexes: byName(indexes),
-		enums: byName(enums),
+		enumLabels: 0,
 		domains: byName(
 			Arr.map([...domains.values()], (d) => ({
 				name: d.name.name,

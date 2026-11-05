@@ -193,7 +193,7 @@ export const applyFacts = (db: PlatformDb, f: PlatformFacts) =>
 		if (outcome.kind === "invariant-rejected") {
 			return yield* Effect.die(
 				new LoadRefused({
-					reason: `the load was refused by ${Formatter.format(outcome.law)}: ${Formatter.format(outcome.witness)}`
+					reason: `the load was refused by ${Formatter.format(outcome.laws)}: ${Formatter.format(outcome.witness)}`
 				})
 			)
 		}
@@ -593,7 +593,7 @@ const carrier = (type: ScalarType, host: unknown, what: string): Value => {
 			break
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
 			if (typeof host === "string") {
 				return host
 			}
@@ -614,6 +614,7 @@ const carrier = (type: ScalarType, host: unknown, what: string): Value => {
 		case "money":
 		case "exactMoney":
 		case "vector":
+		case "bits":
 			break
 	}
 	throw new Error(`${what}: a ${type.carrier} column delivered ${typeof host} ${String(host)}`)

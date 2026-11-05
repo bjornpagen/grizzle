@@ -1,4 +1,4 @@
-import { handleColumn } from "#compiler/core/decoder.ts"
+import { codeColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -26,7 +26,9 @@ import {
 	type LowerEnv,
 	type Lowered,
 	lowerPredicate,
+	adoptedType,
 	lowerTerm,
+	noClosedRelations,
 	noParams
 } from "#compiler/scalar/compute/lower.ts"
 
@@ -45,6 +47,7 @@ import {
 	type SignedSql
 } from "#compiler/scalar/compute/tables.ts"
 
+import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
 	type GuardValue,
 	guarded,
@@ -61,7 +64,7 @@ import {
 	termOf,
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
-import { compatible, plainType, withoutSerial } from "#compiler/scalar/compute/types.ts"
+import { compatible, plainType } from "#compiler/scalar/compute/types.ts"
 import {
 	carrierSql,
 	describeField,
@@ -279,10 +282,19 @@ class Call {
 		return malformed(this.loc, `a predicate as ${what}`)
 	}
 
+	/**
+	 * A literal operand opposite a term of `anchor`, checked here at the type the lowering gives it (adoptedType, as an
+	 * operand, the more permissive role), since its placeholder, not the literal, is what the builder's lowering meets:
+	 * a value no role admits is refused when the term is built. A contract's predicate and a regex stay compilation's.
+	 */
 	literal(value: unknown, anchor: ScalarType): LiteralDesc {
 		const literal = literalDescFor(anchor, value)
 		if (!literal.ok) {
 			return malformed(this.loc, describeFault(literal.error))
+		}
+		const carried = irLiteral(literal.value, adoptedType(anchor, "operand"))
+		if (!carried.ok) {
+			return malformed(this.loc, carried.error)
 		}
 		return literal.value
 	}
@@ -328,6 +340,9 @@ class Call {
 		return {
 			mode: "build",
 			loc: this.loc,
+			closed: noClosedRelations(
+				"a builder types its term over its operands, which hold any closed read already typed"
+			),
 			emit: exprEmitter("b"),
 			leaf: (desc) => {
 				const index =
@@ -356,12 +371,16 @@ class Call {
 		return { expr: real, type: typed.value.nominal }
 	}
 
-	/** finish of an expression whose value is plain: an enum's, a span's and a vector's values are no plain value. */
+	/**
+	 * finish of an expression whose value is plain: a closed id's, a set's, a span's and a vector's values are no plain
+	 * value.
+	 */
 	finishPlain(real: OpenExpr, ph: ExprDesc): PlainChecked {
 		const checked = this.finish(real, ph)
 		const carrier = baseOf(checked.type).carrier
 		if (
-			carrier === "enum" ||
+			carrier === "code" ||
+			carrier === "bits" ||
 			carrier === "range4" ||
 			carrier === "range8" ||
 			carrier === "vector"
@@ -520,6 +539,21 @@ const variadic =
 		return { ...call.finish(real, ph), carrier }
 	}
 
+/**
+ * A set's union, intersection or difference with another set over its roster: the first operand's value, so its
+ * carrier's. The second is a term or a parameter of the first's type, never a literal, which a set over the roster
+ * literally is (Bits.of).
+ */
+const setOperation =
+	(fn: "union" | "intersection" | "difference") =>
+	(a: unknown, b: unknown, extra: ReadonlyArray<unknown>): CarriedChecked => {
+		if (extra.length > 0) {
+			return malformed(captureLoc(`Compute.${fn}`, []), `two sets for ${fn}`)
+		}
+		const { call, real, ph, carrier } = computeCall(fn, "term", [a, b])
+		return { ...call.finish(real, ph), carrier }
+	}
+
 /** Compute.and and Compute.or, total: of no predicate the constant true and false, of one that predicate. */
 const boolean =
 	(kind: "and" | "or") =>
@@ -572,7 +606,8 @@ const zeroOf = (t: ScalarType): unknown => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -739,7 +774,7 @@ const when = (guard: unknown, branch: unknown, otherwise: unknown): CarriedCheck
 
 /** A literal of a descriptor's type, built by `call`: the value is checked as a value of that type. */
 const typedLiteral = (call: Call, field: DescribedField, value: unknown): Checked => {
-	const t = withoutSerial(field.scalar)
+	const t = field.scalar
 	const desc: LiteralExpr = { kind: "literal", value: call.literal(value, t), type: field.desc }
 	return call.finish(desc, desc)
 }
@@ -761,10 +796,10 @@ const literal = (type: unknown, value: unknown): Checked => {
 }
 
 /**
- * X.handle(member): the member's literal at X's enum, whose column is that one handle. A member off the roster, or
+ * X.handle(member): the member's literal at X's closed id, whose column is that one handle. A member off the roster, or
  * anything but a string from a JavaScript caller, is refused, MalformedDescription.
  */
-export const handleTerm = <M extends string>(closed: unknown, member: M): ScalarTerm<M, "enum"> => {
+export const handleTerm = <M extends string>(closed: unknown, member: M): ScalarTerm<M, "code"> => {
 	const { roster } = closedIdParts(closed)
 	const call = new Call(`${roster.closed}.handle`)
 	const checked = typedLiteral(
@@ -772,7 +807,10 @@ export const handleTerm = <M extends string>(closed: unknown, member: M): Scalar
 		call.field(admittedClosedId(closed), "the literal's type"),
 		member
 	)
-	return scalarTerm(checked.expr, checked.type, { column: handleColumn<M>([member]), sql: "enum" })
+	return scalarTerm(checked.expr, checked.type, {
+		column: codeColumn<M>(roster.closed, [member]),
+		sql: "code"
+	})
 }
 
 const base = (x: unknown): PlainChecked => {
@@ -874,7 +912,13 @@ const checks = Object.freeze({
 	upper: spanPart("upper"),
 	width: spanPart("width"),
 	charLength: unary("charLength"),
-	cosineDistance: binary("cosineDistance", "literal")
+	cosineDistance: binary("cosineDistance", "literal"),
+	union: setOperation("union"),
+	intersection: setOperation("intersection"),
+	difference: setOperation("difference"),
+	cardinality: unary("cardinality"),
+	subset: binary("subset", "term"),
+	disjoint: binary("disjoint", "term")
 })
 
 /** The predicates, the same for a typed and a JavaScript caller, and's and or's operands as one list. */
@@ -1004,7 +1048,17 @@ export const compute = Object.freeze({
 	width: <S extends EndpointSql>(s: unknown, endpoint: OfSql<S>) =>
 		plain(checks.width(s, endpoint, []), "exact integer"),
 	charLength: (s: unknown) => plain(checks.charLength(s, []), "integer"),
-	cosineDistance: (a: unknown, b: unknown) => plain(checks.cosineDistance(a, b), "double precision")
+	cosineDistance: (a: unknown, b: unknown) =>
+		plain(checks.cosineDistance(a, b), "double precision"),
+	union: <T, S extends SqlTag>(a: TermCarrier<T, S>, b: unknown): ScalarTerm<T, S> =>
+		carried(checks.union(a, b, []), a),
+	intersection: <T, S extends SqlTag>(a: TermCarrier<T, S>, b: unknown): ScalarTerm<T, S> =>
+		carried(checks.intersection(a, b, []), a),
+	difference: <T, S extends SqlTag>(a: TermCarrier<T, S>, b: unknown): ScalarTerm<T, S> =>
+		carried(checks.difference(a, b, []), a),
+	cardinality: (a: unknown) => plain(checks.cardinality(a, []), "bigint"),
+	subset: (a: unknown, b: unknown) => plain(checks.subset(a, b), "boolean"),
+	disjoint: (a: unknown, b: unknown) => plain(checks.disjoint(a, b), "boolean")
 })
 
 /** A JavaScript caller's plain result: the plain column of the checked result's SQL type. */
@@ -1105,5 +1159,21 @@ export const computeCore = Object.freeze({
 		plainBy(checks.width(s, endpoint, extra)),
 	charLength: (s: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.charLength(s, extra)),
-	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b))
+	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b)),
+	union: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
+		const checked = checks.union(a, b, extra)
+		return scalarTerm(checked.expr, checked.type, checked.carrier)
+	},
+	intersection: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
+		const checked = checks.intersection(a, b, extra)
+		return scalarTerm(checked.expr, checked.type, checked.carrier)
+	},
+	difference: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
+		const checked = checks.difference(a, b, extra)
+		return scalarTerm(checked.expr, checked.type, checked.carrier)
+	},
+	cardinality: (a: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.cardinality(a, extra)),
+	subset: (a: unknown, b: unknown) => plainBy(checks.subset(a, b)),
+	disjoint: (a: unknown, b: unknown) => plainBy(checks.disjoint(a, b))
 })

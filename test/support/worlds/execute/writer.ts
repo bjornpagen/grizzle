@@ -1,10 +1,8 @@
 import { Array as Arr, Effect, Option, Record as Rec, type Scope, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import { namedDetail } from "#compiler/ir/law.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { strictDetail, withholds } from "#test/support/detail.ts"
 import { type PgErrorFields, reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
 import {
@@ -22,7 +20,6 @@ import type {
 	BaseSpec,
 	DirectStatement,
 	FieldDomain,
-	HostFact,
 	InstalledNames,
 	Observation,
 	Probe,
@@ -206,46 +203,9 @@ const nativeWitness = (reading: LawReading, fields: PgErrorFields): Effect.Effec
 			})
 	})
 
-/** A residual law's witness: its DETAIL read strictly by the law's codec (test/support/detail.ts), or withheld. */
-const residualWitness = (
-	reading: LawReading,
-	law: LawId,
-	fields: PgErrorFields
-): Effect.Effect<Option.Option<Witness>> =>
-	Effect.gen(function* () {
-		const found = Arr.findFirst(reading.installation.laws.residuals, (r) => r.lawId === law)
-		if (Option.isNone(found)) {
-			return Option.none()
-		}
-		const residual = found.value
-		const codec = namedDetail(residual.detail)
-		const raised = fields.detail
-		if (Option.isNone(raised)) {
-			return yield* Effect.die(new Error(`the residual law ${law} raised without a DETAIL`))
-		}
-		const detail = raised.value
-		if (withholds(codec, detail)) {
-			return Option.some({ kind: "withheld" })
-		}
-		const texts = strictDetail(codec, detail)
-		const relation = codec.relation
-		const entries = yield* Effect.forEach(codec.keys, (field, i) => {
-			const text = texts[i]
-			const domain = domainOf(reading.base, relation, field)
-			return text === undefined || Option.isNone(domain)
-				? Effect.die(new Error(`the residual law ${law}'s DETAIL holds no ${relation}.${field}`))
-				: Effect.map(
-						valueOfText(domain.value, text, `${relation}.${field}`),
-						(value) => [field, value] as const
-					)
-		})
-		const fact: HostFact = Rec.fromEntries(entries)
-		return Option.some({ kind: "shown", keys: [fact] })
-	})
-
 /**
- * The law a direct writer's refusal names: a native constraint's under the table or domain PostgreSQL reports it on, or
- * the residual law whose function raised its identity as the constraint, beside no owner.
+ * The law a direct writer's refusal names: a native constraint's under the table or domain PostgreSQL reports it on.
+ * Every law is native (fin.md §7), so a constraint beside no owner names none.
  */
 const reportedLaw = (
 	installation: Installation,
@@ -253,11 +213,9 @@ const reportedLaw = (
 	constraint: ConstraintName
 ): LawId | undefined => {
 	const owner = reportedOwnerOf(fields)
-	if (owner !== undefined) {
-		return constraintLaw(installation.constraintToLaw, owner, constraint)
-	}
-	const residual = Arr.findFirst(installation.laws.residuals, (r) => r.lawId === constraint)
-	return Option.isSome(residual) ? residual.value.lawId : undefined
+	return owner === undefined
+		? undefined
+		: constraintLaw(installation.constraintToLaw, owner, constraint)
 }
 
 /** A direct writer's refusal: a law's, with its identity and witness, or PostgreSQL's SQLSTATE alone. */
@@ -275,8 +233,7 @@ const refusalOf = (reading: LawReading, fields: PgErrorFields): Effect.Effect<Se
 				told: toldOf(fields)
 			}
 		}
-		const residual = yield* residualWitness(reading, law, fields)
-		const witness = Option.isSome(residual) ? residual.value : yield* nativeWitness(reading, fields)
+		const witness = yield* nativeWitness(reading, fields)
 		const observation: Observation = { kind: "law-refused", sqlstate, law, witness }
 		return { observation, found: fieldTexts(fields), told: toldOf(fields) }
 	})

@@ -6,9 +6,12 @@ import {
 	cliError,
 	generateFlags,
 	MigrationNameRefused,
+	type RepeatedFlag,
 	type SwitchFlag,
 	type ValuedFlag
 } from "#cli/errors.ts"
+import { DeclarationRefused, noDeclarations, parseDeclarations } from "#cli/renames.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
 	type FolderNaming,
 	type MigrationName,
@@ -21,7 +24,7 @@ import {
  *
  * Exactly these commands exist, each over the configuration file its one argument names:
  *
- *     grizzle generate <config> [--name <name>] [--schema <schema>]
+ *     grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]… [--drop <old>]…
  *     grizzle generate <config> --custom --name <name> [--schema <schema>]
  *     grizzle check <config>
  *     grizzle migrate <config>
@@ -33,9 +36,12 @@ import {
  * shape is refused here and never reaches the compiler (folder.ts parseMigrationName): without it a drafted folder is
  * named after its change, and a custom one needs it.
  * `--schema` chooses one configured schema, by its declared name or its PostgreSQL schema identifier; it is accepted
- * only when the configuration declares several, and `--custom` needs it there (generate.ts). Flags follow drizzle's
- * spelling, as `--flag value` or `--flag=value`, anywhere after the command, and only generate takes any. `--help` (or
- * `-h`, anywhere, or no argument) prints the usage. Anything else is a usage error.
+ * only when the configuration declares several, and `--custom` and a declaration need it there (generate.ts).
+ * `--rename <old>=<new>` and `--drop <old>`, each given once per name, declare the draft's renames and drops, read here
+ * (renames.ts), so a declaration its text shows wrong never reaches the compiler; a custom migration drafts nothing
+ * and takes none. Flags follow drizzle's spelling, as `--flag value` or `--flag=value`, anywhere after the command,
+ * and only generate takes any. `--help` (or `-h`, anywhere, or no argument) prints the usage. Anything else is a usage
+ * error.
  *
  * What generate makes: the next migration drafted from the schemas' change, named `--name` or after the change; or an
  * empty custom folder for data steps, named `--name`.
@@ -53,6 +59,8 @@ type Command =
 			 * `--schema`: a declared schema name or PostgreSQL schema identifier, or none for every configured one.
 			 */
 			readonly schema: Option.Option<string>
+			/** `--rename` and `--drop`: the draft's declared renames and drops, none for a custom migration. */
+			readonly declared: Declarations
 	  }
 	| { readonly kind: "check" }
 	| { readonly kind: "migrate" }
@@ -65,7 +73,7 @@ export type CommandLine =
 	| { readonly kind: "run"; readonly config: string; readonly command: Command }
 
 export const usageText = `Usage:
-  grizzle generate <config> [--name <name>] [--schema <schema>]
+  grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]... [--drop <old>]...
       draft the next migration from the schemas' changes
   grizzle generate <config> --custom --name <name> [--schema <schema>]
       an empty migration for data steps
@@ -88,7 +96,12 @@ Options of generate, as --flag value or --flag=value, anywhere after the command
                     without it a drafted folder is named after its change
   --schema <name>   only this configured schema (its declared name or PostgreSQL schema);
                     accepted only when the configuration declares several schemas, and required
-                    there with --custom
+                    there with --custom, --rename or --drop
+  --rename <old>=<new>
+                    a rename the draft makes, once per name: Relation=Relation,
+                    Relation.field=Relation.field or Roster#handle=Roster#handle; a handle keeps its code
+  --drop <old>      a drop the draft makes, once per name: Relation, Relation.field or Roster#handle;
+                    every drop of a name the schema no longer holds is declared, by --rename or --drop
 `
 
 const isHelp = (arg: string): boolean => arg === "--help" || arg === "-h"
@@ -97,22 +110,30 @@ const isHelp = (arg: string): boolean => arg === "--help" || arg === "-h"
 const malformed = (fault: ArgumentsRefused["fault"]): Result.Result<never, CliError> =>
 	Result.fail(cliError(new ArgumentsRefused({ fault })))
 
-/** The flags a command takes: switches, and flags that take a value. */
+/** The flags a command takes: switches, flags that take a value once, and flags that take one each time. */
 interface Flags {
 	readonly switches: ReadonlyArray<SwitchFlag>
 	readonly valued: ReadonlyArray<ValuedFlag>
+	readonly repeated: ReadonlyArray<RepeatedFlag>
 }
 
-const noFlags: Flags = { switches: [], valued: [] }
+const noFlags: Flags = { switches: [], valued: [], repeated: [] }
 
-/** A command's arguments as they read: its configuration file, and the flags it was given. */
+/**
+ * A command's arguments as they read: its configuration file, and the flags it was given, a repeated flag's values in
+ * the order given.
+ */
 interface Scanned {
 	readonly config: string
 	readonly switches: ReadonlySet<SwitchFlag>
 	readonly values: ReadonlyMap<ValuedFlag, string>
+	readonly repeated: ReadonlyMap<RepeatedFlag, ReadonlyArray<string>>
 }
 
-/** The arguments after `command`, which takes `flags`: exactly one configuration file, and each flag at most once. */
+/**
+ * The arguments after `command`, which takes `flags`: exactly one configuration file, each switch and valued flag at
+ * most once, and a repeated flag as often as it is given.
+ */
 const scan = (
 	command: CommandName,
 	rest: ReadonlyArray<string>,
@@ -121,6 +142,7 @@ const scan = (
 	let config = Option.none<string>()
 	const switches = new Set<SwitchFlag>()
 	const values = new Map<ValuedFlag, string>()
+	const repeated = new Map<RepeatedFlag, Array<string>>()
 	for (let i = 0; i < rest.length; i++) {
 		const arg = rest[i]
 		if (arg === undefined) {
@@ -144,6 +166,21 @@ const scan = (
 			switches.add(switched.value)
 			continue
 		}
+		const again = Arr.findFirst(
+			flags.repeated,
+			(f) => arg === `--${f}` || Str.startsWith(`--${f}=`)(arg)
+		)
+		if (Option.isSome(again)) {
+			const flag = again.value
+			const value = arg === `--${flag}` ? rest[++i] : Str.slice(`--${flag}=`.length)(arg)
+			if (value === undefined || value.length === 0 || Str.startsWith("-")(value)) {
+				return malformed({ kind: "flagWithoutValue", flag })
+			}
+			const given = repeated.get(flag) ?? []
+			given.push(value)
+			repeated.set(flag, given)
+			continue
+		}
 		const valued = Arr.findFirst(
 			flags.valued,
 			(f) => arg === `--${f}` || Str.startsWith(`--${f}=`)(arg)
@@ -163,7 +200,7 @@ const scan = (
 	}
 	return Option.match(config, {
 		onNone: () => malformed({ kind: "noConfig", command }),
-		onSome: (file) => Result.succeed({ config: file, switches, values })
+		onSome: (file) => Result.succeed({ config: file, switches, values, repeated })
 	})
 }
 
@@ -190,17 +227,39 @@ const modeOf = (scanned: Scanned): Result.Result<GenerateMode, CliError> => {
 	)
 }
 
+/**
+ * The declarations `--rename` and `--drop` give, read (renames.ts parseDeclarations): none when neither is given, and
+ * the refusal of either beside `--custom`, whose folder drafts nothing.
+ */
+const declaredOf = (
+	scanned: Scanned,
+	mode: GenerateMode
+): Result.Result<Declarations, CliError> => {
+	const renames = scanned.repeated.get("rename") ?? []
+	const drops = scanned.repeated.get("drop") ?? []
+	if (renames.length === 0 && drops.length === 0) {
+		return Result.succeed(noDeclarations)
+	}
+	if (mode.kind === "custom") {
+		return Result.fail(cliError(new DeclarationRefused({ fault: { kind: "custom" } })))
+	}
+	return Result.mapError(parseDeclarations(renames, drops), cliError)
+}
+
 const parseGenerate = (rest: ReadonlyArray<string>): Result.Result<CommandLine, CliError> =>
 	Result.flatMap(scan("generate", rest, generateFlags), (scanned) =>
-		Result.map(modeOf(scanned), (mode): CommandLine => ({
-			kind: "run",
-			config: scanned.config,
-			command: {
-				kind: "generate",
-				mode,
-				schema: Option.fromUndefinedOr(scanned.values.get("schema"))
-			}
-		}))
+		Result.flatMap(modeOf(scanned), (mode) =>
+			Result.map(declaredOf(scanned, mode), (declared): CommandLine => ({
+				kind: "run",
+				config: scanned.config,
+				command: {
+					kind: "generate",
+					mode,
+					schema: Option.fromUndefinedOr(scanned.values.get("schema")),
+					declared
+				}
+			}))
+		)
 	)
 
 const parsePlain = (

@@ -1,3 +1,18 @@
+/**
+ * Selected-source span coverage at the int8 limits, native: a billable visit is accepted exactly when the union of its
+ * site's shifts contains its span, and refused otherwise with 23503 on the PERIOD foreign key from the visit's range
+ * law column into Shift's WITHOUT OVERLAPS key (fin.md §7), at its statement.
+ *
+ * The oracle is a second implementation: `covers`, a sweep over the disjoint shifts in order. The box is a cover cut at
+ * distinct points of `points` (the int8 limits, the points beside them, and a few inside), each piece dropped one time
+ * in four, and a nonempty visit between two of the points, 60 runs, required to reach a covered and a refused visit
+ * from the lower limit, to the upper limit and inside them.
+ *
+ * These edges stay a suite of their own rather than kept cases of the span-coverage box (test/support/laws/boxes.ts
+ * spanCoverage): that harness's host model spells a span's ends as JavaScript numbers
+ * (test/support/laws/model.ts Span), which hold no int8 limit exactly, so the limits can be stated only here, as
+ * bigints in int8range literals.
+ */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
@@ -7,7 +22,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { visits, visitsLaw } from "#test/pg/spans/laws/schemas.ts"
-import { installSpans, witness, writerOf } from "#test/pg/spans/laws/support.ts"
+import { installSpans, writerOf } from "#test/pg/spans/laws/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
@@ -113,7 +128,7 @@ layer(Substrate.layer)("selected-source span coverage at the int8 limits", (it) 
 					const s = yield* Substrate
 					const install = yield* installSpans(visits({ mutable: false }), "covlimits")
 					const w = yield* writerOf(install, "writer")
-					const law = install.residual(visitsLaw)
+					const foreignKey = install.periodForeignKey(visitsLaw)
 					const shift = install.table("Shift")
 					const visit = install.table("Visit")
 					return yield* explore(
@@ -173,9 +188,8 @@ layer(Substrate.layer)("selected-source span coverage at the int8 limits", (it) 
 								if (expected) {
 									yield* insert
 								} else {
-									const refused = yield* expectSqlstate(insert, "23000")
-									assert.equal(refused.constraint, visitsLaw)
-									assert.deepEqual(witness(law, refused.detail), ["1"])
+									const refused = yield* expectSqlstate(insert, "23503")
+									assert.equal(refused.constraint, foreignKey)
 								}
 							})
 					)

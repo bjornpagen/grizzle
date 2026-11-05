@@ -42,6 +42,10 @@ const explored = (concurrency: number, property: () => Effect.Effect<void>) =>
 		explore(
 			{
 				suite: "bench",
+				oracle: {
+					kind: "specification",
+					name: "a property that holds, for timing the engine alone"
+				},
 				draw: drawn(composite),
 				literal: Formatter.format,
 				coverage: noCoverage,

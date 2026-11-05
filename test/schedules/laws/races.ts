@@ -10,35 +10,6 @@ import { Array as Arr, Formatter, Option, String as Str } from "effect"
 import { Cause, Effect, Record, type Scope } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import {
-	type Mode,
-	modeOf,
-	type Population,
-	populationsOf
-} from "#test/pg/laws/families/families.ts"
-import {
-	emptyState,
-	expect,
-	type HostFact,
-	type HostLaw,
-	type HostState,
-	needs,
-	type HostOp,
-	pinned,
-	projection,
-	relationOf,
-	type HostSide,
-	sameValue,
-	selected,
-	type HostValue
-} from "#test/pg/laws/families/model.ts"
-import {
-	type CaseSketch,
-	caseSketchGen,
-	plantedDeletion,
-	resolveStep,
-	stepFeatures
-} from "#test/pg/laws/families/support.ts"
 import { defined } from "#test/support/assert.ts"
 import { type DirectAbort, type Outcome } from "#test/support/history/check.ts"
 import {
@@ -55,6 +26,30 @@ import {
 	type Replacement,
 	type WriterKind
 } from "#test/support/history/model.ts"
+import { type Mode, modeOf, type Population, populationsOf } from "#test/support/laws/boxes.ts"
+import {
+	emptyState,
+	expect,
+	type HostFact,
+	type HostLaw,
+	type HostState,
+	needs,
+	type HostOp,
+	pinned,
+	projection,
+	relationOf,
+	type HostSide,
+	sameValue,
+	selected,
+	type HostValue
+} from "#test/support/laws/model.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	plantedDeletion,
+	resolveStep,
+	stepFeatures
+} from "#test/support/laws/support.ts"
 
 import {
 	type Below,
@@ -107,7 +102,6 @@ const writerFeatures = [
 	"direct",
 	"below",
 	"immediate",
-	"law triggers",
 	"put",
 	"replacement",
 	...belowForms,
@@ -227,7 +221,6 @@ const threatened = (law: HostLaw): ReadonlyArray<Threatened> => {
 		case "check":
 			return []
 		case "contained":
-		case "capacity":
 			return [{ law: law.law, anchor: law.target, source: law.source }]
 		case "covered":
 			return [
@@ -237,8 +230,6 @@ const threatened = (law: HostLaw): ReadonlyArray<Threatened> => {
 					source: { ...law.source, fields: [...law.source.fields, law.span.source] }
 				}
 			]
-		case "obliged":
-			return [{ law: law.law, anchor: law.anchor, source: law.dependent }]
 	}
 }
 
@@ -1437,16 +1428,16 @@ const runRace = <P>(
  * is a planted case, refused at its write.
  *
  * A race is drawn per case from a family's own vocabulary of threats: it picks one of the
- * schema's laws, an anchor of it in a lawful initial state (a target fact of a containment or a capacity, the anchor of
- * an obligation), and for each transaction one or two threats to that anchor:
+ * schema's laws, an anchor of it in a lawful initial state (a target fact of a containment or a coverage), and for each
+ * transaction one or two threats to that anchor:
  *
- * - the anchor replaced with a redrawn payload (its selector, a capacity's bound field);
+ * - the anchor replaced with a redrawn payload (its selector);
  * - the anchor deleted, or inserted when the state holds none at its key, or inserted again at its key;
  * - the anchor retired: deleted with every stored fact its laws tie to it, so a lawful retirement races the sources
  *   inserted at it;
  * - a source fact inserted at the anchor, selected as the law's source side selects;
- * - a source fact at the anchor deleted, inserted again exactly, or replaced with a redrawn payload (its selector, its
- *   weight), which may take it out of the law's selection;
+ * - a source fact at the anchor deleted, inserted again exactly, or replaced with a redrawn payload (its selector),
+ *   which may take it out of the law's selection;
  * - a source fact moved to the anchor from another one, or away from it, out of the anchor's group.
  *
  * A fact replaced or moved at its own key is a put: a grizzle writer's on either kind of relation, and a direct
@@ -1456,8 +1447,8 @@ const runRace = <P>(
  * and the insertion there.
  *
  * The initial state is seeded by construction before the drawn steps fold on top: the anchor with two, one or no
- * sources at it, two sources being two facts by their keys, and every fact the schema's containments, coverages and
- * obligations require of them, transitively. The seed is the first the host model accepts, most sources first, among
+ * sources at it, two sources being two facts by their keys, and every fact the schema's containments and coverages
+ * require of them, transitively. The seed is the first the host model accepts, most sources first, among
  * the drawn payloads and their strided redraws, so every threat that needs a stored fact can be drawn whatever the
  * anchor's or its sources' payloads need. Each threat is chosen among the kinds that apply to the initial state, so
  * every transaction has operations and every race has its two or three transactions.
@@ -1470,7 +1461,7 @@ const runRace = <P>(
  * explaining every outcome, each refusal naming a law violated at its place. Which writer is refused or aborted, the
  * lock waits, the deadlock victim and the lock order are never asserted: they are the database's.
  *
- * The generated races of one law family, over each population of its box (families.ts populationsOf), as one
+ * The generated races of one law family, over each population of its box (laws/boxes.ts populationsOf), as one
  * exploration. A test installs each variant the first time a case draws it and keeps the installation; every case
  * opens and closes its own connections, so a test holds one case's connections at a time whatever the variant count.
  */

@@ -53,7 +53,7 @@ const rowCell = (value: Expr, column: RelationColumn): Expr => {
  *   SELECT DISTINCT r2.c1, r2.c2 FROM (SELECT pg_catalog.unnest($1::uuid[]) AS c1,
  *     pg_catalog.unnest($2::bigint[]) AS c2) AS r2
  *
- * Each array's element type is its column's base type (an enum keeps its enum), so no composite type is installed and
+ * Each array's element type is its column's base type (a closed id's smallint code), so no composite type is installed and
  * a contract domain is never applied at the input; a text column's array is collated pg_catalog.pg_c_utf8, like every
  * stored text column, so a recursion seeded from the input agrees with its step's collation, and a column whose type
  * has a typmod is cast back to it. The arrays' columns are the generated names of the input's columns, recorded in the

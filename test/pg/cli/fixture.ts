@@ -126,9 +126,9 @@ export const shopV2 = (name: string, programs: ShopWorkload) => {
  * existing rows. The full workload looks customers up by name, which drafts `customer__ix__name`; its
  * ordersOf program is a lookup the foreign key's own index already serves.
  *
- * And a ledger (`ledger`), whose generate output needs both installer extensions that a
- * plain shop does not. Payment's plan selects one of two arm relations through `alternatives`, a residual law with its
- * law function and constraint triggers; a derived relation CustomerSpend sums each
+ * And a ledger (`ledger`), whose generate output needs what a plain shop's does not. Payment's plan selects one of two
+ * arm relations through `alternatives`, whose forward and reverse containments are native foreign keys, the reverse
+ * deferred on the cycle with a generated law column per armed handle (fin.md §7); a derived relation CustomerSpend sums each
  * customer's payments into a materialized view; and the workload reads CustomerSpend by a range on its payment
  * count, an access path on a derived relation that drafts `customer_spend__ix__payments` on the view, beside a lookup
  * of customers by name.

@@ -29,6 +29,7 @@ import { takeLowerer } from "#compiler/lower/shapes/take/index.ts"
 import { unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { defined } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
+import { fixtureCodes } from "#test/unit/ir/fixture.ts"
 import { ledgerCatalog } from "#test/unit/lower/rewrite/support.ts"
 
 /**
@@ -219,7 +220,7 @@ const shapeDispatch = (facts: ShapeFacts): NodeDispatch => {
 
 /** What production passes to lower a query that declares no take bound parameter: no parameters. */
 export const testOptions = (schema: string): ConservativeOptions => ({
-	names: productionNames(schema, { kind: "declared" }, localVectorSchema),
+	names: productionNames(schema, { kind: "declared" }, localVectorSchema, fixtureCodes),
 	params: [],
 	subject: { kind: "query" }
 })

@@ -11,6 +11,7 @@ import { maxStringLength } from "#compiler/core/limits.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
 	ArrayTexts,
 	IdentifiedFact,
@@ -23,7 +24,8 @@ import {
 	admitFact,
 	type HeadingField,
 	type HeadingPlan,
-	headingPlan
+	headingPlan,
+	specContent
 } from "#compiler/scalar/values/identity.ts"
 
 interface RelationColumn {
@@ -62,6 +64,8 @@ export interface RelationSpec {
 	/** Every field of the facts, in the order of the input's arrays. */
 	readonly columns: DistinctColumns
 	readonly slot: RelationSlot
+	/** The installation's codes, which a closed id's and a set's columns are written by. */
+	readonly codes: Codebook
 }
 
 /** A normalized relation input: its normal facts and their text rows. */
@@ -92,7 +96,7 @@ interface BuiltSpec {
 const buildSpec = (spec: RelationSpec): BuiltSpec => {
 	const columns = spec.columns.map((column): BuiltColumn => ({
 		field: column.field,
-		codec: scalarCodec(column.type)
+		codec: scalarCodec(column.type, spec.codes)
 	}))
 	const heading = columns.map((c): HeadingField => ({ name: c.field, spec: c.codec.spec }))
 	return {
@@ -132,9 +136,9 @@ const rowOf = (
 	return Object.freeze(row)
 }
 
-/** The canonical text of a heading's fields and carrier specs in field-name order. */
+/** The canonical text of a heading's fields and carrier specs' content (specContent) in field-name order. */
 const headingText = (plan: HeadingPlan): string =>
-	canonicalTextOf(plan.fields.map((f) => [f.name, f.spec]))
+	canonicalTextOf(plan.fields.map((f) => [f.name, specContent(f.spec)]))
 
 /** The normal facts of `entries`, frozen, under `heading`. */
 const normalFacts = (entries: ReadonlyArray<IdentifiedFact>, heading: string): NormalFacts =>

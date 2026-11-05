@@ -42,7 +42,7 @@ import {
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
-import { keyFirst, rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
+import { rowType, type WriteContext, writtenFields } from "#compiler/write/insert/statement.ts"
 
 /** The unique objects of a relation an insert meets: its arbiter, the primary key; every object
  * besides it, in law order, probed or not, on which a 23505 or 23P01 aborts the apply; the objects an insert of
@@ -214,8 +214,15 @@ export const generatedChecks = (
  * the objects besides it; a generated addition's insert has no arbiter, its draws making every object that reads a field
  * it draws one it meets only through a stored value the sequence has not passed, so it probes every other object
  * (`generatedChecks`). */
-export const relationUniques = ({ uniques }: RelationLaws): RelationUniques => {
-	const { primary, others, keys } = uniques
+export const relationUniques = ({ uniques, relation }: RelationLaws): RelationUniques => {
+	const { primary, keys } = uniques
+	/** An object comparing every field of a scalar primary key for equality holds no two facts apart that the arbiter
+	 * does not, so no insert meets it beyond its arbiter: a family's superkeys on its owner, `UNIQUE (k…, n, …)`, the
+	 * targets of its axes, are such objects, and a family key needs no probe. */
+	const others =
+		primary.kind === "key"
+			? uniques.others.filter((u) => !relation.primaryFields.every((f) => u.equal.includes(f)))
+			: uniques.others
 	const complete = probeOrder(others, [primary])
 	return Object.freeze({
 		arbiter: primary,
@@ -257,9 +264,16 @@ interface ProbeSpec {
 export interface ProbeSql {
 	/** The CTEs to place before the data-modifying one: the probe's branches and the refusal it keeps. */
 	readonly ctes: ReadonlyArray<Cte>
-	/** The refusal CTE, at most one row: the requested fact's fields, then the signed ordinal. */
+	/** The refusal CTE, at most one row: the requested fact's written fields, then the signed ordinal. */
 	readonly refusal: string
+	/** A written field's column of the refusal row. */
 	readonly refusalCol: (f: LawField) => Expr
+	/**
+	 * The refused fact's value at any field: a written field's column, or a generated field's value computed from the
+	 * row's written fields by its generation expression, the value PostgreSQL would have stored, so the refusal row
+	 * lines up with the complete facts a statement returns.
+	 */
+	readonly refusalValue: (f: LawField) => Expr
 	readonly ordinal: Expr
 	/** The INSERT's gate: no refusal. */
 	readonly gate: Expr
@@ -323,7 +337,7 @@ export const buildProbe = (
 	const { relation, requested, checks, input, inputs } = spec
 	/** The fields a requested fact holds, as `inputs` holds them, and those that tell two apart (`Requested`). */
 	const fields: ReadonlyArray<LawField> =
-		requested.kind === "complete" ? keyFirst(relation) : requested.fields
+		requested.kind === "complete" ? writtenFields(relation) : requested.fields
 	const apart: ReadonlyArray<LawField> =
 		requested.kind === "complete" ? relation.primaryFields : requested.fields
 	if (!isNonEmpty(checks) || !isNonEmpty(fields)) {
@@ -462,10 +476,19 @@ export const buildProbe = (
 		}
 	}
 	ctes.push(cte(refusal, [...refused.columns, ordinalCol], query))
+	const refusalCol = (f: LawField): Expr => col(refusal, refused.of(f))
 	return {
 		ctes,
 		refusal,
-		refusalCol: (f) => col(refusal, refused.of(f)),
+		refusalCol,
+		refusalValue: (f) => {
+			if (f.writing.kind !== "generated") {
+				return refusalCol(f)
+			}
+			const row: ColumnMap = new Map(fields.map((g) => [g.name, refusalCol(g)] as const))
+			const env: Env = new Map(columnReads(f.writing.expr).map((c) => [c.node, row] as const))
+			return lowerExpr(w.cx, f.writing.expr, env)
+		},
 		ordinal: col(refusal, ordinalCol),
 		gate: notExists(simpleSelect(one, [cteRef(refusal)], undefined)),
 		checks: mapNonEmpty(checks, (p) => p.object)

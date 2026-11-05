@@ -1,6 +1,6 @@
 import { Array as Arr, Record as Rec, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
-import { isSpan } from "#test/pg/laws/families/model.ts"
+import { isSpan } from "#test/support/laws/model.ts"
 import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import type {
 	BaseSpec,

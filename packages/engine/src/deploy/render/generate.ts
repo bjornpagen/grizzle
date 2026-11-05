@@ -1,11 +1,14 @@
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { TemporaryCensus } from "#compiler/core/identity.ts"
+import { defect } from "#compiler/core/invariant.ts"
+import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { asidesOf, setAside } from "#compiler/deploy/diff/aside.ts"
+import { applyDeclarations } from "#compiler/deploy/diff/declared.ts"
 import { diff } from "#compiler/deploy/diff/diff.ts"
-import type { AbandonedSchema, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
+import type { AbandonedSchema, Declarations, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
 import {
 	type CustomMeta,
@@ -24,9 +27,12 @@ import {
 import { derivedMigrationName } from "#compiler/deploy/render/naming.ts"
 import { recordFile, renderFile } from "#compiler/deploy/render/sql.ts"
 import {
+	codebookUnder,
+	discontinuedRoster,
 	type DraftWorkload,
 	finishSnapshot,
 	targetState,
+	withAttnums,
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -38,11 +44,13 @@ export interface DraftInput {
 	/** The previous committed snapshot: the empty snapshot (`emptySnapshot`) before the schema's first
 	 * migration. */
 	readonly previous: DeploySnapshot
-	/** The current schema's installation, compiled with every extension it needs (residual laws, derived relations, the
-	 * workload's access paths and statistics), as a fresh install would be. */
+	/** The current schema's installation, compiled with every extension it needs (derived relations, the workload's
+	 * access paths and statistics), as a fresh install would be. */
 	readonly installation: Installation
 	/** The current workloads: each login's programs' access and the access requests, none for a schema without one. */
 	readonly workload: DraftWorkload
+	/** The renames and drops this migration declares (`--rename`, `--drop`). */
+	readonly declared: Declarations
 	/** The schemas the migrations directory holds that the configuration no longer lists, which the CLI names for a
 	 * schema's first migration (none for any other): the draft starts the schema under the loss of their rows. */
 	readonly abandoned: ReadonlyArray<AbandonedSchema>
@@ -94,18 +102,12 @@ const comparable = (s: Omit<DeploySnapshot, "fingerprint"> | DeploySnapshot): st
 }
 
 /** A decision record that does not read, as the draft's refusal: two decisions spelled alike, which a review cannot
- * tell apart, or a path that names no rename offer or two. */
-const recordRefusal = (fault: RecordFault): CompileError => {
-	switch (fault.kind) {
-		case "indistinct":
-			return unsupported(
-				SourceLoc("grizzle generate", []),
-				`a draft whose decisions read apart: ${recordFaultText(fault)}; make the changes in two migrations`
-			)
-		case "unnamed":
-			return malformedArtifact("meta", ["files"], recordFaultText(fault))
-	}
-}
+ * tell apart. */
+const recordRefusal = (fault: RecordFault): CompileError =>
+	unsupported(
+		SourceLoc("grizzle generate", []),
+		`a draft whose decisions read apart: ${recordFaultText(fault)}; make the changes in two migrations`
+	)
 
 /** `grizzle check`'s draft, and `grizzle generate`'s before it names the folder, as a pure function.
  *
@@ -114,7 +116,9 @@ const recordRefusal = (fault: RecordFault): CompileError => {
  * target snapshot state with the ledger's objects, diffs the two, groups the plan into files and renders them, with
  * meta.json's decision record of every file built through the record's one constructor (decisionRecord), the one
  * `grizzle check` reads it through. It returns the folder's contents and the new snapshot. It reads no file and no
- * clock.
+ * clock. The installation is compiled under the codes drafted from `previous`'s (ir/codes.ts draftCodebook over
+ * snapshot/build.ts codebookOf): codes that give a code `previous` recorded another meaning are a defect of the caller,
+ * never drafted.
  *
  * A schema whose target equals its previous snapshot drafts nothing: the change is none, the snapshot is the previous
  * one and the folder holds no file, so the CLI can report that there is nothing to generate. */
@@ -130,16 +134,22 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 				)
 			)
 		}
-		const deferred = [
-			...installation.deferred.residualLaws,
-			...installation.deferred.derivedRelations
-		]
+		const deferred = installation.deferred.derivedRelations
 		if (deferred.length > 0) {
 			throw new Refusal(
 				unsupported(
 					SourceLoc(`grizzle generate of schema ${installation.owned.name}`, []),
-					`an installation that installs every residual law and derived relation; ${deferred.join(", ")} is left to an extension the caller did not supply`
+					`an installation that installs every derived relation; ${deferred.join(", ")} is left to an extension the caller did not supply`
 				)
+			)
+		}
+		const discontinued = discontinuedRoster(
+			codebookUnder(previous, input.declared),
+			installation.names.codes
+		)
+		if (discontinued !== undefined) {
+			throw defect(
+				`the installation's codes of roster ${discontinued} continue the previous snapshot's: compile it under the codes drafted from them`
 			)
 		}
 		const state = unwrap(targetState({ installation, workload: input.workload }))
@@ -149,19 +159,24 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 			...hashedNames(previous.manifest.comments),
 			...hashedNames(state.manifest.comments)
 		])
-		/** The holders whose names the target gives objects of another kind are set aside first. */
-		const asides = asidesOf(previous, state.manifest.objects, temporaries)
+		/** The declared renames carried out first, every drop checked declared; then the holders whose names the target
+		 * gives objects of another kind set aside. */
+		const applied = applyDeclarations(previous, state, input.declared, temporaries)
+		const asides = asidesOf(applied.previous, state.manifest.objects, temporaries)
 		const plan = unwrap(
 			diff({
-				previous: setAside(previous, asides),
+				previous: setAside(applied.previous, asides),
 				target: state,
 				installation,
+				renames: applied.statements,
 				asides,
 				temporaries,
 				abandoned: input.abandoned
 			})
 		)
-		const finished = unwrap(finishSnapshot(state))
+		const finished = unwrap(
+			finishSnapshot(unwrap(withAttnums(state, applied.previous, plan, tableMaxColumns.value)))
+		)
 		const changed = plan.steps.length > 0 || comparable(finished) !== comparable(previous)
 		const snapshot = changed ? finished : previous
 		const drafted = changed ? planFiles(plan) : []
@@ -177,6 +192,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 			schema: snapshot.schema,
 			source: previous.fingerprint,
 			target: snapshot.fingerprint,
+			declared: input.declared,
 			files: recorded
 		}
 		const change: DraftChange = changed ? "schema" : "none"

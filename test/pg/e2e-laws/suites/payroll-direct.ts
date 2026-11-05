@@ -2,7 +2,6 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { fresh, openPayroll, type Payroll } from "#test/pg/e2e-laws/payroll.ts"
-import { decodedDetail } from "#test/pg/e2e-laws/support.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	acme,
@@ -146,17 +145,6 @@ const checkRow = (p: Payroll, row: DirectWriter) =>
 				assert.equal(f.fields.constraint, row.outcome.constraint, row.name)
 				return
 			}
-			case "violated": {
-				/** A residual law's violation names the law and carries the violating fact's key only. */
-				const f = failedWith(row, failed, "23000", row.outcome.at)
-				assert.equal(f.fields.constraint, row.outcome.law, row.name)
-				assert.deepEqual(
-					decodedDetail(p.f, row.outcome.law, f.fields.detail),
-					row.outcome.detail,
-					row.name
-				)
-				return
-			}
 		}
 	})
 
@@ -235,8 +223,8 @@ const promised: ReadonlyArray<string> = [
 	"23P01 at statement",
 	"428C9 at statement",
 	"22P02 at statement",
+	"23503 at statement",
 	"23503 at commit",
-	"23000 at commit",
 	"42501 at statement"
 ]
 
@@ -248,8 +236,6 @@ const reachedBy = (row: DirectWriter): ReadonlyArray<string> => {
 		case "refused":
 		case "constraint":
 			return [`${row.outcome.sqlstate} at ${row.outcome.at}`]
-		case "violated":
-			return [`23000 at ${row.outcome.at}`]
 	}
 }
 
@@ -261,8 +247,9 @@ const reachedBy = (row: DirectWriter): ReadonlyArray<string> => {
  * SERIALIZABLE: a row's BEGIN is BEGIN ISOLATION LEVEL SERIALIZABLE, and a statement outside a transaction runs at the
  * database's default, SERIALIZABLE. psql variables are spelled into the statements here, since a writer runs no
  * meta-command. The SQLSTATE is the observable contract: 23505, 23514, 23P01 and 428C9 at the statement; 22P02 for a
- * label outside a closed roster; 23503 from a deferred foreign key and 23000 from a residual law, both at COMMIT with
- * the constraint's stable name and, for a law, a key-only DETAIL; 42501 for a privilege the role lacks. A refused row
+ * label outside a closed roster; 23503 from a deferred foreign key at COMMIT, or at the statement once the writer sets
+ * every constraint IMMEDIATE, with the constraint's stable name where the row names it; 42501 for a privilege the role
+ * lacks. Every law is native, so no refusal is a law function's 23000. A refused row
  * changes nothing, so the refused rows run one after another on one installation; each accepted row runs on its own
  * installation, from the state it names, and is judged by its outcome alone.
  */

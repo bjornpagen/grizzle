@@ -7,11 +7,12 @@ import type {
 	DefinitionQuery,
 	DefinitionShape
 } from "#compiler/types/derived/derived.ts"
-import type { Field, NotSerial, SerialField } from "#compiler/types/fields/field.ts"
+import type { Field, NotSerial, SerialField, UnwrittenField } from "#compiler/types/fields/field.ts"
 import type { ContextsOf, QueryBase } from "#compiler/types/query/query.ts"
 import type {
-	AnyClosed,
+	AnyClosedRelation,
 	AnyRelation,
+	AnyRoster,
 	FactOfFields,
 	NameOf
 } from "#compiler/types/schema/relation.ts"
@@ -31,7 +32,7 @@ import type {
  */
 export type ContextField = Field<
 	unknown,
-	"text" | "uuid" | "boolean" | "smallint" | "integer" | "bigint" | "enum"
+	"text" | "uuid" | "boolean" | "smallint" | "integer" | "bigint" | "code"
 > &
 	NotSerial
 
@@ -125,7 +126,29 @@ type SerialOrigin<S, T> =
 	T extends Phantom<{ readonly origin: Origin<infer N, infer F> }>
 		? Extract<RelationOf<S>, { readonly name: N }> extends { readonly fields: infer Fs }
 			? F extends keyof Fs
-				? Fs[F] extends Pick<SerialField<unknown, never>, "generated">
+				? Fs[F] extends Pick<SerialField<unknown, never>, "writing">
+					? true
+					: false
+				: false
+			: false
+		: false
+
+/**
+ * The head fields of a world relation W that its definition takes from a field of the base that its caller does not
+ * write (types/fields UnwrittenField): a write through the entry never supplies them, as a write of the base never does.
+ */
+export type WorldUnwrittenFields<W> = W extends {
+	readonly heading: infer H
+	readonly definition: Phantom<{ readonly schema: Invariant<infer S> }>
+}
+	? { [K in keyof H]-?: UnwrittenOrigin<S, H[K]> extends true ? K : never }[keyof H]
+	: never
+
+type UnwrittenOrigin<S, T> =
+	T extends Phantom<{ readonly origin: Origin<infer N, infer F> }>
+		? Extract<RelationOf<S>, { readonly name: N }> extends { readonly fields: infer Fs }
+			? F extends keyof Fs
+				? Fs[F] extends UnwrittenField
 					? true
 					: false
 				: false
@@ -133,14 +156,14 @@ type SerialOrigin<S, T> =
 		: false
 
 /** What a role's relation record holds: a relation of the base, whole, or a query over the base, a query entry. */
-export type EntryValue = AnyRelation | AnyClosed | AnyDerived | DefinitionQuery
+export type EntryValue = AnyRelation | AnyRoster | AnyDerived | DefinitionQuery
 
 /**
  * The role relations an entry record makes: a whole entry is the base relation itself, a query entry the world
  * relation of its key.
  */
 export type RoleRelations<Rs> = {
-	readonly [K in keyof Rs]: Rs[K] extends AnyRelation | AnyClosed | AnyDerived
+	readonly [K in keyof Rs]: Rs[K] extends AnyRelation | AnyRoster | AnyDerived
 		? Rs[K]
 		: Rs[K] extends DefinitionQuery
 			? World<K & string, Rs[K]>
@@ -153,7 +176,7 @@ type QuerySchema<Q> = Q extends Phantom<{ readonly schema: Invariant<infer QS> }
  * One entry, checked: a whole entry is a relation of the base under its own name; a query entry is over a level of the
  * base and admissible as a definition (one flat heading of at least one field, no parameter).
  */
-type EntryCheck<Base, K, V> = V extends AnyRelation | AnyClosed | AnyDerived
+type EntryCheck<Base, K, V> = V extends AnyRelation | AnyRoster | AnyDerived
 	? IsRelationOf<Base, V> extends true
 		? [K] extends [NameOf<V>]
 			? unknown
@@ -168,7 +191,7 @@ export type EntriesCheck<Base, Rs> = { readonly [K in keyof Rs]: EntryCheck<Base
 export type WritableKeys<Rs> = {
 	[K in keyof Rs]-?: Rs[K] extends AnyRelation
 		? K
-		: Rs[K] extends AnyClosed | AnyDerived
+		: Rs[K] extends AnyRoster | AnyDerived
 			? never
 			: K
 }[keyof Rs] &
@@ -182,13 +205,16 @@ export type RefreshableKeys<Rs> = {
 
 /** The contexts a role's query entries read. */
 export type EntryContexts<Rs> = {
-	[K in keyof Rs]-?: Rs[K] extends AnyRelation | AnyClosed | AnyDerived ? never : ContextsOf<Rs[K]>
+	[K in keyof Rs]-?: Rs[K] extends AnyRelation | AnyRoster | AnyDerived ? never : ContextsOf<Rs[K]>
 }[keyof Rs]
 
-/** Whether a role holds every relation of its base whole, under its own name: then the base is among its levels. */
-type FullBaseOf<Base, Relations> = [Exclude<RelationOf<Base>, Relations[keyof Relations]>] extends [
-	never
-]
+/**
+ * Whether a role holds every relation of its base whole, under its own name: then the base is among its levels. A
+ * closed relation is no entry (its rows are constants every role reads, D3), so a role holds every relation but those.
+ */
+type FullBaseOf<Base, Relations> = [
+	Exclude<RelationOf<Base>, Relations[keyof Relations] | AnyClosedRelation>
+] extends [never]
 	? Base
 	: never
 
@@ -201,7 +227,7 @@ type KeptStatement<St, Whole> = St extends unknown
 
 export type KeptStatements<Base, Relations> = KeptStatement<
 	StatementsOf<Base>[number],
-	Extract<Relations[keyof Relations], AnyRelation | AnyClosed | AnyDerived>
+	Extract<Relations[keyof Relations], AnyRelation | AnyRoster | AnyDerived>
 >
 
 /** Any role: the members every one has. A role is a schema: it has a name, relations and statements. */

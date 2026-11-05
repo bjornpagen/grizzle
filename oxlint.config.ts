@@ -179,6 +179,8 @@ export default defineConfig(
 						brands: ["EmittedText"]
 					},
 					{ doors: ["packages/grizzle/src/adapter/migrate/input.ts"], brands: ["MigrationText"] },
+					{ doors: ["packages/engine/src/core/fingerprint.ts"], brands: ["ConstantDigest"] },
+					{ doors: ["packages/engine/src/codec/bits.ts"], brands: ["Accumulator"] },
 					{
 						doors: [
 							"packages/engine/src/physical/ddl/names.ts",

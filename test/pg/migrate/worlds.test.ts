@@ -33,6 +33,7 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 
 /** What a version holds, each a knob a case turns.
  *
@@ -237,8 +238,7 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 										`${quoteIdent(identifierOf(identity.column(parsedName("words"))))}::bigint`
 								},
 								register: true,
-								/** A login renamed keeps its role, by the candidate the draft offers, chosen. */
-								renames: "chosen",
+								declared: () => noDeclarations,
 								observe: Option.some((i: number, owner: RawSession) =>
 									Effect.gen(function* () {
 										const b = defined(built[i], `version ${i}`)

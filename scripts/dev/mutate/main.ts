@@ -4,6 +4,7 @@ import { parseArgs } from "node:util"
 import { DevtoolFailure, failureFrom } from "@grizzle/devtools/devtool"
 import { runDevtool } from "@grizzle/devtools/run"
 import { shuffled } from "@grizzle/testing/gen"
+import { applied, type Mutant as LibraryMutant, mutantsOf } from "@grizzle/testing/mutants"
 import { wordsOf } from "@grizzle/testing/random"
 import { generate, randomChooser } from "@grizzle/testing/source"
 import {
@@ -29,14 +30,6 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { jsonDocument, trustedJson } from "#compiler/core/trusted.ts"
 import { covered, isDump, type ScriptRanges, scriptsOfDump } from "#scripts/dev/mutate/coverage.ts"
-import {
-	applyMutant,
-	families,
-	type Mutant,
-	mutantsOf,
-	type Operator,
-	operators
-} from "#scripts/dev/mutate/operators.ts"
 
 import {
 	type Entry,
@@ -51,6 +44,14 @@ import {
 	type Verdict
 } from "#scripts/dev/mutate/report.ts"
 import { type RunLine, runLineMarker } from "#scripts/dev/mutate/reporter.ts"
+import {
+	defaultOperators,
+	families,
+	type Operator,
+	operators,
+	setSemantics,
+	sqlWorld
+} from "#scripts/dev/mutate/world.ts"
 import { hardenedNode, sourceCondition } from "#test/support/process.ts"
 
 import { regex } from "arkregex"
@@ -67,16 +68,18 @@ const self = "scripts/dev/mutate"
  *   pnpm mutate --retriage [--report FILE]
  *   pnpm mutate --prune-triage
  *
- * --operators takes operators and families, comma-separated: `classic` (comparison, conjunct, boolean-return,
- * set-semantics, bound, guard), `sql-world` (world.ts, aimed at the code that builds the emitted world SQL); every
- * operator when absent. --scope limits the mutants to the files under the given prefixes. --plan lists the planned
+ * --operators takes operators and families, comma-separated: `classic` (comparison, conjunct, boolean-return, bound and
+ * guard from the library's mutants, and set-semantics), `sql-world` (world.ts, aimed at the code that builds the
+ * emitted world SQL), `library` (every operator of @grizzle/testing/mutants); the classic and sql-world families when
+ * absent. --scope limits the mutants to the files under the given prefixes. --plan lists the planned
  * mutants and runs nothing. --prune-triage drops from triage.json every verdict whose mutant is in no current
  * population, and runs nothing. --plan, --retriage and --prune-triage exclude one another.
  *
  * 1. The committed tree (git archive HEAD, or the commit --commit names), with this directory as it is in the working
  *    tree, is unpacked under the system temporary directory once per worker; the repository itself is never written,
  *    except for the report and the logs.
- * 2. The mutants are every operators.ts mutant of the scoped source modules, or with --sample N a seeded sample of
+ * 2. The mutants are every mutant @grizzle/testing/mutants finds in the scoped source modules with grizzle's two
+ *    families (world.ts), of the operators chosen, or with --sample N a seeded sample of
  *    N spread over the areas and operators, or with --mutant the named ones (to recheck a triaged survivor).
  * 3. A coverage pass runs every stage-1 test file (the unit project, less the generators' own tests) once on the
  *    unmutated tree under NODE_V8_COVERAGE, each of its tests bounded as `pnpm test` bounds it, recording its failing
@@ -227,7 +230,7 @@ const parseSettings = Effect.fn("parseSettings")(function* (args: ReadonlyArray<
 		onSome: (raw) => positive(raw, "--workers")
 	})
 	const wanted = yield* Option.match(Option.fromUndefinedOr(values.operators), {
-		onNone: () => Effect.succeed(operators),
+		onNone: () => Effect.succeed(defaultOperators),
 		onSome: (named) =>
 			Effect.map(Effect.forEach(Str.split(named, ","), operatorsNamed), Arr.flatten)
 	})
@@ -261,10 +264,12 @@ const parseSettings = Effect.fn("parseSettings")(function* (args: ReadonlyArray<
 	return settings
 })
 
-/** A planned mutant: the mutant, its area, and the unmutated text of its file. */
+/** A mutant of one of grizzle's operators. */
+type Mutant = LibraryMutant<Operator>
+
+/** A planned mutant: the mutant, with the unmutated text of its file, and its area. */
 interface Planned extends Mutant {
 	readonly area: string
-	readonly source: string
 }
 
 /** The repository, the run's scratch directory and its unpacked tree, the commit under test, and the settings. */
@@ -421,7 +426,9 @@ const populationOf = Effect.fn("populationOf")(function* (base: string, settings
 	const inputs = yield* Effect.forEach(placed, ({ area, file }) =>
 		Effect.map(fs.readFileString(path.join(base, file)), (text) => ({ area, file, text }))
 	)
-	const files = mutantsOf(inputs)
+	const found = yield* mutantsOf(inputs, [setSemantics, sqlWorld])
+	const byFile = Arr.groupBy(found, (m) => m.file)
+	const files = Arr.map(inputs, (input) => ({ input, mutants: byFile[input.file] ?? [] }))
 	const wanted = (m: Mutant): boolean => Arr.contains(settings.operators, m.operator)
 	const inScope = (file: string): boolean =>
 		Option.match(settings.scope, {
@@ -437,8 +444,7 @@ const populationOf = Effect.fn("populationOf")(function* (base: string, settings
 			inScope(input.file)
 				? Arr.map(Arr.filter(mutants, wanted), (m): Planned => ({
 						...m,
-						area: input.area,
-						source: input.text
+						area: input.area
 					}))
 				: []
 		),
@@ -813,7 +819,7 @@ const writeSource = Effect.fn("writeSource")(function* (tree: string, file: stri
 /** Runs `use` with the mutant written into the tree, and puts the unmutated text back after, however `use` ends. */
 const withMutant = <A, E, R>(tree: string, m: Planned, use: Effect.Effect<A, E, R>) =>
 	Effect.acquireUseRelease(
-		writeSource(tree, m.file, applyMutant(m.source, m)),
+		writeSource(tree, m.file, applied(m)),
 		() => use,
 		() => Effect.orDie(writeSource(tree, m.file, m.source))
 	)
@@ -1133,7 +1139,7 @@ const entryOf = ([m, v]: readonly [Planned, Verdict]): Entry => ({
 	file: m.file,
 	line: m.line,
 	column: m.column,
-	function: m.function,
+	function: m.fn,
 	operator: m.operator,
 	original: clip(m.original),
 	replacement: clip(m.replacement),

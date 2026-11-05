@@ -15,7 +15,6 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { withResidualLaws } from "#compiler/physical/laws/objects.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -45,10 +44,7 @@ const installWith = (
 	physical: WorkloadPhysical
 ): Result.Result<Installation, CompileError> => {
 	const owned = owning(schemaDescOf(schema))
-	return compileInstallation(
-		owned,
-		withResidualLaws(withWorkload(installOptions(owned, "grizzle_owner"), physical))
-	)
+	return compileInstallation(owned, withWorkload(installOptions(owned, "grizzle_owner"), physical))
 }
 
 const justified = (i: Installation) =>

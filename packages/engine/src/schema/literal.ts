@@ -50,16 +50,40 @@ const integerKind = (desc: FieldDesc): "int2" | "int4" | "int8" | undefined => {
 					: desc.type === "bigint"
 						? "int8"
 						: undefined
-		case "serial":
-			return desc.type === "smallserial" ? "int2" : desc.type === "serial" ? "int4" : "int8"
 		case "numeric":
 		case "uuid":
 		case "text":
 		case "closedId":
+		case "bits":
 		case "span":
 		case "vector":
 			return undefined
 	}
+}
+
+/**
+ * A set over a roster as its literal: its handles in the roster's declared order, each once. `roster` is the roster's
+ * handles when the host descriptor carries them; undefined keeps the set's own order, which the checker holds to the
+ * roster's.
+ */
+const bitsLiteral = (
+	value: unknown,
+	roster: ReadonlyArray<string> | undefined
+): Result.Result<LiteralDesc, ValueFault> => {
+	if (!(value instanceof Set)) {
+		return Result.err("bitsType")
+	}
+	const members: ReadonlyArray<unknown> = [...value]
+	const handles: Array<string> = []
+	for (const m of members) {
+		if (typeof m !== "string" || (roster !== undefined && !roster.includes(m))) {
+			return Result.err("bitsMember")
+		}
+		handles.push(m)
+	}
+	return Result.ok({
+		handles: roster === undefined ? handles : roster.filter((h) => handles.includes(h))
+	})
 }
 
 const span = (endpoint: FieldDesc, value: unknown): Result.Result<LiteralDesc, ValueFault> => {
@@ -138,12 +162,6 @@ export const literalResult = (
 			return literalResult(desc.base, value, roster)
 		case "pg":
 			return pgLiteral(desc.type, value)
-		case "serial":
-			return desc.type === "bigserial"
-				? toInt8(value)
-				: desc.type === "serial"
-					? toInt4(value)
-					: toInt2(value)
 		case "numeric": {
 			const parsed = Decimal.parse(value)
 			if (!parsed.ok) {
@@ -157,12 +175,14 @@ export const literalResult = (
 			return validateText(value)
 		case "closedId":
 			if (typeof value !== "string") {
-				return Result.err("enumHandle")
+				return Result.err("codeHandle")
 			}
 			if (roster !== undefined && !roster.includes(value)) {
-				return Result.err("enumHandle")
+				return Result.err("codeHandle")
 			}
 			return Result.ok(value)
+		case "bits":
+			return bitsLiteral(value, roster)
 		case "span":
 			return span(desc.endpoint, value)
 		case "vector":

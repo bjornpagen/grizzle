@@ -21,18 +21,19 @@ import {
 	Formatter,
 	Option,
 	Record as Rec,
-	Result,
 	String as Str,
 	Struct
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { identity } from "#compiler/core/identity.ts"
 import { loginRoleExchange } from "#compiler/deploy/diff/diff.ts"
-import { type Candidate, candidatesOf } from "#compiler/deploy/diff/plan.ts"
-import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
+import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import {
 	carry,
 	noExtras,
@@ -50,7 +51,7 @@ import {
 	rowsOf,
 	sameCatalog
 } from "#test/pg/migrate/support.ts"
-import { assert, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -58,9 +59,10 @@ import {
 	fromEmpty,
 	fromSnapshot,
 	generate,
+	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
-import { choosable, decisionText, readsBack, review } from "#test/support/migrate/review.ts"
+import { readsBack, review } from "#test/support/migrate/review.ts"
 import { int4, int8, scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
 import type { LiteralRow, ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
@@ -68,6 +70,7 @@ import { factStatements } from "#test/support/oracle/install/load.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
+import { owning } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { type Built, buildInstall } from "#test/support/worlds/execute/build.ts"
 import type {
@@ -88,26 +91,24 @@ import type {
  * place; and the logins, each holding its roles. Each command is one schema edit:
  *
  * - a relation renamed, two relations' names swapped, a field renamed, a field renamed with its type changed, or a
- *   relation removed and one of its shape added under another name (a new identity, which the draft offers as a
- *   candidate the model keeps); programs chain them, so a rename followed by another is a chain A→B→C, and one back to
- *   an earlier name A→B→A;
- * - a closed handle renamed in place, or Tier's handles reordered, which rebuilds its enum;
- * - a login renamed, or renamed while its roles change (a role added to it, or taken from another login);
+ *   relation removed and one of its shape added under another name (a new identity: the old one dropped); programs
+ *   chain them, so a rename followed by another is a chain A→B→C, and one back to an earlier name A→B→A;
+ * - a login renamed, or renamed while its roles change (a role added to it, or taken from another login): a login is
+ *   no name a draft renames, so its rename is a login dropped and another created;
  * - an entry added to a role or removed from it, a field of the context renamed or added, or the context renamed;
  * - a login's and a role's names exchanged: one PostgreSQL role would turn from a login into a role, which the draft
  *   refuses by name (loginRoleExchange), at the PostgreSQL role of one of the two, applying nothing.
  *
- * Each step drafts the edit from the snapshot before (`grizzle generate`) and reviews it by the model's identity map:
- * each candidate chosen exactly when the removed and the added object are one declaration (a relation's rename by its
- * origin, a field's by its own, a field's rename nested in a relation's only under that relation's, a login's by its
- * origin), a decision the documented rules allow (`choosable`). It checks the decision reads back as made (the read-back
- * oracle), and migrates it with the runner, whose admission checks the catalog against the snapshot (drift). After
- * every step:
+ * Each step drafts the edit from the snapshot before (`grizzle generate`), declaring by the model's identity map what
+ * it renames and drops (`--rename`, `--drop`): a relation renamed exactly when the step keeps its origin under another
+ * name, a field renamed exactly when a kept relation keeps its origin under another name, and every relation and field
+ * whose origin the step no longer holds dropped. It checks the review reads back as made (the read-back oracle), and
+ * migrates it with the runner, whose admission checks the catalog against the snapshot (drift). After every step:
  *
  * - the installed catalog is a fresh install's of the step's version, its worlds included: roles, memberships, views,
  *   policies, functions and grants;
- * - every login is the PostgreSQL role its origin was installed as, and every role the one of its name: a login renamed
- *   keeps its password, and no role is created again;
+ * - every login and role is the PostgreSQL role of its name: one kept under its name keeps its OID, no role is created
+ *   again, and a renamed login is a new PostgreSQL role, its old one dropped;
  * - the facts written before the first step read back through the renamed objects: every relation of the step holds
  *   the rows the carry model of the model's identity map says, against a fresh install loaded with them.
  *
@@ -116,7 +117,6 @@ import type {
 const declared = "History"
 const relationPool = ["Alpha", "Beta", "Gamma", "Delta"] as const
 const fieldPool = ["a", "b", "c", "d", "t"] as const
-const handlePool = ["low", "high", "mid", "top"] as const
 const claimPool = ["g", "h", "k"] as const
 const contextPool = ["Session", "Caller", "Claims"] as const
 /** The names of logins and roles, one PostgreSQL namespace (`<schema>__<name>`). */
@@ -255,12 +255,6 @@ const freeFields = (r: RelationModel): ReadonlyArray<string> =>
 		Arr.map(r.fields, (f) => f.name)
 	)
 
-const freeHandles = (m: Model): ReadonlyArray<string> =>
-	freeOf(
-		handlePool,
-		Arr.map(m.tier, (h) => h.name)
-	)
-
 const freeClaims = (m: Model): ReadonlyArray<string> =>
 	freeOf(
 		claimPool,
@@ -334,8 +328,6 @@ type Params = {
 		readonly at: number
 		readonly to: string
 	}
-	readonly "rename a closed handle": { readonly handle: number; readonly to: string }
-	readonly "reorder the closed handles": { readonly swap: number }
 	readonly "rename a login": { readonly login: number; readonly to: string }
 	readonly "rename a login while its roles change": {
 		readonly login: number
@@ -526,31 +518,6 @@ const machine: Machine<Model, Params, never> = {
 				}
 			})
 		},
-		"rename a closed handle": {
-			applies: (m) => freeHandles(m).length > 0,
-			parameters: (m) => (source) => ({
-				handle: source.draw(int(0, m.tier.length - 1)),
-				to: source.draw(element(nonEmptyList(freeHandles(m), "a free handle name")))
-			}),
-			weight: 1,
-			judge: accepting((m, p) => ({
-				...m,
-				tier: Arr.map(m.tier, (h, i) => (i === p.handle ? { ...h, name: p.to } : h))
-			}))
-		},
-		"reorder the closed handles": {
-			applies: (m) => m.tier.length >= 2,
-			parameters: (m) => map(int(1, m.tier.length - 1), (swap) => ({ swap })),
-			weight: 1,
-			judge: accepting((m, p) => {
-				const first = Arr.headNonEmpty(m.tier)
-				const other = nth(m.tier, p.swap, "handle")
-				return {
-					...m,
-					tier: Arr.map(m.tier, (h, i) => (i === 0 ? other : i === p.swap ? first : h))
-				}
-			})
-		},
 		"rename a login": {
 			applies: (m) => freeWorlds(m).length > 0,
 			parameters: (m) => (source) => ({
@@ -691,9 +658,13 @@ const machine: Machine<Model, Params, never> = {
 
 const handlesOf = (m: Model): Arr.NonEmptyReadonlyArray<string> => Arr.map(m.tier, (h) => h.name)
 
-/** Tier's enum, of the model's handles in order. */
+/** A closed id of Tier, of the model's handles in order. */
 const tierType = (m: Model): ScalarType =>
-	scalarOfSpec({ carrier: "enum", roster: { closed: "Tier", handles: handlesOf(m) } })
+	scalarOfSpec({ carrier: "code", roster: { closed: "Tier", handles: handlesOf(m) } })
+
+/** Tier's codes: no command changes Tier, so each handle holds the code of its declared position, as installed. */
+const tierCodes = (m: Model): RosterCodes =>
+	Arr.map(handlesOf(m), (handle): CodeSlot => ({ kind: "live", handle }))
 
 const scalarOf = (m: Model, f: FieldModel): ScalarType => {
 	switch (f.type) {
@@ -720,7 +691,7 @@ const schemaOf = (m: Model): GenSchema => ({
 		keys: [],
 		mutable: false
 	})),
-	closed: [{ name: "Tier", handles: handlesOf(m), payload: [], rows: [] }],
+	closed: [{ name: "Tier", handles: handlesOf(m), codes: tierCodes(m), payload: [], rows: [] }],
 	containments: []
 })
 
@@ -815,105 +786,65 @@ const installOf = (m: Model): InstallSpec => ({
 /** A model's grizzle values, built through the public builders. */
 const builtOf = (m: Model) => Effect.orDie(buildInstall(installOf(m), declared))
 
-/** The installation plan of a version's built values under `schema`, owned by `owner`, with its logins' worlds. */
+/**
+ * The installation plan of a version's built values under `schema`, owned by `owner`, with its logins' worlds, under
+ * the codes a fresh installation gives Tier, which no command changes.
+ */
 const planned = (built: Built, schema: string, owner: string): RealInstallPlan =>
 	succeeded(
 		planRealInstall(built.base, {
 			installation: identity.schema(parsedSchemaName(schema)),
 			owner,
 			logins: Rec.values(built.logins),
-			extensions: []
+			extensions: [],
+			codes: firstCodebook(rostersOf(owning(built.base)))
 		}),
 		"the installation of a version"
 	)
 
-const tableOf = (name: string): string => identifierOf(identity.table(parsedName(name)))
-const columnOf = (name: string): string => identifierOf(identity.column(parsedName(name)))
-
-/** The relation of a model a physical table is, by its name or the name the naming door sets it aside under. */
-const relationOfTable = (m: Model, table: string): Option.Option<RelationModel> =>
-	Arr.findFirst(
-		m.relations,
-		(r) =>
-			tableOf(nameOf(r)) === table || identifierOf(identity.aside(tableOf(nameOf(r)))) === table
-	)
-
-const fieldOfColumn = (r: RelationModel, column: string): Option.Option<FieldModel> =>
-	Arr.findFirst(r.fields, (f) => columnOf(f.name) === column)
-
-/** The login of a model a PostgreSQL role is, by the plan it was installed by. */
-const loginOfRole = (m: Model, plan: RealInstallPlan, role: string): Option.Option<LoginModel> =>
-	Arr.findFirst(m.logins, (l) =>
-		Option.exists(Rec.get(plan.logins, loginName(l)), (x) => x.role === role)
-	)
-
-/** A version of the model and the plan it is installed by. */
-interface Installed {
-	readonly model: Model
-	readonly plan: RealInstallPlan
-}
-
-/** The candidates a reviewer who knows the model's identity map chooses: a relation's rename exactly when its two
- * relations are one declaration; a field's on a kept relation exactly when its two fields are; a field's nested in a
- * relation's exactly when that relation's is chosen and its two fields are one declaration; a login's exactly when its
- * two logins are. Tier is never renamed, so no type's rename is chosen. */
-const identityChoice = (
-	g: GenerateResult,
-	before: Installed,
-	after: Installed
-): ReadonlySet<Candidate> => {
-	const offered = candidatesOf(g.plan)
-	const sameField = (
-		was: Option.Option<RelationModel>,
-		now: Option.Option<RelationModel>,
-		removed: string,
-		added: string
-	): boolean =>
-		Option.isSome(was) &&
-		Option.isSome(now) &&
-		Option.exists(fieldOfColumn(was.value, removed), (f) =>
-			Option.exists(fieldOfColumn(now.value, added), (x) => x.origin === f.origin)
-		)
-	const roots = Arr.filter(offered, (c): boolean => {
-		switch (c.kind) {
-			case "relation":
-				return Option.exists(relationOfTable(before.model, c.removed.name), (r) =>
-					Option.exists(relationOfTable(after.model, c.added.name), (x) => x.origin === r.origin)
-				)
-			case "field":
-				return sameField(
-					relationOfTable(before.model, c.relation.name),
-					relationOfTable(after.model, c.relation.name),
-					c.removed,
-					c.added
-				)
-			case "login":
-				return Option.exists(loginOfRole(before.model, before.plan, c.removed), (l) =>
-					Option.exists(loginOfRole(after.model, after.plan, c.added), (x) => x.origin === l.origin)
-				)
-			case "type":
-			case "nested field":
-				return false
+/**
+ * What a step declares by the model's identity map, as `--rename` and `--drop` spell it: a relation renamed exactly when
+ * a relation of the step keeps the origin of one before it under another name, a field renamed exactly when a field of
+ * a kept relation keeps the origin of one before it under another name, and every relation and field whose origin the
+ * step no longer holds dropped. Tier never changes, so no handle is renamed or dropped.
+ */
+const identityDeclarations = (before: Model, after: Model): Declarations => {
+	const renames: Array<Rename> = []
+	const drops: Array<Named> = []
+	for (const was of before.relations) {
+		const now = Arr.findFirst(after.relations, (r) => r.origin === was.origin)
+		if (Option.isNone(now)) {
+			drops.push({ kind: "relation", relation: parsedName(nameOf(was)) })
+			continue
 		}
-	})
-	const nested = Arr.filter(
-		offered,
-		(c) =>
-			c.kind === "nested field" &&
-			roots.includes(c.parent) &&
-			sameField(
-				relationOfTable(before.model, c.parent.removed.name),
-				relationOfTable(after.model, c.parent.added.name),
-				c.removed,
-				c.added
-			)
-	)
-	return new Set([...roots, ...nested])
+		if (nameOf(now.value) !== nameOf(was)) {
+			renames.push({
+				from: { kind: "relation", relation: parsedName(nameOf(was)) },
+				to: { kind: "relation", relation: parsedName(nameOf(now.value)) }
+			})
+		}
+		for (const f of was.fields) {
+			const field = Arr.findFirst(now.value.fields, (x) => x.origin === f.origin)
+			if (Option.isNone(field)) {
+				drops.push({
+					kind: "field",
+					relation: parsedName(nameOf(was)),
+					field: parsedName(f.name)
+				})
+			} else if (field.value.name !== f.name) {
+				renames.push({
+					from: { kind: "field", relation: parsedName(nameOf(was)), field: parsedName(f.name) },
+					to: {
+						kind: "field",
+						relation: parsedName(nameOf(now.value)),
+						field: parsedName(field.value.name)
+					}
+				})
+			}
+		}
+	}
+	return { renames, drops }
 }
-
-/** Whether two decisions hold the same candidates. */
-const sameDecision = (a: ReadonlySet<Candidate>, b: ReadonlySet<Candidate>): boolean =>
-	a.size === b.size && Arr.every([...a], (c) => b.has(c))
 
 /** The renames the model's identity map makes between two of its states, by declared names, for the carry model. */
 const identityRenames = (before: Model, after: Model): Renames => {
@@ -951,7 +882,7 @@ const firstFacts = (m: Model): ValueFacts => {
 						[
 							{ kind: "int", value: n++ },
 							...Arr.map(r.fields, (f): TypedLiteral =>
-								f.type === "tier" ? { kind: "enum", handle: last } : { kind: "int", value: n++ }
+								f.type === "tier" ? { kind: "handle", handle: last } : { kind: "int", value: n++ }
 							)
 						] satisfies LiteralRow
 					]
@@ -970,7 +901,7 @@ const worldRoles = (m: Model, plan: RealInstallPlan): ReadonlyMap<string, string
 				() => new Error(`the plan installs no login ${loginName(l)}`)
 			)
 			return [
-				[`login ${l.origin}`, installed.role] as const,
+				[`login ${loginName(l)}`, installed.role] as const,
 				...Arr.map(
 					l.roles,
 					(r) =>
@@ -992,8 +923,6 @@ type Feature =
 	| "a field renamed"
 	| "a field renamed with its type changed"
 	| "a relation removed and one of its shape added"
-	| "a closed handle renamed"
-	| "the closed handles reordered"
 	| "a login renamed"
 	| "a login renamed while its roles change"
 	| "a login's and a role's names exchanged, refused"
@@ -1005,9 +934,9 @@ type Feature =
 	| "a chain of renames"
 	| "a relation renamed back"
 	| "a world entry over a renamed relation"
-	| "a rename chosen by identity"
-	| "a login's rename chosen by identity"
-	| "a candidate kept by identity"
+	| "a rename declared by identity"
+	| "a drop declared by identity"
+	| "a renamed login created afresh"
 
 const featureOf: { readonly [K in keyof Params]: Feature } = {
 	"rename a relation": "a relation renamed",
@@ -1015,8 +944,6 @@ const featureOf: { readonly [K in keyof Params]: Feature } = {
 	"rename a field": "a field renamed",
 	"rename a field and change its type": "a field renamed with its type changed",
 	"remove a relation and add one of its shape": "a relation removed and one of its shape added",
-	"rename a closed handle": "a closed handle renamed",
-	"reorder the closed handles": "the closed handles reordered",
 	"rename a login": "a login renamed",
 	"rename a login while its roles change": "a login renamed while its roles change",
 	"exchange a login's and a role's names": "a login's and a role's names exchanged, refused",
@@ -1053,8 +980,6 @@ const aimedAt = (aims: ReadonlySet<keyof Params>): Machine<Model, Params, never>
 			"remove a relation and add one of its shape": aimed(
 				"remove a relation and add one of its shape"
 			),
-			"rename a closed handle": aimed("rename a closed handle"),
-			"reorder the closed handles": aimed("reorder the closed handles"),
 			"rename a login": aimed("rename a login"),
 			"rename a login while its roles change": aimed("rename a login while its roles change"),
 			"exchange a login's and a role's names": aimed("exchange a login's and a role's names"),
@@ -1091,10 +1016,36 @@ interface History {
 	rows: ValueFacts
 	steps: number
 	readonly oids: Map<string, string>
+	/** Each login's PostgreSQL role, by its name, as the step before installed it. */
+	loginRoles: ReadonlyMap<string, string>
 }
 
-/** Every login of a version is the PostgreSQL role its origin was first installed as, and every role the one of its
- * name: the OID each had stays its OID. */
+/** The names the logins of `before` held that their logins in `after`, by origin, no longer hold. */
+const renamedLogins = (before: Model, after: Model): ReadonlyArray<string> =>
+	Arr.flatMap(before.logins, (l) =>
+		Option.match(
+			Arr.findFirst(after.logins, (x) => x.origin === l.origin),
+			{
+				onNone: () => [],
+				onSome: (x) => (loginName(x) === loginName(l) ? [] : [loginName(l)])
+			}
+		)
+	)
+
+/** Each login's PostgreSQL role, by its name, as `plan` installs it. */
+const loginRolesOf = (m: Model, plan: RealInstallPlan): ReadonlyMap<string, string> =>
+	new Map(
+		Arr.map(m.logins, (l) => [
+			loginName(l),
+			Option.getOrThrowWith(
+				Rec.get(plan.logins, loginName(l)),
+				() => new Error(`the plan installs no login ${loginName(l)}`)
+			).role
+		])
+	)
+
+/** Every login and every role of a version is the PostgreSQL role of its name: one the step keeps under its name keeps
+ * the OID it had, and a renamed login, a login created afresh, has the OID of its new role. */
 const sameWorlds = (h: History, m: Model, plan: RealInstallPlan, what: string) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
@@ -1117,20 +1068,21 @@ const sameWorlds = (h: History, m: Model, plan: RealInstallPlan, what: string) =
 		}
 	})
 
-/** What a step notes of the decision made by identity. */
-const noteDecision = (
-	g: GenerateResult,
-	chosen: ReadonlySet<Candidate>,
+/** What a step notes of what it declares by identity, and of the logins it renames. */
+const noteDeclared = (
+	declared: Declarations,
+	before: Model,
+	after: Model,
 	note: (f: Feature) => void
 ): void => {
-	if (chosen.size > 0) {
-		note("a rename chosen by identity")
+	if (declared.renames.length > 0) {
+		note("a rename declared by identity")
 	}
-	if (Arr.some([...chosen], (c) => c.kind === "login")) {
-		note("a login's rename chosen by identity")
+	if (declared.drops.length > 0) {
+		note("a drop declared by identity")
 	}
-	if (candidatesOf(g.plan).length > chosen.size) {
-		note("a candidate kept by identity")
+	if (Arr.some(renamedLogins(before, after), () => true)) {
+		note("a renamed login created afresh")
 	}
 }
 
@@ -1145,48 +1097,40 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 			const v = versionOfModel(after)
 			const plan = planned(built, h.schema, h.owner)
 			h.steps++
+			const declarations = identityDeclarations(before, after)
 			const g = succeeded(
 				generate({
 					previous: h.previous,
 					installation: plan.installation,
 					name: `step_${h.steps}`,
 					timestamp: draftedAt(h.steps),
-					workload: noWorkload
+					workload: noWorkload,
+					declared: declarations
 				}),
 				`step ${h.steps}`
 			)
-			const chosen = identityChoice(g, { model: before, plan: h.plan }, { model: after, plan })
-			assert.ok(
-				Arr.some(choosable(g), (d) => sameDecision(d, chosen)),
-				`step ${h.steps}: the decision by identity, ${decisionText(chosen)}, is none the documented rules allow`
-			)
-			const reviewed = review(g, {
-				chosen,
-				losses: "written",
-				value: typedValue({ plan, version: v })
-			})
-			if (Result.isFailure(reviewed)) {
-				return assert.fail(
-					`step ${h.steps}: ${decisionText(new Set(reviewed.failure.candidates))} decide one statement`
-				)
-			}
+			const reviewed = review(g, { losses: "written", value: typedValue({ plan, version: v }) })
 			assert.deepEqual(
-				readsBack(g, chosen, reviewed.success.files),
+				readsBack(g, reviewed.files),
 				[],
-				`step ${h.steps}: the review by identity reads back as made`
+				`step ${h.steps}: the review reads back as made`
 			)
-			noteDecision(g, chosen, note)
+			noteDeclared(declarations, before, after, note)
 			if (g.change !== "none") {
-				h.folders.push({
-					name: g.folder.name,
-					metaText: g.folder.metaText,
-					files: reviewed.success.files
-				})
+				h.folders.push({ name: g.folder.name, metaText: g.folder.metaText, files: reviewed.files })
 			}
 			yield* apply(m, { snapshot: g.snapshot, folders: [...h.folders] }, noFurther)
 			h.previous = fromSnapshot(g.snapshot)
 			h.plan = plan
 			yield* sameWorlds(h, after, plan, `step ${h.steps}`)
+			for (const role of renamedLogins(before, after)) {
+				const kept = yield* substrate.roleExists(defined(h.loginRoles.get(role), "a login's role"))
+				assert.ok(
+					!kept,
+					`step ${h.steps}: the renamed login ${role}'s old PostgreSQL role is dropped`
+				)
+			}
+			h.loginRoles = loginRolesOf(after, plan)
 			const model = carry(
 				versionOfModel(before),
 				v,
@@ -1227,7 +1171,8 @@ const exchange = (h: History, before: Model, p: Params["exchange a login's and a
 				installation: plan.installation,
 				name: `step_${h.steps}`,
 				timestamp: draftedAt(h.steps),
-				workload: noWorkload
+				workload: noWorkload,
+				declared: noDeclarations
 			}),
 			"UnsupportedOperation",
 			`step ${h.steps}: a login's and a role's names exchanged are drafted`
@@ -1291,8 +1236,6 @@ const real = (
 		"rename a field": run("rename a field"),
 		"rename a field and change its type": run("rename a field and change its type"),
 		"remove a relation and add one of its shape": run("remove a relation and add one of its shape"),
-		"rename a closed handle": run("rename a closed handle"),
-		"reorder the closed handles": run("reorder the closed handles"),
 		"rename a login": run("rename a login"),
 		"rename a login while its roles change": run("rename a login while its roles change"),
 		"exchange a login's and a role's names": (p, before) => {
@@ -1324,7 +1267,8 @@ const history = (steps: Program<Params>, note: (f: Feature) => void) =>
 					installation: plan.installation,
 					name: "step_0",
 					timestamp: draftedAt(0),
-					workload: noWorkload
+					workload: noWorkload,
+					declared: noDeclarations
 				}),
 				"the first version"
 			)
@@ -1346,7 +1290,8 @@ const history = (steps: Program<Params>, note: (f: Feature) => void) =>
 				plan,
 				rows: facts,
 				steps: 0,
-				oids: new Map()
+				oids: new Map(),
+				loginRoles: loginRolesOf(initial, plan)
 			}
 			yield* sameWorlds(h, initial, plan, "the first version")
 			yield* runProgram(machine, real(h, note), steps)
@@ -1371,8 +1316,6 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 								"a field renamed",
 								"a field renamed with its type changed",
 								"a relation removed and one of its shape added",
-								"a closed handle renamed",
-								"the closed handles reordered",
 								"a login renamed",
 								"a login renamed while its roles change",
 								"a login's and a role's names exchanged, refused",
@@ -1384,9 +1327,9 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 								"a chain of renames",
 								"a relation renamed back",
 								"a world entry over a renamed relation",
-								"a rename chosen by identity",
-								"a login's rename chosen by identity",
-								"a candidate kept by identity"
+								"a rename declared by identity",
+								"a drop declared by identity",
+								"a renamed login created afresh"
 							],
 							{ cases: 24, sense: notesOnly }
 						),

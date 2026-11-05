@@ -1,14 +1,14 @@
 import { element, filter, map } from "@grizzle/testing/gen"
-import { Array as Arr, Option, Record } from "effect"
+import { Array as Arr, Option, Predicate, Record } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { violations } from "#test/pg/laws/families/model.ts"
+import { violations } from "#test/support/laws/model.ts"
 import { sameDomain } from "#test/support/worlds/generate/domain.ts"
 import { installGen, plantedInstallGen } from "#test/support/worlds/generate/install.ts"
 import { lawIdsOf } from "#test/support/worlds/invalid/catalog.ts"
 import type { Strata } from "#test/support/worlds/invalid/kinds.ts"
-import { classifyEntry, hostSchemaOf, nativeLaw } from "#test/support/worlds/model/host.ts"
-import { draftedFrom, samePlain } from "#test/support/worlds/model/session/state.ts"
+import { classifyEntry, hostSchemaOf } from "#test/support/worlds/model/host.ts"
+import { draftedFrom, factsIn, samePlain } from "#test/support/worlds/model/session/state.ts"
 import type {
 	BaseSpec,
 	FieldSpec,
@@ -50,7 +50,6 @@ const standInsOf = (law: LawSpec, standIn: LawId): LawIds => {
 		case "check":
 		case "contained":
 		case "covered":
-		case "capacity":
 			return { kind: law.kind, law: standIn }
 		case "alternatives":
 			return {
@@ -58,7 +57,9 @@ const standInsOf = (law: LawSpec, standIn: LawId): LawIds => {
 				arms: Record.fromEntries(
 					Arr.map(Record.keys(law.arms), (handle) => [handle, standIn] as const)
 				),
-				reverse: standIn
+				reverse: Record.fromEntries(
+					Arr.map(Record.keys(law.arms), (handle) => [handle, standIn] as const)
+				)
 			}
 	}
 }
@@ -73,8 +74,6 @@ const relationsOf = (law: LawSpec): ReadonlyArray<string> => {
 			return [law.relation]
 		case "contained":
 		case "covered":
-			return [law.source.relation, law.target.relation]
-		case "capacity":
 			return [law.source.relation, law.target.relation]
 	}
 }
@@ -107,7 +106,6 @@ export const takenIdentity = (base: BaseSpec, law: LawSpec): boolean => {
 			)
 		case "check":
 			return Arr.some(base.laws, (old) => old.kind === "check" && old.name === law.name)
-		case "capacity":
 		case "spanKey":
 		case "alternatives":
 			return Arr.some(base.laws, (old) => samePlain(old, law))
@@ -117,9 +115,8 @@ export const takenIdentity = (base: BaseSpec, law: LawSpec): boolean => {
 /**
  * New laws over the base's relations, each of an identity no law of the base holds: a key over one field; a row check
  * holding an integer field below each value a fact holds there, which that fact fails, and at most the largest, which
- * every fact meets; a containment of one relation's field in another's single-field key; and at most one fact of a
- * relation per fact of another, a count capacity of at most one from a field, no key alone, into another relation's
- * single-field key, a residual law.
+ * every fact meets; and a containment of one relation's field in another's single-field key. At most one fact of a
+ * relation per fact of another is the key over one field (fin.md §6), among the keys.
  */
 const newLaws = (state: ModelState): ReadonlyArray<LawSpec> => {
 	const base = state.install.base
@@ -182,34 +179,7 @@ const newLaws = (state: ModelState): ReadonlyArray<LawSpec> => {
 			)
 		)
 	)
-	const atMostOnes = Arr.flatMap(base.relations, (s) =>
-		Arr.flatMap(
-			Arr.filter(s.fields, (f) => !s.key.includes(f.name) || s.key.length > 1),
-			(f: FieldSpec) =>
-				Arr.flatMap(
-					Arr.filter(base.relations, (t) => t.name !== s.name),
-					(t: RelationSpec) =>
-						Arr.map(
-							Arr.filter(
-								t.fields,
-								(g) => sameDomain(g.domain, f.domain) && t.key.length === 1 && t.key[0] === g.name
-							),
-							(g: FieldSpec): LawSpec => ({
-								kind: "capacity",
-								target: { relation: t.name, fields: [g.name], where: {} },
-								source: { relation: s.name, fields: [f.name], where: {} },
-								weight: { kind: "count" },
-								low: 0n,
-								high: 1n
-							})
-						)
-				)
-		)
-	)
-	return Arr.filter(
-		[...keys, ...checks, ...containments, ...atMostOnes],
-		(law) => !takenIdentity(base, law)
-	)
+	return Arr.filter([...keys, ...checks, ...containments], (law) => !takenIdentity(base, law))
 }
 
 /** The new laws (newLaws) the reality violates: each a law a migration may declare over data that breaks it. */
@@ -271,6 +241,121 @@ export const migrationKinds = (
 		: [])
 ]
 
+/** A handle no roster of any base the generators draw holds: a growth's new member. */
+const grownHandle = (members: ReadonlyArray<string>): string => {
+	let n = members.length
+	while (members.includes(`grown${n}`)) {
+		n += 1
+	}
+	return `grown${n}`
+}
+
+/** Whether some stored fact holds `handle` in a field of roster `roster`. */
+const holds = (state: ModelState, roster: string, handle: string): boolean =>
+	Arr.some(state.install.base.relations, (r) =>
+		Arr.some(
+			r.fields,
+			(f) =>
+				f.domain.kind === "handle" &&
+				f.domain.closed === roster &&
+				Arr.some(factsIn(state.reality, r.name), (fact) => fact[f.name] === handle)
+		)
+	)
+
+/**
+ * Whether the base names `handle` of `roster` anywhere but its roster: a handle literal (`{kind: "handle", closed,
+ * member}`) in a law, a rule or a role, or an alternatives law's arm. A removal leaves such a handle alone, a harness
+ * invariant: the base it would leave names a handle its roster no longer holds, a schema no migration starts from.
+ */
+const mentioned = (base: BaseSpec, roster: string, handle: string): boolean => {
+	const walk = (value: unknown): boolean => {
+		if (Arr.isArray(value)) {
+			return Arr.some(value, walk)
+		}
+		if (!Predicate.isObject(value)) {
+			return false
+		}
+		if (value["kind"] === "handle" && value["closed"] === roster && value["member"] === handle) {
+			return true
+		}
+		const arms = value["arms"]
+		if (
+			value["kind"] === "alternatives" &&
+			value["closed"] === roster &&
+			Predicate.isObject(arms) &&
+			Record.has(arms, handle)
+		) {
+			return true
+		}
+		return Arr.some(Record.values(value), walk)
+	}
+	return walk({ ...base, closed: [] })
+}
+
+/** The base with roster `roster`'s handles declared as `members`. */
+const withMembers = (
+	base: BaseSpec,
+	roster: string,
+	members: Arr.NonEmptyReadonlyArray<string>
+): BaseSpec => ({
+	...base,
+	closed: Arr.map(base.closed, (c) => (c.name === roster ? { ...c, members } : c))
+})
+
+/** One migration of a roster, by what it changes: its handles in the order the migrated base declares them. */
+interface RosterChange {
+	readonly roster: string
+	readonly members: Arr.NonEmptyReadonlyArray<string>
+}
+
+/**
+ * The roster changes from a state, each by construction: a growth appends a handle no roster holds; a removal leaves
+ * out a handle the base names nowhere else (mentioned), held by some stored fact or by none; a reorder swaps two
+ * adjacent handles, which D1 refuses.
+ */
+const rosterChanges = (
+	state: ModelState
+): {
+	readonly grown: ReadonlyArray<RosterChange>
+	readonly unheld: ReadonlyArray<RosterChange>
+	readonly held: ReadonlyArray<RosterChange>
+	readonly reordered: ReadonlyArray<RosterChange>
+} => {
+	const closed = state.install.base.closed
+	const removals = Arr.flatMap(closed, (c) =>
+		Arr.flatMap(
+			Arr.filter(c.members, (m) => !mentioned(state.install.base, c.name, m)),
+			(m: string): ReadonlyArray<{ readonly change: RosterChange; readonly held: boolean }> => {
+				const kept = Arr.filter(c.members, (x) => x !== m)
+				return Arr.isReadonlyArrayNonEmpty(kept)
+					? [{ change: { roster: c.name, members: kept }, held: holds(state, c.name, m) }]
+					: []
+			}
+		)
+	)
+	return {
+		grown: Arr.map(closed, (c) => ({
+			roster: c.name,
+			members: Arr.append(c.members, grownHandle(c.members))
+		})),
+		unheld: Arr.flatMap(removals, (r) => (r.held ? [] : [r.change])),
+		held: Arr.flatMap(removals, (r) => (r.held ? [r.change] : [])),
+		reordered: Arr.flatMap(closed, (c) =>
+			Arr.flatMap(c.members, (m, i) => {
+				const next = c.members[i + 1]
+				return next === undefined
+					? []
+					: [
+							{
+								roster: c.name,
+								members: Arr.map(c.members, (x, j) => (j === i ? next : j === i + 1 ? m : x))
+							}
+						]
+			})
+		)
+	}
+}
+
 /** A base with one more law. */
 const withLaw = (base: BaseSpec, law: LawSpec): BaseSpec => ({ ...base, laws: [...base.laws, law] })
 
@@ -298,6 +383,11 @@ const differentInstallAttempts = 16
  * stale, the installation as it is with a new native law over data that breaks it (when the state's data breaks one),
  * which stops the run with its folder unfinished, so every Db call and Db.open after it is refused as migrating, or a
  * write list with two entries over one relation.
+ *
+ * Rosters (S6): live, a roster grown by a handle no roster holds, or losing a handle no stored fact holds, whose
+ * VALIDATE passes; stale, a roster losing a handle a stored fact holds, whose re-pointed domain's VALIDATE fails
+ * (23514) and stops the run unfinished; wild, two adjacent handles swapped, a declaration D1 refuses before anything
+ * is drafted (compile-refused).
  */
 export const migrationStrata = (state: ModelState): Strata<Migration> => {
 	const base = state.install.base
@@ -305,11 +395,20 @@ export const migrationStrata = (state: ModelState): Strata<Migration> => {
 	const landed =
 		(how: MigrationHow) =>
 		(to: InstallSpec): Migration => ({ to, how })
-	const [law, ...moreLaws] = Arr.filter(violatingLaws(state), (l) => nativeLaw(base, l))
-	const [kept, ...moreKept] = Arr.filter(keptLaws(state), (l) => nativeLaw(base, l))
+	const [law, ...moreLaws] = violatingLaws(state)
+	const [kept, ...moreKept] = keptLaws(state)
+	const rosters = rosterChanges(state)
+	const onRoster = (change: RosterChange): Migration => ({
+		to: onBase(state.install, withMembers(base, change.roster, change.members)),
+		how: "complete"
+	})
+	const among = (changes: ReadonlyArray<RosterChange>) =>
+		Arr.isReadonlyArrayNonEmpty(changes) ? [map(element(changes), onRoster)] : []
 	return {
 		live: [
 			map(lawful, landed("complete")),
+			...among(rosters.grown),
+			...among(rosters.unheld),
 			...(kept === undefined
 				? []
 				: [
@@ -334,7 +433,11 @@ export const migrationStrata = (state: ModelState): Strata<Migration> => {
 			{
 				invalid: "install:two-writes-one-relation",
 				gen: map(plantedInstallGen(base, "install:two-writes-one-relation"), landed("complete"))
-			}
+			},
+			...Arr.map(among(rosters.held), (gen) => ({
+				invalid: "migration:roster-removal-held" as const,
+				gen
+			}))
 		],
 		wild: [
 			{
@@ -348,7 +451,11 @@ export const migrationStrata = (state: ModelState): Strata<Migration> => {
 			{
 				invalid: "install:unwritable-write",
 				gen: map(plantedInstallGen(base, "install:unwritable-write"), landed("complete"))
-			}
+			},
+			...Arr.map(among(rosters.reordered), (gen) => ({
+				invalid: "migration:roster-reorder" as const,
+				gen
+			}))
 		]
 	}
 }

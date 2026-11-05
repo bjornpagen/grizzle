@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore, type Kept } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { type Gen, int } from "@grizzle/testing/gen"
+import { type Gen, int, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { fullSwarm } from "@grizzle/testing/swarm"
@@ -12,7 +12,11 @@ import { mapTargets, target } from "#compiler/sql/build.ts"
 import { bodyPositionNames, renameToPublicHeading } from "#compiler/sql/naming.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
-import { resolveStatement, statementGen } from "#test/support/kernel/sqlgen.ts"
+import {
+	columnSetOperationGen,
+	resolveStatement,
+	statementGen
+} from "#test/support/kernel/sqlgen.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
@@ -98,12 +102,25 @@ type RenameFeature = "core" | "set operation" | "passthrough arm" | "wrong width
 /** A generated statement, and the offset its heading starts at in the heading dictionary. */
 type Renamed = readonly [SqlStatement, number]
 
+/**
+ * A statement of the full generator, or, a quarter of the time, a set operation with the value-shaping features off
+ * (columnSetOperationGen), about one in four of which has a first arm that passes its columns through: the full
+ * generator draws that arm about one statement in two hundred, too rarely for the label-fixed streams to be sure of it.
+ */
 const renamedGen: Gen<Renamed> = (source) =>
-	[source.draw(statementGen(sqlCatalog)), source.draw(int(0, headings.length - 1))] as const
+	[
+		source.draw(
+			weighted([
+				[3, statementGen(sqlCatalog)],
+				[1, columnSetOperationGen(sqlCatalog)]
+			])
+		),
+		source.draw(int(0, headings.length - 1))
+	] as const
 
 /**
  * Planted: a UNION of two cores of one column each, a sketch of the set operation alone and an empty tape, whose first
- * arm passes its columns through, which the drawn statements hold a few times a run.
+ * arm passes its columns through.
  */
 const keptRenames: ReadonlyArray<Kept<Renamed, RenameFeature>> = [
 	{

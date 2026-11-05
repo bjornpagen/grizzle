@@ -4,12 +4,12 @@ import { type CompileError, isCompileError, malformedDescription } from "#compil
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type Codebook, codecOf, firstCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
 import { decodeDesc, type LoginDesc } from "#compiler/ir/desc.ts"
 import {
 	baseOf,
 	type ContractInfo,
 	contractOf,
-	rosterOf,
 	type ScalarType,
 	spanOf
 } from "#compiler/ir/scalar.ts"
@@ -17,7 +17,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { columnType, domainBase } from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
-import { fullRoleDesc, type OwnedLogin, ownLogin } from "#compiler/schema/own.ts"
+import { fullRoleDesc, type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -27,13 +27,14 @@ import {
 	type InstallPlan,
 	type OracleColumn,
 	type OracleDomain,
-	type OracleEnum,
 	type OracleForeignKey,
 	type OracleKey,
+	type OracleRoster,
 	type OracleTable,
 	uncontracted,
 	type ValueKind
 } from "#test/support/oracle/install/model.ts"
+import { rosterNamesIdentity } from "#test/support/oracle/install/names.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
@@ -57,6 +58,11 @@ interface RealPlanOptions {
 	 * (physical/complete.ts completeInstallOptions): a workload's index requests; [] for none.
 	 */
 	readonly extensions: ReadonlyArray<InstallExtension>
+	/**
+	 * The installation's codes (ir/codes.ts): a fresh installation's (firstCodebook), or the codes a history drafted,
+	 * holes included. Every code literal, set width and decoded code of the installation reads them.
+	 */
+	readonly codes: Codebook
 }
 
 /** An installed role of a login: its theory role and its role schema. */
@@ -113,8 +119,8 @@ export const oracleOwnedLogin = (desc: SchemaDesc): OwnedLogin => ownedLogin(ora
 const refuse = (location: string, capability: string): CompileError =>
 	malformedDescription(SourceLoc(location, []), capability)
 
-/** How a host value of a column of type `t` is spelled as a typed literal (literal.ts). */
-const valueKind = (t: ScalarType): ValueKind => {
+/** How a host value of a column of type `t` is spelled as a typed literal (literal.ts), under the installation's codes. */
+const valueKind = (t: ScalarType, codes: Codebook): ValueKind => {
 	const b = baseOf(t)
 	switch (b.carrier) {
 		case "int2":
@@ -134,8 +140,9 @@ const valueKind = (t: ScalarType): ValueKind => {
 			return { kind: "uuid" }
 		case "text":
 			return { kind: "text" }
-		case "enum":
-			return { kind: "enum", closed: b.roster.closed, labels: b.roster.handles }
+		case "code":
+		case "bits":
+			return { kind: b.carrier, roster: codecOf(codes, b.roster) }
 		case "range4":
 		case "range8":
 			return { kind: "span", carrier: b.carrier }
@@ -159,7 +166,8 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 			declared,
 			options.installation,
 			Arr.map(options.logins, ownedLogin),
-			options.extensions
+			options.extensions,
+			options.codes
 		),
 		owner: options.owner
 	})
@@ -183,27 +191,28 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 		const contract = contractOf(t)
 		return {
 			sql: c.type,
-			value: valueKind(t),
+			value: valueKind(t, options.codes),
 			contract: contract === undefined ? uncontracted : { kind: "contract", name: contract.name }
 		}
 	}
 
-	/** A closed relation's enum: its roster's handles, from its handle column's type. */
-	const closedEnum = (relation: string): OracleEnum => {
-		const id = Option.flatMap(Option.fromUndefinedOr(theory.relations[relation]), (t) =>
-			Arr.findFirst(t.heading, (c) => c.name === "id")
-		)
-		const roster = Option.getOrThrowWith(
-			Option.flatMap(id, (column) => Option.fromUndefinedOr(rosterOf(baseOf(column.type)))),
-			() => refuse(at(relation), "a closed relation's handle column typed by its roster")
-		)
-		return { closed: relation, name: names.enumType(roster.closed), labels: roster.handles }
-	}
-	const enums: Record<string, OracleEnum> = {}
+	/**
+	 * A roster's installed objects: its domain, as the installation names it, and its names constant, as the oracle
+	 * predicts it is named (names.ts rosterNamesIdentity), over the installation's codes.
+	 */
+	const installedRoster = (roster: RosterCodec): OracleRoster => ({
+		closed: roster.roster,
+		names: { schema, name: identifierOf(rosterNamesIdentity(roster)) },
+		domain: names.rosterDomain(roster.roster),
+		codes: roster
+	})
+	const rosters: Record<string, OracleRoster> = {}
 	const tables: Record<string, OracleTable> = {}
 	for (const r of Rec.values(owned.relations)) {
 		if (r.kind === "closed") {
-			enums[r.name] = closedEnum(r.name)
+			rosters[r.name] = installedRoster(
+				codecOf(options.codes, { closed: r.name, handles: r.desc.handles })
+			)
 			continue
 		}
 		if (r.kind !== "relation") {
@@ -375,7 +384,8 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 		declared: owned.name,
 		schema,
 		tables,
-		enums,
+		rosters,
+		codes: options.codes,
 		domains,
 		loadOrder,
 		ddl: [],
@@ -425,14 +435,23 @@ export const planRealInstall = (
 
 /**
  * The plan of a generated schema on the real installer under `installation`, owned by `owner`, with the one login a
- * generated schema runs as (oracleLogin): what every oracle suite installs.
+ * generated schema runs as (oracleLogin), as a fresh installation numbers its rosters (firstCodebook): what every
+ * oracle suite installs whose case states no codes of its own.
  */
 export const oraclePlan = (
 	desc: SchemaDesc,
 	installation: Identity<"schema">,
 	owner: string
 ): Result.Result<RealInstallPlan, CompileError> =>
-	planRealInstall(desc, { installation, owner, logins: [oracleLogin(desc)], extensions: [] })
+	Result.flatMap(ownedInput(desc), (owned) =>
+		planRealInstall(desc, {
+			installation,
+			owner,
+			logins: [oracleLogin(desc)],
+			extensions: [],
+			codes: firstCodebook(rostersOf(owned))
+		})
+	)
 
 interface InstalledRealSchema {
 	readonly plan: RealInstallPlan
@@ -467,9 +486,10 @@ const installRealPlan = (
  * physical names the lowerings emit) runs over the real catalog unchanged:
  *
  * - the DDL is the real install script, in its install order, every statement audited (physical/install);
- * - tables, columns, enums, contract domains, sequences and roles are named by the installation's own InstallNames;
+ * - tables, columns, roster domains, contract domains, sequences and roles are named by the installation's own
+ *   InstallNames, and each roster's names constant as the oracle predicts it (names.ts rosterNamesIdentity);
  * - a column's type is the one the real installer gives it (physical/ddl/names.ts columnType): a contract's domain, a
- *   refined text's structural `__text_` domain, a roster's enum, or the native type;
+ *   refined text's structural `__text_` domain, a roster's domain, a set's bits domain, or the native type;
  * - the load order respects every immediate foreign key; a deferred one is checked at COMMIT and places
  *   no constraint on it;
  * - nothing is skipped and every CHECK is installed: the installation is complete, the residual laws' functions and
@@ -483,7 +503,8 @@ const installRealPlan = (
  * installRealSchema installs such a plan under a unique schema of the substrate's database and enables login for every
  * login role; test/support/install-migrate.ts is the general entry point.
  *
- * Plans `input` on the real installer under a unique schema of the substrate's database, installs it as the owner, and
+ * Plans `input` on the real installer under a unique schema of the substrate's database, as a fresh installation
+ * numbers its rosters (firstCodebook), installs it as the owner, and
  * enables login for every login role. The schema and its roles are dropped when the scope closes.
  */
 export const installRealSchema = (
@@ -497,12 +518,14 @@ export const installRealSchema = (
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const schema = yield* substrate.schema({ create: false, label: options.label })
+		const owned = yield* fromEngine(ownedInput(input))
 		const plan = yield* fromEngine(
 			planRealInstall(input, {
 				installation: identity.schema(parsedSchemaName(schema)),
 				owner: substrate.owner.role,
 				logins: options.logins,
-				extensions: options.extensions
+				extensions: options.extensions,
+				codes: firstCodebook(rostersOf(owned))
 			})
 		)
 		yield* installRealPlan(substrate.admin, plan)

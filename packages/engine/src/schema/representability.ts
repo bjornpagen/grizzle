@@ -9,6 +9,7 @@ import {
 	pageHeaderBytes,
 	postgresSource,
 	published,
+	rosterMaxCodes,
 	typlens
 } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -68,16 +69,6 @@ const gistOpaqueBytes: Limit = published({
 	verified: "2026-11-05"
 })
 
-/** An enum's datum: its label's OID, the internal size DefineEnum creates every enum type with. */
-const enumBytes: Limit = derived({
-	owner: "PostgreSQL 19rc1",
-	unit: "bytes",
-	scope: "one enum datum, a closed relation's handle",
-	from: [typlens.oid],
-	derivation: `the typlen of oid: DefineEnum creates the type with "sizeof(Oid), /* internal size */" (${postgresSource}/src/backend/commands/typecmds.c#L1237)`,
-	compute: ([oid]) => oid.value
-})
-
 /**
  * A varlena's header, VARHDRSZ: the length every variable-length datum leads with, at its longest, sizeof(int32), C's
  * int32_t ("typedef int32_t int32;", c.h).
@@ -92,6 +83,28 @@ const varlenaHeaderBytes: Limit = published({
 	source: `${postgresSource}/src/include/c.h#L787`,
 	quote: "#define VARHDRSZ\t\t((int32) sizeof(int32))",
 	verified: "2026-11-05"
+})
+
+/**
+ * The bits one byte of a bit string holds, BITS_PER_BYTE.
+ *
+ * @formatConstant a bit string's byte: 8 bits
+ */
+const bitsPerByte = 8
+
+/**
+ * The most bytes one set over a roster takes, uncompressed and in line: a bit(n) varlena of its header, its bit count
+ * and a byte per eight bits, n its roster's codes. A roster's codes are installation data, which ownership does not
+ * hold, so the bound is the one every installation's roster keeps within: its most codes.
+ */
+const bitsBytes: Limit = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "one set over a roster, its bit(n) datum",
+	from: [varlenaHeaderBytes, typlens.int4, rosterMaxCodes],
+	derivation: `VARBITTOTALLEN(n), "#define VARBITTOTALLEN(BITLEN) (((BITLEN) + BITS_PER_BYTE-1)/BITS_PER_BYTE + VARHDRSZ + VARBITHDRSZ)" with VARBITHDRSZ sizeof(int32) (${postgresSource}/src/include/utils/varbit.h), at n the most codes a roster numbers`,
+	compute: ([header, bitLength, codes]) =>
+		header.value + bitLength.value + Math.ceil(codes.value / bitsPerByte)
 })
 
 /** The two bounds a range holds, and a btree_gist key of a fixed-size type beside each other. */
@@ -211,7 +224,8 @@ type Family =
 	| "money"
 	| "bool"
 	| "uuid"
-	| "enum"
+	| "code"
+	| "bit"
 	| "numeric"
 	| "text"
 	| "range"
@@ -322,6 +336,8 @@ export const charLengthBound = (predicate: ExprDesc): number => {
 		case "allen":
 		case "pointIn":
 		case "absent":
+		case "closedAt":
+		case "closedRow":
 			return Number.POSITIVE_INFINITY
 	}
 }
@@ -380,13 +396,12 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 			return integerFamily(desc.base)
 		case "pg":
 			return desc.type === "integer" ? "int4" : desc.type === "bigint" ? "int8" : undefined
-		case "serial":
-			return desc.type === "serial" ? "int4" : desc.type === "bigserial" ? "int8" : undefined
 		case "numeric":
 		case "uuid":
 		case "text":
 		case "span":
 		case "closedId":
+		case "bits":
 		case "vector":
 			return undefined
 	}
@@ -440,16 +455,12 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 			return datumBound(desc.base)
 		case "pg":
 			return pgDatumBound(desc.type)
-		case "serial":
-			return desc.type === "smallserial"
-				? fixed(typlens.int2.value, 2, "int2")
-				: desc.type === "serial"
-					? fixed(typlens.int4.value, 4, "int4")
-					: fixed(typlens.int8.value, 8, "int8")
 		case "uuid":
 			return fixed(typlens.uuid.value, 1, "uuid")
 		case "closedId":
-			return fixed(enumBytes.value, 4, "enum")
+			return fixed(typlens.int2.value, 2, "code")
+		case "bits":
+			return fixed(bitsBytes.value, 4, "bit")
 		case "numeric":
 			return fixed(numericMaximumSize(desc.precision), 4, "numeric")
 		case "computedNumeric":
@@ -486,7 +497,7 @@ const gistKeyBytes = (d: GistDatum): number => {
 		case "int2":
 		case "int4":
 		case "float4":
-		case "enum":
+		case "code":
 		case "int8":
 		case "float8":
 		case "money":
@@ -495,6 +506,7 @@ const gistKeyBytes = (d: GistDatum): number => {
 			return bounds.length * d.bytes
 		case "numeric":
 		case "text":
+		case "bit":
 			return varlenaHeaderBytes.value + alignUp(d.bytes, 4) + d.bytes
 		case "range":
 			return d.bytes

@@ -9,15 +9,15 @@ import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "eff
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
-import type { Selector } from "#compiler/ir/law.ts"
 import {
-	type AccessUse,
 	allRows,
 	defaultOpclass,
 	type IndexOpclass,
-	type IndexRequest,
-	type IndexRows
-} from "#compiler/ir/products.ts"
+	type IndexRows,
+	type NativeColumn,
+	type Selector
+} from "#compiler/ir/law.ts"
+import { type AccessUse, type IndexRequest } from "#compiler/ir/products.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import {
 	compileInstallation,
@@ -26,7 +26,7 @@ import {
 } from "#compiler/physical/install/compile.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { contained, f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { wild } from "#test/support/kernel/naming.ts"
+import { lawNamesOf, wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 import { owner, requesting } from "#test/unit/physical/fixtures.ts"
@@ -147,6 +147,25 @@ const requestGen: Gen<RequestSketch> = (source) => {
 	}
 }
 
+/**
+ * A law request's key column: the field's handle as Indexed's theory resolves it, which a law names its columns by
+ * (ir/law.ts NativeColumn).
+ */
+const theoryRelations = lawNamesOf(Indexed).model.theory.relations
+const fieldColumn = (relation: string, field: string): NativeColumn => ({
+	kind: "field",
+	field: defined(
+		defined(theoryRelations[relation], relation).fields.find((f) => f.name === field),
+		`${relation}.${field}`
+	)
+})
+
+/** The keys of a drawn request, which draws one at least. */
+const nonEmptyKeys = <K>(keys: ReadonlyArray<K>): Arr.NonEmptyReadonlyArray<K> => {
+	const [first, ...rest] = keys
+	return first === undefined ? assert.fail("a drawn request has a key") : [first, ...rest]
+}
+
 const requestOf = (s: RequestSketch, i: number): IndexRequest => {
 	if (s.vector === 0 && !s.law) {
 		return {
@@ -183,7 +202,13 @@ const requestOf = (s: RequestSketch, i: number): IndexRequest => {
 	return s.law
 		? {
 				relation: rel,
-				keys: Arr.map(keys, (k) => ({ ...k, dir: "asc" as const })),
+				keys: nonEmptyKeys(
+					Arr.map(keys, (k) => ({
+						column: fieldColumn(rel, k.expr),
+						dir: "asc" as const,
+						opclass: k.opclass
+					}))
+				),
 				method: "btree",
 				role: "lawMaintenance",
 				use: "reverse reference",
@@ -249,8 +274,10 @@ const sameLiteral = (a: TypedLiteral, b: TypedLiteral): boolean => {
 			return b.kind === "text" && a.value === b.value
 		case "uuid":
 			return b.kind === "uuid" && a.value === b.value
-		case "enum":
-			return b.kind === "enum" && a.handle === b.handle
+		case "handle":
+			return b.kind === "handle" && a.handle === b.handle
+		case "handles":
+			throw new Error("no set literal is drawn")
 		case "numeric":
 		case "float":
 		case "floatSpecial":
@@ -280,6 +307,10 @@ const sameRows = (a: IndexRows, b: IndexRows): boolean =>
 /** The rows a request reads: a law's states them, a program's access reads every row. */
 const rowsOf = (request: IndexRequest): IndexRows =>
 	request.role === "lawMaintenance" ? request.rows : allRows
+
+/** A planned index key's field, or its law column's identifier. */
+const keyField = (k: PlannedIndex["keys"][number]): string =>
+	k.column.kind === "field" ? k.column.field : k.column.column
 
 const install = (requests: ReadonlyArray<IndexRequest>) => {
 	const owned = owning(Indexed)
@@ -468,7 +499,8 @@ describe("the index request engine", () => {
 								const created = Arr.filter(
 									succeeded(install(plantedRequests(planted))).indexes,
 									(x) =>
-										x.index.kind === "created" && Arr.every(x.keys, (k) => k.field === "unrelated")
+										x.index.kind === "created" &&
+										Arr.every(x.keys, (k) => keyField(k) === "unrelated")
 								)
 								assert.deepEqual(
 									Arr.sort(
@@ -494,11 +526,7 @@ describe("the index request engine", () => {
 								created.length,
 								"distinct names"
 							)
-							const columnsOf = (x: PlannedIndex) =>
-								Arr.join(
-									Arr.map(x.keys, (k) => k.field),
-									" "
-								)
+							const columnsOf = (x: PlannedIndex) => Arr.join(Arr.map(x.keys, keyField), " ")
 							if (
 								Arr.some(created, (a) =>
 									Arr.some(
@@ -515,7 +543,7 @@ describe("the index request engine", () => {
 									serving.length,
 									1,
 									`one index holds ${r.relation}(${Arr.join(
-										Arr.map(r.keys, (k) => k.expr),
+										Arr.map(r.keys, (k) => ("expr" in k ? String(k.expr) : k.column.kind)),
 										","
 									)})`
 								)
@@ -617,7 +645,7 @@ const pools: ReadonlyArray<readonly [string, ReadonlyArray<TypedLiteral>]> = [
 	[
 		"e",
 		Arr.map(["approved", "Approved", "approved_x", "0x61", "a"], (handle): TypedLiteral => ({
-			kind: "enum",
+			kind: "handle",
 			handle
 		}))
 	],

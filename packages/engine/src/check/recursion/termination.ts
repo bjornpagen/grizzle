@@ -194,6 +194,8 @@ const stateReads = (e: ResolvedExpr | ResolvedHead, b: Bindings): ReadonlyArray<
 		case "compute":
 		case "and":
 		case "or":
+		case "closedAt":
+		case "closedRow":
 			return e.args.flatMap(sub)
 		case "cast":
 		case "base":
@@ -554,15 +556,41 @@ const greatest = (first: bigint, rest: ReadonlyArray<bigint>): bigint =>
 /** The values a boolean column holds, which no NULL joins (ir/scalar.ts: no type is nullable). */
 const booleanValues = [false, true] as const
 
-/** A column's value count, capped at its domain's size for a boolean or enum column. */
-const cappedByDomain = (type: ScalarType, count: bigint): bigint => {
+/**
+ * The values a column of `type` can hold when its domain is finite: a boolean's two, a closed id's live handles, and a
+ * set's every subset of its roster's live handles, since a set holds no code a hole has (the codec writes only live
+ * codes, and union, intersection and difference of such sets hold none); undefined for an unbounded domain.
+ */
+const domainSize = (type: ScalarType): bigint | undefined => {
 	const base = baseOf(type)
-	const domain =
-		base.carrier === "bool"
-			? BigInt(booleanValues.length)
-			: base.carrier === "enum"
-				? BigInt(base.roster.handles.length)
-				: undefined
+	switch (base.carrier) {
+		case "bool":
+			return BigInt(booleanValues.length)
+		case "code":
+			return BigInt(base.roster.handles.length)
+		case "bits":
+			return 2n ** BigInt(base.roster.handles.length)
+		case "int2":
+		case "int4":
+		case "int8":
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "money":
+		case "uuid":
+		case "text":
+		case "range4":
+		case "range8":
+		case "vector":
+		case "exactInteger":
+		case "exactMoney":
+			return undefined
+	}
+}
+
+/** A column's value count, capped at its domain's size for a boolean, closed-id or set column. */
+const cappedByDomain = (type: ScalarType, count: bigint): bigint => {
+	const domain = domainSize(type)
 	return domain !== undefined && domain < count ? domain : count
 }
 
@@ -601,7 +629,7 @@ const cappedByDomain = (type: ScalarType, count: bigint): bigint => {
  * values each can take, as far as the description fixes it: a bounded counter counts every integer between its least
  * and its greatest value (a seed it cannot read is the carrier's extreme; an arm copying the counter's component
  * unchanged adds no value), a column of literals counts them, data counts once, a computed column the product of the
- * columns it reads, a copy what it copies, and a boolean or enum column at most its domain. Data counts once because a
+ * columns it reads, a copy what it copies, and a boolean, closed-id or set column at most its domain. Data counts once because a
  * carrier's size is data that admission does not read: the estimate is the number of states per combination of carrier
  * values, the growth a recursion's computed state adds to its data. The estimate is recorded, never refused: finite
  * state is a termination argument, not a resource bound. The states a recursion reaches are its data's, and its

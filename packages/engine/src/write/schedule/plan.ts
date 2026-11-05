@@ -10,7 +10,6 @@ import {
 	type SerialClass
 } from "#compiler/ir/write.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
-import { withoutSerial } from "#compiler/scalar/compute/types.ts"
 import { type Carrier, CarrierSupply, typesDigest } from "#compiler/write/carriers/carriers.ts"
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
 import type { CheckNames } from "#compiler/write/entry/precheck.ts"
@@ -516,9 +515,7 @@ const sequentialSteps = (
 ): ReadonlyArray<PlanStep> => {
 	const steps: Array<PlanStep> = []
 	for (const share of shares) {
-		const carrier = supply.next(
-			share.node.heading.map((c) => ({ name: c.name, type: withoutSerial(c.type) }))
-		)
+		const carrier = supply.next(share.node.heading.map((c) => ({ name: c.name, type: c.type })))
 		steps.push({ kind: "createCarrier", carrier, stratum })
 		steps.push({ kind: "fillShare", carrier, share, stratum })
 	}

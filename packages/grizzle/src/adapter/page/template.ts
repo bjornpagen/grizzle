@@ -19,6 +19,7 @@ import { type Layout, rowText } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -115,10 +116,14 @@ export interface RunProgram<P extends PageProgram = PageRequestProgram> {
 	readonly layouts: Arr.NonEmptyReadonlyArray<Layout>
 }
 
-/** A probe: its program, whose one statement delivers one Boolean column, and that statement as it runs. */
+/**
+ * A probe: its program, whose one statement delivers one Boolean column, that statement as it runs, and the column's
+ * codec, which reads its answer.
+ */
 interface RunProbe<K extends ProbeKind = ProbeKind> {
 	readonly program: PageProbeProgram<K>
 	readonly statement: PageRunStatement
+	readonly answer: ScalarCodec
 }
 
 interface RunArtifact {
@@ -143,6 +148,11 @@ interface PageRuntimeParts {
 	readonly page: PageTemplate
 	readonly params: ReadonlyArray<ParamDecl>
 	/**
+	 * The installation's codes, which every value codec, cursor boundary and placeholder encoder of a closed id or a set
+	 * reads.
+	 */
+	readonly codes: Codebook
+	/**
 	 * The DAG each artifact's statements lower, whose Attach nodes lay out fused attachments: a page has none
 	 * (pageForm), so its Rows plans read none.
 	 * The ordered query's semantic fingerprint and the semantic generation.
@@ -166,10 +176,16 @@ const pageForm = (
 	slots: statement.params
 })
 
-/** A statement of a page program as it runs, each form with the spec rebuilt from it. */
-const pageRun = (statement: PageStatement): Engine.Result<PageRunStatement, CompileError> =>
+/**
+ * A statement of a page program as it runs, each form with the spec rebuilt from it, its placeholders encoded under the
+ * installation's codes `codes`.
+ */
+const pageRun = (
+	statement: PageStatement,
+	codes: Codebook
+): Engine.Result<PageRunStatement, CompileError> =>
 	Engine.flatMap(
-		statementSpec(statement, pageStatementSlotOf),
+		statementSpec(statement, pageStatementSlotOf(codes)),
 		(spec): Engine.Result<PageRunStatement, CompileError> => {
 			const form = pageForm(statement, spec)
 			const forms = statement.forms
@@ -177,7 +193,7 @@ const pageRun = (statement: PageStatement): Engine.Result<PageRunStatement, Comp
 				return Engine.ok({ ...form, forms, arrival: statement.arrival })
 			}
 			return Engine.map(
-				statementSpec(forms.large, pageStatementSlotOf),
+				statementSpec(forms.large, pageStatementSlotOf(codes)),
 				(large): PageRunStatement => ({
 					...form,
 					forms: { kind: "chosen", choices: forms.choices, large: pageForm(forms.large, large) },
@@ -189,9 +205,10 @@ const pageRun = (statement: PageStatement): Engine.Result<PageRunStatement, Comp
 
 /** The statements of a page program as they run (pageRun), in their tree. */
 const specsOf = (
-	program: PageProgram
+	program: PageProgram,
+	codes: Codebook
 ): Result.Result<StatementRoots<PageRunStatement>, CompileError> =>
-	toResult(traverseTree(program.roots, pageRun))
+	toResult(traverseTree(program.roots, (statement) => pageRun(statement, codes)))
 
 /**
  * The reading of a rows statement's comparison tuple: each comparator's column, a column of the statement's heading
@@ -226,14 +243,21 @@ const pageDelivery = (
 	delivery: PageRequestProgram["delivery"],
 	heading: Heading,
 	delivered: Arr.NonEmptyReadonlyArray<PageRecord>,
-	comparators: ReadonlyArray<readonly [PageComparator, ScalarCodec]>
+	comparators: ReadonlyArray<readonly [PageComparator, ScalarCodec]>,
+	codes: Codebook
 ): PageDelivery => {
 	const rows = Arr.map(delivered, (record) => rowsStatement(record, comparators))
 	return delivery.kind === "rows"
 		? { kind: "concat", groups: rows }
 		: {
 				kind: "groups",
-				order: groupOrder(delivery.order, heading, rows, (r) => r.record.run.statement.heading)
+				order: groupOrder(
+					delivery.order,
+					heading,
+					rows,
+					(r) => r.record.run.statement.heading,
+					codes
+				)
 			}
 }
 
@@ -248,6 +272,7 @@ interface ArtifactParts {
 	readonly comparators: ReadonlyArray<PageComparator>
 	readonly values: ReadonlyArray<ScalarCodec>
 	readonly facts: AttachmentFacts
+	readonly codes: Codebook
 }
 
 const runArtifact = (
@@ -258,12 +283,17 @@ const runArtifact = (
 		const request = <V extends PageVariant>(v: V) =>
 			Result.gen(function* () {
 				const program = artifact.requests[v]
-				const { records, delivered } = programRecords(yield* specsOf(program), parts.facts)
+				const { records, delivered } = programRecords(
+					yield* specsOf(program, parts.codes),
+					parts.facts,
+					parts.codes
+				)
 				const delivery = pageDelivery(
 					program.delivery,
 					parts.heading,
 					delivered,
-					Arr.zip(parts.comparators, parts.values)
+					Arr.zip(parts.comparators, parts.values),
+					parts.codes
 				)
 				const run: RunProgram<PageRequestProgram<V>> = {
 					program,
@@ -278,7 +308,8 @@ const runArtifact = (
 				const program = artifact.probes[k]
 				const run: RunProbe<K> = {
 					program,
-					statement: yield* toResult(pageRun(program.statement))
+					statement: yield* toResult(pageRun(program.statement, parts.codes)),
+					answer: scalarCodec(program.column.type, parts.codes)
 				}
 				return run
 			})
@@ -300,19 +331,23 @@ const runArtifact = (
 export const pageRuntimeOf = (parts: PageRuntimeParts): Result.Result<PageRuntime, CompileError> =>
 	Result.gen(function* () {
 		const page = parts.page
-		const values: ReadonlyArray<ScalarCodec> = Arr.map(page.comparators, (c) => scalarCodec(c.type))
+		const values: ReadonlyArray<ScalarCodec> = Arr.map(page.comparators, (c) =>
+			scalarCodec(c.type, parts.codes)
+		)
 		const shared: ArtifactParts = {
 			heading: page.heading,
 			comparators: page.comparators,
 			values,
-			facts: parts.facts
+			facts: parts.facts,
+			codes: parts.codes
 		}
 		const optimized = yield* runArtifact(page.optimized, shared)
 		const conservative = yield* runArtifact(page.conservative, shared)
 		const codec = yield* toResult(
 			cursorCodec(
 				{ query: parts.query, comparators: page.comparators, generation: parts.generation },
-				cursorTokenMaxLength
+				cursorTokenMaxLength,
+				parts.codes
 			)
 		)
 		return {
@@ -368,6 +403,7 @@ export const pageTemplateFor = (
 		return yield* pageRuntimeOf({
 			page,
 			params: template.params,
+			codes: artifacts.names.codes,
 			query,
 			generation: cursorGeneration(artifacts),
 			facts: attachmentFacts(template, desc)

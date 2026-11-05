@@ -30,7 +30,8 @@
  *   - `orphan`, an owner deleted with its family left;
  * - `misorder`, a lawful mutation's statements in another order, which the model judges: a count lowered while a row
  *   remains at or above it is refused at the count update, because a check is never deferred and the count's cascade
- *   carries the new count into that row's copy; other orders the deferred foreign keys may let commit.
+ *   carries the new count into that row's copy; a row sent before its owner's count is refused by the immediate copy;
+ *   other orders the deferred last slot, and a counted family's deferred closure, may let commit.
  *
  * Every insert lists its rows in a drawn order, so a row often arrives before its predecessor, and each row copies the
  * count its owner has once the mutation is done, which is what the host writes. Inserted members are new, numbered
@@ -47,7 +48,7 @@ import {
 } from "@grizzle/testing/commands"
 import { boolean, element, type Gen, int, shuffled, type Size } from "@grizzle/testing/gen"
 import { fullSwarm, type Swarm, swarm, weightOf } from "@grizzle/testing/swarm"
-import { Array as Arr, Effect, Formatter, Result, Struct } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result, Struct } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import { type FamilySpace, familiesGen } from "#test/support/families/generate.ts"
@@ -62,8 +63,8 @@ import {
 	type Stored,
 	storedOf,
 	theorem,
-	type Violation,
-	violations
+	type FamilyViolation,
+	familyViolations
 } from "#test/support/families/theorem.ts"
 
 /**
@@ -76,7 +77,7 @@ import {
  * - `delete` deletes the rows of the members listed, by the family relation's own key;
  * - `move` updates one member's index.
  */
-export type Statement =
+export type MutationStatement =
 	| { readonly kind: "create"; readonly owner: number; readonly count: number }
 	| { readonly kind: "drop"; readonly owner: number }
 	| { readonly kind: "count"; readonly owner: number; readonly count: number }
@@ -89,7 +90,7 @@ export type Statement =
  * owner's count (its creation, its update, or its deletion once its family is gone), then inserts. A lawful mutation's
  * statements are in ascending place.
  */
-export const placeOf: Readonly<Record<Statement["kind"], number>> = {
+export const placeOf: Readonly<Record<MutationStatement["kind"], number>> = {
 	delete: 0,
 	move: 1,
 	create: 2,
@@ -102,7 +103,7 @@ export const placeOf: Readonly<Record<Statement["kind"], number>> = {
  * The state a statement leaves, before any constraint is checked: a statement whose rows match nothing changes
  * nothing, as its SQL does. A drawn mutation only creates owners that do not exist.
  */
-export const applied = (stored: Stored, statement: Statement): Stored => {
+export const applied = (stored: Stored, statement: MutationStatement): Stored => {
 	switch (statement.kind) {
 		case "create": {
 			if (stored.owners.has(statement.owner)) {
@@ -151,16 +152,17 @@ export const applied = (stored: Stored, statement: Statement): Stored => {
 export type Timing = "statement" | "commit"
 
 /**
- * When PostgreSQL checks each constraint but the closure, whatever the family's shape. Both keys are unique constraints
- * that are not deferrable, and a check never is, so all three hold at every statement. The copy's and the last slot's
- * foreign keys lie on the cycle between owner and family, so both are deferred; the copy's cascade still runs inside the
- * statement that updates the count, whatever its deferral.
+ * When PostgreSQL checks each constraint but the closure, whatever the family's shape, as the RFC's lowering declares
+ * them (w4-w7 §2.1). Both keys are unique constraints that are not deferrable, and a check never is, so all three hold
+ * at every statement. The copy's foreign key is the owner axis, immediate since no cascade feeds its target, and its
+ * cascade runs inside the statement that updates the count; the last slot's lies on the cycle between owner and family,
+ * so it alone is deferred.
  */
 const checkedEverywhere: Readonly<Record<Exclude<Constraint, "closure">, Timing>> = {
 	identity: "statement",
 	key: "statement",
 	bound: "statement",
-	copy: "commit",
+	copy: "statement",
 	last: "commit"
 }
 
@@ -230,7 +232,7 @@ export type Outcome =
 	| {
 			readonly kind: "refused"
 			readonly moment: Moment
-			readonly violations: Arr.NonEmptyReadonlyArray<Violation>
+			readonly violations: Arr.NonEmptyReadonlyArray<FamilyViolation>
 	  }
 
 /**
@@ -241,23 +243,13 @@ export type Outcome =
 export const run = (
 	shape: Shape,
 	before: Families,
-	statements: ReadonlyArray<Statement>
+	statements: ReadonlyArray<MutationStatement>
 ): Outcome => {
-	let state = storedOf(before)
-	for (const [index, statement] of statements.entries()) {
-		state = applied(state, statement)
-		const broken = Arr.filter(
-			violations(state),
-			(v) => checkedAt(v.constraint, shape) === "statement"
-		)
-		if (Arr.isReadonlyArrayNonEmpty(broken)) {
-			return { kind: "refused", moment: { kind: "statement", index }, violations: broken }
-		}
+	const outcome = settledUnder(shape, () => true, storedOf(before), statements)
+	if (outcome.kind === "refused") {
+		return outcome
 	}
-	const deferred = violations(state)
-	if (Arr.isReadonlyArrayNonEmpty(deferred)) {
-		return { kind: "refused", moment: { kind: "commit" }, violations: deferred }
-	}
+	const state = outcome.stored
 	const read = theorem(state)
 	if (Result.isFailure(read)) {
 		throw new Error(
@@ -267,11 +259,53 @@ export const run = (
 	return { kind: "committed", after: read.success }
 }
 
+/** What PostgreSQL does with a transaction, read as stored state: it commits to what it leaves, or is refused. */
+export type Settled =
+	| { readonly kind: "committed"; readonly stored: Stored }
+	| Extract<Outcome, { readonly kind: "refused" }>
+
+/** An outcome read as stored state: a commit to families is the state that writes them. */
+export const settledOf = (outcome: Outcome): Settled =>
+	outcome.kind === "committed" ? { kind: "committed", stored: storedOf(outcome.after) } : outcome
+
+/**
+ * What PostgreSQL does with one transaction over a stored state under a lowering that installs only the constraints
+ * `installs` keeps, each checked when the shape checks it: it commits to the stored state it leaves, which a lowering
+ * missing a constraint may leave lawless, or is refused at a moment with every violation of an installed constraint
+ * checked there.
+ */
+export const settledUnder = (
+	shape: Shape,
+	installs: (constraint: Constraint) => boolean,
+	before: Stored,
+	statements: ReadonlyArray<MutationStatement>
+): Settled => {
+	let state = before
+	const broken = (timing: Timing | undefined) =>
+		Arr.filter(
+			familyViolations(state),
+			(v) =>
+				installs(v.constraint) &&
+				(timing === undefined || checkedAt(v.constraint, shape) === timing)
+		)
+	for (const [index, statement] of statements.entries()) {
+		state = applied(state, statement)
+		const now = broken("statement")
+		if (Arr.isReadonlyArrayNonEmpty(now)) {
+			return { kind: "refused", moment: { kind: "statement", index }, violations: now }
+		}
+	}
+	const deferred = broken(undefined)
+	return Arr.isReadonlyArrayNonEmpty(deferred)
+		? { kind: "refused", moment: { kind: "commit" }, violations: deferred }
+		: { kind: "committed", stored: state }
+}
+
 /** The families a transaction leaves: what it commits to, or what was there when it is refused. */
 const settled = (
 	shape: Shape,
 	before: Families,
-	statements: ReadonlyArray<Statement>
+	statements: ReadonlyArray<MutationStatement>
 ): Families => {
 	const outcome = run(shape, before, statements)
 	return outcome.kind === "committed" ? outcome.after : before
@@ -302,13 +336,13 @@ export type Form = (typeof FORMS)[number]
 
 /** A lawful mutation: its statements, in the order every change sends them, and the families it must commit to. */
 export interface Lawful {
-	readonly statements: Arr.NonEmptyReadonlyArray<Statement>
+	readonly statements: Arr.NonEmptyReadonlyArray<MutationStatement>
 	readonly after: Families
 }
 
 /** A breaking mutation: its statements, and the breach of the theorem the state they leave holds. */
 export interface Breaking {
-	readonly statements: Arr.NonEmptyReadonlyArray<Statement>
+	readonly statements: Arr.NonEmptyReadonlyArray<MutationStatement>
 	readonly breaks: Breach["kind"]
 }
 
@@ -318,8 +352,8 @@ export interface Breaking {
  */
 export interface Misordered {
 	readonly form: LawfulForm
-	readonly prescribed: Arr.NonEmptyReadonlyArray<Statement>
-	readonly statements: Arr.NonEmptyReadonlyArray<Statement>
+	readonly prescribed: Arr.NonEmptyReadonlyArray<MutationStatement>
+	readonly statements: Arr.NonEmptyReadonlyArray<MutationStatement>
 	readonly after: Families
 }
 
@@ -357,11 +391,11 @@ const replaced = (families: Families, owner: number, members: ReadonlyArray<numb
 	Arr.map(families, (f) => (f.owner === owner ? { owner, members } : f))
 
 /** The delete of the members' rows, none for no member. */
-const deletesOf = (members: ReadonlyArray<number>): ReadonlyArray<Statement> =>
+const deletesOf = (members: ReadonlyArray<number>): ReadonlyArray<MutationStatement> =>
 	Arr.isReadonlyArrayNonEmpty(members) ? [{ kind: "delete", members }] : []
 
 /** The count update from one count to another, none when they are equal. */
-const countsOf = (owner: number, from: number, to: number): ReadonlyArray<Statement> =>
+const countsOf = (owner: number, from: number, to: number): ReadonlyArray<MutationStatement> =>
 	from === to ? [] : [{ kind: "count", owner, count: to }]
 
 /** The insert of the members at consecutive slots from `from`, its rows in a drawn order, none for no member. */
@@ -371,7 +405,7 @@ const insertsOf =
 		members: ReadonlyArray<number>,
 		from: number,
 		copy: number
-	): Gen<ReadonlyArray<Statement>> =>
+	): Gen<ReadonlyArray<MutationStatement>> =>
 	(source) => {
 		const rows = rowsOf(owner, members, from, copy)
 		const sent = source.draw(shuffled(rows, { min: rows.length, max: rows.length }))
@@ -409,7 +443,7 @@ const changed = (families: Families, change: Change): Families => {
 
 /** A change's statements in the order every change sends them, each insert's rows in a drawn order. */
 const loweredGen =
-	(families: Families, change: Change): Gen<ReadonlyArray<Statement>> =>
+	(families: Families, change: Change): Gen<ReadonlyArray<MutationStatement>> =>
 	(source) => {
 		switch (change.kind) {
 			case "create":
@@ -571,7 +605,7 @@ const breakingGen =
 	(source) => {
 		const { owner, members } = source.draw(element(owners))
 		const n = members.length
-		const one = (row: Omit<FamilyRow, "member">): Statement => ({
+		const one = (row: Omit<FamilyRow, "member">): MutationStatement => ({
 			kind: "insert",
 			rows: [{ ...row, member: Arr.getUnsafe(freshMembers(families, 1), 0) }]
 		})
@@ -594,7 +628,7 @@ const breakingGen =
 				const at = source.draw(int(0, n - 1))
 				const lowered = at < n - 1 && source.draw(boolean)
 				return {
-					statements: nonEmpty<Statement>([
+					statements: nonEmpty<MutationStatement>([
 						...deletesOf([Arr.getUnsafe(members, at)]),
 						...(lowered ? countsOf(owner, n, n - 1) : [])
 					]),
@@ -628,8 +662,9 @@ const permutation = (n: number, rank: number): ReadonlyArray<number> => {
 }
 
 /**
- * A lawful mutation of two statements or more, of a form the swarm turns on, in another order: any order but its own,
- * shrinking toward the one that exchanges its last two statements.
+ * A lawful mutation of two statements or more, of a form the swarm turns on, in another order: its count update moved
+ * first, where it has one not already first, or any order but its own, shrinking toward the one that exchanges its
+ * last two statements.
  */
 const misorderGen =
 	(shape: Shape, families: Families, forms: Swarm<Form>): Gen<Misordered> =>
@@ -650,6 +685,21 @@ const misorderGen =
 				bases.push([form, lawfulOf(families, form, changeGen(shape, families, form, owners))])
 			}
 		}
+		/**
+		 * A growing put, every member kept and one or two added, rewritten from the first slot: the change whose count,
+		 * raised first, still commits, so a misorder can commit in either shape.
+		 */
+		const growable = Arr.filter(families, (f) => f.members.length > 0)
+		if (weightOf(forms, "replace") > 0 && Arr.isReadonlyArrayNonEmpty(growable)) {
+			bases.push([
+				"replace",
+				lawfulOf(families, "replace", (drawing) => {
+					const { owner, members } = drawing.draw(element(growable))
+					const added = freshMembers(families, drawing.draw(int(1, ADDED.max - 1)))
+					return { kind: "rewrite", owner, at: 0, suffix: [...members, ...added] }
+				})
+			])
+		}
 		const [form, base] = source.draw(element(nonEmpty(bases)))
 		const lawful = source.draw(base)
 		const prescribed = lawful.statements
@@ -657,7 +707,20 @@ const misorderGen =
 		if (orders < 2) {
 			throw new Error(`a misorder needs two statements or more, and a ${form} drew one`)
 		}
-		const order = permutation(prescribed.length, source.draw(int(1, orders - 1)))
+		/**
+		 * The count's update moved to the front, an arm of its own where it is not already first: the one misorder that
+		 * can commit now that the copy is checked at each statement (a count raised before the deletes of an insert-at or
+		 * a growing replace), and the shrink's refusal by the bound (a count lowered first).
+		 */
+		const counted = Arr.findFirstIndex(prescribed, (st) => st.kind === "count")
+		const countFirst = Option.filter(counted, (i) => i > 0)
+		const order =
+			Option.isSome(countFirst) && source.draw(boolean)
+				? [
+						countFirst.value,
+						...Arr.filter(indices(prescribed.length), (i) => i !== countFirst.value)
+					]
+				: permutation(prescribed.length, source.draw(int(1, orders - 1)))
 		return {
 			form,
 			prescribed,
@@ -676,9 +739,11 @@ export const machineOf = (
 	families: Families,
 	forms: Swarm<Form>
 ): Machine<Families, Mutations, never> => {
-	const next = (model: Families, mutation: { readonly statements: ReadonlyArray<Statement> }) =>
-		settled(shape, model, mutation.statements)
-	const owned = <P extends { readonly statements: ReadonlyArray<Statement> }>(
+	const next = (
+		model: Families,
+		mutation: { readonly statements: ReadonlyArray<MutationStatement> }
+	) => settled(shape, model, mutation.statements)
+	const owned = <P extends { readonly statements: ReadonlyArray<MutationStatement> }>(
 		form: Exclude<Form, "create" | "misorder">,
 		parameters: (model: Families, owners: Arr.NonEmptyReadonlyArray<Family>) => Gen<P>
 	): Command<Families, P, never> => ({

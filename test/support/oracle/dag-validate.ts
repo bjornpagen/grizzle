@@ -9,7 +9,6 @@ import {
 	NodeId,
 	OccurrenceId,
 	ParamId,
-	type PremiseObject,
 	ScopeId,
 	VarId
 } from "#compiler/core/ids.ts"
@@ -871,6 +870,13 @@ class Checker {
 				return "native" in expr
 					? nativeProblems(expr.op, expr.native, expr.type, args)
 					: proofProblems(expr.op, "proof" in expr ? expr.proof : undefined, expr.type, args)
+			case "closedAt":
+			case "closedRow":
+				return [
+					"a closed read only in a side's predicate or a generated field's expression, never in a query DAG"
+				]
+			case "closedHas":
+				return []
 		}
 	}
 
@@ -1651,11 +1657,8 @@ const lawIdShape: S.Shape<LawId> = S.branded(
 	S.nonEmptyString
 )
 
-/**
- * A premise names a constraint or unique index, or a residual law's function; a decoded name is typed by its
- * ConstraintName member, which every PremiseObject reader treats as the object's name.
- */
-const premiseObjectShape: S.Shape<PremiseObject> = S.branded(
+/** A premise names a constraint or unique index by its constraint name. */
+const premiseObjectShape: S.Shape<ConstraintName> = S.branded(
 	(text: string): ConstraintName => admittedIdentifier(text),
 	S.nonEmptyString
 )

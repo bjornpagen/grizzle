@@ -11,6 +11,7 @@ import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str }
 import { arraysEncoder, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -127,7 +128,7 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 				const db = yield* session(ownerSession())
 				const heading: ReadonlyArray<HeadingField> = Arr.map(fields, (f) => ({
 					name: f.name,
-					spec: codecOf(f.type).spec
+					spec: codecOf(f.type, emptyCodebook).spec
 				}))
 				return yield* explore(
 					{
@@ -220,7 +221,8 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 					const spec: RelationSpec = {
 						relation: "Case",
 						columns: positionalColumns(fields),
-						slot: { kind: "none" }
+						slot: { kind: "none" },
+						codes: emptyCodebook
 					}
 					const encode = arraysEncoder(spec)
 					/** The arrays in the lowering's select-list form: a text column's collated, numeric(5,2)'s typmod cast back. */

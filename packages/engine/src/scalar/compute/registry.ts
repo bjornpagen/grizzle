@@ -76,17 +76,32 @@ const finiteNarrowing: Totality = requires([finite(0), fits])
  */
 type Owner = "catalog" | "vector"
 
-/** How the node is spelled in SQL. */
+/**
+ * How the node is spelled in SQL. A set's difference, subset and disjointness are constructs of bit's own operators:
+ * `a & ~b`, `bit_count(a & ~b) = 0` and `bit_count(a & b) = 0`.
+ */
 type SqlForm =
 	| {
 			readonly kind: "infix"
-			readonly op: "+" | "-" | "*" | "/" | "%" | "=" | "<>" | "<" | "<=" | ">" | ">="
+			readonly op: "+" | "-" | "*" | "/" | "%" | "=" | "<>" | "<" | "<=" | ">" | ">=" | "&" | "|"
 			readonly owner: Owner
 	  }
-	| { readonly kind: "prefix"; readonly op: "-" }
+	| { readonly kind: "prefix"; readonly op: "-" | "~" }
 	| { readonly kind: "function"; readonly name: string; readonly owner: Owner }
 	| { readonly kind: "cast"; readonly target: Carrier }
-	| { readonly kind: "between" | "in" | "least" | "greatest" | "and" | "or" | "not" }
+	| {
+			readonly kind:
+				| "between"
+				| "in"
+				| "least"
+				| "greatest"
+				| "and"
+				| "or"
+				| "not"
+				| "difference"
+				| "subset"
+				| "disjoint"
+	  }
 
 /**
  * The catalog object that implements the node, as PostgreSQL's catalog names it. Every type it names is a carrier's
@@ -120,8 +135,9 @@ type CatalogRef =
 	| { readonly kind: "construct"; readonly uses: ReadonlyArray<OpId> }
 
 /**
- * The Compute operation a native node serves, the comparisons, the boolean constructs, and the
- * casts; cond has no entry, it is the IR's cond node.
+ * The Compute operation a native node serves, the comparisons, the boolean constructs, the set algebra over a roster,
+ * and the casts; cond has no entry, it is the IR's cond node. The complement serves only the difference and the subset
+ * test: it sets a set's hole and padding bits, so no Compute operation yields it.
  */
 export type NativeFn =
 	| "add"
@@ -161,6 +177,13 @@ export type NativeFn =
 	| "and"
 	| "or"
 	| "not"
+	| "union"
+	| "intersection"
+	| "difference"
+	| "complement"
+	| "cardinality"
+	| "subset"
+	| "disjoint"
 	| "cast"
 
 /** Operands of one carrier each, in order, at least one. */
@@ -208,21 +231,32 @@ interface FixedOverload extends OverloadBase {
 	readonly result: ResultCarrier
 }
 
-/** LEAST or GREATEST, which PostgreSQL types by its operands' common type: a value of its element carrier. */
-interface ExtremeOverload extends OverloadBase {
-	readonly fn: ExtremeFn
-	readonly operands: VariadicOperands
+/**
+ * An operation PostgreSQL types by its operands' common type, a value of its operand carrier: LEAST and GREATEST over
+ * any number, and a set's union, intersection, difference and complement, whose result is a set over its operands'
+ * roster, which no fixed result carrier holds.
+ */
+interface CommonTypeOverload extends OverloadBase {
+	readonly fn: CommonTypeFn
 	readonly result: Carrier
+	/** Every one is defined on every value of its operands, so none stands beside a proof. */
+	readonly totality: Exclude<Totality, { readonly kind: "requires" }>
 }
 
 /** One overload of the table: everything about it but its identity, the key the table lists it under. */
-type Overload = FixedOverload | ExtremeOverload
+type Overload = FixedOverload | CommonTypeOverload
 
 /** The Compute operations whose result is the common type of their operands. */
-type ExtremeFn = "least" | "greatest"
+export type CommonTypeFn =
+	| "least"
+	| "greatest"
+	| "union"
+	| "intersection"
+	| "difference"
+	| "complement"
 
 /** The Compute operations with a fixed result type. */
-export type FixedFn = Exclude<NativeFn, ExtremeFn>
+export type FixedFn = Exclude<NativeFn, CommonTypeFn>
 
 /**
  * An overload's identity as an expression names it, by its Totality: a DefinedOp, or a PartialOp that stands only
@@ -249,15 +283,15 @@ const identified = (id: OpId, totality: Totality): Identified =>
 /** A native node of a fixed result type. */
 export type FixedOp = FixedOverload & Identified
 
-/** A native LEAST or GREATEST. */
-export type ExtremeOp = ExtremeOverload & Identified
+/** A native node typed by its operands' common type, defined everywhere. */
+export type CommonTypeOp = CommonTypeOverload & Extract<Identified, { readonly partial: false }>
 
 /** A native node: an overload of the table with its identity. */
-export type NativeOp = FixedOp | ExtremeOp
+export type NativeOp = FixedOp | CommonTypeOp
 
 /**
- * PostgreSQL's regtype spelling of a carrier in pg_operator and pg_proc. Enum, range and vector operators are
- * polymorphic or extension-owned.
+ * PostgreSQL's regtype spelling of a carrier in pg_operator and pg_proc. A closed id's are smallint's, its code's;
+ * range operators are polymorphic, and vector's extension-owned.
  */
 export const catalogTypeName = {
 	int2: "smallint",
@@ -270,7 +304,8 @@ export const catalogTypeName = {
 	bool: "boolean",
 	uuid: "uuid",
 	text: "text",
-	enum: "anyenum",
+	code: "smallint",
+	bits: "bit",
 	range4: "anyrange",
 	range8: "anyrange",
 	vector: "vector",
@@ -295,7 +330,7 @@ const variadic = (element: Carrier): VariadicOperands => {
 /** An overload, frozen. */
 const frozen = <O extends Overload>(overload: O): O => Object.freeze(overload)
 
-type Infix = "+" | "-" | "*" | "/" | "%" | "=" | "<>" | "<" | "<=" | ">" | ">="
+type Infix = "+" | "-" | "*" | "/" | "%" | "=" | "<>" | "<" | "<=" | ">" | ">=" | "&" | "|"
 
 /** A pg_catalog infix operator over two operands of one carrier. */
 const infix = (
@@ -451,13 +486,78 @@ const membership = (carrier: Carrier, eq: OpId): FixedOverload =>
 	})
 
 /** LEAST or GREATEST over any number of operands of one carrier, composed of its < or >. */
-const extreme = (fn: ExtremeFn, carrier: Carrier, order: OpId): ExtremeOverload =>
+const extreme = (fn: "least" | "greatest", carrier: Carrier, order: OpId): CommonTypeOverload =>
 	frozen({
 		fn,
 		operands: variadic(carrier),
 		result: carrier,
 		sql: { kind: fn },
 		catalog: { kind: "construct", uses: Object.freeze([order]) },
+		volatility: "immutable",
+		totality: total,
+		reads: "value"
+	})
+
+/** A set's union or intersection, bit's `|` or `&` over two sets of one roster: a set over it. */
+const setInfix = (fn: "union" | "intersection", op: "|" | "&"): CommonTypeOverload =>
+	frozen({
+		fn,
+		operands: positional(["bits", "bits"]),
+		result: "bits",
+		sql: { kind: "infix", op, owner: "catalog" },
+		catalog: {
+			kind: "operator",
+			name: op,
+			operands: { kind: "infix", left: "bit", right: "bit" },
+			result: "bit",
+			owner: "catalog"
+		},
+		volatility: "immutable",
+		totality: total,
+		reads: "value"
+	})
+
+/** bit's prefix `~`, which sets the hole and padding bits too: only the difference and the subset test read it. */
+const setComplement: CommonTypeOverload = frozen({
+	fn: "complement",
+	operands: positional(["bits"]),
+	result: "bits",
+	sql: { kind: "prefix", op: "~" },
+	catalog: {
+		kind: "operator",
+		name: "~",
+		operands: { kind: "prefix", right: "bit" },
+		result: "bit",
+		owner: "catalog"
+	},
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
+/** A set's difference, `a & ~b`: a set over the operands' roster, its holes and padding clear, since a's are. */
+const setDifference: CommonTypeOverload = frozen({
+	fn: "difference",
+	operands: positional(["bits", "bits"]),
+	result: "bits",
+	sql: { kind: "difference" },
+	catalog: { kind: "construct", uses: Object.freeze([opId("bitand"), opId("bitnot")]) },
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
+/**
+ * Whether one set is a subset of another, `bit_count(a & ~b) = 0`, or disjoint from it, `bit_count(a & b) = 0`: a
+ * count of no member, so a hole or padding bit, which neither operand sets, never counts.
+ */
+const setTest = (fn: "subset" | "disjoint", uses: ReadonlyArray<OpId>): FixedOverload =>
+	frozen({
+		fn,
+		operands: positional(["bits", "bits"]),
+		result: "bool",
+		sql: { kind: fn },
+		catalog: { kind: "construct", uses: Object.freeze(uses) },
 		volatility: "immutable",
 		totality: total,
 		reads: "value"
@@ -520,13 +620,15 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  * - an operator: its implementing function, pg_operator.oprcode, such as "int8pl" or "numeric_mul";
  * - a function: its regprocedure signature, such as "abs(bigint)" or "round(numeric,integer)"; pgvector's one function
  *   is prefixed with its extension, "vector:cosine_distance(vector,vector)", because its schema is the installation's;
- * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not";
+ * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq";
+ * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", and a set's
+ *   "difference:bits", "subset:bits" and "disjoint:bits";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
  * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
  *
  * What the registry admits is the catalogue, not the catalog: same-type operands only, because Compute's operations
- * take two terms of one type; no bit, string or array function; no money * money,
+ * take two terms of one type; no string or array function, and of bit's only the set algebra over a roster; no money * money,
  * money unary minus, abs(money) or float %, which PostgreSQL does not define; and no money / integer, which the public
  * signatures cannot spell. The gaps where PostgreSQL has no same-type overload are compositions of entries here,
  * resolved in lower.ts: sign over an integer type is sign(numeric) cast back, sign over real is sign(double precision)
@@ -546,6 +648,8 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  *   `bucketDomain`;
  * - money / money is double precision;
  * - comparisons: every carrier with equality has = and <>, every ordered carrier the four orderings;
+ * - a set over a roster's union (bitor), intersection (bitand) and cardinality (bit_count(bit)), its difference, subset
+ *   and disjointness composed of them, all total; bitnot only inside those, since it sets the hole and padding bits;
  * - text length, for contract predicates and row checks only;
  * - pgvector's cosine distance, the one score an approximate search ranks by, never the <=> operator;
  * - readings: numeric_div, power(numeric,numeric) and sqrt(numeric) take their result scale from their operands'
@@ -781,16 +885,30 @@ const catalogOverloads = {
 	"in:text": membership("text", opId("texteq")),
 	"least:text": extreme("least", "text", opId("text_lt")),
 	"greatest:text": extreme("greatest", "text", opId("text_gt")),
-	enum_eq: comparison("eq", "enum"),
-	enum_ne: comparison("ne", "enum"),
-	enum_lt: comparison("lt", "enum"),
-	enum_le: comparison("le", "enum"),
-	enum_gt: comparison("gt", "enum"),
-	enum_ge: comparison("ge", "enum"),
-	"between:enum": between("enum", opId("enum_ge"), opId("enum_le")),
-	"in:enum": membership("enum", opId("enum_eq")),
-	"least:enum": extreme("least", "enum", opId("enum_lt")),
-	"greatest:enum": extreme("greatest", "enum", opId("enum_gt")),
+	"code:int2eq": comparison("eq", "code"),
+	"code:int2ne": comparison("ne", "code"),
+	"code:int2lt": comparison("lt", "code"),
+	"code:int2le": comparison("le", "code"),
+	"code:int2gt": comparison("gt", "code"),
+	"code:int2ge": comparison("ge", "code"),
+	"between:code": between("code", opId("code:int2ge"), opId("code:int2le")),
+	"in:code": membership("code", opId("code:int2eq")),
+	"least:code": extreme("least", "code", opId("code:int2lt")),
+	"greatest:code": extreme("greatest", "code", opId("code:int2gt")),
+	biteq: comparison("eq", "bits"),
+	bitne: comparison("ne", "bits"),
+	bitor: setInfix("union", "|"),
+	bitand: setInfix("intersection", "&"),
+	bitnot: setComplement,
+	"bit_count(bit)": fnCall("cardinality", "bit_count", ["bits"], "int8", total, "value"),
+	"difference:bits": setDifference,
+	"subset:bits": setTest("subset", [
+		opId("bitand"),
+		opId("bitnot"),
+		opId("bit_count(bit)"),
+		opId("int8eq")
+	]),
+	"disjoint:bits": setTest("disjoint", [opId("bitand"), opId("bit_count(bit)"), opId("int8eq")]),
 	"between:int4range": between(
 		"range4",
 		rangeOp("range_ge", "range4"),
@@ -1081,8 +1199,23 @@ const castOverloads = {
 /** Every cast by its source and target carriers, for a lookup by any pair. */
 const castTable: { readonly [S in Carrier]?: { readonly [T in Carrier]?: CastOp } } = castOverloads
 
+const commonTypeFns: ReadonlySet<NativeFn> = new Set<CommonTypeFn>([
+	"least",
+	"greatest",
+	"union",
+	"intersection",
+	"difference",
+	"complement"
+])
+
+/** Whether an overload is typed by its operands' common type: its function is one of CommonTypeFn. */
+const isCommonOverload = (overload: Overload): overload is CommonTypeOverload =>
+	commonTypeFns.has(overload.fn)
+
 const listedOp = (id: OpId, overload: Overload): NativeOp =>
-	Object.freeze({ ...overload, ...identified(id, overload.totality) })
+	isCommonOverload(overload)
+		? Object.freeze({ ...overload, partial: false, id: definedOp(id) })
+		: Object.freeze({ ...overload, ...identified(id, overload.totality) })
 
 /**
  * The binary coercion a cast node names where it drops only a refinement PostgreSQL never checks on the way (a
@@ -1205,20 +1338,20 @@ const byId: ReadonlyMap<OpId, NativeOp> = new Map(nativeOps.map((op) => [op.id, 
 /** The native node an OpId names, or undefined when the registry has no such overload. */
 export const nativeOp = (id: OpId): NativeOp | undefined => byId.get(id)
 
-const isExtreme = (op: NativeOp): op is ExtremeOp => op.fn === "least" || op.fn === "greatest"
+const isCommonType = (op: NativeOp): op is CommonTypeOp => commonTypeFns.has(op.fn)
 
 /**
  * Each function's overloads of a fixed result type, which their operand carriers tell apart: one per function and
  * carriers (test/pg/compute/registry.test.ts checks the table).
  */
 const fixedByFn: ReadonlyMap<FixedFn, ReadonlyArray<FixedOp>> = Map.groupBy(
-	nativeOps.flatMap((op) => (isExtreme(op) ? [] : [op])),
+	nativeOps.flatMap((op) => (isCommonType(op) ? [] : [op])),
 	(op) => op.fn
 )
 
-/** LEAST's and GREATEST's overloads, one per element carrier. */
-const extremesByFn: ReadonlyMap<ExtremeFn, ReadonlyArray<ExtremeOp>> = Map.groupBy(
-	nativeOps.filter(isExtreme),
+/** The overloads typed by their operands' common type, one per function and operand carrier. */
+const commonByFn: ReadonlyMap<CommonTypeFn, ReadonlyArray<CommonTypeOp>> = Map.groupBy(
+	nativeOps.filter(isCommonType),
 	(op) => op.fn
 )
 
@@ -1228,9 +1361,9 @@ export const overloadOf = (
 	args: ReadonlyArray<Carrier>
 ): FixedOp | undefined => fixedByFn.get(fn)?.find((op) => admits(op.operands, args))
 
-/** LEAST or GREATEST over operands of `carrier`, or undefined. */
-export const extremeOf = (fn: ExtremeFn, carrier: Carrier): ExtremeOp | undefined =>
-	extremesByFn.get(fn)?.find((op) => op.operands.element === carrier)
+/** The overload of `fn` typed by its operands' common type over operands of `carrier`, or undefined. */
+export const commonTypeOf = (fn: CommonTypeFn, carrier: Carrier): CommonTypeOp | undefined =>
+	commonByFn.get(fn)?.find((op) => firstOperand(op.operands) === carrier)
 
 /** The native cast from one carrier to another, or undefined when PostgreSQL has none grizzle admits. */
 export const castOf = (source: Carrier, target: Carrier): CastOp | undefined =>

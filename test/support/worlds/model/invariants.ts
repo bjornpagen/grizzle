@@ -1,5 +1,5 @@
 import { Array as Arr, Record } from "effect"
-import { sameValues, violations } from "#test/pg/laws/families/model.ts"
+import { sameValues, violations } from "#test/support/laws/model.ts"
 import { entryRows } from "#test/support/worlds/model/host.ts"
 import { factsIn, loginOf, roleOf, staleDb } from "#test/support/worlds/model/session/state.ts"
 import type {

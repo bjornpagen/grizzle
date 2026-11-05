@@ -55,7 +55,7 @@ const Cell = relation(
 )
 const Cells = schema("HeadLiterals", { Kind, Cell }, [])
 
-/** The types of the universe: Kind's enum, Cell's short text, unrefined text, and the plain types. */
+/** The types of the universe: Kind's closed id, Cell's short text, unrefined text, and the plain types. */
 type Token =
 	| "Kind"
 	| "Short"
@@ -230,7 +230,7 @@ const expectedOf = (arms: Arr.NonEmptyReadonlyArray<Arm>): Expected => {
 
 /** The tokens of the universe's carriers other than text, which its refinement tells apart. */
 const carrierTokens: Readonly<Record<string, Token>> = {
-	enum: "Kind",
+	code: "Kind",
 	int4: "integer",
 	int8: "bigint",
 	numeric: "numeric",

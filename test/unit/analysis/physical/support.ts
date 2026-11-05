@@ -66,31 +66,63 @@ export const owedOf = (a: PhysicalAnalysis, node: RelNode): Owed => {
 }
 
 /**
- * Every minimal key the properties prove, by brute force over the heading's subsets, narrowest first: a subset is a key
- * when the dependency table identifies a row by it (fds.ts Dependencies proof), and minimal when no proper subset is
- * one, so a subset holding a key found narrower is never asked. The analysis lists no keys, so a test that reads them
- * enumerates them here, each in heading order.
+ * Every minimal key the properties prove, narrowest first, each in heading order. The analysis lists no keys, so a test
+ * that reads them enumerates them here from the dependency table's proof (fds.ts Dependencies proof), which is
+ * monotone: a superset of a key identifies a row too.
+ *
+ * The enumeration never visits the heading's subsets, which a wide node has too many of: it is Berge's joint generation
+ * of a monotone function's minimal true sets. Given the minimal keys found so far, every set that holds none of them
+ * misses one column of each, so it lies inside the complement of a minimal transversal of the found keys (a smallest
+ * set meeting every one). A key not yet found is such a set, so it lies inside some transversal's complement, which is
+ * therefore a key; and a complement that is a key holds a minimal key not yet found, the one shrinking it reaches
+ * (dropping each column the rest is still a key without). So the keys are complete exactly when no transversal's
+ * complement is a key. The cost is the keys times the transversals, never the subsets.
  */
 export const provedKeys = (p: PhysicalProps): ReadonlyArray<KeySet> => {
-	const subsets = Arr.reduce(p.columns, Arr.of<KeySet>([]), (prior, c) =>
-		Arr.appendAll(
-			prior,
-			Arr.map(prior, (s): KeySet => [...s, c])
-		)
-	)
-	const keys: Array<KeySet> = []
-	for (const s of Arr.sort(
-		subsets,
-		Order.mapInput(Order.Number, (k: KeySet) => k.length)
-	)) {
-		if (
-			!Arr.some(keys, (k) => Arr.every(k, (c) => s.includes(c))) &&
-			p.dependencies.proof(s) !== undefined
-		) {
-			keys.push(s)
-		}
+	const heading = p.columns
+	const isKey = (s: ReadonlyArray<string>): boolean => p.dependencies.proof(s) !== undefined
+	if (!isKey(heading)) {
+		return []
 	}
-	return keys
+	/** `s` shrunk to a minimal key inside it, in heading order: each column dropped that the rest is a key without. */
+	const minimized = (s: ReadonlyArray<string>): KeySet =>
+		Arr.reduce(s, s, (kept, column) => {
+			const without = Arr.filter(kept, (c) => c !== column)
+			return isKey(without) ? without : kept
+		})
+	const holds = (outer: ReadonlyArray<string>, inner: ReadonlyArray<string>): boolean =>
+		Arr.every(inner, (c) => outer.includes(c))
+	/** The minimal sets among `family`, each kept once. */
+	const minimalAmong = (
+		family: ReadonlyArray<ReadonlyArray<string>>
+	): ReadonlyArray<ReadonlyArray<string>> =>
+		Arr.filter(
+			family,
+			(t, i) =>
+				!Arr.some(family, (u, j) => (j < i ? holds(t, u) : j > i && holds(t, u) && !holds(u, t)))
+		)
+	const keys: Array<KeySet> = []
+	/** The minimal transversals of `keys`, extended by Berge's rule one key at a time: none of none is the empty set. */
+	let transversals: ReadonlyArray<ReadonlyArray<string>> = [[]]
+	for (;;) {
+		const fresh = Arr.findFirst(transversals, (t) =>
+			isKey(Arr.filter(heading, (c) => !t.includes(c)))
+		)
+		if (Option.isNone(fresh)) {
+			break
+		}
+		const key = minimized(Arr.filter(heading, (c) => !fresh.value.includes(c)))
+		keys.push(key)
+		transversals = minimalAmong(
+			Arr.flatMap(transversals, (t) =>
+				Arr.some(key, (c) => t.includes(c)) ? [t] : Arr.map(key, (c) => [...t, c])
+			)
+		)
+	}
+	return Arr.sort(
+		keys,
+		Order.mapInput(Order.Number, (k: KeySet) => k.length)
+	)
 }
 
 export const keyColumns = (

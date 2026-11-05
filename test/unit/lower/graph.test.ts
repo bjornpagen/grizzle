@@ -46,6 +46,7 @@ import {
 	resolveRecursiveCase,
 	vertexKinds
 } from "#test/support/oracle/gen/recursive.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { nodeOfKind, present } from "#test/unit/lower/support.ts"
 
@@ -96,7 +97,8 @@ const context = () =>
  * unproved refined output (a recordset parent key, a base-typed recursive state column) to the structural text domain
  * (lower/shapes/refined), so the names must name one, as an installation's InstallNames do.
  */
-const caseNames = (schemaName: string): PhysicalNames => standInNames(schemaName)
+const caseNames = (schema: RecursiveCase["schema"]): PhysicalNames =>
+	standInNames(schema.name, schemaCodes(schema))
 
 const recursions = (q: LogicalQuery): ReadonlyArray<NodeOf<"Recursive">> =>
 	Arr.filter(topoOrder(q.dag), (n): n is NodeOf<"Recursive"> => n.kind === "Recursive")
@@ -618,6 +620,12 @@ const alikeByName = (x: ScalarExpr, y: ScalarExpr): boolean => {
 			return y.kind === "op" && x.op === y.op
 		case "cast":
 			return y.kind === "cast" && x.cast === y.cast
+		case "closedAt":
+			return y.kind === "closedAt" && x.relation === y.relation && x.field === y.field
+		case "closedRow":
+			return y.kind === "closedRow" && x.relation === y.relation
+		case "closedHas":
+			return y.kind === "closedHas" && x.relation === y.relation
 		case "value":
 		case "domainCast":
 		case "cond":
@@ -667,7 +675,7 @@ const generatedQuery = (c: RecursiveCase): LogicalQuery => ({
 /** The optimized program of a generated case, aligned with its conservative program. */
 const optimizedOf = (c: RecursiveCase): OptimizedProgram => {
 	const r = lowerAligned(generatedQuery(c), "query", {
-		names: caseNames(c.schema.name),
+		names: caseNames(c.schema),
 		context: "snapshot",
 		catalog: genCatalog(c.schema)
 	})

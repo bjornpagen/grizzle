@@ -33,7 +33,7 @@ import {
 	Wanted,
 	QueueWork
 } from "#test/support/fixtures/api/queue.ts"
-import type { fullWorld } from "#test/support/worlds.ts"
+import { type fullWorld, heldRelations } from "#test/support/worlds.ts"
 
 export { Digest, SeatNo, Slot, Wanted, QueueWork }
 
@@ -97,11 +97,11 @@ export const immutableQueueSchema = (name: string) =>
  * keeps the seats.
  */
 export const queueBenchWorlds = (s: Parameters<typeof fullWorld>[0]) => {
-	const worker = role(s, "worker", s.relations, {
+	const worker = role(s, "worker", heldRelations(s), {
 		write: ["Work", "Wanted", "Leased", "Done", "Refused"]
 	})
-	const enqueuer = role(s, "enqueuer", s.relations, { write: ["Work", "Wanted"] })
-	const operator = role(s, "operator", s.relations, { write: ["Seat"] })
+	const enqueuer = role(s, "enqueuer", heldRelations(s), { write: ["Work", "Wanted"] })
+	const operator = role(s, "operator", heldRelations(s), { write: ["Seat"] })
 	return {
 		worker,
 		enqueuer,

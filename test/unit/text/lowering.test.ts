@@ -6,6 +6,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { everyProperty } from "#compiler/core/canonical.ts"
+import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
@@ -394,7 +396,7 @@ describe("reading a printed ARE back", () => {
 const utf8Bytes = (text: string): number => new TextEncoder().encode(text).length
 
 /** The structural domain each form of a case's language is printed as, under one name. */
-const formDomain = identity.textDomain("finite")
+const formDomain = identity.textDomain(domainDigest({ form: "finite" }, everyProperty))
 
 /** The UTF-8 bytes of the CREATE DOMAIN the compiler installs a check by, as it prints it. */
 const domainBytes = (check: NontrivialCheck): number =>

@@ -248,6 +248,10 @@ describe("interleaving", () => {
 			explore(
 				{
 					suite: "sleep sets are sound",
+					oracle: {
+						kind: "second-implementation",
+						name: "the same search with no sleep-set reduction"
+					},
 					draw: drawn(sessionSets),
 					literal: Formatter.format,
 					coverage: noCoverage,
@@ -385,6 +389,10 @@ describe("interleaving", () => {
 			explore(
 				{
 					suite: "drawn schedules",
+					oracle: {
+						kind: "universal",
+						name: "round trip: a schedule drawn from a case's tape replays exactly from it"
+					},
 					draw: drawn(sessionSets),
 					literal: Formatter.format,
 					coverage: noCoverage,
@@ -447,6 +455,10 @@ describe("releasing sessions", () => {
 				explore(
 					{
 						suite: "every started session released",
+						oracle: {
+							kind: "specification",
+							name: "every session a run started is released, however the run ends"
+						},
 						draw: drawn(releaseCases),
 						literal: Formatter.format,
 						coverage: required<Released>(

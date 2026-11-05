@@ -1,9 +1,11 @@
 import type { Array as Arr } from "effect"
+import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
 import type { Ddl, ObjectName, TypeRef } from "#compiler/sql/ast.ts"
 
 /**
  * How a host value of a column is spelled as a typed SQL literal (literal.ts). A contract column spells its base's
- * value and casts it to the domain.
+ * value and casts it to the domain. A closed id is its handle's code under the installation's codes, cast to the
+ * roster's domain; a set over a roster is its bit(size) text, position c code c, cast to the roster's bits domain.
  */
 export type ValueKind =
 	| { readonly kind: "integer"; readonly carrier: "int2" | "int4" | "int8" }
@@ -13,12 +15,16 @@ export type ValueKind =
 	| { readonly kind: "bool" }
 	| { readonly kind: "uuid" }
 	| { readonly kind: "text" }
-	| { readonly kind: "enum"; readonly closed: string; readonly labels: ReadonlyArray<string> }
+	| { readonly kind: "code"; readonly roster: RosterCodec }
+	| { readonly kind: "bits"; readonly roster: RosterCodec }
 	| { readonly kind: "span"; readonly carrier: "range4" | "range8" }
 	| { readonly kind: "vector"; readonly dimensions: number }
 
 export interface ColumnType {
-	/** The column's PostgreSQL type: a builtin, an enum, a contract domain, or the extension's vector(N). */
+	/**
+	 * The column's PostgreSQL type: a builtin, a roster's domain, a roster's bits domain, a contract domain, or the
+	 * extension's vector(N).
+	 */
 	readonly sql: TypeRef
 	readonly value: ValueKind
 	/** The contract whose domain types the column, or none. */
@@ -81,11 +87,19 @@ export interface OracleTable {
 	readonly location: string
 }
 
-export interface OracleEnum {
+/**
+ * What one roster installs (OPEN-2 (b)): its names constant, a zero-argument IMMUTABLE SQL function returning each
+ * code's handle in code order as a name[], a hole the empty name; and its smallint domain, whose one CHECK admits
+ * exactly the codes the constant names a handle at, `((names())[VALUE + 1] <> ''::pg_catalog.name) IS TRUE`. A
+ * roster that types a set column also installs its live() constant and its bits domain over bit(size), which the
+ * minimal installer leaves to the real one.
+ */
+export interface OracleRoster {
 	readonly closed: string
-	readonly name: ObjectName
-	/** Declared order, which is comparison order. */
-	readonly labels: ReadonlyArray<string>
+	readonly names: ObjectName
+	readonly domain: ObjectName
+	/** The roster's codes in the installation: each live handle's code, each code's name. */
+	readonly codes: RosterCodec
 }
 
 export interface OracleDomain {
@@ -105,8 +119,9 @@ export interface OracleOmission {
 /**
  * The oracle installation plan: what the minimal installer creates for an owned schema, and how to address it.
  *
- * The plan is pure data derived from a SchemaDesc (the `desc` of an OwnedSchema). It names every table, column,
- * constraint, enum and domain by the identifiers the installer's naming rules derive, carries the DDL
+ * The plan is pure data derived from a SchemaDesc (the `desc` of an OwnedSchema) and the installation's codes. It names
+ * every table, column, constraint, roster constant and domain by the identifiers the installer's naming rules derive,
+ * carries the DDL
  * as SQL AST statements and as emitted text, and records the declarations it skips (see `skipped`). It installs no
  * predicate CHECK, which the physical oracle models by what each admits (plan.ts header).
  */
@@ -115,7 +130,9 @@ export interface InstallPlan {
 	readonly declared: string
 	readonly schema: string
 	readonly tables: Readonly<Record<string, OracleTable>>
-	readonly enums: Readonly<Record<string, OracleEnum>>
+	readonly rosters: Readonly<Record<string, OracleRoster>>
+	/** The installation's codes: every code literal and every decoded code reads them. */
+	readonly codes: Codebook
 	readonly domains: Readonly<Record<string, OracleDomain>>
 	/**
 	 * Stored relations in an order every immediate foreign key allows loading in: referenced tables first. Deferred
@@ -140,6 +157,13 @@ export interface PlanOptions {
 	/** The schema the vector extension lives in (vector_ext in the template database). */
 	readonly vectorSchema: string
 	/**
+	 * The codes the plan installs the rosters under: a fresh installation's, each handle's code its declared position,
+	 * or an installation's codes, holes included, which must hold every roster the schema declares.
+	 */
+	readonly codes:
+		| { readonly kind: "fresh" }
+		| { readonly kind: "installed"; readonly codes: Codebook }
+	/**
 	 * The existing schema btree_gist is created in, if the database has none yet, when a span key has a scalar
 	 * component: public, which every database has and no install drops, whereas an extension created inside one
 	 * installed schema would vanish, with every other install's GiST keys over it, when that schema is dropped.
@@ -151,5 +175,6 @@ export interface PlanOptions {
 export const defaultPlanOptions: PlanOptions = {
 	unsupported: "refuse",
 	vectorSchema: "vector_ext",
+	codes: { kind: "fresh" },
 	extensionSchema: "public"
 }

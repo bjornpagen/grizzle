@@ -73,8 +73,11 @@ export type WriteOutcome =
 	| { readonly kind: "no-change"; readonly reads: Readonly<Record<string, ReadonlyArray<Fact>>> }
 	| {
 			readonly kind: "invariant-rejected"
-			/** The law the outcome names, read back to its LawId through the installation's described laws. */
-			readonly law: LawId
+			/**
+			 * The laws the outcome names, each read back to its LawId through the installation's described laws, the
+			 * witness's first.
+			 */
+			readonly laws: readonly [LawId, ...Array<LawId>]
 			readonly witness: OutcomeWitness
 	  }
 	| { readonly kind: "outside-world"; readonly relation: string }
@@ -546,13 +549,17 @@ const readsOf = (reads: unknown): Readonly<Record<string, ReadonlyArray<Fact>>> 
 }
 
 /**
- * The apply outcome as plain values: the runtime's, its law read back to its LawId through the installation's
+ * The apply outcome as plain values: the runtime's, its laws read back to its LawId through the installation's
  * described laws, its read-back rows checked as records.
  */
 const outcomeOf = (described: ReadonlyMap<LawId, Law>, o: ApplyOutcome<unknown>): WriteOutcome => {
 	switch (o.kind) {
 		case "invariant-rejected":
-			return { kind: o.kind, law: reportedLawId(described, o.law), witness: o.witness }
+			return {
+				kind: o.kind,
+				laws: Arr.map(o.laws, (law) => reportedLawId(described, law)),
+				witness: o.witness
+			}
 		case "outside-world":
 			return o
 		case "accepted":

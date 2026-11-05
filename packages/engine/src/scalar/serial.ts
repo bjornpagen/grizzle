@@ -12,27 +12,33 @@ import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
 
 type SerialName = keyof typeof serialCarriers
 
+/**
+ * A serial's descriptor: its integer's, whose field is written by its sequence. `writing` is the member a field's
+ * writing is read from: a relation records the field's type as the integer's, and how it is written as serial.
+ */
 export interface SerialDescriptor<
 	Sql extends SqlTag = SqlTag,
 	A = unknown
 > extends Descriptor<Sql> {
-	readonly generated: "always"
+	readonly writing: "serial"
 	readonly column: Column<A>
 }
 
-/** A serial's column is its integer's conversion. */
+/** A serial's Description is its integer's, and its column its integer's conversion. */
 const serialDescriptor = <const N extends SerialName, A>(
 	name: N,
 	column: Column<A>
-): SerialDescriptor<(typeof carrierSql)[(typeof serialCarriers)[N]], A> =>
-	defineField(
+): SerialDescriptor<(typeof carrierSql)[(typeof serialCarriers)[N]], A> => {
+	const sql = carrierSql[serialCarriers[name]]
+	return defineField(
 		{},
-		carrierSql[serialCarriers[name]],
-		{ kind: "serial", type: name },
-		{ generated: "always", column },
+		sql,
+		{ kind: "pg", type: sql },
+		{ writing: "serial", column },
 		SourceLoc(`pg.${name}`, []),
 		bareEnv
 	)
+}
 
 export const smallserial: SerialDescriptor<"smallint", number> = serialDescriptor(
 	"smallserial",
@@ -42,12 +48,11 @@ export const smallserial: SerialDescriptor<"smallint", number> = serialDescripto
 /**
  * The serial family: pg.smallserial, pg.serial and pg.bigserial, with the serial2, serial4 and serial8 aliases.
  *
- * A serial is a column generation declaration over smallint, integer or bigint, not a value domain: it lowers to an
- * identity column GENERATED ALWAYS AS IDENTITY whose sequence the column owns, and its host values are the integer's.
- * It is no separate scalar type and no automatic UNIQUE. Being a generation declaration, it is neither a span endpoint
- * nor a contract base (a domain is a value domain, and PostgreSQL has no identity column over a domain),
- * so its capability set is its integer's without spanEndpoint, and it is discriminated from IntegerLike at the type
- * level (types/fields) and here at run time.
+ * A serial is a field of smallint, integer or bigint written by its sequence: it lowers to an identity column GENERATED
+ * ALWAYS AS IDENTITY whose sequence the column owns, and its type and host values are the integer's. It is no separate
+ * scalar type and no automatic UNIQUE. How a field is written is the field's, never its type's, so its type is the
+ * integer's and its descriptor says it is serial by `writing`, which the type level (types/fields) and the relation
+ * builder read.
  */
 export const serial: SerialDescriptor<"integer", number> = serialDescriptor(
 	"serial",

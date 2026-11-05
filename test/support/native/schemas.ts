@@ -10,18 +10,8 @@ import type {
 	TermDesc
 } from "#compiler/ir/desc.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
+import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
-import {
-	everyFact,
-	type HostFact,
-	type HostLaw,
-	type HostRelation,
-	type HostSchema,
-	type HostSelection,
-	type HostSide,
-	type HostState,
-	type HostValue
-} from "#test/pg/laws/families/model.ts"
 import {
 	type AuthoredStatementDesc,
 	check,
@@ -36,11 +26,23 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
+import {
+	everyFact,
+	type HostFact,
+	type HostLaw,
+	type HostRelation,
+	type HostSchema,
+	type HostSelection,
+	type HostSide,
+	type HostState,
+	type HostValue,
+	type Span
+} from "#test/support/laws/model.ts"
 import type { NativeRow, NativeState } from "#test/support/native/model.ts"
 
 /**
  * The schemas the native-model suite draws, each stated twice from one description: as the SchemaDesc grizzle
- * compiles, and as the host law model's schema (test/pg/laws/families/model.ts), whose laws are read from each
+ * compiles, and as the host law model's schema (test/support/laws/model.ts), whose laws are read from each
  * statement's meaning, never from the compiler. Sides are partial projections, `on(select(R, φ), t…)` the set
  * { (t…)(r) | r ∈ R, φ(r), every tᵢ(r) defined }, so a pred term pred(x), defined where x > 0, is the host field
  * `pred(x)` holding x − 1 under the side's selection conjoined with x > 0. A selection φ is a predicate tree evaluated
@@ -49,7 +51,7 @@ import type { NativeRow, NativeState } from "#test/support/native/model.ts"
  */
 
 /** A field's type: a 32-bit integer, a natural (a bigint never below zero, the one type pred reads) or a boolean. */
-export type FieldType = "int" | "natural" | "boolean"
+export type FieldType = "int" | "natural" | "boolean" | "span"
 
 /** A relation's fields in heading order, each with its type, and its primary key. */
 export interface RelationSpec {
@@ -209,7 +211,7 @@ const numberAt = (fact: HostFact, field: string): number => {
 }
 
 /** Whether a selection holds of a fact: the host's reading, by JavaScript's comparisons. */
-const phiHolds = (phi: Phi, fact: HostFact): boolean => {
+export const phiHolds = (phi: Phi, fact: HostFact): boolean => {
 	switch (phi.kind) {
 		case "compare":
 			return compared(phi.op, numberAt(fact, phi.field), phi.value)
@@ -285,8 +287,8 @@ export type Term =
 	| { readonly kind: "field"; readonly field: string }
 	| { readonly kind: "pred"; readonly field: string }
 
-const fieldTerm = (name: string): Term => ({ kind: "field", field: name })
-const predTerm = (name: string): Term => ({ kind: "pred", field: name })
+export const fieldTerm = (name: string): Term => ({ kind: "field", field: name })
+export const predTerm = (name: string): Term => ({ kind: "pred", field: name })
 
 /** The host field a pred term reads: x − 1, which the side reads only where x > 0. */
 const predField = (name: string): string => `pred(${name})`
@@ -299,14 +301,18 @@ export interface Side {
 }
 
 /** The side over every row of `relation`. */
-const over = (relation: string, terms: NonEmptyReadonlyArray<Term>): Side => ({
+export const over = (relation: string, terms: NonEmptyReadonlyArray<Term>): Side => ({
 	relation,
 	terms,
 	where: Option.none()
 })
 
 /** The side over the rows of `relation` that `phi` holds of. */
-const overWhere = (relation: string, terms: NonEmptyReadonlyArray<Term>, phi: Phi): Side => ({
+export const overWhere = (
+	relation: string,
+	terms: NonEmptyReadonlyArray<Term>,
+	phi: Phi
+): Side => ({
 	relation,
 	terms,
 	where: Option.some(phi)
@@ -333,6 +339,8 @@ const descriptorOf = (type: FieldType): FieldDesc => {
 			return naturalDescriptor.desc
 		case "boolean":
 			return f.boolean
+		case "span":
+			return f.span(f.integer, undefined)
 	}
 }
 
@@ -409,6 +417,36 @@ export interface Compiled {
 	readonly desc: SchemaDesc
 	readonly host: HostSchema
 	readonly model: LawModel
+	/** Each law given, in order, as the laws the compiler gives its statements: mirrors names two. */
+	readonly statementLaws: ReadonlyArray<ReadonlyArray<LawId>>
+	/** The law a relation's primary key reports. */
+	readonly primaryKey: (relation: string) => LawId
+	/**
+	 * A state as the host law model reads it, with each view a selected span key reads: the rows of its relation its
+	 * selection holds of, the side a span key over them keys.
+	 */
+	readonly hostStateOf: (state: State) => HostState
+}
+
+/** The rows of a relation a selection holds of, as a host relation of their own, which a selected span key reads. */
+interface View {
+	readonly name: string
+	readonly relation: string
+	readonly phi: Phi
+}
+
+/** A side's scalars and span, when its last term is a span field: the side of a span key or a coverage. */
+const spanOf = (
+	relations: Relations,
+	side: Side
+): Option.Option<{ readonly scalars: ReadonlyArray<string>; readonly span: string }> => {
+	const last = Arr.lastNonEmpty(side.terms)
+	return last.kind === "field" && typeOf(specOf(relations, side.relation), last.field) === "span"
+		? Option.some({
+				scalars: Arr.map(side.terms.slice(0, -1), (t) => t.field),
+				span: last.field
+			})
+		: Option.none()
 }
 
 /**
@@ -439,10 +477,34 @@ export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compil
 	const usesNatural = Arr.some(names, (name) =>
 		Arr.some(specOf(relations, name).fields, ([, type]) => type === "natural")
 	)
+	const views: Array<View> = []
+	/** A span side read by a span key: its relation, or, selected, the view of the rows it selects. */
+	const spanRelation = (side: Side): string =>
+		Option.match(side.where, {
+			onNone: () => side.relation,
+			onSome: (phi) => {
+				const name = `${side.relation} where ${phiText(phi)}`
+				if (!Arr.some(views, (v) => v.name === name)) {
+					views.push({ name, relation: side.relation, phi })
+				}
+				return name
+			}
+		})
 	const hostLaws = (law: Law): ReadonlyArray<HostLaw> => {
 		const statements = reading.statements(law)
 		switch (law.kind) {
 			case "key": {
+				const span = spanOf(relations, law.side)
+				if (Option.isSome(span)) {
+					const relation = spanRelation(law.side)
+					return Arr.map(statements, (statement): HostLaw => ({
+						kind: "spanKey",
+						law: lawOf(statement),
+						relation,
+						scalars: span.value.scalars,
+						span: span.value.span
+					}))
+				}
 				const side = hostSide(law.side)
 				return Arr.map(statements, (statement): HostLaw => ({
 					kind: "key",
@@ -461,12 +523,23 @@ export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compil
 								[law.left, law.right],
 								[law.right, law.left]
 							]
-				return Arr.map(Arr.zip(pairs, statements), ([[from, to], statement]): HostLaw => ({
-					kind: "contained",
-					law: lawOf(statement),
-					source: hostSide(from),
-					target: hostSide(to)
-				}))
+				return Arr.map(Arr.zip(pairs, statements), ([[from, to], statement]): HostLaw => {
+					const [source, target] = [spanOf(relations, from), spanOf(relations, to)]
+					return Option.isSome(source) && Option.isSome(target)
+						? {
+								kind: "covered",
+								law: lawOf(statement),
+								source: { ...hostSide(from), fields: source.value.scalars },
+								target: { ...hostSide(to), fields: target.value.scalars },
+								span: { source: source.value.span, target: target.value.span }
+							}
+						: {
+								kind: "contained",
+								law: lawOf(statement),
+								source: hostSide(from),
+								target: hostSide(to)
+							}
+				})
 			}
 			case "check": {
 				const phi = law.phi
@@ -501,33 +574,57 @@ export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compil
 				: []
 		)
 	)
+	const lawsRead = [...keys, ...naturals, ...Arr.flatMap(laws, hostLaws)]
+	const hostRelation = (name: string, of: string, key: ReadonlyArray<string>): HostRelation => ({
+		name,
+		table: name,
+		fields: Arr.map(specOf(relations, of).fields, ([fieldName]) => ({
+			name: fieldName,
+			column: fieldName
+		})),
+		key,
+		mutable: false
+	})
 	return {
 		relations,
 		desc,
 		host: {
-			relations: Arr.map(names, (name): HostRelation => ({
-				name,
-				table: name,
-				fields: Arr.map(specOf(relations, name).fields, ([fieldName]) => ({
-					name: fieldName,
-					column: fieldName
-				})),
-				key: specOf(relations, name).key,
-				mutable: false
-			})),
-			laws: [...keys, ...naturals, ...Arr.flatMap(laws, hostLaws)]
+			relations: [
+				...Arr.map(names, (name) => hostRelation(name, name, specOf(relations, name).key)),
+				...Arr.map(views, (v) => hostRelation(v.name, v.relation, []))
+			],
+			laws: lawsRead
 		},
-		model: lawNames.model
+		hostStateOf: (state) => {
+			const base = hostState(relations, state)
+			return new Map([
+				...base,
+				...Arr.map(
+					views,
+					(v) =>
+						[
+							v.name,
+							Arr.filter(base.get(v.relation) ?? [], (fact) => phiHolds(v.phi, fact))
+						] as const
+				)
+			])
+		},
+		model: lawNames.model,
+		statementLaws: Arr.map(laws, (law) => Arr.map(reading.statements(law), lawOf)),
+		primaryKey: (name) => lawNames.primaryKeyLaw({ name })
 	}
 }
 
-/** A stored row as the suite writes it: each field's value, a whole number or a boolean. */
-export type Row = Readonly<Record<string, number | boolean>>
+/** A field's value as the suite writes it: a whole number, a boolean, or a span, half-open from start to end. */
+export type Value = number | boolean | Span
+
+/** A stored row as the suite writes it: each field's value. */
+export type Row = Readonly<Record<string, Value>>
 
 /** A state as the suite draws it: each relation's rows, a relation it does not name holding none. */
 export type State = Readonly<Record<string, ReadonlyArray<Row>>>
 
-const valueAt = (row: Row, fieldName: string): number | boolean => {
+const valueAt = (row: Row, fieldName: string): Value => {
 	const v = row[fieldName]
 	if (v === undefined) {
 		throw new Error(`a row without its field ${fieldName}`)
@@ -551,7 +648,7 @@ const hostFact = (spec: RelationSpec, row: Row): HostFact => {
 const rowsOf = (state: State, name: string): ReadonlyArray<Row> => state[name] ?? []
 
 /** A state as the host law model reads it. */
-export const hostState = (relations: Relations, state: State): HostState =>
+const hostState = (relations: Relations, state: State): HostState =>
 	new Map(
 		Arr.map(Rec.keys(relations), (name) => [
 			name,
@@ -559,13 +656,18 @@ export const hostState = (relations: Relations, state: State): HostState =>
 		])
 	)
 
-/** A row as PostgreSQL stores it: an integer field as a bigint carrier, a boolean as itself. */
+/** A value as PostgreSQL's carrier: an integer as a bigint, a span as its bigint endpoints, a boolean as itself. */
+const carrierOf = (v: Value): CarrierValue =>
+	typeof v === "number"
+		? BigInt(v)
+		: typeof v === "boolean"
+			? v
+			: { start: BigInt(v.start), end: BigInt(v.end) }
+
+/** A row as PostgreSQL stores it. */
 export const nativeRow = (spec: RelationSpec, row: Row): NativeRow =>
 	new Map(
-		Arr.map(spec.fields, ([fieldName]) => {
-			const v = valueAt(row, fieldName)
-			return [fieldName, typeof v === "number" ? BigInt(v) : v] as const
-		})
+		Arr.map(spec.fields, ([fieldName]) => [fieldName, carrierOf(valueAt(row, fieldName))] as const)
 	)
 
 /** A state as the native model reads it. */
@@ -719,5 +821,89 @@ export const lawsOf = (r: Rule): ReadonlyArray<Law> => {
 			return [{ kind: "check", name: "ruled", relation: "Item", phi: r.phi }]
 		case "natural fields":
 			return []
+	}
+}
+
+/** The relations of the span rules: visits and the shifts they are covered by, each keyed by its id. */
+export const SPAN_RELATIONS: Relations = {
+	Visit: {
+		fields: [
+			["id", "int"],
+			["owner", "int"],
+			["during", "span"],
+			["live", "boolean"]
+		],
+		key: ["id"]
+	},
+	Shift: {
+		fields: [
+			["id", "int"],
+			["owner", "int"],
+			["during", "span"],
+			["live", "boolean"]
+		],
+		key: ["id"]
+	}
+}
+
+/**
+ * A rule of the span lowering over Visit and Shift: a span key, which a key whose last term is a span is, WITHOUT
+ * OVERLAPS, over every row or over the law columns of a selected side; and a coverage, a containment of a span side
+ * into a span-keyed one, a PERIOD foreign key, from or into a selected side.
+ */
+export type SpanRule =
+	| { readonly rule: "a span key" }
+	| { readonly rule: "a span key over a selected side"; readonly phi: Phi }
+	| { readonly rule: "a coverage" }
+	| { readonly rule: "a coverage from a selected side"; readonly phi: Phi }
+	| { readonly rule: "a coverage into a selected side"; readonly phi: Phi }
+
+export type SpanRuleKind = SpanRule["rule"]
+
+export const SPAN_RULE_KINDS: NonEmptyReadonlyArray<SpanRuleKind> = [
+	"a span key",
+	"a span key over a selected side",
+	"a coverage",
+	"a coverage from a selected side",
+	"a coverage into a selected side"
+]
+
+export const spanRuleText = (r: SpanRule): string => {
+	switch (r.rule) {
+		case "a span key":
+		case "a coverage":
+			return r.rule
+		case "a span key over a selected side":
+		case "a coverage from a selected side":
+		case "a coverage into a selected side":
+			return `${r.rule} where ${phiText(r.phi)}`
+	}
+}
+
+const during = [owner, fieldTerm("during")] as const
+
+/** The statements a span rule states over Visit and Shift. */
+export const spanLawsOf = (r: SpanRule): ReadonlyArray<Law> => {
+	const keyed: Law = { kind: "key", side: over("Shift", during) }
+	switch (r.rule) {
+		case "a span key":
+			return [{ kind: "key", side: over("Visit", during) }]
+		case "a span key over a selected side":
+			return [{ kind: "key", side: overWhere("Visit", during, r.phi) }]
+		case "a coverage":
+			return [
+				keyed,
+				{ kind: "contained", left: over("Visit", during), right: over("Shift", during) }
+			]
+		case "a coverage from a selected side":
+			return [
+				keyed,
+				{ kind: "contained", left: overWhere("Visit", during, r.phi), right: over("Shift", during) }
+			]
+		case "a coverage into a selected side":
+			return [
+				{ kind: "key", side: overWhere("Shift", during, r.phi) },
+				{ kind: "contained", left: over("Visit", during), right: overWhere("Shift", during, r.phi) }
+			]
 	}
 }

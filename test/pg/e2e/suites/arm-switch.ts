@@ -148,7 +148,8 @@ const counts = (relation: string, added: bigint, deleted: bigint, put: bigint) =
 /**
  * The worked example's arm switch end to end, in both forms, against a model of the switch, exhausted over its inputs.
  *
- * Work installs with its facts and its residual alternatives law, and its full role switches a task to manual
+ * Work installs with its facts and its alternatives, two native containments per armed handle, and its full role
+ * switches a task to manual
  * (switchToManual). The space is every stored kind of task
  * the facts hold and one no fact holds (t1 automatic in account a1, t4 automatic in a2, t2 manual by Ruth, t7 manual by Sam, and a missing id) ×
  * the form × the operator (Ruth, Sam) × for the enumerated form the previous budget (the stored one, or a stale one):
@@ -352,7 +353,7 @@ export const armSwitchSuite = (): void => {
 											}
 											if (kind === "automatic") {
 												assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
-												assert.deepEqual(outcome.law, names.described(automaticArm))
+												assert.deepEqual(outcome.laws, [names.described(automaticArm)])
 												assert.deepEqual(outcome.witness, { kind: "unreported" })
 												unchanged()
 												c.note(`${w.form} ${kind} rejected`)
@@ -394,11 +395,13 @@ export const armSwitchSuite = (): void => {
 												return
 											}
 											assert.ok(outcome.kind === "invariant-rejected", outcome.kind)
-											assert.deepEqual(outcome.law, {
-												kind: "primaryKey",
-												relation: "ManualTask",
-												fields: ["task"]
-											})
+											assert.deepEqual(outcome.laws, [
+												{
+													kind: "primaryKey",
+													relation: "ManualTask",
+													fields: ["task"]
+												}
+											])
 											assert.deepEqual(outcome.witness, {
 												kind: "key",
 												relation: "ManualTask",

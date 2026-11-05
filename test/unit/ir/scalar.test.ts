@@ -80,8 +80,8 @@ const decimalText = (units: bigint, scale: number): string => {
 }
 
 /**
- * A valid type of every carrier, the serials, and contracts over a plain, a typmod, a roster and a regex base, each the
- * one the registry builds.
+ * A valid type of every carrier, and contracts over a plain, a typmod, a roster and a regex base, each the one the
+ * registry builds. A serial field's type is its integer's: serial is how a field is written, never a type.
  */
 const kinds: Readonly<Record<string, Arr.NonEmptyReadonlyArray<string>>> = {
 	Kind: ["Automatic", "Manual"]
@@ -92,8 +92,6 @@ const validTypes: ReadonlyArray<ScalarType> = [
 	plainType("int2"),
 	plainType("int4"),
 	plainType("int8"),
-	scalarOf(f.bigserial, {}),
-	scalarOf({ kind: "serial", type: "serial" }, {}),
 	anyNumeric,
 	numericValue({ digits: 38, scale: 0 }),
 	numeric102,
@@ -106,6 +104,7 @@ const validTypes: ReadonlyArray<ScalarType> = [
 	wildcardText,
 	scalarOf(slugDesc, {}),
 	scalarOf(f.closedId("Kind"), kinds),
+	scalarOf({ kind: "bits", roster: "Kind" }, kinds),
 	scalarOf(f.span(f.integer, undefined), {}),
 	scalarOf(f.span(f.bigint, undefined), {}),
 	scalarOf({ kind: "vector", dimensions: 3 }, {}),
@@ -121,14 +120,13 @@ const validTypes: ReadonlyArray<ScalarType> = [
  */
 type ScalarRule =
 	| "text carries its regex metadata"
-	| "an enum carries its roster"
-	| "a span's endpoint is of its carrier and no serial"
+	| "a code and a set carry their roster"
+	| "a span's endpoint is of its carrier"
 	| "a numeric typmod has a precision 1-1000 and its scale"
 	| "a vector has 1-16000 dimensions"
 	| "only numeric and vector carry a typmod"
-	| "only an integer is a serial"
 	| "a contract's carrier is its base's"
-	| "a contract is over no serial"
+	| "a set is no contract's base"
 	| "a contract carries its base's typmod and roster"
 	| "the carrier is one grizzle stores"
 
@@ -167,29 +165,19 @@ const scalarCorruptions: Arr.NonEmptyReadonlyArray<Corruption<ScalarType, string
 		(t) => [without(t, "text")]
 	),
 	breaks(
-		"an enum carries its roster",
+		"a code and a set carry their roster",
 		"wild",
-		(t) => t.carrier === "enum" && contractOf(t) === undefined,
+		(t) => (t.carrier === "code" || t.carrier === "bits") && contractOf(t) === undefined,
 		(t) => [without(t, "roster")]
 	),
 	breaks(
-		"a span's endpoint is of its carrier and no serial",
+		"a span's endpoint is of its carrier",
 		"stale",
 		(t) => t.carrier === "range4" || t.carrier === "range8",
 		(t) => [
 			{
 				...t,
 				span: { endpoint: { carrier: t.carrier === "range4" ? "int8" : "int4", caps: t.caps } }
-			},
-			{
-				...t,
-				span: {
-					endpoint: {
-						carrier: t.carrier === "range4" ? "int4" : "int8",
-						caps: t.caps,
-						serial: "always"
-					}
-				}
 			}
 		]
 	),
@@ -218,37 +206,21 @@ const scalarCorruptions: Arr.NonEmptyReadonlyArray<Corruption<ScalarType, string
 		(t) => [{ ...t, typmod: { precision: 3 } }]
 	),
 	breaks(
-		"only an integer is a serial",
-		"wild",
-		(t) => t.carrier === "text" || t.carrier === "numeric",
-		(t) => [{ ...t, serial: "always" }]
-	),
-	breaks(
 		"a contract's carrier is its base's",
 		"stale",
 		(t) => contractOf(t) !== undefined && t.carrier === "int8",
 		(t) => [{ ...t, carrier: "int4" }]
 	),
 	breaks(
-		"a contract is over no serial",
+		"a set is no contract's base",
 		"stale",
-		(t) => contractOf(t) !== undefined && t.carrier === "int8",
-		(t) => {
-			const contract = contractOf(t)
-			return contract === undefined
-				? []
-				: [
-						{
-							...t,
-							contract: { ...contract, base: { carrier: "int8", caps: t.caps, serial: "always" } }
-						}
-					]
-		}
+		(t) => t.carrier === "bits",
+		(t) => [{ ...t, contract: { name: "Picks", base: t, facts: [] } }]
 	),
 	breaks(
 		"a contract carries its base's typmod and roster",
 		"stale",
-		(t) => contractOf(t) !== undefined && (t.carrier === "numeric" || t.carrier === "enum"),
+		(t) => contractOf(t) !== undefined && (t.carrier === "numeric" || t.carrier === "code"),
 		(t) =>
 			t.carrier === "numeric"
 				? [without(t, "typmod"), { ...t, typmod: { precision: 12, scale: 2 } }]
@@ -257,8 +229,8 @@ const scalarCorruptions: Arr.NonEmptyReadonlyArray<Corruption<ScalarType, string
 	breaks(
 		"the carrier is one grizzle stores",
 		"wild",
-		(t) => t.carrier === "int8" && contractOf(t) === undefined && !("serial" in t),
-		(t) => Arr.map(["timestamptz", "json", "int8[]"], (carrier) => ({ ...t, carrier }))
+		(t) => t.carrier === "int8" && contractOf(t) === undefined,
+		(t) => Arr.map(["timestamptz", "json", "int8[]", "enum"], (carrier) => ({ ...t, carrier }))
 	)
 ]
 
@@ -351,6 +323,7 @@ describe("literals", () => {
 		scalarTypes.text,
 		scalarTypes.uuid,
 		scalarTypes.kind,
+		scalarOf({ kind: "bits", roster: "Kind" }, { Kind: ["Automatic", "Manual"] }),
 		scalarOf(f.span(f.integer, undefined), {}),
 		scalarTypes.range8,
 		scalarTypes.vector3,
@@ -402,9 +375,14 @@ describe("literals", () => {
 		),
 		map(uuidGen, (value): TypedLiteral => ({ kind: "uuid", value })),
 		map(element(["Automatic", "Manual", "Gold", "automatic"]), (handle): TypedLiteral => ({
-			kind: "enum",
+			kind: "handle",
 			handle
 		})),
+		/** A set's handles, from none to a handle twice, out of order or of no roster. */
+		map(
+			array(element(["Automatic", "Manual", "Gold"]), { min: 0, max: 3 }),
+			(handles): TypedLiteral => ({ kind: "handles", handles })
+		),
 		(source): TypedLiteral => {
 			const start = source.draw(oneOf([element(nonEmpty(powers, "the powers")), bigint(-9n, 9n)]))
 			return { kind: "span", start, end: start + source.draw(bigint(-9n, 9n)) }
@@ -441,7 +419,8 @@ describe("literals", () => {
 	 * Whether the literal is a value of the type, by the rules restated: a contract's value is its base's; each literal
 	 * kind meets its own carriers only; an integer lies in its carrier's range; a float4 is exactly a float32; NaN and
 	 * the infinities are floats; a numeric literal is one numeric(p, s) stores unchanged; text is well-formed UTF-16
-	 * without NUL; a uuid is lowercase 8-4-4-4-12 hex; an enum handle is one of its roster's; a span has start < end
+	 * without NUL; a uuid is lowercase 8-4-4-4-12 hex; a handle is one of its code's roster's; a set's handles are its
+	 * roster's, each once, in their declared order, none the empty set; a span has start < end
 	 * within its endpoint carrier; a vector has the type's dimensions and a norm, summed in double, in the cosine domain
 	 * [cosineNormMin, cosineNormMax].
 	 */
@@ -482,8 +461,18 @@ describe("literals", () => {
 						literal.value
 					)
 				)
-			case "enum":
-				return c === "enum" && type.roster.handles.includes(literal.handle)
+			case "handle":
+				return c === "code" && type.roster.handles.includes(literal.handle)
+			case "handles": {
+				if (c !== "bits") {
+					return false
+				}
+				const positions = Arr.map(literal.handles, (h) => type.roster.handles.indexOf(h))
+				return Arr.every(
+					positions,
+					(at, i) => at >= 0 && (i === 0 || at > (positions[i - 1] ?? -1))
+				)
+			}
 			case "span":
 				return (
 					literal.start < literal.end &&
@@ -570,7 +559,8 @@ describe("literals", () => {
 									"bool",
 									"text",
 									"uuid",
-									"enum",
+									"handle",
+									"handles",
 									"span",
 									"vector"
 								] as const,

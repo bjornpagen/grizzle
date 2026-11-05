@@ -8,14 +8,17 @@ import { resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { selectMaxEntries } from "#compiler/core/limits.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
+import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { defineConfig } from "#index.ts"
 import { offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 
@@ -51,16 +54,17 @@ const visitsLogin = login(Visits, "server", [role(Visits, "reader", { Visit })],
 /** The fields of each joined relation beside its key: both relations' and the key are one entry past a select list. */
 const sideFields = Math.ceil(selectMaxEntries.value / 2)
 
-/** A relation keyed by `id`, with `sideFields` uuid fields named `<prefix><i>` beside it. */
-const side = <const Name extends string, const Prefix extends string>(name: Name, prefix: Prefix) =>
-	relation(
-		name,
-		{
-			id: uuid,
-			...Rec.fromEntries(Arr.makeBy(sideFields, (i) => [`${prefix}${i}`, uuid] as const))
-		},
-		["id"]
-	)
+/**
+ * A relation keyed by `id`, with `sideFields` boolean fields named `<prefix><i>` beside it: one byte each, so a row fits
+ * one heap tuple, which the select list is the first limit past.
+ */
+const side = <const Name extends string>(name: Name, prefix: string) => {
+	const fields: Readonly<Record<string, typeof uuid | typeof pg.boolean>> = {
+		id: uuid,
+		...Rec.fromEntries(Arr.makeBy(sideFields, (i) => [`${prefix}${i}`, pg.boolean] as const))
+	}
+	return relation(name, fields, ["id"])
+}
 const Left = side("Left", "l")
 const Right = side("Right", "r")
 const Pairs = schema("Pairs", { Left, Right }, [])
@@ -71,7 +75,7 @@ const pairs = query(Pairs).rule((r) => {
 	const right = v(Right, "right")
 	return r
 		.match(Left, left)
-		.match(Right, { ...right, id: left.id })
+		.match(Right, { ...right, id: left["id"] })
 		.find({ ...right, ...left })
 })
 
@@ -93,14 +97,17 @@ const draftAndCompile = (given: Pick<GrizzleConfig, "schemas" | "logins">) =>
 		)
 		const configured = defined(config.schemas[0], "the configured schema")
 		const login = defined(configured.workloads[0], "the login's workloads")
-		const compiled = yield* Effect.result(loginRoles(login.roles, login.workloads))
 		const draft = yield* Effect.result(
 			draftSchema(
 				configured,
 				emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
-				[]
+				[],
+				noDeclarations
 			)
 		)
+		/** The login's programs, compiled under a fresh installation's codes, which the first draft holds. */
+		const codes = firstCodebook(rostersOf(configured.owned))
+		const compiled = yield* Effect.result(loginRoles(login.roles, login.workloads, codes))
 		return { compiled, draft }
 	})
 

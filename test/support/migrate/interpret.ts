@@ -1,14 +1,12 @@
-import { Array as Arr, Data, Formatter, Option, Order, Result, String as Str } from "effect"
+import { Array as Arr, Data, Option, Order, Result, String as Str } from "effect"
 import type { Action } from "#compiler/deploy/diff/plan.ts"
-import { triggerColumns } from "#compiler/deploy/snapshot/objects.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
-	type BuiltinTypeName,
 	type ColumnDef,
-	type CreateConstraintTrigger,
 	type Expr,
 	type FromSource,
 	type ObjectName,
+	type PackConstant,
 	type Select,
 	type SqlStatement,
 	type TableConstraint,
@@ -18,6 +16,7 @@ import {
 import { namedType } from "#compiler/sql/build.ts"
 import { printObjectName, printType } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr, transformSelect } from "#compiler/sql/transform.ts"
+import { bitText } from "#test/support/closed/bit-text.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 
@@ -30,8 +29,8 @@ import { testTypeSchema } from "#test/support/sql.ts"
  * and its preconditions, which PostgreSQL's dependency facts state, and fails where PostgreSQL would, with the SQLSTATE
  * it would raise:
  *
- * - Namespaces. Tables, materialized views, sequences and indexes share one relation namespace (pg_class); enums,
- *   domains and the row type of every table and view share the type namespace (pg_type), a sequence and an index
+ * - Namespaces. Tables, materialized views, sequences and indexes share one relation namespace (pg_class); domains
+ *   and the row type of every table and view share the type namespace (pg_type), a sequence and an index
  *   taking none (heap.c heap_create_with_catalog); extended
  *   statistics have their own; a table's constraints share one per table, and its triggers another. A name taken in
  *   its namespace is refused (42P07 for a relation, 42710 otherwise); a key's or an exclusion's index takes its
@@ -45,8 +44,11 @@ import { testTypeSchema } from "#test/support/sql.ts"
  *   be dropped (2BP01). A materialized view pins the tables and views it reads and the columns it names (2BP01 on a
  *   drop, 0A000 on a type change); a trigger's UPDATE OF and WHEN pin their columns the same way, and a trigger its function
  *   (2BP01). A world's view, in its own schema, pins what it reads of this schema the same way, and so does a row
- *   security policy the columns its predicate names; a world's schema holding a view cannot be dropped (2BP01). A type cannot be dropped while a column or a domain is of it (2BP01), nor a sequence an identity column
- *   owns. Every foreign key's columns compare (42804, see comparable) at the end of each statement, as PostgreSQL adds
+ *   security policy the columns its predicate names; a world's schema holding a view cannot be dropped (2BP01). A
+ *   domain cannot be dropped while a column or a domain is of it (2BP01), nor a sequence an identity column owns. A
+ *   function is dropped RESTRICT, as every grizzle DROP FUNCTION is: while a domain's CHECK, a table's CHECK, a
+ *   generated column, a view, another function's body or a trigger calls it, it is refused naming that dependent
+ *   (2BP01), as PostgreSQL's pg_depend records each (recordDependencyOnExpr). Every foreign key's columns compare (42804, see comparable) at the end of each statement, as PostgreSQL adds
  *   every key over a converted column again.
  * - What goes along. A dropped column takes the constraints, indexes and statistics objects over it, and its identity
  *   sequence; a dropped table its constraints, indexes, triggers, statistics and sequences; a dropped view its indexes.
@@ -55,14 +57,21 @@ import { testTypeSchema } from "#test/support/sql.ts"
  *   object, trigger column and view column; an index's constraint and a constraint's index, which PostgreSQL renames
  *   together; a type's columns and domains.
  * - Rows. A NOT NULL column added to a table with rows needs a value (23502); a column converted by its cast to a type
- *   of its base, the domains of both read through, keeps each row's value; a column converted by an expression the
- *   model does not know needs the reviewer's value; a column converted to an enum by its text keeps each row's handle,
- *   which the enum must have (22P02), unless the reviewer maps it; a label renamed in place renames it in every row.
+ *   of its base, the domains of both read through, keeps each row's value; a set column converted to a wider bits
+ *   domain by its cast to bit(n′) is padded with zeros on the right, and every row must meet the new domain's CHECKs
+ *   (23514); a column converted by an expression the model does not know needs the reviewer's value. A closed id is
+ *   stored as its code, an int cell, and a set as its bit string, a text cell of 0s and 1s.
+ * - Constants and domains. A constant (CREATE FUNCTION … IMMUTABLE RETURN, or the pack's DO block) holds a value the
+ *   model computes: a names constant's name[], a live-codes constant derived from it, a pack's bit string (the test
+ *   oracle bitText). A domain's CHECK added without NOT VALID, or VALIDATEd, is evaluated over every stored value of
+ *   the domain, as PostgreSQL validates it, and a value it does not admit is refused (23514) naming the table and the
+ *   column; so a removed handle's code, or a set holding its bit, fails the VALIDATE of the re-pointed CHECK. A CHECK
+ *   outside the fragment the model evaluates (a contract's predicate) is taken to hold, a limit of the model.
  *   Each cell remembers where its value came from: a loaded fact, a value a reviewer wrote at a placeholder, or a
  *   value the column generates.
- * - One rule of the draft, not of PostgreSQL: a migration converts each column at most once, by its one fate (an enum
- *   rebuild's conversion and a field's own, or a chosen rename's, never both), so a second conversion of a column in
- *   one run, under any name it has by then, is refused.
+ * - One rule of the draft, not of PostgreSQL: a migration converts each column at most once, by its one fate (a field's
+ *   own conversion or a chosen rename's, never both), so a second conversion of a column in one run, under any name it
+ *   has by then, is refused.
  *
  * So the model says, without a database, whether every statement's preconditions hold at its position, which value
  * every row holds after a migration (for a test to compare with the carry model, `carry`),
@@ -92,8 +101,8 @@ const unknownExpression: Conversion = { kind: "given", value: () => undefined }
 export type Generation =
 	| { readonly kind: "none" }
 	| { readonly kind: "identity"; readonly sequence: string }
-	| { readonly kind: "stored" }
-	| { readonly kind: "partial" }
+	| { readonly kind: "stored"; readonly calls: ReadonlyArray<string> }
+	| { readonly kind: "partial"; readonly calls: ReadonlyArray<string> }
 
 export interface Column {
 	readonly name: string
@@ -127,7 +136,14 @@ export type Constraint =
 			readonly index: string
 			readonly valid: boolean
 	  }
-	| { readonly kind: "check"; readonly columns: ReadonlyArray<string>; readonly valid: boolean }
+	| {
+			readonly kind: "check"
+			readonly columns: ReadonlyArray<string>
+			readonly predicate: Expr
+			/** The schema's functions its predicate calls, which it pins. */
+			readonly calls: ReadonlyArray<string>
+			readonly valid: boolean
+	  }
 
 /** What owns an index: nothing, or the key or exclusion constraint it implements. */
 export type IndexOwner =
@@ -166,39 +182,44 @@ export interface Trigger {
 	readonly types: ReadonlyArray<TypeRef>
 }
 
-/** The named types a constraint trigger's WHEN casts to. */
-const whenTypes = (s: CreateConstraintTrigger): ReadonlyArray<TypeRef> => {
-	const named: Array<TypeRef> = []
-	if (s.when !== undefined) {
-		transformExpr(s.when, {
-			...identityHooks,
-			typeRef: (t) => {
-				if (t.kind === "named") {
-					named.push(t)
-				}
-				return t
-			}
-		})
-	}
-	return named
-}
-
-/** A materialized view: its columns, and the columns it names of each relation it reads. */
+/** A materialized view: its columns, the columns it names of each relation it reads, and the schema's functions it
+ * calls, which it pins. */
 export interface View {
 	readonly columns: ReadonlyArray<string>
 	readonly reads: ReadonlyMap<string, ReadonlySet<string>>
+	readonly calls: ReadonlyArray<string>
 }
 
-/** A domain: its base type, and its constraints by name, each valid or not yet validated. */
+/** A domain's CHECK: its predicate over VALUE, the schema's functions it calls, and whether it is valid or not yet
+ * validated. */
+export interface DomainCheck {
+	readonly predicate: Expr
+	readonly calls: ReadonlyArray<string>
+	readonly valid: boolean
+}
+
+/** A domain: its base type, and its constraints by name. */
 export interface Domain {
 	readonly base: TypeRef
-	readonly constraints: ReadonlyMap<string, boolean>
+	readonly constraints: ReadonlyMap<string, DomainCheck>
+}
+
+/**
+ * A function of the schema: the schema's functions its body calls, which pin them, and what it returns when it is a
+ * constant the model computes: a constant's RETURN expression, or a pack's bit string. A PL/pgSQL function (a refusal,
+ * advance or isolation function) is opaque.
+ */
+export interface Function {
+	readonly body:
+		| { readonly kind: "opaque" }
+		| { readonly kind: "constant"; readonly expr: Expr }
+		| { readonly kind: "packed"; readonly bits: string }
+	readonly calls: ReadonlyArray<string>
 }
 
 /** What the model knows of a schema. */
 export interface State {
 	readonly tables: Tables
-	readonly enums: ReadonlyMap<string, ReadonlyArray<string>>
 	readonly domains: ReadonlyMap<string, Domain>
 	/** Each table's constraints, by table, then by constraint name. */
 	readonly constraints: ReadonlyMap<string, ReadonlyMap<string, Constraint>>
@@ -211,14 +232,13 @@ export interface State {
 	/** What lives outside the schema's namespaces yet pins its relations and columns: each world's view
 	 * (`view <schema>.<name>`) and each row security policy (`policy <table>.<name>`), with what it reads. */
 	readonly dependents: ReadonlyMap<string, View>
-	readonly functions: ReadonlySet<string>
+	readonly functions: ReadonlyMap<string, Function>
 	/** The next index's place in creation order. */
 	readonly created: number
 }
 
 export const emptyState: State = {
 	tables: new Map(),
-	enums: new Map(),
 	domains: new Map(),
 	constraints: new Map(),
 	indexes: new Map(),
@@ -227,7 +247,7 @@ export const emptyState: State = {
 	triggers: new Map(),
 	views: new Map(),
 	dependents: new Map(),
-	functions: new Set(),
+	functions: new Map(),
 	created: 0
 }
 
@@ -262,21 +282,18 @@ const sameSet = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
 	a.length === b.length && Arr.every(a, (x) => b.includes(x)) && Arr.every(b, (x) => a.includes(x))
 
 /** The builtins whose btree operator family compares across them: the integers of every width, and the two floats. */
-const families: ReadonlyArray<ReadonlySet<BuiltinTypeName>> = [
+const families: ReadonlyArray<ReadonlySet<string>> = [
 	new Set(["smallint", "integer", "bigint"]),
 	new Set(["real", "double precision"])
 ]
 
 /** PostgreSQL's implicit casts among the builtins a column can have: each type to the types it casts to implicitly. */
-const implicitCasts: ReadonlyMap<BuiltinTypeName, ReadonlySet<BuiltinTypeName>> = new Map([
-	[
-		"smallint",
-		new Set<BuiltinTypeName>(["integer", "bigint", "numeric", "real", "double precision"])
-	],
-	["integer", new Set<BuiltinTypeName>(["bigint", "numeric", "real", "double precision"])],
-	["bigint", new Set<BuiltinTypeName>(["numeric", "real", "double precision"])],
-	["numeric", new Set<BuiltinTypeName>(["real", "double precision"])],
-	["real", new Set<BuiltinTypeName>(["double precision"])]
+const implicitCasts: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+	["smallint", new Set<string>(["integer", "bigint", "numeric", "real", "double precision"])],
+	["integer", new Set<string>(["bigint", "numeric", "real", "double precision"])],
+	["bigint", new Set<string>(["numeric", "real", "double precision"])],
+	["numeric", new Set<string>(["real", "double precision"])],
+	["real", new Set<string>(["double precision"])]
 ])
 
 /** Whether a foreign key's referencing column of type `from` compares with its referenced column of type `to`, each its
@@ -284,7 +301,7 @@ const implicitCasts: ReadonlyMap<BuiltinTypeName, ReadonlySet<BuiltinTypeName>> 
  * referenced key's index, and refuses it when there is none (42804, "cannot be implemented"). The two compare when
  * they are one type, its typmod aside; when they are builtins of one family that compares across its types; or when
  * `from` casts implicitly to `to`, so the referenced key's own equality applies. An array compares only with the array
- * of its own element type, an enum or any other named type only with itself. */
+ * of its own element type, a domain or any other named type only with itself. */
 const comparable = (from: TypeRef, to: TypeRef): boolean => {
 	if (from.array !== to.array) {
 		return false
@@ -353,7 +370,40 @@ const readsOf = (
 	)
 }
 
-const generationOf = (c: ColumnDef): Generation => {
+/** The functions of `schema` an expression calls, each once, its subqueries' and their FROM functions' included. */
+const callsOf = (exprs: ReadonlyArray<Expr>, schema: string): ReadonlyArray<string> => {
+	const out = new Set<string>()
+	const hooks = {
+		...identityHooks,
+		expr: (x: Expr) => {
+			if (x.kind === "call" && x.fn.kind === "qualified" && x.fn.schema === schema) {
+				out.add(x.fn.name)
+			}
+			return x
+		}
+	}
+	for (const e of exprs) {
+		transformExpr(e, hooks)
+	}
+	return [...out]
+}
+
+/** The functions of `schema` a query calls. */
+const queryCalls = (query: Select, schema: string): ReadonlyArray<string> => {
+	const out = new Set<string>()
+	transformSelect(query, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind === "call" && x.fn.kind === "qualified" && x.fn.schema === schema) {
+				out.add(x.fn.name)
+			}
+			return x
+		}
+	})
+	return [...out]
+}
+
+const generationOf = (c: ColumnDef, schema: string): Generation => {
 	if (c.generated === undefined) {
 		return { kind: "none" }
 	}
@@ -361,17 +411,433 @@ const generationOf = (c: ColumnDef): Generation => {
 		case "identity":
 			return { kind: "identity", sequence: c.generated.sequence.name }
 		case "stored":
-			return { kind: "stored" }
+			return { kind: "stored", calls: callsOf([c.generated.expr], schema) }
 		case "partial":
-			return { kind: "partial" }
+			return { kind: "partial", calls: callsOf([c.generated.when, c.generated.expr], schema) }
 	}
 }
 
-const columnOf = (c: ColumnDef): Column => ({
+const columnOf = (c: ColumnDef, schema: string): Column => ({
 	name: c.name,
 	type: c.type,
-	generation: generationOf(c)
+	generation: generationOf(c, schema)
 })
+
+/**
+ * A value as the model evaluates a constant's body or a domain's CHECK: an integer, a text, a Boolean, a bit string
+ * (its 0s and 1s), or a name[] (a hole's element the empty name); undefined is SQL's NULL.
+ */
+type SqlValue =
+	| { readonly kind: "int"; readonly value: bigint }
+	| { readonly kind: "text"; readonly value: string }
+	| { readonly kind: "bool"; readonly value: boolean }
+	| { readonly kind: "bits"; readonly value: string }
+	| { readonly kind: "names"; readonly value: ReadonlyArray<string> }
+	| undefined
+
+/** An expression outside the fragment the model evaluates: a constant or a CHECK it cannot compute. */
+class Unevaluable extends Data.TaggedError("Unevaluable")<{ readonly what: string }> {}
+
+/** A function declaration, so that control flow knows a call never returns. */
+function unevaluable(what: string): never {
+	throw new Unevaluable({ what })
+}
+
+/**
+ * The elements of an array literal's text, `{"a","",b}`: each quoted element unescaped (a backslash takes the next
+ * character), each bare one as written, so a hole's quoted empty name is the empty name. NULL never appears: a names
+ * constant quotes every element.
+ */
+const arrayElements = (text: string): ReadonlyArray<string> => {
+	if (!Str.startsWith("{")(text) || !Str.endsWith("}")(text)) {
+		return unevaluable(`the array text ${text}`)
+	}
+	const body = Str.slice(1, -1)(text)
+	const out: Array<string> = []
+	let at = 0
+	while (at < body.length) {
+		let element = ""
+		if (body[at] === '"') {
+			at += 1
+			while (at < body.length && body[at] !== '"') {
+				if (body[at] === "\\") {
+					at += 1
+				}
+				element += body[at] ?? ""
+				at += 1
+			}
+			at += 1
+		} else {
+			while (at < body.length && body[at] !== ",") {
+				element += body[at] ?? ""
+				at += 1
+			}
+			if (element === "NULL") {
+				return unevaluable("a NULL element of an array text")
+			}
+		}
+		out.push(element)
+		if (body[at] === ",") {
+			at += 1
+		}
+	}
+	return out
+}
+
+/** A builtin type's value kind, as a literal or a cast of it is read. */
+const valueOf = (value: string, type: TypeRef): SqlValue => {
+	if (type.kind !== "builtin") {
+		return unevaluable(`a value of ${printType(type)}`)
+	}
+	if (type.array) {
+		return type.name === "name" || type.name === "text"
+			? { kind: "names", value: arrayElements(value) }
+			: unevaluable(`an array of ${type.name}`)
+	}
+	switch (type.name) {
+		case "bit":
+		case "bit varying":
+			return { kind: "bits", value }
+		case "text":
+		case "name":
+			return { kind: "text", value }
+		case "smallint":
+		case "integer":
+		case "bigint":
+			return { kind: "int", value: BigInt(value) }
+		case "boolean":
+		case "double precision":
+		case "int4multirange":
+		case "int4range":
+		case "int8multirange":
+		case "int8range":
+		case "jsonb":
+		case "money":
+		case "numeric":
+		case "real":
+		case "record":
+		case "uuid":
+			return unevaluable(`a ${type.name} literal`)
+	}
+}
+
+/**
+ * The bit string a pack builds: `radices`' product cells of `width` bits, each 0 but a row's, which holds 1 + its
+ * payload code at its key's row-major index (Horner's rule over the key's codes in order), written by the test oracle
+ * bitText.
+ */
+const packedBits = (s: PackConstant): string => {
+	const entries = Arr.map(s.rows, (row) => ({
+		index: Arr.reduce(
+			Arr.zip(row.key, s.radices),
+			0n,
+			(index, [code, radix]) => index * BigInt(radix) + BigInt(code)
+		),
+		payload: row.payload
+	}))
+	const text = bitText(
+		{
+			cells: Arr.reduce(s.radices, 1n, (cells, radix) => cells * BigInt(radix)),
+			width: s.width,
+			entries: Arr.sort(
+				entries,
+				Order.mapInput(Order.BigInt, (e: { readonly index: bigint }) => e.index)
+			)
+		},
+		Number.MAX_SAFE_INTEGER
+	)
+	if (!text.ok) {
+		throw new Error(`the pack of ${printObjectName(s.function)} is too long for the host to write`)
+	}
+	return text.value
+}
+
+/** A bit string cast to bit(n): padded with zeros on the right, or truncated, as PostgreSQL's bit(n) cast does. */
+const toLength = (bits: string, length: number): string =>
+	bits.length >= length ? Str.slice(0, length)(bits) : bits + Str.repeat(length - bits.length)("0")
+
+/** What the evaluator reads besides an expression: VALUE, the columns a FROM item binds, and the schema's constants. */
+interface Scope {
+	readonly value: SqlValue
+	readonly columns: ReadonlyMap<string, SqlValue>
+	readonly constant: (name: string) => SqlValue
+}
+
+/** Whether two values are equal, as PostgreSQL's = compares two of one type; NULL with either is NULL. */
+const equal = (a: SqlValue, b: SqlValue): SqlValue => {
+	if (a === undefined || b === undefined) {
+		return undefined
+	}
+	if (a.kind !== b.kind || a.kind === "names" || b.kind === "names") {
+		return unevaluable(`a comparison of ${a.kind} with ${b.kind}`)
+	}
+	return { kind: "bool", value: a.value === b.value }
+}
+
+/** Two bit strings combined bit by bit; PostgreSQL refuses two of different lengths (22026). */
+const bitwise = (op: "&" | "|", a: string, b: string): string => {
+	if (a.length !== b.length) {
+		refuse(`cannot ${op === "&" ? "AND" : "OR"} bit strings of different sizes (22026)`)
+	}
+	return Arr.join(
+		Arr.map(
+			Arr.makeBy(a.length, (i) => i),
+			(i) =>
+				op === "&"
+					? a[i] === "1" && b[i] === "1"
+						? "1"
+						: "0"
+					: a[i] === "1" || b[i] === "1"
+						? "1"
+						: "0"
+		),
+		""
+	)
+}
+
+const intOf = (v: SqlValue, what: string): bigint | undefined =>
+	v === undefined ? undefined : v.kind === "int" ? v.value : unevaluable(`${what} of ${v.kind}`)
+
+/**
+ * The value of `e`, evaluated as PostgreSQL would over the fragment a constant's body and a roster's or a set's domain
+ * CHECK are written in: literals, casts, VALUE, + and -, = and <>, & and |, a subscript, a CASE, substring, a call of
+ * the schema's constant, and the one subquery a live-codes constant derives from its names constant, string_agg over
+ * generate_subscripts. Any other expression is Unevaluable.
+ */
+const evaluate = (e: Expr, scope: Scope): SqlValue => {
+	switch (e.kind) {
+		case "domainValue":
+			return scope.value
+		case "literal":
+			switch (e.value.kind) {
+				case "int":
+					return { kind: "int", value: e.value.value }
+				case "bool":
+					return { kind: "bool", value: e.value.value }
+				case "text":
+					return valueOf(e.value.value, e.type)
+				case "decimal":
+				case "float":
+				case "floatSpecial":
+					return unevaluable(`a ${e.value.kind} literal`)
+			}
+		case "cast": {
+			const v = evaluate(e.expr, scope)
+			if (v === undefined) {
+				return undefined
+			}
+			const t = e.type
+			if (t.kind === "builtin" && !t.array) {
+				if (t.name === "bit" && v.kind === "bits") {
+					return { kind: "bits", value: toLength(v.value, t.length) }
+				}
+				if (t.name === "bit varying" && (v.kind === "bits" || v.kind === "text")) {
+					return { kind: "bits", value: v.value }
+				}
+				if ((t.name === "text" || t.name === "name") && v.kind === "text") {
+					return v
+				}
+				if (
+					(t.name === "smallint" || t.name === "integer" || t.name === "bigint") &&
+					v.kind === "int"
+				) {
+					return v
+				}
+			}
+			return unevaluable(`a cast of ${v.kind} to ${printType(t)}`)
+		}
+		case "binary": {
+			const left = evaluate(e.left, scope)
+			const right = evaluate(e.right, scope)
+			switch (e.op) {
+				case "+":
+				case "-": {
+					const a = intOf(left, e.op)
+					const b = intOf(right, e.op)
+					return a === undefined || b === undefined
+						? undefined
+						: { kind: "int", value: e.op === "+" ? a + b : a - b }
+				}
+				case "=":
+					return equal(left, right)
+				case "<>": {
+					const eq = equal(left, right)
+					return eq?.kind === "bool" ? { kind: "bool", value: !eq.value } : eq
+				}
+				case "&":
+				case "|":
+					if (left === undefined || right === undefined) {
+						return undefined
+					}
+					return left.kind === "bits" && right.kind === "bits"
+						? { kind: "bits", value: bitwise(e.op, left.value, right.value) }
+						: unevaluable(`${left.kind} ${e.op} ${right.kind}`)
+				case "%":
+				case "&&":
+				case "&<":
+				case "&>":
+				case "*":
+				case "-|-":
+				case "/":
+				case "<":
+				case "<<":
+				case "<=":
+				case "<=>":
+				case "<@":
+				case ">":
+				case ">=":
+				case ">>":
+				case "@>":
+				case "||":
+				case "~":
+					return unevaluable(`the operator ${e.op}`)
+			}
+		}
+		case "subscript": {
+			const array = evaluate(e.array, scope)
+			const index = intOf(evaluate(e.index, scope), "a subscript")
+			if (array === undefined || index === undefined) {
+				return undefined
+			}
+			if (array.kind !== "names") {
+				return unevaluable(`a subscript of ${array.kind}`)
+			}
+			const element = index >= 1n ? array.value[Number(index) - 1] : undefined
+			return element === undefined ? undefined : { kind: "text", value: element }
+		}
+		case "case": {
+			if (e.operand !== undefined) {
+				return unevaluable("a simple CASE")
+			}
+			for (const w of e.whens) {
+				const v = evaluate(w.when, scope)
+				if (v?.kind === "bool" && v.value) {
+					return evaluate(w.result, scope)
+				}
+			}
+			return evaluate(e.else, scope)
+		}
+		case "column":
+			return scope.columns.has(`${e.table ?? ""}.${e.column}`)
+				? scope.columns.get(`${e.table ?? ""}.${e.column}`)
+				: unevaluable(`the column ${e.column}`)
+		case "call": {
+			if (e.star) {
+				return unevaluable("count(*)")
+			}
+			if (e.fn.kind === "qualified") {
+				return e.args.length === 0 ? scope.constant(e.fn.name) : unevaluable(`${e.fn.name}(…)`)
+			}
+			if (e.fn.name === "substring" && e.args.length === 3) {
+				const [bits, from, length] = Arr.map(e.args, (a) => evaluate(a, scope))
+				const start = intOf(from, "substring's start")
+				const count = intOf(length, "substring's length")
+				if (bits === undefined || start === undefined || count === undefined) {
+					return undefined
+				}
+				if (bits.kind !== "bits") {
+					return unevaluable(`substring of ${bits.kind}`)
+				}
+				const first = Math.max(Number(start), 1)
+				const last = Number(start) + Number(count)
+				return {
+					kind: "bits",
+					value: Str.slice(first - 1, Math.max(last - 1, first - 1))(bits.value)
+				}
+			}
+			return unevaluable(`the function ${e.fn.name}`)
+		}
+		case "subquery":
+			return derivedFromNames(e.query, scope)
+		case "and":
+		case "array":
+		case "between":
+		case "collate":
+		case "complement":
+		case "excluded":
+		case "exists":
+		case "field":
+		case "greatest":
+		case "inList":
+		case "inQuery":
+		case "isTrue":
+		case "least":
+		case "mergeAction":
+		case "negate":
+		case "not":
+		case "nullif":
+		case "or":
+		case "param":
+		case "plSpecial":
+		case "plVar":
+		case "regclass":
+		case "returning":
+		case "row":
+		case "user":
+			return unevaluable(`an expression of kind ${e.kind}`)
+	}
+}
+
+/**
+ * A live-codes constant's subquery: one target, string_agg(flag, '' ORDER BY t.i) cast to bit varying, over the rows of
+ * generate_subscripts(N(), 1) AS t(i), each flag evaluated with t.i bound to its row's subscript, in subscript order.
+ */
+const derivedFromNames = (query: Select, scope: Scope): SqlValue => {
+	const core = query.body
+	if (
+		core.kind !== "core" ||
+		core.from.length !== 1 ||
+		core.where !== undefined ||
+		core.targets.length !== 1
+	) {
+		return unevaluable("a subquery of another shape")
+	}
+	const [from] = core.from
+	const [only] = core.targets
+	const target = only.expr
+	if (
+		from?.kind !== "function" ||
+		from.call.fn.kind !== "builtin" ||
+		from.call.fn.name !== "generate_subscripts" ||
+		from.columns.length !== 1 ||
+		target.kind !== "cast"
+	) {
+		return unevaluable("a subquery of another shape")
+	}
+	const aggregate = target.expr
+	const [arrayExpr] = from.call.args
+	const [column] = from.columns
+	if (
+		aggregate.kind !== "call" ||
+		aggregate.star ||
+		aggregate.fn.kind !== "builtin" ||
+		aggregate.fn.name !== "string_agg" ||
+		arrayExpr === undefined ||
+		column === undefined
+	) {
+		return unevaluable("an aggregate other than string_agg")
+	}
+	const array = evaluate(arrayExpr, scope)
+	const [flag, separator] = aggregate.args
+	if (array?.kind !== "names" || flag === undefined || separator === undefined) {
+		return unevaluable("string_agg over no names")
+	}
+	const sep = evaluate(separator, scope)
+	const parts = Arr.map(array.value, (_, i) => {
+		const columns = new Map(scope.columns)
+		columns.set(`${from.alias}.${column}`, { kind: "int", value: BigInt(i + 1) })
+		const v = evaluate(flag, { ...scope, columns })
+		return v?.kind === "text" ? v.value : unevaluable("a flag of no text")
+	})
+	const text = Arr.join(parts, sep?.kind === "text" ? sep.value : "")
+	return evaluate(
+		{
+			...target,
+			expr: { kind: "literal", value: { kind: "text", value: text }, type: target.type }
+		},
+		scope
+	)
+}
 
 class Model {
 	readonly #schema: string
@@ -383,9 +849,8 @@ class Model {
 	readonly #triggers = new Map<string, Map<string, Trigger>>()
 	readonly #views = new Map<string, View>()
 	readonly #dependents = new Map<string, View>()
-	readonly #enums = new Map<string, Array<string>>()
 	readonly #domains = new Map<string, Domain>()
-	readonly #functions = new Set<string>()
+	readonly #functions = new Map<string, Function>()
 	/** The columns this run converted, by `<table>.<column>` under their current names. */
 	readonly #converted = new Set<string>()
 	#created: number
@@ -416,14 +881,11 @@ class Model {
 		for (const [key, x] of state.dependents) {
 			this.#dependents.set(key, x)
 		}
-		for (const [name, labels] of state.enums) {
-			this.#enums.set(name, [...labels])
-		}
 		for (const [name, d] of state.domains) {
 			this.#domains.set(name, d)
 		}
-		for (const name of state.functions) {
-			this.#functions.add(name)
+		for (const [name, f] of state.functions) {
+			this.#functions.set(name, f)
 		}
 		this.#created = state.created
 	}
@@ -443,14 +905,9 @@ class Model {
 		)
 	}
 
-	/** The type namespace (pg_type): enums, domains, and the row types of tables and views; a sequence has none. */
+	/** The type namespace (pg_type): domains, and the row types of tables and views; a sequence has none. */
 	#typeTaken(name: string): boolean {
-		return (
-			this.#enums.has(name) ||
-			this.#domains.has(name) ||
-			this.#tables.has(name) ||
-			this.#views.has(name)
-		)
+		return this.#domains.has(name) || this.#tables.has(name) || this.#views.has(name)
 	}
 
 	/** A name a new relation with a row type takes in both namespaces. */
@@ -713,7 +1170,16 @@ class Model {
 			return type
 		}
 		const d = this.#domains.get(type.name)
-		return d === undefined ? type : this.#base({ ...d.base, array: d.base.array || type.array })
+		if (d === undefined) {
+			return type
+		}
+		if (!type.array || d.base.array) {
+			return this.#base(d.base)
+		}
+		if (d.base.kind === "builtin" && d.base.name === "bit") {
+			throw new Error(`an array of the bits domain ${type.name}, which no column has`)
+		}
+		return this.#base({ ...d.base, array: true })
 	}
 
 	/** Every foreign key's columns compare (see comparable): PostgreSQL requires it when it adds the key, and adds every
@@ -846,7 +1312,12 @@ class Model {
 				for (const k of columns) {
 					this.#column(t, table, k)
 				}
-				of.set(c.name, { kind: "check", columns, valid })
+				const calls = callsOf([c.predicate], this.#schema)
+				this.#callable(calls, `the constraint ${c.name} of ${printObjectName(table)}`)
+				if (valid) {
+					this.#validateCheck(table.name, c.name, c.predicate)
+				}
+				of.set(c.name, { kind: "check", columns, predicate: c.predicate, calls, valid })
 				return
 			}
 		}
@@ -997,29 +1468,27 @@ class Model {
 		}
 	}
 
-	/** Whether `using` converts `column` to the enum `type` by its text, `column::text::type`. */
-	#byText(column: string, using: Expr, type: TypeRef): boolean {
-		return (
-			type.kind === "named" &&
-			this.#enums.has(type.name) &&
-			using.kind === "cast" &&
-			using.expr.kind === "cast" &&
-			using.expr.type.kind === "builtin" &&
-			using.expr.type.name === "text" &&
-			using.expr.expr.kind === "column" &&
-			using.expr.expr.column === column
-		)
+	/**
+	 * Whether `using` converts the set column `column` to the bits domain `type` by its cast to bit(n′), n′ the domain's
+	 * width: a roster's growth, whose new codes are absent from every stored set.
+	 */
+	#bitsWidening(column: string, using: Expr, type: TypeRef): number | undefined {
+		const base = this.#base(type)
+		return using.kind === "cast" &&
+			using.expr.kind === "column" &&
+			using.expr.column === column &&
+			using.type.kind === "builtin" &&
+			using.type.name === "bit" &&
+			base.kind === "builtin" &&
+			base.name === "bit" &&
+			base.length === using.type.length
+			? base.length
+			: undefined
 	}
 
-	/** A column converted to the enum `type` by its text: each row keeps its handle, which the new type must have, as
-	 * PostgreSQL refuses a label it lacks (22P02); a removed handle takes the reviewer's `mapped` handle instead, when
-	 * the conversion maps them, asked for only when a row holds a removed handle. */
-	#convertHandles(
-		table: ObjectName,
-		column: string,
-		type: TypeRef,
-		mapped: () => TypedLiteral | undefined
-	): void {
+	/** A set column widened to the bits domain `type` of `length` bits: each stored set padded with zeros on the right,
+	 * then every row checked against the new domain's valid CHECKs (23514). */
+	#widenBits(table: ObjectName, column: string, type: TypeRef, length: number): void {
 		const t = this.#table(table)
 		const at = this.#columnAt(t, table, column, "converted")
 		this.#convertOnce(table.name, column)
@@ -1029,69 +1498,43 @@ class Model {
 				`the type of ${printObjectName(table)}.${column} is changed while ${pinned} depends on it (0A000)`
 			)
 		}
-		const labels = (type.kind === "named" ? this.#enums.get(type.name) : undefined) ?? []
-		if (labels.length === 0) {
-			refuse(`the enum ${printType(type)} does not exist (42704)`)
-		}
 		for (const row of t.rows) {
 			const cell = row.get(column)
-			const handle =
-				cell?.kind === "value" && cell.value.kind === "enum" ? cell.value.handle : undefined
-			if (handle === undefined) {
-				refuse(`${printObjectName(table)}.${column} holds no handle to convert`)
-			} else if (!labels.includes(handle)) {
-				const value = mapped()
-				if (value === undefined) {
-					refuse(
-						`invalid input value for enum ${printType(type)}: ${Formatter.format(handle)} (22P02)`
-					)
-				} else if (value.kind !== "enum" || !labels.includes(value.handle)) {
-					refuse(
-						`the mapped value of ${printObjectName(table)}.${column} is no handle of ${printType(type)}`
-					)
-				} else {
-					row.set(column, { kind: "value", value })
-				}
+			if (cell?.kind === "value" && cell.value.kind === "text") {
+				row.set(column, {
+					kind: "value",
+					value: { kind: "text", value: toLength(cell.value.value, length) }
+				})
 			}
 		}
 		const c = t.columns[at]
 		if (c !== undefined) {
 			t.columns[at] = { ...c, type }
 		}
+		for (const [name, check] of this.#checksOfType(type)) {
+			if (check.valid) {
+				this.#validateColumn(table.name, column, name, check)
+			}
+		}
 	}
 
 	/** A named type of the schema a column or a domain is declared with, which must be there. */
 	#typeExists(type: TypeRef): void {
-		if (
-			type.kind === "named" &&
-			type.schema === this.#schema &&
-			!this.#enums.has(type.name) &&
-			!this.#domains.has(type.name)
-		) {
+		if (type.kind === "named" && type.schema === this.#schema && !this.#domains.has(type.name)) {
 			refuse(`the type ${printType(type)} does not exist (42704)`)
 		}
 	}
 
-	#renameType(name: ObjectName, to: string, kind: "TYPE" | "DOMAIN"): void {
-		const exists = kind === "TYPE" ? this.#enums.has(name.name) : this.#domains.has(name.name)
-		if (!exists) {
-			refuse(
-				`the ${kind === "TYPE" ? "enum" : "domain"} ${printObjectName(name)} does not exist (42704)`
-			)
+	#renameType(name: ObjectName, to: string): void {
+		const d = this.#domains.get(name.name)
+		if (d === undefined) {
+			refuse(`the domain ${printObjectName(name)} does not exist (42704)`)
 		}
 		if (this.#typeTaken(to)) {
 			refuse(`the type ${to} already exists (42710)`)
 		}
-		const labels = this.#enums.get(name.name)
-		if (labels !== undefined) {
-			this.#enums.delete(name.name)
-			this.#enums.set(to, labels)
-		}
-		const d = this.#domains.get(name.name)
-		if (d !== undefined) {
-			this.#domains.delete(name.name)
-			this.#domains.set(to, d)
-		}
+		this.#domains.delete(name.name)
+		this.#domains.set(to, d)
 		const renamed = (type: TypeRef): TypeRef =>
 			type.kind === "named" && type.schema === name.schema && type.name === name.name
 				? { ...type, name: to }
@@ -1109,13 +1552,10 @@ class Model {
 		}
 	}
 
-	#dropType(name: ObjectName, kind: "TYPE" | "DOMAIN", ifExists: boolean): void {
-		const exists = kind === "TYPE" ? this.#enums.has(name.name) : this.#domains.has(name.name)
-		if (!exists) {
+	#dropType(name: ObjectName, ifExists: boolean): void {
+		if (!this.#domains.has(name.name)) {
 			if (!ifExists) {
-				refuse(
-					`the ${kind === "TYPE" ? "enum" : "domain"} ${printObjectName(name)} does not exist (42704)`
-				)
+				refuse(`the domain ${printObjectName(name)} does not exist (42704)`)
 			}
 			return
 		}
@@ -1146,24 +1586,233 @@ class Model {
 				}
 			}
 		}
-		this.#enums.delete(name.name)
 		this.#domains.delete(name.name)
 	}
 
-	#enum(name: ObjectName): Array<string> {
-		const labels = this.#enums.get(name.name)
-		if (labels === undefined) {
-			return refuse(`the enum ${printObjectName(name)} does not exist (42704)`)
+	/** The functions a new object calls, each of which must be there (42883). */
+	#callable(calls: ReadonlyArray<string>, what: string): void {
+		for (const name of calls) {
+			if (!this.#functions.has(name)) {
+				refuse(`${what} calls the function ${this.#schema}.${name}(), which does not exist (42883)`)
+			}
 		}
-		return labels
 	}
 
-	#ofType(column: Column, name: ObjectName): boolean {
+	/** The value a constant of the schema returns, its body evaluated; Unevaluable for a function that is no constant. */
+	#constant(name: string, seen: ReadonlySet<string>): SqlValue {
+		const f = this.#functions.get(name)
+		if (f === undefined) {
+			return refuse(`the function ${this.#schema}.${name}() does not exist (42883)`)
+		}
+		if (seen.has(name)) {
+			return unevaluable(`the constant ${name}, which calls itself`)
+		}
+		switch (f.body.kind) {
+			case "opaque":
+				return unevaluable(`the function ${name}, which is no constant`)
+			case "packed":
+				return { kind: "bits", value: f.body.bits }
+			case "constant": {
+				const inner = new Set([...seen, name])
+				return evaluate(f.body.expr, {
+					value: undefined,
+					columns: new Map(),
+					constant: (n) => this.#constant(n, inner)
+				})
+			}
+		}
+	}
+
+	/** A stored cell as the evaluator reads it in a column of `type`: a set's bit string, a code, a text; undefined for
+	 * NULL; Unevaluable for a generated cell or a value of another kind. */
+	#cellValue(cell: Cell | undefined, type: TypeRef): SqlValue {
+		if (cell === undefined || cell.kind === "generated") {
+			return unevaluable("a cell the model does not hold")
+		}
+		const v = cell.value
+		switch (v.kind) {
+			case "int":
+				return { kind: "int", value: v.value }
+			case "bool":
+				return { kind: "bool", value: v.value }
+			case "text": {
+				const base = this.#base(type)
+				return base.kind === "builtin" && (base.name === "bit" || base.name === "bit varying")
+					? { kind: "bits", value: v.value }
+					: { kind: "text", value: v.value }
+			}
+			case "float":
+			case "floatSpecial":
+			case "handle":
+			case "handles":
+			case "money":
+			case "numeric":
+			case "span":
+			case "uuid":
+			case "vector":
+				return unevaluable(`a ${v.kind} cell`)
+		}
+	}
+
+	/** Whether `predicate` admits `value` (with `columns` bound): true, false or NULL, or undefined when the model cannot
+	 * evaluate it. A CHECK passes unless its predicate is false or NULL: IS TRUE. */
+	#admits(
+		predicate: Expr,
+		value: SqlValue,
+		columns: ReadonlyMap<string, SqlValue>
+	): boolean | undefined {
+		try {
+			const v = evaluate(predicate, {
+				value,
+				columns,
+				constant: (n) => this.#constant(n, new Set())
+			})
+			return v?.kind === "bool" && v.value
+		} catch (error) {
+			if (error instanceof Unevaluable) {
+				return undefined
+			}
+			throw error
+		}
+	}
+
+	/** The CHECKs a value of `type` must meet: every CHECK of each domain of the schema it is, read through to its base. */
+	#checksOfType(type: TypeRef): ReadonlyArray<readonly [string, DomainCheck]> {
+		if (type.kind !== "named" || type.schema !== this.#schema) {
+			return []
+		}
+		const d = this.#domains.get(type.name)
+		return d === undefined ? [] : [...d.constraints, ...this.#checksOfType(d.base)]
+	}
+
+	/** Every stored value of `column` of `table` meets the domain CHECK `name`, or the VALIDATE fails naming the table and
+	 * the column, as PostgreSQL's validateDomainCheckConstraint does (23514). */
+	#validateColumn(table: string, column: string, name: string, check: DomainCheck): void {
+		const t = this.#tables.get(table)
+		const c = Option.getOrUndefined(Arr.findFirst(t?.columns ?? [], (x) => x.name === column))
+		if (t === undefined || c === undefined) {
+			return
+		}
+		for (const row of t.rows) {
+			let value: SqlValue
+			try {
+				value = this.#cellValue(row.get(column), c.type)
+			} catch (error) {
+				if (error instanceof Unevaluable) {
+					continue
+				}
+				throw error
+			}
+			if (this.#admits(check.predicate, value, new Map()) === false) {
+				refuse(
+					`column ${column} of table ${table} contains values that violate the new constraint ${name} (23514)`
+				)
+			}
+		}
+	}
+
+	/** The domain CHECK `name` of `domain` validated over every column of the domain, a domain over it included. */
+	#validateDomain(domain: string, name: string, check: DomainCheck): void {
+		const isOf = (type: TypeRef): boolean =>
+			type.kind === "named" &&
+			type.schema === this.#schema &&
+			(type.name === domain || this.#domainOver(type.name, domain))
+		for (const [table, t] of this.#tables) {
+			for (const c of t.columns) {
+				if (isOf(c.type)) {
+					this.#validateColumn(table, c.name, name, check)
+				}
+			}
+		}
+	}
+
+	/** Whether the domain `name` is, at any depth, a domain over `domain`. */
+	#domainOver(name: string, domain: string): boolean {
+		const d = this.#domains.get(name)
 		return (
-			column.type.kind === "named" &&
-			column.type.schema === name.schema &&
-			column.type.name === name.name
+			d?.base.kind === "named" &&
+			d.base.schema === this.#schema &&
+			(d.base.name === domain || this.#domainOver(d.base.name, domain))
 		)
+	}
+
+	/** Every stored row of `table` meets its CHECK `name`, or it fails as PostgreSQL's validateCheckConstraint does (23514). */
+	#validateCheck(table: string, name: string, predicate: Expr): void {
+		const t = this.#tables.get(table)
+		if (t === undefined) {
+			return
+		}
+		for (const row of t.rows) {
+			let columns: Map<string, SqlValue>
+			try {
+				columns = new Map(
+					Arr.map(
+						t.columns,
+						(c) => [`.${c.name}`, this.#cellValue(row.get(c.name), c.type)] as const
+					)
+				)
+			} catch (error) {
+				if (error instanceof Unevaluable) {
+					continue
+				}
+				throw error
+			}
+			if (this.#admits(predicate, undefined, columns) === false) {
+				refuse(`check constraint ${name} of relation ${table} is violated by some row (23514)`)
+			}
+		}
+	}
+
+	/** What calls the function `name`, as pg_depend records it: a domain's or a table's CHECK, a generated column, a
+	 * view of the schema or a world's, a policy, another function's body, or a trigger. */
+	#callersOf(name: string): ReadonlyArray<string> {
+		const domains = Arr.flatMap([...this.#domains], ([domain, d]) =>
+			Arr.flatMap([...d.constraints], ([c, check]) =>
+				check.calls.includes(name) ? [`the constraint ${c} of the domain ${domain}`] : []
+			)
+		)
+		const checks = Arr.flatMap([...this.#constraints], ([table, of]) =>
+			Arr.flatMap([...of], ([c, x]) =>
+				x.kind === "check" && x.calls.includes(name) ? [`the constraint ${c} of ${table}`] : []
+			)
+		)
+		const generated = Arr.flatMap([...this.#tables], ([table, t]) =>
+			Arr.flatMap(t.columns, (c) =>
+				(c.generation.kind === "stored" || c.generation.kind === "partial") &&
+				c.generation.calls.includes(name)
+					? [`the generated column ${table}.${c.name}`]
+					: []
+			)
+		)
+		const views = Arr.flatMap([...this.#views], ([view, v]) =>
+			v.calls.includes(name) ? [`the materialized view ${view}`] : []
+		)
+		const dependents = Arr.flatMap([...this.#dependents], ([key, v]) =>
+			v.calls.includes(name) ? [`the ${key}`] : []
+		)
+		const functions = Arr.flatMap([...this.#functions], ([other, f]) =>
+			other !== name && f.calls.includes(name) ? [`the function ${other}`] : []
+		)
+		const triggers = Arr.flatMap([...this.#triggers], ([table, of]) =>
+			Arr.flatMap([...of], ([trigger, t]) =>
+				t.function === name ? [`the trigger ${trigger} of ${table}`] : []
+			)
+		)
+		return [...domains, ...checks, ...generated, ...views, ...dependents, ...functions, ...triggers]
+	}
+
+	/** A function of the schema created, by its name: a second of one name and no argument is refused (42723). */
+	#addFunction(name: ObjectName, f: Function): void {
+		if (!this.#ours(name)) {
+			return
+		}
+		if (this.#functions.has(name.name)) {
+			refuse(
+				`the function ${printObjectName(name)}() already exists with the same argument types (42723)`
+			)
+		}
+		this.#callable(f.calls, `the function ${printObjectName(name)}`)
+		this.#functions.set(name.name, f)
 	}
 
 	#trigger(
@@ -1198,7 +1847,11 @@ class Model {
 				case "addColumn": {
 					const generated = a.column.generated
 					this.#typeExists(a.column.type)
-					this.#addColumn(s.table, columnOf(a.column), () =>
+					const column = columnOf(a.column, this.#schema)
+					if (column.generation.kind === "stored" || column.generation.kind === "partial") {
+						this.#callable(column.generation.calls, `the generated column ${a.column.name}`)
+					}
+					this.#addColumn(s.table, column, () =>
 						generated === undefined ? undefined : { kind: "generated" }
 					)
 					break
@@ -1245,8 +1898,9 @@ class Model {
 						)
 					}
 					this.#typeExists(a.type)
-					if (this.#byText(a.column, using.expr, a.type)) {
-						this.#convertHandles(s.table, a.column, a.type, () => undefined)
+					const widened = this.#bitsWidening(a.column, using.expr, a.type)
+					if (widened !== undefined) {
+						this.#widenBits(s.table, a.column, a.type, widened)
 					} else {
 						this.#retype(
 							s.table,
@@ -1302,7 +1956,24 @@ class Model {
 					if (c === undefined) {
 						refuse(`the constraint ${a.name} of ${printObjectName(s.table)} does not exist (42704)`)
 					}
+					if (c.kind === "check" && !c.valid) {
+						this.#validateCheck(s.table.name, a.name, c.predicate)
+					}
 					of.set(a.name, { ...c, valid: true })
+					break
+				}
+				case "setExpression": {
+					const t = this.#table(s.table)
+					const at = this.#columnAt(t, s.table, a.column, "re-expressed")
+					const c = t.columns[at]
+					if (c?.generation.kind !== "stored") {
+						refuse(
+							`the column ${a.column} of ${printObjectName(s.table)} is not a stored generated column (42611)`
+						)
+					}
+					const calls = callsOf([a.expr], this.#schema)
+					this.#callable(calls, `the generated column ${a.column}`)
+					t.columns[at] = { ...c, generation: { kind: "stored", calls } }
 					break
 				}
 				case "dropConstraint":
@@ -1348,9 +2019,8 @@ class Model {
 				this.#renameRelationIn(s.name.name, s.to)
 				return
 			}
-			case "TYPE":
 			case "DOMAIN":
-				this.#renameType(s.name, s.to, s.object)
+				this.#renameType(s.name, s.to)
 				return
 			case "INDEX":
 				this.#renameIndex(s.name.name, s.to)
@@ -1455,9 +2125,8 @@ class Model {
 				this.#views.delete(name)
 				this.#dropOwned(name)
 				return
-			case "TYPE":
 			case "DOMAIN":
-				this.#dropType(s.name, s.object, s.ifExists)
+				this.#dropType(s.name, s.ifExists)
 				return
 			case "SEQUENCE": {
 				const q = this.#sequences.get(name)
@@ -1526,7 +2195,6 @@ class Model {
 					}
 				}
 				return
-			case "TYPE":
 			case "DOMAIN":
 				for (const n of on.names) {
 					this.#typeExists(namedType(testTypeSchema(n.schema), n.name, []))
@@ -1558,7 +2226,7 @@ class Model {
 					return
 				}
 				this.#claimRelation(s.table.name, `the table ${printObjectName(s.table)}`)
-				const columns = Arr.map(s.columns, columnOf)
+				const columns = Arr.map(s.columns, (c) => columnOf(c, this.#schema))
 				for (const [i, c] of columns.entries()) {
 					if (
 						!Option.contains(
@@ -1571,6 +2239,11 @@ class Model {
 				}
 				for (const c of s.columns) {
 					this.#typeExists(c.type)
+				}
+				for (const c of columns) {
+					if (c.generation.kind === "stored" || c.generation.kind === "partial") {
+						this.#callable(c.generation.calls, `the generated column ${s.table.name}.${c.name}`)
+					}
 				}
 				this.#tables.set(s.table.name, { columns, rows: [] })
 				for (const c of columns) {
@@ -1642,12 +2315,6 @@ class Model {
 					this.#relation(t)
 				}
 				return
-			case "createConstraintTrigger":
-				if (!this.#ours(s.table)) {
-					return
-				}
-				this.#trigger(s.table, s.name, s.function, triggerColumns(s), whenTypes(s))
-				return
 			case "createGuardTrigger":
 				if (this.#ours(s.table)) {
 					this.#trigger(s.table, s.name, s.function, [], [])
@@ -1697,9 +2364,11 @@ class Model {
 					return
 				}
 				this.#claimRelation(s.name.name, `the view ${printObjectName(s.name)}`)
+				this.#callable(queryCalls(s.query, this.#schema), `the view ${printObjectName(s.name)}`)
 				this.#views.set(s.name.name, {
 					columns: s.columns,
-					reads: readsOf(s.query, this.#schema, (r) => this.#columnsOfRelation(r))
+					reads: readsOf(s.query, this.#schema, (r) => this.#columnsOfRelation(r)),
+					calls: queryCalls(s.query, this.#schema)
 				})
 				return
 			case "drop":
@@ -1721,67 +2390,6 @@ class Model {
 					refuse(`the statistics object ${s.name.name} already exists (42710)`)
 				}
 				this.#statistics.set(s.name.name, { table: s.table.name, columns: s.columns })
-				return
-			}
-			case "createEnum":
-				if (!this.#ours(s.name)) {
-					return
-				}
-				if (this.#typeTaken(s.name.name)) {
-					refuse(`the type ${printObjectName(s.name)} already exists (42710)`)
-				}
-				this.#enums.set(s.name.name, [...s.labels])
-				return
-			case "alterEnumAddValue": {
-				if (!this.#ours(s.name)) {
-					return
-				}
-				const labels = this.#enum(s.name)
-				if (labels.includes(s.label)) {
-					if (!s.ifNotExists) {
-						refuse(`the label ${s.label} of ${printObjectName(s.name)} already exists (42710)`)
-					}
-					return
-				}
-				const position = s.position
-				if (position === undefined) {
-					labels.push(s.label)
-					return
-				}
-				const at = labels.indexOf(position.label)
-				if (at < 0) {
-					refuse(`the label ${position.label} of ${printObjectName(s.name)} does not exist (22023)`)
-				}
-				labels.splice(position.kind === "BEFORE" ? at : at + 1, 0, s.label)
-				return
-			}
-			case "alterEnumRenameValue": {
-				if (!this.#ours(s.name)) {
-					return
-				}
-				const labels = this.#enum(s.name)
-				const at = labels.indexOf(s.from)
-				if (at < 0) {
-					refuse(`the label ${s.from} of ${printObjectName(s.name)} does not exist (22023)`)
-				}
-				if (labels.includes(s.to)) {
-					refuse(`the label ${s.to} of ${printObjectName(s.name)} already exists (42710)`)
-				}
-				labels[at] = s.to
-				for (const t of this.#tables.values()) {
-					for (const c of Arr.filter(t.columns, (x) => this.#ofType(x, s.name))) {
-						for (const row of t.rows) {
-							const cell = row.get(c.name)
-							if (
-								cell?.kind === "value" &&
-								cell.value.kind === "enum" &&
-								cell.value.handle === s.from
-							) {
-								row.set(c.name, { kind: "value", value: { kind: "enum", handle: s.to } })
-							}
-						}
-					}
-				}
 				return
 			}
 			case "dropIndex": {
@@ -1813,7 +2421,13 @@ class Model {
 				this.#typeExists(s.base)
 				this.#domains.set(s.name.name, {
 					base: s.base,
-					constraints: new Map(Arr.map(s.constraints, (c) => [c.name, true]))
+					constraints: new Map(
+						Arr.map(s.constraints, (c) => {
+							const calls = callsOf([c.predicate], this.#schema)
+							this.#callable(calls, `the constraint ${c.name} of the domain ${s.name.name}`)
+							return [c.name, { predicate: c.predicate, calls, valid: true }] as const
+						})
+					)
 				})
 				return
 			case "alterDomain": {
@@ -1827,20 +2441,35 @@ class Model {
 				const constraints = new Map(d.constraints)
 				const a = s.action
 				switch (a.kind) {
-					case "addConstraint":
+					case "addConstraint": {
 						if (constraints.has(a.constraint.name)) {
 							refuse(
 								`the constraint ${a.constraint.name} of the domain ${s.name.name} already exists (42710)`
 							)
 						}
-						constraints.set(a.constraint.name, !a.notValid)
+						const calls = callsOf([a.constraint.predicate], this.#schema)
+						this.#callable(
+							calls,
+							`the constraint ${a.constraint.name} of the domain ${s.name.name}`
+						)
+						const check = { predicate: a.constraint.predicate, calls, valid: !a.notValid }
+						if (check.valid) {
+							this.#validateDomain(s.name.name, a.constraint.name, check)
+						}
+						constraints.set(a.constraint.name, check)
 						break
-					case "validateConstraint":
-						if (!constraints.has(a.name)) {
+					}
+					case "validateConstraint": {
+						const check = constraints.get(a.name)
+						if (check === undefined) {
 							refuse(`the constraint ${a.name} of the domain ${s.name.name} does not exist (42704)`)
 						}
-						constraints.set(a.name, true)
+						if (!check.valid) {
+							this.#validateDomain(s.name.name, a.name, check)
+						}
+						constraints.set(a.name, { ...check, valid: true })
 						break
+					}
 					case "dropConstraint":
 						if (!constraints.delete(a.name)) {
 							refuse(`the constraint ${a.name} of the domain ${s.name.name} does not exist (42704)`)
@@ -1851,9 +2480,16 @@ class Model {
 				return
 			}
 			case "createFunction":
-				if (this.#ours(s.name)) {
-					this.#functions.add(s.name.name)
-				}
+				this.#addFunction(s.name, { body: { kind: "opaque" }, calls: [] })
+				return
+			case "createConstant":
+				this.#addFunction(s.name, {
+					body: { kind: "constant", expr: s.body },
+					calls: callsOf([s.body], this.#schema)
+				})
+				return
+			case "packConstant":
+				this.#addFunction(s.function, { body: { kind: "packed", bits: packedBits(s) }, calls: [] })
 				return
 			case "dropFunction": {
 				if (!this.#ours(s.name)) {
@@ -1865,14 +2501,9 @@ class Model {
 					}
 					return
 				}
-				for (const [table, of] of this.#triggers) {
-					for (const [trigger, t] of of) {
-						if (t.function === s.name.name) {
-							refuse(
-								`the function ${s.name.name} is dropped while the trigger ${trigger} of ${table} uses it (2BP01)`
-							)
-						}
-					}
+				const [caller] = this.#callersOf(s.name.name)
+				if (caller !== undefined) {
+					refuse(`cannot drop the function ${s.name.name} because ${caller} depends on it (2BP01)`)
 				}
 				this.#functions.delete(s.name.name)
 				return
@@ -1885,9 +2516,12 @@ class Model {
 				if (this.#dependents.has(key)) {
 					refuse(`the ${key} already exists (42P07)`)
 				}
+				const calls = queryCalls(s.query, this.#schema)
+				this.#callable(calls, `the ${key}`)
 				this.#dependents.set(key, {
 					columns: s.columns,
-					reads: readsOf(s.query, this.#schema, (r) => this.#columnsOfRelation(r))
+					reads: readsOf(s.query, this.#schema, (r) => this.#columnsOfRelation(r)),
+					calls
 				})
 				return
 			}
@@ -1903,6 +2537,7 @@ class Model {
 				const named = columnsOf(s.filter)
 				this.#dependents.set(key, {
 					columns: [],
+					calls: callsOf([s.filter], this.#schema),
 					reads: new Map([
 						[
 							s.table.name,
@@ -1975,7 +2610,7 @@ class Model {
 				return
 			case "placeholderColumn":
 				this.#typeExists(a.column.type)
-				this.#addColumn(a.table, columnOf(a.column), () => ({
+				this.#addColumn(a.table, columnOf(a.column, this.#schema), () => ({
 					kind: "value",
 					value: placeholder(a)
 				}))
@@ -1987,11 +2622,6 @@ class Model {
 					value: () => ({ kind: "value", value: placeholder(a) })
 				})
 				return
-			case "placeholderHandles": {
-				const type: TypeRef = a.type
-				this.#convertHandles(a.table, a.column, type, () => placeholder(a))
-				return
-			}
 			case "analyze":
 				this.#relation(a.table)
 				return
@@ -2021,12 +2651,6 @@ class Model {
 					{ columns: [...t.columns], rows: Arr.map(t.rows, (r) => new Map(r)) }
 				])
 			),
-			enums: new Map(
-				Arr.map([...this.#enums], ([name, labels]): readonly [string, ReadonlyArray<string>] => [
-					name,
-					[...labels]
-				])
-			),
 			domains: new Map(this.#domains),
 			constraints: new Map(Arr.map([...this.#constraints], ([table, of]) => [table, new Map(of)])),
 			indexes: new Map(this.#indexes),
@@ -2035,7 +2659,7 @@ class Model {
 			triggers: new Map(Arr.map([...this.#triggers], ([table, of]) => [table, new Map(of)])),
 			views: new Map(this.#views),
 			dependents: new Map(this.#dependents),
-			functions: new Set(this.#functions),
+			functions: new Map(this.#functions),
 			created: this.#created
 		}
 	}
@@ -2167,7 +2791,7 @@ const constraintText = (c: Constraint): string => {
 /** The catalog a state holds, as the facts admission would compare, one line each, sorted: every table's columns by
  * name with their types and what generates them; every constraint with its columns and
  * validity; every index with what it is over; every sequence with its owner; every statistics object, trigger, view,
- * enum with its labels in order, domain with its base and constraints, and function. Column order, the rows, and
+ * domain with its base and constraints, and function. Column order, the rows, and
  * which index a foreign key bound are no facts: a fresh installation and a migrated one may differ in them, and
  * PostgreSQL's own description does not show them. */
 export const catalogOf = (state: State): ReadonlyArray<string> =>
@@ -2226,19 +2850,18 @@ export const catalogOf = (state: State): ReadonlyArray<string> =>
 						"; "
 					)}`
 			),
-			...Arr.map([...state.enums], ([name, labels]) => `enum ${name} (${Arr.join(labels, ", ")})`),
 			...Arr.map(
 				[...state.domains],
 				([name, d]) =>
 					`domain ${name} ${printType(d.base)} (${Arr.join(
 						Arr.sort(
-							Arr.map([...d.constraints], ([c, valid]) => `${c}${valid ? "" : " not valid"}`),
+							Arr.map([...d.constraints], ([c, check]) => `${c}${check.valid ? "" : " not valid"}`),
 							Order.String
 						),
 						", "
 					)})`
 			),
-			...Arr.map([...state.functions], (name) => `function ${name}`)
+			...Arr.map([...state.functions.keys()], (name) => `function ${name}`)
 		],
 		Order.String
 	)

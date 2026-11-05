@@ -1,4 +1,4 @@
-import { handleColumn } from "#compiler/core/decoder.ts"
+import { codeColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -116,8 +116,8 @@ export const closedIdParts = (closed: unknown): ClosedIdParts => {
 /**
  * closedId(C): a reference to a closed relation's roster.
  *
- * The field's values are C's handles, lowered to a PostgreSQL enum whose label order is the roster's declared order,
- * which is comparison order and part of the type's identity. A closedId keeps its particular
+ * The field's values are C's handles, stored as their codes, a smallint under the roster's domain, whose order is the
+ * roster's declared order, which is comparison order and part of the type's identity. A closedId keeps its particular
  * roster identity: two rosters with equal handles are different types. The descriptor holds the closed
  * relation itself as `roster`, and its Description names the roster by the closed relation's name, which ownership
  * resolves.
@@ -134,9 +134,9 @@ export const admittedClosedId = (closed: unknown) => {
 	const parts = closedIdParts(closed)
 	return defineField(
 		{},
-		carrierSql.enum,
+		carrierSql.code,
 		parts.desc,
-		{ roster: closed, column: handleColumn(parts.roster.handles) },
+		{ roster: closed, column: codeColumn(parts.roster.closed, parts.roster.handles) },
 		parts.loc,
 		parts.env
 	)

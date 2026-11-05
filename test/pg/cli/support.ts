@@ -70,7 +70,7 @@ export const workspace = (
 
 /**
  * One schema of a configuration (fixture.ts): the shop at a version, its login owning a workload (both programs,
- * ordersOf alone, or none), or the ledger, with its residual law, derived relation and full workload.
+ * ordersOf alone, or none), or the ledger, with its alternatives, derived relation and full workload.
  */
 export type SchemaSpec =
 	| {

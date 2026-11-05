@@ -53,7 +53,8 @@ const comparePrefix: Readonly<
 	bool: { stem: "bool", sep: "" },
 	uuid: { stem: "uuid", sep: "_" },
 	text: { stem: "text", sep: "" },
-	enum: { stem: "enum", sep: "_" },
+	/** A closed id compares as its code, a smallint: "code:int2eq". */
+	code: { stem: "code:int2", sep: "" },
 	vector: { stem: "vector", sep: "_" }
 }
 

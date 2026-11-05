@@ -119,7 +119,7 @@ export const agreementPairs: ReadonlyArray<readonly [AgreementNote, AgreementNot
 type Rel = "Item" | "Tag" | "Note"
 /** What a match reads: a relation, or Tones, the union of Item's facts by tone (./schema.ts). */
 type MatchSource = Rel | "Tones"
-type Kind = "uuid" | "int" | "enum"
+type Kind = "uuid" | "int" | "code"
 
 interface Field {
 	readonly rel: Rel
@@ -133,7 +133,7 @@ const fieldsOf: { readonly [R in Rel]: Arr.NonEmptyReadonlyArray<Field> } = {
 		{ rel: "Item", name: "owner", kind: "uuid" },
 		{ rel: "Item", name: "n", kind: "int" },
 		{ rel: "Item", name: "m", kind: "int" },
-		{ rel: "Item", name: "tone", kind: "enum" }
+		{ rel: "Item", name: "tone", kind: "code" }
 	],
 	Tag: [
 		{ rel: "Tag", name: "item", kind: "uuid" },
@@ -156,7 +156,7 @@ const allFields: Arr.NonEmptyReadonlyArray<Field> = Arr.flatMap(rels, (rel) => f
 /** The integer field a parameter compared with a constant is typed by, where the rule binds no variable. */
 const integerField: Field = { rel: "Item", name: "n", kind: "int" }
 /** Item.tone, the field a rule's first match binds when it draws a constant of Tone by construction (Anchor). */
-const toneField: Field = { rel: "Item", name: "tone", kind: "enum" }
+const toneField: Field = { rel: "Item", name: "tone", kind: "code" }
 
 /** The values the built query matches, and the relations' field descriptors, which its parameters are typed by. */
 const sources: { readonly [R in MatchSource]: unknown } = { Item, Tag, Note, Tones }
@@ -327,7 +327,7 @@ const inputOf = (d: Drawing, at: Field): Term => {
 					})
 				]
 			])
-		case "enum":
+		case "code":
 			return d.choose([...plain, ["constantFilter", () => handleOf(d)]])
 		case "uuid":
 			return d.choose(plain)
@@ -378,7 +378,7 @@ const comparisonOver = (d: Drawing, bound: ReadonlyArray<Var>): Pred => {
 		}
 	}
 	const v = d.from(bound)
-	if (v.field.kind === "enum" && d.keep("constantFirst")) {
+	if (v.field.kind === "code" && d.keep("constantFirst")) {
 		return { kind: "cmp", op: d.from(["eq", "ne"] as const), a: handleOf(d), b: varTerm(v), via }
 	}
 	return v.field.kind === "int" && d.from([0, 1]) === 0
@@ -411,7 +411,7 @@ const bindingForms = (
 			: []),
 		["param", () => d.param(field)],
 		["literal", () => literalOf(d, field.kind)],
-		...(field.kind === "enum" ? [["constantBinding", () => handleOf(d)] as const] : []),
+		...(field.kind === "code" ? [["constantBinding", () => handleOf(d)] as const] : []),
 		["omit", () => undefined],
 		...(field.kind === "int" && Arr.isReadonlyArrayNonEmpty(ints)
 			? [
@@ -592,7 +592,7 @@ const drawRule = (d: Drawing): DrawnRule => {
 /** A constant some arm of Tones holds at tone: low or mid, as a handle or as the member's JavaScript value. */
 const tonesConstant = (d: Drawing): Term => {
 	const value = d.from([0, 1])
-	return d.from([0, 1]) === 0 ? { kind: "handle", value } : { kind: "literal", type: "enum", value }
+	return d.from([0, 1]) === 0 ? { kind: "handle", value } : { kind: "literal", type: "code", value }
 }
 
 /** The rule's filters: an equality with a value fixed per binding, between two variables, a range; joined or not. */
@@ -766,7 +766,7 @@ const discriminated = (arm: RuleSpec, value: HeadTerm): RuleSpec => ({
 
 /**
  * A union's two discriminants of Tone: the first arm's a handle, the second arm's a handle or its member's JavaScript
- * value, which the first arm's enum types.
+ * value, which the first arm's closed id types.
  */
 const handleDiscriminants = (d: Drawing): readonly [HeadTerm, HeadTerm] => [
 	{ kind: "term", t: { kind: "handle", value: 0 } },

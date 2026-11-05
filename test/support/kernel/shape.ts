@@ -70,6 +70,9 @@ export type ShapeFeature =
 	| "case"
 	| "greatest"
 	| "least"
+	| "nullif"
+	| "subscript"
+	| "complement"
 	| "distinct"
 	| "distinct on"
 	| "group by"
@@ -139,6 +142,9 @@ const roleOf = (e: Expr): Role => {
 		case "field":
 		case "user":
 		case "regclass":
+		case "complement":
+		case "nullif":
+		case "subscript":
 			return "expression"
 	}
 }
@@ -232,6 +238,9 @@ const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 			return ["case"]
 		case "greatest":
 		case "least":
+		case "nullif":
+		case "subscript":
+		case "complement":
 			return [e.kind]
 		case "column":
 		case "excluded":

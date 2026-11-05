@@ -2,7 +2,8 @@ import { Array as Arr, Effect, Option } from "effect"
 import type { TestContext } from "vitest"
 import type { Exhausted, Explored, Oracle, Run } from "#explore.ts"
 import { Run as RunService } from "#explore.ts"
-import { EXHAUSTED, RESIDUAL } from "#vitest/reporter.ts"
+import { RISK_BOUND_MISS, type Residual } from "#features.ts"
+import { EXHAUSTED, ORACLE, RESIDUAL } from "#vitest/reporter.ts"
 import { runOfTest } from "#vitest/run.ts"
 
 /** How many decimals a risk prints with. */
@@ -12,11 +13,22 @@ const RISK_DIGITS = 4
 const UNSEEN_DIGITS = 1
 
 /** A search's oracle as its report line prints it, and its absence named, so a suite that states none shows. */
-const oracleText = (oracle: Option.Option<Oracle>): string =>
-	Option.match(oracle, {
-		onNone: () => "oracle not stated",
-		onSome: ({ kind, name }) => `oracle: ${kind}, ${name}`
-	})
+const oracleText = (oracle: Option.Option<Oracle>): string => {
+	const stated = Option.getOrElse(oracle, (): Oracle => ({ kind: "unstated" }))
+	switch (stated.kind) {
+		case "unstated":
+			return "oracle not stated"
+		case "second-implementation":
+		case "specification":
+		case "universal":
+		case "postgresql":
+			return `oracle: ${stated.kind}, ${stated.name}`
+	}
+}
+
+/** The kind of a search's oracle, as the report counts it. */
+const oracleKind = (oracle: Option.Option<Oracle>): Oracle["kind"] =>
+	Option.match(oracle, { onNone: () => "unstated", onSome: (stated) => stated.kind })
 
 /** The rated features of an exploration, each with how many of its independent cases reached it, after a semicolon. */
 const ratesText = (explored: Explored): string =>
@@ -28,13 +40,35 @@ const ratesText = (explored: Explored): string =>
 		: ""
 
 /**
+ * A residual's risk as its line prints it: unknown, and why, or Good–Turing's estimate beside its bound, the confidence
+ * the bound holds at, and the run of cases it rests on.
+ */
+const riskText = (residual: Residual): string => {
+	switch (residual.risk.kind) {
+		case "unknown":
+			return residual.risk.why === "no-cases"
+				? "risk unknown: no independent case ran"
+				: "risk unknown: no case noted a situation"
+		case "estimated":
+			return `risk ${residual.risk.estimate.toFixed(RISK_DIGITS)}, at most ${residual.risk.bound.toFixed(RISK_DIGITS)} at ${Math.round((1 - RISK_BOUND_MISS) * 100)}% (none new in its last ${residual.sinceNew} cases), unseen ${Option.match(residual.unseen, { onNone: () => "unknown", onSome: (unseen) => `about ${unseen.toFixed(UNSEEN_DIGITS)}` })}`
+	}
+}
+
+/**
+ * How the residual table orders a residual, riskiest first: by its bound, and an unknown risk before every bound, so a
+ * search that measured nothing heads the table.
+ */
+const riskOrderOf = (residual: Residual): number =>
+	residual.risk.kind === "unknown" ? Number.POSITIVE_INFINITY : residual.risk.bound
+
+/**
  * The residual line a passing exploration leaves on its test, for the run's residual table: its independent cases,
- * the situations they reached, those seen once, the risk and Chao1's estimate of the situations none reached, each a
- * property of the generator and its features, never of the program; the steered cases its label-fixed coverage cost;
- * the rate of each feature its coverage rates; and its oracle.
+ * the situations they reached, those seen once, and its risk (riskText), each a property of the generator and its
+ * features, never of the program; the steered cases its label-fixed coverage cost; the rate of each feature its
+ * coverage rates; and its oracle.
  */
 const residualLine = (explored: Explored) =>
-	`${explored.suite}: ${explored.residual.cases} independent cases, ${explored.residual.observed} situations, ${explored.residual.singletons} seen once, risk ${Option.match(explored.residual.risk, { onNone: () => "unknown", onSome: (risk) => risk.toFixed(RISK_DIGITS) })}, unseen ${Option.match(explored.residual.unseen, { onNone: () => "unknown", onSome: (unseen) => `about ${unseen.toFixed(UNSEEN_DIGITS)}` })}, ${explored.steered} steered${ratesText(explored)}; ${oracleText(explored.oracle)}`
+	`${explored.suite}: ${explored.residual.cases} independent cases, ${explored.residual.observed} situations, ${explored.residual.singletons} seen once, ${riskText(explored.residual)}, ${explored.steered} steered${ratesText(explored)}; ${oracleText(explored.oracle)}`
 
 /** The line a passing exhaustion leaves on its test: a proof inside its box, its cases and the limit, and its oracle. */
 const exhaustedLine = (exhausted: Exhausted) =>
@@ -49,7 +83,7 @@ const annotationOf = (
 			return {
 				message: residualLine(result),
 				type: RESIDUAL,
-				body: Option.match(result.residual.risk, { onNone: () => "0", onSome: String })
+				body: String(riskOrderOf(result.residual))
 			}
 		case "exhausted":
 			return { message: exhaustedLine(result), type: EXHAUSTED, body: String(result.cases) }
@@ -70,7 +104,12 @@ export const searched = <A extends Explored | Exhausted, E, R>(
 	search.pipe(
 		Effect.tap((result) => {
 			const { message, type, body } = annotationOf(result)
-			return Effect.promise(() => ctx.annotate(message, type, { body }))
+			return Effect.andThen(
+				Effect.promise(() => ctx.annotate(message, type, { body })),
+				Effect.promise(() =>
+					ctx.annotate(result.suite, ORACLE, { body: oracleKind(result.oracle) })
+				)
+			)
 		}),
 		Effect.provideServiceEffect(RunService, runOfTest(ctx))
 	)

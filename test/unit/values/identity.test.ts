@@ -10,6 +10,7 @@ import {
 	map,
 	oneOf,
 	shuffled,
+	subarray,
 	weighted
 } from "@grizzle/testing/gen"
 import { lsw, passed, type WildKind } from "@grizzle/testing/lsw"
@@ -21,6 +22,8 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
+import { rosterCodec } from "#compiler/ir/codes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import {
@@ -34,6 +37,7 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { plantedStringGen } from "#test/unit/values/support.ts"
@@ -84,6 +88,11 @@ const smallInteger = (carrier: "int2" | "int4", bits: number): Carrier => ({
 
 const hyphenated = regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "i")
 const handles: Arr.NonEmptyReadonlyArray<string> = ["draft", "paid", "Ünïcode"]
+/** The handles' codes in a fresh installation: draft 0, paid 1, Ünïcode 2. */
+const handleCodec = rosterCodec(
+	parsedName("Status"),
+	Arr.map(handles, (handle) => ({ kind: "live" as const, handle }))
+)
 
 /** Any double: finite ones, -0 and the subnormals among them, and now and then NaN or an infinity. */
 const anyDouble: Gen<number> = weighted([
@@ -156,20 +165,53 @@ const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 				: { fault: "uuidSyntax" }
 	},
 	{
-		spec: { carrier: "enum", handles },
-		live: element<unknown>(Arr.appendAll(handles, ["Draft", "draft ", ""])),
+		spec: { carrier: "code", roster: handleCodec },
+		live: element<unknown>(Arr.appendAll(handles, ["Draft", "draft ", "", 1])),
 		judge: (value) =>
-			typeof value !== "string"
-				? "a fault of the vocabulary"
-				: handles.includes(value)
-					? { stored: value }
-					: { fault: "enumHandle" }
+			typeof value === "string" && handles.includes(value)
+				? { stored: value }
+				: { fault: "codeHandle" }
+	},
+	{
+		spec: { carrier: "bits", roster: handleCodec },
+		live: oneOf<unknown>([
+			map(subarray(handles), (members) => new Set(members)),
+			element<unknown>([new Set(["Draft"]), new Set([1]), ["draft"], "draft"])
+		]),
+		judge: (value) =>
+			!(value instanceof Set)
+				? { fault: "bitsType" }
+				: Arr.some([...value], (m) => typeof m !== "string")
+					? { fault: "bitsType" }
+					: Arr.every([...value], (m) => typeof m === "string" && handles.includes(m))
+						? { stored: value }
+						: { fault: "bitsMember" }
 	},
 	{
 		spec: { carrier: "vector", dimensions: 2 },
-		live: map(array(element([0, 1, 2, -3, 0.5, 1e9, Number.NaN]), { min: 1, max: 3 }), (xs) =>
-			Float32Array.from(xs)
+		live: map(
+			array(
+				element([
+					0,
+					1,
+					-3,
+					0.5,
+					cosineNormMin.value,
+					cosineNormMin.value / 2,
+					cosineNormMax.value,
+					-cosineNormMax.value,
+					cosineNormMax.value * 2,
+					Number.NaN
+				]),
+				{ min: 1, max: 3 }
+			),
+			(xs) => Float32Array.from(xs)
 		),
+		/**
+		 * The cosine domain: vector_norm, the Euclidean norm summed in double precision in component order, in
+		 * [cosineNormMin, cosineNormMax]. Each bound alone in a buffer of two is its own norm, and a bound with its
+		 * neighbour or the greatest twice lies outside.
+		 */
 		judge: (value) => {
 			if (!(value instanceof Float32Array)) {
 				return { fault: "vectorType" }
@@ -182,12 +224,9 @@ const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 				return { fault: "vectorNonFinite" }
 			}
 			const norm = Math.sqrt(value.reduce((sum, x) => sum + x * x, 0))
-			if (norm === 0 || norm > 2 ** 17) {
-				return { fault: "vectorNorm" }
-			}
-			return norm >= 2 ** -15 && norm <= 2 ** 15
+			return norm >= cosineNormMin.value && norm <= cosineNormMax.value
 				? { stored: Vector.make(value, 2) }
-				: "a fault of the vocabulary"
+				: { fault: "vectorNorm" }
 		}
 	},
 	spanCarrier("range4"),

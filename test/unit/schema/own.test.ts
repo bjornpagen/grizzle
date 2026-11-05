@@ -20,22 +20,20 @@ import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record, String as Str } from "effect"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import { natural, uuid } from "#compiler/public/fields.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own } from "#compiler/schema/own.ts"
-import { closed, derived, relation } from "#compiler/schema/relation.ts"
+import { closed, closedRelation, derived, drawnField, relation } from "#compiler/schema/relation.ts"
 import { schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
-	capacityBuilder,
 	checkBuilder,
 	containedBuilder,
 	keyBuilder,
 	mirrorsBuilder,
 	mutableBuilder,
 	onBuilder,
-	runtimeWithin,
 	selectBuilder
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -360,14 +358,10 @@ describe("conflicting declarations", () => {
 		| "a contract name over another base"
 		| "a contract name with another predicate"
 		| "a relation name across levels"
-		| "an arm's mirrors written out"
-		| "an arm's containment written out"
 	const conflicts: Arr.NonEmptyReadonlyArray<Conflict> = [
 		"a contract name over another base",
 		"a contract name with another predicate",
-		"a relation name across levels",
-		"an arm's mirrors written out",
-		"an arm's containment written out"
+		"a relation name across levels"
 	]
 
 	const atLeast = (n: bigint) => ({
@@ -390,8 +384,7 @@ describe("conflicting declarations", () => {
 							agree: source.draw(boolean),
 							name: source.draw(wordGen),
 							n: source.draw(bigint(0n, 9n)),
-							swapped: source.draw(boolean),
-							arm: source.draw(element<"Automatic" | "Manual">(["Automatic", "Manual"]))
+							swapped: source.draw(boolean)
 						})),
 						literal: Formatter.format,
 						coverage: required<`${Conflict}: ${"refused" | "one declaration"}`>(
@@ -411,20 +404,6 @@ describe("conflicting declarations", () => {
 					(s, c) =>
 						Effect.sync(() => {
 							c.note(`${s.conflict}: ${s.agree ? "one declaration" : "refused"}`)
-							const armRelation = s.arm === "Automatic" ? AutomaticTask : ManualTask
-							const armKey = onBuilder(armRelation, ["task"])
-							const selected = onBuilder(
-								selectBuilder(Task, (r: Row & { readonly kind: Row["id"] }) => r.kind.eq(s.arm)),
-								["id"]
-							)
-							const helper = alternativesBuilder(Task, "kind", Kind, {
-								Automatic: AutomaticTask,
-								Manual: ManualTask
-							})
-							const helped = (...more: ReadonlyArray<Statement>) =>
-								ownValue(
-									schema("W", { Kind, Task, AutomaticTask, ManualTask }, [helper, ...more], [])
-								)
 							const owned = (() => {
 								switch (s.conflict) {
 									case "a contract name over another base":
@@ -450,22 +429,6 @@ describe("conflicting declarations", () => {
 												[]
 											)
 										)
-									case "an arm's mirrors written out":
-										return s.agree
-											? helped(mirrorsBuilder(onBuilder(Task, ["account"]), armKey))
-											: helped(
-													s.swapped
-														? mirrorsBuilder(armKey, selected)
-														: mirrorsBuilder(selected, armKey)
-												)
-									case "an arm's containment written out":
-										return s.agree
-											? helped(containedBuilder(onBuilder(Task, ["account"]), armKey))
-											: helped(
-													s.swapped
-														? containedBuilder(armKey, selected)
-														: containedBuilder(selected, armKey)
-												)
 								}
 							})()
 							if (s.agree) {
@@ -483,19 +446,19 @@ const decoded = (d: SchemaDesc) => ownValue(d)
 
 describe("closed relations", () => {
 	/**
-	 * Where a handle of a closedId field is written: a closed payload fact, a selection or a row check literal, each
+	 * Where a handle of a closedId field is written: a closed relation's row, a selection or a row check literal, each
 	 * built or in a decoded description, which carries no roster for the builders to check.
 	 */
 	type HandleSite =
-		| "a built fact"
-		| "a decoded fact"
+		| "a built row"
+		| "a decoded row"
 		| "a built selection"
 		| "a decoded selection"
 		| "a built check literal"
 		| "a decoded check literal"
 	const handleSites: Arr.NonEmptyReadonlyArray<HandleSite> = [
-		"a built fact",
-		"a decoded fact",
+		"a built row",
+		"a decoded row",
 		"a built selection",
 		"a decoded selection",
 		"a built check literal",
@@ -552,18 +515,30 @@ describe("closed relations", () => {
 								c.note("nested contracts")
 							}
 							const grade = wrapped(s.depth)
-							const Graded = closed("Graded", ["Low", "High"], []).with(
-								{ grade },
-								{ Low: { grade: "Automatic" }, High: { grade: "Manual" } }
+							/** Graded relates each Level to a grade, a closed relation keyed by the roster Level. */
+							const Level = closed("Level", ["Low", "High"], [])
+							const gradedFields = { id: rawClosedId(Level), grade }
+							const Graded = closedRelation(
+								"Graded",
+								gradedFields,
+								["id"],
+								[
+									{ id: "Low", grade: "Automatic" },
+									{ id: "High", grade: "Manual" }
+								],
+								[]
 							)
 							const Rated = relation("Rated", { id: uuid, grade }, ["id"], [])
-							const valid = descOf(schema("W", { Kind, Graded, Rated, Task }, [], []))
+							const valid = descOf(schema("W", { Kind, Level, Graded, Rated, Task }, [], []))
 							const build = (): unknown => {
 								switch (s.site) {
-									case "a built fact":
-										return closed("Graded", ["Low"], []).with(
-											{ grade },
-											{ Low: { grade: s.handle } }
+									case "a built row":
+										return closedRelation(
+											"Graded",
+											gradedFields,
+											["id"],
+											[{ id: "Low", grade: s.handle }],
+											[]
 										)
 									case "a built selection":
 										return selectBuilder(Rated, (r: Row & { readonly grade: Row["id"] }) =>
@@ -573,7 +548,7 @@ describe("closed relations", () => {
 										return checkBuilder("Graded", Rated, (r: Row & { readonly grade: Row["id"] }) =>
 											r.grade.eq(s.handle)
 										)
-									case "a decoded fact":
+									case "a decoded row":
 									case "a decoded selection":
 									case "a decoded check literal":
 										return undefined
@@ -581,12 +556,18 @@ describe("closed relations", () => {
 							}
 							const result = (() => {
 								switch (s.site) {
-									case "a decoded fact":
+									case "a decoded row":
 										return decoded({
 											...valid,
 											relations: Arr.map(valid.relations, (r) =>
-												r.kind === "closed" && r.name === "Graded"
-													? { ...r, facts: { ...r.facts, High: { grade: s.handle } } }
+												r.kind === "closedRelation" && r.name === "Graded"
+													? {
+															...r,
+															rows: [
+																{ id: "Low", grade: "Automatic" },
+																{ id: "High", grade: s.handle }
+															]
+														}
 													: r
 											)
 										})
@@ -617,7 +598,7 @@ describe("closed relations", () => {
 												}
 											]
 										})
-									case "a built fact":
+									case "a built row":
 									case "a built selection":
 									case "a built check literal":
 										return undefined
@@ -640,13 +621,13 @@ describe("closed relations", () => {
 	)
 
 	it.effect(
-		"refuses a handle longer than a PostgreSQL enum label's 63 bytes, built or decoded",
+		"refuses a handle longer than a name's 63 bytes, the most a roster's names constant holds, built or decoded",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
-						suite: "unit/schema/enum-label-bytes",
+						suite: "unit/schema/handle-name-bytes",
 						draw: drawn((source) => ({
 							accented: source.draw(int(0, 31)),
 							delta: source.draw(int(-3, 3)),
@@ -700,7 +681,7 @@ describe("closed relations", () => {
 							const owned = ownValue({
 								...d,
 								relations: Arr.map(d.relations, (r) =>
-									r.kind === "closed" ? { ...r, handles: [handle], facts: { [handle]: {} } } : r
+									r.kind === "closed" ? { ...r, handles: [handle] } : r
 								)
 							})
 							if (within) {
@@ -722,8 +703,6 @@ describe("LawOnDerived", () => {
 		| "contained from"
 		| "contained into"
 		| "mirrors"
-		| "capacity target"
-		| "capacity source"
 		| "an alternatives arm"
 	/**
 	 * Each law in each form it is written in: a description or a builder. mirrors is a builder's alone: it is sugar, which
@@ -738,8 +717,6 @@ describe("LawOnDerived", () => {
 		"check",
 		"contained from",
 		"contained into",
-		"capacity target",
-		"capacity source",
 		"an alternatives arm"
 	]
 	const lawForms: Arr.NonEmptyReadonlyArray<LawForm> = [
@@ -762,8 +739,8 @@ describe("LawOnDerived", () => {
 							suite: "unit/schema/law-on-derived",
 							generator: space,
 							literal: Formatter.format,
-							/** The space is every law form, 8 described and 9 built, with its sides either way round. */
-							limit: 34,
+							/** The space is every law form, 6 described and 7 built, with its sides either way round. */
+							limit: 26,
 							coverage: requiredInSpace<`${LawOnDerivedKind} ${LawForm["form"]}`>(
 								Arr.map(lawForms, (l) => `${l.kind} ${l.form}` as const)
 							),
@@ -795,29 +772,13 @@ describe("LawOnDerived", () => {
 												return contained(derivedSide, baseSide)
 											case "contained into":
 												return contained(baseSide, derivedSide)
-											case "capacity target":
-												return {
-													kind: "capacity",
-													target: derivedSide,
-													from: baseSide,
-													weight: { kind: "count" },
-													within: { low: 0n, high: 1n }
-												}
-											case "capacity source":
-												return {
-													kind: "capacity",
-													target: baseSide,
-													from: derivedSide,
-													weight: { kind: "count" },
-													within: { low: 0n, high: "*" }
-												}
 											case "an alternatives arm":
 												return {
-													...contained(
-														onWhere("Task", ["id"], eq(field("kind"), literal("Automatic"))),
-														derivedSide
-													),
-													origin: { alternatives: "Task.kind" }
+													kind: "alternatives",
+													parent: baseSide,
+													discriminator: "kind",
+													roster: "Kind",
+													arms: [{ handle: "Automatic", arm: derivedSide }]
 												}
 										}
 									})()
@@ -867,28 +828,6 @@ describe("LawOnDerived", () => {
 									case "mirrors":
 										refused(extended(mirrorsBuilder(left, right)), "LawOnDerived")
 										return
-									case "capacity target":
-										refused(
-											extended(
-												capacityBuilder(onBuilder(TaskIds, ["id"]), {
-													from: onBuilder(Task, ["id"]),
-													within: runtimeWithin(0n, 1n)
-												})
-											),
-											"LawOnDerived"
-										)
-										return
-									case "capacity source":
-										refused(
-											extended(
-												capacityBuilder(onBuilder(Task, ["id"]), {
-													from: onBuilder(TaskIds, ["id"]),
-													within: runtimeWithin(0n, "*")
-												})
-											),
-											"LawOnDerived"
-										)
-										return
 								}
 							})
 					)
@@ -915,9 +854,8 @@ describe("scope and structure", () => {
 		| "a check over a closed relation"
 		| "a check reading a parameter"
 		| "a check over its own row"
-		| "a capacity bound naming no target field"
-		| "a capacity weight naming no source field"
-		| "a capacity bound whose low exceeds its high"
+		| "a family counted by no field of its owner"
+		| "a family over no relation"
 		| "a derived relation in the root"
 		| "a derived level that disagrees"
 		| "a definition reading its own level"
@@ -937,9 +875,8 @@ describe("scope and structure", () => {
 		"a check over a closed relation",
 		"a check reading a parameter",
 		"a check over its own row",
-		"a capacity bound naming no target field",
-		"a capacity weight naming no source field",
-		"a capacity bound whose low exceeds its high",
+		"a family counted by no field of its owner",
+		"a family over no relation",
 		"a derived relation in the root",
 		"a derived level that disagrees",
 		"a definition reading its own level",
@@ -953,14 +890,14 @@ describe("scope and structure", () => {
 			? "owned"
 			: "MalformedDescription"
 
-	const Pool = relation("Pool", { id: uuid, budget: rawPg.bigint }, ["id"], [])
-	const Claim = relation("Claim", { id: uuid, pool: uuid, units: rawPg.bigint }, ["id"], [])
-	const capacityOf = (target: string, weight: string, low: bigint): StatementDesc => ({
-		kind: "capacity",
-		target: on("Pool", ["id"]),
-		from: on("Claim", ["pool"]),
-		weight: { kind: "field", field: weight },
-		within: { low, high: { ref: target } }
+	/** A pool's claims, a counted family of Claim over Pool's drawn count n. */
+	const Pool = relation("Pool", { id: uuid, n: drawnField(natural, []) }, ["id"], [])
+	const Claim = relation("Claim", { id: uuid, pool: uuid }, ["id"], [])
+	const claimsOf = (member: string, count: string): StatementDesc => ({
+		kind: "family",
+		order: "counted",
+		member: on(member, ["pool"]),
+		slots: { owner: "Pool", count }
 	})
 
 	it.effect(
@@ -1010,7 +947,7 @@ describe("scope and structure", () => {
 								return assert.fail("Reports declares TaskIds")
 							}
 							const taskIds = found.value
-							const capacities = descOf(schema("P", { Pool, Claim }, [], []))
+							const claims = descOf(schema("P", { Pool, Claim }, [], []))
 							const owned = (() => {
 								switch (s.structure) {
 									case "Reports as written":
@@ -1067,29 +1004,10 @@ describe("scope and structure", () => {
 												[]
 											)
 										)
-									case "a capacity bound naming no target field":
-										return ownValue({
-											...capacities,
-											statements: [capacityOf(s.field, "units", 0n)]
-										})
-									case "a capacity weight naming no source field":
-										return ownValue({
-											...capacities,
-											statements: [capacityOf("budget", s.field, 0n)]
-										})
-									case "a capacity bound whose low exceeds its high":
-										return ownValue({
-											...capacities,
-											statements: [
-												{
-													kind: "capacity",
-													target: on("Pool", ["id"]),
-													from: on("Claim", ["pool"]),
-													weight: { kind: "count" },
-													within: { low: s.n + 1n, high: s.n }
-												}
-											]
-										})
+									case "a family counted by no field of its owner":
+										return ownValue({ ...claims, statements: [claimsOf("Claim", s.field)] })
+									case "a family over no relation":
+										return ownValue({ ...claims, statements: [claimsOf(s.name, "n")] })
 									case "a derived relation in the root":
 										return ownValue({ ...base, relations: [...base.relations, taskIds] })
 									case "a derived level that disagrees":

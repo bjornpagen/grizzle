@@ -23,7 +23,8 @@ export const carriers = [
 	"bool",
 	"uuid",
 	"text",
-	"enum",
+	"code",
+	"bits",
 	"range4",
 	"range8",
 	"vector",
@@ -39,8 +40,8 @@ export type ExactValueCarrier = "exactInteger" | "exactMoney"
 export type StorageCarrier = Exclude<Carrier, ExactValueCarrier>
 
 /**
- * Whether a column of each carrier holds few values, so that fixing it bounds no scan: a closed handle holds one of a
- * roster's handles, a boolean one of two. An index led by such a column narrows a lookup little, and a lookup that fixes
+ * Whether a column of each carrier holds few values, so that fixing it bounds no scan: a closed id holds one of a
+ * roster's codes, a boolean one of two. A set over a roster holds one of 2^n sets, which bounds a scan as a text does. An index led by such a column narrows a lookup little, and a lookup that fixes
  * only such columns is no access path.
  */
 export const fewValued: Readonly<Record<Carrier, boolean>> = {
@@ -54,7 +55,8 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
 	bool: true,
 	uuid: false,
 	text: false,
-	enum: true,
+	code: true,
+	bits: false,
 	range4: false,
 	range8: false,
 	vector: false,
@@ -73,7 +75,8 @@ export const spanCarriers: ReadonlyArray<Carrier> = ["range4", "range8"]
 
 /**
  * The operation capability vocabulary: storage, equality, ordering, hashing used for bucketing, the
- * aggregate overload families, span endpoints, expression-index eligibility, GiST, and the admitted extension
+ * aggregate overload families, span endpoints, expression-index eligibility, GiST, the set algebra of a set over a
+ * roster (union, intersection, difference, cardinality, subset and disjointness), and the admitted extension
  * operation. A CapabilitySet is sorted and duplicate-free, so its canonical form is its identity.
  */
 export const capabilities = [
@@ -85,6 +88,7 @@ export const capabilities = [
 	"hashing",
 	"minMax",
 	"ordering",
+	"setAlgebra",
 	"spanEndpoint",
 	"storage",
 	"sum",
@@ -235,10 +239,11 @@ export interface VectorTypmod {
  * A nominal contract: a domain over its base with an optional predicate and the facts it proves. Compatibility is by
  * contract identity (name and base), never by predicate equality: sameScalarType ignores the predicate and the facts. The predicate
  * is the domain's one constraint, <contract>__check, an ExprTable in normal form (expr.ts predicateTable), so its
- * canonical text, which fingerprints include, does not depend on allocation order. The base is a value domain of the contract's own carrier, never a serial declaration.
+ * canonical text, which fingerprints include, does not depend on allocation order. The base is a value domain of the
+ * contract's own carrier.
  * The name is a declared name, parsed where the contract is built (scalar/registry.ts contractOver) and where a
- * descriptor is decoded (scalar-shape.ts), so the naming door mints the contract's domain from it directly
- * (core/identity.ts identity.contractDomain).
+ * descriptor is decoded (scalar-shape.ts): the contract's identity as a type. Its domain is named by its physical
+ * definition (core/identity.ts identity.contractDomain), which contracts of one definition share.
  */
 export interface ContractInfo {
 	readonly name: DeclaredName
@@ -285,16 +290,17 @@ export type TextInfo =
 	  }
 
 /**
- * A closed roster: the closed relation's declared name and its distinct handles in declared order, which is comparison
- * order. The name is the roster's whole link to its enum: the naming door mints the enum type from it
- * (core/identity.ts identity.enumType), as ownership mints the closed relation's.
+ * A closed roster: the closed relation's declared name and its distinct live handles in declared order, which is their
+ * codes' order and so comparison order. The name is the roster's whole link to its domain and codes: the naming door
+ * mints the roster's domain from it (core/identity.ts identity.rosterDomain), and the installation's codebook holds its
+ * codes (ir/codes.ts), which no type holds, since they depend on the codes the installation held before.
  */
 export interface Roster {
 	readonly closed: DeclaredName
 	readonly handles: NonEmptyReadonlyArray<string>
 }
 
-/** The integer carriers, the serial generation's carriers. */
+/** The integer carriers, a serial field's among them. */
 export type IntegerCarrier = "int2" | "int4" | "int8"
 export type SpanCarrier = "range4" | "range8"
 /** The carriers whose descriptor holds nothing beside its carrier, its capabilities and its contract. */
@@ -316,24 +322,13 @@ export interface SpanInfo {
 /**
  * The descriptor is a union tagged by carrier: each variant holds exactly the fields its carrier has, so a field is read
  * off a variant the carrier narrowed to, or through its total accessor (contractOf, textOf, rosterOf, spanOf,
- * numericTypmodOf, vectorTypmodOf). A serial declaration shares the integer carriers and is told apart by its `serial`
- * field ("serial" in t). A contract mirrors its base's typmod, text refinement, roster and span (the decoder checks the
- * copies agree).
+ * numericTypmodOf, vectorTypmodOf). A contract mirrors its base's typmod, text refinement, roster and span (the decoder
+ * checks the copies agree).
  */
 interface IntegerType<C extends IntegerCarrier = IntegerCarrier> {
 	readonly carrier: C
 	readonly caps: CapabilitySet
 	readonly contract: ContractInfo | undefined
-}
-
-/**
- * A column generated ALWAYS AS IDENTITY: a generation declaration over an integer carrier, not a value domain, so it
- * is never a contract, a contract's base or a span endpoint.
- */
-interface SerialType {
-	readonly carrier: IntegerCarrier
-	readonly caps: CapabilitySet
-	readonly serial: "always"
 }
 
 /** numeric(p, s): what a field, a cast, a parameter and a typed literal declare, a contract's base among them. */
@@ -361,16 +356,16 @@ type NumericType = NumericTypmodType | NumericValueType
 
 /**
  * The value domains a contract is over: every value type a field declares, never a computed numeric or an exact value,
- * which only an operation makes.
+ * which only an operation makes, nor a set over a roster, whose holes and padding no predicate over it could keep apart.
  */
-export type ContractBase = Exclude<ValueType, NumericValueType | ExactType>
+export type ContractBase = Exclude<ScalarType, NumericValueType | ExactType | BitsType>
 
 /**
- * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, or a
- * serial generation over an integer. A computed numeric and an exact value are a value's making, which no declaration
- * states.
+ * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, or a set
+ * over a roster. A computed numeric and an exact value are a value's making, which no declaration states. How a field
+ * is written, by its sequence among the ways, is the field's writing, never its type.
  */
-export type DeclaredType = ContractBase | SerialType
+export type DeclaredType = ContractBase | BitsType
 
 /** Whether a type is a computed numeric, which no declaration states. */
 export const isNumericValue = (t: ScalarType): t is NumericValueType =>
@@ -393,10 +388,24 @@ export interface TextType {
 	readonly text: TextInfo
 }
 
-interface EnumType {
-	readonly carrier: "enum"
+/**
+ * A closed id: one of the roster's live handles, stored as its code, a smallint under the roster's domain. Its order is
+ * code order, which is the roster's declared order.
+ */
+interface CodeType {
+	readonly carrier: "code"
 	readonly caps: CapabilitySet
 	readonly contract: ContractInfo | undefined
+	readonly roster: Roster
+}
+
+/**
+ * A set over a roster's codes: bit(n), n every code the roster has minted, holes included, position i code i. No
+ * contract is over one, and no field is a span or vector of one.
+ */
+interface BitsType {
+	readonly carrier: "bits"
+	readonly caps: CapabilitySet
 	readonly roster: Roster
 }
 
@@ -429,40 +438,37 @@ interface ExactType {
 	readonly digits: number
 }
 
-/** A value domain: every descriptor but a serial declaration. */
-export type ValueType =
-	| IntegerType<"int2">
-	| IntegerType<"int4">
-	| IntegerType<"int8">
-	| NumericType
-	| BareType
-	| TextType
-	| EnumType
-	| SpanType
-	| VectorType
-	| ExactType
-
 /**
  * The scalar type IR.
  *
  * A ScalarType is the canonical native carrier identity of a value plus everything that changes its meaning:
  * numeric typmod or a computed numeric's bound, contract identity, text refinement, closed roster, span endpoint, vector
- * dimensions, an exact value's digit bound, serial generation, and the operation capability set. Two descriptors are the
+ * dimensions, an exact value's digit bound, and the operation capability set. Two descriptors are the
  * same type exactly when they agree in each of these, a contract by its identity (sameScalarType). Aliases normalize at
  * construction:
  * `pg.decimal` is `numeric`, `pg.bool` is `bool`, and so on, so no alias reaches the IR.
  *
  * There is no nullable type: every ScalarType denotes a non-null domain, and absence is zero rows.
  */
-export type ScalarType = ValueType | SerialType
+export type ScalarType =
+	| IntegerType<"int2">
+	| IntegerType<"int4">
+	| IntegerType<"int8">
+	| NumericType
+	| BareType
+	| TextType
+	| CodeType
+	| BitsType
+	| SpanType
+	| VectorType
+	| ExactType
 
-/** The contract a descriptor carries; a serial declaration is never one. */
+/** The contract a descriptor carries. */
 export const contractOf = (t: ScalarType): ContractInfo | undefined => {
 	switch (t.carrier) {
 		case "int2":
 		case "int4":
 		case "int8":
-			return "serial" in t ? undefined : t.contract
 		case "numeric":
 		case "float4":
 		case "float8":
@@ -470,11 +476,12 @@ export const contractOf = (t: ScalarType): ContractInfo | undefined => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
 		case "range4":
 		case "range8":
 		case "vector":
 			return t.contract
+		case "bits":
 		case "exactInteger":
 		case "exactMoney":
 			return undefined
@@ -495,7 +502,8 @@ export const textOf = (t: ScalarType): TextInfo | undefined => {
 		case "money":
 		case "bool":
 		case "uuid":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -505,10 +513,11 @@ export const textOf = (t: ScalarType): TextInfo | undefined => {
 	}
 }
 
-/** The closed roster of an enum descriptor. */
+/** The roster of a closed id or of a set over a roster. */
 export const rosterOf = (t: ScalarType): Roster | undefined => {
 	switch (t.carrier) {
-		case "enum":
+		case "code":
+		case "bits":
 			return t.roster
 		case "int2":
 		case "int4":
@@ -549,7 +558,8 @@ export const spanOf = (t: ScalarType): SpanInfo | undefined => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
@@ -571,7 +581,8 @@ export const numericTypmodOf = (t: ScalarType): NumericTypmod | undefined => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -596,7 +607,8 @@ export const vectorTypmodOf = (t: ScalarType): VectorTypmod | undefined => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "exactInteger":
@@ -647,7 +659,7 @@ const sameSpan = (a: SpanInfo | undefined, b: SpanInfo | undefined): boolean =>
 		: a.width === b.width && sameScalarType(a.endpoint, b.endpoint)
 
 /**
- * Type identity, field by field: one carrier, capability set and serial generation, one contract by its identity (never
+ * Type identity, field by field: one carrier and capability set, one contract by its identity (never
  * its predicate), and one numeric typmod or computed numeric bound, vector dimension count, text refinement (pattern,
  * flags, language key and bounds), roster and span. Source locations never appear inside a descriptor.
  */
@@ -655,7 +667,6 @@ export const sameScalarType = (a: ScalarType, b: ScalarType): boolean =>
 	a === b ||
 	(a.carrier === b.carrier &&
 		sameOrder(a.caps, b.caps) &&
-		"serial" in a === "serial" in b &&
 		sameContract(contractOf(a), contractOf(b)) &&
 		sameNumericTypmod(numericTypmodOf(a), numericTypmodOf(b)) &&
 		sameNumericBound(numericBoundOf(a), numericBoundOf(b)) &&
@@ -691,7 +702,8 @@ const nativeNames: Readonly<Record<Carrier, string>> = {
 	bool: "boolean",
 	uuid: "uuid",
 	text: "text",
-	enum: "enum",
+	code: "smallint",
+	bits: "bit",
 	range4: "int4range",
 	range8: "int8range",
 	vector: "vector",
@@ -700,8 +712,8 @@ const nativeNames: Readonly<Record<Carrier, string>> = {
 }
 
 /**
- * A short human label for printing and diagnostics, never emitted SQL (the physical package owns domain and enum
- * identifiers): "numeric(10,2)", "contract Cents over bigint", "enum Kind", "text ~ /^[a-z]+$/u".
+ * A short human label for printing and diagnostics, never emitted SQL (the physical package owns domain identifiers):
+ * "numeric(10,2)", "contract Cents over bigint", "code Kind", "bits Kind", "text ~ /^[a-z]+$/u".
  */
 export const typeLabel = (t: ScalarType): string => {
 	const contract = contractOf(t)
@@ -712,15 +724,17 @@ export const typeLabel = (t: ScalarType): string => {
 		case "int2":
 		case "int4":
 		case "int8":
-			return "serial" in t ? `${nativeNames[t.carrier]} serial` : nativeNames[t.carrier]
+			return nativeNames[t.carrier]
 		case "numeric":
 			return t.typmod === undefined
 				? `numeric of ${t.bound.digits} integer and ${t.bound.scale} fraction digits`
 				: `numeric(${t.typmod.precision},${t.typmod.scale})`
 		case "vector":
 			return `vector(${t.typmod.dims})`
-		case "enum":
-			return `enum ${t.roster.closed}`
+		case "code":
+			return `code ${t.roster.closed}`
+		case "bits":
+			return `bits ${t.roster.closed}`
 		case "text": {
 			const { regex } = t.text
 			return regex === "wildcard" ? "text" : `text ~ /${regex.source}/${regex.flags}`

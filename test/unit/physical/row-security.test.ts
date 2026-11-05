@@ -4,12 +4,13 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { boolean, element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { type AnyLogin, login, relation, schema } from "#compiler/public/schema.ts"
-import { ownLogin } from "#compiler/schema/own.ts"
+import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, role } from "#compiler/schema/world.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
@@ -167,7 +168,10 @@ const installationOf = (p: Point): Installation => {
 		succeeded(ownLogin(defined(loginDescOf(l), "a login built by login(...)")))
 	)
 	return succeeded(
-		compileInstallation(owned, completeInstallOptions(owned, owned.installation, logins, []))
+		compileInstallation(
+			owned,
+			completeInstallOptions(owned, owned.installation, logins, [], firstCodebook(rostersOf(owned)))
+		)
 	)
 }
 

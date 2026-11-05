@@ -1,3 +1,4 @@
+import { nominal } from "#compiler/core/brand.ts"
 import { invariant } from "#compiler/core/invariant.ts"
 
 /**
@@ -30,9 +31,6 @@ const firstBit = 0x8000_0000
  *
  * Every read is total: a position or a cell past either end of the string reads 0, as PostgreSQL's substring is empty
  * past either end. The bits past `length` in the last word are 0, so counting and enumerating never mask.
- *
- * `add`, `or`, `and`, `andNot` and `step` change their first argument's words in place: it is a fold's accumulator. A
- * constant read from PostgreSQL is shared, and is never one.
  */
 export interface BitString {
 	/** How many bits the string holds: n for a set over n codes, the cells times w for a relation of w-bit cells. */
@@ -50,8 +48,24 @@ const wordOf = (k: number): number => Math.floor(k / wordBits)
 /** The words a string of `length` bits takes. */
 const wordsFor = (length: number): Uint32Array => new Uint32Array(Math.ceil(length / wordBits))
 
+declare const accumulatorBrand: unique symbol
+
+/**
+ * A bit string a fold owns and changes in place, minted only by empty, copy and planes: the one kind of string `add`,
+ * `or`, `and`, `andNot` and `step` write. A constant read from PostgreSQL is shared by every write that reads it, and is
+ * never one, so changing a shared constant is a type error.
+ */
+export type Accumulator = BitString & { readonly [accumulatorBrand]: true }
+
+const accumulator = nominal<BitString, Accumulator>()
+
 /** The string of `length` bits, all 0: a fold's starting accumulator. */
-export const empty = (length: number): BitString => ({ length, words: wordsFor(length) })
+export const empty = (length: number): Accumulator =>
+	accumulator({ length, words: wordsFor(length) })
+
+/** A fresh accumulator holding `bits`: a fold that starts from a value it reads, which it then changes alone. */
+export const copy = (bits: BitString): Accumulator =>
+	accumulator({ length: bits.length, words: Uint32Array.from(bits.words) })
 
 /**
  * The bit string PostgreSQL's output text of a `bit` or `bit varying` value spells, one `0` or `1` per position,
@@ -89,7 +103,7 @@ export const has = (bits: BitString, k: number): boolean => {
  * changed bit, shifted down to the units. A fold that adds each member's code and sums what `add` returns keeps its
  * count, and a 0 is a member already present. `k` lies inside the string, as PostgreSQL's set_bit requires.
  */
-export const add = (bits: BitString, k: number): number => {
+export const add = (bits: Accumulator, k: number): number => {
 	invariant(
 		k >= 0 && k < bits.length,
 		`a bit added at ${k} lies inside its string of ${bits.length} bits`
@@ -112,7 +126,7 @@ const sameLength = (target: BitString, source: BitString): void => {
 
 /** Each word of `target` replaced in place by `op` of it and the same word of `source`, a string of its length. */
 const combine = (
-	target: BitString,
+	target: Accumulator,
 	source: BitString,
 	op: (t: number, s: number) => number
 ): void => {
@@ -123,15 +137,15 @@ const combine = (
 }
 
 /** `target | source`, into `target`: the union, a set-valued fold's step. */
-export const or = (target: BitString, source: BitString): void =>
+export const or = (target: Accumulator, source: BitString): void =>
 	combine(target, source, (t, s) => t | s)
 
 /** `target & source`, into `target`: the intersection. */
-export const and = (target: BitString, source: BitString): void =>
+export const and = (target: Accumulator, source: BitString): void =>
 	combine(target, source, (t, s) => t & s)
 
 /** `target & ~source`, into `target`: the difference. Its bits past the length stay 0, since the target's are. */
-export const andNot = (target: BitString, source: BitString): void =>
+export const andNot = (target: Accumulator, source: BitString): void =>
 	combine(target, source, (t, s) => t & ~s)
 
 /**
@@ -237,9 +251,9 @@ export const cell = (bits: BitString, index: number, width: number): number => {
  */
 export interface Planes {
 	/** The positions set in at least one string folded in. */
-	readonly ones: BitString
+	readonly ones: Accumulator
 	/** The positions set in at least two. */
-	readonly twos: BitString
+	readonly twos: Accumulator
 }
 
 /** The planes of `length` bits with nothing folded in. */

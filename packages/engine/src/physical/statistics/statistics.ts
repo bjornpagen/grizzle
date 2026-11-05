@@ -129,7 +129,7 @@ export const planStatistics = (
 				`two to ${statisticsMaxColumns.value} distinct statistics columns`
 			)
 		}
-		const unknown = r.columns.find((f) => o.field(f) === undefined)
+		const unknown = r.columns.find((field) => o.field({ kind: "field", field }) === undefined)
 		if (unknown !== undefined) {
 			refuse(
 				"MalformedDescription",

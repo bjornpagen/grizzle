@@ -8,40 +8,39 @@ import { Array as Arr, Effect, Equal, Formatter, Order, Result } from "effect"
 import type { TestContext } from "vitest"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { codeOf, emptyCodebook } from "#compiler/ir/codes.ts"
 import type { AccessUse } from "#compiler/ir/products.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { quoteString } from "#compiler/sql/print.ts"
 import {
 	drawnRequests,
-	enumTypeSql,
 	everyRow,
 	judgeServing,
 	loadAtVolume,
 	type PlannedShape,
 	planShape,
 	type RequestSpec,
+	rosterDomainSql,
 	type ServingFeature,
 	specText,
 	type VolumeLoad
 } from "#test/pg/physical/serving.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import {
-	capacity,
 	contained,
 	eq,
 	f,
 	field as fieldRef,
+	key,
 	literal,
 	on,
 	onWhere,
 	relation,
-	type SchemaDesc,
-	within
+	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { installRealSchema, planRealInstall } from "#test/support/oracle/install/real.ts"
 import { unperturbed } from "#test/support/oracle/perturb.ts"
@@ -76,7 +75,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   index to tell from a scan, and is not judged (serving.ts). A workload whose access path PostgreSQL could not index
  *   (an unbounded text or numeric key) is refused as UnrepresentableKey, a named outcome. Its kept cases: an equality
  *   lookup on a boolean key column, whose answer is half its relation, beside a span predicate that a GiST index led by
- *   an enum, then a numeric of many values the predicate leaves unbound, does not serve; and a join key on a key column
+ *   a closed id, then a numeric of many values the predicate leaves unbound, does not serve; and a join key on a key column
  *   and a column of many values, beside span predicates whose GiST index holds both after its lead, which PostgreSQL
  *   sweeps for the join key, a residue no plan the engine makes avoids (serving.ts), and which drawn workloads reach
  *   about once in 200 cases.
@@ -194,10 +193,17 @@ const workloadCase = (c: ProgramCase, note: (feature: ServingFeature | WorkloadF
 		}
 		note("a workload installed")
 		const judged = installed.success.plan
-		const enumType = enumTypeSql(judged, c.schema.roster.name)
-		const handles = Arr.join(Arr.map(c.schema.roster.handles, quoteString), ", ")
+		const domain = rosterDomainSql(judged, c.schema.roster.name)
+		const codec = defined(
+			judged.installation.names.codes.rosters.get(parsedName(c.schema.roster.name)),
+			"the installation's codes of the case's roster"
+		)
+		const codes = Arr.join(
+			Arr.map(c.schema.roster.handles, (h) => String(codeOf(codec, h))),
+			", "
+		)
 		const handle = (v: string): string =>
-			`(ARRAY[${handles}]::text[])[1 + ((${v}) % ${c.schema.roster.handles.length})::int4]::${enumType}`
+			`(ARRAY[${codes}]::int2[])[1 + ((${v}) % ${c.schema.roster.handles.length})::int4]::${domain}`
 		let salt = 0
 		const loads = Arr.map(c.schema.relations, (r): VolumeLoad => {
 			const keyed = new Set(
@@ -258,14 +264,7 @@ const Indexed: SchemaDesc = {
 	],
 	statements: [
 		contained(on("Deposit", ["line"]), on("Line", ["id"])),
-		capacity(
-			on("Line", ["id"]),
-			onWhere("Deposit", ["line"], eq(fieldRef("remainder"), literal(true))),
-			within(0n, 1n),
-			{
-				kind: "count"
-			}
-		)
+		key(onWhere("Deposit", ["line"], eq(fieldRef("remainder"), literal(true))))
 	],
 	extends: undefined
 }
@@ -739,7 +738,8 @@ const sharedCase = (
 				installation: identity.schema(parsedSchemaName("serving_shared")),
 				owner: "serving_owner",
 				logins: [],
-				extensions: [drawnRequests(order).extension]
+				extensions: [drawnRequests(order).extension],
+				codes: emptyCodebook
 			})
 			return !plan.ok
 				? assert.fail(`the requests do not plan: ${plan.error.message}`)
@@ -845,7 +845,7 @@ const read = (
 /** The generated workloads kept from failure reports, each replayed first by value (see the header). */
 const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeature>> = [
 	{
-		note: "an equality lookup on A's boolean key column, which answers half its rows through the primary key, beside a span predicate on Task binding its enum but not the numeric of many values after it in the GiST index another span predicate creates",
+		note: "an equality lookup on A's boolean key column, which answers half its rows through the primary key, beside a span predicate on Task binding its closed id but not the numeric of many values after it in the GiST index another span predicate creates",
 		sketch: {
 			population: "forms",
 			swarm: {

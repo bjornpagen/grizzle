@@ -33,7 +33,7 @@ interface Applied extends Grounds {
 type Recognizer = (cx: CatalogContext, cell: Cell) => Applied
 
 /**
- * The context a rewrite needs: the narrowest its premises hold in (descriptor facts hold everywhere, query-local
+ * The context a rewrite needs: the narrowest its premises hold in (immediate facts hold at every statement, query-local
  * deductions only in this query).
  */
 const weakest = (contexts: ReadonlyArray<EvidenceContext>): EvidenceContext => {
@@ -41,10 +41,9 @@ const weakest = (contexts: ReadonlyArray<EvidenceContext>): EvidenceContext => {
 		"queryLocal",
 		"validatedTx",
 		"committedSnapshot",
-		"immediate",
-		"descriptor"
+		"immediate"
 	]
-	let narrowest: EvidenceContext = "descriptor"
+	let narrowest: EvidenceContext = "immediate"
 	for (const c of contexts) {
 		if (order.indexOf(c) < order.indexOf(narrowest)) {
 			narrowest = c

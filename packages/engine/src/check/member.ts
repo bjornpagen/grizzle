@@ -1,5 +1,5 @@
 import { fail } from "#compiler/check/fail.ts"
-import type { MemberRelation } from "#compiler/check/schema.ts"
+import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { MemberDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -7,26 +7,61 @@ import type { Heading } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { compatible } from "#compiler/scalar/compute/types.ts"
 
+/** The serial fields of a member's relation, in heading order: those an addition may leave to their sequence. */
+const serialOf = (relation: MemberRelation): ReadonlyArray<string> =>
+	relation.heading.flatMap((c) => (c.writing.kind === "serial" ? [c.name] : []))
+
 /**
- * The fields a described member's head must deliver: the relation's heading, or for an insert that omits them, the
- * heading without its serial fields.
+ * Whether a member that adds facts writes a field written so: a caller's field, and a serial one, which an insert may
+ * leave to its sequence; never one PostgreSQL generates or grizzle draws or accumulates (types/changeset
+ * UnwrittenFieldsOf).
+ */
+const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
+	switch (writing) {
+		case "caller":
+		case "serial":
+			return true
+		case "generated":
+		case "drawn":
+		case "accumulated":
+			return false
+	}
+}
+
+/**
+ * The fields a described member's head must deliver: a delete's, the relation's heading, since a fact is read with
+ * every field; an insert's and a put's, the fields a member writes (memberWrites), and for an insert that supplies
+ * none of its relation's serial fields (`supplied`), those without them.
  */
 const memberHeading = (
 	relation: MemberRelation,
 	op: MemberDesc["op"],
-	delivered: Heading
+	serial: ReadonlyArray<string>,
+	supplied: ReadonlyArray<string>
 ): Heading => {
-	if (op !== "insert" || relation.serial.length === 0) {
+	if (op === "delete") {
 		return relation.heading
 	}
-	const supplied = relation.serial.filter((f) => delivered.some((c) => c.name === f))
-	if (supplied.length === 0) {
-		return relation.heading.filter((c) => !relation.serial.includes(c.name))
-	}
-	return relation.heading
+	const written = relation.heading.filter((c) => memberWrites(c.writing.kind))
+	return op === "insert" && serial.length > 0 && supplied.length === 0
+		? written.filter((c) => !serial.includes(c.name))
+		: written
 }
 
 const names = (h: Heading): string => h.map((c) => c.name).join(", ")
+
+/** What a member's expected heading leaves out of its relation's, as its refusal names it. */
+const omitted = (
+	relation: MemberRelation,
+	op: MemberDesc["op"],
+	serial: ReadonlyArray<string>,
+	expected: Heading
+): string => {
+	const unwritten = op !== "delete" && relation.heading.some((c) => !memberWrites(c.writing.kind))
+	const serialOmitted =
+		op === "insert" && serial.length > 0 && !expected.some((c) => serial.includes(c.name))
+	return `${unwritten ? ", the fields grizzle or PostgreSQL writes omitted" : ""}${serialOmitted ? ", its serial fields omitted" : ""}`
+}
 
 /**
  * The one way a member column of type `value` is written into a field of another type `field`: an exact value, which
@@ -47,8 +82,9 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
  * ChangeSet members described by queries.
  *
  * A member is a set of facts of one ordinary relation. An array or a Stream member is the query over a relation
- * parameter its input binds, whose shape the codec checks; a query member is checked here. Its head is the relation's
- * heading, or for an insert that heading minus all of its serial fields, which the identity default fills:
+ * parameter its input binds, whose shape the codec checks; a query member is checked here. A delete's head is the
+ * relation's heading; an insert's and a put's is the fields a member writes, no field PostgreSQL generates or grizzle
+ * draws or accumulates, and for an insert those minus all of its serial fields, which the identity default fills:
  * an addition omits either all of its relation's serial fields or none. Each head column is
  * compatible with the field it is written into: the same contract, the same roster, the same carrier;
  * the refinement itself is validated by PostgreSQL where the value is written. Anything else is
@@ -78,24 +114,23 @@ export const checkMemberHeading = (
 		)
 	}
 	const delivered = root.heading
-	const expected = memberHeading(relation, op, delivered)
+	const serial = serialOf(relation)
+	const supplied = serial.filter((f) => delivered.some((c) => c.name === f))
+	const expected = memberHeading(relation, op, serial, supplied)
 	const missing = expected.filter((c) => !delivered.some((d) => d.name === c.name))
 	const extra = delivered.filter((c) => !expected.some((d) => d.name === c.name))
-	if (relation.serial.length > 0 && op === "insert") {
-		const supplied = relation.serial.filter((f) => delivered.some((c) => c.name === f))
-		if (supplied.length > 0 && supplied.length < relation.serial.length) {
-			fail(
-				"DescribedHeadingMismatch",
-				loc,
-				`an insert into ${relation.name} that omits all of its serial fields (${relation.serial.join(", ")}) or none; it supplies ${supplied.join(", ")}`
-			)
-		}
+	if (op === "insert" && supplied.length > 0 && supplied.length < serial.length) {
+		fail(
+			"DescribedHeadingMismatch",
+			loc,
+			`an insert into ${relation.name} that omits all of its serial fields (${serial.join(", ")}) or none; it supplies ${supplied.join(", ")}`
+		)
 	}
 	if (missing.length > 0 || extra.length > 0) {
 		fail(
 			"DescribedHeadingMismatch",
 			loc,
-			`a member head of ${relation.name}'s heading (${names(expected)}${op === "insert" && expected.length < relation.heading.length ? ", its serial fields omitted" : ""}), not (${names(delivered)})`
+			`a member head of ${relation.name}'s heading (${names(expected)}${omitted(relation, op, serial, expected)}), not (${names(delivered)})`
 		)
 	}
 	for (const c of expected) {

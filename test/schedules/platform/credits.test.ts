@@ -294,7 +294,7 @@ raceSuite<CreditSketch>({
 	kept: [],
 	required: [
 		...commonRequired,
-		"law family hit: capacity",
+		"law family hit: check",
 		"law family hit: coverage",
 		"planted: a grant debited to its last micro",
 		"planted: a request one micro over its grant refused",

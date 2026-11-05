@@ -37,12 +37,13 @@ import { expectConstraint } from "#test/support/substrate/expect.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 import { heading } from "#test/unit/ir/fixture.ts"
 import { Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 
 const vectorType = (dims: number): ScalarType => scalarOf({ kind: "vector", dimensions: dims }, {})
-const codec4 = codecOf(vectorType(4))
+const codec4 = codecOf(vectorType(4), emptyCodebook)
 
 /** Vector columns at the three dimension counts the domain is argued for, each with its CHECK. */
 const Narrow = relation("Narrow", { id: uuid, value: pg.vector(4) }, ["id"])
@@ -103,7 +104,7 @@ const random = (draw: number, salt: number) => {
 }
 
 const textOf = (v: Vector): string => {
-	const text = codecOf(vectorType(v.length)).encode(v)
+	const text = codecOf(vectorType(v.length), emptyCodebook).encode(v)
 	if (!text.ok) {
 		throw new Error(`codec refused a fixture vector: ${text.error}`)
 	}
@@ -778,7 +779,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 									)
 									if (margin > 4 * tolerance) {
 										assert.equal(Vector.inCosineDomain(v), inside, label)
-										const encoded = codecOf(vectorType(dims)).encode(v)
+										const encoded = codecOf(vectorType(dims), emptyCodebook).encode(v)
 										const expected: "admitted" | CodecFault = inside ? "admitted" : "vectorNorm"
 										assert.equal(encoded.ok ? "admitted" : encoded.error, expected, label)
 										tally[inside ? "admitted" : "refused"]++

@@ -1,6 +1,8 @@
 import { sameMembers } from "#compiler/core/array.ts"
-import type { ConstraintName, PremiseObject } from "#compiler/core/ids.ts"
+import type { ConstraintName } from "#compiler/core/ids.ts"
+import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
+	type ClosedEvidence,
 	type ConstraintKind,
 	contextAdmits,
 	type EvidenceCatalog,
@@ -11,9 +13,11 @@ import {
 	type Premise,
 	type TemplateContext
 } from "#compiler/ir/evidence.ts"
+import type { TheoryRelation } from "#compiler/ir/law.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
+import { baseOf, rosterOf } from "#compiler/ir/scalar.ts"
 
-const constraintPremise = (constraint: PremiseObject, kind: ConstraintKind): Premise => ({
+const constraintPremise = (constraint: ConstraintName, kind: ConstraintKind): Premise => ({
 	kind: "constraint",
 	constraint,
 	constraintKind: kind
@@ -32,7 +36,7 @@ const constraintPremise = (constraint: PremiseObject, kind: ConstraintKind): Pre
  *   refreshed state), proves its key at every statement, in every execution context (keyEvidence): grizzle installs
  *   every key immediate and validated.
  * - A containment proves existence in the context the theory recorded for it, and a family that holds only at commit (a
- *   deferred or PERIOD foreign key, a residual law) only at commit (containmentEvidence): inside a transaction (a read
+ *   deferred or PERIOD foreign key) only at commit (containmentEvidence): inside a transaction (a read
  *   inside a write transaction, such as a read-back) it proves nothing, and a `snapshot` read admits it as lawful
  *   committed-snapshot evidence, since committed rows satisfy it. A deferred foreign key so proves no existence inside
  *   a transaction, while the referenced key still proves at most one match there.
@@ -54,19 +58,17 @@ const atCommit: Readonly<Record<ExistenceConstraint["kind"], boolean>> = {
 	foreignKey: false,
 	deferredForeignKey: true,
 	periodForeignKey: true,
-	residualLaw: true,
-	enum: false
+	rosterDomain: false,
+	check: false
 }
 
-/** The premises a containment rests on: its constraint, every unit function of its residual law, or none for an enum
- * type. */
+/** The premises a containment rests on: its constraint, a table CHECK's among them, or none for a roster's domain,
+ * which types the field. */
 const enforcementPremises = (constraint: ExistenceConstraint): ReadonlyArray<Premise> => {
 	const e = constraint.enforcement
 	switch (e.kind) {
 		case "constraint":
 			return [constraintPremise(e.name, constraint.kind)]
-		case "residualLaw":
-			return e.functions.map((fn) => constraintPremise(fn, constraint.kind))
 		case "type":
 			return []
 	}
@@ -74,15 +76,14 @@ const enforcementPremises = (constraint: ExistenceConstraint): ReadonlyArray<Pre
 
 /**
  * What a containment proves existence with in the execution context (see the header): the premises it rests on,
- * none when its enum type enforces it; nothing inside a transaction when it holds only at commit.
+ * none when its roster's domain enforces it; nothing inside a transaction when it holds only at commit.
  */
 export const containmentEvidence = (
 	constraint: ExistenceConstraint,
 	execution: TemplateContext
 ): Grounds | undefined => {
 	const context: EvidenceContext =
-		atCommit[constraint.kind] &&
-		(constraint.context === "immediate" || constraint.context === "descriptor")
+		atCommit[constraint.kind] && constraint.context === "immediate"
 			? "committedSnapshot"
 			: constraint.context
 	if (!contextAdmits(execution, context)) {
@@ -105,25 +106,57 @@ export interface CatalogKey {
 }
 
 /**
- * The key and containment evidence of a schema's theory (theory/theory.ts TheoryEvidence), its constraints named as
- * ownership derived them. A key the theory does not list has no constraint.
+ * Each closed relation among `relations`, by name, as a query reads it whole: a roster, the closed relation whose one
+ * field is a closed id of itself (ir/law.ts ClosedTheoryRelation), or a relation keyed by closed ids, whose key set
+ * the installation holds as a constant (physical/ddl/constants.ts).
+ */
+const closedEvidence = (
+	relations: Readonly<Record<string, TheoryRelation>>
+): ReadonlyMap<string, ClosedEvidence> => {
+	const out = new Map<string, ClosedEvidence>()
+	for (const r of Object.values(relations)) {
+		if (r.kind !== "closed") {
+			continue
+		}
+		const key = mapNonEmpty(r.primaryFields, (f) => f.name)
+		const roster = r.heading.length === 1 && rosterOf(baseOf(r.heading[0].type))?.closed === r.name
+		out.set(r.name, {
+			kind: roster ? "roster" : "relation",
+			key,
+			payload: r.heading.flatMap((f) => (key.includes(f.name) ? [] : [f.name])),
+			facts: r.rows.length
+		})
+	}
+	return out
+}
+
+/**
+ * The key, containment and closed relation evidence of a schema's theory (theory/theory.ts TheoryEvidence, and its
+ * relations), its constraints named as ownership derived them. A key the theory does not list has no constraint.
  */
 export const theoryCatalog = (
 	evidence: { readonly keys: ReadonlyArray<CatalogKey> },
-	options: { readonly containments: ReadonlyArray<ExistenceConstraint> }
-): EvidenceCatalog => ({
-	keyConstraint: (relation, columns, role) => {
-		const k = evidence.keys.find((e) => e.relation === relation && sameMembers(e.fields, columns))
-		if (k === undefined) {
-			return undefined
-		}
-		return {
-			relation,
-			columns,
-			spans: k.spans,
-			constraint: k.constraint,
-			kind: role.derived ? "uniqueIndex" : k.primary ? "primaryKey" : "unique"
-		}
-	},
-	containments: options.containments
-})
+	options: {
+		readonly containments: ReadonlyArray<ExistenceConstraint>
+		readonly relations: Readonly<Record<string, TheoryRelation>>
+	}
+): EvidenceCatalog => {
+	const closed = closedEvidence(options.relations)
+	return {
+		keyConstraint: (relation, columns, role) => {
+			const k = evidence.keys.find((e) => e.relation === relation && sameMembers(e.fields, columns))
+			if (k === undefined) {
+				return undefined
+			}
+			return {
+				relation,
+				columns,
+				spans: k.spans,
+				constraint: k.constraint,
+				kind: role.derived ? "uniqueIndex" : k.primary ? "primaryKey" : "unique"
+			}
+		},
+		containments: options.containments,
+		closed: (relation) => closed.get(relation)
+	}
+}

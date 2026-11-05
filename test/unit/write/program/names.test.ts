@@ -5,6 +5,8 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
@@ -38,7 +40,8 @@ const bound = Effect.fn("bound")(function* (name: string) {
 	const b = succeeded(
 		bindWrite(program, {
 			members,
-			params: { [name]: [fact(1), fact(2)] }
+			params: { [name]: [fact(1), fact(2)] },
+			transport: inForce(bindFrame)
 		})
 	)
 	if (b.kind !== "bound") {

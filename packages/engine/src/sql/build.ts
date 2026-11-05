@@ -73,6 +73,10 @@ export const namedType = (
 	array: false
 })
 
+/** The n of a bit(n) reference, undefined for every other type. */
+const bitLength = (t: TypeRef): number | undefined =>
+	t.kind === "builtin" && t.name === "bit" ? t.length : undefined
+
 /**
  * Whether two type references name one type: the same variant with the same fields, typmod and array dimension
  * included. A type's identity is its structure, never its printed spelling.
@@ -85,7 +89,8 @@ export const sameTypeRef = (a: TypeRef, b: TypeRef): boolean => {
 				a.name === b.name &&
 				a.precision === b.precision &&
 				a.scale === b.scale &&
-				a.array === b.array
+				a.array === b.array &&
+				bitLength(a) === bitLength(b)
 			)
 		case "named":
 			return (
@@ -113,10 +118,42 @@ export const types = {
 	money: builtinType("money"),
 	int4range: builtinType("int4range"),
 	int8range: builtinType("int8range"),
-	record: builtinType("record")
+	record: builtinType("record"),
+	/** bit(n): a set over a roster, one bit per code it has minted. */
+	bit: (length: number): TypeRef => ({
+		kind: "builtin",
+		name: "bit",
+		precision: undefined,
+		scale: undefined,
+		length,
+		array: false
+	}),
+	/** bit varying: a constant's string of cells. */
+	varbit: builtinType("bit varying"),
+	/** name, or name[]: a roster's names constant's element, or the constant. */
+	name: (array: boolean): TypeRef => ({
+		kind: "builtin",
+		name: "name",
+		precision: undefined,
+		scale: undefined,
+		array
+	})
 } as const
 
 export const objectName = (schema: string, name: string): ObjectName => ({ schema, name })
+
+/**
+ * The array type over `type`, the element type of an array literal or a dictionary: every type but bit(n), whose
+ * arrays grizzle never names (a set is typed by its roster's bits domain, a named type), is undefined for it.
+ */
+export const arrayOf = (type: TypeRef): TypeRef | undefined => {
+	switch (type.kind) {
+		case "named":
+			return { ...type, array: true }
+		case "builtin":
+			return type.name === "bit" ? undefined : { ...type, array: true }
+	}
+}
 
 /** The function a CREATE FUNCTION creates, as GRANT, REVOKE and DROP name it. */
 export const functionNameOf = (fn: CreateFunction): FunctionName => ({

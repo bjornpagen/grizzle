@@ -1793,7 +1793,8 @@ const expressions: ReadonlyArray<DagCorruption> = [
 							: []
 					}
 					case "bool":
-					case "enum":
+					case "handle":
+					case "handles":
 					case "float":
 					case "floatSpecial":
 					case "money":

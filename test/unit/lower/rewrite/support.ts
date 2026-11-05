@@ -4,6 +4,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
 import type { Certificate, CertificateRule } from "#compiler/ir/certificate.ts"
+import { type Codebook } from "#compiler/ir/codes.ts"
 import { rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
@@ -213,25 +214,24 @@ export const agrees = (c: QueryCase, rewritten: LogicalQuery): RewriteAgreement 
 }
 
 /**
- * The conservative lowering of a rewritten query: the rewrites produce IR every lowering accepts, and every statement
- * passes the structural audit (sql/emit.ts).
+ * The conservative lowering of a rewritten query, under the codes its schema's installation holds (a roster's literal
+ * lowers to its code): the rewrites produce IR every lowering accepts, and every statement passes the structural audit
+ * (sql/emit.ts).
  * Physical names with a text domain stand-in per pattern, as an installation names every pattern a case reads: a
  * delivered refined value the lowering cannot prove is cast to its domain, which must have a name.
  */
-const rewriteNames = standInNames("rewrite")
-
-/** The conservative lowering of a query. */
 export const lowerConservatively = (
-	query: LogicalQuery
+	query: LogicalQuery,
+	codes: Codebook
 ): Engine.Result<ConservativeProgram, CompileError> =>
 	lowerConservative(conservativeInput(query), {
-		names: rewriteNames,
+		names: standInNames("rewrite", codes),
 		params: query.params,
 		subject: { kind: "query" }
 	})
 
-export const lowersConservatively = (query: LogicalQuery): void => {
-	succeeded(lowerConservatively(query))
+export const lowersConservatively = (query: LogicalQuery, codes: Codebook): void => {
+	succeeded(lowerConservatively(query, codes))
 }
 
 export const caseQuery = (c: QueryCase): LogicalQuery => ({

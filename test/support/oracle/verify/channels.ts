@@ -35,6 +35,10 @@ import {
 	type StatementAudit
 } from "#test/support/oracle/verify/sql.ts"
 
+/** The array of a column's type, as an input array's placeholder is cast; bit(n) has no array TypeRef, so none. */
+const arrayOf = (type: TypeRef): TypeRef | undefined =>
+	type.kind === "builtin" && type.name === "bit" ? undefined : { ...type, array: true }
+
 /** A fused attachment's delivered heading: its child's (deliveredHeading). */
 export const fusedHeading = (f: FusedAttachment): Heading =>
 	deliveredHeading(Arr.map(f.layout.columns, (c) => c.column))
@@ -142,7 +146,7 @@ const slotProblem = (
 					? builtinType("bigint")
 					: column === undefined
 						? undefined
-						: { ...column.definition.type, array: true }
+						: arrayOf(column.definition.type)
 			return [
 				...(expected !== undefined && sameType(emitted, expected)
 					? []

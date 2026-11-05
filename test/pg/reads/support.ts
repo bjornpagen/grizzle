@@ -26,7 +26,7 @@ import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
 import { connect } from "#test/support/substrate/session.ts"
 import { Substrate, type SubstrateShape } from "#test/support/substrate/substrate.ts"
-import { type FullWorld, fullWorld, loginLayer } from "#test/support/worlds.ts"
+import { fullWorld, loginLayer } from "#test/support/worlds.ts"
 
 /**
  * Shared helpers for the read suites (test/pg/reads).
@@ -122,7 +122,13 @@ const releaseWhenIdle = (
 		)
 	})
 
-export interface Opened<S> {
+/** A schema a full world can be built over: what fullWorld takes. */
+type Reality = Parameters<typeof fullWorld>[0]
+
+/** The full world built over `S` itself, its role typed by S's own relations. */
+type WorldOver<S extends Reality> = ReturnType<typeof fullWorld<S>>
+
+export interface Opened<S extends Reality> {
 	readonly installed: Installed
 	/**
 	 * The fixture rebuilt under the installed schema name: its relations and statements, under a name known only at
@@ -135,9 +141,9 @@ export interface Opened<S> {
 	 * which a Db opens it (`server.roles.app`), and the DbLayer of the login in the substrate's database, given the
 	 * installation's snapshot (loginLayerIn builds one in another).
 	 */
-	readonly app: FullWorld["app"]
-	readonly server: FullWorld["server"]
-	readonly layer: Layer.Layer<DbLayerOf<FullWorld["server"]>, OpenError>
+	readonly app: WorldOver<S>["app"]
+	readonly server: WorldOver<S>["server"]
+	readonly layer: Layer.Layer<DbLayerOf<WorldOver<S>["server"]>, OpenError>
 }
 
 /**

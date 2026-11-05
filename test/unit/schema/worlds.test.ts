@@ -485,7 +485,11 @@ describe("query entry totality", () => {
 	)
 })
 
-/** Context field descriptors, each with whether a claim of its type is admitted. */
+/**
+ * Context field descriptors, each with whether a claim of its type is admitted. A field its sequence writes is no claim,
+ * refused by the builder (rule claimType); serial is how a field is written, never its type, so its Description is
+ * its integer's, which a description admits: the builder alone refuses it.
+ */
 const contextFields: Arr.NonEmptyReadonlyArray<readonly [string, FieldBase, boolean]> = [
 	["uuid", uuid, true],
 	["text", Author, true],
@@ -535,6 +539,9 @@ describe("context admission", () => {
 							"ContextRefused",
 							label
 						)
+						if (field === rawPg.bigserial) {
+							return
+						}
 						refused(
 							decodeDesc("context", { name: "Claims", fields: { field: descOf(field) } }),
 							"MalformedDescription",

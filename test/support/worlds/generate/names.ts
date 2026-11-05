@@ -77,7 +77,6 @@ const lawOf = (n: Renaming, law: LawSpec): LawSpec => {
 			return { ...law, relation: n(law.relation) }
 		case "contained":
 		case "covered":
-		case "capacity":
 			return { ...law, source: sideOf(n, law.source), target: sideOf(n, law.target) }
 		case "alternatives":
 			return {

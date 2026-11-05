@@ -14,7 +14,7 @@ import {
 import { WILD_KINDS } from "@grizzle/testing/lsw"
 import type { Source } from "@grizzle/testing/source"
 import { Array as Arr, Option, pipe, Record } from "effect"
-import { valueText } from "#test/pg/laws/families/model.ts"
+import { valueText } from "#test/support/laws/model.ts"
 import {
 	fieldsOfSource,
 	inDomain,
@@ -706,7 +706,6 @@ const worldStatements = (
 						return keysOf(base, relation)[fn.key] ?? []
 					case "filter":
 					case "advance":
-					case "law":
 						return membership ?? []
 				}
 			}

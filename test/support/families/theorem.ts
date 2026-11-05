@@ -187,7 +187,7 @@ export const CONSTRAINTS = ["identity", "key", "bound", "copy", "last", "closure
 export type Constraint = (typeof CONSTRAINTS)[number]
 
 /** A stored state's breaking of one constraint, naming the row or owner that breaks it. */
-export type Violation =
+export type FamilyViolation =
 	| { readonly constraint: "identity"; readonly member: number }
 	| { readonly constraint: "key"; readonly group: number; readonly at: number }
 	| { readonly constraint: "bound"; readonly member: number }
@@ -196,9 +196,9 @@ export type Violation =
 	| { readonly constraint: "closure"; readonly member: number }
 
 /** Every constraint the stored state breaks, whenever PostgreSQL would check it; none when every one holds. */
-export const violations = (stored: Stored): ReadonlyArray<Violation> => {
+export const familyViolations = (stored: Stored): ReadonlyArray<FamilyViolation> => {
 	const held = occupancy(stored.rows)
-	const found: Array<Violation> = []
+	const found: Array<FamilyViolation> = []
 	const members = new Map<number, number>()
 	for (const row of stored.rows) {
 		members.set(row.member, (members.get(row.member) ?? 0) + 1)

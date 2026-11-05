@@ -97,7 +97,7 @@ const applyBound = <R>(
 	Effect.gen(function* () {
 		const inputs = yield* Effect.mapError(hostInputs(entry, params), inputApplyError)
 		if (inputs.kind === "rejected") {
-			return rejectedOutcome<R>(inputs.law, inputs.witness)
+			return rejectedOutcome<R>([inputs.law], inputs.witness)
 		}
 		return yield* Effect.scoped(
 			Effect.flatMap(

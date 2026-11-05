@@ -1,5 +1,6 @@
 import { Array as Arr, Data, Formatter } from "effect"
 import type { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
+import type { DeclarationRefused } from "#cli/renames.ts"
 import { type CompileError, compileReasonText, isCompileError } from "#compiler/core/errors.ts"
 import { maxMigrationNameLength, metaFileName } from "#compiler/deploy/render/folder.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
@@ -14,7 +15,8 @@ import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
  * schema it concerns. The stages:
  *
  * - `usage`: the command line does not name one of the commands, or names it with a malformed argument, a migration
- *   name of no folder's shape, or a schema choice the configuration does not allow;
+ *   name of no folder's shape, a rename or drop its text shows wrong, or a schema choice the configuration does not
+ *   allow;
  * - `config`: the configuration file the command names is missing, fails to load, or is not a configuration
  *   (config.ts), or migrate and drift refuse its connection (connection.ts);
  * - `environment`: migrate and drift refuse the process environment grizzle runs in, which sets a startup variable pg
@@ -22,6 +24,8 @@ import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
  * - `filesystem`: the migrations directory could not be read or written, or holds what no generator wrote;
  * - `snapshot`: a schema's committed snapshot.json is not the generator's (edited, or of another schema), or it and the
  *   schema's folders disagree, so neither a draft nor an apply could continue the chain;
+ * - `codes`: a roster declares its handles out of the order of the codes the committed snapshot records for them, so
+ *   no draft could keep every stored code's meaning;
  * - `generate`: the compiler refused the schema, its logins' workloads or the draft.
  *
  * Every refusal happens before anything is written: a generate writes no folder of any schema until every configured
@@ -33,7 +37,14 @@ import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
  * keys, its connection by the setting the connection parser refuses, and the compiler's diagnostics carry source
  * locations and capabilities only.
  */
-export type CliStage = "usage" | "config" | "environment" | "filesystem" | "snapshot" | "generate"
+export type CliStage =
+	| "usage"
+	| "config"
+	| "environment"
+	| "filesystem"
+	| "snapshot"
+	| "codes"
+	| "generate"
 
 /**
  * The operating system's error code a file system failure carries, as a refusal names it, or nothing. The failure is
@@ -71,10 +82,18 @@ const schemaListText = (schemas: ReadonlyArray<SchemaNames>): string =>
 /** The commands of the command line. */
 export type CommandName = "generate" | "check" | "migrate" | "drift" | "names"
 
-/** The flags of `grizzle generate`: its switches, and the flags that take a value. */
-export const generateFlags = { switches: ["custom"], valued: ["name", "schema"] } as const
+/**
+ * The flags of `grizzle generate`: its switches, the flags that take a value once, and the flags that take one each
+ * time they are given, a declaration each (renames.ts).
+ */
+export const generateFlags = {
+	switches: ["custom"],
+	valued: ["name", "schema"],
+	repeated: ["rename", "drop"]
+} as const
 export type SwitchFlag = (typeof generateFlags.switches)[number]
 export type ValuedFlag = (typeof generateFlags.valued)[number]
+export type RepeatedFlag = (typeof generateFlags.repeated)[number]
 type Flag = SwitchFlag | ValuedFlag
 
 /**
@@ -92,7 +111,7 @@ type ArgumentFault =
 	  }
 	| { readonly kind: "unknownOption"; readonly command: CommandName; readonly option: string }
 	| { readonly kind: "repeatedFlag"; readonly flag: Flag }
-	| { readonly kind: "flagWithoutValue"; readonly flag: ValuedFlag }
+	| { readonly kind: "flagWithoutValue"; readonly flag: ValuedFlag | RepeatedFlag }
 	| { readonly kind: "unnamedCustom" }
 
 /** The command line does not parse, for `fault` (args.ts). */
@@ -112,7 +131,7 @@ export class ArgumentsRefused extends Data.TaggedError("ArgumentsRefused")<{
 					: `grizzle ${fault.command} takes one argument, the configuration file, not also ${Formatter.format(fault.argument)}`
 			case "unknownOption":
 				return fault.command === "generate"
-					? `unknown option ${Formatter.format(fault.option)}; grizzle generate takes --custom, --name and --schema`
+					? `unknown option ${Formatter.format(fault.option)}; grizzle generate takes --custom, --name, --schema, --rename and --drop`
 					: `grizzle ${fault.command} takes no option, not ${Formatter.format(fault.option)}`
 			case "repeatedFlag":
 				return `--${fault.flag} is given twice`
@@ -135,8 +154,8 @@ export class MigrationNameRefused extends Data.TaggedError("MigrationNameRefused
 
 /**
  * The schema generate applies to cannot be chosen: `--schema` given while the configuration declares one schema,
- * `--schema` naming none of the configured `schemas`, or a custom migration without `--schema` while the configuration
- * declares several.
+ * `--schema` naming none of the configured `schemas`, or, while the configuration declares several, a custom migration
+ * or a draft that declares renames or drops, each one schema's, without `--schema`.
  */
 type SchemaChoiceFault =
 	| { readonly kind: "single" }
@@ -145,7 +164,11 @@ type SchemaChoiceFault =
 			readonly named: string
 			readonly schemas: ReadonlyArray<SchemaNames>
 	  }
-	| { readonly kind: "unchosen"; readonly schemas: ReadonlyArray<SchemaNames> }
+	| {
+			readonly kind: "unchosen"
+			readonly by: "custom" | "declarations"
+			readonly schemas: ReadonlyArray<SchemaNames>
+	  }
 
 export class SchemaChoiceRefused extends Data.TaggedError("SchemaChoiceRefused")<{
 	readonly fault: SchemaChoiceFault
@@ -158,7 +181,7 @@ export class SchemaChoiceRefused extends Data.TaggedError("SchemaChoiceRefused")
 			case "unknown":
 				return `--schema ${fault.named} names no configured schema; the configuration declares ${schemaListText(fault.schemas)}`
 			case "unchosen":
-				return `a custom migration is a folder of one schema, and the configuration declares ${schemaListText(fault.schemas)}; name one with --schema`
+				return `${fault.by === "custom" ? "a custom migration is a folder of one schema" : "--rename and --drop declare one schema's changes"}, and the configuration declares ${schemaListText(fault.schemas)}; name one with --schema`
 		}
 	}
 }
@@ -506,6 +529,22 @@ export class ChainRefused extends Data.TaggedError("ChainRefused")<{
 	}
 }
 
+/**
+ * Roster `roster` of `schema` declares `earlier` before `later`, but the committed snapshot records the lower code for
+ * `later` (ir/codes.ts RosterReordered). A stored code never changes meaning, so a roster's order, its comparison
+ * order, is its codes' order, and no draft can reorder it: a new handle goes after every handle declared before it.
+ */
+export class RosterReordered extends Data.TaggedError("RosterReordered")<{
+	readonly schema: string
+	readonly roster: string
+	readonly earlier: string
+	readonly later: string
+}> {
+	override get message(): string {
+		return `roster ${this.roster} declares ${Formatter.format(this.earlier)} before ${Formatter.format(this.later)}, whose code in snapshot.json is lower`
+	}
+}
+
 /** The step of a draft the compiler refused: the workload, the schema's installation, the draft, or a custom folder. */
 type DraftStep = "workload" | "schema" | "draft" | "custom"
 
@@ -531,6 +570,7 @@ export class DraftRefused extends Data.TaggedError("DraftRefused")<{
 type CliReason =
 	| ArgumentsRefused
 	| MigrationNameRefused
+	| DeclarationRefused
 	| SchemaChoiceRefused
 	| ConfigMissing
 	| ConfigUnloaded
@@ -549,12 +589,14 @@ type CliReason =
 	| SnapshotUnreadable
 	| SnapshotForeign
 	| ChainRefused
+	| RosterReordered
 	| DraftRefused
 
 /** The stage each reason stops at. */
 const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	ArgumentsRefused: "usage",
 	MigrationNameRefused: "usage",
+	DeclarationRefused: "usage",
 	SchemaChoiceRefused: "usage",
 	ConfigMissing: "config",
 	ConfigUnloaded: "config",
@@ -573,6 +615,7 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	SnapshotUnreadable: "snapshot",
 	SnapshotForeign: "snapshot",
 	ChainRefused: "snapshot",
+	RosterReordered: "codes",
 	DraftRefused: "generate"
 }
 

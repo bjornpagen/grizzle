@@ -69,7 +69,6 @@ import {
 	spanOf,
 	type TextInfo,
 	textOf,
-	type ValueType,
 	type VectorTypmod,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
@@ -114,7 +113,6 @@ interface WireScalarType {
 	readonly text: TextInfo | undefined
 	readonly roster: Roster | undefined
 	readonly span: WireSpan | undefined
-	readonly serial: "always" | undefined
 	readonly digits: number | undefined
 	readonly bound: NumericBound | undefined
 }
@@ -189,7 +187,6 @@ const wireShape: S.Shape<WireScalarType> = S.lazy("a scalar type", () =>
 			text: textInfoShape,
 			roster: rosterShape,
 			span: spanShape,
-			serial: S.literalsShape(["always"]),
 			digits: S.nonNegativeInteger,
 			bound: numericBoundShape
 		},
@@ -223,7 +220,7 @@ const sameOptional = (a: unknown, b: unknown): boolean =>
 
 /**
  * The contract of a wire descriptor, or the first broken rule: its base has the descriptor's carrier and is a value
- * domain a field declares (ir/scalar.ts ContractBase), no serial declaration, computed numeric or exact value, the
+ * domain a field declares (ir/scalar.ts ContractBase), no computed numeric or exact value, the
  * descriptor repeats the base's meaning-changing fields unchanged, and the predicate's expression rules hold against
  * the base (expr.ts predicateProblems).
  */
@@ -249,17 +246,14 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ContractInfo
 	if (!sameOptional(t.span, spanOf(base))) {
 		return "a contract carries its base's span, unchanged"
 	}
-	if (t.serial !== undefined) {
-		return "a contract is not itself a serial declaration"
-	}
-	if ("serial" in base) {
-		return "a contract's base is a value domain, not a serial declaration"
-	}
 	if (isNumericValue(base)) {
 		return "a contract is over numeric(p, s), never a computed numeric"
 	}
 	if (isExactValue(base)) {
 		return `${base.carrier} is an arithmetic result, never a contract's base`
+	}
+	if (base.carrier === "bits") {
+		return "a set over a roster is never a contract's base"
 	}
 	const { name, predicate } = contract
 	if (predicate !== undefined) {
@@ -279,9 +273,6 @@ const narrowSpan = (carrier: SpanCarrier, span: WireSpan): SpanInfo | string => 
 	}
 	if (endpoint.carrier !== want) {
 		return `a ${carrier} span has an ${want} endpoint`
-	}
-	if ("serial" in endpoint) {
-		return "a serial descriptor is not a span endpoint"
 	}
 	if (width === undefined) {
 		return Object.freeze({ endpoint, width })
@@ -324,27 +315,24 @@ const narrowVectorTypmod = (typmod: WireTypmod | undefined): VectorTypmod | stri
 	return Object.freeze({ dims: typmod.dims })
 }
 
-/**
- * A serial-free integer descriptor, its contract optional. It is typed as a ValueType, which its carrier alone does
- * not decide: a serial has the same carriers.
- */
+/** An integer descriptor, its contract optional. */
 const integerType = (
 	carrier: IntegerCarrier,
 	caps: CapabilitySet,
 	contract: ContractInfo | undefined
-): ValueType => Object.freeze({ carrier, caps, contract })
+): ScalarType => Object.freeze({ carrier, caps, contract })
 
 /**
  * A wire descriptor as its carrier's variant, or the first broken rule. Each variant is rebuilt with the keys in the
- * wire order (carrier, caps, typmod, contract, text, roster, span, serial, digits, bound), so decoding is idempotent.
+ * wire order (carrier, caps, typmod, contract, text, roster, span, digits, bound), so decoding is idempotent.
  */
 const narrow = (t: WireScalarType): ScalarType | string => {
 	const { carrier, caps } = t
 	if (carrier !== "text" && t.text !== undefined) {
 		return "only a text type carries regex metadata"
 	}
-	if (carrier !== "enum" && t.roster !== undefined) {
-		return "only an enum type has a roster"
+	if (carrier !== "code" && carrier !== "bits" && t.roster !== undefined) {
+		return "only a closed id or a set over a roster has a roster"
 	}
 	if (carrier !== "range4" && carrier !== "range8" && t.span !== undefined) {
 		return "only a range type has a span endpoint"
@@ -358,9 +346,6 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 	if (t.bound !== undefined && carrier !== "numeric") {
 		return "only a computed numeric carries a numeric bound"
 	}
-	if (t.serial !== undefined && carrier !== "int2" && carrier !== "int4" && carrier !== "int8") {
-		return "serial generation applies to int2, int4 and int8 only"
-	}
 	const contract = t.contract === undefined ? undefined : narrowContract(t, t.contract)
 	if (typeof contract === "string") {
 		return contract
@@ -369,9 +354,7 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 		case "int2":
 		case "int4":
 		case "int8":
-			return t.serial === undefined
-				? integerType(carrier, caps, contract)
-				: Object.freeze({ carrier, caps, serial: t.serial })
+			return integerType(carrier, caps, contract)
 		case "numeric": {
 			if (t.typmod === undefined) {
 				if (t.bound === undefined) {
@@ -407,11 +390,19 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 				return "a text type carries regex metadata"
 			}
 			return Object.freeze({ carrier, caps, contract, text: t.text })
-		case "enum":
+		case "code":
 			if (t.roster === undefined) {
-				return "an enum type names its closed roster"
+				return "a closed id names its roster"
 			}
 			return Object.freeze({ carrier, caps, contract, roster: t.roster })
+		case "bits":
+			if (t.roster === undefined) {
+				return "a set names its roster"
+			}
+			if (contract !== undefined) {
+				return "no contract is over a set over a roster"
+			}
+			return Object.freeze({ carrier, caps, roster: t.roster })
 		case "range4":
 		case "range8": {
 			if (t.span === undefined) {
@@ -459,7 +450,8 @@ export const literalShape: S.Shape<TypedLiteral> = S.tagged("kind", {
 	bool: S.struct({ value: S.boolean }),
 	text: S.struct({ value: S.string }),
 	uuid: S.struct({ value: S.string }),
-	enum: S.struct({ handle: S.nonEmptyString }),
+	handle: S.struct({ handle: S.nonEmptyString }),
+	handles: S.struct({ handles: S.array(S.nonEmptyString) }),
 	span: S.struct({ start: S.bigint, end: S.bigint }),
 	vector: S.struct({
 		value: S.canonicalParsed(
@@ -605,7 +597,20 @@ export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 		)
 	),
 	domainCast: S.struct({ ...common(operand, strict), proof: proofShape }),
-	cond: S.struct(common(S.tripleShape(exprIdShape), S.literalsShape(["cond"])))
+	cond: S.struct(common(S.tripleShape(exprIdShape), S.literalsShape(["cond"]))),
+	closedAt: S.struct({
+		...common(S.nonEmptyArray(exprIdShape), S.literalsShape(["absentRefused"])),
+		relation: S.nonEmptyString,
+		field: S.nonEmptyString
+	}),
+	closedRow: S.struct({
+		...common(S.array(exprIdShape), strict),
+		relation: S.nonEmptyString
+	}),
+	closedHas: S.struct({
+		...common(S.nonEmptyArray(exprIdShape), strict),
+		relation: S.nonEmptyString
+	})
 })
 
 export const exprTableShape: S.Shape<ExprTable> = S.struct({

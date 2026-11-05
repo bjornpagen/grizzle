@@ -26,7 +26,7 @@ import {
 import {
 	alternatives,
 	closed,
-	closedWith,
+	closedRelation,
 	contained,
 	decodedQuery,
 	decodedSchema,
@@ -61,7 +61,7 @@ export const WorkDesc: SchemaDesc = decodedSchema({
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
 		contained(on("TaskNote", ["task"]), on("Task", ["id"])),
-		...taskKinds,
+		taskKinds,
 		mutable("TaskNote")
 	],
 	extends: undefined
@@ -122,11 +122,17 @@ export const ReportsDesc: SchemaDesc = decodedSchema({
 	statements: []
 })
 
-const Tier = closedWith(
-	"Tier",
-	["Free", "Pro"],
-	{ budget: CentsDesc },
-	{ Free: { budget: 100n }, Pro: { budget: 1000n } }
+const Tier = closed("Tier", ["Free", "Pro"])
+
+/** Each tier's budget: a closed relation keyed by its tier. */
+const TierBudget = closedRelation(
+	"TierBudget",
+	{ tier: f.closedId("Tier"), budget: CentsDesc },
+	["tier"],
+	[
+		{ tier: "Free", budget: 100n },
+		{ tier: "Pro", budget: 1000n }
+	]
 )
 
 const Subscription = relation("Subscription", { account: f.uuid, tier: f.closedId("Tier") }, [
@@ -135,7 +141,7 @@ const Subscription = relation("Subscription", { account: f.uuid, tier: f.closedI
 
 export const PlansDesc: SchemaDesc = decodedSchema({
 	name: "Plans",
-	relations: [Tier, Subscription],
+	relations: [Tier, TierBudget, Subscription],
 	statements: [contained(on("Subscription", ["tier"]), on("Tier", ["id"]))],
 	extends: undefined
 })
@@ -635,13 +641,13 @@ const accountBudgets = (): BuiltQuery => {
 	)
 }
 
-/** The closed facts as a typed VALUES relation, matched by the tier handle. */
+/** The closed relation's rows as a typed VALUES relation, matched by the tier handle. */
 const budgets = (): BuiltQuery => {
 	const q = new Ir(plansModel())
 	const m = q.region(
 		[
 			{ source: q.base("Subscription"), bind: { account: "account", tier: "tier" }, constants: {} },
-			{ source: q.closed("Tier"), bind: { id: "tier", budget: "budget" }, constants: {} }
+			{ source: q.closed("TierBudget"), bind: { tier: "tier", budget: "budget" }, constants: {} }
 		],
 		conservativeMeta
 	)

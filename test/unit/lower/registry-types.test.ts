@@ -19,6 +19,7 @@ import { standInNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
 
 /**
@@ -33,8 +34,6 @@ import { checkedLowering } from "#test/support/oracle/verify/index.ts"
  */
 
 type RootFeature = "plain root" | "attached root" | "heterogeneous union"
-
-const names = standInNames("Oracle")
 
 /** A delivered column of a plain carrier is typed as the registry states the carrier, and wildcard text as the registry's. */
 const registryTyped = (column: HeadingColumn): void => {
@@ -97,6 +96,7 @@ describe("the scalar types of lowered statements", () => {
 					(c, n) =>
 						Effect.gen(function* () {
 							const query: LogicalQuery = { dag: c.query.dag, params: genParamDecls(c.query) }
+							const names = standInNames("Oracle", schemaCodes(c.schema))
 							const conservative = lowerConservative(conservativeInput(query), {
 								names,
 								params: query.params,

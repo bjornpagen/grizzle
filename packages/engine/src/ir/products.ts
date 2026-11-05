@@ -8,12 +8,11 @@ import type {
 	RelationIdent,
 	SchemaFingerprint
 } from "#compiler/core/ids.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
-import type { LawLowering, NormalizedLaw, Selector } from "#compiler/ir/law.ts"
+import type { IndexOpclass, LawIndexRequest, LawLowering, NormalizedLaw } from "#compiler/ir/law.ts"
 import type { Heading, RootedDag, ValidDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { WriteIR } from "#compiler/ir/write.ts"
@@ -256,11 +255,6 @@ export interface WitnessDecoder {
 		relation: string,
 		key: ReadonlyArray<{ readonly field: string; readonly text: string }>
 	) => unknown
-	/**
-	 * `law` is the law that raised: a law function raises with the law's stable identity as its constraint name, and the
-	 * DETAIL converts through that law's DetailCodec alone.
-	 */
-	readonly fromDetail: (detail: string, law: LawId) => unknown
 }
 
 export interface WriteProgram extends ProgramArtifacts {
@@ -361,17 +355,6 @@ export type WorkloadAccess = Readonly<Record<string, Readonly<Record<string, Pro
 /** pgvector's cosine operator class, whose ordering operator is `<=>` (check/approximate/policy.ts hnswPolicy). */
 export const vectorCosineOpclass = "vector_cosine_ops"
 
-/**
- * The operator class of an index key: its column type's default, or the one class beyond it the compiler asks for,
- * pgvector's cosine class in the schema the vector extension is installed in. A key names no class by free text, so a
- * default class stated by name is no state a request can hold.
- */
-export type IndexOpclass =
-	| { readonly kind: "default" }
-	| { readonly kind: "vectorCosine"; readonly schema: string }
-
-export const defaultOpclass: IndexOpclass = Object.freeze({ kind: "default" })
-
 /** Whether two keys' operator classes are one class. */
 export const sameIndexOpclass = (a: IndexOpclass, b: IndexOpclass): boolean =>
 	a.kind === "default" ? b.kind === "default" : b.kind === "vectorCosine" && a.schema === b.schema
@@ -381,10 +364,13 @@ export const indexOpclassText = (c: IndexOpclass): string | undefined =>
 	c.kind === "default" ? undefined : `${c.schema}.${vectorCosineOpclass}`
 
 /**
- * An index a workload program asks for. A key carries no collation: every collatable key is pg_catalog.pg_c_utf8, the
- * closed constant of the SQL AST, so the request carries no option for it.
+ * An index the workload's programs and the roles' write filters ask for, by the access they make: each key an
+ * expression of a program or a field by name, and its operator class. A program's access reads every row of its
+ * relation, so its request names none. Which programs make it, the snapshot's workload access records, so a program
+ * edit that moves no index changes no request. A key carries no collation: every collatable key is
+ * pg_catalog.pg_c_utf8, the closed constant of the SQL AST, so the request carries no option for it.
  */
-interface RequestedIndex {
+export interface AccessIndexRequest {
 	readonly relation: string
 	readonly keys: ReadonlyArray<{
 		readonly expr: ExprId | string
@@ -392,37 +378,6 @@ interface RequestedIndex {
 		readonly opclass: IndexOpclass
 	}>
 	readonly method: "btree" | "gist" | "hnsw"
-}
-
-/**
- * The rows an index holds and a law's probe reads: every row of its relation, or only the rows a literal selection
- * chooses, a law's selected source, which a partial index `WHERE <selection>` holds (physical/indexes/engine.ts). A
- * selection names each field once, in the relation's declared field order (laws/model/plan.ts orderedSelection), so
- * two probes over one selection carry equal lists.
- */
-export type IndexRows =
-	| { readonly kind: "all" }
-	| { readonly kind: "selected"; readonly selection: NonEmptyReadonlyArray<Selector> }
-
-export const allRows: IndexRows = Object.freeze({ kind: "all" })
-
-/**
- * An index a law's maintenance needs: its probe, named for diagnostics (`anchor read`, `reverse reference`), and the
- * rows the probe reads.
- */
-export interface LawIndexRequest extends RequestedIndex {
-	readonly role: "lawMaintenance"
-	readonly use: string
-	readonly rows: IndexRows
-	readonly justification: { readonly kind: "law"; readonly law: LawId }
-}
-
-/**
- * An index the workload's programs and the roles' write filters ask for, by the access they make: a program's access
- * reads every row of its relation, so its request names none. Which programs make it, the snapshot's workload access
- * records, so a program edit that moves no index changes no request.
- */
-export interface AccessIndexRequest extends RequestedIndex {
 	readonly role: "access"
 	readonly use: AccessUse
 }
@@ -453,7 +408,7 @@ export const physicalKinds = [
 	"databaseDefault",
 	"schema",
 	"extension",
-	"enum",
+	"constant",
 	"domain",
 	"table",
 	"lawColumn",
@@ -466,8 +421,6 @@ export const physicalKinds = [
 	"isolationFunction",
 	"snapshotGuard",
 	"isolationTrigger",
-	"lawFunction",
-	"lawTrigger",
 	"materializedView",
 	"uniqueIndex",
 	"index",
@@ -535,8 +488,8 @@ type OwnedConstraintLaws = Readonly<Record<string, Readonly<Record<string, LawId
 
 /**
  * Each owner's constraint names to the law a violation reports: a table's constraints and unique indexes under the
- * table, a domain's constraints under the domain. A residual law's function and a write statement's refusal raise
- * under the law's identity itself and report no owner, so they are no entry (write/refusal.ts).
+ * table, a domain's constraints under the domain. A write statement's refusal raises under the law's identity itself
+ * and reports no owner, so it is no entry (write/refusal.ts).
  */
 export type ConstraintLaws = {
 	readonly tables: OwnedConstraintLaws

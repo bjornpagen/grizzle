@@ -31,6 +31,7 @@ import { typlens } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
+import { fieldTypes } from "#compiler/ir/desc.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { closed, relation, relationDescOf } from "#compiler/schema/relation.ts"
 import {
@@ -101,7 +102,7 @@ const fieldDescsOf = (r: unknown): Readonly<Record<string, FieldDesc>> => {
 	if (desc.kind !== "relation") {
 		throw new Error(`${desc.name} is not an ordinary relation`)
 	}
-	return desc.fields
+	return fieldTypes(desc.fields)
 }
 
 /**
@@ -883,7 +884,7 @@ interface Datum {
 	readonly align: number
 }
 
-/** pg_type's typlen and typalign of each fixed key type: an enum is an oid, a serial its integer type. */
+/** pg_type's typlen and typalign of each fixed key type: a closed id is its code, a smallint, a serial its integer type. */
 const fixedDatum: Readonly<Record<FixedType, Datum>> = {
 	smallint: { bytes: 2, align: 2 },
 	integer: { bytes: 4, align: 4 },
@@ -895,7 +896,7 @@ const fixedDatum: Readonly<Record<FixedType, Datum>> = {
 	uuid: { bytes: 16, align: 1 },
 	bigserial: { bytes: 8, align: 8 },
 	serial: { bytes: 4, align: 4 },
-	closedId: { bytes: 4, align: 4 }
+	closedId: { bytes: 2, align: 2 }
 }
 
 /** A varlena datum with its 4-byte header, int-aligned. */
@@ -1073,10 +1074,11 @@ type FixedGistFamily =
 	| "money"
 	| "bool"
 	| "uuid"
-	| "enum"
-type GistFamily = FixedGistFamily | "numeric" | "text" | "range" | "vector"
+	| "code"
+/** A set over a roster is bit(n), a varlena, which btree_gist keys as it keys text (btree_bit.c over gbt_var). */
+type GistFamily = FixedGistFamily | "numeric" | "text" | "bit" | "range" | "vector"
 
-/** Each fixed family's typlen, its datum's bytes: an enum is an oid. */
+/** Each fixed family's typlen, its datum's bytes: a code is a smallint. */
 const fixedTyplens: { readonly [F in FixedGistFamily]: number } = {
 	int2: typlens.int2.value,
 	int4: typlens.int4.value,
@@ -1086,7 +1088,7 @@ const fixedTyplens: { readonly [F in FixedGistFamily]: number } = {
 	money: typlens.money.value,
 	bool: typlens.bool.value,
 	uuid: typlens.uuid.value,
-	enum: typlens.oid.value
+	code: typlens.int2.value
 }
 
 const isFixedGistFamily = (family: GistFamily): family is FixedGistFamily => {
@@ -1099,10 +1101,11 @@ const isFixedGistFamily = (family: GistFamily): family is FixedGistFamily => {
 		case "money":
 		case "bool":
 		case "uuid":
-		case "enum":
+		case "code":
 			return true
 		case "numeric":
 		case "text":
+		case "bit":
 		case "range":
 		case "vector":
 			return false
@@ -1114,7 +1117,7 @@ const gistKeyBytes = (family: Exclude<GistFamily, "vector">, bytes: number): num
 		case "int2":
 		case "int4":
 		case "float4":
-		case "enum":
+		case "code":
 		case "int8":
 		case "float8":
 		case "money":
@@ -1123,6 +1126,7 @@ const gistKeyBytes = (family: Exclude<GistFamily, "vector">, bytes: number): num
 			return 2 * bytes
 		case "numeric":
 		case "text":
+		case "bit":
 			return 4 + Math.ceil(bytes / 4) * 4 + bytes
 		case "range":
 			return bytes
@@ -1163,7 +1167,7 @@ const spanScalarFamily = (s: Extract<SpanScalar, { readonly kind: "fixed" }>): F
 		case "uuid":
 			return "uuid"
 		case "closedId":
-			return "enum"
+			return "code"
 	}
 }
 
@@ -1441,9 +1445,10 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 		"money",
 		"bool",
 		"uuid",
-		"enum",
+		"code",
 		"numeric",
 		"text",
+		"bit",
 		"range",
 		"vector"
 	]

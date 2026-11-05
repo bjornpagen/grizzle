@@ -70,6 +70,8 @@ const absents = (e: ResolvedExpr, loc: SourceLoc): ReadonlyArray<Absent> => {
 		case "compute":
 		case "and":
 		case "or":
+		case "closedAt":
+		case "closedRow":
 			return e.args.flatMap((a, i) => sub(a, i))
 		case "cast":
 		case "base":

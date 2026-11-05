@@ -48,7 +48,7 @@ const changed = "changed"
  * and commits nothing; the caller's second call of the same apply commits, reading the state the concurrent transaction
  * committed. Interruption is suites/interrupt.ts's.
  *
- * The worked example's Work installs with its residual law. The apply copies t1's note to t3 through a described
+ * The worked example's Work installs, every law native. The apply copies t1's note to t3 through a described
  * member, so it reads t1's note and writes t3's. TaskNote's reference to Task is a deferred foreign key, so the note's
  * insert checks its task at COMMIT, with FOR KEY SHARE on the task row: an owner session holding FOR UPDATE on that row
  * makes the apply's COMMIT wait, observed by the lock barrier without sleeping (the planted precondition, so COMMIT is

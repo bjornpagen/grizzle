@@ -2,9 +2,10 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { roleReadNames } from "#compiler/physical/ddl/names.ts"
+import type { NativeKind } from "#compiler/ir/law.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	type FixtureWorlds,
 	fixtureSessions,
@@ -13,18 +14,12 @@ import {
 	worldsExpectation
 } from "#test/pg/physical/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
-import { declaredEnums } from "#test/support/catalog/declared.ts"
 import { expectedCatalog, projectCatalog } from "#test/support/catalog/expected.ts"
 import type { Catalog } from "#test/support/catalog/read.ts"
 import { verifyErasure } from "#test/support/catalog/verify.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import {
-	type ContractNames,
-	installationNamesOf,
-	type Names,
-	type ReportingKind
-} from "#test/support/kernel/naming.ts"
-import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
+import { type ContractNames, installationNamesOf, type Names } from "#test/support/kernel/naming.ts"
+import { expectConstraint } from "#test/support/substrate/expect.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { Charges, fixtures, Ledger } from "#test/unit/physical/fixtures.ts"
 
@@ -44,7 +39,7 @@ const statementOf = (
 const constraintOfDesc = (
 	names: Names,
 	statement: AuthoredStatementDesc,
-	kind: ReportingKind
+	kind: NativeKind
 ): ConstraintName => names.constraintOf(names.lawOfDesc(statement), kind)
 
 /** A checked contract's domain CHECK. */
@@ -57,15 +52,11 @@ const checkOf = (contract: ContractNames): ConstraintName => {
 
 /**
  * The physical names of an installation's objects, read from the installation and quoted for SQL text: a relation's
- * table, a list of its fields' columns, a closed relation's enum, a serial field's identity sequence as a regclass
- * literal, and the vector type of a dimension in the installation's vector schema.
+ * table, and a list of its fields' columns.
  */
 interface Physical {
 	readonly table: (relation: string) => string
 	readonly columns: (relation: string, fields: ReadonlyArray<string>) => string
-	readonly enumType: (closed: string) => string
-	readonly sequence: (relation: string, field: string) => string
-	readonly vector: (dimension: number) => string
 }
 
 const qualified = (o: { readonly schema: string; readonly name: string }) =>
@@ -80,17 +71,7 @@ const physicalOf = (installation: Installation): Physical => {
 			Arr.join(
 				Arr.map(fields, (f) => quoteIdent(names.columnIdent({ name: relation }, f))),
 				", "
-			),
-		enumType: (closed) =>
-			qualified(
-				Option.getOrThrowWith(
-					Rec.get(installation.closedTemplates, closed),
-					() => new Error(`the installation holds no closed relation ${closed}`)
-				).enum
-			),
-		sequence: (relation, field) =>
-			quoteString(qualified(installation.names.sequence(relation, field))),
-		vector: (dimension) => `${quoteIdent(installation.settings.vectorSchema)}.vector(${dimension})`
+			)
 	}
 }
 
@@ -115,7 +96,7 @@ const oneText = (rows: unknown): Arr.NonEmptyReadonlyArray<readonly [string]> =>
 /** The identity sequence of the installed column `column` of the installed table `table`, as `<schema>.<sequence>`. */
 const sequenceOf = (installation: Installation, table: string, column: string): string => {
 	for (const r of Rec.values(installation.owned.relations)) {
-		if (r.ident !== table) {
+		if (r.kind !== "relation" || r.ident !== table) {
 			continue
 		}
 		const field = Arr.findFirst(Rec.values(r.fields), (f) => f.column === column)
@@ -163,24 +144,35 @@ const checkInvariants = (
 	for (const x of catalog.indexes) {
 		assert.equal(x.valid, true, `index ${x.name} is valid`)
 	}
-	/** Each enum is a declared closed relation, its labels the declared handles in order. */
-	const enums = declaredEnums(desc)
-	assert.deepEqual(
-		Arr.sort(
-			Arr.map(catalog.enums, (e) => e.name),
-			Order.String
-		),
-		Arr.sort([...enums.keys()], Order.String)
+	assert.equal(
+		catalog.enumLabels,
+		0,
+		"a closed id is a code under its roster's domain: no enum label"
 	)
-	for (const e of catalog.enums) {
-		assert.deepEqual(e.labels, defined(enums.get(e.name), `enum ${e.name}`))
+	for (const roster of rostersOf(installation.owned)) {
+		const name = installation.names.rosterDomain(roster.closed).name
+		const domain = defined(
+			Arr.findFirst(catalog.domains, (d) => d.name === name).pipe(Option.getOrUndefined),
+			`the domain of roster ${roster.closed}`
+		)
+		assert.deepEqual(
+			{ base: domain.base.name, calls: Arr.map(domain.constraints, (k) => k.calls.length) },
+			{ base: "int2", calls: [1] },
+			`roster ${roster.closed}'s domain`
+		)
+		for (const called of Arr.flatMap(domain.constraints, (k) => k.calls)) {
+			assert.ok(
+				Arr.some(catalog.functions, (f) => f.name === called),
+				`the names constant ${called} of roster ${roster.closed}`
+			)
+		}
 	}
 	const everything = [
 		...catalog.schemaGrants,
 		...Arr.flatMap(catalog.tables, (t) => t.grants),
 		...Arr.flatMap(catalog.sequences, (s) => s.grants),
-		...Arr.flatMap(catalog.enums, (e) => e.grants),
-		...Arr.flatMap(catalog.domains, (d) => d.grants)
+		...Arr.flatMap(catalog.domains, (d) => d.grants),
+		...Arr.flatMap(catalog.functions, (f) => f.grants)
 	]
 	assert.deepEqual(
 		Arr.filter(everything, (g) => g.grantee === "PUBLIC"),
@@ -240,7 +232,9 @@ layer(Substrate.layer)("fresh install", (it) => {
 				 *
 				 * One minor unit: below the domain's 1.00, and the surcharge the row CHECK forbids.
 				 *
-				 * 125 minor units is the 1.25 the capacity selects: at most one such charge per account.
+				 * 125 minor units is the 1.25 the key over the selected side selects, `key(on(select(Charge, fee = 1.25),
+				 * account))`: at most one such charge per account. Charges of any other fee lie outside the selection, their
+				 * law columns NULL, and the key's UNIQUE is NULLS DISTINCT, so two of them under one account are no repeat.
 				 */
 				const worlds = fixtureWorlds(Charges)
 				const { installation } = yield* installed(Charges, "physical", [worlds.login])
@@ -272,197 +266,21 @@ layer(Substrate.layer)("fresh install", (it) => {
 					"23514"
 				)
 				yield* charge(3, 125n, 0n)
-				const feeCapacity = statementOf(Charges, (st) => st.kind === "capacity")
+				const feeKey = statementOf(Charges, (st) => st.kind === "key")
 				yield* expectConstraint(
 					charge(4, 125n, 0n),
-					constraintOfDesc(names, feeCapacity, "Unique"),
+					constraintOfDesc(names, feeKey, "Unique"),
 					"23505"
 				)
 				yield* charge(5, 126n, 0n)
+				yield* charge(6, 127n, 0n)
 				yield* w.query("RESET lc_monetary", [])
 				const feeColumn = at.columns("Charge", ["fee"])
 				const rows = yield* w.values(
 					`SELECT ${feeColumn}::numeric::text FROM ${at.table("Charge")} ORDER BY ${feeColumn}`,
 					[]
 				)
-				assert.deepEqual(rows, [["1.25"], ["1.26"]])
+				assert.deepEqual(rows, [["1.25"], ["1.26"], ["1.27"]])
 			})
-	)
-
-	it.effect("roles hold exactly their derived grants", () =>
-		Effect.gen(function* () {
-			const substrate = yield* Substrate
-			/**
-			 * An identity column refuses an explicit value without OVERRIDING SYSTEM VALUE.
-			 *
-			 * No role holds a privilege on an identity sequence: setval is refused, and the advance function moves the
-			 * sequence past a value, so the next default is the one after it.
-			 *
-			 * A domain refuses an out-of-pattern value with the domain's constraint.
-			 *
-			 * An exact repeat of a key is a unique violation for a direct writer.
-			 *
-			 * UPDATE of an immutable relation is refused by privilege; of a mutable one permitted.
-			 *
-			 * The row CHECK, the finite CHECK and the at-most-one capacity, a UNIQUE over its source, are native:
-			 * finite laws become ordinary constraints.
-			 */
-			const worlds = fixtureWorlds(Ledger)
-			const { installation } = yield* installed(Ledger, "physical", [worlds.login])
-			const names = installationNamesOf(installation)
-			const at = physicalOf(installation)
-			const { writer, reader } = yield* fixtureSessions(installation, worlds)
-			const w = yield* substrate.session({ ...worldSession(writer) })
-			const r = yield* substrate.session({ ...worldSession(reader) })
-			const accountTable = at.table("Account")
-			const entryTable = at.table("Entry")
-			const currency = at.enumType("Currency")
-			const purpose = at.enumType("Purpose")
-			const opening = at.columns("Account", ["code", "currency", "opened"])
-			const entryColumns = at.columns("Entry", [
-				"account",
-				"purpose",
-				"amount",
-				"refund",
-				"remainder",
-				"rate",
-				"fee",
-				"weight",
-				"score",
-				"ratio",
-				"embedding",
-				"memo"
-			])
-			const vector = at.vector(3)
-			yield* w.query(
-				`INSERT INTO ${accountTable} (${opening}) VALUES ('ABC'::text, 'Usd'::${currency}, 1::bigint)`,
-				[]
-			)
-			const [[id]] = yield* Effect.map(
-				w.values(`SELECT ${at.columns("Account", ["id"])}::text FROM ${accountTable}`, []),
-				oneText
-			)
-			yield* expectSqlstate(
-				w.query(
-					`INSERT INTO ${accountTable} (${at.columns("Account", ["id", "code", "currency", "opened"])}) VALUES (99::bigint, 'XYZ'::text, 'Eur'::${currency}, 1::bigint)`,
-					[]
-				),
-				"428C9"
-			)
-			yield* expectSqlstate(
-				w.query(
-					`SELECT pg_catalog.setval(${at.sequence("Account", "id")}::regclass, 10::bigint)`,
-					[]
-				),
-				"42501"
-			)
-			const advance = installation.names.advance("Account", "id")
-			yield* w.query(
-				`SELECT ${quoteIdent(advance.schema)}.${quoteIdent(advance.name)}(10::bigint)`,
-				[]
-			)
-			const rows = yield* w.values(
-				`INSERT INTO ${accountTable} (${opening}) VALUES ('DEF'::text, 'Usd'::${currency}, 1::bigint) RETURNING ${at.columns("Account", ["id"])}::text`,
-				[]
-			)
-			assert.deepEqual(rows, [["11"]])
-			yield* expectConstraint(
-				w.query(
-					`INSERT INTO ${accountTable} (${opening}) VALUES ('abc'::text, 'Usd'::${currency}, 1::bigint)`,
-					[]
-				),
-				names.textDomain({ name: "Account" }, "code").constraint,
-				"23514"
-			)
-			yield* expectSqlstate(
-				w.query(
-					`INSERT INTO ${accountTable} (${opening}) VALUES ('ABC'::text, 'Usd'::${currency}, 1::bigint)`,
-					[]
-				),
-				"23505"
-			)
-			yield* expectSqlstate(
-				w.query(`UPDATE ${accountTable} SET ${at.columns("Account", ["opened"])} = 2::bigint`, []),
-				"42501"
-			)
-			yield* expectSqlstate(w.query(`TRUNCATE ${accountTable}`, []), "42501")
-			yield* w.query(
-				`INSERT INTO ${entryTable} (${entryColumns})
-				VALUES (${id}::bigint, 'Payroll'::${purpose}, 10::bigint, 5::bigint, true, 0.5::numeric, 1.25::numeric::money, 1::real, 2::double precision, 3.5::numeric, '[1,2,3]'::${vector}, ''::text)`,
-				[]
-			)
-			yield* w.query(`UPDATE ${entryTable} SET ${at.columns("Entry", ["memo"])} = 'm'::text`, [])
-			yield* expectConstraint(
-				w.query(`UPDATE ${entryTable} SET ${at.columns("Entry", ["refund"])} = 50::bigint`, []),
-				constraintOfDesc(
-					names,
-					statementOf(Ledger, (st) => st.kind === "check" && st.name === "RefundWithinAmount"),
-					"TableCheck"
-				),
-				"23514"
-			)
-			yield* expectConstraint(
-				w.query(
-					`INSERT INTO ${at.table("Rounding")} (${at.columns("Rounding", ["currency", "minor"])}) VALUES ('Usd'::${currency}, 1::bigint)`,
-					[]
-				),
-				constraintOfDesc(
-					names,
-					statementOf(Ledger, (st) => st.kind === "contained" && st.left.relation === "Rounding"),
-					"FiniteCheck"
-				),
-				"23514"
-			)
-			yield* w.query(
-				`INSERT INTO ${at.table("Rounding")} (${at.columns("Rounding", ["currency", "minor"])}) VALUES ('Usd'::${currency}, 100::bigint)`,
-				[]
-			)
-			yield* expectConstraint(
-				w.query(
-					`INSERT INTO ${entryTable} (${entryColumns})
-					VALUES (${id}::bigint, 'Refund'::${purpose}, 10::bigint, 5::bigint, true, 0.5::numeric, 1::numeric::money, 1::real, 2::double precision, 3.5::numeric, '[1,2,3]'::${vector}, ''::text)`,
-					[]
-				),
-				constraintOfDesc(
-					names,
-					statementOf(Ledger, (st) => st.kind === "capacity"),
-					"Unique"
-				),
-				"23505"
-			)
-			/**
-			 * The reader reads through its world's view and writes nothing: not its view, not the table, which it
-			 * cannot read either.
-			 */
-			const entryView = roleReadNames(installation.names, worlds.reader).relation("Entry")
-			const view = `${quoteIdent(entryView.schema)}.${quoteIdent(entryView.name)}`
-			yield* r.query(`SELECT count(*) FROM ${view}`, [])
-			yield* expectSqlstate(r.query(`DELETE FROM ${view}`, []), "42501")
-			yield* expectSqlstate(r.query(`DELETE FROM ${entryTable}`, []), "42501")
-			yield* expectSqlstate(r.query(`SELECT count(*) FROM ${entryTable}`, []), "42501")
-			/** The foreign key into the selected Refund entries is deferred: a payout of a Refund entry fails at COMMIT. */
-			const [[entry]] = yield* Effect.map(
-				w.values(`SELECT ${at.columns("Entry", ["id"])}::text FROM ${entryTable}`, []),
-				oneText
-			)
-			yield* expectConstraint(
-				inTransaction(
-					w,
-					Effect.gen(function* () {
-						yield* w.query(
-							`UPDATE ${entryTable} SET ${at.columns("Entry", ["purpose"])} = 'Refund'::${purpose}`,
-							[]
-						)
-						yield* w.query(
-							`INSERT INTO ${at.table("Payout")} (${at.columns("Payout", ["entry", "purpose"])}) VALUES (${entry}::int4, 'Refund'::${purpose})`,
-							[]
-						)
-						yield* w.query("COMMIT", [])
-					})
-				),
-				names.fieldConstraint({ name: "Payout" }, "fk", ["entry"]),
-				"23503"
-			)
-		})
 	)
 })

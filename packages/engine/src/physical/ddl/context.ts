@@ -1,8 +1,13 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { compareText, Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
-import { type DeclaredName, type Identity, identity } from "#compiler/core/identity.ts"
-import type { ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
+import {
+	compareIdentities,
+	type DeclaredName,
+	type Identity,
+	identity
+} from "#compiler/core/identity.ts"
+import type { ColumnIdent, ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
 import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
@@ -24,8 +29,9 @@ import {
 } from "#compiler/physical/obligations/graph.ts"
 import { vectorExtension } from "#compiler/physical/vector/storage.ts"
 import type { Owned, OwnedLogin } from "#compiler/schema/own.ts"
-import type { ObjectName, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
+import type { FunctionName, ObjectName, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { refusalFunctionDdl } from "#compiler/write/refusal.ts"
 
 export interface InstallSettings {
@@ -74,12 +80,20 @@ export interface TargetField {
  * reports it (Installation.deferred); or no stored or derived relation at all. */
 type RelationTarget = BuiltTarget | { readonly kind: "deferred" } | { readonly kind: "none" }
 
-/** A relation an object can be built on: a stored relation's table or a registered view, each field an object on it
+/**
+ * A column an index or statistics object of a relation names, by its arm: a field by its name, or a law column a law
+ * adds to a stored relation by its identifier. The arm says which, so no name is looked up as either.
+ */
+export type IndexColumn =
+	| { readonly kind: "field"; readonly field: string }
+	| { readonly kind: "law"; readonly column: ColumnIdent }
+
+/** A relation an object can be built on: a stored relation's table or a registered view, each column an object on it
  * may name and the installed column it is. */
 export interface BuiltTarget {
 	readonly kind: "built"
-	readonly field: (field: string) => TargetField | undefined
-	readonly column: (field: string) => string
+	readonly field: (column: IndexColumn) => TargetField | undefined
+	readonly column: (column: IndexColumn) => string
 	readonly object: Node<"structure">
 }
 
@@ -136,8 +150,9 @@ const widenedRelation = (
  * It adds the objects every installation holds when it is made: the schema, the refusal function every write statement
  * that can refuse and every context source raises through, the isolation default and guard, and the snapshot guard,
  * each after the schema. Each
- * later stage adds its objects after the objects it reads, named by the handles their stages returned; an enum or a
- * domain a column or a declaration names by its identifier (`addType`, `typeNode`), a table by its relation
+ * later stage adds its objects after the objects it reads, named by the handles their stages returned; a domain a column
+ * or a declaration names by its identifier (`addType`, `typeNode`), a constant a statement calls (`addConstant`,
+ * `constantNodes`), a table by its relation
  * (`addTable`, `table`), and an extension an object needs at the object's addition (`provider`). */
 export class InstallBuilder {
 	readonly owned: Owned
@@ -160,6 +175,15 @@ export class InstallBuilder {
 	readonly #named: Array<Identity<IdentityKind>> = []
 	readonly #providers = new Map<Capability, Node<"setup">>()
 	readonly #types = new Map<string, Node<"setup">>()
+	/** Each constant by identifier: its identity, its object and the constants its body calls. */
+	readonly #constants = new Map<
+		string,
+		{
+			readonly named: Identity<IdentityKind>
+			readonly node: Node<"setup">
+			readonly calls: ReadonlySet<string>
+		}
+	>()
 	readonly #tables = new Map<string, Node<"structure">>()
 	readonly #views = new Map<string, IndexedView>()
 	readonly #qualified = new Map<QualifiedKind, Map<string, Map<string, Node<DeployPhase>>>>()
@@ -260,7 +284,6 @@ export class InstallBuilder {
 		const node = this.graph.add(spec, after)
 		const ident = spec.ident
 		switch (ident.kind) {
-			case "enum":
 			case "domain":
 			case "table":
 			case "materializedView":
@@ -312,10 +335,10 @@ export class InstallBuilder {
 		this.#columns.set(table, needed)
 	}
 
-	/** Adds an enum or a domain of the installed schema, which a column, a cast or a declaration names by its
-	 * identifier (`typeNode`). */
+	/** Adds a domain of the installed schema, which a column, a cast or a declaration names by its identifier
+	 * (`typeNode`). */
 	addType(
-		kind: "enum" | "domain",
+		kind: "domain",
 		name: Identity<IdentityKind>,
 		spec: Omit<ObjectSpec<"setup">, "kind" | "ident" | "phase">,
 		after: ReadonlyArray<Node<"setup">>
@@ -334,13 +357,112 @@ export class InstallBuilder {
 		return node
 	}
 
-	/** The enum or domain of the installed schema `type` names; none for a type the installation creates no object for
-	 * (a builtin type, the vector extension's). */
+	/**
+	 * Adds a constant of the installed schema, a function of no argument (physical/ddl/constants.ts), which a domain's
+	 * CHECK, a table's CHECK, a generated column or a view calls: its object is a function of the graph, so every object
+	 * whose statements call it is created after it (`readsOf`). A constant is named by its content, so one added again
+	 * is the object already added, which takes the new reasons too.
+	 */
+	addConstant(
+		name: Identity<"closedConstant" | "rosterConstant" | "rosterLive">,
+		spec: Omit<ObjectSpec<"setup">, "kind" | "ident" | "phase">,
+		after: ReadonlyArray<Node<"setup">>
+	): Node<"setup"> {
+		const known = this.#constants.get(name.identifier)
+		if (known !== undefined) {
+			this.graph.addReasons(known.node, spec.reasons)
+			return known.node
+		}
+		const node = this.add(
+			{
+				kind: "constant",
+				ident: this.qualified("function", name),
+				ddl: spec.ddl,
+				reasons: spec.reasons,
+				phase: "setup"
+			},
+			after
+		)
+		this.#constants.set(name.identifier, {
+			named: name,
+			node,
+			calls: this.#constantCalls(spec.ddl)
+		})
+		return node
+	}
+
+	/** The installation's constants `statements` call, by identifier. */
+	#constantCalls(statements: ReadonlyArray<SqlStatement>): ReadonlySet<string> {
+		const called = new Set<string>()
+		const hooks: AstHooks = {
+			...identityHooks,
+			functionRef: (fn) => {
+				if (fn.schema === this.schema && this.#constants.has(fn.name)) {
+					called.add(fn.name)
+				}
+				return fn
+			}
+		}
+		for (const statement of statements) {
+			transformStatement(statement, hooks)
+		}
+		return called
+	}
+
+	/** The installation's constants `statements` call directly, by identifier. */
+	callsOf(statements: ReadonlyArray<SqlStatement>): ReadonlySet<string> {
+		return this.#constantCalls(statements)
+	}
+
+	/**
+	 * Every constant of the installation `called` names, by identifier, with each constant its body calls, directly or
+	 * through another's, ordered by the identities they were named by, each with its object: what a role that runs a
+	 * statement calling them is granted EXECUTE on, since PostgreSQL checks EXECUTE on each function a plan calls against
+	 * the invoker, a view's and a domain CHECK's included, and a function body's calls as that body runs.
+	 */
+	reached(
+		called: Iterable<string>
+	): ReadonlyArray<{ readonly name: FunctionName; readonly node: Node<"setup"> }> {
+		const reached = new Set<string>()
+		const reach = (identifier: string): void => {
+			if (reached.has(identifier)) {
+				return
+			}
+			reached.add(identifier)
+			for (const next of this.#constants.get(identifier)?.calls ?? []) {
+				reach(next)
+			}
+		}
+		for (const identifier of called) {
+			reach(identifier)
+		}
+		return [...reached]
+			.flatMap((identifier) => {
+				const known = this.#constants.get(identifier)
+				return known === undefined ? [] : [known]
+			})
+			.toSorted((a, b) => compareIdentities(a.named, b.named))
+			.map((known) => ({
+				name: { schema: this.schema, name: known.named.identifier, args: [] },
+				node: known.node
+			}))
+	}
+
+	/** The objects of the constants `statements` call directly, which an object holding them is created after. */
+	constantNodes(statements: ReadonlyArray<SqlStatement>): ReadonlyArray<Node<"setup">> {
+		return [...this.#constantCalls(statements)].flatMap((identifier) => {
+			const known = this.#constants.get(identifier)
+			return known === undefined ? [] : [known.node]
+		})
+	}
+
+	/** The domain of the installed schema `type` names; none for a type the installation creates no object for (a
+	 * builtin type, the vector extension's). */
 	typeNode(type: TypeRef): Node<"setup"> | undefined {
 		return type.kind === "named" ? this.typeNamed(type) : undefined
 	}
 
-	/** The enum or domain the installation creates under `name`; none for another type. */
+	/** The domain the installation creates under `name`; none for another type. */
 	typeNamed(name: { readonly schema: string; readonly name: string }): Node<"setup"> | undefined {
 		return name.schema === this.schema ? this.#types.get(name.name) : undefined
 	}
@@ -371,17 +493,19 @@ export class InstallBuilder {
 		return table
 	}
 
-	/** The object a read of `relation` waits for: its table, its closed relation's enum, or its derived relation's
-	 * materialized view; none for a relation the installation does not hold (a derived relation no extension installs). */
+	/** The object a read of `relation` waits for: its table, its roster's domain, or its derived relation's
+	 * materialized view; none for a relation the installation holds no object of (a derived relation no extension
+	 * installs, a closed relation, which a read reads through the constants its statements call). */
 	readObject(relation: string): Node<"setup" | "structure"> | undefined {
 		const r = this.owned.relations[relation]
 		switch (r?.kind) {
 			case "relation":
 				return this.#tables.get(relation)
 			case "closed":
-				return this.#types.get(this.names.enumType(r.name).name)
+				return this.#types.get(this.names.rosterDomain(r.name).name)
 			case "derived":
 				return this.materializedView(relation)
+			case "closedRelation":
 			case undefined:
 				return undefined
 		}
@@ -444,8 +568,8 @@ export class InstallBuilder {
 		if (view !== undefined) {
 			return {
 				kind: "built",
-				field: (f) => view.fields.get(f),
-				column: (f) => this.names.column(relation, f),
+				field: (c) => (c.kind === "field" ? view.fields.get(c.field) : undefined),
+				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
 				object: view.object
 			}
 		}
@@ -455,8 +579,11 @@ export class InstallBuilder {
 			const lawColumns = this.#lawColumns.get(relation)
 			return {
 				kind: "built",
-				field: (f) => stored.fields.find((field) => field.name === f) ?? lawColumns?.get(f),
-				column: (f) => (lawColumns?.has(f) === true ? f : this.names.column(relation, f)),
+				field: (c) =>
+					c.kind === "field"
+						? stored.fields.find((field) => field.name === c.field)
+						: lawColumns?.get(c.column),
+				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
 				object: this.table(relation)
 			}
 		}

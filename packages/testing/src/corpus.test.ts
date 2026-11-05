@@ -31,6 +31,10 @@ const noteFound = (value: number, c: Case<Found>) =>
 /** One value of a range the floor stream never lands on any of `FOUND`'s values in. */
 const search = (suite: string): Exploration<number, number, Found> => ({
 	suite,
+	oracle: {
+		kind: "specification",
+		name: "a range planted so the floor stream lands on none of the found values"
+	},
 	draw: drawn(int(0, 1_000_000)),
 	literal: Formatter.format,
 	coverage: noCoverage,

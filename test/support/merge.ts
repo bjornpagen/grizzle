@@ -2,6 +2,7 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { CompletedOrder } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -17,6 +18,8 @@ interface MergeSpec {
 	readonly order: CompletedOrder
 	/** The type of each ordered column, as the statements' decoders produce its host value. */
 	readonly types: Readonly<Record<string, ScalarType>>
+	/** The installation's codes: a closed id orders by its code, which its handle decodes from. */
+	readonly codes: Codebook
 }
 
 type DecodedRow = { readonly [column: string]: unknown }
@@ -64,7 +67,11 @@ export const mergeComparator = (
 				)
 			)
 		}
-		keys.push({ column: k.column, sign: k.dir === "asc" ? 1 : -1, spec: carrierSpecOf(type) })
+		keys.push({
+			column: k.column,
+			sign: k.dir === "asc" ? 1 : -1,
+			spec: carrierSpecOf(type, spec.codes)
+		})
 	}
 	return Result.ok((a, b) => {
 		for (const k of keys) {

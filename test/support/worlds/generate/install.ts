@@ -2,7 +2,7 @@ import { array, boolean, element, type Gen, int, map, span } from "@grizzle/test
 import type { Source } from "@grizzle/testing/source"
 import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { valueText } from "#test/pg/laws/families/model.ts"
+import { valueText } from "#test/support/laws/model.ts"
 import {
 	closedField,
 	fieldsOfSource,

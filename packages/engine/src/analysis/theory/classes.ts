@@ -51,10 +51,9 @@ class FieldNode {
 /**
  * Field-compatibility classes.
  *
- * Union-find over the admitted containment pairings: the i-th field of a contained or capacity side is paired
- * with the i-th field of the other side, and an alternatives expansion pairs its discriminator with its roster's handle
- * (its head containment) and each arm's key with the parent's key. The structure is near-linear, O((F + L) α(F)),
- * with union by size and path halving.
+ * Union-find over the admitted pairings: the i-th field of a contained side is paired with the i-th field of the
+ * other side, a family's group with its owner's key, a fold's step value with its accumulators and ends, and a tree's
+ * start with its end. The structure is near-linear, O((F + L) α(F)), with union by size and path halving.
  *
  * A class keeps the nominal identity its members share: carrier, contract identity, closed roster identity, vector
  * dimensions, and span endpoint identity (scalar/compute/types.ts compatible). Two fields of different

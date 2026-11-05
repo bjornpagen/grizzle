@@ -19,6 +19,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { expectConstraint, expectSqlstate } from "#test/support/substrate/expect.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
 const Embedding = relation("Embedding", { id: uuid, value: pg.vector(4), raw: pg.vector(4) }, [
@@ -98,7 +99,7 @@ layer(Substrate.layer)("vector storage", (it) => {
 							[id(n), value, raw]
 						)
 
-					const codec = codecOf(embeddingType())
+					const codec = codecOf(embeddingType(), emptyCodebook)
 					yield* exhaust(
 						{
 							suite: "pg/vector/storage/norm",

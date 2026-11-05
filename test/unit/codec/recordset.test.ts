@@ -39,7 +39,7 @@ import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { types } from "#test/unit/codec/support.ts"
+import { kindCodes, types } from "#test/unit/codec/support.ts"
 import { asDecimal } from "#test/unit/codec/values.ts"
 
 /**
@@ -57,7 +57,8 @@ const reading: RelationSpec = {
 		{ name: "value", type: types.numeric52 },
 		{ name: "raw", type: types.float8 }
 	]),
-	slot: { kind: "slot", name: "readings" }
+	slot: { kind: "slot", name: "readings" },
+	codes: kindCodes
 }
 
 /**
@@ -190,7 +191,8 @@ describe("relation normalization", () => {
 					columns: positionalColumns([
 						{ name: "fixed", type: scalarOf(f.span(f.integer, 15n), {}) }
 					]),
-					slot: { kind: "slot", name: "slots" }
+					slot: { kind: "slot", name: "slots" },
+					codes: kindCodes
 				}
 				const normalize = relationNormalizer(spec)
 				yield* searched(
@@ -303,7 +305,8 @@ describe("relation normalization", () => {
 				const heading: RelationSpec = {
 					relation: "Reading",
 					columns: reading.columns,
-					slot: { kind: "none" }
+					slot: { kind: "none" },
+					codes: kindCodes
 				}
 				/** A statement's encoder over the same heading in its own column order. */
 				const statement: RelationSpec = {
@@ -313,7 +316,8 @@ describe("relation normalization", () => {
 						{ name: "id", type: types.uuid },
 						{ name: "value", type: types.numeric52 }
 					]),
-					slot: { kind: "none" }
+					slot: { kind: "none" },
+					codes: kindCodes
 				}
 				const normalize = relationNormalizer(heading)
 				const again = relationNormalizer(statement)
@@ -368,7 +372,8 @@ describe("relation normalization", () => {
 						{ name: "k", type: types.int4 },
 						{ name: "n", type: types.numeric }
 					]),
-					slot: { kind: "none" }
+					slot: { kind: "none" },
+					codes: kindCodes
 				}
 				const encode = arraysEncoder(spec)
 				const normalize = relationNormalizer(spec)
@@ -607,7 +612,8 @@ describe("the arrays of every field type", () => {
 				const spec: RelationSpec = {
 					relation: "Every",
 					columns: positionalColumns(Arr.map(everyType, ({ name, type }) => ({ name, type }))),
-					slot: { kind: "none" }
+					slot: { kind: "none" },
+					codes: kindCodes
 				}
 				const encode = arraysEncoder(spec)
 				const normalize = relationNormalizer(spec)
@@ -637,7 +643,7 @@ describe("the arrays of every field type", () => {
 								assert.equal(count, normal.count)
 								assert.equal(arrays.length, everyType.length)
 								for (const [j, column] of everyType.entries()) {
-									const codec = scalarCodec(column.type)
+									const codec = scalarCodec(column.type, kindCodes)
 									assert.deepEqual(
 										readArrayLiteral(defined(arrays[j])),
 										Arr.map(normal.facts, (fact) => codec.text(fact[column.name])),

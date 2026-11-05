@@ -43,6 +43,7 @@ import {
 	type RootSketch,
 	undrawn
 } from "#test/support/oracle/gen/query.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
 
@@ -323,8 +324,6 @@ const orderedQuery = (o: OrderedCase): OrderedQuery | undefined => {
 	}
 }
 
-const names = standInNames("Oracle")
-
 /**
  * Each attachment delivered as its Attach node in the DAGs under test claims (the optimized and the checked DAG share
  * their Attach nodes' ids), every child column carried: the conservative claims, which are sound (reader/analysis.ts).
@@ -421,6 +420,9 @@ describe("the page compiler and the page runtime template", () => {
 								return yield* c.assume(false)
 							}
 							const query = orderedRead.query
+							/** The case's names, under the codes its schema's installation holds. */
+							const codes = schemaCodes(o.c.schema)
+							const names = standInNames("Oracle", codes)
 							/** The lowerings are not this property's subject: a case either of them refuses is no case. */
 							const conservative = lowerConservative(conservativeInput(query), {
 								names,
@@ -482,7 +484,8 @@ describe("the page compiler and the page runtime template", () => {
 								params: query.params,
 								query: "unit/page/runtime-total",
 								generation: { schema: "oracle", extensions: {} },
-								facts: claimedFacts([optimized.value.query.dag, query.dag])
+								facts: claimedFacts([optimized.value.query.dag, query.dag]),
+								codes
 							})
 							if (Result.isFailure(runtime)) {
 								assert.ok(

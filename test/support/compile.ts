@@ -2,6 +2,7 @@ import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery, StatementSpec } from "#compiler/ir/products.ts"
 import type { NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
@@ -36,39 +37,75 @@ import {
 	type LoginWorkloads,
 	type WorkloadPlan
 } from "#compiler/program/workload/compile.ts"
+import { type Owned, own, ownRole, rostersOf } from "#compiler/schema/own.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import type { CompileWriteOptions } from "#compiler/write/program/compile.ts"
 import { checkedLowering, templateLowering } from "#test/support/oracle/verify/index.ts"
 
 /**
+ * The codes a test compiles a schema's artifacts under: a fresh installation's, each roster's handles numbered by
+ * position (ir/codes.ts firstCodebook over the schema's rosters), or an installation's own, which a migrated one with a
+ * hole or a re-added handle needs, since codes are history and no schema alone determines them.
+ */
+export type TestCodes =
+	| { readonly kind: "first" }
+	| { readonly kind: "installed"; readonly codes: Codebook }
+
+/** A fresh installation's codes, whatever schema they are drawn for. */
+export const firstCodes: TestCodes = { kind: "first" }
+
+/** An installation's own codes: what a test that installed or migrated the schema compiles under. */
+export const installedCodes = (codes: Codebook): TestCodes => ({ kind: "installed", codes })
+
+/**
  * A query compiled the way the runtime compiles it, for tests that compile a query directly: its schema's artifacts
- * (installed under `schemaIdent`, with the vector extension in `vectorSchema`, when the test installs under names of
- * its own), for the context, read as rows or a page as the options state; testCompile states the runtime's own, and a
- * test spreads it with what it changes. A query over a role is checked against that role, as the runtime checks it.
- *
- * How a test compiles a query: for a template context, read as rows or a page, its schema installed under
- * `schemaIdent` with the vector extension in `vectorSchema` (undefined: the declared schema's own names, as
- * schemaArtifacts takes them). Every field is stated: testCompile states the runtime's own, and a test spreads it with
- * what it changes.
+ * (installed under `installation`, with the vector extension in `vectorSchema`, under the codes `codes` names, when the
+ * test installs under names and codes of its own), for the context, read as rows or a page as the options state;
+ * testCompile states the runtime's own for a fresh installation, and a test spreads it with what it changes. A query
+ * over a role is checked against that role, as the runtime checks it. Every field is stated.
  */
 export interface TestCompileOptions {
 	readonly context: TemplateContext
 	readonly read: "rows" | "page"
 	readonly installation: Identity<"schema"> | undefined
 	readonly vectorSchema: string | undefined
+	readonly codes: TestCodes
 }
 
-/** The names a schema's artifacts are compiled under. */
-export type TestNaming = Pick<TestCompileOptions, "installation" | "vectorSchema">
+/** The names and codes a schema's artifacts are compiled under. */
+export type TestNaming = Pick<TestCompileOptions, "installation" | "vectorSchema" | "codes">
 
-/** The runtime's compilation: the snapshot context, rows, the declared schema's own names. */
+/** The runtime's compilation of a fresh installation: the snapshot context, rows, the declared schema's own names. */
 export const testCompile: TestCompileOptions = {
 	context: "snapshot",
 	read: "rows",
 	installation: undefined,
-	vectorSchema: undefined
+	vectorSchema: undefined,
+	codes: firstCodes
 }
+
+/** The schema an input's artifacts are computed over, owned: a role's base, or the schema itself. */
+const ownedOf = (input: SchemaInput): Result.Result<Owned, CompileError> => {
+	switch (input.kind) {
+		case "owned":
+			return Result.ok(input.owned)
+		case "role":
+			return Result.map(ownRole(input.desc), (role) => role.base)
+		case "built":
+		case "desc":
+			return own(input.desc)
+	}
+}
+
+/** The codebook `codes` names for `input`'s schema: the installation's own, or a fresh installation's of its rosters. */
+export const codebookFor = (
+	input: SchemaInput,
+	codes: TestCodes
+): Result.Result<Codebook, CompileError> =>
+	codes.kind === "installed"
+		? Result.ok(codes.codes)
+		: Result.map(ownedOf(input), (owned) => firstCodebook(rostersOf(owned)))
 
 /**
  * The artifacts of `schema`, parsed once as the runtime parses it (parseSchemaInput, idempotent on a parsed input),
@@ -79,10 +116,13 @@ export const testArtifacts = (
 	naming: TestNaming
 ): Result.Result<SchemaArtifacts, CompileError> =>
 	Result.flatMap(parseSchemaInput(schema), (input) =>
-		schemaArtifacts(input, {
-			installation: naming.installation,
-			vectorSchema: naming.vectorSchema
-		})
+		Result.flatMap(codebookFor(input, naming.codes), (codes) =>
+			schemaArtifacts(input, {
+				installation: naming.installation,
+				vectorSchema: naming.vectorSchema,
+				codes
+			})
+		)
 	)
 
 /**

@@ -3,6 +3,8 @@ import {
 	claimRuleText,
 	type DerivedRefusal,
 	derivedRefusalText,
+	type GeneratedRule,
+	generatedRuleText,
 	type KeyFault,
 	keyFaultText,
 	type LoginRule,
@@ -12,6 +14,7 @@ import {
 	recursionRefusalText,
 	roleRuleText
 } from "#compiler/core/causes.ts"
+import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath, prefixedLoc, type SourceLoc } from "#compiler/core/loc.ts"
 
@@ -84,7 +87,10 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  * - `statementParams`: a statement of `needed` placeholders, past the `limit` a Bind message counts (core/limits.ts
  *   statementMaxParams);
  * - `numericDigits`: a numeric expression whose value may need `needed` integer digits, past numeric's `limit`
- *   (ir/scalar.ts numericMaxIntegerDigits), where PostgreSQL's numeric arithmetic would raise.
+ *   (ir/scalar.ts numericMaxIntegerDigits), where PostgreSQL's numeric arithmetic would raise;
+ * - `constantBits`: the constant of the closed relation or side `constant`, whose cells times their width come to
+ *   `needed` bits, past PostgreSQL's longest bit string, `limit` (core/limits.ts constantMaxBits), refused before it is
+ *   packed.
  */
 export type CompileBound =
 	| {
@@ -103,6 +109,12 @@ export type CompileBound =
 	| { readonly kind: "statementBytes"; readonly limit: number; readonly needed: number }
 	| { readonly kind: "statementParams"; readonly limit: number; readonly needed: number }
 	| { readonly kind: "numericDigits"; readonly limit: number; readonly needed: number }
+	| {
+			readonly kind: "constantBits"
+			readonly constant: string
+			readonly limit: number
+			readonly needed: bigint
+	  }
 
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
@@ -120,6 +132,8 @@ const boundText = (bound: CompileBound): string => {
 			return `a statement of at most ${bound.limit} placeholders, what a PostgreSQL Bind message counts (needed ${bound.needed})`
 		case "numericDigits":
 			return `a numeric value of at most ${bound.limit} integer digits, numeric's limit (this expression's may need ${bound.needed})`
+		case "constantBits":
+			return `the constant of ${bound.constant} in at most ${bound.limit} bits, PostgreSQL's longest bit string, VARBITMAXLEN (needed ${bound.needed})`
 	}
 }
 
@@ -243,6 +257,9 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `RoleRefused`, `LoginRefused`, `ContextRefused`: a role, a login or a context breaks the rule `rule`.
  * - `RoleNameTooLong`: a login's or a role's PostgreSQL role, `role` (`<schema>__<name>`), is longer than PostgreSQL's
  *   `limit` bytes.
+ * - `GeneratedRefused`: generated field `field` of `relation` breaks the rule `rule`.
+ * - `UndeclaredDrop`: a migration drops `dropped`, which the previous installation holds and the schema no longer
+ *   declares, and no declaration of the draft (`--rename`, `--drop`) names it.
  */
 export type CompileReason =
 	| { readonly _tag: "MalformedDescription"; readonly at: SourceLoc; readonly what: string }
@@ -253,6 +270,7 @@ export type CompileReason =
 			readonly what: string
 	  }
 	| { readonly _tag: "UnsupportedOperation"; readonly at: SourceLoc; readonly capability: string }
+	| { readonly _tag: "UndeclaredDrop"; readonly at: SourceLoc; readonly dropped: Dropped }
 	| { readonly _tag: "UnsupportedLawFamily"; readonly at: SourceLoc; readonly capability: string }
 	| { readonly _tag: "LawOnDerived"; readonly at: SourceLoc; readonly relation: string }
 	| {
@@ -306,6 +324,13 @@ export type CompileReason =
 	| { readonly _tag: "RecursionRefused"; readonly at: SourceLoc; readonly cause: RecursionRefusal }
 	| { readonly _tag: "DerivedRefused"; readonly at: SourceLoc; readonly cause: DerivedRefusal }
 	| {
+			readonly _tag: "GeneratedRefused"
+			readonly at: SourceLoc
+			readonly relation: string
+			readonly field: string
+			readonly rule: GeneratedRule
+	  }
+	| {
 			readonly _tag: "RoleRefused"
 			readonly at: SourceLoc
 			readonly role: string
@@ -336,6 +361,27 @@ export type CompileReasonTag = CompileReason["_tag"]
 export type ProseTag =
 	| Extract<CompileReason, { readonly capability: string }>["_tag"]
 	| "MalformedDescription"
+
+/**
+ * What a migration may drop, as `--drop` spells it: a relation (`R`), a field of one (`R.f`), or a roster's handle
+ * (`R#h`).
+ */
+export type Dropped =
+	| { readonly kind: "relation"; readonly relation: DeclaredName }
+	| { readonly kind: "field"; readonly relation: DeclaredName; readonly field: DeclaredName }
+	| { readonly kind: "handle"; readonly roster: DeclaredName; readonly handle: string }
+
+/** A dropped name as `--drop` spells it. */
+const droppedText = (d: Dropped): string => {
+	switch (d.kind) {
+		case "relation":
+			return d.relation
+		case "field":
+			return `${d.relation}.${d.field}`
+		case "handle":
+			return `${d.roster}#${d.handle}`
+	}
+}
 
 /** A reason whose one fact is the sentence `text`, at `at`. */
 export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason =>
@@ -377,6 +423,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return recursionRefusalText(reason.cause)
 		case "DerivedRefused":
 			return derivedRefusalText(reason.cause)
+		case "GeneratedRefused":
+			return `generated field ${reason.relation}.${reason.field}: ${generatedRuleText(reason.rule)}`
 		case "RoleRefused":
 			return `role ${reason.role}: ${roleRuleText(reason.rule)}`
 		case "LoginRefused":
@@ -385,6 +433,10 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `context ${reason.context}: ${claimRuleText(reason.rule)}`
 		case "RoleNameTooLong":
 			return `a ${reason.of} name whose role ${reason.role} fits ${reason.limit} bytes with its schema's name`
+		case "UndeclaredDrop": {
+			const spelled = droppedText(reason.dropped)
+			return `${spelled} is dropped but not declared: declare it with --drop ${spelled}, or --rename it`
+		}
 	}
 }
 
@@ -449,6 +501,10 @@ export const malformedArtifact = (artifact: Artifact, at: Path, what: string): C
 export const unsupported = (at: SourceLoc, capability: string): CompileError =>
 	new CompileError({ _tag: "UnsupportedOperation", at, capability })
 
+/** A drop no declaration names, at `at`. */
+export const undeclaredDrop = (at: SourceLoc, dropped: Dropped): CompileError =>
+	new CompileError({ _tag: "UndeclaredDrop", at, dropped })
+
 /** A bound crossed at `at`. */
 export const resourceBound = (at: SourceLoc, bound: CompileBound): CompileError =>
 	new CompileError({ _tag: "ResourceBound", at, bound })
@@ -500,7 +556,9 @@ export const valueFaultWords = [
 	"textType",
 	"textNul",
 	"textSurrogate",
-	"enumHandle",
+	"codeHandle",
+	"bitsType",
+	"bitsMember",
 	"spanType",
 	"spanEndpoint",
 	"spanOrder",

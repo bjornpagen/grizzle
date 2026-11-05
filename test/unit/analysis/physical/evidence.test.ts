@@ -83,7 +83,10 @@ describe("catalogs", () => {
 							if (read.length === 0) {
 								return
 							}
-							const catalog = theoryCatalog(theory.evidence, { containments: [] })
+							const catalog = theoryCatalog(theory.evidence, {
+								containments: [],
+								relations: theory.relations
+							})
 							for (const k of personKeys) {
 								const resolved = catalog.keyConstraint("Person", k.fields, {
 									primary: k.primary,

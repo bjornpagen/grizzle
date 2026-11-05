@@ -194,7 +194,7 @@ export const fieldsOf: Readonly<Record<RelationName, ReadonlyArray<string>>> = {
 /** What a grizzle call answered, as the oracle reads it. */
 export type Answer =
 	| { readonly kind: "accepted" | "no-change" }
-	| { readonly kind: "invariant-rejected"; readonly law: LawId }
+	| { readonly kind: "invariant-rejected"; readonly laws: Arr.NonEmptyReadonlyArray<LawId> }
 	| { readonly kind: "outside-world"; readonly relation: string }
 
 /** The platform's installed names: an outcome's law read back to its LawId. */
@@ -203,7 +203,10 @@ const platformNames = installationNamesOf(installationOf(P.Platform, { kind: "de
 export const answerOf = (outcome: ApplyOutcome<unknown>): Answer => {
 	switch (outcome.kind) {
 		case "invariant-rejected":
-			return { kind: outcome.kind, law: platformNames.reported(outcome.law) }
+			return {
+				kind: outcome.kind,
+				laws: Arr.map(outcome.laws, (law) => platformNames.reported(law))
+			}
 		case "outside-world":
 			return { kind: outcome.kind, relation: outcome.relation }
 		case "accepted":
@@ -297,7 +300,14 @@ interface RaceTxn {
 type Observed =
 	| { readonly kind: "accepted" }
 	| { readonly kind: "no-change" }
-	| { readonly kind: "refused"; readonly law: HostLaw }
+	| {
+			/**
+			 * The laws a refusal names: one, or every law one native object discharges together, as a family's axis
+			 * foreign key does the containments merged into it; at least one of them is violated.
+			 */
+			readonly kind: "refused"
+			readonly laws: Arr.NonEmptyReadonlyArray<HostLaw>
+	  }
 	| { readonly kind: "aborted"; readonly sqlstate: "40001" | "40P01" }
 
 /** One transaction of a run, as it ran. */
@@ -875,20 +885,16 @@ const directObserved = (i: RaceInstall, result: TxnResult): Observed | string =>
 			if (constraint === undefined) {
 				return `a direct transaction failed with ${code} on no law: ${failure.fields.message}`
 			}
-			/** A native violation by its constraint under the owner PostgreSQL reports; a law function's by its law's
-			 * identity, which it raises as the constraint and reports no owner beside. */
+			/** Every law is native: a violation names its constraint under the owner PostgreSQL reports. */
 			const owner = reportedOwnerOf(failure.fields)
-			const raised = Arr.findFirst([...i.laws.keys()], (id) => id === constraint)
-			const law =
-				owner !== undefined
-					? i.laws.get(i.names.lawOfConstraint(owner, constraint))
-					: Option.isSome(raised)
-						? i.laws.get(raised.value)
-						: undefined
+			if (owner === undefined) {
+				return `a direct transaction was refused by ${constraint}, which PostgreSQL reported on no owner`
+			}
+			const law = i.laws.get(i.names.lawOfConstraint(owner, constraint))
 			if (law === undefined) {
 				return `a direct transaction was refused by ${constraint}, a law the model does not hold`
 			}
-			return { kind: "refused", law }
+			return { kind: "refused", laws: [law] }
 		}
 	}
 }
@@ -910,10 +916,14 @@ const grizzleObserved = (i: RaceInstall, r: GrizzleRan): Observed | string => {
 	if (answer.kind !== "invariant-rejected") {
 		return { kind: answer.kind }
 	}
-	const law = i.laws.get(answer.law)
-	return law === undefined
-		? `the write was refused by ${answer.law}, a law the model does not hold`
-		: { kind: "refused", law }
+	const unheld = Arr.filter(answer.laws, (id) => !i.laws.has(id))
+	if (Arr.isReadonlyArrayNonEmpty(unheld)) {
+		return `the write was refused by ${Arr.join(unheld, ", ")}, laws the model does not hold`
+	}
+	return {
+		kind: "refused",
+		laws: Arr.map(answer.laws, (id) => defined(i.laws.get(id), `the model's law ${id}`))
+	}
 }
 
 const matches = (observed: Observed, decision: Decision): boolean => {
@@ -923,7 +933,9 @@ const matches = (observed: Observed, decision: Decision): boolean => {
 		case "no-change":
 			return decision.kind === "no-change"
 		case "refused":
-			return decision.kind === "refused" && decision.laws.includes(observed.law)
+			return (
+				decision.kind === "refused" && Arr.some(observed.laws, (law) => decision.laws.includes(law))
+			)
 		case "aborted":
 			return false
 	}
@@ -939,7 +951,10 @@ const describeDecision = (d: Decision): string =>
 
 const describeObserved = (o: Observed): string =>
 	o.kind === "refused"
-		? `refused by ${o.law.name}`
+		? `refused by ${Arr.join(
+				Arr.map(o.laws, (l) => l.name),
+				" and "
+			)}`
 		: o.kind === "aborted"
 			? `aborted with ${o.sqlstate}`
 			: o.kind
@@ -947,7 +962,7 @@ const describeObserved = (o: Observed): string =>
 /**
  * The serial orders that explain a run: one of the transactions that committed (accepted or no-change), respecting real
  * time, in which the model decides each as observed, with the states it passes; and for each refusal, a serial order of
- * the committed transactions with the refusal placed where the model refuses it by the law it named, and the state
+ * the committed transactions with the refusal placed where the model refuses it by a law it named, and the state
  * there. A refusal commits nothing, so each is explained by an order of its own. Undefined order: why none exists, with
  * each order's first mismatch.
  */
@@ -1034,7 +1049,9 @@ const noteRun = (e: Explained, run: Interleaving, note: (f: RaceFeature) => void
 	for (const r of e.ran) {
 		note(`${r.writer} ${r.observed.kind}`)
 		if (r.observed.kind === "refused") {
-			note(`law family hit: ${r.observed.law.family}`)
+			for (const law of r.observed.laws) {
+				note(`law family hit: ${law.family}`)
+			}
 		}
 		if (r.observed.kind === "aborted") {
 			note(`aborted with ${r.observed.sqlstate}`)

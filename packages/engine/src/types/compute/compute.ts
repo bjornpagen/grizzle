@@ -689,6 +689,54 @@ export interface ComputeApi {
 		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "vector">,
 		b: B
 	): Term<number, PA & P<B>, ComputedOrigin<OA | O<B>>, "double precision">
+
+	/**
+	 * The set algebra over sets of one roster: the second operand is a set term of the first's roster, or a set value
+	 * (Bits.of), which takes the first operand's type. union is a | b, intersection a & b, difference a & ~b; no
+	 * complement is public, since ~a would hold the codes the roster has removed.
+	 */
+	union<A extends TermBase | FirstValue, X, PA, OA, V, L, const B extends Operand<X, "bits", L>>(
+		a: A & FirstTerm<A> & Term<X, PA, OA, "bits", V, Facts, L>,
+		b: B
+	): Term<X, PA & P<B>, ComputedOrigin<OA | O<B>>, "bits", V, Facts, L>
+	intersection<
+		A extends TermBase | FirstValue,
+		X,
+		PA,
+		OA,
+		V,
+		L,
+		const B extends Operand<X, "bits", L>
+	>(
+		a: A & FirstTerm<A> & Term<X, PA, OA, "bits", V, Facts, L>,
+		b: B
+	): Term<X, PA & P<B>, ComputedOrigin<OA | O<B>>, "bits", V, Facts, L>
+	difference<
+		A extends TermBase | FirstValue,
+		X,
+		PA,
+		OA,
+		V,
+		L,
+		const B extends Operand<X, "bits", L>
+	>(
+		a: A & FirstTerm<A> & Term<X, PA, OA, "bits", V, Facts, L>,
+		b: B
+	): Term<X, PA & P<B>, ComputedOrigin<OA | O<B>>, "bits", V, Facts, L>
+	/** The count of a set's handles, bit_count. */
+	cardinality<A extends TermBase | FirstValue, X, PA, OA>(
+		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "bits">
+	): Term<bigint, PA, ComputedOrigin<OA>, "bigint">
+	/** Whether every handle of a is one of b's: bit_count(a & ~b) = 0. */
+	subset<A extends TermBase | FirstValue, X, PA, OA, const B extends Operand<X, "bits">>(
+		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "bits">,
+		b: B
+	): Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
+	/** Whether a and b share no handle: bit_count(a & b) = 0. */
+	disjoint<A extends TermBase | FirstValue, X, PA, OA, const B extends Operand<X, "bits">>(
+		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "bits">,
+		b: B
+	): Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
 }
 
 /** The comparison and boolean helpers a row check sees beside its fields. */

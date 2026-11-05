@@ -81,7 +81,6 @@ import {
 import {
 	baseOf,
 	contractOf,
-	rosterOf,
 	type ScalarType,
 	type SpanCarrier,
 	sameScalarType,
@@ -90,6 +89,7 @@ import {
 import { type AggregateOverload, countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import { bareLiteralKind } from "#compiler/scalar/compute/literal.ts"
 import {
+	type ClosedRelations,
 	type LeafDesc,
 	type LowerEnv,
 	type Lowered,
@@ -97,6 +97,7 @@ import {
 	loweredOf,
 	lowerPredicate,
 	lowerTerm,
+	noClosedRelations,
 	type ParamRef
 } from "#compiler/scalar/compute/lower.ts"
 import {
@@ -118,7 +119,6 @@ import {
 	valueType,
 	wildcardText,
 	widening,
-	withoutSerial,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
@@ -434,7 +434,7 @@ const compareType = (t: ScalarType): ScalarType => {
  */
 const adoptCompare = (t: ScalarType): ScalarType => {
 	if (contractOf(t) !== undefined) {
-		return withoutSerial(t)
+		return t
 	}
 	const v = valueType(t)
 	return v.carrier === "numeric" ? anyNumeric : withoutSpanWidth(v)
@@ -449,6 +449,20 @@ const hasColumn = (heading: Heading, name: string): boolean => heading.some((c) 
 type QueryEnv = Extract<LowerEnv<Resolved>, { readonly mode: "query" }> & {
 	readonly params: Extract<LowerParams<Resolved>, { readonly kind: "scope" }>
 }
+
+/**
+ * Where a query's expression stands: in a rule's filter, a predicate whose IS TRUE refuses a value that is absent, or
+ * in a value the query delivers or binds, which is never absent.
+ */
+type ExprReading = "filter" | "value"
+
+/**
+ * What a value the query delivers or binds applies of the closed relations: none, since C.at at a key no tuple holds
+ * reads no value (ir/expr.ts closedAt), and only a predicate and a generated column refuse it.
+ */
+const deliveredValue: ClosedRelations = noClosedRelations(
+	"a closed read stands in a rule's filter or a generated field's expression, where a key no tuple holds is refused, never in a value the query delivers or binds"
+)
 
 /**
  * The span type a type is over through its contracts, or undefined for a type that is no span. A contract's carrier is
@@ -807,8 +821,8 @@ export class Checker {
 	}
 
 	/**
-	 * A scalar parameter's declared type, its serial its integer (lower.ts Lowering.param). A channel the checker writes
-	 * declares none: its import binds it to a column, which every use of it reads.
+	 * A scalar parameter's declared type (lower.ts Lowering.param). A channel the checker writes declares none: its import
+	 * binds it to a column, which every use of it reads.
 	 */
 	paramType(param: ParamExpr, loc: SourceLoc): ScalarType {
 		if (param.type.kind === "channel") {
@@ -818,7 +832,7 @@ export class Checker {
 				`parameter ${param.cell.name} bound to a column: a channel of a factored recursion is read as its column`
 			)
 		}
-		return withoutSerial(this.fieldType(param.type, loc))
+		return this.fieldType(param.type, loc)
 	}
 
 	services(): ScopedServices<Scope> {
@@ -1150,14 +1164,15 @@ export class Checker {
 				)
 			}
 			/**
-			 * The discriminant is the roster-typed literal columns when they alone tell the heading groups apart, so
-			 * its roster order completes ties across arms and a further
+			 * The discriminant is the closed-id literal columns when they alone tell the heading groups apart, so
+			 * its roster order, its codes' order, completes ties across arms and a further
 			 * constant column, such as a bare integer wrap, is an ordinary column; otherwise it is every common column
-			 * bound to a literal in every head, typed as bare literals.
+			 * bound to a literal in every head, typed as bare literals. A set over a roster is no closed id: bit
+			 * strings compare by their bits, not by any handle's order.
 			 */
 			const rostered = literal.filter((c) => {
 				const t = targets[0].target.get(c)
-				return t !== undefined && rosterOf(baseOf(t)) !== undefined
+				return t !== undefined && baseOf(t).carrier === "code"
 			})
 			discriminant = rostered.length > 0 && !clashes(rostered) ? rostered : literal
 			const clash = clashes(discriminant)
@@ -1739,19 +1754,19 @@ export class Checker {
 	}
 
 	/**
-	 * A relation parameter's or a row's declared heading: each field typed, a serial declaration read as its carrier. A
-	 * heading of no field is the unit relation (ir/rel.ts Heading), as the fill of a generated addition into a query entry
-	 * whose every carried field is serial declares; a user's relation parameter has a field, which its builder, the
-	 * Description's decoder and its type refuse otherwise.
+	 * A relation parameter's or a row's declared heading: each field typed, a serial one as its integer, since how a field
+	 * is written is no part of its type. A heading of no field is the unit relation (ir/rel.ts Heading), as the fill of a
+	 * generated addition into a query entry whose every carried field is serial declares; a user's relation parameter has
+	 * a field, which its builder, the Description's decoder and its type refuse otherwise.
 	 */
 	#declaredHeading(declared: Readonly<Record<string, FieldDesc>>, loc: SourceLoc): Heading {
 		return entries(declared).map(([name, d]) => ({
 			name,
-			type: withoutSerial(this.fieldType(d, childLoc(loc, name)))
+			type: this.fieldType(d, childLoc(loc, name))
 		}))
 	}
 
-	/** The heading of the ordinary relation a relation parameter is typed by, a serial declaration read as its carrier. */
+	/** The heading of the ordinary relation a relation parameter is typed by. */
 	#relationHeading(relation: string, loc: SourceLoc): Heading {
 		const info = this.schema.relation(relation, loc)
 		if (info.kind !== "relation") {
@@ -1761,12 +1776,14 @@ export class Checker {
 				`a relation parameter typed by an ordinary relation's heading; ${info.name} is ${info.kind}`
 			)
 		}
-		return info.heading.map((c) => ({ name: c.name, type: withoutSerial(c.type) }))
+		return headingColumns(info.heading)
 	}
 
 	/**
 	 * The environment a scalar description lowers in: leaves are columns of the node labelled `node` (a reserved region
-	 * or a built node), the input of the consumer the expression belongs to, resolved by `leaf`.
+	 * or a built node), the input of the consumer the expression belongs to, resolved by `leaf`. A rule's filter applies
+	 * the schema's closed relations (`reads` "filter"); every other expression, a value the query delivers or binds,
+	 * applies none.
 	 */
 	env(
 		node: NodeId,
@@ -1779,11 +1796,13 @@ export class Checker {
 		paramColumn: (
 			cell: ParamCell,
 			loc: SourceLoc
-		) => { readonly name: string; readonly type: ScalarType }
+		) => { readonly name: string; readonly type: ScalarType },
+		reads: ExprReading
 	): QueryEnv {
 		return {
 			mode: "query",
 			loc,
+			closed: reads === "filter" ? this.schema.closedReads : deliveredValue,
 			emit: (spec) => this.emit(spec),
 			leaf: (desc, at) =>
 				catchRefusal(() => {
@@ -2636,8 +2655,8 @@ class RuleCheck {
 		return { name: slot.name, type: this.slotType(slot) }
 	}
 
-	env(node: NodeId, loc: SourceLoc): QueryEnv {
-		return this.cx.env(node, loc, this.#leaf, this.scope, this.#paramColumn)
+	env(node: NodeId, loc: SourceLoc, reads: ExprReading): QueryEnv {
+		return this.cx.env(node, loc, this.#leaf, this.scope, this.#paramColumn, reads)
 	}
 
 	/**
@@ -2656,7 +2675,7 @@ class RuleCheck {
 		if (e.kind === "param") {
 			return this.#paramConstant(e, column, loc)
 		}
-		const term = unwrap(lowerTerm(e, this.env(this.region, loc)))
+		const term = unwrap(lowerTerm(e, this.env(this.region, loc, "value")))
 		if (!meets(term.nominal, column.type)) {
 			fail(
 				"MalformedDescription",
@@ -2837,7 +2856,7 @@ class RuleCheck {
 		const { scalar } = splitWhere(this.rule.where)
 		for (const [i, e] of scalar) {
 			const loc = this.at("where", i)
-			preds.push(unwrap(lowerPredicate(e, this.env(this.region, loc))).expr)
+			preds.push(unwrap(lowerPredicate(e, this.env(this.region, loc, "filter"))).expr)
 		}
 		const loc = this.at("where")
 		for (const pending of this.eqs) {
@@ -3129,8 +3148,8 @@ class RuleCheck {
 	}
 
 	/**
-	 * A negated column correlated with a region column, which has its value type up to refinement: a serial
-	 * declaration is a column's generation, no refinement, so a serial column correlates with its integer's values.
+	 * A negated column correlated with a region column, which has its value type up to refinement: a serial column is
+	 * its integer, so it correlates with its integer's values.
 	 */
 	#correlatedBinding(
 		col: HeadingColumn,
@@ -3182,7 +3201,7 @@ class RuleCheck {
 	 * the rule's region, which the negated source cannot, like a variable.
 	 */
 	#negatedTerm(source: RelNode, e: ResolvedExpr, col: HeadingColumn, at: SourceLoc): ScalarExpr {
-		const base = this.env(source.id, at)
+		const base = this.env(source.id, at, "value")
 		const term = unwrap(
 			lowerTerm(e, {
 				...base,
@@ -3226,7 +3245,7 @@ class RuleCheck {
 	/** A head term other than an aggregate or producer, over `input`. */
 	#term(name: string, h: ResolvedExpr, input: RelNode, loc: SourceLoc): TermOut {
 		const target = writtenTarget(this.scope.origin)?.relation.heading.find((c) => c.name === name)
-		const targetType = target === undefined ? undefined : withoutSerial(target.type)
+		const targetType = target?.type
 		const column = (c: HeadingColumn): TermOut => ({
 			expr: this.cx.emit(columnSpec(input.id, c.name, c.type)),
 			type: c.type,
@@ -3266,7 +3285,7 @@ class RuleCheck {
 		 * no node of its own, so where the node it reads still carries the contract or typmod the term drops, the column
 		 * casts it, and a child binds it as the parent's heading states it.
 		 */
-		const term = unwrap(lowerTerm(h, this.env(input.id, loc)))
+		const term = unwrap(lowerTerm(h, this.env(input.id, loc, "value")))
 		const expr = sameScalarType(term.expr.type, term.nominal)
 			? term.expr
 			: this.cx.emit({
@@ -3445,7 +3464,7 @@ class RuleCheck {
 		if (head.fn === "count") {
 			return { overload: countOverload(), call: { fn: "count", args: [] } }
 		}
-		const arg = unwrap(lowerTerm(head.arg, this.env(groupInput.id, at)))
+		const arg = unwrap(lowerTerm(head.arg, this.env(groupInput.id, at, "value")))
 		const overload = unwrap(unaryOverload(head.fn, arg.expr.type, at))
 		return { overload, call: { fn: overload.fn, args: [arg.expr] } }
 	}
@@ -3480,7 +3499,7 @@ class RuleCheck {
 		groupInput: RelNode,
 		at: SourceLoc
 	): { readonly call: ProducerCallOver<ScalarExpr>; readonly type: ScalarType } {
-		const env = this.env(groupInput.id, at)
+		const env = this.env(groupInput.id, at, "value")
 		const span = (a: ResolvedExpr, i: number) => {
 			const t = unwrap(lowerTerm(a, env))
 			if (spanBase(t.nominal) === undefined) {
@@ -3496,7 +3515,7 @@ class RuleCheck {
 			const spans = span(p.args[0], 0)
 			return {
 				call: { producer: producerKinds.pack, args: [spans.expr] },
-				type: withoutSerial(spans.expr.type)
+				type: spans.expr.type
 			}
 		}
 		const first = span(p.args[0], 0)
@@ -3506,7 +3525,7 @@ class RuleCheck {
 		}
 		return {
 			call: { producer: producerKinds[p.fn], args: [first.expr, second.expr] },
-			type: withoutSerial(first.expr.type)
+			type: first.expr.type
 		}
 	}
 

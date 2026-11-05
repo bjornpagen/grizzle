@@ -3,7 +3,7 @@ import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { everyCase, everyValue, fraction, shareOf } from "#chance.fixtures.ts"
 import { count } from "#enumerate.ts"
-import { drawn, type Exploration, explore } from "#explore.ts"
+import { drawn, type Exploration, explore, type Oracle } from "#explore.ts"
 import { type Coverage, noCoverage, required } from "#features.ts"
 import {
 	array,
@@ -77,10 +77,12 @@ const replayTokens: Gen<readonly [string, ReplayCase]> = (source) => {
 /** A search over the seeds a word stream starts from, every one of them a valid seed. */
 const searchOf = <A, F extends string>(
 	suite: string,
+	oracle: Oracle,
 	generator: Gen<A>,
 	coverage: Coverage<F>
 ): Exploration<A, A, F> => ({
 	suite,
+	oracle,
 	draw: drawn(generator),
 	literal: Formatter.format,
 	coverage,
@@ -92,19 +94,24 @@ const searchOf = <A, F extends string>(
 	caseHang: Duration.seconds(30)
 })
 
-const seedSearch = (suite: string): Exploration<number, number, never> =>
-	searchOf(suite, int(0, 0xffff_ffff), noCoverage)
+const seedSearch = (suite: string, oracle: Oracle): Exploration<number, number, never> =>
+	searchOf(suite, oracle, int(0, 0xffff_ffff), noCoverage)
 
 describe("the word source", () => {
 	it.effect("draws every value of a range, and nothing outside it, from any seed", (ctx) =>
 		searched(
 			ctx,
-			explore(seedSearch("every value of a range"), (seed) =>
-				Effect.sync(() => {
-					const words = wordsOf(seed)
-					const draws = Arr.makeBy(2000, () => between(words, 3, 7))
-					deepStrictEqual(Arr.dedupe(Arr.sort(draws, Order.Number)), [3, 4, 5, 6, 7])
-				})
+			explore(
+				seedSearch("every value of a range", {
+					kind: "specification",
+					name: "between draws exactly the values of its range"
+				}),
+				(seed) =>
+					Effect.sync(() => {
+						const words = wordsOf(seed)
+						const draws = Arr.makeBy(2000, () => between(words, 3, 7))
+						deepStrictEqual(Arr.dedupe(Arr.sort(draws, Order.Number)), [3, 4, 5, 6, 7])
+					})
 			)
 		)
 	)
@@ -112,15 +119,20 @@ describe("the word source", () => {
 	it.effect("draws the same stream from the same seed", (ctx) =>
 		searched(
 			ctx,
-			explore(seedSearch("one stream per seed"), (seed) =>
-				Effect.sync(() => {
-					const first = wordsOf(seed)
-					const second = wordsOf(seed)
-					deepStrictEqual(
-						Arr.makeBy(64, () => first.next()),
-						Arr.makeBy(64, () => second.next())
-					)
-				})
+			explore(
+				seedSearch("one stream per seed", {
+					kind: "universal",
+					name: "determinism: one seed, one stream"
+				}),
+				(seed) =>
+					Effect.sync(() => {
+						const first = wordsOf(seed)
+						const second = wordsOf(seed)
+						deepStrictEqual(
+							Arr.makeBy(64, () => first.next()),
+							Arr.makeBy(64, () => second.next())
+						)
+					})
 			)
 		)
 	)
@@ -130,15 +142,20 @@ describe("a tape", () => {
 	it.effect("replays its case exactly from its values", (ctx) =>
 		searched(
 			ctx,
-			explore(seedSearch("tape replay"), (seed) =>
-				Effect.sync(() => {
-					const original = fresh(composite, seed)
-					const replay = generate(
-						composite,
-						forcedChooser(original.tape.values, original.tape.length)
-					)
-					deepStrictEqual(replay, original)
-				})
+			explore(
+				seedSearch("tape replay", {
+					kind: "universal",
+					name: "round trip: a tape's values replay its case exactly"
+				}),
+				(seed) =>
+					Effect.sync(() => {
+						const original = fresh(composite, seed)
+						const replay = generate(
+							composite,
+							forcedChooser(original.tape.values, original.tape.length)
+						)
+						deepStrictEqual(replay, original)
+					})
 			)
 		)
 	)
@@ -149,6 +166,7 @@ describe("a tape", () => {
 			explore(
 				{
 					suite: "tape/token",
+					oracle: { kind: "universal", name: "valuesFromToken ∘ tokenOf = id" },
 					draw: drawn(array(int(0, 2 ** 52), { min: 0, max: 8 })),
 					literal: Formatter.format,
 					coverage: required<"an empty tape" | "one value" | "several values">(
@@ -186,6 +204,7 @@ describe("a tape", () => {
 				explore(
 					{
 						suite: "replay/token",
+						oracle: { kind: "universal", name: "replayOf ∘ replayTokenOf = id" },
 						draw: drawn(replayTokens),
 						literal: Formatter.format,
 						coverage: required<
@@ -260,6 +279,10 @@ describe("a weighted choice", () => {
 				explore(
 					searchOf(
 						"weighted shares",
+						{
+							kind: "specification",
+							name: "each option's weight over the total, by exact enumeration"
+						},
 						array(element(WEIGHTS), { min: 1, max: 5 }),
 						required<"a total past 256">(["a total past 256"], { cases: 100, sense: notesOnly })
 					),
@@ -295,6 +318,7 @@ describe("the random chooser", () => {
 				explore(
 					searchOf(
 						"chooser spreads",
+						{ kind: "second-implementation", name: "the word source's own between and biased" },
 						(source) => {
 							const seed = source.draw(int(0, 0xffff_ffff))
 							const lo = source.draw(int(-1000, 1000))
@@ -373,6 +397,7 @@ describe("sampling", () => {
 			explore(
 				searchOf(
 					"one sample per seed",
+					{ kind: "specification", name: "a stream's cases, each regenerated from its own seed" },
 					(source) => ({ seed: source.draw(int(0, 0xffff_ffff)), length: source.draw(int(0, 20)) }),
 					noCoverage
 				),

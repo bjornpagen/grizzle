@@ -10,6 +10,7 @@ import { indices } from "#compiler/core/array.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { appendNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import { conservativeMeta, type RelDag, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
@@ -31,6 +32,7 @@ import { f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir
 import { localVectorSchema, productionNames, standInNames } from "#test/support/kernel/naming.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import {
 	artifactProblems,
 	type ChannelProgram,
@@ -115,7 +117,7 @@ const countPerAccount = () => {
 }
 
 /** The channels of programs the conservative lowering builds, which are aligned by construction. */
-const names = productionNames("Shop", { kind: "declared" }, localVectorSchema)
+const names = productionNames("Shop", { kind: "declared" }, localVectorSchema, emptyCodebook)
 
 const lowered = (dag: ValidDag, root: RelNode): ChannelProgram =>
 	conservativeChannels(
@@ -866,7 +868,7 @@ const generatedProgram = (c: QueryCase): ChannelProgram =>
 	conservativeChannels(
 		succeeded(
 			lowerConservative(conservativeInput(c.query), {
-				names: standInNames(c.schema.name),
+				names: standInNames(c.schema.name, schemaCodes(c.schema)),
 				params: genParamDecls(c.query),
 				subject: { kind: "query" }
 			})

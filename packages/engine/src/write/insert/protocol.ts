@@ -56,6 +56,7 @@ import {
 	type InsertResult,
 	type InsertVariant,
 	keyFirst,
+	writtenFields,
 	type ModifyingStatement,
 	type ResultColumn,
 	resultText,
@@ -128,11 +129,12 @@ export const insertShape = (relation: RelationInfo, serial: SerialClass): Insert
 		: { variant: "protocol", payload: payload.fields }
 }
 
-/** The fields an insert writes: every field, or every field but the ones a generated addition draws. */
+/** The fields an insert writes: every written field (`writtenFields`), or every one but those a generated addition
+ * draws. */
 const insertedFields = (relation: RelationInfo, serial: SerialClass): ReadonlyArray<LawField> =>
 	serial.kind === "generated"
-		? keyFirst(relation).filter((f) => !serial.drawn.includes(f.name))
-		: keyFirst(relation)
+		? writtenFields(relation).filter((f) => !serial.drawn.includes(f.name))
+		: writtenFields(relation)
 
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
@@ -521,7 +523,7 @@ export const buildInsert = (
 				: withRefusal(
 						core(
 							[
-								...outFields.map((f) => target(unique.probe.refusalCol(f))),
+								...outFields.map((f) => target(unique.probe.refusalValue(f))),
 								...(marker === undefined ? [] : [target(lit.bool(false))]),
 								...(c9 === undefined ? [] : [target(lit.bool(false))]),
 								target(unique.probe.ordinal)

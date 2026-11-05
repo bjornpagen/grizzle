@@ -1,8 +1,7 @@
 import { regex } from "arkregex"
 /**
  * The catalog of performance gates: R01 to R42, the compiler's performance rules, then the work-queue claim at a reference
- * load, the refresh lifetime, a residual law's first call per backend and what a law over a closed relation's constant
- * costs a write. Each gate is stated here, as data, with the rule it measures, its owner and its gate
+ * load, the refresh lifetime and what a law over a closed relation's constant costs a write. Each gate is stated here, as data, with the rule it measures, its owner and its gate
  * text: what a bench file must show for it. A rule with no gate text of its own is gated by the performance contract, a
  * measurement that can disprove the performance assumption. Each gate's bench file belongs to its owner: the query
  * owner's under bench/query, the write owner's (the write, law, queue and refresh gates; R40 is a refresh measurement,
@@ -16,20 +15,16 @@ const ruleIds = [
 	"R04",
 	"R05",
 	"R06",
-	"R07",
 	"R08",
-	"R09",
 	"R11",
 	"R12",
 	"R13",
 	"R14",
 	"R17",
 	"R18",
-	"R19",
 	"R20",
 	"R21",
 	"R22",
-	"R23",
 	"R24",
 	"R25",
 	"R26",
@@ -52,7 +47,7 @@ const ruleIds = [
 
 export type RuleId = (typeof ruleIds)[number]
 
-const extraGateIds = ["queue", "refresh-lifetime", "law-first-call", "law-cost"] as const
+const extraGateIds = ["queue", "refresh-lifetime", "law-cost", "families"] as const
 
 export type ExtraGateId = (typeof extraGateIds)[number]
 
@@ -122,13 +117,11 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 			"measure intermediate width, heap/TOAST access, total serialization bytes, sort/hash memory, and identical result membership. This applies to large text and vector payload as much as expensive scalar expressions. Until an observed width threshold exists, wide payload is structural: a vector, or text with no proved byte bound; payload is fetched back only as plain stored fields of the scanned relation whose key the narrowed stage keeps."
 		)
 	},
-	R07: { title: "Keep finite schema facts visible to PostgreSQL", owner: "query", gate: contract },
 	R08: {
 		title: "Expose eager aggregation without breaking contribution identity",
 		owner: "query",
 		gate: contract
 	},
-	R09: { title: "Specialize laws before emitting checkers", owner: "write", gate: contract },
 	R11: { title: "Keep general containment probes key-local", owner: "write", gate: contract },
 	R12: {
 		title: "Treat trigger queue size as a transaction resource",
@@ -155,13 +148,6 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 			"a mismatch between an IR type and the PostgreSQL type of an emitted expression is a preparation error, never a coerced result. Tests diff emitted SQL structurally against the expected renamed and typed form."
 		)
 	},
-	R19: {
-		title: "Capacity checks are one indexed group aggregate per affected key",
-		owner: "write",
-		gate: stated(
-			"the group aggregate reads the source through the reverse index, never by a sequential scan, after more than five calls in one session on statistics one wide group skews; measure commit latency for batches that touch one group many times and for wide groups, against hand-written trigger equivalents; lock-wait time and throughput of one hot group, with grizzle and direct SQL writers, against its seat-fact form; and that of two writers at the bound of one group, one commits and the other's COMMIT raises with the law's identity. Verify that the partial-unique specialization removes the law function and its triggers entirely for filtered at-most-one laws."
-		)
-	},
 	R20: {
 		title: "Choose the bounded-subset shape by the bound parent set",
 		owner: "query",
@@ -181,13 +167,6 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 		owner: "query",
 		gate: stated(
 			"the join uses the keyed relation's index; the planner estimates the input's rows as its arrays' length at every size, so plan shape follows the input's size only through that estimate; the arrays deliver what the handwritten VALUES join and the OR tree deliver on the same input, including duplicate facts."
-		)
-	},
-	R23: {
-		title: "Immutability shrinks residual event lists",
-		owner: "write",
-		gate: stated(
-			"commit latency scales with the group aggregate, not with transaction size. Measure lock-wait time and throughput for one hot group or parent, and event counts and commit latency against the same schema declared `mutable`, which differs only in event lists and `put` realization."
 		)
 	},
 	R24: {
@@ -300,23 +279,23 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 		owner: "write",
 		gate: stated("refreshes that fit an 800 s function lifetime one level per call;")
 	},
-	"law-first-call": {
-		title: "A residual law's first call per backend compiles only the unit its write fires",
-		owner: "write",
-		gate: stated(
-			"over an alternatives law of growing rosters, every handle armed or one unarmed, each in a fresh backend: a parent's first COMMIT with one unarmed handle within 1.5 times every handle armed, at each size; a transaction rewriting a payload in every payload table growing at most 2.5 times from the second-largest roster to the largest; and the parent's first COMMIT growing at most 6 times there."
-		)
-	},
 	"law-cost": {
 		title: "A law over a closed relation's constant, by where it sits and the constant's size",
 		owner: "write",
 		gate: stated(
-			"for a foreign key into a seeded table, a CHECK calling the constant, a cell written into a column of the relation's domain, a cell generated into that domain and a derived column, at constants of a few hundred bits to a megabit, measure each one's cost per one-row INSERT beyond its base table, with every constant statement as the engine prints it; hold each case to a ceiling measured by a full run of the gate on the build it runs on, and record a case no such run has measured. Every constant PostgreSQL packs is the host encoder's string of its members; every law refuses the row one past its constant's end with its SQLSTATE; every derived column reads its payload code on every stored row and NULL past the end; SET EXPRESSION re-derives every row; and VALIDATE against a constant that drops a stored member refuses, naming the table."
+			"for a foreign key into a seeded table, a CHECK calling the constant and a derived column, at constants of a few hundred bits to a megabit, and a code column of a roster domain whose CHECK reads its names constant or a live-code constant, measure each one's cost per one-row INSERT beyond its base table, with every constant statement as the engine prints it; hold each case to a ceiling measured by a full run of the gate on the build it runs on, and record a case no such run has measured. Every constant PostgreSQL packs is the test oracle's string of its members; every law and roster domain refuses the row one past its constant's end with its SQLSTATE; every derived column reads its payload code on every stored row and NULL past the end; SET EXPRESSION re-derives every row; and VALIDATE against a constant that drops a stored member refuses, naming the table."
+		)
+	},
+	families: {
+		title: "A family's writes: one count update per plan, and ‹n› rewritten on every sibling",
+		owner: "write",
+		gate: stated(
+			"an append of k members to a family is one UPDATE of its owner however many statements carry the rows; each count change rewrites the copy ‹n› on every sibling, so a growth of a family of n touches n member rows, O(n); a long family's writes queue its deferred last-slot and closure foreign keys' events, whose memory is read before COMMIT. Time each against the family's length, hold each to a ceiling measured by a full run of the gate on the build it runs on, and record a case no such run has measured."
 		)
 	}
 }
 
-/** Every gate, in order: R01 to R42, then the queue, refresh-lifetime, law-first-call and law-cost gates. */
+/** Every gate, in order: R01 to R42, then the queue, refresh-lifetime, law-cost and families gates. */
 export const gateCatalog: ReadonlyArray<GateEntry> = Arr.map(gateIds, (id) => ({
 	id,
 	...statedGates[id]

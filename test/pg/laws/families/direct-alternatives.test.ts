@@ -1,5 +1,7 @@
 /**
- * A direct SQL writer over generated schemas: alternatives over a composite key.
+ * A direct SQL writer over generated schemas: alternatives over a composite key, its forward and reverse containments
+ * native foreign keys, the reverse deferred on the cycle (fin.md §7). The oracle is the host model
+ * (test/support/laws/model.ts), judging each SERIALIZABLE transaction's verdict and where it is raised.
  *
  * An UPDATE that moves a run into a handle, or moves an armed run or its arm, commits only when the rest of its
  * transaction leaves every arm with its run and every armed run with its arm, which a drawn set of fields rarely does
@@ -8,12 +10,12 @@
  * payment moved after it.
  */
 
-import { plantedUpdate } from "#test/pg/laws/families/direct.ts"
-import { compositeAlternatives, variantsOf } from "#test/pg/laws/families/families.ts"
-import { directSuite, type Planted } from "#test/pg/laws/families/suites/direct.ts"
-import { casesPerTest } from "#test/pg/laws/families/suites/family.ts"
-import { plantedInsert } from "#test/pg/laws/families/support.ts"
 import { defined } from "#test/support/assert.ts"
+import { compositeAlternatives, variantsOf } from "#test/support/laws/boxes.ts"
+import { plantedUpdate } from "#test/support/laws/direct.ts"
+import { directSuite, type Planted } from "#test/support/laws/suites/direct.ts"
+import { casesPerTest } from "#test/support/laws/suites/family.ts"
+import { plantedInsert } from "#test/support/laws/support.ts"
 
 const host = compositeAlternatives.host(
 	defined(variantsOf(compositeAlternatives, "mutable")[0], "the mutable composite-key schema")

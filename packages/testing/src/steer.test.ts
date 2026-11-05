@@ -48,6 +48,7 @@ const magicSearch = <F extends string>(
 	concurrency: number
 ): Exploration<ReadonlyArray<number>, ReadonlyArray<number>, F> => ({
 	suite,
+	oracle: { kind: "specification", name: "a lock planted so that only a steered search opens it" },
 	draw: drawn(values),
 	literal: Formatter.format,
 	coverage,

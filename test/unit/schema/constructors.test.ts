@@ -22,10 +22,9 @@ import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, pipe, Record as Rec, String as Str } from "effect"
 import { appendAll, maxOf } from "#compiler/core/array.ts"
-import { isRecord } from "#compiler/core/record.ts"
 import {
-	type BoundValueDesc,
 	conjunctsOf,
+	expandAlternatives,
 	type ExprDesc,
 	everyFact,
 	type LiteralDesc,
@@ -44,9 +43,10 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { literalResult } from "#compiler/schema/literal.ts"
 import { own } from "#compiler/schema/own.ts"
 import {
-	admitClosed,
+	admitClosedRelation,
 	admitDerived,
 	admitRelation,
+	admitRoster,
 	closed,
 	derived,
 	relation,
@@ -54,10 +54,7 @@ import {
 } from "#compiler/schema/relation.ts"
 import { admitSchema, schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import {
-	admitCapacity,
 	alternativesBuilder,
-	alternativesId,
-	capacityBuilder,
 	checkBuilder,
 	containedBuilder,
 	expansionDescOf,
@@ -66,10 +63,6 @@ import {
 	mutableBuilder,
 	onBuilder,
 	predBuilder,
-	runtimeDuration,
-	runtimeRef,
-	runtimeWeigh,
-	runtimeWithin,
 	selectBuilder,
 	sideDescOf,
 	statementDescOf
@@ -99,7 +92,6 @@ import {
 	descOf,
 	patternOnly,
 	rawPg,
-	rawSpan,
 	type Row,
 	regex,
 	wildcard
@@ -114,7 +106,7 @@ import { regex as arkregex } from "arkregex"
  * Every property draws a well-formed declaration and plants at most one defect a JavaScript caller can write, so the
  * oracle is the constructor's documented rule (packages/engine/src/schema/relation.ts, statements.ts, schema.ts, literal.ts)
  * restated: a planted defect is refused, and a declaration without one records exactly what was written. A defect is
- * refused where the builder admits its arguments, its admission core (admitRelation, admitClosed, ...), which a
+ * refused where the builder admits its arguments, its admission core (admitRelation, admitRoster, admitClosedRelation, ...), which a
  * declaration with no defect reaches through the builder itself.
  */
 const Kind = closed("Kind", ["Automatic", "Manual"], [])
@@ -407,30 +399,119 @@ const mistypedValue = (type: PayloadType): unknown => {
 }
 
 describe("closed", () => {
-	type ClosedDefect =
-		| "none"
-		| "a missing fact"
-		| "an extra field in a fact"
-		| "a missing field in a fact"
-		| "a fact off the roster"
-		| "a mistyped value"
-		| "a repeated handle"
-		| "an empty roster"
-		| "a payload field named id"
-		| "a payload as a third argument"
-	const closedDefects: Arr.NonEmptyReadonlyArray<ClosedDefect> = [
+	type RosterDefect = "none" | "a repeated handle" | "an empty roster" | "a third argument"
+	const rosterDefects: Arr.NonEmptyReadonlyArray<RosterDefect> = [
 		"none",
-		"a missing fact",
-		"an extra field in a fact",
-		"a missing field in a fact",
-		"a fact off the roster",
-		"a mistyped value",
 		"a repeated handle",
 		"an empty roster",
-		"a payload field named id",
-		"a payload as a third argument"
+		"a third argument"
 	]
-	type ClosedFeature = ClosedDefect | "no payload" | "payload"
+
+	it.effect(
+		"records a roster's handles in declared order, types each handle as a code of its roster, and refuses every other roster",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/schema/roster-constructor",
+						draw: drawn((source) => {
+							const handles = rosterOf(
+								source.draw(
+									uniqueArray(
+										matching(arkregex("^[A-Z][a-z]{0,6}$")),
+										(item) => item,
+										{ min: 1, max: 4 },
+										20
+									)
+								)
+							)
+							return {
+								name: source.draw(wordGen),
+								handles,
+								defect: source.draw(element(Arr.append(rosterDefects, "none" as const))),
+								target: source.draw(element(handles))
+							}
+						}),
+						literal: Formatter.format,
+						coverage: required<RosterDefect>(rosterDefects, { cases: 200, sense: notesOnly }),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(s, c) =>
+						Effect.sync(() => {
+							const { handles, target } = s
+							c.note(s.defect)
+							if (s.defect !== "none") {
+								const roster =
+									s.defect === "a repeated handle"
+										? [...handles, target]
+										: s.defect === "an empty roster"
+											? []
+											: handles
+								throwsRefused(
+									() => admitRoster(s.name, roster, s.defect === "a third argument" ? [{}] : []),
+									"MalformedDescription"
+								)
+								return
+							}
+							const K = closed(s.name, handles, [])
+							const rosterHandles: ReadonlyArray<string> = K.handles
+							assert.deepEqual(rosterHandles, handles)
+							const desc = relationDescOf(K, "test")
+							if (desc.kind !== "closed") {
+								return assert.fail("a roster's Description")
+							}
+							assert.deepEqual(desc.handles, handles)
+							/**
+							 * handle(h) is h's literal at the roster's closed id, the one typed constant of a member: a code, whose
+							 * column delivers exactly h. A member off the roster is refused, and so is Compute.literal over the
+							 * roster's descriptor, the JavaScript caller's path the types cannot refuse.
+							 */
+							const rosterId = rawClosedId(K)
+							for (const h of handles) {
+								const term = K.handle(h)
+								assert.deepEqual(term.expr, { kind: "literal", value: h, type: descOf(rosterId) })
+								assert.equal(term.sql, "code")
+								assert.deepEqual(
+									term.column.kind === "code" ? term.column.handles : [],
+									[h],
+									"a handle's column delivers exactly its member"
+								)
+								throwsRefused(() => computeCore.literal(rosterId, h), "MalformedDescription")
+							}
+							throwsRefused(() => K.handle(`${target}Other`), "MalformedDescription")
+						})
+				)
+			)
+	)
+
+	type ClosedDefect =
+		| "none"
+		| "an extra field in a row"
+		| "a missing field in a row"
+		| "a key off the roster"
+		| "a mistyped value"
+		| "two rows at one key"
+		| "a key of an open field"
+		| "a field its sequence writes"
+		| "a fifth argument"
+	const closedDefects: Arr.NonEmptyReadonlyArray<ClosedDefect> = [
+		"none",
+		"an extra field in a row",
+		"a missing field in a row",
+		"a key off the roster",
+		"a mistyped value",
+		"two rows at one key",
+		"a key of an open field",
+		"a field its sequence writes",
+		"a fifth argument"
+	]
+	type ClosedFeature = ClosedDefect | "no payload" | "payload" | "no rows"
 
 	const payloadFieldGen: Gen<{
 		readonly name: string
@@ -445,15 +526,14 @@ describe("closed", () => {
 	}
 
 	it.effect(
-		"records a roster in declared order and one fact per handle against its payload, types each handle, and refuses every other roster, facts or handle",
+		"records a closed relation's rows, one per key of its roster, against its fields, and refuses every other declaration",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
-						suite: "unit/schema/closed-constructor",
+						suite: "unit/schema/closed-relation-constructor",
 						draw: drawn((source) => {
-							const name = source.draw(wordGen)
 							const handles = rosterOf(
 								source.draw(
 									uniqueArray(
@@ -465,8 +545,10 @@ describe("closed", () => {
 								)
 							)
 							return {
-								name,
+								name: source.draw(wordGen),
 								handles,
+								/** The handles that have a row, in declared order: a closed relation need not cover its roster. */
+								held: source.draw(array(boolean, { min: 4, max: 4 })),
 								payload: source.draw(
 									uniqueArray(payloadFieldGen, (f) => f.name, { min: 0, max: 3 }, 20)
 								),
@@ -475,10 +557,10 @@ describe("closed", () => {
 							}
 						}),
 						literal: Formatter.format,
-						coverage: required<ClosedFeature>([...closedDefects, "no payload", "payload"], {
-							cases: 300,
-							sense: notesOnly
-						}),
+						coverage: required<ClosedFeature>(
+							[...closedDefects, "no payload", "payload", "no rows"],
+							{ cases: 300, sense: notesOnly }
+						),
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
@@ -489,9 +571,12 @@ describe("closed", () => {
 					(s, c) =>
 						Effect.sync(() => {
 							const { handles, target } = s
-							/** A defect that needs a payload field plants one where the drawn payload has none. */
+							const Key = closed("Key", handles, [])
+							/** A defect that needs a payload field, or a row, plants one where the draw has none. */
 							const needsField =
-								s.defect === "a missing field in a fact" || s.defect === "a mistyped value"
+								s.defect === "a missing field in a row" ||
+								s.defect === "a mistyped value" ||
+								s.defect === "a key of an open field"
 							const drawnPayload: ReadonlyArray<{
 								readonly name: string
 								readonly type: PayloadType
@@ -500,118 +585,85 @@ describe("closed", () => {
 								needsField && s.payload.length === 0
 									? [{ name: "planted", type: "flag" as const, values: [true, false, true, false] }]
 									: s.payload
-							const payload: Record<string, FieldBase> = Rec.fromEntries(
-								Arr.map(drawnPayload, (f) => [f.name, payloadDescriptor(f.type)])
-							)
-							const facts: Record<string, Record<string, unknown>> = Rec.fromEntries(
-								Arr.map(handles, (h, i) => [
-									h,
-									Rec.fromEntries(Arr.map(drawnPayload, (f) => [f.name, f.values[i]]))
-								])
-							)
+							const fields: Record<string, unknown> = {
+								id: rawClosedId(Key),
+								...Rec.fromEntries(
+									Arr.map(drawnPayload, (f) => [f.name, payloadDescriptor(f.type)])
+								)
+							}
+							const heldHandles = Arr.filter(handles, (_, i) => s.held[i] === true)
+							const rowHandles =
+								heldHandles.length === 0 && s.defect !== "none" ? [target] : heldHandles
+							const rows: Array<Record<string, unknown>> = Arr.map(rowHandles, (h) => {
+								const i = handles.indexOf(h)
+								return {
+									id: h,
+									...Rec.fromEntries(Arr.map(drawnPayload, (f) => [f.name, f.values[i]]))
+								}
+							})
 							const [first] = drawnPayload
+							const firstRow = rows[0]
+							let key: ReadonlyArray<string> = ["id"]
+							let extra: ReadonlyArray<unknown> = []
 							c.note(s.defect)
 							switch (s.defect) {
 								case "none":
 									c.note(drawnPayload.length === 0 ? "no payload" : "payload")
-									break
-								case "a missing fact":
-									delete facts[target]
-									break
-								case "an extra field in a fact":
-									defined(facts[target])["extra"] = true
-									break
-								case "a missing field in a fact":
-									delete defined(facts[target])[defined(first).name]
-									break
-								case "a fact off the roster":
-									facts[`${target}Other`] = defined(facts[target])
-									break
-								case "a mistyped value":
-									defined(facts[target])[defined(first).name] = mistypedValue(defined(first).type)
-									break
-								case "a payload field named id":
-									payload["id"] = rawPg.bigint
-									for (const h of handles) {
-										defined(facts[h])["id"] = 1n
+									if (rows.length === 0) {
+										c.note("no rows")
 									}
 									break
-								case "a repeated handle":
-								case "an empty roster":
-								case "a payload as a third argument":
+								case "an extra field in a row":
+									defined(firstRow)["extra"] = true
+									break
+								case "a missing field in a row":
+									delete defined(firstRow)[defined(first).name]
+									break
+								case "a key off the roster":
+									defined(firstRow)["id"] = `${target}Other`
+									break
+								case "a mistyped value":
+									defined(firstRow)[defined(first).name] = mistypedValue(defined(first).type)
+									break
+								case "two rows at one key":
+									rows.push({ ...defined(firstRow) })
+									break
+								case "a key of an open field":
+									key = [defined(first).name]
+									break
+								case "a field its sequence writes":
+									fields["seq"] = rawPg.bigserial
+									for (const row of rows) {
+										row["seq"] = 1n
+									}
+									break
+								case "a fifth argument":
+									extra = [{}]
 									break
 							}
 							if (s.defect !== "none") {
-								const roster =
-									s.defect === "a repeated handle"
-										? [...handles, target]
-										: s.defect === "an empty roster"
-											? []
-											: handles
 								throwsRefused(
-									() =>
-										s.defect === "a payload as a third argument"
-											? admitClosed(s.name, roster, undefined, [payload])
-											: admitClosed(s.name, roster, { payload, facts }, []),
+									() => admitClosedRelation(s.name, fields, key, rows, extra),
 									"MalformedDescription"
 								)
 								return
 							}
-							const K =
-								drawnPayload.length === 0
-									? closed(s.name, handles, [])
-									: closed(s.name, handles, []).with(payload, facts)
-							const rosterHandles: ReadonlyArray<string> = K.handles
-							assert.deepEqual(rosterHandles, handles)
-							assert.deepEqual(K.facts, facts)
-							const desc = relationDescOf(K, "test")
-							if (desc.kind !== "closed") {
-								return assert.fail("a closed relation's Description")
-							}
-							assert.deepEqual(desc.handles, handles)
-							const keptPayload = K.payload
-							assert.ok(
-								isRecord(keptPayload),
-								"a closed relation's payload is a record of its descriptors"
-							)
-							for (const f of drawnPayload) {
-								assert.equal(keptPayload[f.name], payload[f.name])
-								const fieldDesc = descOf(payloadDescriptor(f.type))
-								assert.deepEqual(desc.payload[f.name], fieldDesc)
-								for (const [i, h] of handles.entries()) {
+							const desc = admitClosedRelation(s.name, fields, key, rows, []).desc
+							assert.deepEqual(desc.key, ["id"])
+							assert.deepEqual(desc.fields["id"], descOf(rawClosedId(Key)))
+							assert.equal(desc.rows.length, rows.length)
+							for (const [r, h] of rowHandles.entries()) {
+								const i = handles.indexOf(h)
+								const row = defined(desc.rows[r])
+								assert.equal(row["id"], h)
+								for (const f of drawnPayload) {
+									const fieldDesc = descOf(payloadDescriptor(f.type))
+									assert.deepEqual(desc.fields[f.name], fieldDesc)
 									assert.deepEqual(
-										desc.facts[h]?.[f.name],
+										row[f.name],
 										succeeded(literalResult(fieldDesc, f.values[i], undefined))
 									)
 								}
-							}
-							/**
-							 * Either form's handle(h) is h's literal at the roster's enum, the one typed constant of a member: its
-							 * column delivers exactly h. A member off the roster is refused, and so is Compute.literal over the
-							 * roster's descriptor, the JavaScript caller's path the types cannot refuse.
-							 */
-							const rosterId = rawClosedId(K)
-							for (const h of handles) {
-								const term = K.handle(h)
-								assert.deepEqual(term.expr, { kind: "literal", value: h, type: descOf(rosterId) })
-								assert.equal(term.sql, "enum")
-								assert.deepEqual(
-									term.column.kind === "handle" ? term.column.handles : [],
-									[h],
-									"a handle's column delivers exactly its member"
-								)
-								throwsRefused(() => computeCore.literal(rosterId, h), "MalformedDescription")
-							}
-							throwsRefused(() => K.handle(`${target}Other`), "MalformedDescription")
-							if (drawnPayload.length === 0) {
-								const withEmpty = relationDescOf(
-									closed(s.name, handles, []).with(
-										{},
-										Rec.fromEntries(Arr.map(handles, (h) => [h, {}]))
-									),
-									"test"
-								)
-								assert.deepEqual({ ...withEmpty, loc: desc.loc }, desc)
 							}
 						})
 				)
@@ -891,7 +943,7 @@ describe("literals take their field's value", () => {
 		}
 	])
 
-	type Site = "closed fact" | "selection" | "check operand"
+	type Site = "closed row" | "selection" | "check operand"
 	type LiteralFeature = `${LiteralField["kind"]}: ${LiteralOutcome}` | Site
 
 	it.effect(
@@ -909,7 +961,7 @@ describe("literals take their field's value", () => {
 						draw: sketched(
 							(source) => ({
 								case: source.draw(caseGen),
-								site: source.draw(element<Site>(["closed fact", "selection", "check operand"]))
+								site: source.draw(element<Site>(["closed row", "selection", "check operand"]))
 							}),
 							(c) => c
 						),
@@ -929,7 +981,7 @@ describe("literals take their field's value", () => {
 								"numeric(p, s): infinity",
 								"numeric(p, s): wrong host kind",
 								"numeric(p, s): special",
-								"closed fact",
+								"closed row",
 								"selection",
 								"check operand"
 							],
@@ -940,7 +992,7 @@ describe("literals take their field's value", () => {
 								note: "NaN for a real",
 								sketch: {
 									case: { field: { kind: "real" }, value: { kind: "number", value: Number.NaN } },
-									site: "closed fact"
+									site: "closed row"
 								},
 								draws: "",
 								reaches: ["real: special"]
@@ -1004,15 +1056,16 @@ describe("literals take their field's value", () => {
 							const Rated = relation("Rated", { id: uuid, value: descriptor }, ["id"], [])
 							const recorded = (): LiteralDesc => {
 								switch (site) {
-									case "closed fact": {
-										const desc = relationDescOf(
-											closed("P", ["H"], []).with({ value: descriptor }, { H: { value: host } }),
-											"test"
+									case "closed row": {
+										const P = closed("P", ["H"], [])
+										const { desc } = admitClosedRelation(
+											"Rate",
+											{ id: rawClosedId(P), value: descriptor },
+											["id"],
+											[{ id: "H", value: host }],
+											[]
 										)
-										if (desc.kind !== "closed") {
-											return assert.fail("a closed relation's Description")
-										}
-										return defined(desc.facts["H"]?.["value"])
+										return defined(desc.rows[0]?.["value"])
 									}
 									case "selection": {
 										const side = sideDescOf(
@@ -1234,18 +1287,18 @@ describe("statements", () => {
 			)
 	)
 
-	type SideStatement = "contained" | "mirrors" | "capacity"
+	type SideStatement = "contained" | "mirrors"
 	const Triple = relation("Triple", { a: uuid, b: uuid, c: uuid }, ["a", "b", "c"], [])
 	const tripleFields: Arr.NonEmptyReadonlyArray<string> = ["a", "b", "c"]
 
-	it.effect("contained, mirrors and capacity relate two sides built by on, of one width", (ctx) =>
+	it.effect("contained and mirrors relate two sides built by on, of one width", (ctx) =>
 		searched(
 			ctx,
 			explore(
 				{
 					suite: "unit/schema/law-sides",
 					draw: drawn((source) => ({
-						statement: source.draw(element<SideStatement>(["contained", "mirrors", "capacity"])),
+						statement: source.draw(element<SideStatement>(["contained", "mirrors"])),
 						left: source.draw(int(1, 3)),
 						right: source.draw(int(1, 3)),
 						bare: source.draw(element<"none" | "left" | "right">(["none", "none", "left", "right"]))
@@ -1253,7 +1306,7 @@ describe("statements", () => {
 					literal: Formatter.format,
 					coverage:
 						required<`${SideStatement}: ${"related" | "widths differ" | "a bare relation"}`>(
-							Arr.flatMap(["contained", "mirrors", "capacity"] as const, (st) =>
+							Arr.flatMap(["contained", "mirrors"] as const, (st) =>
 								Arr.map(
 									["related", "widths differ", "a bare relation"] as const,
 									(o) => `${st}: ${o}` as const
@@ -1275,11 +1328,7 @@ describe("statements", () => {
 						const l = s.bare === "left" ? Task : left
 						const r = s.bare === "right" ? Triple : right
 						const build = () =>
-							s.statement === "contained"
-								? containedBuilder(l, r)
-								: s.statement === "mirrors"
-									? mirrorsBuilder(l, r)
-									: capacityBuilder(l, { from: r, within: runtimeWithin(0n, "*") })
+							s.statement === "contained" ? containedBuilder(l, r) : mirrorsBuilder(l, r)
 						const related = s.bare === "none" && s.left === s.right
 						c.note(
 							`${s.statement}: ${related ? "related" : s.bare === "none" ? "widths differ" : "a bare relation"}`
@@ -1293,9 +1342,7 @@ describe("statements", () => {
 						const stated = (st: StatementDesc | undefined) =>
 							st?.kind === "contained"
 								? [st.left, st.right]
-								: st?.kind === "capacity"
-									? [st.target, st.from]
-									: assert.fail(`a ${s.statement} statement`)
+								: assert.fail(`a ${s.statement} statement`)
 						if (s.statement === "mirrors") {
 							assert.equal(statementDescOf(built), undefined, "mirrors states no statement itself")
 							return assert.deepEqual(Arr.map(defined(expansionDescOf(built)).statements, stated), [
@@ -1309,189 +1356,6 @@ describe("statements", () => {
 					})
 			)
 		)
-	)
-
-	/**
-	 * A bound as a caller writes it: a nonnegative or negative bigint, ref(field), "*" (high only), a JavaScript number,
-	 * or nothing (within(n)).
-	 */
-	type BoundArg =
-		| { readonly kind: "bigint"; readonly value: bigint }
-		| { readonly kind: "ref" }
-		| { readonly kind: "unbounded" }
-		| { readonly kind: "number" }
-		| { readonly kind: "omitted" }
-	type WeightArg =
-		| "none"
-		| "a field"
-		| "a duration"
-		| "a weight weigh did not build"
-		| "an unknown rule member"
-	const boundGen = (high: boolean): Gen<BoundArg> =>
-		weighted([
-			[4, map(bigint(-2n, 6n), (value): BoundArg => ({ kind: "bigint", value }))],
-			[1, constant<BoundArg>({ kind: "ref" })],
-			[1, constant<BoundArg>({ kind: high ? "unbounded" : "number" })],
-			[1, constant<BoundArg>({ kind: high ? "omitted" : "number" })]
-		])
-	const boundValue = (b: BoundArg): unknown =>
-		b.kind === "bigint"
-			? b.value
-			: b.kind === "ref"
-				? runtimeRef("budget")
-				: b.kind === "unbounded"
-					? "*"
-					: 1
-	/** The bound a drawn argument records, or its refusal by within. */
-	type Admitted<V> = { readonly kind: "admitted"; readonly bound: V } | { readonly kind: "refused" }
-	const lowDesc = (b: BoundArg): Admitted<BoundValueDesc> =>
-		b.kind === "bigint" && b.value >= 0n
-			? { kind: "admitted", bound: b.value }
-			: b.kind === "ref"
-				? { kind: "admitted", bound: { ref: "budget" } }
-				: { kind: "refused" }
-	const highDesc = (b: BoundArg, low: Admitted<BoundValueDesc>): Admitted<BoundValueDesc | "*"> =>
-		b.kind === "omitted"
-			? low
-			: b.kind === "unbounded"
-				? { kind: "admitted", bound: "*" }
-				: lowDesc(b)
-
-	const Pool = relation("Pool", { id: uuid, budget: rawPg.bigint }, ["id"], [])
-	const Claim = relation(
-		"Claim",
-		{ id: uuid, pool: uuid, units: rawPg.bigint, during: rawSpan(rawPg.bigint) },
-		["id"],
-		[]
-	)
-
-	it.effect(
-		"within takes nonnegative bigint or ref bounds, low not above high, and capacity records its sides, weight and bound",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/schema/capacity-bounds",
-						draw: drawn((source) => ({
-							low: source.draw(boundGen(false)),
-							high: source.draw(boundGen(true)),
-							third: source.draw(element([false, false, false, true])),
-							weight: source.draw(
-								element<WeightArg>([
-									"none",
-									"a field",
-									"a duration",
-									"a weight weigh did not build",
-									"an unknown rule member"
-								])
-							)
-						})),
-						literal: Formatter.format,
-						coverage: required<
-							"bounded" | "exact" | "no upper bound" | "refused bound" | "refused rule" | WeightArg
-						>(
-							[
-								"bounded",
-								"exact",
-								"no upper bound",
-								"refused bound",
-								"refused rule",
-								"a field",
-								"a duration"
-							],
-							{ cases: 300, sense: notesOnly }
-						),
-						kept: [],
-						runs: 300,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(s, c) =>
-						Effect.sync(() => {
-							/** A third argument follows a high bound, the low one repeated when none is drawn. */
-							const args = s.third
-								? [boundValue(s.low), boundValue(s.high.kind === "omitted" ? s.low : s.high), 3n]
-								: [boundValue(s.low), ...(s.high.kind === "omitted" ? [] : [boundValue(s.high)])]
-							const [lowArg, ...rest] = args
-							const call = () => runtimeWithin(lowArg, ...argumentsOf(rest))
-							const lowArgument = lowDesc(s.low)
-							const highArgument = highDesc(s.high, lowArgument)
-							if (s.third || lowArgument.kind === "refused" || highArgument.kind === "refused") {
-								c.note("refused bound")
-								return void throwsRefused(call, "MalformedDescription")
-							}
-							const [low, high] = [lowArgument.bound, highArgument.bound]
-							if (typeof low === "bigint" && typeof high === "bigint" && low > high) {
-								c.note("refused bound")
-								return void throwsRefused(call, "MalformedDescription")
-							}
-							c.note(
-								s.high.kind === "omitted" ? "exact" : high === "*" ? "no upper bound" : "bounded"
-							)
-							const bound = call()
-							assert.deepEqual(bound, { low, high })
-							if (
-								s.weight === "a weight weigh did not build" ||
-								s.weight === "an unknown rule member"
-							) {
-								c.note("refused rule")
-								/** A malformed rule is refused where capacity(...) admits its arguments, its admission core. */
-								const malformedRule =
-									s.weight === "a weight weigh did not build"
-										? { weight: { units: true } }
-										: { limit: 3n }
-								return void throwsRefused(
-									() =>
-										admitCapacity(onBuilder(Pool, ["id"]), {
-											from: onBuilder(Claim, ["pool"]),
-											within: bound,
-											...malformedRule
-										}),
-									"MalformedDescription"
-								)
-							}
-							const weight =
-								s.weight === "a field"
-									? { weight: runtimeWeigh("units") }
-									: s.weight === "a duration"
-										? { weight: runtimeWeigh(runtimeDuration("during")) }
-										: {}
-							c.note(s.weight)
-							const desc = statementDescOf(
-								capacityBuilder(onBuilder(Pool, ["id"]), {
-									from: onBuilder(Claim, ["pool"]),
-									within: bound,
-									...weight
-								})
-							)
-							if (desc?.kind !== "capacity") {
-								return assert.fail("a capacity statement")
-							}
-							assert.deepEqual<SideDesc>(desc.target, {
-								relation: "Pool",
-								terms: [{ kind: "field", field: "id" }],
-								selection: everyFact
-							})
-							assert.deepEqual<SideDesc>(desc.from, {
-								relation: "Claim",
-								terms: [{ kind: "field", field: "pool" }],
-								selection: everyFact
-							})
-							assert.deepEqual(
-								desc.weight,
-								s.weight === "a field"
-									? { kind: "field", field: "units" }
-									: s.weight === "a duration"
-										? { kind: "duration", field: "during" }
-										: { kind: "count" }
-							)
-							assert.deepEqual(desc.within, { low, high })
-						})
-				)
-			)
 	)
 
 	/**
@@ -1866,7 +1730,7 @@ describe("alternatives", () => {
 	const Alien = closed("Alien", ["X"], [])
 
 	it.effect(
-		"is one statement expanding to the two containments of each armed handle, in roster order, each marked",
+		"is one statement of its armed handles in roster order, expanding to each arm's containment and each handle's reverse",
 		(ctx) =>
 			searched(
 				ctx,
@@ -1976,41 +1840,64 @@ describe("alternatives", () => {
 								roster: Mode
 							})
 							assert.deepEqual(law.arms, arms)
-							const origin = { alternatives: alternativesId("Job", "mode") }
-							/**
-							 * No head containment: the roster's domain types the discriminator. Each armed handle's parents, selected by
-							 * their discriminator, are contained in its arm, and the arm in them.
-							 */
-							const expansion = Arr.flatMap(s.handles, (h) => {
+							/** Each armed handle in roster order, with its arm's key side. */
+							const armed = Arr.flatMap(s.handles, (h) => {
 								const arm = armKeys[h]
-								if (arm === undefined) {
-									return []
-								}
-								const selected = {
-									relation: "Job",
-									terms: fieldTerms(parentFields),
-									selection: {
-										conjuncts: [
+								return arm === undefined
+									? []
+									: [
 											{
-												kind: "compare" as const,
-												op: "eq" as const,
-												left: { kind: "field" as const, field: "mode" },
-												right: { kind: "literal" as const, value: h }
+												handle: h,
+												arm: {
+													relation: arm.relation,
+													terms: fieldTerms(arm.fields),
+													selection: everyFact
+												}
 											}
 										]
-									}
-								}
-								const armSide = {
-									relation: arm.relation,
-									terms: fieldTerms(arm.fields),
-									selection: everyFact
-								}
-								return [
-									{ kind: "contained" as const, left: selected, right: armSide, origin },
-									{ kind: "contained" as const, left: armSide, right: selected, origin }
-								]
 							})
-							matchesObject(defined(expansionDescOf(law)).statements, expansion)
+							const desc = statementDescOf(law)
+							if (desc?.kind !== "alternatives") {
+								return assert.fail("an alternatives statement")
+							}
+							matchesObject(desc, {
+								kind: "alternatives",
+								parent: { relation: "Job", terms: fieldTerms(parentFields), selection: everyFact },
+								discriminator: "mode",
+								roster: "Mode",
+								arms: armed
+							})
+							/**
+							 * No head containment: the roster's domain types the discriminator. Each arm, its own relation here, is
+							 * contained in its handle's parents, selected by their discriminator; then each handle's parents are
+							 * contained in its arm (ir/desc.ts expandAlternatives).
+							 */
+							const selected = (h: string) => ({
+								relation: "Job",
+								terms: fieldTerms(parentFields),
+								selection: {
+									conjuncts: [
+										{
+											kind: "compare" as const,
+											op: "eq" as const,
+											left: { kind: "field" as const, field: "mode" },
+											right: { kind: "literal" as const, value: h }
+										}
+									]
+								}
+							})
+							matchesObject(expandAlternatives(desc), [
+								...Arr.map(armed, (a) => ({
+									kind: "contained" as const,
+									left: a.arm,
+									right: selected(a.handle)
+								})),
+								...Arr.map(armed, (a) => ({
+									kind: "contained" as const,
+									left: selected(a.handle),
+									right: a.arm
+								}))
+							])
 						})
 				)
 			)
@@ -2033,7 +1920,8 @@ describe("schema and schema.extend", () => {
 	const statementValues: Arr.NonEmptyReadonlyArray<Statement> = [
 		mutableBuilder(Task),
 		keyBuilder(onBuilder(Account, ["name"])),
-		alternativesBuilder(Task, "kind", Kind, { Automatic: AutomaticTask })
+		alternativesBuilder(Task, "kind", Kind, { Automatic: AutomaticTask }),
+		mirrorsBuilder(onBuilder(AutomaticTask, ["task"]), onBuilder(Task, ["id"]))
 	]
 	type SchemaDefect =
 		| "none"
@@ -2052,7 +1940,7 @@ describe("schema and schema.extend", () => {
 	]
 
 	it.effect(
-		"records each relation under its own name and statements in order, expanding alternatives in place, and refuses a relation under another name or a malformed declaration",
+		"records each relation under its own name and statements in order, expanding mirrors in place, and refuses a relation under another name or a malformed declaration",
 		(ctx) =>
 			Effect.gen(function* () {
 				const D = derived("TaskIds", idsOf(schema("Edu", { Kind, Task }, [], []), [Task]), [])
@@ -2065,12 +1953,14 @@ describe("schema and schema.extend", () => {
 								entries: source.draw(
 									nonEmptyGen(element<Entry>(["Kind", "Task", "Account", "Task rebuilt"]), 4)
 								),
-								statements: source.draw(shuffled([0, 1, 2], { min: 0, max: [0, 1, 2].length })),
+								statements: source.draw(
+									shuffled([0, 1, 2, 3], { min: 0, max: [0, 1, 2, 3].length })
+								),
 								defect: source.draw(element(Arr.append(schemaDefects, "none" as const)))
 							})),
 							literal: Formatter.format,
-							coverage: required<SchemaDefect | "alternatives expanded">(
-								[...schemaDefects, "alternatives expanded"],
+							coverage: required<SchemaDefect | "mirrors expanded">(
+								[...schemaDefects, "mirrors expanded"],
 								{ cases: 200, sense: notesOnly }
 							),
 							kept: [],
@@ -2138,7 +2028,7 @@ describe("schema and schema.extend", () => {
 										: expansion.statements
 								})
 								if (expanded.length > statements.length) {
-									c.note("alternatives expanded")
+									c.note("mirrors expanded")
 								}
 								assert.deepEqual(desc.statements, expanded)
 								matchesObject(W, { name: "Work", relations, statements })

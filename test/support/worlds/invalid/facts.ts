@@ -1,6 +1,6 @@
 import { array, boolean, element, type Gen, int, map } from "@grizzle/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { expect, projection, selected } from "#test/pg/laws/families/model.ts"
+import { expect, projection, selected } from "#test/support/laws/model.ts"
 import {
 	fieldsOfSource,
 	inDomain,

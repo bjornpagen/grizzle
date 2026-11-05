@@ -6,6 +6,7 @@ import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import {
 	censusOf,
+	type DeclaredName,
 	DeclaredNamespace,
 	type Identity,
 	identifierOf,
@@ -14,9 +15,13 @@ import {
 } from "#compiler/core/identity.ts"
 import type { Identifier, IdentityKind, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
+import type { ClosedTheoryRelation, TableRelation } from "#compiler/ir/law.ts"
 import type { ConstraintLaws, IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
+import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 
 import {
 	type ConstraintLaw,
@@ -25,7 +30,12 @@ import {
 	type LawModel
 } from "#compiler/laws/model/model.ts"
 import { addAdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
-import { addEnums, type ClosedTemplate } from "#compiler/physical/ddl/closed.ts"
+import {
+	addClosedRelations,
+	addRosters,
+	closedConstants,
+	planClosed
+} from "#compiler/physical/ddl/constants.ts"
 import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/context.ts"
 import {
 	addContextContractDomains,
@@ -33,11 +43,16 @@ import {
 	addTextDomains,
 	type ContextContract,
 	contextContracts,
+	contractDigest,
 	planTextDomains,
 	type TextColumnUse,
 	type TextDomain
 } from "#compiler/physical/ddl/domains.ts"
-import { type InstallNames, installNames } from "#compiler/physical/ddl/names.ts"
+import {
+	type ContractSource,
+	type InstallNames,
+	installNames
+} from "#compiler/physical/ddl/names.ts"
 import {
 	addWorlds,
 	type CheckedLogin,
@@ -57,30 +72,34 @@ import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { refinedConstantsExtension } from "#compiler/physical/refined/constants.ts"
 import { spanStorage } from "#compiler/physical/span/storage.ts"
 import { planStatistics, type StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
-import { type Owned, ownedIdentities } from "#compiler/schema/own.ts"
+import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import type { TextRefinement } from "#compiler/text/refinement.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /** The settings the installation runs under (`InstallSettings`: the owner a fresh-install script names, undefined for
- * a migration; the PostgreSQL schema; the vector extension's and btree_gist's schemas; the logins over the schema) and
- * the extensions it runs, in order. Index requests beyond the law-maintenance ones come from an extension's
- * contribution, as the workload's do (`workloadExtension`). */
+ * a migration; the PostgreSQL schema; the vector extension's and btree_gist's schemas; the logins over the schema), the
+ * extensions it runs, in order, and the codes of the installation it compiles for. Index requests beyond the
+ * law-maintenance ones come from an extension's contribution, as the workload's do (`workloadExtension`). */
 export interface InstallOptions extends InstallSettings {
 	readonly extensions: ReadonlyArray<InstallExtension>
+	/** The installation's codes: every code a literal, a constant or a domain's CHECK holds, and every bit(n) width. */
+	readonly codes: Codebook
 }
 
-/** The options of an installation of `owned` under its declared name's identity, owned.installation, with the vector
- * extension in vector_ext and btree_gist in public (the local cluster's), no login, and no extension beyond the
- * built-in ones, as `owner` names it. A caller that targets another schema, installs logins or adds extensions states
- * them over these. */
+/** The options of a fresh installation of `owned` under its declared name's identity, owned.installation, with the
+ * vector extension in vector_ext and btree_gist in public (the local cluster's), no login, no extension beyond the
+ * built-in ones, and the first codebook, each roster's handles numbered from 0 with no hole, as `owner` names it. A
+ * caller that targets another schema, installs logins, adds extensions or compiles for an installation with a history
+ * of codes states them over these. */
 export const installOptions = (owned: Owned, owner: string | undefined): InstallOptions => ({
 	owner,
 	installation: owned.installation,
 	vectorSchema: "vector_ext",
 	extensionSchema: "public",
 	logins: [],
-	extensions: []
+	extensions: [],
+	codes: firstCodebook(rostersOf(owned))
 })
 
 /** A law of the installation with its description, as an outcome names it (types/changeset Law); L, the laws it may be. */
@@ -100,7 +119,6 @@ export interface Installation {
 	/** The install script: every object's DDL in install order, then the PUBLIC revokes, the logins' defaults and every
 	 * installed object's COMMENT. */
 	readonly statements: ReadonlyArray<SqlStatement>
-	readonly closedTemplates: Readonly<Record<string, ClosedTemplate>>
 	readonly textDomains: ReadonlyArray<TextDomain>
 	readonly indexes: ReadonlyArray<PlannedIndex>
 	/** The logins and their roles, in name order. */
@@ -112,8 +130,8 @@ export interface Installation {
 	/** Each owner's constraint, unique index and domain constraint names to the law a violation reports, built from
 	 * constraintLaws. */
 	readonly constraintToLaw: ConstraintLaws
-	/** Every law of the theory with its description, in theory order: the identities a residual law's function and a
-	 * write statement's refusal raise under. */
+	/** Every law of the theory with its description, in theory order: the identities a write statement's refusal raises
+	 * under. */
 	readonly theoryLaws: ReadonlyArray<DescribedLaw<Identifier<"law">>>
 	/** Every law a violation of the installation can report, by its LawId, as an outcome names it (types/changeset
 	 * Law): the theory's laws, then each constraint's law, each described where it is built. */
@@ -123,7 +141,6 @@ export interface Installation {
 	readonly identities: ReadonlyArray<Identity<IdentityKind>>
 	/** What this installation leaves to other packages' extensions. */
 	readonly deferred: {
-		readonly residualLaws: ReadonlyArray<LawId>
 		readonly derivedRelations: ReadonlyArray<string>
 	}
 }
@@ -146,13 +163,14 @@ const admittedSchema = (name: string): boolean => {
 	return true
 }
 
-/** The installation of an owned schema, under the policy it was owned under: the obligation graph of every native
- * object, each with its DDL, its reasons and its phase, in a deterministic install order; the manifest; the VALUES
- * templates of the closed relations; the planned indexes with their merged provenance; and the install script, its
- * statements as SQL trees, printed only where they are sent or drafted. It is pure: no database, no clock, no file.
+/** The installation of an owned schema, under the policy it was owned under, for the installation that holds
+ * `options.codes`: the obligation graph of every native object, each with its DDL, its reasons and its phase, in a
+ * deterministic install order; the manifest; the planned indexes with their merged provenance; and the install script,
+ * its statements as SQL trees, printed only where they are sent or drafted. It is pure: no database, no clock, no file.
  *
  * The steps follow the dependency order: the namespace and the refusal function every write statement that can refuse
- * raises through; the isolation default and guard; the enums, the structural text domains and the contract domains;
+ * raises through; the isolation default and guard; each roster's names constant and domains and each closed
+ * relation's constants (physical/ddl/constants.ts), the structural text domains and the contract domains;
  * the tables with their identities; the tags, keys, CHECKs and references the law model specialized; the shape, width
  * and contract-endpoint CHECKs of every span column (`spanStorage`), which every installation carries because a span's
  * storage is never optional; the validation of every closed payload with a nontrivial refinement
@@ -163,9 +181,9 @@ const admittedSchema = (name: string): boolean => {
  * any span key or GiST index with a scalar component.
  *
  * A contribution's constraints join the constraint-to-law list after the law model's own and the text domains', and a
- * name already listed must report the law already listed for it. A residual law or derived relation that no extension
- * claims is reported in `deferred`: the natives are installed, and the caller decides whether the installation is
- * complete enough for its purpose (the alternatives DDL without its residual law is not a complete implementation).
+ * name already listed must report the law already listed for it. A derived relation that no extension claims is
+ * reported in `deferred`: the natives are installed, and the caller decides whether the installation is complete
+ * enough for its purpose.
  *
  * The script is one transaction run as the migration identity, the owner; on a fresh schema every table is empty, so
  * ordinary CREATE INDEX serves. */
@@ -237,40 +255,111 @@ const admittedSettings = (
 }
 
 /** Each structural text domain's constraint, reporting the domain's law (identity.patternLaw), as a contract's does;
- * the law model plans no text domain, so the installation that names them lists them. */
+ * the law model plans no text domain, so the installation that names them lists them, a domain patterns of one
+ * definition share once, with the first pattern's description. */
 const textDomainConstraintLaws = (
 	plans: ReadonlyArray<{ readonly domain: TextDomain; readonly refinement: TextRefinement }>
 ): ReadonlyArray<ConstraintLaw> =>
-	plans.map(({ domain, refinement }) => ({
-		kind: "domainConstraint",
-		name: domain.constraint,
-		owner: domain.name,
-		law: identifierOf(identity.patternLaw(domain.named)),
-		described: Object.freeze({
-			kind: "pattern",
-			source: refinement.source,
-			flags: refinement.flags
-		})
-	}))
+	plans
+		.filter(({ domain }, i) => plans.findIndex((p) => p.domain.name === domain.name) === i)
+		.map(({ domain, refinement }) => ({
+			kind: "domainConstraint",
+			name: domain.constraint,
+			owner: domain.name,
+			laws: [
+				{
+					law: identifierOf(identity.patternLaw(domain.named)),
+					described: Object.freeze({
+						kind: "pattern",
+						source: refinement.source,
+						flags: refinement.flags
+					})
+				}
+			],
+			uses: []
+		}))
 
-/** Each checked context contract's domain constraint, reporting its contract's law, as a base contract's does: one
- * contract is one law wherever its domain is installed. */
-const contextContractConstraintLaws = (
-	contracts: ReadonlyArray<ContextContract>
-): ReadonlyArray<ConstraintLaw> =>
-	contracts.flatMap((c) =>
-		c.check.kind === "checked"
-			? [
-					{
-						kind: "domainConstraint",
-						name: c.check.ident,
-						owner: c.owner,
-						law: identifierOf(contractLawIdentity(c.name)),
-						described: contractLaw(c.name)
-					} as const
-				]
-			: []
-	)
+/** The contracts a value of `t` is checked under, outermost first: its contract and every contract its base chain
+ * names. */
+const contractChain = (t: ScalarType): ReadonlyArray<DeclaredName> => {
+	const contract = contractOf(t)
+	return contract === undefined ? [] : [contract.name, ...contractChain(contract.base)]
+}
+
+/**
+ * Each checked contract domain's constraint, a base contract's and a context contract's alike: the laws of every
+ * contract whose definition the domain holds, in contract name order, since contracts of one definition share one
+ * domain (W6.Q10), and each column of a stored relation the domain checks, down its type's contract chain, with the law
+ * of the contract that column's chain names it by, which a violation on that column reports.
+ */
+const contractConstraintLaws = (
+	names: InstallNames,
+	contracts: ReadonlyMap<DeclaredName, ContractSource>,
+	relations: ReadonlyArray<TableRelation>
+): ReadonlyArray<ConstraintLaw> => {
+	const byDomain = new Map<
+		string,
+		{ named: Identity<"contractDomain">; contracts: Array<DeclaredName> }
+	>()
+	for (const [contract, source] of [...contracts].toSorted(([a], [b]) => compareStrings(a, b))) {
+		if (source.check.kind !== "checked") {
+			continue
+		}
+		const named = names.contractNamed(contract)
+		const known = byDomain.get(named.identifier)
+		if (known === undefined) {
+			byDomain.set(named.identifier, { named, contracts: [contract] })
+		} else {
+			known.contracts.push(contract)
+		}
+	}
+	return [...byDomain.values()].flatMap(({ named, contracts: sharing }) => {
+		const laws = sharing.map((contract) => ({
+			law: identifierOf(contractLawIdentity(contract)),
+			described: contractLaw(contract)
+		}))
+		if (!isNonEmpty(laws)) {
+			return []
+		}
+		const uses = relations.flatMap((r) =>
+			r.fields.flatMap((f) =>
+				contractChain(f.type)
+					.filter((contract) => names.contractNamed(contract).identifier === named.identifier)
+					.map((contract) => ({
+						table: r.ident,
+						column: f.column,
+						law: identifierOf(contractLawIdentity(contract))
+					}))
+			)
+		)
+		return [
+			{
+				kind: "domainConstraint",
+				name: identifierOf(identity.domainCheck(named)),
+				owner: identifierOf(named),
+				laws,
+				uses
+			} as const
+		]
+	})
+}
+
+/**
+ * Every contract the installation gives a domain, by declared name, with what its domain is defined from: each base
+ * contract's law-model native, then each context contract a role's context field names.
+ */
+const contractSources = (
+	model: LawModel,
+	context: ReadonlyArray<ContextContract>
+): ReadonlyMap<DeclaredName, ContractSource> =>
+	new Map([
+		...model.natives.flatMap((n) =>
+			n.namespace === "domain"
+				? [[n.object.name, { base: n.object.base, check: n.object.check }] as const]
+				: []
+		),
+		...context.map((c) => [c.name, { base: c.contract.base, check: c.check }] as const)
+	])
 
 const build = (
 	owned: Owned,
@@ -325,15 +414,31 @@ const build = (
 				throw new Refusal(claimContracts.error)
 			}
 			const textDomains = textPlans.map((p) => p.domain)
+			const closed = planClosed(
+				owned,
+				Object.values(model.theory.relations).filter(
+					(r): r is ClosedTheoryRelation => r.kind === "closed"
+				),
+				options.codes
+			)
+			const contracts = contractSources(model, claimContracts.value)
 			const names = installNames({
 				owned,
 				installation: settings.installation,
 				vectorSchema: settings.vectorSchema,
-				textDomains: new Set(textDomains.map((d) => d.digest))
+				textDomains: new Map(textPlans.map((p) => [p.key, p.domain.digest] as const)),
+				contracts,
+				define: contractDigest,
+				codes: options.codes,
+				closed: closedConstants(identifierOf(settings.installation), closed)
 			})
 			const b = new InstallBuilder({ owned, checked, model, names, settings })
-			const { templates, enums } = addEnums(b)
+			const rosters = addRosters(b)
+			addClosedRelations(b, closed)
 			const domains = [
+				...rosters.flatMap((r) =>
+					r.bits === undefined ? [r.domain.name] : [r.domain.name, r.bits.domain.name]
+				),
 				...addTextDomains(b, textPlans),
 				...addContractDomains(b),
 				...addContextContractDomains(b, claimContracts.value)
@@ -341,14 +446,19 @@ const build = (
 			const { keyIndexes, tables, sequences } = addTables(b)
 			const advance = addAdvanceFunctions(b)
 
-			const claimedResiduals = new Set<LawId>()
 			const claimedDerived = new Set<string>()
 			const extensionRequests: Array<IndexRequest> = []
 			const statisticsRequests: Array<StatisticsRequest> = []
+			/** A contract's domain is named by its definition, which only the installation's names spell, so the
+			 * installation lists every contract's domain constraint, as it lists the text domains'. */
 			const constraintLaws: Array<ConstraintLaw> = [
-				...model.constraints,
+				...model.constraints.filter((c) => c.kind !== "domainConstraint"),
 				...textDomainConstraintLaws(textPlans),
-				...contextContractConstraintLaws(claimContracts.value)
+				...contractConstraintLaws(
+					names,
+					contracts,
+					[...model.relations.values()].map((r) => r.relation)
+				)
 			]
 			for (const extension of extensions) {
 				const contribution = extension.contribute(b)
@@ -358,9 +468,6 @@ const build = (
 				const c = contribution.value
 				appendAll(extensionRequests, c.indexRequests)
 				appendAll(statisticsRequests, c.statisticsRequests)
-				for (const law of c.residualLaws) {
-					claimedResiduals.add(law)
-				}
 				for (const d of c.derivedRelations) {
 					claimedDerived.add(d)
 				}
@@ -374,21 +481,19 @@ const build = (
 			)
 			const described = new Map<LawId, Law>([
 				...theoryLaws.map((l): readonly [LawId, Law] => [l.law, l.described]),
-				...constraintLaws.map((c): readonly [LawId, Law] => [c.law, c.described])
+				...constraintLaws.flatMap((c) =>
+					c.laws.map((l): readonly [LawId, Law] => [l.law, l.described])
+				)
 			])
 
-			const requests = [
-				...reverseRequests(b),
-				...model.residuals.flatMap((r) => r.indexes),
-				...extensionRequests
-			]
+			const requests = [...reverseRequests(b), ...extensionRequests]
 			const indexes = planIndexes(b, keyIndexes, requests)
 			if (!indexes.ok) {
 				throw new Refusal(indexes.error)
 			}
 			planStatistics(b, statisticsRequests)
 
-			const worlds = addWorlds(b, advance, { tables, sequences, enums, domains }, logins)
+			const worlds = addWorlds(b, advance, { tables, sequences, domains }, logins)
 			const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]
 			const census = censusOf(identities)
 			if (!census.ok) {
@@ -413,7 +518,6 @@ const build = (
 				names,
 				manifest,
 				statements,
-				closedTemplates: templates,
 				textDomains,
 				indexes: indexes.value,
 				worlds: worlds.worlds,
@@ -423,9 +527,6 @@ const build = (
 				described,
 				identities,
 				deferred: {
-					residualLaws: model.residuals
-						.map((r) => r.lawId)
-						.filter((law) => !claimedResiduals.has(law)),
 					derivedRelations: derived.filter((d) => !claimedDerived.has(d)).toSorted(compareStrings)
 				}
 			}

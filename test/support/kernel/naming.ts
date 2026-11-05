@@ -9,7 +9,6 @@ import {
 	type Identity,
 	identifierOf,
 	identity,
-	type LawEvent,
 	parseDeclaredName,
 	parseSchemaName,
 	type SchemaName
@@ -20,44 +19,43 @@ import type {
 	ConstraintName,
 	DomainName,
 	IndexName,
-	LawFunctionName,
 	LawId,
-	RelationIdent,
-	TriggerName
+	RelationIdent
 } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { ledgerTable } from "#compiler/deploy/ledger/ledger.ts"
 import {
 	descText,
-	type SideDesc,
+	expandAlternatives,
 	type SchemaDesc as SrcSchemaDesc,
+	type SideDesc,
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import {
 	fieldNames,
-	lawUnits,
-	type NamedDetailCodec,
+	type NativeColumn,
 	type NativeKind,
 	type NativeObject,
 	type NativeOf,
-	namedDetail,
 	spanKeyColumns
 } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import { type ConstraintLaw, compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
+import { textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import {
 	installationTypes,
 	roleReadNames,
 	vectorTypes,
 	worldNames
 } from "#compiler/physical/ddl/names.ts"
-import { indexedName } from "#compiler/physical/ddl/tables.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { AnyRelation, AnyRole, AnySchema, Statement } from "#compiler/public/schema.ts"
-import { ownRole } from "#compiler/schema/own.ts"
-import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
+import { ownRole, rostersOf } from "#compiler/schema/own.ts"
+import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
 import { type CarrierName, carrierName } from "#compiler/sql/naming.ts"
@@ -136,14 +134,17 @@ export const localVectorSchema = "vector_ext"
 
 /**
  * The physical names of one declared schema without an installation, every object in the schema `at` names, with the
- * vector extension in `vectorSchema`: each name minted at the naming door (core/identity.ts), a relation's as a stored
- * relation's table. A structural text domain exists only where an installation types a column by it, so these names
- * name none.
+ * vector extension in `vectorSchema` and the installation's codes `codes` (a fresh one's: ir/codes.ts firstCodebook):
+ * each name minted at the naming door (core/identity.ts), a relation's as a stored relation's table. A structural text
+ * domain exists only where an installation types a column by it, so these names name none; and they name no closed
+ * relation's constant and no contract's domain, which only an installation holds, since a contract's domain is named
+ * by its definition's digest.
  */
 export const productionNames = (
 	declaredSchema: string,
 	at: InstalledAt,
-	vectorSchema: string
+	vectorSchema: string,
+	codes: Codebook
 ): PhysicalNames => {
 	const installation =
 		at.kind === "declared" ? identity.schema(parsedSchemaName(declaredSchema)) : at.installation
@@ -152,13 +153,30 @@ export const productionNames = (
 	return {
 		relation: (relation) => ({ schema, name: identifierOf(identity.table(parsedName(relation))) }),
 		column: (...[, field]) => identifierOf(identity.column(parsedName(field))),
-		enumType: (closed) => ({ schema: types, name: identifierOf(identity.enumType(closed)) }),
-		contractDomain: (contract) => ({
+		rosterDomain: (roster) => ({
 			schema: types,
-			name: identifierOf(identity.contractDomain(contract))
+			name: identifierOf(identity.rosterDomain(roster))
 		}),
+		bitsDomain: (roster) => {
+			const codec = codes.rosters.get(roster)
+			if (codec === undefined) {
+				throw new Error(`the test's codebook holds no roster ${roster}, whose sets it names`)
+			}
+			return { schema: types, name: identifierOf(identity.bitsDomain(roster, codec.size)) }
+		},
+		contractDomain: (contract) => {
+			throw new Error(
+				`productionNames names no contract's domain, so none of contract ${contract}: a contract's domain is named by its definition's digest, which only an installation holds, so a test that names one reads installationOf(subject, at).names`
+			)
+		},
 		textDomain: () => undefined,
 		vectorSchema: vectorTypes(vectorSchema),
+		codes,
+		closed: (relation) => {
+			throw new Error(
+				`productionNames names no installed constant, so none of closed relation ${relation}: a test that reads one names an installation (installationOf)`
+			)
+		},
 		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) }
 	}
 }
@@ -188,15 +206,12 @@ export interface LawNames {
 		fields: ReadonlyArray<string>
 	) => ConstraintName
 	/**
-	 * The one constraint, domain constraint or residual law identity of `kind` that reports `law`: one law
-	 * can be reported by several (an alternatives arm's foreign key and the generated unique key it references, a PERIOD
-	 * foreign key and its temporal unique), never by two of one kind.
+	 * The one constraint or domain constraint of `kind` that reports `law`: one law can be reported by several (an
+	 * alternatives arm's foreign key and the generated unique key it references), never by two of one kind.
 	 */
-	readonly constraintOf: (law: LawId, kind: ReportingKind) => ConstraintName
+	readonly constraintOf: (law: LawId, kind: NativeKind) => ConstraintName
 	/** The law a constraint reports, read under the table or domain it lives on, as PostgreSQL reports it. */
 	readonly lawOfConstraint: (owner: ConstraintOwner, constraint: ConstraintName) => LawId
-	/** A residual law's units: each participating relation and event's trigger and function. */
-	readonly residual: (law: LawId) => ResidualNames
 	/** The laws an alternatives value expands to (a public schema). */
 	readonly alternativesOf: (value: AlternativesBase) => AlternativesLaws
 	/** The laws of an alternatives expansion as a desc fixture spells it (fixtures/ir/desc.ts alternatives(...)). */
@@ -205,39 +220,17 @@ export interface LawNames {
 	readonly contract: (contract: string) => ContractNames
 }
 
-/**
- * What installs a constraint that reports a law, as src names it: a native object of the law model by its kind
- * (ir/law.ts NativeKind), or a residual law, whose function raises the law's own identity.
- */
-export type ReportingKind = NativeKind | "ResidualLaw"
-
 export interface AlternativesLaws {
 	/**
 	 * Each armed handle's arm relation's law, its foreign key into the parent: one law per arm relation, which every
 	 * handle it is the arm of names.
 	 */
 	readonly arms: Readonly<Record<string, LawId>>
-	/** The family law, every arm's reverse containment as one residual law, `<parent>_<discriminator>`. */
-	readonly reverse: LawId
-}
-
-/** One unit of a residual law: its relation and event, its trigger, and the function that trigger alone executes. */
-export interface UnitNames {
-	readonly relation: string
-	readonly event: LawEvent
-	readonly trigger: TriggerName
-	readonly function: LawFunctionName
-}
-
-export interface ResidualNames {
-	/** One per participating relation and threatening event, participant by participant in law order. */
-	readonly units: Arr.NonEmptyReadonlyArray<UnitNames>
 	/**
-	 * The DETAIL codec of its refusal, and the witness relation whose keys it carries: a caller whose role holds that
-	 * relation whole reads the keys, any other the withheld DETAIL (test/support/detail.ts).
+	 * The parent selected by each armed handle in that handle's arm, keyed by the handle: one containment per armed
+	 * handle (fin.md §7).
 	 */
-	readonly detail: NamedDetailCodec
-	readonly witness: string
+	readonly reverse: Readonly<Record<string, LawId>>
 }
 
 export type ContractNames =
@@ -287,8 +280,6 @@ export interface Names extends LawNames {
 	readonly advance: (relation: NamedRelation, field: string) => string
 	/** A serial field's identity sequence, schema-qualified and quoted. */
 	readonly sequence: (relation: NamedRelation, field: string) => string
-	/** A residual law's unit triggers, schema-qualified and quoted (SET CONSTRAINTS). */
-	readonly triggers: (law: LawId) => ReadonlyArray<string>
 	/**
 	 * The text refinement domain that types a column: a stored field, a closed relation's payload, or a derived view
 	 * column (R12's "undeclared" view column included).
@@ -334,9 +325,12 @@ interface NamedConstraint {
 /** A native object that installs a foreign key. */
 type ForeignKeyObject = NativeOf<"ForeignKey" | "PeriodForeignKey">
 
+/** A native column as a constraint's column list names it: a field by its name, a law column by its identifier. */
+const indexedName = (c: NativeColumn): string => (c.kind === "field" ? c.field.name : c.column)
+
 /**
  * A foreign key as its constraint states it: the relation it lives on and its columns, the target and its columns, each
- * column named as its index names it (physical/ddl/tables.ts indexedName), a PERIOD one's spans last; and whether
+ * column named as its index names it (indexedName), a PERIOD one's spans last; and whether
  * PostgreSQL checks it at COMMIT, as a PERIOD one's always is.
  */
 export interface ForeignKeyColumns {
@@ -362,9 +356,9 @@ export const foreignKeyColumns = (o: ForeignKeyObject): ForeignKeyColumns => {
 		case "PeriodForeignKey":
 			return {
 				relation: o.relation.name,
-				columns: [...Arr.map(o.columns, indexedName), o.span.name],
+				columns: [...Arr.map(o.columns, indexedName), indexedName(o.span)],
 				target: o.target.name,
-				targetColumns: [...Arr.map(o.targetColumns, indexedName), o.targetSpan.name],
+				targetColumns: [...Arr.map(o.targetColumns, indexedName), indexedName(o.targetSpan)],
 				period: true,
 				deferrable: true
 			}
@@ -373,9 +367,8 @@ export const foreignKeyColumns = (o: ForeignKeyObject): ForeignKeyColumns => {
 
 /**
  * The named constraint a native object installs, if it installs one a ConstraintKind names. A span key's columns
- * already hold its span; a temporal unique and a PERIOD foreign key name theirs beside the columns; a native column is
- * named as its index names it, a field by its name and a law column by its identifier (physical/ddl/tables.ts
- * indexedName).
+ * already hold its span; a PERIOD foreign key names its spans beside the columns; a native column is named as its index
+ * names it, a field by its name and a law column by its identifier (indexedName).
  */
 const constraintsOf = (
 	object: NativeObject,
@@ -393,26 +386,24 @@ const constraintsOf = (
 			return named(
 				object.key.kind === "primary" ? "pk" : "key",
 				object.relation.name,
-				fieldNames(spanKeyColumns(object))
+				Arr.map(spanKeyColumns(object), indexedName)
 			)
 		case "Unique":
 			return named("key", object.relation.name, Arr.map(object.columns, indexedName))
-		case "TemporalUnique":
-			return named("key", object.relation.name, fieldNames([...object.columns, object.span]))
 		case "ForeignKey":
 		case "PeriodForeignKey": {
 			const fk = foreignKeyColumns(object)
 			return named("fk", fk.relation, fk.columns)
 		}
-		case "FiniteCheck":
+		case "ClosedCheck":
 			return named(
 				"check",
 				object.relation.name,
-				Arr.flatMap(object.facts.slice(0, 1), (fact) => Arr.map(fact, (v) => v.field.name))
+				Arr.map(object.pairs, (pair) => indexedName(pair.source))
 			)
 		case "TableCheck":
 		case "Domain":
-		case "Enum":
+		case "RosterDomain":
 		case "LawColumn":
 		case "ReverseIndex":
 			return []
@@ -543,47 +534,41 @@ const armOf = (
 }
 
 /**
- * The laws of an alternatives expansion, every statement an arm's containment, in any order: each arm's handle, its
- * parent side's selection of the discriminator, to the law of its arm relation holding the arm's containment into its
- * parent, one for every handle the relation is the arm of; and the one law every arm's reverse containment belongs to.
+ * The laws of an alternatives expansion, every statement a containment, in any order (fin.md §7): an arm's,
+ * `contained(on(Arm_h, …), on(select(P, tag = h), …))`, its target the parent selected by its handle, which names the
+ * law of its arm relation, one for every handle the relation is the arm of; and each armed handle's reverse,
+ * `contained(on(select(P, tag = h), …), on(Arm_h, …))`, its source the parent selected by its handle, its own law.
  */
 const alternativesLaws = <L>(
 	holding: Holding,
 	expansion: ReadonlyArray<StatementDesc<L>>
 ): AlternativesLaws => {
 	const armLaws: Record<string, LawId> = {}
-	const reverses = new Set<LawId>()
-	for (const statement of expansion) {
+	const reverseLaws: Record<string, LawId> = {}
+	/** An alternatives statement stands for its containments (ir/desc.ts expandAlternatives). */
+	const containments = Arr.flatMap(expansion, (statement): ReadonlyArray<StatementDesc<L>> =>
+		statement.kind === "alternatives"
+			? expandAlternatives({ ...statement, loc: SourceLoc("alternatives", []) })
+			: [statement]
+	)
+	for (const statement of containments) {
 		if (statement.kind !== "contained") {
 			throw new Error(
-				`the test names the laws of an alternatives expansion holding a ${statement.kind} statement, not an arm's containment`
+				`the test names the laws of an alternatives expansion holding a ${statement.kind} statement, not a containment`
 			)
 		}
 		const { target, laws } = holding(statement)
-		const arm = armOf(statement.left) ?? armOf(statement.right)
-		if (arm === undefined) {
-			throw new Error(`the test names an alternatives arm ${target} that selects no handle`)
-		}
-		const armed = Arr.filter(laws, (l) => l.detail.kind === "alternativesArm")
-		const reversed = Arr.filter(laws, (l) => l.detail.kind === "alternatives")
-		if (armed.length === 0 && reversed.length === 0) {
-			throw new Error(
-				`the test names an alternatives arm ${target}, which no alternatives law holds`
-			)
-		}
-		if (armed.length > 0) {
-			armLaws[arm.handle] = theLaw(target, armed, "arm relation's law")
-		}
-		for (const law of reversed) {
-			reverses.add(law.id)
+		const reverse = armOf(statement.left)
+		const arm = armOf(statement.right)
+		if (reverse !== undefined) {
+			reverseLaws[reverse.handle] = theLaw(target, laws, "reverse containment's law")
+		} else if (arm !== undefined) {
+			armLaws[arm.handle] = theLaw(target, laws, "arm relation's law")
+		} else {
+			throw new Error(`the test names an alternatives containment ${target} that selects no handle`)
 		}
 	}
-	const reverse = single(
-		[...reverses],
-		(count) =>
-			`the test names the reverse law of an alternatives expansion whose arms name ${count}`
-	)
-	return { arms: armLaws, reverse }
+	return { arms: armLaws, reverse: reverseLaws }
 }
 
 /** The one statement a law-naming value is; a mirrors or alternatives value expands to several and names none. */
@@ -597,22 +582,15 @@ const descOf = (statement: Statement): StatementDesc => {
 	return desc
 }
 
-/** The statements a mirrors or alternatives value expands to. */
-const expansionOf = (value: unknown): { readonly statements: ReadonlyArray<StatementDesc> } => {
-	const desc = expansionDescOf(value)
-	if (desc === undefined) {
-		throw new Error(
-			"the test names the laws of a value that is no mirrors or alternatives expansion"
-		)
-	}
-	return desc
-}
-
 /**
  * The law names of a law model, a constraint's law read from `constraintToLaw`: the model's own, or an installation's
  * (which adds its text domains' and span columns' CHECKs).
  */
-const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawNames => {
+const lawNamesOver = (
+	model: LawModel,
+	constraintToLaw: ConstraintLaws,
+	contractNamed: (contract: DeclaredName) => Identity<"contractDomain">
+): LawNames => {
 	const holding = holdingOf(model)
 	/** What installs a constraint the law model maps: the one native of its owner that names it. */
 	const nativeKind = (c: ConstraintLaw): NativeKind =>
@@ -627,9 +605,8 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 							: []
 					case "domainConstraint":
 						return n.namespace === "domain" &&
-							n.owner === c.owner &&
-							n.check.kind === "checked" &&
-							n.check.ident === c.name
+							identifierOf(contractNamed(n.object.name)) === c.owner &&
+							n.object.check.kind === "checked"
 							? [n.object.kind]
 							: []
 				}
@@ -639,39 +616,14 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 	const reporting: ReadonlyArray<{
 		readonly name: ConstraintName
 		readonly law: LawId
-		readonly kind: ReportingKind
-	}> = [
-		...Arr.map(model.constraints, (c) => ({ name: c.name, law: c.law, kind: nativeKind(c) })),
-		...Arr.map(model.residuals, (r) => ({
-			name: r.lawId,
-			law: r.lawId,
-			kind: "ResidualLaw" as const
-		}))
-	]
+		readonly kind: NativeKind
+	}> = Arr.flatMap(model.constraints, (c) => {
+		const kind = nativeKind(c)
+		return Arr.map(c.laws, (l) => ({ name: c.name, law: l.law, kind }))
+	})
 	const lawOfDesc = (desc: unknown): LawId => {
 		const { target, laws } = holding(desc)
 		return theLaw(target, laws, "law")
-	}
-	const residual = (law: LawId): ResidualNames => {
-		const found = Option.getOrUndefined(Arr.findFirst(model.residuals, (r) => r.lawId === law))
-		if (found === undefined) {
-			throw new Error(
-				`the test names the residual law ${law}, which is none of ${Arr.join(
-					Arr.map(model.residuals, (r) => r.lawId),
-					", "
-				)}`
-			)
-		}
-		return {
-			units: Arr.map(lawUnits(found), (u) => ({
-				relation: u.participant.relation.name,
-				event: u.event,
-				trigger: identifierOf(u.unit.trigger),
-				function: identifierOf(u.unit.function)
-			})),
-			detail: namedDetail(found.detail),
-			witness: found.detail.relation.name
-		}
 	}
 	return {
 		model,
@@ -728,8 +680,7 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 			}
 			return law
 		},
-		residual,
-		alternativesOf: (value) => alternativesLaws(holding, expansionOf(value).statements),
+		alternativesOf: (value) => alternativesLaws(holding, [descOf(value)]),
 		alternativesOfDesc: (expansion) => alternativesLaws(holding, expansion),
 		contract: (name) => {
 			const owned = model.owned.contracts[name]
@@ -745,22 +696,30 @@ const lawNamesOver = (model: LawModel, constraintToLaw: ConstraintLaws): LawName
 				(count) =>
 					`the test names the domain of the contract ${name}, which ${count} natives install`
 			)
-			switch (native.check.kind) {
+			/** The domain its definition's digest names (physical/ddl/names.ts contractNamed), shared by contracts of one
+			 * definition, and its CHECK. */
+			const named = contractNamed(owned.name)
+			const domain: DomainName = identifierOf(named)
+			switch (native.object.check.kind) {
 				case "checked":
 					return {
 						kind: "checked",
-						domain: owned.domain,
-						constraint: native.check.ident,
+						domain,
+						constraint: identifierOf(identity.domainCheck(named)),
 						law: native.object.lawIds[0]
 					}
 				case "unchecked":
-					return { kind: "brand", domain: owned.domain, law: native.object.lawIds[0] }
+					return { kind: "brand", domain, law: native.object.lawIds[0] }
 			}
 		}
 	}
 }
 
-/** The law names of a subject: own and compileLaws. */
+/**
+ * The law names of a subject: own and compileLaws. A contract's domain is named by its definition, which only an
+ * installation holds, so it is read off the subject's installation under its declared name (installationOf), compiled
+ * only when a test names one.
+ */
 export const lawNamesOf = (subject: NamingSubject): LawNames => {
 	const owned = ownedInput(subject)
 	if (!owned.ok) {
@@ -770,7 +729,11 @@ export const lawNamesOf = (subject: NamingSubject): LawNames => {
 	if (!model.ok) {
 		throw refused(model.error)
 	}
-	return lawNamesOver(model.value, model.value.constraintToLaw)
+	let installed: Installation | undefined
+	return lawNamesOver(model.value, model.value.constraintToLaw, (contract) => {
+		installed ??= installationOf(subject, atDeclaredName)
+		return installed.names.contractNamed(contract)
+	})
 }
 
 /** The LawId of a law statement of a schema, as the installer derives it. */
@@ -790,21 +753,36 @@ export const constraintOf = <R extends AnyRelation>(
 
 /**
  * A subject's whole installation compiled without a database, under the schema `at` names: own and compileInstallation
- * over the complete install options (physical/complete.ts), as `grizzle generate` drafts it (cli/generate.ts). A door
- * that named a partial installation would name objects production installs beside it as absent, so an installation
- * that leaves a residual law or a derived relation deferred is refused.
+ * over the complete install options (physical/complete.ts), as `grizzle generate` drafts it (cli/generate.ts), its codes
+ * a fresh installation's (installationWith takes a history's). A door that named a partial installation would name
+ * objects production installs beside it as absent, so an installation that leaves a derived relation deferred is
+ * refused.
  */
-export const installationOf = (subject: NamingSubject, at: InstalledAt): Installation => {
+export const installationOf = (subject: NamingSubject, at: InstalledAt): Installation =>
+	installationWith(subject, at, firstCodebook(rostersOf(lawNamesOf(subject).model.owned)))
+
+/**
+ * A subject's whole installation compiled under `codes`, as installationOf compiles it: the installation a history
+ * whose rosters hold holes reaches, which a fresh installation's codes would number otherwise.
+ */
+export const installationWith = (
+	subject: NamingSubject,
+	at: InstalledAt,
+	codes: Codebook
+): Installation => {
 	const owned = lawNamesOf(subject).model.owned
 	const under = at.kind === "declared" ? owned.installation : at.installation
-	const installation = compileInstallation(owned, completeInstallOptions(owned, under, [], []))
+	const installation = compileInstallation(
+		owned,
+		completeInstallOptions(owned, under, [], [], codes)
+	)
 	if (!installation.ok) {
 		throw refused(installation.error)
 	}
-	const { residualLaws, derivedRelations } = installation.value.deferred
-	if (residualLaws.length > 0 || derivedRelations.length > 0) {
+	const { derivedRelations } = installation.value.deferred
+	if (derivedRelations.length > 0) {
 		throw new Error(
-			`the test names the installation of ${owned.name}, which leaves deferred the residual laws (${Arr.join(residualLaws, ", ")}) and the derived relations (${Arr.join(derivedRelations, ", ")})`
+			`the test names the installation of ${owned.name}, which leaves deferred the derived relations (${Arr.join(derivedRelations, ", ")})`
 		)
 	}
 	return installation.value
@@ -889,9 +867,12 @@ const textDomainOf = (
 
 /** The names of an installation under `schema`. */
 const namesOver = (installation: Installation, schema: string): Names => {
-	const laws = lawNamesOver(installation.laws, installation.constraintToLaw)
+	const laws = lawNamesOver(
+		installation.laws,
+		installation.constraintToLaw,
+		installation.names.contractNamed
+	)
 	const names = installation.names
-	const quotedSchema = quoteIdent(schema)
 	const tableIdent = (relation: NamedRelation): RelationIdent => names.relation(relation.name).name
 	const columnIdent = (relation: NamedRelation, field: string): ColumnIdent =>
 		names.column(relation.name, field)
@@ -936,8 +917,6 @@ const namesOver = (installation: Installation, schema: string): Names => {
 			const s = installation.names.sequence(relation.name, field)
 			return `${quoteIdent(s.schema)}.${quoteIdent(s.name)}`
 		},
-		triggers: (law) =>
-			Arr.map(laws.residual(law).units, (u) => `${quotedSchema}.${quoteIdent(u.trigger)}`),
 		textDomain: (relation, field) =>
 			textDomainOf(
 				installation,
@@ -962,7 +941,7 @@ const namesOver = (installation: Installation, schema: string): Names => {
 				i.index.kind === "created" &&
 				i.relation === relation.name &&
 				sameList(
-					Arr.map(i.keys, (k) => k.field),
+					Arr.map(i.keys, (k) => (k.column.kind === "field" ? k.column.field : k.column.column)),
 					keys
 				)
 					? [i.index.name]
@@ -1056,9 +1035,19 @@ export const soleWorldOf = (
 	return { login: login.role, role: role.role }
 }
 
-/** A contract's domain CHECK, as the naming door names it. */
-export const contractCheckAt = (contract: string): ConstraintName =>
-	identifierOf(identity.domainCheck(identity.contractDomain(parsedName(contract))))
+/**
+ * A contract's domain CHECK in the installation of `subject` under the schema `at` names, as the naming door names it:
+ * the CHECK of the domain its definition's digest names (physical/ddl/names.ts contractNamed), which contracts of one
+ * definition share.
+ */
+export const contractCheckAt = (
+	subject: NamingSubject,
+	at: InstalledAt,
+	contract: string
+): ConstraintName =>
+	identifierOf(
+		identity.domainCheck(installationOf(subject, at).names.contractNamed(parsedName(contract)))
+	)
 
 /**
  * Whether a catalog object of a schema is the migrations ledger's (deploy/ledger), the deployment's own table no schema
@@ -1075,14 +1064,15 @@ export const isLedgerObject = (schema: string, name: string): boolean => {
 
 /**
  * The physical names of one declared schema without an installation (productionNames, with the vector extension in
- * localVectorSchema), with each pattern's structural text domain in that schema: a lowering without an installation
- * casts a delivered refined value it cannot prove to its domain, which the naming door names by its pattern key.
+ * localVectorSchema, under `codes`), with each pattern's structural text domain in that schema: a lowering without an
+ * installation casts a delivered refined value it cannot prove to its domain, which the naming door names by the digest
+ * of its definition (physical/ddl/domains.ts textDomainIdentity).
  */
-export const standInNames = (declaredSchema: string): PhysicalNames => {
+export const standInNames = (declaredSchema: string, codes: Codebook): PhysicalNames => {
 	const schema = installationTypes(identity.schema(parsedSchemaName(declaredSchema)))
 	return {
-		...productionNames(declaredSchema, { kind: "declared" }, localVectorSchema),
-		textDomain: (regex) => ({ schema, name: identifierOf(identity.textDomain(regex.key)) })
+		...productionNames(declaredSchema, { kind: "declared" }, localVectorSchema, codes),
+		textDomain: (regex) => ({ schema, name: identifierOf(textDomainIdentity(regex)) })
 	}
 }
 
@@ -1093,8 +1083,6 @@ export interface NameMint {
 	readonly column: (text: string) => ColumnIdent
 	readonly index: (text: string) => IndexName
 	readonly domain: (text: string) => DomainName
-	readonly trigger: (text: string) => TriggerName
-	readonly lawFunction: (text: string) => LawFunctionName
 }
 
 /** Names admitted as the snapshot reader admits a name (core/identity.ts admittedIdentifier), each `prefix` and the text. */
@@ -1104,9 +1092,7 @@ const mint = (prefix: string): NameMint => ({
 	relation: (text): RelationIdent => admittedIdentifier(`${prefix}${text}`),
 	column: (text): ColumnIdent => admittedIdentifier(`${prefix}${text}`),
 	index: (text): IndexName => admittedIdentifier(`${prefix}${text}`),
-	domain: (text): DomainName => admittedIdentifier(`${prefix}${text}`),
-	trigger: (text): TriggerName => admittedIdentifier(`${prefix}${text}`),
-	lawFunction: (text): LawFunctionName => admittedIdentifier(`${prefix}${text}`)
+	domain: (text): DomainName => admittedIdentifier(`${prefix}${text}`)
 })
 
 /**

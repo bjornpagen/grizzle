@@ -5,6 +5,7 @@ import type { DecimalParts } from "#compiler/core/decimal.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { IdentityValue } from "#compiler/core/identity.ts"
 import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, combine, compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
@@ -164,7 +165,10 @@ const exprKinds = [
 	"op",
 	"cast",
 	"domainCast",
-	"cond"
+	"cond",
+	"closedAt",
+	"closedRow",
+	"closedHas"
 ] as const
 type ExprKind = (typeof exprKinds)[number]
 
@@ -193,13 +197,26 @@ export type TypedLiteral =
 	| { readonly kind: "bool"; readonly value: boolean }
 	| { readonly kind: "text"; readonly value: string }
 	| { readonly kind: "uuid"; readonly value: string }
-	| { readonly kind: "enum"; readonly handle: string }
+	| {
+			readonly kind: "handle"
+			/** One of the closed id's roster's live handles, which lowers to its code under the installation's codebook. */
+			readonly handle: string
+	  }
+	| {
+			readonly kind: "handles"
+			/**
+			 * A set over the literal's roster: its handles in the roster's declared order, each once. No handles is the
+			 * empty set, the identity of a union.
+			 */
+			readonly handles: ReadonlyArray<string>
+	  }
 	| { readonly kind: "span"; readonly start: bigint; readonly end: bigint }
 	| { readonly kind: "vector"; readonly value: VectorText }
 
 /**
  * A literal as an identity of the naming door takes it (core/identity.ts): its canonical text as its part, a boolean or
- * integer as written, a handle or text as its words for its stem, any other kind by its kind.
+ * integer as written, a handle or text as its words for its stem, any other kind, a set of handles among them, by its
+ * kind.
  */
 export const identityValueOf = (value: TypedLiteral): IdentityValue => {
 	const part = canonicalTextOf(value)
@@ -212,7 +229,7 @@ export const identityValueOf = (value: TypedLiteral): IdentityValue => {
 				stem: value.value < 0n ? `minus_${-value.value}` : `${value.value}`,
 				display: `${value.value}`
 			}
-		case "enum":
+		case "handle":
 			return { part, stem: value.handle, display: value.handle }
 		case "text":
 			return { part, stem: value.value, display: JSON.stringify(value.value) }
@@ -221,6 +238,7 @@ export const identityValueOf = (value: TypedLiteral): IdentityValue => {
 		case "floatSpecial":
 		case "money":
 		case "uuid":
+		case "handles":
 		case "span":
 		case "vector":
 			return { part, stem: value.kind, display: part }
@@ -344,6 +362,41 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 			readonly args: readonly [R["expr"], R["expr"], R["expr"]]
 			readonly nonNull: "cond"
 	  }
+	| {
+			/**
+			 * C.at(field, t…): the payload field `field` of the closed relation `relation` at the key its arguments are, one
+			 * per key field in key order. A key the relation holds no tuple at reads NULL, never a value of the type: the
+			 * reader refuses it, IS TRUE in a predicate and NOT NULL in a generated column, so absence is no value.
+			 */
+			readonly kind: "closedAt"
+			readonly relation: string
+			readonly field: string
+			readonly args: NonEmptyReadonlyArray<R["expr"]>
+			readonly nonNull: "absentRefused"
+	  }
+	| {
+			/**
+			 * C.row(t…): the completions of the key prefix its arguments are in the closed relation `relation`, in key order,
+			 * a set over the roster of the one key field the prefix leaves open. Every prefix has one, empty where the
+			 * relation holds none.
+			 */
+			readonly kind: "closedRow"
+			readonly relation: string
+			readonly args: ReadonlyArray<R["expr"]>
+			readonly nonNull: "strict"
+	  }
+	| {
+			/**
+			 * Whether the closed relation `relation` holds a tuple at the key its arguments are, one per key field in key
+			 * order: a boolean, false at a key it holds no tuple at, never NULL of itself. No author writes it: the closed
+			 * rewrite (lower/optimize/closed) states with it an occurrence of the relation's full facts that only tests
+			 * membership, and it lowers to one bit of the relation's installed key set.
+			 */
+			readonly kind: "closedHas"
+			readonly relation: string
+			readonly args: NonEmptyReadonlyArray<R["expr"]>
+			readonly nonNull: "strict"
+	  }
 )
 
 /** An expression as a builder states it: its kind, its type, and its argument expressions themselves. */
@@ -357,7 +410,8 @@ export type ExprSpec = ExprSpecOver<LiveArgs>
  * expressions, its output descriptor, its non-null proof, its volatility, and its dependencies. No node raises on a
  * value its operands admit: the registry's Totality of its overload says how it is defined on every one, and the
  * Compute lowering emits a partial overload only with the proof of its precondition.
- * There is no NULL literal, no COALESCE and no NULLIF node: absence is zero rows.
+ * There is no NULL literal, no COALESCE and no NULLIF node: absence is zero rows. The one value that may be absent is a
+ * closed relation's application at a key it holds no tuple at (closedAt), which its reader refuses.
  *
  * An expression holds its arguments themselves: one frozen tree, shared by every node that reads it. A column reference
  * names the node whose heading supplies the column, a name compared and never followed, so an expression is meaningful
@@ -398,6 +452,9 @@ const ownEffects = <R extends ArgKinds>(spec: ExprSpecOver<R>): Effects => {
 		case "param":
 		case "literal":
 		case "cond":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
 			return pure
 	}
 }
@@ -479,6 +536,9 @@ const pgTypeOf = (spec: ExprSpec): ScalarType => {
 		case "literal":
 		case "cast":
 		case "domainCast":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
 			return spec.type
 		case "cond":
 			return commonPgType([spec.args[1], spec.args[2]], spec.type)
@@ -524,6 +584,25 @@ export function* mapArgs<R extends ArgKinds, S extends ArgKinds>(
 			const t: S["expr"] = yield spec.args[1]
 			const e: S["expr"] = yield spec.args[2]
 			return { ...spec, args: [p, t, e] }
+		}
+		case "closedAt":
+		case "closedHas": {
+			const [first, ...rest] = spec.args
+			const head: S["expr"] = yield first
+			const tail: Array<S["expr"]> = []
+			for (const a of rest) {
+				const value: S["expr"] = yield a
+				tail.push(value)
+			}
+			return { ...spec, args: [head, ...tail] }
+		}
+		case "closedRow": {
+			const args: Array<S["expr"]> = []
+			for (const a of spec.args) {
+				const value: S["expr"] = yield a
+				args.push(value)
+			}
+			return { ...spec, args }
 		}
 	}
 }
@@ -584,6 +663,29 @@ const isStorableText = (text: string): boolean => text.isWellFormed() && !text.i
 
 const inRange = (value: bigint, [lo, hi]: readonly [bigint, bigint]): boolean =>
 	value >= lo && value <= hi
+
+/**
+ * Why `handles` is not a set over the roster `closed` of `roster`'s handles, or undefined when it is: each a handle of
+ * the roster, in the roster's declared order, each once, so one set has one literal.
+ */
+const handlesProblem = (
+	handles: ReadonlyArray<string>,
+	roster: ReadonlyArray<string>,
+	closed: string
+): string | undefined => {
+	let before = -1
+	for (const handle of handles) {
+		const position = roster.indexOf(handle)
+		if (position < 0) {
+			return `${JSON.stringify(handle)} is not a handle of ${closed}`
+		}
+		if (position <= before) {
+			return `a set's handles are distinct and in ${closed}'s declared order`
+		}
+		before = position
+	}
+	return undefined
+}
 
 /**
  * Why the decimal `value` is not exactly a value of numeric(p, s), or undefined when it is. A value that numeric(p,
@@ -654,7 +756,8 @@ export const integerLiteral = (literal: TypedLiteral): bigint | undefined => {
 		case "bool":
 		case "text":
 		case "uuid":
-		case "enum":
+		case "handle":
+		case "handles":
 		case "span":
 		case "vector":
 			return undefined
@@ -717,13 +820,18 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 				return `a uuid literal is not a ${carrier} value`
 			}
 			return isUuidText(literal.value) ? undefined : "a uuid literal is lowercase 8-4-4-4-12 hex"
-		case "enum":
-			if (carrier !== "enum") {
-				return `an enum literal is not a ${carrier} value`
+		case "handle":
+			if (carrier !== "code") {
+				return `a handle literal is not a ${carrier} value`
 			}
 			return type.roster.handles.includes(literal.handle)
 				? undefined
 				: `${JSON.stringify(literal.handle)} is not a handle of ${type.roster.closed}`
+		case "handles":
+			if (carrier !== "bits") {
+				return `a set literal is not a ${carrier} value`
+			}
+			return handlesProblem(literal.handles, type.roster.handles, type.roster.closed)
 		case "span": {
 			const range =
 				carrier === "range4"
@@ -945,6 +1053,9 @@ const kindProblems = (
 		case "domainCast":
 		case "op":
 		case "cast":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
 			return []
 	}
 }

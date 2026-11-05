@@ -42,7 +42,6 @@ import {
 	type TableConstraint,
 	type TableName,
 	type Target,
-	type TriggerEvent,
 	type TypeRef,
 	tableConstraints,
 	type Update
@@ -51,7 +50,6 @@ import { types } from "#compiler/sql/build.ts"
 import { type Lexed, lex, type Token } from "#compiler/sql/lexer.ts"
 import { bodyPositionNames, isDecimal } from "#compiler/sql/naming.ts"
 import { placeholderToken, printType, storedSettingValue } from "#compiler/sql/print.ts"
-import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
 /** r<n>: the generated alias of a relation occurrence or a stage. */
 const isGeneratedRelationName = (name: string): boolean =>
@@ -74,8 +72,6 @@ type AuditRule =
 	| "positional"
 	| "function"
 	| "collation"
-	| "nullif"
-	| "coalesce"
 	| "lex"
 	| "null"
 	| "outerJoin"
@@ -94,13 +90,28 @@ interface SqlViolation {
 	readonly detail: string
 }
 
+/**
+ * Rule packJoin: the one outer join grizzle emits, the migration's pack of a closed relation into its constant
+ * (sql/print.ts writePack), inside its DO block: `FROM pg_catalog.generate_series(0, n) AS "g"("i") LEFT JOIN (VALUES
+ * ...) AS "r"(...)`, every cell of the key space joined to the row of codes at its index, a missing one a 0 cell
+ * (fin.md §17). Exactly that shape in a PL/pgSQL body: LEFT JOIN, then `(VALUES`, after `AS "g"("i")`.
+ */
+const isPackJoin = (tokens: ReadonlyArray<Token>, i: number, pl: boolean): boolean =>
+	pl &&
+	isWord(tokens[i - 5], "AS") &&
+	isQuotedName(tokens[i - 4], "g") &&
+	isPunct(tokens[i - 3], "(") &&
+	isQuotedName(tokens[i - 2], "i") &&
+	isPunct(tokens[i - 1], ")") &&
+	isWord(tokens[i + 1], "JOIN") &&
+	isPunct(tokens[i + 2], "(") &&
+	isWord(tokens[i + 3], "VALUES")
+
 /** Rules whose violation is SQL the discipline forbids rather than a malformed statement. */
 const disciplineRules: ReadonlySet<AuditRule> = new Set<AuditRule>([
 	"function",
 	"collation",
 	"null",
-	"nullif",
-	"coalesce",
 	"outerJoin",
 	"selectStar",
 	"skipLocked",
@@ -132,15 +143,10 @@ const builtinFunctions: ReadonlySet<string> = new Set(builtinFunctionNames)
 /**
  * The rule a call of the builtin function `name` breaks, or undefined for a function of the catalogue. The AST type
  * admits only the catalogue; this holds it for data that bypassed the type, so it reads the name as the string it is.
- * COALESCE and NULLIF keep their own rules.
+ * NULLIF is an expression of its own (Expr nullif), and COALESCE is the pack's own spelling, neither a call.
  */
-const builtinCallRule = (name: string): AuditRule | undefined => {
-	if (builtinFunctions.has(name)) {
-		return undefined
-	}
-	const lower = Str.toLowerCase(name)
-	return lower === "coalesce" ? "coalesce" : lower === "nullif" ? "nullif" : "function"
-}
+const builtinCallRule = (name: string): AuditRule | undefined =>
+	builtinFunctions.has(name) ? undefined : "function"
 
 /** A column name as a naming report shows it. */
 const shownName = (name: string | undefined): string =>
@@ -224,12 +230,6 @@ const scopeOver = (
 	return scope
 }
 
-/** A paren range of tokens: the "(" at `open` and its matching ")" at `close`. */
-interface ParenRange {
-	readonly open: number
-	readonly close: number
-}
-
 class CteScope {
 	readonly ctes = new Map<string, Relation>()
 	readonly parent: CteScope | undefined
@@ -286,28 +286,6 @@ const context = (
 	mergeAction: false,
 	plVars
 })
-
-/** The row images a trigger's WHEN may read, by its event: an INSERT's NEW, a DELETE's OLD, an UPDATE's both. */
-const eventImages: Readonly<Record<TriggerEvent["kind"], ReadonlySet<"NEW" | "OLD">>> = {
-	INSERT: new Set(["NEW"]),
-	DELETE: new Set(["OLD"]),
-	UPDATE: new Set(["NEW", "OLD"])
-}
-
-/** The row images an expression reads a field of. */
-const imagesRead = (e: Expr): ReadonlySet<"NEW" | "OLD"> => {
-	const read = new Set<"NEW" | "OLD">()
-	transformExpr(e, {
-		...identityHooks,
-		expr: (x) => {
-			if (x.kind === "field" && x.record.kind === "plSpecial") {
-				read.add(x.record.name)
-			}
-			return x
-		}
-	})
-	return read
-}
 
 /**
  * Where a query body sits: its enclosing scope and CTEs, its PL/pgSQL variables, and whether it is the outermost
@@ -554,8 +532,8 @@ class StatementAuditor {
 
 	/**
 	 * A column or domain of builtin text names pg_catalog.pg_c_utf8, and nothing else takes a collation: not another
-	 * builtin type, and not a named one, whose collation is its own (a text domain carries the fixed one, and an enum or
-	 * an extension type takes none).
+	 * builtin type, and not a named one, whose collation is its own (a text domain carries the fixed one, and a roster's
+	 * domain or an extension type takes none).
 	 */
 	collatable(type: TypeRef, collation: Collation | undefined, what: string): void {
 		if (collation !== undefined) {
@@ -748,8 +726,25 @@ class StatementAuditor {
 			case "negate":
 			case "not":
 			case "isTrue":
+			case "complement":
 				this.at("expr", () => {
 					this.expr(e.expr, ctx)
+				})
+				return
+			case "nullif":
+				this.at("expr", () => {
+					this.expr(e.expr, ctx)
+				})
+				this.at("absent", () => {
+					this.expr(e.absent, ctx)
+				})
+				return
+			case "subscript":
+				this.at("array", () => {
+					this.expr(e.array, ctx)
+				})
+				this.at("index", () => {
+					this.expr(e.index, ctx)
 				})
 				return
 			case "and":
@@ -996,6 +991,28 @@ class StatementAuditor {
 					this.expr(item.expr, ctx)
 				})
 			}
+		})
+	}
+
+	/**
+	 * A constant's RETURN (sql/ast.ts CreateConstant). Rule constantSubquery: its body may be one scalar subquery and
+	 * nothing around it, a query of no outer scope, as a roster's `live()` is `RETURN (SELECT string_agg(...) FROM
+	 * unnest(names()) WITH ORDINALITY ...)`: an IMMUTABLE SQL-body function of no argument, which PostgreSQL evaluates at
+	 * plan time. Every other body is DDL's expression, where a subquery is refused.
+	 */
+	constantBody(body: Expr): void {
+		if (body.kind !== "subquery") {
+			this.expr(body, context("ddl", undefined, undefined, new Set()))
+			return
+		}
+		this.at("query", () => {
+			this.select(body.query, {
+				scope: undefined,
+				ctes: undefined,
+				plVars: undefined,
+				outermost: true,
+				topLevel: false
+			})
 		})
 	}
 
@@ -1420,7 +1437,15 @@ class StatementAuditor {
 						this.at(i, () => {
 							this.type(definition.type)
 							this.collatable(definition.type, definition.collation, "column definition")
-							this.placeholder(array.number, { ...definition.type, array: true })
+							const elements = definition.type
+							if (elements.kind === "builtin" && elements.name === "bit") {
+								this.report(
+									"type",
+									"an input array of bit(n), which has no array type grizzle names"
+								)
+							} else {
+								this.placeholder(array.number, { ...elements, array: true })
+							}
 						})
 					}
 					return this.columnList(
@@ -2178,9 +2203,6 @@ class StatementAuditor {
 			case "renameConstraint":
 			case "createDomain":
 			case "alterDomain":
-			case "createEnum":
-			case "alterEnumAddValue":
-			case "alterEnumRenameValue":
 			case "createIndex":
 			case "dropIndex":
 			case "createMaterializedView":
@@ -2194,7 +2216,8 @@ class StatementAuditor {
 			case "dropFunction":
 			case "dropTrigger":
 			case "createFunction":
-			case "createConstraintTrigger":
+			case "createConstant":
+			case "packConstant":
 			case "createGuardTrigger":
 			case "alterDatabaseDefault":
 			case "createRole":
@@ -2223,7 +2246,6 @@ class StatementAuditor {
 			case "TABLE":
 			case "VIEW":
 			case "MATERIALIZED VIEW":
-			case "TYPE":
 			case "DOMAIN":
 			case "SEQUENCE":
 			case "INDEX":
@@ -2270,10 +2292,24 @@ class StatementAuditor {
 					for (const [i, action] of statement.actions.entries()) {
 						this.at(i, () => {
 							switch (action.kind) {
+								case "setExpression":
+									this.ident(action.column, "column", "column")
+									this.at("expr", () => {
+										this.expr(action.expr, context("ddl", undefined, undefined, new Set()))
+									})
+									return
 								case "addColumn":
 								case "addColumnPlaceholder":
 									this.at("column", () => {
 										this.columnDef(action.column, undefined)
+									})
+									return
+								case "addColumnDefault":
+									this.at("column", () => {
+										this.columnDef(action.column, undefined)
+									})
+									this.at("default", () => {
+										this.expr(action.default, context("ddl", undefined, undefined, new Set()))
 									})
 									return
 								case "addConstraint":
@@ -2366,33 +2402,6 @@ class StatementAuditor {
 				}
 				return
 			}
-			case "createEnum": {
-				this.objectName(statement.name, "enum", "name")
-				if (statement.labels.length === 0) {
-					this.report("arity", "an enum without labels")
-				}
-				const seen = new Set<string>()
-				for (const [i, label] of statement.labels.entries()) {
-					this.enumLabel(label, i)
-					if (seen.has(label)) {
-						this.report("columnList", `enum label "${label}" is declared twice`, i)
-					}
-					seen.add(label)
-				}
-				return
-			}
-			case "alterEnumAddValue":
-				this.objectName(statement.name, "enum", "name")
-				this.enumLabel(statement.label, "label")
-				if (statement.position !== undefined) {
-					this.enumLabel(statement.position.label, "position")
-				}
-				return
-			case "alterEnumRenameValue":
-				this.objectName(statement.name, "enum", "name")
-				this.enumLabel(statement.from, "from")
-				this.enumLabel(statement.to, "to")
-				return
 			case "createIndex":
 				this.ident(statement.name, "index", "name")
 				this.objectName(statement.table, "table", "table")
@@ -2517,27 +2526,56 @@ class StatementAuditor {
 			case "createFunction":
 				this.createFunction(statement)
 				return
-			case "createConstraintTrigger": {
-				this.ident(statement.name, "trigger", "name")
-				this.objectName(statement.table, "table", "table")
+			case "createConstant":
+				this.objectName(statement.name, "function", "name")
+				this.at("params", () => {
+					for (const [i, param] of statement.params.entries()) {
+						this.at(i, () => {
+							this.ident(param.name, "parameter", "name")
+							this.type(param.type)
+						})
+					}
+				})
+				this.at("returns", () => {
+					this.type(statement.returns)
+				})
+				this.at("body", () => {
+					this.constantBody(statement.body)
+				})
+				return
+			case "packConstant": {
 				this.objectName(statement.function, "function", "function")
-				const event = statement.event
-				if (event.kind === "UPDATE") {
-					this.at("event", () => {
-						this.baseColumns(event.of, "UPDATE OF column")
-					})
+				const { radices, width } = statement
+				if (!Arr.every(radices, (r) => Number.isSafeInteger(r) && r >= 1)) {
+					this.report("literal", "a pack's radices are whole numbers of at least one code")
 				}
-				const when = statement.when
-				if (when !== undefined) {
-					this.at("when", () => {
-						this.expr(when, context("ddl", undefined, undefined, new Set()))
-						for (const image of imagesRead(when)) {
-							if (!eventImages[event.kind].has(image)) {
-								this.report("context", `a ${event.kind} trigger's WHEN reading ${image}`)
+				if (!Number.isSafeInteger(width) || width < 1) {
+					this.report("literal", "a pack's cells are one bit wide at least")
+				}
+				this.at("rows", () => {
+					for (const [i, row] of statement.rows.entries()) {
+						this.at(i, () => {
+							if (
+								row.key.length !== radices.length ||
+								!Arr.every(
+									row.key,
+									(code, k) => Number.isSafeInteger(code) && code >= 0 && code < (radices[k] ?? 0)
+								)
+							) {
+								this.report(
+									"arity",
+									"a packed row's key holds one code per radix, each below its radix"
+								)
 							}
-						}
-					})
-				}
+							if (row.payload < 0n || 1n + row.payload >= 2n ** BigInt(width)) {
+								this.report(
+									"literal",
+									"a packed row's payload code, plus one, fits its cell's width"
+								)
+							}
+						})
+					}
+				})
 				return
 			}
 			case "createGuardTrigger":
@@ -2619,14 +2657,6 @@ class StatementAuditor {
 			this.expr(predicate, context("domain", undefined, undefined, undefined))
 		})
 	}
-
-	enumLabel(label: string, at: string | number): void {
-		if (Str.includes("\u0000")(label) || !isWellFormed(label)) {
-			this.report("literal", "an enum label that is not well-formed text", at)
-		} else if (utf8Length(label) > maxIdentifierBytes.value) {
-			this.report("literal", `enum label "${label}" exceeds ${maxIdentifierBytes.value} bytes`, at)
-		}
-	}
 }
 
 const bothSides: ReadonlySet<"old" | "new"> = new Set(["old", "new"])
@@ -2693,8 +2723,15 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "negate":
 		case "not":
 		case "isTrue":
+		case "complement":
 		case "inQuery":
 			forEachAggregateCall(e.expr, f)
+			return
+		case "nullif":
+			all([e.expr, e.absent])
+			return
+		case "subscript":
+			all([e.array, e.index])
 			return
 		case "binary":
 			all([e.left, e.right])
@@ -2822,15 +2859,16 @@ export interface StatementAudit {
  *   body that PostgreSQL would merge with its enclosing query's clauses, through any chain of parentheses; a
  *   data-modifying CTE only in the statement's own WITH; MERGE WHEN clauses and RETURNING naming only the rows their
  *   match has; UNION arms named by position with the union's names; no builtin function outside the catalogue of
- *   ast.ts (COALESCE and NULLIF among them); and none of the NULL-yielding aggregate and window forms: LEAD or LAG
+ *   ast.ts; and none of the NULL-yielding aggregate and window forms: LEAD or LAG
  *   without its default (R27), or a NULL-on-empty aggregate in an ungrouped core. A program audit
  *   holds each ANALYZE of a write program to carriers it created.
  * - The text audit lexes the printed text (lexer.ts) and refuses, wherever they occur outside identifiers, strings,
  *   dollar bodies and comments: NULL (other than a column constraint's NOT NULL in table DDL), IS [NOT] NULL, ISNULL,
- *   NOTNULL, IS UNKNOWN, NULLIF, COALESCE, outer joins, SELECT * and RETURNING *, SKIP LOCKED, an uncast parameter,
+ *   NOTNULL, IS UNKNOWN, outer joins, SELECT * and RETURNING *, SKIP LOCKED, an uncast parameter,
  *   an untyped literal outside the positions SQL syntax requires a bare string, a CHECK not of the form
  *   CHECK ((...) IS TRUE), a CASE expression without ELSE, and a COLLATE naming any collation but
- *   pg_catalog.pg_c_utf8. A PL/pgSQL body is audited the same way. The AST cannot express most of what the text audit
+ *   pg_catalog.pg_c_utf8. NULLIF, a closed read's absence that IS TRUE or NOT NULL around it refuses, and COALESCE, the
+ *   pack's absent cell, are admitted. A PL/pgSQL body is audited the same way. The AST cannot express most of what the text audit
  *   refuses, and the printer's output must pass it.
  *
  * An audit failure is a compiler defect, reported as a CompileError: MalformedDescription for a structurally malformed
@@ -2884,6 +2922,9 @@ const isWord = (token: Token | undefined, upper: string): boolean =>
 
 const isPunct = (token: Token | undefined, text: string): boolean =>
 	token?.kind === "punct" && token.text === text
+
+const isQuotedName = (token: Token | undefined, name: string): boolean =>
+	token?.kind === "quotedIdent" && token.text === name
 
 /**
  * Whether the "(" at `open`, closed by the token after it, is a column list PostgreSQL writes empty only by leaving it
@@ -2968,8 +3009,6 @@ const isInt4Constant = (text: string): boolean => {
 type StatementShape =
 	| "createTable"
 	| "alterTable"
-	| "enum"
-	| "alterType"
 	| "settings"
 	| "function"
 	| "do"
@@ -2989,12 +3028,6 @@ const statementShape = (tokens: ReadonlyArray<Token>): StatementShape => {
 	}
 	if (w(0) === "ALTER" && w(1) === "TABLE") {
 		return "alterTable"
-	}
-	if (w(0) === "CREATE" && w(1) === "TYPE") {
-		return "enum"
-	}
-	if (w(0) === "ALTER" && w(1) === "TYPE") {
-		return "alterType"
 	}
 	if (w(0) === "ALTER" && w(1) === "ROLE") {
 		return "settings"
@@ -3157,17 +3190,9 @@ class TextAuditor {
 	statement(tokens: ReadonlyArray<Token>, pl: boolean): void {
 		const shape: StatementShape = pl ? "other" : statementShape(tokens)
 		const depths = parenDepths(tokens)
-		/** The paren range of CREATE TYPE ... AS ENUM ( ... ), whose labels are bare strings by syntax. */
-		const enumRange: Option.Option<ParenRange> =
-			shape === "enum"
-				? Option.flatMap(
-						Arr.findFirstIndex(tokens, (t, i) => isWord(t, "ENUM") && isPunct(tokens[i + 1], "(")),
-						(at) => Option.map(matchingParen(tokens, at + 1), (close) => ({ open: at + 1, close }))
-					)
-				: Option.none()
 		let cases: OpenCases = []
 		for (const [i, t] of tokens.entries()) {
-			cases = this.token(tokens, depths, i, t, shape, pl, enumRange, cases)
+			cases = this.token(tokens, depths, i, t, shape, pl, cases)
 		}
 		for (const frame of cases) {
 			if (!frame.statement) {
@@ -3184,7 +3209,6 @@ class TextAuditor {
 		t: Token,
 		shape: StatementShape,
 		pl: boolean,
-		enumRange: Option.Option<ParenRange>,
 		cases: OpenCases
 	): OpenCases {
 		const prev = tokens[i - 1]
@@ -3205,22 +3229,7 @@ class TextAuditor {
 				if (isPunct(next, "::")) {
 					break
 				}
-				if (Option.exists(enumRange, (range) => i > range.open && i < range.close)) {
-					break
-				}
 				if (shape === "comment" && isWord(prev, "IS")) {
-					break
-				}
-				if (
-					shape === "alterType" &&
-					(isWord(prev, "VALUE") ||
-						isWord(prev, "BEFORE") ||
-						isWord(prev, "AFTER") ||
-						(isWord(prev, "TO") &&
-							tokens[i - 2]?.kind === "string" &&
-							isWord(tokens[i - 3], "VALUE")) ||
-						(isWord(prev, "EXISTS") && isWord(tokens[i - 2], "NOT") && isWord(tokens[i - 3], "IF")))
-				) {
 					break
 				}
 				/**
@@ -3342,19 +3351,13 @@ class TextAuditor {
 					this.report("null", t.start, "the null test IS UNKNOWN")
 				}
 				return cases
-			case "NULLIF":
-				this.report("nullif", t.start, "NULLIF")
-				return cases
-			case "COALESCE":
-				this.report("coalesce", t.start, "COALESCE")
-				return cases
 			case "OUTER":
 				this.report("outerJoin", t.start, "an outer join")
 				return cases
 			case "LEFT":
 			case "RIGHT":
 			case "FULL":
-				if (isWord(next, "JOIN") || isWord(next, "OUTER")) {
+				if ((isWord(next, "JOIN") || isWord(next, "OUTER")) && !isPackJoin(tokens, i, pl)) {
 					this.report("outerJoin", t.start, `a ${t.upper} JOIN`)
 				}
 				return cases

@@ -93,6 +93,10 @@ interface StoredRelation {
 	readonly keys: ReadonlyArray<DeclaredKey>
 }
 
+/**
+ * A roster, heading `id` and one row per handle, or a closed relation, heading its key fields then its payload in
+ * declared order, as a Closed node reads it.
+ */
 interface ClosedRelation {
 	readonly kind: "closed"
 	readonly name: string
@@ -151,9 +155,14 @@ const literalOf = (value: LiteralDesc, type: ScalarType): TypedLiteral => {
 				return { kind: "text", value }
 			}
 			break
-		case "enum":
+		case "code":
 			if (typeof value === "string") {
-				return { kind: "enum", handle: value }
+				return { kind: "handle", handle: value }
+			}
+			break
+		case "bits":
+			if (typeof value === "object" && "handles" in value) {
+				return { kind: "handles", handles: value.handles }
 			}
 			break
 		case "float4":
@@ -197,7 +206,7 @@ export class SchemaModel {
 						name: r.name,
 						heading: Arr.map(Rec.toEntries(r.desc.fields), ([name, d]) => ({
 							name,
-							type: this.fieldType(d, SourceLoc(`${r.name}.${name}`, []))
+							type: this.fieldType(d.type, SourceLoc(`${r.name}.${name}`, []))
 						})),
 						primaryKey: Option.getOrThrowWith(
 							Arr.findFirst(r.keys, (k) => k.primary),
@@ -210,28 +219,45 @@ export class SchemaModel {
 					})
 					break
 				case "closed": {
-					const idType = this.fieldType(
-						{ kind: "closedId", roster: r.name },
-						SourceLoc(`${r.name}.id`, [])
-					)
-					const payload = Arr.map(Rec.toEntries(r.desc.payload), ([name, d]) => ({
-						name,
-						type: this.fieldType(d, SourceLoc(`${r.name}.${name}`, []))
-					}))
-					const heading: Heading = [{ name: "id", type: idType }, ...payload]
+					const heading: Heading = [
+						{
+							name: "id",
+							type: this.fieldType(
+								{ kind: "closedId", roster: r.name },
+								SourceLoc(`${r.name}.id`, [])
+							)
+						}
+					]
 					relations.set(r.name, {
 						kind: "closed",
 						name: r.name,
 						heading,
-						rows: Arr.map(r.desc.handles, (handle) => [
-							{ kind: "enum", handle },
-							...Arr.map(payload, (p) =>
-								literalOf(
-									defined(r.desc.facts[handle]?.[p.name], `${r.name}.${handle}.${p.name}`),
-									p.type
-								)
+						rows: Arr.map(r.desc.handles, (handle) => [{ kind: "handle", handle }])
+					})
+					break
+				}
+				case "closedRelation": {
+					const desc = r.desc
+					const order = [
+						...desc.key,
+						...Arr.filter(Rec.keys(desc.fields), (name) => !desc.key.includes(name))
+					]
+					const heading: Heading = Arr.map(order, (name) => ({
+						name,
+						type: this.fieldType(
+							defined(desc.fields[name], `${r.name}.${name}`),
+							SourceLoc(`${r.name}.${name}`, [])
+						)
+					}))
+					relations.set(r.name, {
+						kind: "closed",
+						name: r.name,
+						heading,
+						rows: Arr.map(desc.rows, (row, at) =>
+							Arr.map(heading, (h) =>
+								literalOf(defined(row[h.name], `${r.name} row ${at}.${h.name}`), h.type)
 							)
-						])
+						)
 					})
 					break
 				}

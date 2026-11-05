@@ -6,6 +6,7 @@ import { constant, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
@@ -152,7 +153,7 @@ const rewritten = (dag: RelDag, passes: ReadonlyArray<Pass<LogicalQuery, Logical
 		runPasses(query, passes, passContext({ catalog: ledgerCatalog, evidence: "snapshot" }))
 	)
 	deliversAlikeOn(databases, [Posting, AccountRelation], [], query, ran.query)
-	lowersConservatively(ran.query)
+	lowersConservatively(ran.query, emptyCodebook)
 	return ran
 }
 

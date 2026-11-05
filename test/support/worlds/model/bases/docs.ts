@@ -5,7 +5,6 @@ import type {
 	EntrySpec,
 	FieldDomain,
 	InstallSpec,
-	LawSpec,
 	Occurrence,
 	Rule,
 	Term
@@ -22,8 +21,7 @@ const integer: FieldDomain = { kind: "integer", bits: 32 }
  * serial, so an addition written whole may carry no field (the unit relation), and one carrying one of its serial
  * fields and not the other is refused; with laws of each kind a refusal under a world reaches. A note's document
  * exists (a foreign key); an organization's documents differ in their word counts (a candidate key, a unique index); a
- * document has at most two shares (a capacity, a residual law whose function withholds its witness keys from a role
- * that does not hold Doc whole); a plan is at most five (a row check), and lies in 0..9 by its contract Plan (a domain
+ * plan is at most five (a row check), and lies in 0..9 by its contract Plan (a domain
  * CHECK), so a plan of six to nine breaks the check and one past nine the domain. Doc and Note are mutable, so a put of
  * a document or a note replaces it in place; a note's `no` is a bigserial key.
  *
@@ -94,14 +92,6 @@ export const docsBase: BaseSpec = {
 		},
 		{ kind: "key", relation: "Doc", fields: ["org", "words"] },
 		{
-			kind: "capacity",
-			target: { relation: "Doc", fields: ["id"], where: {} },
-			source: { relation: "Share", fields: ["doc"], where: {} },
-			weight: { kind: "count" },
-			low: 0n,
-			high: 2n
-		},
-		{
 			kind: "check",
 			name: "PlanAtMostFive",
 			relation: "Org",
@@ -140,16 +130,14 @@ export const docsBase: BaseSpec = {
 }
 
 /**
- * The documents base with at most one share per document: its capacity on Doc's shares bounded above by one, a
- * residual law. A role writing its own shares through a query entry meets another user's share of the document, hidden
- * from it, at that bound: the capacity's law refuses the write at COMMIT, its witness withheld from the role.
+ * The documents base with at most one share per document: `key(on(Share, "doc"))`, the native at-most-one (fin.md §6).
+ * A role writing its own shares through a query entry meets another user's share of the document, hidden from it, at
+ * that key: the key refuses the write at its statement.
  */
 const docsOneShareBase: BaseSpec = {
 	...docsBase,
 	name: "DocsOneShare",
-	laws: Arr.map(docsBase.laws, (law): LawSpec =>
-		law.kind === "capacity" ? { ...law, high: 1n } : law
-	)
+	laws: [...docsBase.laws, { kind: "key", relation: "Share", fields: ["doc"] }]
 }
 
 /** Every documents base a generated installation is drawn over. */
@@ -298,7 +286,7 @@ export const docsInstall: InstallSpec = {
 
 /**
  * The documents base's README-shaped worlds over its one-share variant (docsOneShareBase): the member writing its own
- * shares through MyShare meets another user's share of a document, which MyShare hides, at the capacity's bound.
+ * shares through MyShare meets another user's share of a document, which MyShare hides, at the key on Share's `doc`.
  */
 export const docsOneShareInstall: InstallSpec = { ...docsInstall, base: docsOneShareBase }
 
@@ -310,7 +298,7 @@ export const docsOneShareInstall: InstallSpec = { ...docsInstall, base: docsOneS
  * (`author` filled with "u_ed"), and holds no other note. So a document of another tenant, or any document under no
  * tenant claim, and an organization on the free plan, are outside the entry it writes yet visible through the whole
  * beside it, under its claims or under none; and another author's note is hidden from it, met at its key by a note it
- * writes. The member beside it writes its own shares under the capacity's residual law, whose witness it does not hold.
+ * writes. The member beside it writes its own shares.
  */
 export const docsEditorInstall: InstallSpec = {
 	base: docsBase,
@@ -354,7 +342,7 @@ export const docsEditorInstall: InstallSpec = {
 
 /**
  * The editor's worlds (docsEditorInstall) over the documents base's one-share variant: the member's own shares meet a
- * hidden share at the capacity's bound, as in docsOneShareInstall, beside the editor's entries.
+ * hidden share at the key on Share's `doc`, as in docsOneShareInstall, beside the editor's entries.
  */
 export const docsOneShareEditorInstall: InstallSpec = {
 	...docsEditorInstall,

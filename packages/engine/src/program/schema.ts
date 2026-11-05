@@ -7,16 +7,19 @@ import {
 } from "#compiler/analysis/schema.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
+import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import { decodeDesc, descText, type RoleDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
+import type { RegexRef } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { ConstraintLaw, LawModel } from "#compiler/laws/model/model.ts"
+import { textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallNames,
 	roleReadNames,
@@ -45,10 +48,11 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
  * What a schema contributes to compiling its queries: the owned schema and its fingerprint, the physical names of its
  * installed objects, its law model, its views' unique indexes, and the evidence catalog of both (program).
  *
- * The names are the installation's own (physical/ddl/names.ts InstallNames): relations, columns, enums, contract
- * domains and the structural `__text_` domains, under the PostgreSQL schema the installation targets, so the queries
- * address exactly the objects a migration installs. They are derived from the fresh-install compiler, which is pure; the
- * owner it names never appears in query SQL. The evidence catalog resolves every declared key and containment to its
+ * The names are the installation's own (physical/ddl/names.ts InstallNames): relations, columns, roster domains and
+ * codes, closed constants, contract domains and the structural `__text_` domains, under the PostgreSQL schema the
+ * installation targets, so the queries address exactly the objects a migration installs. They are derived from the
+ * fresh-install compiler, which is pure, given the installation's codes; the owner it names never appears in query
+ * SQL. The evidence catalog resolves every declared key and containment to its
  * installed constraint (catalog.ts).
  *
  * A schema is reality, a schema(...) value, or a role, a role(...) value: a role's artifacts are its base's, read through
@@ -101,6 +105,12 @@ interface SchemaArtifactOptions {
 	readonly installation: Identity<"schema"> | undefined
 	/** The schema the vector extension lives in, or undefined for the installer's. */
 	readonly vectorSchema: string | undefined
+	/**
+	 * The installation's codes (ir/codes.ts): the snapshot's for a layer, the drafted ones for generate, the first
+	 * codebook for a fresh installation. Codes are history, so the schema alone never determines them, and every code
+	 * literal and bit(n) width the artifacts hold reads them.
+	 */
+	readonly codes: Codebook
 }
 
 /**
@@ -277,7 +287,8 @@ const artifactsOf = (
 		compileInstallation(owned, {
 			...installOptions(owned, namingOwner),
 			...(options.installation === undefined ? {} : { installation: options.installation }),
-			...(options.vectorSchema === undefined ? {} : { vectorSchema: options.vectorSchema })
+			...(options.vectorSchema === undefined ? {} : { vectorSchema: options.vectorSchema }),
+			codes: options.codes
 		}),
 		(installation): SchemaArtifacts => {
 			const derived = derivedAnalysis(installation.checked)
@@ -302,7 +313,7 @@ const reality: ArtifactsWorld = Object.freeze({ kind: "reality" })
 
 /**
  * The base's installed names with the role's own text patterns no stored column carries: its query entries' view
- * columns and the context fields it reads, each a domain named by its pattern (identity.textDomain), as the
+ * columns and the context fields it reads, each a domain named by its definition (textDomainIdentity), as the
  * installation names it whatever other roles the installation holds. A pattern of neither stays unnamed.
  */
 const worldTextNames = (
@@ -313,13 +324,15 @@ const worldTextNames = (
 		contextFieldsOf(role.checked.world.base, [role.checked.world.role]),
 		(fields): InstallNames => {
 			const patterns = new Set(worldTextDomainUses(fields, [role]).map((u) => u.regex.key))
+			const textNamed = (regex: RegexRef): Identity<"textDomain"> | undefined =>
+				base.textNamed(regex) ?? (patterns.has(regex.key) ? textDomainIdentity(regex) : undefined)
 			return {
 				...base,
-				textDomain: (regex) =>
-					base.textDomain(regex) ??
-					(patterns.has(regex.key)
-						? { schema: base.types, name: identifierOf(identity.textDomain(regex.key)) }
-						: undefined)
+				textDomain: (regex) => {
+					const named = textNamed(regex)
+					return named === undefined ? undefined : { schema: base.types, name: identifierOf(named) }
+				},
+				textNamed
 			}
 		}
 	)

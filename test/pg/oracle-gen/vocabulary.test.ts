@@ -18,9 +18,10 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
+import { codecOf, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { nativeName, type ScalarType } from "#compiler/ir/scalar.ts"
+import { nativeName, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
@@ -56,11 +57,11 @@ const at = <T>(items: ReadonlyArray<T>, index: number, what: string): T => {
 const vectorSchema = quoteIdent("vector_ext")
 
 /**
- * The SQL type of a generated column; an enum is the schema's type named after its roster, and a vector the extension's
- * type at its dimensions.
+ * The SQL type of a generated column: a closed id the schema's domain over smallint named after its roster, which
+ * admits exactly the roster's codes, and a vector the extension's type at its dimensions.
  */
 const sqlType = (type: ScalarType, schema: string): string => {
-	if (type.carrier === "enum") {
+	if (type.carrier === "code") {
 		return `${quoteIdent(schema)}.${quoteIdent(Str.toLowerCase(type.roster.closed))}`
 	}
 	if (type.carrier === "numeric" && type.typmod !== undefined) {
@@ -70,6 +71,29 @@ const sqlType = (type: ScalarType, schema: string): string => {
 		return `${vectorSchema}.${quoteIdent("vector")}(${type.typmod.dims})`
 	}
 	return nativeName(type.carrier)
+}
+
+/**
+ * The type PostgreSQL gives an aggregate's result of `type`: a closed id's is smallint, since min and max over a
+ * domain are its base type's, which the decoder reads as the code it is; any other the column's type.
+ */
+const resultSqlType = (type: ScalarType, schema: string): string =>
+	type.carrier === "code" ? "smallint" : sqlType(type, schema)
+
+/**
+ * The domain a generated roster's closed ids are typed by: smallint, admitting exactly its codes 0 … n − 1, which a
+ * generated schema's installation, drafted from no codes, gives its n handles in declared order.
+ */
+const rosterDomainSql = (schema: string, roster: string, handles: number): string =>
+	`CREATE DOMAIN ${quoteIdent(schema)}.${quoteIdent(Str.toLowerCase(roster))} AS smallint CHECK ((VALUE >= 0 AND VALUE < ${handles}) IS TRUE)`
+
+/** A handle's code under a generated schema's codebook, drafted from no codes. */
+const codeIn = (type: ScalarType, handle: string): number => {
+	const r = rosterOf(type)
+	if (r === undefined) {
+		throw new Error("a handle literal of a closed id")
+	}
+	return codeOf(codecOf(firstCodebook([r]), r), handle)
 }
 
 /** PostgreSQL's equality operator over a generated type: the extension's for a vector. */
@@ -106,8 +130,10 @@ const sqlLiteral = (literal: TypedLiteral, type: ScalarType, schema: string): st
 			return `${quoteString(literal.value)}::text`
 		case "uuid":
 			return `${quoteString(literal.value)}::uuid`
-		case "enum":
-			return `${quoteString(literal.handle)}::${t}`
+		case "handle":
+			return `${codeIn(type, literal.handle)}::smallint::${t}`
+		case "handles":
+			throw new Error("the generators draw no set column")
 		case "span":
 			return `${quoteString(`[${literal.start},${literal.end})`)}::${t}`
 		case "vector":
@@ -126,9 +152,9 @@ const storedSql = (stored: SpelledValue, type: ScalarType, schema: string): stri
 }
 
 const roster = (closed: string) =>
-	scalarOfSpec({ carrier: "enum", roster: { closed, handles: ["H0", "H1", "H2"] } })
+	scalarOfSpec({ carrier: "code", roster: { closed, handles: ["H0", "H1", "H2"] } })
 
-/** Every type the generators draw a column of: the base types, and an enum over the roster K0. */
+/** Every type the generators draw a column of: the base types, and a closed id of the roster K0. */
 const generatedTypes: Arr.NonEmptyReadonlyArray<ScalarType> = Arr.append(
 	Arr.map(baseTypeSpecs, scalarOfSpec),
 	roster("K0")
@@ -166,9 +192,7 @@ const cols = (names: ReadonlyArray<string>) => Arr.join(Arr.map(names, quoteIden
 const ddl = (schema: string, s: GenSchema): ReadonlyArray<string> => {
 	const out: Array<string> = []
 	for (const c of s.closed) {
-		out.push(
-			`CREATE TYPE ${quoteIdent(schema)}.${quoteIdent(Str.toLowerCase(c.name))} AS ENUM (${Arr.join(Arr.map(c.handles, quoteString), ", ")})`
-		)
+		out.push(rosterDomainSql(schema, c.name, c.handles.length))
 	}
 	const table = (name: string) => `${quoteIdent(schema)}.${quoteIdent(Str.toLowerCase(name))}`
 	for (const r of s.relations) {
@@ -195,7 +219,7 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 		Effect.gen(function* () {
 			const s = yield* Substrate
 			const schema = yield* s.schema(freshSchema)
-			yield* s.admin.query(`CREATE TYPE ${quoteIdent(schema)}."k0" AS ENUM ('H0', 'H1', 'H2')`, [])
+			yield* s.admin.query(rosterDomainSql(schema, "K0", 3), [])
 			/** Every aggregate over every generated type. */
 			const pairs = Arr.flatMap(generatedTypes, (type) =>
 				Arr.map(genAggregates, (aggregate) => [type, aggregate] as const)
@@ -211,7 +235,7 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 					 * pg_typeof reports the type without its typmod; min and max keep the argument's descriptor.
 					 */
 					const [want = []] = yield* s.admin.queryValues(
-						`SELECT ${quoteString(sqlType(expected, schema))}::regtype::text`,
+						`SELECT ${quoteString(resultSqlType(expected, schema))}::regtype::text`,
 						[]
 					)
 					assert.equal(row[0], want[0], `${fn}(${sqlType(t, schema)})`)
@@ -242,10 +266,7 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 			Effect.gen(function* () {
 				const s = yield* Substrate
 				const schema = yield* s.schema(freshSchema)
-				yield* s.admin.query(
-					`CREATE TYPE ${quoteIdent(schema)}."k0" AS ENUM ('H0', 'H1', 'H2')`,
-					[]
-				)
+				yield* s.admin.query(rosterDomainSql(schema, "K0", 3), [])
 				return yield* exhaust(
 					{
 						suite: "oracle-gen/value-classes",

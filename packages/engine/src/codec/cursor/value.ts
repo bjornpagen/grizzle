@@ -4,6 +4,7 @@
  */
 import type { ScalarCodec } from "#compiler/codec/scalar.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { RosterCodec } from "#compiler/ir/codes.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
@@ -69,6 +70,46 @@ const vectorOf =
 
 const itself = (text: string): unknown => text
 
+/** A code's decimal digits, read as the handle it names; a hole, a code past the roster or other text reads none. */
+const handleOf =
+	(roster: RosterCodec) =>
+	(text: string): unknown => {
+		if (text.length === 0 || text.length > String(roster.size).length) {
+			return undefined
+		}
+		for (let i = 0; i < text.length; i++) {
+			const code = text.charCodeAt(i)
+			if (code < 0x30 || code > 0x39) {
+				return undefined
+			}
+		}
+		const name = roster.names[Number(text)]
+		return name === undefined || name === "" ? undefined : name
+	}
+
+/** A set's `size` characters of 0 and 1, read as the Set of handles of its 1 bits; any other text reads none. */
+const handlesOf =
+	(roster: RosterCodec) =>
+	(text: string): unknown => {
+		if (text.length !== roster.size) {
+			return undefined
+		}
+		const handles = new Set<string>()
+		for (let code = 0; code < text.length; code++) {
+			const bit = text.charCodeAt(code)
+			if (bit === 0x31) {
+				const name = roster.names[code]
+				if (name === undefined || name === "") {
+					return undefined
+				}
+				handles.add(name)
+			} else if (bit !== 0x30) {
+				return undefined
+			}
+		}
+		return handles
+	}
+
 const candidates: { readonly [C in Carrier]: (spec: SpecOf<C>) => (text: string) => unknown } = {
 	int2: () => Number,
 	int4: () => Number,
@@ -80,7 +121,8 @@ const candidates: { readonly [C in Carrier]: (spec: SpecOf<C>) => (text: string)
 	bool: () => (text) => text === "true",
 	uuid: () => itself,
 	text: () => itself,
-	enum: () => itself,
+	code: (spec) => handleOf(spec.roster),
+	bits: (spec) => handlesOf(spec.roster),
 	range4: () => spanOf(Number),
 	range8: () => spanOf(bigintOf),
 	vector: (spec) => vectorOf(spec.dimensions),

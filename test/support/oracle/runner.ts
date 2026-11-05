@@ -33,10 +33,11 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
+import { type Codebook, codecOf, codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
 	conservativeInput,
@@ -47,6 +48,7 @@ import {
 	statementOutput
 } from "#compiler/lower/conservative/types.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { setText } from "#test/support/closed/bit-text.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -74,12 +76,16 @@ import {
 	spelledRespelling,
 	type StoredRelation
 } from "#test/support/oracle/gen/restorage.ts"
-import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
+import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { captureRows } from "#test/support/oracle/install/capture.ts"
 import { InputSpelling, moneyText } from "#test/support/oracle/install/literal.ts"
 import { type FactSet, factStatements } from "#test/support/oracle/install/load.ts"
 import type { InstallPlan } from "#test/support/oracle/install/model.ts"
-import { oraclePlan, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import {
+	oracleLogin,
+	planRealInstall,
+	type RealInstallPlan
+} from "#test/support/oracle/install/real.ts"
 import {
 	complementOf,
 	CurrentPerturbation,
@@ -336,14 +342,27 @@ export const factSet = (c: QueryCase): FactSet => {
 	return out
 }
 
+/** The codec of a closed id's or a set's roster; a literal of either names handles of its type's roster. */
+const rosterCodecOf = (type: ScalarType, codes: Codebook): RosterCodec => {
+	const roster = rosterOf(type)
+	if (roster === undefined) {
+		throw new Error(`a handle literal of ${type.carrier}, a type of no roster`)
+	}
+	return codecOf(codes, roster)
+}
+
 /**
- * A literal as the text its type's input function reads: what a placeholder or an input array's element carries.
+ * A literal of `type` as the text its type's input function reads: what a placeholder or an input array's element
+ * carries.
  *
  * A double as its shortest round-trip text; a literal holds the one zero.
  *
+ * A closed id as its handle's code under the installation's codes, smallint's text, and a set as its bit(size) text,
+ * position c code c.
+ *
  * The canonical text of the components, [c1,...,cn], which is pgvector's input form.
  */
-export const inputText = (literal: TypedLiteral): string => {
+export const inputText = (literal: TypedLiteral, type: ScalarType, codes: Codebook): string => {
 	switch (literal.kind) {
 		case "int":
 			return literal.value.toString()
@@ -360,8 +379,15 @@ export const inputText = (literal: TypedLiteral): string => {
 		case "text":
 		case "uuid":
 			return literal.value
-		case "enum":
-			return literal.handle
+		case "handle":
+			return String(codeOf(rosterCodecOf(type, codes), literal.handle))
+		case "handles": {
+			const codec = rosterCodecOf(type, codes)
+			return setText(
+				codec.size,
+				Arr.map(literal.handles, (handle) => codeOf(codec, handle))
+			)
+		}
 		case "span":
 			return `[${literal.start},${literal.end})`
 		case "vector":
@@ -410,7 +436,7 @@ export const slotValue = (c: QueryCase, slot: ConservativeParamSlot): string | u
 	switch (slot.kind) {
 		case "scalar": {
 			const p = c.query.params[slot.param]
-			return p?.kind === "scalar" ? inputText(p.value) : undefined
+			return p?.kind === "scalar" ? inputText(p.value, p.type, schemaCodes(c.schema)) : undefined
 		}
 		case "relation": {
 			const p = c.query.params[slot.param]
@@ -429,8 +455,10 @@ export const slotValue = (c: QueryCase, slot: ConservativeParamSlot): string | u
 			if (Option.isNone(at)) {
 				return undefined
 			}
+			const type = elementAt(p.heading, at.value, "a parameter column").type
+			const codes = schemaCodes(c.schema)
 			const elements = Arr.map(p.rows, (row) => {
-				const text = inputText(elementAt(row, at.value, "a parameter row"))
+				const text = inputText(elementAt(row, at.value, "a parameter row"), type, codes)
 				return `"${pipe(text, Str.replaceAll("\\", "\\\\"), Str.replaceAll('"', '\\"'))}"`
 			})
 			return `{${Arr.join(elements, ",")}}`
@@ -471,6 +499,7 @@ export const runProgram = (
 			statements.push({
 				label: elementAt(labels, i, "the statement labels"),
 				columns: Arr.map(heading, (h) => h.name),
+				codes: schemaCodes(c.schema),
 				unstated: { kind: "none" },
 				types: Arr.map(heading, (h) => h.type),
 				rows
@@ -657,11 +686,13 @@ const runNamed = (
 		 * schema's whole world gets.
 		 */
 		const desc = schemaDesc(c.schema)
-		const planned = oraclePlan(
-			desc,
-			identity.schema(parsedSchemaName(schema)),
-			substrate.owner.role
-		)
+		const planned = planRealInstall(desc, {
+			installation: identity.schema(parsedSchemaName(schema)),
+			owner: substrate.owner.role,
+			logins: [oracleLogin(desc)],
+			extensions: [],
+			codes: schemaCodes(c.schema)
+		})
 		if (!planned.ok) {
 			return yield* failure("plan", "install", planned.error.message)
 		}

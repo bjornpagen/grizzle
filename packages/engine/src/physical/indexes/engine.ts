@@ -25,22 +25,31 @@ import {
 } from "#compiler/core/order.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { identityValueOf } from "#compiler/ir/expr.ts"
-import { isSpanField, type Selector } from "#compiler/ir/law.ts"
 import {
-	type AccessUse,
 	allRows,
 	defaultOpclass,
 	type IndexOpclass,
-	type IndexRequest,
 	type IndexRows,
+	isSpanField,
+	type NativeColumn,
+	type Selector
+} from "#compiler/ir/law.ts"
+import {
+	type AccessUse,
+	type IndexRequest,
 	type PhysicalReason,
 	sameIndexOpclass,
 	vectorCosineOpclass
 } from "#compiler/ir/products.ts"
 import { baseOf, fewValued, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
-import type { BuiltTarget, InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
-import { indexedName, type KeyIndex, rowsPredicate } from "#compiler/physical/ddl/tables.ts"
+import type {
+	BuiltTarget,
+	IndexColumn,
+	InstallBuilder,
+	TargetField
+} from "#compiler/physical/ddl/context.ts"
+import { type KeyIndex, rowsPredicate } from "#compiler/physical/ddl/tables.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import {
 	btreeEntry,
@@ -54,11 +63,28 @@ import { columnKey } from "#compiler/sql/build.ts"
 
 /** A key of an index, or one a request asks an index for. */
 export interface IndexKey {
-	/** The field the key column holds. */
-	readonly field: string
+	/** The column the key holds, by its arm: a field, or a law column. */
+	readonly column: IndexColumn
 	readonly dir: "asc" | "desc"
 	readonly opclass: IndexOpclass
 }
+
+/** A native object's column as an index names it, by its arm. */
+const indexColumnOf = (c: NativeColumn): IndexColumn =>
+	c.kind === "field" ? { kind: "field", field: c.field.name } : c
+
+/**
+ * A column's text as the plan orders, labels and names its indexes by: a field's name, or a law column's identifier.
+ * A law column's identifier starts with `__`, which no declared name does, so the texts of a relation's columns are
+ * distinct.
+ */
+const columnText = (c: IndexColumn): string => (c.kind === "field" ? c.field : c.column)
+
+/** Whether two columns are one: one field, or one law column. */
+const sameColumn = (a: IndexColumn, b: IndexColumn): boolean =>
+	a.kind === "field"
+		? b.kind === "field" && a.field === b.field
+		: b.kind === "law" && a.column === b.column
 
 /** An index's access method. */
 type Method = "btree" | "gist" | "hnsw"
@@ -105,16 +131,22 @@ const requestLabel = (r: IndexRequest): string => {
 		rows.kind === "all"
 			? ""
 			: ` of the rows selected by ${rows.selection.map((s) => s.column).join(", ")}`
-	return `${r.role} index request on ${r.relation}(${r.keys.map((k) => String(k.expr)).join(", ")})${selected} for ${r.use}`
+	return `${r.role} index request on ${r.relation}(${requestColumns(r).map(columnText).join(", ")})${selected} for ${r.use}`
 }
+
+/** The columns a request's keys name, in key order: a law's by their arms, the workload's by their fields' names. */
+const requestColumns = (r: IndexRequest): ReadonlyArray<IndexColumn> =>
+	r.role === "lawMaintenance"
+		? r.keys.map((k) => indexColumnOf(k.column))
+		: r.keys.map((k): IndexColumn => ({ kind: "field", field: String(k.expr) }))
 
 const reasonOf = (r: IndexRequest): PhysicalReason =>
 	r.role === "lawMaintenance" ? { kind: "law", law: r.justification.law } : { kind: "access" }
 
 /**
  * The reverse lookup of every containment the law model lowered to a referencing-side index: one request per law the
- * index serves, over its referencing columns, a field by its name and a law column by its identifier (`indexedName`).
- * The law model leaves a constant law column out of them: one value in every row narrows no lookup.
+ * index serves, over its referencing columns, each a field or a law column by its arm. The law model leaves a constant
+ * law column out of them: one value in every row narrows no lookup.
  */
 export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> =>
 	b.natives.flatMap(({ object: n }) => {
@@ -125,8 +157,8 @@ export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> 
 		const spans = columns.some((c) => c.kind === "field" && isSpanField(c.field))
 		return n.lawIds.map((law: LawId): IndexRequest => ({
 			relation: n.relation.name,
-			keys: columns.map((c) => ({
-				expr: indexedName(c),
+			keys: mapNonEmpty(columns, (column) => ({
+				column,
 				dir: "asc" as const,
 				opclass: defaultOpclass
 			})),
@@ -165,8 +197,8 @@ type Keys = NonEmptyReadonlyArray<IndexKey>
 /** What each column of a request's relation holds, by field: a scalar or a span, and whether it holds few values
  * (fewValued), so that fixing it bounds no scan. */
 interface Columns {
-	readonly holds: (field: string) => Holds
-	readonly few: (field: string) => boolean
+	readonly holds: (column: IndexColumn) => Holds
+	readonly few: (column: IndexColumn) => boolean
 }
 
 /** The access methods of the indexes that may hold a placement, in preference order: an index created for it takes the
@@ -223,12 +255,12 @@ interface Placements {
 
 /** The columns of `fixed` of many values, any of which may lead a serving index that holds the rest. */
 const leadsOf = (fixed: ReadonlyArray<IndexKey>, columns: Columns): ReadonlyArray<IndexKey> =>
-	fixed.filter((k) => !columns.few(k.field))
+	fixed.filter((k) => !columns.few(k.column))
 
 /** The methods of an index serving an equality lookup or a range on `keys`: a B-tree, and a GiST index when every key holds
  * a scalar under the default class, through btree_gist's equality and comparison operators. */
 const btreeMethods = (keys: Keys, columns: Columns): Methods =>
-	keys.every((k) => columns.holds(k.field) === "scalar" && k.opclass.kind === "default")
+	keys.every((k) => columns.holds(k.column) === "scalar" && k.opclass.kind === "default")
 		? ["btree", "gist"]
 		: ["btree"]
 
@@ -287,7 +319,7 @@ const orderedPlacements = (keys: Keys): Placements => ({
  * probe binds and the index applies the probe to, a GiST index any, a B-tree its scalars. */
 const gistPlacements = (keys: Keys, columns: Columns): Placements => {
 	const leads = leadsOf(keys, columns)
-	const scalars = keys.filter((k) => columns.holds(k.field) === "scalar")
+	const scalars = keys.filter((k) => columns.holds(k.column) === "scalar")
 	const scalarKeyed: ReadonlyArray<Placement> = isNonEmpty(scalars)
 		? [{ kind: "keyed", methods: ["btree"], within: scalars }]
 		: []
@@ -339,7 +371,7 @@ const placementsOf = (request: IndexRequest, keys: Keys, columns: Columns): Plac
 
 /** Whether two keys name one column under one class. */
 const sameKey = (a: IndexKey, b: IndexKey): boolean =>
-	a.field === b.field && sameIndexOpclass(a.opclass, b.opclass)
+	sameColumn(a.column, b.column) && sameIndexOpclass(a.opclass, b.opclass)
 
 /** Whether keys, as many of each, name exactly the same columns under the same classes, in any order. */
 const sameSet = (have: ReadonlyArray<IndexKey>, want: ReadonlyArray<IndexKey>): boolean =>
@@ -370,7 +402,7 @@ const placed = (index: KeyedIndex, placement: Placement, columns: Columns): bool
 			)
 		}
 		case "manyLed": {
-			const first = keys.find((l) => !columns.few(l.field))
+			const first = keys.find((l) => !columns.few(l.column))
 			return (
 				first !== undefined &&
 				placement.lead.some((c) => sameKey(first, c)) &&
@@ -610,7 +642,7 @@ const keysOf = (draft: Draft, rank: Rank): NonEmptyReadonlyArray<IndexKey> => {
 	return canonicalKeys(
 		mapNonEmpty(keys, (k, i): IndexKey => {
 			const along = directed?.[i]
-			return { field: k.field, dir: along === undefined ? first : along.dir, opclass: k.opclass }
+			return { column: k.column, dir: along === undefined ? first : along.dir, opclass: k.opclass }
 		})
 	)
 }
@@ -643,7 +675,7 @@ const opclassOrder: Comparator<IndexOpclass> = (a, b) =>
 			: compareStrings(`${a.schema}.${vectorCosineOpclass}`, `${b.schema}.${vectorCosineOpclass}`)
 
 const keyOrder: Comparator<IndexKey> = combineAll([
-	mapInput(compareStrings, (k: IndexKey) => k.field),
+	mapInput(compareStrings, (k: IndexKey) => columnText(k.column)),
 	mapInput(compareStrings, (k: IndexKey) => k.dir),
 	mapInput(opclassOrder, (k: IndexKey) => k.opclass)
 ])
@@ -687,7 +719,7 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  *
  * Requests come from two sources. Law maintenance is generated here from the law model: a reverse foreign-key lookup
  * for every containment PostgreSQL does not index on the referencing side (the ReverseIndex natives, over fields and
- * law columns alike), and each residual law's probes (ResidualLaw.indexes); workload access paths arrive from the
+ * law columns alike, each by its arm); workload access paths arrive from the
  * workload compiler through an installer extension's contribution (`workloadExtension`). A law-maintenance request is
  * always served, because a per-key check without one is a table scan.
  *
@@ -743,8 +775,8 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * - an approximate vector retrieval is served by an HNSW index on its column under its class;
  * - operator classes must agree; every collatable key is pg_catalog.pg_c_utf8 by construction, so collation
  *   never differs;
- * - rows: a request reads every row of its relation, or, a law's probe of a selected source (a coverage's source probe,
- *   a capacity's group aggregate over a selected source), only the rows its selection chooses (`IndexRows`). An index
+ * - rows: a request reads every row of its relation, or, a law's probe of a selected source (a coverage's source
+ *   probe), only the rows its selection chooses (`IndexRows`). An index
  *   of every row serves either; a key's holds every row, the ones null in a column of it too (NULLS DISTINCT). A
  *   partial index, which holds only the rows of its selection (one the engine created for a selected probe), serves
  *   exactly the requests of that selection: a full-table request would miss the rows it leaves out, and so would a
@@ -808,23 +840,33 @@ export const planIndexes = (
 	requests: ReadonlyArray<IndexRequest>
 ): Result.Result<ReadonlyArray<PlannedIndex>, CompileError> =>
 	catchRefusal(() => {
-		const viewKeys = b.indexedViews().flatMap((view) =>
-			view.uniqueIndexes.map((u): KeyIndex => ({
-				object: u.object,
-				name: u.name,
-				relation: view.relation,
-				method: "btree",
-				columns: u.columns,
-				unique: true
-			}))
-		)
+		/** Each key index by its columns' arms: a table's key's, and a view's unique index's, over its fields. */
+		const installed: ReadonlyArray<
+			Omit<KeyIndex, "columns"> & { readonly columns: ReadonlyArray<IndexColumn> }
+		> = [
+			...keyIndexes.map((k) => ({ ...k, columns: k.columns.map(indexColumnOf) })),
+			...b.indexedViews().flatMap((view) =>
+				view.uniqueIndexes.map((u) => ({
+					object: u.object,
+					name: u.name,
+					relation: view.relation,
+					method: "btree" as const,
+					columns: u.columns.map((field): IndexColumn => ({ kind: "field", field })),
+					unique: true as const
+				}))
+			)
+		]
 		/** Each key index's keys ascending under the default class, over every row. */
-		const candidates: Array<Candidate> = [...keyIndexes, ...viewKeys].map((k) => ({
+		const candidates: Array<Candidate> = installed.map((k) => ({
 			index: {
 				index: { kind: "installed", name: k.name },
 				relation: k.relation,
 				method: k.method,
-				keys: k.columns.map((field): IndexKey => ({ field, dir: "asc", opclass: defaultOpclass })),
+				keys: k.columns.map((column): IndexKey => ({
+					column,
+					dir: "asc",
+					opclass: defaultOpclass
+				})),
 				rows: allRows,
 				unique: true,
 				object: k.object,
@@ -848,29 +890,29 @@ export const planIndexes = (
 					case "built":
 						break
 				}
-				const keys = r.keys.map((k): IndexKey => {
-					const field = String(k.expr)
-					if (o.field(field) === undefined) {
+				const keys = requestColumns(r).map((column, i): IndexKey => {
+					const k = r.keys[i]
+					if (k === undefined || o.field(column) === undefined) {
 						return fail(
 							"UnsupportedOperation",
 							label,
-							`a key column of ${r.relation}; ${field} is none, and expression keys are the workload compiler's`
+							`a key column of ${r.relation}; ${columnText(column)} is none, and expression keys are the workload compiler's`
 						)
 					}
-					return { field, dir: k.dir, opclass: k.opclass }
+					return { column, dir: k.dir, opclass: k.opclass }
 				})
 				if (!isNonEmpty(keys)) {
 					return fail("MalformedDescription", label, "an index request with a key")
 				}
-				const typeOf = (field: string): ScalarType => {
-					const f = o.field(field)
+				const typeOf = (column: IndexColumn): ScalarType => {
+					const f = o.field(column)
 					return f === undefined
-						? fail("MalformedDescription", label, `a field ${field} of ${r.relation}`)
+						? fail("MalformedDescription", label, `a field ${columnText(column)} of ${r.relation}`)
 						: f.type
 				}
 				const columns: Columns = {
-					holds: (field) => holdsOf(typeOf(field)),
-					few: (field) => fewValued[baseOf(typeOf(field)).carrier]
+					holds: (column) => holdsOf(typeOf(column)),
+					few: (column) => fewValued[baseOf(typeOf(column)).carrier]
 				}
 				return [
 					{
@@ -974,10 +1016,11 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 	const { request, label, target: o } = planned
 	const { rows } = draft
 	const method = draft.methods[0]
-	const targetField = (field: string): TargetField =>
-		o.field(field) ?? fail("MalformedDescription", label, `a field ${field} of ${request.relation}`)
+	const targetField = (column: IndexColumn): TargetField =>
+		o.field(column) ??
+		fail("MalformedDescription", label, `a field ${columnText(column)} of ${request.relation}`)
 	const keys = keysOf(draft, rankIn(planned.keys))
-	const fields = keys.map((k) => k.field)
+	const fields = keys.map((k) => columnText(k.column))
 	const unrepresentable = (fault: KeyFault): never => {
 		throw new Refusal(
 			CompileError.make({
@@ -994,7 +1037,7 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 		case "gist": {
 			/** A B-tree or GiST entry is bounded, so every key datum is (`keyDatums`). */
 			const datums = keyDatums(
-				keys.map((k) => ({ field: k.field, desc: targetField(k.field).desc }))
+				keys.map((k) => ({ field: columnText(k.column), desc: targetField(k.column).desc }))
 			)
 			if (!datums.ok) {
 				return unrepresentable(datums.error)
@@ -1022,20 +1065,25 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 	const named = identity.accessIndex(
 		request.relation,
 		method,
-		keys.map((k) => ({ field: k.field, dir: k.dir, opclass: k.opclass.kind })),
+		keys.map((k) => ({ field: columnText(k.column), dir: k.dir, opclass: k.opclass.kind })),
 		rows.kind === "all"
 			? []
 			: rows.selection.map((s) => ({ field: s.column, value: identityValueOf(s.value) }))
 	)
 	const name = b.name(named)
-	const where = rowsPredicate(b, request.relation, rows, (field) => targetField(field).type)
+	const where = rowsPredicate(
+		b,
+		request.relation,
+		rows,
+		(field) => targetField({ kind: "field", field }).type
+	)
 	const ddl: CreateIndex = {
 		kind: "createIndex",
 		name,
 		table: b.names.relation(request.relation),
 		method,
 		keys: mapNonEmpty(keys, (k) => ({
-			...columnKey(o.column(k.field)),
+			...columnKey(o.column(k.column)),
 			opclass:
 				k.opclass.kind === "default"
 					? undefined
@@ -1057,7 +1105,7 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 		},
 		[
 			o.object,
-			...(method === "gist" && keys.some((k) => planned.columns.holds(k.field) === "scalar")
+			...(method === "gist" && keys.some((k) => planned.columns.holds(k.column) === "scalar")
 				? [b.provider("btree_gist")]
 				: [])
 		]

@@ -1,9 +1,6 @@
 import { scalarCodec } from "#compiler/codec/scalar.ts"
-import type { LawId } from "#compiler/core/ids.ts"
-import { namedDetail, type NamedDetailCodec, type RelationInfo } from "#compiler/ir/law.ts"
-import { decodeDetail } from "#compiler/laws/model/detail.ts"
-import type { LawModel } from "#compiler/laws/model/model.ts"
-import { withoutSerial } from "#compiler/scalar/compute/types.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
+import type { RelationInfo } from "#compiler/ir/law.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import type { KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
 import {
@@ -41,28 +38,36 @@ interface WriteChanges {
 	readonly deltas: ReadonlyMap<string, NettedRelation>
 }
 
-/** A relation the ChangeSet writes, with the identity its facts are netted across strata by: every field's value, the
- * serial generation flag dropped (delta/net.ts relationIdentity). */
+/** A relation the ChangeSet writes, with the identity its facts are netted across strata by: every field's value
+ * (delta/net.ts relationIdentity). */
 export interface WrittenOutcome {
 	readonly relation: RelationInfo
 	readonly identity: (fact: Fact) => string
 }
 
-/** A written relation with its facts' identity. */
-export const writtenOutcome = (relation: RelationInfo): WrittenOutcome =>
-	Object.freeze({
-		relation,
-		identity: relationIdentity(
-			relation.heading.map((f) => ({ name: f.name, type: withoutSerial(f.type) }))
-		)
-	})
+/** A written relation with its facts' identity, a closed id's and a set's values read by the installation's codes. */
+export const writtenOutcome =
+	(codes: Codebook) =>
+	(relation: RelationInfo): WrittenOutcome =>
+		Object.freeze({
+			relation,
+			identity: relationIdentity(
+				relation.heading.map((f) => ({ name: f.name, type: f.type })),
+				codes
+			)
+		})
 
 export interface OutcomeContext {
 	/** The relations the ChangeSet writes, in code point order. */
 	readonly written: ReadonlyArray<WrittenOutcome>
 	/** Every ordinary relation of the base by name, as a witness the server reports names it. */
 	readonly relations: ReadonlyMap<string, RelationInfo>
+	/** The installation's codes, which a returned row's and a witness's closed ids and sets are read by. */
+	readonly codes: Codebook
 }
+
+/** Whether a host value is a set's, which no key holds. */
+const isSet = (value: unknown): value is ReadonlySet<unknown> => value instanceof Set
 
 /** A witness that names one violating fact's key. */
 export type KeyWitness = Extract<Witness, { readonly kind: "key" }>
@@ -70,9 +75,6 @@ export type KeyWitness = Extract<Witness, { readonly kind: "key" }>
 /** The witness of one relation's key values. */
 export const keyWitness = (relation: string, key: Readonly<Record<string, KeyHost>>): KeyWitness =>
 	Object.freeze({ kind: "key", relation, values: Object.freeze(key) })
-
-/** The witness of a residual law whose function withheld the key from a role that does not hold its relation whole. */
-const withheldWitness: Witness = Object.freeze({ kind: "withheld" })
 
 /** One fact a write statement's row made present or absent, with the tag of the change. */
 type RowChange =
@@ -85,21 +87,21 @@ type ChangesConverter = (row: ReadonlyArray<string>) => ReadonlyArray<RowChange>
  * (`changeTags`): an insert's rows are facts its action made present, a deletion's facts made absent; an upsert's rows
  * are a put's facts, an update's each a put's fact and the occupant it displaced, a MERGE's a put's fact or a fact its
  * absorbed deletion removed. A span classification raises or returns no row. */
-const changesConverter = (result: WriteStepResult): ChangesConverter => {
+const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConverter => {
 	switch (result.kind) {
 		case "insert": {
-			const convert = writeRowConverter(result)
+			const convert = writeRowConverter(result, codes)
 			return (row) => [{ side: "added", tag: result.of, fact: convert(row).fact }]
 		}
 		case "delete": {
-			const convert = writeRowConverter(result)
+			const convert = writeRowConverter(result, codes)
 			const tag = removedTag(result)
 			return (row) => [{ side: "removed", tag, fact: convert(row).fact }]
 		}
 		case "upsert":
 		case "update":
 		case "merge": {
-			const convert = putRowConverter(result)
+			const convert = putRowConverter(result, codes)
 			return (row): ReadonlyArray<RowChange> => {
 				const r = convert(row)
 				switch (r.kind) {
@@ -143,7 +145,7 @@ export const interpretRows = (
 					return []
 				}
 				const rows = own.flatMap((w) => {
-					const convert = changesConverter(w.step.result)
+					const convert = changesConverter(w.step.result, context.codes)
 					return w.rows.flatMap((raw) =>
 						convert(raw).map((change): ChangeRow => ({
 							...change,
@@ -165,13 +167,8 @@ export const interpretRows = (
 }
 
 /** The witness decoder of a WriteProgram (`WitnessDecoder`), converting grizzle's own texts without a check into a
- * witness:
- *
- * - fromRefusal converts a write statement's refusal key, each text by its field's result codec, into the refused
- *   relation's key values;
- * - fromDetail converts a residual law's DETAIL (`DetailCodec`) into the violating relation's key values by the codec of
- *   the law that raised, which the runtime knows from the constraint name: its key, or `withheld` when the law function
- *   withheld it from a role that does not hold the relation whole. It never reads PostgreSQL's prose.
+ * witness: fromRefusal converts a write statement's refusal key, each text by its field's result codec, into the
+ * refused relation's key values. It never reads PostgreSQL's prose.
  *
  * A refusal is never a row. The statement that detects it raises it inside the transaction, so PostgreSQL aborts the
  * transaction and nothing commits:
@@ -187,20 +184,19 @@ export const interpretRows = (
  *   gone, or on a put's insert half one committed at the put's key after its deletion, SpanKeyChange.
  *
  * The runtime classifies the raised error as it does any statement's, its witness converted by this decoder: a
- * refusal's DETAIL carries the refused key's fields and texts, a residual law's DETAIL its DetailCodec key. Both are
- * grizzle's own texts, so nothing is checked. */
+ * refusal's DETAIL carries the refused key's fields and texts, grizzle's own, so nothing is checked. Every other law is
+ * a native the server names by its constraint, whose witness its classifier reads. */
 export interface KeyDecoder {
 	readonly fromRefusal: (
 		relation: string,
 		key: ReadonlyArray<{ readonly field: string; readonly text: string }>
 	) => KeyWitness | undefined
-	readonly fromDetail: (detail: string, law: LawId) => Witness | undefined
 }
 
 /** A witness is converted from the server's answer, so a text naming a relation, a field or a law this installation does
  * not have, or a key value no key holds, is no witness: undefined, which the caller reports as any statement it cannot
  * classify. */
-export const witnessDecoder = (context: OutcomeContext, laws: LawModel): KeyDecoder => {
+export const witnessDecoder = (context: OutcomeContext): KeyDecoder => {
 	const convertKey = (
 		relation: string,
 		key: ReadonlyArray<{ readonly field: string; readonly text: string }>
@@ -215,31 +211,14 @@ export const witnessDecoder = (context: OutcomeContext, laws: LawModel): KeyDeco
 			if (column === undefined) {
 				return undefined
 			}
-			/** Every carrier's host value but a vector's is a key value. */
-			const value = scalarCodec(withoutSerial(column.type)).convert(text)
-			if (isVector(value)) {
+			/** Every carrier's host value but a vector's and a set's is a key value: ownership refuses a key over a set. */
+			const value = scalarCodec(column.type, context.codes).convert(text)
+			if (isVector(value) || isSet(value)) {
 				return undefined
 			}
 			values[field] = value
 		}
 		return keyWitness(relation, values)
 	}
-	const codecOf = new Map<LawId, NamedDetailCodec>(
-		laws.residuals.map((l) => [l.lawId, namedDetail(l.detail)] as const)
-	)
-	return {
-		fromRefusal: convertKey,
-		fromDetail: (detail, law) => {
-			/** The law that raised names its own codec, whose relation and key the DETAIL lists, or withholds from a role
-			 * that does not hold the relation whole. */
-			const codec = codecOf.get(law)
-			if (codec === undefined) {
-				return undefined
-			}
-			const decoded = decodeDetail(codec, detail)
-			return decoded.kind === "withheld"
-				? withheldWitness
-				: convertKey(codec.relation, decoded.keys)
-		}
-	}
+	return { fromRefusal: convertKey }
 }

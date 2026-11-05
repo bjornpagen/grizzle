@@ -24,7 +24,6 @@ export const textCell = (row: ReadonlyArray<unknown>, i: number): string => {
 /** The concrete PostgreSQL type of a carrier, as a cast or pg_typeof names it. */
 export const concreteTypeName: { readonly [C in Carrier]: string } = {
 	...catalogTypeName,
-	enum: "enum",
 	range4: "int4range",
 	range8: "int8range"
 }
@@ -157,7 +156,11 @@ const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean
 		}
 		case "bool":
 			return typeof value === "boolean" && String(value) === text
-		case "enum":
+		case "code":
+		case "bits":
+			throw new Error(
+				`a compute case of a ${c} is compared under its roster's codes, which an evaluation case does not carry`
+			)
 		case "range4":
 		case "range8":
 		case "text":

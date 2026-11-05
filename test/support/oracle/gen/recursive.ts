@@ -3,6 +3,7 @@ import { Array as Arr, Formatter, Option, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
+import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type DefinedOp, OpId, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	conservativeMeta,
@@ -53,8 +54,8 @@ import { pickGen } from "#test/support/pick.ts"
 export const graphShapes = ["chain", "tree", "diamond", "selfLoop", "denseCycle", "random"] as const
 type GraphShape = (typeof graphShapes)[number]
 
-/** The vertex identity types, in shrink order. An enum is the closedId of the case's roster K0. */
-export const vertexKinds = ["int4", "text", "int8", "uuid", "int2", "float8", "enum"] as const
+/** The vertex identity types, in shrink order. A code is the closedId of the case's roster K0. */
+export const vertexKinds = ["int4", "text", "int8", "uuid", "int2", "float8", "code"] as const
 type VertexKind = (typeof vertexKinds)[number]
 
 const rosterHandles: Arr.NonEmptyReadonlyArray<string> = [
@@ -68,15 +69,24 @@ const rosterHandles: Arr.NonEmptyReadonlyArray<string> = [
 	"H7"
 ]
 
+/**
+ * The vertex roster, its codes a fixed history's: a removed handle's hole after H0, H2 and H5, so no vertex past H0's
+ * code is its position, and a lowering that writes a position instead of a code reaches another vertex or none.
+ */
 const vertexRoster: GenClosed = {
 	name: "K0",
 	handles: rosterHandles,
+	codes: Arr.flatMap(rosterHandles, (handle, at): ReadonlyArray<CodeSlot> =>
+		at === 0 || at === 2 || at === 5
+			? [{ kind: "live", handle }, { kind: "hole" }]
+			: [{ kind: "live", handle }]
+	),
 	payload: [],
-	rows: Arr.map(rosterHandles, (handle) => [{ kind: "enum", handle } satisfies TypedLiteral])
+	rows: Arr.map(rosterHandles, (handle) => [{ kind: "handle", handle } satisfies TypedLiteral])
 }
 
 const vertexTypeOf = (kind: VertexKind): ScalarType =>
-	kind === "enum" ? closedIdType(vertexRoster) : scalarOfSpec({ carrier: kind })
+	kind === "code" ? closedIdType(vertexRoster) : scalarOfSpec({ carrier: kind })
 
 type EdgePair = readonly [number, number]
 
@@ -129,7 +139,7 @@ interface GenEdge {
  *   a vertex that V does not hold, so an explicit V match changes the answer.
  *
  * The vertex identity is drawn from int4, text, bigint, uuid, smallint, double precision (whose NaN is one value and
- * whose -0 is 0) and an enum, every one a hashable carrier, as recursive state requires. Vertex i is the
+ * whose -0 is 0) and a closed id, every one a hashable carrier, as recursive state requires. Vertex i is the
  * i-th value class of that type from a rotating offset (gen/domain.ts), spelled once per case.
  *
  * The recursive query is one of three families, each admitted positive linear feedback:
@@ -433,7 +443,7 @@ const graphSchema = (graph: GenGraph): GenSchema => {
 	return {
 		name: "Graph",
 		relations,
-		closed: graph.kind === "enum" ? [vertexRoster] : [],
+		closed: graph.kind === "code" ? [vertexRoster] : [],
 		containments
 	}
 }

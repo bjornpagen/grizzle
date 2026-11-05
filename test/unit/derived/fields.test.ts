@@ -28,21 +28,13 @@ import { checkedIn, checking } from "#test/support/policy.ts"
  *
  * - Over the derived oracle's generated schemas (every base kind, contracts, rosters, refined text, drawn aggregates
  *   and levels): each derived relation's fields are keyed in its heading's order, each the descriptor
- *   fieldDescOf gives its column's type; and every declared field's descriptor comes back from its type unchanged, a
- *   serial as its plain width, since a view column is never an identity.
+ *   fieldDescOf gives its column's type; and every declared field's descriptor comes back from its type unchanged:
+ *   a serial field's type is its integer's, so a view column over one is that integer, never an identity.
  * - A contract no relation declares has no descriptor: fieldDescOf names it, and a derived field cast to it is refused
  *   at that field.
  *
  * That each inferred type is PostgreSQL's own result type, for every aggregate overload, refinement, roster and
  * contract, with its typmod and collation, is the database suite's, against the installed views' catalog. */
-const asViewColumn = (d: FieldDesc): FieldDesc =>
-	d.kind === "serial"
-		? {
-				kind: "pg",
-				type: d.type === "bigserial" ? "bigint" : d.type === "serial" ? "integer" : "smallint"
-			}
-		: d
-
 type FieldFeature =
 	| "a derived relation of several columns"
 	| "a contract field"
@@ -108,7 +100,7 @@ describe("derived field inference", () => {
 								if (o.desc.kind !== "relation") {
 									continue
 								}
-								for (const [fieldName, d] of Record.toEntries(o.desc.fields)) {
+								for (const [fieldName, { type: d }] of Record.toEntries(o.desc.fields)) {
 									if (d.kind === "contract") {
 										c.note("a contract field")
 									}
@@ -120,7 +112,7 @@ describe("derived field inference", () => {
 									}
 									assert.deepEqual(
 										succeeded(fieldDescOf(scalarOf(d, rosters), contracts)),
-										asViewColumn(d),
+										d,
 										`${o.desc.name}.${fieldName}`
 									)
 								}
@@ -152,9 +144,7 @@ describe("derived field inference", () => {
 				{ kind: "vector", dimensions: 4 },
 				field.span(field.bigint, 7n),
 				field.span(field.integer, undefined),
-				field.bigserial,
-				{ kind: "serial", type: "serial" },
-				{ kind: "serial", type: "smallserial" },
+				{ kind: "bits", roster: "Tier" },
 				field.wildcard,
 				field.regex("^[a-z]+$", "u"),
 				field.closedId("Tier"),
@@ -177,7 +167,7 @@ describe("derived field inference", () => {
 							if (d.kind === "contract") {
 								assert.deepEqual(back, defined(contracts["Cents"]).desc)
 							} else {
-								assert.deepEqual(back, asViewColumn(d))
+								assert.deepEqual(back, d)
 							}
 						})
 				)

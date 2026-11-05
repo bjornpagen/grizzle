@@ -1,7 +1,9 @@
 import { Array as Arr, Formatter, pipe, Record as Rec, String as Str } from "effect"
+import { parseDeclaredName } from "#compiler/core/identity.ts"
+import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { closedId, Decimal, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
-import type { AnyClosed } from "#compiler/public/schema.ts"
+import type { AnyRoster } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { floatText } from "#compiler/scalar/values/float.ts"
@@ -35,7 +37,7 @@ export type SerialKind = "bigserial" | "serial"
  *   bound keeps every key representable;
  * - bounded wide text, `^.{0,6}$`, which a described member may read into a three-code-point text field;
  * - unbounded text, a payload column only, whose values include TOAST-sized ones stored out of line;
- * - uuid, boolean, a closed roster's handle (an enum), exact decimals at three typmods, numeric(5, 2), numeric(12, 4)
+ * - uuid, boolean, a roster's handle (a closed id, stored as its code), exact decimals at three typmods, numeric(5, 2), numeric(12, 4)
  *   and numeric(3, 0), and double precision (payload columns only: NaN, -0 and infinity are values, never key parts
  *   here, so that the B-tree arbiter and the payload comparison meet them only as payload).
  *
@@ -53,14 +55,29 @@ export type TypeKind =
 	| "text6"
 	| "uuid"
 	| "bool"
-	| "enum"
+	| "code"
 	| NumericKind
 	| "float8"
 	| "memo"
 
-/** The closed roster every write schema declares, whose handles the enum columns hold. */
+/** The roster every write schema declares, whose handles the closed-id columns hold. */
 export const rosterName = "K"
 export const rosterHandles: readonly [string, ...Array<string>] = ["H0", "H1", "H2"]
+
+/**
+ * The roster's codes in every write installation: a fresh installation's (firstCodebook), each handle's code its
+ * position, which the installers the write suites run (oracle/install/real.ts installRealSchema) give it.
+ */
+export const rosterCodes: RosterCodec = (() => {
+	const name = parseDeclaredName(rosterName)
+	if (!name.ok) {
+		throw new Error(`the write roster's name ${rosterName}: ${name.error}`)
+	}
+	return rosterCodec(
+		name.value,
+		Arr.map(rosterHandles, (handle) => ({ kind: "live", handle }) as const)
+	)
+})()
 
 const uuidOf = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe((0x7700 + n).toString(16), Str.padStart(12, "0"))}`
@@ -177,12 +194,19 @@ export const typeInfo: Readonly<Record<TypeKind, TypeInfo>> = {
 		keyable: true,
 		parse: (text) => text === "true"
 	},
-	enum: {
-		kind: "enum",
-		spec: { carrier: "enum", handles: rosterHandles },
+	code: {
+		kind: "code",
+		spec: { carrier: "code", roster: rosterCodes },
 		values: rosterHandles,
 		keyable: true,
-		parse: (text) => text
+		/** A stored closed id's text is its code's, smallint's: the handle the roster's names give it. */
+		parse: (text) => {
+			const name = rosterCodes.names[Number(text)]
+			if (name === undefined || name === "") {
+				throw new Error(`a stored code ${text} that names no live handle of roster ${rosterName}`)
+			}
+			return name
+		}
 	},
 	"numeric(5, 2)": numericInfo("numeric(5, 2)", ["0.00", "1.50", "-2.25", "10.00"]),
 	"numeric(12, 4)": numericInfo("numeric(12, 4)", ["0.0000", "1.5000", "1.4951", "-2.2549"]),
@@ -283,7 +307,7 @@ export const typeKinds: ReadonlyArray<TypeKind> = [
 	"text6",
 	"uuid",
 	"bool",
-	"enum",
+	"code",
 	"numeric(5, 2)",
 	"numeric(12, 4)",
 	"numeric(3, 0)",
@@ -291,8 +315,8 @@ export const typeKinds: ReadonlyArray<TypeKind> = [
 	"memo"
 ]
 
-/** The field descriptor of a column of `kind`; `roster` is the schema's closed relation for an enum column. */
-export const fieldOf = (kind: TypeKind, roster: AnyClosed): FieldBase => {
+/** The field descriptor of a column of `kind`; `roster` is the schema's roster for a closed-id column. */
+export const fieldOf = (kind: TypeKind, roster: AnyRoster): FieldBase => {
 	switch (kind) {
 		case "int4":
 			return pg.integer
@@ -310,7 +334,7 @@ export const fieldOf = (kind: TypeKind, roster: AnyClosed): FieldBase => {
 			return uuid
 		case "bool":
 			return pg.boolean
-		case "enum":
+		case "code":
 			return closedId(roster)
 		case "numeric(5, 2)":
 			return pg.numeric(5, 2)
@@ -364,7 +388,7 @@ export const valueIdentity = (kind: TypeKind, value: unknown): string => {
 		case "text6":
 		case "memo":
 		case "uuid":
-		case "enum":
+		case "code":
 			return typeof value === "string" ? value : String(value)
 	}
 }
@@ -394,8 +418,8 @@ export const literalOfKind = (kind: TypeKind, value: unknown): TypedLiteral => {
 			return typeof value === "string" ? { kind: "uuid", value } : wrong()
 		case "bool":
 			return typeof value === "boolean" ? { kind: "bool", value } : wrong()
-		case "enum":
-			return typeof value === "string" ? { kind: "enum", handle: value } : wrong()
+		case "code":
+			return typeof value === "string" ? { kind: "handle", handle: value } : wrong()
 		case "numeric(5, 2)":
 		case "numeric(12, 4)":
 		case "numeric(3, 0)":

@@ -26,6 +26,7 @@ import {
 	DraftRefused,
 	FolderExists,
 	MigrationNameRefused,
+	RosterReordered,
 	cliError as cliRefused
 } from "#cli/errors.ts"
 
@@ -92,6 +93,7 @@ const cliStages = [
 	"environment",
 	"filesystem",
 	"snapshot",
+	"codes",
 	"generate"
 ] as const satisfies ReadonlyArray<CliStage>
 /** A CLI stage as one of the list's: compiles only while the list holds every stage CliStage has. */
@@ -112,6 +114,8 @@ const cliRefusalAt: { readonly [Stage in CliStage]: (text: string) => CliError }
 				fault: { kind: "misnamed", folder: text }
 			})
 		),
+	codes: (text) =>
+		cliRefused(new RosterReordered({ schema: text, roster: text, earlier: text, later: text })),
 	generate: (text) =>
 		cliRefused(
 			new DraftRefused({

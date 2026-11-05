@@ -65,7 +65,7 @@ export const genCarriers = [
 	"bool",
 	"uuid",
 	"text",
-	"enum",
+	"code",
 	"range4",
 	"range8",
 	"vector"
@@ -93,13 +93,13 @@ type TypeSpec =
 	| {
 			readonly carrier: Exclude<
 				GenCarrier,
-				"numeric" | "enum" | "vector" | "range4" | "range8" | "text" | "uuid"
+				"numeric" | "code" | "vector" | "range4" | "range8" | "text" | "uuid"
 			>
 	  }
 	| { readonly carrier: "uuid" | "text" | "longText" | "vector" | "range4" | "range8" }
 	| { readonly carrier: "numericTypmod"; readonly precision: number; readonly scale: number }
 	| {
-			readonly carrier: "enum"
+			readonly carrier: "code"
 			readonly roster: {
 				readonly closed: string
 				readonly handles: Arr.NonEmptyReadonlyArray<string>
@@ -144,7 +144,7 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 			return { kind: "numeric", precision: spec.precision, scale: spec.scale }
 		case "text":
 			return { kind: "text", source: genTextSource, flags: genTextFlags }
-		case "enum":
+		case "code":
 			return { kind: "closedId", roster: spec.roster.closed }
 		case "contract":
 			return spec.name === "Tick"
@@ -195,7 +195,7 @@ const analyzedText: TextLookup = (source, flags) =>
  * generated ones.
  */
 export const scalarOfSpec = (spec: TypeSpec): ScalarType => {
-	const roster = spec.carrier === "enum" ? spec.roster : undefined
+	const roster = spec.carrier === "code" ? spec.roster : undefined
 	const typed = scalarTypeOf(
 		specDesc(spec),
 		{
@@ -226,7 +226,7 @@ export const compareParamType = (type: ScalarType): ScalarType => {
 
 /**
  * The type a key field of `type` is declared with: a key must pass the representability check, which every generated
- * type passes, fixed-width, a numeric of its typmod, an enum, or the bounded generated text.
+ * type passes, fixed-width, a numeric of its typmod, a closed id, or the bounded generated text.
  *
  * Of the extended flavors, unbounded text proves no bound and is keyed as the generated bounded text. A vector of the
  * generated dimensions is a key as it is, its equality pgvector's. A span in a key is a temporal key, its facts never
@@ -252,7 +252,8 @@ export const keyFieldType = (type: ScalarType, keep: "span" | "scalar"): ScalarT
 /**
  * How the palette reaches a storage carrier: by its type specs, those every population draws (`base`) and those drawn
  * only where a schema configuration asks for the extended flavors (`extended`, schema.ts SchemaLimits.extended), or by
- * the handles of the case's closed rosters, which the palette gains beside its picks (schema.ts resolveSchema).
+ * the handles of the case's closed rosters, which the palette gains beside its picks (schema.ts resolveSchema), or not
+ * at all (`undrawn`, with why): a carrier whose values the reference states no meaning of that the cases read.
  */
 type CarrierDraw =
 	| {
@@ -261,6 +262,7 @@ type CarrierDraw =
 			readonly extended: ReadonlyArray<TypeSpec>
 	  }
 	| { readonly kind: "rosters" }
+	| { readonly kind: "undrawn"; readonly reason: string }
 
 const only = (spec: TypeSpec): CarrierDraw => ({ kind: "specs", base: [spec], extended: [] })
 
@@ -301,7 +303,12 @@ const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
 	range4: only({ carrier: "range4" }),
 	range8: only({ carrier: "range8" }),
 	vector: only({ carrier: "vector" }),
-	enum: { kind: "rosters" }
+	code: { kind: "rosters" },
+	bits: {
+		kind: "undrawn",
+		reason:
+			"a set's only comparison is equality, and its algebra is the closed laws' (W3), which the differential reference does not model"
+	}
 }
 
 const drawnSpecs = (tier: "base" | "extended"): ReadonlyArray<TypeSpec> =>
@@ -310,6 +317,7 @@ const drawnSpecs = (tier: "base" | "extended"): ReadonlyArray<TypeSpec> =>
 			case "specs":
 				return draw[tier]
 			case "rosters":
+			case "undrawn":
 				return []
 		}
 	})
@@ -337,14 +345,15 @@ export const genCarrierOf = (type: ScalarType): GenCarrier => {
 	return drawn.value
 }
 
-/** An enum type's roster, which every enum type the generators draw carries. */
-const enumRoster = (type: ScalarType): Roster => defined(rosterOf(type), "an enum type's roster")
+/** A closed id's roster, which every closed-id type the generators draw carries. */
+const codeRoster = (type: ScalarType): Roster =>
+	defined(rosterOf(type), "a closed id type's roster")
 
 export const hasCap = (type: ScalarType, cap: Capability): boolean => type.caps.includes(cap)
 
 /**
  * The field descriptor a column of this type is declared with: aliases normalized, the generated text
- * as str.regex(genTextSource, genTextFlags), an enum as the closedId of its roster, a numeric as its typmod.
+ * as str.regex(genTextSource, genTextFlags), a closed id as the closedId of its roster, a numeric as its typmod.
  */
 export const fieldDescOf = (type: ScalarType): FieldDesc => {
 	const contract = contractOf(type)
@@ -383,8 +392,8 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 				? { kind: "text", source: genTextSource, flags: genTextFlags }
 				: { kind: "text", source: regex.source, flags: regex.flags }
 		}
-		case "enum":
-			return { kind: "closedId", roster: enumRoster(type).closed }
+		case "code":
+			return { kind: "closedId", roster: codeRoster(type).closed }
 		case "range4":
 			return { kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined }
 		case "range8":
@@ -406,7 +415,7 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 
 /**
  * The authored form of a literal of `type` (LiteralOf): a smallint or integer is a JavaScript number and a
- * bigint a bigint, numeric a Decimal, a float a number or the wrapped special value, money a Money, an enum its handle.
+ * bigint a bigint, numeric a Decimal, a float a number or the wrapped special value, money a Money, a closed id its handle, a set its handles.
  */
 export const typedLiteralDesc = (literal: TypedLiteral, type: ScalarType): LiteralDesc => {
 	switch (literal.kind) {
@@ -425,8 +434,10 @@ export const typedLiteralDesc = (literal: TypedLiteral, type: ScalarType): Liter
 		case "text":
 		case "uuid":
 			return literal.value
-		case "enum":
+		case "handle":
 			return literal.handle
+		case "handles":
+			return { handles: literal.handles }
 		case "span":
 			return { span: { start: literal.start, end: literal.end } }
 	}
@@ -478,7 +489,7 @@ const intClasses = (min: bigint, max: bigint): Classes => [
  * first: shrinking moves a class index toward 0. The plain float classes are dyadic; the edge classes add non-dyadic
  * values whose IEEE sums depend on their order, which grizzle's exact sums do not (scalar/aggregate.ts).
  */
-const rawClasses: Readonly<Record<Exclude<GenCarrier, "enum">, Classes>> = {
+const rawClasses: Readonly<Record<Exclude<GenCarrier, "code">, Classes>> = {
 	int2: intClasses(-32768n, 32767n),
 	int4: intClasses(-2147483648n, 2147483647n),
 	/**
@@ -599,7 +610,7 @@ const rawClasses: Readonly<Record<Exclude<GenCarrier, "enum">, Classes>> = {
  * beside 1); money at and a few steps from its int8 bounds, whose sums leave money's range in some order but not in
  * total; combining-only, zero-width and right-to-left text.
  */
-const edgeClasses: Readonly<Partial<Record<Exclude<GenCarrier, "enum">, Classes>>> = {
+const edgeClasses: Readonly<Partial<Record<Exclude<GenCarrier, "code">, Classes>>> = {
 	numeric: [
 		num("99999999999999999999.99999999999999999999"),
 		num("0.000000000000000000000000000001"),
@@ -677,12 +688,13 @@ const typmodText = (type: ScalarType): string => {
 
 /**
  * The value classes of a type: the raw classes whose value the type holds exactly (a numeric typmod's rounding or
- * overflow and infinity under a typmod refused; literalProblem). An enum has one class per handle, in roster order.
+ * overflow and infinity under a typmod refused; literalProblem). A closed id has one class per live handle, in roster
+ * order.
  */
 export const valueClasses = (type: ScalarType, edge: boolean): Classes => {
 	const carrier = genCarrierOf(type)
-	if (carrier === "enum") {
-		return Arr.map(enumRoster(type).handles, (handle): TypedLiteral => ({ kind: "enum", handle }))
+	if (carrier === "code") {
+		return Arr.map(codeRoster(type).handles, (handle): TypedLiteral => ({ kind: "handle", handle }))
 	}
 	const flavor = carrier === "text" ? textFlavor(type) : "plain"
 	const drawn =
@@ -745,7 +757,8 @@ export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 	bool: canonicalOnly,
 	uuid: canonicalOnly,
 	text: canonicalOnly,
-	enum: canonicalOnly,
+	code: canonicalOnly,
+	bits: canonicalOnly,
 	range4: canonicalOnly,
 	range8: canonicalOnly,
 	vector: {

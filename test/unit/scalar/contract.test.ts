@@ -256,7 +256,7 @@ describe("contract admission", () => {
 									live: element<unknown>([
 										pgDescriptors.bigint,
 										pgDescriptors.integer,
-										pgDescriptors.numeric,
+										pgDescriptors.numeric(9, 2),
 										str.regex("^a$", "u")
 									]),
 									stale: Option.none(),

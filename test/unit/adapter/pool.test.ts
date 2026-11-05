@@ -271,7 +271,12 @@ const startupRefusal = frame(
 /** The Terminate message's type, X. */
 const terminate = 0x58
 
-/** One connection at the server, past its TLS: closed from the server's side by `hangUp`. */
+/**
+ * One connection at the server, past its TLS: closed from the server's side by `hangUp`, as PostgreSQL closes one, after
+ * the last message it wrote. The TLS socket ends, which flushes every byte written before the end and then the
+ * close_notify, and the client's end closes both ends: destroying it would drop the bytes still on their way through
+ * TLS, so pg would read a FATAL refusal as a connection that ended with no ErrorResponse.
+ */
 interface FakeConnection {
 	readonly hangUp: () => void
 }
@@ -357,7 +362,6 @@ class FakeServer {
 				}
 				hungUp = true
 				secure.end()
-				process.nextTick(() => secure.destroy())
 			}
 		}
 		const take = (): void => {

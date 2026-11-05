@@ -26,7 +26,7 @@ import type { LoweringCase } from "#test/unit/lower/conservative/queries.ts"
  */
 
 const kindLit = (q: Q, handle: "Automatic" | "Manual"): ScalarExpr =>
-	q.lit({ kind: "enum", handle }, T.kind)
+	q.lit({ kind: "handle", handle }, T.kind)
 
 const byIdThenKind: CompletedOrder = {
 	keys: [

@@ -23,6 +23,7 @@ import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
 import { carrierSpecOf, scalarCodec } from "#compiler/codec/scalar.ts"
 import { type Layout, type Row, rowText } from "#compiler/core/decoder.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { CompletedOrder, Heading, TakeBound } from "#compiler/ir/rel.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { columnPosition, columnType } from "#compiler/lower/conservative/context.ts"
@@ -94,8 +95,8 @@ type KeyReader = (texts: ReadonlyArray<string>) => OrderKey
 /**
  * An order over a heterogeneous union's heading groups: each group, in group order, with its reading of a row's key
  * from the group statement's texts; and the comparator of two keys, PostgreSQL's B-tree order per column
- * (values/identity.ts compareValues: numeric and float with NaN last, text in code point order, enums in roster order),
- * reversed for a descending key.
+ * (values/identity.ts compareValues: numeric and float with NaN last, text in code point order, closed ids in code
+ * order, which is their roster's order), reversed for a descending key.
  */
 export interface GroupOrder<G> {
 	readonly groups: Arr.NonEmptyReadonlyArray<{ readonly group: G; readonly key: KeyReader }>
@@ -177,21 +178,23 @@ const readStatements = (source: ReadSource): StatementRoots<ReadRun> =>
 
 /**
  * The order `order` over heading groups `groups`, in group order, of headings `headingOf`, under the union's heading
- * `heading`. Each ordered column has the union's type, the one type every group delivers it as, so every group's texts
- * convert alike and the comparator reads one carrier per column; each group reads the column at its own position.
+ * `heading` and the installation's codes `codes`. Each ordered column has the union's type, the one type every group
+ * delivers it as, so every group's texts convert alike and the comparator reads one carrier per column; each group
+ * reads the column at its own position.
  */
 export const groupOrder = <G>(
 	order: CompletedOrder,
 	heading: Heading,
 	groups: Arr.NonEmptyReadonlyArray<G>,
-	headingOf: (group: G) => Heading
+	headingOf: (group: G) => Heading,
+	codes: Codebook
 ): GroupOrder<G> => {
 	const keys = Arr.map(order.keys, (k) => {
 		const type = columnType(heading, k.column)
 		return {
 			column: k.column,
-			spec: carrierSpecOf(type),
-			convert: scalarCodec(type).convert,
+			spec: carrierSpecOf(type, codes),
+			convert: scalarCodec(type, codes).convert,
 			sign: k.dir === "desc" ? -1 : 1
 		}
 	})
@@ -235,28 +238,29 @@ const boundPlan = (bound: TakeBound): BoundPlan =>
 /** A heading group's heading: its statement's spec's. */
 const headingOf = (group: HeadingGroup): Heading => group.record.run.spec.heading
 
-/** How a heterogeneous union of the union heading `heading` merges its heading groups. */
+/** How a heterogeneous union of the union heading `heading` merges its heading groups, under the codes `codes`. */
 const mergePlan = (
 	merge: GroupMerge,
 	heading: Heading,
-	groups: Arr.NonEmptyReadonlyArray<HeadingGroup>
+	groups: Arr.NonEmptyReadonlyArray<HeadingGroup>,
+	codes: Codebook
 ): MergePlan => {
 	switch (merge.kind) {
 		case "concat":
 			return { kind: "concat" }
 		case "order":
-			return { kind: "order", order: groupOrder(merge.order, heading, groups, headingOf) }
+			return { kind: "order", order: groupOrder(merge.order, heading, groups, headingOf, codes) }
 		case "take":
 			return {
 				kind: "take",
-				take: groupOrder(merge.take, heading, groups, headingOf),
+				take: groupOrder(merge.take, heading, groups, headingOf, codes),
 				bound: boundPlan(merge.bound)
 			}
 		case "takeThenOrder": {
-			const order = groupOrder(merge.order, heading, groups, headingOf)
+			const order = groupOrder(merge.order, heading, groups, headingOf, codes)
 			return {
 				kind: "takeThenOrder",
-				take: groupOrder(merge.take, heading, order.groups, (r) => headingOf(r.group)),
+				take: groupOrder(merge.take, heading, order.groups, (r) => headingOf(r.group), codes),
 				bound: boundPlan(merge.bound),
 				order: order.compare
 			}
@@ -270,7 +274,8 @@ const mergePlan = (
  */
 const deliveryPlan = (
 	delivery: ProgramDelivery,
-	delivered: Arr.NonEmptyReadonlyArray<ReadRecord>
+	delivered: Arr.NonEmptyReadonlyArray<ReadRecord>,
+	codes: Codebook
 ): DeliveryPlan => {
 	const groups = Arr.map(delivered, (record, group): HeadingGroup => ({ record, group }))
 	return {
@@ -278,7 +283,7 @@ const deliveryPlan = (
 		merge:
 			delivery.kind === "rows"
 				? { kind: "concat" }
-				: mergePlan(delivery.merge, delivery.heading, groups)
+				: mergePlan(delivery.merge, delivery.heading, groups, codes)
 	}
 }
 
@@ -286,20 +291,27 @@ const deliveryPlan = (
 const deliveredLayouts = (delivery: DeliveryPlan): Arr.NonEmptyReadonlyArray<Layout> =>
 	Arr.map(delivery.groups, (g) => g.record.layout)
 
-/** The program of a read source whose attachments `facts` describes, its statements run by `runs`. */
+/**
+ * The program of a read source whose attachments `facts` describes, its statements run by `runs`, its rows read under
+ * the installation's codes `codes`.
+ */
 const sourceProgram = (
 	source: ReadSource,
 	runs: StatementRoots<ReadRun>,
-	facts: AttachmentFacts
+	facts: AttachmentFacts,
+	codes: Codebook
 ): ReadProgram => {
-	const { records, delivered } = programRecords(runs, facts)
-	const delivery = deliveryPlan(source.delivery, delivered)
+	const { records, delivered } = programRecords(runs, facts, codes)
+	const delivery = deliveryPlan(source.delivery, delivered, codes)
 	return { records, delivery, layouts: deliveredLayouts(delivery) }
 }
 
-/** The program of a read source whose attachments `facts` describes. */
-export const readProgram = (source: ReadSource, facts: AttachmentFacts): ReadProgram =>
-	sourceProgram(source, readStatements(source), facts)
+/** The program of a read source whose attachments `facts` describes, under the installation's codes `codes`. */
+export const readProgram = (
+	source: ReadSource,
+	facts: AttachmentFacts,
+	codes: Codebook
+): ReadProgram => sourceProgram(source, readStatements(source), facts, codes)
 
 /** One artifact of a compiled query template. */
 type ArtifactName = CompiledTemplate["selection"]["artifact"]
@@ -314,13 +326,22 @@ export const templateStatements = (
 	artifact: ArtifactName
 ): StatementRoots<ReadRun> => readStatements(templateSource(template, artifact))
 
-/** The read program of one artifact of a template: built once by the compiled read that holds it (reader.ts). */
+/**
+ * The read program of one artifact of a template, under the installation's codes `codes`: built once by the compiled
+ * read that holds it (reader.ts).
+ */
 export const templateProgram = (
 	template: QueryTemplate,
 	artifact: ArtifactName,
-	facts: AttachmentFacts
+	facts: AttachmentFacts,
+	codes: Codebook
 ): ReadProgram =>
-	sourceProgram(templateSource(template, artifact), templateStatements(template, artifact), facts)
+	sourceProgram(
+		templateSource(template, artifact),
+		templateStatements(template, artifact),
+		facts,
+		codes
+	)
 
 /** A read statement's choice: a relation parameter's distinct fact count above its threshold. */
 export const readExceeds =

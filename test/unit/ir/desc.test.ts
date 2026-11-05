@@ -35,9 +35,9 @@ import {
 	descText,
 	descToJson,
 	everyFact,
+	type FieldDecl,
 	type FieldDesc,
-	type LiteralDesc,
-	type SelectionDesc
+	type LiteralDesc
 } from "#compiler/ir/desc.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { predicateExpr } from "#compiler/scalar/compute/term.ts"
@@ -84,17 +84,38 @@ const budget: FieldDesc = {
 	facts: []
 }
 
-const fields: Readonly<Record<string, FieldDesc>> = {
-	id: { kind: "uuid" },
-	account: { kind: "uuid" },
-	kind: { kind: "closedId", roster: "Kind" },
-	budget,
-	title: { kind: "text", source: "^[A-Za-z ]{1,80}$", flags: "u" },
-	priority: { kind: "pg", type: "integer" },
-	seq: { kind: "serial", type: "bigserial" },
-	window: { kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: 86_400n },
-	embedding: { kind: "vector", dimensions: 3 },
-	cost: { kind: "pg", type: "money" }
+/** A field its caller writes. */
+const caller = (type: FieldDesc): FieldDecl<object> => ({ type, writing: { kind: "caller" } })
+
+/** Task's fields: one of each type, and one of each way a field is written. */
+const fields: Readonly<Record<string, FieldDecl<object>>> = {
+	id: caller({ kind: "uuid" }),
+	account: caller({ kind: "uuid" }),
+	kind: caller({ kind: "closedId", roster: "Kind" }),
+	kinds: caller({ kind: "bits", roster: "Kind" }),
+	budget: caller(budget),
+	title: caller({ kind: "text", source: "^[A-Za-z ]{1,80}$", flags: "u" }),
+	priority: caller({ kind: "pg", type: "integer" }),
+	seq: { type: { kind: "pg", type: "bigint" }, writing: { kind: "serial" } },
+	twice: {
+		type: { kind: "pg", type: "bigint" },
+		writing: {
+			kind: "generated",
+			expr: {
+				kind: "compute",
+				fn: "mul",
+				args: [
+					{ kind: "field", field: "priority" },
+					{ kind: "literal", value: 2n, type: undefined }
+				]
+			}
+		}
+	},
+	at: { type: { kind: "pg", type: "integer" }, writing: { kind: "drawn" } },
+	running: { type: { kind: "pg", type: "bigint" }, writing: { kind: "accumulated", start: 0n } },
+	window: caller({ kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: 86_400n }),
+	embedding: caller({ kind: "vector", dimensions: 3 }),
+	cost: caller({ kind: "pg", type: "money" })
 }
 
 const rules = (...arms: Arr.NonEmptyReadonlyArray<RuleDesc>): QueryStageDesc => ({
@@ -338,18 +359,6 @@ const reach: QueryStageDesc = {
 
 const recursive: QueryDesc = versioned({ kind: "approx", input: reach, by: "distance", take: 20 })
 
-/** Task's facts of kind Automatic, the selection an alternatives arm's two containments read. */
-const automatic: SelectionDesc = {
-	conjuncts: [
-		{
-			kind: "compare",
-			op: "eq",
-			left: { kind: "field", field: "kind" },
-			right: { kind: "literal", value: "Automatic", type: undefined }
-		}
-	]
-}
-
 const statements: ReadonlyArray<StatementDesc> = [
 	{
 		kind: "key",
@@ -372,24 +381,20 @@ const statements: ReadonlyArray<StatementDesc> = [
 		}
 	},
 	{
-		kind: "contained",
-		left: { relation: "Task", terms: [{ kind: "field", field: "id" }], selection: automatic },
-		right: {
-			relation: "AutomaticTask",
-			terms: [{ kind: "field", field: "task" }],
-			selection: everyFact
-		},
-		origin: { alternatives: "Task.kind" }
-	},
-	{
-		kind: "contained",
-		left: {
-			relation: "AutomaticTask",
-			terms: [{ kind: "field", field: "task" }],
-			selection: everyFact
-		},
-		right: { relation: "Task", terms: [{ kind: "field", field: "id" }], selection: automatic },
-		origin: { alternatives: "Task.kind" }
+		kind: "alternatives",
+		parent: { relation: "Task", terms: [{ kind: "field", field: "id" }], selection: everyFact },
+		discriminator: "kind",
+		roster: "Kind",
+		arms: [
+			{
+				handle: "Automatic",
+				arm: {
+					relation: "AutomaticTask",
+					terms: [{ kind: "field", field: "task" }],
+					selection: everyFact
+				}
+			}
+		]
 	},
 	{
 		kind: "contained",
@@ -408,63 +413,83 @@ const statements: ReadonlyArray<StatementDesc> = [
 				{ kind: "field", field: "priority" }
 			],
 			selection: everyFact
-		},
-		origin: undefined
+		}
 	},
 	{
-		kind: "capacity",
-		target: {
-			relation: "Resource",
-			terms: [{ kind: "field", field: "id" }],
-			selection: everyFact
-		},
-		from: {
+		kind: "family",
+		order: "counted",
+		member: {
 			relation: "Claim",
 			terms: [{ kind: "field", field: "resource" }],
 			selection: everyFact
 		},
-		weight: { kind: "duration", field: "during" },
-		within: { low: 0n, high: { ref: "budget" } }
+		slots: { owner: "Resource", count: "claims" }
 	},
 	{
-		kind: "capacity",
-		target: {
-			relation: "Resource",
-			terms: [{ kind: "field", field: "id" }],
+		kind: "fold",
+		family: { owner: "Resource", count: "claims" },
+		monoid: "sum",
+		step: { relation: "Claim", terms: [{ kind: "field", field: "amount" }], selection: everyFact },
+		end: { relation: "Resource", terms: [{ kind: "field", field: "total" }], selection: everyFact }
+	},
+	{
+		kind: "family",
+		order: "ordered",
+		member: {
+			relation: "Line",
+			terms: [
+				{ kind: "field", field: "order" },
+				{ kind: "field", field: "at" }
+			],
 			selection: everyFact
 		},
-		from: {
-			relation: "Claim",
-			terms: [{ kind: "field", field: "resource" }],
+		slots: { owner: "Order", count: "lines" }
+	},
+	{
+		kind: "tree",
+		member: {
+			relation: "Node",
+			terms: [
+				{ kind: "field", field: "parent" },
+				{ kind: "field", field: "at" }
+			],
 			selection: everyFact
 		},
-		weight: { kind: "count" },
-		within: { low: 1n, high: "*" }
+		slots: { owner: "Node", count: "children" },
+		root: "document"
 	}
 ]
 
 /** A derived definition reads no parameter and has no bound. */
 const unbounded: QueryDesc = versioned(attached)
 
+/** Each tier's plan: a closed relation keyed by a closed id of the roster Tier. */
+const plan: RelationDesc = {
+	kind: "closedRelation",
+	name: "Plan",
+	fields: {
+		tier: { kind: "closedId", roster: "Tier" },
+		seats: { kind: "pg", type: "integer" },
+		price: { kind: "numeric", precision: 10, scale: 2 }
+	},
+	key: ["tier"],
+	rows: [
+		{ tier: "Free", seats: 1, price: dec("0") },
+		{ tier: "Pro", seats: 10, price: dec("49") }
+	]
+}
+
 const relations: ReadonlyArray<RelationDesc> = [
 	{ kind: "relation", name: "Task", fields, primaryKey: ["id"] },
-	{ kind: "closed", name: "Kind", handles: ["Automatic", "Manual"], payload: {}, facts: {} },
+	{ kind: "closed", name: "Kind", handles: ["Automatic", "Manual"] },
+	{ kind: "closed", name: "Tier", handles: ["Free", "Pro"] },
+	plan,
 	{
-		kind: "closed",
-		name: "Plan",
-		handles: ["Free", "Pro"],
-		payload: {
-			seats: { kind: "pg", type: "integer" },
-			price: { kind: "numeric", precision: 10, scale: 2 }
-		},
-		facts: { Free: { seats: 1, price: dec("0") }, Pro: { seats: 10, price: dec("49") } }
-	},
-	{
-		kind: "closed",
+		kind: "closedRelation",
 		name: "Fee",
-		handles: ["Late"],
-		payload: { amount: { kind: "pg", type: "money" } },
-		facts: { Late: { amount: defined(MoneyText.parse("1999")) } }
+		fields: { tier: { kind: "closedId", roster: "Tier" }, amount: { kind: "pg", type: "money" } },
+		key: ["tier"],
+		rows: [{ tier: "Pro", amount: defined(MoneyText.parse("1999")) }]
 	},
 	{
 		kind: "derived",
@@ -476,14 +501,14 @@ const relations: ReadonlyArray<RelationDesc> = [
 
 const base: SchemaDesc = {
 	name: "Work",
-	relations: relations.slice(0, 4),
+	relations: relations.slice(0, 5),
 	statements: statements.slice(0, 4),
 	extends: undefined
 }
 
 const schema: SchemaDesc = {
 	name: "Work",
-	relations: relations.slice(4),
+	relations: relations.slice(5),
 	statements: statements.slice(4),
 	extends: base
 }
@@ -595,7 +620,8 @@ const castsAndSpans: ExprDesc = {
 const samples: ReadonlyArray<readonly [DescKind, unknown]> = [
 	["schema", schema],
 	["statement", statements[5]],
-	["relation", relations[2]],
+	["statement", statements[8]],
+	["relation", plan],
 	["query", query],
 	["query", recursive],
 	["rule", rule],
@@ -953,10 +979,10 @@ describe("Descriptions", () => {
 	})
 
 	it.effect(
-		"decodes a scale, an origin and an aggregate's argument exactly where their arm states them, and refuses each at it",
+		"decodes a scale and an aggregate's argument exactly where their arm states them, refuses each at it, and refuses an origin on every statement",
 		(ctx) => {
 			type AggregateFn = "count" | "sum" | "mean" | "min" | "max"
-			/** The statements an origin is tried on: the three kinds without one, and the containment an expansion holds. */
+			/** The statements an origin is tried on: none states one, a containment included (R5 deleted the origin). */
 			type OriginKind = "key" | "mutable" | "check" | "contained"
 			type DecoderCase =
 				| { readonly kind: "compute"; readonly fn: ComputeFn; readonly scale: "absent" | 2 }
@@ -988,6 +1014,12 @@ describe("Descriptions", () => {
 				greatest: 2,
 				widthBucket: 4,
 				minScale: 1,
+				union: 2,
+				intersection: 2,
+				difference: 2,
+				cardinality: 1,
+				subset: 2,
+				disjoint: 2,
 				numeric: 1,
 				lower: 1,
 				upper: 1,
@@ -1050,14 +1082,12 @@ describe("Descriptions", () => {
 							| "scale refused"
 							| "scale decoded"
 							| "origin refused"
-							| "origin decoded"
 							| "aggregate refused"
 							| "aggregate decoded"
 						>([
 							"scale refused",
 							"scale decoded",
 							"origin refused",
-							"origin decoded",
 							"aggregate refused",
 							"aggregate decoded"
 						]),
@@ -1090,11 +1120,6 @@ describe("Descriptions", () => {
 								}
 								case "statement": {
 									const decoded = decodeDesc("statement", statementOf(c.statement))
-									if (c.statement === "contained") {
-										n.note("origin decoded")
-										succeeded(decoded)
-										return
-									}
 									n.note("origin refused")
 									const error = fail(decoded)
 									assert.equal(error.reason._tag, "MalformedDescription")
@@ -1189,8 +1214,9 @@ describe("Descriptions", () => {
 	 * vector or decimal tagged; take only after an order; a rules stage with an arm; on an Ordered only take; a union
 	 * over a query, not over the builder's rules, which are one stage; each order column once; a primary key nonempty and
 	 * among the fields; a relation's, a field's and a program's name storable text; a role with a relation; a context
-	 * field of a claim's scalar type; a closed fact only for a handle; an Allen mask of thirteen bits; a numeric precision 1-1000; each variable id once; a
-	 * payload in JSON canonical.
+	 * field of a claim's scalar type; a closed relation's rows each of every field, keyed by closed ids, one per key; a
+	 * primary key its writer fills, never a generated field; an Allen mask of thirteen bits; a numeric precision 1-1000;
+	 * each variable id once; a payload in JSON canonical.
 	 */
 	const broken: ReadonlyArray<readonly [string, DescKind, unknown]> = [
 		["another version", "query", { ...query, v: 2 }],
@@ -1241,12 +1267,12 @@ describe("Descriptions", () => {
 		[
 			"a primary key outside the fields",
 			"relation",
-			{ kind: "relation", name: "R", fields: { a: { kind: "uuid" } }, primaryKey: ["b"] }
+			{ kind: "relation", name: "R", fields: { a: caller({ kind: "uuid" }) }, primaryKey: ["b"] }
 		],
 		[
 			"an empty primary key",
 			"relation",
-			{ kind: "relation", name: "R", fields: { a: { kind: "uuid" } }, primaryKey: [] }
+			{ kind: "relation", name: "R", fields: { a: caller({ kind: "uuid" }) }, primaryKey: [] }
 		],
 		...Arr.flatMap(
 			["\ud800", "a\u0000b"],
@@ -1254,7 +1280,12 @@ describe("Descriptions", () => {
 				[
 					`a relation name ${Formatter.format(bad)}`,
 					"relation",
-					{ kind: "relation", name: bad, fields: { a: { kind: "uuid" } }, primaryKey: ["a"] }
+					{
+						kind: "relation",
+						name: bad,
+						fields: { a: caller({ kind: "uuid" }) },
+						primaryKey: ["a"]
+					}
 				],
 				[
 					`a field name ${Formatter.format(bad)}`,
@@ -1262,7 +1293,7 @@ describe("Descriptions", () => {
 					{
 						kind: "relation",
 						name: "R",
-						fields: { a: { kind: "uuid" }, [bad]: { kind: "uuid" } },
+						fields: { a: caller({ kind: "uuid" }), [bad]: caller({ kind: "uuid" }) },
 						primaryKey: ["a"]
 					}
 				],
@@ -1290,11 +1321,35 @@ describe("Descriptions", () => {
 			{ name: "Session", fields: { amount: { kind: "numeric", precision: 10, scale: 2 } } }
 		],
 		[
-			"a closed fact for an unknown handle",
+			"a closed relation's row without a field",
+			"relation",
+			{ ...plan, rows: [{ tier: "Free", seats: 1 }] }
+		],
+		[
+			"two closed rows at one key",
 			"relation",
 			{
-				...relations[2],
-				facts: { Free: { seats: 1, price: dec("0") }, Gold: { seats: 2, price: dec("1") } }
+				...plan,
+				rows: [
+					{ tier: "Free", seats: 1, price: dec("0") },
+					{ tier: "Free", seats: 2, price: dec("1") }
+				]
+			}
+		],
+		["a closed relation keyed by an open field", "relation", { ...plan, key: ["seats"] }],
+		[
+			"a primary key over a generated field",
+			"relation",
+			{
+				kind: "relation",
+				name: "R",
+				fields: {
+					a: {
+						type: { kind: "pg", type: "integer" },
+						writing: { kind: "generated", expr: { kind: "literal", value: 1, type: undefined } }
+					}
+				},
+				primaryKey: ["a"]
 			}
 		],
 		...Arr.map([8192, -1, 1.5], (mask): readonly [string, DescKind, unknown] => [

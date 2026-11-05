@@ -72,6 +72,9 @@ export const operandOf = (local: NodeId, e: ScalarExpr): Operand => {
 		case "cast":
 		case "domainCast":
 		case "cond":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
 			if (e.deps.nodes.includes(local)) {
 				return { kind: "computed" }
 			}
@@ -257,6 +260,13 @@ export const predicateAtoms = (local: NodeId, e: ScalarExpr): ReadonlyArray<Atom
 		case "upper":
 		case "charLength":
 		case "cosineDistance":
+		case "union":
+		case "intersection":
+		case "difference":
+		case "complement":
+		case "cardinality":
+		case "subset":
+		case "disjoint":
 		case "ne":
 		case "not":
 		case "cast":

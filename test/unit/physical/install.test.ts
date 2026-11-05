@@ -101,7 +101,7 @@ const typeChecks = (i: Installation): ReadonlySet<string> => {
 		}
 		const ident = (check: string) => `constraint:${N.schema}.${N.tableIdent(r.desc)}.${check}`
 		for (const [field, desc] of Record.toEntries(r.desc.fields)) {
-			const value = valueDesc(desc)
+			const value = valueDesc(desc.type)
 			if (value.kind === "span") {
 				checks.add(ident(N.spanCheck(r.desc, field, { kind: "shape" })))
 				if (value.width !== undefined) {
@@ -137,9 +137,9 @@ const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	databaseDefault: { after: [], justified: "any reason" },
 	schema: { after: [], justified: "any reason" },
 	extension: { after: [], justified: "any reason" },
-	enum: inSchema,
-	domain: inSchema,
-	table: { after: ["schema", "enum", "domain"], justified: "any reason" },
+	constant: { after: ["schema"], justified: "any reason" },
+	domain: { after: ["schema", "constant"], justified: "any reason" },
+	table: { after: ["schema", "constant", "domain"], justified: "any reason" },
 	lawColumn: onTable("a law or a program"),
 	primaryKey: onTable("a law or a program"),
 	unique: onTable("a law or a program"),
@@ -153,8 +153,6 @@ const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	isolationFunction: inSchema,
 	snapshotGuard: inSchema,
 	isolationTrigger: { after: ["schema", "table", "isolationFunction"], justified: "any reason" },
-	lawFunction: inSchema,
-	lawTrigger: { after: ["schema", "table", "lawFunction"], justified: "any reason" },
 	materializedView: onTable("any reason"),
 	uniqueIndex: onTable("a law or a program"),
 	index: onTable("a law or a program"),
@@ -171,7 +169,7 @@ const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	ledger: inSchema
 }
 
-type OrderFeature = "a foreign key" | "an enum" | "a domain" | "a law index" | "a type CHECK"
+type OrderFeature = "a foreign key" | "a constant" | "a domain" | "a law index" | "a type CHECK"
 
 /** An identifier of a schema or role the installation names and never creates: plain lowercase, at most 63 bytes,
  * outside pg_. */
@@ -346,7 +344,7 @@ describe("the fresh installation", () => {
 					draw: drawn(generatedGen),
 					literal: Formatter.format,
 					coverage: required<OrderFeature>(
-						["a foreign key", "an enum", "a domain", "a law index", "a type CHECK"],
+						["a foreign key", "a constant", "a domain", "a law index", "a type CHECK"],
 						{ cases: 100, sense: notesOnly }
 					),
 					kept: [],
@@ -385,8 +383,8 @@ describe("the fresh installation", () => {
 						if (creates("foreignKey")) {
 							c.note("a foreign key")
 						}
-						if (creates("enum")) {
-							c.note("an enum")
+						if (creates("constant")) {
+							c.note("a constant")
 						}
 						if (creates("domain")) {
 							c.note("a domain")

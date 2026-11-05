@@ -13,7 +13,7 @@ import {
 	type Violation,
 	violations,
 	violatorsOf
-} from "#test/pg/laws/families/model.ts"
+} from "#test/support/laws/model.ts"
 
 /**
  * Who runs an operation: a grizzle writer, whose every write is one db.apply, or a direct SQL writer; both
@@ -23,11 +23,10 @@ export type Writer = { readonly kind: "grizzle" } | { readonly kind: "direct" }
 export type WriterKind = Writer["kind"]
 
 /**
- * What a direct writer makes immediate after its last statement: nothing, every constraint (SET CONSTRAINTS ALL
- * IMMEDIATE), or its schema's law triggers by their schema-qualified names, which leaves its deferred foreign keys to
- * COMMIT.
+ * What a direct writer makes immediate after its last statement: nothing, or every constraint (SET CONSTRAINTS ALL
+ * IMMEDIATE). Its deferred constraints are foreign keys alone, since every law is native (fin.md §7).
  */
-export type Immediacy = "deferred" | "every constraint" | "law triggers"
+export type Immediacy = "deferred" | "every constraint"
 
 const identity = (host: HostSchema, relation: string, fact: HostOp["facts"][number]): string =>
 	projection(
@@ -138,7 +137,7 @@ const rowViolations = (
 	Arr.flatMap(host.laws, (law): ReadonlyArray<Violation> => {
 		if ((law.kind === "key" || law.kind === "spanKey") && law.relation === relation) {
 			return Arr.some(others, (g) => collide(law, fact, g))
-				? [{ law: law.law, immediate: true, violators: violatorsOf(host, law, [fact]) }]
+				? [{ law: law.law, immediate: true, violators: violatorsOf(law, [fact]) }]
 				: []
 		}
 		if (law.kind === "check" && law.relation === relation) {

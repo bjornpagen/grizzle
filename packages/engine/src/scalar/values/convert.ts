@@ -1,3 +1,4 @@
+import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
@@ -45,6 +46,23 @@ export const convertVector =
 
 const identity = (text: string): string => text
 
+/** int2out of a closed id's code: the live handle it names. */
+const convertCode =
+	(roster: RosterCodec) =>
+	(text: string): string =>
+		handleAt(roster, Number(text))
+
+/** bit(n)'s output text, position i code i: the frozen set of the handles of its 1 bits. */
+const convertBits =
+	(roster: RosterCodec) =>
+	(text: string): ReadonlySet<string> => {
+		const handles = new Set<string>()
+		for (let code = text.indexOf("1"); code >= 0; code = text.indexOf("1", code + 1)) {
+			handles.add(handleAt(roster, code))
+		}
+		return Object.freeze(handles)
+	}
+
 /**
  * The conversion of PostgreSQL's output text of a column into its host value, one per carrier.
  *
@@ -65,7 +83,9 @@ const identity = (text: string): string => text
  * | float4 | float4out, shortest binary32 text | the binary32 value exactly (float.ts convertReal), -0 as +0 |
  * | money | money::numeric | Money.fromOutput, the minor-unit count |
  * | bool | `true`/`false` (bool::text), `t`/`f` (boolout) | the first letter is t |
- * | uuid, text, enum | uuid_out, the string, the handle | the text itself |
+ * | uuid, text | uuid_out, the string | the text itself |
+ * | code | int2out of the code | the live handle the code names |
+ * | bits | bit_out, n characters of 0 and 1 | a frozen Set of the handles of its 1 bits, position i code i |
  * | range4, range8 | range_out of a bounded half-open range, [start,end) | a frozen { start, end } |
  * | vector | vector_out, [c1,...,cn] | a Float32Array of the column's dimensions, components exactly binary32 |
  * | exactInteger | int8out or numeric_out of an integer | BigInt, the exact integer |
@@ -86,7 +106,8 @@ export const convertByCarrier: { readonly [C in Carrier]: (spec: SpecOf<C>) => C
 	bool: () => (text) => text.startsWith("t"),
 	uuid: () => identity,
 	text: () => identity,
-	enum: () => identity,
+	code: (spec) => convertCode(spec.roster),
+	bits: (spec) => convertBits(spec.roster),
 	range4: () => convertSpan(Number),
 	range8: () => convertSpan(BigInt),
 	vector: (spec) => convertVector(spec.dimensions),

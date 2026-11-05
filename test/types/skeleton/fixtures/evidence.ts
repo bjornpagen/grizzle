@@ -312,22 +312,29 @@ export type StudentWeeksHead = Expect<
 >
 
 /**
- * The containment row: a child whose only match reads a closed relation by an id bound to
- * a parent variable, where a containment maps the parent field the variable was matched at onto that id, and which
- * binds nothing else but fresh variables, meets exactly one fact, so it is delivered bare. Containment into closed
- * facts is enum membership, an immediate constraint, so the evidence holds in a read-back too.
+ * The containment row: a child whose only match reads a closed relation by its key bound to a parent variable, where a
+ * containment maps the parent field the variable was matched at onto that key, and which binds nothing else but fresh
+ * variables, meets exactly one fact, so it is delivered bare. A containment into a closed relation is a constant
+ * membership check, an immediate constraint, so the evidence holds in a read-back too.
  */
-export const Plan = closed("Plan", ["Free", "Pro"]).with(
-	{ budget: Cents },
-	{ Free: { budget: Cents(1n) }, Pro: { budget: Cents(2n) } }
+export const Plan = closed("Plan", ["Free", "Pro"])
+/** Each plan's budget: a closed relation keyed by its plan. */
+export const PlanBudget = closed.relation(
+	"PlanBudget",
+	{ plan: closedId(Plan), budget: Cents },
+	["plan"],
+	[
+		{ plan: "Free", budget: Cents(1n) },
+		{ plan: "Pro", budget: Cents(2n) }
+	]
 )
 export const Subscriber = relation("Subscriber", { id: uuid, plan: closedId(Plan) }, ["id"])
 export const Upgrade = relation("Upgrade", { subscriber: uuid, plan: closedId(Plan) }, [
 	"subscriber"
 ])
 
-export const Billing = schema("Billing", { Plan, Subscriber, Upgrade }, [
-	contained(on(Subscriber, "plan"), on(Plan, "id"))
+export const Billing = schema("Billing", { Plan, PlanBudget, Subscriber, Upgrade }, [
+	contained(on(Subscriber, "plan"), on(PlanBudget, "plan"))
 ])
 type Budget = bigint & Brand.Brand<"Cents">
 export const subscribers = query(Billing).rule((r) => {
@@ -351,8 +358,8 @@ export const withPlan = subscribers
 		"details",
 		(s) =>
 			query(Billing).rule((r) => {
-				const { budget } = v(Plan, "plan")
-				return r.match(Plan, { id: s.plan, budget }).find({ budget })
+				const { budget } = v(PlanBudget, "planBudget")
+				return r.match(PlanBudget, { plan: s.plan, budget }).find({ budget })
 			}),
 		"one"
 	)
@@ -360,7 +367,7 @@ export const withPlan = subscribers
 		"filtered",
 		(s) =>
 			query(Billing).rule((r) =>
-				r.match(Plan, { id: s.plan, budget: Cents(1n) }).find({ plan: s.plan })
+				r.match(PlanBudget, { plan: s.plan, budget: Cents(1n) }).find({ plan: s.plan })
 			),
 		"option"
 	)
@@ -368,9 +375,9 @@ export const withPlan = subscribers
 		"guarded",
 		(s) =>
 			query(Billing).rule((r) => {
-				const { budget } = v(Plan, "plan")
+				const { budget } = v(PlanBudget, "planBudget")
 				return r
-					.match(Plan, { id: s.plan, budget })
+					.match(PlanBudget, { plan: s.plan, budget })
 					.where(r.gt(budget, Cents(1n)))
 					.find({ budget })
 			}),
@@ -380,10 +387,10 @@ export const withPlan = subscribers
 		"joined",
 		(s) =>
 			query(Billing).rule((r) => {
-				const { budget } = v(Plan, "plan")
+				const { budget } = v(PlanBudget, "planBudget")
 				const { subscriber } = v(Upgrade, "upgrade")
 				return r
-					.match(Plan, { id: s.plan, budget })
+					.match(PlanBudget, { plan: s.plan, budget })
 					.match(Upgrade, { subscriber, plan: s.plan })
 					.find({ budget })
 			}),
@@ -406,7 +413,7 @@ export type WithPlanHead = Expect<
 
 /**
  * Without a declared containment, or through a variable minted at Subscriber.plan but matched at Upgrade.plan, the
- * parent's value is not proved to be a Plan id, so the child is an Option.
+ * parent's value is not proved to be a PlanBudget key, so the child is an Option.
  */
 export const upgrades = query(Billing).rule((r) => {
 	const { plan } = v(Subscriber, "subscriber")
@@ -418,8 +425,8 @@ export const upgradePlan = upgrades.attach(
 	"budget",
 	(u) =>
 		query(Billing).rule((r) => {
-			const { budget } = v(Plan, "plan")
-			return r.match(Plan, { id: u.plan, budget }).find({ budget })
+			const { budget } = v(PlanBudget, "planBudget")
+			return r.match(PlanBudget, { plan: u.plan, budget }).find({ budget })
 		}),
 	"option"
 )

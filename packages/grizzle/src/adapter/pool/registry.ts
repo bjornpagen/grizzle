@@ -20,7 +20,7 @@ import { loginRole, theoryRole } from "#adapter/connection/role.ts"
 import { type TypedContext, typedContext } from "#adapter/db/claims.ts"
 import type { RoleContext } from "#adapter/db/context.ts"
 import { compileRoleWorkload, type WorkloadForm } from "#adapter/db/workload.ts"
-import { fromEngine, readHost } from "#adapter/engine.ts"
+import { fromEngine, readHost, rowOptions } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import {
 	ConnectionEnvironmentRefused,
@@ -40,11 +40,14 @@ import type { PrologueStatements } from "#adapter/wire/batch.ts"
 import { makePool, type SessionPool, serverStatement } from "#adapter/wire/session.ts"
 import { installationWitness } from "#adapter/witness/index.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
+import type { BindContext } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
+import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { type Codebook, codeNames, unservedRoster } from "#compiler/ir/codes.ts"
 import type { LoginDesc, RoleDesc } from "#compiler/ir/desc.ts"
 import {
 	parseSchemaInput,
@@ -53,7 +56,7 @@ import {
 } from "#compiler/program/schema.ts"
 import { templateFor } from "#compiler/program/template.ts"
 import { accessDrift, accessDriftText, loginAccess } from "#compiler/program/workload/compile.ts"
-import { type OwnedLogin, type OwnedRole, ownLogin } from "#compiler/schema/own.ts"
+import { type OwnedLogin, type OwnedRole, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
@@ -64,8 +67,11 @@ import type { AnyLogin } from "#compiler/types/schema/world.ts"
  * session pool.
  *
  * DbLayer.make(config) builds this service once per instance, for the login the config names, and computes there,
- * once, what every Db of the login reads: the snapshot, parsed (boundary/snapshot.ts parseSnapshot); each role's
- * artifacts (program/schema.ts schemaArtifacts), which compile every program a Db of the role runs; every program of
+ * once, what every Db of the login reads: the snapshot, parsed (boundary/snapshot.ts parseSnapshot), and the
+ * installation's codes it records (deploy/snapshot/build.ts codebookOf), the codes of every closed id and set a Db
+ * writes or reads, since a roster's codes are its history and no schema alone determines them; each role's artifacts
+ * (program/schema.ts schemaArtifacts), compiled under those codes, which compile every program a Db of the role runs;
+ * every program of
  * the login's workloads, compiled for every role it runs on (db/workload.ts compileRoleWorkload), after their access
  * paths are compared with the snapshot's (program/workload/compile.ts accessDrift): a schema that is not the
  * snapshot's, or a program the snapshot does not record as it is, fails the layer with WorkloadUngenerated naming it;
@@ -104,8 +110,8 @@ export interface LayerRole extends RoleContext {
 }
 
 /**
- * The contexts the role's relations read (schema/own.ts OwnedRole.contexts), their fields typed against the base: a
- * contract or roster a context names is the base's.
+ * The contexts the role's relations read (schema/own.ts OwnedRole.contexts), their fields typed against the base, each
+ * with its codec under the installation's codes: a contract or roster a context names is the base's.
  */
 const typedContexts = (
 	artifacts: SchemaArtifacts
@@ -115,8 +121,10 @@ const typedContexts = (
 	const checked = artifacts.derived.schema
 	return catchRefusal(() =>
 		Arr.map(contexts, (context) =>
-			typedContext(context, (field) =>
-				checked.fieldType(field, SourceLoc(`context ${context.name}`, []))
+			typedContext(
+				context,
+				(field) => checked.fieldType(field, SourceLoc(`context ${context.name}`, [])),
+				artifacts.names.codes
 			)
 		)
 	)
@@ -271,19 +279,22 @@ export const loginRoleValues = (login: AnyLogin): ReadonlyArray<unknown> =>
 	Arr.map(Rec.values(login.roles), (r) => r.role)
 
 /**
- * One role of the login, parsed, its artifacts computed and the programs of the login's workloads over it compiled: a
- * role or program that does not compile is its CompileError.
+ * One role of the login, parsed, its artifacts computed under the installation's codes `codes` and the programs of the
+ * login's workloads over it compiled, its decoders bound under `bind`: a role or program that does not compile is its
+ * CompileError.
  */
 const layerRole = Effect.fn("layerRole")(function* (
 	value: unknown,
-	workload: ReadonlyArray<AnyWorkload>
+	workload: ReadonlyArray<AnyWorkload>,
+	codes: Codebook,
+	bind: BindContext
 ): Effect.fn.Return<LayerRole, CompileError> {
 	const input = yield* fromEngine(parseSchemaInput(value))
 	if (input.kind !== "role" || typeof value !== "object" || value === null) {
 		return yield* Effect.fail(malformedDescription(makeLoc, "a login's role built by role(...)"))
 	}
 	const artifacts = yield* fromEngine(
-		schemaArtifacts(input, { installation: undefined, vectorSchema: undefined })
+		schemaArtifacts(input, { installation: undefined, vectorSchema: undefined, codes })
 	)
 	const theory = theoryRole(artifacts)
 	const world = artifacts.world
@@ -297,7 +308,8 @@ const layerRole = Effect.fn("layerRole")(function* (
 		role: input.desc,
 		artifacts,
 		compile: (query, request) => templateFor(query, input, artifacts, request),
-		witness: installationWitness(artifacts)
+		witness: installationWitness(artifacts),
+		bind
 	}
 	const contexts = yield* fromEngine(typedContexts(artifacts))
 	const forms = yield* Effect.fromResult(compileRoleWorkload(role, owned, workload))
@@ -305,16 +317,21 @@ const layerRole = Effect.fn("layerRole")(function* (
 })
 
 /**
- * Every role of a login, `roles` (loginRoleValues), each parsed, its artifacts computed and every program of the login's
- * workloads over it compiled, as every Db of the login runs it (layerRole): the one compilation of a login's programs.
- * DbLayer.make runs it at startup, and `grizzle generate` runs it before it drafts (cli/generate.ts draftInput), so a
- * program generate admits is one the layer compiles. A role or program that does not compile is its CompileError.
+ * Every role of a login, `roles` (loginRoleValues), each parsed, its artifacts computed under the installation's codes
+ * `codes` and every program of the login's workloads over it compiled, as every Db of the login runs it (layerRole):
+ * the one compilation of a login's programs. DbLayer.make runs it at startup under the snapshot's codes, and `grizzle
+ * generate` runs it under the codes it drafts before it drafts (cli/generate.ts draftInput), so a program generate
+ * admits is one the layer compiles. A role or program that does not compile is its CompileError. Every role reads the
+ * one installation's codes, so the roles share one bind context, each roster's names in code order.
  */
 export const loginRoles = (
 	roles: ReadonlyArray<unknown>,
-	workload: ReadonlyArray<AnyWorkload>
-): Effect.Effect<ReadonlyArray<LayerRole>, CompileError> =>
-	Effect.forEach(roles, (value) => layerRole(value, workload))
+	workload: ReadonlyArray<AnyWorkload>,
+	codes: Codebook
+): Effect.Effect<ReadonlyArray<LayerRole>, CompileError> => {
+	const bind: BindContext = { options: rowOptions, names: codeNames(codes) }
+	return Effect.forEach(roles, (value) => layerRole(value, workload, codes, bind))
+}
 
 /**
  * The snapshot the config gives, parsed once: one the test installer registered as registered
@@ -332,26 +349,33 @@ const layerSnapshot = (given: object): Effect.Effect<DeploySnapshot, OpenError> 
 }
 
 /**
- * The startup check: the snapshot is of the login's base, and records the access of every program of the login's
- * workloads exactly as they compile now (program/workload/compile.ts loginAccess, accessDrift), the comparison
- * `grizzle check` makes. A schema change, or a program added, renamed, dropped or whose access paths or statistics moved
- * since the snapshot was generated, is WorkloadUngenerated, naming the first such program.
+ * The startup check: the snapshot is of the login's base, its codes are the base's rosters' (ir/codes.ts
+ * unservedRoster: each roster's live handles in its declared order), and it records the access of every program of the
+ * login's workloads exactly as they compile now under those codes (program/workload/compile.ts loginAccess,
+ * accessDrift), the comparison `grizzle check` makes. A schema change, or a program added, renamed, dropped or whose
+ * access paths or statistics moved since the snapshot was generated, is WorkloadUngenerated, naming the first such
+ * program. A snapshot of the base records the codes it drafted for the base's rosters, which serve them, so codes that
+ * do not are a snapshot of another schema.
  */
 const startupCheck = Effect.fn("startupCheck")(function* (
 	snapshot: DeploySnapshot,
+	codes: Codebook,
 	login: OwnedLogin,
 	workload: ReadonlyArray<AnyWorkload>
 ): Effect.fn.Return<void, OpenError> {
 	const ungenerated = (fault: WorkloadUngenerated["fault"]) =>
 		new OpenError({ reason: new WorkloadUngenerated({ login: login.name, fault }) })
-	if (!servesSchema(snapshot, login.base)) {
+	if (
+		!servesSchema(snapshot, login.base) ||
+		unservedRoster(codes, rostersOf(login.base)) !== undefined
+	) {
 		return yield* ungenerated({ kind: "schema", schema: login.base.name })
 	}
 	const access = yield* Effect.mapError(
 		fromEngine(
 			Engine.flatMap(parseSchemaInput(login.base), (base) =>
 				Engine.flatMap(
-					schemaArtifacts(base, { installation: undefined, vectorSchema: undefined }),
+					schemaArtifacts(base, { installation: undefined, vectorSchema: undefined, codes }),
 					(artifacts) => loginAccess(workload, base, artifacts)
 				)
 			)
@@ -365,21 +389,22 @@ const startupCheck = Effect.fn("startupCheck")(function* (
 })
 
 /**
- * Builds the service in the current scope (the layer's) from a parsed config: the snapshot, parsed and checked against
- * the login's workloads, every role's artifacts and programs, the login's role, its pool and the prologue's server
- * statements (see the header).
+ * Builds the service in the current scope (the layer's) from a parsed config: the snapshot, parsed, its codes read and
+ * checked with it against the login's base and workloads, every role's artifacts and programs under those codes, the
+ * login's role, its pool and the prologue's server statements (see the header).
  */
 const makeDbSessions = Effect.fn("makeDbSessions")(function* (
 	config: ParsedDbConfig
 ): Effect.fn.Return<DbSessions, OpenError, Scope.Scope> {
 	const snapshot = yield* layerSnapshot(config.snapshot)
+	const codes = codebookOf(snapshot)
 	const owned = yield* Effect.mapError(
 		fromEngine(ownLogin(config.login)),
 		(reason) => new OpenError({ reason })
 	)
-	yield* startupCheck(snapshot, owned, config.workload)
+	yield* startupCheck(snapshot, codes, owned, config.workload)
 	const roles = yield* Effect.mapError(
-		loginRoles(config.roles, config.workload),
+		loginRoles(config.roles, config.workload, codes),
 		(reason) => new OpenError({ reason })
 	)
 	if (!Arr.isReadonlyArrayNonEmpty(roles)) {

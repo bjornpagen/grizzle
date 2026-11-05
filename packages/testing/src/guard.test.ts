@@ -98,6 +98,10 @@ describe("a guarded hook", () => {
 				explore(
 					{
 						suite: "guard/meter",
+						oracle: {
+							kind: "second-implementation",
+							name: "a model of the meter that counts the time no wait is open"
+						},
 						draw: drawn(array(stepGen, { min: 0, max: 12 })),
 						literal: Formatter.format,
 						coverage: required<MeterFeature>(

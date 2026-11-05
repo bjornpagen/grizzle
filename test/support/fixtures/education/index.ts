@@ -194,9 +194,11 @@ const relations: Arr.NonEmptyReadonlyArray<RelationSpec> = [
  * The laws of the school system: every reference lands on what it names; a school's terms never overlap, and a
  * section's term is its own school's; an account is one student's, one teacher's and one guardian's at most; a student
  * and a profile come in pairs; a restriction restricts an existing guardianship; a student's stays in one section never
- * overlap, and a section never enrolls more than its capacity; a section seats 1 to 60; a mark is one per enrollment
- * and day, and an excused mark has exactly one note while no other mark has any. A grade's 0 to 100 points are its
- * field's contract, not a law.
+ * overlap; a section seats 1 to 60; a mark is one per enrollment and day, and an excused mark has exactly one note while
+ * no other mark has any. A grade's 0 to 100 points are its field's contract, not a law.
+ *
+ * A section's enrollments are not bounded by its capacity: that bound is a count against a field, which fin.md §6 states
+ * as a counted family of Enrollment over Section and a check of its count, and the world model states no family.
  */
 const laws: ReadonlyArray<LawSpec> = [
 	contained(side("School", ["district"]), side("District", ["id"])),
@@ -239,14 +241,6 @@ const laws: ReadonlyArray<LawSpec> = [
 		scalars: ["student", "section"],
 		span: "during",
 		spanAt: "first"
-	},
-	{
-		kind: "capacity",
-		target: side("Section", ["id"]),
-		source: side("Enrollment", ["section"]),
-		weight: { kind: "count" },
-		low: 0n,
-		high: { ref: "capacity" }
 	},
 	contained(side("Grade", ["enrollment"]), side("Enrollment", ["id"])),
 	contained(side("Attendance", ["enrollment"]), side("Enrollment", ["id"])),

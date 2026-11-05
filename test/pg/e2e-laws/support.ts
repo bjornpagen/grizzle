@@ -1,9 +1,8 @@
-import { Array as Arr, Effect, Formatter, Layer, Option, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, type Scope, String as Str } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { namedDetail } from "#compiler/ir/law.ts"
 import {
 	type AnyClosed,
 	type AnyLogin,
@@ -19,8 +18,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
-import { strictDetail } from "#test/support/detail.ts"
 import {
 	type Installed,
 	installMigrated as install,
@@ -102,9 +99,8 @@ export const bareFixture: OpenOptions = { facts: noFacts, after: [] }
 /**
  * Shared helpers of the law-bearing end-to-end suites.
  *
- * A fixture installs under a fresh schema name with its complete installation: the natives, its residual laws
- * (packages/engine/src/physical/laws) and its derived relations (packages/engine/src/physical/derived), as the fresh installer runs
- * them. Its facts
+ * A fixture installs under a fresh schema name with its complete installation: its native laws and its derived
+ * relations (packages/engine/src/physical/derived), as the fresh installer runs them. Its facts
  * load as the owner in one transaction, so every deferred law judges the loaded state at its COMMIT, and a schema value
  * of the fixture is rebuilt under the installed name from its own relations and statements, typed by them, so a Db
  * opened on it compiles to the installed objects and logs in as the installed logins (test/pg/reads/support.ts). The
@@ -198,18 +194,3 @@ export const failure = <A, E, R>(
 				: Effect.succeed(fields)
 		}
 	})
-
-/** The key texts of a law's DETAIL, through the law model's own codec, for a law of an installation. */
-export const decodedDetail = (
-	fixture: Fixture,
-	law: string,
-	detail: Option.Option<string>
-): ReadonlyArray<string> => {
-	const residual = Arr.findFirst(
-		fixture.installed.installation.laws.residuals,
-		(r) => r.lawId === law
-	)
-	assert.ok(Option.isSome(residual), `no residual law ${law}`)
-	assert.ok(Option.isSome(detail), `law ${law} raised without a DETAIL`)
-	return strictDetail(namedDetail(residual.value.detail), detail.value)
-}

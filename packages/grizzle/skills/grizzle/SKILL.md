@@ -247,17 +247,10 @@ commented at the end of the migration. Choosing the rename keeps the rows, and t
 - **A closed handle renamed in place** (as many handles before and after) is drafted as `ALTER TYPE ... RENAME VALUE`,
   so every row holding the old handle holds the new one. Its marker asks you to confirm: keep the rename and delete the
   marker. If the handle is removed rather than renamed, first change or delete the rows that hold it, before the rename.
-- **Closed handles removed or reordered** rebuild the enum in one Structure transaction, under a marker to confirm: a
-  new type under the enum's rebuild name with the new roster, every column converted to it, the old type dropped and the new one
-  renamed. A reorder keeps every row's handle. A removal has a placeholder per column: write the expression mapping
-  each removed handle to one of the new roster, such as `CASE "<field>"::"pg_catalog"."text" WHEN
-  '<removed>'::"pg_catalog"."text" THEN '<kept>'::"pg_catalog"."text" ELSE "<field>"::"pg_catalog"."text"
-  END::"<schema>"."<rebuilt enum>"`. Each table holding the type is rewritten under an ACCESS
-  EXCLUSIVE lock. CHECKs, foreign keys, partial indexes and the generated columns rules add over the type or its
-  columns are dropped first and created again after. A domain or a materialized view over the type, or a materialized
-  view reading a table of it, stops the draft: remove it first, change the handles, then declare it again. So does a
-  field whose type moves from one closed relation to another while the handles of both are removed or reordered:
-  change the field's type in one migration and the handles in another.
+- **Closed handles reordered** are refused before anything is drafted, by `generate` at the stage codes and by
+  `check`: a stored code never changes meaning, so append new handles; a roster's order is its codes' order. A removed
+  handle leaves its code unused; the migration validates the roster's domain again, which refuses every row still
+  holding the removed code, naming its table and column: change or delete those rows in a data step first.
 - **The schema's name names its PostgreSQL schema.** A schema renamed in code is a new, empty schema. When the
   migrations directory holds a schema the config no longer lists, the new schema's first migration drafts its `CREATE
   SCHEMA` commented, as a data loss: the old schema keeps its rows and is never migrated again. Uncomment it to start
@@ -366,10 +359,10 @@ every check, and refuses before connecting.
 | the schemas or their logins differ from snapshot.json (an ungenerated change) | run grizzle generate |
 | a workload program's access differs from snapshot.json (an ungenerated change) | run grizzle generate |
 | the schema or a login's workload does not compile | fix the schema or workload it names, then run grizzle generate |
+| the schema no longer holds a name snapshot.json holds, and no --drop or --rename declares what became of it | run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed |
+| a roster declares a handle before one that holds a lower code in snapshot.json | append new handles; a roster's order is its codes' order |
 | unresolved placeholder | write the value or the UPDATE, then delete the marker line |
-| unresolved rename candidate | keep the drop and add, or swap in the commented rename, then delete the marker line |
-| unresolved data loss: the statement that loses it is still commented, and no chosen candidate rename carries it | to lose the data, uncomment the statement below its -- grizzle: data loss line; to keep it, choose a candidate rename that carries it, as the line says |
-| a candidate rename is decided one way at one statement it marks and another way, or not as drafted, at another, or two chosen candidates rename one name | fix the file: choose the rename at every statement its markers name, as each marker says, or keep the drop and add at every one, and choose at most one rename for each name |
+| unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented | to start the new schema empty, uncomment the statement below its -- grizzle: data loss line; to keep the rows, keep the old schema's name and delete the folder |
 | snapshot.json does not decode as a snapshot, or is the snapshot of another schema | restore it from git |
 | meta.json does not decode as a migration's meta.json, or names another schema | restore it from git |
 | broken chain: this migration does not start where the previous one ends | regenerate; never hand-edit meta.json |
@@ -428,6 +421,7 @@ The command line's own refusals, by stage:
 | environment | unset the variable it names in the environment grizzle runs in, then run the command again |
 | filesystem | fix the migrations directory, then run grizzle check |
 | snapshot | restore snapshot.json and the migration folders from git |
+| codes | append new handles; a roster's order is its codes' order |
 | generate | fix the schema or workload it names, then run grizzle generate again |
 
 ## Deploy

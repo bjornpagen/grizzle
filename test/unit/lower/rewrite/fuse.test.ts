@@ -4,6 +4,7 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
@@ -78,7 +79,7 @@ const fused = (dag: RelDag): Ran => {
 			runPasses(query, passes, passContext({ catalog: ledgerCatalog, evidence: "snapshot" }))
 		)
 		deliversAlikeOn(databases, [Posting, Account], [], query, ran.query)
-		lowersConservatively(ran.query)
+		lowersConservatively(ran.query, emptyCodebook)
 		return ran
 	}
 	run([semanticSimplification, relationalRewrites])

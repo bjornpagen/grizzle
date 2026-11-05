@@ -21,6 +21,7 @@ import {
 	type LowerEnv,
 	lowerPredicate,
 	lowerTerm,
+	noClosedRelations,
 	noExtension
 } from "#compiler/scalar/compute/lower.ts"
 import { firstOperand, nativeOps } from "#compiler/scalar/compute/registry.ts"
@@ -254,7 +255,7 @@ const binaryFns: Readonly<Partial<Record<Carrier, ReadonlyArray<UnscaledComputeF
 	bool: ["least", "greatest"],
 	uuid: ["least", "greatest"],
 	text: ["least", "greatest"],
-	enum: ["least", "greatest"],
+	code: ["least", "greatest"],
 	/** pgvector's exact cosine distance, a double precision. */
 	vector: ["cosineDistance"]
 }
@@ -398,7 +399,8 @@ const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -428,17 +430,17 @@ const literalShy: ReadonlySet<ComputeFn> = new Set<ComputeFn>(["least", "greates
 const compareOpsList: ReadonlyArray<CompareOp> = ["eq", "ne", "lt", "le", "gt", "ge"]
 
 /**
- * Operands meet when they share a carrier, and an enum's roster (the generated types carry no contract), or when one is
- * an exact value of the other's family (types.ts meets).
+ * Operands meet when they share a carrier, and a closed id's roster (the generated types carry no contract), or when one
+ * is an exact value of the other's family (types.ts meets).
  */
 const meets = (a: ScalarType, b: ScalarType): boolean => {
 	if (baseOf(a).carrier !== baseOf(b).carrier) {
 		return engineMeets(a, b)
 	}
-	if (a.carrier !== "enum") {
+	if (a.carrier !== "code") {
 		return true
 	}
-	return b.carrier === "enum" && a.roster.closed === b.roster.closed
+	return b.carrier === "code" && a.roster.closed === b.roster.closed
 }
 
 /**
@@ -486,7 +488,7 @@ const resolveLeaf = (
 			: spelled === want.carrier
 				? want
 				: plainOf(spelled, want)
-		if (s.param && scope.params && want.carrier !== "enum") {
+		if (s.param && scope.params && want.carrier !== "code") {
 			return {
 				desc: { kind: "param", name: scope.param(s.value, at), type: fieldDescOf(at) },
 				type: want,
@@ -759,7 +761,8 @@ const lowerEnv = (heading: Heading, hooks: LowerHooks): LowerEnv => ({
 			: Result.ok(t)
 	},
 	regexMember,
-	extension: noExtension
+	extension: noExtension,
+	closed: noClosedRelations("a generated term reads no closed relation")
 })
 
 /** A column of the probed float alone, for provesNarrowing: no relation holds it, and no parameter is named. */

@@ -5,14 +5,27 @@ import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type {
 	Carrier,
 	ConstantOrigin,
+	DomainOf,
 	Facts,
+	FactsOf,
+	LanguageOf,
+	Meets,
+	ParamsOfEach,
 	Refusal,
 	Rostered,
-	Simplify,
+	SqlOfCarrier,
 	Source,
-	Term
+	Term,
+	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
-import type { FieldBase, HandleOf, SerialField } from "#compiler/types/fields/field.ts"
+import type {
+	Bits,
+	BitsField,
+	ClosedIdField,
+	FieldBase,
+	HandleOf,
+	SerialField
+} from "#compiler/types/fields/field.ts"
 
 /**
  * Whether a list of names repeats one. A widened string element proves nothing, and neither does a list whose length
@@ -32,6 +45,137 @@ type Repeats<K> = K extends readonly [infer H, ...infer Rest]
 export type DistinctFields<K> =
 	Repeats<K> extends true ? Refusal<"a key lists each field once"> : unknown
 
+/**
+ * The fields a primary key may list: no set, whose bit string is wider than an index entry holds (its datum is bounded
+ * by a roster's most codes), and none PostgreSQL or grizzle computes from the row it would identify.
+ */
+export type KeyFieldOf<Fields> = {
+	[K in keyof Fields]-?: Fields[K] extends
+		| BitsField<unknown>
+		| { readonly writing: "generated" | "accumulated" }
+		? never
+		: K
+}[keyof Fields] &
+	string
+
+/**
+ * Whether two facts of an array written out in the call share their values at the key fields K: a relation's facts,
+ * a ChangeSet's and a closed relation's rows alike, are a set, so two of one key are never two rows. Decided where the
+ * array is a tuple whose facts' key values are each one literal; a wider array or value, which no type tells apart, is
+ * the run time's to refuse.
+ */
+export type SharesKey<M, K extends ReadonlyArray<string>> = K extends readonly []
+	? false
+	: M extends ReadonlyArray<unknown>
+		? number extends M["length"]
+			? false
+			: RepeatsKey<M, K, never>
+		: false
+
+/**
+ * Whether a later fact of Facts repeats a key text: tail-recursive over chunks of sixteen facts, each chunk judged
+ * within itself (ChunkRepeats) and against the texts of the chunks before it, Seen. The chunks keep the recursion a
+ * sixteenth of the tuple's length, and each step's work is its chunk's.
+ */
+type RepeatsKey<Facts extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>, Seen> = Facts extends readonly [
+	infer A0, infer A1, infer A2, infer A3, infer A4, infer A5, infer A6, infer A7, infer A8, infer A9, infer A10, infer A11, infer A12, infer A13, infer A14, infer A15,
+	...infer Rest extends ReadonlyArray<unknown>
+]
+	? ChunkRepeats<readonly [A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15], K, Seen> extends true
+		? true
+		: RepeatsKey<Rest, K, Seen | ChunkTexts<readonly [A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15], K>>
+	: ChunkRepeats<Facts, K, Seen>
+
+/** A chunk's key texts: a fact whose key no single literal types has none. */
+type ChunkTexts<C extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>> = {
+	readonly [I in keyof C]: KeyText<C[I], K>
+}[number]
+
+/**
+ * Whether a chunk repeats a key text, within itself or of the texts Seen before it (SeenBefore). Within: each position claims its
+ * fact's key text in a record of that one text to the position, a unit type; merged into one record, two claims of one
+ * text meet in never, so the merged record is never.
+ */
+type ChunkRepeats<C extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>, Seen> = [
+	UnionToIntersection<KeyClaims<C, K>[number]>
+] extends [never]
+	? true
+	: true extends SeenBefore<C, K, Seen>
+		? true
+		: false
+
+/**
+ * Whether a chunk's fact has a key text Seen holds: one literal against a union of literals each, which the checker
+ * answers by lookup, so a step's work is its chunk's whatever Seen's size.
+ */
+type SeenBefore<C extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>, Seen> = {
+	readonly [I in keyof C]: [KeyText<C[I], K>] extends [never]
+		? false
+		: KeyText<C[I], K> extends Seen
+			? true
+			: false
+}[number]
+
+/** Each position's claim on its fact's key text; a fact whose key no single literal types claims nothing. */
+type KeyClaims<C extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>> = {
+	readonly [I in keyof C]: { readonly [T in KeyText<C[I], K>]: I }
+}
+
+/**
+ * A fact's key values as one text, when each is one literal: each value tagged by its kind and the values joined by
+ * NUL, which no storable text holds, so two texts are equal exactly when the key values are; never when a value is
+ * wider than one literal.
+ */
+type KeyText<H, K extends ReadonlyArray<string>> = K extends readonly [
+	infer F extends string,
+	...infer Rest extends ReadonlyArray<string>
+]
+	? F extends keyof H
+		? ValueText<H[F]> extends infer V extends string
+			? [V] extends [never]
+				? never
+				: Rest extends readonly []
+					? V
+					: KeyText<H, Rest> extends infer R extends string
+						? [R] extends [never]
+							? never
+							: `${V}\u0000${R}`
+						: never
+			: never
+		: never
+	: never
+
+/** One key value's text, tagged by its kind: never for a value no single literal types. */
+type ValueText<V> = [V] extends [never]
+	? never
+	: [V] extends [UnionToIntersection<V>]
+		? V extends string
+			? Readonly<Record<string, never>> extends Record<V, true>
+				? never
+				: `s${V}`
+			: V extends number
+				? number extends V
+					? never
+					: `n${V}`
+				: V extends bigint
+					? bigint extends V
+						? never
+						: `b${V}`
+					: V extends boolean
+						? boolean extends V
+							? never
+							: `t${V}`
+						: never
+		: never
+
+/** A roster lists each of its handles once (ir/desc.ts nonEmptyUniqueStrings). */
+export type DistinctHandles<H> =
+	Repeats<H> extends true ? Refusal<"a roster lists each handle once"> : unknown
+
+/** A set lists each of its handles once: a handle is in a set or not. */
+export type DistinctMembers<H> =
+	Repeats<H> extends true ? Refusal<"a set lists each of its handles once"> : unknown
+
 /** A side lists each of its terms once (ir/desc.ts SideDesc): a field and pred of it are two terms. */
 export type DistinctTerms<T> =
 	Repeats<T> extends true ? Refusal<"a side lists each term once"> : unknown
@@ -49,15 +193,16 @@ export interface AnyRelation {
 }
 
 /**
- * Ordinary and closed relations, facts and headings; closed relations are first-class facts. The builders relation and
- * closed are the typed schema facade's (schema/api.ts), written under these types over the admission cores of
- * packages/engine/src/schema. test/unit/schema pins the runtime behavior and test/types/schema the signatures.
+ * Ordinary relations, rosters and closed relations, facts and headings. The builders relation, relation.generated,
+ * closed and closed.relation are the typed schema facade's (schema/api.ts), written under these types over the
+ * admission cores of packages/engine/src/schema. test/unit/schema pins the runtime behavior and test/types/schema the
+ * signatures.
  *
  * A relation carries `fact`, the decoder of its facts, which its builder makes once from its fields (schema/record.ts
  * record): a fact is that decoder's output, Decoded<[Fields]> (core/decoder.ts), each field's value of its column's
- * host type. A closed relation's fact is its handle under `id`, from its roster's handle column, beside its payload.
- * Each carries its heading too, the record of carriers v mints its variables over: a relation's fields, and a closed
- * relation's id carrier beside its payload.
+ * host type, a generated field's included. A roster's fact is its handle under `id`, a closed relation's its row. Each
+ * carries its heading too, the record of carriers v mints its variables over: a relation's and a closed relation's
+ * fields, a roster's id carrier.
  */
 export interface Relation<
 	Name extends string,
@@ -72,86 +217,184 @@ export interface Relation<
 	readonly heading: Fields
 }
 
-/** The payload facts of a closed relation: one for every handle of its roster. */
-export type FactsOf<Handle extends string, Payload> = {
-	readonly [H in Handle]: FactOfFields<Payload>
-}
-
 /**
- * A closed relation is also a relation with heading { id: Handle } & Payload and primary key ["id"].
- * Handles keeps the roster as written, a non-empty tuple in declared order, which is comparison order and the order
- * the schema expands an alternatives law's arms in.
- * Any closed relation: the members every one has.
+ * A roster: the handles it introduces, a non-empty tuple in declared order, which is their codes' order and comparison
+ * order, and the order the schema expands an alternatives law's arms in. Its facts are its handles under `id`.
+ * Any roster: the members every one has.
  */
-export interface AnyClosed {
+export interface AnyRoster {
 	readonly kind: "closed"
 	readonly name: string
 	readonly handles: NonEmptyReadonlyArray<string>
-	readonly payload: unknown
-	readonly facts: unknown
 	readonly fact: RowDecoder<unknown>
 }
 
-export interface Closed<
+export interface Roster<
 	Name extends string,
-	Handle extends string,
-	Payload,
-	Handles extends NonEmptyReadonlyArray<Handle> = NonEmptyReadonlyArray<Handle>
-> extends AnyClosed {
+	Handles extends NonEmptyReadonlyArray<string>
+> extends AnyRoster {
 	readonly kind: "closed"
 	readonly name: Name
 	readonly handles: Handles
-	readonly payload: Payload
-	readonly facts: FactsOf<Handle, Payload>
-	readonly fact: RowDecoder<ClosedFactOf<Handle, Payload>>
-	readonly heading: ClosedId<Handle, Name> & Payload
+	readonly fact: RowDecoder<RosterFactOf<Handles[number]>>
+	readonly heading: ClosedId<Handles[number], Name>
 	/**
-	 * A member of the roster as a typed constant: a term of the roster's enum, whose one value, which its column
+	 * A member of the roster as a typed constant: a term of the roster's closed id, whose one value, which its column
 	 * delivers, is the member, and whose language is every handle, which a JavaScript value opposite it may be. It
-	 * stands wherever a term of the roster's enum stands. A method, so no member's name meets a property's.
+	 * stands wherever a term of the roster's closed id stands. A method, so no member's name meets a property's.
 	 */
-	readonly handle: <const M extends Handle>(
+	readonly handle: <const M extends Handles[number]>(
 		member: M
-	) => Term<Handle & Rostered<Name>, unknown, ConstantOrigin, "enum", M, Facts, Handle>
+	) => Term<
+		Handles[number] & Rostered<Name>,
+		unknown,
+		ConstantOrigin,
+		"code",
+		M,
+		Facts,
+		Handles[number]
+	>
 }
 
 /**
- * The id part of a closed relation's facts and heading: its roster's handle column under `id`, an enum, of the roster
- * Name's identity. A record type, so it is a part of a record (core/decoder.ts Part).
+ * The id part of a roster's facts and heading: its handle column under `id`, a closed id of the roster Name's
+ * identity. A record type, so it is a part of a record (core/decoder.ts Part).
  */
 export type ClosedId<Handle, Name extends string> = {
-	readonly id: Carrier<Handle, "enum", Handle & Rostered<Name>>
+	readonly id: Carrier<Handle, "code", Handle & Rostered<Name>>
 }
 
-/**
- * What a closed relation's fact decoder delivers: its handle under `id` beside its payload's fields. Fact reads it
- * flattened, which is mutually assignable with it.
- */
-type ClosedFactOf<Handle, Payload> = Decoded<[{ readonly id: Carrier<Handle, "enum"> }, Payload]>
+/** What a roster's fact decoder delivers: its handle under `id`. */
+type RosterFactOf<Handle> = Decoded<[{ readonly id: Carrier<Handle, "code"> }]>
 
 /**
- * The enum-only form closed(name, handles) returns: a closed relation with the empty payload, whose `with` adds one.
+ * A closed relation: rows over closed ids and open-typed values, fixed when the schema compiles. Its key is required
+ * and is closed ids, whose codes index its constant; a set lists every field. Any closed relation: the members every
+ * one has.
  */
-export interface EnumClosed<
+export interface AnyClosedRelation {
+	readonly kind: "closedRelation"
+	readonly name: string
+	readonly fields: unknown
+	readonly key: NonEmptyReadonlyArray<string>
+	readonly fact: RowDecoder<unknown>
+}
+
+/** The fields of a record of descriptors that are closed ids, the fields a closed relation's key may list. */
+export type ClosedIdFieldOf<Fields> = {
+	[K in keyof Fields]-?: Fields[K] extends ClosedIdField<AnyRoster> ? K : never
+}[keyof Fields] &
+	string
+
+/** A closed relation's fields beside its key: the payload, the fields C.at reads. */
+export type PayloadFieldOf<Fields, Key extends ReadonlyArray<string>> = Exclude<
+	keyof Fields & string,
+	Key[number]
+>
+
+/**
+ * What a key position of C.at and C.row takes: a term that meets the key field's closed id, or one of its roster's
+ * handles as a JavaScript value.
+ */
+export type KeyArgOf<F> = Meets<DomainOf<F>, SqlOfCarrier<F>> | LanguageOf<F>
+
+/** C.at's key: one argument per key field, in key order. */
+export type KeyTerms<Fields, Key extends ReadonlyArray<string>> = {
+	readonly [I in keyof Key]: Key[I] extends keyof Fields ? KeyArgOf<Fields[Key[I]]> : never
+}
+
+/** C.row's prefix: one argument per key field but the last, in key order, leaving the last field open. */
+export type KeyPrefixTerms<Fields, Key extends ReadonlyArray<string>> = Key extends readonly [
+	...infer Prefix extends ReadonlyArray<string>,
+	string
+]
+	? KeyTerms<Fields, Prefix>
+	: never
+
+/** The roster of a closed relation's last key field, the one C.row leaves open. */
+export type LastKeyRoster<Fields, Key extends ReadonlyArray<string>> = Key extends readonly [
+	...ReadonlyArray<string>,
+	infer Last extends keyof Fields
+]
+	? Fields[Last] extends ClosedIdField<infer C>
+		? C
+		: never
+	: never
+
+/**
+ * A closed read's arguments read no parameter: a closed read stands in a schema's predicates and in generation
+ * expressions, which have none.
+ */
+export type ParameterlessKey<A extends ReadonlyArray<unknown>> = [keyof ParamsOfEach<A>] extends [
+	never
+]
+	? unknown
+	: Refusal<"a schema predicate reads no parameter">
+
+/**
+ * A closed read's result, of domain D and SQL type Sql, with the facts F and language L of the field it reads. It
+ * delivers no value a decoder reads and is no variable a key reads: a closed read stands in predicates and generation
+ * expressions, never in a head, so neither its values nor its origin are stated.
+ */
+type ClosedRead<D, Sql extends SqlTag, F extends Facts, L> = Term<
+	D,
+	unknown,
+	unknown,
+	Sql,
+	unknown,
+	F,
+	L
+>
+
+export interface ClosedRelation<
 	Name extends string,
-	Handles extends NonEmptyReadonlyArray<string>
-> extends Closed<Name, Handles[number], unknown, Handles> {
-	readonly with: <const Payload extends Record<string, FieldBase>>(
-		payload: Payload,
-		facts: FactsOf<Handles[number], Payload>
-	) => Closed<Name, Handles[number], Payload, Handles>
+	Fields extends Readonly<Record<string, FieldBase>>,
+	Key extends NonEmptyReadonlyArray<keyof Fields & string>
+> extends AnyClosedRelation {
+	readonly kind: "closedRelation"
+	readonly name: Name
+	readonly fields: Fields
+	readonly key: Key
+	readonly rows: ReadonlyArray<FactOfFields<Fields>>
+	readonly fact: RowDecoder<FactOfFields<Fields>>
+	readonly heading: Fields
+	/**
+	 * C.at(field, k…): the relation applied as a function, payload field `field` of the row whose key is k…, of that
+	 * field's type. A key no row holds reads NULL, which a predicate's IS TRUE refuses and a generated column's NOT NULL
+	 * refuses: absence is never a value.
+	 */
+	readonly at: <const P extends PayloadFieldOf<Fields, Key>, const A extends KeyTerms<Fields, Key>>(
+		field: P,
+		...key: A & ParameterlessKey<A>
+	) => ClosedRead<
+		DomainOf<Fields[P]>,
+		SqlOfCarrier<Fields[P]>,
+		FactsOf<Fields[P]>,
+		LanguageOf<Fields[P]>
+	>
+	/**
+	 * C.row(k…): the last key field's values that complete the key prefix k…, as a set over that field's roster
+	 * (currying). The prefix is every key field but the last: a prefix that left two open would be no set over one
+	 * roster.
+	 */
+	readonly row: <const A extends KeyPrefixTerms<Fields, Key>>(
+		...prefix: A & ParameterlessKey<A>
+	) => ClosedRead<Bits<LastKeyRoster<Fields, Key>>, "bits", Facts, Bits<LastKeyRoster<Fields, Key>>>
 }
+
+/** Any closed relation of either form: a roster, which introduces handles, or a closed relation, which relates them. */
+export type AnyClosed = AnyRoster | AnyClosedRelation
 
 /** The host fact of a record of descriptors: the output of its fact decoder, each field's column's host value. */
 export type FactOfFields<Fields> = Decoded<[Fields]>
 
 /**
- * The host fact of a relation, closed relation, derived relation, or record of descriptors. A closed relation is
- * matched at its own name: its handle's domain is its roster's (Rostered<Name>), invariantly, so no other name meets it.
+ * The host fact of a relation, roster, closed relation, derived relation, or record of descriptors. A roster is matched
+ * at its own name: its handle's domain is its roster's (Rostered<Name>), invariantly, so no other name meets it.
  */
 export type Fact<R> =
-	R extends Closed<infer _Name, infer H, infer Payload>
-		? Simplify<{ readonly id: H } & FactOfFields<Payload>>
+	R extends Roster<infer _Name, infer Handles>
+		? { readonly id: Handles[number] }
 		: R extends { readonly fields: infer Fields }
 			? FactOfFields<Fields>
 			: R extends Phantom<{ readonly fields: infer Fields }>

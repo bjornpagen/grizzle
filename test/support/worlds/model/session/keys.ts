@@ -1,5 +1,5 @@
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { valueText } from "#test/pg/laws/families/model.ts"
+import { valueText } from "#test/support/laws/model.ts"
 import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import { keysOf } from "#test/support/worlds/model/session/writes.ts"
 import type {

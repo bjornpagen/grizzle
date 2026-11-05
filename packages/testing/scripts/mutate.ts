@@ -10,6 +10,7 @@ import {
 	Order,
 	Path,
 	Record as Rec,
+	Result,
 	Schema,
 	String as Str
 } from "effect"
@@ -25,7 +26,16 @@ import {
 	type TestRunResult,
 	type Vitest
 } from "vitest/node"
-import { applied, type Mutant, mutantsOf, OPERATORS, type Operator } from "#mutants.ts"
+import {
+	applied,
+	type KeptMutant,
+	keptApplied,
+	type Mutant,
+	mutantsOf,
+	noFamilies,
+	OPERATORS,
+	type Operator
+} from "#mutants.ts"
 import { fnv1a32, mix } from "#random.ts"
 import {
 	type OpenSuite,
@@ -37,7 +47,8 @@ import {
 import { type MutatedFile, type RealPath, realPathOf } from "#vitest/mutated-file.ts"
 
 /**
- * `pnpm mutate --package <dir> --file <path>... [--workers N]`: measures a package's suite by source mutation, a
+ * `pnpm mutate --package <dir> --file <path>... [--workers N]`, or `pnpm mutate --package <dir> --kept <file.json>`:
+ * measures a package's suite by source mutation, a
  * measurement and never a gate. A mutant is a value, a MutatedFile: one source file's canonical path and its mutated
  * text. Nothing is written to the checkout or anywhere else, and no second tree exists: the package's own tsconfig
  * is checked in process through TypeScript 7's native API, the target's text overlaid on one snapshot of the
@@ -50,8 +61,12 @@ import { type MutatedFile, type RealPath, realPathOf } from "#vitest/mutated-fil
  * Every mutant runs in a Vitest of its own, whose test files each run in a fresh process, so no process that loaded
  * one mutant's target loads another's; `--workers N` judges N mutants at once, each in its own Vitest. `--sample N`
  * judges N mutants drawn by `--seed`, which is also the suite's run seed; `--operator` and `--mutant` choose some;
- * `--list` prints them and runs nothing. A test that reads the target's source from disk, or loads it in a child
- * process of its own, sees the unmutated file.
+ * `--list` prints them and runs nothing. `--kept <file.json>` runs instead the kept mutants the file lists, each a
+ * hand-written `KeptMutant` (its name, its file, the original text it replaces once, its replacement and the test
+ * files that must kill it), against those test files alone: a kept mutant whose original no longer stands once in its
+ * file is stale, and one its killers pass on survived, the measurement "revert the fix and see the test fail" asks for,
+ * run on every call and never written to the tree. A test that reads the target's source from disk, or loads it in a
+ * child process of its own, sees the unmutated file.
  */
 class MutationRunRefused extends Schema.TaggedError<
 	MutationRunRefused,
@@ -64,15 +79,32 @@ const UNUSED: ReadonlySet<number> = new Set([6133, 6138, 6192, 6196, 6198, 6199,
 /** How many times the unmutated suite's run a mutant's run may take before it times out. */
 const DEADLINE_FACTOR = 10
 
-/** A mutant's verdict: its run's, timed against its deadline, or invalid when its program has a type error. */
-type Verdict = TimedVerdict | Readonly<{ kind: "invalid" }>
+/**
+ * A mutant's verdict: its run's, timed against its deadline, invalid when its program has a type error, or stale when
+ * it is a kept mutant whose original no longer stands once in its file.
+ */
+type Verdict = TimedVerdict | Readonly<{ kind: "invalid" }> | Readonly<{ kind: "stale" }>
 
 /** A mutant, and the file it makes of its target. */
-type Candidate = Readonly<{ mutant: Mutant; mutated: MutatedFile }>
+type Candidate = Readonly<{ mutant: Mutant<Operator>; mutated: MutatedFile }>
+
+/** The file of kept mutants `--kept` names: JSON, a list of `KeptMutant`s. */
+const KeptMutants = Schema.fromJsonString(
+	Schema.Array(
+		Schema.Struct({
+			name: Schema.String,
+			file: Schema.String,
+			original: Schema.String,
+			replacement: Schema.String,
+			killers: Schema.NonEmptyArray(Schema.String)
+		})
+	)
+)
 
 type Flags = Readonly<{
 	package: string
 	files: ReadonlyArray<string>
+	kept: Option.Option<string>
 	seed: number
 	sample: number
 	operators: ReadonlyArray<Operator>
@@ -81,7 +113,7 @@ type Flags = Readonly<{
 	workers: number
 }>
 
-const describe = (mutant: Mutant) =>
+const describe = (mutant: Mutant<Operator>) =>
 	`${mutant.id} ${mutant.file}:${String(mutant.line)}:${String(mutant.column)} ${mutant.operator} in ${mutant.fn}: ${Str.replaceAll("\n", " ")(mutant.original)} -> ${Str.replaceAll("\n", " ")(mutant.replacement)}`
 
 const refused = (message: string) => (cause: unknown) =>
@@ -271,7 +303,7 @@ const ownedFreshProcesses = (vitest: Vitest) => {
  */
 const suiteOf =
 	(pkg: RealPath, setup: string, seed: number) =>
-	(mutated: MutatedFile): OpenSuite<MutationRunRefused> =>
+	(mutated: MutatedFile, files: ReadonlyArray<string>): OpenSuite<MutationRunRefused> =>
 		Effect.suspend(() => {
 			const running = new Set<OwnedFork>()
 			return Effect.acquireRelease(
@@ -303,7 +335,7 @@ const suiteOf =
 				Effect.map((vitest) =>
 					Effect.map(
 						Effect.tryPromise({
-							try: () => vitest.start(),
+							try: () => vitest.start(Arr.copy(files)),
 							catch: refused("the suite did not run")
 						}),
 						verdictOf
@@ -320,10 +352,84 @@ const judgedEvery = Effect.sync(() => {
 	process.exitCode = 0
 })
 
+/**
+ * The kept mutants `keptFile` lists, each run against its killers alone: stale when its original no longer stands once
+ * in its file, invalid when its program has a type error, and otherwise its killers' verdict, timed against ten times
+ * their unmutated run, which must pass.
+ */
+const keptRun = Effect.fn("testing.mutate.kept")(function* (
+	pkg: RealPath,
+	keptFile: string,
+	seed: number
+) {
+	const fs = yield* FileSystem.FileSystem
+	const path = yield* Path.Path
+	const listed = yield* fs.readFileString(keptFile)
+	const kept: ReadonlyArray<KeptMutant> = yield* Schema.decodeEffect(KeptMutants)(listed).pipe(
+		Effect.mapError(refused(`${keptFile} is no list of kept mutants`))
+	)
+	const mistyped = yield* typecheckerOf(pkg)
+	const setupUrl = yield* Effect.try({
+		try: () => new URL(import.meta.resolve("#vitest/mutated-setup.ts")),
+		catch: refused("the mutation setup file did not resolve")
+	})
+	const setup = yield* path.fromFileUrl(setupUrl)
+	const suite = suiteOf(pkg, setup, seed)
+	yield* Console.log(
+		`mutate: ${String(kept.length)} kept mutants of ${keptFile}, TEST_SEED=${String(seed)}`
+	)
+	const judged = yield* Effect.forEach(kept, (mutant) =>
+		Effect.gen(function* () {
+			const target = yield* realPathOf(path.join(pkg, mutant.file))
+			const original = yield* fs.readFileString(target)
+			const mutatedText = keptApplied(mutant, original)
+			if (Result.isFailure(mutatedText)) {
+				yield* Console.log(`STALE ${mutant.name}: ${mutatedText.failure.message}`)
+				const stale: Verdict = { kind: "stale" }
+				return stale
+			}
+			const [unmutatedTime, unmutated] = yield* timedRun(
+				suite({ target, text: original }, mutant.killers)
+			)
+			if (unmutated.kind !== "survived") {
+				return yield* MutationRunRefused.make({
+					message: `${mutant.name}: its killers fail on the unmutated package: ${unmutated.by}`
+				})
+			}
+			const mutated: MutatedFile = { target, text: mutatedText.success }
+			const invalid = yield* mistyped(mutated)
+			const verdict: Verdict = invalid
+				? { kind: "invalid" }
+				: yield* verdictWithin(
+						suite(mutated, mutant.killers),
+						Duration.times(unmutatedTime, DEADLINE_FACTOR)
+					)
+			yield* Console.log(
+				`${mutant.name} ${mutant.file} ${verdict.kind}${verdict.kind === "killed" ? ` by "${verdict.by}"` : ""}`
+			)
+			return verdict
+		})
+	)
+	const count = (kind: Verdict["kind"]) =>
+		Arr.filter(judged, (verdict) => verdict.kind === kind).length
+	yield* Console.log(
+		`\nmutate: ${String(count("killed"))} killed, ${String(count("survived"))} survived, ${String(count("timeout"))} timed out, ${String(count("invalid"))} invalid, ${String(count("stale"))} stale, of ${String(kept.length)} kept mutants`
+	)
+	yield* judgedEvery
+})
+
 const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
 	const pkg = yield* realPathOf(flags.package)
+	if (Option.isSome(flags.kept)) {
+		return yield* keptRun(pkg, flags.kept.value, flags.seed)
+	}
+	if (!Arr.isReadonlyArrayNonEmpty(flags.files)) {
+		return yield* MutationRunRefused.make({
+			message: "name the files to mutate with --file, or the kept mutants to run with --kept"
+		})
+	}
 	const sources = yield* Effect.forEach(flags.files, (file) =>
 		Effect.gen(function* () {
 			const target = yield* realPathOf(path.join(pkg, file))
@@ -333,7 +439,7 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 	)
 	const perFile = yield* Effect.forEach(sources, (source) =>
 		Effect.map(
-			mutantsOf([source]),
+			mutantsOf([source], noFamilies),
 			Arr.map((mutant): Candidate => ({
 				mutant,
 				mutated: { target: source.target, text: applied(mutant) }
@@ -375,7 +481,7 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 	const setup = yield* path.fromFileUrl(setupUrl)
 	const suite = suiteOf(pkg, setup, flags.seed)
 	const [unmutatedTime, unmutated] = yield* timedRun(
-		suite({ target: first.value.target, text: first.value.text })
+		suite({ target: first.value.target, text: first.value.text }, [])
 	)
 	if (unmutated.kind !== "survived") {
 		return yield* MutationRunRefused.make({
@@ -394,7 +500,7 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 			if (invalid) {
 				return { kind: "invalid" } satisfies Verdict
 			}
-			return yield* verdictWithin(suite(mutated), deadline)
+			return yield* verdictWithin(suite(mutated, []), deadline)
 		}).pipe(
 			Effect.tap((verdict) =>
 				Console.log(
@@ -431,7 +537,8 @@ const mutate = Command.make(
 	"mutate",
 	{
 		package: Flag.String("package"),
-		files: Flag.String("file").pipe(Flag.atLeast(1)),
+		files: Flag.String("file").pipe(Flag.atLeast(0)),
+		kept: Flag.String("kept").pipe(Flag.optional),
 		seed: Flag.Int("seed").pipe(Flag.withDefault(1)),
 		sample: Flag.Int("sample").pipe(Flag.withDefault(0)),
 		operators: Flag.Literals("operator", OPERATORS).pipe(Flag.atLeast(0)),

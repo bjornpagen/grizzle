@@ -147,6 +147,9 @@ class Delivered {
 			case "plSpecial":
 			case "field":
 			case "regclass":
+			case "complement":
+			case "nullif":
+			case "subscript":
 				return undefined
 		}
 	}

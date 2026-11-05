@@ -266,12 +266,12 @@ export default defineGate({
 		Effect.gen(function* () {
 			const fx = yield* installFixture(Unions, programs, "benchunion", [])
 			const tasks = options.accounts * options.tasksPerAccount
-			const kindType = fx.enumType("Kind")
+			const kind = (handle: string) => fx.handle("Kind", handle)
 			yield* fill(fx, "Account", options.accounts, { id: "g::int8", region: "(g % 50)::int4" })
 			yield* fill(fx, "Task", tasks, {
 				id: "g::int8",
 				account: `(1 + (g - 1) / ${options.tasksPerAccount})::int8`,
-				kind: `(ARRAY['Open', 'Done', 'Held']::${kindType}[])[1 + g % 3]`,
+				kind: `(ARRAY[${kind("Open")}, ${kind("Done")}, ${kind("Held")}])[1 + g % 3]`,
 				title: "'task ' || g",
 				priority: "(g % 10)::int4",
 				due: "(g % 365)::int4"
@@ -316,8 +316,8 @@ export default defineGate({
 			const tc = (f: string) => fx.column("Task", f)
 			const mc = (f: string) => fx.column("Memo", f)
 			const ac = (f: string) => fx.column("Account", f)
-			const openSql = `SELECT t.${tc("id")} AS id, 'Open'::text AS kind, t.${tc("title")} AS title FROM ${T} AS t WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = 'Open'::${kindType}`
-			const doneSql = `SELECT t.${tc("id")} AS id, 'Done'::text AS kind, m.${mc("text")} AS text FROM ${T} AS t JOIN ${M} AS m ON m.${mc("task")} = t.${tc("id")} WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = 'Done'::${kindType}`
+			const openSql = `SELECT t.${tc("id")} AS id, 'Open'::text AS kind, t.${tc("title")} AS title FROM ${T} AS t WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = ${kind("Open")}`
+			const doneSql = `SELECT t.${tc("id")} AS id, 'Done'::text AS kind, m.${mc("text")} AS text FROM ${T} AS t JOIN ${M} AS m ON m.${mc("task")} = t.${tc("id")} WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = ${kind("Done")}`
 
 			/** R21, delivered. */
 			const union = compile(fx, activity, reading)
@@ -371,10 +371,10 @@ export default defineGate({
 								headingOf(consumed),
 								`SELECT DISTINCT f.id FROM (SELECT u.id FROM (` +
 									`SELECT t.${tc("id")} AS id, t.${tc("kind")} AS kind, t.${tc("title")} AS own FROM ${T} AS t ` +
-									`WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = 'Open'::${kindType} ` +
+									`WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = ${kind("Open")} ` +
 									`UNION ALL SELECT t.${tc("id")}, t.${tc("kind")}, m.${mc("text")} FROM ${T} AS t ` +
 									`JOIN ${M} AS m ON m.${mc("task")} = t.${tc("id")} ` +
-									`WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = 'Done'::${kindType}` +
+									`WHERE t.${tc("account")} = $1::bigint AND t.${tc("kind")} = ${kind("Done")}` +
 									`) AS u ORDER BY u.id, u.kind LIMIT 10) AS f`
 							),
 							params: [String(account)]

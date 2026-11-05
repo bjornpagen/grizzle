@@ -2,7 +2,9 @@ import type { Stream } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import { attachment, merge, type RecordField, type RowDecoder } from "#compiler/core/decoder.ts"
+import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -18,6 +20,8 @@ import {
 	type ReadBackDesc,
 	renameQueryParams
 } from "#compiler/ir/desc.ts"
+import type { Family } from "#compiler/ir/family.ts"
+import type { FamilyId } from "#compiler/ir/law.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { inReservedSpace, slotSpelling } from "#compiler/ir/slots.ts"
 import { schemaInfo } from "#compiler/query/build/heading.ts"
@@ -39,6 +43,7 @@ import {
 	builtOverOf,
 	higherOver,
 	isLevelOver,
+	levelOf,
 	overName
 } from "#compiler/write/changeset/levels.ts"
 import { type DeltaValue, delta, memberRelation } from "#compiler/write/delta/source.ts"
@@ -238,6 +243,15 @@ const kindRank: Readonly<Record<MemberState["kind"], number>> = { array: 0, stre
 /** The group of a member: its op and relation. An op is a word without a colon, so the first colon ends it. */
 const groupKey = (m: MemberState): string => `${m.op}:${m.relation}`
 
+/** The order of a canonical stratum's members: by relation, operation and kind, then a query member by its text. */
+const memberOrder: Order.Comparator<MemberState> = Order.combineAll([
+	Order.mapInput(Order.compareStrings, (m: MemberState) => m.relation),
+	Order.mapInput(Order.compareStrings, (m: MemberState) => m.op),
+	Order.mapInput(Order.compareNumbers, (m: MemberState) => kindRank[m.kind]),
+	(a: MemberState, b: MemberState) =>
+		a.kind === "query" && b.kind === "query" ? Order.compareStrings(a.text, b.text) : 0
+])
+
 /** The canonical form of one stratum's members (see `ChangeSetValue`).
  *
  * A stable sort: Streams of one group keep their order. */
@@ -271,16 +285,50 @@ const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<Me
 			}
 		}
 	}
-	const out = [...arrays.values(), ...streams, ...queries].toSorted(
-		Order.combineAll([
-			Order.mapInput(Order.compareStrings, (m: MemberState) => m.relation),
-			Order.mapInput(Order.compareStrings, (m: MemberState) => m.op),
-			Order.mapInput(Order.compareNumbers, (m: MemberState) => kindRank[m.kind]),
-			(a: MemberState, b: MemberState) =>
-				a.kind === "query" && b.kind === "query" ? Order.compareStrings(a.text, b.text) : 0
-		])
-	)
-	return Object.freeze(out)
+	return Object.freeze([...arrays.values(), ...streams, ...queries].toSorted(memberOrder))
+}
+
+/**
+ * The `s`-th canonical stratum with one member more, canonical again, as canonicalStratum would make it: the member
+ * after every member that sorts with or before it, which merges an array member into its group's, keeps a query member
+ * equal to one before it out, and places a Stream after its group's earlier Streams, at their count.
+ */
+const withMember = (
+	stratum: ReadonlyArray<MemberState>,
+	s: number,
+	m: MemberState
+): ReadonlyArray<MemberState> => {
+	let low = 0
+	let high = stratum.length
+	while (low < high) {
+		const middle = Math.floor((low + high) / 2)
+		if (memberOrder(defined(stratum[middle], "a member of the stratum"), m) <= 0) {
+			low = middle + 1
+		} else {
+			high = middle
+		}
+	}
+	const before = stratum[low - 1]
+	const sameGroup =
+		before !== undefined && before.kind === m.kind && groupKey(before) === groupKey(m)
+	if (sameGroup && before.kind === "array" && m.kind === "array") {
+		return Object.freeze(
+			stratum.with(low - 1, { ...before, facts: Object.freeze([...before.facts, ...m.facts]) })
+		)
+	}
+	if (sameGroup && before.kind === "query" && m.kind === "query" && before.text === m.text) {
+		return stratum
+	}
+	let earlier = 0
+	for (let at = low - 1; m.kind === "stream" && at >= 0; at--) {
+		const other = defined(stratum[at], "a member of the stratum")
+		if (other.kind !== "stream" || groupKey(other) !== groupKey(m)) {
+			break
+		}
+		earlier++
+	}
+	const member = m.kind === "stream" ? atSlot(m, streamSlot(s, m.op, m.relation, earlier)) : m
+	return Object.freeze(stratum.toSpliced(low, 0, member))
 }
 
 /** The slot of a stratum's array members of one op and relation, which are one input (`EnumeratedInput` spells
@@ -348,6 +396,12 @@ const placed = (members: ReadonlyArray<MemberState>, s: number): ReadonlyArray<M
 		})
 	)
 }
+
+/** Strata canonical and placed, each stratum's members at the slots their places name. */
+const canonicalStrata = (
+	strata: ReadonlyArray<ReadonlyArray<MemberState>>
+): ReadonlyArray<ReadonlyArray<MemberState>> =>
+	Object.freeze(strata.map((members, s) => placed(canonicalStratum(members), s)))
 
 /**
  * The Description and the inputs of a state's placed strata and read-backs: its members' and read-backs' own
@@ -474,7 +528,10 @@ const renameScope = (scope: Scope, rename: ReadonlyMap<string, string>): Scope =
 		bound.set(rename.get(name) ?? name, param)
 	}
 	return {
-		strata: scope.strata.map((stratum) => stratum.map((m) => renameMember(m, rename))),
+		strata: scope.strata.map((stratum) => {
+			const renamed = stratum.map((m) => renameMember(m, rename))
+			return renamed.every((m, i) => m === stratum[i]) ? stratum : canonicalStratum(renamed)
+		}),
 		reads: scope.reads.map((r) => renameRead(r, rename)),
 		bound
 	}
@@ -513,6 +570,9 @@ const combine = (
  * then each named, walking the members of each stratum in their canonical order with private names read as their
  * origins, and then the read-backs by name, so that the build order of the members does not show in the names. */
 const canonicalBindings = (scope: Scope): Scope => {
+	if (scope.bound.size === 0) {
+		return scope
+	}
 	/** One private parameter per origin and value. */
 	const merges = new Map<string, string>()
 	const kept: Array<[string, BoundParam]> = []
@@ -619,7 +679,7 @@ const make = <S, P, W extends string, Rd>(
 	decoder: RowDecoder<Rd>
 ): ChangeSetOf<S, P, W, Rd> & SchemaMember => {
 	const scope = canonicalBindings({ strata, reads, bound: boundParams })
-	const canonical = Object.freeze(scope.strata.map((s, i) => placed(canonicalStratum(s), i)))
+	const canonical = Object.freeze(scope.strata)
 	const bound: ReadonlyMap<string, BoundParam> = scope.bound
 	const { desc, inputs } = describe(over, canonical, scope.reads, bound)
 	const state: ChangeSetState = Object.freeze({
@@ -654,7 +714,7 @@ const make = <S, P, W extends string, Rd>(
 
 /** The schema a query value was written over, which must be a level of the ChangeSet's. */
 const requireLevel = (query: unknown, over: BuiltOver, label: string): void => {
-	const written = builtOverOf(queryState(query)?.schema.value)
+	const written = levelOf(queryState(query)?.schema.value)
 	if (written === undefined) {
 		throw malformed(label, "a query built by query(S) over a schema or a role")
 	}
@@ -756,7 +816,7 @@ const addMember = <S, P, W extends string, Rd>(
 	/** The member's parameters are free: a private parameter of that name moves out of its way. */
 	const scope = release(state, member.kind === "query" ? member.params : new Set())
 	const last = scope.strata.length - 1
-	const strata = scope.strata.map((s, i) => (i === last ? [...s, member] : s))
+	const strata = scope.strata.map((s, i) => (i === last ? withMember(s, i, member) : s))
 	return make(state.schema, state.over, strata, scope.reads, scope.bound, decoder)
 }
 
@@ -959,7 +1019,9 @@ const unionOf = <S, P, W extends string, R1, R2>(
 	const label = "ChangeSet.union"
 	const { top, x, y, bound, decoder } = combined(label, a, b, extra)
 	const n = Math.max(x.strata.length, y.strata.length)
-	const strata = indices(n).map((i) => [...(x.strata[i] ?? []), ...(y.strata[i] ?? [])])
+	const strata = canonicalStrata(
+		indices(n).map((i) => [...(x.strata[i] ?? []), ...(y.strata[i] ?? [])])
+	)
 	const reads = distinctReads(label, [...x.reads, ...y.reads])
 	return make(top.schema, top.over, strata, reads, bound, decoder)
 }
@@ -973,7 +1035,14 @@ const sequenceOf = <S, P, W extends string, R1, R2>(
 	const label = "ChangeSet.sequence"
 	const { top, x, y, bound, decoder } = combined(label, a, b, extra)
 	const reads = distinctReads(label, [...x.reads, ...y.reads])
-	return make(top.schema, top.over, [...x.strata, ...y.strata], reads, bound, decoder)
+	return make(
+		top.schema,
+		top.over,
+		canonicalStrata([...x.strata, ...y.strata]),
+		reads,
+		bound,
+		decoder
+	)
 }
 
 /** The constructor namespace, the public value itself: each constructor implemented under its
@@ -1010,3 +1079,134 @@ const over: ChangeSetOver = {
 		)
 }
 export const changeSetOver: ChangeSetOver = Object.freeze(over)
+
+/** An addition split along its relation's families: its own fields, and each family's member additions in order. */
+export interface NestedAddition {
+	readonly relation: string
+	/** The fact's own fields: every field but its families' count fields and the fields grizzle draws or accumulates. */
+	readonly fact: Readonly<Record<string, unknown>>
+	readonly families: ReadonlyArray<{
+		readonly family: FamilyId
+		readonly members: ReadonlyArray<NestedAddition>
+	}>
+}
+
+/** An addition whose shape breaks at `path`: the count fields and member positions from the addition down. */
+export interface ChangeSetRefusal {
+	readonly fault: Extract<ValueFault, "factShape">
+	readonly path: ReadonlyArray<string | number>
+}
+
+/** A fact found while splitting, with where its result goes: its slot, and its families' member slots in order. */
+interface Split {
+	readonly relation: string
+	readonly own: Readonly<Record<string, unknown>>
+	readonly families: ReadonlyArray<{
+		readonly family: FamilyId
+		readonly members: ReadonlyArray<number>
+	}>
+}
+
+/** The fields of `relation` grizzle writes itself, drawn or accumulated, as its families' relations state them. */
+const unwrittenFields = (relation: string, families: ReadonlyArray<Family>): ReadonlySet<string> =>
+	new Set(
+		families.flatMap((f) =>
+			[f.owner, f.member]
+				.filter((r) => r.name === relation)
+				.flatMap((r) =>
+					r.fields.flatMap((field) =>
+						field.writing.kind === "drawn" || field.writing.kind === "accumulated"
+							? [field.name]
+							: []
+					)
+				)
+		)
+	)
+
+/** A caller's fact read once as a plain record, or the refusal of anything else, a throwing getter among them. */
+const factRecord = (
+	value: unknown,
+	path: ReadonlyArray<string | number>
+): Result.Result<Readonly<Record<string, unknown>>, ChangeSetRefusal> =>
+	hostRead<Readonly<Record<string, unknown>>, ChangeSetRefusal>({ fault: "factShape", path }, () =>
+		isPlainRecord(value)
+			? Result.ok(Object.freeze({ ...value }))
+			: Result.err({ fault: "factShape", path })
+	)
+
+/**
+ * The addition `fact` of `relation` split along `families`: each family whose owner is the fact's relation holds its
+ * members as an array at the owner's count field, each member a fact of the family's member relation, split alike, so
+ * a tree's nodes nest to any depth. The walk is iterative, with no limit on the depth. A fact that is no plain record,
+ * or a count field that holds no array, is refused as factShape at its path. Each fact keeps its own fields, less its
+ * count fields and the fields grizzle draws or accumulates; encoding them is the program's, with the installation's
+ * codes.
+ */
+export const encodeAddition = (
+	relation: string,
+	fact: unknown,
+	families: ReadonlyArray<Family>
+): Result.Result<NestedAddition, ChangeSetRefusal> => {
+	const splits: Array<Split | undefined> = [undefined]
+	const pending: Array<{
+		readonly relation: string
+		readonly value: unknown
+		readonly path: ReadonlyArray<string | number>
+		readonly slot: number
+	}> = [{ relation, value: fact, path: [], slot: 0 }]
+	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+		const read = factRecord(next.value, next.path)
+		if (!read.ok) {
+			return read
+		}
+		const owned = families.filter((f) => f.owner.name === next.relation)
+		const counts = new Set(owned.map((f) => f.count.name))
+		const unwritten = unwrittenFields(next.relation, families)
+		const own = Object.freeze(
+			Object.fromEntries(
+				Object.entries(read.value).filter(([name]) => !counts.has(name) && !unwritten.has(name))
+			)
+		)
+		const groups: Array<{ readonly family: FamilyId; readonly members: ReadonlyArray<number> }> = []
+		for (const family of owned) {
+			const at = [...next.path, family.count.name]
+			const members = read.value[family.count.name]
+			if (!isList(members)) {
+				return Result.err({ fault: "factShape", path: at })
+			}
+			const list: ReadonlyArray<unknown> = members
+			const slots = list.map((member, position) => {
+				const slot = splits.length
+				splits.push(undefined)
+				pending.push({
+					relation: family.member.name,
+					value: member,
+					path: [...at, position],
+					slot
+				})
+				return slot
+			})
+			groups.push({ family: family.id, members: slots })
+		}
+		splits[next.slot] = { relation: next.relation, own, families: groups }
+	}
+	const built: Array<NestedAddition | undefined> = splits.map(() => undefined)
+	for (let slot = splits.length - 1; slot >= 0; slot -= 1) {
+		const split = defined(splits[slot], "every slot the walk reserved is split")
+		built[slot] = Object.freeze({
+			relation: split.relation,
+			fact: split.own,
+			families: Object.freeze(
+				split.families.map((g) =>
+					Object.freeze({
+						family: g.family,
+						members: Object.freeze(
+							g.members.map((m) => defined(built[m], "a member's slot follows its owner's"))
+						)
+					})
+				)
+			)
+		})
+	}
+	return Result.ok(defined(built[0], "the addition's own slot"))
+}

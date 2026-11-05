@@ -50,6 +50,11 @@ describe("a mutant's verdict", () => {
 				exhaust(
 					{
 						suite: "mutant verdict",
+						oracle: {
+							kind: "specification",
+							name: "the verdict a run that ends each way must get, however long its workers take to stop"
+						},
+						box: "every ending of a run, with a quick and a slow stop",
 						generator: (source) => ({
 							ending: source.draw(element(ENDINGS)),
 							slowStop: source.draw(boolean)

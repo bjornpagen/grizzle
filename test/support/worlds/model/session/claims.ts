@@ -1,5 +1,5 @@
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
-import { valueText } from "#test/pg/laws/families/model.ts"
+import { valueText } from "#test/support/laws/model.ts"
 import { roleContexts } from "#test/support/worlds/model/session/state.ts"
 import type {
 	BaseSpec,

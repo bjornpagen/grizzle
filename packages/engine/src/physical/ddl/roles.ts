@@ -18,11 +18,14 @@ import {
 	conversionOf,
 	type Identity,
 	identifierOf,
-	identity
+	identity,
+	parseDeclaredName
 } from "#compiler/core/identity.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
+	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -39,17 +42,21 @@ import type {
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { DeployPhase, LogicalQuery } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import { baseOf, contractOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
-import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type { AdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
+import { namesConstant } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { structuralRegex, type TextColumnUse } from "#compiler/physical/ddl/domains.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
-import { loginIdentity, roleIdentity, roleView } from "#compiler/physical/ddl/names.ts"
-import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
+import { loginIdentity, missing, roleIdentity, roleView } from "#compiler/physical/ddl/names.ts"
+import {
+	derivedReading,
+	type LoweredDefinition,
+	lowerDefinition
+} from "#compiler/physical/derived/definition.ts"
 import {
 	enforcement,
 	type Node,
@@ -90,6 +97,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
+import { nameOf } from "#compiler/sql/constants.ts"
 import { printStartupOptions } from "#compiler/sql/print.ts"
 import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
@@ -168,11 +176,11 @@ export interface WorldsPlan {
 	readonly worlds: ReadonlyArray<InstalledLogin>
 }
 
-/** A type columns are typed by: its name, the identity it was minted from, and its object, when the installation
+/** A domain columns are typed by: its name, the identity it was minted from, and its object, when the installation
  * creates one. */
 interface UsedType {
 	readonly name: ObjectName
-	readonly identity: Identity<"enum" | "contractDomain" | "textDomain">
+	readonly identity: Identity<"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain">
 	readonly node: Node<"setup"> | undefined
 }
 
@@ -182,33 +190,45 @@ const sortedNames = (m: ReadonlyMap<string, UsedType>): ReadonlyArray<ObjectName
 		.toSorted((a, b) => compareIdentities(a.identity, b.identity))
 		.map((use) => use.name)
 
-/** The enums and domains columns are typed by, by name, and whether one is a vector. */
+/** The domains columns are typed by, by name, and whether one is a vector. */
 interface TypeUse {
-	readonly enums: Map<string, UsedType>
 	readonly domains: Map<string, UsedType>
 	vector: boolean
 }
 
-const emptyUse = (): TypeUse => ({ enums: new Map(), domains: new Map(), vector: false })
+const emptyUse = (): TypeUse => ({ domains: new Map(), vector: false })
 
-/** The enums and domains a column of type `t` names, down a contract's base chain and a span's endpoint. */
+/** The domains a column of type `t` names, down a contract's base chain and a span's endpoint: a contract's, a text
+ * refinement's, a closed id's roster domain and a set's bits domain. */
 const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const contract = contractOf(t)
 	if (contract !== undefined) {
 		const name = b.names.contractDomain(contract.name)
 		use.domains.set(name.name, {
 			name,
-			identity: identity.contractDomain(contract.name),
+			identity: b.names.contractNamed(contract.name),
 			node: b.typeNamed(name)
 		})
 		useType(b, contract.base, use)
 		return
 	}
-	if (t.carrier === "enum") {
-		const name = b.names.enumType(t.roster.closed)
-		use.enums.set(name.name, {
+	if (t.carrier === "code") {
+		const name = b.names.rosterDomain(t.roster.closed)
+		use.domains.set(name.name, {
 			name,
-			identity: identity.enumType(t.roster.closed),
+			identity: identity.rosterDomain(t.roster.closed),
+			node: b.typeNamed(name)
+		})
+	}
+	if (t.carrier === "bits") {
+		const name = b.names.bitsDomain(t.roster.closed)
+		const codec = defined(
+			b.names.codes.rosters.get(t.roster.closed),
+			"the codebook holds every roster"
+		)
+		use.domains.set(name.name, {
+			name,
+			identity: identity.bitsDomain(t.roster.closed, codec.size),
 			node: b.typeNamed(name)
 		})
 	}
@@ -222,12 +242,9 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const regex = structuralRegex(t)
 	if (regex !== undefined) {
 		const name = b.names.textDomain(regex)
-		if (name !== undefined) {
-			use.domains.set(name.name, {
-				name,
-				identity: identity.textDomain(regex.key),
-				node: b.typeNamed(name)
-			})
+		const named = b.names.textNamed(regex)
+		if (name !== undefined && named !== undefined) {
+			use.domains.set(name.name, { name, identity: named, node: b.typeNamed(name) })
 		}
 	}
 }
@@ -244,7 +261,7 @@ const useColumns = (
 }
 
 /** The objects a world object's statements read: every relation, type and function they name that the installation
- * has created so far (a table, a materialized view, a view, an enum, a domain, a function), each once. A world object
+ * has created so far (a table, a materialized view, a view, a domain, a function, a constant), each once. A world object
  * waits for each, so a change to any of them (a conversion, a rebuild, a recreated view) drops it first and creates it
  * again after (`worldChangesOf`): PostgreSQL refuses to convert, drop or rename what a view, a policy or a function
  * body reads beneath it. A statement's own object is added after its reads, so it is none of them. */
@@ -268,7 +285,7 @@ const readsOf = (
 				space === "relation"
 					? ["table", "materializedView", "view"]
 					: space === "type"
-						? ["enum", "domain"]
+						? ["domain"]
 						: space === "function"
 							? ["function"]
 							: [],
@@ -278,7 +295,7 @@ const readsOf = (
 		},
 		typeRef: (type) => {
 			if (type.kind === "named") {
-				note(["enum", "domain"], { schema: type.schema, name: type.name })
+				note(["domain"], { schema: type.schema, name: type.name })
 			}
 			return type
 		},
@@ -400,7 +417,7 @@ interface WorldsContext {
 	/** The schema's installed keys and containments, as every compilation sees them, with the derived relations'
 	 * inherited keys; the transaction evidence context both lowerings run in admits only what holds at every statement. */
 	readonly catalog: EvidenceCatalog
-	readonly lower: (relation: string, query: LogicalQuery) => Select
+	readonly lower: (relation: string, query: LogicalQuery) => LoweredDefinition
 }
 
 const worldsContext = (b: InstallBuilder): WorldsContext => {
@@ -413,7 +430,7 @@ const worldsContext = (b: InstallBuilder): WorldsContext => {
 		checked,
 		catalog,
 		lower: (relation, query) =>
-			unwrap(lowerDefinition(relation, query, { names: b.names, catalog })).query
+			unwrap(lowerDefinition(relation, query, { names: b.names, catalog }))
 	}
 }
 
@@ -476,7 +493,48 @@ interface ViewPlan {
 	readonly heading: ReadonlyArray<HeadingColumn>
 }
 
-/** The view of a whole entry: every column of its table or materialized view, in heading order. */
+/** A view's column and what it reads: a heading column's own value, or the decoded name beside a closed id's. */
+interface ViewColumn {
+	readonly name: string
+	readonly value: Expr
+}
+
+/**
+ * A view's columns over the heading `heading`, each column `c` read as `read(c)` under its view name `columnName(c)`: each
+ * closed id followed by its decoded column, `<field>_name`, the handle its code names, read from its roster's names
+ * constant, `(N())[c + 1]::text` (E2, D12). A set has no decoded column (OPEN-4).
+ */
+const viewColumns = <C extends HeadingColumn>(
+	b: InstallBuilder,
+	heading: NonEmptyReadonlyArray<C>,
+	columnName: (c: C) => string,
+	read: (c: C, position: number) => Expr
+): NonEmptyReadonlyArray<ViewColumn> => {
+	const columns = mapNonEmpty(heading, (c, position): NonEmptyReadonlyArray<ViewColumn> => {
+		const own: ViewColumn = { name: columnName(c), value: read(c, position) }
+		const base = baseOf(c.type)
+		if (base.carrier !== "code") {
+			return [own]
+		}
+		const field = parseDeclaredName(c.name)
+		if (!field.ok) {
+			return missing(
+				`physical: the closed id field ${JSON.stringify(c.name)}, a name ${field.error}`
+			)
+		}
+		return [
+			own,
+			{
+				name: b.name(identity.decodedColumn(field.value)),
+				value: nameOf(namesConstant(b, base.roster.closed), own.value)
+			}
+		]
+	})
+	return extendNonEmpty(columns[0], columns.slice(1).flat())
+}
+
+/** The view of a whole entry: every column of its table or materialized view, in heading order, each closed id with
+ * its decoded column after it. */
 const wholeView = (
 	b: InstallBuilder,
 	name: ObjectName,
@@ -485,16 +543,21 @@ const wholeView = (
 	read: Node<"setup" | "structure"> | undefined
 ): ViewPlan => {
 	const source = b.names.relation(relation)
-	const columns = mapNonEmpty(heading, (c) => b.names.column(relation, c.name))
+	const columns = viewColumns(
+		b,
+		heading,
+		(c) => b.names.column(relation, c.name),
+		(c) => col("r1", b.names.column(relation, c.name))
+	)
 	return {
 		create: {
 			kind: "createView",
 			name,
-			columns,
+			columns: mapNonEmpty(columns, (c) => c.name),
 			/** Every row and column of what it reads: it hides nothing, so no barrier keeps a reader's quals out. */
 			barrier: false,
 			query: simpleSelect(
-				columns.map((c) => target(col("r1", c))),
+				columns.map((c) => target(c.value)),
 				[table(source.schema, source.name, "r1")],
 				undefined
 			)
@@ -504,7 +567,9 @@ const wholeView = (
 	}
 }
 
-/** The view of a query entry: its definition, lowered, behind a security barrier. */
+/** The view of a query entry: its definition, lowered, behind a security barrier. A definition with a closed id in its
+ * heading is read as a derived table under generated names (physical/derived/definition.ts readAsDerived), whose every
+ * column the view passes on, each closed id with its decoded column after it. */
 const worldView = (
 	b: InstallBuilder,
 	cx: WorldsContext,
@@ -513,15 +578,39 @@ const worldView = (
 	e: OwnedWorldEntry,
 	analysis: WorldAnalysis
 ): ViewPlan => {
-	const columns = mapNonEmpty(analysis.heading, (c) => b.name(identity.column(c.name)))
+	const entry = `${role.name}.${e.name}`
+	const lowered = cx.lower(entry, analysis.query)
+	const decodes = analysis.heading.some((c) => baseOf(c.type).carrier === "code")
+	const reading = decodes
+		? unwrap(derivedReading(lowered, `the decoded view of ${entry}`))
+		: undefined
+	const columns =
+		reading === undefined
+			? undefined
+			: viewColumns(
+					b,
+					analysis.heading,
+					(c) => b.name(identity.column(c.name)),
+					(_, position) => reading.read(position)
+				)
 	return {
 		create: {
 			kind: "createView",
 			name,
-			columns,
+			columns:
+				columns === undefined
+					? mapNonEmpty(analysis.heading, (c) => b.name(identity.column(c.name)))
+					: mapNonEmpty(columns, (c) => c.name),
 			/** The facts of its definition, which hides the others: a barrier keeps a reader's quals after its own. */
 			barrier: true,
-			query: cx.lower(`${role.name}.${e.name}`, analysis.query)
+			query:
+				reading === undefined || columns === undefined
+					? lowered.query
+					: simpleSelect(
+							columns.map((c) => target(c.value)),
+							[reading.from],
+							undefined
+						)
 		},
 		reads: analysis.reads.flatMap((read) => {
 			const object = b.readObject(read)
@@ -649,8 +738,17 @@ const writePlan = (
 	const tableName = b.names.relation(relation)
 	const column = (field: LawField): string => b.names.column(relation, field.name)
 	const all = written.fields.map(column)
+	/** The columns a write names: every field but a generated one, the caller's and those grizzle writes for it (a
+	 * serial field's explicit value, a family's drawn index and count, a fold's accumulator), then the drawn law columns
+	 * grizzle writes (D14). A generated field, which PostgreSQL computes, takes no INSERT or UPDATE. */
+	const insertable = [
+		...written.fields.filter((f) => f.writing.kind !== "generated").map(column),
+		...drawnColumnsOf(b, relation)
+	]
 	const updatable = written.mutable
-		? [...writable.head.values()].flatMap((h) => (takesUpdate[h.kind] ? [column(h.field)] : []))
+		? [...writable.head.values()].flatMap((h) =>
+				takesUpdate[h.kind] && h.field.writing.kind !== "generated" ? [column(h.field)] : []
+			)
 		: []
 	const columnGrant = (
 		privilege: ColumnPrivilege,
@@ -661,7 +759,7 @@ const writePlan = (
 			: []
 	const grants: ReadonlyArray<SqlStatement> = [
 		...columnGrant("SELECT", all),
-		...columnGrant("INSERT", all),
+		...columnGrant("INSERT", insertable),
 		...columnGrant("UPDATE", updatable),
 		grant(["DELETE"], { kind: "TABLE", names: [tableName] }),
 		...advanceGrants
@@ -690,9 +788,10 @@ const writePlan = (
 		{ names: b.names, params: [], subject: { kind: "query" } },
 		dispatchNode
 	)
-	/** A unique object's guards over one side's values (write/insert/unique.ts withinRow). */
-	const within = (u: UniqueObject, of: (field: LawField) => Expr): ReadonlyArray<Expr> =>
-		withinRow(guardCx, u, of)
+	/** A probed object's guards over one side's values (write/insert/unique.ts withinRow): a declared key's none, since
+	 * it holds every fact apart. */
+	const within = (probed: OutsideProbe, of: (field: LawField) => Expr): ReadonlyArray<Expr> =>
+		probed.kind === "unique" ? withinRow(guardCx, probed.object, of) : []
 	/** A probe by its identity of its parameters (write/insert/unique.ts probeIdentity, probeParams), each at its base
 	 * type, true where a fact of T outside the entry meets them at its object: within its guards on both sides, equal
 	 * at its compared fields, overlapping at its span. */
@@ -740,8 +839,8 @@ const writePlan = (
 								and(
 									appendNonEmpty(
 										[
-											...within(u, stored),
-											...within(u, given),
+											...within(probed, stored),
+											...within(probed, given),
 											...u.equal.map((f) => binary("=", stored(f), given(f))),
 											...(u.kind === "span" ? [binary("&&", stored(u.span), given(u.span))] : [])
 										],
@@ -869,15 +968,53 @@ interface RoleOutcome {
 	readonly views: ReadonlyArray<ObjectName>
 }
 
-/** The objects of the enums and domains `use` holds, each the installation creates. */
+/** The objects of the domains `use` holds, each the installation creates. */
 const usedNodes = (use: TypeUse): ReadonlyArray<Node<"setup">> =>
-	[...use.enums.values(), ...use.domains.values()].flatMap((t) =>
-		t.node === undefined ? [] : [t.node]
+	[...use.domains.values()].flatMap((t) => (t.node === undefined ? [] : [t.node]))
+
+/** The drawn law columns of `relation`, in the law model's order: columns the host writes beside the caller's fields. */
+const drawnColumnsOf = (b: InstallBuilder, relation: string): ReadonlyArray<string> =>
+	b.natives.flatMap(({ object: o }) =>
+		o.kind === "LawColumn" && o.value.kind === "drawn" && o.relation.name === relation
+			? [o.column]
+			: []
 	)
 
+/**
+ * The constants a role is granted EXECUTE on, with their objects (InstallBuilder.reached): every one a statement it runs
+ * calls, directly or through another constant's body, since PostgreSQL checks EXECUTE against the invoker. Those are the
+ * CHECKs of the domains its columns are typed by, which a write and a cast to the domain run; the table it writes, its
+ * CHECKs and generated columns; its views' columns, a closed id's decoded name among them; and every closed relation's
+ * constants, which its queries' closed reads call.
+ */
+const roleExecutes = (
+	b: InstallBuilder,
+	use: TypeUse,
+	written: ReadonlyArray<string>,
+	views: ReadonlyArray<SqlStatement>
+): ReadonlyArray<{ readonly name: FunctionName; readonly node: Node<"setup"> }> => {
+	const statements = [
+		...[...use.domains.values()].flatMap((t) => (t.node === undefined ? [] : t.node.ddl)),
+		...written.flatMap((relation) => b.table(relation).ddl),
+		...views
+	]
+	const closed = Object.values(b.owned.relations).flatMap((r) => {
+		if (r.kind !== "closedRelation") {
+			return []
+		}
+		const c = b.names.closed(r.name)
+		return [
+			c.function.name,
+			c.keys.name,
+			...c.payload.flatMap((p) => (p.dictionary === undefined ? [] : [p.dictionary.name]))
+		]
+	})
+	return b.reached([...b.callsOf(statements), ...closed])
+}
+
 /** One role's theory role, schema, views, filter functions, key and unique probes and grants, and its writable entries,
- * whose policies `addRowSecurity` adds. A closed whole entry has no view: its facts are read as literals, typed by its
- * enum and its payloads' domains, which the role uses. The filter function a policy calls, then the probes, each come
+ * whose policies `addRowSecurity` adds. A roster whole entry has no view: its handles are read as codes, typed by its
+ * domain, which the role uses. The filter function a policy calls, then the probes, each come
  * after every relation, type and function their statements read. */
 const addRole = (
 	b: InstallBuilder,
@@ -934,6 +1071,7 @@ const addRole = (
 	})
 
 	const views: Array<ObjectName> = []
+	const viewStatements: Array<SqlStatement> = []
 	for (const r of checked.entries.map(roleRelation)) {
 		if (r.kind === "closed") {
 			useColumns(b, r.relation.fields, use)
@@ -954,6 +1092,7 @@ const addRole = (
 		)
 		useColumns(b, plan.heading, use)
 		views.push(plan.create.name)
+		viewStatements.push(plan.create)
 		after.push(view)
 	}
 
@@ -1001,10 +1140,6 @@ const addRole = (
 	if (use.vector) {
 		privileges.push(grant(["USAGE"], { kind: "SCHEMA", names: [b.settings.vectorSchema] }))
 	}
-	const enums = sortedNames(use.enums)
-	if (isNonEmpty(enums)) {
-		privileges.push(grant(["USAGE"], { kind: "TYPE", names: enums }))
-	}
 	const domains = sortedNames(use.domains)
 	if (isNonEmpty(domains)) {
 		privileges.push(grant(["USAGE"], { kind: "DOMAIN", names: domains }))
@@ -1019,6 +1154,17 @@ const addRole = (
 	if (refuses) {
 		privileges.push(grant(["EXECUTE"], { kind: "FUNCTION", names: [refusalFunction(b.schema)] }))
 	}
+	const executes = roleExecutes(
+		b,
+		use,
+		roleWrites(checked).map((w) => w.relation.name),
+		viewStatements
+	)
+	if (isNonEmpty(executes)) {
+		privileges.push(
+			grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(executes, (e) => e.name) })
+		)
+	}
 	b.add(
 		{
 			kind: "privileges",
@@ -1027,7 +1173,7 @@ const addRole = (
 			reasons: why,
 			phase: "publish"
 		},
-		[...after, ...usedNodes(use)]
+		[...after, ...usedNodes(use), ...executes.map((e) => e.node)]
 	)
 	return {
 		installed: { name: role.name, role: theory, schema },
@@ -1196,8 +1342,9 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   definition lowering (`lowerDefinition`), which reads a context where it stands, `CREATE VIEW ... WITH (security_barrier)`, so no qual a reader adds runs before its own
  *   and no error such a qual raises shows a row outside it. A whole entry's view reads every row and column of its
  *   table (or its materialized view) and hides nothing, so it is a plain view, which PostgreSQL flattens into the
- *   reader's query, pushing its quals to the table's indexes and keeping SSI's read locks to the rows read. A closed
- *   whole entry has no view: every query reads a closed relation's facts as typed literals;
+ *   reader's query, pushing its quals to the table's indexes and keeping SSI's read locks to the rows read. Every
+ *   closed id column of a view is followed by its decoded column, `<field>_name`, its roster's names constant's element
+ *   at the code plus one. A roster whole entry has no view: every query reads a roster's handles as codes;
  * - per writable entry on a table T under row security (below), one policy on T, named for the role and T, `FOR ALL TO
  *   <role> USING (m) WITH CHECK (m)`, where m is the entry's membership (`renderMembership`): TRUE for a whole entry
  *   and for a query entry whose filter is none, and for any other query entry `fixed ∧ w` over T's row, an existence
@@ -1218,8 +1365,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   the object's predicate. A write's precheck calls each for the facts it submits and refuses a collision with a
  *   hidden fact under the object's law, in the same statement;
  * - its privileges: USAGE on the base schema, on its own schema, on the vector extension's schema when a relation it
- *   reads or writes holds a vector column, and on the enums and domains its relations' columns are typed by, down a
- *   contract's base chain and structural text domains alike, which a write's carriers name;
+ *   reads or writes holds a vector column, and on the domains its relations' columns are typed by, down a contract's
+ *   base chain, roster, bits and structural text domains alike, which a write's carriers name;
  *   SELECT on each of its views; MAINTAIN on the materialized view of each derived relation it refreshes, which
  *   REFRESH MATERIALIZED VIEW checks. For each writable entry on T: a whole entry's table SELECT, INSERT and DELETE,
  *   and UPDATE when its relation is mutable, so an UPDATE of an immutable relation is refused by privilege (immutable by
@@ -1229,8 +1376,11 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   identity sequence past explicit values, since no role holds a privilege on a sequence; EXECUTE on its filter
  *   functions and key and unique probes. EXECUTE on the refusal function to a role that writes or reads a context: its
  *   context sources refuse an unreadable claims setting through it, and PostgreSQL checks EXECUTE on every function of
- *   a plan as the plan starts, a branch never taken included. TRUNCATE is granted to no one, and no role holds a
- *   privilege on a base table it does not write.
+ *   a plan as the plan starts, a branch never taken included. EXECUTE on every constant a statement it runs calls,
+ *   through constants' bodies (`roleExecutes`): the CHECKs of the domains it holds USAGE on, the CHECKs and generated
+ *   columns of the tables it writes, its views' decoded columns, and every closed relation's constants, which its
+ *   queries' closed reads call. TRUNCATE is granted to no one, and no role holds a privilege on a base table it does
+ *   not write.
  *
  * Row security is enabled on exactly the tables some role writes through a query entry with a filter, once their
  * policies stand, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`; its owner, the migration identity, bypasses it, and FORCE
@@ -1238,7 +1388,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  * TRUE, and the grants already decide every write (`addRowSecurity`).
  *
  * For the schema as a whole: REVOKE ALL ... FROM PUBLIC on the base schema and every role's schema, every table and
- * view, every identity sequence, every enum and every domain, so PUBLIC holds nothing on any schema object; and
+ * view, every identity sequence and every domain, and each constant in its own object, so PUBLIC holds nothing on any
+ * schema object; and
  * default-privilege resets so future objects grant nothing implicitly: ALTER DEFAULT PRIVILEGES FOR ROLE <owner> IN
  * SCHEMA <schema> REVOKE ALL ON TABLES and ON SEQUENCES FROM PUBLIC, and, because PostgreSQL adds per-schema default
  * ACLs to the global ones and cannot revoke the built-in PUBLIC EXECUTE on functions and USAGE on types per schema,
@@ -1287,17 +1438,16 @@ export const addWorlds = (
 	}
 }
 
-/** What PUBLIC is revoked from beside the base schema: the tables with their identity sequences, the enums and the
- * domains, each in the order the installation added them. */
+/** What PUBLIC is revoked from beside the base schema: the tables with their identity sequences, and the domains, each
+ * in the order the installation added them. A function's own revoke is in its object's statements. */
 export interface Revocable {
 	readonly tables: ReadonlyArray<ObjectName>
 	readonly sequences: ReadonlyArray<ObjectName>
-	readonly enums: ReadonlyArray<ObjectName>
 	readonly domains: ReadonlyArray<ObjectName>
 }
 
 /** PUBLIC holds no privilege on any schema object, and the owner's future objects grant it nothing: the base schema
- * and every role's schema, every table and role view, every identity sequence, enum and domain. */
+ * and every role's schema, every table and role view, every identity sequence and domain. */
 const publicRevokes = (
 	b: InstallBuilder,
 	objects: Revocable & {
@@ -1318,20 +1468,12 @@ const publicRevokes = (
 	if (isNonEmpty(tables)) {
 		out.push({ kind: "revoke", privileges: ["ALL"], on: { kind: "TABLE", names: tables }, from })
 	}
-	const { sequences, enums, domains } = objects
+	const { sequences, domains } = objects
 	if (isNonEmpty(sequences)) {
 		out.push({
 			kind: "revoke",
 			privileges: ["ALL"],
 			on: { kind: "SEQUENCE", names: sequences },
-			from
-		})
-	}
-	if (isNonEmpty(enums)) {
-		out.push({
-			kind: "revoke",
-			privileges: ["ALL"],
-			on: { kind: "TYPE", names: enums },
 			from
 		})
 	}

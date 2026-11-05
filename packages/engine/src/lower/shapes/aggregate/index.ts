@@ -79,7 +79,7 @@ const aggregateShape = (agg: AggregateSpec): AggregateShape => {
 /**
  * The PostgreSQL result type of an aggregate's lowered call: bigint for a count, conditional or not, and otherwise
  * its overload's result's base, since PostgreSQL resolves a domain argument of min, max, bool_and and bool_or to its
- * base type, and an enum keeps its enum.
+ * base type, a closed id's smallint code among them.
  */
 const nativeResultType = (
 	cx: LowerContext,

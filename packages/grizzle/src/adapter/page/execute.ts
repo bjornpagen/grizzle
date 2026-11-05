@@ -26,7 +26,7 @@ import {
 import type { InputRefusal } from "#adapter/reader/relations.ts"
 import type { GroupOrder } from "#adapter/reader/run.ts"
 import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
-import { scalarCodec } from "#compiler/codec/scalar.ts"
+import type { ScalarCodec } from "#compiler/codec/scalar.ts"
 import { type Row, rowText } from "#compiler/core/decoder.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { PageParamSlot, PageStatementSlot } from "#compiler/lower/conservative/types.ts"
@@ -187,9 +187,7 @@ const probeAnswer = (
 ): Result.Result<boolean, UnreadableAnswer> => {
 	const [only, ...rest] = rows
 	const value =
-		only === undefined || rest.length > 0
-			? undefined
-			: scalarCodec(probe.column.type).convert(rowText(only, 0))
+		only === undefined || rest.length > 0 ? undefined : probe.answer.convert(rowText(only, 0))
 	return typeof value === "boolean" ? Result.succeed(value) : Result.fail(contradicted(index))
 }
 
@@ -294,10 +292,13 @@ const mergedCandidates = (
 	)
 }
 
-/** A probe as an anchored request sends it: its kind, its one Boolean column, and its statement in this form. */
+/**
+ * A probe as an anchored request sends it: its kind, its one Boolean column's codec, which reads its answer, and its
+ * statement in this form.
+ */
 interface SentProbe {
 	readonly kind: ProbeKind
-	readonly column: PageRunStatement["statement"]["heading"][number]
+	readonly answer: ScalarCodec
 	readonly statement: BatchStatement
 }
 
@@ -310,7 +311,7 @@ const probeSending = (
 	const probe = run.probes[run.requests[call.variant].program.probe]
 	return Effect.map(sending(probe.statement, inputs, call), (statement) => ({
 		kind: probe.program.kind,
-		column: probe.program.column,
+		answer: probe.answer,
 		statement
 	}))
 }

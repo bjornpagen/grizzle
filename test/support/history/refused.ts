@@ -3,10 +3,9 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import {
 	type HostFact,
 	type HostSchema,
-	isResidual,
 	lawRelations,
 	relationOf
-} from "#test/pg/laws/families/model.ts"
+} from "#test/support/laws/model.ts"
 import type { StepOutcome } from "#test/support/schedules/types.ts"
 import type { BelowSerializable } from "#test/support/substrate/session.ts"
 
@@ -88,14 +87,17 @@ export type BelowFeature =
 	| `below at ${BelowSerializable}`
 	| `refused by ${Refusal}`
 	| "below: a read before the write"
-	| "below: on a residual law's relation"
-	| "below: on a relation no residual law reads"
+	| "below: on a foreign key's relation"
+	| "below: on a relation no foreign key reads"
 
 export const belowFeaturesOf = (host: HostSchema, b: Below): ReadonlyArray<BelowFeature> => {
-	const read = Arr.some(host.laws, (l) => isResidual(l) && lawRelations(l).includes(b.relation))
+	const read = Arr.some(
+		host.laws,
+		(l) => (l.kind === "contained" || l.kind === "covered") && lawRelations(l).includes(b.relation)
+	)
 	const on: BelowFeature = read
-		? "below: on a residual law's relation"
-		: "below: on a relation no residual law reads"
+		? "below: on a foreign key's relation"
+		: "below: on a relation no foreign key reads"
 	switch (b.kind) {
 		case "read only":
 			return ["below: read only", `below at ${b.level}`, on]

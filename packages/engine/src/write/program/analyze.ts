@@ -5,6 +5,7 @@ import {
 	sortNonEmpty
 } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { oneForm } from "#compiler/lower/shapes/index.ts"
 import { relationAccess } from "#compiler/sql/access.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -151,9 +152,11 @@ export const withCarrierAnalysis = (
 					carriers: batch,
 					stratum: stratumOf(placedStep(p))
 				}),
+				/** An ANALYZE binds no parameter, so no code is written through it. */
 				spec: writeStatementSpec(
 					statement,
-					[...deps].toSorted((x, y) => x - y)
+					[...deps].toSorted((x, y) => x - y),
+					emptyCodebook
 				),
 				ast: statement.ast,
 				forms: oneForm,

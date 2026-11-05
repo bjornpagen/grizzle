@@ -1,4 +1,5 @@
 import { Array as Arr } from "effect"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { edgesOf, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
@@ -77,7 +78,7 @@ export const reads = (q: LogicalQuery, node: RelNode): number =>
 
 export const lower = (q: LogicalQuery): ConservativeProgram => {
 	const r = lowerConservative(conservativeInput(q), {
-		names: productionNames("Graph", { kind: "declared" }, localVectorSchema),
+		names: productionNames("Graph", { kind: "declared" }, localVectorSchema, emptyCodebook),
 		params: q.params,
 		subject: { kind: "query" }
 	})

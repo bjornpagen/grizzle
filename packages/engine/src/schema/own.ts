@@ -11,6 +11,7 @@ import { schemaFingerprint } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
 	DeclaredNamespace,
+	decodedColumnFits,
 	type Identity,
 	identifierOf,
 	identity,
@@ -20,16 +21,15 @@ import {
 import {
 	type ColumnIdent,
 	type ConstraintName,
-	type DomainName,
 	FieldId,
 	type IdentityKind,
 	type RelationIdent,
 	type SchemaFingerprint
 } from "#compiler/core/ids.ts"
+import { handleMaxBytes } from "#compiler/core/limits.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { hasProperties } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
@@ -40,6 +40,7 @@ import {
 	descText,
 	type ExprDesc,
 	type FieldDesc,
+	fieldTypes,
 	type LiteralDesc,
 	type LoginDesc,
 	type QueryDesc,
@@ -49,24 +50,30 @@ import {
 	type SchemaDesc,
 	type SelectionDesc,
 	type SideDesc,
+	type SlotsDesc,
 	type StatementDesc,
 	type TermDesc,
-	termText
+	termText,
+	type Writing
 } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
+import type { Roster } from "#compiler/ir/scalar.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { type WritableEntry, writableEntry } from "#compiler/schema/entry.ts"
-import { maxEnumLabelBytes } from "#compiler/schema/protocol.ts"
 import { keyLayout } from "#compiler/schema/representability.ts"
 import { foreignInput } from "#compiler/schema/terms.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
 
-/** An owned field: `named` is its column's identity at the naming door and `column` that identity's identifier. */
+/**
+ * An owned field: `named` is its column's identity at the naming door and `column` that identity's identifier; `writing`
+ * says how it is written, by its caller unless PostgreSQL generates it from its row.
+ */
 interface OwnedField {
 	readonly id: FieldId
 	readonly name: DeclaredName
 	readonly desc: FieldDesc
+	readonly writing: Writing
 	readonly named: Identity<"column">
 	readonly column: ColumnIdent
 	/** A serial field's identity sequence; any other field has none. */
@@ -89,13 +96,12 @@ export interface OwnedCheck {
 	readonly constraint: ConstraintName
 }
 
-/** What an owned relation of any kind holds before its kind: its name, level, location and identifiers. */
+/** What an owned relation of any kind holds before its kind: its name, level and location. */
 type OwnedBase = Omit<Owning<RelationDesc["kind"]>, "kind" | "desc">
 
 /**
  * An owned relation of kind K. `level` is the schema level that declares it: 0 for the root schema, n for its n-th
- * extension; `named` its table's, enum type's or materialized view's identity at the naming door, and `ident` that
- * identity's identifier.
+ * extension.
  */
 interface Owning<K extends RelationDesc["kind"]> {
 	readonly name: DeclaredName
@@ -103,37 +109,55 @@ interface Owning<K extends RelationDesc["kind"]> {
 	readonly level: number
 	readonly desc: Extract<RelationDesc, { readonly kind: K }>
 	readonly loc: SourceLoc
-	readonly named: Identity<"table" | "enum" | "view">
+}
+
+/**
+ * What an installed relation is named by: `named` its table's, roster domain's or materialized view's identity at the
+ * naming door, and `ident` that identity's identifier. A closed relation installs no relation of its own.
+ */
+interface Installed<K extends "table" | "rosterDomain" | "view"> {
+	readonly named: Identity<K>
 	readonly ident: RelationIdent
 }
 
 export type OwnedRelation =
-	| (Owning<"relation"> & {
-			readonly fields: Readonly<Record<string, OwnedField>>
-			/** Its primary key, then each key statement's key over it, in statement order. */
-			readonly keys: readonly [OwnedKey, ...ReadonlyArray<OwnedKey>]
-			/** Each row check statement's check over it, in statement order. */
-			readonly checks: ReadonlyArray<OwnedCheck>
-			readonly mutable: boolean
-	  })
-	| (Owning<"closed"> & {
+	| (Owning<"relation"> &
+			Installed<"table"> & {
+				readonly fields: Readonly<Record<string, OwnedField>>
+				/** Its primary key, then each key statement's key over it, in statement order. */
+				readonly keys: readonly [OwnedKey, ...ReadonlyArray<OwnedKey>]
+				/** Each row check statement's check over it, in statement order. */
+				readonly checks: ReadonlyArray<OwnedCheck>
+				readonly mutable: boolean
+			})
+	| (Owning<"closed"> &
+			Installed<"rosterDomain"> & {
+				/** Its one field, its handle under `id`. */
+				readonly fields: Readonly<Record<string, OwnedField>>
+				readonly keys: readonly []
+				readonly mutable: false
+			})
+	| (Owning<"closedRelation"> & {
 			readonly fields: Readonly<Record<string, OwnedField>>
 			readonly keys: readonly []
 			readonly mutable: false
 	  })
-	| (Owning<"derived"> & {
-			readonly fields: Readonly<Record<string, never>>
-			readonly keys: readonly []
-			readonly mutable: false
-			readonly reads: ReadonlyArray<string>
-	  })
+	| (Owning<"derived"> &
+			Installed<"view"> & {
+				readonly fields: Readonly<Record<string, never>>
+				readonly keys: readonly []
+				readonly mutable: false
+				readonly reads: ReadonlyArray<string>
+			})
 
-/** An owned contract: `named` is its domain's identity at the naming door and `domain` that identity's identifier. */
+/**
+ * An owned contract: its declared name, its type-level brand, and its descriptor. Ownership names no installed object
+ * for it: its domain is named by the domain's physical definition, which only the installation's names spell
+ * (physical/ddl/names.ts InstallNames.contractNamed), so contracts of one definition share one domain (W6.Q10).
+ */
 export interface OwnedContract {
 	readonly name: DeclaredName
 	readonly desc: FieldDesc & { readonly kind: "contract" }
-	readonly named: Identity<"contractDomain">
-	readonly domain: DomainName
 	readonly loc: SourceLoc
 }
 
@@ -149,16 +173,14 @@ export interface OwnedContract {
  *   (MalformedDescription), including a derived relation outside an extension, a derived level that disagrees with
  *   what the definition reads, a definition that reads its own level or above, and a definition that reads a parameter
  *   or a context;
- * - a relation, closed relation or contract name reused with a conflicting descriptor (DuplicateIdentity), and the
- *   alternatives helper together with any statement of its manual expansion, an arm's mirrors, in either order, being
- *   its two containments;
- * - a closed handle longer than a PostgreSQL enum label's 63 bytes, and a closed payload fact of a closedId field, at
+ * - a relation, closed relation or contract name reused with a conflicting descriptor (DuplicateIdentity);
+ * - a roster handle longer than a name's 63 bytes, and a closed relation's row value of a closedId field, at
  *   any contract depth, or a selection or row check literal compared with one, that is not a handle of its roster
  *   (MalformedDescription);
  * - a side term pred of a field that is not natural, a selection or row check that reads anything but its own row,
  *   and a key over a closed relation (MalformedDescription);
- * - a key, mutable, check, contained, alternatives or capacity statement that names a derived relation on either
- *   side (LawOnDerived);
+ * - a statement that names a derived relation (LawOnDerived), and a family, tree, fold or alternatives statement over
+ *   anything but ordinary relations, its slots' owner one with a field of its count, and a roster (MalformedDescription);
  * - a primary or candidate key whose index entry can exceed PostgreSQL's limit (UnrepresentableKey, representability.ts);
  * - a declared name the naming door's rule refuses (MalformedDescription, core/identity.ts parseDeclaredName, and
  *   parseSchemaName for the schema's), and two names of one namespace that convert to one identifier
@@ -193,8 +215,7 @@ export interface Owned extends OwnedSchema {
 export type SideScope = Omit<SideDesc, "terms">
 
 /**
- * A term of a statement's left side with the term of its right side at its position: a contained's left and right, a
- * capacity's target and source.
+ * A term of a statement's left side with the term of its right side at its position: a contained's left and right.
  */
 export interface SidePair {
 	readonly left: TermDesc
@@ -214,7 +235,8 @@ export type OwnedKeyLaw =
 /**
  * A statement as ownership admitted it. A statement over two sides holds their scopes and their terms paired by
  * position, which ownership parsed once from two sides of one width (pairSides), so no later pass pairs two sides by
- * position; a capacity's target is its left side and its source its right.
+ * position. A family, a tree, a fold and an alternatives statement are their Descriptions, whose families the theory
+ * resolves.
  */
 export type OwnedStatement =
 	| Extract<StatementDesc, { readonly kind: "mutable" }>
@@ -225,29 +247,33 @@ export type OwnedStatement =
 			readonly right: SideScope
 			readonly pairs: NonEmptyReadonlyArray<SidePair>
 	  })
-	| (Omit<Extract<StatementDesc, { readonly kind: "capacity" }>, "target" | "from"> & {
-			readonly target: SideScope
-			readonly from: SideScope
-			readonly pairs: NonEmptyReadonlyArray<SidePair>
-	  })
+	| Extract<StatementDesc, { readonly kind: "family" | "tree" | "fold" | "alternatives" }>
 
 /**
- * Every identity ownership minted, each once, in relation then contract name order: the installation's, each
- * relation's and its fields', sequences', keys' and checks', each contract's domain's. The installation's census and
- * its comments read them (physical/install/comments.ts).
+ * Every identity ownership minted, each once, in relation name order: the installation's, each relation's and its
+ * fields', sequences', keys' and checks'. A contract's domain is the installation's to name. The installation's census
+ * and its comments read them (physical/install/comments.ts).
  */
 export const ownedIdentities = (owned: Owned): ReadonlyArray<Identity<IdentityKind>> => [
 	owned.installation,
 	...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [
-		r.named,
+		...(r.kind === "closedRelation" ? [] : [r.named]),
 		...Object.values(r.fields).flatMap((f) =>
 			f.sequence === undefined ? [f.named] : [f.named, f.sequence]
 		),
 		...r.keys.map((k) => k.named),
 		...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])
-	]),
-	...Object.values(owned.contracts).map((c) => c.named)
+	])
 ]
+
+/**
+ * The rosters a schema declares, in name order, each its declared name and its live handles in declared order: what
+ * the installation's codebook holds codes for (ir/codes.ts draftCodebook).
+ */
+export const rostersOf = (owned: Owned): ReadonlyArray<Roster> =>
+	Object.values(owned.relations).flatMap((r) =>
+		r.kind === "closed" ? [{ closed: r.name, handles: r.desc.handles }] : []
+	)
 
 /**
  * A function declaration, so that control flow knows a call never returns. Ownership's refusals are Refusals, which
@@ -331,17 +357,22 @@ interface StatementEntry {
 const byName = <V>(map: ReadonlyMap<string, V>): ReadonlyArray<readonly [string, V]> =>
 	[...map].toSorted(([a], [b]) => compareText(a, b))
 
-/** A closed relation's heading: its handle, then its payload. */
-const closedHeading = (
-	desc: Extract<RelationDesc, { readonly kind: "closed" }>
-): Readonly<Record<string, FieldDesc>> => ({
-	id: { kind: "closedId", roster: desc.name },
-	...desc.payload
+/** A roster's heading: its handle, under `id`. */
+const rosterHeading = (desc: RosterDesc): Readonly<Record<string, FieldDesc>> => ({
+	id: { kind: "closedId", roster: desc.name }
 })
 
-/** A stored relation's heading: an ordinary relation's fields, a closed relation's handle and payload. */
-const headingOf = (desc: StoredRelationDesc): Readonly<Record<string, FieldDesc>> =>
-	desc.kind === "relation" ? desc.fields : closedHeading(desc)
+/** A stored relation's heading: an ordinary or closed relation's fields' types, a roster's handle. */
+const headingOf = (desc: StoredRelationDesc): Readonly<Record<string, FieldDesc>> => {
+	switch (desc.kind) {
+		case "relation":
+			return fieldTypes(desc.fields)
+		case "closed":
+			return rosterHeading(desc)
+		case "closedRelation":
+			return desc.fields
+	}
+}
 
 /** Every field descriptor inside `desc`: itself, a contract's base, a span's endpoint. */
 const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
@@ -353,17 +384,43 @@ const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
 	}
 }
 
+/** A roster's Description. */
+type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
+
+/** A closed relation's Description. */
+type ClosedRelationOf = Extract<RelationDesc, { readonly kind: "closedRelation" }>
+
+/** An ordinary relation's Description. */
+type OrdinaryRelationOf = Extract<RelationDesc, { readonly kind: "relation" }>
+
+/** The text a closed relation's row is ordered by: its key fields' handles, in key order (ir/desc.ts holds them so). */
+const rowKeyText = (r: ClosedRelationOf, row: Readonly<Record<string, LiteralDesc>>): string =>
+	r.key
+		.map((f) => row[f])
+		.filter((v): v is string => typeof v === "string")
+		.join("\u0000")
+
+/** A closed relation with its rows in their key's text order, the one order a set of rows is held in. */
+const canonicalRows = (r: ClosedRelationOf): ClosedRelationOf => ({
+	...r,
+	rows: r.rows
+		.map((row) => ({ row, text: rowKeyText(r, row) }))
+		.toSorted((a, b) => compareText(a.text, b.text))
+		.map((e) => e.row)
+})
+
 /** The closedId a descriptor is, through any depth of contracts. */
 const closedIdBase = (desc: FieldDesc): (FieldDesc & { readonly kind: "closedId" }) | undefined =>
 	desc.kind === "closedId" ? desc : desc.kind === "contract" ? closedIdBase(desc.base) : undefined
 
-const isHandle = (
-	roster: RelationDesc & { readonly kind: "closed" },
-	value: LiteralDesc
-): boolean => typeof value === "string" && roster.handles.includes(value)
+const isHandle = (roster: StoredRelationDesc, value: LiteralDesc): boolean =>
+	roster.kind === "closed" && isRosterHandle(roster, value)
 
-/** The identity of a containment over its two sides' canonical texts: a containment is directed. */
-const containmentKey = (left: string, right: string): string => `${left}\u0000${right}`
+const isRosterHandle = (roster: RosterDesc, value: LiteralDesc): boolean =>
+	typeof value === "string" && roster.handles.includes(value)
+
+/** How a closed relation's fields are written: by its declaration, which is its one caller. */
+const callerWritten: Writing = Object.freeze({ kind: "caller" })
 
 /**
  * A predicate with every conjunction's and disjunction's operands in canonical order, recursively. No operation of a
@@ -400,6 +457,8 @@ const canonicalPredicate = (expr: ExprDesc): ExprDesc => {
 		case "allen":
 		case "pointIn":
 		case "absent":
+		case "closedAt":
+		case "closedRow":
 			return expr
 	}
 }
@@ -439,9 +498,12 @@ const canonicalStatement = (s: StatementDesc): StatementDesc => {
 			return { ...s, side: canonicalSide(s.side) }
 		case "contained":
 			return { ...s, left: canonicalSide(s.left), right: canonicalSide(s.right) }
-		case "capacity":
-			return { ...s, target: canonicalSide(s.target), from: canonicalSide(s.from) }
+		case "fold":
+			return { ...s, step: canonicalSide(s.step) }
 		case "mutable":
+		case "family":
+		case "tree":
+		case "alternatives":
 			return s
 	}
 }
@@ -455,6 +517,8 @@ const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {
 		case "compute":
 		case "and":
 		case "or":
+		case "closedAt":
+		case "closedRow":
 			for (const a of expr.args) {
 				fieldRefs(a, out)
 			}
@@ -512,8 +576,14 @@ const statementLabel = (s: StatementDesc): string => {
 			return `check ${s.name}`
 		case "contained":
 			return `contained ${s.left.relation} in ${s.right.relation}`
-		case "capacity":
-			return `capacity of ${s.target.relation} from ${s.from.relation}`
+		case "family":
+			return `${s.order} ${s.member.relation} in ${s.slots.owner}.${s.slots.count}`
+		case "tree":
+			return `tree ${s.member.relation}`
+		case "fold":
+			return `fold ${s.monoid} of ${s.step.relation} into ${s.end.relation}`
+		case "alternatives":
+			return `alternatives ${s.parent.relation}.${s.discriminator}`
 	}
 }
 
@@ -528,10 +598,10 @@ const ownKey = (
 ): OwnedKey => {
 	const layout = keyLayout(
 		keyFields.map((field) => {
-			const desc = r.fields[field]
-			return desc === undefined
+			const decl = r.fields[field]
+			return decl === undefined
 				? fail("MalformedDescription", loc, `a key over fields of ${name}; ${field} is not one`)
-				: { field, desc }
+				: { field, desc: decl.type }
 		})
 	)
 	if (!layout.ok) {
@@ -590,7 +660,6 @@ class Owner {
 			text: s.text,
 			statement: this.#checkStatement(s)
 		}))
-		this.#checkAlternatives()
 		const schemaLoc = this.#loc
 		const schemaName = parseSchemaName(this.#schemaName)
 		if (!schemaName.ok) {
@@ -620,10 +689,15 @@ class Owner {
 		}
 	}
 
-	/** Each relation a level declares: a derived one only above the base, and one declaration per name. */
+	/**
+	 * Each relation a level declares: a derived one only above the base, and one declaration per name. A closed
+	 * relation's rows are a set, so they are held in one order, their key's text order, and two declarations of one set
+	 * of rows are one declaration.
+	 */
 	#collectRelations(): void {
 		for (const [level, schema] of this.#levels.entries()) {
-			for (const r of schema.relations) {
+			for (const declared of schema.relations) {
+				const r = declared.kind === "closedRelation" ? canonicalRows(declared) : declared
 				if (r.kind === "derived" && level === 0) {
 					fail(
 						"MalformedDescription",
@@ -709,9 +783,10 @@ class Owner {
 	}
 
 	/**
-	 * Fields: closed references resolve to declared rosters, and contract names are not reused with a conflicting
-	 * descriptor. A derived relation's fields are its definition's, which derived analysis reads. How many columns a
-	 * table holds is PostgreSQL's limit, checked where the installation emits the table (physical/ddl/context.ts).
+	 * Fields: closed references and sets resolve to declared rosters of the field's level or below, and contract names
+	 * are not reused with a conflicting descriptor. A derived relation's fields are its definition's, which derived
+	 * analysis reads. How many columns a table holds is PostgreSQL's limit, checked where the installation emits the
+	 * table (physical/ddl/context.ts).
 	 */
 	#collectFields(): void {
 		const ordered = [...this.#relations.values()].toSorted((a, b) =>
@@ -725,22 +800,8 @@ class Owner {
 			for (const [field, desc] of Object.entries(heading)) {
 				const loc = labeledChildLoc(entry.desc.loc, field, `field ${entry.desc.name}.${field}`)
 				nestedFields(desc, (d) => {
-					if (d.kind === "closedId") {
-						const roster = this.#relations.get(d.roster)
-						if (roster?.desc.kind !== "closed") {
-							fail(
-								"MalformedDescription",
-								loc,
-								`closedId(${d.roster}) over a closed relation the schema declares; ${d.roster} is not one`
-							)
-						}
-						if (roster.level > entry.level) {
-							fail(
-								"MalformedDescription",
-								loc,
-								`closedId(${d.roster}) over a closed relation of this level or below; ${d.roster} is declared above`
-							)
-						}
+					if (d.kind === "closedId" || d.kind === "bits") {
+						this.#rosterAt(d.roster, entry, loc, d.kind === "closedId" ? "closedId" : "bits")
 					}
 					if (d.kind === "contract") {
 						const prior = this.#contracts.get(d.name)
@@ -756,43 +817,129 @@ class Owner {
 					}
 				})
 			}
-			if (entry.desc.kind === "closed") {
-				this.#checkClosed(entry, entry.desc)
+			switch (entry.desc.kind) {
+				case "relation":
+					this.#checkDecodedColumns(entry, entry.desc)
+					break
+				case "closed":
+					this.#checkRoster(entry, entry.desc)
+					break
+				case "closedRelation":
+					this.#checkClosedRows(entry, entry.desc)
+					break
+			}
+		}
+	}
+
+	/** The roster `roster` a field of `entry` reads, declared at the field's level or below. */
+	#rosterAt(roster: string, entry: RelationEntry, loc: SourceLoc, former: string): RosterDesc {
+		const declared = this.#relations.get(roster)
+		if (declared?.desc.kind !== "closed") {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`${former}(${roster}) over a roster the schema declares; ${roster} is not one`
+			)
+		}
+		if (declared.level > entry.level) {
+			fail(
+				"MalformedDescription",
+				loc,
+				`${former}(${roster}) over a roster of this level or below; ${roster} is declared above`
+			)
+		}
+		return declared.desc
+	}
+
+	/** A roster's handles fit the name its names constant holds each in. */
+	/**
+	 * A roster's handles must each be a name PostgreSQL stores as written: no NUL (a name ends at its first one, as
+	 * NAMEDATALEN's C string does), no lone surrogate (no UTF-8 encodes one), and at most `handleMaxBytes` bytes.
+	 */
+	#checkRoster(entry: RelationEntry, r: RosterDesc): void {
+		for (const handle of r.handles) {
+			if (handle.includes("\u0000") || !handle.isWellFormed()) {
+				fail(
+					"MalformedDescription",
+					labeledChildLoc(entry.desc.loc, "handles", `roster of ${r.name}`),
+					`handles that hold no NUL and no lone surrogate, as a PostgreSQL name does; ${JSON.stringify(handle)} holds one`
+				)
+			}
+			if (utf8Length(handle) > handleMaxBytes.value) {
+				fail(
+					"MalformedDescription",
+					labeledChildLoc(entry.desc.loc, "handles", `roster of ${r.name}`),
+					`handles of at most ${handleMaxBytes.value} UTF-8 bytes, the most a name holds (NAMEDATALEN - 1); ${JSON.stringify(handle)} has ${utf8Length(handle)}`
+				)
 			}
 		}
 	}
 
 	/**
-	 * A closed relation's handles fit PostgreSQL enum labels, and each payload fact of a closedId field, at any contract
-	 * depth, is a handle of the roster it references: the builders check a fact only against a roster the payload
-	 * descriptor carries, and a decoded description carries none.
+	 * Each row value of a closed relation's closedId field, at any contract depth, is a handle of the roster it
+	 * references: the builders check a value only against a roster the descriptor carries, and a decoded description
+	 * carries none.
 	 */
-	#checkClosed(entry: RelationEntry, r: RelationDesc & { readonly kind: "closed" }): void {
-		for (const handle of r.handles) {
-			if (utf8Length(handle) > maxEnumLabelBytes.value) {
-				fail(
-					"MalformedDescription",
-					labeledChildLoc(entry.desc.loc, "handles", `roster of ${r.name}`),
-					`handles of at most ${maxEnumLabelBytes.value} UTF-8 bytes, the limit of a PostgreSQL enum label; ${JSON.stringify(handle)} has ${utf8Length(handle)}`
-				)
-			}
-		}
-		for (const [field, desc] of Object.entries(r.payload)) {
+	#checkClosedRows(entry: RelationEntry, r: ClosedRelationOf): void {
+		for (const [field, desc] of Object.entries(r.fields)) {
 			const roster = this.#rosterOf(desc)
 			if (roster === undefined) {
 				continue
 			}
-			for (const handle of r.handles) {
-				const value = r.facts[handle]?.[field]
+			for (const [i, row] of r.rows.entries()) {
+				const value = row[field]
 				if (value !== undefined && !isHandle(roster, value)) {
 					fail(
 						"MalformedDescription",
-						labeledChildLoc(entry.desc.loc, field, `fact ${r.name}.${handle}.${field}`),
-						`a payload fact of closedId(${roster.name}) field ${r.name}.${field} that is a handle of ${roster.name}; ${JSON.stringify(value)} is not one`
+						labeledChildLoc(entry.desc.loc, field, `row ${i} of ${r.name}, field ${field}`),
+						`a value of closedId(${roster.name}) field ${r.name}.${field} that is a handle of ${roster.name}; ${JSON.stringify(value)} is not one`
 					)
 				}
 			}
 		}
+	}
+
+	/**
+	 * A role view shows each closed-id field `f` beside its name, the column decodedColumn(f): that column's identifier
+	 * fits a name, and no other field of the relation converts to it.
+	 */
+	#checkDecodedColumns(entry: RelationEntry, r: OrdinaryRelationOf): void {
+		const columns = new Map<string, string>()
+		for (const field of Object.keys(r.fields)) {
+			const declared = unwrap(this.#fieldName(field, entry))
+			columns.set(identifierOf(identity.column(declared)), field)
+		}
+		for (const [field, decl] of Object.entries(r.fields)) {
+			if (closedIdBase(decl.type) === undefined) {
+				continue
+			}
+			const loc = labeledChildLoc(entry.desc.loc, field, `field ${r.name}.${field}`)
+			const declared = unwrap(this.#fieldName(field, entry))
+			if (!decodedColumnFits(declared)) {
+				fail(
+					"MalformedDescription",
+					loc,
+					`a closed-id field whose decoded column ${field}_name fits a name of ${handleMaxBytes.value} bytes`
+				)
+			}
+			const other = columns.get(identifierOf(identity.decodedColumn(declared)))
+			if (other !== undefined) {
+				fail(
+					"MalformedDescription",
+					loc,
+					`a closed-id field whose decoded column ${field}_name is no field of ${r.name}; ${other} is`
+				)
+			}
+		}
+	}
+
+	/** A field's name parsed by the naming door, as its relation's ownership declares it. */
+	#fieldName(field: string, entry: RelationEntry): Result.Result<DeclaredName, CompileError> {
+		return new DeclaredNamespace(`relation ${entry.desc.name}'s field`).declare(
+			field,
+			"field",
+			labeledChildLoc(entry.desc.loc, field, `field ${entry.desc.name}.${field}`)
+		)
 	}
 
 	/** Each statement a level writes, in its canonical form, kept once however many levels state it. */
@@ -889,7 +1036,7 @@ class Owner {
 	}
 
 	/** The closed relation a closedId descriptor references, through any depth of contracts. */
-	#rosterOf(desc: FieldDesc | undefined): (RelationDesc & { readonly kind: "closed" }) | undefined {
+	#rosterOf(desc: FieldDesc | undefined): RosterDesc | undefined {
 		const base = desc === undefined ? undefined : closedIdBase(desc)
 		if (base === undefined) {
 			return undefined
@@ -961,6 +1108,8 @@ class Owner {
 			case "allen":
 			case "pointIn":
 			case "absent":
+			case "closedAt":
+			case "closedRow":
 				return
 		}
 	}
@@ -971,11 +1120,11 @@ class Owner {
 		switch (d.kind) {
 			case "key": {
 				const entry = this.#checkSide(d.side, s)
-				if (entry.desc.kind === "closed") {
+				if (entry.desc.kind !== "relation") {
 					fail(
 						"MalformedDescription",
 						s.desc.loc,
-						`a key over an ordinary relation; closed relation ${d.side.relation} is keyed by its handle`
+						`a key over an ordinary relation; ${d.side.relation} is keyed by its declaration`
 					)
 				}
 				const fields = candidateKeyFields(d.side)
@@ -1025,77 +1174,83 @@ class Owner {
 					left: scopeOf(d.left),
 					right: scopeOf(d.right),
 					pairs: pairSides(d.left, d.right, s),
-					origin: d.origin,
 					loc: d.loc
 				}
 			}
-			case "capacity": {
-				const target = this.#checkSide(d.target, s)
-				const from = this.#checkSide(d.from, s)
-				const pairs = pairSides(d.target, d.from, s)
-				if (d.weight.kind !== "count") {
-					this.#requireFields(from, [d.weight.field], s)
-				}
-				this.#requireFields(
-					target,
-					[d.within.low, d.within.high].flatMap((bound) =>
-						hasProperties(bound) && typeof bound.ref === "string" ? [bound.ref] : []
-					),
-					s
-				)
-				const { low, high } = d.within
-				if (typeof low === "bigint" && typeof high === "bigint" && low > high) {
+			case "family": {
+				const member = this.#ordinary(d.member.relation, s, "is no family's member")
+				this.#checkSide(d.member, s)
+				this.#checkSlots(d.slots, s)
+				if (member.level > this.#lawRelation(d.slots.owner, s).level) {
 					fail(
 						"MalformedDescription",
 						s.desc.loc,
-						`${statementLabel(d)} within a bound whose low does not exceed its high`
+						`${statementLabel(d)} over an owner of the member's level or below`
 					)
 				}
-				return {
-					kind: "capacity",
-					target: scopeOf(d.target),
-					from: scopeOf(d.from),
-					pairs,
-					weight: d.weight,
-					within: d.within,
-					loc: d.loc
+				return d
+			}
+			case "tree": {
+				const tree = this.#ordinary(d.member.relation, s, "is no tree's relation")
+				this.#checkSide(d.member, s)
+				this.#checkSlots(d.slots, s)
+				if (d.slots.owner !== d.member.relation) {
+					fail(
+						"MalformedDescription",
+						s.desc.loc,
+						`${statementLabel(d)} counted over its own relation; ${d.slots.owner} is another`
+					)
 				}
+				this.#requireFields(tree, [d.root], s)
+				return d
+			}
+			case "fold": {
+				this.#checkSlots(d.family, s)
+				this.#checkSide(d.step, s)
+				this.#checkSide(d.end, s)
+				return d
+			}
+			case "alternatives": {
+				const parent = this.#ordinary(d.parent.relation, s, "is no alternatives parent")
+				this.#checkSide(d.parent, s)
+				for (const a of d.arms) {
+					this.#ordinary(a.arm.relation, s, "is no alternatives arm")
+					this.#checkSide(a.arm, s)
+				}
+				const roster = this.#lawRelation(d.roster, s)
+				if (roster.desc.kind !== "closed") {
+					fail(
+						"MalformedDescription",
+						s.desc.loc,
+						`${statementLabel(d)} over a roster; ${d.roster} is none`
+					)
+				}
+				const disc = parent.heading[d.discriminator]
+				if (disc === undefined || closedIdBase(disc)?.roster !== d.roster) {
+					fail(
+						"MalformedDescription",
+						s.desc.loc,
+						`${statementLabel(d)} discriminated by a closedId(${d.roster}) field of ${d.parent.relation}`
+					)
+				}
+				for (const a of d.arms) {
+					if (!isHandle(roster.desc, a.handle)) {
+						fail(
+							"MalformedDescription",
+							s.desc.loc,
+							`${statementLabel(d)} armed by ${d.roster}'s handles; ${a.handle} is not one`
+						)
+					}
+				}
+				return d
 			}
 		}
 	}
 
-	/**
-	 * Using both the alternatives helper and any statement of its manual expansion in one schema is a compile error. A
-	 * manual containment repeats the helper's when it states the same law, its sides as the expansion's: the head
-	 * containment, or either containment of an arm's mirrors, whose sides in either order are those two.
-	 */
-	#checkAlternatives(): void {
-		const manual = new Map<string, StatementEntry>()
-		for (const s of this.#statements) {
-			const d = s.desc
-			if (d.kind === "contained" && d.origin === undefined) {
-				manual.set(containmentKey(textOf(d.left), textOf(d.right)), s)
-			}
-		}
-		for (const s of this.#statements) {
-			const d = s.desc
-			if (d.kind !== "contained" || d.origin === undefined) {
-				continue
-			}
-			const twin = manual.get(containmentKey(textOf(d.left), textOf(d.right)))
-			if (twin !== undefined) {
-				failWith({
-					_tag: "DuplicateIdentity",
-					at: twin.desc.loc,
-					duplicate: {
-						kind: "alternatives",
-						statement: statementLabel(twin.desc),
-						relation: d.origin.alternatives,
-						earlier: s.desc.loc
-					}
-				})
-			}
-		}
+	/** The slots of a count: its owner an ordinary relation of the statement's level or below, and its count a field. */
+	#checkSlots(slots: SlotsDesc, s: StatementEntry): void {
+		const owner = this.#ordinary(slots.owner, s, "has no drawn count")
+		this.#requireFields(owner, [slots.count], s)
 	}
 
 	/** The schema's one namespace of relations, derived relations, rosters and contracts (PostgreSQL's relation and type
@@ -1113,40 +1268,63 @@ class Owner {
 		return out
 	}
 
-	/** One relation's owned identifiers: its table, enum type or materialized view, and what each kind owns besides. */
+	/**
+	 * One relation's owned identifiers: its table, roster domain or materialized view, and what each kind owns besides.
+	 * A closed relation installs no relation of its own.
+	 */
 	#ownRelation(
 		statements: ReadonlyArray<OwnedStatement>,
 		declared: string,
 		entry: RelationEntry
 	): OwnedRelation {
 		const r = entry.desc
-		const name = declareName(
-			this.#schemaNames,
-			declared,
-			r.kind === "closed" ? "closed relation" : "relation",
-			entry.desc.loc
-		)
-		const named =
-			r.kind === "closed"
-				? identity.enumType(name)
-				: r.kind === "derived"
-					? identity.view(name)
-					: identity.table(name)
-		const owning: OwnedBase = {
-			name,
-			level: entry.level,
-			loc: entry.desc.loc,
-			named,
-			ident: identifierOf(named)
+		const what: Readonly<Record<RelationDesc["kind"], string>> = {
+			relation: "relation",
+			closed: "roster",
+			closedRelation: "closed relation",
+			derived: "relation"
 		}
+		const name = declareName(this.#schemaNames, declared, what[r.kind], entry.desc.loc)
+		const owning: OwnedBase = { name, level: entry.level, loc: entry.desc.loc }
 		switch (r.kind) {
 			case "relation":
 				return this.#ownStored(statements, owning, entry, r)
-			case "closed":
-				return this.#ownClosed(owning, entry, r)
+			case "closed": {
+				const named = identity.rosterDomain(name)
+				return {
+					...owning,
+					kind: r.kind,
+					desc: r,
+					named,
+					ident: identifierOf(named),
+					fields: this.#closedFields(owning, entry, rosterHeading(r)),
+					keys: [],
+					mutable: false
+				}
+			}
+			case "closedRelation":
+				return {
+					...owning,
+					kind: r.kind,
+					desc: r,
+					fields: this.#closedFields(owning, entry, r.fields),
+					keys: [],
+					mutable: false
+				}
 			case "derived": {
+				const named = identity.view(name)
 				const reads = [...queryUses(r.query).relations].toSorted(compareStrings)
-				return { ...owning, kind: r.kind, desc: r, fields: {}, keys: [], mutable: false, reads }
+				return {
+					...owning,
+					kind: r.kind,
+					desc: r,
+					named,
+					ident: identifierOf(named),
+					fields: {},
+					keys: [],
+					mutable: false,
+					reads
+				}
 			}
 		}
 	}
@@ -1156,12 +1334,12 @@ class Owner {
 		statements: ReadonlyArray<OwnedStatement>,
 		owning: OwnedBase,
 		entry: RelationEntry,
-		r: RelationDesc & { readonly kind: "relation" }
+		r: OrdinaryRelationOf
 	): OwnedRelation {
 		const { name } = owning
 		const fields: Record<string, OwnedField> = {}
 		const columns = new DeclaredNamespace(`relation ${name}'s field`)
-		for (const [declared, desc] of Object.entries(r.fields)) {
+		for (const [declared, decl] of Object.entries(r.fields)) {
 			const field = declareName(
 				columns,
 				declared,
@@ -1169,11 +1347,12 @@ class Owner {
 				labeledChildLoc(entry.desc.loc, declared, `field ${name}.${declared}`)
 			)
 			const named = identity.column(field)
-			const sequence = desc.kind === "serial" ? identity.sequence(name, field) : undefined
+			const sequence = decl.writing.kind === "serial" ? identity.sequence(name, field) : undefined
 			fields[field] = {
 				id: FieldId(name, field),
 				name: field,
-				desc,
+				desc: decl.type,
+				writing: decl.writing,
 				named,
 				column: identifierOf(named),
 				sequence
@@ -1192,10 +1371,13 @@ class Owner {
 		const checks = statements.flatMap((s) =>
 			s.kind === "check" && s.relation === name ? [s.check] : []
 		)
+		const named = identity.table(name)
 		return {
 			...owning,
 			kind: r.kind,
 			desc: r,
+			named,
+			ident: identifierOf(named),
 			fields,
 			keys: [primary, ...keys],
 			checks,
@@ -1203,17 +1385,16 @@ class Owner {
 		}
 	}
 
-	/** A closed relation's handle and payload columns. */
-	#ownClosed(
+	/** A roster's or closed relation's fields: every one fixed when the schema compiles, none a serial. */
+	#closedFields(
 		owning: OwnedBase,
 		entry: RelationEntry,
-		r: RelationDesc & { readonly kind: "closed" }
-	): OwnedRelation {
+		heading: Readonly<Record<string, FieldDesc>>
+	): Readonly<Record<string, OwnedField>> {
 		const { name } = owning
-		/** The id and payload columns of the typed VALUES relation that carries the facts. */
 		const fields: Record<string, OwnedField> = {}
 		const columns = new DeclaredNamespace(`closed relation ${name}'s field`)
-		for (const [declared, desc] of Object.entries(closedHeading(r))) {
+		for (const [declared, desc] of Object.entries(heading)) {
 			const field = declareName(
 				columns,
 				declared,
@@ -1225,21 +1406,22 @@ class Owner {
 				id: FieldId(name, field),
 				name: field,
 				desc,
+				writing: callerWritten,
 				named,
 				column: identifierOf(named),
-				/** A closed relation's fields are no serials. */
 				sequence: undefined
 			}
 		}
-		return { ...owning, kind: r.kind, desc: r, fields, keys: [], mutable: false }
+		return fields
 	}
 
+	/** Each contract by its declared name, a contract's name its type-level brand alone (OwnedContract). */
 	#ownContracts(): Readonly<Record<string, OwnedContract>> {
 		const out: Record<string, OwnedContract> = {}
+		const names = new DeclaredNamespace("contract")
 		for (const [declared, c] of byName(this.#contracts)) {
-			const name = declareName(this.#schemaNames, declared, "contract", c.loc)
-			const named = identity.contractDomain(name)
-			out[name] = { name, desc: c.desc, named, domain: identifierOf(named), loc: c.loc }
+			const name = declareName(names, declared, "contract", c.loc)
+			out[name] = { name, desc: c.desc, loc: c.loc }
 		}
 		return out
 	}
@@ -1451,7 +1633,11 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		if (r.kind === "whole") {
 			const relation = r.relation
 			if (relation.kind !== "relation") {
-				broken(desc.loc, { kind: "writeKind", name: w, entryKind: relation.kind })
+				broken(desc.loc, {
+					kind: "writeKind",
+					name: w,
+					entryKind: relation.kind === "closedRelation" ? "closed" : relation.kind
+				})
 			}
 			target(w, w)
 			admitted.set(w, { kind: "whole", name: w, relation, loc: r.loc })
@@ -1473,10 +1659,16 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 			broken(desc.loc, { kind: "refreshKind", name: f, entryKind: "query" })
 		}
 		if (r.relation.kind !== "derived") {
-			broken(desc.loc, { kind: "refreshKind", name: f, entryKind: r.relation.kind })
+			broken(desc.loc, {
+				kind: "refreshKind",
+				name: f,
+				entryKind: r.relation.kind === "closedRelation" ? "closed" : r.relation.kind
+			})
 		}
 	}
-	const full = Object.values(base.relations).every((r) => relations[r.name]?.kind === "whole")
+	const full = Object.values(base.relations).every(
+		(r) => r.kind === "closedRelation" || relations[r.name]?.kind === "whole"
+	)
 	const canonical = unwrap(
 		decodeDesc("role", {
 			name: desc.name,
@@ -1568,7 +1760,9 @@ export const fullRoleDesc = (
 	loc: SourceLoc
 ): Result.Result<RoleDesc, CompileError> =>
 	Result.flatMap(own(base), (owned) => {
-		const relations = Object.values(owned.relations).toSorted((a, b) => compareText(a.name, b.name))
+		const relations = Object.values(owned.relations)
+			.filter((r) => r.kind !== "closedRelation")
+			.toSorted((a, b) => compareText(a.name, b.name))
 		const [first, ...rest] = relations.map((r): RoleEntryDesc => ({
 			kind: "whole",
 			name: r.name,

@@ -44,6 +44,7 @@ import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { kindCodes } from "#test/unit/codec/support.ts"
 
 /**
  * What the encoders answer for anything JavaScript can pass (README "Errors and outcomes": an encoding failure is EncodingFailure
@@ -132,19 +133,14 @@ const withNonFinite = (finite: Gen<number>): Gen<number> =>
 	])
 
 /**
- * Every carrier with its descriptors: plain, under a typmod, a contract, a fixed width, a serial generation or an exact
- * value's digit bound. The table is keyed by carrier, so a new carrier must be listed.
+ * Every carrier with its descriptors: plain, under a typmod, a contract, a fixed width, a roster or an exact value's
+ * digit bound. The table is keyed by carrier, so a new carrier must be listed.
  */
 const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } = {
 	int2: [
 		{
 			label: "int2",
 			type: { carrier: "int2", caps },
-			live: int(-32768, 32767)
-		},
-		{
-			label: "serial int2",
-			type: { carrier: "int2", serial: "always", caps },
 			live: int(-32768, 32767)
 		}
 	],
@@ -159,8 +155,7 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 				contract: { name: "Cents", base: { carrier: "int8", caps }, facts: [] }
 			},
 			live: int64
-		},
-		{ label: "serial int8", type: { carrier: "int8", serial: "always", caps }, live: int64 }
+		}
 	],
 	numeric: [
 		{
@@ -208,11 +203,21 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 			)
 		}
 	],
-	enum: [
+	code: [
 		{
-			label: "enum",
-			type: { carrier: "enum", roster: { closed: "Kind", handles }, caps },
+			label: "code",
+			type: { carrier: "code", roster: { closed: "Kind", handles }, caps },
 			live: element(handles)
+		}
+	],
+	bits: [
+		{
+			label: "bits",
+			type: { carrier: "bits", roster: { closed: "Kind", handles }, caps },
+			live: map(
+				array(boolean, { min: 3, max: 3 }),
+				(held): ReadonlySet<string> => new Set(Arr.filter(handles, (_, c) => held[c] === true))
+			)
 		}
 	],
 	range4: [
@@ -331,7 +336,7 @@ describe("the encoders", () => {
 					},
 					([target, drawn], c) =>
 						Effect.sync(() => {
-							const codec = scalarCodec(target.type)
+							const codec = scalarCodec(target.type, kindCodes)
 							const value = passed(drawn)
 							c.note(drawn.kind === "stale" ? "stale" : drawnFeature(drawn))
 							const encoded = codec.encode(value)
@@ -346,7 +351,7 @@ describe("the encoders", () => {
 									"live",
 									`${target.label}: a Live value was refused (${encoded.error})`
 								)
-								const slotted = paramEncoder(target.type, "slot")(value)
+								const slotted = paramEncoder(target.type, "slot", kindCodes)(value)
 								assert.ok(
 									!slotted.ok,
 									`${target.label}: the slot's encoder admitted what the codec refused`
@@ -396,7 +401,8 @@ describe("the encoders", () => {
 					Effect.sync(() => {
 						const encoded = paramEncoder(
 							target.type,
-							"slot"
+							"slot",
+							kindCodes
 						)(target.type.carrier === "text" ? `${text}\u0000` : text)
 						if (encoded.ok) {
 							return
@@ -444,13 +450,13 @@ describe("admission reads a value once", () => {
 						const end = 2 ** 31 - 1
 						yield* c.assume(first < end)
 						const range4 = decoded(written.range4[0]).type
-						const codec = scalarCodec(range4)
+						const codec = scalarCodec(range4, kindCodes)
 						const unstable = unstableSpan(first, then, end)
 						const encoded = codec.encode(unstable.span)
 						assert.deepEqual(encoded, Result.ok(`[${first},${end})`))
 						assert.equal(unstable.reads(), 1, "the getter is read once")
 						/** A fact's field: read once, and its admitted value is the first answer. */
-						const heading = [{ name: "span", spec: carrierSpecOf(range4) }]
+						const heading = [{ name: "span", spec: carrierSpecOf(range4, kindCodes) }]
 						const fieldReads = unstableSpan(first, then, end)
 						let factReads = 0
 						const fact = Object.defineProperty({}, "span", {
@@ -487,7 +493,7 @@ describe("fact identity", () => {
 				] as const
 				const heading = Arr.map(descriptors, (d, i) => ({
 					name: `f${i}`,
-					spec: carrierSpecOf(d.type)
+					spec: carrierSpecOf(d.type, kindCodes)
 				}))
 				const fieldGen: Gen<ReadonlyArray<Drawn<unknown, StaleFrom>>> = (source) =>
 					Arr.map(descriptors, (d) => source.draw(drawnFor(d)))
@@ -575,18 +581,22 @@ describe("the tuple converter", () => {
 					({ columns, values }) =>
 						Effect.sync(() => {
 							const cells = Arr.map(columns, (column, i) => {
-								const encoded = scalarCodec(column.type).encode(values[i])
+								const encoded = scalarCodec(column.type, kindCodes).encode(values[i])
 								assert.ok(encoded.ok, `${column.label}: a Live value was refused`)
 								return { column, text: encoded.value }
 							})
 							/** Repeated private names convert positionally. */
-							const tuple = tupleConverter(Arr.map(columns, (c) => ({ name: "c", type: c.type })))(
-								Arr.map(cells, (cell) => cell.text)
-							)
+							const tuple = tupleConverter(
+								Arr.map(columns, (c) => ({ name: "c", type: c.type })),
+								kindCodes
+							)(Arr.map(cells, (cell) => cell.text))
 							assert.ok(Object.isFrozen(tuple))
 							assert.equal(tuple.length, columns.length)
 							for (const [i, { column, text }] of cells.entries()) {
-								assert.deepEqual(scalarCodec(column.type).encode(tuple[i]), Result.ok(text))
+								assert.deepEqual(
+									scalarCodec(column.type, kindCodes).encode(tuple[i]),
+									Result.ok(text)
+								)
 							}
 						})
 				)

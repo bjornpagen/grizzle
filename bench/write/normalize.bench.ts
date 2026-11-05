@@ -61,7 +61,14 @@ const addedOf = (o: ObservedApply): bigint | "not accepted" =>
 
 /** An outcome as its measure reads: its kind, its law when rejected, and the SQLSTATE of its wire failure. */
 const outcomeText = (o: ObservedApply): string =>
-	`${o.value.kind === "invariant-rejected" ? `invariant-rejected ${o.value.law.kind}` : o.value.kind}; ${o.failure.kind === "none" ? "no wire failure" : `wire ${o.failure.failure.sqlstate}`}`
+	`${
+		o.value.kind === "invariant-rejected"
+			? `invariant-rejected ${Arr.join(
+					Arr.map(o.value.laws, (l) => l.kind),
+					", "
+				)}`
+			: o.value.kind
+	}; ${o.failure.kind === "none" ? "no wire failure" : `wire ${o.failure.failure.sqlstate}`}`
 
 /** @internal */
 export default defineGate({
@@ -267,7 +274,7 @@ export default defineGate({
 					equivalence(
 						"two facts with one key and different payloads are refused with the key law, never PostgreSQL's error",
 						sameKey.value.kind === "invariant-rejected" &&
-							reported(sameKey.value.law) === itemKey &&
+							Arr.every(sameKey.value.laws, (l) => reported(l) === itemKey) &&
 							(sameKeyWire.kind === "none" ||
 								(sameKeyWire.failure.sqlstate !== "21000" &&
 									sameKeyWire.failure.sqlstate !== "23505")),

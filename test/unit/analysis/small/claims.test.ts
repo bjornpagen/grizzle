@@ -20,7 +20,6 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { Card, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical } from "#compiler/logical/annotate.ts"
-import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import {
 	noBindings,
 	Reference,
@@ -199,7 +198,7 @@ const placementsOf = (
 /** One plan under one installed variant, in every context it can be read in. */
 const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 	const where = `${inst.variant.name}: ${printPlan(plan)}`
-	const checked = checkQuery(checking(schemaDesc(inst.schema)), descOf(plan), checkOptions("query"))
+	const checked = checkQuery(checking(inst.desc), descOf(plan), checkOptions("query"))
 	if (!checked.ok) {
 		throw new Error(
 			`the checker refuses a plan the space offers: ${checked.error.message}\n${where}`

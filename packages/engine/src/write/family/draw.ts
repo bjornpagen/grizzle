@@ -1,76 +1,49 @@
 /**
- * A family write's rows, as the columnar transport carries them.
+ * A family write's rows, as the columnar transport carries them (rows-first.md §1).
  *
- * A family relation groups its members by the key of an owner relation, and a natural field of the owner counts
- * them. Each member holds a slot below the count, its index, and keeps a copy of the count, which the copy's foreign
- * key cascades from the owner. grizzle draws all four:
- *
- * - a member's group is its owner's key;
- * - its index is its position in the array it is written in;
- * - its copy, and its owner's count, are that array's length.
- *
- * None of them is the caller's, so no write can state a gap, a shared slot or a count that disagrees with its family.
- * Every row is the texts of its columns, in the layout its texts function states: the owner's key first, so one
- * statement's arrays read the group the same way whatever it writes.
+ * The caller writes rows; a family is a law over them, and grizzle owns every value a family draws: each count, index,
+ * interval, copy and accumulator. So every row a family write sends is whole: its key, then every other column the host
+ * writes, in its relation's row layout (write/family/statements.ts rowColumns), whichever families it is a member of,
+ * and every owner's count statement carries its count and its ends. None of those values is the caller's, so no write
+ * can state a gap, a shared slot, a count that disagrees with its family or a fold that disagrees with its members.
  */
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 
-/** An owner, by its key's texts, in the order the family's group fields pair with them. */
+/** An owner, or a group, by its key's texts, in the order the family's group fields pair with them. */
 export type Owner = NonEmptyReadonlyArray<string>
 
-/**
- * A member as the host encodes it: the texts of every field its caller writes or a fold accumulates, in the family
- * relation's column order, and of none the family draws. A rewrite fixes every member's slot, so a fold's fields are
- * computed from it before its plan is.
- */
+/** A member by its relation's primary key: each key field's text, in key order. */
+export type MemberKey = NonEmptyReadonlyArray<string>
+
+/** The texts of a row's columns beside its key, in its relation's row layout. */
 export type Member = ReadonlyArray<string>
 
-/** An owner's slots from `from` up to `to`, exclusive, whose members one statement deletes. */
-export interface Vacated {
-	readonly owner: Owner
-	readonly from: number
-	readonly to: number
+/** A member relation's row as one statement writes it: its key's texts, then every other column's (`Member`). */
+export interface Row {
+	readonly key: MemberKey
+	readonly columns: Member
 }
 
-/** An owner's count, as one statement sets it. */
+/**
+ * An owner's count, as one statement sets it, with its family's ends: the texts of the owner's end fields, every
+ * accumulated field its family's last axis carries (write/family/statements.ts endColumns), set in the same UPDATE, so
+ * the owner's last-slot copies change with its count. A family with none has none.
+ */
 export interface Recount {
 	readonly owner: Owner
 	readonly count: number
+	readonly ends: Member
 }
 
-/** A member at its slot, with its owner's count copied, as one statement inserts it. */
-export interface Placed {
-	readonly owner: Owner
-	readonly at: number
-	readonly copy: number
-	readonly member: Member
-}
+/** A row's texts: its key, then its other columns. */
+export const rowTexts = (row: Row): ReadonlyArray<string> => [...row.key, ...row.columns]
 
-/** Members at consecutive slots from `from`, each at its position after `from`, each copying `copy`. */
-export const placed = (
-	owner: Owner,
-	from: number,
-	copy: number,
-	members: ReadonlyArray<Member>
-): ReadonlyArray<Placed> => members.map((member, i) => ({ owner, at: from + i, copy, member }))
+/** A deleted row's texts: its key. */
+export const keyTexts = (key: MemberKey): ReadonlyArray<string> => key
 
-/** A deleted run's texts: the owner's key, then the run's first slot and the slot after its last. */
-export const vacatedTexts = (row: Vacated): ReadonlyArray<string> => [
-	...row.owner,
-	String(row.from),
-	String(row.to)
-]
-
-/** A count's texts: the owner's key, then the count. */
+/** A count's texts: the owner's key, then the count, then its ends. */
 export const recountTexts = (row: Recount): ReadonlyArray<string> => [
 	...row.owner,
-	String(row.count)
-]
-
-/** A placed member's texts: the owner's key as its group, its index, its copy of the count, then its own fields. */
-export const placedTexts = (row: Placed): ReadonlyArray<string> => [
-	...row.owner,
-	String(row.at),
-	String(row.copy),
-	...row.member
+	String(row.count),
+	...row.ends
 ]

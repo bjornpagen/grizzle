@@ -42,7 +42,7 @@ import { context, login, relation, role, schema } from "#compiler/public/schema.
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
 import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
-import { fromEmpty, generate } from "#test/support/migrate/kit.ts"
+import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import {
 	processEnvironment,
 	processValue,
@@ -146,7 +146,8 @@ const shelfSnapshot = snapshotJson(
 			name: "shelf",
 			timestamp: "20261024000000",
 			previous: fromEmpty,
-			workload: noWorkload
+			workload: noWorkload,
+			declared: noDeclarations
 		}),
 		"Shelf's first migration"
 	).snapshotText

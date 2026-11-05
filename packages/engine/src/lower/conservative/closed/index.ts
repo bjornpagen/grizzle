@@ -38,8 +38,10 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 			return lit.text("00000000-0000-0000-0000-000000000000", cx.baseTypeRef(base))
 		case "text":
 			return lit.text("", cx.baseTypeRef(base))
-		case "enum":
-			return lowerLiteral(cx.names, { kind: "enum", handle: base.roster.handles[0] }, base)
+		case "code":
+			return lowerLiteral(cx.names, { kind: "handle", handle: base.roster.handles[0] }, base)
+		case "bits":
+			return lowerLiteral(cx.names, { kind: "handles", handles: [] }, base)
 		case "range4":
 		case "range8":
 			return lowerLiteral(cx.names, { kind: "span", start: 0n, end: 1n }, base)
@@ -54,12 +56,19 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 /**
  * Closed: the complete declared ground facts of a closed relation as a typed VALUES source.
  *
- *   SELECT DISTINCT r2.c1, r2.c2 FROM (VALUES ('Automatic'::"work"."kind", 1), ...) AS r2(c1, c2)
+ *   SELECT DISTINCT r2.c1, r2.c2 FROM (VALUES (0::smallint, 1), ...) AS r2(c1, c2)
  *
- * Every value is a typed literal of its column's base type: an enum handle is typed by its roster's enum, a contract
- * payload by its base, because a declared fact was checked against its contract at compile time and a VALUES source is
- * never a refined write. VALUES needs at least one row, so a closed relation without facts is the empty
- * relation `SELECT ... WHERE false` over placeholder rows of its column types; no NULL ever stands for a value.
+ * Every value is a typed literal of its column's base type: a handle is its code under the installation's codebook, a
+ * smallint, and a contract payload is typed by its base, because a declared fact was checked against its contract at
+ * compile time and a VALUES source is never a refined write. The rows are the node's own, which the optimizer may have
+ * narrowed from a declared closed relation's (simplify/rules.ts finiteFold), so no installed constant need stand for
+ * them. A membership of a declared relation's every fact is no source at all: the optimizer's R07 reads it as one bit
+ * of the relation's installed key set (lower/optimize/closed). What stays a source is enumerated from its facts, never
+ * from the installed constant by generate_series over the key space filtered by its cells: the key space is the
+ * product of the key fields' radices, holes included, and a sparse relation fills little of it, as qti-pie's
+ * ChildGrammar fills 77,734 of its 819,200 cells. VALUES needs at least one row, so a closed relation without facts is
+ * the empty relation `SELECT ... WHERE false` over placeholder rows of its column types; no NULL ever stands for a
+ * value.
  *
  * The placeholder is two equal rows, never one. PostgreSQL flattens a one-row VALUES list into constants once its query
  * is pulled up into the one that reads it (an optimized artifact elides the DISTINCT that would prevent that), and then

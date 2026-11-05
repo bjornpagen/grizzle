@@ -1,11 +1,6 @@
-import { Array as Arr, Option } from "effect"
-import { violations } from "#test/pg/laws/families/model.ts"
-import {
-	evaluateRules,
-	hostSchemaOf,
-	judgedSchemaOf,
-	nativeLaw
-} from "#test/support/worlds/model/host.ts"
+import { Array as Arr, Option, Record as Rec } from "effect"
+import { violations } from "#test/support/laws/model.ts"
+import { evaluateRules, hostSchemaOf, judgedSchemaOf } from "#test/support/worlds/model/host.ts"
 import {
 	changesWorlds,
 	driftOf,
@@ -17,6 +12,7 @@ import {
 import { domainLawKey, lawDomainsOf } from "#test/support/worlds/model/session/domains.ts"
 import { meetingOf } from "#test/support/worlds/model/session/laws.ts"
 import {
+	draftedFrom,
 	factsIn,
 	loginOf,
 	loginsCreatedOn,
@@ -39,6 +35,51 @@ import type {
 	SqlState,
 	Allowed
 } from "#test/support/worlds/model/types.ts"
+
+/**
+ * The handles a migration to `to` leaves a stored fact holding that no roster of `to` holds live: each a removed
+ * handle's code, which the re-pointed roster domain's VALIDATE refuses, naming the table and the column (23514).
+ */
+const removedHandlesHeld = (reality: HostState, to: BaseSpec): boolean =>
+	Arr.some(to.relations, (r) =>
+		Arr.some(r.fields, (f) => {
+			const domain = f.domain
+			if (domain.kind !== "handle") {
+				return false
+			}
+			const live = Option.match(
+				Arr.findFirst(to.closed, (c) => c.name === domain.closed),
+				{ onNone: (): ReadonlyArray<string> => [], onSome: (c) => c.members }
+			)
+			return Arr.some(factsIn(reality, r.name), (fact) => {
+				const value = fact[f.name]
+				return typeof value === "string" && !live.includes(value)
+			})
+		})
+	)
+
+/**
+ * The first roster `to` declares out of its codes' order against `from` (D1): a handle `from` holds live keeps its
+ * code, which orders it as `from` does, and every other one takes a code past every one minted, in declared order, so
+ * a declaration that puts a kept handle after a new one, or two kept handles out of `from`'s order, is refused before
+ * anything is drafted ("append new handles; a roster's order is its codes' order").
+ */
+export const reorderedRoster = (from: BaseSpec, to: BaseSpec): string | undefined =>
+	Option.getOrUndefined(
+		Arr.findFirst(to.closed, (c) => {
+			const before = Option.match(
+				Arr.findFirst(from.closed, (x) => x.name === c.name),
+				{ onNone: (): ReadonlyArray<string> => [], onSome: (x) => x.members }
+			)
+			const codes = Arr.map(c.members, (m, i) => {
+				const kept = before.indexOf(m)
+				return kept >= 0 ? kept : before.length + i
+			})
+			return Arr.some(codes, (code, i) => i > 0 && code < (codes[i - 1] ?? code))
+				? Option.some(c.name)
+				: Option.none()
+		})
+	)
 
 /** Reality as a migrated base holds it: a kept relation's facts, a new relation empty. */
 const migratedReality = (reality: HostState, to: BaseSpec): HostState =>
@@ -95,13 +136,14 @@ const brokenOnto = (state: Pick<Unnamed, "reality">, to: InstallSpec): ReadonlyA
 	const host = judgedSchemaOf(to.base)
 	const reality = migratedReality(state.reality, to.base)
 	return [
-		...new Set(
-			Arr.flatMap(host.laws, (law): ReadonlyArray<SqlState> =>
+		...new Set([
+			...Arr.flatMap(host.laws, (law): ReadonlyArray<SqlState> =>
 				violations({ relations: host.relations, laws: [law] }, reality).length > 0
 					? [meetingOf(host, law).sqlstate]
 					: []
-			)
-		)
+			),
+			...(removedHandlesHeld(reality, to.base) ? ["23514" as const] : [])
+		])
 	]
 }
 
@@ -156,44 +198,36 @@ const asLeft = <S extends Unnamed>(state: S): S => state
 
 /**
  * A file of a folder drafted from one installation to another, as packages/engine/src/deploy/diff/plan.ts runs its slots,
- * one file for each run of slots that holds a statement, in this order: the new enum labels (no transaction); Setup,
- * the new enums and domains; Structure, the world objects of the roles the installation holds that change or go and
+ * one file for each run of slots that holds a statement, in this order: Setup, the new constants and domains (a changed
+ * roster's new names constant among them); Structure, a changed roster domain's CHECK re-pointed NOT VALID, the world objects of the roles the installation holds that change or go and
  * every new world function, new tables and columns, and constraints NOT VALID; the indexes of new relations; the
- * concurrent indexes of relations that may hold rows; Validate, the constraints validated and the concurrent indexes
- * attached; one file per residual law; Publish, the roles, logins, memberships and grants, the new roles' world objects,
- * what the target no longer has (an index a new key serves instead among it), and last the COMMENT of every object the
- * folder creates under a hashed name.
+ * concurrent indexes of relations that may hold rows; Validate, the constraints validated (a re-pointed roster domain's
+ * CHECK among them) and the concurrent indexes attached; Publish, the roles, logins, memberships and grants, the new
+ * roles' world objects, what the target no longer has (an index a new key serves instead, a roster's old constant,
+ * dropped RESTRICT, among it), and last the COMMENT of every object the folder creates under a hashed name.
  */
-export type FolderFile =
-	| "labels"
-	| "setup"
-	| "structure"
-	| "indexes"
-	| "concurrent"
-	| "validate"
-	| "law"
-	| "publish"
+export type FolderFile = "setup" | "structure" | "indexes" | "concurrent" | "validate" | "publish"
 
 /**
- * The relation the native objects of a law are built on, each by a statement of its own that fails over data breaking
+ * The relations the native objects of a law are built on, each by a statement of its own that fails over data breaking
  * it: a key's or a span key's, a check's, a containment's or a coverage's source; none for a containment into a closed
- * roster, which its field's type enforces, and none for a law that is not native (host.ts nativeLaw).
+ * roster, which its field's type enforces; and for alternatives, the source of each of its containments (fin.md §7),
+ * the parent and every arm. Every law is native.
  */
-const builtOn = (base: BaseSpec, law: LawSpec): string | undefined => {
+const builtOn = (base: BaseSpec, law: LawSpec): ReadonlyArray<string> => {
 	switch (law.kind) {
 		case "key":
 		case "spanKey":
 		case "check":
-			return law.relation
+			return [law.relation]
 		case "contained":
 			return Arr.some(base.closed, (c) => c.name === law.target.relation)
-				? undefined
-				: law.source.relation
+				? []
+				: [law.source.relation]
 		case "covered":
-			return law.source.relation
+			return [law.source.relation]
 		case "alternatives":
-		case "capacity":
-			return undefined
+			return [law.relation, ...Arr.dedupe(Rec.values(law.arms))]
 	}
 }
 
@@ -216,19 +250,18 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	const held = (relation: string): boolean => Arr.some(was.relations, (r) => r.name === relation)
 	const fromDomains = new Set(Arr.map(lawDomainsOf(was), domainLawKey))
 	const added = Arr.filter(now.laws, (law) => !Arr.some(was.laws, (old) => samePlain(old, law)))
-	const native = Arr.filter(added, (law) => nativeLaw(now, law))
-	const residual = Arr.filter(added, (law) => !nativeLaw(now, law))
-	const onHeld = (law: LawSpec): boolean => {
-		const relation = builtOn(now, law)
-		return relation !== undefined && held(relation)
-	}
+	const native = added
+	const onHeld = (law: LawSpec): boolean => Arr.some(builtOn(now, law), held)
 	const notValid = Arr.filter(native, (law) => !uniqueIndexed(law) && onHeld(law))
 	const concurrent = Arr.some(native, (law) => uniqueIndexed(law) && onHeld(law))
-	const labels = Arr.some(now.closed, (c) => {
+	/** A roster both bases hold whose handles differ: a new names constant in Setup, its domain's CHECK re-pointed in
+	 * Structure and VALIDATEd in Validate, the old constant dropped and the new one's COMMENT in Publish. */
+	const rosterChanged = Arr.some(now.closed, (c) => {
 		const before = Option.getOrUndefined(Arr.findFirst(was.closed, (x) => x.name === c.name))
-		return before !== undefined && Arr.some(c.members, (m) => !before.members.includes(m))
+		return before !== undefined && !samePlain(before.members, c.members)
 	})
 	const setup =
+		rosterChanged ||
 		Arr.some(now.closed, (c) => !Arr.some(was.closed, (x) => x.name === c.name)) ||
 		Arr.some(lawDomainsOf(now), (d) => !fromDomains.has(domainLawKey(d)))
 	const gains =
@@ -240,7 +273,7 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 			)
 		}) || Arr.some(now.derived, (d) => !Arr.some(was.derived, (x) => x.name === d.name))
 	const worlds = changesWorlds(from, to)
-	const structure = worlds || gains || notValid.length > 0
+	const structure = worlds || gains || notValid.length > 0 || rosterChanged
 	const indexes = Arr.some(native, (law) => uniqueIndexed(law) && !onHeld(law))
 	/** An index the installation holds on a containment's source fields, which a new key leading with them serves instead. */
 	const servedAnew = Arr.some(
@@ -263,7 +296,7 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	/**
 	 * Whether the folder creates an object under a hashed name (core/identity.ts), whose COMMENT the diff's final step
 	 * writes in Publish: every added law but a declared check, which keeps its readable name (a key's unique constraint,
-	 * a foreign key, a residual law's function and triggers); a held relation's new serial field's identity sequence; a
+	 * a foreign key); a held relation's new serial field's identity sequence; a
 	 * new refined text's domain. A new relation's primary key is one too, and a new relation publishes regardless.
 	 */
 	const hashed =
@@ -274,6 +307,7 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 		worlds ||
 		removes ||
 		hashed ||
+		rosterChanged ||
 		Arr.some(now.relations, (r) => !held(r.name)) ||
 		Arr.some(
 			[...Arr.map(from.roles, (r) => r.name), ...Arr.map(to.roles, (r) => r.name)],
@@ -288,19 +322,17 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 			}
 		)
 	return [
-		...(labels ? ["labels" as const] : []),
 		...(setup ? ["setup" as const] : []),
 		...(structure ? ["structure" as const] : []),
 		...(indexes ? ["indexes" as const] : []),
 		...(concurrent ? ["concurrent" as const] : []),
-		...(notValid.length > 0 || concurrent ? ["validate" as const] : []),
-		...Arr.map(residual, () => "law" as const),
+		...(notValid.length > 0 || concurrent || rosterChanged ? ["validate" as const] : []),
 		...(publish ? ["publish" as const] : [])
 	]
 }
 
-/** Whether a folder's file runs outside a transaction: new enum labels, and indexes built concurrently. */
-const noTransaction = (file: FolderFile): boolean => file === "labels" || file === "concurrent"
+/** Whether a folder's file runs outside a transaction: indexes built concurrently. */
+const noTransaction = (file: FolderFile): boolean => file === "concurrent"
 
 /**
  * Where the ledger stands on a folder a run stopped in after `committed` of its files committed: unfinished once one
@@ -323,23 +355,12 @@ const killedStanding = (from: InstallSpec, to: InstallSpec): LedgerStanding => {
 
 /**
  * Where the ledger stands on a folder a run stopped in at a law its data breaks: unfinished. A run stops only at a law a
- * folder adds, and the generators add only laws PostgreSQL enforces itself (nativeLaw), each over a relation that may
- * hold rows: a key's unique index, built concurrently outside a transaction, or a constraint validated in Validate,
- * after Structure or the concurrent indexes committed; one over a new, empty relation never breaks. A folder adding a residual
- * law, whose own file may be its first, is no folder the model places a stop in.
+ * folder adds, or a roster domain's CHECK it re-points, and every one is a statement PostgreSQL runs itself (fin.md
+ * §7), each over a relation that may hold rows: a key's unique index, built concurrently outside a transaction, or a
+ * constraint validated in Validate, after Structure or the concurrent indexes committed; one over a new, empty
+ * relation never breaks.
  */
-const stoppedStanding = (from: InstallSpec, to: InstallSpec): LedgerStanding => {
-	const added = Arr.filter(
-		to.base.laws,
-		(law) => !Arr.some(from.base.laws, (old) => samePlain(old, law))
-	)
-	if (Arr.some(added, (law) => !nativeLaw(to.base, law))) {
-		throw new Error(
-			"a run stopped in a folder that adds a residual law, which the model places no stop in"
-		)
-	}
-	return "unfinished"
-}
+const stoppedStanding = (): LedgerStanding => "unfinished"
 
 /**
  * Where a run's resumption of pending folders leaves the world: every folder landed, or stopped at the first whose data
@@ -372,12 +393,14 @@ const pendingFolders = (state: ModelState): ReadonlyArray<InstallSpec> =>
 	state.migrations.kind === "pending" ? state.migrations.folders : []
 
 /**
- * A migration (README "Migrations"). An installation grizzle refuses to build (refusedAtBuild) is refused as it is
- * built, before any migration is drafted. A folder already applied that a person edited is refused before any file
+ * A migration (README "Migrations"). An installation grizzle refuses to build (refusedAtBuild), or one that declares a
+ * roster out of its codes' order against the installation its folder is drafted from (reorderedRoster), is refused as
+ * it is built, before any migration is drafted. A folder already applied that a person edited is refused before any file
  * runs; the new folder is discarded, the migrations as they were. Otherwise the new folder is drafted after the
  * directory's, and the runner runs every folder the migrations hold, the pending ones first and oldest first, one
  * transaction per file, so the files of a stopped run before the stop stay committed and recorded:
- * - a pending folder whose data breaks one of its laws stops the run at that law's statement, with its SQLSTATE, the
+ * - a pending folder whose data breaks one of its laws, or holds a handle it removes from a roster (the re-pointed
+ *   domain's VALIDATE, 23514), stops the run at that statement, with its SQLSTATE, the
  *   folders before it landed (landedOn), it, every later one and the new folder pending, the ledger holding it
  *   unfinished (stoppedStanding): while a folder is pending, the installation it would replace, its data and its
  *   sessions stay, and while it is unfinished every Db call and Db.open is refused;
@@ -397,7 +420,7 @@ export const migrateBranches = (
 	how: MigrationHow
 ): Arr.NonEmptyReadonlyArray<Allowed> => {
 	const stay = (observation: ActionOutcome): Allowed => ({ observation, next: state })
-	if (refusedAtBuild(to)) {
+	if (refusedAtBuild(to) || reorderedRoster(draftedFrom(state).base, to.base) !== undefined) {
 		return [stay({ kind: "compile-refused" })]
 	}
 	if (how === "hand-edited") {
@@ -405,14 +428,10 @@ export const migrateBranches = (
 	}
 	const run = resume({ kind: "named", state }, pendingFolders(state))
 	if (run.kind === "stopped") {
-		return stopped(
-			run.sqlstates,
-			run.reached,
-			pendingOn([...run.pending, to], stoppedStanding(run.reached.state.install, run.pending[0]))
-		)
+		return stopped(run.sqlstates, run.reached, pendingOn([...run.pending, to], stoppedStanding()))
 	}
 	const from = run.reached
-	const lawStopped = pendingOn([to], stoppedStanding(from.state.install, to))
+	const lawStopped = pendingOn([to], stoppedStanding())
 	const [first, ...rest] = brokenOnto(from.state, to)
 	switch (how) {
 		case "half-applied":
@@ -452,11 +471,7 @@ export const driftBranches = (state: ModelState): Arr.NonEmptyReadonlyArray<Allo
 	const run = resume({ kind: "named", state }, pendingFolders(state))
 	switch (run.kind) {
 		case "stopped":
-			return stopped(
-				run.sqlstates,
-				run.reached,
-				pendingOn(run.pending, stoppedStanding(run.reached.state.install, run.pending[0]))
-			)
+			return stopped(run.sqlstates, run.reached, pendingOn(run.pending, stoppedStanding()))
 		case "landed":
 			return [
 				allowedAt(

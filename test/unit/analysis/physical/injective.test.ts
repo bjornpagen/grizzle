@@ -255,7 +255,8 @@ const family = (t: ScalarType): Family => {
 		case "float8":
 			return "float"
 		case "bool":
-		case "enum":
+		case "code":
+		case "bits":
 		case "money":
 		case "exactMoney":
 		case "numeric":

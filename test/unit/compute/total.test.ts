@@ -157,8 +157,9 @@ const forms = {
 		outcome: "UnsupportedOperation",
 		table: () => table(testPg.numeric, (x) => Compute.eq(Compute.round(x), "1"))
 	},
+	/** GREATEST is total over one carrier, composed of its >: a max fold's CHECK reads it (ir/monoid.ts combine). */
 	greatest: {
-		outcome: "UnsupportedOperation",
+		outcome: "admitted",
 		table: ({ m }) => table(testPg.bigint, (x) => Compute.eq(Compute.greatest(x, x), m))
 	},
 	"a parameter": {

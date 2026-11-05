@@ -72,8 +72,8 @@ import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
  * The catalog namespace an object name is looked up in: a relation's (tables, views, sequences and indexes share
- * pg_class), a type's (enums and domains share pg_type, where each table's row type also lives, which no grizzle column
- * is of), a function's, an operator class's or an extended statistics object's. A rename in one namespace never renames
+ * pg_class), a type's (a domain lives in pg_type, where each table's row type also lives, which no grizzle column is
+ * of), a function's (a constant is one), an operator class's or an extended statistics object's. A rename in one namespace never renames
  * a name of another.
  */
 type NameSpace = "relation" | "type" | "function" | "operatorClass" | "statistics"
@@ -89,7 +89,6 @@ const objectSpace = (
 		case "VIEW":
 		case "SEQUENCE":
 			return "relation"
-		case "TYPE":
 		case "DOMAIN":
 			return "type"
 		case "STATISTICS":
@@ -260,9 +259,20 @@ class Transform {
 			case "collate":
 			case "negate":
 			case "not":
-			case "isTrue": {
+			case "isTrue":
+			case "complement": {
 				const expr = this.expr(e.expr)
 				return expr === e.expr ? e : { ...e, expr }
+			}
+			case "nullif": {
+				const expr = this.expr(e.expr)
+				const absent = this.expr(e.absent)
+				return expr === e.expr && absent === e.absent ? e : { ...e, expr, absent }
+			}
+			case "subscript": {
+				const array = this.expr(e.array)
+				const index = this.expr(e.index)
+				return array === e.array && index === e.index ? e : { ...e, array, index }
 			}
 			case "binary": {
 				const left = this.expr(e.left)
@@ -830,6 +840,11 @@ class Transform {
 				const column = this.columnDef(a.column)
 				return column === a.column ? a : { ...a, column }
 			}
+			case "addColumnDefault": {
+				const column = this.columnDef(a.column)
+				const value = this.expr(a.default)
+				return column === a.column && value === a.default ? a : { ...a, column, default: value }
+			}
 			case "addIdentity": {
 				const sequence = this.name(a.sequence, "relation")
 				return sequence === a.sequence ? a : { ...a, sequence }
@@ -852,6 +867,10 @@ class Transform {
 				const type = this.type(a.type)
 				const using = this.using(a.using)
 				return type === a.type && using === a.using ? a : { ...a, type, using }
+			}
+			case "setExpression": {
+				const expr = this.expr(a.expr)
+				return expr === a.expr ? a : { ...a, expr }
 			}
 			case "dropColumn":
 			case "dropDefault":
@@ -933,7 +952,6 @@ class Transform {
 				return o
 			case "TABLE":
 			case "SEQUENCE":
-			case "TYPE":
 			case "DOMAIN": {
 				const names = this.names(
 					o.names,
@@ -1091,12 +1109,6 @@ class Transform {
 				return this.createDomain(s)
 			case "alterDomain":
 				return this.alterDomain(s)
-			case "createEnum":
-			case "alterEnumAddValue":
-			case "alterEnumRenameValue": {
-				const name = this.name(s.name, "type")
-				return name === s.name ? s : { ...s, name }
-			}
 			case "dropIndex": {
 				const name = this.name(s.name, "relation")
 				return name === s.name ? s : { ...s, name }
@@ -1132,13 +1144,18 @@ class Transform {
 			}
 			case "createFunction":
 				return this.createFunction(s)
-			case "createConstraintTrigger": {
-				const table = this.name(s.table, "relation")
+			case "packConstant": {
 				const fn = this.name(s.function, "function")
-				const when = s.when === undefined ? undefined : this.expr(s.when)
-				return table === s.table && fn === s.function && when === s.when
+				return fn === s.function ? s : { ...s, function: fn }
+			}
+			case "createConstant": {
+				const name = this.name(s.name, "function")
+				const params = mapList(s.params, (p) => this.functionParam(p))
+				const returns = this.type(s.returns)
+				const body = this.expr(s.body)
+				return name === s.name && params === s.params && returns === s.returns && body === s.body
 					? s
-					: { ...s, table, function: fn, when }
+					: { ...s, name, params, returns, body }
 			}
 			case "createGuardTrigger": {
 				const table = this.name(s.table, "relation")
@@ -1184,7 +1201,6 @@ class Transform {
 				const name = this.name(on.name, "relation")
 				return name === on.name ? on : { ...on, name }
 			}
-			case "TYPE":
 			case "DOMAIN": {
 				const name = this.name(on.name, "type")
 				return name === on.name ? on : { ...on, name }
@@ -1243,14 +1259,11 @@ class Transform {
 			case "alterDatabaseDefault":
 			case "alterDefaultPrivileges":
 			case "alterDomain":
-			case "alterEnumAddValue":
-			case "alterEnumRenameValue":
 			case "alterRole":
 			case "alterTable":
 			case "comment":
-			case "createConstraintTrigger":
+			case "createConstant":
 			case "createDomain":
-			case "createEnum":
 			case "createExtension":
 			case "createFunction":
 			case "createGuardTrigger":
@@ -1271,6 +1284,7 @@ class Transform {
 			case "grantColumns":
 			case "grantRole":
 			case "lockTable":
+			case "packConstant":
 			case "rename":
 			case "renameColumn":
 			case "renameConstraint":
@@ -1657,12 +1671,47 @@ class Visit {
 			case "collate":
 			case "negate":
 			case "not":
-			case "isTrue": {
+			case "isTrue":
+			case "complement": {
 				inKeyOrder(keys, [
 					[
 						"expr",
 						() => {
 							this.expr(e.expr)
+						}
+					]
+				])
+				return
+			}
+			case "nullif": {
+				inKeyOrder(keys, [
+					[
+						"expr",
+						() => {
+							this.expr(e.expr)
+						}
+					],
+					[
+						"absent",
+						() => {
+							this.expr(e.absent)
+						}
+					]
+				])
+				return
+			}
+			case "subscript": {
+				inKeyOrder(keys, [
+					[
+						"array",
+						() => {
+							this.expr(e.array)
+						}
+					],
+					[
+						"index",
+						() => {
+							this.expr(e.index)
 						}
 					]
 				])

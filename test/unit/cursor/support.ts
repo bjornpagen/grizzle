@@ -1,5 +1,6 @@
 import { type CursorSpec, cursorCodec, cursorTokenMaxLength } from "#compiler/codec/cursor/codec.ts"
 import type { CursorComparator, CursorGeneration } from "#compiler/codec/cursor/identity.ts"
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -46,7 +47,7 @@ export const cursorCodecTypes = {
 	text: ofCarrier("text", wildcardText),
 	title: ofCarrier("text", scalarOf(f.regex("^.{1,50}$", "su"), {})),
 	kind: ofCarrier(
-		"enum",
+		"code",
 		scalarOf(f.closedId("Kind"), { Kind: ["Manual", "Automatic", "Ünïcode"] })
 	),
 	range4: ofCarrier("range4", scalarOf(f.span(f.integer, undefined), {})),
@@ -54,6 +55,9 @@ export const cursorCodecTypes = {
 	vector3: ofCarrier("vector", scalarOf({ kind: "vector", dimensions: 3 }, {})),
 	cents: ofCarrier("int8", scalarOf(f.contract("Cents", f.bigint, undefined), {}))
 } as const satisfies Readonly<Record<string, ScalarType>>
+
+/** The codes a fresh installation gives the cursor tests' one roster, Kind: what a cursor encodes a closed id against. */
+export const cursorCodes: Codebook = firstCodebook([cursorCodecTypes.kind.roster])
 
 export const generation: CursorGeneration = { schema: "schema-fingerprint-1", extensions: {} }
 
@@ -69,6 +73,6 @@ export const taskSpec: CursorSpec<typeof taskComparators> = {
 	generation
 }
 
-export const taskCodec = succeeded(cursorCodec(taskSpec, cursorTokenMaxLength))
+export const taskCodec = succeeded(cursorCodec(taskSpec, cursorTokenMaxLength, cursorCodes))
 
 export const taskId = "3c9a8b7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d"

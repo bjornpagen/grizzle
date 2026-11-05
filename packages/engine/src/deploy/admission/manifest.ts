@@ -37,13 +37,13 @@ export type ManifestStatement =
 					| "createSchema"
 					| "createTable"
 					| "createDomain"
-					| "createEnum"
+					| "createConstant"
+					| "packConstant"
 					| "createIndex"
 					| "createMaterializedView"
 					| "createView"
 					| "createPolicy"
 					| "createFunction"
-					| "createConstraintTrigger"
 					| "createGuardTrigger"
 					| "alterDatabaseDefault"
 					| "createRole"
@@ -71,13 +71,13 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "createSchema":
 		case "createTable":
 		case "createDomain":
-		case "createEnum":
+		case "createConstant":
+		case "packConstant":
 		case "createIndex":
 		case "createMaterializedView":
 		case "createView":
 		case "createPolicy":
 		case "createFunction":
-		case "createConstraintTrigger":
 		case "createGuardTrigger":
 		case "alterDatabaseDefault":
 		case "createRole":
@@ -111,8 +111,6 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "revokeRole":
 		case "renameConstraint":
 		case "alterDomain":
-		case "alterEnumAddValue":
-		case "alterEnumRenameValue":
 		case "dropIndex":
 		case "drop":
 		case "dropFunction":
@@ -138,7 +136,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
  * role is installed with, and the drift check replays the objects' statements into scratch schemas, where PostgreSQL
  * deparses them beside the installed ones. Each statement is one of the installation subset of the SQL AST
  * (`ManifestStatement`); a statement only a migration runs (a drop, a rename, a revocation, a constraint's validation,
- * an enum label added or renamed, a domain altered, a default reset, a lock) or any data or transaction statement is a
+ * a domain altered, a default reset, a lock) or any data or transaction statement is a
  * malformed snapshot, refused as MalformedArtifact. */
 export const manifestStatements = (
 	snapshot: DeploySnapshot

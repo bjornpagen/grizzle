@@ -1,5 +1,5 @@
 import { type Equivalence, exact, multiset, ordered, type Side } from "@grizzle/testing/oracle"
-import { Array as Arr, Formatter, Option, Record, Result } from "effect"
+import { Array as Arr, Formatter, Option, Predicate, Record, Result } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { VectorText } from "#compiler/ir/carriers.ts"
@@ -109,7 +109,13 @@ const showValue = (v: Value): string => {
 	if (v instanceof Declined) {
 		return "a declined value"
 	}
-	return `vector ${Formatter.format(v.vector)}`
+	if ("vector" in v) {
+		return `vector ${Formatter.format(v.vector)}`
+	}
+	return `{${Arr.join(
+		Arr.map([...v], (h) => Formatter.format(h)),
+		","
+	)}}`
 }
 
 const printNested = (shape: Shape, n: Nested): string => {
@@ -303,8 +309,12 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 			return typeof host === "boolean" ? Result.succeed(host) : wrong()
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
 			return typeof host === "string" ? Result.succeed(host) : wrong()
+		case "bits":
+			return host instanceof Set && Arr.every([...host], Predicate.isString)
+				? Result.succeed(new Set<string>(host))
+				: wrong()
 		case "range4":
 		case "range8": {
 			if (!isRecord(host)) {

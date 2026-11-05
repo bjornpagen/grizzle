@@ -129,9 +129,17 @@ const main = Effect.gen(function* () {
 		if (!schemaInput.ok) {
 			throw new Error(`schema input: ${schemaInput.error.message}`)
 		}
+		/** A fresh installation's codes, as a first install's snapshot records them. */
+		const { firstCodebook } = yield* Effect.promise(() => import("#compiler/ir/codes.ts"))
+		const { ownRole, rostersOf } = yield* Effect.promise(() => import("#compiler/schema/own.ts"))
+		const owned = schemaInput.value.kind === "role" ? ownRole(schemaInput.value.desc) : undefined
+		if (owned === undefined || !owned.ok) {
+			throw new Error("schema input: the Work fixture's reader is a role over its schema")
+		}
 		const artifacts = schemaArtifacts(schemaInput.value, {
 			installation: undefined,
-			vectorSchema: undefined
+			vectorSchema: undefined,
+			codes: firstCodebook(rostersOf(owned.value.base))
 		})
 		phases["schemaArtifactsMs"] = since(t)
 		if (!artifacts.ok) {

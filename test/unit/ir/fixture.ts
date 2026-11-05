@@ -5,6 +5,7 @@ import { DagBuilder } from "#compiler/ir/builder.ts"
 import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
 import { type TypedLiteral, OpId, type ParamRole } from "#compiler/ir/expr.ts"
@@ -17,7 +18,7 @@ import {
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { castOf } from "#compiler/scalar/compute/registry.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
@@ -54,6 +55,14 @@ export const scalarTypes = {
 	vector3: scalarOf({ kind: "vector", dimensions: 3 }, {}),
 	cents: scalarOf(f.contract("Cents", f.bigint, undefined), {})
 } as const satisfies Readonly<Record<string, ScalarType>>
+
+/**
+ * The codes a fresh installation gives the fixtures' one roster, Kind: what physical names a hand-built DAG is lowered
+ * under hold, so a Kind literal lowers to its code.
+ */
+export const fixtureCodes: Codebook = firstCodebook([
+	defined(rosterOf(scalarTypes.kind), "the fixtures' kind is a closed id")
+])
 
 const column = (name: string, type: ScalarType): HeadingColumn => ({ name, type })
 export const heading = (...columns: ReadonlyArray<readonly [string, ScalarType]>): Heading =>
@@ -181,7 +190,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 	const closed = b.node({
 		kind: "Closed",
 		closed: "Kind",
-		rows: [[{ kind: "enum", handle: "Automatic" }], [{ kind: "enum", handle: "Manual" }]],
+		rows: [[{ kind: "handle", handle: "Automatic" }], [{ kind: "handle", handle: "Manual" }]],
 		heading: heading(["id", scalarTypes.kind]),
 		loc: undefined,
 		meta: conservativeMeta
@@ -615,7 +624,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 			kind: "ProjectSet",
 			input: project,
 			out: [
-				{ name: "kind", expr: x.lit({ kind: "enum", handle }, scalarTypes.kind) },
+				{ name: "kind", expr: x.lit({ kind: "handle", handle }, scalarTypes.kind) },
 				{ name: "account", expr: x.col(project, "account", scalarTypes.uuid) },
 				...(withAmount
 					? [{ name: "amount", expr: x.col(project, "amount", scalarTypes.int8) }]

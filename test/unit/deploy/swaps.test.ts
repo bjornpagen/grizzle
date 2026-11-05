@@ -10,15 +10,18 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { firstCodes } from "#test/support/compile.ts"
 import { f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atDeclaredName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
+	asDrafted,
 	compile,
+	draftedAt,
 	fromEmpty,
 	fromSnapshot,
 	generate,
-	draftedAt,
+	noDeclarations,
 	unowned
 } from "#test/support/migrate/kit.ts"
 import { draftActions, draftFiles, planStatements } from "#test/support/migrate/review.ts"
@@ -160,7 +163,8 @@ const draftTo = (from: SwapCase, to: Successor) => {
 	const before = compile(desc(from, "drawn"), {
 		schema: atDeclaredName,
 		owner: unowned,
-		extensions: []
+		extensions: [],
+		codes: firstCodes
 	})
 	const first = succeeded(
 		generate({
@@ -168,17 +172,19 @@ const draftTo = (from: SwapCase, to: Successor) => {
 			name: "first",
 			timestamp: draftedAt(1),
 			previous: fromEmpty,
-			workload: noWorkload
+			workload: noWorkload,
+			declared: noDeclarations
 		})
 	)
-	const after = compile(desc(from, to), { schema: atDeclaredName, owner: unowned, extensions: [] })
+	const after = compile(desc(from, to), asDrafted)
 	const g = succeeded(
 		generate({
 			previous: fromSnapshot(first.snapshot),
 			installation: after,
 			name: to,
 			timestamp: draftedAt(2),
-			workload: noWorkload
+			workload: noWorkload,
+			declared: noDeclarations
 		})
 	)
 	return { before, after, g }
@@ -206,7 +212,8 @@ const swaps = (c: Case<Feature>, value: SwapCase): void => {
 		const installation = compile(desc(value, version), {
 			schema: atDeclaredName,
 			owner: unowned,
-			extensions: []
+			extensions: [],
+			codes: firstCodes
 		})
 		const names = registered(installation.statements)
 		const taken = new Set(names)

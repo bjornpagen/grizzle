@@ -38,6 +38,10 @@ const search = (
 	suite: string
 ): Exploration<ReadonlyArray<number>, ReadonlyArray<number>, `${number} matched`> => ({
 	suite,
+	oracle: {
+		kind: "specification",
+		name: "a lock planted to open on its magic values, for the fuzz run to find"
+	},
 	draw: drawn(values),
 	literal: Formatter.format,
 	coverage: noCoverage,
@@ -129,6 +133,11 @@ describe("a fuzz run", () => {
 			exhaust(
 				{
 					suite: "fuzz times",
+					oracle: {
+						kind: "specification",
+						name: "Go's -fuzztime grammar: a whole count of cases, milliseconds, seconds, minutes or hours"
+					},
+					box: "every count of 1 to 3 in each unit",
 					generator: (source) =>
 						[
 							source.draw(int(1, 3)),

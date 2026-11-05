@@ -54,7 +54,9 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	textType: "a string",
 	textNul: "text without NUL: PostgreSQL text cannot store U+0000",
 	textSurrogate: "well-formed text: an unpaired UTF-16 surrogate is not a Unicode scalar",
-	enumHandle: "a handle of the closed relation's roster",
+	codeHandle: "a handle of the closed relation's roster",
+	bitsType: "a set of handles: a Set whose members are strings",
+	bitsMember: "a set of handles of the closed relation's roster",
 	spanType: "a span: an object with exactly the fields start and end",
 	spanEndpoint:
 		"a span endpoint of the endpoint type: an integer number for integer, a bigint for bigint, in range",

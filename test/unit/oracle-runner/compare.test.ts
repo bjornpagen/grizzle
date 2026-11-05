@@ -11,6 +11,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { anyNumeric, plainType } from "#compiler/scalar/compute/types.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -166,7 +167,8 @@ const runOf = (name: string, rows: ReadonlyArray<Row>): Run => ({
 			columns: ["n", "f"],
 			types: Arr.map(columns, (c) => c.type),
 			unstated: { kind: "none" },
-			rows: Arr.map(rows, textOf)
+			rows: Arr.map(rows, textOf),
+			codes: emptyCodebook
 		}
 	]
 })

@@ -13,6 +13,7 @@ import {
 	type LeafDesc,
 	type LowerEnv,
 	lowerPredicate,
+	noClosedRelations,
 	noParams,
 	unprovedFact
 } from "#compiler/scalar/compute/lower.ts"
@@ -73,6 +74,7 @@ export const contractPredicateTable = (
 				: refuseLeaf("a contract predicate reads only its VALUE")(desc, at),
 		params: noParams,
 		fieldType: options.fieldType,
+		closed: noClosedRelations("a contract predicate reads no closed relation of the schema"),
 		regexMember: options.regexMember
 	}
 	return Result.flatMap(lowerPredicate(predicate, env), (root) => {

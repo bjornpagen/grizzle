@@ -19,14 +19,19 @@
  * model judges the RFC's deferral and its alternatives.
  */
 import { Array as Arr, Option, Order } from "effect"
-import { applied, type Moment, type Statement, type Timing } from "#test/support/families/mutate.ts"
+import {
+	applied,
+	type Moment,
+	type MutationStatement,
+	type Timing
+} from "#test/support/families/mutate.ts"
 import {
 	CONSTRAINTS,
 	type Constraint,
 	type FamilyRow,
 	type Stored,
-	type Violation,
-	violations
+	type FamilyViolation,
+	familyViolations
 } from "#test/support/families/theorem.ts"
 import { qualified, tuple } from "#test/support/substrate.ts"
 
@@ -138,14 +143,14 @@ export const ddlOf = (schema: string, lowering: Lowering): ReadonlyArray<string>
 }
 
 /**
- * One statement of a transaction: the families' statements (mutate.ts Statement) and the two single-field changes of a
+ * One statement of a transaction: the families' statements (mutate.ts MutationStatement) and the two single-field changes of a
  * row they never send, which a single mutation of a state may still make:
  *
  * - `regroup` moves one member's row to another group, keeping its index and copy;
  * - `recopy` changes one member's copy of its owner's count.
  */
 export type Mutation =
-	| Statement
+	| MutationStatement
 	| { readonly kind: "regroup"; readonly member: number; readonly group: number }
 	| { readonly kind: "recopy"; readonly member: number; readonly copy: number }
 
@@ -211,10 +216,10 @@ const heldSlots = (rows: ReadonlyArray<FamilyRow>): ReadonlySet<string> =>
  * Every constraint of the lowering the stored state breaks, whenever PostgreSQL checks it: the families theorem's
  * violations of the constraints the direction installs, the closure's read by the lowering's restriction.
  */
-const violated = (lowering: Lowering, stored: Stored): ReadonlyArray<Violation> => {
+const violated = (lowering: Lowering, stored: Stored): ReadonlyArray<FamilyViolation> => {
 	const present = new Set(constraintsOf[lowering.direction])
 	const found = Arr.filter(
-		violations(stored),
+		familyViolations(stored),
 		(v) =>
 			present.has(v.constraint) &&
 			(v.constraint !== "closure" || lowering.restriction === "restricted")
@@ -225,7 +230,7 @@ const violated = (lowering: Lowering, stored: Stored): ReadonlyArray<Violation> 
 	const held = heldSlots(stored.rows)
 	return [
 		...found,
-		...Arr.flatMap(stored.rows, (row): ReadonlyArray<Violation> =>
+		...Arr.flatMap(stored.rows, (row): ReadonlyArray<FamilyViolation> =>
 			row.at > 0 && !held.has(`${row.group}:${row.at - 1}`)
 				? [{ constraint: "closure", member: row.member }]
 				: []
@@ -239,7 +244,7 @@ export type Predicted =
 	| {
 			readonly kind: "refused"
 			readonly moment: Moment
-			readonly violations: Arr.NonEmptyReadonlyArray<Violation>
+			readonly violations: Arr.NonEmptyReadonlyArray<FamilyViolation>
 	  }
 
 /**

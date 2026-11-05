@@ -11,28 +11,33 @@ import {
 	targetState,
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { ownLogin } from "#compiler/schema/own.ts"
+import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	alternatives,
 	type AuthoredRelationDesc,
 	type AuthoredStatementDesc,
-	capacity,
+	and,
+	check,
 	closed,
 	contained,
+	counted,
 	eq,
 	f,
 	field,
+	fin,
+	ge,
+	le,
 	literal,
 	mutable,
 	on,
 	onWhere,
 	relation,
-	type SchemaDesc,
-	within
+	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { oracleLogin } from "#test/support/oracle/install/real.ts"
@@ -150,7 +155,7 @@ const roster = (
 	}
 	const relations = [Roster, Node, ...arms.values()]
 	return schemaOf("Scaled", relations, [
-		...alternatives(Node, "kind", Roster, byHandle),
+		alternatives(Node, "kind", Roster, byHandle),
 		...(mutableAll ? Arr.map(["Node", ...Arr.map([...arms.values()], (a) => a.name)], mutable) : [])
 	])
 }
@@ -286,18 +291,28 @@ const scaled = ({ dimension, n }: Point): Scaled => {
 			)
 		}
 		case "relations": {
+			/** Each team's members number 1 to its cap: a counted family over the team's drawn n, and a check of n. */
 			const pairs = Arr.makeBy(n, (i) => [
-				relation(`Team${i}`, { id: f.integer, cap: f.integer }, ["id"]),
+				relation(`Team${i}`, { id: f.integer, cap: f.bigint, n: f.drawn }, ["id"]),
 				relation(`Member${i}`, { id: f.integer, team: f.integer }, ["id"])
 			])
 			return schemaAt(
 				schemaOf(
 					"Scaled",
 					Arr.flatten(pairs),
-					Arr.makeBy(n, (i) =>
-						capacity(on(`Team${i}`, ["id"]), on(`Member${i}`, ["team"]), within(1n, "cap"), {
-							kind: "count"
-						})
+					Arr.flatMap(
+						Arr.makeBy(n, (i) => i),
+						(i) => [
+							counted(on(`Member${i}`, ["team"]), fin(`Team${i}`, "n")),
+							check(
+								`MembersWithinCap${i}`,
+								`Team${i}`,
+								and(
+									ge({ kind: "base", arg: field("n") }, literal(1n)),
+									le({ kind: "base", arg: field("n") }, field("cap"))
+								)
+							)
+						]
 					)
 				)
 			)
@@ -379,7 +394,16 @@ const installationOf = (scaledAt: Scaled): Effect.Effect<Installation> => {
 				const owned = owning(scaledAt.desc)
 				const login = succeeded(ownLogin(oracleLogin(owned.desc)))
 				return succeeded(
-					compileInstallation(owned, completeInstallOptions(owned, owned.installation, [login], []))
+					compileInstallation(
+						owned,
+						completeInstallOptions(
+							owned,
+							owned.installation,
+							[login],
+							[],
+							firstCodebook(rostersOf(owned))
+						)
+					)
 				)
 			})
 		case "worlds":
@@ -390,7 +414,13 @@ const installationOf = (scaledAt: Scaled): Effect.Effect<Installation> => {
 					const logins = Arr.map(Rec.values(built.logins), (l) =>
 						succeeded(ownLogin(defined(loginDescOf(l), "a login built by login(...)")))
 					)
-					const options = completeInstallOptions(owned, owned.installation, logins, [])
+					const options = completeInstallOptions(
+						owned,
+						owned.installation,
+						logins,
+						[],
+						firstCodebook(rostersOf(owned))
+					)
 					return succeeded(compileInstallation(owned, options))
 				}
 			)

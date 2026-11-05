@@ -2,6 +2,7 @@ import { exact, multiset, ordered } from "@grizzle/testing/oracle"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Heading, RelNode, ValidDag } from "#compiler/ir/rel.ts"
@@ -36,7 +37,7 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 
 /** The physical names of the span schema under the test's PostgreSQL schema (Left is "left"). */
 export const spanNames = (schema: string): PhysicalNames =>
-	productionNames("Spans", atName(schema), localVectorSchema)
+	productionNames("Spans", atName(schema), localVectorSchema, emptyCodebook)
 
 /** A query compiled into its template, both artifacts, against the case's schema under `schema`. */
 export const compileSpanQuery = (

@@ -1,8 +1,10 @@
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
+import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -48,5 +50,5 @@ export const offlineBind = (
 	change: ParsedChangeSet
 ): Effect.Effect<ReturnType<typeof bindWrite>> =>
 	Effect.map(collectInputs(program.frontend, change.inputs), (members) =>
-		bindWrite(program, { members, params: {} })
+		bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
 	)

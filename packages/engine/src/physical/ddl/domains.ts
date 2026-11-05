@@ -1,7 +1,10 @@
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
-import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, compareText, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { type DomainDigest, domainDigest } from "#compiler/core/fingerprint.ts"
 import {
+	conversionOf,
+	type DeclaredName,
 	DeclaredNamespace,
 	type Identity,
 	identifierOf,
@@ -15,18 +18,18 @@ import * as Result from "#compiler/core/result.ts"
 import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import type { DomainCheck, DomainCheckTerm } from "#compiler/ir/law.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import {
 	type ContractInfo,
 	contractOf,
 	type RegexRef,
-	type ScalarType,
-	type ValueType
+	type ScalarType
 } from "#compiler/ir/scalar.ts"
 import { domainCheck } from "#compiler/laws/model/model.ts"
 import { type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
-import { domainBase } from "#compiler/physical/ddl/names.ts"
+import { type ContractSource, domainBase } from "#compiler/physical/ddl/names.ts"
 import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { CreateDomain, Expr, ObjectName } from "#compiler/sql/ast.ts"
@@ -86,12 +89,38 @@ const compareUses = (a: TextDomainUse, b: TextDomainUse): number =>
 					: 0
 
 /**
- * A structural text domain of the installation: the digest of its canonical pattern key, its identity at the naming
- * door and its one CHECK's, their identifiers, and the columns it types in canonical order (table identifier, then
- * column identifier).
+ * A domain's physical definition, its CREATE DOMAIN but for the names it is created and checked under: its base type,
+ * its collation and its CHECKs' predicates. Its digest is what the domain is named by (W6.Q10), so two contracts or
+ * refinements of one definition share one domain, and a changed definition is a new domain.
+ */
+export const definitionDigest = (
+	ddl: Pick<CreateDomain, "base" | "collation" | "constraints">
+): DomainDigest =>
+	domainDigest(
+		{
+			base: ddl.base,
+			collation: ddl.collation,
+			checks: ddl.constraints.map((c) => c.predicate)
+		},
+		everyProperty
+	)
+
+/** The identity of the structural text domain of `regex`: the digest of its definition, text in pg_c_utf8 under the
+ * pattern's membership, so every pattern that compiles to one membership shares one domain. */
+export const textDomainIdentity = (regex: RegexRef): Identity<"textDomain"> =>
+	identity.textDomain(
+		definitionDigest(
+			textDomainDdl(refinementOf(regex).check, { schema: "", name: "", constraint: "" })
+		)
+	)
+
+/**
+ * A structural text domain of the installation: the digest of its physical definition, its identity at the naming door
+ * and its one CHECK's, their identifiers, and the columns it types in canonical order (table identifier, then column
+ * identifier).
  */
 export interface TextDomain {
-	readonly digest: string
+	readonly digest: DomainDigest
 	readonly named: Identity<"textDomain">
 	readonly check: Identity<"domainCheck">
 	readonly name: DomainName
@@ -100,19 +129,21 @@ export interface TextDomain {
 }
 
 interface TextDomainPlan {
+	/** The canonical pattern key of the regex it types. */
+	readonly key: string
 	readonly domain: TextDomain
 	readonly refinement: NontrivialRefinement
 }
 
-/** Every structural text domain of the schema, each named at the naming door by its canonical pattern key's digest
- * (identity.textDomain), whatever columns use it, so no use renames a domain and every compilation names a pattern
- * alike. `extra` are the other columns an installation types by a pattern (an extension's view columns, a world's view
+/** Every structural text domain of the schema, each named at the naming door by its definition's digest
+ * (textDomainIdentity), whatever columns use it, so no use renames a domain, every compilation names a pattern alike,
+ * and patterns of one membership share one domain. `extra` are the other columns an installation types by a pattern (an extension's view columns, a world's view
  * columns and context fields); a pattern only they carry has a domain too.
  *
  * A text refinement that is neither a tautology nor wrapped in a contract is a structural domain shared by every field
  * whose pattern recognizes the same values: `CREATE DOMAIN <schema>.<domain> AS text COLLATE pg_catalog.pg_c_utf8
- * CONSTRAINT <check> CHECK ((<membership>) IS TRUE)`. A closed relation's text payload counts as a use: its typed VALUES
- * template casts the payload to the field's type. A column an installer extension types by a pattern, a derived
+ * CONSTRAINT <check> CHECK ((<membership>) IS TRUE)`. A closed relation's refined text payload counts as a use, which
+ * the closed facts' validation casts to its domain. A column an installer extension types by a pattern, a derived
  * relation's view column, is a use too (`TextColumnUse`). A context field an installed role reads has the domain of its
  * refined type whether a column carries it or not, since Db.open's admission validates each claim against it. The
  * domains come in the order of their first use in canonical order, a stored column's before an extra's, and each CHECK
@@ -146,13 +177,14 @@ export const planTextDomains = (
 		if (r === undefined || o === undefined) {
 			continue
 		}
+		const table = o.kind === "closedRelation" ? conversionOf(o.name) : o.ident
 		for (const c of r.fields) {
 			const regex = structuralRegex(c.type)
 			const field = o.fields[c.name]
 			if (regex === undefined || field === undefined) {
 				continue
 			}
-			use(regex, { table: o.ident, column: field.column }, true)
+			use(regex, { table, column: field.column }, true)
 		}
 	}
 	for (const e of extra) {
@@ -172,12 +204,15 @@ export const planTextDomains = (
 					? compareUses(a.uses[0], b.uses[0])
 					: compareText(a.digest, b.digest)
 		)
-		.map(({ digest, regex, uses }): TextDomainPlan => {
-			const named = identity.textDomain(digest)
+		.map(({ regex, uses }): TextDomainPlan => {
+			const named = textDomainIdentity(regex)
 			const check = identity.domainCheck(named)
 			return {
+				key: regex.key,
 				domain: {
-					digest,
+					digest: definitionDigest(
+						textDomainDdl(refinementOf(regex).check, { schema: "", name: "", constraint: "" })
+					),
 					named,
 					check,
 					name: identifierOf(named),
@@ -189,91 +224,102 @@ export const planTextDomains = (
 		})
 }
 
-/** The structural text domains as objects in Setup, each after the schema: their names, in order. */
+/** The structural text domains as objects in Setup, each after the schema, each definition once: their names, in
+ * order. A pattern whose definition another's domain already holds adds its reason to that domain. */
 export const addTextDomains = (
 	b: InstallBuilder,
 	plans: ReadonlyArray<TextDomainPlan>
 ): ReadonlyArray<ObjectName> =>
-	plans.map(({ domain, refinement }) => {
+	plans.flatMap(({ domain, refinement }) => {
+		const reasons = [enforcement(`text refinement /${refinement.source}/${refinement.flags}`)]
+		const known = b.typeNamed({ schema: b.schema, name: domain.name })
+		if (known !== undefined) {
+			b.graph.addReasons(known, reasons)
+			return []
+		}
 		const ddl = textDomainDdl(refinement.check, {
 			schema: b.schema,
 			name: b.name(domain.named),
 			constraint: b.name(domain.check)
 		})
-		b.addType(
-			"domain",
-			domain.named,
-			{
-				ddl: [ddl],
-				reasons: [enforcement(`text refinement /${refinement.source}/${refinement.flags}`)]
-			},
-			[b.schemaNode]
-		)
-		return ddl.name
+		b.addType("domain", domain.named, { ddl: [ddl], reasons }, [b.schemaNode])
+		return [ddl.name]
 	})
 
-/** A contract's domain CHECK, named: none, or its terms under its constraint's name. */
-type NamedDomainCheck =
-	| { readonly kind: "unchecked" }
-	| {
-			readonly kind: "checked"
-			readonly ident: ConstraintName
-			readonly terms: Extract<DomainCheck, { readonly kind: "checked" }>["terms"]
-	  }
-
-/** One contract's domain as an object in Setup, named by `named`: over the domain of the contract its base is, or the
- * unrefined base type, with its CHECK. It comes after the schema and after the type its base names, which is added
- * before it: an inner contract's domain, an enum, or the vector extension. Its name. */
-const addContractDomain = (
-	b: InstallBuilder,
-	contract: {
-		readonly name: string
-		readonly named: Identity<"contractDomain">
-		readonly base: ValueType
-	},
-	check: NamedDomainCheck,
-	reasons: ReadonlyArray<PhysicalReason>
-): ObjectName => {
-	const { name, named, base } = contract
+/**
+ * A contract's domain's CREATE DOMAIN, under `target`'s names: over the domain of the contract its base is, a closed
+ * id's roster domain, or the unrefined base type, with its CHECK, the pattern test and the predicate as one conjunction,
+ * or none. Read with placeholder names, it is the contract's definition (`definitionDigest`), which its domain is named
+ * by, so the one statement both names and installs it.
+ */
+export const contractDomainDdl = (
+	names: PhysicalNames,
+	contract: { readonly name: string; readonly base: ScalarType; readonly check: DomainCheck },
+	target: { readonly schema: string; readonly name: string; readonly constraint: string }
+): CreateDomain => {
 	const term = (t: DomainCheckTerm): Expr => {
 		switch (t.kind) {
 			case "pattern":
 				return membership(refinementOf(t.regex).check, domainValue)
 			case "predicate":
-				return lowerPersistent(b.names, unwrap(predicateTree(t.predicate)), {
+				return lowerPersistent(names, unwrap(predicateTree(t.predicate)), {
 					reads: { kind: "domain" },
-					loc: SourceLoc(`the predicate of contract ${name}`, [])
+					loc: SourceLoc(`the predicate of contract ${contract.name}`, [])
 				})
 		}
 	}
-	const { type, collation } = domainBase(b.names, base)
-	const ddl: CreateDomain = {
+	const { type, collation } = domainBase(names, contract.base)
+	const check = contract.check
+	return {
 		kind: "createDomain",
-		name: { schema: b.schema, name: identifierOf(named) },
+		name: { schema: target.schema, name: target.name },
 		base: type,
 		collation,
 		constraints:
 			check.kind === "unchecked"
 				? []
-				: [{ name: check.ident, predicate: and(mapNonEmpty(check.terms, (t) => term(t))) }]
+				: [{ name: target.constraint, predicate: and(mapNonEmpty(check.terms, (t) => term(t))) }]
 	}
-	const baseNode = b.typeNode(type)
+}
+
+/** One contract's domain as an object in Setup, named by its definition (InstallNames.contractNamed), after the schema
+ * and after the type its base names, which is added before it: an inner contract's domain, a roster's domain, or the
+ * vector extension. A contract of a definition another's domain holds adds its reasons to that domain. Its name. */
+const addContractDomain = (
+	b: InstallBuilder,
+	contract: { readonly name: DeclaredName; readonly base: ScalarType; readonly check: DomainCheck },
+	reasons: ReadonlyArray<PhysicalReason>
+): ObjectName => {
+	const named = b.names.contractNamed(contract.name)
+	const name: ObjectName = { schema: b.schema, name: identifierOf(named) }
+	const known = b.typeNamed(name)
+	if (known !== undefined) {
+		b.graph.addReasons(known, reasons)
+		return name
+	}
+	const ddl = contractDomainDdl(b.names, contract, {
+		schema: b.schema,
+		name: b.name(named),
+		constraint: contract.check.kind === "unchecked" ? "" : b.name(identity.domainCheck(named))
+	})
+	const baseNode = b.typeNode(ddl.base)
 	b.addType("domain", named, { ddl: [ddl], reasons }, [
 		b.schemaNode,
 		...(baseNode === undefined ? [] : [baseNode]),
-		...(isVectorRef(b, type) ? [b.provider("vector")] : [])
+		...(isVectorRef(b, ddl.base) ? [b.provider("vector")] : [])
 	])
-	return ddl.name
+	return name
 }
 
-/** The contract domains, in contract name order, each after the schema and after the types its base names. Every
- * contract is a law, and the law model's domain native holds its base and decides its CHECK.
+/** The contract domains, in contract name order, each after the schema and after the types its base names, each
+ * definition once (W6.Q10): two contracts of one definition share one domain. Every contract is a law, and the law
+ * model's domain native holds its base and decides its CHECK.
  *
- * A contract is `CREATE DOMAIN <schema>.<contract> AS <base>`. Its base is an inner contract's domain, or the
- * unrefined base type, `text COLLATE pg_catalog.pg_c_utf8` for a text base. Its CHECK is the law model's
- * (`DomainCheck`): `<contract>__check`, the pattern test and the predicate as one conjunction, or none for a brand-only
- * contract over an unrefined base. No domain carries NOT NULL; every column does. The CHECK's IS TRUE wrapper is the
- * printer's. */
+ * A contract is `CREATE DOMAIN <schema>.<domain> AS <base>`, named by its definition's digest. Its base is an inner
+ * contract's domain, a closed id's roster domain, or the unrefined base type, `text COLLATE pg_catalog.pg_c_utf8` for a
+ * text base. Its CHECK is the law model's (`DomainCheck`): `check`, the pattern test and the predicate as one
+ * conjunction, or none for a brand-only contract over an unrefined base. No domain carries NOT NULL; every column does.
+ * The CHECK's IS TRUE wrapper is the printer's. */
 export const addContractDomains = (b: InstallBuilder): ReadonlyArray<ObjectName> => {
 	const domains = b.natives
 		.flatMap((n) => (n.namespace === "domain" ? [n] : []))
@@ -282,7 +328,7 @@ export const addContractDomains = (b: InstallBuilder): ReadonlyArray<ObjectName>
 	const added = new Map<string, ObjectName>()
 	/** A contract's domain, after the domain of the contract its base is. */
 	const add = (domain: (typeof domains)[number]): ObjectName => {
-		const { object, check } = domain
+		const { object } = domain
 		const known = added.get(object.name)
 		if (known !== undefined) {
 			return known
@@ -294,8 +340,7 @@ export const addContractDomains = (b: InstallBuilder): ReadonlyArray<ObjectName>
 		}
 		const name = addContractDomain(
 			b,
-			{ name: object.name, named: object.named, base: object.base },
-			check,
+			{ name: object.name, base: object.base, check: object.check },
 			lawReasons(object.lawIds)
 		)
 		added.set(object.name, name)
@@ -304,16 +349,28 @@ export const addContractDomains = (b: InstallBuilder): ReadonlyArray<ObjectName>
 	return domains.map(add)
 }
 
-/** A contract a context field's type names that the base does not declare: its name (which names its law,
- * analysis/theory/theory.ts contractLawIdentity), its type, its domain's identity and identifier, and its CHECK's name,
- * when it has a CHECK. */
+/** A contract a context field's type names that the base does not declare: its declared name (which names its law,
+ * analysis/theory/theory.ts contractLawIdentity), its type, and its CHECK. Its domain is named by its definition, as a
+ * base contract's is (InstallNames.contractNamed). */
 export interface ContextContract {
-	readonly name: string
+	readonly name: DeclaredName
 	readonly contract: ContractInfo
-	readonly named: Identity<"contractDomain">
-	readonly owner: DomainName
-	readonly check: NamedDomainCheck
+	readonly check: DomainCheck
 }
+
+/** The digest of a contract's domain's definition over `names`: what InstallNames names the domain by. */
+export const contractDigest = (
+	names: PhysicalNames,
+	contract: DeclaredName,
+	source: ContractSource
+): DomainDigest =>
+	definitionDigest(
+		contractDomainDdl(
+			names,
+			{ name: contract, base: source.base, check: source.check },
+			{ schema: "", name: "", constraint: "" }
+		)
+	)
 
 type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
 
@@ -371,21 +428,10 @@ export const contextContracts = (
 				return
 			}
 			planned.set(info.name, text)
-			const named = identity.contractDomain(unwrap(types.declare(info.name, "contract", loc)))
-			const check = domainCheck(info)
 			out.push({
-				name: info.name,
+				name: unwrap(types.declare(info.name, "contract", loc)),
 				contract: info,
-				named,
-				owner: identifierOf(named),
-				check:
-					check.kind === "unchecked"
-						? check
-						: {
-								kind: "checked",
-								ident: identifierOf(identity.domainCheck(named)),
-								terms: check.terms
-							}
+				check: domainCheck(info)
 			})
 		}
 		for (const f of fields) {
@@ -402,12 +448,8 @@ export const addContextContractDomains = (
 	b: InstallBuilder,
 	contracts: ReadonlyArray<ContextContract>
 ): ReadonlyArray<ObjectName> =>
-	contracts.map((c) => {
-		b.name(c.named)
-		if (c.check.kind === "checked") {
-			b.name(identity.domainCheck(c.named))
-		}
-		return addContractDomain(b, { name: c.name, named: c.named, base: c.contract.base }, c.check, [
+	contracts.map((c) =>
+		addContractDomain(b, { name: c.name, base: c.contract.base, check: c.check }, [
 			enforcement(`contract ${c.name} of a context field`)
 		])
-	})
+	)

@@ -1,10 +1,11 @@
 import { type NonEmptyReadonlyArray, isNonEmpty } from "#compiler/core/nonempty.ts"
 import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
-import { isSerialField } from "#compiler/write/insert/statement.ts"
+import { isSerialField, isWritten } from "#compiler/write/insert/statement.ts"
 
-/** A relation's fields outside its primary key, in heading order: none for a pure set, whose primary key is its whole
- * heading. A pure set has no payload: its insert is ON CONFLICT DO NOTHING, and its put displaces nothing and updates
- * nothing in place. */
+/** A relation's written fields outside its primary key, in heading order: none for a pure set, whose primary key is
+ * its whole written heading. A generated field is no payload: PostgreSQL writes it from the row's written fields, so
+ * no UPDATE assigns it and two facts equal at those are equal at it. A pure set has no payload: its insert is ON
+ * CONFLICT DO NOTHING, and its put displaces nothing and updates nothing in place. */
 export type Payload =
 	| { readonly kind: "pureSet" }
 	| { readonly kind: "keyed"; readonly fields: NonEmptyReadonlyArray<LawField> }
@@ -13,7 +14,7 @@ export type Payload =
 const primaryOf = (relation: RelationInfo): ReadonlyArray<LawField> => relation.primaryFields
 
 export const payloadOf = (relation: RelationInfo): Payload => {
-	const fields = relation.heading.filter((f) => !primaryOf(relation).includes(f))
+	const fields = relation.heading.filter((f) => !primaryOf(relation).includes(f) && isWritten(f))
 	return isNonEmpty(fields) ? { kind: "keyed", fields } : { kind: "pureSet" }
 }
 

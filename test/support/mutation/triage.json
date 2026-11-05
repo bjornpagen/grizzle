@@ -1,137 +1,132 @@
 [
 	{
-		"id": "777375414663",
+		"id": "ac86133e31",
 		"verdict": "gap-fixed",
 		"reason": "logical.test.ts: a scan binding one column to two variables equates them, so fixing either fixes the key."
 	},
 	{
-		"id": "1dbda6f40ce1",
+		"id": "d0e50997f3",
 		"verdict": "gap-fixed",
 		"reason": "simplify.test.ts: BETWEEN over literals folds exactly (0 BETWEEN 1 AND 9 is false)."
 	},
 	{
-		"id": "8a950fcfbdb4",
+		"id": "81180d78a9",
 		"verdict": "gap-fixed",
 		"reason": "choose.test.ts: a deletion from another relation in the stratum leaves a put's UPDATE ... FROM."
 	},
 	{
-		"id": "d74af07e8a3d",
+		"id": "91fa50a4d2",
 		"verdict": "equivalent",
 		"reason": "A heterogeneous union has a key only when every two of its arms, those of one heading group included, fix different literals on a key column (logical/props.ts unionProps), and the page compiler refuses a heterogeneous union without one (logical/order.ts). So the arms of a paged heading group are pairwise disjoint, and UNION ALL over them delivers what UNION does; a group of overlapping arms is refused before this code runs."
 	},
 	{
-		"id": "c9f8375b3af1",
+		"id": "6a7ab2ba70",
 		"verdict": "gap-fixed",
 		"reason": "catalog.test.ts: an attached successor whose parent values come from the parent match's second occurrence (Sitting after Point) takes R27; the agreement suite checks its rows against the LATERAL take(1)."
 	},
 	{
-		"id": "4aeda2f1f869",
+		"id": "12c60dce3d",
 		"verdict": "gap-fixed",
 		"reason": "simplify.test.ts: two conjuncts sharing their right variable (otherAccount = acct after account = acct) both become region equalities."
 	},
 	{
-		"id": "2ce1934afc71",
+		"id": "10c60aa885",
 		"verdict": "gap-fixed",
 		"reason": "simplify.test.ts: a conjunct whose left variable is another's right (acct = third after account = acct) becomes a region equality of its own."
 	},
 	{
-		"id": "ad76f8dc61ba",
+		"id": "11c60c3be1",
 		"verdict": "gap-fixed",
 		"reason": "simplify.test.ts: a conjunct whose right variable is another's left (fourthAccount = account) reaches samePair's reversed comparison and stays."
 	},
 	{
-		"id": "15034bfe8c30",
+		"id": "3952bf52a9",
 		"verdict": "equivalent",
 		"reason": "Without the check, R03 also removes an occurrence binding only some of the containment's target fields, each matched to the referring occurrence's variable. Every node is a set, and the containment gives every referring row a target row agreeing on all its fields, hence on those bound, so the occurrence remains a pure existence test the containment discharges and the region's set is unchanged."
 	},
 	{
-		"id": "7fb92b5087f7",
+		"id": "862fbd456b",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
 	},
 	{
-		"id": "33c1bc66342c",
+		"id": "62c186fa86",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
 	},
 	{
-		"id": "8d86887ac2d9",
+		"id": "bc8eb4e4da",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
 	},
 	{
-		"id": "ba36c684aee1",
+		"id": "852fbbb2c7",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
 	},
 	{
-		"id": "966d87745b61",
+		"id": "63c1888de2",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
 	},
 	{
-		"id": "3b02f53ff0bc",
+		"id": "e5c3bf762a",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
 	},
 	{
-		"id": "c9410575b07b",
+		"id": "a83e00d3e8",
 		"verdict": "equivalent",
 		"reason": "derivedMigrationName (deploy/render/naming.ts) never reads one change twice: a theory field's column and a manifest column object (a stored tag's) are never the same column, and no identity is added, dropped, changed or retired at once, so leaving out the deduplication, or keying it by identity alone, names the same changes."
 	},
 	{
-		"id": "e7e7cb76a9fb",
+		"id": "b1fd7b73b3",
 		"verdict": "equivalent",
 		"reason": "The violation query's main statement (deploy/diff/diff.ts): the next line requires exactly one statement, which is then the first, whatever its role, and a violation query takes no parameter, so one parameter more or less is refused all the same."
 	},
 	{
-		"id": "6a940816bf91",
+		"id": "663eb60bc6",
 		"verdict": "equivalent",
 		"reason": "An empty list there (sql/print.ts): no statement builder makes an empty DELETE USING, UPDATE FROM, aggregate ORDER BY, window PARTITION BY or ORDER BY, index INCLUDE or locking OF list (an index model's include: [] is no AST), so printing one is unreachable."
 	},
 	{
-		"id": "6d629468db9a",
+		"id": "7a9f7b7e9a",
 		"verdict": "equivalent",
 		"reason": "A non-associative operator's left operand (sql/print.ts) parenthesized from two levels up instead of one: only more parentheses, which PostgreSQL reads to the same tree."
 	},
 	{
-		"id": "3ec14d1aa045",
+		"id": "5e3549f616",
 		"verdict": "equivalent",
 		"reason": "A connective's or construct's operand count (lower/conservative/expr/ops.ts): the validated DAG gives AND, OR, LEAST and GREATEST at least one operand, NOT one and BETWEEN three, so the count tests never decide."
 	},
 	{
-		"id": "b64f84c95db0",
+		"id": "b67d63b869",
 		"verdict": "equivalent",
 		"reason": "A connective's or construct's operand count (lower/conservative/expr/ops.ts): the validated DAG gives AND, OR, LEAST and GREATEST at least one operand, NOT one and BETWEEN three, so the count tests never decide."
 	},
 	{
-		"id": "b69a3fa7e740",
+		"id": "4ffa9d0ab9",
 		"verdict": "equivalent",
 		"reason": "isPureState without its data test (check/recursion/termination.ts): counter() runs only for a term that reads state, and a counter term's operands are the state variable and a literal, so a state variable a data match also binds makes the term read nothing and form() returns data before counter() looks."
 	},
 	{
-		"id": "e1d35060c3f6",
+		"id": "530436806e",
 		"verdict": "equivalent",
 		"reason": "A refusal's wording (check/checker.ts MissingDiscriminant): which of two phrases explains the missing discriminant; the reason and location are unchanged."
 	},
 	{
-		"id": "9bc94ce53156",
+		"id": "8d762c3317",
 		"verdict": "equivalent",
 		"reason": "checkMemberHeading's serial test without relation.serial.length > 0 (check/member.ts): for a relation without serial fields the supplied list is empty, so the mixed-serial refusal cannot fire."
 	},
 	{
-		"id": "66e21637bc0b",
+		"id": "5cc17d883e",
 		"verdict": "equivalent",
 		"reason": "The ADD VALUE position search starting at the new label itself (deploy/diff/diff.ts) finds the same existing label: the new label is not among the existing ones, so slice(k) and slice(k + 1) have the same first existing label."
 	},
 	{
-		"id": "a6132603618f",
+		"id": "a47f32a29b",
 		"verdict": "equivalent",
 		"reason": "Order completion without its fixed test (check/checker.ts complete): a column the attachment's correlation fixes holds one value across each parent's child rows, so appending it as a key changes no order."
-	},
-	{
-		"id": "10a61333b525",
-		"verdict": "equivalent",
-		"reason": "adoptCompare without its typmod test (check/checker.ts): a numeric value type without a typmod or a contract is plain numeric already, so plainType(\"numeric\") and the value type are the same type."
 	}
 ]

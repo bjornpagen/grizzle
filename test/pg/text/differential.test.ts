@@ -6,6 +6,8 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Formatter } from "effect"
+import { everyProperty } from "#compiler/core/canonical.ts"
+import { domainDigest } from "#compiler/core/fingerprint.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -193,7 +195,7 @@ const agreeOn = (
 				}
 				const host = Arr.map(all, (v) => accepts(r, v))
 				const slug = `f${fi}_p${pi}`
-				const named = identity.textDomain(slug)
+				const named = identity.textDomain(domainDigest({ slug }, everyProperty))
 				const name = named.identifier
 				let domainType = "text"
 				if (r.check.kind !== "tautology") {

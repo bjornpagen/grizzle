@@ -8,6 +8,7 @@ import type {
 	BaseOf,
 	DomainOf,
 	Facts,
+	InputTerm,
 	IsOneLiteral,
 	Parameterless,
 	Predicate,
@@ -15,18 +16,25 @@ import type {
 } from "#compiler/types/core/phantom.ts"
 
 import type {
+	AccumulatedField,
+	BitsField,
 	ClosedIdField,
 	Contract,
+	DrawnField,
 	Field,
 	FieldBase,
 	FloatField,
+	GeneratedField,
 	Infer,
 	IntegerLike,
+	NaturalField,
+	NotSerial,
 	NumericTypmodField,
 	SerialField,
-	SpanField
+	SpanField,
+	WritingTag
 } from "#compiler/types/fields/field.ts"
-import type { AnyClosed, HandleOf } from "#compiler/types/schema/relation.ts"
+import type { AnyRoster, HandleOf } from "#compiler/types/schema/relation.ts"
 import type { VectorField } from "#compiler/types/vector/vector.ts"
 
 /**
@@ -140,7 +148,53 @@ export type SpanConstructor = <E extends IntegerLike>(
 	width?: BaseOf<Infer<E>>
 ) => SpanField<Infer<E>>
 
-/** A closed reference: its column is the roster's handles, the closed relation's non-empty tuple of literals. */
-export type ClosedIdConstructor = <C extends AnyClosed>(
-	closed: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
+/** A closed reference: its column is the roster's handles, the roster's non-empty tuple of literals. */
+export type ClosedIdConstructor = <C extends AnyRoster>(
+	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
 ) => ClosedIdField<C>
+
+/** A set over a roster: its column reads a bit string into the set of handles its 1 bits' codes name. */
+export type BitsConstructor = <C extends AnyRoster>(
+	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
+) => BitsField<C>
+
+/** drawn(natural): a natural grizzle draws, a family's index or count or a tree's start or end. */
+export type DrawnConstructor = (type: NaturalField) => DrawnField
+
+/** An accumulated field is of a value type: no span, no vector, and no field of a writing of its own. */
+export type Accumulable<F> = F extends
+	| SpanField<unknown>
+	| VectorField<number>
+	| { readonly writing: WritingTag }
+	? Refusal<"an accumulated field is of a value type: no span, vector or field of a writing of its own">
+	: unknown
+
+/**
+ * accumulated(type, start): a field of `type` grizzle fills on the host and PostgreSQL proves, a fold's accumulator or
+ * a copy along a family axis, holding `start`, a value of `type`, at its axis's base.
+ */
+export type AccumulatedConstructor = <const F extends FieldBase>(
+	type: F & Accumulable<F>,
+	start: Infer<F>
+) => AccumulatedField<F>
+
+/**
+ * A term of the declared type F exactly: its identity and SQL type are F's, as PostgreSQL types a generation expression
+ * by its column's type, with no implicit cast.
+ */
+export type GeneratedTermOf<F extends FieldBase> = InputTerm<
+	DomainOf<F>,
+	unknown,
+	unknown,
+	F["sql"]
+>
+
+/**
+ * generated(type, term): a field PostgreSQL writes, a STORED generated column of `type` whose value is `term`, read off
+ * the row relation.generated hands its callback. The term is of `type` exactly and reads no parameter: its row's
+ * written fields and closed reads are all a generation expression may read.
+ */
+export type GeneratedConstructor = <F extends FieldBase, T extends GeneratedTermOf<F>>(
+	type: F & NotSerial,
+	term: T & Parameterless<T>
+) => GeneratedField<F>

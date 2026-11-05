@@ -1,30 +1,47 @@
-import { handleColumn } from "#compiler/core/decoder.ts"
-import type { SourceLoc } from "#compiler/core/loc.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { nominal } from "#compiler/core/brand.ts"
+import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
+import { handleMaxBytes } from "#compiler/core/limits.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties } from "#compiler/core/record.ts"
+import { hasProperties, isList } from "#compiler/core/record.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	decodeDesc,
+	type ExprDesc,
+	type FieldDecl,
 	type FieldDesc,
+	fieldTypes,
 	type LiteralDesc,
 	type QueryDesc,
-	type RelationDesc
+	type RelationDesc,
+	type Writing
 } from "#compiler/ir/desc.ts"
 import { handleTerm } from "#compiler/scalar/compute/builders.ts"
-import type { Described } from "#compiler/scalar/registry.ts"
+import {
+	type ClosedReadTyping,
+	closedAtKey,
+	closedAtTerm,
+	closedRowTerm
+} from "#compiler/scalar/compute/closed.ts"
+import { termExpr } from "#compiler/scalar/compute/term.ts"
+import { isNaturalDesc } from "#compiler/scalar/natural.ts"
+import {
+	carrierSql,
+	type Described,
+	noText,
+	type ScalarEnv,
+	scalarTypeOf
+} from "#compiler/scalar/registry.ts"
 import { literalFor } from "#compiler/schema/literal.ts"
 import {
 	builderLoc,
 	describedField,
-	frozenCopies,
 	frozenCopy,
-	frozenRecord,
 	frozenTuple,
 	isPlainRecord,
 	malformed,
-	maxEnumLabelBytes,
 	orThrow,
 	ownedDesc,
 	ownedKind,
@@ -34,20 +51,33 @@ import {
 	requireNames,
 	rosterHandlesOf
 } from "#compiler/schema/protocol.ts"
-import { record } from "#compiler/schema/record.ts"
+import { mint, record } from "#compiler/schema/record.ts"
+import { rowScalars } from "#compiler/schema/terms.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
+import type { Minted } from "#compiler/types/core/phantom.ts"
 import type { DefinitionQuery, Derived } from "#compiler/types/derived/derived.ts"
-import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type {
-	Closed,
+	AccumulatedField,
+	Bits,
+	DrawnField,
+	FieldBase,
+	GeneratedField,
+	HandleOf,
+	NaturalField
+} from "#compiler/types/fields/field.ts"
+import type {
+	AnyRoster,
 	ClosedId,
-	EnumClosed,
-	FactsOf,
-	Relation
+	ClosedRelation,
+	FactOfFields,
+	PayloadFieldOf,
+	Relation,
+	Roster
 } from "#compiler/types/schema/relation.ts"
 
 export type OrdinaryRelationDesc = Extract<RelationDesc, { readonly kind: "relation" }>
-export type ClosedRelationDesc = Extract<RelationDesc, { readonly kind: "closed" }>
+export type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
+export type ClosedRelationDesc = Extract<RelationDesc, { readonly kind: "closedRelation" }>
 /**
  * What derived records until schema.extend places it: the definition and the relations it reads. The Description
  * proper needs the level, which only the extended schema determines.
@@ -77,9 +107,97 @@ const describedFields = (
 ): Readonly<Record<string, Described>> => {
 	const out: Record<string, Described> = {}
 	for (const [name, descriptor] of Object.entries(fields)) {
-		out[name] = describedField(descriptor, `${label} field ${name}`)
+		out[name] = describedField(descriptorOf(descriptor), `${label} field ${name}`)
 	}
 	return Object.freeze(out)
+}
+
+/**
+ * What drawn(type) and accumulated(type, start) recorded for the field value each made: the descriptor of its declared
+ * type, and how it is written. A WeakMap holds nothing alive and is never enumerated, so it is no cache.
+ */
+interface WrittenBy {
+	readonly type: unknown
+	readonly writing: Extract<Writing, { readonly kind: "drawn" | "accumulated" }>
+}
+
+const writtenBy = new WeakMap<object, WrittenBy>()
+
+const writtenByOf = (value: unknown): WrittenBy | undefined =>
+	typeof value === "object" && value !== null ? writtenBy.get(value) : undefined
+
+/**
+ * How a field value is written: as drawn(…) or accumulated(…) recorded it, by its sequence for a serial descriptor,
+ * whose `writing` member says so, and by its caller otherwise.
+ */
+export const writingOf = (value: unknown): Writing => {
+	const recorded = writtenByOf(value)
+	if (recorded !== undefined) {
+		return recorded.writing
+	}
+	return hasProperties(value) && value["writing"] === "serial" ? { kind: "serial" } : callerWriting
+}
+
+/** How a caller's field is written. */
+const callerWriting: Writing = Object.freeze({ kind: "caller" })
+
+/**
+ * drawn(type): a natural grizzle draws from the nested arrays its caller writes, a family's index or count or a
+ * tree's start or end. The value carries the natural's column and SQL type, so it is read as every natural is.
+ */
+export const drawnField = (type: NaturalField, extra: ReadonlyArray<unknown>): DrawnField => {
+	if (extra.length > 0) {
+		throw malformed("drawn", "drawn(type): one argument")
+	}
+	const described = describedField(type, "drawn type")
+	if (!isNaturalDesc(described.desc) || writtenByOf(type) !== undefined) {
+		throw malformed("drawn", "natural, the one type a family's index and count are of")
+	}
+	const value: DrawnField = Object.freeze({
+		...builtMark,
+		writing: "drawn",
+		natural: true,
+		column: type.column,
+		sql: type.sql
+	})
+	writtenBy.set(value, { type, writing: { kind: "drawn" } })
+	return value
+}
+
+/**
+ * accumulated(type, start): a field of `type` grizzle fills on the host and PostgreSQL proves, a fold's accumulator or
+ * a copy along a family axis, holding `start` at its axis's base. `start` is a value of `type`, checked here as every
+ * literal of it is.
+ */
+export const accumulatedField = <F extends FieldBase>(
+	type: F,
+	start: unknown,
+	extra: ReadonlyArray<unknown>
+): AccumulatedField<F> => {
+	if (extra.length > 0) {
+		throw malformed("accumulated", "accumulated(type, start): two arguments")
+	}
+	const described = describedField(type, "accumulated type")
+	if (
+		described.desc.kind === "span" ||
+		described.desc.kind === "vector" ||
+		writingOf(type).kind !== "caller"
+	) {
+		throw malformed(
+			"accumulated",
+			"an accumulated field of a value type: no span, vector or field of a writing of its own"
+		)
+	}
+	const literal = literalFor(described.desc, start, "accumulated start", rosterHandlesOf(type))
+	const value: AccumulatedField<F> = Object.freeze({
+		...builtMark,
+		writing: "accumulated",
+		field: type,
+		column: type.column,
+		sql: type.sql
+	})
+	writtenBy.set(value, { type, writing: { kind: "accumulated", start: literal } })
+	return value
 }
 
 const fieldMap = (
@@ -92,9 +210,43 @@ const fieldMap = (
 	return out
 }
 
+/** Each field of a record of field values, declared with its type and how it is written (writingOf). */
+const writtenDecls = (
+	values: Readonly<Record<string, unknown>>,
+	described: Readonly<Record<string, Described>>
+): Readonly<Record<string, FieldDecl>> => {
+	const out: Record<string, FieldDecl> = {}
+	for (const [name, field] of Object.entries(described)) {
+		out[name] = { type: field.desc, writing: writingOf(values[name]) }
+	}
+	return out
+}
+
+/** A relation's Description decoded, or the refusal of what its arguments described. */
+const ordinaryDesc = (
+	label: string,
+	relationName: string,
+	fields: Readonly<Record<string, FieldDecl>>,
+	primaryKey: unknown
+): OrdinaryRelationDesc => {
+	const desc = orThrow(
+		decodeDesc("relation", {
+			kind: "relation",
+			name: relationName,
+			fields,
+			primaryKey,
+			loc: builderLoc(label, [relationName])
+		})
+	)
+	if (desc.kind !== "relation") {
+		throw malformed(label, "a relation description of an ordinary relation")
+	}
+	return desc
+}
+
 /**
  * The admission core of relation(...): a JavaScript caller's arguments checked and described, the one path a relation's
- * Description is built by.
+ * Description is built by. Every field is one its caller writes.
  */
 export const admitRelation = (
 	name: unknown,
@@ -112,35 +264,138 @@ export const admitRelation = (
 	if (extra.length > 0) {
 		throw malformed(label, "relation(name, fields, primaryKey): three arguments")
 	}
-	const descriptors = descriptorRecord(fields, label)
-	const described = describedFields(descriptors, label)
-	const loc = builderLoc(label, [relationName])
-	const desc = orThrow(
-		decodeDesc("relation", {
-			kind: "relation",
-			name: relationName,
-			fields: fieldMap(described),
-			primaryKey,
-			loc
-		})
-	)
-	if (desc.kind !== "relation") {
-		throw malformed(label, "a relation description of an ordinary relation")
-	}
-	return desc
+	const values = descriptorRecord(fields, label)
+	const described = describedFields(values, label)
+	return ordinaryDesc(label, relationName, writtenDecls(values, described), primaryKey)
 }
 
 /**
- * relation, closed and derived: the relation constructors.
+ * What generated(type, term) recorded for the field value it made: its declared type's descriptor as the registry reads
+ * it, and the term its value is. A WeakMap holds nothing alive and is never enumerated, so it is no cache.
+ */
+interface GeneratedEntry {
+	readonly type: Described
+	readonly term: unknown
+}
+
+const generatedEntries = new WeakMap<object, GeneratedEntry>()
+
+/**
+ * generated(type, term): a field PostgreSQL writes, carrying its declared type's column and SQL type so that it is read
+ * as every field of that type is. It records the term, which relation.generated reads against the row it was built
+ * over. A serial is written by its sequence, so no generated field is one.
+ */
+export const generatedField = <F extends FieldBase>(
+	type: F,
+	term: unknown,
+	extra: ReadonlyArray<unknown>
+): GeneratedField<F> => {
+	if (extra.length > 0) {
+		throw malformed("generated", "generated(type, term): two arguments")
+	}
+	const described = describedField(type, "generated type")
+	if (writingOf(type).kind !== "caller") {
+		throw malformed("generated", "a value type, which no field of a writing of its own is")
+	}
+	const value: GeneratedField<F> = Object.freeze({
+		writing: "generated",
+		type,
+		column: type.column,
+		sql: type.sql
+	})
+	generatedEntries.set(value, { type: described, term })
+	return value
+}
+
+/**
+ * A callback over a relation's row as its builder calls it. The member is a method, so the facade's callback over the
+ * row's precise type (types/schema RowScalars) stands for it: the builder hands it the row rowScalars builds over the
+ * same fields, which is that type's value.
+ */
+interface RowCallback<G> {
+	run(row: Readonly<Record<string, unknown>>): G
+}
+
+/**
+ * A generated field's declaration: its declared type and its value's expression, decoded as a Description's. What the
+ * expression may read and of what type it is are the checker's rules (analysis/schema.ts), which it applies to every
+ * Description, a decoded one's included.
+ */
+const generatedDecl = (value: unknown, label: string): FieldDecl => {
+	const entry =
+		typeof value === "object" && value !== null ? generatedEntries.get(value) : undefined
+	if (entry === undefined) {
+		throw malformed(label, "a field built by generated(type, term)")
+	}
+	const expr = termExpr(entry.term)
+	if (expr === undefined) {
+		throw malformed(
+			label,
+			"a term of the row: one of its fields, a closed read, or a Compute expression"
+		)
+	}
+	const decoded: ExprDesc = orThrow(decodeDesc("expr", expr))
+	return { type: entry.type.desc, writing: { kind: "generated", expr: decoded } }
+}
+
+/**
+ * The admission core of relation.generated(...): the written fields checked and described as relation's are, the
+ * callback run once over their row, and each field it returns a generated field named apart from every written field.
+ * The relation's fields are its written fields, then its generated ones.
+ */
+const admitGenerated = <G>(
+	name: unknown,
+	written: unknown,
+	primaryKey: unknown,
+	generate: RowCallback<G>["run"],
+	extra: ReadonlyArray<unknown>
+): { readonly desc: OrdinaryRelationDesc; readonly generated: G } => {
+	const label = `relation ${typeof name === "string" ? name : "?"}`
+	const relationName = requireName(name, label, "a relation name")
+	if (extra.length > 0) {
+		throw malformed(
+			label,
+			"relation.generated(name, written, primaryKey, (row) => generated): four arguments"
+		)
+	}
+	if (typeof generate !== "function") {
+		throw malformed(label, "a callback (row) => ({ field: generated(type, term), ... })")
+	}
+	const descriptors = descriptorRecord(written, label)
+	const described = describedFields(descriptors, label)
+	const row = rowScalars(fieldMap(described), descriptors, (field) =>
+		rosterHandlesOf(descriptors[field])
+	)
+	const generated = generate(row)
+	if (!isPlainRecord(generated)) {
+		throw malformed(label, "a record of generated fields, each generated(type, term)")
+	}
+	const fields: Record<string, FieldDecl> = { ...writtenDecls(descriptors, described) }
+	for (const [field, value] of Object.entries(generated)) {
+		if (Object.hasOwn(fields, field)) {
+			throw malformed(
+				label,
+				`a generated field named apart from the written fields; ${field} is written`
+			)
+		}
+		fields[field] = generatedDecl(value, `${label} generated field ${field}`)
+	}
+	return { desc: ordinaryDesc(label, relationName, fields, primaryKey), generated }
+}
+
+/**
+ * relation, relation.generated, closed, closed.relation and derived: the relation constructors.
  *
- * - `relation(name, fields, primaryKey)`: an ordinary relation. The primary key is required and nonempty, a list of
- *   the relation's own field names in the order written; a pure set lists every field. It
- *   lowers to PRIMARY KEY; there is no implicit full-row UNIQUE and no surrogate.
- * - `closed(name, handles)` and `closed(name, handles).with(payload, facts)`: a closed relation, first-class finite
- *   facts with the heading { id } & payload and primary key ["id"]. The roster order is declared order,
- *   which is comparison order. The payload descriptors are kept as written, and each handle's fact is
- *   checked against them at construction: every handle has exactly one fact with exactly the payload's fields. The two
- *   forms agree: closed(n, hs) is closed(n, hs).with({}, { h: {} ... }), one Description.
+ * - `relation(name, fields, primaryKey)`: an ordinary relation, every field written by its caller. The primary key is
+ *   required and nonempty, a list of the relation's own field names in the order written; a pure set lists every
+ *   field. It lowers to PRIMARY KEY; there is no implicit full-row UNIQUE and no surrogate.
+ * - `relation.generated(name, written, primaryKey, (row) => ({ f: generated(type, term), ... }))`: an ordinary
+ *   relation whose callback-returned fields PostgreSQL writes, each a STORED generated column whose term reads the row
+ *   of the written fields alone, as PostgreSQL's generation expressions read no generated column.
+ * - `closed(name, handles)`: a roster, the handles it introduces in declared order, which is their codes' order and
+ *   comparison order.
+ * - `closed.relation(name, fields, key, rows)`: a closed relation, rows fixed when the schema compiles. Its key is
+ *   required and is closed ids; a set lists every field; no two rows share a key.
  * - `derived(name, definition)`: a stored query whose fields come from the definition's head and whose keys from its
  *   evidence. The definition is parameterless. Its level, 1 over base relations and n + 1
  *   over a level-n derived relation, depends on the schema it is declared in, so schema.extend computes
@@ -184,140 +439,85 @@ export const relation = <
 	)
 }
 
-/** A roster: nonempty, distinct, each handle a PostgreSQL enum label of at most 63 UTF-8 bytes. */
+/**
+ * relation.generated(name, written, primaryKey, generate): the relation of the written fields and the generated fields
+ * `generate` returns over their row. Its value holds the written fields and then the generated ones, a frozen copy, and
+ * its `fact` reads both: a generated field is read as every field is.
+ */
+export const generatedRelation = <
+	const Name extends string,
+	const Written extends Readonly<Record<string, FieldBase>>,
+	const PrimaryKey extends ReadonlyArray<keyof Written & string>,
+	const G extends Readonly<Record<string, GeneratedField<FieldBase>>>
+>(
+	name: Name,
+	written: Written,
+	primaryKey: PrimaryKey,
+	generate: RowCallback<G>["run"],
+	extra: ReadonlyArray<unknown>
+): Relation<Name, Written & G, readonly [...PrimaryKey]> => {
+	const admitted = admitGenerated(name, written, primaryKey, generate, extra)
+	const copied = frozenCopy({ ...written, ...admitted.generated })
+	return ownValue(
+		{
+			kind: "relation",
+			name,
+			fields: copied,
+			primaryKey: frozenTuple<PrimaryKey>(primaryKey),
+			fact: record<[Written & G]>(copied),
+			heading: copied
+		},
+		"relation",
+		admitted.desc
+	)
+}
+
+/** A roster: nonempty, distinct, each handle at most the bytes a name holds, as its names constant stores it. */
 const handleList = (value: unknown, label: string): NonEmptyReadonlyArray<string> => {
 	const handles = requireNames(value, label, "a nonempty roster of distinct handles")
 	for (const h of handles) {
-		if (utf8Length(h) > maxEnumLabelBytes.value) {
+		if (utf8Length(h) > handleMaxBytes.value) {
 			throw malformed(
 				label,
-				`handles of at most ${maxEnumLabelBytes.value} UTF-8 bytes, the limit of a PostgreSQL enum label; ${JSON.stringify(h)} has ${utf8Length(h)}`
+				`handles of at most ${handleMaxBytes.value} UTF-8 bytes, the most a name holds (NAMEDATALEN - 1); ${JSON.stringify(h)} has ${utf8Length(h)}`
 			)
 		}
 	}
 	return handles
 }
 
-/**
- * The payload a closed relation's facts carry: its descriptors, and one fact per handle. closed(name, handles) has
- * none, which is the empty payload with an empty fact for every handle.
- */
-interface ClosedPayload {
-	readonly payload: unknown
-	readonly facts: unknown
-}
-
-/**
- * What the admission core of closed checked: the Description, and the host facts it read, one per handle, the enum-only
- * form's empty ones among them.
- */
-interface AdmittedClosed {
-	readonly desc: ClosedRelationDesc
-	readonly facts: Readonly<Record<string, Readonly<Record<string, unknown>>>>
-}
-
-/**
- * The admission core of closed(...) and of its .with(...): a JavaScript caller's arguments checked and
- * described. closed(name, handles) is closed(name, handles).with({}, { h: {} for each handle }), one Description.
- */
-export const admitClosed = (
+/** The admission core of closed(...): a JavaScript caller's arguments checked and described. */
+export const admitRoster = (
 	name: unknown,
 	handles: unknown,
-	withPayload: ClosedPayload | undefined,
 	extra: ReadonlyArray<unknown>
-): AdmittedClosed => {
+): RosterDesc => {
 	const label = `closed ${typeof name === "string" ? name : "?"}`
-	const closedName = requireName(name, label, "a closed relation name")
+	const rosterName = requireName(name, label, "a roster name")
 	if (extra.length > 0) {
 		throw malformed(
 			label,
-			withPayload === undefined
-				? "closed(name, handles): two arguments; a payload is closed(name, handles).with(payload, facts)"
-				: "closed(name, handles).with(payload, facts): two arguments"
+			"closed(name, handles): two arguments; a closed relation over a roster is closed.relation(name, fields, key, rows)"
 		)
 	}
-	const roster = handleList(handles, label)
-	const payloadDescriptors = descriptorRecord(
-		withPayload === undefined ? {} : withPayload.payload,
-		`${label} payload`
-	)
-	const described = describedFields(payloadDescriptors, `${label} payload`)
-	const payload = fieldMap(described)
-	if (Object.hasOwn(payload, "id")) {
-		throw malformed(label, "a payload without a field named id: id is the roster handle")
-	}
-	const facts: Record<string, Readonly<Record<string, LiteralDesc>>> = {}
-	const hostFacts: Record<string, Readonly<Record<string, unknown>>> = {}
-	if (withPayload === undefined) {
-		for (const h of roster) {
-			facts[h] = {}
-			hostFacts[h] = Object.freeze({})
-		}
-	} else {
-		const factsArg = withPayload.facts
-		if (!isPlainRecord(factsArg)) {
-			throw malformed(label, "facts: one payload fact per handle")
-		}
-		for (const key of Object.keys(factsArg)) {
-			if (!roster.includes(key)) {
-				throw malformed(label, `facts for the roster's handles only; ${key} is not one`)
-			}
-		}
-		const payloadFields = Object.keys(payload)
-		for (const h of roster) {
-			const fact = factsArg[h]
-			if (!isPlainRecord(fact)) {
-				throw malformed(label, `a payload fact for every handle; ${h} has none`)
-			}
-			const keys = Object.keys(fact)
-			if (
-				keys.length !== payloadFields.length ||
-				!payloadFields.every((f) => Object.hasOwn(fact, f))
-			) {
-				throw malformed(
-					label,
-					`the fact for ${h} with exactly the payload fields ${payloadFields.join(", ")}`
-				)
-			}
-			const literals: Record<string, LiteralDesc> = {}
-			for (const [f, fieldDesc] of Object.entries(payload)) {
-				const handlesOfField = rosterHandlesOf(payloadDescriptors[f])
-				literals[f] = literalFor(fieldDesc, fact[f], `${label} fact ${h}.${f}`, handlesOfField)
-			}
-			facts[h] = literals
-			hostFacts[h] = frozenRecord(fact)
-		}
-	}
-	const loc = builderLoc(label, [closedName])
 	const desc = orThrow(
 		decodeDesc("relation", {
 			kind: "closed",
-			name: closedName,
-			handles: roster,
-			payload,
-			facts,
-			loc
+			name: rosterName,
+			handles: handleList(handles, label),
+			loc: builderLoc(label, [rosterName])
 		})
 	)
 	if (desc.kind !== "closed") {
-		throw malformed(label, "a relation description of a closed relation")
+		throw malformed(label, "a relation description of a roster")
 	}
-	return { desc, facts: hostFacts }
+	return desc
 }
 
-/** Whether `facts` holds a fact for every handle, the check that types it as the empty facts of that roster. */
-const emptyFactsOf = <H extends string>(
-	facts: Readonly<Record<string, unknown>>,
-	handles: ReadonlyArray<H>
-): facts is Readonly<Record<string, unknown>> & FactsOf<H, unknown> =>
-	handles.every((h) => Object.hasOwn(facts, h))
-
 /**
- * closed(name, handles) is the enum-only form. Its `with(payload, facts)` builds a new closed relation of the same name
- * and roster with a payload fact for every handle; the enum-only form is that relation with the empty payload, one
- * Description. The id of every fact is the roster's handle column, an enum, over the caller's handles, which admission
- * read; a fact is the handle under id, beside the payload's fields. Each form's `handle(member)` is the member as a
- * typed constant (scalar/compute/builders.ts handleTerm).
+ * closed(name, handles): a roster. The id of every fact is the roster's closed id column, over the caller's handles,
+ * which admission read; a fact is the handle under id. `handle(member)` is the member as a typed constant
+ * (scalar/compute/builders.ts handleTerm).
  */
 export const closed = <
 	const Name extends string,
@@ -326,56 +526,218 @@ export const closed = <
 	name: Name,
 	handles: Handles & NonEmptyReadonlyArray<Handles[number]>,
 	extra: ReadonlyArray<unknown>
-): EnumClosed<Name, readonly [...Handles]> => {
-	const admitted = admitClosed(name, handles, undefined, extra)
+): Roster<Name, readonly [...Handles]> => {
+	const desc = admitRoster(name, handles, extra)
 	const roster = frozenTuple<Handles>(handles)
-	const facts = frozenRecord(admitted.facts)
-	if (!emptyFactsOf(facts, roster)) {
-		throw malformed(`closed ${name}`, "an empty fact for every handle")
-	}
 	const id: ClosedId<Handles[number], Name> = Object.freeze({
-		id: Object.freeze({ column: handleColumn<Handles[number]>(handles), sql: "enum" })
+		id: Object.freeze({ column: codeColumn<Handles[number]>(name, handles), sql: carrierSql.code })
 	})
-	const withPayload = <const Payload extends Record<string, FieldBase>>(
-		payload: Payload,
-		payloadFacts: FactsOf<Handles[number], Payload>,
-		...more: ReadonlyArray<unknown>
-	): Closed<Name, Handles[number], Payload, readonly [...Handles]> => {
-		const { desc } = admitClosed(name, roster, { payload, facts: payloadFacts }, more)
-		const copied = frozenCopy(payload)
-		const withValue: Closed<Name, Handles[number], Payload, readonly [...Handles]> = ownValue(
-			{
-				kind: "closed",
-				name,
-				handles: roster,
-				payload: copied,
-				facts: frozenCopies(payloadFacts, roster),
-				fact: record<[ClosedId<Handles[number], Name>, Payload]>(id, copied),
-				heading: Object.freeze({ ...id, ...copied }),
-				handle: <const M extends Handles[number]>(member: M) => handleTerm(withValue, member)
-			},
-			"closed",
-			desc
-		)
-		return withValue
-	}
-	const empty = frozenCopy({})
-	const value: EnumClosed<Name, readonly [...Handles]> = ownValue(
+	const value: Roster<Name, readonly [...Handles]> = ownValue(
 		{
 			kind: "closed",
 			name,
 			handles: roster,
-			payload: empty,
-			facts,
 			fact: record<[ClosedId<Handles[number], Name>]>(id),
 			heading: id,
-			handle: <const M extends Handles[number]>(member: M) => handleTerm(value, member),
-			with: withPayload
+			handle: <const M extends Handles[number]>(member: M) => handleTerm(value, member)
 		},
 		"closed",
-		admitted.desc
+		desc
 	)
 	return value
+}
+
+/** A closed relation's rows as literals of its fields: each row a plain record of exactly a value per field. */
+const closedRows = (
+	rows: unknown,
+	fields: Readonly<Record<string, FieldDesc>>,
+	descriptors: Readonly<Record<string, unknown>>,
+	label: string
+): ReadonlyArray<Readonly<Record<string, LiteralDesc>>> => {
+	if (!isList(rows)) {
+		throw malformed(label, "rows: a list of the relation's facts")
+	}
+	const names = Object.keys(fields)
+	return rows.map((row, i) => {
+		if (!isPlainRecord(row)) {
+			throw malformed(label, `row ${i}: a fact, a record of a value per field`)
+		}
+		const keys = Object.keys(row)
+		if (keys.length !== names.length || !names.every((f) => Object.hasOwn(row, f))) {
+			throw malformed(label, `row ${i} with exactly the fields ${names.join(", ")}`)
+		}
+		const literals: Record<string, LiteralDesc> = {}
+		for (const [field, desc] of Object.entries(fields)) {
+			literals[field] = literalFor(
+				desc,
+				row[field],
+				`${label} row ${i} field ${field}`,
+				rosterHandlesOf(descriptors[field])
+			)
+		}
+		return literals
+	})
+}
+
+/** The admission core of closed.relation(...): a JavaScript caller's arguments checked and described. */
+export const admitClosedRelation = (
+	name: unknown,
+	fields: unknown,
+	key: unknown,
+	rows: unknown,
+	extra: ReadonlyArray<unknown>
+): {
+	readonly desc: ClosedRelationDesc
+	readonly described: Readonly<Record<string, Described>>
+} => {
+	const label = `closed.relation ${typeof name === "string" ? name : "?"}`
+	const relationName = requireName(name, label, "a closed relation name")
+	if (extra.length > 0) {
+		throw malformed(label, "closed.relation(name, fields, key, rows): four arguments")
+	}
+	const descriptors = descriptorRecord(fields, label)
+	for (const [field, value] of Object.entries(descriptors)) {
+		if (writingOf(value).kind !== "caller") {
+			throw malformed(
+				label,
+				`fields its declaration's rows hold; ${field} is written by ${writingOf(value).kind === "serial" ? "its sequence" : "grizzle"}`
+			)
+		}
+	}
+	const described = describedFields(descriptors, label)
+	const fieldDescs = fieldMap(described)
+	const desc = orThrow(
+		decodeDesc("relation", {
+			kind: "closedRelation",
+			name: relationName,
+			fields: fieldDescs,
+			key,
+			rows: closedRows(rows, fieldDescs, descriptors, label),
+			loc: builderLoc(label, [relationName])
+		})
+	)
+	if (desc.kind !== "closedRelation") {
+		throw malformed(label, "a relation description of a closed relation")
+	}
+	return { desc, described }
+}
+
+/**
+ * The typing of a closed relation's reads (scalar/compute/closed.ts): each key field's declared type, each payload
+ * field's type and carrier, and the set over the last key field's roster, whose descriptor carries the roster.
+ */
+const closedReadTyping = (
+	desc: ClosedRelationDesc,
+	described: Readonly<Record<string, Described>>,
+	descriptors: Readonly<Record<string, unknown>>,
+	label: string
+): ClosedReadTyping => {
+	const typeOf = (field: string): Described => {
+		const d = described[field]
+		if (d === undefined) {
+			throw malformed(label, `a key over the relation's own fields; ${field} is none`)
+		}
+		return d
+	}
+	const types = new Map(Object.entries(described).map(([field, d]) => [field, d.scalar] as const))
+	const payload = new Set(Object.keys(described).filter((field) => !desc.key.includes(field)))
+	const last = desc.key[desc.key.length - 1] ?? desc.key[0]
+	const lastDesc = typeOf(last).desc
+	const handles = rosterHandlesOf(descriptors[last])
+	if (lastDesc.kind !== "closedId" || handles === undefined || !isNonEmpty(handles)) {
+		throw malformed(label, `a key of closed ids, each built by closedId(roster); ${last} is none`)
+	}
+	const roster = lastDesc.roster
+	const env: ScalarEnv = {
+		kind: "builder",
+		roster: (n) => (n === roster ? handles : undefined),
+		text: noText
+	}
+	const set = orThrow(scalarTypeOf({ kind: "bits", roster }, env, SourceLoc(label, [])))
+	return {
+		relation: desc.name,
+		key: mapNonEmpty(desc.key, (field) => ({ field, type: typeOf(field).scalar })),
+		types,
+		payload,
+		row: { type: set, carrier: { column: bitsColumn(roster), sql: carrierSql.bits } }
+	}
+}
+
+/**
+ * closed.relation(name, fields, key, rows): a closed relation. Its value holds frozen copies of its fields, key and
+ * rows; its `fact` is the decoder of its rows' fields, and its heading its fields. `at` and `row` are its closed reads
+ * (scalar/compute/closed.ts), typed by its own descriptors.
+ */
+export const closedRelation = <
+	const Name extends string,
+	const Fields extends Readonly<Record<string, FieldBase>>,
+	const Key extends NonEmptyReadonlyArray<keyof Fields & string>
+>(
+	name: Name,
+	fields: Fields,
+	key: Key,
+	rows: ReadonlyArray<FactOfFields<Fields>>,
+	extra: ReadonlyArray<unknown>
+): ClosedRelation<Name, Fields, readonly [...Key]> => {
+	const label = `closed.relation ${name}`
+	const admitted = admitClosedRelation(name, fields, key, rows, extra)
+	const copied = frozenCopy(fields)
+	const typing = closedReadTyping(admitted.desc, admitted.described, copied, label)
+	return ownValue(
+		{
+			kind: "closedRelation",
+			name,
+			fields: copied,
+			key: frozenTuple<Key>(key),
+			rows: Object.freeze(rows.map((r) => frozenCopy(r))),
+			fact: record<[Fields]>(copied),
+			heading: copied,
+			at: <const P extends PayloadFieldOf<Fields, readonly [...Key]>>(
+				field: P,
+				...args: ReadonlyArray<unknown>
+			): Minted<Fields, unknown>[P] => {
+				const at = closedAtKey(typing, field, args)
+				return mint<unknown, Fields>(copied, (carrier, f) => closedAtTerm(typing, f, at, carrier))[
+					field
+				]
+			},
+			row: (...args: ReadonlyArray<unknown>) => closedRowTerm(typing, args)
+		},
+		"closedRelation",
+		admitted.desc
+	)
+}
+
+/** The brand of a set over a roster, minted only by bitsOf from handles it checked. */
+const mintBits = <C>() => nominal<ReadonlySet<HandleOf<C>>, Bits<C>>()
+
+/**
+ * Bits.of(roster, handles): the set of `handles`, a fresh frozen Set branded by the roster. Each handle is one of the
+ * roster's, each once: a JavaScript caller's other value is MalformedDescription.
+ */
+export const bitsOf = <C extends AnyRoster>(
+	roster: C,
+	handles: ReadonlyArray<HandleOf<C>>,
+	extra: ReadonlyArray<unknown>
+): Bits<C> => {
+	const label = "Bits.of"
+	if (extra.length > 0) {
+		throw malformed(label, "Bits.of(roster, handles): two arguments")
+	}
+	if (ownedKind(roster) !== "closed" || !isList(handles)) {
+		throw malformed(label, "a roster built by closed(name, handles), and a list of its handles")
+	}
+	const members = new Set<HandleOf<C>>()
+	for (const h of handles) {
+		if (!roster.handles.includes(h)) {
+			throw malformed(label, `handles of ${roster.name}; ${JSON.stringify(h)} is none`)
+		}
+		if (members.has(h)) {
+			throw malformed(label, `each handle once; ${JSON.stringify(h)} repeats`)
+		}
+		members.add(h)
+	}
+	return mintBits<C>()(Object.freeze(members))
 }
 
 /** The admission core of derived(...): the definition checked and recorded, as relation's is. */
@@ -437,14 +799,15 @@ export const derived = <const Name extends string, Q extends DefinitionQuery>(
 }
 
 /**
- * The Description of a relation or closed relation value: an owned value's own, or a JavaScript look-alike's,
+ * The Description of a relation, roster or closed relation value: an owned value's own, or a JavaScript look-alike's,
  * described by the admission core so that it is checked exactly as a built one is.
  */
 export const relationDescOf = (
 	value: unknown,
 	label: string
-): OrdinaryRelationDesc | ClosedRelationDesc => {
-	const owned = ownedDesc(value, "relation") ?? ownedDesc(value, "closed")
+): OrdinaryRelationDesc | RosterDesc | ClosedRelationDesc => {
+	const owned =
+		ownedDesc(value, "relation") ?? ownedDesc(value, "closed") ?? ownedDesc(value, "closedRelation")
 	if (owned !== undefined) {
 		return owned
 	}
@@ -453,26 +816,28 @@ export const relationDescOf = (
 			return admitRelation(value["name"], value["fields"], value["primaryKey"], [])
 		}
 		if (value["kind"] === "closed") {
-			return admitClosed(
-				value["name"],
-				value["handles"],
-				{ payload: value["payload"], facts: value["facts"] },
-				[]
-			).desc
+			return admitRoster(value["name"], value["handles"], [])
+		}
+		if (value["kind"] === "closedRelation") {
+			return admitClosedRelation(value["name"], value["fields"], value["key"], value["rows"], [])
+				.desc
 		}
 	}
-	throw malformed(label, "a relation or closed relation, built by relation(...) or closed(...)")
+	throw malformed(
+		label,
+		"a relation, roster or closed relation, built by relation(...), closed(...) or closed.relation(...)"
+	)
 }
 
 export const derivedDraftOf = (value: unknown): DerivedDraft | undefined =>
 	ownedDesc(value, "derived")
 
 /**
- * The name and kind of anything a statement may name. A relation or a closed relation has a known heading: its fields'
- * Descriptions, its primary key, and the descriptors its fields were built from, which literal contexts read (a closedId
- * field's roster). A relation's descriptors are its fields'. A closed relation's are its payload's: its id has no
- * descriptor, and its roster, the handles the id holds, is its own member. A derived relation's fields are inferred at
- * compilation, so a statement knows only its name.
+ * The name and kind of anything a statement may name. A relation, a roster or a closed relation has a known heading:
+ * its fields' types, its primary key, and the descriptors its fields were built from, which literal contexts read (a
+ * closedId field's roster); a generated field's descriptor is its declared type's. A roster's heading is its id, which
+ * has no descriptor, and its roster, the handles the id holds, is its own member. A closed relation's key is its
+ * primary key. A derived relation's fields are inferred at compilation, so a statement knows only its name.
  */
 export type NamedRelation =
 	| {
@@ -490,10 +855,17 @@ export type NamedRelation =
 			readonly roster: NonEmptyReadonlyArray<string>
 			readonly descriptors: Readonly<Record<string, unknown>>
 	  }
+	| {
+			readonly kind: "closedRelation"
+			readonly name: string
+			readonly fields: Readonly<Record<string, FieldDesc>>
+			readonly primaryKey: NonEmptyReadonlyArray<string>
+			readonly descriptors: Readonly<Record<string, unknown>>
+	  }
 	| { readonly kind: "derived"; readonly name: string }
 
 /**
- * The handles a field of a relation or closed relation holds, when it is a closed handle: a closed relation's id holds
+ * The handles a field of a relation, roster or closed relation holds, when it is a closed handle: a roster's id holds
  * its roster, and a closedId field the roster its descriptor carries.
  */
 export const fieldRoster = (
@@ -502,33 +874,60 @@ export const fieldRoster = (
 ): ReadonlyArray<string> | undefined =>
 	rel.kind === "closed" && field === "id" ? rel.roster : rosterHandlesOf(rel.descriptors[field])
 
+/** The descriptor a field value was built from: its own, or a generated field's declared type's. */
+const descriptorOf = (value: unknown): unknown => {
+	const recorded = writtenByOf(value)
+	if (recorded !== undefined) {
+		return recorded.type
+	}
+	const entry =
+		typeof value === "object" && value !== null ? generatedEntries.get(value) : undefined
+	return entry === undefined ? value : hasProperties(value) ? value["type"] : value
+}
+
 export const namedRelation = (value: unknown, label: string): NamedRelation => {
 	const draft = derivedDraftOf(value)
 	if (draft !== undefined) {
 		return { name: draft.name, kind: "derived" }
 	}
 	const desc = relationDescOf(value, label)
-	/** relationDescOf admitted the value, so it is a record whose fields or payload are a record of descriptors. */
+	/** relationDescOf admitted the value, so it is a record whose fields are a record of descriptors. */
 	const member = (key: string): Readonly<Record<string, unknown>> => {
 		const descriptors = hasProperties(value) ? value[key] : undefined
-		return hasProperties(descriptors) ? descriptors : {}
-	}
-	if (desc.kind === "relation") {
-		return {
-			name: desc.name,
-			kind: "relation",
-			fields: desc.fields,
-			primaryKey: desc.primaryKey,
-			descriptors: member("fields")
+		if (!hasProperties(descriptors)) {
+			return {}
 		}
+		const out: Record<string, unknown> = {}
+		for (const [field, d] of Object.entries(descriptors)) {
+			out[field] = descriptorOf(d)
+		}
+		return out
 	}
-	const closedId: FieldDesc = { kind: "closedId", roster: desc.name }
-	return {
-		name: desc.name,
-		kind: "closed",
-		fields: { id: closedId, ...desc.payload },
-		primaryKey: ["id"],
-		roster: desc.handles,
-		descriptors: member("payload")
+	switch (desc.kind) {
+		case "relation":
+			return {
+				name: desc.name,
+				kind: "relation",
+				fields: fieldTypes(desc.fields),
+				primaryKey: desc.primaryKey,
+				descriptors: member("fields")
+			}
+		case "closed":
+			return {
+				name: desc.name,
+				kind: "closed",
+				fields: { id: { kind: "closedId", roster: desc.name } },
+				primaryKey: ["id"],
+				roster: desc.handles,
+				descriptors: {}
+			}
+		case "closedRelation":
+			return {
+				name: desc.name,
+				kind: "closedRelation",
+				fields: desc.fields,
+				primaryKey: desc.key,
+				descriptors: member("fields")
+			}
 	}
 }

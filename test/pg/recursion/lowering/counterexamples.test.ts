@@ -6,6 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter } from "effect"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { formsHold, reachableRecursions } from "#test/pg/recursion/graph/support.ts"
@@ -108,7 +109,7 @@ const run = (c: RecursiveCase, left: Lowering, right: Lowering) =>
  * column) to its structural text domain (lower/shapes/refined), so the names must name one, as an
  * installation's names do: a stand-in domain per pattern (naming.ts standInNames).
  */
-const siteNames: PhysicalNames = standInNames("Graph")
+const siteNames: PhysicalNames = standInNames("Graph", emptyCodebook)
 
 /**
  * How many feedback unions the mutant rewrites in a case's optimized program, and whether a statement of the query

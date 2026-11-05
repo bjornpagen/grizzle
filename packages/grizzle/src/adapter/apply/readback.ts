@@ -5,6 +5,7 @@ import type { InputRefusal } from "#adapter/reader/relations.ts"
 import { programFlight, type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { Flight } from "#adapter/wire/batch.ts"
 import type { AttachmentLayout, Layout, Row } from "#compiler/core/decoder.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 
 /**
@@ -75,24 +76,29 @@ export type ReadBacks = { readonly [K in ArtifactKind]: ReadBackRuns }
  * The read-backs of artifact `kind`, ready to run, in the artifact's order: each its delivery's statements as the
  * runtime runs them, with its attachments' delivered heads read from its query.
  */
-const artifactReadBacks = (program: CompiledWrite, kind: ArtifactKind): ReadBackRuns => {
+const artifactReadBacks = (
+	program: CompiledWrite,
+	kind: ArtifactKind,
+	codes: Codebook
+): ReadBackRuns => {
 	const each = Arr.map(program.artifacts[kind].readBacks, (delivery): ReadBackRun => ({
 		name: delivery.name,
 		program: readProgram(
 			delivery.run,
-			analyzedAttachmentFacts(program.frontend.ir.dag, attachmentHeads(delivery.query))
+			analyzedAttachmentFacts(program.frontend.ir.dag, attachmentHeads(delivery.query)),
+			codes
 		)
 	}))
 	return { runs: each, layout: readsLayout(each) }
 }
 
 /**
- * The read-backs of both artifacts of `program`, built once, with the program (apply/compile.ts writeEntry), so every
- * application runs them as they are.
+ * The read-backs of both artifacts of `program`, under the installation's codes `codes`, built once, with the program
+ * (apply/compile.ts writeEntry), so every application runs them as they are.
  */
-export const readBacks = (program: CompiledWrite): ReadBacks => ({
-	optimized: artifactReadBacks(program, "optimized"),
-	conservative: artifactReadBacks(program, "conservative")
+export const readBacks = (program: CompiledWrite, codes: Codebook): ReadBacks => ({
+	optimized: artifactReadBacks(program, "optimized", codes),
+	conservative: artifactReadBacks(program, "conservative", codes)
 })
 
 const delivering = (row: Row): Row => row

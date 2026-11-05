@@ -10,6 +10,7 @@ import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { readExceeds, templateProgram } from "#adapter/reader/run.ts"
 import { indices } from "#compiler/core/array.ts"
 import { lateralParentMax } from "#compiler/core/limits.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -81,12 +82,13 @@ describe("a read's per-execution choice", () => {
 							const program = templateProgram(
 								template,
 								"optimized",
-								attachmentFacts(template, desc)
+								attachmentFacts(template, desc),
+								emptyCodebook
 							)
 							const facts = accounts(count)
 							/** The template declares the relation parameter alone: firstTwo's `acct` is bound to the account variable. */
 							const inputs = Result.getOrThrow(
-								executionInputs(paramCodecs(template.params), { [name]: facts })
+								executionInputs(paramCodecs(template.params, emptyCodebook), { [name]: facts })
 							)
 							const [record] = program.records
 							assert.ok(record !== undefined, name)

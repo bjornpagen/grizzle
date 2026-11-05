@@ -10,6 +10,7 @@ import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -163,9 +164,13 @@ export const hostNormalized = <C extends QueryCase>(c: C): C => {
 			params[id] = p
 			continue
 		}
+		const texts = (row: ReadonlyArray<TypedLiteral>) =>
+			Arr.map(row, (v, i) =>
+				inputText(v, defined(p.heading[i], "a column of the parameter").type, emptyCodebook)
+			)
 		const rows = Arr.dedupeWith(p.rows, (a, b) => {
-			const x = Arr.map(a, inputText)
-			const y = Arr.map(b, inputText)
+			const x = texts(a)
+			const y = texts(b)
 			return x.length === y.length && Arr.every(x, (t, i) => t === y[i])
 		})
 		params[id] = { ...p, rows }
@@ -312,7 +317,7 @@ export const statementParams = (
 				if (p?.kind !== "scalar") {
 					throw new Error(`no value for ${slot.param}`)
 				}
-				return inputText(p.value)
+				return inputText(p.value, p.type, emptyCodebook)
 			}
 			case "relation": {
 				const p = c.query.params[slot.param]
@@ -322,19 +327,20 @@ export const statementParams = (
 				return jsonText(
 					Arr.map(p.rows, (row) =>
 						Rec.fromEntries(
-							Arr.map(slot.columns, (col) => [
-								col.definition.name,
-								inputText(
-									cellOf(
-										row,
-										Option.getOrThrowWith(
-											Arr.findFirstIndex(p.heading, (h) => h.name === col.name),
-											() => new Error("a column the case's own heading holds")
-										),
-										col.name
-									)
+							Arr.map(slot.columns, (col) => {
+								const at = Option.getOrThrowWith(
+									Arr.findFirstIndex(p.heading, (h) => h.name === col.name),
+									() => new Error("a column the case's own heading holds")
 								)
-							])
+								return [
+									col.definition.name,
+									inputText(
+										cellOf(row, at, col.name),
+										defined(p.heading[at], "the column's heading").type,
+										emptyCodebook
+									)
+								]
+							})
 						)
 					)
 				)

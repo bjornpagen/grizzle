@@ -51,7 +51,13 @@ const catalogue: ComputeApi = {
 	upper: (s, endpoint) => C.upper(s, endpoint),
 	width: (s, endpoint) => C.width(s, endpoint),
 	charLength: (s) => C.charLength(s),
-	cosineDistance: (a, b) => C.cosineDistance(a, b)
+	cosineDistance: (a, b) => C.cosineDistance(a, b),
+	union: (a, b) => C.union(a, b),
+	intersection: (a, b) => C.intersection(a, b),
+	difference: (a, b) => C.difference(a, b),
+	cardinality: (a) => C.cardinality(a),
+	subset: (a, b) => C.subset(a, b),
+	disjoint: (a, b) => C.disjoint(a, b)
 }
 
 /**

@@ -183,6 +183,11 @@ describe("shrinking", () => {
 								exhaust(
 									{
 										suite: `the least of ${shape} by ${predicate}`,
+										oracle: {
+											kind: "specification",
+											name: "the predicate the outer property drew"
+										},
+										box: "the shape's whole space",
 										generator,
 										literal: Formatter.format,
 										limit: 1000,

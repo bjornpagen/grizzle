@@ -1,28 +1,39 @@
+import { Struct } from "effect"
 import { ALLEN } from "#compiler/public/allen.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { closedId, contract, Decimal, pg, span, uuid } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	closedId,
+	contract,
+	Decimal,
+	drawn,
+	generated,
+	natural,
+	pg,
+	span,
+	uuid
+} from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
-	capacity,
 	check,
 	closed,
 	contained,
+	counted,
 	derived,
-	duration,
+	fin,
+	fold,
 	key,
 	login,
+	Monoid,
 	mirrors,
 	mutable,
 	on,
-	ref,
 	relation,
 	role,
 	type Schema,
 	schema,
-	select,
-	weigh,
-	within
+	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
@@ -50,16 +61,26 @@ const LeaveReason = closed("LeaveReason", ["vacation", "sick", "unpaid"])
 const Filing = closed("Filing", ["single", "joint", "head"])
 const LedgerAccount = closed("LedgerAccount", ["GrossWages", "NetPay", "Withholding"])
 const Side = closed("Side", ["debit", "credit"])
-const Levy = closed("Levy", ["SocialSecurity", "Medicare", "Futa"]).with(
-	{ employeeRate: Rate, employerRate: Rate },
-	{
-		SocialSecurity: { employeeRate: Rate(dec("0.062")), employerRate: Rate(dec("0.062")) },
-		Medicare: { employeeRate: Rate(dec("0.0145")), employerRate: Rate(dec("0.0145")) },
-		Futa: { employeeRate: Rate(dec("0")), employerRate: Rate(dec("0.006")) }
-	}
+const Levy = closed("Levy", ["SocialSecurity", "Medicare", "Futa"])
+
+/** Each levy's rates: a closed relation keyed by its levy (OPEN-3 (b)). */
+const LevyRate = closed.relation(
+	"LevyRate",
+	{ levy: closedId(Levy), employeeRate: Rate, employerRate: Rate },
+	["levy"],
+	[
+		{ levy: "SocialSecurity", employeeRate: Rate(dec("0.062")), employerRate: Rate(dec("0.062")) },
+		{ levy: "Medicare", employeeRate: Rate(dec("0.0145")), employerRate: Rate(dec("0.0145")) },
+		{ levy: "Futa", employeeRate: Rate(dec("0")), employerRate: Rate(dec("0.006")) }
+	]
 )
 
-export const Employer = relation("Employer", { id: uuid, ein: Ein, name: LegalName }, ["id"])
+/** An employer: its approvers a counted family, `approvers` their drawn count. */
+export const Employer = relation(
+	"Employer",
+	{ id: uuid, ein: Ein, name: LegalName, approvers: drawn(natural) },
+	["id"]
+)
 export const Employee = relation(
 	"Employee",
 	{ id: uuid, employer: uuid, code: EmployeeCode, name: LegalName },
@@ -100,15 +121,37 @@ export const Leave = relation(
 	["employee", "during"]
 )
 
-export const Timesheet = relation("Timesheet", { employee: uuid, week: Week, ceiling: Micros }, [
-	"employee",
-	"week"
-])
+/**
+ * A timesheet: its approved shifts' hours are a sum fold over its counted family of shifts (fin.md §6, "duration" then
+ * "weighted"), `shifts` their drawn count and `approvedHours` the fold's end, which a check holds to `ceiling`.
+ */
+export const Timesheet = relation(
+	"Timesheet",
+	{
+		employee: uuid,
+		week: Week,
+		ceiling: Micros,
+		shifts: drawn(natural),
+		approvedHours: accumulated(pg.bigint, 0n)
+	},
+	["employee", "week"]
+)
 
-export const Shift = relation(
+/** A shift, whose `hours` PostgreSQL generates from its span: the width `upper − lower` (fin.md §6, "duration"). */
+export const Shift = relation.generated(
 	"Shift",
 	{ employee: uuid, during: span(Instant), week: Week, status: closedId(ShiftStatus) },
-	["employee", "during"]
+	["employee", "during"],
+	(r) => ({
+		hours: generated(
+			pg.bigint,
+			Compute.when(
+				Compute.within(Compute.width(r.during, Instant), 0n, 9223372036854775807n),
+				(width) => Compute.cast(width, pg.bigint),
+				0n
+			)
+		)
+	})
 )
 
 export const PayRun = relation(
@@ -120,9 +163,22 @@ export const Approval = relation("Approval", { run: uuid, approver: uuid, at: In
 export const Payment = relation("Payment", { run: uuid, settled: Instant }, ["run"])
 export const Voiding = relation("Voiding", { run: uuid, reason: Memo }, ["run"])
 export const Reissue = relation("Reissue", { run: uuid, replaces: uuid }, ["run"])
+/**
+ * A pay line: its deposits are a counted family, `deposits` their drawn count, and `deposited` the sum fold of their
+ * amounts (fin.md §6, "count in [lo, hi]" and "weighted").
+ */
 export const PayLine = relation(
 	"PayLine",
-	{ id: uuid, run: uuid, employee: uuid, gross: Cents, net: Cents, offCycle: pg.boolean },
+	{
+		id: uuid,
+		run: uuid,
+		employee: uuid,
+		gross: Cents,
+		net: Cents,
+		offCycle: pg.boolean,
+		deposits: drawn(natural),
+		deposited: accumulated(Cents, Cents(0n))
+	},
 	["id"]
 )
 export const OffCycleReason = relation("OffCycleReason", { line: uuid, reason: Memo }, ["line"])
@@ -164,8 +220,21 @@ export const Request = relation("Request", { id: uuid, digest: Digest, result: M
  * containments into keyed relations and into closed facts (a roster, and closed tuples); keyed equality, unconditional
  * and conditional outside alternatives; exhaustive alternatives with a partial arm map, where draft and approved runs
  * carry no payload; a selected target and selected sources; span coverage (mirrors, plain, selected target, selected
- * source); and scalar-group capacity.
+ * source); and the counting and summing laws, each by fin.md §6: at most one reissue per run and one remainder deposit per
+ * line, keys over a side; at least one approver per employer and at most four deposits per line, counted families with
+ * a row check on the owner's count; the deposits' amounts summing to the line's net and its approved shifts' hours
+ * within its timesheet's ceiling, sum folds with a row check on the end; and a line's net within its gross, a row
+ * check.
  */
+/** Each employer's approvers, a counted family: "at least one" over an unkeyed side is a count (fin.md §6). */
+const employerApprovers = counted(on(Approver, "employer"), fin(Employer, "approvers"))
+
+/** Each pay line's deposits, a counted family: their order is no fact of the ledger. */
+const lineDeposits = counted(on(Deposit, "line"), fin(PayLine, "deposits"))
+
+/** Each timesheet's shifts, a counted family over the timesheet's key. */
+const timesheetShifts = counted(on(Shift, "employee", "week"), fin(Timesheet, "shifts"))
+
 export const Payroll = schema(
 	"Payroll",
 	{
@@ -177,6 +246,7 @@ export const Payroll = schema(
 		LedgerAccount,
 		Side,
 		Levy,
+		LevyRate,
 		Employer,
 		Employee,
 		ReportsTo,
@@ -228,7 +298,7 @@ export const Payroll = schema(
 		contained(on(LevyLine, "line"), on(PayLine, "id")),
 		contained(on(Posting, "line"), on(PayLine, "id")),
 		contained(on(Employment, "basis"), on(Basis, "id")),
-		contained(on(LevyLine, "levy", "employeeRate"), on(Levy, "id", "employeeRate")),
+		contained(on(LevyLine, "levy", "employeeRate"), on(LevyRate, "levy", "employeeRate")),
 		mirrors(on(Employee, "id"), on(TaxProfile, "employee")),
 		mirrors(
 			on(
@@ -262,6 +332,13 @@ export const Payroll = schema(
 		),
 		mirrors(on(Assignment, "employee", "during"), on(Employment, "employee", "during")),
 		contained(on(Leave, "employee", "during"), on(Employment, "employee", "during")),
+		key(
+			on(
+				select(Employment, (r) => r.eq(r.basis, "salaried")),
+				"employee",
+				"during"
+			)
+		),
 		contained(
 			on(Salary, "employee", "during"),
 			on(
@@ -278,35 +355,35 @@ export const Payroll = schema(
 			),
 			on(Employment, "employee", "during")
 		),
-		capacity(on(Employer, "id"), { from: on(Approver, "employer"), within: within(1n, "*") }),
-		capacity(on(PayRun, "id"), { from: on(Reissue, "replaces"), within: within(0n, 1n) }),
-		capacity(on(PayLine, "id"), {
-			from: on(
+		employerApprovers,
+		check("AtLeastOneApprover", Employer, (e) => e.ge(e.approvers, 1n)),
+		key(on(Reissue, "replaces")),
+		key(
+			on(
 				select(Deposit, (r) => r.eq(r.remainder, true)),
 				"line"
-			),
-			within: within(0n, 1n)
-		}),
-		capacity(on(PayLine, "id"), { from: on(Deposit, "line"), within: within(0n, 4n) }),
-		capacity(on(PayLine, "id"), {
-			from: on(Deposit, "line"),
-			weight: weigh("amount"),
-			within: within(ref("net"), ref("net"))
-		}),
-		capacity(on(PayLine, "id"), {
-			from: on(PayLine, "id"),
-			weight: weigh("net"),
-			within: within(0n, ref("gross"))
-		}),
-		capacity(on(Timesheet, "employee", "week"), {
-			from: on(
+			)
+		),
+		lineDeposits,
+		check("AtMostFourDeposits", PayLine, (l) => l.le(l.deposits, 4n)),
+		fold(lineDeposits, Monoid.sum, on(Deposit, "line", "amount"), on(PayLine, "id", "deposited")),
+		check("DepositsSumToNet", PayLine, (l) => l.eq(l.deposited, l.net)),
+		check("NetWithinGross", PayLine, (l) => l.le(l.net, l.gross)),
+		timesheetShifts,
+		fold(
+			timesheetShifts,
+			Monoid.sum,
+			on(
 				select(Shift, (r) => r.eq(r.status, "approved")),
 				"employee",
-				"week"
+				"week",
+				"hours"
 			),
-			weight: weigh(duration("during")),
-			within: within(0n, ref("ceiling"))
-		})
+			on(Timesheet, "employee", "week", "approvedHours")
+		),
+		check("ApprovedHoursWithinCeiling", Timesheet, (t) =>
+			t.le(t.approvedHours, Compute.base(t.ceiling))
+		)
 	]
 )
 
@@ -341,7 +418,9 @@ export const reportingWorlds = (installed: PayrollNamed<string>) => {
 		{ RunTotal: derived("RunTotal", runTotalsOver(installed)) },
 		[]
 	)
-	const hr = role(reporting, "hr", reporting.relations, {
+	/** Every relation a role holds: all but LevyRate, a closed relation, which installs as constants and no table. */
+	const entries = Struct.omit(reporting.relations, ["LevyRate"])
+	const hr = role(reporting, "hr", entries, {
 		write: [
 			"Employer",
 			"Employee",
@@ -355,7 +434,7 @@ export const reportingWorlds = (installed: PayrollNamed<string>) => {
 			"Timesheet"
 		]
 	})
-	const clerk = role(reporting, "clerk", reporting.relations, {
+	const clerk = role(reporting, "clerk", entries, {
 		write: [
 			"PayRun",
 			"PayLine",
@@ -369,11 +448,11 @@ export const reportingWorlds = (installed: PayrollNamed<string>) => {
 			"Shift"
 		]
 	})
-	const approver = role(reporting, "approver", reporting.relations, {
+	const approver = role(reporting, "approver", entries, {
 		write: ["PayRun", "Approval", "Request"]
 	})
-	const auditor = role(reporting, "auditor", reporting.relations)
-	const refresher = role(reporting, "refresher", reporting.relations, { refresh: ["RunTotal"] })
+	const auditor = role(reporting, "auditor", entries)
+	const refresher = role(reporting, "refresher", entries, { refresh: ["RunTotal"] })
 	return {
 		Reporting: reporting,
 		hr,
@@ -539,10 +618,10 @@ export const splitSegments = query(Payroll).rule((r) => {
 
 export const withholdingFor = query(Payroll).rule((r) => {
 	const { id, gross } = v(PayLine, "payLine")
-	const { id: levy, employeeRate } = v(Levy, "levy")
+	const { levy, employeeRate } = v(LevyRate, "levyRate")
 	return r
 		.match(PayLine, { id, run: r.param("run", PayLine.fields.run), gross })
-		.match(Levy, { id: levy, employeeRate })
+		.match(LevyRate, { levy, employeeRate })
 		.find({
 			line: id,
 			levy,

@@ -1,26 +1,29 @@
 import {
-	capacity,
+	check,
 	closed,
 	closedId,
 	contained,
 	contract,
+	counted,
 	derived,
+	drawn,
+	fin,
 	login,
+	natural,
 	on,
 	pg,
 	query,
-	ref,
 	relation,
 	role,
 	schema,
 	str,
 	uuid,
-	v,
-	within
+	v
 } from "#index.ts"
 
 /**
- * The schemas the public API fixtures share: a Work schema with a containment, a capacity and a recursive Edge relation,
+ * The schemas the public API fixtures share: a Work schema with a containment, a pool's claims counted against its seats
+ * (a counted family and a row check, fin §6's form of a capacity) and a recursive Edge relation,
  * a Reports extension with a derived relation, and their worlds: full roles that read, write and refresh, each in a
  * login. Typechecked only.
  */
@@ -32,14 +35,19 @@ export const Task = relation(
 	{ id: uuid, account: uuid, kind: closedId(Kind), cost: Cents },
 	["id"]
 )
-export const Pool = relation("Pool", { id: uuid, seats: pg.bigint }, ["id"])
+export const Pool = relation("Pool", { id: uuid, seats: natural, claims: drawn(natural) }, ["id"])
 export const Claim = relation("Claim", { id: uuid, pool: uuid, task: uuid }, ["id"])
 export const Edge = relation("Edge", { from: uuid, to: uuid }, ["from", "to"])
+
+/** A pool's claims, counted over its drawn count, which no more than its seats bound. */
+export const poolClaims = counted(on(Claim, "pool"), fin(Pool, "claims"))
+export const claimsWithinSeats = check("ClaimsWithinSeats", Pool, (p) => p.le(p.claims, p.seats))
 
 export const Work = schema("Work", { Kind, Account, Task, Pool, Claim, Edge }, [
 	contained(on(Task, "account"), on(Account, "id")),
 	contained(on(Claim, "pool"), on(Pool, "id")),
-	capacity(on(Pool, "id"), { from: on(Claim, "pool"), within: within(0n, ref("seats")) })
+	poolClaims,
+	claimsWithinSeats
 ])
 
 export const WorkReader = role(Work, "reader", Work.relations)

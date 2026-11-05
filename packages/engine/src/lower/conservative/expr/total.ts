@@ -66,7 +66,8 @@ const spaceOf = (t: ScalarType): Space | undefined => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -216,6 +217,13 @@ const exactIn = (
 		case "lower":
 		case "upper":
 		case "cosineDistance":
+		case "union":
+		case "intersection":
+		case "difference":
+		case "complement":
+		case "cardinality":
+		case "subset":
+		case "disjoint":
 			return undefined
 	}
 }

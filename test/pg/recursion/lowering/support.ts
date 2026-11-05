@@ -4,6 +4,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import { type ConservativeProgram, flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
@@ -133,7 +134,7 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 				if (p?.kind !== "scalar") {
 					throw new Error(`explainMain binds scalar parameters only, not ${slot.kind}`)
 				}
-				return inputText(p.value)
+				return inputText(p.value, p.type, emptyCodebook)
 			})
 			const session = yield* substrate.admin.pin
 			yield* session.query("BEGIN", [])

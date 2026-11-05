@@ -18,13 +18,11 @@ import { regex } from "arkregex"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { caseHang } from "#test/support/limits.ts"
 /**
- * The catalog type of each carrier; enum is probed through a fresh enum type, ranges through int4range and int8range,
- * and the exact carriers through numeric, the type an exact value of any digit bound is.
+ * The catalog type of each carrier; a closed id is probed through smallint, the type of its code under its roster's
+ * domain, a set through bit, ranges through int4range and int8range, and the exact carriers through numeric, the type
+ * an exact value of any digit bound is.
  */
-const carrierTypes = (
-	vectorSchema: string,
-	enumType: string
-): Readonly<Record<Carrier, string>> => ({
+const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, string>> => ({
 	int2: "int2",
 	int4: "int4",
 	int8: "int8",
@@ -35,7 +33,8 @@ const carrierTypes = (
 	bool: "bool",
 	uuid: "uuid",
 	text: "text",
-	enum: enumType,
+	code: "int2",
+	bits: "bit",
 	range4: "int4range",
 	range8: "int8range",
 	vector: `${vectorSchema}.vector`,
@@ -45,7 +44,6 @@ const carrierTypes = (
 
 /** The polymorphic input type PostgreSQL resolves an operator class or aggregate over, for the generic carriers. */
 const polymorphic: Partial<Record<Carrier, string>> = {
-	enum: "anyenum",
 	range4: "anyrange",
 	range8: "anyrange"
 }
@@ -73,6 +71,13 @@ const exclusions: Partial<Record<Carrier, ReadonlyArray<(typeof catalogCapabilit
 	 * mean, min and max over the scalar carriers that admit them).
 	 */
 	vector: ["avg", "sum"],
+	/** A closed id's code numbers its handle, never a quantity: no sum or mean over codes. */
+	code: ["avg", "sum"],
+	/**
+	 * A set's bit string orders lexicographically, which orders no sets, and the language indexes a set by equality
+	 * alone, never by GiST.
+	 */
+	bits: ["gist", "ordering"],
 	/** An exact value is never a field's, so no key or constraint indexes it by GiST. */
 	exactInteger: ["gist"],
 	/** Nor exact money's; a mean over money is no aggregate of the language, as money's own avg is not. */
@@ -388,8 +393,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 			const db = yield* session(ownerSession())
 			yield* db.query("CREATE EXTENSION IF NOT EXISTS btree_gist", [])
 			const vectorSchema = yield* vectorSchemaOf(db)
-			yield* db.query("CREATE TYPE pg_temp.probe_enum AS ENUM ('a', 'b')", [])
-			const types = carrierTypes(vectorSchema, "pg_temp.probe_enum")
+			const types = carrierTypes(vectorSchema)
 			for (const carrier of carriers) {
 				const native = yield* nativeOf(db, types[carrier], polymorphic[carrier])
 				const claimed = Arr.filter(claimedBy(carrier), (c) => catalogNames.includes(c))
@@ -416,8 +420,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 				const { session } = yield* Substrate
 				const db = yield* session(ownerSession())
 				const vectorSchema = yield* vectorSchemaOf(db)
-				yield* db.query("CREATE TYPE pg_temp.probe_enum AS ENUM ('a', 'b')", [])
-				const types = carrierTypes(vectorSchema, "pg_temp.probe_enum")
+				const types = carrierTypes(vectorSchema)
 				/**
 				 * A carrier is a span endpoint exactly where PostgreSQL has a built-in range over its type with a canonical
 				 * function, so that a span's text is canonical: a discrete range.

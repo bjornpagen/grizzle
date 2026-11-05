@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, type Option, Record as Rec, Result, type Scope } from "effect"
 import { missingExtension } from "#adapter/admission/expectation.ts"
 import { type DbContext, dbReadFrame, type RoleContext } from "#adapter/db/context.ts"
-import { rowOptions, toResult } from "#adapter/engine.ts"
+import { toResult } from "#adapter/engine.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import {
 	HandleReleased,
@@ -274,21 +274,23 @@ const compileArtifacts = (
 			program: templateProgram(
 				compiled.template,
 				compiled.selection.artifact,
-				attachmentFacts(compiled.template, compiled.desc)
+				attachmentFacts(compiled.template, compiled.desc),
+				role.artifacts.names.codes
 			),
-			codecs: paramCodecs(compiled.template.params)
+			codecs: paramCodecs(compiled.template.params, role.artifacts.names.codes)
 		})
 	)
 
 /**
- * A decoder bound to a compiled read's layouts, once per template and artifact. The decoder is read once the query
- * compiled, since a JavaScript caller's value may be no query.
+ * A decoder bound to a compiled read's layouts under `role`'s bind context, once per template and artifact. The decoder
+ * is read once the query compiled, since a JavaScript caller's value may be no query.
  */
 const bindArtifacts = <A>(
+	role: RoleContext,
 	compiled: ReadArtifacts,
 	decoder: () => RowDecoder<A>
 ): Result.Result<Bound<A>, CompileError> =>
-	Result.map(toResult(bindGroups(decoder(), compiled.program.layouts, rowOptions)), (read) => ({
+	Result.map(toResult(bindGroups(decoder(), compiled.program.layouts, role.bind)), (read) => ({
 		compiled,
 		read
 	}))
@@ -366,7 +368,7 @@ export const compileReadForm = <A>(
 ): Result.Result<ReadForm<A>, CompileError> =>
 	Result.gen(function* () {
 		const compiled = yield* compileArtifacts(role, query)
-		const bound = yield* bindArtifacts(compiled, decoder)
+		const bound = yield* bindArtifacts(role, compiled, decoder)
 		const page: PageSource = isOrderedValue(query)
 			? { kind: "compiled", page: yield* compiledPageTemplate(role, query) }
 			: { kind: "query" }
@@ -458,7 +460,7 @@ export const makeReader = <S>(ctx: DbContext, executor: ReadExecutor): Reader<S>
 				)
 			}
 			return Effect.mapError(
-				Effect.fromResult(bindArtifacts(compiled.success, decoder)),
+				Effect.fromResult(bindArtifacts(ctx, compiled.success, decoder)),
 				(reason) => new ReadFailure({ reason })
 			)
 		})

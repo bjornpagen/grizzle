@@ -183,6 +183,9 @@ export class KeyKernel {
 			case "cast":
 			case "domainCast":
 			case "cond":
+			case "closedAt":
+			case "closedRow":
+			case "closedHas":
 				return { kind: "opaque" }
 		}
 	}
@@ -1151,7 +1154,7 @@ export class KeyKernel {
 						contexts.push(r.context)
 						break
 					case "distinct":
-						contexts.push("descriptor")
+						contexts.push("queryLocal")
 						break
 					case "atMostOne":
 						if (
@@ -1159,12 +1162,12 @@ export class KeyKernel {
 							r.witness.kind === "row" ||
 							r.witness.kind === "singleFact"
 						) {
-							contexts.push("descriptor")
+							contexts.push("queryLocal")
 						}
 						break
 					case "fixed":
 						if (r.witness.kind === "closedValue") {
-							contexts.push("descriptor")
+							contexts.push("queryLocal")
 						}
 						if (r.witness.kind === "semiJoinPair") {
 							fromImplication(r.witness.right)

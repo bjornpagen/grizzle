@@ -1,6 +1,6 @@
 import type { Situations } from "@grizzle/testing/features"
 import { Array as Arr, Option, Record } from "effect"
-import { isResidual, isSpan } from "#test/pg/laws/families/model.ts"
+import { isSpan } from "#test/support/laws/model.ts"
 import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
 import { invalidKinds } from "#test/support/worlds/invalid/kinds.ts"
 import {
@@ -10,9 +10,11 @@ import {
 	factKey,
 	isMember
 } from "#test/support/worlds/model/host.ts"
+import { reorderedRoster } from "#test/support/worlds/model/session/migrate.ts"
 import {
 	dbSessionAt,
 	directSessionAt,
+	draftedFrom,
 	entryContexts,
 	roleEntryOf,
 	factsIn,
@@ -45,6 +47,7 @@ import type {
 	InstallSpec,
 	InvariantName,
 	Membership,
+	MigrationKind,
 	ModelState,
 	ObjectKind,
 	Observation,
@@ -823,8 +826,6 @@ const functionKind = (
 			return "key-probe"
 		case "advance":
 			return "advance-function"
-		case "law":
-			return "law-function"
 	}
 }
 
@@ -853,7 +854,7 @@ const statementObjects = (
 			const kind = functionKind(statement.fn)
 			return refusedPrivilege(observation)
 				? [objectFeature(kind, "attempt-refused")]
-				: observation.kind === "ok" && kind !== "law-function"
+				: observation.kind === "ok"
 					? [objectFeature(kind, "accepted-inside")]
 					: []
 		}
@@ -951,10 +952,6 @@ const statementObjects = (
 	}
 }
 
-/** The law of an identity: its host law, residual or not, when the state's host schema states it. */
-const residualLaw = (state: ModelState, law: string): boolean =>
-	Arr.some(state.host.laws, (l) => l.law === law && isResidual(l))
-
 /**
  * The probe a write's precheck meets a law of a relation through: a key's or a span key's, the entry's key probe; none
  * for any other law.
@@ -967,7 +964,7 @@ const probeKindOf = (state: ModelState, law: string, relation: string): "key-pro
 		? "key-probe"
 		: undefined
 
-/** What an apply shows of the world's objects: policies accepting and refusing, key probes and law functions refusing. */
+/** What an apply shows of the world's objects: policies accepting and refusing, and key probes refusing. */
 const applyObjects = (
 	actor: RoleActor,
 	action: Extract<Action, { readonly kind: "apply" }>,
@@ -1043,20 +1040,8 @@ const applyObjects = (
 				return []
 		}
 	}
-	return [...Arr.flatMap(opsOf(action), perOp), ...lawWitness(actor.state, observation)]
+	return Arr.flatMap(opsOf(action), perOp)
 }
-
-/** A law function's witness, shown or withheld, when a residual law refused a write or a direct writer's COMMIT. */
-const lawWitness = (state: ModelState, observation: Observation): ReadonlyArray<WorldFeature> =>
-	(observation.kind === "law-refused" || observation.kind === "invariant-rejected") &&
-	residualLaw(state, observation.law)
-		? [
-				objectFeature(
-					"law-function",
-					observation.witness.kind === "shown" ? "witness-shown" : "witness-withheld"
-				)
-			]
-		: []
 
 const objectsOf = (
 	state: ModelState,
@@ -1075,12 +1060,8 @@ const objectsOf = (
 		case "apply":
 			return actor.kind === "role" ? applyObjects(actor, action, observation) : []
 		case "direct":
-			return [
-				...statementObjects(state, actor, touch, action.statement, observation),
-				...lawWitness(state, observation)
-			]
+			return statementObjects(state, actor, touch, action.statement, observation)
 		case "direct-end":
-			return lawWitness(state, observation)
 		case "refresh":
 		case "close":
 		case "direct-begin":
@@ -1590,8 +1571,8 @@ const connectionsOf = (
  *   meets no fact is inside.
  * - `object:`: what the observation demonstrates of a world object: a barrier view hiding a row or suppressing a raise
  *   on one, a policy (and its filter function) accepting an inside fact, refusing an outside one or hiding a row from a
- *   write, a key probe refusing a hidden key and showing the submitted witness, a law function showing or
- *   withholding its witness, a function, view, grant, revoke or membership refusing an attempt, or accepting its holder.
+ *   write, a key probe refusing a hidden key and showing the submitted witness, a function, view, grant, revoke or
+ *   membership refusing an attempt, or accepting its holder.
  * - `invalid:`: every invalid input the action draws (generate's invalidKindsOf).
  * - `invariant:`: every invariant the action makes non-vacuous (invariantsOf).
  * - `deletion:` and `connection:`: what a deletion and a pooled connection show (deletionsOf, connectionsOf).
@@ -1622,8 +1603,40 @@ export const featuresOf = (
 		),
 		...deletionsOf(state, action, actor, observation),
 		...connectionsOf(state, action, observation),
-		...pathsOf(state, action, observation)
+		...pathsOf(state, action, observation),
+		...(action.kind === "migrate"
+			? [`migration:${migrationKindOf(state, action.to)}:${observation.kind}` as const]
+			: [])
 	])
+}
+
+/**
+ * What a migration to `to` changes against the installation its folder is drafted from, the first that applies: a
+ * roster declared out of its codes' order (D1), a roster losing a handle, a roster grown by one, a law added, or the
+ * installation otherwise. With the verdict it met, the (migration kind, verdict) feature.
+ */
+const migrationKindOf = (state: ModelState, to: InstallSpec): MigrationKind => {
+	const from = draftedFrom(state).base
+	if (reorderedRoster(from, to.base) !== undefined) {
+		return "roster-reorder"
+	}
+	const membersOf = (name: string): ReadonlyArray<string> =>
+		Option.match(
+			Arr.findFirst(from.closed, (c) => c.name === name),
+			{ onNone: () => [], onSome: (c) => c.members }
+		)
+	if (Arr.some(to.base.closed, (c) => Arr.some(membersOf(c.name), (m) => !c.members.includes(m)))) {
+		return "roster-removal"
+	}
+	if (
+		Arr.some(to.base.closed, (c) => {
+			const before = membersOf(c.name)
+			return before.length > 0 && Arr.some(c.members, (m) => !before.includes(m))
+		})
+	) {
+		return "roster-growth"
+	}
+	return to.base.laws.length > from.laws.length ? "law-added" : "install"
 }
 
 /** What a login's direct statement meets: the facts of a table it reads or writes, or at a key, in its transaction view. */
@@ -1799,9 +1812,9 @@ const blockFeatures = (b: OpBlock): ReadonlyArray<WorldFeature> =>
 
 /**
  * Every object outcome a world object can show. Left out: a whole entry's plain view hides no row and so suppresses no
- * raise; no view, policy or function but a law function's carries a witness, and a key probe's is always the
- * key the caller submitted (shown); a policy is met by a write, never attempted on its own; a law function is a trigger
- * function, which no direct call runs; and a revoke is never accepted, since PUBLIC holds nothing.
+ * raise; no view, policy or function but a key probe carries a witness, and a key probe's is always the key the caller
+ * submitted (shown); a policy is met by a write, never attempted on its own; and a revoke is never accepted, since
+ * PUBLIC holds nothing.
  */
 const objectOutcomes: ReadonlyArray<WorldFeature> = [
 	objectFeature("view", "accepted-inside"),
@@ -1822,9 +1835,6 @@ const objectOutcomes: ReadonlyArray<WorldFeature> = [
 	objectFeature("key-probe", "refused-outside"),
 	objectFeature("key-probe", "witness-shown"),
 	objectFeature("key-probe", "attempt-refused"),
-	objectFeature("law-function", "witness-shown"),
-	objectFeature("law-function", "witness-withheld"),
-	objectFeature("law-function", "attempt-refused"),
 	objectFeature("advance-function", "accepted-inside"),
 	objectFeature("advance-function", "attempt-refused"),
 	objectFeature("grant", "accepted-inside"),

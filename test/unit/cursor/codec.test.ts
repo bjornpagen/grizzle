@@ -75,7 +75,8 @@ import {
 	taskCodec,
 	taskId,
 	taskSpec,
-	cursorCodecTypes
+	cursorCodecTypes,
+	cursorCodes
 } from "#test/unit/cursor/support.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
 
@@ -95,7 +96,8 @@ const single = <T extends ScalarType>(type: T): CursorCodec<readonly [CursorComp
 				comparators: [{ field: "v", direction: "asc", type }],
 				generation
 			},
-			cursorTokenMaxLength
+			cursorTokenMaxLength,
+			cursorCodes
 		)
 	)
 
@@ -604,7 +606,9 @@ describe("boundary values round-trip exactly", () => {
 									 * The spec states no page size or direction: a codec built again binds the same identity, and one
 									 * token serves every request variant.
 									 */
-									const rebuilt = succeeded(cursorCodec(taskSpec, cursorTokenMaxLength))
+									const rebuilt = succeeded(
+										cursorCodec(taskSpec, cursorTokenMaxLength, cursorCodes)
+									)
 									assert.deepEqual(rebuilt.identity, taskCodec.identity)
 									assert.equal(succeeded(rebuilt.encode(sketch.value)), token)
 									return
@@ -613,7 +617,8 @@ describe("boundary values round-trip exactly", () => {
 									const unit = succeeded(
 										cursorCodec(
 											{ query: "unit", comparators: [] as const, generation },
-											cursorTokenMaxLength
+											cursorTokenMaxLength,
+											cursorCodes
 										)
 									)
 									assert.deepEqual(succeeded(unit.decode(succeeded(unit.encode([])))).values, [])
@@ -763,7 +768,7 @@ const subject = (
 	secrets: ReadonlyArray<string>
 ): Subject => {
 	const tokenOf = (s: CursorSpec<Comparators>): string =>
-		succeeded(succeeded(cursorCodec(s, cursorTokenMaxLength)).admit(tuple))
+		succeeded(succeeded(cursorCodec(s, cursorTokenMaxLength, cursorCodes)).admit(tuple))
 	const fieldsOf = (s: CursorSpec<Comparators>): CursorFields =>
 		readFields(bytesOf(tokenOf(s)), s.comparators.length)
 	/**
@@ -777,7 +782,7 @@ const subject = (
 			? []
 			: [{ ...first, direction: first.direction === "asc" ? "desc" : "asc" }, ...rest]
 	return {
-		codec: succeeded(cursorCodec(spec, maxBytes)),
+		codec: succeeded(cursorCodec(spec, maxBytes, cursorCodes)),
 		maxBytes,
 		fields: fieldsOf(spec),
 		other: {
@@ -1223,7 +1228,8 @@ const codecUnder = (maxBytes: number) =>
 			comparators: [{ field: "v", direction: "asc", type: cursorCodecTypes.text }] as const,
 			generation
 		},
-		maxBytes
+		maxBytes,
+		cursorCodes
 	)
 
 /**
@@ -1354,7 +1360,7 @@ describe("size limits (the codec's byte bound)", () => {
 					] as const,
 					generation
 				}
-				const unbounded = succeeded(cursorCodec(bounded, cursorTokenMaxLength)).bound
+				const unbounded = succeeded(cursorCodec(bounded, cursorTokenMaxLength, cursorCodes)).bound
 				yield* searched(
 					ctx,
 					explore(
@@ -1382,7 +1388,7 @@ describe("size limits (the codec's byte bound)", () => {
 						({ maxBytes, spec, length }, c) =>
 							Effect.sync(() => {
 								if (spec === "task") {
-									const built = cursorCodec(taskSpec, maxBytes)
+									const built = cursorCodec(taskSpec, maxBytes, cursorCodes)
 									const min = taskCodec.bound.min
 									if (min > maxBytes) {
 										c.note("refused at build")
@@ -1392,7 +1398,7 @@ describe("size limits (the codec's byte bound)", () => {
 									}
 									return
 								}
-								const built = cursorCodec(bounded, maxBytes)
+								const built = cursorCodec(bounded, maxBytes, cursorCodes)
 								if (unbounded.min > maxBytes) {
 									c.note("refused at build")
 									refused(built, "UnsupportedOperation")

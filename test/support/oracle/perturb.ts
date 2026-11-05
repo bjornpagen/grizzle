@@ -142,7 +142,8 @@ const relabelingOf = (type: ScalarType): Relabeling | undefined => {
 		case "money":
 		case "bool":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":

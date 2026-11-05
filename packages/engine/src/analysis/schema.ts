@@ -3,12 +3,19 @@ import {
 	type DerivedRelationAnalysis
 } from "#compiler/analysis/derived/analyze.ts"
 import { analyzeWorld, type WorldAnalysis } from "#compiler/analysis/derived/world.ts"
+import { closedReads } from "#compiler/check/closed.ts"
 import { fail, failWith, unwrap } from "#compiler/check/fail.ts"
+import {
+	closedReadNames,
+	generatedRule,
+	generatedTypeRule,
+	rowNode
+} from "#compiler/check/generated.ts"
 import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
 import { catchRefusal, compareText } from "#compiler/core/canonical.ts"
-import type { KeyFault } from "#compiler/core/causes.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
+import type { GeneratedRule, KeyFault } from "#compiler/core/causes.ts"
+import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { childLoc, labeledChildLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	isNonEmpty,
 	mapNonEmpty,
@@ -17,10 +24,11 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import { descText, type FieldDesc, type LiteralDesc } from "#compiler/ir/desc.ts"
+import { descText, type ExprDesc, type FieldDesc, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	type ClosedTheoryRelation,
+	type FieldWriting,
 	headingColumns,
 	isSpanField,
 	type KeyName,
@@ -28,11 +36,19 @@ import {
 	type RelationInfo,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
-import type { DeclaredKey } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { closedCell, type DeclaredKey } from "#compiler/ir/rel.ts"
+import { type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
-import { irLiteral } from "#compiler/scalar/compute/literal.ts"
+import {
+	type ClosedRelations,
+	exprEmitter,
+	type LeafDesc,
+	lowerTerm,
+	noParams
+} from "#compiler/scalar/compute/lower.ts"
+import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
+import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import type { WritableEntry } from "#compiler/schema/entry.ts"
@@ -85,8 +101,14 @@ interface WorldRelation {
 	readonly analysis: WorldAnalysis
 }
 
-/** A stored relation of an owned schema: an ordinary or a closed one. */
+/** A stored relation of an owned schema: an ordinary relation, a roster or a closed relation. */
 type OwnedStored = Exclude<OwnedRelation, { readonly kind: "derived" }>
+
+/** An ordinary relation of an owned schema. */
+type OwnedOrdinary = Extract<OwnedRelation, { readonly kind: "relation" }>
+
+/** A field of an owned stored relation: its descriptor, its column and how it is written. */
+type OwnedField = OwnedStored["fields"][string]
 
 /** A relation of an owned schema as its checked schema holds it: an ordinary, a closed or a derived relation. */
 type BaseRelation = RelationInfo | ClosedRelation | DerivedRelation
@@ -187,6 +209,64 @@ const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, R
 	return new Map([...role.writes].map(([name, w]) => [name, checkedWrite(w)] as const))
 }
 
+/** Where a generated field's refusal is: the field of its relation. */
+const generatedLoc = (r: OwnedRelation, field: string): SourceLoc =>
+	labeledChildLoc(r.loc, field, `generated field ${r.name}.${field}`)
+
+/** The refusal of generated field `field` of `r` for breaking `rule` (check/generated.ts). */
+const generatedRefused = (r: OwnedRelation, field: string, rule: GeneratedRule): never =>
+	failWith({ _tag: "GeneratedRefused", at: generatedLoc(r, field), relation: r.name, field, rule })
+
+/** How a field its caller writes is written: by its caller, never by PostgreSQL. */
+const callerWriting: FieldWriting = Object.freeze({ kind: "caller" })
+
+/** How a serial field is written: by its sequence. */
+const serialWriting: FieldWriting = Object.freeze({ kind: "serial" })
+
+/** How a drawn field is written: by grizzle, from the nested arrays. */
+const drawnWriting: FieldWriting = Object.freeze({ kind: "drawn" })
+
+/**
+ * What a generated field's expression reads: each written field's type (undefined for a generated field or no field),
+ * the closed relations it applies, and whether a closed relation it names is declared above its own relation's level.
+ */
+interface GenerationRow {
+	readonly written: (field: string) => ScalarType | undefined
+	readonly closed: ClosedRelations
+	readonly above: (relation: string) => boolean
+}
+
+/** Fields in canonical order, by name in code units: a heading's order. */
+const byFieldName = mapInput(compareStrings, (f: LawField) => f.name)
+
+/**
+ * The handles of a key over the fields `declared` of relation `relation`, in key order, refused when it names a field
+ * the relation lacks.
+ */
+const keyedBy =
+	(relation: string, loc: SourceLoc, declared: ReadonlyArray<LawField>) =>
+	(key: DeclaredKey): NonEmptyReadonlyArray<LawField> =>
+		mapNonEmpty(
+			key,
+			(k) =>
+				declared.find((f) => f.name === k) ??
+				fail("MalformedDescription", loc, `a key over fields of ${relation}; ${k} is not one`)
+		)
+
+/** What a leaf other than a field reads, as a refusal names it. */
+const leafText = (leaf: LeafDesc): string => {
+	switch (leaf.kind) {
+		case "field":
+			return `field ${leaf.field}`
+		case "var":
+			return `variable ${leaf.var}`
+		case "value":
+			return "a contract's value"
+		case "parent":
+			return `parent column ${leaf.column}`
+	}
+}
+
 /** Every descriptor inside `desc`: itself, a contract's base, a span's endpoint. */
 const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
 	visit(desc)
@@ -206,16 +286,24 @@ const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
  *
  * - Worlds. Reality is an owned schema's own relations. A role's relations are its entries (schema/own.ts OwnedRole): a
  *   whole entry reads as the base relation of its name, a query entry as a world relation whose heading is its
- *   definition's head, checked against the base's CheckedSchema as a derived definition is. Types resolve against the
- *   base's rosters and contracts either way, so `owned` is the base's Owned for a role.
+ *   definition's head, checked against the base's CheckedSchema as a derived definition is. A closed relation is no
+ *   role's entry: every role reads its base's closed relations, by a match and by C.at and C.row. Types resolve
+ *   against the base's rosters and contracts either way, so `owned` is the base's Owned for a role.
  *
  * - Headings. A Description's records are unordered: the canonical form sorts object keys, so a SchemaDesc read back
- *   from its text lists its fields in code-unit order whatever order the builder recorded. A stored
- *   relation's heading is therefore its fields in that canonical order, so one schema gives one heading however it
- *   arrived. A closed relation's heading is its handle column `id`, then its payload in canonical order, and its
- *   rows are the declared facts as typed literals in roster order.
+ *   from its text lists its fields in code-unit order whatever order the builder recorded. An ordinary relation's
+ *   heading is therefore its fields in that canonical order, so one schema gives one heading however it arrived. A
+ *   closed relation's heading is its key fields in key order, then its payload in canonical order, and its rows are its
+ *   declared rows as typed literals, held in its key's text order (schema/own.ts). A roster is the closed relation
+ *   whose one field `id` is a closed id of itself, with one row per handle in roster order.
+ * - Writings. Each field of an ordinary relation says how it is written (ir/law.ts FieldWriting): by its caller, by
+ *   its sequence, drawn by grizzle (a natural), accumulated on the host from a start literal of its type, or generated
+ *   by PostgreSQL from its row (check/generated.ts). A generated field's expression is refused, as GeneratedRefused,
+ *   when it reads an input beyond its row or a generated field, and when it is typed (in "check" mode, over its row's
+ *   written fields and the closed relations of its level or below) to another type than the field declares. Its
+ *   writing holds the typed expression, whose column leaves name the row (`rowNode`).
  * - Types. A FieldDesc resolves through the descriptor registry (scalar/registry.ts) with the environment the
- *   registry leaves to the checker: the schema's closed rosters, the text package's canonical regex metadata (a
+ *   registry leaves to the checker: the schema's rosters, the text package's canonical regex metadata (a
  *   proved tautology is the canonical wildcard), and each contract's predicate as the total-fragment
  *   table its ContractLiteral check evaluates. Regex membership of a constant is the text package's
  *   NFA, never RegExp.
@@ -228,9 +316,15 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	/** The owned schema whose rosters and contracts types resolve against: a role's base. */
 	readonly owned: Owned
 	readonly world: World
-	/** The ordinary relations and the closed relations, each in name order: a role's are the ones it holds whole. */
+	/** The ordinary relations, in name order: a role's are the ones it holds whole. */
 	readonly relations: ReadonlyMap<string, RelationInfo>
+	/**
+	 * The closed relations, rosters among them, in name order: reality's own; a role's, the rosters it holds whole and
+	 * every closed relation of its base.
+	 */
 	readonly closed: ReadonlyMap<string, ClosedRelation>
+	/** The closed relations C.at and C.row apply, by name: every closed relation (no roster) the schema reads. */
+	readonly closedReads: ClosedRelations
 	/** A role's entries over its base, in name order; reality holds none. */
 	readonly entries: ReadonlyArray<RoleEntry>
 	/** The ordinary and closed relations' handles, in name order: what the theory's laws read. */
@@ -244,9 +338,11 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	readonly #rosters = new Map<string, NonEmptyReadonlyArray<string>>()
 
 	/**
-	 * Reality holds its stored relations, then each derived relation analyzed in level order against the relations held
-	 * so far: a definition reads only the levels below its own (schema/own.ts), so each Base it reads finds its view's
-	 * keys. A role holds its whole entries as its base's relations, and each query entry analyzed against its base.
+	 * Reality holds its stored relations: its rosters and closed relations first, which a generated field's expression
+	 * reads, then its ordinary relations, each in name order; then each derived relation analyzed in level order against
+	 * the relations held so far: a definition reads only the levels below its own (schema/own.ts), so each Base it reads
+	 * finds its view's keys. A role holds its whole entries as its base's relations, each query entry analyzed against
+	 * its base, and its base's closed relations.
 	 */
 	constructor(owned: Owned, world: World) {
 		this.owned = owned
@@ -260,26 +356,30 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		const closed = new Map<string, ClosedRelation>()
 		const held = new Map<string, BaseRelation>()
 		const worlds = new Map<string, WorldRelation>()
-		const stored: Array<TheoryRelation> = []
 		this.relations = relations
 		this.closed = closed
-		this.stored = stored
 		this.#held = held
 		this.#worlds = worlds
-		const hold = (info: BaseRelation): void => {
+		const byName = mapInput(compareStrings, (named: { readonly name: string }) => named.name)
+		const read: CheckedWorld = world
+		const stored: Array<TheoryRelation> = []
+		this.stored = stored
+		/** Holds a base relation: an ordinary relation and a roster held whole are what the theory's laws read. */
+		const hold = (info: BaseRelation, theory: boolean): void => {
 			held.set(info.name, info)
 			if (info.kind === "relation") {
 				relations.set(info.name, info)
 				stored.push(info)
 			} else if (info.kind === "closed") {
 				closed.set(info.name, info)
-				stored.push(info.relation)
+				if (theory) {
+					stored.push(info.relation)
+				}
 			}
 		}
-		const byName = mapInput(compareStrings, (named: { readonly name: string }) => named.name)
-		const read: CheckedWorld = world
 		if (read.kind === "role") {
 			this.derived = read.base.derived
+			this.closedReads = read.base.closedReads
 			this.entries = Object.values(read.role.relations)
 				.toSorted(byName)
 				.map((e): RoleEntry =>
@@ -293,21 +393,39 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 								analysis: unwrap(analyzeWorld(read.base, e))
 							}
 				)
+			const reads: Array<{ readonly info: BaseRelation; readonly whole: boolean }> = []
 			for (const e of this.entries) {
 				if (e.kind === "whole") {
-					hold(e.relation)
+					reads.push({ info: e.relation, whole: true })
 				} else {
 					worlds.set(e.name, e)
 				}
+			}
+			for (const c of read.base.closed.values()) {
+				if (!this.#rosters.has(c.name)) {
+					reads.push({ info: c, whole: false })
+				}
+			}
+			for (const r of reads.toSorted(mapInput(compareStrings, (x) => x.info.name))) {
+				hold(r.info, r.whole)
 			}
 			return
 		}
 		this.entries = []
 		const ownedRelations = Object.values(owned.relations)
-		for (const r of ownedRelations
+		const ownedStored = ownedRelations
 			.flatMap((o): ReadonlyArray<OwnedStored> => (o.kind === "derived" ? [] : [o]))
-			.toSorted(byName)) {
-			hold(this.#relationInfo(r))
+			.toSorted(byName)
+		const closedInfos = ownedStored.flatMap((r) =>
+			r.kind === "relation" ? [] : [this.#closedInfo(r)]
+		)
+		const readable = closedInfos.filter((c) => !this.#rosters.has(c.name))
+		this.closedReads = closedReads(readable)
+		const ordinaryInfos = ownedStored.flatMap((r) =>
+			r.kind === "relation" ? [this.#ordinaryInfo(r, readable)] : []
+		)
+		for (const info of [...closedInfos, ...ordinaryInfos].toSorted(byName)) {
+			hold(info, true)
 		}
 		const derived: Array<DerivedRelationAnalysis> = []
 		this.derived = derived
@@ -318,7 +436,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			)) {
 			const analysis = unwrap(analyzeDerivedRelation(this, r))
 			derived.push(analysis)
-			hold({ kind: "derived", name: r.name, loc: r.loc, analysis })
+			hold({ kind: "derived", name: r.name, loc: r.loc, analysis }, true)
 		}
 	}
 
@@ -336,28 +454,70 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		return read.kind === "role" ? read.base : this
 	}
 
-	#relationInfo(r: OwnedStored): RelationInfo | ClosedRelation {
+	/**
+	 * A stored relation's fields as LawFields, in declared order: each typed, then written as `writing` says, called in
+	 * field-name order (code units), so the first refusal it makes is of the least field it refuses.
+	 */
+	#lawFields(
+		r: OwnedStored,
+		writing: (field: OwnedField, type: ScalarType, loc: SourceLoc) => FieldWriting
+	): NonEmptyReadonlyArray<LawField> {
+		const typed = Object.values(r.fields).map((f, position) => {
+			const at = childLoc(r.loc, "fields", f.name)
+			return { f, position, at, type: this.fieldType(f.desc, at) }
+		})
+		const fields = typed
+			.toSorted(mapInput(compareStrings, (t) => t.f.name))
+			.map(({ f, position, at, type }): LawField => ({
+				name: f.name,
+				type,
+				desc: f.desc,
+				column: f.column,
+				position,
+				writing: writing(f, type, at)
+			}))
+			.toSorted((a, b) => a.position - b.position)
+		if (!isNonEmpty(fields)) {
+			return fail("MalformedDescription", r.loc, "a relation with at least one field")
+		}
+		return fields
+	}
+
+	/**
+	 * An ordinary relation's RelationInfo: its fields typed and written (#writing), and its declared keys resolved to
+	 * their handles.
+	 *
+	 * Every generated field is checked against the generated-field rule first, in field-name order (code units), and
+	 * only then is any field typed: so the refusal of a relation whose generated fields read one another names the least
+	 * generated field that reads one and the least one it reads, whatever their types.
+	 */
+	#ordinaryInfo(r: OwnedOrdinary, readable: ReadonlyArray<ClosedRelation>): RelationInfo {
 		const name = r.name
 		const loc = r.loc
-		const at = (field: string) => childLoc(loc, "fields", field)
-		const declared = Object.values(r.fields).map((f, position): LawField => ({
-			name: f.name,
-			type: this.fieldType(f.desc, at(f.name)),
-			desc: f.desc,
-			column: f.column,
-			position
-		}))
-		if (!isNonEmpty(declared)) {
-			return fail("MalformedDescription", loc, "a relation with at least one field")
+		const generated = new Set<string>(
+			Object.values(r.fields).flatMap((f) => (f.writing.kind === "generated" ? [f.name] : []))
+		)
+		const isGenerated = (f: string): boolean => generated.has(f)
+		for (const f of Object.values(r.fields).toSorted(mapInput(compareStrings, (x) => x.name))) {
+			const broken =
+				f.writing.kind === "generated" ? generatedRule(f.writing.expr, isGenerated) : undefined
+			if (broken !== undefined) {
+				generatedRefused(r, f.name, broken)
+			}
 		}
-		/** A declared key's fields resolved to their handles, refused when it names a field the relation lacks. */
-		const keyed = (key: DeclaredKey): NonEmptyReadonlyArray<LawField> =>
-			mapNonEmpty(
-				key,
-				(k) =>
-					declared.find((f) => f.name === k) ??
-					fail("MalformedDescription", loc, `a key over fields of ${name}; ${k} is not one`)
-			)
+		const below = readable.filter((c) => c.relation.level <= r.level)
+		const row: GenerationRow = {
+			written: (f) => {
+				const field = r.fields[f]
+				return field === undefined || isGenerated(f)
+					? undefined
+					: this.fieldType(field.desc, childLoc(loc, "fields", f))
+			},
+			closed: closedReads(below),
+			above: (c) => readable.some((x) => x.name === c) && !below.some((x) => x.name === c)
+		}
+		const declared = this.#lawFields(r, (f, type, at) => this.#writing(r, f, type, at, row))
+		const keyed = keyedBy(name, loc, declared)
 		/** A declared key's handles and its one span field, refused for two as ownership's representability already does. */
 		const keyName = (k: OwnedKey): KeyName => {
 			const fields = keyed(k.fields)
@@ -372,76 +532,190 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			}
 			return { fields, span, primary: k.primary, named: k.named }
 		}
-		const byName = mapInput(compareStrings, (f: LawField) => f.name)
-		if (r.kind === "relation") {
-			const heading = sortNonEmpty(declared, byName)
-			const candidates = r.keys.filter((k) => !k.primary)
-			return {
-				kind: "relation",
-				name,
-				ident: r.ident,
-				fields: declared,
-				keyNames: mapNonEmpty(r.keys, keyName),
-				heading,
-				primaryKey: r.desc.primaryKey,
-				keys: candidates.map((k) => k.fields),
-				primaryFields: keyed(r.desc.primaryKey),
-				keyFields: candidates.map((k) => keyed(k.fields)),
-				mutable: r.mutable,
-				level: r.level,
-				serial: heading.flatMap((f) => (f.desc.kind === "serial" ? [f.name] : [])),
-				loc
-			}
-		}
-		const desc = r.desc
-		const primaryFields = keyed(["id"])
-		const [id] = primaryFields
-		const payload = declared.filter((f) => f !== id).toSorted(byName)
-		const relation: ClosedTheoryRelation = {
-			kind: "closed",
+		const heading = sortNonEmpty(declared, byFieldName)
+		const candidates = r.keys.filter((k) => !k.primary)
+		return {
+			kind: "relation",
 			name,
 			ident: r.ident,
 			fields: declared,
+			keyNames: mapNonEmpty(r.keys, keyName),
+			heading,
+			primaryKey: r.desc.primaryKey,
+			keys: candidates.map((k) => k.fields),
+			primaryFields: keyed(r.desc.primaryKey),
+			keyFields: candidates.map((k) => keyed(k.fields)),
+			mutable: r.mutable,
+			level: r.level,
+			loc
+		}
+	}
+
+	/**
+	 * How an ordinary relation's field of type `type` is written (desc.ts Writing, resolved as law.ts FieldWriting): by
+	 * its caller; by its sequence, a serial's integer; drawn by grizzle, a natural (a family's index or count, a tree's
+	 * start or end); accumulated, filled on the host from its start, a literal of its type, at its axis's base, over no
+	 * span or vector, which no fold combines and no copy carries; or generated by PostgreSQL (#generated). Which
+	 * statement names a drawn or an accumulated field is the theory's to resolve (analysis/theory).
+	 */
+	#writing(
+		r: OwnedOrdinary,
+		f: OwnedField,
+		type: ScalarType,
+		at: SourceLoc,
+		row: GenerationRow
+	): FieldWriting {
+		const w = f.writing
+		switch (w.kind) {
+			case "caller":
+				return callerWriting
+			case "serial":
+				return serialWriting
+			case "drawn":
+				if (!isNaturalDesc(f.desc)) {
+					return fail(
+						"MalformedDescription",
+						at,
+						`a drawn field of type natural, the index, count, start or end grizzle draws; ${r.name}.${f.name} is ${typeLabel(type)}`
+					)
+				}
+				return drawnWriting
+			case "accumulated":
+				if (f.desc.kind === "span" || f.desc.kind === "vector") {
+					return fail(
+						"MalformedDescription",
+						at,
+						`an accumulated field of a type a fold combines or a copy carries, no span or vector; ${r.name}.${f.name} is ${typeLabel(type)}`
+					)
+				}
+				return {
+					kind: "accumulated",
+					start: this.literal(w.start, type, childLoc(at, "writing", "start"))
+				}
+			case "generated":
+				return this.#generated(r, f.name, w.expr, type, row)
+		}
+	}
+
+	/**
+	 * A generated field's writing: its expression, which keeps the generated-field rule (#ordinaryInfo checked it), typed
+	 * in "check" mode over its row, each field a column of `rowNode` of its written type, and the closed relations it may
+	 * apply, and held at its declared type. A Compute.base emits no node of its own, so where the node still carries the
+	 * contract the term drops, the expression casts it, as a query's head does.
+	 */
+	#generated(
+		r: OwnedOrdinary,
+		field: string,
+		expr: ExprDesc,
+		declared: ScalarType,
+		row: GenerationRow
+	): FieldWriting {
+		const loc = generatedLoc(r, field)
+		const above = closedReadNames(expr).find(row.above)
+		if (above !== undefined) {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`a closed read of a closed relation of this level or below; ${above} is declared above`
+			)
+		}
+		const seen = new Map<string, { text: string; loc: SourceLoc }>()
+		const emit = exprEmitter(`generated ${r.name}.${field}`)
+		const term = unwrap(
+			lowerTerm(expr, {
+				mode: "check",
+				loc,
+				emit,
+				leaf: (d, l) => {
+					const type = d.kind === "field" ? row.written(d.field) : undefined
+					if (d.kind !== "field" || type === undefined) {
+						return Result.err(
+							malformedDescription(l, `a written field of ${r.name}, not ${leafText(d)}`)
+						)
+					}
+					return Result.ok({
+						kind: "column",
+						column: { node: rowNode, name: d.field },
+						args: [],
+						type,
+						nonNull: "storage"
+					})
+				},
+				params: noParams,
+				fieldType: (d, l) => catchRefusal(() => this.queryFieldType(d, l, seen)),
+				closed: row.closed,
+				regexMember
+			})
+		)
+		const mismatch = generatedTypeRule(declared, term.nominal)
+		if (mismatch !== undefined) {
+			return generatedRefused(r, field, mismatch)
+		}
+		return {
+			kind: "generated",
+			expr: sameScalarType(term.expr.type, term.nominal)
+				? term.expr
+				: emit({
+						kind: "cast",
+						cast: binaryCoercion,
+						args: [term.expr],
+						type: term.nominal,
+						nonNull: "strict",
+						volatility: "immutable"
+					})
+		}
+	}
+
+	/**
+	 * A roster's or a closed relation's reading. A roster is the closed relation whose one field `id` is a closed id of
+	 * itself, keyed by it, one row per handle in roster order. A closed relation's key is its declared key in key order,
+	 * its rows its declared rows in its key's text order, each value a literal of its field's type (ContractLiteral).
+	 * Its heading is its key fields, then its payload in canonical order; its theory rows list the same literals in
+	 * declared field order.
+	 */
+	#closedInfo(r: Exclude<OwnedStored, OwnedOrdinary>): ClosedRelation {
+		const name = r.name
+		const loc = r.loc
+		const declared = this.#lawFields(r, () => callerWriting)
+		const keyed = keyedBy(name, loc, declared)
+		const desc = r.desc
+		const primaryFields = desc.kind === "closed" ? keyed(["id"]) : keyed(desc.key)
+		const payload = declared.filter((f) => !primaryFields.includes(f)).toSorted(byFieldName)
+		const heading: NonEmptyReadonlyArray<LawField> = [...primaryFields, ...payload]
+		const literals: ReadonlyArray<Readonly<Record<string, LiteralDesc>>> =
+			desc.kind === "closed" ? desc.handles.map((handle) => ({ id: handle })) : desc.rows
+		const rows = literals.map((row, i) =>
+			declared.map((f) => {
+				const value = row[f.name]
+				if (value === undefined) {
+					return fail("MalformedDescription", loc, `row ${i} of ${name} with a value of ${f.name}`)
+				}
+				return this.literal(value, f.type, childLoc(loc, "rows", i, f.name))
+			})
+		)
+		const relation: ClosedTheoryRelation = {
+			kind: "closed",
+			name,
+			fields: declared,
 			keyNames: [],
-			heading: [id, ...payload],
-			primaryKey: ["id"],
+			heading,
+			primaryKey: mapNonEmpty(primaryFields, (f) => f.name),
 			keys: [],
 			primaryFields,
 			keyFields: [],
 			mutable: false,
 			level: r.level,
 			loc,
-			handles: desc.handles,
-			rows: mapNonEmpty(desc.handles, (handle) =>
-				declared.map((f) => {
-					const value: LiteralDesc | undefined = f === id ? handle : desc.facts[handle]?.[f.name]
-					const typed = value === undefined ? undefined : irLiteral(value, f.type)
-					if (typed === undefined || !typed.ok) {
-						return fail(
-							"MalformedDescription",
-							loc,
-							`a fact of ${name}.${handle} for ${f.name} of its type`
-						)
-					}
-					return typed.value.literal
-				})
-			)
+			rows
 		}
-		const rows = desc.handles.map((handle): ClosedRelation["rows"][number] => [
-			{ kind: "enum", handle },
-			...payload.map((f) => {
-				const value = desc.facts[handle]?.[f.name]
-				if (value === undefined) {
-					return fail(
-						"MalformedDescription",
-						at(f.name),
-						`a payload value of ${name}.${handle} for ${f.name}`
-					)
-				}
-				return this.literal(value, f.type, childLoc(loc, "facts", handle, f.name))
-			})
-		])
-		return { kind: "closed", relation, name, heading: headingColumns(relation.heading), rows, loc }
+		return {
+			kind: "closed",
+			relation,
+			name,
+			heading: headingColumns(heading),
+			rows: rows.map((row) => heading.map((f) => closedCell(row, f.position))),
+			loc
+		}
 	}
 
 	/**

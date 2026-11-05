@@ -312,7 +312,7 @@ const printOutcome = (o: Result.Result<WriteOutcome, unknown>): string => {
 	const v = o.success
 	switch (v.kind) {
 		case "invariant-rejected":
-			return `invariant-rejected ${v.law} witness ${
+			return `invariant-rejected ${Arr.join(v.laws, ", ")} witness ${
 				v.witness.kind === "key"
 					? `${v.witness.relation} ${printFact(v.witness.values)}`
 					: v.witness.kind
@@ -448,7 +448,9 @@ const witnessProblems = (
 ): ReadonlyArray<string> => {
 	const w = o.witness
 	if (w.kind !== "key") {
-		return refusal.keyless ? [] : [`the witness of ${o.law} is ${w.kind}, where it names a key`]
+		return refusal.keyless
+			? []
+			: [`the witness of ${Arr.headNonEmpty(o.laws)} is ${w.kind}, where it names a key`]
 	}
 	const fields = Arr.sort(Rec.keys(w.values), Order.String)
 	if (
@@ -461,7 +463,7 @@ const witnessProblems = (
 	}
 	return refusal.keys.has(keyOf(relationIn(group, refusal.relation), refusal.fields, w.values))
 		? []
-		: [`the witness key ${printFact(w.values)} is no violating key of ${o.law}`]
+		: [`the witness key ${printFact(w.values)} is no violating key of ${Arr.headNonEmpty(o.laws)}`]
 }
 
 /**
@@ -581,24 +583,32 @@ const judgedExpectation = (
 	}
 }
 
-/** The problems of a refusal with `o`'s law against the refusals an expectation allows. */
+/**
+ * The problems of a refusal with `o`'s laws against the refusals an expectation allows: every law it names is one,
+ * and its witness is the first's.
+ */
 const refusalProblems = (
 	group: WGroup,
 	refusals: ReadonlyArray<AcceptableRefusal>,
 	o: Extract<WriteOutcome, { readonly kind: "invariant-rejected" }>
-): ReadonlyArray<string> =>
-	Option.match(
-		Arr.findFirst(refusals, (r) => r.law === o.law),
+): ReadonlyArray<string> => {
+	const unexpected = Arr.filter(o.laws, (law) => !Arr.some(refusals, (r) => r.law === law))
+	if (Arr.isReadonlyArrayNonEmpty(unexpected)) {
+		return [
+			`refused with ${Arr.join(unexpected, ", ")}, expected one of ${Arr.join(
+				Arr.map(refusals, (r) => r.law),
+				", "
+			)}`
+		]
+	}
+	return Option.match(
+		Arr.findFirst(refusals, (r) => r.law === Arr.headNonEmpty(o.laws)),
 		{
-			onNone: () => [
-				`refused with ${o.law}, expected one of ${Arr.join(
-					Arr.map(refusals, (r) => r.law),
-					", "
-				)}`
-			],
+			onNone: () => [],
 			onSome: (refusal) => witnessProblems(group, refusal, o)
 		}
 	)
+}
 
 /** A relation's counts as an accepted outcome reports them. */
 type Counts = Extract<WriteOutcome, { readonly kind: "accepted" }>["counts"][number]
@@ -1447,7 +1457,7 @@ export const runCase = (
 			}
 			const metKind = Option.flatMap(Arr.head(outcomes), (met) =>
 				Result.isSuccess(met) && met.success.kind === "invariant-rejected"
-					? refusalKind(t, group, met.success.law)
+					? refusalKind(t, group, Arr.headNonEmpty(met.success.laws))
 					: Option.none()
 			)
 			if (Option.isSome(metKind)) {

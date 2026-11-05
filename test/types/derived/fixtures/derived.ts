@@ -125,7 +125,7 @@ export type FactAccount = Expect<
 >
 
 export type FactKind = Expect<
-	Equals<CarriersOf<typeof TaskFacts>["kind"], Carrier<"Automatic" | "Manual", "enum">>
+	Equals<CarriersOf<typeof TaskFacts>["kind"], Carrier<"Automatic" | "Manual", "code">>
 >
 
 /** A contract keeps its brand and its SQL type. */

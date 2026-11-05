@@ -1,10 +1,13 @@
 import { ALLEN } from "#compiler/public/allen.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
+import { type Addition, ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import {
+	accumulated,
 	closedId,
 	contract,
+	drawn,
 	type Infer,
+	natural,
 	pg,
 	type Span,
 	span as spanOf,
@@ -14,22 +17,23 @@ import {
 import { arm, query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
-	capacity,
+	check,
 	closed,
 	contained,
+	counted,
 	derived,
 	type Fact,
+	fin,
+	fold,
 	key as candidateKey,
 	login,
+	Monoid,
 	mutable,
 	on,
-	ref,
 	relation,
 	role,
 	schema,
-	select,
-	weigh,
-	within
+	select
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 
@@ -102,7 +106,8 @@ export const UsageEvent = relation(
 /**
  * An event's tokens of one kind, what they cost, and the part prepaid credits paid for. A charge names its event's
  * model and the instant it was priced at, the start of its event's window, as the one-second span [start, start + 1)
- * an instant is everywhere on the platform, so the law pricedByCard reads which card priced it.
+ * an instant is everywhere on the platform, so the law pricedByCard reads which card priced it. Its debits are a
+ * counted family (chargeDebits), `debits` their drawn count and `debited` the sum of their amounts.
  */
 export const UsageCharge = relation(
 	"UsageCharge",
@@ -113,28 +118,54 @@ export const UsageCharge = relation(
 		priced: spanOf(Instant),
 		tokens: Tokens,
 		amount: Micros,
-		credited: Micros
+		credited: Micros,
+		debits: drawn(natural),
+		debited: accumulated(Micros, Micros(0n))
 	},
 	["event", "kind"]
 )
 
-/** An event's total charge, attributed to its workspace and calendar month for caps and rollups. */
+/**
+ * An event's total charge, attributed to its workspace and calendar month for caps and rollups. Its charges, one per
+ * token kind, are a counted family (eventCharges), `charges` their drawn count and `charged` the sum of their amounts.
+ */
 export const EventCharge = relation(
 	"EventCharge",
-	{ event: uuid, workspace: uuid, month: MonthNo, amount: Micros },
+	{
+		event: uuid,
+		workspace: uuid,
+		month: MonthNo,
+		amount: Micros,
+		charges: drawn(natural),
+		charged: accumulated(Micros, Micros(0n))
+	},
 	["event"]
 )
 /** What the provider charged upstream for an event. */
 export const ProviderCost = relation("ProviderCost", { event: uuid, amount: Micros }, ["event"])
 
+/**
+ * A prepaid grant, valid over a span. Its debits are a counted family (grantDebits), `debits` their drawn count and
+ * `debited` the sum of their amounts, which grows as requests spend it: the family changes after the grant is
+ * inserted, so the grant is mutable.
+ */
 export const CreditGrant = relation(
 	"CreditGrant",
-	{ id: uuid, org: uuid, amount: Micros, valid: spanOf(Instant) },
+	{
+		id: uuid,
+		org: uuid,
+		amount: Micros,
+		valid: spanOf(Instant),
+		debits: drawn(natural),
+		debited: accumulated(Micros, Micros(0n))
+	},
 	["id"]
 )
 
 /**
  * The part of one event's kind a grant paid for; its span is the event's window, which the grant must be valid over.
+ * A debit is a member of two counted families, its charge's (chargeDebits) and its grant's (grantDebits): a row whose
+ * group keys name both owners.
  */
 export const CreditDebit = relation(
 	"CreditDebit",
@@ -142,25 +173,60 @@ export const CreditDebit = relation(
 	["grant", "event", "kind"]
 )
 
-/** A workspace's cap for a calendar month, changed in place (mutable). */
+/**
+ * A workspace's cap for a calendar month, changed in place (mutable). The month's event totals are a counted family
+ * (limitCharges), `charges` their drawn count and `spent` the sum of their amounts.
+ */
 export const WorkspaceLimit = relation(
 	"WorkspaceLimit",
-	{ workspace: uuid, month: MonthNo, cap: Micros },
+	{
+		workspace: uuid,
+		month: MonthNo,
+		cap: Micros,
+		charges: drawn(natural),
+		spent: accumulated(Micros, Micros(0n))
+	},
 	["workspace", "month"]
 )
 
 export const Day = relation("Day", { day: DayNo, during: spanOf(Instant), month: MonthNo }, ["day"])
 export const Month = relation("Month", { month: MonthNo, during: spanOf(Instant) }, ["month"])
 
+/**
+ * An organization's invoice for a period. Its lines and its refunds are two counted families (invoiceLines,
+ * invoiceRefunds), `lines` and `refunds` their drawn counts, `billed` and `refunded` the sums of their amounts. Refunds
+ * come after the invoice is inserted, and a settlement changes its state in place, so the invoice is mutable.
+ */
 export const Invoice = relation(
 	"Invoice",
-	{ id: uuid, org: uuid, period: spanOf(Instant), amount: Micros, state: closedId(InvoiceState) },
+	{
+		id: uuid,
+		org: uuid,
+		period: spanOf(Instant),
+		amount: Micros,
+		state: closedId(InvoiceState),
+		lines: drawn(natural),
+		billed: accumulated(Micros, Micros(0n)),
+		refunds: drawn(natural),
+		refunded: accumulated(Micros, Micros(0n))
+	},
 	["id"]
 )
 
+/**
+ * A line of an invoice. A plan line's allocations are a counted family (lineAllocations), `allocations` their drawn
+ * count and `allocated` the sum of their amounts; a usage line has none.
+ */
 export const InvoiceLine = relation(
 	"InvoiceLine",
-	{ id: uuid, invoice: uuid, source: closedId(LineSource), amount: Micros },
+	{
+		id: uuid,
+		invoice: uuid,
+		source: closedId(LineSource),
+		amount: Micros,
+		allocations: drawn(natural),
+		allocated: accumulated(Micros, Micros(0n))
+	},
 	["id"]
 )
 
@@ -230,67 +296,112 @@ export const allocationCovered = contained(
 	on(Segment, "subscription", "during")
 )
 
-/** An event's kinds sum to its charge exactly. */
-export const chargeExact = capacity(on(EventCharge, "event"), {
-	from: on(UsageCharge, "event"),
-	weight: weigh("amount"),
-	within: within(ref("amount"), ref("amount"))
-})
+/**
+ * The sums the platform's laws bound, each a counted family of member rows whose group key names their owner, a sum
+ * fold of the members' amounts into an accumulated field of the owner, and a row check on that field. A member is
+ * counted once, by its key, so the sum is over the family's rows (rows-first.md §0).
+ */
 
+/** An event's charges, one per token kind. */
+export const eventCharges = counted(on(UsageCharge, "event"), fin(EventCharge, "charges"))
+/** What an event's kinds charged. */
+export const eventCharged = fold(
+	eventCharges,
+	Monoid.sum,
+	on(UsageCharge, "event", "amount"),
+	on(EventCharge, "event", "charged")
+)
+/** An event's kinds sum to its charge exactly. */
+export const chargeExact = check("ChargeExact", EventCharge, (e) => e.eq(e.charged, e.amount))
+
+/** A kind's debits, one per grant that paid for it. */
+export const chargeDebits = counted(on(CreditDebit, "event", "kind"), fin(UsageCharge, "debits"))
+/** What a kind's debits paid. */
+export const chargeDebited = fold(
+	chargeDebits,
+	Monoid.sum,
+	on(CreditDebit, "event", "kind", "amount"),
+	on(UsageCharge, "event", "kind", "debited")
+)
 /** A kind's debits sum to its credited part exactly; the rest is billed on the month's invoice. */
-export const creditedExact = capacity(on(UsageCharge, "event", "kind"), {
-	from: on(CreditDebit, "event", "kind"),
-	weight: weigh("amount"),
-	within: within(ref("credited"), ref("credited"))
-})
+export const creditedExact = check("CreditedExact", UsageCharge, (c) => c.eq(c.debited, c.credited))
 
 /** Credits pay at most a kind's charge. */
-export const creditedWithinCharge = capacity(on(UsageCharge, "event", "kind"), {
-	from: on(UsageCharge, "event", "kind"),
-	weight: weigh("credited"),
-	within: within(0n, ref("amount"))
-})
-
-/** A grant is debited at most its amount, however many requests spend it at once. */
-export const grantWithinAmount = capacity(on(CreditGrant, "id"), {
-	from: on(CreditDebit, "grant"),
-	weight: weigh("amount"),
-	within: within(0n, ref("amount"))
-})
-
-/** A workspace spends at most its monthly cap. */
-export const spendWithinCap = capacity(on(WorkspaceLimit, "workspace", "month"), {
-	from: on(EventCharge, "workspace", "month"),
-	weight: weigh("amount"),
-	within: within(0n, ref("cap"))
-})
-
-/** An invoice's lines sum to its amount exactly. */
-export const invoiceExact = capacity(on(Invoice, "id"), {
-	from: on(InvoiceLine, "invoice"),
-	weight: weigh("amount"),
-	within: within(ref("amount"), ref("amount"))
-})
-
-/** A plan line's allocations sum to its amount exactly. */
-export const allocationExact = capacity(
-	on(
-		select(InvoiceLine, (r) => r.eq(r.source, "plan")),
-		"id"
-	),
-	{
-		from: on(Allocation, "line"),
-		weight: weigh("amount"),
-		within: within(ref("amount"), ref("amount"))
-	}
+export const creditedWithinCharge = check("CreditedWithinCharge", UsageCharge, (c) =>
+	c.le(c.credited, c.amount)
 )
 
+/** A grant's debits, one per event's kind it paid for. */
+export const grantDebits = counted(on(CreditDebit, "grant"), fin(CreditGrant, "debits"))
+/** What a grant has been debited. */
+export const grantDebited = fold(
+	grantDebits,
+	Monoid.sum,
+	on(CreditDebit, "grant", "amount"),
+	on(CreditGrant, "id", "debited")
+)
+/**
+ * A grant is debited at most its amount, however many requests spend it at once: two spenders of one grant both
+ * rewrite its debited sum, so under SERIALIZABLE the second meets 40001.
+ */
+export const grantWithinAmount = check("GrantWithinAmount", CreditGrant, (g) =>
+	g.le(g.debited, g.amount)
+)
+
+/** A workspace month's event totals. */
+export const limitCharges = counted(
+	on(EventCharge, "workspace", "month"),
+	fin(WorkspaceLimit, "charges")
+)
+/** What a workspace spent in a month. */
+export const limitSpent = fold(
+	limitCharges,
+	Monoid.sum,
+	on(EventCharge, "workspace", "month", "amount"),
+	on(WorkspaceLimit, "workspace", "month", "spent")
+)
+/** A workspace spends at most its monthly cap. */
+export const spendWithinCap = check("SpendWithinCap", WorkspaceLimit, (l) => l.le(l.spent, l.cap))
+
+/** An invoice's lines. */
+export const invoiceLines = counted(on(InvoiceLine, "invoice"), fin(Invoice, "lines"))
+/** What an invoice's lines bill. */
+export const invoiceBilled = fold(
+	invoiceLines,
+	Monoid.sum,
+	on(InvoiceLine, "invoice", "amount"),
+	on(Invoice, "id", "billed")
+)
+/** An invoice's lines sum to its amount exactly. */
+export const invoiceExact = check("InvoiceExact", Invoice, (i) => i.eq(i.billed, i.amount))
+
+/** A plan line's allocations across the priced segments it bills; a usage line has none (allocations are plan lines'). */
+export const lineAllocations = counted(on(Allocation, "line"), fin(InvoiceLine, "allocations"))
+/** What a line's allocations apportion. */
+export const lineAllocated = fold(
+	lineAllocations,
+	Monoid.sum,
+	on(Allocation, "line", "amount"),
+	on(InvoiceLine, "id", "allocated")
+)
+/** A plan line's allocations sum to its amount exactly. */
+export const allocationExact = check("AllocationExact", InvoiceLine, (l) =>
+	l.or(l.ne(l.source, "plan"), l.eq(l.allocated, l.amount))
+)
+
+/** An invoice's refunds. */
+export const invoiceRefunds = counted(on(Refund, "invoice"), fin(Invoice, "refunds"))
+/** What an invoice has refunded. */
+export const invoiceRefunded = fold(
+	invoiceRefunds,
+	Monoid.sum,
+	on(Refund, "invoice", "amount"),
+	on(Invoice, "id", "refunded")
+)
 /** Refunds never exceed what the invoice charged, even with concurrent refund requests. */
-export const refundWithinInvoice = capacity(on(Invoice, "id"), {
-	from: on(Refund, "invoice"),
-	weight: weigh("amount"),
-	within: within(0n, ref("amount"))
-})
+export const refundWithinInvoice = check("RefundWithinInvoice", Invoice, (i) =>
+	i.le(i.refunded, i.amount)
+)
 
 /** Only a paid invoice is refunded. */
 export const refundOnlyPaid = contained(
@@ -405,19 +516,35 @@ const platformOf = (name: string) =>
 				)
 			),
 			allocationCovered,
+			eventCharges,
+			eventCharged,
 			chargeExact,
+			chargeDebits,
+			chargeDebited,
 			creditedExact,
 			creditedWithinCharge,
+			grantDebits,
+			grantDebited,
 			grantWithinAmount,
+			limitCharges,
+			limitSpent,
 			spendWithinCap,
+			invoiceLines,
+			invoiceBilled,
 			invoiceExact,
+			lineAllocations,
+			lineAllocated,
 			allocationExact,
+			invoiceRefunds,
+			invoiceRefunded,
 			refundWithinInvoice,
 			refundOnlyPaid,
 			keyRevocation,
 			invoiceSettlement,
 			lineDetail,
-			mutable(WorkspaceLimit)
+			mutable(WorkspaceLimit),
+			mutable(CreditGrant),
+			mutable(Invoice)
 		]
 	)
 
@@ -437,11 +564,18 @@ const platformOf = (name: string) =>
  * spans, an organization's invoice periods, a subscription's priced segments never overlap); span coverage (a usage
  * window inside its key's active spans, a usage charge priced by a card of its model and kind in force when it was
  * priced, a credit debit inside its grant's validity, a Team plan allocation inside its subscription's priced
- * segments); exact sums (an event's kinds sum to its charge, a kind's debits to its credited part, an invoice's lines
- * to its amount, a plan line's allocations to its amount); upper bounds (a grant's debits, a kind's credited part, a
- * workspace's monthly spend, an invoice's refunds); and alternatives (a revoked key has its revocation; a paid, void or
- * disputed invoice its payment, voiding or dispute; a usage or plan line its detail). A workspace's monthly caps are
- * the one mutable relation: a cap changes in place.
+ * segments); counted families with a sum fold and a row check on its end, for the exact sums (an event's kinds sum to
+ * its charge, a kind's debits to its credited part, an invoice's lines to its amount, a plan line's allocations to its
+ * amount) and the upper bounds (a grant's debits, a workspace's monthly spend, an invoice's refunds); a row check (a
+ * kind's credited part within its charge); and alternatives (a revoked key has its revocation; a paid, void or disputed
+ * invoice its payment, voiding or dispute; a usage or plan line its detail). A debit is a member of two families, its
+ * charge's and its grant's, and an event's total of two, its month's as a member and its kinds' as their owner.
+ *
+ * grizzle draws every count and accumulates every sum from the rows a write states, so a write states rows alone and
+ * no sum: a refusal of a bound is PostgreSQL's, a 23514 on the owner's check naming its law, or a 23503 on a family's
+ * owner axis naming the family and the containments that ride it. A family that changes after its owner is inserted
+ * needs its owner mutable: a workspace's monthly caps (a cap also changes in place), a grant's debits, and an invoice's
+ * refunds (a settlement also changes its state in place).
  *
  * A fact states what the application computed from what it references, and the laws check it against what it
  * references: an event's total names its workspace and calendar month, a debit its event's window, a charge its event's
@@ -1351,14 +1485,16 @@ export const revokeKey = (
 
 /**
  * One usage event as the application records it: the event, its charge per kind with the part credits paid, its total
- * against its workspace's month, the provider's cost, and its debits per grant and kind, in one ChangeSet.
+ * against its workspace's month, the provider's cost, and its debits per grant and kind, in one ChangeSet. Each is the
+ * row its caller writes: a charge, a total and a debit are members of counted families, inserted directly, their
+ * group keys naming their owners, and grizzle draws the counts and sums.
  */
 export interface UsageRecord {
-	readonly event: Fact<typeof UsageEvent>
-	readonly charges: ReadonlyArray<Fact<typeof UsageCharge>>
-	readonly total: Fact<typeof EventCharge>
-	readonly cost: Fact<typeof ProviderCost>
-	readonly debits: ReadonlyArray<Fact<typeof CreditDebit>>
+	readonly event: Addition<typeof UsageEvent>
+	readonly charges: ReadonlyArray<Addition<typeof UsageCharge>>
+	readonly total: Addition<typeof EventCharge>
+	readonly cost: Addition<typeof ProviderCost>
+	readonly debits: ReadonlyArray<Addition<typeof CreditDebit>>
 }
 
 export const recordUsage = (u: UsageRecord) =>
@@ -1369,15 +1505,23 @@ export const recordUsage = (u: UsageRecord) =>
 		.insert(ProviderCost, [u.cost])
 		.insert(CreditDebit, u.debits)
 
-/** A workspace's cap for a month, set or changed in place. */
-export const setCap = (limits: ReadonlyArray<Fact<typeof WorkspaceLimit>>) =>
+/** A workspace's cap for a month, set or changed in place: an owner's put leaves its family as it is. */
+export const setCap = (limits: ReadonlyArray<Addition<typeof WorkspaceLimit>>) =>
 	ChangeSet.empty(Platform).put(WorkspaceLimit, limits)
+
+/** The caps setCaps puts: a workspace limit as its caller writes it. */
+const capsGiven = {
+	workspace: WorkspaceLimit.fields.workspace,
+	month: WorkspaceLimit.fields.month,
+	cap: WorkspaceLimit.fields.cap
+}
 
 /**
  * A workspace's caps replaced by the months given: each given month's cap set, and every other month of the workspace's
  * caps removed. The removal is the workspace's caps whose key the given caps do not hold, read from the same relation
  * parameter as the put, so the two members are one MERGE whose NOT MATCHED BY SOURCE action removes the rest of the
- * workspace's months. A month the workspace has spent in keeps its cap: its charges are contained in it.
+ * workspace's months. A month the workspace has spent in keeps its cap: its charges are its family's members, which
+ * the family's owner axis and the containment riding it hold to it.
  */
 export const setCaps = ChangeSet.empty(Platform)
 	.put(
@@ -1385,19 +1529,19 @@ export const setCaps = ChangeSet.empty(Platform)
 		query(Platform).rule((r) => {
 			const { workspace, month, cap } = v(WorkspaceLimit, "workspaceLimit")
 			return r
-				.match(r.relation("caps", WorkspaceLimit), { workspace, month, cap })
+				.match(r.relation("caps", capsGiven), { workspace, month, cap })
 				.find({ workspace, month, cap })
 		})
 	)
 	.delete(
 		WorkspaceLimit,
 		query(Platform).rule((r) => {
-			const { workspace, month, cap } = v(WorkspaceLimit, "workspaceLimit")
+			const { workspace, month, cap, charges, spent } = v(WorkspaceLimit, "workspaceLimit")
 			return r
-				.match(WorkspaceLimit, { workspace, month, cap })
+				.match(WorkspaceLimit, { workspace, month, cap, charges, spent })
 				.where(r.eq(workspace, r.param("workspace", WorkspaceLimit.fields.workspace)))
-				.where(r.not(r.relation("caps", WorkspaceLimit), { workspace, month }))
-				.find({ workspace, month, cap })
+				.where(r.not(r.relation("caps", capsGiven), { workspace, month }))
+				.find({ workspace, month, cap, charges, spent })
 		})
 	)
 
@@ -1423,17 +1567,18 @@ export const changeRate = (c: RateChange) =>
 
 /**
  * A month closed for an organization: its invoice, the usage lines with their details, and the Team plan lines with
- * their allocations.
+ * their allocations, each the row its caller writes.
  */
 export interface MonthClose {
-	readonly invoice: Fact<typeof Invoice>
-	readonly lines: ReadonlyArray<Fact<typeof InvoiceLine>>
-	readonly usage: ReadonlyArray<Fact<typeof UsageLine>>
-	readonly plans: ReadonlyArray<Fact<typeof PlanLine>>
-	readonly allocations: ReadonlyArray<Fact<typeof Allocation>>
+	readonly invoice: Addition<typeof Invoice>
+	readonly lines: ReadonlyArray<Addition<typeof InvoiceLine>>
+	readonly usage: ReadonlyArray<Addition<typeof UsageLine>>
+	readonly plans: ReadonlyArray<Addition<typeof PlanLine>>
+	readonly allocations: ReadonlyArray<Addition<typeof Allocation>>
 }
 
-export const refund = (refunds: ReadonlyArray<Fact<typeof Refund>>) =>
+/** Refunds of invoices: members of each invoice's counted family of refunds, inserted directly. */
+export const refund = (refunds: ReadonlyArray<Addition<typeof Refund>>) =>
 	ChangeSet.empty(Platform).insert(Refund, refunds)
 
 /** The workload the platform's migrations are generated with: every read, and the writes whose query members read. */

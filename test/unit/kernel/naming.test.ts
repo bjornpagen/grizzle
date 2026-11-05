@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import type { SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
+import { expandAlternatives } from "#compiler/ir/desc.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -23,7 +24,7 @@ import { str } from "#compiler/public/text.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import {
 	Employee,
 	Employer,
@@ -68,22 +69,13 @@ const levelStatements = (desc: SchemaDesc): ReadonlyArray<StatementDesc> => [
 	...(desc.extends === undefined ? [] : levelStatements(desc.extends))
 ]
 
-type Contained = Extract<StatementDesc, { readonly kind: "contained" }>
+type Alternatives = Extract<StatementDesc, { readonly kind: "alternatives" }>
 
-/** The containments among a schema's statements that alternatives expansions mark, grouped by their origin marker. */
-const alternativesExpansions = (
+/** The alternatives statements among a schema's statements. */
+const alternativesStatements = (
 	statements: ReadonlyArray<StatementDesc>
-): ReadonlyArray<Arr.NonEmptyReadonlyArray<Contained>> => {
-	const marked = Arr.flatMap(statements, (s) =>
-		s.kind === "contained" && s.origin !== undefined ? [s] : []
-	)
-	const origins = new Set(
-		Arr.flatMap(marked, (s) => (s.origin === undefined ? [] : [s.origin.alternatives]))
-	)
-	return Arr.map([...origins], (origin) =>
-		nonEmpty(Arr.filter(marked, (s) => s.origin?.alternatives === origin))
-	)
-}
+): ReadonlyArray<Alternatives> =>
+	Arr.flatMap(statements, (s) => (s.kind === "alternatives" ? [s] : []))
 
 /** The handle an expansion's selected parent side fixes its discriminator to: select(P, (p) => p.eq(p[D], handle)). */
 const handleOf = (side: SideDesc): string => {
@@ -131,7 +123,7 @@ const taggedForeignKey = (
 /** The declared relation and field of an installed table and column, as ownership registered them. */
 const declaredColumn = (owned: Owned, table: string, column: string): readonly [string, string] => {
 	const [found] = Arr.flatMap(Rec.values(owned.relations), (owner) =>
-		owner.ident === table
+		owner.kind === "relation" && identifierOf(owner.named) === table
 			? Arr.flatMap(Rec.values(owner.fields), (field) =>
 					field.column === column ? [[owner.name, field.name] as const] : []
 				)
@@ -329,14 +321,14 @@ describe("production names from src", () => {
 						Effect.sync(() => {
 							const subject: NamingSubject = subjects[name]
 							const L = lawNamesOf(subject)
+							const N = installationNamesOf(installationOf(subject, { kind: "declared" }))
 							const theory = new Set<LawId>(Arr.map(L.model.theory.laws, (l) => l.id))
 							for (const native of L.model.natives) {
+								/** A domain's CHECK is named by its definition's digest, which the installation's names hold. */
 								const idents: ReadonlyArray<readonly [ConstraintOwner, ConstraintName]> =
 									native.namespace === "constraint"
 										? [[{ kind: "table", name: native.owner }, identifierOf(native.named)]]
-										: native.namespace === "domain" && native.check.kind === "checked"
-											? [[{ kind: "domain", name: native.owner }, native.check.ident]]
-											: []
+										: []
 								for (const [owner, ident] of idents) {
 									c.note("named native")
 									const law = L.lawOfConstraint(owner, ident)
@@ -347,41 +339,42 @@ describe("production names from src", () => {
 									assert.equal(L.constraintOf(law, native.object.kind), ident)
 								}
 							}
-							for (const expansion of alternativesExpansions(levelStatements(L.model.owned.desc))) {
+							for (const statement of alternativesStatements(levelStatements(L.model.owned.desc))) {
 								c.note("alternatives expansion")
-								const laws = L.alternativesOfDesc(expansion)
-								const all = [laws.reverse, ...new Set(Rec.values(laws.arms))]
+								const laws = L.alternativesOfDesc([statement])
+								const expansion = expandAlternatives(statement)
+								const all = [...new Set(Rec.values(laws.arms)), ...Rec.values(laws.reverse)]
 								assert.equal(new Set(all).size, all.length, "arm and reverse laws are distinct")
-								const triggered = new Set(
-									Arr.map(L.residual(laws.reverse).units, (u) => u.relation)
-								)
-								/** Each armed handle's arm contained in its selected parents; the reverse stands beside it. */
-								const armsInParents = Arr.filter(
+								/**
+								 * Each arm contained in its handles' parents, through the arm's tagged foreign key into its parent; each
+								 * armed handle's parents contained in its arm, a native foreign key of its own (fin.md §7).
+								 */
+								for (const forward of Arr.filter(
 									expansion,
 									(s) => s.right.selection.conjuncts.length > 0
-								)
-								for (const forward of armsInParents) {
+								)) {
 									const parent = forward.right.relation
 									const handle = handleOf(forward.right)
 									const fk = taggedForeignKey(L.model, forward.left.relation, parent)
 									assert.equal(laws.arms[handle], L.lawOfConstraint(fk.owner, fk.ident), handle)
-									for (const relation of [parent, forward.left.relation]) {
-										assert.ok(triggered.has(relation), `the reverse law triggers on ${relation}`)
-									}
-									assert.ok(
-										Arr.some(
-											expansion,
-											(s) =>
-												s.left.selection.conjuncts.length > 0 &&
-												s.left.relation === parent &&
-												s.right.relation === forward.left.relation &&
-												handleOf(s.left) === handle
+								}
+								for (const reverse of Arr.filter(
+									expansion,
+									(s) => s.left.selection.conjuncts.length > 0
+								)) {
+									const handle = handleOf(reverse.left)
+									const law = defined(laws.reverse[handle], `${handle}'s reverse law`)
+									assert.ok(theory.has(law), `${handle}'s reverse is a law of the theory`)
+									assert.equal(
+										L.lawOfConstraint(
+											{ kind: "table", name: N.tableIdent({ name: reverse.left.relation }) },
+											L.constraintOf(law, "ForeignKey")
 										),
-										`${handle}'s reverse containment beside its arm's`
+										law,
+										`${handle}'s reverse is its own native foreign key`
 									)
 								}
 							}
-							const N = installationNamesOf(installationOf(subject, { kind: "declared" }))
 							for (const contractName of Rec.keys(N.model.owned.contracts)) {
 								const contract = N.contract(contractName)
 								if (contract.kind === "brand") {

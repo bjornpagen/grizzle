@@ -6,6 +6,7 @@ import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { type AttachmentLayout, type Layout, type Row, rowText } from "#compiler/core/decoder.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import { columnPosition } from "#compiler/lower/conservative/context.ts"
@@ -335,7 +336,8 @@ interface Attached<Run> {
 
 /**
  * The record of the statement `tree` holds, placed `under`, in its scope on the delivered spine `scope` (none off it),
- * after the records of the attachment statements under it, whose layouts its own holds.
+ * after the records of the attachment statements under it, whose layouts its own holds; an attachment's parent key is
+ * read by its columns' codecs under the installation's codes `codes`.
  *
  * An attachment's child is one statement, so it has one layout and its Rows are heading group 0 (rowsOf): the
  * lowering refuses to deliver an attached heterogeneous union per heading group (lower/conservative/deliver.ts), and
@@ -345,12 +347,15 @@ const recordOf = <Run extends Arrived>(
 	tree: StatementTree<Run>,
 	under: Under,
 	scope: AttachmentScope | undefined,
-	facts: AttachmentFacts
+	facts: AttachmentFacts,
+	codes: Codebook
 ): StatementRecord<Run> => {
 	const run = tree.statement
 	const statement = run.statement
 	const output = outputOf(statement)
-	const attached = Arr.map(tree.attachments, (child) => attachedOf(child, output, scope, facts))
+	const attached = Arr.map(tree.attachments, (child) =>
+		attachedOf(child, output, scope, facts, codes)
+	)
 	const attachments = new Map<string, AttachmentLayout>()
 	for (const a of attached) {
 		attachments.set(a.name, { ...a.layout, slot: attachments.size })
@@ -394,14 +399,16 @@ const attachedOf = <Run extends Arrived>(
 	tree: AttachedTree<Run>,
 	parent: StatementOutput<FusedAttachment>,
 	scope: AttachmentScope | undefined,
-	facts: AttachmentFacts
+	facts: AttachmentFacts,
+	codes: Codebook
 ): Attached<Run> => {
 	const { attach } = tree
 	const record = recordOf(
 		tree,
 		{ kind: "attachment", attach, scope },
 		scope?.under.get(attach.name),
-		facts
+		facts,
+		codes
 	)
 	const parentKey = keyColumns(tree.statement.statement.role)
 	return {
@@ -410,9 +417,9 @@ const attachedOf = <Run extends Arrived>(
 			record,
 			parent: Arr.map(parentKey, (c) => ({
 				at: parent.own(c.at),
-				cell: scalarCodec(c.type).cellText
+				cell: scalarCodec(c.type, codes).cellText
 			})),
-			child: Arr.map(parentKey, (c, at) => ({ at, cell: scalarCodec(c.type).cellText }))
+			child: Arr.map(parentKey, (c, at) => ({ at, cell: scalarCodec(c.type, codes).cellText }))
 		},
 		layout: { layouts: [record.layout], proved: facts.delivered(attach.id, attach.name) }
 	}
@@ -427,14 +434,18 @@ const recordsUnder = <Run>(
 ]
 
 /**
- * The records of a program's statements, each run by its `run`, whose attachments `facts` describes: its delivered
- * ones, each with the records of the attachment statements under its rows, and all of them in flight order.
+ * The records of a program's statements, each run by its `run`, whose attachments `facts` describes, under the
+ * installation's codes `codes`: its delivered ones, each with the records of the attachment statements under its rows,
+ * and all of them in flight order.
  */
 export const programRecords = <Run extends Arrived>(
 	roots: StatementRoots<Run>,
-	facts: AttachmentFacts
+	facts: AttachmentFacts,
+	codes: Codebook
 ): ProgramRecords<Run> => {
-	const delivered = Arr.map(roots, (tree) => recordOf(tree, { kind: "root" }, facts.root, facts))
+	const delivered = Arr.map(roots, (tree) =>
+		recordOf(tree, { kind: "root" }, facts.root, facts, codes)
+	)
 	return { records: Arr.flatten(Arr.map(delivered, recordsUnder)), delivered }
 }
 

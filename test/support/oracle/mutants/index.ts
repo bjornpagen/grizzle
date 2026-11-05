@@ -3,6 +3,7 @@ import * as Result from "#compiler/core/result.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import type { Mutant } from "#test/support/oracle/mutants/mutants.ts"
 import { conservative, type Lowering } from "#test/support/oracle/runner.ts"
 
@@ -39,12 +40,14 @@ const refusedBy = (stage: "lower" | "mutate", e: CompileError): MutationSites =>
 /**
  * The declared-name conversion with a domain for every text refinement, as an installation names one: the
  * conservative lowering casts a delivered refined value it cannot prove to its domain and refuses one whose refinement
- * has no domain name, so the door's stand-in names give each pattern a deterministic text refinement domain.
+ * has no domain name, so the door's stand-in names give each pattern a deterministic text refinement domain. Every
+ * code literal reads the case's codes.
  */
-const declaredNames = (schema: string): PhysicalNames => standInNames(schema)
+const declaredNames = (c: QueryCase): PhysicalNames =>
+	standInNames(c.schema.name, schemaCodes(c.schema))
 
 export const mutationSites = (mutant: Mutant, c: QueryCase): MutationSites => {
-	const program = conservative.lower({ case: c, names: declaredNames(c.schema.name) })
+	const program = conservative.lower({ case: c, names: declaredNames(c) })
 	if (!program.ok) {
 		return refusedBy("lower", program.error)
 	}

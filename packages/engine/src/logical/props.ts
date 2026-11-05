@@ -274,6 +274,9 @@ const fixedOf = (e: ScalarExpr, locals: ReadonlySet<NodeId>): Fixed | undefined 
 		case "cast":
 		case "domainCast":
 		case "cond":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
 			return { kind: "expr" }
 	}
 }
@@ -1265,7 +1268,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			return finish(
 				subject,
 				[atMostOneRow(all, { kind: "context" })],
-				oneGroup({ exactlyOne: false, provenance: noProvenance, context: "descriptor", equal: [] })
+				oneGroup({ exactlyOne: false, provenance: noProvenance, context: "queryLocal", equal: [] })
 			)
 		case "Closed": {
 			const rows = reading.rows
@@ -1286,7 +1289,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 				oneGroup({
 					exactlyOne: rows.length === 1,
 					provenance: noProvenance,
-					context: "descriptor",
+					context: "queryLocal",
 					equal: []
 				})
 			)
@@ -1299,7 +1302,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 						oneGroup({
 							exactlyOne: true,
 							provenance: noProvenance,
-							context: "descriptor",
+							context: "queryLocal",
 							equal: []
 						})
 					)
@@ -1977,22 +1980,26 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 	const separators = all.filter((c) => arms.every((a) => literalAt(a, c) !== undefined))
 	/**
 	 * Each arm key within the heading, by any columns of its classes, with the separators: the minimization keeps the
-	 * columns of its classes every arm proves.
+	 * columns of its classes every arm proves. Then the whole heading: minimizing it from the end finds a key that holds a
+	 * different key of each arm beside the separators, which no one arm's key reaches.
 	 */
-	const candidates: Array<ReadonlyArray<string>> = arms.flatMap((a) =>
-		a.keys.flatMap((k) =>
-			keyIn(k, (c) => all.includes(c)) === undefined
-				? []
-				: [
-						[
-							...keyClasses(k)
-								.flat()
-								.filter((c) => all.includes(c)),
-							...separators
+	const candidates: Array<ReadonlyArray<string>> = [
+		...arms.flatMap((a) =>
+			a.keys.flatMap((k) =>
+				keyIn(k, (c) => all.includes(c)) === undefined
+					? []
+					: [
+							[
+								...keyClasses(k)
+									.flat()
+									.filter((c) => all.includes(c)),
+								...separators
+							]
 						]
-					]
-		)
-	)
+			)
+		),
+		all
+	]
 	/** A union's keys rest on its arms' keys and its separators, not on a dependency table of its own. */
 	const unionKeys = minimalKeys(all, candidates, unionProof, []).map((k) => k.witness)
 	const [firstArm, ...laterArms] = arms

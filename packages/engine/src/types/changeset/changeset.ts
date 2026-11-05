@@ -1,8 +1,7 @@
 import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Built, Phantom } from "#compiler/core/phantom.ts"
-import type { SideDesc } from "#compiler/ir/desc.ts"
+import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
 
 /** One side of a law as an outcome names it: its statement's side, as its Description states it (ir/desc.ts). */
 export type { SideDesc as LawSide } from "#compiler/ir/desc.ts"
@@ -23,6 +22,7 @@ import type {
 	SqlOfCarrier,
 	Source
 } from "#compiler/types/core/phantom.ts"
+import type { UnwrittenField } from "#compiler/types/fields/field.ts"
 import type {
 	ContextsOf,
 	Decoders,
@@ -31,15 +31,35 @@ import type {
 	ParamsOf,
 	QueryAt
 } from "#compiler/types/query/query.ts"
-import type { AnyRelation, Fact, NameOf, SerialFieldsOf } from "#compiler/types/schema/relation.ts"
+import type {
+	AnyRelation,
+	Fact,
+	NameOf,
+	SerialFieldsOf,
+	SharesKey
+} from "#compiler/types/schema/relation.ts"
 import type {
 	AnySchema,
 	IsLevelOf,
 	IsRelationOf,
 	LevelsOf,
-	RelationOf
+	RelationOf,
+	StatementsOf
 } from "#compiler/types/schema/schema.ts"
-import type { AnyWorld, WorldSerialFields, WriteListOf } from "#compiler/types/schema/world.ts"
+import type {
+	AnyTerm,
+	DrawnFieldOf,
+	Fin,
+	Ordered,
+	Side,
+	Tree
+} from "#compiler/types/schema/statements.ts"
+import type {
+	AnyWorld,
+	WorldSerialFields,
+	WorldUnwrittenFields,
+	WriteListOf
+} from "#compiler/types/schema/world.ts"
 
 /**
  * A member is an array of facts, a Stream of facts, or a query whose head is the relation's heading, or for an insert
@@ -71,9 +91,16 @@ type MemberCheck<M, F, R> =
 			: Refusal<"the query's head is not a fact of the relation">
 		: M extends ReadonlyArray<infer E> | Stream.Stream<infer E, unknown, unknown>
 			? [UnfitArms<E, F>] extends [never]
-				? unknown
+				? SharesKey<M, PrimaryKeyOf<R>> extends true
+					? Refusal<"a ChangeSet's facts of one relation are a set: two of these facts share a key">
+					: unknown
 				: Refusal<"a member fact is not a fact of the relation">
 			: unknown
+
+/** A relation's primary key fields; a world relation, keyed by its definition's evidence, states none here. */
+type PrimaryKeyOf<R> = R extends { readonly primaryKey: infer P extends ReadonlyArray<string> }
+	? P
+	: readonly []
 
 /** The fields of R a query member's head delivers at a type other than the field's own (WritesAt). */
 type MistypedFields<M, R> =
@@ -138,10 +165,130 @@ type WritableCheck<S, R> =
 		: Refusal<"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes">
 
 /**
- * An Addition omits either all of its relation's serial fields or none, and no other field: a world relation's serial
- * fields are the head fields its definition takes from a serial field of the base (WorldSerialFields).
+ * The fields of R its caller never writes: each field whose declaration says how it is written instead (types/fields
+ * UnwrittenField), and over a world relation the head fields its definition takes from such a field of the base
+ * (WorldUnwrittenFields). A fact keeps them: they are read as every field is.
  */
-export type Addition<R> = Fact<R> | Omit<Fact<R>, SerialFieldsOf<R> | WorldSerialFields<R>>
+export type UnwrittenFieldsOf<R> =
+	| (R extends { readonly fields: infer Fields }
+			? {
+					[K in keyof Fields]-?: Fields[K] extends UnwrittenField ? K : never
+				}[keyof Fields]
+			: never)
+	| WorldUnwrittenFields<R>
+
+/** A fact of R as its caller writes it: every field but those it never writes (UnwrittenFieldsOf). */
+export type Written<R> = Omit<Fact<R>, UnwrittenFieldsOf<R>>
+
+/**
+ * An Addition omits every field its caller does not write (UnwrittenFieldsOf), and either all of its relation's serial
+ * fields or none, and no other field: a world relation's serial fields are the head fields its definition takes from a
+ * serial field of the base (WorldSerialFields).
+ */
+export type Addition<R> =
+	| Written<R>
+	| Omit<Fact<R>, UnwrittenFieldsOf<R> | SerialFieldsOf<R> | WorldSerialFields<R>>
+
+/** Omit over each arm of a union, so an addition's two arms keep their own fields. */
+type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
+
+/**
+ * S's sequences, its ordered families and trees, which a nesting reads: the families whose order is the caller's data.
+ * A counted family is a law over rows whose group key names their owner, so no write nests it.
+ */
+type SequenceOf<S> = Extract<StatementsOf<S>[number], Ordered<unknown, unknown> | AnyTree>
+
+/** Any tree: Tree is covariant in what it names. */
+type AnyTree = Tree<unknown, unknown, string>
+
+/**
+ * The sequences of S whose owner is R: one pass over S's sequences per owner, whose few sequences the owner's addition
+ * then maps by their count fields.
+ */
+type SequencesOwnedBy<S, R> = Extract<
+	SequenceOf<S>,
+	{ readonly slots: Fin<{ readonly name: NameOf<R> }, string> }
+>
+
+/** A family's member relation. */
+type MemberRelationOf<Fa> = Fa extends { readonly family: Side<infer F> } ? F : never
+
+/** What a member's nesting supplies: an ordered member's group, a tree member's parent and root field. */
+type NestedOf<Fa> =
+	Fa extends Ordered<
+		Side<unknown, readonly [...infer G extends ReadonlyArray<string>, AnyTerm]>,
+		unknown
+	>
+		? G[number]
+		: Fa extends Tree<
+					Side<unknown, readonly [infer P extends string, AnyTerm]>,
+					unknown,
+					infer Root
+			  >
+			? P | Root
+			: never
+
+/** The parent field of R where R is a tree's: grizzle sets it, the root's to itself and a member's by its nesting. */
+type TreeParentOf<S, R> = TreeParent<
+	Extract<SequenceOf<S>, Tree<Side<{ readonly name: NameOf<R> }>, unknown, string>>
+>
+
+/** A tree's parent field; of no tree, none. Distributive, so a relation that is no tree's omits nothing. */
+type TreeParent<T> =
+	T extends Tree<Side<unknown, readonly [infer P extends string, AnyTerm]>, unknown, string>
+		? P
+		: never
+
+/**
+ * R's addition in S: the row its caller writes (Addition<R>), and at each count field of a sequence R owns, an ordered
+ * family's or a tree's, its members nested in slot order, each the member relation's addition in S less what the
+ * nesting supplies. Order is the caller's data only in a sequence, so only a sequence nests: a counted family's owner
+ * and its members are their rows, a member's group key naming its owner. A tree's parent is no caller's field. A
+ * relation with no drawn field owns no family and is no tree, so its addition is Addition<R>, read off R alone: a
+ * schema whose statements are generic still types it.
+ */
+export type AdditionIn<S, R> = [DrawnFieldOf<R>] extends [never]
+	? Addition<R>
+	: OmitEach<Addition<R>, TreeParentOf<S, R>> & {
+			readonly [Fa in SequencesOwnedBy<S, R> as CountOf<Fa>]: ReadonlyArray<
+				OmitEach<AdditionIn<S, MemberRelationOf<Fa>>, NestedOf<Fa>>
+			>
+		}
+
+/** A sequence's count field, which its owner's addition nests its members at. */
+type CountOf<Fa> = Fa extends { readonly slots: Fin<unknown, infer N extends string> } ? N : never
+
+/**
+ * The relations an addition of R in S writes besides R: the member relations of R's sequences, through every nesting.
+ * Seen stops the walk at a tree, a family of its relation over itself.
+ */
+export type NestedWrites<S, R, Seen = never> = [R] extends [Seen]
+	? never
+	: [DrawnFieldOf<R>] extends [never]
+		? never
+		: MemberRelationOf<SequencesOwnedBy<S, R>> extends infer M
+			? M extends unknown
+				? NameOf<M> | NestedWrites<S, M, Seen | R>
+				: never
+			: never
+
+/**
+ * An ordered family's member relation is written under its owner, nested in order at the owner's count field: order
+ * comes only through the nesting, so a direct insert would leave its members' order unsaid. A tree's relation is its
+ * own owner, and a counted family's member is a row its group key places, inserted directly. An ordered member has its
+ * drawn index, so the refusal is read only where R has a drawn field, and a relation with none is admitted whatever
+ * S's statements are, a generic list's included.
+ */
+type NotSequenceMember<S, R> = [DrawnFieldOf<R>] extends [never]
+	? unknown
+	: NameOf<R> extends OrderedMemberName<S>
+		? Refusal<"a sequence's member is written under its owner: nest it in order at the owner's count field">
+		: unknown
+
+/** The names of the member relations of S's ordered families. */
+type OrderedMemberName<S> = NameOf<
+	MemberRelationOf<Extract<SequenceOf<S>, Ordered<unknown, unknown>>>
+>
 
 /**
  * Params is carried invariantly as well as read through `params`, so a ChangeSet that still needs parameters is never
@@ -188,18 +335,34 @@ export interface ChangeSet<
 }> {
 	/** The decoder of the outcome's read-backs, by name. */
 	readonly reads: RowDecoder<Reads>
-	insert<R extends AnyRelation | AnyWorld, const M extends Member<S, Addition<R>>>(
-		relation: R & WritableCheck<S, R>,
-		facts: M & MemberCheck<M, Addition<R>, R>
-	): ChangeSet<S, Simplify<Params & ParamsOf<M>>, Writes | NameOf<R>, Reads, Cx | ContextsOf<M>>
+	/**
+	 * Adds each member fact, with its sequences' members nested in order at its count fields (AdditionIn): every nested
+	 * member relation is written too. A counted family's member is a row of its own relation, inserted directly, its
+	 * group key naming its owner; grizzle draws every count, index, interval, copy and accumulator.
+	 */
+	insert<R extends AnyRelation | AnyWorld, const M extends Member<S, AdditionIn<S, R>>>(
+		relation: R & WritableCheck<S, R> & NotSequenceMember<S, R>,
+		facts: M & MemberCheck<M, AdditionIn<S, R>, R>
+	): ChangeSet<
+		S,
+		Simplify<Params & ParamsOf<M>>,
+		Writes | NameOf<R> | NestedWrites<S, R>,
+		Reads,
+		Cx | ContextsOf<M>
+	>
 	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, Fact<R>>>(
 		relation: R & WritableCheck<S, R>,
 		facts: M & MemberCheck<M, Fact<R>, R>
 	): ChangeSet<S, Simplify<Params & ParamsOf<M>>, Writes | NameOf<R>, Reads, Cx | ContextsOf<M>>
-	/** After the change, R's fact at each member's key is that member. */
-	put<R extends AnyRelation | AnyWorld, const M extends Member<S, Fact<R>>>(
+	/**
+	 * After the change, R's fact at each member's key is that member, with the fields its caller does not write as
+	 * PostgreSQL and grizzle write them. For every relation it is the row its caller writes (Written<R>): an owner's put
+	 * leaves its families as they are, and a member's put is an edit of its family, in place, a refill from its slot or
+	 * a move between groups, which grizzle plans.
+	 */
+	put<R extends AnyRelation | AnyWorld, const M extends Member<S, Written<R>>>(
 		relation: R & WritableCheck<S, R>,
-		facts: M & MemberCheck<M, Fact<R>, R>
+		facts: M & MemberCheck<M, Written<R>, R>
 	): ChangeSet<S, Simplify<Params & ParamsOf<M>>, Writes | NameOf<R>, Reads, Cx | ContextsOf<M>>
 	/**
 	 * A query over the post-change state and the change's own delta, delivered in the outcome under `name`. It runs
@@ -322,18 +485,6 @@ export type Witness =
 	| { readonly kind: "withheld" }
 	| { readonly kind: "unreported" }
 
-/** How a capacity weighs each source fact: one each, or by a field's value or its span's width. */
-export type LawWeight =
-	| { readonly kind: "count" }
-	| { readonly kind: "field"; readonly field: string }
-	| { readonly kind: "duration"; readonly field: string }
-
-/** A capacity's inclusive bounds: a literal or a field of the target, and above, possibly unbounded. */
-export interface LawBounds {
-	readonly low: bigint | { readonly ref: string }
-	readonly high: bigint | { readonly ref: string } | "*"
-}
-
 /**
  * A law as the schema states it, which an `invariant-rejected` outcome names: an application matches on it directly.
  *
@@ -346,11 +497,11 @@ export interface LawBounds {
  * - `check`: a relation's row check, by its name;
  * - `contained`: a containment, a foreign key included, from its source side into its target side (a mirrors is two);
  * - `coverage`: a containment whose sides pair a span field, the source's span covered by the target's;
- * - `alternatives`: an alternatives family's reverse obligation, by its parent relation and discriminator: a parent
- *   fact selecting a handle has its arm's fact;
- * - `alternativesArm`: an alternatives family's arm relation `arm`, by the parent relation and discriminator and the
- *   handles it is the arm of, in roster order: each of its facts is the payload of a parent fact selecting one of them;
- * - `capacity`: a capacity, by its target and source sides, its weight and its bounds;
+ * - `family`: an ordered or counted family, by its member side and its owner's slots: each owner's members indexed by
+ *   exactly 0 … n − 1 (an alternatives law states plain containments, each a `contained` law);
+ * - `tree`: a tree, by its member side, its slots and its root field: each root field's rows one tree in pre-order;
+ * - `fold`: a fold, by its family's slots, its monoid and its step and end sides: each owner's ends its members'
+ *   combination;
  * - `contract`: a contract's predicate, by its name;
  * - `pattern`: a text pattern (str.regex), as its domain spells it: one law for every spelling of the same language.
  */
@@ -364,20 +515,24 @@ export type Law =
 	| { readonly kind: "check"; readonly relation: string; readonly name: string }
 	| { readonly kind: "contained"; readonly from: SideDesc; readonly to: SideDesc }
 	| { readonly kind: "coverage"; readonly from: SideDesc; readonly to: SideDesc }
-	| { readonly kind: "alternatives"; readonly relation: string; readonly field: string }
 	| {
-			readonly kind: "alternativesArm"
-			readonly relation: string
-			readonly field: string
-			readonly arm: string
-			readonly handles: NonEmptyReadonlyArray<string>
+			readonly kind: "family"
+			readonly order: "ordered" | "counted"
+			readonly member: SideDesc
+			readonly slots: SlotsDesc
 	  }
 	| {
-			readonly kind: "capacity"
-			readonly target: SideDesc
-			readonly from: SideDesc
-			readonly weight: LawWeight
-			readonly within: LawBounds
+			readonly kind: "tree"
+			readonly member: SideDesc
+			readonly slots: SlotsDesc
+			readonly root: string
+	  }
+	| {
+			readonly kind: "fold"
+			readonly family: SlotsDesc
+			readonly monoid: MonoidName
+			readonly step: SideDesc
+			readonly end: SideDesc
 	  }
 	| { readonly kind: "contract"; readonly contract: string }
 	| { readonly kind: "pattern"; readonly source: string; readonly flags: "u" | "su" }

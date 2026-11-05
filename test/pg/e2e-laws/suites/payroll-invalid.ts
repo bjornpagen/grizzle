@@ -3,23 +3,19 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { type Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Witness } from "#compiler/public/changeset.ts"
+import { Compute } from "#compiler/public/compute.ts"
 import { Decimal, type Infer, type Span, type Uuid } from "#compiler/public/fields.ts"
 import {
 	alternatives,
-	capacity,
 	check,
 	contained,
-	duration,
 	type Fact,
 	key,
 	on,
-	ref,
-	select,
-	weigh,
-	within
+	select
 } from "#compiler/public/schema.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { type Attempt, fresh, openPayroll, type Payroll } from "#test/pg/e2e-laws/payroll.ts"
@@ -47,7 +43,6 @@ import {
 	tApproved,
 	tNow,
 	tSettled,
-	w1,
 	w2
 } from "#test/support/fixtures/golden/payroll.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
@@ -92,7 +87,7 @@ interface Case {
  * fresh, so the fresh installation's text domain is the installed one.
  */
 const L = installationNamesOf(installationOf(P.Payroll, { kind: "declared" }))
-const { Levy, Stage } = P.Payroll.relations
+const { LevyRate, Stage } = P.Payroll.relations
 const runStage = L.alternativesOf(
 	alternatives(P.PayRun, "stage", Stage, { paid: P.Payment, voided: P.Voiding })
 )
@@ -109,26 +104,67 @@ const reasonLines = on(P.OffCycleReason, "line")
 const offCycleHasReason = L.lawOf(contained(offCycleLines, reasonLines))
 const reasonIsOffCycle = L.lawOf(contained(reasonLines, offCycleLines))
 
-const approvedHours = capacity(on(P.Timesheet, "employee", "week"), {
-	from: on(
-		select(P.Shift, (s) => s.eq(s.status, "approved")),
-		"employee",
-		"week"
-	),
-	weight: weigh(duration("during")),
-	within: within(0n, ref("ceiling"))
-})
+/**
+ * The laws capacity stated, each by fin.md §6 a row check on a family's owner: its count, or its sum fold's end. Each is
+ * read through the naming door from the check the fixture declares.
+ */
+const atLeastOneApprover = L.lawOf(
+	check("AtLeastOneApprover", P.Employer, (e) => e.ge(e.approvers, 1n))
+)
+const atMostFourDeposits = L.lawOf(
+	check("AtMostFourDeposits", P.PayLine, (l) => l.le(l.deposits, 4n))
+)
+const depositsSumToNet = L.lawOf(
+	check("DepositsSumToNet", P.PayLine, (l) => l.eq(l.deposited, l.net))
+)
+const netWithinGross = L.lawOf(check("NetWithinGross", P.PayLine, (l) => l.le(l.net, l.gross)))
+const approvedHoursWithinCeiling = L.lawOf(
+	check("ApprovedHoursWithinCeiling", P.Timesheet, (t) =>
+		t.le(t.approvedHours, Compute.base(t.ceiling))
+	)
+)
+/** At most one remainder deposit per line: a key over the selected side (fin.md §6, "at most one"). */
+const oneRemainder = L.lawOf(
+	key(
+		on(
+			select(P.Deposit, (d) => d.eq(d.remainder, true)),
+			"line"
+		)
+	)
+)
 
-const depositAmount = capacity(on(P.PayLine, "id"), {
-	from: on(P.Deposit, "line"),
-	weight: weigh("amount"),
-	within: within(ref("net"), ref("net"))
-})
+/** acme's one approver, which an employer onboarded beside it names: every Approver's approver is an Employee. */
+const adaApproves = [{ approver: ada }] as const
 
-const approvers = capacity(on(P.Employer, "id"), {
-	from: on(P.Approver, "employer"),
-	within: within(1n, "*")
-})
+/**
+ * A draft run and its one line for ada, inserted fresh with the line's deposits nested at its count field: a pay
+ * line's deposits are a counted family, fixed when the line is created (fin.md §4.5).
+ */
+const freshLine =
+	(
+		n: number,
+		line: { readonly gross: bigint; readonly net: bigint; readonly offCycle: boolean },
+		deposits: ReadonlyArray<{
+			readonly account: `${number}`
+			readonly amount: bigint
+			readonly remainder: boolean
+		}>
+	) =>
+	(p: Payroll) =>
+		p
+			.cs()
+			.insert(P.PayRun, [draftRun(fresh(n))])
+			.insert(P.PayLine, [
+				{
+					id: fresh(n + 1),
+					run: fresh(n),
+					employee: ada,
+					gross: cents(line.gross),
+					net: cents(line.net),
+					offCycle: line.offCycle,
+					deposits: Arr.map(deposits, (d) => ({ ...d, amount: cents(d.amount) }))
+				}
+			])
 
 /** A native violation's witness: PostgreSQL states its key only in its message. */
 const unreported: Witness = { kind: "unreported" }
@@ -177,11 +213,14 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 		changes: (p) =>
 			p.attempt(
 				p.w.server.roles.hr,
-				p
-					.cs()
-					.insert(P.Employer, [
-						{ id: fresh(1), ein: P.Ein("12-3456789"), name: name("Other Tools LLC") }
-					])
+				p.cs().insert(P.Employer, [
+					{
+						id: fresh(1),
+						ein: P.Ein("12-3456789"),
+						name: name("Other Tools LLC"),
+						approvers: adaApproves
+					}
+				])
 			),
 		law: L.lawOf(key(on(P.Employer, "ein"))),
 		witnesses: [{ kind: "key", relation: "Employer", values: { ein: P.Ein("12-3456789") } }]
@@ -333,26 +372,20 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				p
 					.cs()
 					.insert(P.Employer, [
-						{ id: fresh(6), ein: P.Ein("98-7654321"), name: name("Second Shop LLC") }
+						{
+							id: fresh(6),
+							ein: P.Ein("98-7654321"),
+							name: name("Second Shop LLC"),
+							approvers: []
+						}
 					])
 					.insert(P.Employee, [
 						{ id: fresh(7), employer: fresh(6), code: "E000001", name: name("Finn") }
 					])
 					.insert(P.TaxProfile, [{ employee: fresh(7), filing: "single", extra: cents(0n) }])
 			),
-		law: L.lawOf(approvers),
-		witnesses: [{ kind: "key", relation: "Employer", values: { id: fresh(6) } }]
-	},
-	{
-		change: "delete Approver { employer: acme, approver: ada }",
-		role: "hr",
-		changes: (p) =>
-			p.attempt(
-				p.w.server.roles.hr,
-				p.cs().delete(P.Approver, [{ employer: acme, approver: ada }])
-			),
-		law: L.lawOf(approvers),
-		witnesses: [{ kind: "key", relation: "Employer", values: { id: acme } }]
+		law: atLeastOneApprover,
+		witnesses: [unreported]
 	},
 	{
 		change: "add a PayLine with net 1 and no deposits",
@@ -360,78 +393,67 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 		changes: (p) =>
 			p.attempt(
 				p.w.server.roles.clerk,
-				p
-					.cs()
-					.insert(P.PayRun, [draftRun(fresh(10))])
-					.insert(P.PayLine, [
-						{
-							id: fresh(11),
-							run: fresh(10),
-							employee: ada,
-							gross: cents(1n),
-							net: cents(1n),
-							offCycle: false
-						}
-					])
+				freshLine(10, { gross: 1n, net: 1n, offCycle: false }, [])(p)
 			),
-		law: L.lawOf(depositAmount),
-		witnesses: [{ kind: "key", relation: "PayLine", values: { id: fresh(11) } }]
+		law: depositsSumToNet,
+		witnesses: [unreported]
 	},
 	{
-		change: "add a Deposit of 1 cent to l1",
+		change: "add a PayLine with net 300 whose two deposits sum to 299",
 		role: "clerk",
 		changes: (p) =>
 			p.attempt(
 				p.w.server.roles.clerk,
-				p
-					.cs()
-					.insert(P.Deposit, [
-						{ line: l1, account: "000111222333", amount: cents(1n), remainder: false }
-					])
+				freshLine(20, { gross: 300n, net: 300n, offCycle: false }, [
+					{ account: "000123456789", amount: 200n, remainder: false },
+					{ account: "000987654321", amount: 99n, remainder: true }
+				])(p)
 			),
-		law: L.lawOf(depositAmount),
-		witnesses: [{ kind: "key", relation: "PayLine", values: { id: l1 } }]
+		law: depositsSumToNet,
+		witnesses: [unreported]
 	},
 	{
-		change: "add three 0-cent Deposits to l1 at new accounts",
+		change: "add a PayLine with five 1-cent deposits",
 		role: "clerk",
 		changes: (p) =>
 			p.attempt(
 				p.w.server.roles.clerk,
-				p.cs().insert(P.Deposit, [
-					{ line: l1, account: "000111000001", amount: cents(0n), remainder: false },
-					{ line: l1, account: "000111000002", amount: cents(0n), remainder: false },
-					{ line: l1, account: "000111000003", amount: cents(0n), remainder: false }
-				])
+				freshLine(
+					22,
+					{ gross: 5n, net: 5n, offCycle: false },
+					Arr.map(
+						[
+							"000111000001",
+							"000111000002",
+							"000111000003",
+							"000111000004",
+							"000111000005"
+						] as const,
+						(account) => ({ account, amount: 1n, remainder: false })
+					)
+				)(p)
 			),
-		law: L.lawOf(
-			capacity(on(P.PayLine, "id"), { from: on(P.Deposit, "line"), within: within(0n, 4n) })
-		),
-		witnesses: [{ kind: "key", relation: "PayLine", values: { id: l1 } }]
+		law: atMostFourDeposits,
+		witnesses: [unreported]
 	},
 	{
-		change: "put l1's 300000-cent deposit with remainder: true",
+		change: "add a PayLine with two remainder deposits",
 		role: "clerk",
 		changes: (p) =>
 			p.attempt(
 				p.w.server.roles.clerk,
-				p
-					.cs()
-					.put(P.Deposit, [
-						{ line: l1, account: "000123456789", amount: cents(300_000n), remainder: true }
-					])
+				freshLine(24, { gross: 300n, net: 300n, offCycle: false }, [
+					{ account: "000123456789", amount: 200n, remainder: true },
+					{ account: "000987654321", amount: 100n, remainder: true }
+				])(p)
 			),
-		/** The remainder bound: Deposit, selected by remainder = true, counted per PayLine. */
-		law: L.lawOf(
-			capacity(on(P.PayLine, "id"), {
-				from: on(
-					select(P.Deposit, (d) => d.eq(d.remainder, true)),
-					"line"
-				),
-				within: within(0n, 1n)
-			})
-		),
-		witnesses: [{ kind: "key", relation: "Deposit", values: { line: l1 } }]
+		/**
+		 * The second remainder deposit meets the first at the selected side's UNIQUE over its law column. The members are
+		 * written by the family's own statement, not the insert protocol, so the witness is the line the key refuses, or
+		 * none where PostgreSQL states the key only in its message.
+		 */
+		law: oneRemainder,
+		witnesses: [{ kind: "key", relation: "Deposit", values: { line: fresh(25) } }, unreported]
 	},
 	{
 		change: "add a PayLine with net above gross",
@@ -439,34 +461,12 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 		changes: (p) =>
 			p.attempt(
 				p.w.server.roles.clerk,
-				p
-					.cs()
-					.insert(P.PayRun, [draftRun(fresh(12))])
-					.insert(P.PayLine, [
-						{
-							id: fresh(13),
-							run: fresh(12),
-							employee: ada,
-							gross: cents(100n),
-							net: cents(200n),
-							offCycle: false
-						}
-					])
-					.insert(P.Deposit, [
-						{ line: fresh(13), account: "000123456789", amount: cents(200n), remainder: true }
-					])
+				freshLine(12, { gross: 100n, net: 200n, offCycle: false }, [
+					{ account: "000123456789", amount: 200n, remainder: true }
+				])(p)
 			),
-		/**
-		 * The capacity of PayLine.net within [0, gross], lowered to a table CHECK, reports the capacity's law whatever
-		 * its lowering, as the remainder bound's unique index does.
-		 */
-		law: L.lawOf(
-			capacity(on(P.PayLine, "id"), {
-				from: on(P.PayLine, "id"),
-				weight: weigh("net"),
-				within: within(0n, ref("gross"))
-			})
-		),
+		/** A row check on the line itself: fin.md §6, "source equal to target". */
+		law: netWithinGross,
 		witnesses: [unreported]
 	},
 	{
@@ -485,11 +485,9 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 							employee: ada,
 							gross: cents(100n),
 							net: cents(100n),
-							offCycle: true
+							offCycle: true,
+							deposits: [{ account: "000123456789", amount: cents(100n), remainder: true }]
 						}
-					])
-					.insert(P.Deposit, [
-						{ line: fresh(15), account: "000123456789", amount: cents(100n), remainder: true }
 					])
 			),
 		law: offCycleHasReason,
@@ -522,10 +520,10 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 					}
 				])
 			),
-		/**
-		 * The containment into the closed tuples of Levy, which a finite CHECK enforces, reports the containment's law.
-		 */
-		law: L.lawOf(contained(on(P.LevyLine, "levy", "employeeRate"), on(Levy, "id", "employeeRate"))),
+		/** The containment into the closed relation LevyRate, a table CHECK over its constant, reports its own law. */
+		law: L.lawOf(
+			contained(on(P.LevyLine, "levy", "employeeRate"), on(LevyRate, "levy", "employeeRate"))
+		),
 		witnesses: [unreported]
 	},
 	{
@@ -584,17 +582,17 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 		witnesses: [unreported]
 	},
 	{
-		change: "insert a short approved Shift for bo labeled w1 beyond t9",
+		change: "insert bo's w2 Timesheet with a short approved Shift beyond t9",
 		role: "clerk",
 		changes: (p) =>
 			p.attempt(
 				p.w.server.roles.clerk,
-				p.cs().insert(P.Shift, [
+				p.cs().insert(P.Timesheet, [
 					{
 						employee: bo,
-						during: span(t9 - hour, t9 + hour),
-						week: P.Week(w1),
-						status: "approved"
+						week: P.Week(w2),
+						ceiling: P.Micros(40n * hour),
+						shifts: [{ during: span(t9 - hour, t9 + hour), status: "approved" }]
 					}
 				])
 			),
@@ -608,13 +606,34 @@ const fromStateA: Arr.NonEmptyReadonlyArray<Case> = [
 				on(P.Employment, "employee", "during")
 			)
 		),
-		witnesses: [
-			{
-				kind: "key",
-				relation: "Shift",
-				values: { employee: bo, during: span(t9 - hour, t9 + hour) }
-			}
-		]
+		/** A PERIOD foreign key from the approved shift's range law column: its violation names no fact. */
+		witnesses: [unreported]
+	},
+	{
+		change:
+			"insert bo's w2 Timesheet whose approved shifts' twenty-six hours pass its twenty-hour ceiling",
+		role: "clerk",
+		changes: (p) =>
+			p.attempt(
+				p.w.server.roles.clerk,
+				p.cs().insert(P.Timesheet, [
+					{
+						employee: bo,
+						week: P.Week(w2),
+						ceiling: P.Micros(20n * hour),
+						shifts: [
+							{ during: span(s4 + hour, s4 + 2n * hour), status: "approved" },
+							{ during: span(s4 + 3n * hour, s4 + 28n * hour), status: "approved" }
+						]
+					}
+				])
+			),
+		/**
+		 * The sum fold of the approved shifts' generated hours, its end on the fresh timesheet's own insert row, held to
+		 * the ceiling by a row check (fin.md §6, "duration" then "weighted").
+		 */
+		law: approvedHoursWithinCeiling,
+		witnesses: [unreported]
 	},
 	{
 		change: "withhold applied again on its own, { run: run1 }",
@@ -660,8 +679,12 @@ const afterApproveRun: Arr.NonEmptyReadonlyArray<Case> = [
 				p.w.server.roles.clerk,
 				p.cs().put(P.PayRun, [{ id: run1, employer: acme, period, stage: "paid" }])
 			),
-		law: runStage.reverse,
-		witnesses: [{ kind: "key", relation: "PayRun", values: { id: run1 } }]
+		/**
+		 * The paid runs in the paid arm: a native foreign key from the run's generated law column, deferred on the cycle,
+		 * so it names no fact.
+		 */
+		law: defined(runStage.reverse["paid"], "the paid handle's reverse law"),
+		witnesses: [unreported]
 	},
 	{
 		change: "after approveRun, insert a Payment for run1 and leave its stage approved",
@@ -708,68 +731,9 @@ const afterVoidAndReissue: Arr.NonEmptyReadonlyArray<Case> = [
 					.insert(P.PayRun, [draftRun(fresh(18))])
 					.insert(P.Reissue, [{ run: fresh(18), replaces: run2 }])
 			),
-		/** The capacity's law, whose upper bound of one is a unique index. */
-		law: L.lawOf(
-			capacity(on(P.PayRun, "id"), { from: on(P.Reissue, "replaces"), within: within(0n, 1n) })
-		),
+		/** At most one reissue per run: a key over Reissue's `replaces` (fin.md §6, "at most one"). */
+		law: L.lawOf(key(on(P.Reissue, "replaces"))),
 		witnesses: [{ kind: "key", relation: "Reissue", values: { replaces: run2 } }]
-	}
-]
-
-/**
- * The w2 shift logged pending, inside employment, with no w2 timesheet, and the third w1 shift, 25 hours, which
- * takes the week's 16 approved hours past 40.
- */
-const w2Shift = span(s4 + hour, s4 + 2n * hour)
-const thirdShift = span(s4 + 3n * hour, s4 + 28n * hour)
-
-/** approveShifts of `week` as the clerk. */
-const approveShifts = (p: Payroll, week: bigint): Attempt => {
-	const changes = p.cs().put(P.Shift, p.approveShifts)
-	return {
-		changes,
-		outcome: p.f.withDb(p.w.server.roles.clerk, (db) =>
-			applyRuntime(db, changes, { employee: bo, week: P.Week(week) })
-		)
-	}
-}
-
-const w2Case: Case = {
-	change: "approveShifts for w2 after logging a pending w2 shift, with no w2 timesheet",
-	role: "clerk",
-	changes: (p) => approveShifts(p, w2),
-	law: L.lawOf(
-		contained(
-			on(
-				select(P.Shift, (s) => s.eq(s.status, "approved")),
-				"employee",
-				"week"
-			),
-			on(P.Timesheet, "employee", "week")
-		)
-	),
-	witnesses: [unreported]
-}
-
-const ceilingCase: Case = {
-	change: "approveShifts after logging a third pending w1 shift past forty hours",
-	role: "clerk",
-	changes: (p) => approveShifts(p, w1),
-	law: L.lawOf(approvedHours),
-	witnesses: [{ kind: "key", relation: "Timesheet", values: { employee: bo, week: w1 } }]
-}
-
-const afterApproveShifts: Arr.NonEmptyReadonlyArray<Case> = [
-	{
-		change: "after approveShifts, as hr, put Timesheet { employee: bo, week: w1, ceiling: 1 }",
-		role: "hr",
-		changes: (p) =>
-			p.attempt(
-				p.w.server.roles.hr,
-				p.cs().put(P.Timesheet, [{ employee: bo, week: P.Week(w1), ceiling: P.Micros(1n) }])
-			),
-		law: L.lawOf(approvedHours),
-		witnesses: [{ kind: "key", relation: "Timesheet", values: { employee: bo, week: w1 } }]
 	}
 ]
 
@@ -781,12 +745,15 @@ const tableCounts = (p: Payroll) =>
 
 const text = (value: unknown): string => Formatter.format(value)
 
-/** The row's db.apply outcome: `invariant-rejected` with its law and key-only witness. */
+/**
+ * The row's db.apply outcome: `invariant-rejected` with its one law and a key-only witness. No law of the payroll merges
+ * into another's native object, so every refusal names one law.
+ */
 const runGrizzle = (c: Case, law: LawId, attempt: Attempt) =>
 	Effect.gen(function* () {
 		const outcome = yield* attempt.outcome
 		assert.ok(outcome.kind === "invariant-rejected", `${c.change}: ${text(outcome)}`)
-		assert.deepEqual(outcome.law, L.described(law), c.change)
+		assert.deepEqual(outcome.laws, [L.described(law)], c.change)
 		containsEqual(c.witnesses, outcome.witness, c.change)
 	})
 
@@ -816,25 +783,15 @@ const accepted = (attempt: Attempt) =>
 	})
 
 /**
- * A pending shift of bo's. Shifts are logged and withdrawn by the clerk through grizzle: inserts into and an exact
- * deletion from Shift, whose primary key is a span key (the named-arbiter insert).
- */
-const pendingShift = (during: { readonly start: bigint; readonly end: bigint }, week: bigint) => ({
-	employee: bo,
-	during: span(during.start, during.end),
-	week: P.Week(week),
-	status: "pending" as const
-})
-
-/**
  * The payroll example's invalid ChangeSets give their stated refusing laws.
  *
  * Each row of the invalid-ChangeSet table is applied through db.apply as the role whose write list holds it, from the
  * state the row names, and its outcome is `invariant-rejected` with the stated law and its witness: the insert
- * protocol's conflict row and a residual function's DETAIL give a key, host normalization gives the key it refused, the
- * insert protocol's probe of a unique object besides the arbiter gives the requested fact at that object's fields, and
- * a native violation whose key PostgreSQL reports only in its message is `unreported`; a domain constraint's
- * violation names the domain's law. A refusal rolls
+ * protocol's conflict row gives a key, host normalization gives the key it refused, the insert protocol's probe of a
+ * unique object besides the arbiter gives the requested fact at that object's fields, and a native violation whose key
+ * PostgreSQL reports only in its message is `unreported`; a domain constraint's violation names the domain's law.
+ * Every law is native: the laws capacity stated are keys over a side and row checks on a counted family's owner, its
+ * count or its sum fold's end (fin.md §6), and a family is written nested under a fresh owner (§4.5). A refusal rolls
  * everything back, so the rows that start from one state run one after another on one installation, and the state is
  * unchanged at the end.
  *
@@ -903,46 +860,6 @@ export const payrollInvalidSuite = (): void => {
 						return yield* everyRow("after-void-and-reissue", p, afterVoidAndReissue)
 					}).pipe(Effect.scoped)
 				)
-			)
-
-			it.effect(
-				"approving shifts without a timesheet or past the ceiling, and lowering the ceiling",
-				(ctx) =>
-					searched(
-						ctx,
-						Effect.gen(function* () {
-							const p = yield* openPayroll
-							const log = (
-								during: { readonly start: bigint; readonly end: bigint },
-								week: bigint
-							) =>
-								accepted(
-									p.attempt(
-										p.w.server.roles.clerk,
-										p.cs().insert(P.Shift, [pendingShift(during, week)])
-									)
-								)
-							yield* log(w2Shift, w2)
-							yield* runCase(p, w2Case)
-							yield* log(thirdShift, w1)
-							yield* runCase(p, ceilingCase)
-							yield* accepted(
-								p.attempt(
-									p.w.server.roles.clerk,
-									p.cs().delete(P.Shift, [pendingShift(thirdShift, w1)])
-								)
-							)
-							yield* accepted(approveShifts(p, w1))
-							const rows = yield* p.f.rows(
-								`SELECT "week"::text, "status"::text, count(*)::text FROM $S."shift" GROUP BY 1, 2 ORDER BY 1, 2`
-							)
-							assert.deepEqual(rows, [
-								[String(w1), "approved", "2"],
-								[String(w2), "pending", "1"]
-							])
-							return yield* everyRow("after-approve-shifts", p, afterApproveShifts)
-						}).pipe(Effect.scoped)
-					)
 			)
 		}
 	)

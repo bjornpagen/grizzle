@@ -12,13 +12,23 @@ import { planApply, runFiles } from "#adapter/migrate/plan.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type MigrationFolder, writeMeta } from "#compiler/deploy/render/folder.ts"
-import { emptyFingerprint, emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { generateMigration } from "#compiler/deploy/render/generate.ts"
+import { emptyFingerprint, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { draftChain, fromEmpty, unowned } from "#test/support/migrate/kit.ts"
+import {
+	compile,
+	draftChain,
+	draftedAt,
+	fromEmpty,
+	noDeclarations,
+	parsedMigrationName,
+	unowned
+} from "#test/support/migrate/kit.ts"
 import { draftFiles } from "#test/support/migrate/review.ts"
-import { shopV1, shopV2, shopV3 } from "#test/unit/deploy/schemas.ts"
+import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
 /**
  * The apply runner's pure parts: the input check before any connection, transaction-control refusal, and the plan with
@@ -50,12 +60,7 @@ const source = (folder: MigrationFolder, edit: (file: FileText) => string) => ({
 const leavingLosses = ({ text }: FileText): string =>
 	pipe(
 		Arr.join(
-			Arr.filter(
-				Str.split(text, "\n"),
-				(l) =>
-					!Str.startsWith("-- grizzle: placeholder")(l) &&
-					!Str.startsWith("-- grizzle: rename candidate")(l)
-			),
+			Arr.filter(Str.split(text, "\n"), (l) => !Str.startsWith("-- grizzle: placeholder")(l)),
 			"\n"
 		),
 		Str.replaceAll("__GRIZZLE_PLACEHOLDER__", "'0'")
@@ -386,8 +391,16 @@ describe("transaction control in a migration file", () => {
 describe("the input check before any connection", () => {
 	const [g1, g2] = draftChain(
 		[
-			{ desc: shopV1, options: { schema: shopSchema, owner: unowned, extensions: [] } },
-			{ desc: shopV2, options: { schema: shopSchema, owner: unowned, extensions: [] } }
+			{
+				desc: shopV1,
+				options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+				declared: noDeclarations
+			},
+			{
+				desc: shopV2,
+				options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+				declared: noDeclarations
+			}
 		],
 		fromEmpty
 	)
@@ -523,9 +536,21 @@ describe("the input check before any connection", () => {
 describe("the plan: skip, resume, run, or refuse before any statement", () => {
 	const [g1, g2, g3] = draftChain(
 		[
-			{ desc: shopV1, options: { schema: shopSchema, owner: unowned, extensions: [] } },
-			{ desc: shopV2, options: { schema: shopSchema, owner: unowned, extensions: [] } },
-			{ desc: shopV3, options: { schema: shopSchema, owner: unowned, extensions: [] } }
+			{
+				desc: shopV1,
+				options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+				declared: noDeclarations
+			},
+			{
+				desc: shopV2,
+				options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+				declared: noDeclarations
+			},
+			{
+				desc: shopV3,
+				options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+				declared: shopV3Declared
+			}
 		],
 		fromEmpty
 	)
@@ -621,24 +646,40 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 		)
 	})
 
+	/**
+	 * Every drop is declared, so the one loss of stored data a draft holds undecided is a schema's first migration
+	 * starting it empty beside the schemas its directory still holds: their rows.
+	 */
 	it("refuses an undecided loss of stored data, and plans it once its statement is written in", () => {
+		const abandoning = succeeded(
+			generateMigration({
+				previous: emptySnapshot({ schemaName: "Shop", schema: shop }),
+				installation: compile(shopV1, {
+					schema: shopSchema,
+					owner: unowned,
+					extensions: [],
+					codes: firstCodes
+				}),
+				workload: noWorkload,
+				declared: noDeclarations,
+				abandoned: [{ schema: "Store", directory: "store" }],
+				naming: { kind: "named", name: parsedMigrationName("step_1") },
+				timestamp: draftedAt(1)
+			})
+		)
 		const losses = Arr.map(
 			nonEmpty(
-				Arr.flatMap(g3.folder.meta.files, (f) =>
+				Arr.flatMap(abandoning.folder.meta.files, (f) =>
 					Arr.flatMap(f.steps, (s) => (s.kind === "loss" ? [f.name] : []))
 				),
-				"removing a field drafts a loss"
+				"starting a schema beside an abandoned one drafts a loss"
 			),
-			(file) => ({ folder: g3.folder.name, file })
+			(file) => ({ folder: abandoning.folder.name, file })
 		)
 		const undecided = succeeded(
 			parseTarget({
-				snapshot: g3.snapshot,
-				folders: [
-					source(g1.folder, unedited),
-					source(g2.folder, review),
-					source(g3.folder, leavingLosses)
-				]
+				snapshot: abandoning.snapshot,
+				folders: [source(abandoning.folder, leavingLosses)]
 			})
 		)
 		const refused = failed(planApply(undecided, empty))
@@ -652,10 +693,7 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 			losses
 		)
 		const decided = succeeded(
-			parseTarget({
-				snapshot: g3.snapshot,
-				folders: [source(g1.folder, unedited), source(g2.folder, review), source(g3.folder, review)]
-			})
+			parseTarget({ snapshot: abandoning.snapshot, folders: [source(abandoning.folder, review)] })
 		)
 		assert.ok(Result.isSuccess(planApply(decided, empty)), "a loss written in plans")
 	})

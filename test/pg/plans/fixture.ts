@@ -1,6 +1,7 @@
 import { pipe, String as Str } from "effect"
+import { codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
 import { closedId, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
-import { capacity, closed, on, relation, schema, select, within } from "#compiler/public/schema.ts"
+import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
 const text = str.regex("^.*$", "su")
@@ -28,9 +29,10 @@ export const Note = relation("Note", { id: uuid, ticket: uuid, open: pg.boolean 
  * - Entry(account, seq, amount) keyed by (account, seq), so its primary key is the `(key, order...)` B-tree a take
  *   correlated on account and ordered by seq reads (R20);
  * - Item(id, amount) keyed by id, the keyed relation a relation parameter is joined to (R22);
- * - Task(id, account, kind) and Ticket/Note(id, ticket, open), each with an upper bound of one on a selected source,
- *   `capacity(..., within(0n, 1n))`, which the law model specializes to a partial UNIQUE index:
- *   the partial indexes a query whose discriminator stays a literal must use under generic and custom plans (R04).
+ * - Task(id, account, kind) and Ticket/Note(id, ticket, open), each with at most one fact of a selected source per
+ *   group, `key(on(select(S, φ), f))` (fin.md §6, "at most one"), which the law model lowers to a UNIQUE over the
+ *   selected side's generated law column: the selective reads a query whose discriminator stays a literal makes under
+ *   generic and custom plans (R04).
  *
  * The facts are generated in SQL with fixed sizes. Every table but Item holds at most 30,000 rows: ANALYZE samples 300
  * times default_statistics_target rows, 30,000 at the default 100, so those tables' statistics are computed from all of
@@ -41,20 +43,18 @@ export const Note = relation("Note", { id: uuid, ticket: uuid, open: pg.boolean 
  * cheaper than a scan, so a plan that loses an index condition shows it.
  */
 export const Plans = schema("Plans", { Kind, Account, Posting, Entry, Item, Task, Ticket, Note }, [
-	capacity(on(Account, "id"), {
-		from: on(
+	key(
+		on(
 			select(Task, (x) => x.eq(x.kind, "Automatic")),
 			"account"
-		),
-		within: within(0n, 1n)
-	}),
-	capacity(on(Ticket, "id"), {
-		from: on(
+		)
+	),
+	key(
+		on(
 			select(Note, (x) => x.eq(x.open, true)),
 			"ticket"
-		),
-		within: within(0n, 1n)
-	})
+		)
+	)
 ])
 
 /** The pinned sizes. */
@@ -75,22 +75,22 @@ export const uid = (family: number, n: number): Uuid =>
 const uidSql = (family: number, n: string): string =>
 	`('${pipe(family.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-' || lpad(to_hex(${n}), 12, '0'))::uuid`
 
-/** The physical names the installation gives each relation and the Kind enum. */
+/** The physical names the installation gives each relation, and the codes its codebook gives Kind's handles. */
 interface FixtureNames {
 	readonly table: (relation: string) => string
-	readonly kindType: string
+	readonly kinds: RosterCodec
 }
 
 /**
  * The facts, in SQL over generate_series, sized by `sizes`. Every Automatic task and every open note is the only one
- * of its account or ticket, as the capacity laws require.
+ * of its account or ticket, as the keys over the selected sides require.
  */
 export const factSql = (n: FixtureNames): ReadonlyArray<string> => [
 	`INSERT INTO ${n.table("Account")} ("id", "name") SELECT ${uidSql(1, "i")}, 'account ' || i FROM generate_series(0, ${sizes.accounts - 1}) AS i`,
 	`INSERT INTO ${n.table("Posting")} ("id", "account", "amount") SELECT ${uidSql(2, "i")}, ${uidSql(1, `i % ${sizes.accounts}`)}, (i % 37)::int8 FROM generate_series(0, ${sizes.postings - 1}) AS i`,
 	`INSERT INTO ${n.table("Entry")} ("account", "seq", "amount") SELECT ${uidSql(1, `i % ${sizes.accounts}`)}, (i / ${sizes.accounts})::int8, (i % 53)::int8 FROM generate_series(0, ${sizes.accounts * sizes.entriesPerAccount - 1}) AS i`,
 	`INSERT INTO ${n.table("Item")} ("id", "amount") SELECT ${uidSql(6, "i")}, (i % 101)::int8 FROM generate_series(0, ${sizes.items - 1}) AS i`,
-	`INSERT INTO ${n.table("Task")} ("id", "account", "kind") SELECT ${uidSql(3, "i")}, ${uidSql(1, `i % ${sizes.accounts}`)}, (CASE WHEN i < ${sizes.accounts} THEN 'Automatic' ELSE 'Manual' END)::${n.kindType} FROM generate_series(0, ${sizes.tasks - 1}) AS i`,
+	`INSERT INTO ${n.table("Task")} ("id", "account", "kind") SELECT ${uidSql(3, "i")}, ${uidSql(1, `i % ${sizes.accounts}`)}, (CASE WHEN i < ${sizes.accounts} THEN ${codeOf(n.kinds, "Automatic")} ELSE ${codeOf(n.kinds, "Manual")} END)::smallint FROM generate_series(0, ${sizes.tasks - 1}) AS i`,
 	`INSERT INTO ${n.table("Ticket")} ("id") SELECT ${uidSql(4, "i")} FROM generate_series(0, ${sizes.tickets - 1}) AS i`,
 	`INSERT INTO ${n.table("Note")} ("id", "ticket", "open") SELECT ${uidSql(5, "i")}, ${uidSql(4, `i % ${sizes.tickets}`)}, i < ${sizes.tickets} FROM generate_series(0, ${sizes.notes - 1}) AS i`
 ]

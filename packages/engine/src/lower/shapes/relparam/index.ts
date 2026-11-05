@@ -28,7 +28,7 @@ import { core, select } from "#compiler/sql/build.ts"
  *   SELECT r1.c1, r1.c2 FROM (SELECT pg_catalog.unnest($1::uuid[]) AS c1,
  *     pg_catalog.unnest($2::bigint[]) AS c2) AS r1
  *
- * Each array's element type is its column's base type (an enum keeps its enum, a text column's array names the fixed
+ * Each array's element type is its column's base type (a closed id's smallint code, a text column's array names the fixed
  * collation), and the columns are generated names, recorded in the statement's slots. A membership's row is the
  * one-row VALUES of the values its caller names, in those types (conservative/input-set inputSetSource). The node's
  * own boundary stays a DISTINCT only where a placement realized one, which a deduplicated input or a row never needs.

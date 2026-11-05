@@ -6,7 +6,7 @@ import type { StorageCarrier } from "#compiler/ir/scalar.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import type {
-	AnyClosed,
+	AnyRoster,
 	AnyDerived,
 	AnyLogin,
 	AnyLoginRole,
@@ -543,12 +543,12 @@ export interface GenColumn {
 export interface GenSource {
 	readonly name: string
 	readonly columns: ReadonlyArray<GenColumn>
-	readonly value: AnyRelation | AnyClosed | AnyDerived
+	readonly value: AnyRelation | AnyRoster | AnyDerived
 }
 
 /** A stored source: a base relation or the roster, which the root schema declares. */
 interface GenStored extends GenSource {
-	readonly value: AnyRelation | AnyClosed
+	readonly value: AnyRelation | AnyRoster
 }
 
 export interface GenBase extends GenStored {
@@ -866,7 +866,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 		)
 	}
 	const refreshOrder = Arr.map(Arr.sort(derivedRelations, refreshed), (d) => d.name)
-	const whole: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>> = Rec.fromEntries([
+	const whole: Readonly<Record<string, AnyRelation | AnyRoster | AnyDerived>> = Rec.fromEntries([
 		...Arr.map(stored, (st) => [st.name, st.value] as const),
 		...Arr.map(derivedRelations, (d) => [d.name, d.value] as const)
 	])
@@ -930,7 +930,7 @@ const baseCarriers: { readonly [K in BaseKind]: StorageCarrier } = {
 	bool: "bool",
 	text: "text",
 	cents: "int8",
-	color: "enum",
+	color: "code",
 	dec: "numeric",
 	f8: "float8"
 }
@@ -955,7 +955,7 @@ const literalOfBase = (k: BaseKind, value: unknown): TypedLiteral => {
 		case "text":
 			return typeof value === "string" ? { kind: "text", value } : wrong()
 		case "color":
-			return typeof value === "string" ? { kind: "enum", handle: value } : wrong()
+			return typeof value === "string" ? { kind: "handle", handle: value } : wrong()
 		case "dec":
 			return typeof value === "string" ? { kind: "numeric", value: Decimal.of(value) } : wrong()
 		case "f8":

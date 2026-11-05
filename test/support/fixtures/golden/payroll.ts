@@ -8,19 +8,10 @@
  * the direct writers start from, after onboard, logShifts and draftRun.
  */
 import { Array as Arr, String as Str } from "effect"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
+import type { ConstraintName } from "#compiler/core/ids.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { id } from "#test/support/fixtures/golden/types.ts"
-import {
-	capacity,
-	contained,
-	eq,
-	field,
-	literal,
-	on,
-	onWhere,
-	within
-} from "#test/support/fixtures/ir/desc.ts"
+import { contained, eq, field, literal, on, onWhere } from "#test/support/fixtures/ir/desc.ts"
 import * as P from "#test/support/fixtures/ir/payroll.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 
@@ -29,15 +20,7 @@ import { installationNamesOf, installationOf } from "#test/support/kernel/naming
  * qualified names the rows spell are the installer's.
  */
 const payroll = installationNamesOf(installationOf(P.PayrollDesc, { kind: "declared" }))
-/** The law of PayLine's deposit amounts summing to its net, a residual law over PayLine and Deposit. */
-const depositAmount = payroll.lawOfDesc(
-	capacity(on("PayLine", ["id"]), on("Deposit", ["line"]), within("net", "net"), {
-		kind: "field",
-		field: "amount"
-	})
-)
-
-/** The law of an approved run's approval. */
+/** The law of an approved run's approval: a foreign key from PayRun's law column, deferred on its cycle with Approval. */
 const approvedRunApproval = payroll.lawOfDesc(
 	contained(
 		onWhere("PayRun", ["id"], eq(field("stage"), literal("approved"))),
@@ -216,8 +199,8 @@ export interface DirectWriter {
 }
 
 /**
- * What a direct writer's row meets: acceptance; a refusal naming no constraint; a constraint's refusal; or a
- * residual law's violation at SQLSTATE 23000, with the key texts its DETAIL carries.
+ * What a direct writer's row meets: acceptance; a refusal by its SQLSTATE and where it is raised; or a constraint's
+ * refusal, naming the constraint. Every law is native (fin.md §7), so none is a law function's 23000.
  */
 type DirectOutcome =
 	| { readonly kind: "accepted" }
@@ -227,12 +210,6 @@ type DirectOutcome =
 			readonly sqlstate: string
 			readonly at: "statement" | "commit"
 			readonly constraint: ConstraintName
-	  }
-	| {
-			readonly kind: "violated"
-			readonly at: "statement" | "commit"
-			readonly law: LawId
-			readonly detail: Arr.NonEmptyReadonlyArray<string>
 	  }
 
 /**
@@ -285,13 +262,17 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		startsFrom: { kind: "stateA" },
 		precondition: { kind: "none" },
 		role: "clerk",
+		/**
+		 * l1's one deposit gone leaves its drawn count at one: the deposits family's last-slot foreign key, deferred on
+		 * the owner ↔ family cycle, refuses at COMMIT (fin.md §5.1).
+		 */
 		name: "a clerk deletes l1's deposit and commits",
 		sql: [
 			"BEGIN",
 			"DELETE FROM payroll.deposit WHERE line = :'l1' AND account = '000987654321'",
 			"COMMIT"
 		],
-		outcome: { kind: "violated", at: "commit", law: depositAmount, detail: [l1] }
+		outcome: { kind: "refused", sqlstate: "23503", at: "commit" }
 	},
 	{
 		startsFrom: { kind: "stateA" },
@@ -299,20 +280,25 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		role: "clerk",
 		name: "a clerk approves run1 with no approval",
 		sql: ["BEGIN", "UPDATE payroll.pay_run SET stage = 'approved' WHERE id = :'run1'", "COMMIT"],
-		outcome: { kind: "violated", at: "commit", law: approvedRunApproval, detail: [run1] }
+		outcome: {
+			kind: "constraint",
+			sqlstate: "23503",
+			at: "commit",
+			constraint: payroll.constraintOf(approvedRunApproval, "ForeignKey")
+		}
 	},
 	{
 		startsFrom: { kind: "stateA" },
 		precondition: { kind: "none" },
 		role: "clerk",
-		name: "a clerk makes the deposit law immediate and deletes l1's deposit",
+		name: "a clerk makes every constraint immediate and deletes l1's deposit",
 		sql: [
 			"BEGIN",
-			`SET CONSTRAINTS ${Arr.join(payroll.triggers(depositAmount), ", ")} IMMEDIATE`,
+			"SET CONSTRAINTS ALL IMMEDIATE",
 			"DELETE FROM payroll.deposit WHERE line = :'l1' AND account = '000987654321'",
 			"ROLLBACK"
 		],
-		outcome: { kind: "violated", at: "statement", law: depositAmount, detail: [l1] }
+		outcome: { kind: "refused", sqlstate: "23503", at: "statement" }
 	},
 	{
 		startsFrom: { kind: "stateA" },
@@ -328,9 +314,12 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 			at: "statement",
 			constraint: payroll.constraintOf(
 				payroll.lawOfDesc(
-					contained(on("LevyLine", ["levy", "employeeRate"]), on("Levy", ["id", "employeeRate"]))
+					contained(
+						on("LevyLine", ["levy", "employeeRate"]),
+						on("LevyRate", ["levy", "employeeRate"])
+					)
 				),
-				"FiniteCheck"
+				"ClosedCheck"
 			)
 		}
 	},

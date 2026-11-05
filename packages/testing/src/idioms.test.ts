@@ -13,7 +13,7 @@ import {
 	String as Str
 } from "effect"
 import { everyCase, everyValue, type Fraction, fraction, shareOf } from "#chance.fixtures.ts"
-import { type Case, drawn, type Exploration, exhaust, explore } from "#explore.ts"
+import { type Case, drawn, type Exploration, exhaust, explore, type Oracle } from "#explore.ts"
 import { type Coverage, noCoverage, required } from "#features.ts"
 import {
 	alphabet,
@@ -82,11 +82,13 @@ const neverDrawn = <A>(values: ReadonlyArray<A>, wanted: ReadonlyArray<A>): Read
 /** This suite's budget for a property over `generator`. */
 const searchOf = <A, F extends string>(
 	suite: string,
+	oracle: Oracle,
 	generator: Gen<A>,
 	coverage: Coverage<F>,
 	runs: number
 ): Exploration<A, A, F> => ({
 	suite,
+	oracle,
 	draw: drawn(generator),
 	literal: Formatter.format,
 	coverage,
@@ -127,6 +129,11 @@ describe("whole numbers", () => {
 			exhaust(
 				{
 					suite: "int order",
+					oracle: {
+						kind: "specification",
+						name: "int's order: by distance from zero, the positive side first"
+					},
+					box: "every range of whole numbers within -5..5",
 					generator: smallBounds,
 					literal: Formatter.format,
 					limit: 100,
@@ -158,7 +165,13 @@ describe("bigints", () => {
 		searched(
 			ctx,
 			explore(
-				searchOf("bigint bounds", boundsOf(bigint(-(2n ** 100n), 2n ** 100n)), noCoverage, 200),
+				searchOf(
+					"bigint bounds",
+					{ kind: "specification", name: "lo ≤ value ≤ hi, as bigint states" },
+					boundsOf(bigint(-(2n ** 100n), 2n ** 100n)),
+					noCoverage,
+					200
+				),
 				([lo, hi], c) =>
 					Effect.sync(() => {
 						const value = c.draw(bigint(lo, hi))
@@ -183,6 +196,7 @@ describe("floating-point numbers", () => {
 			explore(
 				searchOf(
 					"double bounds",
+					{ kind: "specification", name: "a finite double within its range, as double states" },
 					boundsOf(double(-Number.MAX_VALUE, Number.MAX_VALUE)),
 					noCoverage,
 					200
@@ -203,7 +217,13 @@ describe("floating-point numbers", () => {
 		searched(
 			ctx,
 			explore(
-				searchOf("float bounds", boundsOf(float(-FLOAT_MAX, FLOAT_MAX)), noCoverage, 200),
+				searchOf(
+					"float bounds",
+					{ kind: "specification", name: "a 32-bit float within its range, as float states" },
+					boundsOf(float(-FLOAT_MAX, FLOAT_MAX)),
+					noCoverage,
+					200
+				),
 				([min, max], c) =>
 					Effect.sync(() => {
 						const value = c.draw(float(min, max))
@@ -223,24 +243,35 @@ describe("floating-point numbers", () => {
 		(ctx) =>
 			searched(
 				ctx,
-				explore(searchOf("double shrink", seeds, noCoverage, 40), (seed, c) =>
-					Effect.gen(function* () {
-						const generator = double(-1e9, 1e9)
-						const fails = (value: number) => Math.abs(value) > 10.25
-						const wholeArm = Float64Array.of(0)
-						const failing = generate(
-							generator,
-							prefixChooser(wholeArm, wholeArm.length, randomChooser(wordsOf(seed)))
-						)
-						yield* c.assume(fails(failing.value))
-						const shrunk = yield* shrink(
-							generator,
-							failing,
-							(value) => Effect.succeed(fails(value)),
-							completeShrink
-						)
-						strictEqual(shrunk.best.failure, 11)
-					})
+				explore(
+					searchOf(
+						"double shrink",
+						{
+							kind: "specification",
+							name: "the least whole number that still fails, as wholeOr states"
+						},
+						seeds,
+						noCoverage,
+						40
+					),
+					(seed, c) =>
+						Effect.gen(function* () {
+							const generator = double(-1e9, 1e9)
+							const fails = (value: number) => Math.abs(value) > 10.25
+							const wholeArm = Float64Array.of(0)
+							const failing = generate(
+								generator,
+								prefixChooser(wholeArm, wholeArm.length, randomChooser(wordsOf(seed)))
+							)
+							yield* c.assume(fails(failing.value))
+							const shrunk = yield* shrink(
+								generator,
+								failing,
+								(value) => Effect.succeed(fails(value)),
+								completeShrink
+							)
+							strictEqual(shrunk.best.failure, 11)
+						})
 				)
 			)
 	)
@@ -279,7 +310,13 @@ describe("uuids", () => {
 		searched(
 			ctx,
 			explore(
-				searchOf("uuid form", element([1, 2, 3, 4, 5, 6, 7, 8] as const), noCoverage, 100),
+				searchOf(
+					"uuid form",
+					{ kind: "specification", name: "RFC 9562's canonical form, version and variant" },
+					element([1, 2, 3, 4, 5, 6, 7, 8] as const),
+					noCoverage,
+					100
+				),
 				(version, c) =>
 					Effect.sync(() => {
 						const value = c.draw(uuid(version))
@@ -304,6 +341,11 @@ describe("collections", () => {
 				exhaust(
 					{
 						suite: "shuffled",
+						oracle: {
+							kind: "specification",
+							name: "each value at most once, and every arrangement of each size"
+						},
+						box: "every arrangement of 0 to 4 of 0, 1, 2 and 3",
 						generator: shuffled(values, { min: 0, max: 4 }),
 						literal: Formatter.format,
 						limit: 100,
@@ -327,6 +369,7 @@ describe("collections", () => {
 			explore(
 				searchOf(
 					"unique array",
+					{ kind: "specification", name: "no two items share a key" },
 					uniqueArray(int(0, 5), (value) => value, { min: 0, max: 6 }, 40),
 					noCoverage,
 					200
@@ -354,6 +397,11 @@ describe("collections", () => {
 				exhaust(
 					{
 						suite: "alphabet",
+						oracle: {
+							kind: "specification",
+							name: "a non-empty subset whose kept letter comes first"
+						},
+						box: "every alphabet of a, b and c",
 						generator: alphabet(letters),
 						literal: Formatter.format,
 						limit: 100,
@@ -392,7 +440,16 @@ describe("collections", () => {
 			searched(
 				ctx,
 				explore(
-					searchOf("production share", alphabet([1, 2, 3, 4, 5, 6, 7, 8]), noCoverage, 60),
+					searchOf(
+						"production share",
+						{
+							kind: "specification",
+							name: "production's constant five times in six, by exact enumeration"
+						},
+						alphabet([1, 2, 3, 4, 5, 6, 7, 8]),
+						noCoverage,
+						60
+					),
 					(small) =>
 						Effect.sync(() => {
 							const cases = everyCase(production(64, small))
@@ -454,6 +511,10 @@ describe("computed weights", () => {
 				explore(
 					searchOf(
 						"proportional shares",
+						{
+							kind: "specification",
+							name: "each option's weight over the total, by exact enumeration"
+						},
 						array(oneOf([constant(0), int(1, 9), int(1, 300)]), { min: 1, max: 4 }),
 						required<"a weight of zero" | "a total past 256" | "no weight at all">(
 							["a weight of zero", "a total past 256", "no weight at all"],
@@ -520,6 +581,11 @@ describe("swarms", () => {
 				exhaust(
 					{
 						suite: "swarm distribution",
+						oracle: {
+							kind: "specification",
+							name: "the omissions' rates and the forced feature, by exact enumeration"
+						},
+						box: "every swarm of every alphabet of a, b and c",
 						generator: alphabet<Letter>(["a", "b", "c"]),
 						literal: Formatter.format,
 						limit: 20,
@@ -661,6 +727,7 @@ describe("constructive collections", () => {
 				exhaust(
 					{
 						suite: "sorted collections",
+						box: "every range of width up to 4 from -2..1, and every size within it",
 						oracle: { kind: "second-implementation", name: "each space built by naive recursion" },
 						generator: rangeBox,
 						literal: Formatter.format,
@@ -716,6 +783,7 @@ describe("constructive collections", () => {
 			exhaust(
 				{
 					suite: "trees",
+					box: "every tree of 1 to 5 nodes",
 					oracle: {
 						kind: "second-implementation",
 						name: "every parent array built by naive recursion"
@@ -750,6 +818,7 @@ describe("constructive collections", () => {
 				exhaust(
 					{
 						suite: "compositions",
+						box: "every total of 0 to 4 into 1 to 3 places",
 						oracle: {
 							kind: "second-implementation",
 							name: "every composition built by naive recursion"
@@ -795,6 +864,10 @@ describe("live, stale and wild values", () => {
 			explore(
 				searchOf(
 					"lsw kinds",
+					{
+						kind: "specification",
+						name: "every kind of live, stale and wild value drawn, none touched in printing"
+					},
 					boundaryValue,
 					required(DRAWN_FEATURES, { cases: 600, sense: notesOnly }),
 					600
@@ -811,16 +884,24 @@ describe("live, stale and wild values", () => {
 	it.effect("shrink any case toward the simplest live value", (ctx) =>
 		searched(
 			ctx,
-			explore(searchOf("lsw shrink", seeds, noCoverage, 40), (seed) =>
-				Effect.gen(function* () {
-					const shrunk = yield* shrink(
-						boundaryValue,
-						fresh(boundaryValue, seed),
-						() => Effect.succeed(true),
-						completeShrink
-					)
-					deepStrictEqual(shrunk.best.failure, { kind: "live", value: 0 })
-				})
+			explore(
+				searchOf(
+					"lsw shrink",
+					{ kind: "specification", name: "the simplest live value, as lsw orders its arms" },
+					seeds,
+					noCoverage,
+					40
+				),
+				(seed) =>
+					Effect.gen(function* () {
+						const shrunk = yield* shrink(
+							boundaryValue,
+							fresh(boundaryValue, seed),
+							() => Effect.succeed(true),
+							completeShrink
+						)
+						deepStrictEqual(shrunk.best.failure, { kind: "live", value: 0 })
+					})
 			)
 		)
 	)
@@ -938,11 +1019,19 @@ describe("a pattern", () => {
 	it.effect("generates only strings it matches", (ctx) =>
 		searched(
 			ctx,
-			explore(searchOf("matching", element(PATTERNS), noCoverage, 200), (pattern, c) =>
-				Effect.sync(() => {
-					const text = c.draw(matching(pattern))
-					assertTrue(pattern.test(text), `${text} matches ${pattern.source}`)
-				})
+			explore(
+				searchOf(
+					"matching",
+					{ kind: "universal", name: "the pattern's own RegExp accepts every string it generates" },
+					element(PATTERNS),
+					noCoverage,
+					200
+				),
+				(pattern, c) =>
+					Effect.sync(() => {
+						const text = c.draw(matching(pattern))
+						assertTrue(pattern.test(text), `${text} matches ${pattern.source}`)
+					})
 			)
 		)
 	)
@@ -973,7 +1062,13 @@ describe("a wide whole number", () => {
 		searched(
 			ctx,
 			explore(
-				searchOf("wide ints", boundsOf(int(-(2 ** 50), 2 ** 50)), noCoverage, 200),
+				searchOf(
+					"wide ints",
+					{ kind: "specification", name: "lo ≤ value ≤ hi, as int states" },
+					boundsOf(int(-(2 ** 50), 2 ** 50)),
+					noCoverage,
+					200
+				),
 				([lo, hi], c) =>
 					Effect.sync(() => {
 						const value = c.draw(int(lo, hi))

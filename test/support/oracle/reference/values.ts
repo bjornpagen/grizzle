@@ -50,7 +50,7 @@ export class Declined {
  * Values of the reference evaluator: exact carriers under PostgreSQL's native equality and order, each in its one form.
  *
  * A value is the exact carrier the Compute evaluators work over (compute/literal.ts CarrierValue): an integer as bigint,
- * numeric as Decimal, a float as a double, money as Money, booleans, text, uuids and enum handles as strings. Every
+ * numeric as Decimal, a float as a double, money as Money, booleans, text, uuids and closed ids' handles as strings, sets as Sets of handles. Every
  * value is the one form grizzle delivers: a Decimal has no display scale, and every float the reference holds has the
  * one zero, at its literal and at every operation result (evaluate/catalog.ts oneZero, aggregate.ts). A value stored
  * in, cast to or read through a column of a numeric(p, s) type is coerced as PostgreSQL's typmod coercion does, so
@@ -153,6 +153,14 @@ export const coerce = (v: Value, type: ScalarType): Value => {
 	return normalized.value
 }
 
+/** A set's members in its roster's declared order; a value that is no Set of handles is a defect of the case. */
+const setMembers = (v: Value, handles: ReadonlyArray<string>): ReadonlyArray<string> => {
+	if (!(v instanceof Set)) {
+		throw referenceUnsupported("a set value that is no Set of handles")
+	}
+	return Arr.filter(handles, (h) => v.has(h))
+}
+
 /** The value of a typed literal of `type`, as a typed SQL literal of that type evaluates. */
 export const literalOf = (literal: TypedLiteral, type: ScalarType): Value =>
 	coerce(literalValue(literal), type)
@@ -209,8 +217,13 @@ export const valueKey = (v: Value, type: ScalarType): string => {
 			return v === true ? "t" : "f"
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
 			return `x${asString(v)}`
+		case "bits":
+			return `b${Arr.join(
+				Arr.map(setMembers(v, base.roster.handles), (h) => `${h.length}:${h}`),
+				""
+			)}`
 		case "range4":
 		case "range8": {
 			const { start, end } = asSpan(v)
@@ -224,9 +237,9 @@ export const valueKey = (v: Value, type: ScalarType): string => {
 /**
  * A value's identity under native equality where it decides equality exactly as comparison does, for the evaluator's
  * hash lookups: the value is its type's carrier, and the type's comparison is 0 for exactly the values of one identity.
- * Otherwise undefined, and only comparison decides: a value of another carrier, whose comparison refuses, and an enum
- * handle outside its roster, which compares equal to every other such handle. A vector holds the one zero, so pgvector's
- * order is 0 exactly between vectors of one canonical text.
+ * Otherwise undefined, and only comparison decides: a value of another carrier, whose comparison refuses, and a closed
+ * id's handle outside its roster, which compares equal to every other such handle. A set is equal exactly to the set
+ * of its members. A vector holds the one zero, so pgvector's order is 0 exactly between vectors of one canonical text.
  */
 export const indexKey = (v: Value, type: ScalarType): string | undefined => {
 	if (v instanceof Declined) {
@@ -252,10 +265,12 @@ export const indexKey = (v: Value, type: ScalarType): string | undefined => {
 		case "uuid":
 		case "text":
 			return typeof v === "string" ? valueKey(v, type) : undefined
-		case "enum":
+		case "code":
 			return typeof v === "string" && base.roster.handles.includes(v)
 				? valueKey(v, type)
 				: undefined
+		case "bits":
+			return v instanceof Set ? valueKey(v, type) : undefined
 		case "range4":
 		case "range8":
 			return typeof v === "object" && "start" in v ? valueKey(v, type) : undefined
@@ -420,8 +435,10 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 			return { kind: "text", value: asString(v) }
 		case "uuid":
 			return { kind: "uuid", value: asString(v) }
-		case "enum":
-			return { kind: "enum", handle: asString(v) }
+		case "code":
+			return { kind: "handle", handle: asString(v) }
+		case "bits":
+			return { kind: "handles", handles: setMembers(v, base.roster.handles) }
 		case "range4":
 		case "range8": {
 			const { start, end } = asSpan(v)

@@ -1,25 +1,33 @@
+import * as Grizzle from "#index.ts"
 import {
-	type Capacity,
-	capacity,
+	type Check,
+	check,
 	closedId,
+	type Counted,
+	counted,
+	type Fin,
+	fin,
 	type Mirrors,
 	mirrors,
 	on,
-	ref,
 	relation,
 	type Side,
 	select,
-	uuid,
-	weigh,
-	within
+	uuid
 } from "#index.ts"
-import { Claim, Kind, Pool, Task } from "#test/types/api/fixtures/schema.ts"
+import {
+	Claim,
+	type claimsWithinSeats,
+	Kind,
+	Pool,
+	type poolClaims,
+	Task
+} from "#test/types/api/fixtures/schema.ts"
 import type { Equals, Expect } from "#test/types/api/support.ts"
 
 /**
- * Capacity and mirrors laws: a mirrors statement's sides join position by position, by
- * host type and PostgreSQL type, and a capacity's rule takes a source side, an optional weight and a bound of bigint
- * literals or field references. Every `@ts-expect-error -- TSnnnn` names the diagnostic the harness requires on the
+ * Mirrors and count laws: a mirrors statement's sides join position by position, by host type and PostgreSQL type, and
+ * a count is a counted family over its owner's drawn count bounded by row checks (fin §6), no capacity statement. Every `@ts-expect-error -- TSnnnn` names the diagnostic the harness requires on the
  * next line.
  *
  * A mirrors statement keeps both sides' sources and fields in its type.
@@ -56,40 +64,27 @@ export const badSelection = mirrors(
 	on(TaskKind, "task")
 )
 
-/** A capacity keeps its target and source sides; the bound is bigint literals or references, and the weight a field. */
-export const seats = capacity(on(Pool, "id"), {
-	from: on(Claim, "pool"),
-	within: within(0n, ref("seats"))
-})
-
-export type SeatsCapacity = Expect<
-	Equals<
-		typeof seats,
-		Capacity<Side<typeof Pool, readonly ["id"]>, Side<typeof Claim, readonly ["pool"]>>
-	>
+/**
+ * A count law is a counted family and a row check, each keeping what it names in its type: the family its member side
+ * and its owner's slots, the check its name and relation.
+ */
+export type ClaimsFamily = Expect<
+	Equals<typeof poolClaims, Counted<Side<typeof Claim, readonly ["pool"]>, Fin<typeof Pool, "claims">>>
 >
-
-export const atLeastOne = capacity(on(Pool, "id"), {
-	from: on(Claim, "pool"),
-	within: within(1n, "*")
-})
-
-export const weighed = capacity(on(Pool, "id"), {
-	from: on(Claim, "pool"),
-	weight: weigh("seats"),
-	within: within(2n)
-})
-// @ts-expect-error -- TS2345: a bound is a bigint, never a JavaScript number
-export const numberBound = within(1)
-// @ts-expect-error -- TS2345: an upper bound is a bigint, a reference, or "*"
-export const openBound = within(0n, "inf")
-// @ts-expect-error -- TS2741: a capacity's rule states its bound
-export const unbounded = capacity(on(Pool, "id"), { from: on(Claim, "pool") })
-export const perWindow = capacity(on(Pool, "id"), {
-	from: on(Claim, "pool"),
-	within: within(1n),
-	// @ts-expect-error -- TS2353: a capacity has no option beyond its source, weight and bound
-	per: "day"
-})
-// @ts-expect-error -- TS2345: a weight names a field or a span duration
-export const numericWeight = weigh(2)
+export type ClaimsCheck = Expect<
+	Equals<typeof claimsWithinSeats, Check<"ClaimsWithinSeats", typeof Pool>>
+>
+export const atLeastOne = check("AtLeastOneClaim", Pool, (p) => p.claims.ge(1n))
+// @ts-expect-error -- TS2345: fin's count is a drawn natural of its owner
+export const seatSlots = fin(Pool, "seats")
+// @ts-expect-error -- TS2345: a counted family's member side is a relation's
+export const unslotted = counted(on(Claim, "pool"), on(Pool, "id"))
+/** capacity, its bound and its weight are no part of the public API. */
+// @ts-expect-error -- TS2339: capacity is gone, a counted family and a row check in its place
+export const noCapacity = Grizzle.capacity
+// @ts-expect-error -- TS2339: within is gone, a row check on the count in its place
+export const noWithin = Grizzle.within
+// @ts-expect-error -- TS2339: weigh is gone, a sum fold in its place
+export const noWeigh = Grizzle.weigh
+// @ts-expect-error -- TS2339: ref is gone, a row check reads the field
+export const noRef = Grizzle.ref

@@ -4,7 +4,7 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/ir/payroll.ts"
-import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
+import { installationOf } from "#test/support/kernel/naming.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
 describe("payroll declarations the compiler refuses", () => {
@@ -23,7 +23,7 @@ describe("payroll declarations the compiler refuses", () => {
 describe("fixture queries", () => {
 	it("delivers runStages as four heading groups, never a padded union", () => {
 		const lowered = lowerConservative(P.payrollQueries.runStages(), {
-			names: productionNames("fixture", { kind: "declared" }, localVectorSchema),
+			names: installationOf(P.PayrollDesc, { kind: "declared" }).names,
 			params: [],
 			subject: { kind: "query" }
 		})

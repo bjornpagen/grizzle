@@ -37,12 +37,17 @@ export type ExprId = string & { readonly [exprIdBrand]: true }
 export type IdentityKind =
 	| "schema"
 	| "table"
-	| "enum"
 	| "view"
 	| "column"
+	| "decodedColumn"
 	| "lawColumn"
 	| "contractDomain"
 	| "textDomain"
+	| "rosterDomain"
+	| "rosterConstant"
+	| "rosterLive"
+	| "bitsDomain"
+	| "closedConstant"
 	| "sequence"
 	| "advance"
 	| "primaryKey"
@@ -58,8 +63,6 @@ export type IdentityKind =
 	| "derivedKey"
 	| "law"
 	| "patternLaw"
-	| "lawFunction"
-	| "lawTrigger"
 	| "login"
 	| "role"
 	| "roleSchema"
@@ -77,7 +80,6 @@ export type IdentityKind =
 	| "snapshotGuard"
 	| "aside"
 	| "swap"
-	| "rebuild"
 
 declare const identifierBrand: unique symbol
 /**
@@ -94,8 +96,11 @@ type RaisedLawKind = "law" | "patternLaw"
  * (types/changeset Law).
  */
 export type LawId = Identifier<RaisedLawKind>
-/** The table, enum type or materialized view of a relation, or a role relation's view, which a role reads it through. */
-export type RelationIdent = Identifier<"table" | "enum" | "view" | "roleView">
+/**
+ * The table of a stored relation, the domain of a roster, the materialized view of a derived relation, or a role
+ * relation's view, which a role reads it through.
+ */
+export type RelationIdent = Identifier<"table" | "rosterDomain" | "view" | "roleView">
 /** The column of a field, a derived view's head name, or a law column. */
 export type ColumnIdent = Identifier<"column" | "lawColumn">
 /**
@@ -116,17 +121,8 @@ export type ConstraintName = Identifier<
 >
 /** A non-unique access index the index engine creates. */
 export type IndexName = Identifier<"accessIndex">
-/** A contract's domain or a structural text domain. */
-export type DomainName = Identifier<"contractDomain" | "textDomain">
-/** A residual law unit's constraint trigger, on one table for one event. */
-export type TriggerName = Identifier<"lawTrigger">
-/** A residual law unit's function, which that unit's trigger alone executes. */
-export type LawFunctionName = Identifier<"lawFunction">
-/**
- * An installed object a template premise names: a constraint or unique index, or a residual law's function
- * (laws/model/catalog.ts enforcement).
- */
-export type PremiseObject = ConstraintName | LawFunctionName
+/** A contract's domain, a structural text domain, a roster's domain, or a set's domain over a roster. */
+export type DomainName = Identifier<"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain">
 export type ProgramFingerprint = string & { readonly [programFingerprintBrand]: true }
 export type SchemaFingerprint = string & { readonly [schemaFingerprintBrand]: true }
 

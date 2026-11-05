@@ -157,6 +157,12 @@ export const sameExpr = (x: ScalarExpr, y: ScalarExpr): boolean => {
 			return y.kind === "op" && x.op === y.op && sameArgs()
 		case "cast":
 			return y.kind === "cast" && x.cast === y.cast && sameArgs()
+		case "closedAt":
+			return y.kind === "closedAt" && x.relation === y.relation && x.field === y.field && sameArgs()
+		case "closedRow":
+			return y.kind === "closedRow" && x.relation === y.relation && sameArgs()
+		case "closedHas":
+			return y.kind === "closedHas" && x.relation === y.relation && sameArgs()
 		case "value":
 		case "domainCast":
 		case "cond":

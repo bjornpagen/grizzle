@@ -37,13 +37,13 @@ import {
 	requireName
 } from "#compiler/schema/protocol.ts"
 import { record, roleRelations } from "#compiler/schema/record.ts"
-import { derivedDraftOf, relationDescOf } from "#compiler/schema/relation.ts"
+import { derivedDraftOf, relationDescOf, writingOf } from "#compiler/schema/relation.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import type { AnyDerived, DefinitionQuery } from "#compiler/types/derived/derived.ts"
-import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
+import type { AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type {
 	AnyLogin,
@@ -69,14 +69,16 @@ export const roleDescOf = (value: unknown): RoleDesc | undefined => ownedDesc(va
 
 /**
  * A role as a level (write/changeset/levels.ts): its Description; its identity, the canonical text of that Description
- * with source locations left out, so two roles are one level exactly when their identities are equal; and whether it is
- * full, holding every relation of every level of its base whole under its own name. Each is read once, when role(...)
- * builds the role.
+ * with source locations left out, so two roles are one level exactly when their identities are equal; whether it is
+ * full, holding every relation of every level of its base whole under its own name; every relation of every level of
+ * its base by name (levelRelations); and its entries by name. Each is read once, when role(...) builds the role.
  */
 export interface RoleLevel {
 	readonly desc: RoleDesc
 	readonly identity: Result.Result<string, CompileError>
 	readonly full: boolean
+	readonly relations: ReadonlyMap<string, RelationDesc>
+	readonly entries: ReadonlyMap<string, RoleEntryDesc>
 }
 
 /** The level of each role role(...) built. A WeakMap holds nothing alive and is never enumerated. */
@@ -113,7 +115,7 @@ export const admitContext = (
 	const descs: Record<string, FieldDesc> = {}
 	for (const [field, descriptor] of Object.entries(fields)) {
 		const desc = describedField(descriptor, `${label} field ${field}`).desc
-		if (!contextFieldAdmits(desc)) {
+		if (!contextFieldAdmits(desc) || writingOf(descriptor).kind !== "caller") {
 			throw CompileError.make({
 				_tag: "ContextRefused",
 				at: builderLoc(`${label} field ${field}`, []),
@@ -185,12 +187,17 @@ const statementNames = (desc: StatementDesc): ReadonlyArray<string> => {
 			return [desc.relation]
 		case "contained":
 			return [desc.left.relation, desc.right.relation]
-		case "capacity":
-			return [desc.target.relation, desc.from.relation]
+		case "family":
+		case "tree":
+			return [desc.member.relation, desc.slots.owner]
+		case "fold":
+			return [desc.step.relation, desc.end.relation]
+		case "alternatives":
+			return [desc.parent.relation, desc.roster, ...desc.arms.map((a) => a.arm.relation)]
 	}
 }
 
-/** The relation names a statement value names: a mirrors' or an alternatives law's whole expansion, or its own. */
+/** The relation names a statement value names: a mirrors' whole expansion, or its own. */
 const namesOf = (value: unknown): ReadonlyArray<string> => {
 	const expansion = expansionDescOf(value)
 	if (expansion !== undefined) {
@@ -337,7 +344,11 @@ export const admitRole = (
 			continue
 		}
 		if (kind !== "world") {
-			throw roleRefused(`${label} write`, { kind: "writeKind", name: w, entryKind: kind })
+			throw roleRefused(`${label} write`, {
+				kind: "writeKind",
+				name: w,
+				entryKind: kind === "closedRelation" ? "closed" : kind
+			})
 		}
 		const entry = entries.find((e) => e.name === w)
 		if (entry?.kind !== "world") {
@@ -360,7 +371,11 @@ export const admitRole = (
 				`${label} refresh`,
 				kind === undefined
 					? { kind: "refreshOutside", name: f }
-					: { kind: "refreshKind", name: f, entryKind: kind === "world" ? "query" : kind }
+					: {
+							kind: "refreshKind",
+							name: f,
+							entryKind: kind === "world" ? "query" : kind === "closedRelation" ? "closed" : kind
+						}
 			)
 		}
 	}
@@ -398,7 +413,7 @@ const world = <const K extends string, Q extends DefinitionQuery>(
 }
 
 /** Whether an entry value is a relation of the base, whole: a value the relation builders made. */
-const isWhole = (value: EntryValue): value is AnyRelation | AnyClosed | AnyDerived => {
+const isWhole = (value: EntryValue): value is AnyRelation | AnyRoster | AnyDerived => {
 	const kind = ownedKind(value)
 	return kind === "relation" || kind === "closed" || kind === "derived"
 }
@@ -480,12 +495,15 @@ export const role = <
 		"role",
 		admitted.desc
 	)
+	const levels = levelRelations(admitted.desc.base)
 	roleLevels.set(
 		value,
 		Object.freeze({
 			desc: admitted.desc,
 			identity: descText(admitted.desc),
-			full: [...levelRelations(admitted.desc.base).keys()].every((n) => admitted.whole.has(n))
+			full: [...levels.keys()].every((n) => admitted.whole.has(n)),
+			relations: levels,
+			entries: new Map(admitted.desc.relations.map((e) => [e.name, e]))
 		})
 	)
 	return value

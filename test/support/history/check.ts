@@ -1,13 +1,13 @@
 import { Array as Arr, Formatter, Option } from "effect"
 import type { TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { expectFor } from "#test/support/history/model.ts"
 import {
 	collide,
 	type Expected,
 	type HostFact,
 	type HostSchema,
 	type HostState,
-	isResidual,
 	type HostOp,
 	projection,
 	relationOf,
@@ -18,8 +18,7 @@ import {
 	type StateRows,
 	stateRows,
 	violations
-} from "#test/pg/laws/families/model.ts"
-import { expectFor } from "#test/support/history/model.ts"
+} from "#test/support/laws/model.ts"
 
 export interface WitnessKey {
 	readonly relation: string
@@ -42,14 +41,15 @@ const concurrentReasons = [
 export type DirectAbort = { readonly kind: "serialization failure" } | { readonly kind: "deadlock" }
 
 /**
- * How an operation took its place: committed, with or without a change, or refused by a law. A grizzle operation always
- * ends so: its writer calls again after each TransientFailure until a call answers (runGrizzle).
+ * How an operation took its place: committed, with or without a change, or refused by the laws of one constraint, one
+ * law or the several merged into one foreign key (fin.md §15 rule 3). A grizzle operation always ends so: its writer
+ * calls again after each TransientFailure until a call answers (runGrizzle).
  */
 export type Settled =
 	| { readonly kind: "accepted" | "no-change" }
 	| {
 			readonly kind: "invariant-rejected"
-			readonly law: LawId
+			readonly laws: Arr.NonEmptyReadonlyArray<LawId>
 			readonly keys: ReadonlyArray<WitnessKey>
 	  }
 
@@ -112,7 +112,7 @@ const describeOutcome = (o: Outcome): string => {
 		case "no-change":
 			return o.kind
 		case "invariant-rejected":
-			return `invariant-rejected by ${o.law}${o.keys.length === 0 ? "" : ` at ${show(o.keys)}`}`
+			return `invariant-rejected by ${Arr.join(o.laws, ", ")}${o.keys.length === 0 ? "" : ` at ${show(o.keys)}`}`
 		case "aborted":
 			return `aborted: ${o.cause.kind}`
 	}
@@ -166,7 +166,7 @@ const abortProblem = (h: History, r: Recorded): string | undefined => {
  * Why the outcome of `r` is not what `expected` admits at its place, or undefined when it is. A direct writer cannot
  * tell an unchanged state from a change; it only commits.
  */
-const departure = (h: History, r: Recorded, expected: Expected): string | undefined => {
+const departure = (r: Recorded, expected: Expected): string | undefined => {
 	const o = r.outcome
 	if (o.kind !== "invariant-rejected") {
 		if (expected.kind === "invariant-rejected") {
@@ -178,16 +178,18 @@ const departure = (h: History, r: Recorded, expected: Expected): string | undefi
 		return `${o.kind}, where the model says ${expected.kind}`
 	}
 	if (expected.kind !== "invariant-rejected") {
-		return `refused by ${o.law}, which this state does not violate`
+		return `refused by ${Arr.join(o.laws, ", ")}, which this state does not violate`
 	}
-	const found = Arr.findFirst(expected.violations, (v) => v.law === o.law)
+	const found = Arr.findFirst(expected.violations, (v) => o.laws.includes(v.law))
 	if (Option.isNone(found)) {
-		return `refused by ${o.law}, which this state does not violate; violated: ${show(expected.violations)}`
+		return `refused by ${Arr.join(o.laws, ", ")}, none of which this state violates; violated: ${show(expected.violations)}`
 	}
 	const violation = found.value
-	/** A native violation a direct writer meets is stated in prose only; every other names its violators. */
-	const native = Arr.some(h.host.laws, (l) => l.law === o.law && !isResidual(l))
-	const named = violation.violators.length > 0 && !(r.kind === "direct" && native)
+	/**
+	 * Every law is native (fin.md §7): a violation a direct writer meets is stated in prose only, and a grizzle writer's
+	 * names its violators where the host's witness does, a key's.
+	 */
+	const named = violation.violators.length > 0 && r.kind !== "direct"
 	if (!named) {
 		return o.keys.length === 0 ? undefined : `a witness that names no key carries ${show(o.keys)}`
 	}
@@ -226,9 +228,11 @@ const unseenOccupant = (
 	if (r.kind !== "direct" || r.outcome.kind !== "invariant-rejected") {
 		return false
 	}
-	const refused = r.outcome.law
+	const refused = r.outcome.laws
 	const found = Arr.findFirst(h.host.laws, (l) =>
-		(l.kind === "key" || l.kind === "spanKey") && l.law === refused ? Option.some(l) : Option.none()
+		(l.kind === "key" || l.kind === "spanKey") && refused.includes(l.law)
+			? Option.some(l)
+			: Option.none()
 	)
 	if (Option.isNone(found)) {
 		return false
@@ -277,7 +281,7 @@ const placeAt = (
 	| { readonly ok: true; readonly after: HostState }
 	| { readonly ok: false; readonly why: string } => {
 	const expected = expectFor(r.kind, h.host, state, r.ops)
-	const why = departure(h, r, expected)
+	const why = departure(r, expected)
 	if (why === undefined) {
 		return { ok: true, after: expected.kind === "invariant-rejected" ? state : expected.state }
 	}

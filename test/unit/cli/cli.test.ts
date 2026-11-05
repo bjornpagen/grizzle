@@ -48,13 +48,14 @@ import {
 } from "#compiler/deploy/render/folder.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import { closedId, uuid } from "#compiler/public/fields.ts"
 import { closed, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { ownLogin } from "#compiler/schema/own.ts"
+import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { defineConfig } from "#index.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
@@ -81,7 +82,7 @@ import {
 	refusedAt,
 	succeeded
 } from "#test/support/assert.ts"
-import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import { compileTestWorkload, firstCodes, testCompile } from "#test/support/compile.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { atDeclaredName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -89,6 +90,7 @@ import {
 	compile,
 	fromEmpty,
 	generate,
+	noDeclarations,
 	parsedMigrationName,
 	unowned
 } from "#test/support/migrate/kit.ts"
@@ -336,7 +338,7 @@ const meaningOf = (line: GrammarLine): CommandLine => {
 	return {
 		kind: "run",
 		config: line.config,
-		command: { kind: "generate", mode, schema: line.schema }
+		command: { kind: "generate", mode, schema: line.schema, declared: noDeclarations }
 	}
 }
 
@@ -810,17 +812,24 @@ const directDraft = (name: string, timestamp: string, fixture: "shop" | "ledger"
 	const installation = succeeded(
 		compileInstallation(
 			owned,
-			completeInstallOptions(owned, owned.installation, logins, [workloadExtension(plan)])
+			completeInstallOptions(
+				owned,
+				owned.installation,
+				logins,
+				[workloadExtension(plan)],
+				firstCodebook(rostersOf(owned))
+			)
 		)
 	)
-	assert.deepEqual(installation.deferred, { residualLaws: [], derivedRelations: [] })
+	assert.deepEqual(installation.deferred, { derivedRelations: [] })
 	return succeeded(
 		generate({
 			installation,
 			name: "init",
 			timestamp,
 			workload: { access: plan.access, accessPaths: plan.requests },
-			previous: fromEmpty
+			previous: fromEmpty,
+			declared: noDeclarations
 		})
 	)
 }
@@ -828,12 +837,18 @@ const directDraft = (name: string, timestamp: string, fixture: "shop" | "ledger"
 /** A schema whose closed relation carries a refined text payload: a slug. */
 const tierSchema = (name: string) => {
 	const Slug = str.regex("^[a-z][a-z0-9-]*$")
-	const Tier = closed("Tier", ["Free", "Pro"]).with(
-		{ label: Slug },
-		{ Free: { label: "free" }, Pro: { label: "pro-plan" } }
+	const Tier = closed("Tier", ["Free", "Pro"])
+	const TierLabel = closed.relation(
+		"TierLabel",
+		{ tier: closedId(Tier), label: Slug },
+		["tier"],
+		[
+			{ tier: "Free", label: "free" },
+			{ tier: "Pro", label: "pro-plan" }
+		]
 	)
 	const Article = relation("Article", { id: uuid, slug: Slug }, ["id"])
-	return schema(name, { Tier, Article }, [])
+	return schema(name, { Tier, TierLabel, Article }, [])
 }
 
 layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it) => {
@@ -959,9 +974,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 			}
 			const snapshotText = yield* read(join(dir, snapshotFileName))
 			assert.equal(snapshotText, expected.snapshotText)
-			/** The residual law's function and the derived relation's view are drafted with the rest. */
+			/** The derived relation's view is drafted with the rest. */
 			const kinds = Arr.map(expected.snapshot.manifest.objects, (o) => o.kind)
-			contains(kinds, "lawFunction")
 			contains(kinds, "materializedView")
 		})
 	)
@@ -992,7 +1006,8 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 						name: "init",
 						timestamp: "20261012120000",
 						previous: fromEmpty,
-						workload: noWorkload
+						workload: noWorkload,
+						declared: noDeclarations
 					})
 				)
 				const folderEntries = yield* ls(folder)
@@ -1017,12 +1032,14 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 						installation: compile(tierSchema("GenTier"), {
 							schema: atDeclaredName,
 							owner: unowned,
-							extensions: []
+							extensions: [],
+							codes: firstCodes
 						}),
 						name: "admission",
 						timestamp: "20000101000000",
 						previous: fromEmpty,
-						workload: noWorkload
+						workload: noWorkload,
+						declared: noDeclarations
 					})
 				)
 				assert.equal(derived.snapshot.fingerprint, snapshot.fingerprint)
@@ -1264,7 +1281,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it
 				yield* write(join(ws, shopDirectory("NameShop"), "stray.txt"), "")
 				const refused = yield* cli(ws, ["migrate", configName], nextNow())
 				assert.equal(refused.code, 1)
-				const refusal = Arr.join(refused.stderr, "\n")
+				const refusal = refused.stderr
 				containsText(
 					refusal,
 					"refused at stage config: connection.transport.port",

@@ -1,16 +1,6 @@
 import { Array as Arr, Effect } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { type AnyRelation, contained } from "#compiler/public/schema.ts"
-import { booleans, type Family, hostRelation, noTraits } from "#test/pg/laws/families/families.ts"
-import {
-	everyFact,
-	fieldsEqual,
-	type HostLaw,
-	type HostSchema,
-	type HostSelection,
-	type HostSide
-} from "#test/pg/laws/families/model.ts"
-import { openWriter, runtimeSession } from "#test/pg/laws/families/support.ts"
 import {
 	Assignment,
 	Badge,
@@ -67,12 +57,22 @@ import {
 	watchTicket
 } from "#test/pg/laws/projections/schemas.ts"
 import { type LawNames, lawNamesOf } from "#test/support/kernel/naming.ts"
+import { booleans, type Family, hostRelation, noTraits } from "#test/support/laws/boxes.ts"
+import {
+	everyFact,
+	fieldsEqual,
+	type HostLaw,
+	type HostSchema,
+	type HostSelection,
+	type HostSide
+} from "#test/support/laws/model.ts"
+import { openWriter, runtimeSession } from "#test/support/laws/support.ts"
 
 /**
  * The partial-projection families of the projection suites (source.test.ts, mirrors.test.ts), over the schemas
  * schemas.ts owns.
  *
- * Each family states its schemas to the host (model.ts), as families.ts does: a selected side is a HostSide whose
+ * Each family states its schemas to the host (model.ts), as laws/boxes.ts does: a selected side is a HostSide whose
  * `where` holds exactly the facts its predicate holds of over the family's domains, and every law is native, so a
  * refusal names no violator. PostgreSQL refuses a key's violation with 23505 at its statement, and a foreign key's with
  * 23503, at its statement or, deferred, at COMMIT.

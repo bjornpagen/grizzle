@@ -302,7 +302,19 @@ describe("a fragment's dependency table", () => {
 							cases: 400,
 							sense: notesOnly
 						}),
-						kept: [],
+						kept: [
+							{
+								note: "a dependency that reads the point an immediate rule pins and derives that span's column: the row's proof holds the pin, so it is immediate, never the dependency's query-local context alone",
+								sketch: {
+									heading: ["a", "b", "c", "d", "e"],
+									deps: [{ from: [], at: ["c"], to: ["c"], context: "queryLocal" }],
+									pins: [{ from: [], span: "c", context: "immediate" }],
+									identity: [[[["c"]]]]
+								},
+								draws: "",
+								reaches: ["identified"]
+							}
+						],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,

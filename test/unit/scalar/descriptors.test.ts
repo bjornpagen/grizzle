@@ -40,7 +40,7 @@ import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
-import { assert, defined, lacks, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { assert, defined, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
 import {
 	contractDescriptor,
 	fieldIdentity,
@@ -621,7 +621,7 @@ describe("span endpoint eligibility", () => {
 
 describe("serial family", () => {
 	it.effect(
-		"is a generation declaration over its integer type, discriminated from IntegerLike",
+		"is a way of writing its integer type: its writing serial, its type and Description its integer's",
 		(ctx) =>
 			searched(
 				ctx,
@@ -651,14 +651,11 @@ describe("serial family", () => {
 					([field, carrier, plain], c) =>
 						Effect.sync(() => {
 							c.note(carrier)
-							assert.equal(field.generated, "always")
+							assert.equal(field.writing, "serial")
 							const t = scalarOf(field)
-							assert.ok("serial" in t)
-							assert.equal(t.serial, "always")
 							assert.equal(t.carrier, carrier)
-							lacks(t.caps, "spanEndpoint")
-							assert.ok(!("serial" in scalarOf(plain)), "the plain type is no serial")
-							assert.notEqual(identityOf(field), identityOf(plain))
+							assert.deepEqual(t, scalarOf(plain), "a serial field's type is its integer's")
+							assert.deepEqual(descOf(field), descOf(plain), "and its Description")
 						})
 				)
 			)
@@ -706,7 +703,7 @@ describe("closedId", () => {
 						const roster = closed(name, listed)
 						const field = admittedClosedId(roster)
 						assert.equal(field.roster, roster)
-						assert.equal(field.sql, carrierSql.enum)
+						assert.equal(field.sql, carrierSql.code)
 						assert.deepEqual(
 							descOf(field),
 							succeeded(describeField(admittedClosedId(roster), SourceLoc("again", []))).desc

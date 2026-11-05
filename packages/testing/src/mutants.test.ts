@@ -8,12 +8,21 @@ import {
 	Formatter,
 	Option,
 	Record as Rec,
+	Result,
 	String as Str
 } from "effect"
 import { drawn, explore } from "#explore.ts"
 import { required } from "#features.ts"
 import { array, element, type Gen, int, shuffled } from "#gen.ts"
-import { applied, mutantsOf, type Operator } from "#mutants.ts"
+import {
+	applied,
+	type Family,
+	type KeptMutant,
+	keptApplied,
+	mutantsOf,
+	noFamilies,
+	type Operator
+} from "#mutants.ts"
 import { notesOnly } from "#sense.ts"
 import { searched } from "#vitest/searched.ts"
 
@@ -39,7 +48,9 @@ const SHAPES = [
 	"array",
 	"pipe",
 	"effect-fn",
-	"option-some"
+	"option-some",
+	"loose",
+	"negative"
 ] as const
 
 type Shape = (typeof SHAPES)[number]
@@ -102,6 +113,10 @@ const textOf = (statement: Statement, index: number): string => {
 			return `const ${v} = Effect.${statement.fn}(function* () {}, ${y}, ${z})`
 		case "option-some":
 			return `const ${v} = Option.some(${x})`
+		case "loose":
+			return `const ${v} = ${x} == ${y}`
+		case "negative":
+			return `if (${x} < -${n}) { return ${y} }`
 	}
 }
 
@@ -147,7 +162,8 @@ const expectedOf = (shape: Shape): Counts => {
 			return [
 				["quantifier", 1],
 				["comparison", 1],
-				["bound", 2]
+				["bound", 2],
+				["boolean-return", 2]
 			]
 		case "array":
 			return [["element", 2]]
@@ -157,6 +173,14 @@ const expectedOf = (shape: Shape): Counts => {
 			return [["pipe-stage", 2]]
 		case "option-some":
 			return []
+		case "loose":
+			return [["comparison", 1]]
+		case "negative":
+			return [
+				["comparison", 1],
+				["guard", 1],
+				["bound", 2]
+			]
 	}
 }
 
@@ -181,6 +205,10 @@ layer(NodeServices.layer)("source mutation", (it) => {
 				explore(
 					{
 						suite: "mutants",
+						oracle: {
+							kind: "specification",
+							name: "a table of the mutants each statement shape must yield"
+						},
 						draw: drawn(programGen),
 						literal: Formatter.format,
 						coverage: required<Shape>(SHAPES, { cases: 60, sense: notesOnly }),
@@ -195,7 +223,7 @@ layer(NodeServices.layer)("source mutation", (it) => {
 						Effect.gen(function* () {
 							c.noteAll(Arr.map(statements, (statement) => statement.shape))
 							const text = programOf(statements)
-							const mutants = yield* mutantsOf([{ file: "program.ts", text }])
+							const mutants = yield* mutantsOf([{ file: "program.ts", text }], noFamilies)
 							for (const mutant of mutants) {
 								strictEqual(mutant.source, text)
 								strictEqual(mutant.file, "program.ts")
@@ -224,6 +252,109 @@ layer(NodeServices.layer)("source mutation", (it) => {
 								counted(Arr.map(statements, (statement) => expectedOf(statement.shape))),
 								"the program's operators are its statements'"
 							)
+						})
+				)
+			)
+	)
+
+	it.effect("adds a family's mutants in the files it applies to, each edit once", () =>
+		Effect.gen(function* () {
+			const renaming: Family<"rename"> = {
+				operators: ["rename"],
+				applies: (file) => Str.startsWith("sql/")(file),
+				rules: [
+					(node, site) => {
+						if (site.source.kind !== node.kind && site.slice(node) === `"a"`) {
+							site.add("rename", site.span(node), `"b"`)
+						}
+					},
+					(node, site) => {
+						if (site.source.kind !== node.kind && site.slice(node) === `"a"`) {
+							site.add("rename", site.span(node), `"b"`)
+						}
+					}
+				]
+			}
+			const text = `export const name = "a"\n`
+			const mutants = yield* mutantsOf(
+				[
+					{ file: "sql/print.ts", text },
+					{ file: "src/other.ts", text }
+				],
+				[renaming]
+			)
+			deepStrictEqual(
+				Arr.map(
+					Arr.filter(mutants, (mutant) => mutant.operator === "rename"),
+					(mutant) => [mutant.file, applied(mutant)]
+				),
+				[["sql/print.ts", `export const name = "b"\n`]]
+			)
+		})
+	)
+
+	it.effect(
+		"applies a kept mutant at the one place its original stands, and finds it stale wherever it stands otherwise",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "kept mutants",
+						oracle: {
+							kind: "second-implementation",
+							name: "the text split at every place the original stands"
+						},
+						draw: drawn((source) => ({
+							parts: source.draw(array(element(["x", "y", "xy", " "]), { min: 0, max: 6 })),
+							original: source.draw(element(["x", "xy", "yx"]))
+						})),
+						literal: Formatter.format,
+						coverage: required<"applied" | "nowhere" | "repeated">(
+							["applied", "nowhere", "repeated"],
+							{
+								cases: 200,
+								sense: notesOnly
+							}
+						),
+						kept: [],
+						runs: 200,
+						shrink: { kind: "complete" },
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.seconds(30)
+					},
+					({ parts, original }, c) =>
+						Effect.sync(() => {
+							const text = Arr.join(parts, "")
+							const kept: KeptMutant = {
+								name: "the fix",
+								file: "a.ts",
+								original,
+								replacement: "<reverted>",
+								killers: ["a.test.ts"]
+							}
+							const places = Arr.filter(
+								Arr.range(0, text.length),
+								(at) => Str.slice(at, at + original.length)(text) === original
+							)
+							const result = keptApplied(kept, text)
+							if (places.length === 1) {
+								c.note("applied")
+								const [at = 0] = places
+								deepStrictEqual(
+									result,
+									Result.succeed(
+										`${Str.slice(0, at)(text)}<reverted>${Str.slice(at + original.length)(text)}`
+									)
+								)
+							} else {
+								c.note(places.length === 0 ? "nowhere" : "repeated")
+								deepStrictEqual(
+									Result.isFailure(result) ? Option.some(result.failure.found) : Option.none(),
+									Option.some(places.length)
+								)
+							}
 						})
 				)
 			)

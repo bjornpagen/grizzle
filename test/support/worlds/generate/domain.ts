@@ -1,5 +1,5 @@
 import { Array as Arr, Option, pipe, Record as Rec, String as Str } from "effect"
-import { hostSpan, isSpan } from "#test/pg/laws/families/model.ts"
+import { hostSpan, isSpan } from "#test/support/laws/model.ts"
 import { literalDefault } from "#test/support/worlds/model/host.ts"
 import type {
 	BaseSpec,

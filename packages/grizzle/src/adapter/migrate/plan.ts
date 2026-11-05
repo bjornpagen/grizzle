@@ -18,7 +18,7 @@ import {
 	type LedgerState,
 	type RecordedFolder
 } from "#compiler/deploy/ledger/ledger.ts"
-import { lossDecisions, lossText } from "#compiler/deploy/render/chosen.ts"
+import { lossDecisions, lossText } from "#compiler/deploy/render/folder.ts"
 import { findMarkers } from "#compiler/deploy/render/markers.ts"
 
 /**
@@ -54,10 +54,9 @@ type FolderRun =
  * The chain must end at the snapshot the application knows: after the last folder the latest target is that
  * snapshot's fingerprint, which is what admission then requires of the ledger. Folders that end
  * elsewhere, or a ledger at a target no folder leads from, are refused the same way. Finally every file that will run
- * is searched for unresolved markers, a placeholder value or a candidate rename, and one is
- * refused, with every marker found, before any statement runs; then every loss of stored data a folder that runs
- * drafts must be decided (render/chosen.ts lossDecisions), its statement written in or a candidate that carries the
- * data chosen, and an unresolved one is refused the same way.
+ * is searched for unresolved placeholders, and one is refused, with every marker found, before any statement runs;
+ * then every loss of stored data a folder that runs drafts must be decided (lossDecisions), its statement written in
+ * or left out, and an unresolved one is refused the same way.
  *
  * The files a run runs, in ordinal order.
  */

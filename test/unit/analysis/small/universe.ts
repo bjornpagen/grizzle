@@ -6,6 +6,7 @@ import type { KeySet } from "#compiler/ir/rel.ts"
 import type { LogicalEnv } from "#compiler/logical/annotate.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
+import { closedRelation, f, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { int4 } from "#test/support/oracle/gen/domain.ts"
 import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
@@ -96,17 +97,29 @@ export const contextsOf = (v: Variant): Arr.NonEmptyReadonlyArray<TemplateContex
 
 const int = (value: bigint): TypedLiteral => ({ kind: "int", value })
 
-/** The closed relation C: handles X and Y, payload a and b. */
+/** The closed relation C, keyed by a closed id of the roster CId of handles X and Y, with the payload a and b. */
 export const closedName = "C"
-const closedC: GenClosed = {
-	name: closedName,
+const rosterName = "CId"
+const rosterC: GenClosed = {
+	name: rosterName,
 	handles: ["X", "Y"],
-	payload: Arr.map(fieldNames, (field) => ({ name: field, type: int4 })),
-	rows: [
-		[{ kind: "enum", handle: "X" }, int(0n), int(0n)],
-		[{ kind: "enum", handle: "Y" }, int(0n), int(1n)]
-	]
+	/** A fresh installation's codes: X is 0 and Y is 1. */
+	codes: [
+		{ kind: "live", handle: "X" },
+		{ kind: "live", handle: "Y" }
+	],
+	payload: [],
+	rows: [[{ kind: "handle", handle: "X" }], [{ kind: "handle", handle: "Y" }]]
 }
+const closedC = closedRelation(
+	closedName,
+	{ id: f.closedId(rosterName), a: f.integer, b: f.integer },
+	["id"],
+	[
+		{ id: "X", a: 0, b: 0 },
+		{ id: "Y", a: 0, b: 1 }
+	]
+)
 
 /** The relation parameter P, a heading of one integer field a. */
 export const relationParam = "P"
@@ -123,24 +136,36 @@ const relationOf = (name: RelationName, keys: Variant["r"]): GenRelation => ({
 const genSchemaOf = (v: Variant): GenSchema => ({
 	name: "Small",
 	relations: [relationOf("R", v.r), relationOf("S", v.s)],
-	closed: [closedC],
+	closed: [rosterC],
 	containments:
 		v.containment === "none"
 			? []
 			: [{ from: { relation: "S", fields: ["b"] }, to: { relation: "R", fields: ["a"] } }]
 })
 
+/**
+ * The variant's Description: the generated schema's, which declares the roster CId, with the closed relation C over it,
+ * whose declared rows the checker reads into a query's Closed node.
+ */
+const descOf = (schema: GenSchema): SchemaDesc => {
+	const desc = schemaDesc(schema)
+	return { ...desc, relations: [...desc.relations, closedC] }
+}
+
 /** What one variant's installation gives the analyses, built once: its owned law model, as production builds it. */
 export interface Installed {
 	readonly variant: Variant
 	readonly schema: GenSchema
+	/** The schema's Description, as the checker reads it. */
+	readonly desc: SchemaDesc
 	readonly logical: (context: TemplateContext) => LogicalEnv
 	readonly physical: (context: TemplateContext) => PhysicalEnv
 }
 
 export const installed = (v: Variant): Installed => {
 	const schema = genSchemaOf(v)
-	const fixture = ownedFixture(schemaDesc(schema))
+	const desc = descOf(schema)
+	const fixture = ownedFixture(desc)
 	const theory = fixture.laws.theory
 	/** A containment held only at commit is committed-snapshot evidence, whatever native object enforces it. */
 	const containments: ReadonlyArray<ContainmentFact> = Arr.map(theory.evidence.containments, (c) =>
@@ -163,6 +188,7 @@ export const installed = (v: Variant): Installed => {
 	return {
 		variant: v,
 		schema,
+		desc,
 		logical: (context) => ({
 			context,
 			containments,

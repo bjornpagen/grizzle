@@ -35,7 +35,7 @@ import { pickGen, pickIndex } from "#test/support/pick.ts"
  * is given later, are kept each once, in the order first given. */
 const kinds = [
 	"schema",
-	"enum",
+	"constant",
 	"table",
 	"foreignKey",
 	"index",

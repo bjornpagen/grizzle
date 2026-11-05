@@ -109,9 +109,7 @@ const equalityOp = (t: ScalarType): ReadonlyArray<OpId> => {
 const typeIdentity = (t: ScalarType): ReadonlyArray<CoercionIdentity> => {
 	const base = baseOf(t)
 	const label: CoercionIdentity = `type:${typeLabel(t)}`
-	return base.carrier === "text" || base.carrier === "enum"
-		? [label, "collation:pg_catalog.pg_c_utf8"]
-		: [label]
+	return base.carrier === "text" ? [label, "collation:pg_catalog.pg_c_utf8"] : [label]
 }
 
 const columnTypes = (heading: Heading, columns: ReadonlyArray<string>): ReadonlyArray<ScalarType> =>
@@ -316,6 +314,9 @@ const valueRep = (given: ScalarExpr, locals: ReadonlySet<NodeId>): ValueRep => {
 		case "cast":
 		case "domainCast":
 		case "cond":
+		case "closedAt":
+		case "closedRow":
+		case "closedHas":
 			return e.deps.nodes.some((n) => locals.has(n))
 				? { kind: "unknown" }
 				: { kind: "fixed", fact: fixedFact(e, { kind: "expr" }, columnRefs(e)) }
@@ -936,7 +937,7 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 	const fds = new DependencyDraft(columns)
 	const fixed = new Map<string, FixedFacts>()
 	const rows = node.rows
-	const facts = withReason(justify({ premises: [nodePremise(node.id)], context: "descriptor" }), [
+	const facts = withReason(justify({ premises: [nodePremise(node.id)], context: "queryLocal" }), [
 		"finiteFacts"
 	])
 	const rowKeys = rows.map((r) => r.map((v) => nativeEqualityKey(v)).join("\u0000"))

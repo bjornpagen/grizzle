@@ -7,6 +7,7 @@ import { MissingCapability } from "#adapter/errors/failures.ts"
 import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type StatementNaming, unnamedNaming } from "#adapter/wire/naming.ts"
 import type { ViolationClassifier } from "#adapter/witness/classify.ts"
+import type { BindContext } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription, unsupported } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -43,6 +44,8 @@ export interface WriteEntry {
 	readonly readBacks: ReadBacks
 	/** The codecs of the program's declared parameters, which its read-backs read, built with the program. */
 	readonly codecs: ParamCodecs
+	/** What the ChangeSet's reads decoder binds under besides its layout: the role's (db/context.ts RoleContext). */
+	readonly bind: BindContext
 }
 
 /**
@@ -104,8 +107,9 @@ const writeEntry = (
 			names: role.artifacts.names,
 			violation: role.witness.classify,
 			naming: unnamedNaming,
-			readBacks: readBacks(program),
-			codecs: paramCodecs(program.params)
+			readBacks: readBacks(program, role.artifacts.names.codes),
+			codecs: paramCodecs(program.params, role.artifacts.names.codes),
+			bind: role.bind
 		})
 	)
 }

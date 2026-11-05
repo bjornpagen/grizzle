@@ -98,9 +98,9 @@ const readVerdicts = Effect.fn("readVerdicts")(function* (path: string) {
 
 /**
  * The triage verdicts at `path`, each keyed by the mutant id it judges. A verdict is a claim about one mutant of the
- * current population (operators.ts: the id digests the file, operator, enclosing function, original and replacement
- * text and ordinal), so a verdict whose id no current mutant has is refused: its code moved or changed, and the fault
- * it judged now has another id, which a run lists as untriaged.
+ * current population (@grizzle/testing/mutants: the id digests the file, operator, enclosing function, original and
+ * replacement text and ordinal), so a verdict whose id no current mutant has is refused: its code moved or changed,
+ * and the fault it judged now has another id, which a run lists as untriaged.
  *
  * @internal
  */

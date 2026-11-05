@@ -15,8 +15,13 @@ interface Refusal {
  * documentation fails that test. Each stage of the apply runner (packages/grizzle/src/adapter/migrate/errors.ts) and of the command line
  * (errors.ts) has its fix here too, typed by the stage, so a new stage cannot go undocumented.
  *
- * The findings of `grizzle check`, which `grizzle migrate` runs first.
+ * A roster's handles out of their codes' order are refused, by `grizzle check` and by `grizzle generate`, with one fix:
+ * a stored code never changes meaning, so a roster's order, its comparison order, is its codes' order, and a new
+ * handle goes after every handle declared before it.
  */
+const appendHandles = "append new handles; a roster's order is its codes' order"
+
+/** The findings of `grizzle check`, which `grizzle migrate` runs first. */
 export const refusalText = {
 	ungenerated: {
 		problem: "the schemas or their logins differ from snapshot.json (an ungenerated change)",
@@ -30,23 +35,23 @@ export const refusalText = {
 		problem: "the schema or a login's workload does not compile",
 		fix: "fix the schema or workload it names, then run grizzle generate"
 	},
-	splitRename: {
+	undeclaredDrop: {
 		problem:
-			"a candidate rename is decided one way at one statement it marks and another way, or not as drafted, at another, or two chosen candidates rename one name",
-		fix: "fix the file: choose the rename at every statement its markers name, as each marker says, or keep the drop and add at every one, and choose at most one rename for each name"
+			"the schema no longer holds a name snapshot.json holds, and no --drop or --rename declares what became of it",
+		fix: "run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed"
+	},
+	rosterReordered: {
+		problem: "a roster declares a handle before one that holds a lower code in snapshot.json",
+		fix: appendHandles
 	},
 	placeholder: {
 		problem: "unresolved placeholder",
 		fix: "write the value or the UPDATE, then delete the marker line"
 	},
-	renameCandidate: {
-		problem: "unresolved rename candidate",
-		fix: "keep the drop and add, or swap in the commented rename, then delete the marker line"
-	},
 	unresolvedLoss: {
 		problem:
-			"unresolved data loss: the statement that loses it is still commented, and no chosen candidate rename carries it",
-		fix: "to lose the data, uncomment the statement below its -- grizzle: data loss line; to keep it, choose a candidate rename that carries it, as the line says"
+			"unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented",
+		fix: "to start the new schema empty, uncomment the statement below its -- grizzle: data loss line; to keep the rows, keep the old schema's name and delete the folder"
 	},
 	unreadableSnapshot: {
 		problem: "snapshot.json does not decode as a snapshot, or is the snapshot of another schema",
@@ -117,5 +122,6 @@ export const cliStageFix: Readonly<Record<CliStage, string>> = {
 		"unset the variable it names in the environment grizzle runs in, then run the command again",
 	filesystem: "fix the migrations directory, then run grizzle check",
 	snapshot: "restore snapshot.json and the migration folders from git",
+	codes: appendHandles,
 	generate: "fix the schema or workload it names, then run grizzle generate again"
 }

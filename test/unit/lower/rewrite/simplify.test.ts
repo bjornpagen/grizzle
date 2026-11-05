@@ -508,7 +508,7 @@ describe("finite folding", () => {
 					generator: (source) =>
 						[
 							source.draw(filter(subarray(roster), (facts) => facts.length > 0, 1)),
-							source.draw(element<"enum_eq" | "enum_ne">(["enum_eq", "enum_ne"])),
+							source.draw(element<"code:int2eq" | "code:int2ne">(["code:int2eq", "code:int2ne"])),
 							source.draw(element<Handle>(roster))
 						] as const,
 					limit: 12,
@@ -524,22 +524,24 @@ describe("finite folding", () => {
 						const kinds = q.closed(
 							"Kind",
 							[{ name: "id", type: T.kind }],
-							Arr.map(facts, (h) => [{ kind: "enum", handle: h }])
+							Arr.map(facts, (h) => [{ kind: "handle", handle: h }])
 						)
 						const pred = q.op(
 							op,
-							[q.col(kinds, "id"), q.lit({ kind: "enum", handle: against }, T.kind)],
+							[q.col(kinds, "id"), q.lit({ kind: "handle", handle: against }, T.kind)],
 							T.bool
 						)
 						const ran = simplified(
 							q.build(q.project(q.filter(kinds, pred), [["id", "id"]], conservativeMeta)).dag
 						)
-						const satisfying = Arr.filter(facts, (h) => (op === "enum_eq") === (h === against))
+						const satisfying = Arr.filter(facts, (h) => (op === "code:int2eq") === (h === against))
 						c.note(satisfying.length > 0 ? "some facts satisfy" : "no fact satisfies")
 						assert.deepEqual(nodesOf(ran.query.dag, "Filter"), [])
 						assert.deepEqual(
 							Arr.flatMap(nodesOf(ran.query.dag, "Closed"), (n) => n.rows),
-							Arr.map(satisfying, (h): ReadonlyArray<TypedLiteral> => [{ kind: "enum", handle: h }])
+							Arr.map(satisfying, (h): ReadonlyArray<TypedLiteral> => [
+								{ kind: "handle", handle: h }
+							])
 						)
 					})
 			)

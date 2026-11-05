@@ -295,8 +295,7 @@ const spanConstraintLaws = (
 						kind: "constraint",
 						name: c.constraint.name,
 						owner: c.relation.ident,
-						law,
-						described: contractLaw(c.contract)
+						laws: [{ law, described: contractLaw(c.contract) }]
 					}
 				]
 	})

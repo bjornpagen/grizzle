@@ -70,11 +70,12 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * (`renamedDrawGen`: random oracle schemas with the renames a user makes), and the
  * adversarial rename intents over the hazard base (`legalIntentSketchGen`: swaps, chains, renames of a
  * referenced relation and of its key, keys over retyped fields, a field renamed with its type changed, a relation and
- * its field renamed together, a roster renamed, rebuilt, its handle renamed, its field retyped, a name hopping across
+ * its field renamed together, a roster renamed, its handle removed or renamed, its field retyped, a name hopping across
  * the relation and type namespaces, a serial field widened, and a name B dropped taken in C). Each step is drafted by
- * generateMigration from the snapshot before, reviewed by the one reviewer, choosing
- * the path's own renames where the draft offers them when the path chooses and keeping every candidate otherwise, each
- * placeholder given the typed value the carry model gives, and applied by the runner as `grizzle migrate` applies it,
+ * generateMigration from the snapshot before under the renames and drops it declares (`--rename`, `--drop`): the
+ * path's own renames when the path declares them, and every removal a drop otherwise, so the draft guesses nothing. It
+ * is reviewed by the one reviewer, each placeholder given the typed value the carry model gives, and applied by the
+ * runner as `grizzle migrate` applies it,
  * as the migration identity, with A's facts loaded after A. Properties, for every path:
  *
  * (a) every apply succeeds, and the runner's own check after it holds, so no statement
@@ -95,11 +96,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * which every migration session starts under, its search path PostgreSQL's own or the installation's schemas first. A
  * renamed path also draws, beside the generator's renames, an arm whose B renames a relation or a closed roster to the
  * name of a PostgreSQL type; the renamed stream requires that name under the installation-first path, the pairing
- * where a bare type name resolves to the installation's row type or enum, and a steered case takes that path while
+ * where a bare type name resolves to the installation's row type or domain, and a steered case takes that path while
  * the pairing is pending.
  *
  * Every verdict is PostgreSQL's: its refusal of a statement, its catalog of both installations, and its reading of the
- * rows. The features are the rename kinds a path made by successor, the intents it made, what the review chose, the
+ * rows. The features are the rename kinds a path made by successor, the intents it made, what the draft declared, the
  * ambient session, and whether a version names a relation or a closed roster as PostgreSQL names a type or function. */
 const runs = 4
 const shrink: ShrinkBudget = { kind: "bounded", candidates: 100 }
@@ -107,13 +108,12 @@ const shrink: ShrinkBudget = { kind: "bounded", candidates: 100 }
 const featureNames = [
 	"a step applied",
 	"facts carried",
-	"the path's renames chosen",
-	"every candidate kept",
-	"an inexpressible review",
+	"the path's renames declared",
+	"every removal declared a drop",
 	"a relation renamed in B",
 	"a field renamed in B",
 	"a field retyped in B",
-	"a roster rebuilt in C"
+	"a handle removed in C"
 ] as const
 type Feature =
 	| (typeof featureNames)[number]
@@ -147,8 +147,8 @@ const noteRenames = (c: Case<Feature>, p: RenamedPath): void => {
 		c.note("a field retyped in B")
 	}
 	const k = new Set(p.renames.toC)
-	if (k.has("reorderRoster") || k.has("removeHandle")) {
-		c.note("a roster rebuilt in C")
+	if (k.has("removeHandle")) {
+		c.note("a handle removed in C")
 	}
 }
 
@@ -196,7 +196,7 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 				}
 			}
 			noteRenames(notes, p)
-			notes.note(p.choose ? "the path's renames chosen" : "every candidate kept")
+			notes.note(p.choose ? "the path's renames declared" : "every removal declared a drop")
 			/** The facts A holds: those whose carried forms are lawful through both chains, A to B to C and A to C. */
 			const model = carryChain(
 				{ a: p.path.a, b: p.path.b, c: p.path.c },
@@ -232,13 +232,9 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 
 			/** X: A, its facts, B, then C. (a) at every apply. */
 			const dx = yield* Effect.fromResult(drafted([a, b, c], x, owner, p.choose))
-			if (dx.kind === "inexpressible") {
-				notes.note("an inexpressible review")
-				return
-			}
-			yield* apply(m, directory(dx.steps, 0), noFurther)
+			yield* apply(m, directory(dx, 0), noFurther)
 			yield* load(x, p.path.a, model.loaded)
-			yield* apply(m, directory(dx.steps, 1), noFurther)
+			yield* apply(m, directory(dx, 1), noFurther)
 			notes.note("a step applied")
 			yield* fresh(x, p.path.b, "(a) A to B")
 			yield* identitiesPast(planOf(p.path.b, x, owner), "(d) A to B")
@@ -257,19 +253,15 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 				freshRows,
 				"(b) the facts B holds after the migration are not the carry model's"
 			)
-			yield* apply(m, directory(dx.steps, 2), noFurther)
+			yield* apply(m, directory(dx, 2), noFurther)
 			yield* fresh(x, p.path.c, "(a) A to B to C")
 			yield* identitiesPast(planOf(p.path.c, x, owner), "(d) A to B to C")
 
 			/** (c) Y: A, then C directly. */
 			const dy = yield* Effect.fromResult(drafted([a, c], y, owner, p.choose))
-			if (dy.kind === "inexpressible") {
-				notes.note("an inexpressible review")
-				return
-			}
-			yield* apply(m, directory(dy.steps, 0), noFurther)
+			yield* apply(m, directory(dy, 0), noFurther)
 			yield* load(y, p.path.a, model.loaded)
-			yield* apply(m, directory(dy.steps, 1), noFurther)
+			yield* apply(m, directory(dy, 1), noFurther)
 			yield* fresh(y, p.path.c, "(c) A to C")
 			yield* identitiesPast(planOf(p.path.c, y, owner), "(d) A to C")
 		})
@@ -348,7 +340,7 @@ const keptIntents: ReadonlyArray<Kept<IntentSketch & { readonly kind: "legal" },
 			"the intent renameReferenced",
 			"the intent retypeSerial",
 			"a relation renamed in B",
-			"the path's renames chosen",
+			"the path's renames declared",
 			"facts carried"
 		]
 	}

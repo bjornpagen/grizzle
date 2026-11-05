@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Order, Result } from "effect"
+import { Array as Arr, Effect, Option, Order, Record as Rec, Result } from "effect"
 import {
 	explainStatementWith,
 	type PlanNode,
@@ -6,23 +6,21 @@ import {
 	planNodes
 } from "#bench/harness/explain.ts"
 
+import * as EngineResult from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import {
-	type AccessUse,
-	allRows,
-	defaultOpclass,
-	type IndexRequest
-} from "#compiler/ir/products.ts"
+import { allRows, defaultOpclass, type LawField } from "#compiler/ir/law.ts"
+import type { AccessUse, IndexRequest } from "#compiler/ir/products.ts"
+import type { IndexColumn } from "#compiler/physical/ddl/context.ts"
+import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { requesting } from "#test/unit/physical/fixtures.ts"
 
 /**
  * What a probe asks of its relation: every key equal to a value; an equality prefix and its last key bounded on both
@@ -177,8 +175,37 @@ export const specText = (spec: RequestSpec): string =>
 						)}`
 			}`
 
-/** The engine's request of a spec, `at` its position, which names a law's. */
-const requestOf = (spec: RequestSpec, at: number): IndexRequest => {
+/** One key of a law's index request. */
+type LawKey = Extract<IndexRequest, { readonly role: "lawMaintenance" }>["keys"][number]
+
+/** A request's keys by the field or law column each names, in index order. */
+const requestKeys = (
+	request: IndexRequest
+): ReadonlyArray<{
+	readonly field: string
+	readonly dir: "asc" | "desc"
+	readonly opclass: LawKey["opclass"]
+}> =>
+	request.role === "lawMaintenance"
+		? Arr.map(request.keys, (k) => ({
+				field: k.column.kind === "field" ? k.column.field.name : k.column.column,
+				dir: k.dir,
+				opclass: k.opclass
+			}))
+		: Arr.map(request.keys, (k) => ({ field: String(k.expr), dir: k.dir, opclass: k.opclass }))
+
+/** An index key's column as text: a field's name, or a law column's identifier. */
+const keyText = (key: { readonly column: IndexColumn }): string =>
+	key.column.kind === "field" ? key.column.field : key.column.column
+
+/** A stored relation's field as the law model holds it, which a law's request names its key columns by. */
+type FieldOf = (relation: string, field: string) => LawField
+
+/**
+ * The engine's request of a spec, `at` its position, which names a law's: an access's keys by field name, a law's by
+ * the law model's field (`fieldOf`).
+ */
+const requestOf = (spec: RequestSpec, at: number, fieldOf: FieldOf): IndexRequest => {
 	switch (spec.kind) {
 		case "access":
 			return {
@@ -192,9 +219,9 @@ const requestOf = (spec: RequestSpec, at: number): IndexRequest => {
 			const rows = spec.rows
 			return {
 				relation: spec.relation,
-				keys: Arr.map(spec.keys, (field) => ({
-					expr: field,
-					dir: "asc" as const,
+				keys: Arr.map(spec.keys, (field): LawKey => ({
+					column: { kind: "field", field: fieldOf(spec.relation, field) },
+					dir: "asc",
 					opclass: defaultOpclass
 				})),
 				method: "btree",
@@ -226,14 +253,28 @@ export const drawnRequests = (
 	readonly extension: InstallExtension
 	readonly rowsOf: (request: IndexRequest) => ProbeRows
 } => {
-	const specified = Arr.map(
-		specs,
-		(spec, at) => [requestOf(spec, at), spec.kind === "law" ? spec.rows : everyRow] as const
-	)
-	const requests = Arr.map(specified, ([r]) => r)
-	const rows = new Map<IndexRequest, ProbeRows>(specified)
+	const rows = new Map<IndexRequest, ProbeRows>()
 	return {
-		extension: requesting(requests),
+		extension: {
+			contribute: (builder) => {
+				const fieldOf: FieldOf = (relation, field) => {
+					const r = builder.model.theory.relations[relation]
+					const found =
+						r === undefined ? undefined : Arr.findFirst(r.fields, (f) => f.name === field)
+					if (found === undefined || found._tag === "None") {
+						return assert.fail(`the law model holds no field ${relation}.${field}`)
+					}
+					return found.value
+				}
+				const requests = Arr.map(specs, (spec, at) => {
+					const request = requestOf(spec, at, fieldOf)
+					rows.set(request, spec.kind === "law" ? spec.rows : everyRow)
+					return request
+				})
+				return EngineResult.ok({ ...noContribution, indexRequests: requests })
+			},
+			textDomainUses: noTextDomainUses
+		},
 		rowsOf: (request) => {
 			const drawn = rows.get(request)
 			if (drawn !== undefined) {
@@ -268,18 +309,18 @@ export const planShape = (installed: Judged): ReadonlyArray<PlannedShape> =>
 		index: i.index.name,
 		origin: i.index.kind,
 		method: i.method,
-		keys: Arr.map(i.keys, (k) => ({ field: k.field, dir: k.dir })),
+		keys: Arr.map(i.keys, (k) => ({ field: keyText(k), dir: k.dir })),
 		uses: Arr.sort(Arr.dedupe(Arr.map(i.requests, (r) => r.use)), Order.String)
 	}))
 
-/** A closed relation's enum type, qualified and quoted, as a cast names it. */
-export const enumTypeSql = (installed: Judged, closed: string): string =>
-	printObjectName(installed.installation.names.enumType(parsedName(closed)))
+/** A roster's domain, qualified and quoted, as a cast to a closed id's code names it. */
+export const rosterDomainSql = (installed: Judged, roster: string): string =>
+	printObjectName(installed.installation.names.rosterDomain(parsedName(roster)))
 
 /**
  * A relation's table as the probes read it: quoted and qualified, its own name as EXPLAIN reports a scan's relation,
- * its columns whose type is a range type, directly or under domains, those of few values, whose type is a boolean or an
- * enum, so that fixing one bounds no scan, and the rows it holds.
+ * its columns whose type is a range type, directly or under domains, those of few values, a boolean's or a closed id's
+ * (a code under its roster's domain), so that fixing one bounds no scan, and the rows it holds.
  */
 interface Table {
 	readonly quoted: string
@@ -299,6 +340,14 @@ type ColumnHolds = ReadonlyArray<readonly [string, "span" | "few" | "many", "tru
 
 const columnHoldsOf = (rows: unknown): ColumnHolds => trusted<ColumnHolds>(rows)
 
+/** The columns of a relation's closed-id fields, each a code a roster's few handles name. */
+const closedIdColumns = (installed: Judged, relation: string): ReadonlyArray<string> => {
+	const owned = installed.installation.owned.relations[relation]
+	return owned === undefined
+		? []
+		: Arr.flatMap(Rec.values(owned.fields), (f) => (f.desc.kind === "closedId" ? [f.column] : []))
+}
+
 const tableOf = (installed: Judged, relation: string) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
@@ -313,7 +362,7 @@ const tableOf = (installed: Judged, relation: string) =>
 					"UNION ALL SELECT b.name, t.oid, t.typtype, t.typbasetype, t.typnamespace FROM base AS b " +
 					"JOIN pg_catalog.pg_type AS t ON t.oid = b.typbasetype WHERE b.typtype = 'd'::\"char\") " +
 					"SELECT name::text, CASE WHEN typtype = 'r'::\"char\" THEN 'span' " +
-					"WHEN typtype = 'e'::\"char\" OR oid = 'pg_catalog.bool'::pg_catalog.regtype THEN 'few' ELSE 'many' END, " +
+					"WHEN oid = 'pg_catalog.bool'::pg_catalog.regtype THEN 'few' ELSE 'many' END, " +
 					"(typnamespace = $2::text::pg_catalog.regnamespace)::text " +
 					"FROM base WHERE typtype <> 'd'::\"char\"",
 				[quoted, quoteIdent(installed.installation.names.vectorSchema)]
@@ -332,7 +381,7 @@ const tableOf = (installed: Judged, relation: string) =>
 			quoted,
 			name: q.name,
 			spans: holding("span"),
-			few: holding("few"),
+			few: new Set([...holding("few"), ...closedIdColumns(installed, relation)]),
 			vectors: new Set(
 				Arr.map(
 					Arr.filter(columns, ([, , vector]) => vector === "true"),
@@ -382,7 +431,7 @@ const indexFacts = (
 					: yield* countOf(admin, `SELECT count(*)::text FROM ${table.quoted} WHERE ${predicate}`)
 			facts.set(i.index.name, {
 				method: i.method,
-				fields: new Set(Arr.map(i.keys, (k) => k.field)),
+				fields: new Set(Arr.map(i.keys, keyText)),
 				unique: i.unique,
 				pages: Number(pages),
 				entries
@@ -511,11 +560,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest, rows: P
 		const { admin } = yield* Substrate
 		const column = (field: string): string =>
 			quoteIdent(installed.installation.names.column(request.relation, field))
-		const keys = Arr.map(request.keys, (k) => ({
-			field: String(k.expr),
-			dir: k.dir,
-			opclass: k.opclass
-		}))
+		const keys = requestKeys(request)
 		const label = `${request.role} ${request.use} on ${request.relation}(${Arr.join(
 			Arr.map(keys, (k) => `${k.field}${k.dir === "desc" ? " desc" : ""}`),
 			", "
@@ -1011,7 +1056,7 @@ export const judgeServing = (
 			)
 			return (
 				Arr.isReadonlyArrayNonEmpty(probe.bound) &&
-				Arr.every(probe.bound, (field) => Arr.some(through.keys, (k) => k.field === field)) &&
+				Arr.every(probe.bound, (field) => Arr.some(through.keys, (k) => keyText(k) === field)) &&
 				!Arr.some(many, (field) =>
 					Arr.every(through.requests, (r) => probeFor(r).bound.includes(field))
 				)

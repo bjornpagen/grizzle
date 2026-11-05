@@ -1,4 +1,5 @@
 import { tupleConverter } from "#compiler/codec/row.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DeleteResult, InsertResult } from "#compiler/write/insert/statement.ts"
 
 export type Fact = { readonly [field: string]: unknown }
@@ -30,9 +31,10 @@ type RowResult = InsertResult | DeleteResult
 /** The converter of one write statement's rows. A write statement's result descriptor records its columns, so its text
  * rows convert without reading SQL: every row of an insert is a fact the statement inserted, every row of a deletion a
  * fact it made absent. A refusal is never a row: the statement that detects it raises it, and the runtime classifies
- * the error. Each field converts through its exact codec (`tupleConverter`), trusting PostgreSQL's output text. */
-export const writeRowConverter = (result: RowResult): WriteRowConverter => {
-	const convert = tupleConverter(result.columns)
+ * the error. Each field converts through its exact codec (`tupleConverter`), trusting PostgreSQL's output text, a
+ * closed id's and a set's by the installation's codes. */
+export const writeRowConverter = (result: RowResult, codes: Codebook): WriteRowConverter => {
+	const convert = tupleConverter(result.columns, codes)
 	const fields = result.fields
 	const kind = result.kind === "delete" ? "removed" : "added"
 	return (row) => ({ kind, fact: factOf(fields, convert(row), 0) })

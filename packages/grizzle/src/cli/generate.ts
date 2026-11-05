@@ -20,14 +20,19 @@ import {
 	DraftRefused,
 	MigrationsUnread,
 	cliError,
+	RosterReordered,
 	SchemaChoiceRefused
 } from "#cli/errors.ts"
 import { readSchemaTree, writeFolder, writeSnapshotFile } from "#cli/files.ts"
+import { rosterRenames } from "#cli/renames.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Engine from "#compiler/core/result.ts"
-import type { AbandonedSchema } from "#compiler/deploy/diff/plan.ts"
-import { lossText } from "#compiler/deploy/render/chosen.ts"
-import type { FolderNaming, MigrationFolder } from "#compiler/deploy/render/folder.ts"
+import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
+import {
+	type FolderNaming,
+	lossText,
+	type MigrationFolder
+} from "#compiler/deploy/render/folder.ts"
 import {
 	customMigration,
 	type MigrationDraft,
@@ -37,24 +42,28 @@ import {
 	generateMigration
 } from "#compiler/deploy/render/generate.ts"
 import { findMarkers } from "#compiler/deploy/render/markers.ts"
-import { isEmptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { codebookUnder, isEmptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { type DeploySnapshot, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { draftCodebook } from "#compiler/ir/codes.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { compileWorkload } from "#compiler/program/workload/compile.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 
 interface GenerateOptions {
 	readonly mode: GenerateMode
 	/** A declared schema name or PostgreSQL schema identifier of the configuration, or none for every schema. */
 	readonly schema: Option.Option<string>
+	/** The draft's declared renames and drops (renames.ts), each the one chosen schema's. */
+	readonly declared: Declarations
 	readonly now: DateTime.Utc
 }
 
 interface DraftMarker {
 	readonly file: string
-	readonly kind: "placeholder" | "rename"
+	readonly kind: ReturnType<typeof findMarkers>[number]["kind"]
 	readonly line: number
 }
 
@@ -82,8 +91,7 @@ type Written =
  * `grizzle generate` and `grizzle generate --custom`.
  *
  * For each configured schema (or the one `--schema` names), the command reads the committed snapshot and folders
- * (committed.ts), compiles the schema with every installer extension a deployment needs, its residual laws, its
- * derived relations, its logins' workloads' access paths and statistics and its logins' worlds, and hands the
+ * (committed.ts), compiles the schema with every installer extension a deployment needs, its derived relations, its logins' workloads' access paths and statistics and its logins' worlds, and hands the
  * installation, the previous snapshot, each workload program's access and the access requests, the name and the
  * timestamp to the pure generator (compiler/deploy/render/generate.ts). The generator diffs the snapshots and renders
  * the phased files and meta.json; this command supplies the clock (clock.ts) and writes the result (files.ts):
@@ -128,7 +136,7 @@ const refuseChoice = (fault: SchemaChoiceRefused["fault"]): Result.Result<never,
 /** The configured schemas the command applies to. */
 const selectSchemas = (
 	config: ResolvedConfig,
-	options: Pick<GenerateOptions, "schema" | "mode">
+	options: Pick<GenerateOptions, "schema" | "mode" | "declared">
 ): Result.Result<ReadonlyArray<ConfiguredSchema>, CliError> => {
 	const schemas = Arr.map(config.schemas, (s) => ({ declared: s.declared, ident: s.ident }))
 	if (Option.isSome(options.schema)) {
@@ -142,8 +150,13 @@ const selectSchemas = (
 		}
 		return Result.succeed(found)
 	}
-	if (options.mode.kind === "custom" && config.schemas.length > 1) {
-		return refuseChoice({ kind: "unchosen", schemas })
+	if (config.schemas.length > 1) {
+		if (options.mode.kind === "custom") {
+			return refuseChoice({ kind: "unchosen", by: "custom", schemas })
+		}
+		if (options.declared.renames.length > 0 || options.declared.drops.length > 0) {
+			return refuseChoice({ kind: "unchosen", by: "declarations", schemas })
+		}
 	}
 	return Result.succeed(config.schemas)
 }
@@ -161,15 +174,32 @@ type SchemaDraft = (
 
 /**
  * What the draft of a schema's change from `previous` is drafted from: its schema compiled with every installer
- * extension a deployment needs and its logins' workloads' access paths, with the schemas it abandons (abandonedSchemas).
+ * extension a deployment needs and its logins' workloads' access paths, with the schemas it abandons (abandonedSchemas)
+ * and the renames and drops `declared` declares. Everything is compiled under the codes the draft gives the schema's
+ * rosters, drafted from the codes `previous` records, each under the name a declared roster rename gives it
+ * (deploy/snapshot/build.ts codebookUnder), and the declared handle renames (ir/codes.ts draftCodebook): a
+ * roster's codes are its history, so a handle keeps its code, a renamed one its old one's, a removed one leaves a hole
+ * and a new one takes the next, and a roster declared out of its codes' order is RosterReordered.
  * Beside the access paths, every program of each login's workloads is compiled for every role of the login exactly as
  * DbLayer.make compiles it (adapter/pool/registry.ts loginRoles), so a program the layer would refuse refuses the draft.
  */
 const draftInput = Effect.fn("draftInput")(function* (
 	schema: ConfiguredSchema,
 	previous: DeploySnapshot,
-	abandoned: ReadonlyArray<AbandonedSchema>
+	abandoned: ReadonlyArray<AbandonedSchema>,
+	declared: Declarations
 ): Effect.fn.Return<DraftInput, CliError> {
+	const rosters = rostersOf(schema.owned)
+	const renames = yield* Effect.mapError(
+		Effect.fromResult(rosterRenames(declared, rosters)),
+		cliError
+	)
+	const drafted = draftCodebook(codebookUnder(previous, declared), renames, rosters)
+	if (!drafted.ok) {
+		const { roster, earlier, later } = drafted.error
+		return yield* cliError(new RosterReordered({ schema: schema.declared, roster, earlier, later }))
+	}
+	const codes = drafted.value
 	/**
 	 * The logins' workloads and their roles' write filters, planned under the configured schema's artifacts and
 	 * the names the installation drafted below gives it, so the index requests name its vector schema. A schema
@@ -183,7 +213,7 @@ const draftInput = Effect.fn("draftInput")(function* (
 					fromEngine(
 						Engine.flatMap(parseSchemaInput(schema.owned), (input) =>
 							Engine.flatMap(
-								schemaArtifacts(input, { installation: undefined, vectorSchema: undefined }),
+								schemaArtifacts(input, { installation: undefined, vectorSchema: undefined, codes }),
 								(artifacts) => compileWorkload(schema.workloads, input, { artifacts, roles })
 							)
 						)
@@ -192,7 +222,7 @@ const draftInput = Effect.fn("draftInput")(function* (
 				)
 	for (const login of schema.workloads) {
 		yield* Effect.mapError(
-			loginRoles(login.roles, login.workloads),
+			loginRoles(login.roles, login.workloads, codes),
 			draftRefused(schema.declared, "workload")
 		)
 	}
@@ -204,7 +234,8 @@ const draftInput = Effect.fn("draftInput")(function* (
 					schema.owned,
 					schema.owned.installation,
 					schema.logins,
-					plan === undefined ? [] : [workloadExtension(plan)]
+					plan === undefined ? [] : [workloadExtension(plan)],
+					codes
 				)
 			)
 		),
@@ -214,22 +245,24 @@ const draftInput = Effect.fn("draftInput")(function* (
 		previous,
 		installation,
 		workload: plan === undefined ? noWorkload : { access: plan.access, accessPaths: plan.requests },
-		abandoned
+		abandoned,
+		declared
 	}
 })
 
 /**
- * The draft of a schema's change from `previous`, its folder unnamed, as `grizzle check` compares it with the committed
- * snapshot (draftInput, then the pure generator's draftMigration). Nothing is written.
+ * The draft of a schema's change from `previous` under `declared`, its folder unnamed, as `grizzle check` compares it
+ * with the committed snapshot (draftInput, then the pure generator's draftMigration). Nothing is written.
  *
  * @internal
  */
 export const draftSchema = Effect.fn("draftSchema")(function* (
 	schema: ConfiguredSchema,
 	previous: DeploySnapshot,
-	abandoned: ReadonlyArray<AbandonedSchema>
+	abandoned: ReadonlyArray<AbandonedSchema>,
+	declared: Declarations
 ): Effect.fn.Return<MigrationDraft, CliError> {
-	const input = yield* draftInput(schema, previous, abandoned)
+	const input = yield* draftInput(schema, previous, abandoned, declared)
 	return yield* Effect.mapError(
 		fromEngine(draftMigration(input)),
 		draftRefused(schema.declared, "draft")
@@ -247,9 +280,10 @@ export const generateSchema = Effect.fn("generateSchema")(function* (
 	previous: DeploySnapshot,
 	naming: FolderNaming,
 	timestamp: string,
-	abandoned: ReadonlyArray<AbandonedSchema>
+	abandoned: ReadonlyArray<AbandonedSchema>,
+	declared: Declarations
 ): Effect.fn.Return<GenerateResult, CliError> {
-	const input = yield* draftInput(schema, previous, abandoned)
+	const input = yield* draftInput(schema, previous, abandoned, declared)
 	return yield* Effect.mapError(
 		fromEngine(generateMigration({ ...input, naming, timestamp })),
 		draftRefused(schema.declared, "draft")
@@ -279,7 +313,8 @@ const draftFor = Effect.fn("draftFor")(function* (
 		previous,
 		mode.naming,
 		timestamp,
-		isEmptySnapshot(previous) ? yield* abandonedSchemas(config) : []
+		isEmptySnapshot(previous) ? yield* abandonedSchemas(config) : [],
+		options.declared
 	)
 	if (generated.change === "none") {
 		return { schema, snapshot: previous, kind: "unchanged" } satisfies SchemaDraft

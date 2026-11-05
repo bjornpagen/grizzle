@@ -1,6 +1,10 @@
+import { everyProperty } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
+import { constantDigest } from "#compiler/core/fingerprint.ts"
+import { type Identity, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { RosterCodec } from "#compiler/ir/codes.ts"
 
 /**
  * The oracle installer's identifier claims.
@@ -42,3 +46,12 @@ export class IdentifierScope {
 		return Result.ok(identifier)
 	}
 }
+
+/**
+ * A roster's names constant's identity, as the oracle predicts the real installer names it: the naming door's
+ * rosterConstant over the digest of the roster's names in code order, a hole the empty name, under the fingerprint
+ * domain "roster-names" with every property hashed. A changed name, a new handle or a new hole is a new digest, so a
+ * new function.
+ */
+export const rosterNamesIdentity = (codes: RosterCodec): Identity<"rosterConstant"> =>
+	identity.rosterConstant(codes.roster, constantDigest("roster-names", codes.names, everyProperty))

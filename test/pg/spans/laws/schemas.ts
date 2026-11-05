@@ -41,13 +41,12 @@ export const visits = (options: { readonly mutable: boolean }): SchemaDesc => ({
 })
 
 /**
- * The span-law schemas of the span law tests, as Descriptions.
+ * The span-law schema of the span law tests, as a Description.
  *
- * - Visits: a selected source, `on(select(Visit, (v) => v.eq(v.billable, true)), "site", "during")` into Shift's span
- *   key `(site, during)`: the residual range_agg coverage law anchored on the target rows of the source's scalar group.
- *   Visit is keyed by id, so its DETAIL carries the visit's id.
- * - Rounds: the Visits law with a composite group whose source fields differ from the target's in name and in order.
+ * Visits: a selected source, `on(select(Visit, (v) => v.eq(v.billable, true)), "site", "during")`, into Shift's span
+ * key `(site, during)`, WITHOUT OVERLAPS: a PERIOD foreign key from the billable visit's range law column, `CASE WHEN
+ * billable THEN during END STORED`, which PostgreSQL checks against the union of the site's shifts (fin.md §7).
  *
- * Each law is read through the naming door from the statement that declares it.
+ * The law is read through the naming door from the statement that declares it.
  */
 export const visitsLaw: LawId = lawNamesOf(visits({ mutable: false })).lawOfDesc(visitsCoverage)

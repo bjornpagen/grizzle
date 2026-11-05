@@ -306,13 +306,19 @@ export const switchToManualInsertMember = query(Work).rule((r) =>
 	})
 )
 
-/** The Plans schema. */
-const Tier = closed("Tier", ["Free", "Pro"]).with(
-	{ budget: Cents },
-	{ Free: { budget: Cents(100n) }, Pro: { budget: Cents(1000n) } }
+/** The Plans schema: a roster of tiers, each tier's budget a closed relation over it. */
+const Tier = closed("Tier", ["Free", "Pro"])
+const TierBudget = closed.relation(
+	"TierBudget",
+	{ tier: closedId(Tier), budget: Cents },
+	["tier"],
+	[
+		{ tier: "Free", budget: Cents(100n) },
+		{ tier: "Pro", budget: Cents(1000n) }
+	]
 )
 const Subscription = relation("Subscription", { account: uuid, tier: closedId(Tier) }, ["account"])
-export const Plans = schema("Plans", { Tier, Subscription }, [
+export const Plans = schema("Plans", { Tier, TierBudget, Subscription }, [
 	contained(on(Subscription, "tier"), on(Tier, "id"))
 ])
 
@@ -323,17 +329,18 @@ export type PlansNamed<N extends string> = Schema<
 	(typeof Plans)["statements"]
 >
 
-/** Plans' world: a reader, in its login. */
+/** Plans' world: a reader of its roster and its subscriptions, in its login; no role holds a closed relation. */
 export const plansWorlds = (installed: PlansNamed<string>) => {
-	const reader = role(installed, "reader", installed.relations)
+	const { Tier: tier, Subscription: subscription } = installed.relations
+	const reader = role(installed, "reader", { Tier: tier, Subscription: subscription })
 	return { reader, server: login(installed, "server", [reader]) }
 }
 
 export const budgets = query(Plans).rule((r) => {
 	const { account, tier } = v(Subscription, "subscription")
-	const { budget } = v(Tier, "tier")
+	const { budget } = v(TierBudget, "tierBudget")
 	return r
 		.match(Subscription, { account, tier })
-		.match(Tier, { id: tier, budget })
+		.match(TierBudget, { tier, budget })
 		.find({ account, budget })
 })

@@ -11,6 +11,12 @@ import type { Restorage } from "#test/support/oracle/gen/restorage.ts"
 import type { Perturbation } from "#test/support/oracle/perturb.ts"
 
 /**
+ * The storage carriers the general draw declares a field of: every one but a set's, whose only comparison is equality
+ * and whose algebra is the closed laws' (W3), which the public reference does not model.
+ */
+type DrawnCarrier = Exclude<StorageCarrier, "bits">
+
+/**
  * The field types the general draw declares, by the storage carrier each has (ir/scalar.ts StorageCarrier), so a
  * carrier added there without a kind fails the typecheck. Each is a public descriptor (build.ts) with the ScalarType the
  * schema compiler derives for it (generate.ts): integer, bigint, the wide numeric (gen/domain.ts wideNumericTypmod,
@@ -18,7 +24,8 @@ import type { Perturbation } from "#test/support/oracle/perturb.ts"
  * "su"), whose values come from the literal dictionary and include what array_out must quote), uuid, the handle of the
  * case's closed roster, smallint, real, a span over integer and over bigint, and a vector of three dimensions
  * (pg.vector(3)), whose -0 components are its twin spellings. A field's recorded pick names an index of fieldKinds,
- * these kinds in this record's order, so a kind joins at the end and every kept pick keeps its kind.
+ * these kinds in this record's order, so a kind joins at the end and every kept pick keeps its kind. A set over a
+ * roster is no drawn kind (DrawnCarrier).
  */
 const drawnKinds = {
 	int4: ["int4"],
@@ -29,15 +36,15 @@ const drawnKinds = {
 	bool: ["bool"],
 	text: ["text", "prose"],
 	uuid: ["uuid"],
-	enum: ["handle"],
+	code: ["handle"],
 	int2: ["int2"],
 	float4: ["float4"],
 	range4: ["span4"],
 	range8: ["span8"],
 	vector: ["vector"]
-} as const satisfies { readonly [C in StorageCarrier]: Arr.NonEmptyReadonlyArray<string> }
+} as const satisfies { readonly [C in DrawnCarrier]: Arr.NonEmptyReadonlyArray<string> }
 
-type DrawnKind = (typeof drawnKinds)[StorageCarrier][number]
+type DrawnKind = (typeof drawnKinds)[DrawnCarrier][number]
 
 const { int4: firstKinds, ...laterKinds } = drawnKinds
 

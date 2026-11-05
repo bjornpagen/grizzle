@@ -1,36 +1,36 @@
-import { Array as Arr, Order } from "effect"
+import { Array as Arr, Order, String as Str } from "effect"
 import type { FlightStatement } from "#adapter/wire/batch.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { CompileBound } from "#compiler/core/errors.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import * as EngineResult from "#compiler/core/result.ts"
 import {
-	bitText,
 	cellWidth,
 	constantOf,
 	type KeyCollision,
 	type Layout,
 	spaceSize
 } from "#compiler/ir/cells.ts"
-import type { ColumnDef, EmittedText, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
-import { types } from "#compiler/sql/build.ts"
+import type {
+	AlterTable,
+	ColumnDef,
+	EmittedText,
+	Expr,
+	ObjectName,
+	TypeRef,
+	TypeSchema
+} from "#compiler/sql/ast.ts"
+import { binary, col, lit, ne, tableCol, types } from "#compiler/sql/build.ts"
+import { applied, constantValue, inSet, keyIn, mixedRadix, pack } from "#compiler/sql/constants.ts"
 import {
-	applied,
-	type ConstantDomainCheck,
-	type ConstantExpr,
-	column,
-	domainValue,
-	inSet,
-	keyIn,
-	mixedRadix,
-	packCell,
-	printConstantExpr,
-	printConstantStatement,
-	repoint,
-	unpackCell
-} from "#compiler/sql/constants.ts"
-import { printObjectName, printStatement, printType, quoteIdent } from "#compiler/sql/print.ts"
+	printExpr,
+	printObjectName,
+	printStatement,
+	printType,
+	quoteIdent
+} from "#compiler/sql/print.ts"
 import { nonEmpty } from "#test/support/assert.ts"
+import { bitText } from "#test/support/closed/bit-text.ts"
 
 /**
  * The tests' one door of SQL text to grizzle's wire: a statement a wire suite sends that neither the engine's AST nor
@@ -62,10 +62,10 @@ export interface CodeColumn<C extends string> {
 
 /**
  * A closed relation built by hand in a scratch schema: the law-cost bench's own fixture, never grizzle's lowering of a
- * declared relation. Its constant, the statements that pack, read, re-point and drop it, and the domain whose check reads
- * it are the engine's (ir/cells.ts, sql/constants.ts, sql/print.ts); only the tables that place a law on it are written
- * here by hand (`tableOfCodes`, `checkConstraint`, `generatedColumn`), since the engine's table AST holds no constant
- * expression.
+ * declared relation. Its constant, the statements that pack, read and drop it, the tables' CHECKs and generated
+ * columns, and the foreign key are the engine's (sql/constants.ts builders, sql/print.ts printStatement); only the bare
+ * table of codes is written by hand (`tableOfCodes`), since the engine's table has a primary key. The host's string of
+ * its members is the test oracle's (test/support/closed/bit-text.ts bitText, R8).
  *
  * - Its key columns index its cells row-major in their order, and `payload` holds the code spaces of its payload
  *   coordinates, none for a set, as a layout's (ir/cells.ts Layout) do.
@@ -145,8 +145,8 @@ export const membersOf = (relation: ClosedRelation<string>): ReadonlyArray<Membe
 }
 
 /**
- * A relation's constant as the host's cells encoder builds it from its members, in PostgreSQL's bit-string text
- * (ir/cells.ts constantOf, bitText): the oracle the constant PostgreSQL packs must equal. Its members lie at distinct
+ * A relation's constant as the host builds it from its members, in PostgreSQL's bit-string text (ir/cells.ts
+ * constantOf's entries, written by the test oracle bitText): what the constant PostgreSQL packs must equal. Its members lie at distinct
  * cells, so the key holds, and the text is far below the longest string V8 builds.
  */
 export const hostBits = (
@@ -178,6 +178,14 @@ const plainColumn = (name: string, type: TypeRef): ColumnDef => ({
 	collation: undefined,
 	generated: undefined
 })
+
+/** The array of a builtin scalar type, the type of an unnest parameter; a members table holds no other. */
+const arrayOf = (type: TypeRef): TypeRef => {
+	if (type.kind !== "builtin" || type.name === "bit" || type.name === "numeric") {
+		throw new Error(`a members table's columns are builtin integers, not ${printType(type)}`)
+	}
+	return { ...type, array: true }
+}
 
 /**
  * A relation's members table, the seeded relation the erasure replaces and a foreign key's target, in two statements:
@@ -218,7 +226,7 @@ export const membersTableSql = (
 				Arr.map(columns, (c) => quoteIdent(c.name)),
 				", "
 			)}) SELECT * FROM pg_catalog.unnest(${Arr.join(
-				Arr.map(columns, (c, i) => `$${i + 1}::${printType({ ...c.type, array: true })}`),
+				Arr.map(columns, (c, i) => `$${i + 1}::${printType(arrayOf(c.type))}`),
 				", "
 			)})`,
 			params: arrays
@@ -229,131 +237,82 @@ export const membersTableSql = (
 /** A cell's index over the codes `digit` reads, row-major in key order (sql/constants.ts mixedRadix). */
 const indexOver = (
 	relation: ClosedRelation<string>,
-	digit: (key: CodeColumn<string>) => ConstantExpr
-): ConstantExpr => mixedRadix(Arr.map(relation.key, (k) => ({ digit: digit(k), radix: k.codes })))
+	digit: (key: CodeColumn<string>) => Expr
+): Expr => mixedRadix(Arr.map(relation.key, (k) => ({ digit: digit(k), radix: k.codes })))
 
 /** A cell's index from the codes of a row's key columns, inside a table's DDL. */
-const rowIndex = (relation: ClosedRelation<string>): ConstantExpr =>
-	indexOver(relation, (k) => column(undefined, k.column))
+const rowIndex = (relation: ClosedRelation<string>): Expr =>
+	indexOver(relation, (k) => tableCol(k.column))
+
+/** A row's code column under `alias`, as a statement over the members table reads it. */
+export const codeAt = (alias: string, column: string): string => printExpr(col(alias, column))
 
 /**
- * The law that the cell at `index` is present in the constant `constant`: a set's one-bit cell equal to B'1', or a
- * function's cell above 0 (sql/constants.ts inSet, keyIn).
+ * The law that the cell at `index` is present in the constant `constant`: a set's one-bit cell equal to '1'::bit(1), or
+ * a function's cell above 0 (sql/constants.ts inSet, keyIn).
  */
-const present = (
-	constant: ObjectName,
-	relation: ClosedRelation<string>,
-	index: ConstantExpr
-): ConstantExpr =>
+const present = (constant: ObjectName, relation: ClosedRelation<string>, index: Expr): Expr =>
 	relation.payload.length === 0 ? inSet(constant, index) : keyIn(constant, index, widthOf(relation))
 
-/** The cell of the codes `code` reads, in key order: shifts and ORs, no constant (sql/constants.ts packCell). */
-export const cellExpr = (
-	relation: ClosedRelation<string>,
-	code: (key: CodeColumn<string>) => ConstantExpr
-): ConstantExpr => packCell(Arr.map(relation.key, code))
-
-/** The law over a row's codes: its cell is present in the constant. */
-export const rowLaw = (constant: ObjectName, relation: ClosedRelation<string>): ConstantExpr =>
+/** The law over a row's codes, a closed law as a table CHECK reads it (U3): its cell is present in the constant. */
+export const rowLaw = (constant: ObjectName, relation: ClosedRelation<string>): Expr =>
 	present(constant, relation, rowIndex(relation))
 
 /** A derived column's expression: the payload code at the row's cell, NULL where it is absent (sql/constants.ts applied). */
-export const derivedExpr = (constant: ObjectName, relation: ClosedRelation<string>): ConstantExpr =>
+export const derivedExpr = (constant: ObjectName, relation: ClosedRelation<string>): Expr =>
 	applied(constant, rowIndex(relation), widthOf(relation))
 
 /**
- * The migration's pack of a relation's constant into the IMMUTABLE function `constant`, the engine's DO block
- * (sql/constants.ts Pack): its members as VALUES rows, joined to the cells' index space. A row's names are its key
- * codes' texts.
+ * The migration's pack of a relation's constant into the IMMUTABLE function `constant` (sql/constants.ts pack): its
+ * members as VALUES rows, joined to the cells' index space. A row's names are its key codes' texts.
  */
 export const packSql = (constant: ObjectName, relation: ClosedRelation<string>): string =>
-	printConstantStatement({
-		kind: "pack",
-		function: constant,
-		radices: layoutOf(relation).key,
-		width: widthOf(relation),
-		rows: nonEmpty(
-			Arr.map(membersOf(relation), (m) => ({
-				key: m.key,
-				payload: m.code,
-				names: Arr.map(m.key, (code) => String(code))
-			})),
-			`the members of ${relation.name}`
+	printStatement(
+		pack(
+			constant,
+			layoutOf(relation).key,
+			widthOf(relation),
+			nonEmpty(
+				Arr.map(membersOf(relation), (m) => ({
+					key: m.key,
+					payload: BigInt(m.code),
+					names: Arr.map(m.key, (code) => String(code))
+				})),
+				`the members of ${relation.name}`
+			)
 		)
-	})
-
-/** The drop of a constant's function, RESTRICT: it fails while a domain, CHECK or column still reads it. */
-export const dropConstantSql = (constant: ObjectName): string =>
-	printConstantStatement({ kind: "dropConstant", name: { ...constant, args: [] } })
-
-/** The one check of a cell's domain, under one name whatever constant it reads, so a re-point keeps it. */
-const domainCheckName = "member"
-
-/**
- * A cell domain's check: each code read back from VALUE (sql/constants.ts unpackCell), the cell's index computed from
- * them, and the constant read there.
- */
-const domainCheck = (
-	constant: ObjectName,
-	relation: ClosedRelation<string>
-): ConstantDomainCheck => ({
-	name: domainCheckName,
-	predicate: present(
-		constant,
-		relation,
-		mixedRadix(unpackCell(domainValue, layoutOf(relation).key))
 	)
-})
+
+/** The drop of a zero-argument constant's function, RESTRICT: it fails while a domain, CHECK or column still reads it. */
+export const dropConstantSql = (constant: ObjectName): string =>
+	printStatement({ kind: "dropFunction", name: { ...constant, args: [] }, ifExists: false })
+
+/** One ALTER TABLE of one action. */
+const alterTable = (table: ObjectName, action: AlterTable["actions"][number]): string =>
+	printStatement({ kind: "alterTable", table, actions: [action] })
 
 /**
- * A relation's domain over its int8 cell, in two statements: the domain, then its check over the constant `constant`,
- * added as a re-point adds it.
- */
-export const cellDomainSql = (
-	domain: ObjectName,
-	constant: ObjectName,
-	relation: ClosedRelation<string>
-): readonly [create: string, check: string] => [
-	printStatement({
-		kind: "createDomain",
-		name: domain,
-		base: types.bigint,
-		collation: undefined,
-		constraints: []
-	}),
-	printConstantStatement({
-		kind: "alterDomain",
-		name: domain,
-		action: { kind: "addConstraint", constraint: domainCheck(constant, relation), notValid: false }
-	})
-]
-
-/**
- * The re-point of a cell domain at the constant `constant` of `relation`, a relation of the same key, in three
- * statements (sql/constants.ts repoint): its check dropped, added again NOT VALID over the new constant, so no stored
- * row is read, then VALIDATEd, which reads every column of the domain's type in every table and names the table of a
- * row the constant refuses.
+ * The re-point of a table's CHECK `name` at `predicate`, a closed law re-pointed on its table (U3), in three
+ * statements: the check dropped, added again NOT VALID, so no stored row is read, then VALIDATEd, which reads every
+ * stored row and names the table of a row the new predicate refuses.
  */
 export const repointSql = (
-	domain: ObjectName,
-	constant: ObjectName,
-	relation: ClosedRelation<string>
-): readonly [drop: string, add: string, validate: string] => {
-	const [drop, add, validate] = repoint(domain, domainCheck(constant, relation))
-	return [
-		printConstantStatement(drop),
-		printConstantStatement(add),
-		printConstantStatement(validate)
-	]
-}
+	table: ObjectName,
+	name: string,
+	predicate: Expr
+): readonly [drop: string, add: string, validate: string] => [
+	alterTable(table, { kind: "dropConstraint", name }),
+	alterTable(table, {
+		kind: "addConstraint",
+		constraint: { kind: "check", name, predicate },
+		notValid: true
+	}),
+	alterTable(table, { kind: "validateConstraint", name })
+]
 
 /** The re-derivation of a table's generated `column` as `expr`: SET EXPRESSION, which rewrites the table. */
-export const setExpressionSql = (table: ObjectName, name: string, expr: ConstantExpr): string =>
-	printConstantStatement({
-		kind: "alterTable",
-		table,
-		actions: [{ kind: "setExpression", column: name, expr }]
-	})
+export const setExpressionSql = (table: ObjectName, name: string, expr: Expr): string =>
+	alterTable(table, { kind: "setExpression", column: name, expr })
 
 /** A table of `codes`, each a NOT NULL int2, and nothing else, written by hand: the engine's table has a primary key. */
 export const tableOfCodes = (
@@ -365,29 +324,29 @@ export const tableOfCodes = (
 		", "
 	)})`
 
-/**
- * A CHECK of `predicate` on a table, written by hand around the engine's print of it, as the engine prints a domain's
- * check: `(predicate) IS TRUE`, so NULL refuses too.
- */
-export const checkConstraint = (table: ObjectName, name: string, predicate: ConstantExpr): string =>
-	`ALTER TABLE ${printObjectName(table)} ADD CONSTRAINT ${quoteIdent(name)} CHECK ((${printConstantExpr(predicate)}) IS TRUE)`
+/** A CHECK of `predicate` added to a table, the engine's: `CHECK ((predicate) IS TRUE)`, so NULL refuses too. */
+export const checkConstraint = (table: ObjectName, name: string, predicate: Expr): string =>
+	alterTable(table, {
+		kind: "addConstraint",
+		constraint: { kind: "check", name, predicate },
+		notValid: false
+	})
 
-/** A STORED generated column of `type`, `expr` of the row, written by hand around the engine's print of it. */
+/** A STORED generated column of `type`, `expr` of the row, the engine's ALTER TABLE. */
 export const generatedColumn = (
 	table: ObjectName,
 	name: string,
 	type: TypeRef,
-	expr: ConstantExpr
+	expr: Expr
 ): string =>
-	`ALTER TABLE ${printObjectName(table)} ADD COLUMN ${quoteIdent(name)} ${printType(type)} GENERATED ALWAYS AS (${printConstantExpr(expr)}) STORED`
-
-/** A NOT NULL column of `type` added to a table, the engine's ALTER TABLE: a cell the host writes. */
-export const addColumnSql = (table: ObjectName, name: string, type: TypeRef): string =>
-	printStatement({
-		kind: "alterTable",
-		table,
-		actions: [{ kind: "addColumn", column: plainColumn(name, type) }]
+	alterTable(table, {
+		kind: "addColumn",
+		column: { name, type, collation: undefined, generated: { kind: "stored", expr } }
 	})
+
+/** A NOT NULL column of `type` added to a table, the engine's ALTER TABLE: a value the host writes. */
+export const addColumnSql = (table: ObjectName, name: string, type: TypeRef): string =>
+	alterTable(table, { kind: "addColumn", column: plainColumn(name, type) })
 
 /**
  * The engine's foreign key, immediate, from a table's codes of `relation`'s key into the members table `target`, as
@@ -400,22 +359,84 @@ export const foreignKeySql = (
 	target: ObjectName
 ): string => {
 	const columns = Arr.map(relation.key, (k) => ({ column: k.column, period: false }))
-	return printStatement({
-		kind: "alterTable",
-		table,
-		actions: [
+	return alterTable(table, {
+		kind: "addConstraint",
+		constraint: {
+			kind: "foreignKey",
+			name,
+			columns,
+			references: target,
+			referencedColumns: columns,
+			deferrable: undefined,
+			onUpdate: undefined
+		},
+		notValid: false
+	})
+}
+
+/**
+ * A roster's names constant as an array literal's text, `{"h0","","h2"}`: every element double-quoted, its `"` and `\`
+ * escaped, so a hole is the quoted empty name and no handle reads as NULL or splits.
+ */
+const nameArrayText = (names: ReadonlyArray<string>): string =>
+	`{${Arr.join(
+		Arr.map(names, (name) => `"${Str.replaceAll('"', '\\"')(Str.replaceAll("\\", "\\\\")(name))}"`),
+		","
+	)}}`
+
+/**
+ * A roster's names constant, the engine's CreateConstant: a zero-argument IMMUTABLE SQL function returning name[], each
+ * code's handle in code order, a hole the empty name (OPEN-2 (b)).
+ */
+export const namesConstantSql = (fn: ObjectName, names: ReadonlyArray<string>): string =>
+	printStatement({
+		kind: "createConstant",
+		name: fn,
+		params: [],
+		returns: types.name(true),
+		body: lit.text(nameArrayText(names), types.name(true))
+	})
+
+/**
+ * A roster's live-code constant, the engine's CreateConstant over bit varying: position c is 1 exactly when code c is
+ * live (OPEN-2 (a), measured against (b)).
+ */
+export const liveConstantSql = (fn: ObjectName, live: string): string =>
+	printStatement({
+		kind: "createConstant",
+		name: fn,
+		params: [],
+		returns: types.varbit,
+		body: lit.text(live, types.varbit)
+	})
+
+/** VALUE + 1: a code's position in its names array, which counts from 1. */
+const valuePosition: Expr = binary("+", { kind: "domainValue" }, lit.int(1, types.integer))
+
+/**
+ * A roster domain over smallint, the engine's CreateDomain with its one CHECK, read off `check`: under OPEN-2 (b) a
+ * code is live when its name is not the hole's, `((names())[VALUE + 1] <> ''::pg_catalog.name) IS TRUE`; under (a)
+ * when its bit of the live constant is set, `(substring(live(), VALUE + 1, 1) = '1'::bit(1)) IS TRUE`.
+ */
+export const rosterDomainSql = (
+	domain: ObjectName,
+	check: { readonly kind: "names" | "live"; readonly constant: ObjectName }
+): string =>
+	printStatement({
+		kind: "createDomain",
+		name: domain,
+		base: types.smallint,
+		collation: undefined,
+		constraints: [
 			{
-				kind: "addConstraint",
-				constraint: {
-					kind: "foreignKey",
-					name,
-					columns,
-					references: target,
-					referencedColumns: columns,
-					deferrable: undefined
-				},
-				notValid: false
+				name: "live",
+				predicate:
+					check.kind === "names"
+						? ne(
+								{ kind: "subscript", array: constantValue(check.constant), index: valuePosition },
+								lit.text("", types.name(false))
+							)
+						: inSet(check.constant, { kind: "domainValue" })
 			}
 		]
 	})
-}

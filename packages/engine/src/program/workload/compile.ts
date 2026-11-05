@@ -188,7 +188,8 @@ const checkedProgramIr = (
 			claims: { kind: "every" },
 			laws: reads.artifacts.laws,
 			derived,
-			world: writeWorld.value
+			world: writeWorld.value,
+			codes: reads.artifacts.names.codes
 		}),
 		(frontend) => {
 			/**

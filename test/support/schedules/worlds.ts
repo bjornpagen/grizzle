@@ -1,14 +1,14 @@
 import { Array as Arr, Effect, Option, Order, Record, type Scope, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { defined } from "#test/support/assert.ts"
 import {
 	type HostSchema,
 	rowsDifference,
 	stateRows,
 	type Violation,
 	violations
-} from "#test/pg/laws/families/model.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
-import { defined } from "#test/support/assert.ts"
+} from "#test/support/laws/model.ts"
 import { messageOf } from "#test/support/message.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
 import {
@@ -148,7 +148,6 @@ const lawJoins = (law: LawSpec): ReadonlyArray<string> => {
 			return [law.relation]
 		case "contained":
 		case "covered":
-		case "capacity":
 			return [law.source.relation, law.target.relation]
 		case "alternatives":
 			return [law.relation, ...Record.values(law.arms)]

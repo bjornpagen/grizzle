@@ -9,7 +9,7 @@ import {
 	sameValues,
 	transition,
 	valueText
-} from "#test/pg/laws/families/model.ts"
+} from "#test/support/laws/model.ts"
 import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
 import { entryRows, isMember } from "#test/support/worlds/model/host.ts"
 import {

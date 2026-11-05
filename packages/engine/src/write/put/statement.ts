@@ -69,6 +69,7 @@ import {
 
 import {
 	keyFirst,
+	writtenFields,
 	type ResultColumn,
 	type Returning,
 	resultText,
@@ -235,6 +236,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 	const payload = spec.inPlace.payload
 	const guarantees = inputGuarantees(input)
 	const all = keyFirst(relation)
+	const written = writtenFields(relation)
 	const pk = relation.primaryFields
 	const scan = supply.relation(internal("input scan"))
 	const r1 = supply.relation(internal("input"))
@@ -243,7 +245,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 	const r4 = keyUniqueBy(guarantees.keyUnique)
 		? undefined
 		: supply.relation(internal("same-key check"))
-	const inputs = fieldColumns(all, () => supply.column(internal("input column")))
+	const inputs = fieldColumns(written, () => supply.column(internal("input column")))
 	const keys = fieldColumns(r4 === undefined ? [] : pk, () =>
 		supply.column(internal("same-key column"))
 	)
@@ -252,7 +254,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 		input,
 		{
 			kind: "input",
-			fields: all,
+			fields: written,
 			distinct: !guarantees.distinct,
 			alias: scan,
 			keys: inputs,
@@ -284,7 +286,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 			? undefined
 			: notExists(simpleSelect([target(lit.int(1, types.integer))], [cteRef(r4)], undefined))
 	const column = (f: LawField) => w.names.column(relation.name, f.name)
-	return { all, pk, payload, r1, r2, r3, r4, keys, inputs, inCol, ctes, gate, column }
+	return { all, written, pk, payload, r1, r2, r3, r4, keys, inputs, inCol, ctes, gate, column }
 }
 
 const factColumns = (fields: ReadonlyArray<LawField>): Array<ResultColumn> =>
@@ -366,7 +368,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 	const at = `put upsert ${relation.name}`
 	return buildPut(w, (supply) => {
 		const head = putHead(w, spec, supply, at)
-		const { all, pk, payload, r1, r2, r3, inCol, ctes, column } = head
+		const { all, written, pk, payload, r1, r2, r3, inCol, ctes, column } = head
 		const returned = fieldColumns(all, () => supply.column(internal("returned column")))
 		/** The unique probe over the insert arm, after every other name: the input is enumerated, so
 		 * the host refused a pair within it at every object whose pairs are the host's. */
@@ -387,14 +389,14 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			with: undefined,
 			table: w.names.relation(relation.name),
 			alias: r3,
-			columns: all.map(column),
+			columns: written.map(column),
 			overriding:
 				explicitSerials(spec.relation, completeClass).length > 0 ? "SYSTEM VALUE" : undefined,
 			source: {
 				kind: "query",
 				query: {
 					...simpleSelect(
-						all.map((f) => target(inCol(f))),
+						written.map((f) => target(inCol(f))),
 						[cteRef(r1)],
 						probe?.gate
 					),
@@ -464,7 +466,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 					undefined
 				),
 				core(
-					[...all.map((f) => target(probe.refusalCol(f))), target(probe.ordinal)],
+					[...all.map((f) => target(probe.refusalValue(f))), target(probe.ordinal)],
 					[cteRef(probe.refusal)],
 					undefined
 				)
@@ -641,7 +643,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 	const at = `put merge ${relation.name}`
 	return buildPut(w, (supply) => {
 		const head = putHead(w, spec, supply, at)
-		const { all, pk, payload, r1, r2, r3, r4, inCol, ctes, gate, column } = head
+		const { all, written, pk, payload, r1, r2, r3, r4, inCol, ctes, gate, column } = head
 		const actionCol = supply.column(internal("merge action"))
 		const returned = fieldColumns(all, () => supply.column(internal("returned column")))
 		const c9 = r4 === undefined ? undefined : supply.column(internal("same-key marker"))
@@ -679,7 +681,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 						kind: "insert",
 						overriding:
 							explicitSerials(spec.relation, completeClass).length > 0 ? "SYSTEM VALUE" : undefined,
-						row: mapNonEmpty(all, (f) => ({ column: column(f), value: inCol(f) }))
+						row: mapNonEmpty(written, (f) => ({ column: column(f), value: inCol(f) }))
 					}
 				},
 				{

@@ -5,7 +5,6 @@ import {
 	type AnyClosed,
 	type AnyRelation,
 	type AnySchema,
-	capacity,
 	check,
 	closed,
 	contained,
@@ -13,14 +12,10 @@ import {
 	key,
 	mutable,
 	on,
-	ref,
 	relation,
 	schema,
 	select,
-	type Statement,
-	weigh,
-	within,
-	duration
+	type Statement
 } from "#compiler/public/schema.ts"
 import { compute } from "#compiler/scalar/compute/builders.ts"
 import { derived } from "#compiler/schema/relation.ts"
@@ -30,8 +25,7 @@ import { regexField } from "#compiler/text/field.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import type { Relation } from "#compiler/types/schema/relation.ts"
-import type { EnumClosed } from "#compiler/types/schema/relation.ts"
+import type { Relation, Roster } from "#compiler/types/schema/relation.ts"
 import type { AnyContext } from "#compiler/types/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { contractDescriptor as contractField } from "#test/support/fixtures/descriptors.ts"
@@ -42,7 +36,6 @@ import { attempt, type RealizeRefused } from "#test/support/worlds/execute/refus
 import { fieldDomain } from "#test/support/worlds/model/host.ts"
 import type {
 	BaseSpec,
-	HostBound,
 	ContextSpec,
 	FieldDomain,
 	FieldSpec,
@@ -51,8 +44,7 @@ import type {
 	RelationSpec,
 	RoleSpec,
 	RowPredicate,
-	SideSpec,
-	HostWeight
+	SideSpec
 } from "#test/support/worlds/model/types.ts"
 
 /** A relation built from a spec: its name, fields and key are known only at run time. */
@@ -61,7 +53,7 @@ export type BuiltRelation = Relation<
 	Record<string, FieldBase>,
 	readonly [string, ...Array<string>]
 >
-export type BuiltClosed = EnumClosed<string, readonly [string, ...Array<string>]>
+export type BuiltClosed = Roster<string, readonly [string, ...Array<string>]>
 /** A role built from a spec: its entries and lists are known only at run time, and its type reads no context. */
 export type BuiltRole = ReturnType<
 	typeof role<
@@ -287,20 +279,6 @@ const sideOf = (space: Space, side: SideSpec) =>
 				)
 	})
 
-const boundOf = (bound: HostBound): bigint | ReturnType<typeof ref> =>
-	typeof bound === "bigint" ? bound : ref(bound.ref)
-
-const weightOf = (weight: HostWeight) => {
-	switch (weight.kind) {
-		case "count":
-			return Option.none()
-		case "field":
-			return Option.some(weigh(weight.field))
-		case "duration":
-			return Option.some(weigh(duration(weight.field)))
-	}
-}
-
 /** The statement of one law spec. */
 const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefused> =>
 	Effect.gen(function* () {
@@ -359,21 +337,6 @@ const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefu
 				)
 				return yield* attempt(`alternatives of ${law.relation}`, () =>
 					alternativesBuilder(parent, law.tag, roster, arms)
-				)
-			}
-			case "capacity": {
-				const target = yield* sideOf(space, law.target)
-				const from = yield* sideOf(space, law.source)
-				const bound =
-					law.high === "*"
-						? within(boundOf(law.low), "*")
-						: within(boundOf(law.low), boundOf(law.high))
-				const weight = weightOf(law.weight)
-				return yield* attempt(`capacity into ${law.target.relation}`, () =>
-					Option.match(weight, {
-						onNone: () => capacity(target, { from, within: bound }),
-						onSome: (w) => capacity(target, { from, weight: w, within: bound })
-					})
 				)
 			}
 		}

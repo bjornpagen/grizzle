@@ -1,22 +1,28 @@
-import { Array as Arr, Equal, Option, Order } from "effect"
+import { Array as Arr, Equal, Option, Order, String as Str } from "effect"
 import type { Catalog, CatalogGrant, CatalogMembership } from "#test/support/catalog/read.ts"
 
 /**
  * What a function of the installation is, by the object that installs it, which decides how it is installed and who
  * may execute it: a world's function (a writable query entry's filter function, key probe or unique probe), a serial
- * field's advance function, moving the identity sequence of `table`, the refusal function, the snapshot guard, a law
- * function, or the isolation guard.
+ * field's advance function, moving the identity sequence of `table`, the refusal function, the snapshot guard, the
+ * isolation guard, or a constant: a roster's names constant, which the roster domain `domain`'s CHECK reads; a
+ * roster's live-codes constant, derived from the names constant `names` and read by the bits domain `domain`'s CHECK;
+ * or a closed relation's or a side's constant, named by its content's digest.
  */
 export type InstalledFunction =
 	| { readonly kind: "world" }
 	| { readonly kind: "advance"; readonly table: string }
 	| { readonly kind: "refusal" }
 	| { readonly kind: "snapshotGuard" }
-	| { readonly kind: "law" }
 	| { readonly kind: "isolationGuard" }
+	| { readonly kind: "names"; readonly domain: string }
+	| { readonly kind: "live"; readonly names: string; readonly domain: string }
+	| { readonly kind: "closedConstant" }
 
-/** What a trigger of the installation is: a law trigger, or the isolation guard every table carries. */
-export type InstalledTrigger = "law" | "isolation"
+/** What a trigger of the installation is: the isolation guard every table carries, the one trigger grizzle installs. */
+export const installedTriggers = ["isolation"] as const
+
+export type InstalledTrigger = (typeof installedTriggers)[number]
 
 export interface ErasureExpectation {
 	/** The authored stored relations' table names. */
@@ -39,6 +45,11 @@ export interface ErasureExpectation {
 	readonly refreshes: ReadonlyMap<string, ReadonlySet<string>>
 	/** The query entries' views, `<world schema>.<view>`: the only security_barrier views. */
 	readonly barrierViews: ReadonlySet<string>
+	/**
+	 * Whether the schema declares a closed relation, whose constants (each `__constant_<digest>`, named by its content)
+	 * the installation holds besides the rosters'.
+	 */
+	readonly closedConstants: boolean
 }
 
 /** An object of the installation a problem names: a relation is a table or a materialized view of the schema. */
@@ -47,7 +58,6 @@ export type CatalogObject =
 	| { readonly kind: "relation"; readonly name: string }
 	| { readonly kind: "column"; readonly relation: string; readonly column: string }
 	| { readonly kind: "sequence"; readonly name: string }
-	| { readonly kind: "enum"; readonly name: string }
 	| { readonly kind: "domain"; readonly name: string }
 	| { readonly kind: "function"; readonly name: string }
 	| { readonly kind: "world"; readonly name: string }
@@ -129,17 +139,28 @@ export type ErasureProblem =
 	| { readonly kind: "triggerDisabled"; readonly trigger: string; readonly table: string }
 	| { readonly kind: "malformedGuard"; readonly table: string }
 	| { readonly kind: "foreignTrigger"; readonly trigger: string; readonly table: string }
-	| { readonly kind: "triggerNotDeferred"; readonly trigger: string; readonly table: string }
+	| { readonly kind: "enumLabels"; readonly count: number }
 	| {
-			readonly kind: "lawTriggerEvents"
-			readonly trigger: string
-			readonly table: string
-			readonly type: number
+			/** A constant installed otherwise than as one: a function of arguments, VOLATILE or STABLE, SECURITY DEFINER,
+			 * with a SET clause (which keeps PostgreSQL from inlining it), or not owned by the owner. */
+			readonly kind: "constantShape"
+			readonly function: string
+			readonly reason: string
 	  }
 	| {
-			readonly kind: "lawFunctionExecutors"
+			/** A constant whose EXECUTE holders are not exactly the world roles whose USAGE, views or other constants call
+			 * it: PostgreSQL checks EXECUTE on a function a domain's CHECK or a view calls against the invoker. */
+			readonly kind: "constantExecutors"
 			readonly function: string
-			readonly triggers: ReadonlyArray<string>
+			readonly missing: ReadonlyArray<string>
+			readonly extra: ReadonlyArray<string>
+	  }
+	| {
+			/** A roster's or a set's domain whose one CHECK does not read exactly its constant. */
+			readonly kind: "domainCheckCalls"
+			readonly domain: string
+			readonly expected: string
+			readonly calls: ReadonlyArray<ReadonlyArray<string>>
 	  }
 	| { readonly kind: "isolationDefault" }
 	| { readonly kind: "inertPolicy"; readonly policy: string; readonly table: string }
@@ -222,53 +243,6 @@ const unless = (holds: boolean, problem: ErasureProblem): ReadonlyArray<ErasureP
  */
 const guardTriggerType = 2 + 4 + 8 + 16 + 32
 
-/** The event bits of pg_trigger.tgtype: INSERT (4), DELETE (8), UPDATE (16) and TRUNCATE (32). */
-const triggerEvents = [4, 8, 16, 32] as const
-
-/**
- * A residual law's units as the catalog holds them: every law trigger fires on exactly one event, and every law function
- * is executed by exactly one trigger, a law trigger. A trigger of two events would dispatch on the event at run time
- * and queue what its WHEN cannot filter; a function two triggers share compiles its whole body once per trigger in each
- * backend.
- */
-const lawUnitProblems = (j: Judging): ReadonlyArray<ErasureProblem> => {
-	const laws = Arr.filter(
-		j.catalog.triggers,
-		(t) => !t.internal && j.expect.triggers.get(t.name) === "law"
-	)
-	const executors = new Map<string, Array<string>>()
-	for (const t of j.catalog.triggers) {
-		if (!t.internal && j.expect.functions.get(t.function)?.kind === "law") {
-			const known = executors.get(t.function)
-			if (known === undefined) {
-				executors.set(t.function, [t.name])
-			} else {
-				known.push(t.name)
-			}
-		}
-	}
-	return [
-		...Arr.flatMap(laws, (t) =>
-			unless(Arr.filter(triggerEvents, (bit) => (t.type & bit) !== 0).length === 1, {
-				kind: "lawTriggerEvents",
-				trigger: t.name,
-				table: t.table,
-				type: t.type
-			})
-		),
-		...Arr.flatMap([...j.expect.functions], ([name, expected]) => {
-			const triggers = executors.get(name)
-			return expected.kind === "law"
-				? unless(triggers?.length === 1, {
-						kind: "lawFunctionExecutors",
-						function: name,
-						triggers: triggers ?? []
-					})
-				: []
-		})
-	]
-}
-
 const allowed = {
 	table: new Set(["SELECT", "INSERT", "DELETE", "UPDATE"]),
 	view: new Set(["SELECT", "MAINTAIN"]),
@@ -305,8 +279,8 @@ const columnGrants = (t: Table): ReadonlyArray<HeldGrant> =>
 	}))
 
 /**
- * Every grant on an object of the installation: the schema, its relations and their columns, sequences, enums, domains
- * and functions, and each world's schema and views.
+ * Every grant on an object of the installation: the schema, its relations and their columns, sequences, domains and
+ * functions, and each world's schema and views.
  */
 const heldGrants = (catalog: Catalog): ReadonlyArray<HeldGrant> => [
 	...on({ kind: "schema", name: catalog.schema }, catalog.schemaGrants),
@@ -315,7 +289,6 @@ const heldGrants = (catalog: Catalog): ReadonlyArray<HeldGrant> => [
 		...columnGrants(t)
 	]),
 	...Arr.flatMap(catalog.sequences, (q) => on({ kind: "sequence", name: q.name }, q.grants)),
-	...Arr.flatMap(catalog.enums, (e) => on({ kind: "enum", name: e.name }, e.grants)),
 	...Arr.flatMap(catalog.domains, (d) => on({ kind: "domain", name: d.name }, d.grants)),
 	...Arr.flatMap(catalog.functions, (f) => on({ kind: "function", name: f.name }, f.grants)),
 	...Arr.flatMap(catalog.worlds, (w) => [
@@ -546,7 +519,12 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 			function: f.name
 		})
 	]
-	const expected = j.expect.functions.get(f.name)
+	const declared = j.expect.functions.get(f.name)
+	const expected: InstalledFunction | undefined =
+		declared ??
+		(j.expect.closedConstants && Str.startsWith("__constant_")(f.name)
+			? { kind: "closedConstant" }
+			: undefined)
 	if (expected === undefined) {
 		return [
 			...definer,
@@ -584,15 +562,139 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 				...grantProblems(j, held, allowed.none, allowed.function),
 				...loginLacks(j, object, f.grants, "EXECUTE")
 			]
-		case "law":
 		case "isolationGuard":
 			return [...definer, ...grantProblems(j, held, allowed.none, allowed.none)]
+		case "names":
+		case "live":
+		case "closedConstant":
+			return [
+				...constantShapeProblems(j, f),
+				...grantProblems(j, held, allowed.function, allowed.none),
+				...constantExecutorProblems(j, f, expected)
+			]
 	}
 }
 
 /**
- * Every trigger is enabled, and is PostgreSQL's internal foreign-key trigger, the isolation guard (running the isolation
- * guard function), or a law trigger: a DEFERRABLE INITIALLY DEFERRED constraint trigger.
+ * A constant is a SQL function of no argument, IMMUTABLE, owned by the owner, neither SECURITY DEFINER nor carrying a
+ * SET clause, so PostgreSQL inlines it and folds a call of it at plan time (sql/ast.ts CreateConstant).
+ */
+const constantShapeProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
+	const shape = (holds: boolean, reason: string) =>
+		unless(holds, { kind: "constantShape", function: f.name, reason })
+	return [
+		...shape(f.owner === j.owner, `owned by ${f.owner}`),
+		...shape(f.args === "", `of arguments (${f.args})`),
+		...shape(f.volatility === "i", `of volatility ${f.volatility}`),
+		...shape(!f.securityDefiner, "SECURITY DEFINER"),
+		...shape(f.config.length === 0, `with SET ${Arr.join(f.config, ", ")}`)
+	]
+}
+
+/** The world roles holding `privilege` on the domain named `domain`. */
+const domainHolders = (j: Judging, domain: string, privilege: string): ReadonlySet<string> =>
+	new Set(
+		Arr.flatMap(j.catalog.domains, (d) =>
+			d.name === domain
+				? Arr.flatMap(d.grants, (g) =>
+						g.privilege === privilege && j.worldRoles.has(g.grantee) ? [g.grantee] : []
+					)
+				: []
+		)
+	)
+
+/** The world roles whose views call the function `name`: each world's role is its schema's name. */
+const viewCallers = (j: Judging, name: string): ReadonlySet<string> =>
+	new Set(
+		Arr.flatMap(j.catalog.worlds, (w) =>
+			Arr.some(w.relations, (v) => Arr.contains(v.calls, name)) ? [w.name] : []
+		)
+	)
+
+/** The world roles holding EXECUTE on the function `name`. */
+const executorsOf = (j: Judging, name: string): ReadonlySet<string> =>
+	new Set(
+		Arr.flatMap(j.catalog.functions, (f) =>
+			f.name === name
+				? Arr.flatMap(f.grants, (g) =>
+						g.privilege === "EXECUTE" && j.worldRoles.has(g.grantee) ? [g.grantee] : []
+					)
+				: []
+		)
+	)
+
+/**
+ * EXECUTE on a constant goes exactly to the world roles that call it as invokers (§3.12, "Role views"): a live
+ * constant's to the holders of USAGE on its bits domain, whose CHECK calls it; a names constant's to the holders of
+ * USAGE on its roster domain, the roles whose views decode a closed id through it, and the executors of the live
+ * constant derived from it, whose body calls it; a closed relation's constant's to the roles whose views call it.
+ */
+const constantExecutorProblems = (
+	j: Judging,
+	f: Fn,
+	expected: Extract<InstalledFunction, { readonly kind: "names" | "live" | "closedConstant" }>
+): ReadonlyArray<ErasureProblem> => {
+	const required = new Set<string>(viewCallers(j, f.name))
+	switch (expected.kind) {
+		case "live":
+			for (const r of domainHolders(j, expected.domain, "USAGE")) {
+				required.add(r)
+			}
+			break
+		case "names":
+			for (const r of domainHolders(j, expected.domain, "USAGE")) {
+				required.add(r)
+			}
+			for (const [name, other] of j.expect.functions) {
+				if (other.kind === "live" && other.names === f.name) {
+					for (const r of executorsOf(j, name)) {
+						required.add(r)
+					}
+				}
+			}
+			break
+		case "closedConstant":
+			break
+	}
+	const held = executorsOf(j, f.name)
+	const missing = Arr.sort(
+		Arr.filter([...required], (r) => !held.has(r)),
+		Order.String
+	)
+	const extra = Arr.sort(
+		Arr.filter([...held], (r) => !required.has(r)),
+		Order.String
+	)
+	return unless(missing.length === 0 && extra.length === 0, {
+		kind: "constantExecutors",
+		function: f.name,
+		missing,
+		extra
+	})
+}
+
+/** A roster's and a set's domain has one CHECK, which calls exactly its constant (pg_depend). */
+const rosterDomainProblems = (j: Judging): ReadonlyArray<ErasureProblem> =>
+	Arr.flatMap([...j.expect.functions], ([name, f]) => {
+		if (f.kind !== "names" && f.kind !== "live") {
+			return []
+		}
+		const domain = Arr.findFirst(j.catalog.domains, (d) => d.name === f.domain)
+		const calls = Option.match(domain, {
+			onNone: () => [],
+			onSome: (d) => Arr.map(d.constraints, (c) => c.calls)
+		})
+		return unless(calls.length === 1 && Arr.every(calls, (c) => c.length === 1 && c[0] === name), {
+			kind: "domainCheckCalls",
+			domain: f.domain,
+			expected: name,
+			calls
+		})
+	})
+
+/**
+ * Every trigger is enabled, and is PostgreSQL's internal foreign-key trigger or the isolation guard (running the
+ * isolation guard function): no law trigger exists (W7), every law being native.
  */
 const triggerProblems = (j: Judging, t: Trigger): ReadonlyArray<ErasureProblem> => {
 	const enabled = unless(t.enabled === "O", {
@@ -615,15 +717,7 @@ const triggerProblems = (j: Judging, t: Trigger): ReadonlyArray<ErasureProblem> 
 			)
 		]
 	}
-	return [
-		...enabled,
-		...unless(expected === "law", { kind: "foreignTrigger", trigger: t.name, table: t.table }),
-		...unless(t.constraint && t.deferrable && t.deferred, {
-			kind: "triggerNotDeferred",
-			trigger: t.name,
-			table: t.table
-		})
-	]
+	return [...enabled, { kind: "foreignTrigger", trigger: t.name, table: t.table }]
 }
 
 /**
@@ -851,17 +945,22 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  * of names here:
  *
  * - only authored tables and the migrations ledger exist, plus the materialized views of declared derived relations;
- *   no plain view, foreign table, or other type beyond enums, domains and row types;
- * - the only functions are the refusal function, the isolation guard, the snapshot guard, law functions and each serial
- *   field's advance function, owned by the owner, SECURITY DEFINER, VOLATILE, with `search_path = pg_catalog, pg_temp`
- *   and `plan_cache_mode = force_custom_plan`, and the worlds' functions (each writable query entry's filter function
- *   and key and unique probes), owned by the owner, SECURITY DEFINER, STABLE, with the same search_path and
- *   `plan_cache_mode = force_generic_plan`; EXECUTE goes
- *   to no one on a law function or the isolation guard, to world roles alone on the refusal function, to exactly the
- *   logins on the snapshot guard, which every Db transaction calls as its login, to the one role whose entry it serves
- *   on a world's function, and on an advance function to exactly the world roles that insert into its table;
- * - the only triggers are law triggers, deferred constraint triggers, enabled, the isolation guard, and PostgreSQL's
- *   internal foreign-key triggers, enabled;
+ *   no plain view, foreign table, or other type beyond domains and row types, and no pg_enum row: a roster is a
+ *   smallint domain;
+ * - the only functions are the refusal function, the isolation guard, the snapshot guard and each serial field's
+ *   advance function, owned by the owner, SECURITY DEFINER, VOLATILE, with `search_path = pg_catalog, pg_temp` and
+ *   `plan_cache_mode = force_custom_plan`; the worlds' functions (each writable query entry's filter function and key
+ *   and unique probes), owned by the owner, SECURITY DEFINER, STABLE, with the same search_path and
+ *   `plan_cache_mode = force_generic_plan`; and the constants, each named by its content's digest, a SQL function of no
+ *   argument, IMMUTABLE, owned by the owner, neither SECURITY DEFINER nor carrying a SET clause: a roster's names
+ *   constant, the live-codes constant derived from it, and a closed relation's constants. EXECUTE goes to no one on
+ *   the isolation guard, to world roles alone on the refusal function, to exactly the logins on the snapshot guard,
+ *   which every Db transaction calls as its login, to the one role whose entry it serves on a world's function, on an
+ *   advance function to exactly the world roles that insert into its table, and on a constant to exactly the world
+ *   roles that call it as invokers: through USAGE on a domain whose CHECK reads it, a view that decodes through it, or
+ *   another constant derived from it;
+ * - a roster's domain and a set's domain each have one CHECK, which calls exactly their constant;
+ * - the only triggers are the isolation guard and PostgreSQL's internal foreign-key triggers, enabled;
  * - every table the installation expects, the authored relations' and the migrations ledger, carries exactly one
  *   isolation guard trigger, BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE FOR EACH STATEMENT, running the isolation
  *   guard function, and the database defaults every transaction to SERIALIZABLE: README "Transactions and concurrency":
@@ -873,7 +972,7 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   or of a column, on an immutable relation (immutable by default is pinned) or TRUNCATE on any relation (TRUNCATE
  *   fires no row trigger and would bypass the laws); a table grants only SELECT, INSERT, DELETE and UPDATE, a
  *   materialized view SELECT and MAINTAIN, the latter to exactly the roles that refresh it, a column SELECT, INSERT and
- *   UPDATE, the schema, an enum and a domain USAGE, and an identity sequence nothing: a write moves it through the
+ *   UPDATE, the schema and a domain USAGE, and an identity sequence nothing: a write moves it through the
  *   advance function;
  * - row security is enabled exactly on the tables some world's entry narrows, never forced, and only those tables carry
  *   policies: one per world role that writes the table, a permissive FOR ALL policy named after that role, whose USING
@@ -916,9 +1015,7 @@ export const verifyErasure = (
 		...Arr.flatMap(catalog.sequences, (q) =>
 			grantProblems(j, on({ kind: "sequence", name: q.name }, q.grants), allowed.none, allowed.none)
 		),
-		...Arr.flatMap(catalog.enums, (e) =>
-			grantProblems(j, on({ kind: "enum", name: e.name }, e.grants), allowed.usage, allowed.none)
-		),
+		...unless(catalog.enumLabels === 0, { kind: "enumLabels", count: catalog.enumLabels }),
 		...Arr.flatMap(catalog.domains, (d) => [
 			...grantProblems(
 				j,
@@ -938,7 +1035,7 @@ export const verifyErasure = (
 				: []
 		),
 		...Arr.flatMap(catalog.triggers, (t) => triggerProblems(j, t)),
-		...lawUnitProblems(j),
+		...rosterDomainProblems(j),
 		...unless(
 			Arr.contains(catalog.databaseSettings, "default_transaction_isolation=serializable"),
 			{

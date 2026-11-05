@@ -63,7 +63,7 @@ import type { SessionPool } from "#adapter/wire/session.ts"
 import { type CatalogQuery as CatalogQueryOf, catalogRows } from "#adapter/wire/statement.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { identifierOf } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { manifestStatements } from "#compiler/deploy/admission/manifest.ts"
@@ -127,8 +127,9 @@ const claimValidQuery: CatalogQueryOf<boolean> = {
 }
 
 /**
- * The domain a claim of type `t` is validated against (see the header): its contract's, as the installation names it,
- * or its structural pattern's, as the naming door names it; none for an unrefined type.
+ * The domain a claim of type `t` is validated against (see the header): its contract's, or its structural pattern's,
+ * each as the installation names it, by its definition, so contracts and patterns of one definition share it; none for
+ * an unrefined type.
  */
 const claimDomain = (t: ScalarType, names: InstallNames): Option.Option<ObjectName> => {
 	const contract = contractOf(t)
@@ -136,9 +137,7 @@ const claimDomain = (t: ScalarType, names: InstallNames): Option.Option<ObjectNa
 		return Option.some(names.contractDomain(contract.name))
 	}
 	const regex = structuralRegex(t)
-	return regex === undefined
-		? Option.none()
-		: Option.some({ schema: names.schema, name: identifierOf(identity.textDomain(regex.key)) })
+	return regex === undefined ? Option.none() : Option.fromUndefinedOr(names.textDomain(regex))
 }
 
 /** Why admission could not run to a verdict. */

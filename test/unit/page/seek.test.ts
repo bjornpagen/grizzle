@@ -76,6 +76,8 @@ const comparison = (op: BinaryOperator, cmp: number): boolean => {
 		case ">=":
 			return cmp >= 0
 		case "%":
+		case "&":
+		case "|":
 		case "&&":
 		case "&<":
 		case "&>":
@@ -145,6 +147,9 @@ const evaluate = (e: Expr, tuple: ReadonlyArray<number>, bound: ReadonlyArray<nu
 		case "subquery":
 		case "user":
 		case "regclass":
+		case "complement":
+		case "nullif":
+		case "subscript":
 			throw new Error(`no ${e.kind} in a seek`)
 	}
 }

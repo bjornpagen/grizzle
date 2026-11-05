@@ -10,6 +10,7 @@ import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
 	MemberEncoder,
 	ParamSlot,
@@ -197,35 +198,65 @@ export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>
 	}
 }
 
-/** The spec of a relation input's placeholders over `columns`, its refusals naming `label`. */
-const placeholderSpec = (label: string, columns: ReadonlyArray<RelationColumn>): RelationSpec => ({
+/** The spec of a relation input's placeholders over `columns` under the installation's codes, its refusals naming
+ * `label`. */
+const placeholderSpec = (
+	label: string,
+	columns: ReadonlyArray<RelationColumn>,
+	codes: Codebook
+): RelationSpec => ({
 	relation: label,
 	slot: { kind: "slot", name: label },
-	columns: positionalColumns(columns)
+	columns: positionalColumns(columns),
+	codes
 })
 
 /**
- * The encoders of relation inputs' placeholders, by the columns the placeholders of one input in one statement share
- * (conservative/context.ts StatementParams.relation and WriteParams.member): every placeholder of an input takes the
- * one encoder its columns were given, which a binder runs once for all of them (ir/products.ts ParamSlot). Keyed by
- * those columns' identity, an entry lives as long as the statement holding them.
+ * The encoders of relation inputs' placeholders under one codebook, by the columns the placeholders of one input in
+ * one statement share (conservative/context.ts StatementParams.relation and WriteParams.member): every placeholder of
+ * an input takes the one encoder its columns were given, which a binder runs once for all of them (ir/products.ts
+ * ParamSlot). Keyed by the codebook's and those columns' identity, an entry lives as long as the statement holding
+ * them, and a closed id's column of one installation never writes another's codes.
  */
-const memberEncoders = new WeakMap<ReadonlyArray<RelationColumn>, MemberEncoder>()
-const relationEncoders = new WeakMap<ReadonlyArray<RelationColumn>, RelationEncoder>()
+const memberEncoders = new WeakMap<
+	Codebook,
+	WeakMap<ReadonlyArray<RelationColumn>, MemberEncoder>
+>()
+const relationEncoders = new WeakMap<
+	Codebook,
+	WeakMap<ReadonlyArray<RelationColumn>, RelationEncoder>
+>()
+
+/** The entry of `cache` for `codes` and `columns`, built by `make` the first time it is asked for. */
+const cachedEncoder = <E>(
+	cache: WeakMap<Codebook, WeakMap<ReadonlyArray<RelationColumn>, E>>,
+	codes: Codebook,
+	columns: ReadonlyArray<RelationColumn>,
+	make: () => E
+): E => {
+	const byColumns = cache.get(codes) ?? new WeakMap<ReadonlyArray<RelationColumn>, E>()
+	cache.set(codes, byColumns)
+	const known = byColumns.get(columns)
+	if (known !== undefined) {
+		return known
+	}
+	const encode = make()
+	byColumns.set(columns, encode)
+	return encode
+}
 
 /**
  * The encoder of a member slot's placeholders over `columns`: the host normalized the slot's facts already, so it
  * writes their rows in its column order (codec/recordset.ts normalRows) and refuses no same-key pair.
  */
-const memberEncoder = (label: string, columns: ReadonlyArray<RelationColumn>): MemberEncoder => {
-	const known = memberEncoders.get(columns)
-	if (known !== undefined) {
-		return known
-	}
-	const encode = normalArrays(placeholderSpec(label, columns))
-	memberEncoders.set(columns, encode)
-	return encode
-}
+const memberEncoder = (
+	label: string,
+	columns: ReadonlyArray<RelationColumn>,
+	codes: Codebook
+): MemberEncoder =>
+	cachedEncoder(memberEncoders, codes, columns, () =>
+		normalArrays(placeholderSpec(label, columns, codes))
+	)
 
 /**
  * The deduplicating arrays encoder of a relation parameter's placeholders over `columns`, its refusals naming
@@ -233,52 +264,56 @@ const memberEncoder = (label: string, columns: ReadonlyArray<RelationColumn>): M
  */
 const relationEncoder = (
 	label: string,
-	columns: ReadonlyArray<RelationColumn>
-): RelationEncoder => {
-	const known = relationEncoders.get(columns)
-	if (known !== undefined) {
-		return known
-	}
-	const arrays = arraysEncoder(placeholderSpec(label, columns))
-	const encode: RelationEncoder = (value) => {
-		if (!isIterableObject(value)) {
-			return Result.err(encodeFailure("factShape", slotPlace(label)))
+	columns: ReadonlyArray<RelationColumn>,
+	codes: Codebook
+): RelationEncoder =>
+	cachedEncoder(relationEncoders, codes, columns, () => {
+		const arrays = arraysEncoder(placeholderSpec(label, columns, codes))
+		const encode: RelationEncoder = (value) => {
+			if (!isIterableObject(value)) {
+				return Result.err(encodeFailure("factShape", slotPlace(label)))
+			}
+			return Result.map(arrays(value), (encoded) => encoded.arrays)
 		}
-		return Result.map(arrays(value), (encoded) => encoded.arrays)
-	}
-	relationEncoders.set(columns, encode)
-	return encode
-}
+		return encode
+	})
 
 /** The position of a placeholder's array among its input's arrays: its column's, or the count's, the only one. */
 const partIndex = (part: ArrayPart): number => (part.kind === "column" ? part.index : 0)
 
 /**
- * What fills a declared parameter's placeholder, with its encoder: a scalar's text codec, a relation's arrays encoder,
- * whose array at the placeholder's part it takes.
+ * What fills a declared parameter's placeholder under the installation's codes, with its encoder: a scalar's text
+ * codec, a relation's arrays encoder, whose array at the placeholder's part it takes.
  */
-export const declaredSlotOf = (
-	slot: DeclaredParamSlot
-): Extract<ParamSlot, { readonly kind: "scalar" | "relation" }> => {
-	switch (slot.kind) {
-		case "scalar":
-			return { kind: "scalar", param: slot.param, encode: paramEncoder(slot.type, slot.param) }
-		case "relation":
-			return {
-				kind: "relation",
-				param: slot.param,
-				part: partIndex(slot.part),
-				encode: relationEncoder(slot.param, slot.columns)
-			}
+export const declaredSlotOf =
+	(codes: Codebook) =>
+	(slot: DeclaredParamSlot): Extract<ParamSlot, { readonly kind: "scalar" | "relation" }> => {
+		switch (slot.kind) {
+			case "scalar":
+				return {
+					kind: "scalar",
+					param: slot.param,
+					encode: paramEncoder(slot.type, slot.param, codes)
+				}
+			case "relation":
+				return {
+					kind: "relation",
+					param: slot.param,
+					part: partIndex(slot.part),
+					encode: relationEncoder(slot.param, slot.columns, codes)
+				}
+		}
 	}
-}
 
 /** What fills a member slot's placeholder, with its arrays encoder over the slot's normal facts. */
-const memberSlotOf = (slot: MemberParamSlot): Extract<ParamSlot, { readonly kind: "member" }> => ({
+const memberSlotOf = (
+	slot: MemberParamSlot,
+	codes: Codebook
+): Extract<ParamSlot, { readonly kind: "member" }> => ({
 	kind: "member",
 	slot: slot.slot,
 	part: partIndex(slot.part),
-	encode: memberEncoder(slot.relation, slot.columns)
+	encode: memberEncoder(slot.relation, slot.columns, codes)
 })
 
 /**
@@ -290,13 +325,19 @@ const pageSlotOf = (slot: PageParamSlot): Extract<ParamSlot, { readonly kind: "p
 	fill: slot.fill
 })
 
-/** What fills a write statement's placeholder, with its encoder: a declared parameter's or a member slot's. */
-export const writeSlotOf = (slot: WriteParamSlot): WriteSlot =>
-	slot.kind === "member" ? memberSlotOf(slot) : declaredSlotOf(slot)
+/** What fills a write statement's placeholder under the installation's codes, with its encoder: a declared
+ * parameter's or a member slot's. */
+export const writeSlotOf =
+	(codes: Codebook) =>
+	(slot: WriteParamSlot): WriteSlot =>
+		slot.kind === "member" ? memberSlotOf(slot, codes) : declaredSlotOf(codes)(slot)
 
-/** What fills a page statement's placeholder: a declared parameter's, with its encoder, or a page fill. */
-export const pageStatementSlotOf = (slot: PageStatementSlot): ParamSlot =>
-	slot.kind === "page" ? pageSlotOf(slot) : declaredSlotOf(slot)
+/** What fills a page statement's placeholder under the installation's codes: a declared parameter's, with its
+ * encoder, or a page fill. */
+export const pageStatementSlotOf =
+	(codes: Codebook) =>
+	(slot: PageStatementSlot): ParamSlot =>
+		slot.kind === "page" ? pageSlotOf(slot) : declaredSlotOf(codes)(slot)
 
 /** A query statement's large form as a template holds it: the large mode's statement and the spec emitted from it. */
 export interface SpecifiedForm {
@@ -358,14 +399,15 @@ export const statementSpec = <Slot extends ConservativeParamSlot, P extends Para
  *   onto its parents; the value's decoder converts them (adapter/reader/execution.ts).
  */
 export const specifiedStatements = <S extends FusedStatement>(
-	roots: StatementRoots<S>
+	roots: StatementRoots<S>,
+	codes: Codebook
 ): Result.Result<
 	StatementRoots<{ readonly statement: S; readonly spec: StatementSpec }>,
 	CompileError
 > =>
 	catchRefusal(() =>
 		mapTree(roots, (statement) => {
-			const spec = statementSpec(statement, declaredSlotOf)
+			const spec = statementSpec(statement, declaredSlotOf(codes))
 			if (!spec.ok) {
 				throw new Refusal(spec.error)
 			}

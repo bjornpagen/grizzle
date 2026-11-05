@@ -18,6 +18,7 @@
 		"./guard": "./src/guard.ts",
 		"./interleave": "./src/interleave.ts",
 		"./mutate": "./src/mutate.ts",
+		"./mutants": "./src/mutants.ts",
 		"./lsw": "./src/lsw.ts",
 		"./oracle": "./src/oracle.ts",
 		"./random": "./src/random.ts",
@@ -30,6 +31,7 @@
 		"./vitest": "./src/vitest/searched.ts",
 		"./vitest/config": "./src/vitest/config.ts",
 		"./vitest/global-setup": "./src/vitest/global-setup.ts",
+		"./vitest/reporter": "./src/vitest/reporter.ts",
 		"./vitest/run": "./src/vitest/run.ts",
 		"./pattern": "./src/pattern.ts",
 		"./oxlint": "./src/oxlint/plugin.ts"

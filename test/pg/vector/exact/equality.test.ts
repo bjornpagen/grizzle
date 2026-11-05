@@ -8,6 +8,7 @@ import { Db } from "#adapter/public/db.ts"
 import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { ChangeSet as PublicChangeSet } from "#compiler/public/changeset.ts"
@@ -30,6 +31,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, lacksText, bareRecord, succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,
+	installedCodes,
 	paramTexts,
 	realityWrite,
 	testArtifacts,
@@ -56,7 +58,7 @@ const Note = relation("Note", { id: uuid, value: Pair, rank: pg.bigint }, ["id"]
 const Pairs = schema("VectorPairs", { A, B, Edge, Note }, [])
 
 const pairType = scalarOf({ kind: "vector", dimensions: 2 }, {})
-const pairCodec = codecOf(pairType)
+const pairCodec = codecOf(pairType, emptyCodebook)
 const vec = (x: number, y: number): Vector => Vector.make(Float32Array.of(x, y), 2)
 const text = (value: Vector): string => {
 	const t = pairCodec.encode(value)
@@ -101,7 +103,7 @@ const compiled = (q: unknown, installed: Installed): QueryTemplate => {
 const run = (session: RawSession, spec: StatementSpec, params: Readonly<Record<string, unknown>>) =>
 	Effect.gen(function* () {
 		const rows = yield* session.values(spec.sql, paramTexts(spec, params))
-		return Arr.map(textRows(rows), headingRecord(spec.heading))
+		return Arr.map(textRows(rows), headingRecord(spec.heading, emptyCodebook))
 	})
 
 /**
@@ -134,7 +136,8 @@ const writeSteps = (installed: Installed, changeSet: unknown): ReadonlyArray<Wri
 		succeeded(
 			testArtifacts(Pairs, {
 				installation: installed.installation.settings.installation,
-				vectorSchema: undefined
+				vectorSchema: undefined,
+				codes: installedCodes(installed.names.codes)
 			})
 		)
 	)
@@ -142,7 +145,8 @@ const writeSteps = (installed: Installed, changeSet: unknown): ReadonlyArray<Wri
 		claims: reality.claims,
 		laws: reality.laws,
 		derived: reality.derived,
-		world: reality.world
+		world: reality.world,
+		codes: installed.names.codes
 	})
 	if (!frontend.ok) {
 		throw new Error(frontend.error.message)
@@ -196,6 +200,7 @@ const apply = (
 				}
 				const encoder = arraysEncoder({
 					relation: p.relation,
+					codes: installed.names.codes,
 					slot: { kind: "slot", name: String(p.slot) },
 					columns: positionalColumns(p.columns)
 				})

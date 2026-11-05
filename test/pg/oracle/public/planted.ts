@@ -1,6 +1,7 @@
 import { Array as Arr } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
+import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SentRow } from "#test/pg/oracle/public/cells.ts"
 import { defined } from "#test/support/assert.ts"
 import type { Nested } from "#test/support/oracle/public/answer.ts"
@@ -115,12 +116,22 @@ const restitch = (
 /** A stitch by text as a test double: children stitched by the spelling their parent's key cell was sent in. */
 export const bySpelling: Stitch = (rows, query, sent) => restitch(query, rows, sent)
 
+/**
+ * The codes a column of `type` is read under in a public-oracle case: every case installs its schema fresh, from no
+ * codes (oracle/install/real.ts oraclePlan), so a roster's handles hold the codes of their declared positions, and a
+ * type over no roster reads none.
+ */
+export const freshCodesOf = (type: ScalarType): Codebook => {
+	const roster = rosterOf(type)
+	return roster === undefined ? emptyCodebook : firstCodebook([roster])
+}
+
 /** A trusting conversion of a column type's output text into its host value. */
 export type Conversion = (type: ScalarType) => (text: string) => unknown
 
 /** The library's conversion (packages/engine/src/scalar/values/convert.ts). */
-export const asConverted: Conversion = (type) => scalarCodec(type).convert
+export const asConverted: Conversion = (type) => scalarCodec(type, freshCodesOf(type)).convert
 
 /** A boolean conversion that misreads every text but `f`: true where PostgreSQL wrote false, and false for true. */
 export const boolByF: Conversion = (type) =>
-	type.carrier === "bool" ? (text) => text === "f" : scalarCodec(type).convert
+	type.carrier === "bool" ? (text) => text === "f" : scalarCodec(type, freshCodesOf(type)).convert

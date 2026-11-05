@@ -10,9 +10,8 @@ import {
 	isSpan,
 	type HostSide,
 	isDrawn,
-	isResidual,
 	selected
-} from "#test/pg/laws/families/model.ts"
+} from "#test/support/laws/model.ts"
 import { textDomain } from "#test/support/worlds/model/text.ts"
 
 import type {
@@ -49,7 +48,7 @@ import type {
  * The worlds model's host semantics, restated from the README and independent of grizzle's source: what a rule set
  * means over reality and a session's facts (evaluateRules), which role relations are writable and how (classifyEntry),
  * which rows a role relation holds (entryRows), whether a fact of a writable entry's target is in the entry (isMember),
- * and a base's laws as the host law model's (hostSchemaOf, test/pg/laws/families/model.ts).
+ * and a base's laws as the host law model's (hostSchemaOf, test/support/laws/model.ts).
  *
  * Values are as PostgreSQL outputs them: a uuid in lowercase, an integer (a contract's value included) as a number, a
  * handle as its member's name, a span by its endpoints. Values of one kind are equal when they are the same value,
@@ -1185,12 +1184,6 @@ const declaredKeys = (base: BaseSpec, relation: string): ReadonlyArray<ReadonlyA
 	})
 ]
 
-/** Whether a side's fields contain a declared key of its relation: a foreign key can reference it. */
-const keyed = (base: BaseSpec, side: SideSpec): boolean =>
-	Arr.some(declaredKeys(base, side.relation), (k) =>
-		Arr.every(k, (f) => Arr.contains(side.fields, f))
-	)
-
 const isSelected = (side: SideSpec): boolean => Rec.keys(side.where).length > 0
 
 /**
@@ -1312,9 +1305,8 @@ const containedLaws = (base: BaseSpec, law: LawId, source: SideSpec, target: Sid
 
 /**
  * An alternatives law over the parent relation: for each armed handle, the arm's foreign key from its primary key into
- * the parent's facts standing at the handle, under the handle's law, and the parent's obligation there to have its arm
- * fact, every obligation under the one reverse law. The tag's containment in the roster is its closedId field's type,
- * no law.
+ * the parent's facts standing at the handle, under the handle's law, and the parent's facts standing at it in the arm,
+ * under the handle's reverse law (fin.md §7). The tag's containment in the roster is its closedId field's type, no law.
  */
 const alternativesLaws = (
 	base: BaseSpec,
@@ -1340,39 +1332,17 @@ const alternativesLaws = (
 				source: armSide,
 				target: standing
 			},
-			{ kind: "obliged", law: ids.reverse, anchor: standing, dependent: armSide }
+			{
+				kind: "contained",
+				law: required(
+					own(ids.reverse, handle),
+					`the ${handle} handle's reverse law of the alternatives over ${law.relation}`
+				),
+				source: standing,
+				target: armSide
+			}
 		]
 	})
-}
-
-/**
- * A capacity law as PostgreSQL enforces it: residual, judged by the host law model, an at-most-one count among them.
- * The law model specializes one shape, a capacity of a relation over itself on one of its keys (a row check), which no
- * worlds base declares and no generator draws: a base declaring one is a defect of the base.
- */
-const capacityLaw = (
-	base: BaseSpec,
-	law: LawId,
-	spec: Extract<LawSpec, { readonly kind: "capacity" }>
-): HostLaw => {
-	const self =
-		spec.target.relation === spec.source.relation &&
-		Arr.every(spec.target.fields, (f, i) => spec.source.fields[i] === f) &&
-		keyed(base, spec.target)
-	if (self) {
-		throw new Error(
-			`the capacity over ${spec.target.relation} is a row check, which no worlds base declares`
-		)
-	}
-	return {
-		kind: "capacity",
-		law,
-		target: sideOf(spec.target),
-		source: sideOf(spec.source),
-		weight: spec.weight,
-		low: spec.low,
-		high: spec.high
-	}
 }
 
 /** A law of one identity: its identity, when the installation gave the law of `kind` one. */
@@ -1385,7 +1355,7 @@ const singleLaw = (ids: LawIds, kind: LawSpec["kind"]): LawId => {
 	return ids.law
 }
 
-const alternativesIds = (ids: LawIds): Extract<LawIds, { readonly kind: "alternatives" }> => {
+const alternativesLawIdsOf = (ids: LawIds): Extract<LawIds, { readonly kind: "alternatives" }> => {
 	if (ids.kind !== "alternatives") {
 		throw new Error(
 			`the installation names a ${ids.kind} law where the base declares an alternatives law`
@@ -1435,14 +1405,11 @@ const hostLaws = (base: BaseSpec, law: LawSpec, ids: LawIds): ReadonlyArray<Host
 					law: singleLaw(ids, law.kind),
 					source: sideOf(law.source),
 					target: sideOf(law.target),
-					span: law.span,
-					residual: isSelected(law.source)
+					span: law.span
 				}
 			]
 		case "alternatives":
-			return alternativesLaws(base, law, alternativesIds(ids))
-		case "capacity":
-			return [capacityLaw(base, singleLaw(ids, law.kind), law)]
+			return alternativesLaws(base, law, alternativesLawIdsOf(ids))
 	}
 }
 
@@ -1450,9 +1417,9 @@ const hostLaws = (base: BaseSpec, law: LawSpec, ids: LawIds): ReadonlyArray<Host
  * A base as the host law model reads it, under an installation's names: its ordinary relations with their tables,
  * columns and primary keys; each primary key's law; and each declared law as the law model lowers it, under the law
  * identities of InstalledNames.laws, each of its law's kind. A containment is a foreign key, a selected source's over
- * its law columns, and one into a closed roster a row check (containedLaws); a coverage is residual exactly when its
- * source is selected; an alternatives law is its arms' foreign keys and obligations (alternativesLaws); and a capacity is
- * residual (capacityLaw).
+ * its law columns, and one into a closed roster a row check (containedLaws); a coverage is a PERIOD foreign key, a
+ * selected source's over its range law column; and an alternatives law is two containments per armed handle, the arm in
+ * its parent standing at the handle and the parent standing at it in its arm (alternativesLaws, fin.md §7).
  */
 export const hostSchemaOf = (base: BaseSpec, names: InstalledNames): HostSchema => ({
 	relations: Arr.map(base.relations, (r) => hostRelation(names, r)),
@@ -1489,24 +1456,21 @@ const judgedIds = (law: LawSpec, i: number): LawIds => {
 						(handle) => [handle, judgedLabel(`${i} arm ${handle}`)] as const
 					)
 				),
-				reverse: judgedLabel(`${i} reverse`)
+				reverse: Rec.fromEntries(
+					Arr.map(
+						Rec.keys(law.arms),
+						(handle) => [handle, judgedLabel(`${i} reverse ${handle}`)] as const
+					)
+				)
 			}
 		case "key":
 		case "spanKey":
 		case "check":
 		case "contained":
 		case "covered":
-		case "capacity":
 			return { kind: law.kind, law: judgedLabel(String(i)) }
 	}
 }
-
-/**
- * Whether PostgreSQL enforces a declared law with native objects alone: no host law it lowers to (hostLaws) is residual.
- * The one classifier of a law's enforcement, which a migration's folder reads as well (session/migrate.ts folderFiles).
- */
-export const nativeLaw = (base: BaseSpec, law: LawSpec): boolean =>
-	!Arr.some(hostLaws(base, law, judgedIds(law, 0)), isResidual)
 
 /**
  * A base as the host law model reads it before an installation names it: each table and column under its declared
@@ -1540,9 +1504,9 @@ export interface ForeignKeyOf {
 
 /**
  * The foreign keys of one declared law as hostSchemaOf lowers it, with no identity: a containment's, and each
- * alternatives arm's into its parent standing at its handle, into a relation that is no closed roster (a plain foreign
- * key, from a selected source's law columns, or beside a selected target's constant column); and a coverage's from an
- * unselected source (a PERIOD foreign key).
+ * alternatives arm's into its parent standing at its handle and the parent standing at it into its arm, into a relation
+ * that is no closed roster (a plain foreign key, from a selected source's law columns, or beside a selected target's
+ * constant column); and a coverage's (a PERIOD foreign key, from a selected source's range law column).
  */
 const lawForeignKeys = (
 	base: BaseSpec,
@@ -1560,22 +1524,22 @@ const lawForeignKeys = (
 		case "contained":
 			return into(law.source, law.target)
 		case "covered":
-			return isSelected(law.source)
-				? []
-				: [{ kind: "coverage" as const, source: law.source, target: law.target }]
+			return [{ kind: "coverage" as const, source: law.source, target: law.target }]
 		case "alternatives": {
 			const parent = relationNamed(base, law.relation)
-			return Arr.flatMap(Rec.toEntries(law.arms), ([handle, name]) =>
-				into(
-					{ relation: name, fields: relationNamed(base, name).key, where: {} },
-					{ relation: parent.name, fields: parent.key, where: { [law.tag]: handle } }
-				)
-			)
+			return Arr.flatMap(Rec.toEntries(law.arms), ([handle, name]) => {
+				const arm: SideSpec = { relation: name, fields: relationNamed(base, name).key, where: {} }
+				const standing: SideSpec = {
+					relation: parent.name,
+					fields: parent.key,
+					where: { [law.tag]: handle }
+				}
+				return [...into(arm, standing), ...into(standing, arm)]
+			})
 		}
 		case "key":
 		case "spanKey":
 		case "check":
-		case "capacity":
 			return []
 	}
 }

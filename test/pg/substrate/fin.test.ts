@@ -18,8 +18,8 @@
  * owner (orphan), a row at or past its count (beyond), and a slot below the count no row holds (gap). The RFC's
  * lowering is the minimal deferral §5.1 states: the owner's last slot deferred (the owner ↔ family cycle), an ordered
  * family's closure immediate and a counted family's deferred, and the copy's foreign key immediate, since every write
- * updates the count before it inserts. The families model (mutate.ts checkedAt) defers the copy as well, so that
- * deferral is judged beside the RFC's.
+ * updates the count before it inserts, which the families model (mutate.ts checkedAt) states. A lowering that defers
+ * the copy as well is judged beside the RFC's.
  */
 import { layer } from "@effect/vitest"
 import {
@@ -84,7 +84,7 @@ import {
 	type ProgramSpace,
 	programGen,
 	run,
-	type Statement
+	type MutationStatement
 } from "#test/support/families/mutate.ts"
 import {
 	type Constraint,
@@ -425,7 +425,7 @@ type StateFeature =
 const refusable = (direction: Direction): ReadonlyArray<Constraint> =>
 	Arr.filter(constraintsOf[direction], (c) => c !== "identity")
 
-/** The lowerings every single mutation of a family state is judged under: the RFC's, and the families model's. */
+/** The lowerings every single mutation of a family state is judged under: the RFC's, and its copy deferred. */
 const MUTATION_LOWERINGS = {
 	within: rfc("within", "ordered"),
 	"covers ordered": rfc("covers", "ordered"),
@@ -641,8 +641,8 @@ const cycleGen: Gen<CycleCase> = (source) => ({
 })
 
 /**
- * The cycle's lowerings: the RFC's (the last slot deferred, the copy immediate), the families model's (the copy deferred
- * too), and the control with neither deferred, under which no owner of a non-empty family can be written at all.
+ * The cycle's lowerings: the RFC's (the last slot deferred, the copy immediate), the copy deferred too, and the
+ * control with neither deferred, under which no owner of a non-empty family can be written at all.
  */
 const CYCLE_LOWERINGS = {
 	rfc: rfc("mirrors", "ordered"),
@@ -795,7 +795,7 @@ const refusalNamed = (moment: Moment): ProgramRefusal =>
 
 /** A command's parameters as every one of the families model's commands draws them: the statements it sends. */
 interface Sends {
-	readonly statements: ReadonlyArray<Statement>
+	readonly statements: ReadonlyArray<MutationStatement>
 }
 
 /**
@@ -836,10 +836,10 @@ const namingMachine = (
 	}
 }
 
-/** The lowerings the program search runs under: the families model's deferral, the copy deferred with the last slot. */
+/** The lowerings the program search runs under: the RFC's lowering, which the families model now states. */
 const PROGRAM_LOWERINGS = {
-	ordered: { ...rfc("mirrors", "ordered"), copy: "commit" },
-	counted: { ...rfc("mirrors", "counted"), copy: "commit" }
+	ordered: rfc("mirrors", "ordered"),
+	counted: rfc("mirrors", "counted")
 } as const satisfies Record<Shape, Lowering>
 
 /** What a program may hold: up to three owners, long families of three to five rows, one to eight steps. */

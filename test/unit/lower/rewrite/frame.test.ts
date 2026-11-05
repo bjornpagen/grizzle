@@ -23,13 +23,13 @@ import {
 } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
+import { closedPass } from "#compiler/lower/optimize/closed/index.ts"
 import {
 	relationalRewrites,
 	semanticSimplification
 } from "#compiler/lower/optimize/demand/phases.ts"
 import { eliminatePass } from "#compiler/lower/optimize/eliminate/index.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
-import { finitePass } from "#compiler/lower/optimize/finite/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
 import { lateFetchPass } from "#compiler/lower/optimize/late-fetch/index.ts"
@@ -43,6 +43,7 @@ import { genCatalog } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 import {
 	caseQuery,
@@ -143,7 +144,7 @@ describe("determinism", () => {
 										flight(
 											succeeded(
 												lowerConservative(conservativeInput(r.query), {
-													names: standInNames("s"),
+													names: standInNames("s", schemaCodes(c.schema)),
 													params: r.query.params,
 													subject: { kind: "query" }
 												})
@@ -288,7 +289,7 @@ describe("the worklist", () => {
 				simplifyPass,
 				prunePass,
 				eliminatePass,
-				finitePass,
+				closedPass,
 				existencePass,
 				pushdownPass,
 				semiPushdownPass,

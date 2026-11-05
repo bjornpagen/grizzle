@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { assertTrue, deepStrictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
-import { drawn, explore } from "#explore.ts"
+import { drawn, type Exploration, explore } from "#explore.ts"
 import { noCoverage } from "#features.ts"
 import { array, boolean, element, type Gen, int, map, weighted } from "#gen.ts"
 import { mutate } from "#mutate.ts"
@@ -55,8 +55,9 @@ const lengthsOf = (seed: Tape, donor: Tape): ReadonlySet<number> => {
 	return lengths
 }
 
-const searchOf = <A>(suite: string, generator: Gen<A>) => ({
+const searchOf = <A>(suite: string, generator: Gen<A>): Exploration<A, A, never> => ({
 	suite,
+	oracle: { kind: "specification", name: "the mutator's edits and every decision's range" },
 	draw: drawn(generator),
 	literal: Formatter.format,
 	coverage: noCoverage,

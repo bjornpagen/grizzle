@@ -23,23 +23,16 @@ interface Sample {
 	readonly type: ScalarType
 	/** The VALUES list of the sample, given the test's schema. */
 	readonly values: (schema: string) => string
-	/**
-	 * The concrete type pg_typeof reports for min and max over the sample: the host result's, or, where min and max
-	 * return a polymorphic type, the sample's own type, given the schema.
-	 */
-	readonly minMaxType:
-		| { readonly kind: "result" }
-		| { readonly kind: "own"; readonly type: (schema: string) => string }
 }
 
-const mood = field({ kind: "closedId", roster: "Mood" }, "enum")
+const mood = field({ kind: "closedId", roster: "Mood" }, "code")
+const moods = field({ kind: "bits", roster: "Mood" }, "bits")
 const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
 
 const plain = (label: string, f: TestField, values: string): Sample => ({
 	label,
 	type: f.scalar,
-	values: () => values,
-	minMaxType: { kind: "result" }
+	values: () => values
 })
 
 const samples: readonly [Sample, ...ReadonlyArray<Sample>] = [
@@ -59,27 +52,24 @@ const samples: readonly [Sample, ...ReadonlyArray<Sample>] = [
 			{ kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined },
 			{}
 		),
-		values: () => "(VALUES (int4range(1, 3)))",
-		minMaxType: { kind: "result" }
+		values: () => "(VALUES (int4range(1, 3)))"
 	},
 	{
-		label: "enum",
+		label: "code",
 		type: mood.scalar,
-		values: (s) => `(VALUES ('ok'::"${s}".mood), ('happy'::"${s}".mood))`,
-		/** regtype output quotes only names that need it; the test schemas are lowercase. */
-		minMaxType: { kind: "own", type: (s) => `${s}.mood` }
+		values: (s) => `(VALUES (1::smallint::"${s}".mood), (2::smallint::"${s}".mood))`
 	},
+	plain("bits", moods, "(VALUES ('101'::bit(3)), ('011'::bit(3)))"),
 	{
 		label: "Cents",
 		type: Cents.scalar,
-		values: (s) => `(VALUES (1::"${s}".cents), (2::"${s}".cents))`,
-		minMaxType: { kind: "result" }
+		values: (s) => `(VALUES (1::"${s}".cents), (2::"${s}".cents))`
 	}
 ]
 
 /**
- * The result type the selected pg_proc row declares: the overload's result carrier, or the polymorphic type a min or
- * max over an enum returns.
+ * The result type the selected pg_proc row declares: the overload's result carrier, a closed id's a smallint, its
+ * code.
  */
 const catalogResult = (result: ScalarType): string => catalogTypeName[baseOf(result).carrier]
 
@@ -163,13 +153,9 @@ const aggregateProblems = (
 		)
 		const [argBase, typtype] =
 			sampleRow === undefined ? [] : [textCell(sampleRow, 0), textCell(sampleRow, 1)]
-		const polymorphic =
-			(argtype === "anyenum" && typtype === "e") || (argtype === "anyarray" && typtype === "b")
+		const polymorphic = argtype === "anyarray" && typtype === "b"
 		const arg = valueType(sample.type).carrier
-		const expected =
-			sample.minMaxType.kind === "own" && (name === "min" || name === "max")
-				? sample.minMaxType.type(s)
-				: concreteTypeName[baseOf(o.result).carrier]
+		const expected = concreteTypeName[baseOf(o.result).carrier]
 		const typeofResult = textCell(typeofRow, 0)
 		return {
 			problems: [
@@ -214,7 +200,10 @@ layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 					const { session, schema } = yield* Substrate
 					const db = yield* session(ownerSession())
 					const s = yield* schema(freshSchema)
-					yield* db.query(`CREATE TYPE "${s}".mood AS ENUM ('sad', 'ok', 'happy')`, [])
+					yield* db.query(
+						`CREATE DOMAIN "${s}".mood AS smallint CONSTRAINT mood_check CHECK ((VALUE BETWEEN 0 AND 2) IS TRUE)`,
+						[]
+					)
 					yield* db.query(
 						`CREATE DOMAIN "${s}".cents AS bigint CONSTRAINT cents_check CHECK ((VALUE >= 0) IS TRUE)`,
 						[]
@@ -227,7 +216,7 @@ layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 							literal: ([sample, name]) => `${name}/${sample.label}`,
 							limit: samples.length * aggregates.length,
 							coverage: requiredInSpace<AggregateFeature>([
-								"checked min/enum",
+								"checked min/code",
 								"checked sum/Cents",
 								"checked max/Cents",
 								"checked min/bool"

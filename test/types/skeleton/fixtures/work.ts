@@ -38,9 +38,16 @@ export const TaskNote = relation("TaskNote", { task: uuid, note: str.regex("^.*$
 	"task"
 ])
 export const Ticket = relation("Ticket", { id: pg.bigserial, account: uuid, amount: Cents }, ["id"])
-export const Tier = closed("Tier", ["Free", "Pro"]).with(
-	{ budget: Cents },
-	{ Free: { budget: Cents(100n) }, Pro: { budget: Cents(1000n) } }
+export const Tier = closed("Tier", ["Free", "Pro"])
+/** Each tier's budget, a closed relation keyed by its tier: no role's entry, so outside Work. */
+export const TierBudget = closed.relation(
+	"TierBudget",
+	{ tier: closedId(Tier), budget: Cents },
+	["tier"],
+	[
+		{ tier: "Free", budget: Cents(100n) },
+		{ tier: "Pro", budget: Cents(1000n) }
+	]
 )
 
 export const byName = key(on(Account, "name"))

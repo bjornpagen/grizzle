@@ -16,6 +16,10 @@ describe("the Vitest adapter", () => {
 				explore(
 					{
 						suite: "adapter",
+						oracle: {
+							kind: "specification",
+							name: "a property that holds, run through the adapter"
+						},
 						draw: drawn(int(0, 9)),
 						literal: Formatter.format,
 						coverage: noCoverage,

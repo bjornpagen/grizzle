@@ -53,6 +53,7 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 	switch (a.kind) {
 		case "addColumn":
 		case "addColumnPlaceholder":
+		case "addColumnDefault":
 			return column(table, a.column)
 		case "addConstraint":
 			return [
@@ -68,6 +69,7 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 		case "dropColumn":
 		case "dropDefault":
 		case "alterColumnType":
+		case "setExpression":
 		case "dropIdentity":
 		case "validateConstraint":
 		case "dropConstraint":
@@ -110,8 +112,6 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 						}
 					]
 				: []
-		case "createEnum":
-			return [{ on: { kind: "TYPE", name: s.name }, identifier: s.name.name }]
 		case "createIndex":
 			return [
 				{
@@ -137,13 +137,26 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 			]
 		case "createPolicy":
 			return [{ on: { kind: "POLICY", name: s.name, on: s.table }, identifier: s.name }]
-		case "createConstraintTrigger":
 		case "createGuardTrigger":
 			return [{ on: { kind: "TRIGGER", name: s.name, on: s.table }, identifier: s.name }]
 		case "createRole":
 			return [{ on: { kind: "ROLE", name: s.name }, identifier: s.name }]
 		case "createFunction":
 			return [{ on: { kind: "FUNCTION", name: functionNameOf(s) }, identifier: s.name.name }]
+		case "packConstant":
+			return [
+				{
+					on: { kind: "FUNCTION", name: { ...s.function, args: [] } },
+					identifier: s.function.name
+				}
+			]
+		case "createConstant":
+			return [
+				{
+					on: { kind: "FUNCTION", name: { ...s.name, args: s.params.map((p) => p.type) } },
+					identifier: s.name.name
+				}
+			]
 		case "createStatistics":
 			return [{ on: { kind: "STATISTICS", name: s.name }, identifier: s.name.name }]
 		case "select":
@@ -154,8 +167,6 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "rename":
 		case "renameColumn":
 		case "renameConstraint":
-		case "alterEnumAddValue":
-		case "alterEnumRenameValue":
 		case "dropIndex":
 		case "dropPolicy":
 		case "drop":
@@ -192,7 +203,6 @@ export const targetKey = (on: CommentTarget): string => {
 		case "TABLE":
 		case "VIEW":
 		case "MATERIALIZED VIEW":
-		case "TYPE":
 		case "DOMAIN":
 		case "SEQUENCE":
 		case "INDEX":
@@ -224,7 +234,6 @@ const targetName = (on: CommentTarget): string => {
 		case "TABLE":
 		case "VIEW":
 		case "MATERIALIZED VIEW":
-		case "TYPE":
 		case "DOMAIN":
 		case "SEQUENCE":
 		case "INDEX":

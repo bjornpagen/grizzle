@@ -1,26 +1,28 @@
 import { Array as Arr, Record as Rec } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
-import { type Column, convertColumn, handleColumn } from "#compiler/core/decoder.ts"
+import { bitsColumn, codeColumn, type Column, convertColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
+import { type Codebook, codecOf, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc, FieldDesc, LiteralDesc, Spelled } from "#compiler/ir/desc.ts"
 import { describeOp, type ExprSpec, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { BuilderScope, OpenExpr } from "#compiler/ir/open.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
-import { baseOf, type Carrier, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, contractOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { spellExpr } from "#compiler/query/build/walk.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import {
-	type LowerEnv,
 	type Lowered,
+	type LowerEnv,
 	type LowerParams,
 	lowerPredicate,
 	lowerTerm,
+	noClosedRelations,
 	noExtension,
 	type ParamRef
 } from "#compiler/scalar/compute/lower.ts"
@@ -28,7 +30,7 @@ import { exprEmitter } from "#compiler/scalar/compute/lower.ts"
 import { plainColumns } from "#compiler/scalar/compute/tables.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
-import { anyNumeric, withoutSerial } from "#compiler/scalar/compute/types.ts"
+import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { type ScalarEnv, type SqlTag, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { spanColumn } from "#compiler/scalar/span.ts"
 import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
@@ -47,6 +49,7 @@ import {
 import { printExpr } from "#compiler/sql/print.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 
@@ -67,6 +70,11 @@ const rosters: ReadonlyMap<string, NonEmptyReadonlyArray<string>> = new Map<
 	string,
 	NonEmptyReadonlyArray<string>
 >([["Mood", ["sad", "ok", "happy"]]])
+
+/** The codes a fresh installation gives the declared rosters, which a handle literal renders as. */
+const testCodes: Codebook = firstCodebook(
+	Arr.map([...rosters], ([closed, handles]) => ({ closed: parsedName(closed), handles }))
+)
 
 /**
  * A schema's environment over the declared rosters: every pattern as written, and each contract's predicate table as
@@ -98,12 +106,6 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 			return plainColumns[desc.type]
 		case "numeric":
 			return plainColumns.numeric
-		case "serial":
-			return desc.type === "smallserial"
-				? plainColumns.smallint
-				: desc.type === "serial"
-					? plainColumns.integer
-					: plainColumns.bigint
 		case "uuid":
 			return plainColumns.uuid
 		case "text":
@@ -113,8 +115,10 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 			if (handles === undefined) {
 				throw new Error(`no roster ${desc.roster}`)
 			}
-			return handleColumn(handles)
+			return codeColumn(desc.roster, handles)
 		}
+		case "bits":
+			return bitsColumn(desc.roster)
 		case "vector":
 			return convertColumn(
 				convertByCarrier.vector({ carrier: "vector", dimensions: desc.dimensions })
@@ -166,9 +170,7 @@ export const testPg = {
 	computedNumeric: { sql: "numeric", column: plainColumns.numeric, scalar: anyNumeric },
 	uuid: field({ kind: "uuid" }, "uuid"),
 	text: field({ kind: "text", source: "^.*$", flags: "su" }, "text"),
-	regex: (source: string, flags: "u" | "su") => field({ kind: "text", source, flags }, "text"),
-	serial: field({ kind: "serial", type: "serial" }, "integer"),
-	bigserial: field({ kind: "serial", type: "bigserial" }, "bigint")
+	regex: (source: string, flags: "u" | "su") => field({ kind: "text", source, flags }, "text")
 } as const
 
 /**
@@ -277,7 +279,7 @@ const bindAsBase = ({
 	{ readonly spec: ExprSpec; readonly type: ScalarType },
 	CompileError
 > => {
-	const declared = withoutSerial(scalarOfDesc(type))
+	const declared = scalarOfDesc(type)
 	return Result.ok({
 		spec: {
 			kind: "param",
@@ -363,7 +365,10 @@ const withLiterals = (e: ExprDesc, vars: Readonly<Record<string, LeafBinding>>):
 			return { ...e, arg: go(e.arg), low: go(e.low), high: go(e.high) }
 		case "and":
 		case "or":
+		case "closedAt":
 			return { ...e, args: mapNonEmpty(e.args, go) }
+		case "closedRow":
+			return { ...e, args: Arr.map(e.args, go) }
 		case "pointIn":
 			return { ...e, point: go(e.point), span: go(e.span) }
 		case "absent":
@@ -393,7 +398,8 @@ const commonEnv = (
 		})
 	},
 	params,
-	fieldType: (desc) => Result.ok(scalarOfDesc(desc))
+	fieldType: (desc) => Result.ok(scalarOfDesc(desc)),
+	closed: noClosedRelations("the compute suites read no closed relation")
 })
 
 /** A lowered term or predicate, and every expression its lowering emitted, in emission order. */
@@ -449,7 +455,9 @@ const builtinNames: Readonly<Partial<Record<Carrier, TypeRef>>> = {
 	uuid: builtinType("uuid"),
 	text: builtinType("text"),
 	range4: builtinType("int4range"),
-	range8: builtinType("int8range")
+	range8: builtinType("int8range"),
+	/** A closed id is its code, a smallint, outside a domain. */
+	code: builtinType("smallint")
 }
 
 export interface RenderOptions {
@@ -528,8 +536,18 @@ const literalExpr = (literal: TypedLiteral, t: ScalarType, options: RenderOption
 		case "text":
 		case "uuid":
 			return { kind: "literal", value: { kind: "text", value: literal.value }, type }
-		case "enum":
-			return { kind: "literal", value: { kind: "text", value: literal.handle }, type }
+		case "handle": {
+			const roster = rosterOf(t)
+			if (roster === undefined) {
+				throw new Error(`a handle literal at ${t.carrier}, no closed id`)
+			}
+			const code = codeOf(codecOf(testCodes, roster), literal.handle)
+			return { kind: "literal", value: { kind: "int", value: BigInt(code) }, type }
+		}
+		case "handles":
+			throw new Error(
+				"the compute suites render no set literal: bit(n) has no Compute operand here"
+			)
 		case "span":
 			return {
 				kind: "literal",
@@ -597,6 +615,12 @@ const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 				}
 				return rendered
 			}
+			case "closedAt":
+			case "closedRow":
+			case "closedHas":
+				throw new Error(
+					`the compute suites render no closed read: ${e.kind} of ${e.relation} reads an installed constant`
+				)
 		}
 	}
 	return go(root)

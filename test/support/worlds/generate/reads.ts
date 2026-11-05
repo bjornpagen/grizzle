@@ -1,7 +1,7 @@
 import { boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
 import type { Source } from "@grizzle/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { projection } from "#test/pg/laws/families/model.ts"
+import { projection } from "#test/support/laws/model.ts"
 import { inDomain, pooled } from "#test/support/worlds/generate/domain.ts"
 import { headingOf } from "#test/support/worlds/generate/entries.ts"
 import { type BoundaryArms, type Variant } from "#test/support/worlds/invalid/kinds.ts"

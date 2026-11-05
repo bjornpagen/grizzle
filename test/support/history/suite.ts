@@ -7,14 +7,14 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Cause, Effect, Formatter, Option, type Scope, String as Str } from "effect"
 import type { TransientTag } from "#compiler/core/errors.ts"
-import { populationsOf } from "#test/pg/laws/families/families.ts"
-import { emptyState, expect, rowsDifference, stateRows } from "#test/pg/laws/families/model.ts"
 import {
 	type DirectAbort,
 	describeHistory,
 	type History,
 	type Outcome
 } from "#test/support/history/check.ts"
+import { populationsOf } from "#test/support/laws/boxes.ts"
+import { emptyState, expect, rowsDifference, stateRows } from "#test/support/laws/model.ts"
 
 import {
 	enforcementProblem,
@@ -364,20 +364,20 @@ const belowRequired: Arr.NonEmptyReadonlyArray<BelowFeature> = [
 ]
 
 /**
- * One family's generated-history suite: for each population of its box (families.ts populationsOf), histories over the
+ * One family's generated-history suite: for each population of its box (laws/boxes.ts populationsOf), histories over the
  * population's schemas, each run in its order, explored through the library, and the planted writers below
  * SERIALIZABLE exhausted over every table of the population's first schema, each refused by what its relation's
  * mutability makes its first refusal.
  *
  * A case draws which of the family's schemas it runs on; each schema installs once per test, the first time a case
- * draws it, and its installation is checked to enforce the host's laws as the host states them (families.ts
+ * draws it, and its installation is checked to enforce the host's laws as the host states them (history/families.ts
  * enforcementProblem). The installation holds no connection: each case opens its writers, two grizzle Dbs and three
  * psql children, and closes them when it ends, so a test holds one case's connections whatever the number of schemas
  * it draws. Each history is a deterministic function of its case, so a failing one shrinks, and its report is the case
  * to replay.
  *
  * The suite's required features keep the histories from going vacuous: operations overlapped, and some were accepted
- * and some refused; and on a schema bearing each trait of the population's schemas (families.ts traits), a direct
+ * and some refused; and on a schema bearing each trait of the population's schemas (laws/boxes.ts traits), a direct
  * writer's operation accepted, so the direct writer's model meets every coordinate the family steers by, an arm whose
  * mutability is not its parent's among them. Lock waits, aborts by cause, retries and the planted writers' cases are
  * noted for the residual-risk line. Every note goes through the case's own Case (HistoryFeature), each also paired

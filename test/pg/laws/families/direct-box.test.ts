@@ -1,8 +1,8 @@
 /**
- * A direct SQL writer over the law-family box (generated.ts directLawBox): SERIALIZABLE transactions commit iff their
- * final state is lawful, each refusal raised where its law is checked, under the constraint the host's law names, a
- * native law's identity naming its constraint's table and name, and a residual law's DETAIL naming a violator by the
- * host's witness rule.
+ * A direct SQL writer over the law-family box (test/support/laws/generated.ts directLawBox): SERIALIZABLE transactions
+ * commit iff their final state is lawful, each refusal raised where its law is checked, under the constraint the host's
+ * law names, every law native, so its identity names its constraint's table and name. The oracle is the host model
+ * (test/support/laws/model.ts), a second implementation judging the same transactions.
  *
  * An UPDATE that moves a fact into a referring side's selection meets a box point with a selected referring side in a
  * few of its draws, so such an UPDATE refused at COMMIT, and one in a transaction that commits, are reached a few times
@@ -11,12 +11,12 @@
  */
 
 import { Array as Arr, Option } from "effect"
-import { plantedUpdate } from "#test/pg/laws/families/direct.ts"
-import { variantsOf } from "#test/pg/laws/families/families.ts"
-import { directLawBox } from "#test/pg/laws/families/generated.ts"
-import { directSuite, type Planted } from "#test/pg/laws/families/suites/direct.ts"
-import { casesPerTest } from "#test/pg/laws/families/suites/family.ts"
-import { plantedInsert } from "#test/pg/laws/families/support.ts"
+import { variantsOf } from "#test/support/laws/boxes.ts"
+import { plantedUpdate } from "#test/support/laws/direct.ts"
+import { directLawBox } from "#test/support/laws/generated.ts"
+import { directSuite, type Planted } from "#test/support/laws/suites/direct.ts"
+import { casesPerTest } from "#test/support/laws/suites/family.ts"
+import { plantedInsert } from "#test/support/laws/support.ts"
 
 const variants = variantsOf(directLawBox, "mutable")
 const [p, variant] = Option.getOrThrowWith(

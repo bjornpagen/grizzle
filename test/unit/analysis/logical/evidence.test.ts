@@ -23,6 +23,7 @@ import { typeLabel } from "#compiler/ir/scalar.ts"
 import { analyzeLogical, type LogicalEnv } from "#compiler/logical/annotate.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { assert, defined } from "#test/support/assert.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import {
@@ -418,7 +419,12 @@ const correlatedTakeOverOneRow: Kept<readonly [QueryCaseSketch, ContextSketch], 
 				palette: [2, 0],
 				closed: [
 					{
-						handles: 1,
+						/** One code, live: the roster of one handle. */
+						pattern: {
+							closed: parsedName("K"),
+							slots: [{ kind: "live", handle: "Open" }],
+							spellings: { plain: 3 }
+						},
 						payload: [
 							{
 								type: 10,

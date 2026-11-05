@@ -1,3 +1,9 @@
+import {
+	type Family,
+	type Operator as LibraryOperator,
+	OPERATORS,
+	type Rule
+} from "@grizzle/testing/mutants"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import * as ts from "typescript/ast"
 
@@ -77,11 +83,11 @@ const worldPaths: ReadonlyArray<string> = [
 	"packages/grizzle/src/adapter/wire/session.ts"
 ]
 
-export const isWorldFile = (file: string): boolean =>
+const isWorldFile = (file: string): boolean =>
 	Arr.some(worldPaths, (path) => Str.startsWith(path)(file))
 
 /** Where a world operator found a fault to plant: the file's text, its syntax tree, and the sink of mutants. */
-export interface WorldSite {
+interface WorldSite {
 	readonly file: string
 	readonly text: string
 	readonly source: ts.SourceFile
@@ -465,7 +471,7 @@ const catalogBare = (site: WorldSite, call: ts.CallExpression): void => {
 }
 
 /** Every `sql-world` mutant one node of a world file holds; the caller visits every node. */
-export const visitWorld: (site: WorldSite, node: ts.Node) => void = (site, node) => {
+const visitWorld: (site: WorldSite, node: ts.Node) => void = (site, node) => {
 	if (ts.isCallExpression(node)) {
 		worldCall(site, node)
 		catalogBare(site, node)
@@ -489,3 +495,123 @@ export const visitWorld: (site: WorldSite, node: ts.Node) => void = (site, node)
 	readsFlip(site, node)
 	preconditionDrop(site, node)
 }
+
+/** The `sql-world` family: every world operator, in the world files alone, each found by `visitWorld`. */
+export const sqlWorld: Family<WorldOperator> = {
+	operators: worldOperators,
+	applies: isWorldFile,
+	rules: [
+		(node, site) =>
+			visitWorld(
+				{
+					file: site.file,
+					text: site.text,
+					source: site.source,
+					add: (operator, start, end, replacement) =>
+						site.add(operator, { start, end }, replacement)
+				},
+				node
+			)
+	]
+}
+
+/** The occurrences of `needle` in `text`, as offsets, with the text each matched. */
+const occurrences = (
+	text: string,
+	needle: RegExp
+): ReadonlyArray<{ readonly at: number; readonly match: string }> =>
+	Arr.flatMap([...Str.matchAll(needle)(text)], (m) =>
+		m.index === undefined ? [] : [{ at: m.index, match: m[0] }]
+	)
+
+/**
+ * SQL text inside a string literal or a template part: UNION ALL and UNION swapped, DISTINCT dropped. Only SQL: a
+ * literal that is a set keyword alone, or reads like a statement; prose that names UNION is left alone.
+ */
+const sqlText: Rule<"set-semantics"> = (node, { add, source, text }) => {
+	if (
+		!(
+			ts.isStringLiteral(node) ||
+			ts.isNoSubstitutionTemplateLiteral(node) ||
+			ts.isTemplateLiteralToken(node)
+		) ||
+		(!regex("^\\s*(?:UNION(?: ALL)?|DISTINCT)\\s*$").test(node.text) &&
+			!regex("\\b(?:SELECT|FROM|WHERE|JOIN)\\b").test(node.text))
+	) {
+		return
+	}
+	const start = node.getStart(source)
+	const raw = Str.slice(start, node.end)(text)
+	for (const { at } of occurrences(raw, regex("\\bUNION ALL\\b", "g"))) {
+		add("set-semantics", { start: start + at, end: start + at + 9 }, "UNION")
+	}
+	for (const { at } of occurrences(raw, regex("\\bUNION\\b(?! ALL\\b)", "g"))) {
+		add("set-semantics", { start: start + at, end: start + at + 5 }, "UNION ALL")
+	}
+	for (const { at, match } of occurrences(
+		raw,
+		regex("(?<!\\bIS (?:NOT )?)\\bDISTINCT (?!FROM\\b)", "g")
+	)) {
+		add("set-semantics", { start: start + at, end: start + at + match.length }, "")
+	}
+}
+
+/** A `distinct: true` or `distinct: false` flag of an AST or a plan, flipped. */
+const distinctFlag: Rule<"set-semantics"> = (node, { add, source }) => {
+	if (
+		!ts.isPropertyAssignment(node) ||
+		!ts.isIdentifier(node.name) ||
+		node.name.text !== "distinct"
+	) {
+		return
+	}
+	const value = ts.isAsExpression(node.initializer) ? node.initializer.expression : node.initializer
+	if (value.kind === ts.SyntaxKind.TrueKeyword || value.kind === ts.SyntaxKind.FalseKeyword) {
+		add(
+			"set-semantics",
+			{ start: value.getStart(source), end: value.end },
+			value.kind === ts.SyntaxKind.TrueKeyword ? "false" : "true"
+		)
+	}
+}
+
+/**
+ * The `set-semantics` family, in every file: grizzle's slips between a bag and a set, UNION ALL swapped with UNION and
+ * a DISTINCT dropped in SQL text, and a `distinct` flag flipped.
+ */
+export const setSemantics: Family<"set-semantics"> = {
+	operators: ["set-semantics"],
+	applies: () => true,
+	rules: [sqlText, distinctFlag]
+}
+
+/** Every operator grizzle's mutation runs choose from: the library's, set-semantics, and the sql-world family's. */
+export type Operator = LibraryOperator | "set-semantics" | WorldOperator
+
+export const operators: ReadonlyArray<Operator> = [...OPERATORS, "set-semantics", ...worldOperators]
+
+/**
+ * The classic family: comparison, conjunct, boolean-return and bound and guard from the library, and set-semantics,
+ * grizzle's own.
+ */
+export const classicOperators = [
+	"comparison",
+	"conjunct",
+	"boolean-return",
+	"set-semantics",
+	"bound",
+	"guard"
+] as const
+
+/**
+ * The operator families a run names with --operators, each the operators it stands for: `classic`, `sql-world`, and
+ * `library`, every operator of the library's.
+ */
+export const families: Readonly<Record<string, ReadonlyArray<Operator>>> = {
+	classic: classicOperators,
+	"sql-world": worldOperators,
+	library: OPERATORS
+}
+
+/** The operators a run tests when it names none: the classic and sql-world families. */
+export const defaultOperators: ReadonlyArray<Operator> = [...classicOperators, ...worldOperators]

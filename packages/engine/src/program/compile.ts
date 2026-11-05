@@ -269,12 +269,14 @@ export const compileQuery = (
 		return lowered
 	}
 	const optimized = lowered.value
-	const optimizedSpecs = specifiedStatements(optimized.roots)
+	const codes = artifacts.reads.codes
+	const optimizedSpecs = specifiedStatements(optimized.roots, codes)
 	if (!optimizedSpecs.ok) {
 		return optimizedSpecs
 	}
 	const conservativeRuns = specifiedStatements(
-		deliveredAsOptimized<RelationChoice, SpecifiedForm, DeclaredParamSlot>(conservative).roots
+		deliveredAsOptimized<RelationChoice, SpecifiedForm, DeclaredParamSlot>(conservative).roots,
+		codes
 	)
 	if (!conservativeRuns.ok) {
 		return conservativeRuns
@@ -286,7 +288,7 @@ export const compileQuery = (
 			if (forms.kind === "one") {
 				return { statement: { ...s, forms }, spec }
 			}
-			const large = statementSpec(forms.large, declaredSlotOf)
+			const large = statementSpec(forms.large, declaredSlotOf(codes))
 			if (!large.ok) {
 				throw new Refusal(large.error)
 			}

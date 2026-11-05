@@ -231,7 +231,8 @@ const refused = Arr.filter(
 const codec = await import("#compiler/codec/scalar.ts")
 const values: Readonly<typeof import("#compiler/scalar/values/float.ts")> =
 	await import("#compiler/scalar/values/float.ts")
-const codecTypes = (await import("#test/unit/codec/support.ts")).types
+const codecSupport = await import("#test/unit/codec/support.ts")
+const codecTypes = codecSupport.types
 const codecTexts: ReadonlyArray<readonly [keyof typeof codecTypes, ReadonlyArray<string>]> = [
 	["int2", ["0", "-32768", "32767", "1", "-1", "12345", "100", "-100"]],
 	["int4", ["0", "-2147483648", "2147483647", "42"]],
@@ -248,14 +249,15 @@ const codecTexts: ReadonlyArray<readonly [keyof typeof codecTypes, ReadonlyArray
 	["bool", ["t", "f", "true", "false"]],
 	["uuid", ["a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "00000000-0000-0000-0000-000000000000"]],
 	["text", ["", "abc", "a b"]],
-	["kind", ["Manual"]],
+	["kind", ["0", "1", "2"]],
+	["kinds", ["000", "101", "111"]],
 	["range4", ["[-3,8)", "[1,2147483647)", "[-2147483648,0)"]],
 	["range8", ["[1,2)", "[-9223372036854775808,9223372036854775807)"]],
 	["vector3", ["[1,2,3]", "[1.5,-0.002,3e+38]", "[0,0,1]"]],
 	["embedding", ["[1,2,3,4]"]]
 ]
 const codecsDecoded = Arr.flatMap(codecTexts, ([name, texts]) => {
-	const built = codec.scalarCodec(codecTypes[name])
+	const built = codec.scalarCodec(codecTypes[name], codecSupport.kindCodes)
 	return Arr.map(texts, (t) => built.convert(t))
 }).length
 

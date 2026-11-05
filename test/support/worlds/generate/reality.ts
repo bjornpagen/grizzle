@@ -1,6 +1,6 @@
 import { array, constant, element, type Gen, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option, pipe, Record } from "effect"
-import { type HostLaw, lawRelations, projection, violations } from "#test/pg/laws/families/model.ts"
+import { type HostLaw, lawRelations, projection, violations } from "#test/support/laws/model.ts"
 import { pool } from "#test/support/worlds/generate/domain.ts"
 import type {
 	BaseSpec,
@@ -128,7 +128,6 @@ const referencesOf = (base: BaseSpec): ReadonlyArray<readonly [string, Reference
 			case "check":
 			case "covered":
 			case "alternatives":
-			case "capacity":
 				return []
 		}
 	})

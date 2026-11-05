@@ -62,16 +62,17 @@ import {
 	contractOf,
 	type ContractInfo,
 	isRefined,
+	numericBoundOf,
 	numericMaxDisplayScale,
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
 	numericMaxResultScale,
 	numericTypmodOf,
+	rosterOf,
 	type ScalarType,
 	spanOf,
 	textOf,
-	typeLabel,
-	type ValueType
+	typeLabel
 } from "#compiler/ir/scalar.ts"
 import {
 	absBounds,
@@ -126,8 +127,9 @@ import {
 	binaryCoercion,
 	type CastOp,
 	castOf,
-	type ExtremeOp,
-	extremeOf,
+	type CommonTypeFn,
+	type CommonTypeOp,
+	commonTypeOf,
 	type FixedFn,
 	type FixedOp,
 	type NativeFn,
@@ -151,10 +153,9 @@ import {
 	valueType,
 	wideningOf,
 	wildcardText,
-	withoutSerial,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
-import { numericValue } from "#compiler/scalar/registry.ts"
+import { capabilitiesOf, numericValue } from "#compiler/scalar/registry.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 
@@ -223,6 +224,33 @@ export const noExtension: LowerExtension<Spelled> = (desc, loc) =>
 		unsupported(loc, `${desc.kind}: lowered by its own package, not the Compute catalogue`)
 	)
 
+/** A closed relation's field, as an application of it reads the field: its name and its type. */
+export interface ClosedField {
+	readonly name: string
+	readonly type: ScalarType
+}
+
+/**
+ * A closed relation as C.at and C.row read it: its key fields in key order, which an application's terms meet one by
+ * one, and its payload fields, one of which C.at reads.
+ */
+export interface ClosedHeading {
+	readonly key: NonEmptyReadonlyArray<ClosedField>
+	readonly payload: ReadonlyArray<ClosedField>
+}
+
+/**
+ * The closed relations an expression may apply: a schema's, by name, undefined for a name that is no closed relation's;
+ * or none, where no expression applies one, with the reason, which a refusal of C.at or C.row there states.
+ */
+export type ClosedRelations =
+	| { readonly kind: "schema"; readonly heading: (relation: string) => ClosedHeading | undefined }
+	| { readonly kind: "none"; readonly why: string }
+
+/** No closed relation, for the reason `why`: "a contract predicate reads no closed relation of the schema". */
+export const noClosedRelations = (why: string): ClosedRelations =>
+	Object.freeze({ kind: "none", why })
+
 interface LowerCommon<R extends Refs> {
 	/** The source location of the expression, the prefix of every diagnostic. */
 	readonly loc: SourceLoc
@@ -236,6 +264,8 @@ interface LowerCommon<R extends Refs> {
 	readonly params: LowerParams<R>
 	/** The ScalarType of a descriptor's Description, for Compute.literal and Compute.cast (the descriptor registry). */
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
+	/** The closed relations C.at and C.row apply. */
+	readonly closed: ClosedRelations
 }
 
 /**
@@ -277,6 +307,31 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 type Role = "compare" | "operand"
 
 /**
+ * The type a bare literal adopts opposite a term of type `t` (see the header): compared with a contract, the contract;
+ * otherwise the term's value type, a numeric's any numeric, an exact value's plain family, an operand text's any text
+ * and a span's its endpoint's, so a literal is typed by the term it meets and never on its own.
+ */
+export const adoptedType = (t: ScalarType, role: Role): ScalarType => {
+	if (role === "compare" && contractOf(t) !== undefined) {
+		return t
+	}
+	const v = valueType(t)
+	if (v.carrier === "numeric") {
+		return anyNumeric
+	}
+	if (v.carrier === "exactInteger") {
+		return plainType("int8")
+	}
+	if (v.carrier === "exactMoney") {
+		return plainType("money")
+	}
+	if (role === "operand" && v.carrier === "text") {
+		return wildcardText
+	}
+	return withoutSpanWidth(v)
+}
+
+/**
  * The Compute operations a check admits beside comparisons, boolean composition, Compute.cond, Compute.when and casts:
  * the ones the host evaluates for the ContractLiteral check (evaluate.ts), so a literal is judged against every
  * predicate it meets.
@@ -293,7 +348,14 @@ const checkMembers: ReadonlySet<string> = new Set([
 	"charLength",
 	"lower",
 	"upper",
-	"width"
+	"width",
+	"union",
+	"intersection",
+	"difference",
+	"cardinality",
+	"subset",
+	"disjoint",
+	"greatest"
 ])
 
 /** Money's range, a signed 64-bit count of minor units. */
@@ -340,7 +402,8 @@ const carrierBounds = (t: ScalarType): Bounds | undefined => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -359,7 +422,7 @@ const contractLevels = (t: ScalarType): ReadonlyArray<ContractInfo> => {
 
 /** The bounds every value of `t` has: its base's, refined by each contract level's atoms over VALUE. */
 export const boundsOfType = (t: ScalarType): Bounds | undefined => {
-	const base = carrierBounds(baseOf(withoutSerial(t)))
+	const base = carrierBounds(baseOf(t))
 	if (base === undefined) {
 		return undefined
 	}
@@ -375,7 +438,7 @@ export const boundsOfType = (t: ScalarType): Bounds | undefined => {
  */
 const factsOfType = (t: ScalarType): FactSet => {
 	const facts: { [F in Fact]?: FactSet[F] } = {}
-	const carrier = baseOf(withoutSerial(t)).carrier
+	const carrier = baseOf(t).carrier
 	if (
 		carrier === "int2" ||
 		carrier === "int4" ||
@@ -701,6 +764,12 @@ const exprText = (e: ScalarExpr): string => {
 		case "domainCast":
 		case "cond":
 			return "x"
+		case "closedAt":
+			return `${e.relation}.at(${JSON.stringify(e.field)}, …)`
+		case "closedRow":
+			return `${e.relation}.row(…)`
+		case "closedHas":
+			return `${e.relation}.has(…)`
 	}
 }
 
@@ -742,25 +811,9 @@ class Lowering<R extends Refs> {
 		return this.env.mode === "check"
 	}
 
-	/** The type a bare literal adopts opposite a term of type t (see the header). */
+	/** The type a bare literal adopts opposite a term of type t (adoptedType). */
 	adopt(t: ScalarType, role: Role): ScalarType {
-		if (role === "compare" && contractOf(t) !== undefined) {
-			return withoutSerial(t)
-		}
-		const v = valueType(t)
-		if (v.carrier === "numeric") {
-			return anyNumeric
-		}
-		if (v.carrier === "exactInteger") {
-			return plainType("int8")
-		}
-		if (v.carrier === "exactMoney") {
-			return plainType("money")
-		}
-		if (role === "operand" && v.carrier === "text") {
-			return wildcardText
-		}
-		return withoutSpanWidth(v)
+		return adoptedType(t, role)
 	}
 
 	/**
@@ -820,15 +873,25 @@ class Lowering<R extends Refs> {
 		return this.settle(entry, entry.type, undefined)
 	}
 
-	/** The node of `spec`, recorded, with the bounds and facts its computation proves. */
 	/**
 	 * A node of `spec` with what its computation proved: a computed numeric's type carries exactly the bounds proved of
-	 * it (numericOf), the one place a numeric node is typed, so its type is its proof wherever it is read again.
+	 * it (numericOf), so its type is its proof wherever it is read again.
 	 */
 	emitProved(spec: ExprSpec, bounds: Bounds | undefined, facts: FactSet): Lowered {
-		const entry = this.env.emit(
-			isComputedNumeric(spec.type) ? { ...spec, type: numericOf(bounds) } : spec
+		return this.emitAt(
+			isComputedNumeric(spec.type) ? { ...spec, type: numericOf(bounds) } : spec,
+			bounds,
+			facts
 		)
+	}
+
+	/**
+	 * A node of `spec` at the type `spec` states, with what its computation proved: a node whose type is its purpose, a
+	 * coercion at its target, and a conditional, LEAST and GREATEST at their operands' common type, since each is one of
+	 * its operands; the proved bounds lie within that type.
+	 */
+	emitAt(spec: ExprSpec, bounds: Bounds | undefined, facts: FactSet): Lowered {
+		const entry = this.env.emit(spec)
 		return this.settle(entry, entry.type, { bounds, facts })
 	}
 
@@ -857,28 +920,9 @@ class Lowering<R extends Refs> {
 	): Lowered {
 		const operands = args.map((a) => a.expr)
 		if (!op.partial) {
-			const native = this.nativeProofOf(op, args, type)
-			const rounded = resultBounds(op, type, bounds)
 			return this.emitProved(
-				native === undefined
-					? {
-							kind: "op",
-							op: op.id,
-							args: operands,
-							type,
-							nonNull: "strict",
-							volatility: op.volatility
-						}
-					: {
-							kind: "op",
-							op: op.id,
-							args: operands,
-							type,
-							nonNull: "strict",
-							volatility: op.volatility,
-							native
-						},
-				rounded,
+				this.totalSpec(op, args, type),
+				resultBounds(op, type, bounds),
 				noFacts
 			)
 		}
@@ -899,6 +943,37 @@ class Lowering<R extends Refs> {
 			bounds,
 			noFacts
 		)
+	}
+
+	/**
+	 * The node of an overload defined everywhere over `args`, of `type`: its DefinedOp, with the proof that PostgreSQL's
+	 * own overload computes it where it stands if it is IEEE 754 (nativeProofOf).
+	 */
+	totalSpec(
+		op: Extract<NativeOp, { readonly partial: false }>,
+		args: ReadonlyArray<Lowered>,
+		type: ScalarType
+	): ExprSpec {
+		const operands = args.map((a) => a.expr)
+		const native = this.nativeProofOf(op, args, type)
+		return native === undefined
+			? {
+					kind: "op",
+					op: op.id,
+					args: operands,
+					type,
+					nonNull: "strict",
+					volatility: op.volatility
+				}
+			: {
+					kind: "op",
+					op: op.id,
+					args: operands,
+					type,
+					nonNull: "strict",
+					volatility: op.volatility,
+					native
+				}
 	}
 
 	/**
@@ -1026,7 +1101,7 @@ class Lowering<R extends Refs> {
 		const bounds = arg.bounds === undefined ? undefined : castBounds(arg.bounds, conversion, to)
 		const facts = keptFacts(arg, conversion, to)
 		if (how.kind === "coercion") {
-			return this.emitProved(
+			return this.emitAt(
 				{
 					kind: "cast",
 					cast: binaryCoercion,
@@ -1300,9 +1375,9 @@ class Lowering<R extends Refs> {
 		return op
 	}
 
-	/** LEAST or GREATEST over operands of `type`. */
-	extreme(fn: "least" | "greatest", type: ScalarType, at: SourceLoc): ExtremeOp {
-		const op = extremeOf(fn, baseOf(type).carrier)
+	/** The overload of `fn` typed by its operands' common type, over operands of `type`. */
+	commonOp(fn: CommonTypeFn, type: ScalarType, at: SourceLoc): CommonTypeOp {
+		const op = commonTypeOf(fn, baseOf(type).carrier)
 		if (op === undefined) {
 			return stop(
 				"UnsupportedOperation",
@@ -1387,6 +1462,10 @@ class Lowering<R extends Refs> {
 				const op = this.overload("not", [plainType("bool")], at)
 				return this.native(op, [arg], plainType("bool"), undefined, at, "not")
 			}
+			case "closedAt":
+				return this.closedAt(desc, at)
+			case "closedRow":
+				return this.closedRow(desc, at)
 			case "allen":
 			case "pointIn":
 			case "absent": {
@@ -1404,6 +1483,170 @@ class Lowering<R extends Refs> {
 				)
 			}
 		}
+	}
+
+	/** A set over a roster, and the roster, or the refusal of a term of another type: it has no set algebra. */
+	set(
+		fn: string,
+		x: Lowered,
+		at: SourceLoc
+	): { readonly set: Lowered; readonly roster: { readonly handles: ReadonlyArray<string> } } {
+		const base = baseOf(x.nominal)
+		if (base.carrier !== "bits") {
+			return stop(
+				"UnsupportedOperation",
+				at,
+				`setAlgebra: ${typeLabel(x.nominal)} has no ${fn}; it is a set over a roster's`
+			)
+		}
+		return { set: x, roster: base.roster }
+	}
+
+	/**
+	 * Two sets of one roster, the second a term or a parameter, never a literal: a set over another roster is another
+	 * universe, whose codes mean other handles.
+	 */
+	sets(
+		fn: string,
+		first: ExprDesc<Located, R>,
+		second: ExprDesc<Located, R>,
+		at: SourceLoc
+	): readonly [Lowered, Lowered] {
+		const a = this.set(fn, this.term(first, childLoc(at, 0)), at).set
+		const b = this.set(fn, this.term(second, childLoc(at, 1)), at).set
+		if (!meets(a.nominal, b.nominal)) {
+			return stop(
+				"MalformedDescription",
+				at,
+				`sets of one roster for ${fn}: ${typeLabel(a.nominal)} never meets ${typeLabel(b.nominal)}`
+			)
+		}
+		return [a, b]
+	}
+
+	/**
+	 * The closed relation `relation` a read `read` applies, or its refusal: UnsupportedOperation where the expression
+	 * applies none, with the reason, and MalformedDescription for a name that is no closed relation's.
+	 */
+	closedHeading(read: "C.at" | "C.row", relation: string, at: SourceLoc): ClosedHeading {
+		const { closed } = this.env
+		if (closed.kind === "none") {
+			return stop("UnsupportedOperation", at, `${read} here: ${closed.why}`)
+		}
+		return (
+			closed.heading(relation) ??
+			stop("MalformedDescription", at, `a closed relation named ${JSON.stringify(relation)}`)
+		)
+	}
+
+	/** Each of `args` as the key field it stands at: a bare literal adopts its type, a term meets it. */
+	keyTerms(
+		args: ReadonlyArray<ExprDesc<Located, R>>,
+		key: ReadonlyArray<ClosedField>,
+		at: SourceLoc
+	): ReadonlyArray<Lowered> {
+		return args.map((d, i) => {
+			const field = key[i]
+			const here = childLoc(at, i)
+			if (field === undefined) {
+				return stop("MalformedDescription", here, "a term per key field, and no more")
+			}
+			if (d.kind === "literal" && d.type === undefined) {
+				return this.literal(d.value, field.type, here)
+			}
+			const term = this.lower(d, here)
+			if (!meets(field.type, term.nominal)) {
+				return stop(
+					"MalformedDescription",
+					here,
+					`a term of key field ${field.name}'s type ${typeLabel(field.type)}, not ${typeLabel(term.nominal)}`
+				)
+			}
+			return this.convert(term, field.type, here)
+		})
+	}
+
+	/**
+	 * C.at(field, t…): payload field `field` of the closed relation at the key its terms are, one per key field in key
+	 * order, of that field's type. A key the relation holds no tuple at reads NULL, which its reader refuses.
+	 */
+	closedAt(
+		desc: Extract<ExprDesc<Located, R>, { readonly kind: "closedAt" }>,
+		at: SourceLoc
+	): Lowered {
+		const here = childLoc(at, "at")
+		const heading = this.closedHeading("C.at", desc.relation, here)
+		if (desc.args.length !== heading.key.length) {
+			return stop(
+				"MalformedDescription",
+				here,
+				`${heading.key.length} key terms for ${desc.relation}.at, one per key field`
+			)
+		}
+		const payload = heading.payload.find((f) => f.name === desc.field)
+		if (payload === undefined) {
+			return stop(
+				"MalformedDescription",
+				here,
+				`a payload field of ${desc.relation} named ${JSON.stringify(desc.field)}`
+			)
+		}
+		const [first, ...rest] = this.keyTerms(desc.args, heading.key, here)
+		if (first === undefined) {
+			return stop("MalformedDescription", here, "a key term for each key field")
+		}
+		return this.emitProved(
+			{
+				kind: "closedAt",
+				relation: desc.relation,
+				field: desc.field,
+				args: [first.expr, ...rest.map((a) => a.expr)],
+				type: payload.type,
+				nonNull: "absentRefused"
+			},
+			undefined,
+			noFacts
+		)
+	}
+
+	/**
+	 * C.row(t…): the completions of the key prefix its terms are, one per key field but the last: a set over the last
+	 * key field's roster. A prefix that leaves more than one key field open is no set over one roster, so it is refused.
+	 */
+	closedRow(
+		desc: Extract<ExprDesc<Located, R>, { readonly kind: "closedRow" }>,
+		at: SourceLoc
+	): Lowered {
+		const here = childLoc(at, "row")
+		const heading = this.closedHeading("C.row", desc.relation, here)
+		const open = heading.key[desc.args.length]
+		if (desc.args.length !== heading.key.length - 1 || open === undefined) {
+			return stop(
+				"MalformedDescription",
+				here,
+				`${heading.key.length - 1} key terms for ${desc.relation}.row, one per key field but the last`
+			)
+		}
+		const roster = rosterOf(baseOf(open.type))
+		if (roster === undefined || baseOf(open.type).carrier !== "code") {
+			return stop(
+				"UnsupportedOperation",
+				here,
+				`a set over a roster: ${desc.relation}'s last key field ${open.name} is ${typeLabel(open.type)}, no closed id`
+			)
+		}
+		const args = this.keyTerms(desc.args, heading.key, here)
+		return this.emitProved(
+			{
+				kind: "closedRow",
+				relation: desc.relation,
+				args: args.map((a) => a.expr),
+				type: Object.freeze({ carrier: "bits", caps: capabilitiesOf("bits"), roster }),
+				nonNull: "strict"
+			},
+			undefined,
+			noFacts
+		)
 	}
 
 	predicate(desc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
@@ -1524,7 +1767,7 @@ class Lowering<R extends Refs> {
 				both[f] = source
 			}
 		}
-		return this.emitProved(
+		return this.emitAt(
 			{ kind: "cond", args: [p.expr, t.expr, e.expr], type, nonNull: "cond" },
 			bounds,
 			Object.freeze(both)
@@ -1640,7 +1883,7 @@ class Lowering<R extends Refs> {
 
 	cast(desc: Extract<ExprDesc<Located, R>, { readonly kind: "cast" }>, at: SourceLoc): Lowered {
 		const arg = this.term(desc.arg, childLoc(at, "cast"))
-		const to = withoutSerial(unwrap(this.env.fieldType(desc.to, childLoc(at, "cast", "to"))))
+		const to = unwrap(this.env.fieldType(desc.to, childLoc(at, "cast", "to")))
 		return this.castTo(arg, to, childLoc(at, "cast"))
 	}
 
@@ -1726,7 +1969,7 @@ class Lowering<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				here,
-				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Compute.cond, Compute.when, casts, charLength and span endpoints`
+				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Compute.cond, Compute.when, casts, charLength, span endpoints, greatest and the set algebra`
 			)
 		}
 		const arity: Readonly<Record<string, number | undefined>> = {
@@ -1755,6 +1998,12 @@ class Lowering<R extends Refs> {
 			lcm: 2,
 			power: 2,
 			cosineDistance: 2,
+			union: 2,
+			intersection: 2,
+			difference: 2,
+			cardinality: 1,
+			subset: 2,
+			disjoint: 2,
 			widthBucket: 4
 		}
 		const expected = arity[fn]
@@ -1935,21 +2184,54 @@ class Lowering<R extends Refs> {
 					)
 				}
 				const converted = all.map((x) => this.convert(x, type, here))
-				const op = this.extreme(desc.fn, type, here)
+				const op = this.commonOp(desc.fn, type, here)
 				const [head, ...tail] = converted
 				const bounds = tail.reduce<Bounds | undefined>(
 					(acc, x) =>
 						acc === undefined || x.bounds === undefined ? undefined : hullBounds(acc, x.bounds),
 					head?.bounds
 				)
-				return this.native(op, converted, type, bounds, here, desc.fn)
+				return this.emitAt(
+					this.totalSpec(op, converted, type),
+					resultBounds(op, type, bounds),
+					noFacts
+				)
+			}
+			case "union":
+			case "intersection":
+			case "difference": {
+				const [a, b] = this.sets(desc.fn, arg(0), arg(1), here)
+				return this.emitAt(
+					this.totalSpec(this.commonOp(desc.fn, a.nominal, here), [a, b], a.nominal),
+					undefined,
+					noFacts
+				)
+			}
+			case "subset":
+			case "disjoint": {
+				const [a, b] = this.sets(desc.fn, arg(0), arg(1), here)
+				const op = this.overload(desc.fn, [a.actual, b.actual], here)
+				return this.native(op, [a, b], plainType("bool"), undefined, here, `Compute.${desc.fn}`)
+			}
+			case "cardinality": {
+				const a = this.set(desc.fn, this.term(arg(0), here), here)
+				const op = this.overload("cardinality", [a.set.actual], here)
+				const members = BigInt(a.roster.handles.length)
+				return this.native(
+					op,
+					[a.set],
+					plainType("int8"),
+					ofRange(0n, members, String(members).length),
+					here,
+					"Compute.cardinality"
+				)
 			}
 			case "widthBucket":
 				return this.widthBucket(args, here)
 			case "lower":
 			case "upper": {
 				const s = this.span(arg(0), here)
-				const endpoint = withoutSerial(s.span)
+				const endpoint = s.span
 				const op = this.overload(desc.fn, [s.lowered.actual], here)
 				return this.native(op, [s.lowered], endpoint, boundsOfType(endpoint), here, desc.fn)
 			}
@@ -2001,8 +2283,9 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * Compute.numeric: PostgreSQL's conversion of a value into numeric, `x::numeric`, a computed numeric typed by what
-	 * the conversion proves of it (castNode, emitProved): a registered cast from an integer, money, an exact value or a
-	 * float; the binary coercion from a numeric(p, s), its typmod dropped; a computed numeric itself.
+	 * the conversion proves of it: a registered cast from an integer, money, an exact value or a float (castNode,
+	 * emitProved); the binary coercion from a numeric(p, s), its typmod dropped, into its value's proved bound
+	 * (numericOf); a computed numeric itself.
 	 */
 	numeric(a: Lowered, at: SourceLoc): Lowered {
 		const from = valueType(a.actual)
@@ -2010,7 +2293,7 @@ class Lowering<R extends Refs> {
 			return a
 		}
 		if (from.carrier === "numeric") {
-			return this.castNode(a, anyNumeric, { kind: "coercion" }, at)
+			return this.castNode(a, numericOf(a.bounds), { kind: "coercion" }, at)
 		}
 		const op = castOf(from.carrier, "numeric")
 		return op === undefined
@@ -2123,7 +2406,8 @@ class Lowering<R extends Refs> {
 			case "bool":
 			case "uuid":
 			case "text":
-			case "enum":
+			case "code":
+			case "bits":
 			case "range4":
 			case "range8":
 			case "vector":
@@ -2353,7 +2637,8 @@ const roundingScale = (target: ScalarType): number => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -2389,7 +2674,8 @@ const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversio
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -2480,7 +2766,8 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -2732,7 +3019,7 @@ export const bucketInRange = (
 	insideRange(countLow, countHigh, exactOf(1n, 0), exactOf(BigInt(int4Max.value) - 1n, 0))
 
 /** Zero as a literal of `v`'s family, which a guard compares its subject with. */
-const zeroLiteral = (v: ValueType): LiteralDesc => {
+const zeroLiteral = (v: ScalarType): LiteralDesc => {
 	switch (v.carrier) {
 		case "int8":
 		case "exactInteger":
@@ -2749,7 +3036,8 @@ const zeroLiteral = (v: ValueType): LiteralDesc => {
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "vector":
@@ -2758,7 +3046,7 @@ const zeroLiteral = (v: ValueType): LiteralDesc => {
 }
 
 /** An infinity of `v`'s family, -1 for the negative one. */
-const infiniteLiteral = (v: ValueType, sign: 1 | -1): LiteralDesc =>
+const infiniteLiteral = (v: ScalarType, sign: 1 | -1): LiteralDesc =>
 	v.carrier === "numeric"
 		? sign > 0
 			? Decimal.infinity
@@ -2805,10 +3093,19 @@ const sameExpr = (a: ScalarExpr, b: ScalarExpr): boolean => {
 		case "domainCast":
 		case "cond":
 			return true
+		case "closedAt":
+			return b.kind === "closedAt" && a.relation === b.relation && a.field === b.field
+		case "closedRow":
+			return b.kind === "closedRow" && a.relation === b.relation
+		case "closedHas":
+			return b.kind === "closedHas" && a.relation === b.relation
 	}
 }
 
-/** Same carrier, numeric typmod, exact digit bound, contract name and regex refinement. */
+/**
+ * Same carrier, numeric typmod, computed numeric bound, exact digit bound, contract name and regex refinement: every
+ * field a conversion changes.
+ */
 const sameShape = (a: ScalarType, b: ScalarType): boolean => {
 	if (a.carrier !== b.carrier) {
 		return false
@@ -2816,6 +3113,11 @@ const sameShape = (a: ScalarType, b: ScalarType): boolean => {
 	const ta = numericTypmodOf(a)
 	const tb = numericTypmodOf(b)
 	if (ta?.precision !== tb?.precision || ta?.scale !== tb?.scale) {
+		return false
+	}
+	const ba = numericBoundOf(a)
+	const bb = numericBoundOf(b)
+	if (ba?.digits !== bb?.digits || ba?.scale !== bb?.scale) {
 		return false
 	}
 	if (familyDigits(a) !== familyDigits(b)) {
@@ -2833,7 +3135,7 @@ const sameRefinement = (a: ScalarType, to: ScalarType): boolean => {
 	if (contract !== undefined) {
 		return contractOf(a)?.name === contract.name && meets(a, to)
 	}
-	return sameShape(withoutSerial(a), to)
+	return sameShape(a, to)
 }
 
 const compatibleCore = (a: ScalarType, b: ScalarType): boolean => meets(valueType(a), valueType(b))

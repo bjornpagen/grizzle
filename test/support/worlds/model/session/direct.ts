@@ -1,13 +1,6 @@
 import { Array as Arr, Option, Record, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
-import {
-	type HostLaw,
-	isResidual,
-	isSpan,
-	sameValue,
-	selected,
-	valueText
-} from "#test/pg/laws/families/model.ts"
+import { type HostLaw, isSpan, sameValue, selected, valueText } from "#test/support/laws/model.ts"
 import { nextDraw, withSerial } from "#test/support/worlds/model/draws.ts"
 import {
 	entryRows,
@@ -36,8 +29,7 @@ import {
 	brokenAt,
 	commitRefusals,
 	type Refusal,
-	statementRefusals,
-	witnessFor
+	statementRefusals
 } from "#test/support/worlds/model/session/laws.ts"
 
 import {
@@ -1271,9 +1263,8 @@ const literalFault = (domain: FieldDomain, text: string): "22P02" | "22003" | un
 
 /**
  * A call of a function the installation defines (README "Direct SQL access", "Security model"): a role executes exactly its own
- * filter functions and key probes, and the advance function of each serial field of a relation it writes; no role
- * executes a law function, a residual law's trigger function of no parameters (`__law_<id>()`), which its trigger alone
- * runs. A function the installation does not define, or called with another number of arguments, is an error of its
+ * filter functions and key probes, and the advance function of each serial field of a relation it writes. A function
+ * the installation does not define, or called with another number of arguments, is an error of its
  * own, before any privilege is checked.
  */
 const callAnswer = (
@@ -1330,8 +1321,7 @@ const entryFunctionParameters = (
 /**
  * The parameters of a function the installation defines, by their domains: a filter function's, its entry's membership
  * fields (defined only where the entry's rule reads a stored relation besides its target's row); a key probe's, its
- * key's fields; an advance function's, one bigint; a residual law's trigger function's, none. Undefined for one the
- * installation does not define.
+ * key's fields; an advance function's, one bigint. Undefined for one the installation does not define.
  */
 export const parametersOf = (
 	state: ModelState,
@@ -1348,17 +1338,12 @@ export const parametersOf = (
 			)
 			return field?.domain.kind === "serial" ? [{ kind: "integer", bits: 64 }] : undefined
 		}
-		case "law": {
-			const law = Option.getOrUndefined(Arr.findFirst(state.host.laws, (l) => l.law === fn.law))
-			return law !== undefined && isResidual(law) ? [] : undefined
-		}
 	}
 }
 
 /**
  * Whether a role holds EXECUTE on a function the installation defines: its own filter functions and key probes, and
- * the advance function of each serial field of a relation it writes; no role a law function's, which its trigger alone
- * runs; nothing while the writer is still its login.
+ * the advance function of each serial field of a relation it writes; nothing while the writer is still its login.
  */
 const executes = (state: ModelState, role: RoleSpec | undefined, fn: WorldFunction): boolean => {
 	switch (fn.kind) {
@@ -1367,14 +1352,12 @@ const executes = (state: ModelState, role: RoleSpec | undefined, fn: WorldFuncti
 			return role?.name === fn.role
 		case "advance":
 			return role !== undefined && writtenAt(state.install.base, role, fn.relation) !== undefined
-		case "law":
-			return false
 	}
 }
 
 /**
  * The end of a direct writer's transaction: ROLLBACK discards its view; COMMIT judges the laws PostgreSQL defers to it
- * (a deferred foreign key's 23503, a residual law's 23000) and makes the view reality when none is broken; COMMIT of an
+ * (a deferred foreign key's 23503, every deferred law being one) and makes the view reality when none is broken; COMMIT of an
  * aborted transaction rolls it back. The session ends either way, and with it the role and claims it set.
  */
 export const directEndBranches = (
@@ -1496,8 +1479,6 @@ const nativeKeys = (law: HostLaw, view: HostState): ReadonlyArray<KeyOf> => {
 		}
 		case "check":
 		case "covered":
-		case "obliged":
-		case "capacity":
 			return []
 	}
 }
@@ -1507,10 +1488,9 @@ const nativeKeys = (law: HostLaw, view: HostState): ReadonlyArray<KeyOf> => {
  * keys nativeKeys finds of a relation the role can read the rows of, and none of any other: PostgreSQL omits key detail
  * where row security is on and where the role holds SELECT neither on the table nor on every key column
  * (ri_ReportViolation, BuildIndexValueDescription), as the privilege model grants them (catalog.ts holdsTable,
- * holdsColumn). A residual law's function shows its witness keys only to a role that holds the witness relation whole.
- * Either is judged as the identity in force where the law is checked, a residual law's at COMMIT (README "Direct SQL access",
- * Direct SQL writers): the role the transaction took on, or else its login, which holds nothing, a login after RESET
- * ROLE too, so it is shown no key.
+ * holdsColumn). It is judged as the identity in force where the law is checked (README "Direct SQL access", Direct SQL
+ * writers): the role the transaction took on, or else its login, which holds nothing, a login after RESET ROLE too, so
+ * it is shown no key. Every law is native (fin.md §7), so no witness is a law function's.
  */
 const lawWitness = (
 	state: ModelState,
@@ -1524,9 +1504,6 @@ const lawWitness = (
 	)
 	if (role === undefined || law === undefined) {
 		return { kind: "withheld" }
-	}
-	if (isResidual(law)) {
-		return witnessFor(state.host, role, r.violation, [])
 	}
 	/** Whether PostgreSQL shows a key of a relation: no row security on it, and SELECT on it or on every key column. */
 	const readable = (relation: string, key: HostFact): boolean =>

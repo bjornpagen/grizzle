@@ -44,8 +44,8 @@ const canonicalText: TextLookup = (source, flags) =>
 	Result.map(analyzeText(source, flags, SourceLoc("a test fixture's pattern", [])), textInfo)
 
 /**
- * The declared type of `desc`, an enum's roster read from `rosters` (closed relation name to its handles in declared
- * order). A FieldDesc the registry refuses fails the test.
+ * The declared type of `desc`, a closed id's or a set's roster read from `rosters` (roster name to its handles in
+ * declared order). A FieldDesc the registry refuses fails the test.
  */
 export const scalarOf = (
 	desc: FieldDesc,
@@ -104,7 +104,8 @@ const exactWidening = (
 		case "exactMoney":
 			return { into: t.carrier, digits: t.digits }
 		case "bool":
-		case "enum":
+		case "code":
+		case "bits":
 		case "float4":
 		case "float8":
 		case "numeric":

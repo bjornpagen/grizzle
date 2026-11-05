@@ -13,9 +13,10 @@ import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { candidateLabel, candidatesOf } from "#compiler/deploy/diff/plan.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { loginIdentity, roleIdentity } from "#compiler/physical/ddl/names.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
@@ -44,6 +45,7 @@ import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { type Installed, installedOf } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
+	draftCodes,
 	fromEmpty,
 	fromSnapshot,
 	generate,
@@ -166,10 +168,11 @@ interface MigrateOptions {
 	/** Whether to register the last snapshot as the application's. */
 	readonly register: boolean
 	/**
-	 * How the review decides each candidate rename a generated folder offers: every one kept as its drop and add, or
-	 * every one chosen.
+	 * The renames and drops each version's migration declares (`--rename`, `--drop`), by the version's index, 0 the
+	 * first: every drop of stored data is declared, a roster's removed handle among them, and a renamed handle keeps its
+	 * code (deploy/diff/plan.ts Declarations).
 	 */
-	readonly renames: "kept" | "chosen"
+	readonly declared: (version: number) => Declarations
 	/**
 	 * What runs as the owner after each version's migration applies, given the version's index: what a test reads
 	 * between versions, such as a role's OID that a later rename keeps; none for a test that reads nothing there.
@@ -220,6 +223,19 @@ export const workloadOf = (
 		extensions: [workloadExtension(plan)],
 		draft: { access: plan.access, accessPaths: plan.requests }
 	}
+}
+
+/**
+ * A version's codes, drafted as `grizzle generate` drafts them (cli/generate.ts draftInput): from the codes the
+ * previous snapshot records, the empty codebook before the first, with no rename declared. A draft that reorders a
+ * roster is the test's defect: a history the test states appends new handles.
+ */
+const draftedCodes = (previous: Previous, version: Version, declared: Declarations): Codebook => {
+	const drafted = draftCodes(version.schema, previous, declared)
+	if (!drafted.ok) {
+		throw new Error(`migrated: a version's codes are refused: ${drafted.error.message}`)
+	}
+	return drafted.value
 }
 
 /**
@@ -311,7 +327,8 @@ export const migrated = (options: MigrateOptions) =>
 					installation,
 					owner,
 					logins: version.logins,
-					extensions: workload.extensions
+					extensions: workload.extensions,
+					codes: draftedCodes(previous, version, options.declared(i))
 				})
 			)
 			const g = succeeded(
@@ -320,24 +337,19 @@ export const migrated = (options: MigrateOptions) =>
 					installation: plan.installation,
 					name: `step_${i + 1}`,
 					timestamp: draftedAt(i + 1),
-					workload: workload.draft
+					workload: workload.draft,
+					declared: options.declared(i)
 				})
 			)
 			const decisions: Decisions = {
-				chosen: new Set(options.renames === "chosen" ? candidatesOf(g.plan) : []),
 				losses: "written",
 				value: placeholderValue
 			}
 			const reviewed = review(g, decisions)
-			if (Result.isFailure(reviewed)) {
-				throw new Error(
-					`migrated: the review of ${g.folder.name} is inexpressible: ${Arr.join(Arr.map(reviewed.failure.candidates, candidateLabel), ", ")} decide one statement of ${reviewed.failure.file}`
-				)
-			}
 			folders.push({
 				name: g.folder.name,
 				metaText: g.folder.metaText,
-				files: reviewed.success.files
+				files: reviewed.files
 			})
 			yield* apply(migrator, { snapshot: g.snapshot, folders: [...folders] }, noFurther)
 			yield* Option.match(options.observe, {

@@ -84,9 +84,9 @@ export interface MembershipLowering {
 /**
  * What a conservative lowering lowers: a query, which reads no delta (a Delta node in one is UnsupportedOperation), as a
  * derived relation's definition does; a write program's read-back; a write filter's membership, which reads its row;
- * or a residual law's full violation query, the migration's probe (deploy/diff), a query over stored values only, which
- * types a text refinement no `__text_` domain names (a contract's base pattern no stored column carries) as text, where
- * any other query refuses it.
+ * or a law's full violation query, the migration's probe (deploy/diff) of a law over closed relations alone, a query
+ * over declared values only, which types a text refinement no `__text_` domain names (a contract's base pattern no
+ * stored column carries) as text, where any other query refuses it.
  */
 type ConservativeSubject =
 	| { readonly kind: "query" }
@@ -415,8 +415,8 @@ export const traverseTree = <A, B, E>(
  * raw text multisets. Codecs are not part of it: a statement says which parameter fills each placeholder and what its
  * output columns are, and the caller encodes and decodes.
  *
- * The physical names of relations, columns, enums and domains come from the caller through PhysicalNames, because
- * the naming door (core/identity.ts) mints them and the snapshot records them.
+ * The physical names of relations, columns, domains and closed constants, and the installation's codes, come from the
+ * caller through PhysicalNames, because the naming door (core/identity.ts) mints them and the snapshot records them.
  */
 export interface ConservativeProgram<Slot extends ConservativeParamSlot = DeclaredParamSlot> {
 	readonly roots: StatementRoots<ConservativeStatement<Slot>>

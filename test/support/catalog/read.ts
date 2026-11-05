@@ -4,8 +4,7 @@ import type {
 	ConstraintName,
 	DomainName,
 	IndexName,
-	RelationIdent,
-	TriggerName
+	RelationIdent
 } from "#compiler/core/ids.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
@@ -128,6 +127,9 @@ interface CatalogWorldRelation {
 	readonly options: ReadonlyArray<string>
 	readonly grants: ReadonlyArray<CatalogGrant>
 	readonly columns: ReadonlyArray<{ readonly name: string; readonly type: CatalogType }>
+	/** The functions of the base schema the view's rule calls, as pg_depend records them (a decoded column's names
+	 * constant). */
+	readonly calls: ReadonlyArray<string>
 }
 
 /** A schema `<schema>__<name>`: a role's world, its views over the schema. */
@@ -141,12 +143,6 @@ export interface CatalogWorld {
 	readonly types: ReadonlyArray<string>
 }
 
-interface CatalogEnum {
-	readonly name: string
-	readonly labels: ReadonlyArray<string>
-	readonly grants: ReadonlyArray<CatalogGrant>
-}
-
 interface CatalogDomain {
 	readonly name: DomainName
 	readonly base: CatalogType
@@ -157,6 +153,9 @@ interface CatalogDomain {
 		readonly name: ConstraintName
 		readonly definition: string
 		readonly validated: boolean
+		/** The functions of the schema the CHECK calls, as pg_depend records them: a roster's names constant, a set's live
+		 * constant. */
+		readonly calls: ReadonlyArray<string>
 	}>
 	readonly grants: ReadonlyArray<CatalogGrant>
 }
@@ -179,11 +178,15 @@ interface CatalogFunction {
 	readonly grants: ReadonlyArray<CatalogGrant>
 	/** pg_get_functiondef's CREATE OR REPLACE statement. */
 	readonly definition: string
+	/** The functions of the schema its body calls, as pg_depend records a SQL-standard body's: a live constant's names
+	 * constant. */
+	readonly calls: ReadonlyArray<string>
 }
 
 interface CatalogTrigger {
 	readonly table: string
-	readonly name: TriggerName
+	/** The isolation guard's or PostgreSQL's internal foreign-key trigger's: no law trigger exists. */
+	readonly name: string
 	readonly internal: boolean
 	/** pg_trigger.tgenabled: O, D, R, A. */
 	readonly enabled: TgEnabled
@@ -278,7 +281,8 @@ export interface Catalog {
 	readonly schemaGrants: ReadonlyArray<CatalogGrant>
 	readonly tables: ReadonlyArray<CatalogTable>
 	readonly indexes: ReadonlyArray<CatalogIndex>
-	readonly enums: ReadonlyArray<CatalogEnum>
+	/** The pg_enum rows of the schema's types: none, since a roster is a smallint domain and no enum is installed. */
+	readonly enumLabels: number
 	readonly domains: ReadonlyArray<CatalogDomain>
 	readonly sequences: ReadonlyArray<CatalogSequence>
 	readonly functions: ReadonlyArray<CatalogFunction>
@@ -317,6 +321,13 @@ const typeJson = (oid: string, typmod: string) =>
 /** A collation as `schema.name`, NULL for none. */
 const collationText = (oid: string) =>
 	`(SELECT cn.nspname::text || '.' || c.collname::text FROM pg_catalog.pg_collation c JOIN pg_catalog.pg_namespace cn ON cn.oid = c.collnamespace WHERE c.oid = ${oid})`
+
+/**
+ * The functions of the schema, `$1`, that the object `objid` of the catalog `classid` depends on, as pg_depend records
+ * it (recordDependencyOnExpr): a CHECK's, a view rule's or a SQL-standard body's calls, by name.
+ */
+const callsOf = (classid: string, objid: string) =>
+	`(SELECT COALESCE(json_agg(DISTINCT dp.proname::text), '[]'::json) FROM pg_catalog.pg_depend dd JOIN pg_catalog.pg_proc dp ON dp.oid = dd.refobjid JOIN pg_catalog.pg_namespace dn ON dn.oid = dp.pronamespace WHERE dd.classid = ${classid} AND dd.objid = ${objid} AND dd.refclassid = 'pg_catalog.pg_proc'::regclass AND dd.objid <> dd.refobjid AND dn.nspname = $1::text)`
 
 /**
  * The queries of one installed schema, `$1`. The naming door mints every login, role and role schema under it
@@ -364,16 +375,11 @@ const queries = {
 	FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid JOIN pg_catalog.pg_class tc ON tc.oid = i.indrelid
 	JOIN pg_catalog.pg_am am ON am.oid = ic.relam JOIN pg_catalog.pg_namespace n ON n.oid = ic.relnamespace
 	WHERE n.nspname = $1::text`,
-	enums: `SELECT COALESCE(json_agg(json_build_object(
-		'name', t.typname::text,
-		'labels', (SELECT json_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_catalog.pg_enum e WHERE e.enumtypid = t.oid),
-		'grants', ${grants("t.typacl", "T", "t.typowner")}
-	) ORDER BY t.typname), '[]'::json)::text
-	FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = $1::text AND t.typtype = 'e'`,
+	enumLabels: `SELECT count(*)::text FROM pg_catalog.pg_enum e JOIN pg_catalog.pg_type t ON t.oid = e.enumtypid JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = $1::text`,
 	domains: `SELECT COALESCE(json_agg(json_build_object(
 		'name', t.typname::text, 'base', ${typeJson("t.typbasetype", "t.typtypmod")}, 'notNull', t.typnotnull,
 		'collation', ${collationText("t.typcollation")},
-		'constraints', (SELECT COALESCE(json_agg(json_build_object('name', k.conname::text, 'definition', pg_catalog.pg_get_constraintdef(k.oid), 'validated', k.convalidated) ORDER BY k.conname), '[]'::json) FROM pg_catalog.pg_constraint k WHERE k.contypid = t.oid AND k.contype = 'c'),
+		'constraints', (SELECT COALESCE(json_agg(json_build_object('name', k.conname::text, 'definition', pg_catalog.pg_get_constraintdef(k.oid), 'validated', k.convalidated, 'calls', ${callsOf("'pg_catalog.pg_constraint'::regclass", "k.oid")}) ORDER BY k.conname), '[]'::json) FROM pg_catalog.pg_constraint k WHERE k.contypid = t.oid AND k.contype = 'c'),
 		'grants', ${grants("t.typacl", "T", "t.typowner")}
 	) ORDER BY t.typname), '[]'::json)::text
 	FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = $1::text AND t.typtype = 'd'`,
@@ -387,7 +393,8 @@ const queries = {
 		'name', p.proname::text, 'args', pg_catalog.pg_get_function_identity_arguments(p.oid),
 		'owner', pg_catalog.pg_get_userbyid(p.proowner)::text, 'securityDefiner', p.prosecdef,
 		'volatility', p.provolatile::text, 'config', COALESCE(to_json(p.proconfig), '[]'::json),
-		'grants', ${grants("p.proacl", "f", "p.proowner")}, 'definition', pg_catalog.pg_get_functiondef(p.oid)
+		'grants', ${grants("p.proacl", "f", "p.proowner")}, 'definition', pg_catalog.pg_get_functiondef(p.oid),
+		'calls', ${callsOf("'pg_catalog.pg_proc'::regclass", "p.oid")}
 	) ORDER BY p.proname), '[]'::json)::text
 	FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = $1::text`,
 	triggers: `SELECT COALESCE(json_agg(json_build_object(
@@ -433,7 +440,8 @@ const queries = {
 		'relations', (SELECT COALESCE(json_agg(json_build_object(
 			'name', c.relname::text, 'kind', c.relkind::text, 'owner', pg_catalog.pg_get_userbyid(c.relowner)::text,
 			'options', COALESCE(to_json(c.reloptions), '[]'::json), 'grants', ${grants("c.relacl", "r", "c.relowner")},
-			'columns', (SELECT COALESCE(json_agg(json_build_object('name', a.attname::text, 'type', ${typeJson("a.atttypid", "a.atttypmod")}) ORDER BY a.attnum), '[]'::json) FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped)
+			'columns', (SELECT COALESCE(json_agg(json_build_object('name', a.attname::text, 'type', ${typeJson("a.atttypid", "a.atttypmod")}) ORDER BY a.attnum), '[]'::json) FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped),
+			'calls', (SELECT COALESCE(json_agg(DISTINCT p.proname::text), '[]'::json) FROM pg_catalog.pg_rewrite w JOIN pg_catalog.pg_depend d ON d.classid = 'pg_catalog.pg_rewrite'::regclass AND d.objid = w.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc p ON p.oid = d.refobjid JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace WHERE w.ev_class = c.oid AND pn.nspname = $1::text)
 		) ORDER BY c.relname), '[]'::json) FROM pg_catalog.pg_class c WHERE c.relnamespace = n.oid),
 		'functions', (SELECT COALESCE(json_agg(p.proname::text ORDER BY p.proname), '[]'::json) FROM pg_catalog.pg_proc p WHERE p.pronamespace = n.oid),
 		'types', (SELECT COALESCE(json_agg(t.typname::text ORDER BY t.typname), '[]'::json) FROM pg_catalog.pg_type t WHERE t.typnamespace = n.oid AND NOT (t.typtype = 'c' AND EXISTS (SELECT 1 FROM pg_catalog.pg_class k WHERE k.oid = t.typrelid AND k.relkind <> 'c')) AND t.typtype <> 'b')
@@ -614,7 +622,7 @@ export const readCatalogWith = <E>(
 		const texts = yield* Effect.all({
 			tables: read(queries.tables),
 			indexes: read(queries.indexes),
-			enums: read(queries.enums),
+			enumLabels: read(queries.enumLabels),
 			domains: read(queries.domains),
 			sequences: read(queries.sequences),
 			functions: read(queries.functions),
@@ -639,7 +647,7 @@ export const readCatalogWith = <E>(
 					trustedJson<ReadonlyArray<Document<CatalogIndex>>>(texts.indexes),
 					indexOf
 				),
-				enums: trustedJson<ReadonlyArray<CatalogEnum>>(texts.enums),
+				enumLabels: Number(texts.enumLabels),
 				domains: Arr.map(
 					trustedJson<ReadonlyArray<Document<CatalogDomain>>>(texts.domains),
 					domainOf

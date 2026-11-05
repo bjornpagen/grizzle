@@ -38,7 +38,7 @@ import {
 	typed,
 	untyped
 } from "#compiler/scalar/compute/term.ts"
-import { compatible, withoutSerial } from "#compiler/scalar/compute/types.ts"
+import { compatible } from "#compiler/scalar/compute/types.ts"
 import { describeField, literalDescFor, type SqlTag } from "#compiler/scalar/registry.ts"
 import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -251,11 +251,10 @@ export const paramTerm = <H, S extends SqlTag>(
 	if (!described.ok) {
 		throw described.error
 	}
-	return scalarTerm(
-		{ kind: "param", name, type: described.value.desc },
-		withoutSerial(described.value.scalar),
-		{ column: descriptor.column, sql: descriptor.sql }
-	)
+	return scalarTerm({ kind: "param", name, type: described.value.desc }, described.value.scalar, {
+		column: descriptor.column,
+		sql: descriptor.sql
+	})
 }
 
 const isUntypedTerm = (value: unknown): boolean => termOf(value)?.typing.kind === "untyped"

@@ -22,6 +22,7 @@ import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { ParamId } from "#compiler/core/ids.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl, RelationParamDecl } from "#compiler/ir/products.ts"
 import { flight, type RelationColumn } from "#compiler/lower/conservative/types.ts"
 import { closedId, pg, uuid as uuidField } from "#compiler/public/fields.ts"
@@ -33,7 +34,13 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { columnDefinition, types } from "#compiler/sql/build.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import {
+	codebookFor,
+	compileTemplate,
+	firstCodes,
+	schemaInputOf,
+	testCompile
+} from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -120,6 +127,8 @@ const Sample = relation(
 	["id"]
 )
 const Pinned = schema("Pinned", { Color, Sample }, [])
+/** The codes a fresh installation of Pinned holds, which its parameters' codecs encode under. */
+const pinnedCodes = succeeded(codebookFor(schemaInputOf(Pinned), firstCodes))
 
 /**
  * What p is declared as: the field of Sample it is compared with, its descriptor, a value of its host type, and values
@@ -225,7 +234,7 @@ describe("every declared parameter admitted at the read boundary", () => {
 									: "a parameter only an eliminated rule reads"
 							)
 							const valid = { p: kind.valid, q: 3 }
-							const refused = executionInputs(paramCodecs(template.params), {
+							const refused = executionInputs(paramCodecs(template.params, pinnedCodes), {
 								...valid,
 								p: wrong
 							})
@@ -241,7 +250,7 @@ describe("every declared parameter admitted at the read boundary", () => {
 							 * A valid value is admitted, and every declared scalar parameter is encoded, the eliminated one too.
 							 */
 							const admitted = Result.getOrThrow(
-								executionInputs(paramCodecs(template.params), valid)
+								executionInputs(paramCodecs(template.params, pinnedCodes), valid)
 							)
 							assert.deepEqual(
 								new Set(admitted.scalars.keys()),
@@ -273,7 +282,10 @@ describe("relation inputs as arrays", () => {
 	const idColumns: ReadonlyArray<RelationColumn> = [slotColumn("id", "c1")]
 	/** The input's arrays over its one column, each read back as array_in reads it, or the read's refusal. */
 	const arraysOf = (facts: unknown) => {
-		const prepared = executionInputs(paramCodecs([ids, account]), { ids: facts, account: u(9).id })
+		const prepared = executionInputs(paramCodecs([ids, account], emptyCodebook), {
+			ids: facts,
+			account: u(9).id
+		})
 		if (Result.isFailure(prepared)) {
 			return refusalOf(new ReadFailure({ reason: prepared.failure }))
 		}
@@ -317,7 +329,7 @@ describe("relation inputs as arrays", () => {
 			]
 		}
 		const prepared = succeeded(
-			executionInputs(paramCodecs([pair]), { ids: [{ a: u(1).id, b: u(2).id }] })
+			executionInputs(paramCodecs([pair], emptyCodebook), { ids: [{ a: u(1).id, b: u(2).id }] })
 		)
 		const input = prepared.relations.get(pair.id)
 		if (input === undefined) {
@@ -349,7 +361,7 @@ describe("relation inputs as arrays", () => {
 			yield { a: u(1).id, b: u(2).id }
 			yield { a: u(3).id, b: u(4).id }
 		})()
-		const prepared = succeeded(executionInputs(paramCodecs([pair]), { ids: once }))
+		const prepared = succeeded(executionInputs(paramCodecs([pair], emptyCodebook), { ids: once }))
 		const input = prepared.relations.get(pair.id)
 		if (input === undefined) {
 			throw new Error("the read admits ids")

@@ -5,6 +5,7 @@ import { element, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
@@ -40,7 +41,7 @@ const placements: Arr.NonEmptyReadonlyArray<Placement> = [
 	"correlated to its region"
 ]
 
-const names = productionNames("Ledger", { kind: "declared" }, localVectorSchema)
+const names = productionNames("Ledger", { kind: "declared" }, localVectorSchema, emptyCodebook)
 
 /**
  * The paths of `depth` levels over edges: the bottom level the edges, each starting at `start` when it is given, and

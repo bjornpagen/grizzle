@@ -1,5 +1,6 @@
 import {
-	closedWith,
+	closed,
+	closedRelation,
 	f,
 	ge,
 	literal,
@@ -15,17 +16,22 @@ export const Qty = f.contract("Qty", f.integer, ge(value, literal(0)))
 
 /**
  * Schemas for the checker's tests: the worked example's Work and a small Lab schema that has
- * what Work lacks: regex text of different patterns, numeric typmods, a span, a serial field and a closed roster with
- * a payload.
+ * what Work lacks: regex text of different patterns, numeric typmods, a span, a serial field, and a roster with a
+ * closed relation over it.
  */
 export const Lab: SchemaDesc = {
 	name: "Lab",
 	relations: [
-		closedWith(
-			"Color",
-			["red", "green", "blue"],
-			{ rank: f.integer },
-			{ red: { rank: 1 }, green: { rank: 2 }, blue: { rank: 3 } }
+		closed("Color", ["red", "green", "blue"]),
+		closedRelation(
+			"ColorRank",
+			{ color: f.closedId("Color"), rank: f.integer },
+			["color"],
+			[
+				{ color: "red", rank: 1 },
+				{ color: "green", rank: 2 },
+				{ color: "blue", rank: 3 }
+			]
 		),
 		relation(
 			"Item",

@@ -1,4 +1,5 @@
 import { pipe, String as Str } from "effect"
+import { type Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { contained, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
@@ -53,9 +54,14 @@ const frontendOptions = (schemaValue: unknown): FrontendOptions => {
 		claims: { kind: "every" },
 		laws: artifacts.laws,
 		derived: artifacts.derived,
-		world: { kind: "reality" }
+		world: { kind: "reality" },
+		codes: artifacts.names.codes
 	}
 }
+
+/** The codes a fresh installation of `schemaValue` holds: what its codecs encode a closed id or a set under. */
+export const codesOf = (schemaValue: unknown): Codebook =>
+	succeeded(testArtifacts(schemaValue, testCompile)).names.codes
 
 export const compiled = (schemaValue: unknown, value: unknown): WriteFrontend =>
 	succeeded(compileChangeSet(checking(schemaValue), descOf(value), frontendOptions(schemaValue)))

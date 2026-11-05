@@ -2,6 +2,7 @@ import { Array as Arr, Option, pipe, Predicate, Record as Rec, Result, String as
 import { taggedValueOf } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { isRecord } from "#compiler/core/record.ts"
 import { MoneyText, moneyTag, VectorText, vectorTag } from "#compiler/ir/carriers.ts"
 import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
@@ -52,6 +53,13 @@ const literal = (value: LiteralValue, type: ColumnType): Expr => ({
 	value,
 	type: type.sql
 })
+
+/** A set's handles: a host Set of strings, or the Description's { handles }; undefined for anything else. */
+const bitsMembers = (value: unknown): ReadonlyArray<string> | undefined => {
+	const members: unknown =
+		value instanceof Set ? [...value] : isRecord(value) ? value["handles"] : undefined
+	return Arr.isArray(members) && Arr.every(members, Predicate.isString) ? members : undefined
+}
 
 const integerOf = (value: unknown): bigint | undefined => {
 	if (typeof value === "bigint") {
@@ -145,7 +153,8 @@ const spelledLiteral = (
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
+		case "bits":
 		case "span":
 			return refuse(location, `${type.value.kind}, which has no twin spelling`, spelling.text)
 	}
@@ -156,12 +165,14 @@ const spelledLiteral = (
  *
  * A fact value is the host value a Description carries (LiteralDesc): a JavaScript number for smallint,
  * integer, real and double precision; a bigint for bigint; a Decimal, a bigint or an exact decimal string for numeric,
- * never a JavaScript number; a Money for money; a boolean; a string for text, uuid and enum handles; a span
+ * never a JavaScript number; a Money for money; a boolean; a string for text, uuid and a closed id's handle, which is
+ * written as its code under the installation's codes; a Set of handles, or the Description's { handles }, for a set,
+ * written as its bit(size) text; a span
  * { start, end } (or the Description's { span: { start, end } }); a Vector; and { float: "NaN" | ... } beside the
  * plain float specials. Each becomes one SQL AST literal typed by its column's type, so the printer casts it
  * and the statement audit checks it. Nothing is coerced on the host: a value outside its type is
  * refused with the column's location, and PostgreSQL's own input function decides everything else (numeric typmod
- * rounding, float4 rounding of an exact binary32 value, enum membership). A value is written in its canonical form,
+ * rounding, float4 rounding of an exact binary32 value). A value is written in its canonical form,
  * or, as an InputSpelling, in the twin spelling its case drew: "1.000" stays a padded numeric text, -0 stays -0, so the
  * database holds the spellings no answer may depend on; supplementary-plane text passes through unchanged.
  *
@@ -244,11 +255,27 @@ export const literalFor = (
 				return refuse(location, "text (well-formed, without NUL)", value)
 			}
 			return Result.succeed(literal({ kind: "text", value }, type))
-		case "enum":
-			if (typeof value !== "string" || !v.labels.includes(value)) {
-				return refuse(location, `a handle of ${v.closed}`, value)
+		case "code": {
+			const code = typeof value === "string" ? v.roster.codeOf.get(value) : undefined
+			if (code === undefined) {
+				return refuse(location, `a live handle of roster ${v.roster.roster}`, value)
 			}
-			return Result.succeed(literal({ kind: "text", value }, type))
+			return Result.succeed(literal({ kind: "int", value: BigInt(code) }, type))
+		}
+		case "bits": {
+			const members = bitsMembers(value)
+			const codes =
+				members === undefined ? undefined : Arr.map(members, (h) => v.roster.codeOf.get(h))
+			if (codes === undefined || !Arr.every(codes, (c) => c !== undefined)) {
+				return refuse(location, `a set of live handles of roster ${v.roster.roster}`, value)
+			}
+			const held = new Set(codes)
+			const text = Arr.join(
+				Arr.makeBy(v.roster.size, (c) => (held.has(c) ? "1" : "0")),
+				""
+			)
+			return Result.succeed(literal({ kind: "text", value: text }, type))
+		}
 		case "span": {
 			const endpoints = spanEndpoints(value)
 			const start = integerOf(endpoints?.start)

@@ -1,6 +1,7 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import type { DomainDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
 	type Identity,
@@ -13,8 +14,15 @@ import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
-import { baseTypeRef, type PhysicalNames, qualifiedType } from "#compiler/ir/physical.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
+import type { DomainCheck } from "#compiler/ir/law.ts"
+import {
+	baseTypeRef,
+	type ClosedConstant,
+	type PhysicalNames,
+	qualifiedType
+} from "#compiler/ir/physical.ts"
+import { baseOf, contractOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Owned, OwnedEntry, OwnedRole } from "#compiler/schema/own.ts"
 import type { Collation, FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import { cUtf8Collation } from "#compiler/sql/build.ts"
@@ -28,7 +36,7 @@ export function missing(capability: string): never {
 
 const typeSchema = nominal<string, TypeSchema>()
 
-/** The schema of the types an installation holds, its enums and domains: its own, by its identity. */
+/** The schema of the types an installation holds, its domains: its own, by its identity. */
 export const installationTypes = (installation: Identity<"schema">): TypeSchema =>
 	typeSchema(identifierOf(installation))
 
@@ -40,7 +48,7 @@ export interface InstallNames extends PhysicalNames {
 	readonly installation: Identity<"schema">
 	/** The PostgreSQL schema every object is created in, the installation's identifier. */
 	readonly schema: string
-	/** The same schema as the schema of the types it holds, its enums and domains. */
+	/** The same schema as the schema of the types it holds, its domains. */
 	readonly types: TypeSchema
 	/** The identity sequence of a serial field. */
 	readonly sequence: (relation: string, field: string) => ObjectName
@@ -49,16 +57,46 @@ export interface InstallNames extends PhysicalNames {
 	/** The primary key constraint of a stored relation, which an insert into a span primary key names as its
 	 * arbiter. */
 	readonly primaryKey: (relation: string) => ConstraintName
-	/** The identity a relation's table, enum type or materialized view is named by. */
-	readonly relationNamed: (relation: string) => Identity<"table" | "enum" | "view">
+	/** The identity a relation's table, roster domain or materialized view is named by. */
+	readonly relationNamed: (relation: string) => Identity<"table" | "rosterDomain" | "view">
+	/**
+	 * The identity of a contract's domain, by the contract's declared name: the digest of the domain's physical definition
+	 * (W6.Q10), so contracts of one definition share one domain. Its CHECK is `identity.domainCheck` of it.
+	 */
+	readonly contractNamed: (contract: DeclaredName) => Identity<"contractDomain">
+	/** The identity of the structural text domain of a pattern the installation names, by its definition's digest. */
+	readonly textNamed: (regex: RegexRef) => Identity<"textDomain"> | undefined
+}
+
+/**
+ * What a contract's domain is defined from: its base and its CHECK, the law model's domain native's for a base
+ * contract and a context contract's own, from which `define` spells the domain's definition over the installation's
+ * names (physical/ddl/domains.ts contractDomainDdl), whose digest names the domain.
+ */
+export interface ContractSource {
+	readonly base: ScalarType
+	readonly check: DomainCheck
 }
 
 interface NamesInput {
 	readonly owned: Owned
 	readonly installation: Identity<"schema">
 	readonly vectorSchema: string
-	/** The canonical pattern key digests the installation gives a structural text domain. */
-	readonly textDomains: ReadonlySet<string>
+	/** Each pattern the installation gives a structural text domain, by its canonical key, with its domain's
+	 * definition's digest. */
+	readonly textDomains: ReadonlyMap<string, DomainDigest>
+	/** Each contract the installation gives a domain, a base one or a context field's, by its declared name. */
+	readonly contracts: ReadonlyMap<DeclaredName, ContractSource>
+	/** The digest of a contract's domain's definition over `names` (physical/ddl/domains.ts). */
+	readonly define: (
+		names: PhysicalNames,
+		contract: DeclaredName,
+		source: ContractSource
+	) => DomainDigest
+	/** The installation's codes. */
+	readonly codes: Codebook
+	/** Each closed relation's installed constants, by its declared name (physical/ddl/constants.ts). */
+	readonly closed: ReadonlyMap<string, ClosedConstant>
 }
 
 /** A login's or role's PostgreSQL role, `<schema>__<name>`, longer than PostgreSQL's `limit` bytes. */
@@ -197,7 +235,7 @@ export const worldNames = (role: OwnedRole, installation: Identity<"schema">): W
 
 /** What a role reads its relations through: every relation of it is its view in the role's schema, a whole entry's
  * columns its table's (or its materialized view's) and a query entry's its definition's head fields, each a field's
- * column; enums, domains and the vector extension stay the base's. */
+ * column; domains, constants and the vector extension stay the base's. */
 export const roleReadNames = (names: InstallNames, role: OwnedRole): PhysicalNames => {
 	const world = worldNames(role, names.installation)
 	return {
@@ -223,6 +261,19 @@ const relationOf = (owned: Owned, relation: string) => {
 	return r
 }
 
+/** A relation the installation installs an object of its own for, by name: a table, a roster's domain or a view. */
+const installedOf = (owned: Owned, relation: string) => {
+	const r = relationOf(owned, relation)
+	if (r.kind === "closedRelation") {
+		return missing(`physical: the closed relation ${relation} installs no relation of its own`)
+	}
+	return r
+}
+
+/** A roster's codes in the installation's codebook, which holds every roster the schema declares. */
+const rosterCodec = (codes: Codebook, roster: DeclaredName): RosterCodec =>
+	codes.rosters.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
+
 /** The installed names of one schema, gathered under the PostgreSQL schema the installation targets, so the installer,
  * the grants and the query lowerings (`PhysicalNames`) address one set of objects. Every name is minted at the naming
  * door (core/identity.ts) from the identity of what it names: ownership mints the relations', fields', contracts',
@@ -235,20 +286,37 @@ const relationOf = (owned: Owned, relation: string) => {
  * key probes and unique probes in the base schema.
  *
  * Column types: a contract column is typed by its domain, a refined text column by its structural domain, a wildcard
- * text column is `text COLLATE pg_catalog.pg_c_utf8`, a closedId by its roster's enum, a span by int4range or
- * int8range, a vector by the extension's vector(N), and every other scalar by the native type of its name. The base
- * type, which drops every refinement, is the lowering's. */
+ * text column is `text COLLATE pg_catalog.pg_c_utf8`, a closed id by its roster's domain over smallint, a set by its
+ * roster's bits domain, a span by int4range or int8range, a vector by the extension's vector(N), and every other scalar
+ * by the native type of its name. The base type, which drops every refinement but a set's, is the lowering's. */
 export const installNames = (input: NamesInput): InstallNames => {
 	const { owned, installation } = input
 	const schema = identifierOf(installation)
 	const types = installationTypes(installation)
-	return {
+	/** Each contract's domain's digest, once: an inner contract's is read while an outer one's is spelled. */
+	const digests = new Map<DeclaredName, DomainDigest>()
+	const contractNamed = (contract: DeclaredName): Identity<"contractDomain"> => {
+		const known = digests.get(contract)
+		if (known !== undefined) {
+			return identity.contractDomain(known)
+		}
+		const source =
+			input.contracts.get(contract) ?? missing(`physical: no domain for contract ${contract}`)
+		const digest = input.define(names, contract, source)
+		digests.set(contract, digest)
+		return identity.contractDomain(digest)
+	}
+	const textNamed = (regex: RegexRef): Identity<"textDomain"> | undefined => {
+		const digest = input.textDomains.get(regex.key)
+		return digest === undefined ? undefined : identity.textDomain(digest)
+	}
+	const names: InstallNames = {
 		installation,
 		schema,
 		types,
 		vectorSchema: vectorTypes(input.vectorSchema),
 		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) },
-		relation: (relation) => ({ schema, name: relationOf(owned, relation).ident }),
+		relation: (relation) => ({ schema, name: installedOf(owned, relation).ident }),
 		column: (relation, field) => {
 			const r = relationOf(owned, relation)
 			if (r.kind === "derived") {
@@ -260,17 +328,25 @@ export const installNames = (input: NamesInput): InstallNames => {
 			}
 			return f.column
 		},
-		enumType: (closed) => ({ schema: types, name: identifierOf(identity.enumType(closed)) }),
-		/** A contract's domain by its name, whether the base declares it or a context field does: ownership named a base
-		 * contract's, the installer a context contract's (`contextContracts`). */
-		contractDomain: (contract) => ({
+		rosterDomain: (roster) => ({
 			schema: types,
-			name: identifierOf(identity.contractDomain(contract))
+			name: identifierOf(identity.rosterDomain(roster))
 		}),
-		textDomain: (regex) =>
-			input.textDomains.has(regex.key)
-				? { schema: types, name: identifierOf(identity.textDomain(regex.key)) }
-				: undefined,
+		bitsDomain: (roster) => ({
+			schema: types,
+			name: identifierOf(identity.bitsDomain(roster, rosterCodec(input.codes, roster).size))
+		}),
+		codes: input.codes,
+		closed: (relation) =>
+			input.closed.get(relation) ?? missing(`physical: no closed relation ${relation}`),
+		/** A contract's domain by its name, whether the base declares it or a context field does, named by its definition. */
+		contractDomain: (contract) => ({ schema: types, name: identifierOf(contractNamed(contract)) }),
+		contractNamed,
+		textDomain: (regex) => {
+			const named = textNamed(regex)
+			return named === undefined ? undefined : { schema: types, name: identifierOf(named) }
+		},
+		textNamed,
 		sequence: (relation, field) => {
 			const sequence = relationOf(owned, relation).fields[field]?.sequence
 			if (sequence === undefined) {
@@ -291,8 +367,9 @@ export const installNames = (input: NamesInput): InstallNames => {
 			}
 			return key.constraint
 		},
-		relationNamed: (relation) => relationOf(owned, relation).named
+		relationNamed: (relation) => installedOf(owned, relation).named
 	}
+	return names
 }
 
 /** The column type of a scalar, with the fixed collation when the type is builtin text. */
@@ -317,12 +394,25 @@ export const columnType = (names: PhysicalNames, t: ScalarType): ColumnType => {
 		}
 		return { type: qualifiedType(domain), collation: undefined }
 	}
-	const type = baseTypeRef(names, t)
-	return {
-		type,
-		collation: type.kind === "builtin" && type.name === "text" ? cUtf8Collation : undefined
-	}
+	return collated(refinedBase(names, t))
 }
+
+/**
+ * The type a value of `t` is stored and cast as once its contract and text refinement are set aside: a closed id's
+ * roster domain, its codes' range proof, or the base type.
+ */
+const refinedBase = (names: PhysicalNames, t: ScalarType): TypeRef => {
+	const b = baseOf(t)
+	return b.carrier === "code"
+		? qualifiedType(names.rosterDomain(b.roster.closed))
+		: baseTypeRef(names, t)
+}
+
+/** A column type of `type`, with the fixed collation when it is builtin text. */
+const collated = (type: TypeRef): ColumnType => ({
+	type,
+	collation: type.kind === "builtin" && type.name === "text" ? cUtf8Collation : undefined
+})
 
 /**
  * The type of a column a law adds (a constant tag, a partial term): its type's base, the fixed collation for text, and
@@ -330,24 +420,15 @@ export const columnType = (names: PhysicalNames, t: ScalarType): ColumnType => {
  * selection, and a law column holds only values its type already admits: a field's own, which that field's column
  * checked, or the law model's literal of the field's type.
  */
-export const lawColumnType = (names: PhysicalNames, t: ScalarType): ColumnType => {
-	const type = baseTypeRef(names, t)
-	return {
-		type,
-		collation: type.kind === "builtin" && type.name === "text" ? cUtf8Collation : undefined
-	}
-}
+export const lawColumnType = (names: PhysicalNames, t: ScalarType): ColumnType =>
+	collated(baseTypeRef(names, t))
 
-/** A contract domain's base: an inner contract's domain, or the unrefined base type, `text` collated for a
- * refined text base, whose pattern the outer domain's own CHECK carries. */
+/** A contract domain's base: an inner contract's domain, a closed id's roster domain, or the unrefined base type,
+ * `text` collated for a refined text base, whose pattern the outer domain's own CHECK carries. */
 export const domainBase = (names: PhysicalNames, base: ScalarType): ColumnType => {
 	const contract = contractOf(base)
 	if (contract !== undefined) {
 		return { type: qualifiedType(names.contractDomain(contract.name)), collation: undefined }
 	}
-	const type = baseTypeRef(names, base)
-	return {
-		type,
-		collation: type.kind === "builtin" && type.name === "text" ? cUtf8Collation : undefined
-	}
+	return collated(refinedBase(names, base))
 }

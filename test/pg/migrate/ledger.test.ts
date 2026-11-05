@@ -42,8 +42,10 @@ import {
 	noTransactionMarker,
 	splitStatements
 } from "#compiler/deploy/render/markers.ts"
-import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
+import { codebookOf, emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { codeOf } from "#compiler/ir/codes.ts"
+import { constraintLaw } from "#compiler/ir/products.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { printCatalogExpr, quoteIdent } from "#compiler/sql/print.ts"
 import {
@@ -58,12 +60,14 @@ import {
 } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
-import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { firstCodes } from "#test/support/compile.ts"
+import { atName, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	draftChain,
 	draftedAt,
 	fromEmpty,
+	noDeclarations,
 	ownedBy,
 	parsedMigrationName
 } from "#test/support/migrate/kit.ts"
@@ -71,7 +75,7 @@ import { readLedger } from "#test/support/migrate/ledger.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { books1, shopV1, shopV2, shopV3 } from "#test/unit/deploy/schemas.ts"
+import { books1, shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
 import { regex } from "arkregex"
 
@@ -82,7 +86,8 @@ import { regex } from "arkregex"
  *
  * The model is the documented contract: a migrations
  * directory of three drafted folders (Shop v1 to v3: a placeholder, a law with its Validate files, a concurrent index
- * in a no-transaction file, an enum label, a serial field, removed objects dropped in Publish), and a database whose
+ * in a no-transaction file, a handle appended to a roster, a serial field, removed objects dropped in Publish), and a
+ * database whose
  * ledger has recorded some folders, maybe one of them in part. Its state is two numbers: the folders recorded complete,
  * and the files recorded of the next one. Each command is an action a user or a deployment takes, and the model says
  * what it must do:
@@ -596,7 +601,7 @@ const insertOf = (
 ): string => {
 	const stored = snapshot.theory.relations[relation]
 	assert.ok(stored?.kind === "relation", `${relation} is a stored relation of the snapshot`)
-	const fields = Arr.filter(stored.fields, (x) => !x.serial)
+	const fields = Arr.filter(stored.fields, (x) => x.writing === "caller")
 	const literals = Arr.map(fields, (x) => {
 		const literal = values[x.name]
 		assert.ok(literal !== undefined, `a value for ${relation}.${x.name}`)
@@ -616,7 +621,8 @@ const insertOf = (
  * that no Db runs while its statements run alone (the stale-Db fence, TODO 0b; adapter/migrate/apply.ts
  * recordFolderRow); the row outlives the failure. A folder whose first file is transactional and fails has no row.
  *
- * A data step that inserts a task without its arm is refused at COMMIT by the alternatives law Shop v2 adds; an empty
+ * A data step that inserts an automatic task without its arm is refused at COMMIT by the reverse containment Shop v2's
+ * alternatives adds, a native foreign key deferred on the cycle (fin.md §7); an empty
  * custom folder of the empty snapshot, sorted before the first, finds no ledger to record in.
  */
 const realOf = (
@@ -970,6 +976,13 @@ const realOf = (
 				c.note("commit refused")
 				const snapshot = defined(r.gs[model.recorded - 1]).snapshot
 				const account = `'${id(1)}'`
+				/** A closed id is stored as its handle's code, as the snapshot's codes number the roster. */
+				const automatic = codeOf(
+					defined(codebookOf(snapshot).rosters.get(parsedName("Kind")), "the codes of Kind"),
+					"Automatic"
+				)
+				const task = snapshot.theory.relations["Task"]
+				assert.ok(task?.kind === "relation", "Task is a stored relation of the snapshot")
 				const step = {
 					...succeeded(
 						customMigration({
@@ -986,7 +999,7 @@ const realOf = (
 								insertOf(snapshot, r.schema, "Task", {
 									id: `'${id(11)}'`,
 									account,
-									kind: "'Automatic'",
+									kind: `${automatic}::smallint`,
 									weight: "1"
 								})
 						}
@@ -1006,10 +1019,18 @@ const realOf = (
 					return assert.fail("the server refused the COMMIT")
 				}
 				const { sqlstate, constraint } = server.error
-				assert.ok(sqlstate === "23000", "the COMMIT's SQLSTATE")
+				assert.ok(sqlstate === "23503", "the COMMIT's SQLSTATE")
+				const law =
+					constraint === undefined
+						? undefined
+						: constraintLaw(
+								snapshot.constraintToLaw,
+								{ kind: "table", name: task.ident },
+								constraint
+							)
 				assert.ok(
-					constraint !== undefined && snapshot.theory.laws[constraint]?.kind === "residual",
-					"a residual law refuses at COMMIT"
+					law !== undefined && snapshot.theory.laws[law]?.kind === "native",
+					"a deferred native law on Task refuses at COMMIT"
 				)
 				const afterward = yield* observe(r)
 				assert.deepEqual(afterward.ledger, before.ledger, "the refused file is unrecorded")
@@ -1048,13 +1069,29 @@ const realOf = (
 		)
 })
 
-/** The chain Shop v1 to v3 drafted from the empty snapshot under an allocated schema name and its owner. */
+/**
+ * The chain Shop v1 to v3 drafted from the empty snapshot under an allocated schema name and its owner, each step's
+ * codes drafted from the snapshot before it, v3 declaring its one drop (`--drop Task.weight`).
+ */
 const chainOf = (allocated: string, owner: string): ReadonlyArray<GenerateResult> =>
 	draftChain(
-		Arr.map([shopV1, shopV2, shopV3], (desc) => ({
-			desc,
-			options: { schema: atName(allocated), owner: ownedBy(owner), extensions: [] }
-		})),
+		Arr.map(
+			[
+				[shopV1, noDeclarations],
+				[shopV2, noDeclarations],
+				[shopV3, shopV3Declared]
+			] as const,
+			([desc, declared]) => ({
+				desc,
+				options: {
+					schema: atName(allocated),
+					owner: ownedBy(owner),
+					extensions: [],
+					codes: firstCodes
+				},
+				declared
+			})
+		),
 		fromEmpty
 	)
 
@@ -1078,7 +1115,13 @@ const runOn = (shape: ChainShape) => (steps: LedgerProgram, c: Case<Feature>) =>
 				[
 					{
 						desc: books1,
-						options: { schema: atName(foreignSchema), owner: ownedBy(owner), extensions: [] }
+						options: {
+							schema: atName(foreignSchema),
+							owner: ownedBy(owner),
+							extensions: [],
+							codes: firstCodes
+						},
+						declared: noDeclarations
 					}
 				],
 				fromEmpty

@@ -1,6 +1,14 @@
 import { Array as Arr } from "effect"
-import type { ConstraintName, DomainName, RelationIdent } from "#compiler/core/ids.ts"
+import type {
+	ColumnIdent,
+	ConstraintName,
+	DomainName,
+	LawId,
+	RelationIdent
+} from "#compiler/core/ids.ts"
+import type { RosterCodec } from "#compiler/ir/codes.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"
+import type { InstallNames } from "#compiler/physical/ddl/names.ts"
 import type { DescribedLaw } from "#compiler/physical/install/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 
@@ -33,34 +41,76 @@ export const reportedOwner = (
  * The laws of one installation, keyed by what PostgreSQL reports, each carrying its description as an outcome names it
  * (types/changeset Law), so a violation reads its law and the law's description in one step.
  *
- * Every table constraint, unique index and domain constraint maps, under the table or domain that owns it, to the law
- * its violation reports; an object discharging several laws reports the first. A native violation names its
- * constraint beside the table or data type it is on, so a name is read only under that owner: every domain's CHECK is
- * `check`, and two tables may each hold a row check of one name. A violation is read only when the owner it reports
+ * Every table constraint, unique index and domain constraint maps, under the table or domain that owns it, to every
+ * law its violation can report (NativeLaws): one native object can discharge several, as a family's axis foreign key
+ * does every containment merged into it, and a domain several columns share is the contract of each. A native
+ * violation names its constraint beside the table or data type it is on, so a name is read only under that owner:
+ * every domain's CHECK is `check`, and two tables may each hold a row check of one name. A violation is read only when the owner it reports
  * lies in the installation's schema. The installation lists those constraints, each with its law described where it is
  * built (physical/install Installation.constraintLaws), and the snapshot records their laws (Snapshot.constraintToLaw).
  * An opened Db's artifacts are compiled from the schema whose snapshot the ledger's latest complete folder installed
  * (adapter/db/open.ts), so their table names the installed constraints.
  *
- * Every installed constraint is in the table, a contract's and a text refinement domain's included, so a constraint
- * the table does not name under its owner reports no law. A constraint name is never parsed, and never read without its
- * owner.
+ * Every installed constraint but a roster domain's is in the table, a contract's and a text refinement domain's
+ * included, so a constraint the table does not name under its owner reports no law. A constraint name is never parsed,
+ * and never read without its owner.
  *
- * A residual law's function raises with the law identity itself as the constraint name and reports no owner, and so
- * does a write statement's refusal (write/refusal.ts): `raised` holds every law of the theory under its identity.
+ * A write statement's refusal (write/refusal.ts) raises with the law identity itself as the constraint name and reports
+ * no owner: `raised` holds every law of the theory under its identity.
+ *
+ * A roster's domains are no law's. Its code domain is the range proof of its codes, admitting a live handle's code
+ * alone, and its bits domain, which a roster that types a set installs, admits a set of live handles' bits alone; and
+ * grizzle's codec writes only live handles, so neither refuses a value grizzle writes. `rosterDomainOf` reads which
+ * roster's domain PostgreSQL reports as a violation's data type, so the classifier tells that violation, a defect,
+ * from every law's.
  */
 export interface KeyLaws {
 	/** The PostgreSQL schema the installation lives in: a native violation's reported schema must be it. */
 	readonly schema: string
-	/** The law a reported constraint's violation reports, under the reported owner. */
-	readonly lawOf: (constraint: ConstraintName, owner: ConstraintOwner) => DescribedLaw | undefined
-	/** Every law of the theory by the constraint name its law function or a write statement's refusal raises it under
-	 * (SQLSTATE 23000), the law's identity itself. */
+	/** The laws a reported constraint's violation can report, under the reported owner. */
+	readonly lawsOf: (constraint: ConstraintName, owner: ConstraintOwner) => NativeLaws | undefined
+	/** The table a stored relation of the installation is, by its declared name: what a write statement writes. */
+	readonly tableOf: (relation: string) => RelationIdent
+	/** Every law of the theory by the constraint name a write statement's refusal raises it under (SQLSTATE 23000),
+	 * the law's identity itself. */
 	readonly raised: ReadonlyMap<ConstraintName, DescribedLaw>
+	/** The roster domain `domain` is, the installation's; undefined for any other domain. */
+	readonly rosterDomainOf: (domain: DomainName) => RosterDomain | undefined
+}
+
+/** A column a domain types, and the law that column's field states of it: its contract's, or its refinement's. */
+export interface DomainUse {
+	readonly table: RelationIdent
+	readonly column: ColumnIdent
+	readonly law: LawId
+}
+
+/**
+ * Every law one native constraint's violation can report, each described, in the order the installation lists them;
+ * and, for a domain constraint, each column the domain types with its law, which decide among a shared domain's laws
+ * by the table the violating statement wrote. A table constraint types no column: its uses are none.
+ */
+export interface NativeLaws {
+	readonly laws: Arr.NonEmptyReadonlyArray<DescribedLaw>
+	readonly uses: ReadonlyArray<DomainUse>
+}
+
+/**
+ * A domain the installation types a roster's values by: its code domain, a closed id's, or its bits domain, a set's,
+ * with the codes the installation holds for the roster.
+ */
+export interface RosterDomain {
+	readonly carrier: "code" | "bits"
+	readonly codec: RosterCodec
 }
 
 interface KeyLawInput {
-	readonly schema: string
+	/** The installation's names: its schema, each relation's table, and each roster's two domains, with the codes the
+	 * installation holds for it. */
+	readonly names: Pick<
+		InstallNames,
+		"schema" | "relation" | "codes" | "rosterDomain" | "bitsDomain"
+	>
 	/** Every installed constraint with its owner and its law, described (physical/install Installation.constraintLaws). */
 	readonly constraintLaws: SchemaArtifacts["constraintLaws"]
 	/** Every law of the theory, described (physical/install Installation.theoryLaws). */
@@ -69,39 +119,52 @@ interface KeyLawInput {
 
 /** The laws of one kind of owner's constraint, under `owner`, created empty on its first constraint. */
 const ownedBy = <O>(
-	byOwner: Map<O, Map<ConstraintName, DescribedLaw>>,
+	byOwner: Map<O, Map<ConstraintName, NativeLaws>>,
 	owner: O
-): Map<ConstraintName, DescribedLaw> => {
+): Map<ConstraintName, NativeLaws> => {
 	const found = byOwner.get(owner)
 	if (found !== undefined) {
 		return found
 	}
-	const named = new Map<ConstraintName, DescribedLaw>()
+	const named = new Map<ConstraintName, NativeLaws>()
 	byOwner.set(owner, named)
 	return named
 }
 
+const noUses: ReadonlyArray<DomainUse> = Object.freeze([])
+
 export const keyLaws = (input: KeyLawInput): KeyLaws => {
-	const tables = new Map<RelationIdent, Map<ConstraintName, DescribedLaw>>()
-	const domains = new Map<DomainName, Map<ConstraintName, DescribedLaw>>()
+	const tables = new Map<RelationIdent, Map<ConstraintName, NativeLaws>>()
+	const domains = new Map<DomainName, Map<ConstraintName, NativeLaws>>()
 	for (const c of input.constraintLaws) {
 		switch (c.kind) {
 			case "constraint":
-				ownedBy(tables, c.owner).set(c.name, c)
+				ownedBy(tables, c.owner).set(c.name, { laws: c.laws, uses: noUses })
 				break
 			case "domainConstraint":
-				ownedBy(domains, c.owner).set(c.name, c)
+				ownedBy(domains, c.owner).set(c.name, { laws: c.laws, uses: c.uses })
 				break
 		}
 	}
+	const rosters = new Map<DomainName, RosterDomain>(
+		Arr.flatMap(
+			[...input.names.codes.rosters.values()],
+			(codec): ReadonlyArray<readonly [DomainName, RosterDomain]> => [
+				[input.names.rosterDomain(codec.roster).name, { carrier: "code", codec }],
+				[input.names.bitsDomain(codec.roster).name, { carrier: "bits", codec }]
+			]
+		)
+	)
 	return {
-		schema: input.schema,
-		lawOf: (constraint, owner) =>
+		schema: input.names.schema,
+		lawsOf: (constraint, owner) =>
 			owner.kind === "table"
 				? tables.get(owner.name)?.get(constraint)
 				: domains.get(owner.name)?.get(constraint),
+		tableOf: (relation) => input.names.relation(relation).name,
 		raised: new Map(
 			Arr.map(input.theoryLaws, (l): readonly [ConstraintName, DescribedLaw] => [l.law, l])
-		)
+		),
+		rosterDomainOf: (domain) => rosters.get(domain)
 	}
 }

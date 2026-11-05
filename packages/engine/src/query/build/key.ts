@@ -30,11 +30,14 @@ export interface KeyLookup {
 }
 
 /**
- * A built relation or closed relation, read once; undefined for any other value. A value namedRelation refuses is
- * none; any other throw is a defect.
+ * A built relation, roster or closed relation, read once; undefined for any other value. A value namedRelation refuses
+ * is none; any other throw is a defect.
  */
 const builtRelation = (value: unknown): BuiltRelation | undefined => {
-	const built = ownedEntry(value, "relation") ?? ownedEntry(value, "closed")
+	const built =
+		ownedEntry(value, "relation") ??
+		ownedEntry(value, "closed") ??
+		ownedEntry(value, "closedRelation")
 	if (built === undefined) {
 		return undefined
 	}

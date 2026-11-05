@@ -162,7 +162,9 @@ describe("access indexes over one column list in several directions", () => {
 							for (const index of created) {
 								assert.equal(index.keys[0]?.dir, "asc", "the first key ascends")
 								assert.deepEqual(
-									Arr.map(orderKeys(index), (k) => k.field),
+									Arr.map(orderKeys(index), (k) =>
+										k.column.kind === "field" ? k.column.field : k.column.column
+									),
 									["a", "b", "id"]
 								)
 							}

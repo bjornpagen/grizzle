@@ -35,7 +35,7 @@ import {
 	type OracleSchema,
 	oracleState
 } from "#test/support/oracle/addwins.ts"
-import { compiled, cs, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Pair(k, v, c): primary key k, candidate key c. Gen(id serial, k, w): primary key id, candidate key k. Unit(id
  * serial): a relation whose every field is serial, whose generated additions carry no field, the unit relation.
@@ -82,6 +82,8 @@ const categorized = (
 	switch (input.kind) {
 		case "single":
 			return [{ category: input.act.op, op: input.act.op, slot: input.slot }]
+		case "nested":
+			return [{ category: "insert", op: "insert", slot: input.slot }]
 		case "classed":
 			return [
 				{ category: "insert", op: "insert", slot: input.complete },
@@ -168,7 +170,7 @@ const specOf = (relationValue: { readonly name: string }, field: string) => {
 	if (Option.isNone(c)) {
 		throw new Error(field)
 	}
-	return scalarCodec(c.value.type).spec
+	return scalarCodec(c.value.type, codesOf(Small)).spec
 }
 
 const oracleSchema: OracleSchema = {

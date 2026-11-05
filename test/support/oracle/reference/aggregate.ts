@@ -169,7 +169,8 @@ const sum = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 				Arr.reduce<Value, bigint>(values, 0n, (acc, v) => acc + asMoney(v).minorUnits)
 			)
 		case "bool":
-		case "enum":
+		case "code":
+		case "bits":
 		case "range4":
 		case "range8":
 		case "text":
@@ -194,7 +195,8 @@ const avg = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 			return roundedDouble(numeric(N.div(total, made(Decimal.fromBigInt(BigInt(values.length))))))
 		}
 		case "bool":
-		case "enum":
+		case "code":
+		case "bits":
 		case "money":
 		case "exactMoney":
 		case "range4":

@@ -1,6 +1,7 @@
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import { type Codebook, codecOf } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -42,16 +43,19 @@ export const monetaryContext = (db: RawSession) =>
 	})
 
 export interface SqlNames {
-	/** The quoted schema holding the test's enum and domain. */
+	/** The quoted schema holding the test's domain. */
 	readonly schema: string
 	/** The quoted pgvector schema. */
 	readonly vector: string
+	/** The codes of the test's rosters, which a set's bit(n) is sized by. */
+	readonly codes: Codebook
 }
 
 /**
  * The SQL type a value of this descriptor is declared as on the wire (a recordset column or a parameter cast): the
- * base type for a contract, numeric for money, and an exact value as the lowering types it (bigint for an exact integer
- * of at most 18 digits, numeric otherwise).
+ * base type for a contract, numeric for money, a closed id's code as smallint, a set as bit(n) with n its roster's codes,
+ * holes included, and an exact value as the lowering types it (bigint for an exact integer of at most 18 digits,
+ * numeric otherwise).
  */
 export const wireSql = (type: ScalarType, names: SqlNames): string => {
 	switch (type.carrier) {
@@ -61,8 +65,10 @@ export const wireSql = (type: ScalarType, names: SqlNames): string => {
 				: `numeric(${type.typmod.precision},${type.typmod.scale})`
 		case "money":
 			return "numeric"
-		case "enum":
-			return `${names.schema}.${quoteIdent(Str.toLowerCase(type.roster.closed))}`
+		case "code":
+			return "int2"
+		case "bits":
+			return `bit(${codecOf(names.codes, type.roster).size})`
 		case "vector":
 			return `${names.vector}."vector"(${type.typmod.dims})`
 		case "int2":

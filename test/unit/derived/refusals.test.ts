@@ -17,18 +17,22 @@ import { admitCheck } from "#compiler/schema/statements.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import * as A from "#test/support/fixtures/api/work.ts"
 import {
-	capacity,
+	alternatives,
 	check as checkDesc,
+	closed,
 	contained,
+	counted,
+	f,
 	field,
+	fin,
 	ge,
 	key,
 	literal,
 	mutable,
 	on,
+	relation,
 	type SchemaDesc,
-	type AuthoredStatementDesc as StatementDesc,
-	within
+	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { ReportsDesc, WorkDesc } from "#test/support/fixtures/ir/work.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -71,15 +75,19 @@ const refusedEverywhere = (desc: SchemaDesc, reason: CompileReasonTag) => {
 	}
 }
 
+/** Work's Task and its Kind roster, as an alternatives statement over them names them. */
+const Kind = closed("Kind", ["Automatic", "Manual"])
+const Task = relation("Task", { id: f.uuid, account: f.uuid, kind: f.closedId("Kind") }, ["id"])
+
 type LawShape =
 	| "key"
 	| "mutable"
 	| "check"
 	| "contained from it"
 	| "contained into it"
-	| "capacity target"
-	| "capacity source"
-	| "alternatives expansion"
+	| "a family of its rows"
+	| "a family it owns"
+	| "an alternatives arm"
 
 const lawShapes: Readonly<Record<LawShape, StatementDesc>> = {
 	key: key(on("AccountBudget", ["account"])),
@@ -87,29 +95,12 @@ const lawShapes: Readonly<Record<LawShape, StatementDesc>> = {
 	check: checkDesc("Positive", "AccountBudget", ge(field("tasks"), literal(0n))),
 	"contained from it": contained(on("AccountBudget", ["account"]), on("Account", ["id"])),
 	"contained into it": contained(on("Task", ["account"]), on("AccountBudget", ["account"])),
-	"capacity target": capacity(
-		on("AccountBudget", ["account"]),
-		on("Task", ["account"]),
-		within(0n, 10n),
-		{
-			kind: "count"
-		}
-	),
-	"capacity source": capacity(
-		on("Account", ["id"]),
-		on("AccountBudget", ["account"]),
-		within(0n, 10n),
-		{
-			kind: "count"
-		}
-	),
-	/** An alternatives expansion naming a derived relation, by its origin marker. */
-	"alternatives expansion": {
-		kind: "contained",
-		left: on("AccountBudget", ["account"]),
-		right: on("Kind", ["id"]),
-		origin: { alternatives: "AccountBudget.account" }
-	}
+	"a family of its rows": counted(on("AccountBudget", ["account"]), fin("Account", "n")),
+	"a family it owns": counted(on("Task", ["account"]), fin("AccountBudget", "tasks")),
+	/** An alternatives arm naming a derived relation. */
+	"an alternatives arm": alternatives(Task, "kind", Kind, {
+		Automatic: { name: "AccountBudget", primaryKey: ["account"] }
+	})
 }
 
 /** A description an unchecked caller can still write down, planted, each refused as MalformedDescription. */
@@ -219,9 +210,9 @@ describe("derived relation refusals", () => {
 								"check",
 								"contained from it",
 								"contained into it",
-								"capacity target",
-								"capacity source",
-								"alternatives expansion"
+								"a family of its rows",
+								"a family it owns",
+								"an alternatives arm"
 							]),
 							literal: Formatter.format,
 							limit: 8,
@@ -231,9 +222,9 @@ describe("derived relation refusals", () => {
 								"check",
 								"contained from it",
 								"contained into it",
-								"capacity target",
-								"capacity source",
-								"alternatives expansion"
+								"a family of its rows",
+								"a family it owns",
+								"an alternatives arm"
 							]),
 							caseHang
 						},

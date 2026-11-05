@@ -55,7 +55,7 @@ export type PrivilegedObjectKind =
  * An object of the installation, where the catalog holds it. A type is named by a column it types (`type-of-column`):
  * a structural text domain's name derives from its pattern by the text package's rule, which no suite restates, so a
  * type that types a column of a table, a materialized view or a role's view is held through each column it types, and
- * only a type that types none (a roster's enum no field names, a pattern only a context reads) is held by its name.
+ * only a type that types none (a roster's domain no field names, a pattern only a context reads) is held by its name.
  */
 export type PrivilegeObject =
 	| { readonly kind: "schema"; readonly schema: string }
@@ -211,7 +211,7 @@ const columnOf = (names: InstalledNames, relation: string, field: string): strin
 
 /**
  * The installation type a value of a domain is stored at, by a key that names it: a text field's structural domain by
- * its pattern and flags, a handle's enum by its roster; a base type (uuid, the integers, serial, boolean, a span's
+ * its pattern and flags, a handle's roster domain by its roster; a base type (uuid, the integers, serial, boolean, a span's
  * range) is no installation type. Two patterns of one language share one domain, which these keys would split: the
  * bases spell each language once.
  */
@@ -220,7 +220,7 @@ const typeKeyOf = (domain: FieldDomain): Option.Option<string> => {
 		case "text":
 			return Option.some(`text /${domain.pattern}/${domain.flags}`)
 		case "handle":
-			return Option.some(`enum ${domain.closed}`)
+			return Option.some(`roster ${domain.closed}`)
 		case "contract":
 			return Option.some(`contract ${domain.name}`)
 		case "uuid":
@@ -537,7 +537,7 @@ const typesUsedBy = (
 		Record.toEntries(role.entries),
 		([name, entry]): ReadonlyArray<string> => {
 			if (entry.kind === "whole" && Arr.some(base.closed, (c) => c.name === entry.relation)) {
-				return [`enum ${entry.relation}`]
+				return [`roster ${entry.relation}`]
 			}
 			return Option.match(viewOf(install, names, role.name, name, entry), {
 				onNone: () => [],
@@ -553,9 +553,14 @@ const typesUsedBy = (
 	return new Set([...viewed, ...written])
 }
 
+/** A roster's names constant, as the installation names it. */
+const namesConstantOf = (names: InstalledNames, roster: string): string =>
+	required(Record.get(names.rosterConstants, roster), `the names constant of roster ${roster}`)
+
 /**
  * Each role's USAGE on the installation types it names: through each column of the installation a type it names
- * types, and by name for a roster's enum no column is typed by.
+ * types, and by name for a roster's domain no column is typed by; and EXECUTE on each names constant of a roster it
+ * uses, which that domain's CHECK and its views' decoded columns call as the invoker.
  */
 const typeFacts = (install: InstallSpec, names: InstalledNames): ReadonlyArray<PrivilegeFact> => {
 	const columns = installedColumns(install, names)
@@ -575,21 +580,34 @@ const typeFacts = (install: InstallSpec, names: InstalledNames): ReadonlyArray<P
 				: []
 		)
 		const byName = Arr.flatMap(install.base.closed, (closed) =>
-			used.has(`enum ${closed.name}`) && !typed.has(`enum ${closed.name}`)
+			used.has(`roster ${closed.name}`) && !typed.has(`roster ${closed.name}`)
 				? [
 						privilege(
 							grantee,
 							{
 								kind: "type",
 								schema: names.schema,
-								name: identifierOf(identity.enumType(parsedName(closed.name)))
+								name: identifierOf(identity.rosterDomain(parsedName(closed.name)))
 							},
 							"USAGE"
 						)
 					]
 				: []
 		)
-		return [...throughColumns, ...byName]
+		/** EXECUTE on the names constant of each roster it uses: its domain's CHECK and its views' decoded columns call it
+		 * as the invoker (§3.12, "Role views"). */
+		const executes = Arr.flatMap(install.base.closed, (closed) =>
+			used.has(`roster ${closed.name}`)
+				? [
+						privilege(
+							grantee,
+							{ kind: "function", schema: names.schema, name: namesConstantOf(names, closed.name) },
+							"EXECUTE"
+						)
+					]
+				: []
+		)
+		return [...throughColumns, ...byName, ...executes]
 	})
 }
 

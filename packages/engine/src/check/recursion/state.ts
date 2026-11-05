@@ -19,7 +19,7 @@ import {
 import { exactOf, finiteEnds, insideRange } from "#compiler/scalar/compute/bounds.ts"
 import { boundsOfType, intervalCastProof } from "#compiler/scalar/compute/lower.ts"
 import { binaryCoercion, castOf } from "#compiler/scalar/compute/registry.ts"
-import { compatible, isInteger, withoutSerial } from "#compiler/scalar/compute/types.ts"
+import { compatible, isInteger } from "#compiler/scalar/compute/types.ts"
 
 /**
  * The recursive state heading: the declared row, its hashing capability, and the exact conversions an arm's columns
@@ -48,7 +48,7 @@ import { compatible, isInteger, withoutSerial } from "#compiler/scalar/compute/t
  * and refuses an unhashable column with 0A000: a money or vector column is UnsupportedOperation (unhashableState) at
  * admission.
  *
- * The declared row in canonical code-unit order, each column at its value type (a serial declaration dropped).
+ * The declared row in canonical code-unit order, each column at its declared type.
  */
 export const declaredRow = (
 	def: ResolvedRecursive,
@@ -58,7 +58,7 @@ export const declaredRow = (
 	const row = new Map<string, ScalarType>()
 	for (const [name, desc] of entries(def.row)) {
 		const loc = childLoc(childLoc(at, "row"), name)
-		const type = withoutSerial(cx.fieldType(desc, loc))
+		const type = cx.fieldType(desc, loc)
 		requireHashing(def.name, name, type, loc)
 		row.set(name, type)
 	}
@@ -92,12 +92,11 @@ type Conversion =
 	| { readonly kind: "refused"; readonly conversion: InexactConversion }
 
 /**
- * One identity, and for a numeric the declared column's typmod, which an arm's numeric has exactly or is refused
- * (anotherTypmod): what the arm's values may still lack is the declared text refinement.
+ * How an arm's type `a` converts into its declared column's `d`: one identity, and for a numeric the declared column's
+ * typmod, which an arm's numeric has exactly or is refused (anotherTypmod): what the arm's values may still lack is the
+ * declared text refinement.
  */
-const conversion = (arm: ScalarType, declared: ScalarType): Conversion => {
-	const a = withoutSerial(arm)
-	const d = withoutSerial(declared)
+const conversion = (a: ScalarType, d: ScalarType): Conversion => {
 	if (sameScalarType(a, d)) {
 		return { kind: "same" }
 	}
@@ -131,7 +130,7 @@ const counterNarrowing = (
 	counters: ReadonlyMap<string, readonly [bigint, bigint]>,
 	loc: SourceLoc
 ): ScalarExpr => {
-	const carrier = withoutSerial(target.type).carrier
+	const carrier = target.type.carrier
 	const op = castOf("exactInteger", carrier)
 	const interval = counters.get(target.name)
 	const range = boundsOfType(target.type)
@@ -162,7 +161,7 @@ const counterNarrowing = (
 				operation: `the recursion's ${target.name}, narrowed into ${typeLabel(target.type)}`,
 				precondition: "fits",
 				operand: target.name,
-				guard: `Compute.when(Compute.within(${target.name}, <low>, <high>), (${target.name}) => Compute.cast(<the step>, <the state field>), <your value>), or a counter bound by a literal the step's filter compares it with`
+				guard: `Compute.when(Compute.within(${target.name}, <low>, <high>), (${target.name}) => Compute.cast(<the step>, <the state field>), <your value>), or a counter seeded by literals and bound by a literal the step's filter compares it with`
 			})
 		)
 	}
@@ -217,7 +216,7 @@ export const conform = (
 				arm: side,
 				column: target.name,
 				delivered: typeLabel(column.type),
-				declared: typeLabel(withoutSerial(target.type)),
+				declared: typeLabel(target.type),
 				conversion: c.conversion
 			})
 		}
@@ -236,7 +235,7 @@ export const conform = (
 			type: column.type,
 			nonNull: "storage"
 		})
-		if (sameScalarType(withoutSerial(column.type), target.type)) {
+		if (sameScalarType(column.type, target.type)) {
 			return { name: target.name, expr: read }
 		}
 		if (column.type.carrier !== "exactInteger") {

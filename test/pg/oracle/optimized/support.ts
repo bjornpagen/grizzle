@@ -9,6 +9,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -481,7 +482,8 @@ const unfused = (
 	heading: Heading,
 	raw: ReadonlyArray<RawRow>,
 	fusedAt: number,
-	f: FusedAttachment
+	f: FusedAttachment,
+	codes: Codebook
 ): Effect.Effect<
 	{
 		readonly statement: StatementRows
@@ -534,6 +536,7 @@ const unfused = (
 			label: fusedLabel,
 			columns: [...f.parentColumns, ...Arr.map(child, (h) => h.name)],
 			types: [...columnTypes(parentColumns), ...columnTypes(child)],
+			codes,
 			unstated: { kind: "none" },
 			rows
 		}
@@ -559,7 +562,8 @@ export const delivered = (
 	dag: RelDag,
 	executed: Executed,
 	name: string,
-	isOrdered: boolean
+	isOrdered: boolean,
+	codes: Codebook
 ): Effect.Effect<Delivered, DifferentialFailure> =>
 	Effect.gen(function* () {
 		const statements: Array<StatementRows> = []
@@ -574,6 +578,7 @@ export const delivered = (
 				label,
 				columns: Arr.map(heading, (h) => h.name),
 				types: columnTypes(heading),
+				codes,
 				unstated: { kind: "none" },
 				rows: Arr.map(raw, (r) => r.slice(0, width))
 			}
@@ -589,7 +594,7 @@ export const delivered = (
 			for (const [k, f] of s.fused.entries()) {
 				fusedAttachments++
 				const fusedLabel = `${label}/${f.name}`
-				const u = yield* unfused(dag, name, fusedLabel, heading, raw, output.fusedAt(k), f)
+				const u = yield* unfused(dag, name, fusedLabel, heading, raw, output.fusedAt(k), f, codes)
 				statements.push(u.statement)
 				appendAll(sequences, u.sequence)
 			}
@@ -842,7 +847,8 @@ const runDifferential = (
 						query.dag,
 						conservativeRun,
 						"conservative",
-						isOrdered(query.dag.roots[0])
+						isOrdered(query.dag.roots[0]),
+						names.codes
 					)
 					const optimizedDag = optimizedProgram.query.dag
 					const optimizedOrdered = isOrdered(optimizedDag.roots[0])
@@ -861,7 +867,7 @@ const runDifferential = (
 					for (const f of forms) {
 						const label = formLabel(f.form)
 						const run = yield* execute(session, c, f.roots, label)
-						const d = yield* delivered(optimizedDag, run, label, optimizedOrdered)
+						const d = yield* delivered(optimizedDag, run, label, optimizedOrdered, names.codes)
 						fusedAttachments = Math.max(fusedAttachments, d.fusedAttachments)
 						optimized.push({
 							form: f.form,
@@ -891,7 +897,7 @@ const runDifferential = (
 							deliveredAsOptimized(o.program).roots,
 							o.lowering.name
 						)
-						const d = yield* delivered(query.dag, run, o.lowering.name, false)
+						const d = yield* delivered(query.dag, run, o.lowering.name, false, names.codes)
 						otherRuns.push({
 							name: o.lowering.name,
 							run: d.run,

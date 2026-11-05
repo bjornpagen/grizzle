@@ -10,6 +10,7 @@ import type {
 } from "#adapter/errors/failures.ts"
 import { type CompileError, compileReasonText } from "#compiler/core/errors.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import type { findMarkers } from "#compiler/deploy/render/markers.ts"
 
 /**
  * The failure of `grizzle migrate` and `grizzle drift`.
@@ -160,17 +161,17 @@ export type RecordPlace =
 const recordText = (at: RecordPlace): string =>
 	at.kind === "folder" ? at.folder : `${at.folder}/${at.file}`
 
-/** An unresolved placeholder or candidate-rename marker in a file the apply would run; its line is 1-based. */
+/** An unresolved placeholder marker in a file the apply would run; its line is 1-based. */
 export type UnresolvedMarker = {
 	readonly folder: string
 	readonly file: string
-	readonly kind: "placeholder" | "rename"
+	readonly kind: ReturnType<typeof findMarkers>[number]["kind"]
 	readonly line: number
 }
 
 /**
- * A loss of stored data in a folder the apply would run that the reviewer has not decided: its statement still
- * commented, and no candidate rename that carries the data chosen (render/chosen.ts lossDecisions).
+ * A loss of stored data in a folder the apply would run that the reviewer has not decided, a schema's first migration
+ * beside a schema the configuration no longer lists: its statement still commented (lossDecisions).
  */
 export type UnresolvedLoss = {
 	readonly folder: string
@@ -451,7 +452,7 @@ export class MarkersUnresolved extends Data.TaggedError("MarkersUnresolved")<{
 	readonly markers: Arr.NonEmptyReadonlyArray<UnresolvedMarker>
 }> {
 	override get message(): string {
-		return `unresolved markers, which a reviewer resolves by supplying the value or choosing the rename and deleting the marker line: ${Arr.join(
+		return `unresolved markers, which a reviewer resolves by supplying the value and deleting the marker line: ${Arr.join(
 			Arr.map(this.markers, (m) => `${m.folder}/${m.file}:${m.line} ${m.kind}`),
 			", "
 		)}`
@@ -464,7 +465,7 @@ export class LossesUndecided extends Data.TaggedError("LossesUndecided")<{
 	readonly losses: Arr.NonEmptyReadonlyArray<UnresolvedLoss>
 }> {
 	override get message(): string {
-		return `unresolved losses of stored data, which a reviewer decides by writing in the statement that loses it or choosing a candidate rename that carries it: ${Arr.join(
+		return `unresolved losses of stored data, which a reviewer decides by writing in the statement that loses it or leaving it out: ${Arr.join(
 			Arr.map(this.losses, (l) => `${l.folder}/${l.file} ${l.loses}`),
 			", "
 		)}`

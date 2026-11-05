@@ -45,7 +45,6 @@ import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { RoleDesc } from "#compiler/ir/desc.ts"
-import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -53,6 +52,7 @@ import { derived, relation, role, schema } from "#compiler/public/schema.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import { assert, defined, refusalLoc, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { prologueIn } from "#test/support/flight/model.ts"
 import {
 	answeringScript,
@@ -111,12 +111,7 @@ const Partial = role(Reports, "partial", Reports.relations, { refresh: ["B"] })
 const Recorder = role(Reports, "recorder", Reports.relations, { write: ["Sitting"] })
 const Impostor = derived("B", totals)
 
-const artifacts = succeeded(
-	schemaArtifacts(succeeded(parseSchemaInput(Reports)), {
-		installation: undefined,
-		vectorSchema: undefined
-	})
-)
+const artifacts = succeeded(testArtifacts(Reports, testCompile))
 
 /** The names of Reports' installation, compiled without a database. */
 const reportsNames = installationNamesOf(installationOf(Reports, { kind: "declared" }))
@@ -193,12 +188,7 @@ describe("db.refresh targets", () => {
 		const LateRefresher = role(Extended, "refresher", Extended.relations, {
 			refresh: ["A", "B", "C", "Late"]
 		})
-		const built = succeeded(
-			schemaArtifacts(succeeded(parseSchemaInput(Extended)), {
-				installation: undefined,
-				vectorSchema: undefined
-			})
-		)
+		const built = succeeded(testArtifacts(Extended, testCompile))
 		const targets = succeeded(refreshTargets(declaredOf(LateRefresher), built, [Late, C, A, B]))
 		assert.deepEqual(
 			Arr.map(targets, (t) => [t.relation, t.level, t.position]),

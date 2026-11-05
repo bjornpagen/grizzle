@@ -1,6 +1,13 @@
 import { array, boolean, element, type Gen, int, map, span } from "@grizzle/testing/gen"
 import { forcedChooser, generate, type Source } from "@grizzle/testing/source"
-import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
+import {
+	keep,
+	type Presence,
+	type Swarm,
+	swarm,
+	swarmChoice,
+	weightOf
+} from "@grizzle/testing/swarm"
 import { Array as Arr } from "effect"
 import { exactParts } from "#compiler/core/decimal.ts"
 import type {
@@ -2039,6 +2046,52 @@ export const statementGen =
 	(catalog: SqlCatalog): Gen<SqlStatement> =>
 	(source) =>
 		source.draw(statementUnder(catalog, source.draw(swarm(statementFeatures))))
+
+/**
+ * The features that put an output other than a column in a plain core, or make the statement a write: a literal or a
+ * parameter at a leaf, every expression form over a non-boolean type, a window, an aggregate and a grouping, and the
+ * writes.
+ */
+const valueShaping: ReadonlyArray<StatementFeature> = [
+	"insert",
+	"update",
+	"delete",
+	"merge",
+	"literal",
+	"param",
+	"arithmetic",
+	"case",
+	"cast",
+	"greatest",
+	"concat",
+	"collate",
+	"scalar subquery",
+	"window",
+	"aggregate",
+	"group by"
+]
+
+/**
+ * SELECTs whose body is a set operation: the swarm drawn as `statementGen` draws it, then the set operation turned on
+ * at full weight and every value-shaping feature turned off, the rest of the swarm (joins, derived and lateral items,
+ * VALUES, CTEs, WHERE, DISTINCT, ORDER BY, LIMIT, a parenthesized arm) as it came. A plain core's output is then a
+ * column, but for a boolean one, which is a comparison, and one of a type no FROM item has a column of, which is a
+ * literal; so about one statement in four has a first arm whose distinct columns the set operation's output names pass
+ * through, a shape `statementGen` draws about one statement in two hundred.
+ */
+export const columnSetOperationGen =
+	(catalog: SqlCatalog): Gen<SqlStatement> =>
+	(source) => {
+		const drawn = source.draw(swarm(statementFeatures))
+		const on: Partial<Record<StatementFeature, Presence>> = { "set operation": 3 }
+		for (const feature of statementFeatures) {
+			const weight = drawn[feature]
+			if (weight !== undefined && feature !== "set operation" && !valueShaping.includes(feature)) {
+				on[feature] = weight
+			}
+		}
+		return source.draw(statementUnder(catalog, on))
+	}
 
 /**
  * A statement as a planted case states it: the swarm it is drawn under, a literal such as `{ merge: 3, returning: 3 }`

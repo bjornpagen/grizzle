@@ -169,8 +169,11 @@ const comparisons: { readonly [W in CompareOp | "between" | "in"]: W } = {
 describe("the overload registry", () => {
 	it.effect("names a node for every word of the description vocabulary", (ctx) =>
 		Effect.gen(function* () {
-			/** The Compute function that composes other operators rather than name one of its own. */
-			const compositions: ReadonlySet<ComputeFn> = new Set<ComputeFn>(["width"])
+			/**
+			 * The Compute functions that compose other nodes rather than name one of their own: width, a span's upper
+			 * endpoint less its lower, and numeric, a registered cast or the binary coercion.
+			 */
+			const compositions: ReadonlySet<ComputeFn> = new Set<ComputeFn>(["width", "numeric"])
 			const words = oneOf<VocabularyWord>([
 				map(
 					element(

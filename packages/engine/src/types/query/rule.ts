@@ -251,9 +251,9 @@ export type ParamFields<C> = [keyof C] extends [never]
 
 /**
  * The SQL types min and max are defined over: the numeric family and money, booleans (bool_and and bool_or), text and
- * enums (min(anyenum)).
+ * closed ids, whose order is their codes'.
  */
-type MinMaxSql = NumericSql | "boolean" | "text" | "enum"
+type MinMaxSql = NumericSql | "boolean" | "text" | "code"
 
 /**
  * The rule builder a query arm receives. Every method threads its parameter map: a rule's parameters are the

@@ -23,7 +23,7 @@ import { backendPid, onVercel, roleBackends, vercelRuntime } from "#test/pg/serv
 import { assert, succeeded } from "#test/support/assert.ts"
 import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
 import { caseHang, nodeTimerMin } from "#test/support/limits.ts"
-import { fromEmpty, generate } from "#test/support/migrate/kit.ts"
+import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
@@ -55,6 +55,7 @@ const shopUnder = (name: string) => {
 	const snapshot = snapshotJson(
 		succeeded(
 			generate({
+				declared: noDeclarations,
 				installation: installationOf(shop, atDeclaredName),
 				name: "shop",
 				timestamp: "20261024000000",

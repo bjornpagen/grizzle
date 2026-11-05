@@ -8,6 +8,7 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import type * as Result from "#compiler/core/result.ts"
+import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { conservativeMeta, type Heading, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import { emptyEnv, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
@@ -49,7 +50,7 @@ import { nodeOfKind } from "#test/unit/lower/support.ts"
  * crossed with a hashable or a money state and a few counter depths, every one of which lowers to the recursive CTE.
  */
 
-const names = productionNames("Ledger", { kind: "declared" }, localVectorSchema)
+const names = productionNames("Ledger", { kind: "declared" }, localVectorSchema, emptyCodebook)
 
 type State = "hashable" | "money"
 

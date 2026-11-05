@@ -585,8 +585,12 @@ export class Dependencies {
 		const seen = new Set<string>()
 		const stack: Array<Fact> = [...targets].map((column) => ({ kind: "column", column }))
 		for (let fact = stack.pop(); fact !== undefined; fact = stack.pop()) {
-			/** A span known by its value has every point known: its point is explained as the column is. */
-			const column = fact.kind === "column" || closure.columns.has(fact.span)
+			/**
+			 * A pinned point is explained by the rule that pinned it, which the closure learned before anything derived from
+			 * the point, its span's column among them. A span known by its value before any rule pinned it has every point
+			 * known, and its point is explained as the column is.
+			 */
+			const column = fact.kind === "column" || !closure.points.has(fact.span)
 			const key = fact.kind === "column" ? fact.column : fact.span
 			const name = `${column ? "c" : "p"}${row}${key}`
 			if (seen.has(name)) {

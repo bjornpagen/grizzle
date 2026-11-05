@@ -1,5 +1,5 @@
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Path, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Path, Result, Schema, String as Str } from "effect"
 import * as ts from "typescript/ast"
 import { createFileSystem } from "typescript/fs"
 import { API } from "typescript/sync"
@@ -7,9 +7,11 @@ import { API } from "typescript/sync"
 /**
  * Source mutation, for measuring whether a suite catches a wrong change: each operator rewrites one span of a source
  * file the way a real slip would (a comparison flipped, a conjunct dropped, a guard deleted, an early exit removed, two
- * arms swapped, a pipe stage dropped, a bound moved by one), so a mutant the suite still passes on names behaviour no
- * test pins. The operators read TypeScript 7's native syntax tree and never type information, so a mutant may not
- * typecheck; the tester sets those aside as invalid. scripts/mutate.ts runs a package's suite against each mutant.
+ * arms swapped, a pipe stage dropped, a bound moved by one, a predicate made constant), so a mutant the suite still
+ * passes on names behaviour no test pins. The operators read TypeScript 7's native syntax tree and never type
+ * information, so a mutant may not typecheck; the tester sets those aside as invalid. A caller adds the operators of its
+ * own domain as a family (`Family`), and a mutant it wrote by hand as a kept mutant (`KeptMutant`). scripts/mutate.ts
+ * runs a package's suite against each.
  */
 export const OPERATORS = [
 	"comparison",
@@ -25,18 +27,21 @@ export const OPERATORS = [
 	"operand-swap",
 	"quantifier",
 	"element",
-	"pipe-stage"
+	"pipe-stage",
+	"boolean-return"
 ] as const
 
 export type Operator = (typeof OPERATORS)[number]
 
-/** One mutant of one file: the span it replaces, what it puts there, and where a person reads it. */
-export type Mutant = Readonly<{
+/**
+ * One mutant of one file: the operator that made it, the library's or a family's, the span it replaces, what it puts
+ * there, and where a person reads it. `source` is the unmutated text of the mutant's file.
+ */
+export type Mutant<O extends string> = Readonly<{
 	id: string
 	file: string
-	/** The unmutated text of the mutant's file. */
 	source: string
-	operator: Operator
+	operator: O
 	start: number
 	end: number
 	replacement: string
@@ -47,7 +52,7 @@ export type Mutant = Readonly<{
 }>
 
 /** The mutant's file with its span replaced. */
-export const applied = (mutant: Mutant): string =>
+export const applied = <O extends string>(mutant: Mutant<O>): string =>
 	`${Str.slice(0, mutant.start)(mutant.source)}${mutant.replacement}${Str.slice(mutant.end)(mutant.source)}`
 
 /** The native compiler did not admit a source it was asked to read. */
@@ -56,9 +61,10 @@ class MutationSourceRefused extends Schema.TaggedError<
 	{ readonly brand: unique symbol }
 >()("MutationSourceRefused", { file: Schema.String }) {}
 
-type Span = Readonly<{ start: number; end: number }>
+/** A span of a source's text, as offsets into it. */
+export type Span = Readonly<{ start: number; end: number }>
 
-type Draft = Span & Readonly<{ operator: Operator; replacement: string; fn: string }>
+type Draft<O extends string> = Span & Readonly<{ operator: O; replacement: string; fn: string }>
 
 const FLIPPED: ReadonlyMap<ts.SyntaxKind, string> = new Map([
 	[ts.SyntaxKind.LessThanToken, ">="],
@@ -66,7 +72,9 @@ const FLIPPED: ReadonlyMap<ts.SyntaxKind, string> = new Map([
 	[ts.SyntaxKind.GreaterThanToken, "<="],
 	[ts.SyntaxKind.GreaterThanEqualsToken, "<"],
 	[ts.SyntaxKind.EqualsEqualsEqualsToken, "!=="],
-	[ts.SyntaxKind.ExclamationEqualsEqualsToken, "==="]
+	[ts.SyntaxKind.ExclamationEqualsEqualsToken, "==="],
+	[ts.SyntaxKind.EqualsEqualsToken, "!="],
+	[ts.SyntaxKind.ExclamationEqualsToken, "=="]
 ])
 
 const isExit = (s: ts.Statement) =>
@@ -124,21 +132,42 @@ const isChainTop = (node: ts.BinaryExpression, kind: ts.SyntaxKind) =>
 		node.parent.left === node
 	)
 
-/** Where an operator finds its spans: the source, and the one way to record a mutant. */
-type Site = Readonly<{
+/**
+ * Where a rule finds its spans: the file by its name and its text, its syntax tree, the text and the span of a node,
+ * and the one way to record a mutant, which records an edit once however many rules propose it.
+ */
+export type Site<O extends string> = Readonly<{
+	file: string
 	text: string
 	source: ts.SourceFile
 	slice: (node: ts.Node) => string
 	span: (node: ts.Node) => Span
-	add: (operator: Operator, span: Span, replacement: string) => void
+	add: (operator: O, span: Span, replacement: string) => void
 }>
 
-type Rule = (node: ts.Node, site: Site) => void
+/** One way to find mutants: it is handed every node of a file outside type positions and imports, outermost first. */
+export type Rule<O extends string> = (node: ts.Node, site: Site<O>) => void
+
+/**
+ * A caller's family of operators, for slips of its own domain the library's operators cannot see (SQL text a compiler
+ * prints, the grants a world installs): the operators it names, which files it mutates, and the rules that find its
+ * mutants there. Its mutants carry its operators' names, so a run chooses them as it chooses the library's.
+ */
+export type Family<O extends string> = Readonly<{
+	operators: Arr.NonEmptyReadonlyArray<O>
+	applies: (file: string) => boolean
+	rules: Arr.NonEmptyReadonlyArray<Rule<O>>
+}>
+
+/** No family: the library's operators alone. */
+export const noFamilies: ReadonlyArray<Family<never>> = []
+
+type LibraryRule = Rule<Operator>
 
 const without = (items: ReadonlyArray<string>, index: number) => Arr.remove(items, index)
 
 /** A comparison flipped to its complement. */
-const comparison: Rule = (node, { add, span }) => {
+const comparison: LibraryRule = (node, { add, span }) => {
 	const flip = ts.isBinaryExpression(node) ? FLIPPED.get(node.operatorToken.kind) : undefined
 	if (ts.isBinaryExpression(node) && flip !== undefined) {
 		add("comparison", span(node.operatorToken), flip)
@@ -151,7 +180,7 @@ const CHAINS = [
 ] as const
 
 /** One operand of an && or || chain dropped. */
-const chain: Rule = (node, { add, slice, span }) => {
+const chain: LibraryRule = (node, { add, slice, span }) => {
 	if (!ts.isBinaryExpression(node)) {
 		return
 	}
@@ -164,7 +193,7 @@ const chain: Rule = (node, { add, slice, span }) => {
 }
 
 /** A fallback dropped, and a difference's operands swapped. */
-const arithmetic: Rule = (node, { add, slice, span }) => {
+const arithmetic: LibraryRule = (node, { add, slice, span }) => {
 	if (!ts.isBinaryExpression(node)) {
 		return
 	}
@@ -177,7 +206,7 @@ const arithmetic: Rule = (node, { add, slice, span }) => {
 }
 
 /** `some` and `every` exchanged, on a collection: never on `Option.some`, which constructs an Option. */
-const quantifier: Rule = (node, { add, span }) => {
+const quantifier: LibraryRule = (node, { add, span }) => {
 	const found = method(node)
 	const name = found?.callee.name
 	const constructsOption =
@@ -190,7 +219,7 @@ const quantifier: Rule = (node, { add, span }) => {
 }
 
 /** One stage of a pipe dropped, or one pipeable of an `Effect.fn` or `Effect.fnUntraced`. */
-const pipeStage: Rule = (node, { add, slice, span }) => {
+const pipeStage: LibraryRule = (node, { add, slice, span }) => {
 	const found = method(node)
 	if (found === undefined) {
 		return
@@ -227,7 +256,7 @@ const exits = (then: ts.Statement) =>
 		: isExit(then)
 
 /** An early exit deleted, and an if's arms swapped. */
-const branch: Rule = (node, { add, slice, span }) => {
+const branch: LibraryRule = (node, { add, slice, span }) => {
 	if (!ts.isIfStatement(node)) {
 		return
 	}
@@ -245,7 +274,7 @@ const branch: Rule = (node, { add, slice, span }) => {
 }
 
 /** A statement of a block or a switch arm deleted. */
-const statement: Rule = (node, { add, span }) => {
+const statement: LibraryRule = (node, { add, span }) => {
 	const parent =
 		ts.isExpressionStatement(node) || ts.isBreakStatement(node) ? node.parent : undefined
 	if (
@@ -257,7 +286,7 @@ const statement: Rule = (node, { add, span }) => {
 }
 
 /** Two neighbouring switch arms' bodies swapped. */
-const caseSwap: Rule = (node, { add, text, source }) => {
+const caseSwap: LibraryRule = (node, { add, text, source }) => {
 	if (!ts.isSwitchStatement(node)) {
 		return
 	}
@@ -279,7 +308,7 @@ const caseSwap: Rule = (node, { add, text, source }) => {
 }
 
 /** One element of an array literal dropped. */
-const element: Rule = (node, { add, slice, span }) => {
+const element: LibraryRule = (node, { add, slice, span }) => {
 	if (ts.isArrayLiteralExpression(node) && node.elements.length > 1) {
 		const elements = Arr.map(node.elements, slice)
 		for (const index of elements.keys()) {
@@ -289,7 +318,7 @@ const element: Rule = (node, { add, slice, span }) => {
 }
 
 /** A conditional's arms swapped. */
-const conditional: Rule = (node, { add, slice, span }) => {
+const conditional: LibraryRule = (node, { add, slice, span }) => {
 	if (ts.isConditionalExpression(node)) {
 		add(
 			"arm-swap",
@@ -300,25 +329,151 @@ const conditional: Rule = (node, { add, slice, span }) => {
 }
 
 /** A negation dropped. */
-const negation: Rule = (node, { add, slice, span }) => {
+const negation: LibraryRule = (node, { add, slice, span }) => {
 	if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
 		add("negation", span(node), slice(node.operand))
 	}
 }
 
-/** A boolean literal flipped, and a number an arithmetic or comparison reads moved by one either way. */
-const literal: Rule = (node, { add, span }) => {
+/** A whole number as source: in parentheses when negative, so it stays one operand wherever it stands. */
+const numberText = (value: number): string => (value < 0 ? `(${String(value)})` : String(value))
+
+/**
+ * A boolean literal flipped, and a number an arithmetic or comparison reads moved by one either way, a negated one
+ * moved as the negative number it is.
+ */
+const literal: LibraryRule = (node, { add, span }) => {
 	if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) {
 		add("boolean", span(node), node.kind === ts.SyntaxKind.TrueKeyword ? "false" : "true")
 	}
-	if (ts.isNumericLiteral(node) && ts.isBinaryExpression(node.parent)) {
-		const value = Number(node.text)
-		add("bound", span(node), String(value + 1))
-		add("bound", span(node), value === 0 ? "(-1)" : String(value - 1))
+	if (!ts.isNumericLiteral(node)) {
+		return
+	}
+	const negated =
+		ts.isPrefixUnaryExpression(node.parent) && node.parent.operator === ts.SyntaxKind.MinusToken
+	const operand = negated ? node.parent : node
+	if (ts.isBinaryExpression(operand.parent)) {
+		const value = Number(node.text) * (negated ? -1 : 1)
+		add("bound", span(operand), numberText(value - 1))
+		add("bound", span(operand), numberText(value + 1))
 	}
 }
 
-const RULES: ReadonlyArray<Rule> = [
+/** Methods whose call is a boolean, for knowing a boolean function with no annotation. */
+const BOOLEAN_METHODS: ReadonlySet<string> = new Set([
+	"some",
+	"every",
+	"has",
+	"includes",
+	"startsWith",
+	"endsWith",
+	"test",
+	"isArray"
+])
+
+const withoutParentheses = (expression: ts.Expression): ts.Expression =>
+	ts.isParenthesizedExpression(expression) ? withoutParentheses(expression.expression) : expression
+
+/**
+ * Whether an expression is a boolean by its syntax alone: a boolean literal, a negation, a comparison, an
+ * `instanceof` or `in`, a logical combination of booleans, or a call of a boolean method.
+ */
+const isBooleanSyntax = (expression: ts.Expression): boolean => {
+	const x = withoutParentheses(expression)
+	if (x.kind === ts.SyntaxKind.TrueKeyword || x.kind === ts.SyntaxKind.FalseKeyword) {
+		return true
+	}
+	if (ts.isPrefixUnaryExpression(x)) {
+		return x.operator === ts.SyntaxKind.ExclamationToken
+	}
+	if (ts.isBinaryExpression(x)) {
+		const kind = x.operatorToken.kind
+		if (
+			FLIPPED.has(kind) ||
+			kind === ts.SyntaxKind.InstanceOfKeyword ||
+			kind === ts.SyntaxKind.InKeyword
+		) {
+			return true
+		}
+		return (
+			(kind === ts.SyntaxKind.AmpersandAmpersandToken || kind === ts.SyntaxKind.BarBarToken) &&
+			isBooleanSyntax(x.left) &&
+			isBooleanSyntax(x.right)
+		)
+	}
+	return (
+		ts.isCallExpression(x) &&
+		ts.isPropertyAccessExpression(x.expression) &&
+		BOOLEAN_METHODS.has(x.expression.name.text)
+	)
+}
+
+type FunctionLike =
+	| ts.FunctionDeclaration
+	| ts.MethodDeclaration
+	| ts.ArrowFunction
+	| ts.FunctionExpression
+
+const isFunctionLike = (node: ts.Node): node is FunctionLike =>
+	ts.isFunctionDeclaration(node) ||
+	ts.isMethodDeclaration(node) ||
+	ts.isArrowFunction(node) ||
+	ts.isFunctionExpression(node)
+
+/** The return statements of a function body, and none of a function or class nested in it. */
+const returnsOf = (body: ts.Block): ReadonlyArray<ts.ReturnStatement> => {
+	const found: Array<ts.ReturnStatement> = []
+	const visit = (node: ts.Node): void => {
+		if (isFunctionLike(node) || ts.isClassLikeDeclaration(node)) {
+			return
+		}
+		if (ts.isReturnStatement(node)) {
+			found.push(node)
+		}
+		node.forEachChild(visit)
+	}
+	body.forEachChild(visit)
+	return found
+}
+
+/** Whether a function returns a boolean: by its annotation, or, with none, by the syntax of everything it returns. */
+const returnsBoolean = (fn: FunctionLike): boolean => {
+	if (
+		fn.body === undefined ||
+		fn.asteriskToken !== undefined ||
+		Arr.some(fn.modifiers ?? [], (modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword)
+	) {
+		return false
+	}
+	if (fn.type !== undefined) {
+		return fn.type.kind === ts.SyntaxKind.BooleanKeyword || ts.isTypePredicateNode(fn.type)
+	}
+	if (!ts.isBlock(fn.body)) {
+		return isBooleanSyntax(fn.body)
+	}
+	const returns = returnsOf(fn.body)
+	return (
+		returns.length > 0 &&
+		Arr.every(
+			returns,
+			(returned) => returned.expression !== undefined && isBooleanSyntax(returned.expression)
+		)
+	)
+}
+
+/** The body of a boolean function replaced by `true`, and by `false`: a predicate that no longer decides. */
+const booleanReturn: LibraryRule = (node, { add, source }) => {
+	if (!isFunctionLike(node) || node.body === undefined || !returnsBoolean(node)) {
+		return
+	}
+	const body = { start: node.body.getStart(source), end: node.body.end }
+	for (const value of ["true", "false"]) {
+		add("boolean-return", body, ts.isBlock(node.body) ? `{ return ${value} }` : value)
+	}
+}
+
+const RULES: ReadonlyArray<LibraryRule> = [
+	booleanReturn,
 	comparison,
 	chain,
 	arithmetic,
@@ -334,32 +489,52 @@ const RULES: ReadonlyArray<Rule> = [
 ]
 
 /** A mutant before its id: `key` names it among every mutant of its file, and the id is its digest. */
-type Located = Omit<Mutant, "id"> & Readonly<{ key: string }>
+type Located<O extends string> = Omit<Mutant<O>, "id"> & Readonly<{ key: string }>
 
-/** Every mutant of one parsed source, outside type positions and imports. */
-const locatedOf = (file: string, text: string, source: ts.SourceFile): ReadonlyArray<Located> => {
-	const drafts: Array<Draft> = []
+/**
+ * Every mutant of one parsed source by the library's rules and those of each family that mutates the file, outside
+ * type positions (an expression a heritage clause extends is code, and is visited) and imports. An edit proposed twice,
+ * by two rules or by two visits, is one mutant.
+ */
+const locatedOf = <O extends string>(
+	file: string,
+	text: string,
+	source: ts.SourceFile,
+	families: ReadonlyArray<Family<O>>
+): ReadonlyArray<Located<Operator | O>> => {
+	const drafts: Array<Draft<Operator | O>> = []
+	const proposed = new Set<string>()
 	const functions: Array<string> = []
-	const site: Site = {
+	const rules: ReadonlyArray<Rule<Operator | O>> = [
+		...RULES,
+		...Arr.flatMap(families, (family) => (family.applies(file) ? family.rules : []))
+	]
+	const site: Site<Operator | O> = {
+		file,
 		text,
 		source,
 		slice: (node) => Str.slice(node.getStart(source), node.end)(text),
 		span: (node) => ({ start: node.getStart(source), end: node.end }),
 		add: (operator, { start, end }, replacement) => {
-			if (Str.slice(start, end)(text) !== replacement) {
+			const edit = Arr.join([operator, String(start), String(end), replacement], "\u0000")
+			if (Str.slice(start, end)(text) !== replacement && !proposed.has(edit)) {
+				proposed.add(edit)
 				drafts.push({ operator, start, end, replacement, fn: functions.at(-1) ?? "<module>" })
 			}
 		}
 	}
 	const visit = (node: ts.Node): void => {
-		if (ts.isTypeNode(node) || ts.isImportDeclaration(node)) {
+		if (
+			(ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) ||
+			ts.isImportDeclaration(node)
+		) {
 			return
 		}
 		const name = nameOf(node)
 		if (name !== undefined) {
 			functions.push(name)
 		}
-		for (const rule of RULES) {
+		for (const rule of rules) {
 			rule(node, site)
 		}
 		node.forEachChild(visit)
@@ -406,12 +581,14 @@ const idOf = (key: string): string => {
 }
 
 /**
- * Every mutant of `sources` (each a file's name and its text), read through TypeScript 7's native compiler in a
- * file system of their own, so nothing on disk but the compiler is read. Each mutant's id is its key's idOf, stable
- * across runs while its file's text is.
+ * Every mutant of `sources` (each a file's name and its text) by the library's operators and those of `families`,
+ * read through TypeScript 7's native compiler in a file system of their own, so nothing on disk but the compiler is
+ * read. Each mutant's id is its key's idOf: its file, operator, enclosing function, original and replacement, and its
+ * place among the mutants of one key, so it is stable across runs and across edits elsewhere in its file.
  */
-export const mutantsOf = Effect.fn("testing.mutants.of")(function* (
-	sources: ReadonlyArray<Readonly<{ file: string; text: string }>>
+export const mutantsOf = Effect.fn("testing.mutants.of")(function* <O extends string>(
+	sources: ReadonlyArray<Readonly<{ file: string; text: string }>>,
+	families: ReadonlyArray<Family<O>>
 ) {
 	const path = yield* Path.Path
 	const root = path.resolve(".testing-mutants")
@@ -421,7 +598,7 @@ export const mutantsOf = Effect.fn("testing.mutants.of")(function* (
 		at: path.join(root, `source-${index}.ts`)
 	}))
 	const located = yield* Effect.try({
-		try: (): Result.Result<ReadonlyArray<Located>, MutationSourceRefused> => {
+		try: (): Result.Result<ReadonlyArray<Located<Operator | O>>, MutationSourceRefused> => {
 			const fileSystem = createFileSystem([
 				[
 					config,
@@ -443,13 +620,13 @@ export const mutantsOf = Effect.fn("testing.mutants.of")(function* (
 			}
 			using snapshot = session.api.createSnapshot({ openProjects: [config], fileSystem })
 			const project = snapshot.getConfiguredProject(config)
-			const all: Array<Located> = []
+			const all: Array<Located<Operator | O>> = []
 			for (const { source, at } of entries) {
 				const parsed = project?.program.getSourceFile(at)
 				if (parsed === undefined) {
 					return Result.fail(MutationSourceRefused.make({ file: source.file }))
 				}
-				for (const mutant of locatedOf(source.file, source.text, parsed)) {
+				for (const mutant of locatedOf(source.file, source.text, parsed, families)) {
 					all.push(mutant)
 				}
 			}
@@ -463,5 +640,73 @@ export const mutantsOf = Effect.fn("testing.mutants.of")(function* (
 				)
 			})
 	}).pipe(Effect.flatMap(Effect.fromResult))
-	return Arr.map(located, ({ key, ...mutant }): Mutant => ({ id: idOf(key), ...mutant }))
+	return Arr.map(located, ({ key, ...mutant }): Mutant<Operator | O> => ({
+		id: idOf(key),
+		...mutant
+	}))
 })
+
+/**
+ * A mutant written by hand and kept by value: `original`, text that stands once in `file`, replaced by `replacement`,
+ * and the test files that must kill it. "Revert the fix and see the test fail" is one: the fix's text is `original`
+ * and the code before it `replacement`, so the measurement replays on every run and the reverted code is never
+ * written to the tree.
+ */
+export type KeptMutant = Readonly<{
+	name: string
+	file: string
+	original: string
+	replacement: string
+	killers: Arr.NonEmptyReadonlyArray<string>
+}>
+
+/** A kept mutant's `original` no longer stands once in its file: its code moved, changed or now repeats. */
+export class KeptMutantStale extends Schema.TaggedError<
+	KeptMutantStale,
+	{ readonly brand: unique symbol }
+>()("KeptMutantStale", {
+	mutant: Schema.String,
+	file: Schema.String,
+	found: Schema.Finite,
+	message: Schema.String
+}) {}
+
+/** Every place `original` stands in `text`, overlapping places included; an empty `original` stands nowhere. */
+const placesOf = (text: string, original: string): ReadonlyArray<number> => {
+	const places: Array<number> = []
+	let from = 0
+	for (;;) {
+		const found = Str.isEmpty(original)
+			? Option.none()
+			: Str.indexOf(original)(Str.slice(from)(text))
+		if (Option.isNone(found)) {
+			return places
+		}
+		places.push(from + found.value)
+		from += found.value + 1
+	}
+}
+
+/**
+ * The text a kept mutant makes of its file's text: its one `original` replaced. An `original` that stands nowhere, or
+ * in more than one place, is stale, so a kept mutant never lands on code other than the code it was written against.
+ */
+export const keptApplied = (
+	kept: KeptMutant,
+	text: string
+): Result.Result<string, KeptMutantStale> => {
+	const places = placesOf(text, kept.original)
+	const [at] = places
+	return places.length === 1 && at !== undefined
+		? Result.succeed(
+				`${Str.slice(0, at)(text)}${kept.replacement}${Str.slice(at + kept.original.length)(text)}`
+			)
+		: Result.fail(
+				KeptMutantStale.make({
+					mutant: kept.name,
+					file: kept.file,
+					found: places.length,
+					message: `the kept mutant "${kept.name}" finds its original ${places.length === 0 ? "nowhere" : `${places.length} times`} in ${kept.file}, and must find it once`
+				})
+			)
+}

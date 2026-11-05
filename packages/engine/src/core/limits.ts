@@ -149,34 +149,6 @@ export const lateralParentMax = measured({
 		"a PostgreSQL repin or a planner setting change; a change to either form's SQL (lower/shapes/take); a different machine or cluster configuration; a run at a parent count between 256 and 1024; a workload whose groups differ from the Lab fixture's"
 })
 
-/**
- * A tuple membership of declared closed facts whose disjunction holds at most this many equalities (its distinct tested
- * tuples times its tested columns) is rewritten into the disjunction (lower/optimize/finite); a larger one keeps its
- * VALUES join. A one-column membership is rewritten at any size: only a disjunction costs a row more than the join's
- * hash probe, so the two forms are genuinely different and the threshold between them is an operating point, measured
- * by bench/query/finite.bench.ts (its R07 gate) across fact counts.
- */
-export const finiteMembershipMaxTerms = measured({
-	value: 16,
-	owner: "grizzle's finite membership rewrite (lower/optimize/finite)",
-	unit: "equalities",
-	scope:
-		"the equalities of one tuple membership's disjunction (distinct tested tuples times tested columns), at or below which it is rewritten from its VALUES join",
-	evidence:
-		"bench/results/gates/query-finite.full.json, the uncommitted record of `pnpm bench gates --only R20,R07` (bench/query/finite.bench.ts, gate R07)",
-	observed: "2026-11-05 10:01:00 to 10:01:17 UTC, one full-scale run",
-	environment:
-		"macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, the local PostgreSQL 19rc1 cluster (scripts/pg/pin.env), grizzle 48256f8d6148 with the mechanism-only cutover uncommitted; load average 9 to 10 from other sessions on the machine",
-	workload:
-		"the Finite fixture's 200000 orders over twelve tiers: a two-column tuple membership of 2, 4, 8, 16, 32, 64, 128 and 256 facts, as the disjunction of each fact's equalities against the VALUES join, timed samples after a warm run",
-	result:
-		"execute p50 in ms, disjunction / VALUES join: 2 facts (4 equalities) 6.993/9.009; 4 (8) 7.105/8.665; 8 (16) 6.037/7.842; 16 (32) 16.168/8.370; 32 (64) 28.197/9.108; 64 (128) 48.511/8.315; 128 (256) 95.332/11.898; 256 (512) 337.983/15.370. No throttling or errors",
-	decision:
-		"16 is the largest measured equality count at which the disjunction is the faster form; at 32 the VALUES join is already twice as fast. The 64 this threshold held before the measurement was three times slower at that size. No headroom added: a count between 16 and 32 is unmeasured",
-	revalidate:
-		"a PostgreSQL repin or a planner setting change; a change to either form's SQL (lower/optimize/finite); a different machine; a run at an equality count between 16 and 32; a membership over more columns or another distribution"
-})
-
 /** The PostgreSQL release every published PostgreSQL limit is read from, REL_19_RC1's tree. */
 export const postgresSource = "https://github.com/postgres/postgres/blob/REL_19_RC1"
 
@@ -541,9 +513,8 @@ export const bitsPerByte = published({
 /**
  * The most codes one roster numbers, its holes included. A closed-id field stores its handle's code as a smallint, and
  * a roster numbers its handles from 0 in the order they were declared, a removed handle leaving its code a hole, so a
- * code is one of smallint's non-negative values. A code is never negative because it indexes its roster's constant
- * and is a digit of a law's cell (cellDigitBits), where a negative one, widened to a bigint, would set every digit
- * above it.
+ * code is one of smallint's non-negative values. A code is never negative because it is a digit of the mixed-radix
+ * index a closed relation's constant is read at, where a negative one would borrow from the digit above it.
  */
 export const rosterMaxCodes = derived({
 	owner: "PostgreSQL 19rc1",
@@ -571,9 +542,8 @@ const typlen = (type: string, value: number, line: number, quote: string): Limit
 	})
 
 /**
- * The typlen of each fixed-size type a field, a range's endpoint, a varlena's part or a law's cell is: a smallint's is
- * the bytes one code takes, in its closed-id column and as a digit of a law's cell, and a bigint's the bytes of one
- * law's cell.
+ * The typlen of each fixed-size type a field, a range's endpoint or a varlena's part is: a smallint's is the bytes one
+ * code takes in its closed-id column.
  */
 export const typlens = {
 	int2: typlen("smallint", 2, 62, "typname => 'int2', typlen => '2', typbyval => 't'"),
@@ -586,36 +556,6 @@ export const typlens = {
 	oid: typlen("oid", 4, 89, "typname => 'oid', typlen => '4', typbyval => 't'"),
 	uuid: typlen("uuid", 16, 409, "typname => 'uuid', typlen => '16', typbyval => 'f'")
 } as const
-
-/**
- * The bits from one code of a law's cell to the next. A law over several fields of a row reads their codes from one
- * bigint, a stored generated column its domain checks, which packs each code a smallint's width from the next,
- * `(c1 << 48) | (c2 << 32) | (c3 << 16) | c4`, and the domain reads each back as `(VALUE >> s) & 65535` to index its
- * constant. A code is a non-negative smallint (rosterMaxCodes), so it fits its digit with the digit's top bit clear,
- * the cell is never negative, and a roster that grows changes the constant and the domain's check, never a stored cell.
- */
-export const cellDigitBits = derived({
-	owner: "grizzle's law cells",
-	unit: "bits",
-	scope: "one code's digit in one law's cell",
-	from: [typlens.int2, bitsPerByte],
-	derivation:
-		"a smallint's typlen in bits: every smallint fits its digit, so a code is packed as its column stores it",
-	compute: ([smallint, bits]) => smallint.value * bits.value
-})
-
-/**
- * The most codes one law's cell holds, its key's and its payload's together: the cell is one bigint and each code
- * takes cellDigitBits of it, so a law that reads more codes has no cell.
- */
-export const cellMaxCodes = derived({
-	owner: "grizzle's law cells",
-	unit: "codes",
-	scope: "the codes one law's cell packs, its key's and its payload's together",
-	from: [typlens.int8, bitsPerByte, cellDigitBits],
-	derivation: "a bigint's typlen in bits over a code's digit: the whole digits one bigint holds",
-	compute: ([bigint, bits, digit]) => Math.floor((bigint.value * bits.value) / digit.value)
-})
 
 /**
  * The longest bit string PostgreSQL holds, VARBITMAXLEN, and so the most bits of one constant: the bit varying a
@@ -665,14 +605,14 @@ export const bitColumnMaxBits = derived({
 })
 
 /**
- * The size of PostgreSQL's name type, NAMEDATALEN, its terminating zero byte included: what an identifier, an enum
- * label and a decoded handle are held in.
+ * The size of PostgreSQL's name type, NAMEDATALEN, its terminating zero byte included: what an identifier and a
+ * roster's handle in its names constant are held in.
  */
 export const namedatalen = published({
 	value: 64,
 	owner: "PostgreSQL 19rc1",
 	unit: "bytes",
-	scope: "a name value, its terminating zero included: an identifier, an enum label",
+	scope: "a name value, its terminating zero included: an identifier, a roster's handle",
 	constraint: "compile-time constant",
 	source: `${postgresSource}/src/include/pg_config_manual.h#L39`,
 	quote: "#define NAMEDATALEN 64",
@@ -680,14 +620,14 @@ export const namedatalen = published({
 })
 
 /**
- * The most UTF-8 bytes of one roster handle. A roster's decode function holds its handles as one name[] constant, and
- * a name keeps at most NAMEDATALEN - 1 bytes of its text, clipping a longer one at a character boundary: a longer
- * handle would decode clipped, and two that share their first NAMEDATALEN - 1 bytes would decode alike.
+ * The most UTF-8 bytes of one roster handle. A roster's names constant holds its handles as one name[], and a name
+ * keeps at most NAMEDATALEN - 1 bytes of its text, clipping a longer one at a character boundary: a longer handle would
+ * decode clipped, and two that share their first NAMEDATALEN - 1 bytes would decode alike.
  */
 export const handleMaxBytes = derived({
 	owner: "PostgreSQL 19rc1",
 	unit: "bytes",
-	scope: "one roster handle in UTF-8, as its roster's decode function holds it in a name",
+	scope: "one roster handle in UTF-8, as its roster's names constant holds it in a name",
 	from: [namedatalen],
 	derivation: `NAMEDATALEN less its terminating zero, as namein clips a name: "len = pg_mbcliplen(s, len, NAMEDATALEN - 1);" (${postgresSource}/src/backend/utils/adt/name.c, verified 2026-11-05)`,
 	compute: ([n]) => n.value - 1
@@ -748,6 +688,38 @@ export const itemIdBytes = published({
 	source: `${storageSgml}#L769-L770`,
 	quote:
 		"Array of item identifiers pointing to the actual items. Each entry is an (offset,length) pair. 4 bytes per item.",
+	verified: "2026-11-05"
+})
+
+/**
+ * A heap tuple's fixed header, SizeofHeapTupleHeader: the bytes every row begins with, before its null bitmap and its
+ * columns, which the header's t_hoff rounds up to the greatest alignment.
+ */
+export const heapTupleHeaderBytes = published({
+	value: 23,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope:
+		"the fixed header of every heap tuple, before its null bitmap: one row of a stored relation's table",
+	constraint: "compile-time constant",
+	source: `${storageSgml}#L955-L956`,
+	quote: "There is a fixed-size header (occupying 23 bytes on most machines)",
+	verified: "2026-11-05"
+})
+
+/**
+ * A TOAST pointer, TOAST_POINTER_SIZE: the in-line bytes a variable-length column's value moved out of line keeps in
+ * its row, whatever the value's size, so the least a varlena column can cost a row.
+ */
+export const toastPointerBytes = published({
+	value: 18,
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope: "the in-line pointer of one variable-length value stored out of line",
+	constraint: "compile-time constant",
+	source: `${storageSgml}#L436-L437`,
+	quote:
+		"the total size of an on-disk TOAST pointer datum is therefore 18 bytes regardless of the actual size of the represented value",
 	verified: "2026-11-05"
 })
 

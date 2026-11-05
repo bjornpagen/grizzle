@@ -9,7 +9,7 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import { sameValues, valueText } from "#test/pg/laws/families/model.ts"
+import { sameValues, valueText } from "#test/support/laws/model.ts"
 import type { RealWorld } from "#test/support/worlds/execute/index.ts"
 import { featuresOf } from "#test/support/worlds/features.ts"
 import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"

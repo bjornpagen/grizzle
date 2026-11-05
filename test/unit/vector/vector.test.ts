@@ -142,7 +142,7 @@ const sqlOf = (built: unknown) =>
 
 describe("the cosine domain", () => {
 	it.effect(
-		"admits exactly the buffers of the field's dimensions, finite, of a norm in [2^-16, 2^16], at Vector.from and at every encode",
+		"admits exactly the buffers of the field's dimensions, finite, of a norm in [cosineNormMin, cosineNormMax], at Vector.from and at every encode",
 		(ctx) =>
 			Effect.gen(function* () {
 				const codec = codecOf(scalarOf({ kind: "vector", dimensions: dims }, {}))
@@ -235,13 +235,15 @@ describe("the cosine domain", () => {
 				exhaust(
 					{
 						suite: "unit/vector/literal-domain",
+						/** Inside the domain, a zero norm, and a norm below its least and above its greatest. */
 						generator: element<readonly [number, number, number, number]>([
 							[0, 0, 1, 0],
 							[0, 0, 0, 0],
-							[0, 0, 1e9, 0]
+							[0, 0, lowest / 2, 0],
+							[0, 0, highest * 2, 0]
 						]),
 						literal: Formatter.format,
-						limit: 3,
+						limit: 4,
 						coverage: requiredInSpace<"held as built" | "refused when built">([
 							"held as built",
 							"refused when built"

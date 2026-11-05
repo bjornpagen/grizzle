@@ -168,9 +168,9 @@ const child = (t: Test, sign: Sign): Diagram => (sign < 0 ? t.below : sign > 0 ?
  * operation and operands (Diagrams #operation), so the fold that computes it keeps its diagram by that object.
  */
 type Operation =
-	| { readonly kind: "negate"; readonly test: Test }
+	| { readonly kind: "negate"; readonly of: Test }
 	| { readonly kind: "apply"; readonly op: "and" | "or"; readonly x: Test; readonly y: Test }
-	| { readonly kind: "restrict"; readonly test: Test; readonly pair: number; readonly sign: Sign }
+	| { readonly kind: "restrict"; readonly of: Test; readonly pair: number; readonly sign: Sign }
 
 /** What the fold of a recognition computes a diagram of: a formula, or an operation on diagrams. */
 type Vertex = Formula | Operation
@@ -253,7 +253,7 @@ class Diagrams {
 				return acc
 			}
 			case "negate": {
-				const t = v.test
+				const t = v.of
 				const below = yield* this.#not(t.below)
 				const equal = yield* this.#not(t.equal)
 				const above = yield* this.#not(t.above)
@@ -269,7 +269,7 @@ class Diagrams {
 				return this.#test(pair, below, equal, above)
 			}
 			case "restrict": {
-				const { test: t, pair, sign } = v
+				const { of: t, pair, sign } = v
 				const below = yield* this.#restrict(t.below, pair, sign)
 				const equal = yield* this.#restrict(t.equal, pair, sign)
 				const above = yield* this.#restrict(t.above, pair, sign)
@@ -283,7 +283,7 @@ class Diagrams {
 		if (d.kind === "leaf") {
 			return this.#leaf(!d.value)
 		}
-		return yield this.#operation(`n${d.id}`, { kind: "negate", test: d })
+		return yield this.#operation(`n${d.id}`, { kind: "negate", of: d })
 	}
 
 	/** `a` and `b`, or `a` or `b`: with a leaf, or of one diagram, at once; of two tests, by their operation. */
@@ -319,7 +319,7 @@ class Diagrams {
 		}
 		return yield this.#operation(`r${d.id}:${pair}:${sign}`, {
 			kind: "restrict",
-			test: d,
+			of: d,
 			pair,
 			sign
 		})

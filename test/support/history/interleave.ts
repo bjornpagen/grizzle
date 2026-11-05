@@ -1,12 +1,4 @@
 import { Array as Arr, Effect, type Scope, String as Str } from "effect"
-import type { LawId } from "#compiler/core/ids.ts"
-import {
-	type HostSchema,
-	type HostState,
-	isResidual,
-	lawRelations,
-	type HostOp
-} from "#test/pg/laws/families/model.ts"
 import { checkHistory, type History, type Recorded } from "#test/support/history/check.ts"
 import type { GrizzleWriter } from "#test/support/history/families.ts"
 import type { Immediacy } from "#test/support/history/model.ts"
@@ -22,6 +14,12 @@ import {
 	runGrizzle,
 	writeSteps
 } from "#test/support/history/run.ts"
+import {
+	type HostSchema,
+	type HostState,
+	lawRelations,
+	type HostOp
+} from "#test/support/laws/model.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { type Actors, openActors } from "#test/support/schedules/actors.ts"
 import {
@@ -114,21 +112,9 @@ const reach = (host: HostSchema, relations: ReadonlyArray<string>): Footprint =>
 	return relationsFootprint(out)
 }
 
-/**
- * The statement that makes a direct transaction's constraints immediate, if it makes any: every constraint, or each
- * trigger of each residual law the host model states, schema-qualified.
- */
-const immediateSql = (env: HistoryEnv, immediate: Immediacy): ReadonlyArray<string> => {
-	if (immediate === "deferred") {
-		return []
-	}
-	if (immediate === "every constraint") {
-		return ["SET CONSTRAINTS ALL IMMEDIATE"]
-	}
-	const residuals = new Set<LawId>(Arr.map(Arr.filter(env.host.laws, isResidual), (l) => l.law))
-	const triggers = Arr.flatMap([...residuals], (law) => env.names.triggers(law))
-	return triggers.length === 0 ? [] : [`SET CONSTRAINTS ${Arr.join(triggers, ", ")} IMMEDIATE`]
-}
+/** The statement that makes a direct transaction's constraints immediate, if it makes any: every constraint. */
+const immediateSql = (immediate: Immediacy): ReadonlyArray<string> =>
+	immediate === "deferred" ? [] : ["SET CONSTRAINTS ALL IMMEDIATE"]
 
 /** A planted writer's actions as written: its BEGIN below SERIALIZABLE, its read, its write, and its COMMIT. */
 const belowSteps = (env: HistoryEnv, b: Below): ReadonlyArray<ActionStep> => {
@@ -197,7 +183,7 @@ const txnsOf = (
 						...Arr.map(writeSteps(env, t.ops), (w) =>
 							interleaveStep(w.sql, reach(env.host, [w.relation]))
 						),
-						...Arr.map(immediateSql(env, t.immediate), (sql) =>
+						...Arr.map(immediateSql(t.immediate), (sql) =>
 							interleaveStep(
 								sql,
 								reach(
@@ -347,13 +333,12 @@ const historyOf = (
  * serial orders respecting the interleaving's real-time order explain every outcome, refusals and their laws and
  * witnesses included.
  *
- * A direct transaction marked immediate sets every constraint IMMEDIATE after its last statement, or the triggers of
- * its schema's residual laws, as the host model names them, by their schema-qualified names (a world role's
- * search_path does not hold the grizzle schema), as a step of its own: its deferred laws check there, on its final
- * state, so their reads fall between other moves. The step reads every relation the transaction's laws reach.
+ * A direct transaction marked immediate sets every constraint IMMEDIATE after its last statement, as a step of its own:
+ * its deferred foreign keys check there, on its final state, so their reads fall between other moves. The step reads
+ * every relation the transaction's laws reach.
  *
- * Each step's footprint is the relations its operations write, closed under the laws that join them: a law's trigger
- * or foreign key reads its other participants, so two steps commute only when no law joins what they touch.
+ * Each step's footprint is the relations its operations write, closed under the laws that join them: a foreign key
+ * reads its other participant, so two steps commute only when no law joins what they touch.
  *
  * The exploration of `txns` from `initial`, each interleaving checked as a history; `observe` sees every history that
  * passed, for its features. The history model reads the committed state itself (read), so the explorer reads no

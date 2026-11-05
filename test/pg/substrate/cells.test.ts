@@ -1,11 +1,12 @@
 /**
- * The law of erasure's templates (fin.md §17), proved against PostgreSQL 19rc1: the migration's pack, the domain a
- * closed side's cell lies in, the roster domains that keep each digit in range, function application with absence as
+ * The law of erasure's templates (fin.md §17), proved against PostgreSQL 19rc1: the migration's pack, the table CHECK a
+ * closed law is, over its digit columns, the roster domains that keep each digit in range, function application with absence as
  * NULL, a domain re-pointed at a new constant and VALIDATEd, the RESTRICT drop of the old constant, the typcache across
  * a swap, and the refusals that make a cell STORED. Every template is the RFC's, written by hand.
  *
  * Oracles, per proof:
- * - the pack: a second implementation, the host encoder (packages/engine/src/ir/cells.ts constantOf and bitText). "One
+ * - the pack: a second implementation, the host encoder (packages/engine/src/ir/cells.ts constantOf, and bitText, the
+ *   test oracle of its text). "One
  *   constant, two consumers": PostgreSQL's DO block and the host must spell the same string, bit for bit;
  * - the domain template: the specification turned into a checker, a digit tuple is admitted exactly when each digit is
  *   a live code of its roster and the tuple is in the set, and a model of the template's own int8 arithmetic for the
@@ -27,16 +28,9 @@ import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { cell, fromText } from "#compiler/codec/bits.ts"
 import { indices } from "#compiler/core/array.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
-import {
-	bitText,
-	cellWidth,
-	constantOf,
-	type Layout,
-	packCodes,
-	spaceSize,
-	type Tuple
-} from "#compiler/ir/cells.ts"
+import { cellWidth, constantOf, type Layout, spaceSize, type Tuple } from "#compiler/ir/cells.ts"
 import { assert, containsText, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { bitText } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { qualified, refusalOf, refusalText, tuple } from "#test/support/substrate.ts"
@@ -262,16 +256,14 @@ const rConstant = (): string =>
 	)
 
 /**
- * The template's arithmetic on a bare cell, as int8: the cell `(x << 32) | (y << 16) | z` of three int2 digits
- * sign-extended, its digits read back by shift and 16-bit mask, the row-major index, and R's bit there, absent past
- * either end. It is what the domain admits when nothing keeps a digit in range.
+ * The table CHECK's arithmetic on three bare int2 digits: the row-major index `(x * |B| + y) * |C| + z`, and R's bit
+ * there, absent past either end. It is what the CHECK admits when nothing keeps a digit in range: a digit past its
+ * roster carries into the next one's, the mixed-radix alias the roster domains refuse.
  */
 const bareAdmits = (x: number, y: number, z: number): boolean => {
-	const value = (BigInt(x) << 32n) | (BigInt(y) << 16n) | BigInt(z)
-	const digit = (shift: bigint) => Number((value >> shift) & 65535n)
-	const index = (digit(32n) * sizes[1] + digit(16n)) * sizes[2] + digit(0n)
+	const index = (x * sizes[1] + y) * sizes[2] + z
 	const [a, b, c] = digitsOf(sizes, index)
-	return index < sizes[0] * sizes[1] * sizes[2] && inR(a ?? 0, b ?? 0, c ?? 0)
+	return index >= 0 && index < sizes[0] * sizes[1] * sizes[2] && inR(a ?? 0, b ?? 0, c ?? 0)
 }
 
 /** A digit tuple of the domain template's box: each digit from one below its roster to two past its last code. */
@@ -411,16 +403,9 @@ const admitsCode = (
 		Option.isNone
 	)
 
-/**
- * The domain template without its digit casts: the index is int8, and pg_catalog has only substring(bit, int4, int4),
- * with int8 to int4 an assignment cast and never an implicit one, so the domain is refused at creation.
- */
-const uncastDomainSql = (name: (n: string) => string): string =>
-	`CREATE DOMAIN ${name("uncast")} AS int8 CHECK ((substring(${name("r_c")}() FROM ((((VALUE >> 32) & 65535) * ${sizes[1]} + ((VALUE >> 16) & 65535)) * ${sizes[2]} + (VALUE & 65535)) + 1 FOR 1) = B'1') IS TRUE)`
-
 type GenerationFeature = "a domain-typed column" | "a user-defined function" | "a foreign key"
 
-/** The generated columns a VIRTUAL generation refuses and a STORED one admits: what makes a law's cell STORED. */
+/** The generated columns a VIRTUAL generation refuses and a STORED one admits: what makes a generated field STORED. */
 interface Generation {
 	readonly name: GenerationFeature
 	readonly columns: (name: (n: string) => string, kind: "VIRTUAL" | "STORED") => string
@@ -574,18 +559,14 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 						`CREATE FUNCTION ${name("r_c")}() RETURNS bit varying LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN B'${rConstant()}'::bit varying`,
 						[]
 					)
-					yield* expectSqlstate(s.admin.query(uncastDomainSql(name), []), "42883")
+					/** The closed law as a table CHECK over the digit columns, the mixed-radix index read in the constant. */
+					const member = `CONSTRAINT r_member CHECK ((substring(${name("r_c")}() FROM ((x * ${sizes[1]} + y) * ${sizes[2]} + z) + 1 FOR 1) = B'1') IS TRUE)`
 					yield* s.admin.query(
-						`CREATE DOMAIN ${name("r")} AS int8 CONSTRAINT r_member CHECK ((substring(${name("r_c")}() FROM (((((VALUE >> 32) & 65535)::integer) * ${sizes[1]} + ((VALUE >> 16) & 65535)::integer) * ${sizes[2]} + (VALUE & 65535)::integer) + 1 FOR 1) = B'1') IS TRUE)`,
-						[]
-					)
-					const cellExpr = "(x::int8 << 32) | (y::int8 << 16) | z"
-					yield* s.admin.query(
-						`CREATE TABLE ${name("typed")} (x ${name("A")} NOT NULL, y ${name("B")} NOT NULL, z ${name("C")} NOT NULL, cell ${name("r")} GENERATED ALWAYS AS (${cellExpr}) STORED)`,
+						`CREATE TABLE ${name("typed")} (x ${name("A")} NOT NULL, y ${name("B")} NOT NULL, z ${name("C")} NOT NULL, ${member})`,
 						[]
 					)
 					yield* s.admin.query(
-						`CREATE TABLE ${name("bare")} (x int2 NOT NULL, y int2 NOT NULL, z int2 NOT NULL, cell ${name("r")} GENERATED ALWAYS AS (${cellExpr}) STORED)`,
+						`CREATE TABLE ${name("bare")} (x int2 NOT NULL, y int2 NOT NULL, z int2 NOT NULL, ${member})`,
 						[]
 					)
 					const db = yield* s.session({ ...ownerSession(), label: "writer" })
@@ -636,15 +617,6 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 									}
 								}
 								if (Option.isNone(typed)) {
-									const [[stored] = []] = yield* db.values(
-										`SELECT cell FROM ${name("typed")} WHERE x = ${c.x} AND y = ${c.y} AND z = ${c.z}`,
-										[]
-									)
-									assert.equal(
-										stored,
-										packCodes([c.x, c.y, c.z]),
-										"the generated cell is the host's"
-									)
 									k.note("typed admits a member")
 								} else if (!ranged) {
 									k.note("typed refuses a digit out of range")
@@ -706,11 +678,7 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 					const applied = (x: string) =>
 						`(NULLIF(substring(${name("f")}() FROM (${x}) * ${width} + 1 FOR ${width})::int4, 0) - 1)`
 					yield* s.admin.query(
-						`CREATE DOMAIN ${name("through")} AS int8 CONSTRAINT through_s CHECK ((substring(${name("s")}() FROM ${applied("((VALUE >> 16) & 65535)::integer")} * ${S_SIZES[1]} + (VALUE & 65535)::integer + 1 FOR 1) = B'1') IS TRUE)`,
-						[]
-					)
-					yield* s.admin.query(
-						`CREATE TABLE ${name("lookup")} (x int2 NOT NULL, y int2 NOT NULL, cell ${name("through")} GENERATED ALWAYS AS ((x::int8 << 16) | y) STORED)`,
+						`CREATE TABLE ${name("lookup")} (x int2 NOT NULL, y int2 NOT NULL, CONSTRAINT through_s CHECK ((substring(${name("s")}() FROM ${applied("x")} * ${S_SIZES[1]} + y + 1 FOR 1) = B'1') IS TRUE))`,
 						[]
 					)
 					const bits = fromText(fText)

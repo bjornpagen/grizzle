@@ -19,7 +19,7 @@ import { NodeFileSystem, NodePath } from "@effect/platform-node"
  *   the fixtures' Work, Payroll and IR histories; the migrate suite's worlds histories, each fixture rebuilt under a
  *   chosen name with the logins its worlds declare; the CLI suite's shop (two versions, its workload narrowed) and
  *   ledger, with their logins and workloads; and the capture's own scenarios (scenarios.ts: renames, a closed type's
- *   handles, a residual law). Each draft also writes the installation's fresh-install SQL (install.sql) and, with a
+ *   handles, a law added). Each draft also writes the installation's fresh-install SQL (install.sql) and, with a
  *   workload, each login's programs' access and the access requests (workload.json);
  * - workload/<fixture>/<schema>/...: every fixture schema drafted with a workload of every query export over it;
  * - write/<fixture>/<export>.sql: every ChangeSet export compiled against its schema's artifacts in reality with no
@@ -713,7 +713,7 @@ const guarded = (write: Write, path: string, step: () => void): void => {
  * The capture's run: every subject it writes, by its path under <out-dir>, with its text, each captured once. After the
  * fixtures and the histories, the CLI suite's shop and ledger (schemas with their server logins, which own their
  * workloads, the shop along its two versions), then the capture's own histories (scenarios.ts: renames, a closed type's
- * handles, a residual law added), each module loaded where the run reaches it.
+ * handles, a law added), each module loaded where the run reaches it.
  */
 const captured: Effect.Effect<ReadonlyMap<string, string>> = Effect.gen(function* () {
 	const written = new Map<string, string>()

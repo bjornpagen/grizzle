@@ -39,7 +39,7 @@ import {
 } from "#test/support/oracle/gen/domain.ts"
 
 const roster = scalarOfSpec({
-	carrier: "enum",
+	carrier: "code",
 	roster: { closed: "K0", handles: ["H0", "H1", "H2"] }
 })
 const types: Arr.NonEmptyReadonlyArray<ScalarType> = Arr.append(
@@ -82,7 +82,7 @@ describe("generated scalar types", () => {
 							coverage: requiredInSpace<TypeFeature>([
 								"text",
 								"numeric",
-								"enum",
+								"code",
 								"range4",
 								"vector",
 								"edge classes",

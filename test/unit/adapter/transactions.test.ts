@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { ExecutionFailure, TransientFailure } from "#adapter/errors/execution.ts"
 import {
 	Deadlock,
@@ -16,18 +16,14 @@ import { decodePlan } from "#adapter/explain/plan.ts"
 import { classifyServerError, transientFailureOf } from "#adapter/outcomes/index.ts"
 import { violationClassifier } from "#adapter/witness/classify.ts"
 import { keyLaws } from "#adapter/witness/keylaw.ts"
-import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import type { UniqueAbort } from "#compiler/write/program/artifact.ts"
 import type { KeyDecoder } from "#compiler/write/program/outcome.ts"
+import { encodeRefusalDetail } from "#compiler/write/refusal.ts"
 import { assert } from "#test/support/assert.ts"
 import { contained, on } from "#test/support/fixtures/ir/desc.ts"
 import * as W from "#test/support/fixtures/ir/work.ts"
-import {
-	installationNamesOf,
-	installationOf,
-	lawNamesOf,
-	wild
-} from "#test/support/kernel/naming.ts"
+import { installationOf, lawNamesOf, wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 
@@ -35,49 +31,40 @@ import { nothingReported, serverError } from "#test/support/server-error.ts"
  * The pure parts of a write's outcome: the transient reasons of server errors, the outcome mapping of SQLSTATEs, and the
  * EXPLAIN (FORMAT JSON) decoder. How a flight and its COMMIT end is test/unit/adapter/batch.test.ts's.
  *
- * Work's laws, each named by src from its declaration: the residual law of its alternatives over Task's kind (the
- * statements the fixture's expansion marks with its origin), TaskNote's primary key, and TaskNote's foreign key into
- * Task.
+ * Work's laws, each named by src from its declaration: TaskNote's primary key, and TaskNote's foreign key into Task.
  */
 const L = lawNamesOf(W.WorkDesc)
-const law = L.alternativesOfDesc(
-	Arr.filter(W.WorkDesc.statements, (s) => s.kind === "contained" && s.origin !== undefined)
-).reverse
 const pk = L.primaryKeyLaw({ name: "TaskNote" })
 const fk = L.lawOfDesc(contained(on("TaskNote", ["task"]), on("Task", ["id"])))
 
 /**
- * A witness decoder that reads `w["<relation>","<key>"]` as the relation's `id` (the program's own decoder is
- * write/program/outcome.ts witnessDecoder, pinned by its own tests). No test here raises a write statement's refusal.
+ * A witness decoder that reads a write statement's refusal key as the relation's `id` (the program's own decoder is
+ * write/program/outcome.ts witnessDecoder, pinned by its own tests).
  */
 const decoder: KeyDecoder = {
-	fromRefusal: () => {
-		throw new Error("no write statement's refusal is raised here")
-	},
-	fromDetail: (detail) => {
-		const [relation, key] = trustedJson<readonly [string, string]>(Str.slice(1)(detail))
-		return { kind: "key", relation, values: { id: key } }
+	fromRefusal: (relation, key) => {
+		const id = key[0]
+		return id === undefined ? undefined : { kind: "key", relation, values: { id: id.text } }
 	}
 }
 
 /**
- * The installation's laws: the alternatives' law a residual law, the others native constraints, each read under the
- * table PostgreSQL reports it on, through the installation's own constraint map (the key-law map's own rules are
- * packages/grizzle/src/adapter/witness's, pinned by test/unit/adapter/witness.test.ts).
+ * The installation's laws, native constraints each read under the table PostgreSQL reports it on, through the
+ * installation's own constraint map (the key-law map's own rules are packages/grizzle/src/adapter/witness's, pinned by
+ * test/unit/adapter/witness.test.ts).
  */
 const installation = installationOf(W.WorkDesc, { kind: "declared" })
-const names = installationNamesOf(installation)
+const names = installation.names
 const pkConstraint = L.constraintOf(pk, "PrimaryKey")
 const fkConstraint = L.constraintOf(fk, "ForeignKey")
 const laws = keyLaws({
-	schema: names.schema,
+	names,
 	constraintLaws: installation.constraintLaws,
 	theoryLaws: installation.theoryLaws
 })
 
-/** The three laws as an outcome names them: as the schema states them. */
+/** The two laws as an outcome names them: as the schema states them. */
 const described = {
-	reverse: { kind: "alternatives", relation: "Task", field: "kind" },
 	pk: { kind: "primaryKey", relation: "TaskNote", fields: ["task"] },
 	fk: {
 		kind: "contained",
@@ -93,14 +80,17 @@ const described = {
 const onTaskNote = {
 	...nothingReported,
 	schema: names.schema,
-	table: names.tableIdent({ name: "TaskNote" })
+	table: names.relation("TaskNote").name
 }
 
 /**
  * The outcome mapping consumes the installation's violation classifier.
- * A COMMIT-time classification: no statement's unique aborts.
+ * A COMMIT-time classification: no statement's unique aborts, and no relation written.
  */
-const context = { violation: violationClassifier(laws, decoder), uniqueAborts: [] }
+const context = {
+	violation: violationClassifier(laws, decoder),
+	origin: { kind: "commit" }
+} as const
 
 describe("the transient failure of a server error", () => {
 	it("40001 and 40P01 anywhere; a unique violation only on a constraint the failing statement lists", () => {
@@ -202,7 +192,7 @@ describe("the outcome mapping", () => {
 						),
 						{
 							kind: "rejected",
-							law: described.fk,
+							laws: [described.fk],
 							witness: { kind: "unreported" }
 						}
 					)
@@ -213,7 +203,7 @@ describe("the outcome mapping", () => {
 						),
 						{
 							kind: "rejected",
-							law: described.pk,
+							laws: [described.pk],
 							witness: { kind: "unreported" }
 						}
 					)
@@ -243,29 +233,29 @@ describe("the outcome mapping", () => {
 			)
 	)
 
-	it("a residual law's 23000 carries the key its function's DETAIL lists, never prose", () => {
+	it("a write statement's 23000 carries the key its refusal's DETAIL lists, never prose", () => {
 		const raised = serverError({
 			...nothingReported,
 			sqlstate: "23000",
-			constraint: law,
-			detail: 'w["Task","t7"]'
+			constraint: fk,
+			detail: encodeRefusalDetail({ kind: "law", relation: "Task" }, [{ field: "id", text: "t7" }])
 		})
 		assert.deepEqual(classifyServerError(raised, context), {
 			kind: "rejected",
-			law: described.reverse,
+			laws: [described.fk],
 			witness: { kind: "key", relation: "Task", values: { id: "t7" } }
 		})
 	})
 
 	/**
-	 * The classifier claims neither a native SQLSTATE on a residual law's identity, nor another schema's violation,
-	 * nor a law function's 23000 or a concurrent change raised without the DETAIL grizzle's own code always raises
-	 * with: no law or reason is guessed, and the failure carries the server's report as given.
+	 * The classifier claims neither a native SQLSTATE on a law's identity, nor another schema's violation, nor a write
+	 * statement's 23000 or a concurrent change raised without the DETAIL grizzle's own code always raises with: no law
+	 * or reason is guessed, and the failure carries the server's report as given.
 	 */
 	type Unclaimed =
-		| "a law function's 23000 without its DETAIL"
+		| "a refusal's 23000 without its DETAIL"
 		| "a concurrent change without its DETAIL"
-		| "a native SQLSTATE on a residual law"
+		| "a native SQLSTATE on a law's identity"
 		| "another schema's violation"
 		| "an unmanaged constraint"
 		| "a violation naming no constraint"
@@ -274,16 +264,16 @@ describe("the outcome mapping", () => {
 	const unclaimed: Arr.NonEmptyReadonlyArray<readonly [Unclaimed, ReturnType<typeof serverError>]> =
 		[
 			[
-				"a law function's 23000 without its DETAIL",
-				serverError({ ...nothingReported, sqlstate: "23000", constraint: law })
+				"a refusal's 23000 without its DETAIL",
+				serverError({ ...nothingReported, sqlstate: "23000", constraint: fk })
 			],
 			[
 				"a concurrent change without its DETAIL",
 				serverError({ ...onTaskNote, sqlstate: "40Z01", constraint: pkConstraint })
 			],
 			[
-				"a native SQLSTATE on a residual law",
-				serverError({ ...nothingReported, sqlstate: "23514", constraint: law })
+				"a native SQLSTATE on a law's identity",
+				serverError({ ...nothingReported, sqlstate: "23514", constraint: fk })
 			],
 			[
 				"another schema's violation",

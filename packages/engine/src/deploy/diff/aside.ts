@@ -1,47 +1,39 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { identity, type TemporaryCensus } from "#compiler/core/identity.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	inConstraints,
 	inRelations,
 	inStatistics,
-	installed,
 	inTypes,
 	type ManifestObject,
 	nameKey,
 	type Parts,
 	type QualifiedRenames,
 	relationParts,
-	renameQualified,
-	sameHeading
+	renameQualified
 } from "#compiler/deploy/snapshot/objects.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { innerIdent, parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
-import type {
-	CreateTable,
-	ObjectName,
-	RenameObject,
-	SqlStatement,
-	TableConstraint
-} from "#compiler/sql/ast.ts"
+import type { ObjectName, RenameObject, SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
 
-/** The kinds of object that hold a name in the types' name space: a relation's row type, or a type. */
-type Holding = "table" | "materializedView" | "enum" | "domain"
+/** The kinds of object that hold a name in the types' name space: a relation's row type, or a domain. */
+type Holding = "table" | "materializedView" | "domain"
 
 /** What a relation holder owns under a name of its schema's pg_class or statistics objects, read off its parts
  * (objectParts), and the name it is set aside to: a key, whose index takes the constraint's name and is renamed through
  * it; another index over it; an identity sequence of one of its columns; an extended statistics object over it. */
-interface Owned {
+export interface Owned {
 	readonly kind: "key" | "index" | "sequence" | "statistics"
 	readonly name: string
 	readonly to: string
 }
 
-/** Why a holder is set aside: the target gives its name an object of another kind, the taker; or it is a kept stored
- * relation whose identity moves, the target's relations of the heading it holds being where it may go. */
+/** Why a holder is renamed: the target gives its name an object of another kind, the taker; or the migration declares
+ * its rename (`--rename`), `to` the target's name. */
 export type AsideCause =
 	| { readonly kind: "taken"; readonly taker: { readonly kind: Holding; readonly ident: string } }
-	| { readonly kind: "moved"; readonly toward: NonEmptyReadonlyArray<ObjectName> }
+	| { readonly kind: "declared" }
 
 /** A holder set aside: its kind and name, why, the name it is set aside to, and for a relation, what it owns that goes
  * aside with it. A type is only ever taken: a kept type's identity is its name. */
@@ -54,9 +46,9 @@ export type Aside =
 			readonly owned: ReadonlyArray<Owned>
 	  }
 	| {
-			readonly kind: "enum" | "domain"
+			readonly kind: "domain"
 			readonly name: ObjectName
-			readonly cause: AsideCause & { readonly kind: "taken" }
+			readonly cause: AsideCause
 			readonly to: string
 	  }
 
@@ -65,19 +57,14 @@ const heldName = (
 	ident: string
 ): { readonly kind: Holding; readonly name: ObjectName } | undefined => {
 	const parsed = parseIdent(ident)
-	if (
-		parsed.kind !== "table" &&
-		parsed.kind !== "materializedView" &&
-		parsed.kind !== "enum" &&
-		parsed.kind !== "domain"
-	) {
+	if (parsed.kind !== "table" && parsed.kind !== "materializedView" && parsed.kind !== "domain") {
 		return undefined
 	}
 	return { kind: parsed.kind, name: { schema: parsed.schema, name: parsed.name } }
 }
 
 /** The name the naming door sets an object aside under (identity.aside), as the migration's census admits it. */
-const asideName = (temporaries: TemporaryCensus, name: string): string => {
+export const asideName = (temporaries: TemporaryCensus, name: string): string => {
 	const named = temporaries.admit(identity.aside(name))
 	if (!named.ok) {
 		throw new Refusal(named.error)
@@ -110,44 +97,24 @@ const ownedBy = (
 		)
 	].map((f) => ({ ...f, to: asideName(temporaries, f.name) }))
 
-/** The stored relations of a manifest, each with its definition, by identity. */
-const tablesOf = (objects: ReadonlyArray<ManifestObject>): ReadonlyMap<string, CreateTable> =>
-	new Map(
-		objects.flatMap((o): ReadonlyArray<readonly [string, CreateTable]> => {
-			const v = installed(o)
-			return v.kind === "table" ? [[o.ident, v.create]] : []
-		})
-	)
-
-/** The kept stored relations whose identity moves, by identity, each with the target's relations of the heading it
- * holds: its target declaration has another heading, and another relation of the target, added or itself changed, has
- * exactly the heading it holds. */
-const movedOf = (
-	previous: ReadonlyArray<ManifestObject>,
-	target: ReadonlyArray<ManifestObject>
-): ReadonlyMap<string, NonEmptyReadonlyArray<ObjectName>> => {
-	const before = tablesOf(previous)
-	const after = tablesOf(target)
-	/** A relation of the target as it was: kept, with the heading it held. */
-	const asItWas = (ident: string, create: CreateTable): boolean => {
-		const was = before.get(ident)
-		return was !== undefined && sameHeading(was, create)
+/** A relation of `previous` set aside whole, `to` its aside name: every name it owns in pg_class and among the
+ * statistics objects goes aside with it, under its own aside name (ownedBy). */
+export const relationAside = (
+	previous: DeploySnapshot,
+	kind: "table" | "materializedView",
+	name: ObjectName,
+	cause: AsideCause,
+	temporaries: TemporaryCensus
+): Aside => {
+	const holders = previous.manifest.objects
+	const byIdent = new Map(holders.map((o) => [o.ident, o]))
+	return {
+		kind,
+		name,
+		cause,
+		to: asideName(temporaries, name.name),
+		owned: ownedBy(name, relationParts(name, holders, byIdent), temporaries)
 	}
-	const open = [...after].filter(([ident, create]) => !asItWas(ident, create))
-	const out = new Map<string, NonEmptyReadonlyArray<ObjectName>>()
-	for (const [ident, was] of before) {
-		const now = after.get(ident)
-		if (now === undefined || sameHeading(was, now)) {
-			continue
-		}
-		const toward = open.flatMap(([other, create]) =>
-			other !== ident && sameHeading(was, create) ? [create.table] : []
-		)
-		if (isNonEmpty(toward)) {
-			out.set(ident, toward)
-		}
-	}
-	return out
 }
 
 /** The holders of the previous snapshot set aside, each with why, its aside name, and, for a relation, what it owns:
@@ -156,36 +123,25 @@ const movedOf = (
  * Names a migration frees before it takes them.
  *
  * PostgreSQL keeps one name space per schema for types, where each table's and materialized view's row type lives
- * beside the enums and domains, and one for relations, tables and materialized views among them. The naming door gives
- * tables, derived relations, closed relations' enums and contracts' domains their declared names, one name space for
- * all four, so a migration may give a name to an object of another kind than the one holding it before:
- * - a closed relation's enum taking a removed table's name;
+ * beside the domains, and one for relations, tables and materialized views among them. The naming door gives tables,
+ * derived relations, rosters' domains and contracts' domains their declared names, one name space for all four, so a
+ * migration may give a name to an object of another kind than the one holding it before:
+ * - a roster's domain taking a removed table's name;
  * - a table taking a removed contract's domain's;
  * - a derived relation taking a stored one's.
- * The holder stands until the end of the migration, or a candidate renames it, so the taker could be neither created
- * nor renamed into the name, whichever candidates the reviewer chooses. Two such takers may also swap names (a table A
- * renamed to B while a type B is renamed to A), a cycle that no order of renames breaks.
+ * The holder stands until the end of the migration, so the taker could be neither created nor renamed into the name.
+ * Two such takers may also swap names (a table A renamed to B while a domain B is renamed to A), a cycle that no order
+ * of renames breaks. A declared rename moves an identity between names of one kind itself (declared.ts).
  *
- * A name may also stay with one kind while the identity holding it moves: two stored relations swapped (A and B
- * exchange names), or a chain (A renamed to B while B is renamed to C). The diff compares objects by name, so it would
- * change the table holding the kept name in place into the other relation, its rows staying under the old name. A kept
- * stored relation's identity moves when its target declaration has another heading than the one it holds, and another
- * relation of the target that is not itself as it was, added or changed, has exactly the heading it holds: that
- * relation may be it renamed. The heading is the one evidence a name carries beside itself; two relations of one
- * heading swapped stay indistinguishable, and are no change at all.
- *
- * Rule: every holder whose name the target gives an object of another kind, and every kept stored relation whose
- * identity moves, is first renamed aside, in Setup, to the name the naming door gives it set aside (identity.aside),
+ * Rule: every holder whose name the target gives an object of another kind is first renamed aside, in Setup, to the
+ * name the naming door gives it set aside (identity.aside),
  * which the migration's census `temporaries` admits or refuses as DigestCollision (core/identity.ts TemporaryCensus).
  * A relation holder is renamed aside whole: every name it owns in pg_class and among the statistics objects goes aside
  * with it, under its own aside name: each key's index, through its constraint; each other index over it; the identity
  * sequence of each of its columns; and each extended statistics object over it. The renames are one group under a
  * marker the reviewer confirms, kept or removed whole. The diff then starts from the previous snapshot as it is after
  * those renames (setAside), so every statement that names a holder or what it owns names it where it stands: its
- * teardown, a candidate rename of it, and its drop at the end of the migration, a loss the reviewer decides. Every taker
- * is then created or renamed into a free name, and a swap is two holders set aside and two takers moving in: each
- * set-aside relation is a removed one, offered as a candidate rename of each added relation it may be
- * (`renameCandidateTable`), its own target name among them, so the reviewer chooses where its rows go. */
+ * teardown and its drop at the end of the migration. Every taker is then created or renamed into a free name. */
 export const asidesOf = (
 	previous: DeploySnapshot,
 	target: ReadonlyArray<ManifestObject>,
@@ -203,25 +159,10 @@ export const asidesOf = (
 	const byIdent = new Map(holders.map((o) => [o.ident, o]))
 	const owned = (holder: ObjectName): ReadonlyArray<Owned> =>
 		ownedBy(holder, relationParts(holder, holders, byIdent), temporaries)
-	const moved = movedOf(holders, target)
 	return holders.flatMap((o): ReadonlyArray<Aside> => {
 		const held = heldName(o.ident)
-		if (held === undefined) {
+		if (held === undefined || kept.has(o.ident)) {
 			return []
-		}
-		if (kept.has(o.ident)) {
-			const toward = moved.get(o.ident)
-			return toward === undefined || held.kind !== "table"
-				? []
-				: [
-						{
-							kind: "table",
-							name: held.name,
-							cause: { kind: "moved", toward },
-							to: asideName(temporaries, held.name.name),
-							owned: owned(held.name)
-						}
-					]
 		}
 		const taker = takers.get(nameKey(held.name))
 		if (taker === undefined) {
@@ -244,7 +185,6 @@ const takenAside = (
 		case "table":
 		case "materializedView":
 			return { kind: held.kind, name: held.name, cause, to, owned: owned(held.name) }
-		case "enum":
 		case "domain":
 			return { kind: held.kind, name: held.name, cause, to }
 	}
@@ -271,8 +211,6 @@ const asideObject = (kind: Holding): Exclude<RenameObject["object"], "ROLE" | "S
 			return "TABLE"
 		case "materializedView":
 			return "MATERIALIZED VIEW"
-		case "enum":
-			return "TYPE"
 		case "domain":
 			return "DOMAIN"
 	}
@@ -289,7 +227,6 @@ export const asideStatements = (a: Aside): NonEmptyReadonlyArray<SqlStatement> =
 		to: a.to
 	}
 	switch (a.kind) {
-		case "enum":
 		case "domain":
 			return [holder]
 		case "table":
@@ -328,9 +265,7 @@ export const setAside = (
 		...owned(["key", "index", "sequence"])
 	])
 	const types = new Map(
-		asides.flatMap((a) =>
-			a.kind === "enum" || a.kind === "domain" ? [[a.name.name, a.to] as const] : []
-		)
+		asides.flatMap((a) => (a.kind === "domain" ? [[a.name.name, a.to] as const] : []))
 	)
 	const statistics = new Map(owned(["statistics"]))
 	/** Each relation holder's keys by its name, in its own namespace. */
@@ -359,7 +294,6 @@ export const setAside = (
 				const to = parsed.schema === schema ? relations.get(parsed.name) : undefined
 				return to === undefined ? id : qualifiedIdent(parsed.kind, parsed.schema, to)
 			}
-			case "enum":
 			case "domain": {
 				const to = parsed.schema === schema ? types.get(parsed.name) : undefined
 				return to === undefined ? id : qualifiedIdent(parsed.kind, parsed.schema, to)

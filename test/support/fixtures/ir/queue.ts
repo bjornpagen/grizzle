@@ -99,7 +99,7 @@ export const Queue: SchemaDesc = decodedSchema({
 	relations: [Standing, Kind, Resource, Outcome, Reason, Work, Wanted, Leased, Done, Refused, Seat],
 	statements: [
 		mutable("Work"),
-		...alternatives(Work, "standing", Standing, {
+		alternatives(Work, "standing", Standing, {
 			wanted: Wanted,
 			leased: Leased,
 			done: Done,

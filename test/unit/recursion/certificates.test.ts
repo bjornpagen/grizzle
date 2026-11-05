@@ -934,8 +934,10 @@ const filler = (type: ScalarType, i: number): TypedLiteral => {
 			return { kind: "text", value: `v${i}` }
 		case "bool":
 			return { kind: "bool", value: true }
-		case "enum":
-			return { kind: "enum", handle: defined(base.roster.handles[0], "a roster handle") }
+		case "code":
+			return { kind: "handle", handle: defined(base.roster.handles[0], "a roster handle") }
+		case "bits":
+			return { kind: "handles", handles: [] }
 		case "int2":
 		case "int4":
 		case "int8":

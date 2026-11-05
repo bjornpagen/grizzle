@@ -5,17 +5,18 @@ import { defect } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
 	dedupeNonEmpty,
-	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
+	isSpanField,
 	type LawField,
 	type LawRelation,
 	type NativeColumn,
 	type NativeOf,
 	plainFields,
 	type RelationInfo,
+	type RowGuard,
 	type SpanField
 } from "#compiler/ir/law.ts"
 import type { KeyedRelation, NamedNative, NamedPrimaryKey } from "#compiler/laws/model/model.ts"
@@ -29,18 +30,10 @@ interface Named {
 	readonly described: Law
 }
 
-/**
- * A condition a row meets to be held by a UNIQUE over law columns: one conjunct of a law column's guard (ir/law.ts
- * LawColumnValue), a row predicate over its relation's own fields, with the fields it reads.
- */
-export interface RowGuard {
-	readonly predicate: ScalarExpr
-	readonly reads: ReadonlyArray<LawField>
-}
-
 /** A unique object: the handles of the fields two facts must share to conflict, in the object's order, and for a
  * UNIQUE over law columns (`guarded`) the guards both facts must meet, its columns' guards' conjuncts, for a span object
- * the span two facts' values must overlap at, its compared fields of key types as btree_gist compares them. */
+ * the span two facts' values must overlap at, its compared fields of key types as btree_gist compares them, and the
+ * guards both facts must meet, none for a key over every fact. */
 export type UniqueObject = Named &
 	(
 		| { readonly kind: "key"; readonly equal: NonEmptyReadonlyArray<LawField> }
@@ -49,7 +42,12 @@ export type UniqueObject = Named &
 				readonly equal: NonEmptyReadonlyArray<LawField>
 				readonly within: NonEmptyReadonlyArray<RowGuard>
 		  }
-		| { readonly kind: "span"; readonly equal: ReadonlyArray<LawField>; readonly span: SpanField }
+		| {
+				readonly kind: "span"
+				readonly equal: ReadonlyArray<LawField>
+				readonly span: SpanField
+				readonly within: ReadonlyArray<RowGuard>
+		  }
 	)
 
 /** A declared key's object: a PRIMARY KEY or UNIQUE constraint, or one WITHOUT OVERLAPS when it holds a span field, over
@@ -57,7 +55,13 @@ export type UniqueObject = Named &
 export type PrimaryKeyObject = Named &
 	(
 		| { readonly kind: "key"; readonly equal: NonEmptyReadonlyArray<LawField> }
-		| { readonly kind: "span"; readonly equal: ReadonlyArray<LawField>; readonly span: SpanField }
+		| {
+				readonly kind: "span"
+				readonly equal: ReadonlyArray<LawField>
+				readonly span: SpanField
+				/** A declared key holds every fact apart: no guard. */
+				readonly within: readonly []
+		  }
 	)
 
 export interface UniqueObjects {
@@ -86,7 +90,7 @@ export const readFields = (u: UniqueObject): ReadonlyArray<LawField> => {
 		case "guarded":
 			return [...u.equal, ...u.within.flatMap((g) => g.reads)]
 		case "span":
-			return [...u.equal, u.span]
+			return [...u.equal, u.span, ...u.within.flatMap((g) => g.reads)]
 	}
 }
 
@@ -100,37 +104,82 @@ type Placed =
 type LawColumns = ReadonlyMap<string, ReadonlyMap<ColumnIdent, NativeOf<"LawColumn">>>
 
 /**
- * The unique object a UNIQUE over law columns is (law/model/plan.ts sideColumns): two rows conflict at it where both
- * meet every column's guard, so that no column is null, and agree at each column's term. A column's term reads one
- * field, its own or the pred's, injective where defined, so two rows agree at it where they agree at that field: its
- * compared fields are its columns' fields, and its guards their guards' distinct conjuncts, one expression each
- * (laws/model/model.ts ColumnLowering). A UNIQUE whose columns are total holds every row, a key over its fields.
+ * The compared fields and guards of columns over law columns (law/model/plan.ts sideColumns): two rows agree at them
+ * where both meet every column's guard, so that no column is null, and agree at each column's term. A column's term
+ * reads one field, its own or the pred's, injective where defined, so two rows agree at it where they agree at that
+ * field: its compared fields are its columns' fields, and its guards their guards' distinct conjuncts, one expression
+ * each (laws/model/model.ts ColumnLowering). Undefined for columns holding a drawn law column, which the host draws
+ * apart and no field determines: only a family's planner writes those rows.
  */
-const projected = (
+const compared = (
 	relation: LawRelation,
 	columns: NonEmptyReadonlyArray<NativeColumn>,
-	lawColumns: LawColumns,
-	named: Named
-): UniqueObject => {
+	lawColumns: LawColumns
+):
+	| { readonly equal: NonEmptyReadonlyArray<LawField>; readonly within: ReadonlyArray<RowGuard> }
+	| undefined => {
 	const guards = new Map<ScalarExpr, RowGuard>()
-	const equal = mapNonEmpty(columns, (c): LawField => {
+	const equal: Array<LawField> = []
+	for (const c of columns) {
 		if (c.kind === "field") {
-			return c.field
+			equal.push(c.field)
+			continue
 		}
 		const native =
 			lawColumns.get(relation.name)?.get(c.column) ??
 			missing(relation, `the native of the law column ${c.column}`)
+		if (native.value.kind === "drawn") {
+			return undefined
+		}
 		for (const g of native.value.guard) {
 			if (!guards.has(g)) {
 				guards.set(g, { predicate: g, reads: readsOf(relation, g) })
 			}
 		}
-		return native.field
-	})
-	const [first, ...rest] = guards.values()
+		equal.push(native.field)
+	}
+	const [first, ...rest] = equal
 	return first === undefined
-		? { ...named, kind: "key", equal: dedupeNonEmpty(equal) }
-		: { ...named, kind: "guarded", equal: dedupeNonEmpty(equal), within: [first, ...rest] }
+		? missing(relation, "a unique object's columns, at least one")
+		: { equal: dedupeNonEmpty([first, ...rest]), within: [...guards.values()] }
+}
+
+/** The unique object a UNIQUE over law columns is (`compared`): a key over its fields when its columns are total, else
+ * guarded by its columns' guards. */
+const projected = (
+	relation: LawRelation,
+	columns: NonEmptyReadonlyArray<NativeColumn>,
+	lawColumns: LawColumns,
+	named: Named
+): UniqueObject | undefined => {
+	const c = compared(relation, columns, lawColumns)
+	if (c === undefined) {
+		return undefined
+	}
+	const [first, ...rest] = c.within
+	return first === undefined
+		? { ...named, kind: "key", equal: c.equal }
+		: { ...named, kind: "guarded", equal: c.equal, within: [first, ...rest] }
+}
+
+/** The span object a WITHOUT OVERLAPS is: its scalar columns' fields compared, its span column's field overlapped,
+ * under its columns' guards. Undefined for one over a drawn law column. */
+const spanObject = (
+	relation: LawRelation,
+	scalars: ReadonlyArray<NativeColumn>,
+	span: NativeColumn,
+	lawColumns: LawColumns,
+	named: Named
+): UniqueObject | undefined => {
+	const c = compared(relation, [span, ...scalars], lawColumns)
+	if (c === undefined) {
+		return undefined
+	}
+	const [spanField, ...equal] = c.equal
+	if (!isSpanField(spanField) || equal.includes(spanField)) {
+		return missing(relation, "a span key's span column, a span field's values")
+	}
+	return { ...named, kind: "span", equal, span: spanField, within: c.within }
 }
 
 /** The fields of `relation` a row predicate reads, in declared field order. */
@@ -173,13 +222,8 @@ const uniqueOf = (n: NamedNative, lawColumns: LawColumns): ReadonlyArray<Placed>
 		case "Unique": {
 			const fields = plainFields(o.columns)
 			if (fields === undefined) {
-				return [
-					{
-						relation: o.relation,
-						role: "other",
-						object: projected(o.relation, o.columns, lawColumns, named)
-					}
-				]
+				const object = projected(o.relation, o.columns, lawColumns, named)
+				return object === undefined ? [] : [{ relation: o.relation, role: "other", object }]
 			}
 			/** A UNIQUE over a declared candidate key's fields in its order is that key's; any other is generated. */
 			const declared = o.relation.keyNames.find(
@@ -201,26 +245,22 @@ const uniqueOf = (n: NamedNative, lawColumns: LawColumns): ReadonlyArray<Placed>
 						}
 					]
 		}
-		case "WithoutOverlaps":
-			return o.key.kind === "primary"
-				? []
-				: [
-						{
-							relation: o.relation,
-							role: "key",
-							object: { ...named, kind: "span", equal: o.key.scalars, span: o.span }
-						}
-					]
-		case "TemporalUnique":
-			return [
-				{
-					relation: o.relation,
-					role: "other",
-					object: { ...named, kind: "span", equal: o.columns, span: o.span }
-				}
-			]
+		case "WithoutOverlaps": {
+			if (o.key.kind === "primary") {
+				return []
+			}
+			const object = spanObject(o.relation, o.key.scalars, o.span, lawColumns, named)
+			if (object?.kind !== "span") {
+				return []
+			}
+			/** A declared span key is a key of its relation; one over a projected side holds apart only its side's rows. */
+			const declared = o.relation.keyNames.some((k) => k.named === o.named)
+			return declared && object.within.length === 0
+				? [{ relation: o.relation, role: "key", object: { ...object, within: [] } }]
+				: [{ relation: o.relation, role: "other", object }]
+		}
 		case "TableCheck":
-		case "FiniteCheck":
+		case "ClosedCheck":
 		case "ForeignKey":
 		case "PeriodForeignKey":
 			return []
@@ -252,9 +292,15 @@ export interface RelationLaws {
 const primaryObject = (pk: NamedPrimaryKey): PrimaryKeyObject => {
 	const o = pk.object
 	const named = { name: identifierOf(pk.named), law: o.lawIds[0], described: pk.described }
-	return o.kind === "PrimaryKey"
-		? { ...named, kind: "key", equal: o.columns }
-		: { ...named, kind: "span", equal: o.key.scalars, span: o.span }
+	if (o.kind === "PrimaryKey") {
+		return { ...named, kind: "key", equal: o.columns }
+	}
+	const fields = plainFields(o.key.scalars)
+	const span = o.span.kind === "field" ? o.span.field : undefined
+	if (fields === undefined || span === undefined || !isSpanField(span)) {
+		return missing(o.relation, "a primary key's columns, each a field, its span a span field")
+	}
+	return { ...named, kind: "span", equal: fields, span, within: [] }
 }
 
 /** Each ordinary relation of `keyed` by name with its primary key and its unique objects, from a law model's natives:

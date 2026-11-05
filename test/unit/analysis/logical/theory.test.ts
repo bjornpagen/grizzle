@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, element, int, shuffled, subarray } from "@grizzle/testing/gen"
+import { array, element, int, shuffled, subarray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -14,7 +14,6 @@ import {
 } from "#compiler/analysis/theory/theory.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { FieldId, type LawId } from "#compiler/core/ids.ts"
-import { baseOf } from "#compiler/ir/scalar.ts"
 import {
 	assert,
 	defined,
@@ -26,23 +25,18 @@ import {
 import { ownedFixture } from "#test/support/evidence.ts"
 import * as G from "#test/support/fixtures/golden/work.ts"
 import {
-	capacity,
 	check,
 	closed,
 	contained,
-	eq,
 	f,
 	field,
 	key,
-	literal,
 	mirrors,
 	ne,
 	on,
-	onWhere,
 	relation,
 	type SchemaDesc,
-	type AuthoredStatementDesc as StatementDesc,
-	within
+	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import * as P from "#test/support/fixtures/ir/payroll.ts"
 import * as Q from "#test/support/fixtures/ir/queue.ts"
@@ -65,8 +59,8 @@ import {
  *   law's meaning written from its statement;
  * - union-find classes over containment pairings keep carrier, contract and roster identity, refuse incompatible
  *   pairings, and keep a typmod or a refinement inside one class;
- * - evidence carries its validity context: keys and checks immediate, a roster containment a descriptor fact, every
- *   other containment committed-snapshot only unless law specialization says otherwise;
+ * - evidence carries its validity context: keys and checks immediate, a containment into a closed relation immediate,
+ *   every other containment committed-snapshot only unless law specialization says otherwise;
  * - law identities are deterministic, independent of declaration order and of unrelated statements, come from the
  *   lawId option, must be distinct, and equivalent declarations are one law keeping both statements;
  * - a containment pairing more than one span field is UnsupportedLawFamily (the span law families themselves are
@@ -91,6 +85,19 @@ const lawsOf = (t: Theory, shape: string) => Arr.filter(t.laws, (l) => l.shape =
 const lawOf = (t: Theory, shape: string, relation: string) =>
 	Option.getOrThrow(
 		Arr.findFirst(t.laws, (l) => l.shape === shape && l.sides[0]?.relation === relation)
+	).id
+/** The containment an alternatives statement expands to from `from` into `to`: an arm's, or a handle's reverse. */
+const alternativeOf = (t: Theory, from: string, to: string) =>
+	Option.getOrThrowWith(
+		Arr.findFirst(
+			t.laws,
+			(l) =>
+				l.shape === "contained" &&
+				l.source.kind === "alternatives" &&
+				l.sides[0]?.relation === from &&
+				l.sides[1]?.relation === to
+		),
+		() => new Error(`the alternatives expand to a containment from ${from} into ${to}`)
 	).id
 
 /**
@@ -160,15 +167,13 @@ describe("span laws", () => {
 describe("field-compatibility classes", () => {
 	/**
 	 * A pairing of two fields: of one identity (the same carrier, a typmod or a refinement apart), or of different
-	 * identities: another carrier, a contract against its base, two rosters sharing handle names, a capacity's target
-	 * against its source.
+	 * identities: another carrier, a contract against its base, two rosters sharing handle names.
 	 */
 	type Pairing =
 		| "a typmod and a refinement apart"
 		| "another carrier"
 		| "a contract against its base"
 		| "two rosters sharing handles"
-		| "a capacity across carriers"
 	it.effect(
 		"refuses a pairing of fields of different identity, and keeps a typmod and a refinement inside one class",
 		(ctx) =>
@@ -181,17 +186,15 @@ describe("field-compatibility classes", () => {
 							"a typmod and a refinement apart",
 							"another carrier",
 							"a contract against its base",
-							"two rosters sharing handles",
-							"a capacity across carriers"
+							"two rosters sharing handles"
 						]),
 						literal: Formatter.format,
-						limit: 5,
+						limit: 4,
 						coverage: requiredInSpace<Pairing>([
 							"a typmod and a refinement apart",
 							"another carrier",
 							"a contract against its base",
-							"two rosters sharing handles",
-							"a capacity across carriers"
+							"two rosters sharing handles"
 						]),
 						caseHang
 					},
@@ -292,26 +295,6 @@ describe("field-compatibility classes", () => {
 									)
 									return
 								}
-								case "a capacity across carriers": {
-									const Pool = relation("Pool", { id: f.uuid }, ["id"])
-									const Draw = relation("Draw", { id: f.uuid, pool: f.wildcard }, ["id"])
-									refused(
-										theoryResult(
-											{
-												name: "K",
-												relations: [Pool, Draw],
-												statements: [
-													capacity(on("Pool", ["id"]), on("Draw", ["pool"]), within(0n, 1n), {
-														kind: "count"
-													})
-												],
-												extends: undefined
-											},
-											provisionalTheory
-										),
-										"MalformedDescription"
-									)
-								}
 							}
 						})
 				)
@@ -321,16 +304,17 @@ describe("field-compatibility classes", () => {
 
 describe("violation queries mean what their laws say", () => {
 	const t = theoryOf(W.WorkDesc, provisionalTheory)
-	const family = defined(t.families[0])
-	const manualHalf = Option.getOrThrow(
-		Arr.findFirst(family.arms, (a) => a.handles.includes("Manual"))
-	).forward
+	/** The Manual arm's containment into its tasks, and each handle's reverse containment into its arm. */
+	const manualArm = alternativeOf(t, "ManualTask", "Task")
+	const manualReverse = alternativeOf(t, "Task", "ManualTask")
+	const automaticReverse = alternativeOf(t, "Task", "AutomaticTask")
 	const contract = defined(lawsOf(t, "contract")[0]).id
 	/**
 	 * The planted violations of the lawful Work facts, each breaking one law with its witnesses: a second task at t1's
 	 * key (the key, witnessed by it); a note of a task that does not exist (the containment, by the note's task); a
-	 * manual task with no ManualTask (the family law alone, by the task); t1's payload moved to the other arm (that arm's
-	 * half and the family law, by the task); t3's budget below the contract (the contract, by the value).
+	 * manual task with no ManualTask (Manual's reverse alone, by the task); t1's payload moved to the other arm (the
+	 * Manual arm's containment and Automatic's reverse, by the task); t3's budget below the contract (the contract, by the
+	 * value).
 	 */
 	type Mutation =
 		| "a second key"
@@ -376,11 +360,11 @@ describe("violation queries mean what their laws say", () => {
 			case "an orphan note":
 				return [[lawOf(t, "contained", "TaskNote"), [G.tMissing]]]
 			case "a parent without its arm":
-				return [[family.reverse, [G.tLate]]]
+				return [[manualReverse, [G.tLate]]]
 			case "a payload in the other arm":
 				return [
-					[manualHalf, [G.t1]],
-					[family.reverse, [G.t1]]
+					[manualArm, [G.t1]],
+					[automaticReverse, [G.t1]]
 				]
 			case "a refused budget":
 				return [[contract, [-5n]]]
@@ -558,122 +542,6 @@ describe("violation queries mean what their laws say", () => {
 			)
 		}
 	)
-
-	it.effect(
-		"capacity counts and sums per target over complete source facts, the empty group included",
-		(ctx) => {
-			const Pool = relation("Pool", { id: f.uuid, budget: f.bigint }, ["id"])
-			const Draw = relation(
-				"Draw",
-				{ id: f.uuid, pool: f.uuid, amount: f.bigint, kept: f.boolean },
-				["id"]
-			)
-			const ct = theoryOf(
-				{
-					name: "Cap",
-					relations: [Pool, Draw],
-					statements: [
-						capacity(on("Pool", ["id"]), on("Draw", ["pool"]), within(1n, 2n), { kind: "count" }),
-						capacity(
-							on("Pool", ["id"]),
-							onWhere("Draw", ["pool"], eq(field("kept"), literal(true))),
-							within(0n, "budget"),
-							{
-								kind: "field",
-								field: "amount"
-							}
-						)
-					],
-					extends: undefined
-				},
-				provisionalTheory
-			)
-			const weighted = (w: boolean) =>
-				Option.getOrThrow(
-					Arr.findFirst(
-						lawsOf(ct, "capacity"),
-						(l) => l.detail.kind === "capacity" && (l.detail.weight.kind !== "count") === w
-					)
-				).id
-			const [count, sum] = [weighted(false), weighted(true)]
-			const pools = [G.a1, G.a2, G.a3]
-			const drawIds = [G.t1, G.t2, G.t3, G.t4, G.t5]
-			return searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/analysis/logical/capacity-violations",
-						draw: drawn(
-							(source) =>
-								[
-									source.draw(array(element([0n, 10n, 100n]), { min: 1, max: 3 })),
-									source.draw(
-										array(
-											(draw) => ({
-												pool: draw.draw(int(0, 2)),
-												amount: draw.draw(element([0n, 6n, 40n, 60n])),
-												kept: draw.draw(boolean)
-											}),
-											{ min: 0, max: 5 }
-										)
-									)
-								] as const
-						),
-						literal: Formatter.format,
-						coverage: required<
-							"an empty group" | "a crowded group" | "a sum over budget" | "lawful"
-						>(["an empty group", "a crowded group", "a sum over budget", "lawful"], {
-							cases: 300,
-							sense: notesOnly
-						}),
-						kept: [],
-						runs: 300,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					([budgets, draws], c) =>
-						Effect.sync(() => {
-							const poolFacts = Arr.map(budgets, (budget, i) => ({ id: defined(pools[i]), budget }))
-							const drawFacts = Arr.map(
-								Arr.filter(draws, (d) => d.pool < poolFacts.length),
-								(d, i) => ({
-									id: defined(drawIds[i]),
-									pool: defined(pools[d.pool]),
-									amount: d.amount,
-									kept: d.kept
-								})
-							)
-							const expected = new Map<LawId, Array<ReadonlyArray<unknown>>>()
-							for (const p of poolFacts) {
-								const mine = Arr.filter(drawFacts, (d) => d.pool === p.id)
-								if (mine.length === 0 || mine.length > 2) {
-									c.note(mine.length === 0 ? "an empty group" : "a crowded group")
-									expected.set(count, [...(expected.get(count) ?? []), [p.id]])
-								}
-								const total = Arr.reduce(
-									Arr.filter(mine, (d) => d.kept),
-									0n,
-									(acc, d) => acc + d.amount
-								)
-								if (total < 0n || total > p.budget) {
-									c.note("a sum over budget")
-									expected.set(sum, [...(expected.get(sum) ?? []), [p.id]])
-								}
-							}
-							if (expected.size === 0) {
-								c.note("lawful")
-							}
-							assert.deepEqual(
-								violatedSorted(ct, { Pool: poolFacts, Draw: drawFacts }),
-								new Map(Arr.map([...expected], ([law, rows]) => [law, Arr.sort(rows, byText)]))
-							)
-						})
-				)
-			)
-		}
-	)
 })
 
 describe("evidence and its validity context", () => {
@@ -733,7 +601,7 @@ describe("evidence and its validity context", () => {
 	)
 
 	it.effect(
-		"a containment into a roster its field is typed by is a descriptor fact; any other holds in committed snapshots",
+		"a containment into a closed relation holds at every statement; any other holds in committed snapshots",
 		(ctx) => {
 			const facts = Arr.flatMap(theories, ([name, t]) =>
 				Arr.map(t.evidence.containments, (containment) => ({ name, t, containment }))
@@ -746,31 +614,21 @@ describe("evidence and its validity context", () => {
 						generator: element(nonEmpty(facts, "a containment of the fixture schemas")),
 						literal: Formatter.format,
 						limit: 500,
-						coverage: requiredInSpace<"a roster membership" | "a committed-snapshot containment">([
-							"a roster membership",
-							"a committed-snapshot containment"
-						]),
+						coverage: requiredInSpace<
+							"a containment into a closed relation" | "a committed-snapshot containment"
+						>(["a containment into a closed relation", "a committed-snapshot containment"]),
 						caseHang
 					},
 					({ t, containment }, c) =>
 						Effect.sync(() => {
-							const [field] = containment.from.fields
-							const typedByTarget = Rec.get(t.relations, containment.from.relation).pipe(
-								Option.flatMap((r) => Arr.findFirst(r.heading, (h) => h.name === field)),
-								Option.exists((h) => {
-									const base = baseOf(h.type)
-									return base.carrier === "enum" && base.roster.closed === containment.to.relation
-								})
+							const closed = t.relations[containment.to.relation]?.kind === "closed"
+							c.note(
+								closed ? "a containment into a closed relation" : "a committed-snapshot containment"
 							)
-							const roster =
-								containment.from.fields.length === 1 &&
-								typedByTarget &&
-								t.relations[containment.to.relation]?.kind === "closed"
-							c.note(roster ? "a roster membership" : "a committed-snapshot containment")
-							assert.equal(containment.context, roster ? "descriptor" : "committedSnapshot")
+							assert.equal(containment.context, closed ? "immediate" : "committedSnapshot")
 							const immediate = immediateEvidence(t.evidence)
 							assert.deepEqual(immediate.keys, t.evidence.keys)
-							assert.equal(immediate.containments.includes(containment), roster)
+							assert.equal(immediate.containments.includes(containment), closed)
 						})
 				)
 			)
@@ -806,8 +664,11 @@ describe("evidence and its validity context", () => {
 								containmentContext: (law) =>
 									named.includes(law.id) ? "immediate" : "committedSnapshot"
 							})
+							/** A containment into a closed relation is immediate whatever the option says. */
+							const intoClosed = (k: (typeof t.evidence.containments)[number]) =>
+								t.relations[k.to.relation]?.kind === "closed"
 							for (const k of t.evidence.containments) {
-								if (k.statement !== "contained" || k.context === "descriptor") {
+								if (k.statement !== "contained" || intoClosed(k)) {
 									continue
 								}
 								assert.equal(
@@ -827,7 +688,7 @@ describe("evidence and its validity context", () => {
 								Arr.map(
 									Arr.filter(
 										t.evidence.containments,
-										(k) => k.context !== "descriptor" && Arr.some(named, (n) => n === k.law)
+										(k) => intoClosed(k) || Arr.some(named, (n) => n === k.law)
 									),
 									(k) => k.law
 								)
@@ -963,7 +824,6 @@ describe("law identities", () => {
 								(l) =>
 									l.shape === "contained" &&
 									l.source.kind === "contained" &&
-									l.source.alternatives === undefined &&
 									l.sides[0]?.relation === from &&
 									l.sides[1]?.relation === to
 							)

@@ -1,9 +1,11 @@
 import { Array as Arr, Option, Order, Record as Rec, Result, String as Str } from "effect"
 import { readHost } from "#adapter/engine.ts"
 import { ClaimRefused } from "#adapter/errors/failures.ts"
-import { scalarCodec } from "#compiler/codec/scalar.ts"
+import { type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ContextDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
@@ -28,7 +30,10 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
  * an integer claim is read as JSON states integers. An int8 claim is a JSON number that is a safe integer, or a string
  * of decimal digits with an optional leading minus, read as a bigint; an int2 or int4 claim is a safe-integer number.
  * The field's encoder then bounds it to its type's range. A number past the safe integers lost its digits in the JSON
- * parse, so it is refused, never rounded, as are a fraction and a number spelled as a string for int2 and int4.
+ * parse, so it is refused, never rounded, as are a fraction and a number spelled as a string for int2 and int4. A
+ * closed id's claim is its handle, a JSON string, which the field's codec writes as the handle's code under the
+ * installation's codes, so a claim of a handle the roster does not hold live is refused like any value its encoder
+ * refuses.
  *
  * A field whose type is refined, by a pattern or a contract's predicate, is judged by PostgreSQL, never on the host:
  * Db.open's admission flight asks the field's domain whether it admits each such value (admission/admit.ts), and a
@@ -60,10 +65,17 @@ export const noClaims: Claims = Object.freeze({
 	values: []
 })
 
-/** One context, its fields typed: what its claims are decoded through. */
+/**
+ * One context, its fields typed, each with its codec under the installation's codes: what its claims are decoded
+ * through.
+ */
 export interface TypedContext {
 	readonly desc: ContextDesc
-	readonly fields: ReadonlyArray<{ readonly name: string; readonly type: ScalarType }>
+	readonly fields: ReadonlyArray<{
+		readonly name: string
+		readonly type: ScalarType
+		readonly codec: ScalarCodec
+	}>
 }
 
 /** Whether `text` is decimal digits with an optional leading minus: what BigInt reads as exactly that integer. */
@@ -105,13 +117,17 @@ const claimHost = (type: ScalarType, value: unknown): Option.Option<unknown> => 
 		case "bool":
 		case "uuid":
 		case "text":
-		case "enum":
+		case "code":
 		case "range4":
 		case "range8":
 		case "vector":
 		case "exactInteger":
 		case "exactMoney":
 			return Option.some(value)
+		case "bits":
+			throw defect(
+				"a context's field is no set: a context admits no bits field (ir/desc.ts contextFieldAdmits)"
+			)
 	}
 }
 
@@ -180,7 +196,7 @@ const contextFact = (
 				)
 			}
 			const host = claimHost(field.type, object.get(field.name))
-			const text = Option.isSome(host) ? scalarCodec(field.type).encode(host.value) : undefined
+			const text = Option.isSome(host) ? field.codec.encode(host.value) : undefined
 			if (text === undefined || !text.ok) {
 				return Result.fail(
 					new ClaimRefused({
@@ -234,10 +250,11 @@ export const claimsOf = (
 	})
 }
 
-/** The typed fields of a context, by `typeOf`, in code-unit order. */
+/** The typed fields of a context, by `typeOf`, in code-unit order, each with its codec under the codes `codes`. */
 export const typedContext = (
 	desc: ContextDesc,
-	typeOf: (field: FieldDesc) => ScalarType
+	typeOf: (field: FieldDesc) => ScalarType,
+	codes: Codebook
 ): TypedContext => ({
 	desc,
 	fields: Arr.map(
@@ -245,6 +262,9 @@ export const typedContext = (
 			Rec.toEntries(desc.fields),
 			Order.mapInput(Order.String, ([name]: readonly [string, FieldDesc]) => name)
 		),
-		([name, field]) => ({ name, type: typeOf(field) })
+		([name, field]) => {
+			const type = typeOf(field)
+			return { name, type, codec: scalarCodec(type, codes) }
+		}
 	)
 })

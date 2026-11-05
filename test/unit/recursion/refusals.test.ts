@@ -7,6 +7,7 @@ import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "e
 import { checkQuery } from "#compiler/check/index.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
+import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
@@ -1318,24 +1319,38 @@ describe("unbounded computed state through a correlated import", () => {
 
 describe("the seen-state estimate", () => {
 	/**
-	 * A countdown over a bigint, seeded by data (a count over the vertices) or by a literal: small ones, and ones whose
-	 * countdowns need more states than any store holds, which admission records and never refuses.
+	 * A countdown over a bigint by n - 1 while n > 0, seeded by data (a count over the vertices) or by a literal. A seed
+	 * of a literal s from 0 to bigint's greatest counts the s + 1 states from s down to 0, recorded and never refused
+	 * however many no store holds, the step's least value, -1, within bigint. A seed admission cannot read is any bigint,
+	 * and a literal at bigint's least value is that value: either puts bigint's least value among the states, where the
+	 * step may compute n - 1 before its filter drops the row (check/recursion/state.ts counterNarrowing), so the
+	 * narrowing of the step into n is PartialOperation, naming n and the fits precondition.
 	 */
 	type Seed = "data" | bigint
+	const seeds: Arr.NonEmptyReadonlyArray<Seed> = [
+		"data",
+		0n,
+		2n,
+		2n ** 40n,
+		2n ** 62n,
+		int8Max.value,
+		int8Min.value
+	]
 	it.effect(
-		"counts a countdown from its seed to its bound, a data seed over the carrier's whole range, and admits every estimate",
+		"counts a countdown from its seed to its bound and admits every estimate, and refuses the step over a seed that may be bigint's least value",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/recursion/countdown",
-						generator: element<Seed>(["data", 0n, 2n, 2n ** 40n, 2n ** 62n]),
+						generator: element<Seed>(seeds),
 						literal: Formatter.format,
-						limit: 5,
-						coverage: requiredInSpace<"admitted data" | "admitted literal">([
-							"admitted data",
-							"admitted literal"
+						limit: seeds.length,
+						coverage: requiredInSpace<"admitted literal" | "refused data" | "refused literal">([
+							"admitted literal",
+							"refused data",
+							"refused literal"
 						]),
 						caseHang
 					},
@@ -1365,16 +1380,22 @@ describe("the seen-state estimate", () => {
 									})
 								]
 							)
-							const outcome = outcomeOf(desc)
-							/**
-							 * From the seed down to 0, the last value the bound admits less the step; a seed admission cannot read is
-							 * any bigint.
-							 */
-							const needed = seeded === "data" ? 2n ** 64n : seeded + 1n
-							c.note(seeded === "data" ? "admitted data" : "admitted literal")
-							const cert = theRecursive(admitted(outcome)).termination
-							assert.equal(cert.kind, "wellFounded")
-							assert.equal(cert.stateEstimate, needed)
+							if (seeded !== "data" && seeded >= 0n) {
+								c.note("admitted literal")
+								const cert = theRecursive(admitted(outcomeOf(desc))).termination
+								assert.equal(cert.kind, "wellFounded")
+								assert.equal(cert.stateEstimate, seeded + 1n)
+								return
+							}
+							c.note(seeded === "data" ? "refused data" : "refused literal")
+							const r = checkQuery(checking(Graph), desc, checkOptions("query"))
+							assert.ok(!r.ok, "the step over bigint's least value is refused")
+							const reason = r.error.reason
+							assert.ok(reason._tag === "PartialOperation", `refused as ${reason._tag}`)
+							assert.deepEqual(
+								{ precondition: reason.precondition, operand: reason.operand },
+								{ precondition: "fits", operand: "n" }
+							)
 						})
 				)
 			)

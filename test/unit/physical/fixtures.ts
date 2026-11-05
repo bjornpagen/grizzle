@@ -1,5 +1,5 @@
 import * as Result from "#compiler/core/result.ts"
-import type { ExprDesc, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDecl, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
 import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { type InstallExtension, noContribution } from "#compiler/physical/install/extension.ts"
@@ -38,10 +38,14 @@ const F = {
 	boolean: { kind: "pg", type: "boolean" },
 	numeric186: { kind: "numeric", precision: 18, scale: 6 },
 	prose: { kind: "text", source: "^.*$", flags: "su" },
-	serial: { kind: "serial", type: "serial" },
-	bigserial: { kind: "serial", type: "bigserial" },
 	vector3: { kind: "vector", dimensions: 3 }
 } as const satisfies Readonly<Record<string, FieldDesc>>
+
+/** A field its caller writes. */
+const c = (type: FieldDesc): FieldDecl<object> => ({ type, writing: { kind: "caller" } })
+
+/** An integer field its sequence draws, GENERATED ALWAYS AS IDENTITY. */
+const serial = (type: FieldDesc): FieldDecl<object> => ({ type, writing: { kind: "serial" } })
 
 /** A finite-language pattern, a regex pattern, the wildcard, and a contract bounding
  * length with charLength over a pattern. */
@@ -66,7 +70,13 @@ const Content: SchemaDesc = {
 		{
 			kind: "relation",
 			name: "Article",
-			fields: { id: F.uuid, state: State, slug: Slug, title: F.prose, handle: Handle },
+			fields: {
+				id: c(F.uuid),
+				state: c(State),
+				slug: c(Slug),
+				title: c(F.prose),
+				handle: c(Handle)
+			},
 			primaryKey: ["id"]
 		}
 	],
@@ -81,19 +91,17 @@ const Accounts: SchemaDesc = {
 		{
 			kind: "relation",
 			name: "Account",
-			fields: { id: F.uuid, name: F.prose },
+			fields: { id: c(F.uuid), name: c(F.prose) },
 			primaryKey: ["id"]
 		},
-		{ kind: "relation", name: "Task", fields: { id: F.uuid, account: F.uuid }, primaryKey: ["id"] }
-	],
-	statements: [
 		{
-			kind: "contained",
-			left: on("Task", ["account"]),
-			right: on("Account", ["id"]),
-			origin: undefined
+			kind: "relation",
+			name: "Task",
+			fields: { id: c(F.uuid), account: c(F.uuid) },
+			primaryKey: ["id"]
 		}
 	],
+	statements: [{ kind: "contained", left: on("Task", ["account"]), right: on("Account", ["id"]) }],
 	extends: undefined
 }
 
@@ -131,30 +139,39 @@ const EpochDay: FieldDesc = {
 }
 const Code: FieldDesc = { kind: "text", source: "^[A-Z]{3}$", flags: "u" }
 
-/** Every native object kind the fresh-install compiler installs outside spans: an enum with a text and contract payload,
- * structural and contract domains, serial identities, a candidate key, a mutable relation, a row CHECK, a capacity at
- * most one over a selected source, a containment into closed facts (a finite CHECK), a selected target (a constant law
- * column, a generated composite unique and a deferred foreign key ending in that column), money, floats, numeric(p, s),
- * booleans and a vector. */
+/** Every native object kind the fresh-install compiler installs outside spans: two rosters' domains and a closed
+ * relation over both, with a text and contract payload, structural and contract domains, serial identities, a
+ * candidate key, a mutable relation, a row CHECK, a key over a selected source, a containment into the closed relation
+ * (a closed CHECK), a selected target (a constant law column, a generated composite unique and a deferred foreign key
+ * ending in that column), money, floats, numeric(p, s), booleans and a vector. */
 export const Ledger: SchemaDesc = {
 	name: "Ledger",
 	relations: [
+		{ kind: "closed", name: "Currency", handles: ["Usd", "Eur"] },
+		{ kind: "closed", name: "Purpose", handles: ["Payroll", "Refund"] },
 		{
-			kind: "closed",
-			name: "Currency",
-			handles: ["Usd", "Eur"],
-			payload: { code: Code, minor: Cents },
-			facts: { Usd: { code: "USD", minor: 100n }, Eur: { code: "EUR", minor: 100n } }
+			kind: "closedRelation",
+			name: "Settlement",
+			fields: {
+				currency: { kind: "closedId", roster: "Currency" },
+				purpose: { kind: "closedId", roster: "Purpose" },
+				code: Code,
+				minor: Cents
+			},
+			key: ["currency", "purpose"],
+			rows: [
+				{ currency: "Usd", purpose: "Payroll", code: "USD", minor: 100n },
+				{ currency: "Eur", purpose: "Refund", code: "EUR", minor: 100n }
+			]
 		},
-		{ kind: "closed", name: "Purpose", handles: ["Payroll", "Refund"], payload: {}, facts: {} },
 		{
 			kind: "relation",
 			name: "Account",
 			fields: {
-				id: F.bigserial,
-				code: Code,
-				currency: { kind: "closedId", roster: "Currency" },
-				opened: EpochDay
+				id: serial(F.bigint),
+				code: c(Code),
+				currency: c({ kind: "closedId", roster: "Currency" }),
+				opened: c(EpochDay)
 			},
 			primaryKey: ["id"]
 		},
@@ -162,32 +179,36 @@ export const Ledger: SchemaDesc = {
 			kind: "relation",
 			name: "Entry",
 			fields: {
-				id: F.serial,
-				account: F.bigint,
-				purpose: { kind: "closedId", roster: "Purpose" },
-				amount: Cents,
-				refund: Refund,
-				remainder: F.boolean,
-				rate: Rate,
-				fee: F.money,
-				weight: F.real,
-				score: F.double,
-				ratio: F.numeric186,
-				embedding: F.vector3,
-				memo: F.prose
+				id: serial(F.integer),
+				account: c(F.bigint),
+				purpose: c({ kind: "closedId", roster: "Purpose" }),
+				amount: c(Cents),
+				refund: c(Refund),
+				remainder: c(F.boolean),
+				rate: c(Rate),
+				fee: c(F.money),
+				weight: c(F.real),
+				score: c(F.double),
+				ratio: c(F.numeric186),
+				embedding: c(F.vector3),
+				memo: c(F.prose)
 			},
 			primaryKey: ["id"]
 		},
 		{
 			kind: "relation",
 			name: "Rounding",
-			fields: { currency: { kind: "closedId", roster: "Currency" }, minor: Cents },
+			fields: {
+				currency: c({ kind: "closedId", roster: "Currency" }),
+				purpose: c({ kind: "closedId", roster: "Purpose" }),
+				minor: c(Cents)
+			},
 			primaryKey: ["currency"]
 		},
 		{
 			kind: "relation",
 			name: "Payout",
-			fields: { entry: F.integer, purpose: { kind: "closedId", roster: "Purpose" } },
+			fields: { entry: c(F.integer), purpose: c({ kind: "closedId", roster: "Purpose" }) },
 			primaryKey: ["entry"]
 		}
 	],
@@ -205,37 +226,24 @@ export const Ledger: SchemaDesc = {
 				right: { kind: "base", arg: field("amount") }
 			}
 		},
+		{ kind: "contained", left: on("Entry", ["account"]), right: on("Account", ["id"]) },
 		{
 			kind: "contained",
-			left: on("Entry", ["account"]),
-			right: on("Account", ["id"]),
-			origin: undefined
-		},
-		{
-			kind: "contained",
-			left: on("Rounding", ["currency", "minor"]),
-			right: on("Currency", ["id", "minor"]),
-			origin: undefined
+			left: on("Rounding", ["currency", "purpose"]),
+			right: on("Settlement", ["currency", "purpose"])
 		},
 		{
 			kind: "contained",
 			left: on("Payout", ["entry"]),
-			right: onWhere("Entry", ["id"], eq(field("purpose"), lit("Payroll"))),
-			origin: undefined
+			right: onWhere("Entry", ["id"], eq(field("purpose"), lit("Payroll")))
 		},
-		{
-			kind: "capacity",
-			target: on("Account", ["id"]),
-			from: onWhere("Entry", ["account"], eq(field("remainder"), lit(true))),
-			within: { low: 0n, high: 1n },
-			weight: { kind: "count" }
-		}
+		key(onWhere("Entry", ["account"], eq(field("remainder"), lit(true))))
 	],
 	extends: undefined
 }
 
 /** Money constants in persistent expressions: a contract over money whose domain CHECK compares VALUE with
- * money literals, a row CHECK comparing a money column with a literal, and an at-most-one capacity selected on a money
+ * money literals, a row CHECK comparing a money column with a literal, and a key over a source selected on a money
  * field, whose selection holds a money literal. Each literal is folded at DDL time, so none depends on the writing
  * session's lc_monetary. */
 const Fee: FieldDesc = {
@@ -254,11 +262,11 @@ const Fee: FieldDesc = {
 export const Charges: SchemaDesc = {
 	name: "Charges",
 	relations: [
-		{ kind: "relation", name: "Account", fields: { id: F.uuid }, primaryKey: ["id"] },
+		{ kind: "relation", name: "Account", fields: { id: c(F.uuid) }, primaryKey: ["id"] },
 		{
 			kind: "relation",
 			name: "Charge",
-			fields: { id: F.uuid, account: F.uuid, fee: Fee, surcharge: F.money },
+			fields: { id: c(F.uuid), account: c(F.uuid), fee: c(Fee), surcharge: c(F.money) },
 			primaryKey: ["id"]
 		}
 	],
@@ -269,19 +277,12 @@ export const Charges: SchemaDesc = {
 			relation: "Charge",
 			predicate: { kind: "compare", op: "ne", left: field("surcharge"), right: lit(Money.of(1n)) }
 		},
-		{
-			kind: "capacity",
-			target: on("Account", ["id"]),
-			from: onWhere("Charge", ["account"], eq(field("fee"), lit(Money.of(125n)))),
-			within: { low: 0n, high: 1n },
-			weight: { kind: "count" }
-		}
+		key(onWhere("Charge", ["account"], eq(field("fee"), lit(Money.of(125n)))))
 	],
 	extends: undefined
 }
 
-/** The examples' fixtures, each a schema the fresh-install compiler installs completely or with its residual laws
- * deferred. */
+/** The examples' fixtures, each a schema the fresh-install compiler installs completely. */
 export const fixtures: ReadonlyArray<{ readonly name: string; readonly desc: SchemaDesc }> = [
 	{ name: "Work", desc: work.WorkDesc },
 	{ name: "Plans", desc: work.PlansDesc },

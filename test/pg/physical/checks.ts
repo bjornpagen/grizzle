@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import type { ConstraintName, DomainName } from "#compiler/core/ids.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import { type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -126,10 +126,10 @@ const declaredText = (field: FieldDesc): DeclaredText => {
 			return declaredText(field.base)
 		case "pg":
 		case "numeric":
-		case "serial":
 		case "uuid":
 		case "span":
 		case "closedId":
+		case "bits":
 		case "vector":
 			return { kind: "none" }
 	}
@@ -152,19 +152,17 @@ const textDomainModels = (
 	desc: SchemaDesc
 ): ReadonlyArray<TextDomainModel> =>
 	Arr.map(installation.textDomains, (d) => {
-		/** A stored relation's fields and a closed relation's payload, each a column of its table. */
+		/** A stored relation's fields, each a column of its table. */
 		const fields = Arr.flatMap(desc.relations, (r) =>
-			Arr.flatMap(
-				Rec.toEntries(r.kind === "relation" ? r.fields : r.kind === "closed" ? r.payload : {}),
-				([field, f]) =>
-					Arr.some(
-						d.uses,
-						(u) =>
-							u.table === installation.names.relation(r.name).name &&
-							u.column === installation.names.column(r.name, field)
-					)
-						? [declaredText(f)]
-						: []
+			Arr.flatMap(Rec.toEntries(r.kind === "relation" ? fieldTypes(r.fields) : {}), ([field, f]) =>
+				Arr.some(
+					d.uses,
+					(u) =>
+						u.table === installation.names.relation(r.name).name &&
+						u.column === installation.names.column(r.name, field)
+				)
+					? [declaredText(f)]
+					: []
 			)
 		)
 		const [text] = Arr.flatMap(fields, (t) => (t.kind === "text" ? [t] : []))

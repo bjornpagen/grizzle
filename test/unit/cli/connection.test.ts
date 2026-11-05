@@ -42,7 +42,9 @@ import {
  *   host and servername, the host never a path, IPv6 hosts, ports and timeouts across their ranges, a CA as one text or
  *   a list, a password Redacted or an Effect) resolves to exactly the drawn role and connection, its CA the bundle TLS
  *   is handed: the parse of the connection (adapter/connection/config.ts, whose faults test/unit/adapter/layer.test.ts
- *   injects through DbLayer.make) plus the role, the password and the driver kept as given.
+ *   injects through DbLayer.make) plus the role and the password kept as given, and the driver as the three classes
+ *   it reads off the given module once (its Client, Pool and DatabaseError), never the module itself, so no getter of
+ *   another member runs.
  * - The role, the one setting a migration connection adds: one that is not a nonempty string, or none, is refused at
  *   stage config, naming the configuration's `connection.role`, and no refusal holds the password.
  * - The process environment, the one node-postgres reads: drawn with `PGOPTIONS` and `PGREPLICATION` each absent, empty
@@ -171,7 +173,10 @@ const typedOf = (d: Drawn): MigrationConnectionConfig => ({
 	connectTimeoutMs: d.connectTimeoutMs
 })
 
-/** The settings the agreement compares, and whether the password and functions are the given ones. */
+/**
+ * The settings the agreement compares, and whether the password, the driver's three classes and `open` are the given
+ * ones.
+ */
 interface Fields {
 	readonly role: string
 	readonly database: string
@@ -196,7 +201,10 @@ const fields = (c: MigrationConnection, given: MigrationConnectionConfig): Field
 	port: c.transport.port,
 	ca: c.transport.ca,
 	servername: c.transport.servername,
-	driver: c.driver === given.driver,
+	driver:
+		c.driver.Client === given.driver.Client &&
+		c.driver.Pool === given.driver.Pool &&
+		c.driver.DatabaseError === given.driver.DatabaseError,
 	open: c.transport.open === given.transport.open,
 	password: c.password === given.password
 })

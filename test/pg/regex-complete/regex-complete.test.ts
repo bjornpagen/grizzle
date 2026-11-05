@@ -21,6 +21,7 @@ import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
 import {
@@ -31,11 +32,12 @@ import {
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
+import { closedId, contract, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -47,6 +49,7 @@ import { assert, containsText, lacksText, unorderedEqual } from "#test/support/a
 import {
 	compileTemplate,
 	installationSql,
+	installedCodes,
 	paramTexts,
 	realityWrite,
 	testArtifacts,
@@ -96,9 +99,15 @@ const Prose = str.regex("^.*$", "su")
 const limit = 5
 const Note = contract("Note", Prose, (x) => Compute.charLength(x).le(limit))
 
-const Tier = closed("Tier", ["Free", "Pro"]).with(
-	{ label: Slug },
-	{ Free: { label: "free" }, Pro: { label: "pro-plan" } }
+const Tier = closed("Tier", ["Free", "Pro"])
+const TierLabel = closed.relation(
+	"TierLabel",
+	{ tier: closedId(Tier), label: Slug },
+	["tier"],
+	[
+		{ tier: "Free", label: "free" },
+		{ tier: "Pro", label: "pro-plan" }
+	]
 )
 const Article = relation("Article", { id: uuid, slug: Slug, title: Prose }, ["id"])
 const Draft = relation("Draft", { id: uuid, slug: SlugAgain, note: Note }, ["id"])
@@ -107,7 +116,12 @@ const Comment = relation("Comment", { id: uuid, article: uuid, slug: Slug }, ["i
 const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
 const Price = relation("Price", { id: uuid, amount: Cents, rate: Rate }, ["id"])
-const Content = schema("Content", { Tier, Article, Draft, Comment, Price }, [mutable(Draft)])
+const Content = schema("Content", { Tier, TierLabel, Article, Draft, Comment, Price }, [
+	mutable(Draft)
+])
+
+/** Content's codes as a fresh installation drafts them, from no codes: what every template of it binds under. */
+const contentCodes = firstCodebook(rostersOf(owning(Content)))
 
 const id = (n: number): Uuid => `00000000-0000-4000-8000-${Str.padStart(12, "0")(n.toString(16))}`
 
@@ -359,7 +373,7 @@ const bindRefusal = (
 	template: QueryTemplate,
 	params: Readonly<Record<string, unknown>>
 ): BindRefusal | undefined => {
-	const bound = executionInputs(paramCodecs(template.params), params)
+	const bound = executionInputs(paramCodecs(template.params, contentCodes), params)
 	if (bound._tag === "Success") {
 		return undefined
 	}
@@ -566,7 +580,8 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 				ok(
 					testArtifacts(Content, {
 						installation: identity.schema(parsedSchemaName(name)),
-						vectorSchema: undefined
+						vectorSchema: undefined,
+						codes: installedCodes(installation.names.codes)
 					}),
 					"artifacts"
 				)
@@ -583,7 +598,8 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 						claims: reality.claims,
 						laws: reality.laws,
 						derived: reality.derived,
-						world: reality.world
+						world: reality.world,
+						codes: installation.names.codes
 					}
 				),
 				"changeset"

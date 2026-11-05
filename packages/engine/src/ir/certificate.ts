@@ -63,7 +63,7 @@ type RewriteRule =
 	| "R03.elimination"
 	| "R03.keyJoin"
 	| "R06.lateFetch"
-	| "R07.finiteMembership"
+	| "R07.closedMembership"
 	| "prune.heading"
 	| "pushdown.project"
 	| "pushdown.group"

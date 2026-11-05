@@ -1,10 +1,9 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { type FieldClass, FieldClasses } from "#compiler/analysis/theory/classes.ts"
+import { slotsText } from "#compiler/analysis/theory/families.ts"
 import {
-	type AlternativesFamily,
 	type ContractUse,
-	type FamilyMember,
 	fixedSelection,
 	type KeptLaw,
 	type LawIdentity,
@@ -24,18 +23,14 @@ import {
 	type Part
 } from "#compiler/core/identity.ts"
 
-import {
-	type ConstraintName,
-	FieldId,
-	fieldIdSpellingParts,
-	type LawId
-} from "#compiler/core/ids.ts"
+import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type BoundValueDesc, type FieldDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
+import { type FieldDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
 import type { EvidenceContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { Family } from "#compiler/ir/family.ts"
 import {
 	type EvidenceSide,
 	fieldNames,
@@ -49,11 +44,11 @@ import {
 	baseOf,
 	type ContractInfo,
 	contractOf,
-	rosterOf,
 	type ScalarType,
 	spanOf
 } from "#compiler/ir/scalar.ts"
 import type { RegexMember } from "#compiler/scalar/compute/evaluate.ts"
+import type { ClosedRelations } from "#compiler/scalar/compute/lower.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { contractInfoOf, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
@@ -99,8 +94,8 @@ interface ContainmentEvidence {
 	readonly to: EvidenceSide
 	readonly coverage: boolean
 	/**
-	 * What states it: a `contained` statement (an alternatives head included), or an alternatives family, an arm's
-	 * either direction. attach reads only declared containments.
+	 * What states it: a `contained` statement, or an alternatives statement's expansion (fin.md §7). attach reads only
+	 * declared containments.
 	 */
 	readonly statement: "contained" | "alternatives"
 	readonly context: EvidenceContext
@@ -155,17 +150,17 @@ interface TheoryEvidence {
  *
  * The pass after ownership and before law specialization. It produces:
  *
- * - field-compatibility classes over the admitted containment pairings (classes.ts), refusing a pairing of fields of
- *   different identity;
+ * - field-compatibility classes over the admitted containment pairings and every family's (classes.ts), refusing a
+ *   pairing of fields of different identity;
  * - the normalized laws, each with its source identity and its violation query as a Forbid node in one DAG
- *   (laws.ts): a key, a containment and a capacity over partial projections, an alternatives expansion recognized as
- *   one family;
+ *   (laws.ts): a key and a containment over partial projections, an alternatives statement's containments, a family,
+ *   a tree and a fold;
+ * - every family, a tree's included, resolved (families.ts): its axes' carried pairs and its folds;
  * - the relation dependency graph: each relation and the relations its laws read;
- * - the evidence each law gives queries, with its validity context: keys and row checks are
- *   validated immediate storage facts; a containment into a closed roster that its source field is already typed by is
- *   an unconditional descriptor fact; every other containment holds in lawful committed snapshots only, unless law
- *   specialization proves it immediate (a non-deferred native FK), which it states through the
- *   containmentContext option;
+ * - the evidence each law gives queries, with its validity context: keys and row checks are validated immediate
+ *   storage facts, and so is a containment into a closed relation; every other containment holds in lawful committed
+ *   snapshots only, unless law specialization proves it immediate (a non-deferred native FK), which it states through
+ *   the containmentContext option;
  * - the capability obligations the laws carry (btree_gist for span keys and coverage with scalar parts, the vector
  *   extension for vector fields).
  *
@@ -188,7 +183,12 @@ export interface Theory extends CheckedTheory {
 	/** Each ordinary relation with its primary key's law, a law of `laws`, in relation order: the theory states one
 	 * primary key per ordinary relation. */
 	readonly primaryKeys: ReadonlyArray<PrimaryKeyLaw>
-	readonly families: ReadonlyArray<AlternativesFamily<LawId>>
+	/**
+	 * Every family, ordered, counted or a tree, in statement order, with its axes' carried pairs and its folds resolved
+	 * (ir/family.ts): what the law model lowers to natives, the write planner draws and fills, and the shell reads counts
+	 * by.
+	 */
+	readonly families: ReadonlyArray<Family>
 	readonly evidence: TheoryEvidence
 }
 
@@ -213,16 +213,6 @@ const sideDisplay = (side: ResolvedSide): string => {
 	}`
 }
 
-const boundPart = (bound: BoundValueDesc | "*"): Part =>
-	bound === "*"
-		? ["unbounded"]
-		: typeof bound === "bigint"
-			? ["int", `${bound}`]
-			: ["ref", bound.ref]
-
-const boundDisplay = (bound: BoundValueDesc | "*"): string =>
-	bound === "*" ? "*" : typeof bound === "bigint" ? `${bound}` : bound.ref
-
 /** A contract's law: its name, which one contract has wherever its domain is installed. */
 const contractStatement = (contract: string): LawStatement => ({
 	parts: ["contract", contract],
@@ -233,9 +223,10 @@ const contractStatement = (contract: string): LawStatement => ({
 /**
  * What a law is, independent of where its statement sits among the others, as the naming door states it: a key by its
  * relation and fields, a key over a projected side by that side, a check by its relation and name, a contract by its
- * name, a containment by its sides (terms and selections included), a family by its origin marker, a capacity by its
- * sides, weight and bounds, each led by the law's shape. Adding or removing an unrelated statement never changes it. A
- * count, a statement that weighs nothing, weighs nothing in it.
+ * name, a containment by its sides (terms and selections included), a family by its order, its slots and its member's
+ * terms, a tree by its slots, its member's terms and its root field, and a fold by its slots, its monoid and its two
+ * sides, each led by the law's shape. Adding or removing an unrelated statement never changes it: a fold's position
+ * among its family's folds is no part of it.
  */
 const lawStatement = (law: LawIdentity): LawStatement => {
 	const d = law.detail
@@ -268,39 +259,40 @@ const lawStatement = (law: LawIdentity): LawStatement => {
 				stem: [...sideStem(d.from), "in", d.to.relation],
 				display: `${sideDisplay(d.from)} ${law.shape === "coverage" ? "covered by" : "in"} ${sideDisplay(d.to)}`
 			}
-		case "alternatives": {
-			const { relation, field } = fieldIdSpellingParts(d.family)
-			return {
-				parts: [law.shape, d.family],
-				stem: [relation, field, "alternatives"],
-				display: `alternatives of ${relation}.${field}`
-			}
+		case "family":
+		case "tree": {
+			const f = d.family
+			const terms = [
+				...f.group.map((p) => p.member.name),
+				...(f.index.kind === "field" ? [f.index.field.name] : [])
+			]
+			const order = f.index.kind === "field" ? "ordered" : "counted"
+			const member = `${f.member.name}(${terms.join(", ")})`
+			return f.members.kind === "tree"
+				? {
+						parts: [law.shape, f.id.owner, f.id.count, terms, f.members.root.name],
+						stem: [f.member.name, "tree", f.id.count],
+						display: `tree ${member} in ${slotsText(f.id)} by ${f.members.root.name}`
+					}
+				: {
+						parts: [law.shape, order, f.id.owner, f.id.count, f.member.name, terms],
+						stem: [f.member.name, order, f.id.owner, f.id.count],
+						display: `${order} ${member} in ${slotsText(f.id)}`
+					}
 		}
-		case "alternativesArm": {
-			const { relation, field } = fieldIdSpellingParts(d.family)
-			return {
-				parts: [law.shape, d.family, d.arm, d.handles],
-				stem: [d.arm, "arm", relation, field],
-				display: `${d.arm} the arm of ${relation}.${field} at ${d.handles.join(", ")}`
-			}
-		}
-		case "capacity": {
-			const weight: ReadonlyArray<string> =
-				d.weight.kind === "count" ? [] : [d.weight.kind, d.weight.field]
+		case "fold":
 			return {
 				parts: [
 					law.shape,
-					sidePart(d.target),
-					sidePart(d.from),
-					weight,
-					[boundPart(d.within.low), boundPart(d.within.high)]
+					d.family.owner,
+					d.family.count,
+					d.monoid,
+					sidePart(d.step),
+					sidePart(d.end)
 				],
-				stem: [...sideStem(d.target), "capacity", d.from.relation],
-				display: `capacity of ${sideDisplay(d.target)} over ${sideDisplay(d.from)}${
-					d.weight.kind === "count" ? "" : ` weighing ${d.weight.kind} ${d.weight.field}`
-				} within ${boundDisplay(d.within.low)}..${boundDisplay(d.within.high)}`
+				stem: [d.family.owner, d.family.count, d.monoid, "fold"],
+				display: `${d.monoid} fold over ${slotsText(d.family)} of ${sideDisplay(d.step)} into ${sideDisplay(d.end)}`
 			}
-		}
 	}
 }
 
@@ -388,11 +380,14 @@ class Builder {
 	/** The stored relations' handles the checked schema minted, in name order. */
 	readonly stored: ReadonlyArray<TheoryRelation>
 	readonly relations: ReadonlyMap<string, TheoryRelation>
+	/** The closed relations a law's predicates and terms may apply (CheckedSchema.closedReads). */
+	readonly closed: ClosedRelations
 
 	constructor(checked: CheckedSchema, options: TheoryOptions) {
 		this.owned = checked.owned
 		this.options = options
 		this.fieldType = typingEnv(checked.owned).fieldType
+		this.closed = checked.closedReads
 		this.stored = checked.stored
 		this.relations = new Map(checked.stored.map((r) => [r.name, r] as const))
 	}
@@ -406,52 +401,25 @@ class Builder {
 	}
 
 	/**
-	 * Primary keys, in relation order.
-	 *
-	 * Contracts, in name order, with every column and span endpoint that stores their values.
+	 * Primary keys, in relation order; every family's and tree's shape, so a containment knows the axes it may ride;
+	 * the statements, in canonical order; contracts, in name order, with every column and span endpoint that stores
+	 * their values. Then the drawn and accumulated fields' namings are checked, the families resolved and every law's
+	 * violation written.
 	 */
 	run(): Theory {
 		const normalizer = new Normalizer({
 			relations: this.relations,
 			named: lawIdentityOf,
-			lowerEnv: { fieldType: this.fieldType, regexMember }
+			lowerEnv: { fieldType: this.fieldType, regexMember, closed: this.closed }
 		})
 		for (const [index, r] of this.stored.entries()) {
 			if (r.kind === "relation") {
 				normalizer.primaryKey(r, index)
 			}
 		}
-		/** Statements, in canonical order; an alternatives expansion as one family, at its first statement. */
-		const expansions = new Map<string, [FamilyMember, ...Array<FamilyMember>]>()
-		const order: Array<
-			| { readonly kind: "statement"; readonly member: FamilyMember }
-			| {
-					readonly kind: "family"
-					readonly id: string
-					readonly members: NonEmptyReadonlyArray<FamilyMember>
-			  }
-		> = []
+		normalizer.families(this.owned.statements)
 		for (const [index, s] of this.owned.statements.entries()) {
-			const id = s.kind === "contained" ? s.origin?.alternatives : undefined
-			if (id === undefined) {
-				order.push({ kind: "statement", member: { s, index } })
-				continue
-			}
-			const members = expansions.get(id)
-			if (members === undefined) {
-				const first: [FamilyMember, ...Array<FamilyMember>] = [{ s, index }]
-				expansions.set(id, first)
-				order.push({ kind: "family", id, members: first })
-			} else {
-				members.push({ s, index })
-			}
-		}
-		for (const item of order) {
-			if (item.kind === "statement") {
-				normalizer.statement(item.member.s, item.member.index)
-			} else {
-				normalizer.alternatives(item.id, item.members)
-			}
+			normalizer.statement(s, index)
 		}
 		const contracts = Object.entries(this.owned.contracts).toSorted(([a], [b]) => compareText(a, b))
 		for (const [index, [name, contract]] of contracts.entries()) {
@@ -467,20 +435,10 @@ class Builder {
 				contract.loc
 			)
 		}
+		normalizer.finish()
 		const kept = normalizer.laws
-		const classes = this.#classes(kept)
-		const { laws, primaryKeys, dag } = this.#violations(normalizer.primaryKeys, kept)
-		const families: ReadonlyArray<AlternativesFamily<LawId>> = normalizer.families.map((f) =>
-			Object.freeze({
-				id: f.id,
-				reverse: identifierOf(f.reverse.named),
-				arms: mapNonEmpty(f.arms, (a) => ({
-					relation: a.relation,
-					handles: a.handles,
-					forward: identifierOf(a.forward.named)
-				}))
-			})
-		)
+		const classes = this.#classes(kept, normalizer.familyPairings())
+		const { laws, primaryKeys, dag, families } = this.#violations(normalizer, kept)
 		return Object.freeze({
 			schema: this.owned.fingerprint,
 			name: this.owned.name,
@@ -499,19 +457,22 @@ class Builder {
 
 	/**
 	 * Each law, its violation query under a Forbid node of its identity, in law order, as one DAG: each primary key's law
-	 * with its relation, then every other law. The kept laws and their identities are a pure function of the owned
-	 * schema, and the builder allocates its identifiers in the same order for the same laws, so every build of an owned
-	 * schema builds one DAG.
+	 * with its relation, then every other law. The families are resolved into the DAG first, each fold's step selection
+	 * lowered there, since a family's and a tree's law carry them. The kept laws and their identities are a pure function
+	 * of the owned schema, and the builder allocates its identifiers in the same order for the same laws, so every build
+	 * of an owned schema builds one DAG.
 	 */
 	#violations(
-		primary: ReadonlyArray<PrimaryKeyKept>,
+		normalizer: Normalizer,
 		kept: ReadonlyArray<KeptLaw>
 	): {
 		readonly laws: ReadonlyArray<TheoryLaw>
 		readonly primaryKeys: ReadonlyArray<PrimaryKeyLaw>
 		readonly dag: ValidDag
+		readonly families: ReadonlyArray<Family>
 	} {
 		const vb = new ViolationBuilder(SourceLoc(`schema ${this.owned.name}`, []))
+		const families = normalizer.resolve(vb)
 		const write = (k: KeptLaw): TheoryLaw => {
 			const id = identifierOf(k.named)
 			const written = k.draft.write(vb)
@@ -524,14 +485,21 @@ class Builder {
 				loc: k.loc
 			})
 		}
-		const primaryKeys = primary.map((p): PrimaryKeyLaw =>
+		const primaryKeys = normalizer.primaryKeys.map((p: PrimaryKeyKept): PrimaryKeyLaw =>
 			Object.freeze({ relation: p.relation, law: write(p.kept) })
 		)
 		const laws = [...primaryKeys.map((p) => p.law), ...kept.map(write)]
-		return { laws, primaryKeys, dag: vb.b.build(laws.map((law) => law.violation)) }
+		return { laws, primaryKeys, dag: vb.b.build(laws.map((law) => law.violation)), families }
 	}
 
-	#classes(kept: ReadonlyArray<KeptLaw>): ReadonlyArray<FieldClass> {
+	/**
+	 * The field-compatibility classes: every field of every relation, each containment's pairs, and each family's
+	 * (Normalizer.familyPairings), so two fields one law compares are of one identity.
+	 */
+	#classes(
+		kept: ReadonlyArray<KeptLaw>,
+		families: ReturnType<Normalizer["familyPairings"]>
+	): ReadonlyArray<FieldClass> {
 		const classes = new FieldClasses()
 		for (const r of this.relations.values()) {
 			for (const c of r.fields) {
@@ -558,30 +526,14 @@ class Builder {
 		}
 		for (const k of kept) {
 			const detail = k.draft.identity.detail
-			const loc = k.tracked
-			switch (detail.kind) {
-				case "containment":
-					for (const p of detail.pairs) {
-						pair(detail.from.relation, p.from.column, detail.to.relation, p.to.column, loc)
-					}
-					break
-				case "capacity":
-					for (const p of detail.pairs) {
-						pair(detail.target.relation, p.targetColumn, detail.from.relation, p.fromColumn, loc)
-					}
-					break
-				case "alternativesArm":
-					for (const p of detail.key) {
-						pair(detail.arm, p.armColumn, detail.parent, p.parentColumn, loc)
-					}
-					break
-				case "key":
-				case "projectedKey":
-				case "check":
-				case "contract":
-				case "alternatives":
-					break
+			if (detail.kind === "containment") {
+				for (const p of detail.pairs) {
+					pair(detail.from.relation, p.from.column, detail.to.relation, p.to.column, k.tracked)
+				}
 			}
+		}
+		for (const p of families) {
+			pair(p.a, p.f, p.b, p.g, p.loc)
 		}
 		return classes.classes()
 	}
@@ -637,10 +589,9 @@ class Builder {
 	}
 
 	/**
-	 * Each key, row check and containment's evidence; an alternatives arm relation's law, each row of it a payload of a
-	 * parent, selected by the discriminator when the relation is the arm of one handle, since a row of an arm of several
-	 * handles may belong to a parent of any of them; and a family law's reverse obligation per arm: a parent selecting
-	 * the handle has its arm row.
+	 * Each key, row check and containment's evidence, an alternatives expansion's containments among them (statement
+	 * "alternatives"). A family's, a tree's and a fold's laws give none of their own: a containment riding a family's
+	 * axis gives its evidence as a containment.
 	 */
 	#evidence(laws: ReadonlyArray<TheoryLaw>): TheoryEvidence {
 		const keys: Array<KeyEvidence> = []
@@ -668,96 +619,36 @@ class Builder {
 						from: sides.from,
 						to: sides.to,
 						coverage: d.pairing.kind === "span",
-						statement: "contained",
+						statement: law.source.kind === "alternatives" ? "alternatives" : "contained",
 						context: this.#containmentContext(law, d)
 					})
 				}
-			} else if (d.kind === "alternativesArm") {
-				const [only, ...more] = d.handles
-				containments.push({
-					law: law.id,
-					from: {
-						relation: d.arm,
-						fields: mapNonEmpty(d.key, (p) => p.arm),
-						selection: []
-					},
-					to: {
-						relation: d.parent,
-						fields: mapNonEmpty(d.key, (p) => p.parent),
-						selection:
-							more.length === 0
-								? [{ column: d.discriminator, value: { kind: "enum", handle: only } }]
-								: []
-					},
-					coverage: false,
-					statement: "alternatives",
-					context: this.options.containmentContext(law)
-				})
-			}
-		}
-		for (const law of laws) {
-			const f = law.detail
-			if (f.kind !== "alternatives") {
-				continue
-			}
-			for (const h of f.handles) {
-				if (h.kind === "unarmed") {
-					continue
-				}
-				const arm = h.arm
-				containments.push({
-					law: law.id,
-					from: {
-						relation: f.parent,
-						fields: f.parentKey,
-						selection: [{ column: f.discriminator, value: { kind: "enum", handle: arm.handle } }]
-					},
-					to: {
-						relation: arm.relation,
-						fields: mapNonEmpty(arm.key, (p) => p.arm),
-						selection: []
-					},
-					coverage: false,
-					statement: "alternatives",
-					context: this.options.containmentContext(law)
-				})
 			}
 		}
 		return Object.freeze({ keys, checks, containments })
 	}
 
 	/**
-	 * A containment into a closed roster whose source field is already of that roster's handle type is a descriptor
-	 * fact ("finite closed roster"); any other is a deferred native reference or a residual law, which holds in lawful
-	 * committed snapshots, unless the option says otherwise.
+	 * A containment into a closed relation holds at every statement: the roster's domain types a lone field contained
+	 * in its own roster, a table CHECK reads every other's constant, and one between closed relations holds of their
+	 * declared facts, which the migration installing them checks. Any other is a native reference, which holds in lawful
+	 * committed snapshots unless the option says otherwise.
 	 */
 	#containmentContext(
 		law: TheoryLaw,
 		d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>
 	): EvidenceContext {
-		const [only, ...more] = d.pairs
-		if (
-			d.to.rel.kind === "closed" &&
-			more.length === 0 &&
-			only.from.kind === "field" &&
-			only.to.kind === "field" &&
-			only.to.field === "id" &&
-			d.to.selection.conjuncts.length === 0 &&
-			rosterOf(baseOf(only.from.column.type))?.closed === d.to.relation
-		) {
-			return "descriptor"
-		}
-		return this.options.containmentContext(law)
+		return d.to.rel.kind === "closed" ? "immediate" : this.options.containmentContext(law)
 	}
 }
 
 /**
- * The CheckedTheory of an owned schema, or the first refusal: a pairing of incompatible fields or a malformed
- * alternatives expansion (MalformedDescription), pointwise capacity or multi-span coverage (UnsupportedLawFamily), a
- * literal or operator the catalogue does not admit, or the violation DAG's own validation.
+ * The CheckedTheory of an owned schema, or the first refusal: a pairing of incompatible fields, a malformed family, tree
+ * or fold, or a drawn or accumulated field no statement names or two do (MalformedDescription), multi-span coverage
+ * (UnsupportedLawFamily), a literal or operator the catalogue does not admit, or the violation DAG's own validation.
  *
- * Theory normalization: field-compatibility classes, normalized laws with their
- * violation queries, alternatives families, relation dependencies, and evidence with its validity context.
+ * Theory normalization: field-compatibility classes, normalized laws with their violation queries, the families,
+ * relation dependencies, and evidence with its validity context.
  */
 export const buildTheory = (
 	checked: CheckedSchema,
@@ -765,14 +656,14 @@ export const buildTheory = (
 ): Result.Result<Theory, CompileError> => catchRefusal(() => new Builder(checked, options).run())
 
 /**
- * The options of a theory built before law specialization: every containment that is no descriptor fact holds in
- * lawful committed snapshots.
+ * The options of a theory built before law specialization: every containment into an open relation holds in lawful
+ * committed snapshots.
  */
 export const provisionalTheory: TheoryOptions = Object.freeze({
 	containmentContext: () => "committedSnapshot"
 })
 
-const admitted = (c: EvidenceContext): boolean => c === "immediate" || c === "descriptor"
+const admitted = (c: EvidenceContext): boolean => c === "immediate"
 
 /** The evidence valid at every statement of a write transaction: what a read inside one, such as a read-back, may rely on. */
 export const immediateEvidence = (evidence: TheoryEvidence): TheoryEvidence =>

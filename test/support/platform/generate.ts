@@ -25,8 +25,8 @@ import { array, type Gen, int, map, type Size } from "@grizzle/testing/gen"
 import { keep, type Swarm, swarm, weightOf } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order, pipe, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
+import type { Addition } from "#compiler/public/changeset.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
-import type { Fact } from "#compiler/public/schema.ts"
 import { nonEmpty } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { pickFrom, pickGen, pickIndex, pickOf } from "#test/support/pick.ts"
@@ -86,7 +86,11 @@ const instant = (t: bigint) => P.Instant(t)
 const spanOf = (s: SpanV) => ({ start: P.Instant(s.start), end: P.Instant(s.end) })
 const tokenSpan = (s: SpanV) => ({ start: P.Tokens(s.start), end: P.Tokens(s.end) })
 
-type Facts<R> = ReadonlyArray<Fact<R>>
+/**
+ * A relation's facts as its caller writes them (Addition<R>): grizzle draws every count and accumulates every sum of a
+ * counted family, so a fact holds no drawn or accumulated field.
+ */
+type Facts<R> = ReadonlyArray<Addition<R>>
 
 /** Every stored relation's facts. */
 export interface PlatformFacts {
@@ -218,7 +222,7 @@ export const calendarOf = (months: number): ReadonlyArray<MonthM> => {
 const calendarFacts = (months: ReadonlyArray<MonthM>): Pick<PlatformFacts, "Month" | "Day"> => ({
 	Month: Arr.map(months, (m) => ({ month: P.MonthNo(m.month), during: spanOf(m.during) })),
 	Day: Arr.flatMap(months, (m) => {
-		const days: Array<Fact<typeof P.Day>> = []
+		const days: Array<Addition<typeof P.Day>> = []
 		for (let t = m.during.start; t < m.during.end; t += DAY) {
 			days.push({
 				day: P.DayNo(Number(t / DAY)),
@@ -492,9 +496,9 @@ const usageFacts = (
 interface BillingIndex {
 	readonly events: ReadonlyMap<string, ReadonlyArray<Uuid>>
 	readonly modelOf: ReadonlyMap<string, Uuid>
-	readonly chargesOf: ReadonlyMap<string, ReadonlyArray<Fact<typeof P.UsageCharge>>>
-	readonly subscriptionsOf: ReadonlyMap<string, ReadonlyArray<Fact<typeof P.Subscription>>>
-	readonly segmentsOf: ReadonlyMap<string, ReadonlyArray<Fact<typeof P.Segment>>>
+	readonly chargesOf: ReadonlyMap<string, ReadonlyArray<Addition<typeof P.UsageCharge>>>
+	readonly subscriptionsOf: ReadonlyMap<string, ReadonlyArray<Addition<typeof P.Subscription>>>
+	readonly segmentsOf: ReadonlyMap<string, ReadonlyArray<Addition<typeof P.Segment>>>
 }
 
 const billingIndex = (facts: PlatformFacts): BillingIndex => {
@@ -542,8 +546,8 @@ const closeMonthOf = (
 		}
 	}
 	let line = ids.firstLine
-	const lines: Array<Fact<typeof P.InvoiceLine>> = []
-	const usageLines: Array<Fact<typeof P.UsageLine>> = []
+	const lines: Array<Addition<typeof P.InvoiceLine>> = []
+	const usageLines: Array<Addition<typeof P.UsageLine>> = []
 	for (const u of Arr.sort(
 		[...usage.values()],
 		Order.mapInput(Order.String, (x: { readonly model: string; readonly kind: TokenKind }) =>
@@ -554,8 +558,8 @@ const closeMonthOf = (
 		lines.push({ id, invoice, source: "usage", amount: P.Micros(u.amount) })
 		usageLines.push({ line: id, model: u.model, kind: u.kind, tokens: P.Tokens(u.tokens) })
 	}
-	const plans: Array<Fact<typeof P.PlanLine>> = []
-	const allocations: Array<Fact<typeof P.Allocation>> = []
+	const plans: Array<Addition<typeof P.PlanLine>> = []
+	const allocations: Array<Addition<typeof P.Allocation>> = []
 	for (const s of index.subscriptionsOf.get(org) ?? []) {
 		const segments = Arr.filter(
 			index.segmentsOf.get(s.id) ?? [],
@@ -644,12 +648,12 @@ const refundReasons: Arr.NonEmptyReadonlyArray<RefundReasonM> = [
  * ids numbered from `firstRefund`.
  */
 const grantedRefunds = (
-	invoice: Fact<typeof P.Invoice>,
+	invoice: Addition<typeof P.Invoice>,
 	requested: Extract<Settlement, { readonly kind: "paid" }>["refunds"],
 	firstRefund: number
-): ReadonlyArray<Fact<typeof P.Refund>> => {
+): ReadonlyArray<Addition<typeof P.Refund>> => {
 	let left: bigint = invoice.amount
-	const refunds: Array<Fact<typeof P.Refund>> = []
+	const refunds: Array<Addition<typeof P.Refund>> = []
 	for (const r of requested) {
 		if (r.amount > left) {
 			continue
@@ -670,7 +674,7 @@ const grantedRefunds = (
  * The facts an invoice's settlement adds, and the invoice in its final state; refunds past what is left are dropped.
  */
 const settleInvoice = (
-	invoice: Fact<typeof P.Invoice>,
+	invoice: Addition<typeof P.Invoice>,
 	s: Settlement,
 	firstRefund: number
 ): Pick<PlatformFacts, "Invoice" | "Payment" | "Voiding" | "Dispute" | "Refund"> => {
@@ -809,7 +813,7 @@ const cardsOf = (
 		(
 			s,
 			i
-		): { readonly card: Fact<typeof P.RateCard>; readonly tiers: Facts<typeof P.RateTier> } => {
+		): { readonly card: Addition<typeof P.RateCard>; readonly tiers: Facts<typeof P.RateTier> } => {
 			const id = nextId()
 			return {
 				card: { id, model, kind, during: spanOf(platformSpan(s.at, segments[i + 1]?.at ?? FAR)) },

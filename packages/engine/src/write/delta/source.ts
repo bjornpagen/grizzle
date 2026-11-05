@@ -1,7 +1,6 @@
 import type { Built } from "#compiler/core/phantom.ts"
 import type { SchemaInfo } from "#compiler/query/build/scope.ts"
 import { relationHeading, sourceInfo, sourceValue } from "#compiler/query/build/state.ts"
-import { levelRelations } from "#compiler/schema/levels.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
 import { namedRelation } from "#compiler/schema/relation.ts"
 import { worldDraftOf } from "#compiler/schema/world.ts"
@@ -25,7 +24,7 @@ export const memberRelation = (relation: unknown, over: BuiltOver, label: string
 	if (world === undefined) {
 		return writableRelation(relation, over, label)
 	}
-	const entry = over.desc.relations.find((e) => e.name === world.name)
+	const entry = over.entries.get(world.name)
 	if (entry?.kind !== "world") {
 		throw malformed(
 			label,
@@ -34,6 +33,11 @@ export const memberRelation = (relation: unknown, over: BuiltOver, label: string
 	}
 	return world.name
 }
+
+/** What a relation no ChangeSet writes is, by its kind: a roster or a closed relation, whose rows the schema fixes, or a
+ * derived relation, a stored query. */
+const unwritable = (kind: "closed" | "closedRelation" | "derived"): string =>
+	kind === "derived" ? "a derived relation" : "a closed relation"
 
 /** The ordinary relation a delta, a member or a ChangeSet method names, by declared name, refused when it is not one of
  * the schema's ordinary relations (WritableCheck), or of a role's whole ordinary entries. */
@@ -44,10 +48,10 @@ const writableRelation = (relation: unknown, over: BuiltOver, label: string): st
 	if (named.kind !== "relation") {
 		throw malformed(
 			label,
-			`an ordinary relation; ${name} is ${named.kind === "closed" ? "a closed relation" : "a derived relation"}, which no ChangeSet writes`
+			`an ordinary relation; ${name} is ${unwritable(named.kind)}, which no ChangeSet writes`
 		)
 	}
-	const declared = levelRelations(schema).get(name)
+	const declared = over.relations.get(name)
 	if (declared === undefined) {
 		throw malformed(
 			label,
@@ -57,13 +61,10 @@ const writableRelation = (relation: unknown, over: BuiltOver, label: string): st
 	if (declared.kind !== "relation") {
 		throw malformed(
 			label,
-			`an ordinary relation; ${name} is ${declared.kind === "closed" ? "a closed relation" : "a derived relation"}, which no ChangeSet writes`
+			`an ordinary relation; ${name} is ${unwritable(declared.kind)}, which no ChangeSet writes`
 		)
 	}
-	if (
-		over.kind === "role" &&
-		!over.desc.relations.some((e) => e.kind === "whole" && e.name === name)
-	) {
+	if (over.kind === "role" && over.entries.get(name)?.kind !== "whole") {
 		throw malformed(
 			label,
 			`a relation of the ChangeSet's role ${over.desc.name}; ${name} is not one of its entries`

@@ -13,7 +13,6 @@ import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import type { ExprDesc } from "#compiler/ir/desc.ts"
 import {
 	type ExprSpec,
 	type DefinedOp,
@@ -32,19 +31,26 @@ import {
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf, type ScalarType, sameScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
-import { type LowerEnv, lowerTerm, noExtension, noParams } from "#compiler/scalar/compute/lower.ts"
+import {
+	baseOf,
+	rosterOf,
+	type ScalarType,
+	sameScalarType,
+	spanCarrierOf
+} from "#compiler/ir/scalar.ts"
+import {
+	type LowerEnv,
+	lowerTerm,
+	noClosedRelations,
+	noExtension,
+	noParams
+} from "#compiler/scalar/compute/lower.ts"
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { widening } from "#compiler/scalar/compute/types.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { defined } from "#test/support/assert.ts"
-import {
-	bool,
-	compareParamType,
-	numeric,
-	typedLiteralDesc
-} from "#test/support/oracle/gen/domain.ts"
+import { bool, compareParamType } from "#test/support/oracle/gen/domain.ts"
 import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
 import {
 	aggregateOpId,
@@ -80,9 +86,6 @@ import {
 	type MixedRoot,
 	type Operand,
 	type OrderKey,
-	type Padding,
-	paddingBounds,
-	powerBounds,
 	type Param,
 	type ParentColumn,
 	type Query,
@@ -94,9 +97,9 @@ import {
 	type Source,
 	type Stored,
 	sourceFields,
-	unguarded,
 	type Var
 } from "#test/support/oracle/public/program.ts"
+import { termDesc } from "#test/support/oracle/public/terms.ts"
 
 import {
 	type ExpectedStatement,
@@ -134,12 +137,17 @@ const referenceSchema = (s: ProgramSchema): GenSchema => ({
 	containments: []
 })
 
+/**
+ * The case's roster as the IR reads it. A program's schema is installed through its first migration
+ * (test/support/install-migrate.ts), so its codes are a fresh installation's: each handle's code its declared position.
+ */
 const rosterRelation = (s: ProgramSchema): GenClosed => ({
 	name: s.roster.name,
 	handles: s.roster.handles,
+	codes: Arr.map(s.roster.handles, (handle) => ({ kind: "live", handle }) as const),
 	payload: [],
 	rows: Arr.map(s.roster.handles, (handle): ReadonlyArray<TypedLiteral> => [
-		{ kind: "enum", handle }
+		{ kind: "handle", handle }
 	])
 })
 
@@ -177,99 +185,6 @@ const completed = (order: ReadonlyArray<OrderKey>): CompletedOrder => ({
 
 const refusal = (loc: SourceLoc, capability: string): CompileError =>
 	malformedDescription(loc, capability)
-
-const literalDesc = (literal: TypedLiteral, type: ScalarType): ExprDesc => ({
-	kind: "literal",
-	value: typedLiteralDesc(literal, type),
-	type: undefined
-})
-
-/**
- * A padding's Description (program.ts Padding): Compute.when(Compute.within(v, low, high), (v) =>
- * Compute.numeric(Compute.cast(v, pg.numeric(1000, scale))), Compute.numeric(v)), whose branch reads the guarded
- * subject, which is the variable.
- */
-const paddingDesc = (p: Padding, name: (v: Var) => string): ExprDesc => {
-	const type = p.arg.field.type
-	const arg: ExprDesc = { kind: "var", var: name(p.arg) }
-	const [low, high] = paddingBounds(type)
-	return {
-		kind: "when",
-		guard: {
-			kind: "within",
-			low: typedLiteralDesc(low, type),
-			high: typedLiteralDesc(high, type)
-		},
-		subject: arg,
-		proved: {
-			kind: "compute",
-			fn: "numeric",
-			args: [{ kind: "cast", to: { kind: "numeric", precision: 1000, scale: p.scale }, arg }]
-		},
-		otherwise: { kind: "compute", fn: "numeric", args: [arg] }
-	}
-}
-
-/** The Description of what an aggregate or a reading reads: its variable, or its padding. */
-const argDesc = (a: ArgTerm, name: (v: Var) => string): ExprDesc =>
-	a.kind === "var" ? { kind: "var", var: name(a.var) } : paddingDesc(a.padding, name)
-
-/** A Compute term's Description over a node whose heading names each variable's declaration. */
-const termDesc = (t: ComputedTerm, name: (v: Var) => string): ExprDesc => {
-	switch (t.kind) {
-		case "base":
-			return { kind: "base", arg: { kind: "var", var: name(t.arg) } }
-		case "cast numeric":
-			return { kind: "compute", fn: "numeric", args: [{ kind: "var", var: name(t.arg) }] }
-		case "cond": {
-			const arg: ExprDesc = { kind: "var", var: name(t.arg) }
-			return {
-				kind: "cond",
-				pred: {
-					kind: "compare",
-					op: t.op,
-					left: arg,
-					right: literalDesc(t.than, t.arg.field.type)
-				},
-				onTrue: arg,
-				onFalse: literalDesc(t.otherwise, t.arg.field.type)
-			}
-		}
-		case "padded":
-			return paddingDesc(t.padding, name)
-		case "div":
-			return {
-				kind: "compute",
-				fn: "div",
-				args: [argDesc(t.dividend, name), literalDesc(t.divisor, numeric)]
-			}
-		case "sqrt": {
-			const radicand = argDesc(t.radicand, name)
-			return {
-				kind: "when",
-				guard: { kind: "nonnegative" },
-				subject: radicand,
-				proved: { kind: "compute", fn: "sqrt", args: [radicand] },
-				otherwise: literalDesc(unguarded, numeric)
-			}
-		}
-		case "power": {
-			const base = argDesc(t.base, name)
-			const [low, high] = powerBounds
-			return {
-				kind: "when",
-				guard: {
-					kind: "within",
-					low: typedLiteralDesc(low, numeric),
-					high: typedLiteralDesc(high, numeric)
-				},
-				subject: base,
-				proved: { kind: "compute", fn: "power", args: [base, literalDesc(t.exponent, numeric)] },
-				otherwise: literalDesc(unguarded, numeric)
-			}
-		}
-	}
-}
 
 const elementAt = <A>(items: ReadonlyArray<A>, i: number): A => {
 	const item = items[i]
@@ -389,6 +304,7 @@ class Translation {
 		const env: LowerEnv = {
 			mode: "query",
 			loc: SourceLoc("a computed head key", []),
+			closed: noClosedRelations("a generated term reads no closed relation"),
 			emit: (spec) => this.b.expr(spec),
 			leaf: (desc, loc) => {
 				const c =
@@ -1359,8 +1275,8 @@ export const expectedMixed = (
 
 /**
  * A reference value as a text cell PostgreSQL's output function may write for it, for the carriers whose output text
- * is the host value's own: an integer's decimal digits (an exact integer's too), a numeric's one text (scalar/values/decimal.ts), and a text,
- * uuid or handle as it is. A planted mixed root's arms read fields and literals alone, so it holds no other carrier
+ * is the host value's own: an integer's decimal digits (an exact integer's too), a numeric's one text (scalar/values/decimal.ts), a text or
+ * uuid as it is, and a handle as its code's digits, its declared position, as a first migration numbers a roster. A planted mixed root's arms read fields and literals alone, so it holds no other carrier
  * and no declined term's value.
  */
 const cellText = (v: Value, type: ScalarType): string => {
@@ -1379,12 +1295,19 @@ const cellText = (v: Value, type: ScalarType): string => {
 			return asDecimal(value).toString()
 		case "text":
 		case "uuid":
-		case "enum":
 			if (typeof value !== "string") {
 				throw new Error(`a ${carrier} value that is no string`)
 			}
 			return value
+		case "code": {
+			const code = typeof value === "string" ? rosterOf(type)?.handles.indexOf(value) : undefined
+			if (code === undefined || code < 0) {
+				throw new Error(`a closed id's value that is no live handle of its roster`)
+			}
+			return String(code)
+		}
 		case "bool":
+		case "bits":
 		case "float4":
 		case "float8":
 		case "money":

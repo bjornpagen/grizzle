@@ -4,11 +4,13 @@ import { appendAll } from "#compiler/core/array.ts"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import { exactParts } from "#compiler/core/decimal.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
+import { type Codebook, codecOf, codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { cast, lit, namedType, numericType, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
+import { setText } from "#test/support/closed/bit-text.ts"
 import type { Run, StatementRows } from "#test/support/oracle/compare.ts"
 import {
 	type ColumnCasts,
@@ -30,9 +32,10 @@ import type { SqlError } from "#test/support/pg.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 
 /**
- * The PostgreSQL type a value of `type` is spelled at: its base, with its numeric typmod, an enum as the installed
- * type of its roster, an exact value as the lowering types it (bigint for an exact integer of at most 18 digits,
- * numeric otherwise).
+ * The PostgreSQL type a value of `type` is spelled at: its base, with its numeric typmod, a closed id as its roster's
+ * installed domain, an exact value as the lowering types it (bigint for an exact integer of at most 18 digits, numeric
+ * otherwise). A set is spelled at bit(size), the roster's size in the installation's codes, which reads back the same
+ * text its bits domain would.
  */
 const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 	const b = baseOf(type)
@@ -59,14 +62,16 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 			return types.uuid
 		case "text":
 			return types.text
-		case "enum": {
+		case "code": {
 			const closed = b.roster.closed
-			const e = plan.enums[closed]
-			if (e === undefined) {
-				throw referenceUnsupported(`the installed enum of ${closed}`)
+			const r = plan.rosters[closed]
+			if (r === undefined) {
+				throw referenceUnsupported(`the installed domain of roster ${closed}`)
 			}
-			return namedType(testTypeSchema(e.name.schema), e.name.name, [])
+			return namedType(testTypeSchema(r.domain.schema), r.domain.name, [])
 		}
+		case "bits":
+			return types.bit(codecOf(plan.codes, b.roster).size)
 		case "range4":
 			return types.int4range
 		case "range8":
@@ -81,7 +86,9 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 }
 
 /**
- * One typed SQL literal of a value.
+ * One typed SQL literal of a value of `scalar`, a closed id or a set under the installation's codes.
+ *
+ * A closed id as its handle's code, a set as its bit(size) text, position c code c.
  *
  * Money from its exact amount, never a currency-formatted string.
  *
@@ -89,7 +96,12 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
  *
  * A vector as its canonical text, which pgvector's input reads exactly.
  */
-const valueExpr = (literal: TypedLiteral, type: TypeRef): Expr => {
+const valueExpr = (
+	literal: TypedLiteral,
+	type: TypeRef,
+	scalar: ScalarType,
+	codes: Codebook
+): Expr => {
 	switch (literal.kind) {
 		case "int":
 			return lit.int(literal.value, type)
@@ -113,13 +125,32 @@ const valueExpr = (literal: TypedLiteral, type: TypeRef): Expr => {
 		case "text":
 		case "uuid":
 			return lit.text(literal.value, type)
-		case "enum":
-			return lit.text(literal.handle, type)
+		case "handle":
+			return lit.int(codeOf(rosterCodec(scalar, codes), literal.handle), type)
+		case "handles": {
+			const codec = rosterCodec(scalar, codes)
+			return lit.text(
+				setText(
+					codec.size,
+					Arr.map(literal.handles, (h) => codeOf(codec, h))
+				),
+				type
+			)
+		}
 		case "span":
 			return lit.text(`[${literal.start},${literal.end})`, type)
 		case "vector":
 			return lit.text(literal.value[canonicalTag]().payload, type)
 	}
+}
+
+/** The codec of a closed id's or a set's roster in the installation's codes. */
+const rosterCodec = (type: ScalarType, codes: Codebook): RosterCodec => {
+	const roster = rosterOf(baseOf(type))
+	if (roster === undefined) {
+		throw referenceUnsupported(`a handle of ${baseOf(type).carrier}, a type of no roster`)
+	}
+	return codecOf(codes, roster)
 }
 
 /** The most columns one rendering query selects; PostgreSQL allows 1664 target entries. */
@@ -131,7 +162,7 @@ const columnsPerQuery = 1000
  * The oracle reads every run's result texts (install/capture.ts), so the reference's values must become the texts
  * PostgreSQL would deliver for them. Rather than reimplement float8out and numeric_out on the host, the reference asks
  * PostgreSQL: every distinct value becomes one typed literal of its type (an integer, an exact decimal, a double in
- * shortest round-trip form, money from its exact amount, an enum label, a vector's canonical text), all of them
+ * shortest round-trip form, money from its exact amount, a closed id's code, a set's bits, a vector's canonical text), all of them
  * selected in one row, and capture reads each column's result text, money through numeric (codec resultTextCasts).
  * Input and output functions round-trip every value the reference holds exactly, so the text is the value's, and the
  * reference's meaning stays the host's own.
@@ -148,7 +179,9 @@ export const renderExpected = (
 		const exprs: Array<string> = []
 		const casts: Array<ColumnCasts> = []
 		const slotOf = (v: Value, type: ScalarType): number => {
-			const sql = printExpr(valueExpr(literalOfValue(v, type), sqlTypeOf(type, plan)))
+			const sql = printExpr(
+				valueExpr(literalOfValue(v, type), sqlTypeOf(type, plan), type, plan.codes)
+			)
 			let slot = slots.get(sql)
 			if (slot === undefined) {
 				slot = exprs.length
@@ -205,6 +238,7 @@ export const renderExpected = (
 					label: s.label,
 					columns: Arr.map(s.heading, (c) => c.name),
 					types: Arr.map(s.heading, (c) => c.type),
+					codes: plan.codes,
 					unstated:
 						declined.length > 0
 							? {

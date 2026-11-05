@@ -231,11 +231,11 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 											: []
 									)
 								)
-								/** The row and finite CHECKs, which the oracle does not model. */
+								/** The row CHECKs and the closed laws' CHECKs, which the oracle does not model. */
 								const rowChecks = new Set<string>(
 									Arr.flatMap(real.value.laws.natives, (n) =>
 										n.namespace === "constraint" &&
-										(n.object.kind === "TableCheck" || n.object.kind === "FiniteCheck")
+										(n.object.kind === "TableCheck" || n.object.kind === "ClosedCheck")
 											? [identifierOf(n.named)]
 											: []
 									)
@@ -365,7 +365,7 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 								for (const x of Arr.filter(r.indexes, (index) => created.has(index.name))) {
 									assert.equal(x.unique, false)
 								}
-								assert.deepEqual(r.enums, o.enums)
+								assert.equal(r.enumLabels, 0, "the real installer installs no enum label")
 								assert.deepEqual(r.sequences, o.sequences)
 								assert.deepEqual(o.roles, [])
 								assert.deepEqual(o.grants, [])

@@ -203,9 +203,20 @@ class Rewriter {
 			case "not":
 			case "negate":
 			case "isTrue":
+			case "complement":
 			case "cast": {
 				const inner = this.expr(e.expr, ctx)
 				return inner === e.expr ? e : { ...e, expr: inner }
+			}
+			case "nullif": {
+				const inner = this.expr(e.expr, ctx)
+				const absent = this.expr(e.absent, ctx)
+				return inner === e.expr && absent === e.absent ? e : { ...e, expr: inner, absent }
+			}
+			case "subscript": {
+				const array = this.expr(e.array, ctx)
+				const index = this.expr(e.index, ctx)
+				return array === e.array && index === e.index ? e : { ...e, array, index }
 			}
 			case "between":
 			case "call":
@@ -272,9 +283,14 @@ export const readsAlias = (e: Expr, alias: string): boolean => {
 		case "not":
 		case "negate":
 		case "isTrue":
+		case "complement":
 		case "cast":
 		case "collate":
 			return readsAlias(e.expr, alias)
+		case "nullif":
+			return readsAlias(e.expr, alias) || readsAlias(e.absent, alias)
+		case "subscript":
+			return readsAlias(e.array, alias) || readsAlias(e.index, alias)
 		case "between":
 			return readsAlias(e.expr, alias) || readsAlias(e.low, alias) || readsAlias(e.high, alias)
 		case "inList":

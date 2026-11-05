@@ -26,6 +26,7 @@ const rotating = rotatingSeed(0, floor)
 
 const exploration = (coverage: Coverage<"a">): Exploration<number, number, "a"> => ({
 	suite: "witness types",
+	oracle: { kind: "specification", name: "a type-level fixture: the property never runs" },
 	draw: drawn(int(0, 9)),
 	literal: Formatter.format,
 	coverage,
@@ -39,6 +40,8 @@ const exploration = (coverage: Coverage<"a">): Exploration<number, number, "a"> 
 
 const exhaustion = (coverage: Exhaustion<number, "a">["coverage"]): Exhaustion<number, "a"> => ({
 	suite: "witness types",
+	oracle: { kind: "specification", name: "a type-level fixture: the property never runs" },
+	box: "every value of 0..9",
 	generator: int(0, 9),
 	literal: Formatter.format,
 	limit: 10,

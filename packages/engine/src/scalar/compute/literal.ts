@@ -45,8 +45,8 @@ export const bareLiteralKind = (value: unknown): BareLiteralKind | undefined => 
 
 /**
  * The exact carrier value of a literal, as the evaluator holds it: integers as bigint, numeric as Decimal, floats as
- * number, money as Money, booleans, text, uuid and enum handles as their primitives, spans as { start, end } bigints,
- * vectors as their canonical value.
+ * number, money as Money, booleans, text, uuid and closed ids' handles as their primitives, a set over a roster as the
+ * frozen Set of its handles, spans as { start, end } bigints, vectors as their canonical value.
  */
 export type CarrierValue =
 	| bigint
@@ -55,8 +55,18 @@ export type CarrierValue =
 	| Money
 	| boolean
 	| string
+	| ReadonlySet<string>
 	| { readonly start: bigint; readonly end: bigint }
 	| { readonly vector: VectorText }
+
+/** A decoded Description's set literal: its handles, each a string. */
+const setHandles = (value: LiteralDesc): ReadonlyArray<string> | undefined => {
+	if (!isRecord(value) || !Object.hasOwn(value, "handles") || !("handles" in value)) {
+		return undefined
+	}
+	const handles: unknown = value.handles
+	return Array.isArray(handles) && handles.every((h) => typeof h === "string") ? handles : undefined
+}
 
 export interface CarriedLiteral {
 	readonly literal: TypedLiteral
@@ -100,8 +110,9 @@ const taggedMoney = (value: unknown): Money | undefined => {
  * checked at construction; a JavaScript number is never a numeric literal, because it has already rounded to binary64.
  * Literals over smallint and integer are JavaScript integers, over bigint bigints, over real and double precision
  * JavaScript numbers (NaN and the infinities included), over money a Money, over boolean a boolean, over uuid its
- * hyphenated text in either case, over text a storable string, over a closed reference one of its handles, over a span
- * a { start, end } of its endpoint's host type, and over a vector a Vector of its dimensions. A literal never
+ * hyphenated text in either case, over text a storable string, over a closed reference one of its handles, over a set
+ * its handles in the roster's declared order, over a span a { start, end } of its endpoint's host type, and over a
+ * vector a Vector of its dimensions. A literal never
  * has a type of its own unless Compute.literal gives it one: it takes the type of the term it meets.
  *
  * The builder's boundary, a host value to the LiteralDesc the Description carries, is scalar/registry.ts
@@ -222,10 +233,19 @@ export const irLiteral = (
 			return typeof value === "string"
 				? finish({ kind: "text", value }, value)
 				: Result.err("a string")
-		case "enum":
+		case "code":
 			return typeof value === "string"
-				? finish({ kind: "enum", handle: value }, value)
+				? finish({ kind: "handle", handle: value }, value)
 				: Result.err("a handle")
+		case "bits": {
+			const handles = setHandles(value)
+			return handles === undefined
+				? Result.err("a set's handles")
+				: finish(
+						{ kind: "handles", handles: Object.freeze([...handles]) },
+						Object.freeze(new Set(handles))
+					)
+		}
 		case "range4":
 		case "range8": {
 			if (!isRecord(value) || !Object.hasOwn(value, "span") || !("span" in value)) {

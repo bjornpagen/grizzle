@@ -14,6 +14,7 @@ import {
 	type Runtime,
 	sentStatements
 } from "#bench/query/support/kit.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 
@@ -28,9 +29,12 @@ import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
  * receives them, and sent on the recording session in one flight. The statements that flight sent, with their
  * parameters, are what a gate measures.
  *
- *  The page runtime of a template compiled with read "page".
+ * The page runtime of a template compiled with read "page", with the installation's codes its artifacts were compiled
+ * under, which the request's parameter codecs read, as a Db's role's artifacts give them (adapter/page/page.ts).
  */
-export const pageRuntime = (compiled: Compiled): PageRuntime => {
+export type BenchPages = PageRuntime & { readonly codes: Codebook }
+
+export const pageRuntime = (compiled: Compiled): BenchPages => {
 	const built = pageTemplateFor({
 		template: compiled.compiled.template,
 		desc: compiled.desc,
@@ -39,7 +43,7 @@ export const pageRuntime = (compiled: Compiled): PageRuntime => {
 	if (Result.isFailure(built)) {
 		throw new GateSetupError({ what: `the page template: ${built.failure.message}` })
 	}
-	return built.success
+	return { ...built.success, codes: compiled.artifacts.names.codes }
 }
 
 export interface DeliveredPage {
@@ -57,12 +61,12 @@ export interface DeliveredPage {
 export const deliverPage = Effect.fn("deliverPage")(
 	function* (
 		runtime: Runtime,
-		pages: PageRuntime,
+		pages: BenchPages,
 		artifact: PageArtifactName,
 		values: HostParams,
 		call: PageCall
 	): Effect.fn.Return<DeliveredPage, DeliveryFailed | ReadError | FlightFailure> {
-		const inputs = executionInputs(paramCodecs(pages.params), values)
+		const inputs = executionInputs(paramCodecs(pages.params, pages.codes), values)
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}

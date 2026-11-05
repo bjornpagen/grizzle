@@ -14,11 +14,12 @@ import {
 	type TemporaryKind
 } from "#compiler/core/identity.ts"
 import type { IdentityKind } from "#compiler/core/ids.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { AnyLogin, AnySchema } from "#compiler/public/schema.ts"
-import { type Owned, ownLogin } from "#compiler/schema/own.ts"
+import { type Owned, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { CommentTarget } from "#compiler/sql/ast.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
@@ -63,7 +64,12 @@ const schemaNames = ["gz_naming_one", "gz_naming_two", "gz_naming", "gz_naming_a
 
 const installed = (owned: Owned, login: AnyLogin, at: Identity<"schema">): Installation => {
 	const logins = [succeeded(ownLogin(defined(loginDescOf(login), "a login value")))]
-	return succeeded(compileInstallation(owned, completeInstallOptions(owned, at, logins, [])))
+	return succeeded(
+		compileInstallation(
+			owned,
+			completeInstallOptions(owned, at, logins, [], firstCodebook(rostersOf(owned)))
+		)
+	)
 }
 
 /** The identifier a COMMENT's target names. */
@@ -82,7 +88,6 @@ const targetName = (on: CommentTarget): string => {
 		case "TABLE":
 		case "VIEW":
 		case "MATERIALIZED VIEW":
-		case "TYPE":
 		case "DOMAIN":
 		case "SEQUENCE":
 		case "INDEX":
@@ -97,12 +102,10 @@ type InstallFeature =
 	| "one name a prefix of the other"
 	| "a hashed object commented"
 
-/** Each temporary kind's constructor: the names a migration sets an object aside, swaps an index and rebuilds an enum
- * under. */
+/** Each temporary kind's constructor: the names a migration sets an object aside and swaps an index under. */
 const temporaryOf: { readonly [K in TemporaryKind]: (of: string) => Identity<K> } = {
 	aside: identity.aside,
-	swap: identity.swap,
-	rebuild: identity.rebuild
+	swap: identity.swap
 }
 
 /** Admits each of `temporaries` in order, each under its own identifier. */
@@ -394,7 +397,7 @@ describe("the naming door", () => {
 								steps: source.draw(
 									array(
 										(step) => ({
-											kind: step.draw(element<TemporaryKind>(["aside", "swap", "rebuild"])),
+											kind: step.draw(element<TemporaryKind>(["aside", "swap"])),
 											of: step.draw(int(0, 0xffff)),
 											again: step.draw(boolean)
 										}),

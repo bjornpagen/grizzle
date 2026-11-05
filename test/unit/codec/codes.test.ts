@@ -1,0 +1,280 @@
+/**
+ * The closed-id and set codecs (codec/scalar.ts over values/identity.ts and values/convert.ts) under an installation's
+ * codes, against a naive positional model.
+ *
+ * - The model: a roster of five codes, each live or a hole, a live code c held by the handle `h<c>`; a closed id is
+ *   written as its code's decimal digits, and a set as five characters, the character at position c 1 exactly when the
+ *   set holds code c's handle, so a hole's is 0.
+ * - Universal oracles: convert ∘ encode is the identity on every value, a cell's one text is its own, and the order of
+ *   two closed ids is their codes'.
+ * - Named invalid variants, each refused with its fault: a removed handle (a hole's), a handle of another roster, a
+ *   value that is no Set, and a Set holding a member that is no string.
+ *
+ * The box, exhausted: every hole pattern of a five-code roster that leaves a handle live, every subset of its live
+ * handles, under every variant the pattern admits.
+ */
+import { describe, it } from "@effect/vitest"
+import { type Case, exhaust } from "@grizzle/testing/explore"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { type Gen, int } from "@grizzle/testing/gen"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
+import { positionalColumns, relationNormalizer } from "#compiler/codec/recordset.ts"
+import { scalarCodec } from "#compiler/codec/scalar.ts"
+import type { CodecFault } from "#compiler/core/errors.ts"
+import { parseDeclaredName } from "#compiler/core/identity.ts"
+import type { CodeSlot } from "#compiler/ir/cells.ts"
+import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
+import type { Roster, ScalarType } from "#compiler/ir/scalar.ts"
+import { capabilitiesOf } from "#compiler/scalar/registry.ts"
+import { compareValues } from "#compiler/scalar/values/identity.ts"
+import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
+
+/** The codes a roster of the box has minted, holes included. */
+const size = 5
+
+const closed = succeeded(parseDeclaredName("Kind"))
+
+/** The handle that holds, or held, code `code`. */
+const handleOf = (code: number): string => `h${code}`
+
+/** What a case writes: a set of the live handles, or one of the named invalid values. */
+type Variant =
+	| "valid"
+	| "a removed handle"
+	| "another roster's handle"
+	| "no Set"
+	| "a member that is no string"
+
+/** One case: which codes are live (a bit mask), which live codes the set holds (a bit mask), and what it writes. */
+interface Pattern {
+	readonly live: number
+	readonly held: number
+	readonly variant: Variant
+}
+
+const variants: ReadonlyArray<Variant> = [
+	"valid",
+	"a removed handle",
+	"another roster's handle",
+	"no Set",
+	"a member that is no string"
+]
+
+const isSet = (mask: number, code: number): boolean => ((mask >> code) & 1) === 1
+
+/** The masks below 2^size that `within` covers, ascending: a mask's subsets. */
+const submasks = (within: number): ReadonlyArray<number> =>
+	Arr.filter(
+		Array.from({ length: 2 ** size }, (_, mask) => mask),
+		(mask) => (mask & ~within) === 0
+	)
+
+/**
+ * Every hole pattern that leaves a handle live, every subset of its live codes, and every variant: a removed handle
+ * only where the pattern has a hole.
+ */
+const patterns: Gen<Pattern> = (s) => {
+	const live = s.draw(int(1, 2 ** size - 1))
+	const subsets = submasks(live)
+	const held = subsets[s.draw(int(0, subsets.length - 1))] ?? 0
+	const admitted = Arr.filter(variants, (v) => v !== "a removed handle" || live !== 2 ** size - 1)
+	const variant = admitted[s.draw(int(0, admitted.length - 1))] ?? "valid"
+	return { live, held, variant }
+}
+
+/** The roster, its codes and the codebook a pattern installs. */
+const installed = (live: number) => {
+	const codes = Array.from({ length: size }, (_, code): CodeSlot =>
+		isSet(live, code) ? { kind: "live", handle: handleOf(code) } : { kind: "hole" }
+	)
+	const roster: Roster = {
+		closed,
+		handles: nonEmpty(
+			Arr.map(
+				Arr.filter(
+					Arr.map(codes, (_, code) => code),
+					(code) => isSet(live, code)
+				),
+				handleOf
+			)
+		)
+	}
+	const book: Codebook = { rosters: new Map([[closed, rosterCodec(closed, codes)]]) }
+	const code: ScalarType = {
+		carrier: "code",
+		caps: capabilitiesOf("code"),
+		contract: undefined,
+		roster
+	}
+	const bits: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
+	return { roster, book, code, bits }
+}
+
+/** The model's text of a set: position c is 1 exactly when the set holds code c. */
+const modelText = (held: number): string =>
+	Arr.join(
+		Array.from({ length: size }, (_, code) => (isSet(held, code) ? "1" : "0")),
+		""
+	)
+
+/**
+ * Every live handle encodes as its code's digits and converts back, the order of two is their codes', and a hole's
+ * handle and another roster's are refused; every set encodes as the model's text, holes 0, and converts back, and each
+ * named invalid set is refused with its fault.
+ */
+const roundTrips = ({ live, held, variant }: Pattern, c: Case<Variant | "a hole">) =>
+	Effect.sync(() => {
+		const { roster, book, code, bits } = installed(live)
+		const ids = scalarCodec(code, book)
+		const sets = scalarCodec(bits, book)
+		for (let k = 0; k < size; k += 1) {
+			const handle = handleOf(k)
+			if (!isSet(live, k)) {
+				faulted(ids.encode(handle), "codeHandle", `${handle} was removed`)
+				c.note("a hole")
+				continue
+			}
+			const text = succeeded(ids.encode(handle))
+			assert.equal(text, `${k}`, `${handle} is written as its code`)
+			assert.equal(ids.convert(text), handle, `code ${k} reads as ${handle}`)
+			assert.equal(ids.cellText(text), text, "a code's cell is its own one text")
+			assert.equal(ids.text(handle), text, "an admitted handle's text is its encoding")
+			for (const other of roster.handles) {
+				const otherCode = Number(Str.slice(1)(other))
+				assert.equal(
+					compareValues(ids.spec, handle, other),
+					k < otherCode ? -1 : k > otherCode ? 1 : 0,
+					`${handle} against ${other} is code order`
+				)
+			}
+		}
+		faulted(ids.encode("elsewhere"), "codeHandle", "a handle of another roster")
+		const members = Arr.filter(roster.handles, (h) => isSet(held, Number(Str.slice(1)(h))))
+		const fault = ((): { readonly value: unknown; readonly fault: CodecFault } | undefined => {
+			switch (variant) {
+				case "valid":
+					return undefined
+				case "a removed handle": {
+					const hole = Option.getOrElse(
+						Arr.findFirst(
+							Array.from({ length: size }, (_, k) => k),
+							(k) => !isSet(live, k)
+						),
+						() => 0
+					)
+					return { value: new Set([...members, handleOf(hole)]), fault: "bitsMember" }
+				}
+				case "another roster's handle":
+					return { value: new Set([...members, "elsewhere"]), fault: "bitsMember" }
+				case "no Set":
+					return { value: members, fault: "bitsType" }
+				case "a member that is no string":
+					return { value: new Set<unknown>([...members, 0]), fault: "bitsType" }
+			}
+		})()
+		c.note(variant)
+		if (fault !== undefined) {
+			faulted(sets.encode(fault.value), fault.fault, variant)
+			return
+		}
+		const text = succeeded(sets.encode(new Set(members)))
+		assert.equal(text, modelText(held), "a set is written one bit per code, position c code c")
+		assert.equal(text.length, size, "a set's text has a bit per code minted")
+		for (let k = 0; k < size; k += 1) {
+			if (!isSet(live, k)) {
+				assert.deepEqual(Str.charAt(k)(text), Option.some("0"), `the hole at ${k} is 0`)
+			}
+		}
+		const read = sets.convert(text)
+		if (!(read instanceof Set)) {
+			return assert.fail("a set reads as a Set")
+		}
+		assert.deepEqual(
+			Arr.sort(Arr.map([...read], String), Order.String),
+			Arr.sort(members, Order.String),
+			"a set reads back as its handles"
+		)
+		assert.equal(sets.cellText(text), text, "a set's cell is its own one text")
+	})
+
+describe("the closed-id and set codecs", () => {
+	it.effect(
+		"write a code and a set by the installation's codes, read them back, and refuse every named invalid value",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/codec/codes",
+						generator: patterns,
+						literal: Formatter.format,
+						limit: 1178,
+						coverage: requiredInSpace<Variant | "a hole">([
+							"valid",
+							"a removed handle",
+							"another roster's handle",
+							"no Set",
+							"a member that is no string",
+							"a hole"
+						]),
+						caseHang,
+						box: "every hole pattern of five codes, every subset of its live handles, every variant",
+						oracle: { kind: "second-implementation", name: "a naive positional model of the codes" }
+					},
+					roundTrips
+				)
+			)
+	)
+})
+
+/**
+ * The heading text a relation input over a closed id and a set is normalized under, its codes drafted afresh: equal
+ * whenever the codes are, however the codebook was built, so it is a function of the codes alone (the codec's
+ * content, never its lookup Map); and distinct for distinct codes, so a hole moved is a heading changed.
+ */
+const headingOf = (live: number): string => {
+	const { book, code, bits } = installed(live)
+	const normalize = relationNormalizer({
+		relation: "Coded",
+		columns: positionalColumns([
+			{ name: "id", type: code },
+			{ name: "kinds", type: bits }
+		]),
+		slot: { kind: "none" },
+		codes: book
+	})
+	return succeeded(normalize([]), "an empty input normalizes").heading
+}
+
+describe("a relation input over closed ids and sets", () => {
+	it.effect("is normalized under a heading that is a function of its codes alone", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/codec/codes-heading",
+					generator: (s) => ({
+						a: s.draw(int(1, 2 ** size - 1)),
+						b: s.draw(int(1, 2 ** size - 1))
+					}),
+					literal: Formatter.format,
+					limit: (2 ** size - 1) ** 2,
+					coverage: requiredInSpace<"equal codes" | "other codes">(["equal codes", "other codes"]),
+					caseHang,
+					box: "every pair of hole patterns of five codes",
+					oracle: { kind: "universal", name: "metamorphic: equal codes, equal heading" }
+				},
+				(
+					{ a, b }: { readonly a: number; readonly b: number },
+					c: Case<"equal codes" | "other codes">
+				) =>
+					Effect.sync(() => {
+						assert.equal(headingOf(a) === headingOf(b), a === b, `hole patterns ${a} and ${b}`)
+						c.note(a === b ? "equal codes" : "other codes")
+					})
+			)
+		)
+	)
+})

@@ -5,7 +5,6 @@ import { constant } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record, String as Str } from "effect"
-import { sameValue } from "#test/pg/laws/families/model.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import {
@@ -13,6 +12,7 @@ import {
 	importAccount,
 	personName
 } from "#test/support/fixtures/education/index.ts"
+import { sameValue } from "#test/support/laws/model.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	reachingPastRefused,

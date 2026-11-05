@@ -8,6 +8,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option, pipe, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { Plan } from "#adapter/types/db.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
 import {
 	explainStatementWith,
 	findNodes,
@@ -20,11 +21,12 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
+import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { realityWrite, testArtifacts } from "#test/support/compile.ts"
+import { installedCodes, realityWrite, testArtifacts } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { checking } from "#test/support/policy.ts"
@@ -106,7 +108,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							succeeded(
 								testArtifacts(S, {
 									installation: o.installed.installation.settings.installation,
-									vectorSchema: undefined
+									vectorSchema: undefined,
+									codes: installedCodes(names.codes)
 								})
 							)
 						)
@@ -208,7 +211,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									Effect.gen(function* () {
 										const bound = bindWrite(program, {
 											members: new Map(),
-											params: { accounts: Arr.map(parents, (n) => ({ id: uid(n) })) }
+											params: { accounts: Arr.map(parents, (n) => ({ id: uid(n) })) },
+											transport: inForce(bindFrame)
 										})
 										if (!bound.ok || bound.value.kind !== "bound") {
 											throw new Error("the parameters bind")

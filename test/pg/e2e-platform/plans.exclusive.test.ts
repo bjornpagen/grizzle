@@ -582,7 +582,9 @@ const lawProbes = (
 			if (r.role !== "lawMaintenance") {
 				return []
 			}
-			const fields = Arr.map(r.keys, (k) => String(k.expr))
+			const fields = Arr.map(r.keys, (k) =>
+				k.column.kind === "field" ? k.column.field.name : k.column.column
+			)
 			const label = `${r.use} on ${r.relation}(${Arr.join(fields, ", ")})`
 			if (r.rows.kind === "selected") {
 				return assert.fail(`${label} reads selected rows, which no platform law probes`)

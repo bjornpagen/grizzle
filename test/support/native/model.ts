@@ -1,12 +1,6 @@
 import { Array as Arr, Option, Result } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
-import type {
-	ColumnIdent,
-	ConstraintName,
-	DomainName,
-	LawId,
-	RelationIdent
-} from "#compiler/core/ids.ts"
+import type { ColumnIdent, LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	builtExpr,
@@ -27,13 +21,18 @@ import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
  * A host model of the native constraints grizzle installs, read from the law model's native objects (the IR of what the
  * installation creates), never from SQL text, and evaluated over database states with PostgreSQL's semantics:
  *
- * - a law column is `GENERATED ALWAYS AS (CASE WHEN g₁ AND … THEN t END) STORED`: its term where every conjunct of its
- *   guard is true, and NULL everywhere else; a constant column has no guard and is never NULL;
+ * - a generated law column is `GENERATED ALWAYS AS (CASE WHEN g₁ AND … THEN t END) STORED`: its term where every
+ *   conjunct of its guard is true, and NULL everywhere else; a constant column has no guard and is never NULL; a drawn
+ *   law column (a family's ‹n›, a counted index, a tree's ‹ps›, a fold's accumulators) is an ordinary column the
+ *   writer sends, never NULL, read by the identifier every expression names it by;
  * - a PRIMARY KEY and a UNIQUE NULLS DISTINCT refuse two rows equal at every column, and a row NULL at any column is
- *   never a duplicate;
+ *   never a duplicate; a key WITHOUT OVERLAPS refuses two rows equal at its scalars whose spans overlap, and an empty
+ *   span;
  * - a FOREIGN KEY … MATCH SIMPLE refuses a row whose columns are all non-NULL and equal no target row's referenced
  *   columns; a row NULL at any referencing column references nothing; a target row NULL at a referenced column is
- *   referenced by none;
+ *   referenced by none; ON UPDATE CASCADE carries a referenced row's new values into every row that referenced its old
+ *   ones, inside the updating statement, whatever the key's deferral; a PERIOD foreign key refuses a row whose span the
+ *   spans of the target rows equal at its scalars do not cover;
  * - a table CHECK refuses a row its predicate is false of (NULL passes);
  * - a contract's domain refuses a column value its CHECK is false of, at every level of a contract over a contract;
  * - a NOT DEFERRABLE constraint is checked at the end of the statement that writes it, and a DEFERRABLE INITIALLY
@@ -41,79 +40,97 @@ import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
  *
  * Expressions (guards, terms, CHECK predicates, domain predicates) are evaluated by the reference evaluator
  * (test/support/oracle/evaluate/catalog.ts), a second implementation of the operator catalogue, so nothing here reads
- * the engine's own evaluation. A native kind this model does not evaluate (span keys and PERIOD foreign keys, closed
- * relations' enums and finite checks) and any residual law refuse the installation, so a test never mistakes an
- * unmodelled constraint for one that holds.
+ * the engine's own evaluation. A native kind this model does not evaluate (a closed relation's CHECK, a roster's
+ * domain) refuses the installation, so a test never mistakes an unmodelled constraint for one that holds; a reverse
+ * index constrains nothing.
  */
 
-/** A stored row: each field's value by its declared name. A field never holds NULL. */
+/**
+ * A stored row: each field's value by its declared name, and each drawn law column's by its identifier, every column a
+ * writer sends. None holds NULL.
+ */
 export type NativeRow = ReadonlyMap<string, CarrierValue>
 
 /** A database state: each relation's rows by its declared name, as a multiset in no order; an absent relation is empty. */
 export type NativeState = ReadonlyMap<string, ReadonlyArray<NativeRow>>
 
-/** A column's value in a stored row: a value, or NULL, which only a law column holds outside its guard. */
+/** A column's value in a stored row: a value, or NULL, which only a generated law column holds outside its guard. */
 type Cell = { readonly kind: "null" } | { readonly kind: "value"; readonly value: CarrierValue }
 
 /** When PostgreSQL checks a constraint: at the end of the statement that writes its table, or at COMMIT. */
-export type Timing = "immediate" | "deferred"
+type Deferral = "immediate" | "deferred"
 
 /** A column a constraint reads: a field of its table by name, or a law column the law model adds to it. */
 type ColumnRead =
 	| { readonly kind: "field"; readonly field: string }
 	| { readonly kind: "law"; readonly column: ColumnIdent }
 
-/** What every constraint carries: its installed name, its owner, the laws it discharges and when it is checked. */
+/**
+ * What every constraint carries: the name its violation reports (a table constraint's identifier, or a domain's
+ * contract, by which the installation names the domain), its owner, the laws it discharges and when it is checked.
+ */
 interface Named {
-	readonly name: ConstraintName
+	readonly name: string
 	readonly laws: NonEmptyReadonlyArray<LawId>
-	readonly timing: Timing
+	readonly timing: Deferral
+}
+
+/** A constraint over one table: its relation and that relation's installed table. */
+interface OnTable {
+	readonly relation: string
+	readonly owner: RelationIdent
 }
 
 /** A constraint as the model checks it. */
 export type NativeConstraint = Named &
 	(
-		| {
+		| (OnTable & {
 				readonly kind: "PrimaryKey" | "Unique"
-				readonly relation: string
-				readonly owner: RelationIdent
 				readonly columns: NonEmptyReadonlyArray<ColumnRead>
-		  }
-		| {
+		  })
+		| (OnTable & {
+				readonly kind: "WithoutOverlaps"
+				readonly scalars: ReadonlyArray<ColumnRead>
+				readonly span: ColumnRead
+		  })
+		| (OnTable & {
 				readonly kind: "ForeignKey"
-				readonly relation: string
-				readonly owner: RelationIdent
 				readonly columns: NonEmptyReadonlyArray<ColumnRead>
 				readonly target: string
 				readonly targetColumns: NonEmptyReadonlyArray<ColumnRead>
-		  }
-		| {
-				readonly kind: "TableCheck"
-				readonly relation: string
-				readonly owner: RelationIdent
-				readonly predicate: ScalarExpr
-		  }
+				readonly onUpdate: "cascade" | "noAction"
+		  })
+		| (OnTable & {
+				readonly kind: "PeriodForeignKey"
+				readonly columns: ReadonlyArray<ColumnRead>
+				readonly span: ColumnRead
+				readonly target: string
+				readonly targetColumns: ReadonlyArray<ColumnRead>
+				readonly targetSpan: ColumnRead
+		  })
+		| (OnTable & { readonly kind: "TableCheck"; readonly predicate: ScalarExpr })
 		| {
 				readonly kind: "Domain"
-				readonly owner: DomainName
-				/** The contract whose values the domain holds: every column typed by it, at any level, is checked. */
+				readonly owner: string
+				/** The contract whose values the domain holds: every field typed by it, at any level, is checked. */
 				readonly contract: string
 				readonly terms: NonEmptyReadonlyArray<DomainCheckTerm>
 		  }
 	)
 
-/** A law column of a relation: its identifier, and the guard and term it is generated from. */
-interface LawColumnOf {
+/** A generated law column of a relation: its identifier, and the guard and term it is generated from. */
+interface GeneratedOf {
 	readonly column: ColumnIdent
 	readonly guard: ReadonlyArray<ScalarExpr>
 	readonly term: ScalarExpr
 }
 
-/** A relation as the model stores it: its fields with their types, and its law columns. */
+/** A relation as the model stores it: its fields with their types, its drawn and its generated law columns. */
 interface RelationOf {
 	readonly name: string
 	readonly fields: ReadonlyArray<LawField>
-	readonly lawColumns: ReadonlyArray<LawColumnOf>
+	readonly drawn: ReadonlySet<ColumnIdent>
+	readonly generated: ReadonlyArray<GeneratedOf>
 }
 
 /** An installation as the model evaluates it: its relations and every constraint, each once. */
@@ -122,19 +139,24 @@ export interface NativeInstallation {
 	readonly constraints: ReadonlyArray<NativeConstraint>
 }
 
-/** Why the model does not evaluate an installation: a residual law, or a native kind it has no semantics for. */
-export type Unmodelled =
-	| { readonly kind: "residual"; readonly laws: NonEmptyReadonlyArray<LawId> }
+/**
+ * Why the model does not evaluate an installation: a native kind it has no semantics for, or a constraint PostgreSQL
+ * refuses to create: a key that names a column twice (42701); a foreign key whose referenced columns repeat one, differ
+ * in number from its own, or are no PRIMARY KEY's or UNIQUE's column set (42830); a cascade into a generated column
+ * (42P17).
+ */
+export type Unevaluable =
 	| { readonly kind: "native"; readonly native: NativeKind }
+	| { readonly kind: "refused"; readonly constraint: string; readonly why: string }
 
 /** One constraint a state breaks. */
 export interface NativeViolation {
-	readonly constraint: ConstraintName
+	readonly constraint: string
 	readonly kind: NativeConstraint["kind"]
 	/** The table or domain the constraint is scoped to, which a violation's report names beside the constraint. */
-	readonly owner: RelationIdent | DomainName
+	readonly owner: string
 	readonly laws: NonEmptyReadonlyArray<LawId>
-	readonly timing: Timing
+	readonly timing: Deferral
 	/** A key's duplicates: each pair of its table's rows it holds equal, by their places among the state's rows. */
 	readonly duplicates: ReadonlyArray<Duplicate>
 }
@@ -153,90 +175,118 @@ const columnReads = (
 	columns: NonEmptyReadonlyArray<NativeColumn>
 ): NonEmptyReadonlyArray<ColumnRead> => Arr.map(columns, columnRead)
 
-/** The installation's constraints and law columns, or the first native or residual law the model has no semantics for. */
+/** The installation's constraints and law columns, or the first native the model has no semantics for. */
 export const nativeInstallation = (
 	model: LawModel
-): Result.Result<NativeInstallation, Unmodelled> => {
-	const [residual, ...residuals] = Arr.map(model.residuals, (r) => r.lawId)
-	if (residual !== undefined) {
-		return Result.fail({ kind: "residual", laws: [residual, ...residuals] })
-	}
+): Result.Result<NativeInstallation, Unevaluable> => {
 	const fields = new Map<string, ReadonlyArray<LawField>>()
-	const lawColumns = new Map<string, Array<LawColumnOf>>()
+	const drawn = new Map<string, Set<ColumnIdent>>()
+	const generatedColumns = new Map<string, Array<GeneratedOf>>()
 	const constraints: Array<NativeConstraint> = []
-	const place = (n: NamedNative): Option.Option<Unmodelled> => {
+	const place = (n: NamedNative): Option.Option<Unevaluable> => {
 		switch (n.namespace) {
 			case "constraint": {
 				const o = n.object
 				fields.set(o.relation.name, o.relation.fields)
-				const named = { name: identifierOf(n.named), laws: o.lawIds, owner: n.owner }
+				const on = {
+					name: identifierOf(n.named),
+					laws: o.lawIds,
+					owner: n.owner,
+					relation: o.relation.name
+				}
 				switch (o.kind) {
 					case "PrimaryKey":
 						constraints.push({
-							...named,
+							...on,
 							kind: "PrimaryKey",
-							relation: o.relation.name,
 							timing: "immediate",
 							columns: Arr.map(o.columns, (f) => ({ kind: "field", field: f.name }))
 						})
 						return Option.none()
 					case "Unique":
 						constraints.push({
-							...named,
+							...on,
 							kind: "Unique",
-							relation: o.relation.name,
 							timing: "immediate",
 							columns: columnReads(o.columns)
+						})
+						return Option.none()
+					case "WithoutOverlaps":
+						constraints.push({
+							...on,
+							kind: "WithoutOverlaps",
+							timing: "immediate",
+							scalars: Arr.map(o.key.scalars, columnRead),
+							span: columnRead(o.span)
 						})
 						return Option.none()
 					case "ForeignKey":
 						fields.set(o.target.name, o.target.fields)
 						constraints.push({
-							...named,
+							...on,
 							kind: "ForeignKey",
-							relation: o.relation.name,
 							timing: o.deferrable ? "deferred" : "immediate",
 							columns: columnReads(o.columns),
 							target: o.target.name,
-							targetColumns: columnReads(o.targetColumns)
+							targetColumns: columnReads(o.targetColumns),
+							onUpdate: o.onUpdate
+						})
+						return Option.none()
+					case "PeriodForeignKey":
+						fields.set(o.target.name, o.target.fields)
+						constraints.push({
+							...on,
+							kind: "PeriodForeignKey",
+							timing: o.deferrable ? "deferred" : "immediate",
+							columns: Arr.map(o.columns, columnRead),
+							span: columnRead(o.span),
+							target: o.target.name,
+							targetColumns: Arr.map(o.targetColumns, columnRead),
+							targetSpan: columnRead(o.targetSpan)
 						})
 						return Option.none()
 					case "TableCheck":
 						constraints.push({
-							...named,
+							...on,
 							kind: "TableCheck",
-							relation: o.relation.name,
 							timing: "immediate",
 							predicate: o.predicate
 						})
 						return Option.none()
-					case "WithoutOverlaps":
-					case "TemporalUnique":
-					case "PeriodForeignKey":
-					case "FiniteCheck":
+					case "ClosedCheck":
 						return Option.some({ kind: "native", native: o.kind })
 				}
 			}
 			case "column": {
 				const o = n.object
-				const of = lawColumns.get(o.relation.name) ?? []
+				const relation = o.relation.name
+				fields.set(relation, o.relation.fields)
+				if (o.value.kind === "drawn") {
+					const of = drawn.get(relation) ?? new Set<ColumnIdent>()
+					of.add(o.column)
+					drawn.set(relation, of)
+					return Option.none()
+				}
+				const of = generatedColumns.get(relation) ?? []
 				of.push({ column: o.column, guard: o.value.guard, term: o.value.term })
-				lawColumns.set(o.relation.name, of)
+				generatedColumns.set(relation, of)
 				return Option.none()
 			}
-			case "domain":
-				if (n.check.kind === "checked") {
+			case "domain": {
+				const o = n.object
+				if (o.check.kind === "checked") {
 					constraints.push({
 						kind: "Domain",
-						name: n.check.ident,
-						owner: n.owner,
-						laws: n.object.lawIds,
+						name: o.name,
+						owner: o.name,
+						laws: o.lawIds,
 						timing: "immediate",
-						contract: n.object.name,
-						terms: n.check.terms
+						contract: o.name,
+						terms: o.check.terms
 					})
 				}
 				return Option.none()
+			}
 			case "unnamed":
 				return n.object.kind === "ReverseIndex"
 					? Option.none()
@@ -252,10 +302,112 @@ export const nativeInstallation = (
 	const relations = new Map<string, RelationOf>(
 		Arr.map([...fields], ([name, of]) => [
 			name,
-			{ name, fields: of, lawColumns: lawColumns.get(name) ?? [] }
+			{
+				name,
+				fields: of,
+				drawn: drawn.get(name) ?? new Set<ColumnIdent>(),
+				generated: generatedColumns.get(name) ?? []
+			}
 		])
 	)
-	return Result.succeed({ relations, constraints })
+	const refused = Arr.findFirst(constraints, (c) => refusalOf(relations, constraints, c))
+	return Option.isSome(refused)
+		? Result.fail(refused.value)
+		: Result.succeed({ relations, constraints })
+}
+
+const readKey = (c: ColumnRead): string =>
+	c.kind === "field" ? `field ${c.field}` : `law ${c.column}`
+
+/** Whether a column list names a column twice. */
+const repeats = (columns: ReadonlyArray<ColumnRead>): boolean =>
+	new Set(Arr.map(columns, readKey)).size !== columns.length
+
+/** Whether two column lists name one set of columns, in any order. */
+const sameColumns = (a: ReadonlyArray<ColumnRead>, b: ReadonlyArray<ColumnRead>): boolean => {
+	const of = new Set(Arr.map(a, readKey))
+	return a.length === b.length && Arr.every(b, (c) => of.has(readKey(c)))
+}
+
+/** The relation a table constraint is on; a domain is on none. */
+const tableOf = (c: NativeConstraint): string | undefined =>
+	c.kind === "Domain" ? undefined : c.relation
+
+/** The columns of a key in its index: a key's columns, a span key's scalars then its span. */
+const keyColumns = (k: NativeConstraint): ReadonlyArray<ColumnRead> | undefined => {
+	switch (k.kind) {
+		case "PrimaryKey":
+		case "Unique":
+			return k.columns
+		case "WithoutOverlaps":
+			return [...k.scalars, k.span]
+		case "ForeignKey":
+		case "PeriodForeignKey":
+		case "TableCheck":
+		case "Domain":
+			return undefined
+	}
+}
+
+/**
+ * The refusal PostgreSQL gives a constraint's creation, if any: a key naming a column twice (42701); a foreign key whose
+ * referenced columns repeat one or differ in number from its own, or that no key of its target holds as its column set
+ * (42830); an ON UPDATE CASCADE whose referencing columns include a generated column (42P17). Every key the model reads
+ * is NOT DEFERRABLE, which a referenced key must be.
+ */
+const refusalOf = (
+	relations: ReadonlyMap<string, RelationOf>,
+	constraints: ReadonlyArray<NativeConstraint>,
+	c: NativeConstraint
+): Option.Option<Unevaluable> => {
+	const refused = (why: string): Option.Option<Unevaluable> =>
+		Option.some({ kind: "refused", constraint: c.name, why })
+	const keyed = (target: string, columns: ReadonlyArray<ColumnRead>) =>
+		Arr.some(constraints, (k) => {
+			const of = keyColumns(k)
+			return of !== undefined && tableOf(k) === target && sameColumns(of, columns)
+		})
+	switch (c.kind) {
+		case "PrimaryKey":
+		case "Unique":
+		case "WithoutOverlaps": {
+			const of = keyColumns(c) ?? []
+			return repeats(of) ? refused("a key names a column twice") : Option.none()
+		}
+		case "ForeignKey": {
+			if (repeats(c.targetColumns) || c.columns.length !== c.targetColumns.length) {
+				return refused(
+					"a foreign key's referenced columns repeat one or differ in number from its own"
+				)
+			}
+			const generatedColumns = new Set(
+				Arr.map(relations.get(c.relation)?.generated ?? [], (g) => g.column)
+			)
+			if (
+				c.onUpdate === "cascade" &&
+				Arr.some(c.columns, (col) => col.kind === "law" && generatedColumns.has(col.column))
+			) {
+				return refused("a cascade writes a generated column")
+			}
+			return keyed(c.target, c.targetColumns)
+				? Option.none()
+				: refused("no key of the target holds the referenced columns")
+		}
+		case "PeriodForeignKey": {
+			const referenced = [...c.targetColumns, c.targetSpan]
+			if (repeats(referenced) || c.columns.length !== c.targetColumns.length) {
+				return refused(
+					"a PERIOD foreign key's referenced columns repeat one or differ in number from its own"
+				)
+			}
+			return keyed(c.target, referenced)
+				? Option.none()
+				: refused("no key of the target holds the referenced columns")
+		}
+		case "TableCheck":
+		case "Domain":
+			return Option.none()
+	}
 }
 
 /** The relation's record, which every relation a constraint names has. */
@@ -267,7 +419,7 @@ const relationOf = (installation: NativeInstallation, name: string): RelationOf 
 	return found
 }
 
-/** A row's field values, for the reference evaluator to read by column name. */
+/** A row's columns, for the reference evaluator to read by name: a field by its name, a drawn column by its identifier. */
 const rowEnv = (row: NativeRow): EvalEnv => ({
 	kind: "row",
 	column: (ref) => row.get(ref.name),
@@ -293,18 +445,18 @@ const holdsOver = (expr: ScalarExpr, env: EvalEnv, what: string): boolean => {
 	return v
 }
 
-/** A stored row with its law columns: each field as itself, each law column its term where its guard holds. */
+/** A stored row with its generated law columns, each its term where its guard holds. */
 interface Generated {
 	readonly row: NativeRow
-	readonly lawColumns: ReadonlyMap<ColumnIdent, Cell>
+	readonly generated: ReadonlyMap<ColumnIdent, Cell>
 }
 
 const generated = (relation: RelationOf, row: NativeRow): Generated => {
 	const env = rowEnv(row)
 	return {
 		row,
-		lawColumns: new Map(
-			Arr.map(relation.lawColumns, (c): readonly [ColumnIdent, Cell] => [
+		generated: new Map(
+			Arr.map(relation.generated, (c): readonly [ColumnIdent, Cell] => [
 				c.column,
 				Arr.every(c.guard, (g) => holdsOver(g, env, `the guard of ${c.column}`))
 					? { kind: "value", value: valueOver(c.term, env, `the term of ${c.column}`) }
@@ -314,26 +466,38 @@ const generated = (relation: RelationOf, row: NativeRow): Generated => {
 	}
 }
 
+/** A column's value in a generated row: a generated column's cell, or a written column, a field or a drawn one. */
 const cellOf = (g: Generated, c: ColumnRead): Cell => {
 	if (c.kind === "law") {
-		const cell = g.lawColumns.get(c.column)
-		if (cell === undefined) {
-			throw new Error(
-				`a constraint reads the law column ${c.column}, which its table does not hold`
-			)
+		const cell = g.generated.get(c.column)
+		if (cell !== undefined) {
+			return cell
 		}
-		return cell
 	}
-	const v = g.row.get(c.field)
+	const name = c.kind === "field" ? c.field : c.column
+	const v = g.row.get(name)
 	if (v === undefined) {
-		throw new Error(`a row without its field ${c.field}`)
+		throw new Error(`a row without its column ${name}`)
 	}
 	return { kind: "value", value: v }
 }
 
+/** A span's endpoints: the carrier a range column holds. */
+interface SpanValue {
+	readonly start: bigint
+	readonly end: bigint
+}
+
+const spanOf = (v: CarrierValue): SpanValue => {
+	if (typeof v === "object" && "start" in v) {
+		return v
+	}
+	throw new Error("a span column holds a value that is no range")
+}
+
 /**
  * A value's text as an equality key: PostgreSQL's equality on the carriers the model evaluates, integers, booleans,
- * text and UUIDs, which compare by value. Any other carrier is a defect of the test that wrote it.
+ * text, UUIDs and integer ranges, which compare by value. Any other carrier is a defect of the test that wrote it.
  */
 const valueKey = (v: CarrierValue): string => {
 	if (typeof v === "bigint") {
@@ -345,7 +509,10 @@ const valueKey = (v: CarrierValue): string => {
 	if (typeof v === "string") {
 		return `s${v.length}:${v}`
 	}
-	throw new Error("the native model compares integers, booleans, text and UUIDs only")
+	if (typeof v === "object" && "start" in v) {
+		return `r${v.start}:${v.end}`
+	}
+	throw new Error("the native model compares integers, booleans, text, UUIDs and ranges only")
 }
 
 /** The columns' values as one key, or none when one of them is NULL: such a row is outside every key and reference. */
@@ -359,6 +526,37 @@ const keyOf = (g: Generated, columns: ReadonlyArray<ColumnRead>): Option.Option<
 		parts.push(valueKey(cell.value))
 	}
 	return Option.some(Arr.join(parts, "\u0000"))
+}
+
+/** Whether two rows' keys are one key, neither NULL anywhere. */
+const sameKey = (a: Option.Option<string>, b: Option.Option<string>): boolean =>
+	Option.isSome(a) && Option.isSome(b) && a.value === b.value
+
+/** A column's span, or none where it is NULL. */
+const spanAt = (g: Generated, c: ColumnRead): Option.Option<SpanValue> => {
+	const cell = cellOf(g, c)
+	return cell.kind === "null" ? Option.none() : Option.some(spanOf(cell.value))
+}
+
+const overlap = (a: SpanValue, b: SpanValue): boolean => a.start < b.end && b.start < a.end
+
+/** Whether the union of `spans` covers `s`, which an empty span is by every union. */
+const covered = (s: SpanValue, spans: ReadonlyArray<SpanValue>): boolean => {
+	let reached = s.start
+	for (const t of Arr.sort(spans, (a: SpanValue, b: SpanValue) =>
+		a.start < b.start ? -1 : a.start > b.start ? 1 : 0
+	)) {
+		if (reached >= s.end) {
+			return true
+		}
+		if (t.start > reached) {
+			return false
+		}
+		if (t.end > reached) {
+			reached = t.end
+		}
+	}
+	return reached >= s.end
 }
 
 /** A VALUE of a domain's base as a literal of the reference evaluator, which a domain predicate reads it as. */
@@ -420,7 +618,7 @@ const contractsOf = (type: ScalarType): ReadonlyArray<string> => {
 	return names
 }
 
-/** The rows of a relation in a state, each with its law columns. */
+/** The rows of a relation in a state, each with its generated law columns. */
 const generatedRows = (
 	installation: NativeInstallation,
 	state: NativeState,
@@ -438,6 +636,18 @@ type Checked =
 const holds: Checked = { kind: "holds" }
 const brokenIf = (broken: boolean): Checked => (broken ? { kind: "broken", duplicates: [] } : holds)
 
+/** Every pair of rows `same` holds equal, by their places, the first earlier. */
+const pairsOf = (
+	relation: string,
+	rows: ReadonlyArray<Generated>,
+	same: (a: Generated, b: Generated) => boolean
+): ReadonlyArray<Duplicate> =>
+	Arr.flatMap(rows, (b, second) =>
+		Arr.flatMap(rows.slice(0, second), (a, first) =>
+			same(a, b) ? [{ relation, first, second }] : []
+		)
+	)
+
 /** Whether a constraint holds of a state, every relation's law columns generated. */
 const checkIn = (
 	installation: NativeInstallation,
@@ -447,21 +657,26 @@ const checkIn = (
 	switch (c.kind) {
 		case "PrimaryKey":
 		case "Unique": {
-			const relation = c.relation
-			const seen = new Map<string, Array<number>>()
-			const duplicates: Array<Duplicate> = []
-			for (const [at, g] of rows(relation).entries()) {
-				const k = keyOf(g, c.columns)
-				if (Option.isNone(k)) {
-					continue
-				}
-				const earlier = seen.get(k.value) ?? []
-				for (const first of earlier) {
-					duplicates.push({ relation, first, second: at })
-				}
-				seen.set(k.value, [...earlier, at])
-			}
+			const duplicates = pairsOf(c.relation, rows(c.relation), (a, b) =>
+				sameKey(keyOf(a, c.columns), keyOf(b, c.columns))
+			)
 			return duplicates.length === 0 ? holds : { kind: "broken", duplicates }
+		}
+		case "WithoutOverlaps": {
+			const of = rows(c.relation)
+			const empty = Arr.some(of, (g) =>
+				Option.match(spanAt(g, c.span), { onNone: () => false, onSome: (s) => s.start >= s.end })
+			)
+			const duplicates = pairsOf(c.relation, of, (a, b) => {
+				const [x, y] = [spanAt(a, c.span), spanAt(b, c.span)]
+				return (
+					sameKey(keyOf(a, c.scalars), keyOf(b, c.scalars)) &&
+					Option.isSome(x) &&
+					Option.isSome(y) &&
+					overlap(x.value, y.value)
+				)
+			})
+			return duplicates.length === 0 && !empty ? holds : { kind: "broken", duplicates }
 		}
 		case "ForeignKey": {
 			const referenced = new Set(
@@ -474,6 +689,25 @@ const checkIn = (
 						onSome: (k) => referenced.has(k)
 					})
 				)
+			)
+		}
+		case "PeriodForeignKey": {
+			const targets = rows(c.target)
+			return brokenIf(
+				!Arr.every(rows(c.relation), (g) => {
+					const k = keyOf(g, c.columns)
+					const s = spanAt(g, c.span)
+					if (Option.isNone(k) || Option.isNone(s)) {
+						return true
+					}
+					const spans = Arr.flatMap(targets, (t) => {
+						const at = keyOf(t, c.targetColumns)
+						return Option.isSome(at) && at.value === k.value
+							? Option.toArray(spanAt(t, c.targetSpan))
+							: []
+					})
+					return covered(s.value, spans)
+				})
 			)
 		}
 		case "TableCheck":
@@ -507,7 +741,7 @@ const checkIn = (
 const violationsOf = (
 	installation: NativeInstallation,
 	state: NativeState,
-	timings: ReadonlyArray<Timing>
+	timings: ReadonlyArray<Deferral>
 ): ReadonlyArray<NativeViolation> => {
 	const cache = new Map<string, ReadonlyArray<Generated>>()
 	const rows = (relation: string): ReadonlyArray<Generated> => {
@@ -590,12 +824,29 @@ export const stateViolations = (
 ): ReadonlyArray<NativeViolation> => violationsOf(installation, state, ["immediate", "deferred"])
 
 /**
- * One statement of a transaction over one table: an INSERT of its rows, or a DELETE of every row equal at every field
- * to one listed, which a relation of immutable facts writes a change by.
+ * Columns' values a statement matches rows by: a row matches when it holds each listed value at its column, every
+ * other column free.
+ */
+export type NativeMatch = ReadonlyMap<string, CarrierValue>
+
+/**
+ * One statement of a transaction over one table: an INSERT of its rows; a DELETE of every row a match holds of; or an
+ * UPDATE that sets columns of every row its match holds of, a referenced row's new values cascading into the rows that
+ * referenced its old ones through each ON UPDATE CASCADE key, within the statement.
  */
 export type NativeStatement =
 	| { readonly kind: "insert"; readonly relation: string; readonly rows: ReadonlyArray<NativeRow> }
-	| { readonly kind: "delete"; readonly relation: string; readonly rows: ReadonlyArray<NativeRow> }
+	| {
+			readonly kind: "delete"
+			readonly relation: string
+			readonly where: ReadonlyArray<NativeMatch>
+	  }
+	| {
+			readonly kind: "update"
+			readonly relation: string
+			readonly where: NativeMatch
+			readonly set: NativeMatch
+	  }
 
 /** Where a transaction is refused: at the end of one of its statements, by its index, or at COMMIT. */
 export type RefusedAt =
@@ -611,40 +862,115 @@ export type TransactionVerdict =
 			readonly violations: NonEmptyReadonlyArray<NativeViolation>
 	  }
 
-const rowKey = (row: NativeRow): string =>
-	Arr.join(
-		Arr.map(
-			Arr.sort([...row.keys()], (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)),
-			(field) => {
-				const v = row.get(field)
-				return `${field}=${v === undefined ? "" : valueKey(v)}`
-			}
-		),
-		"\u0000"
-	)
+const matches = (row: NativeRow, match: NativeMatch): boolean =>
+	Arr.every([...match], ([column, v]) => {
+		const held = row.get(column)
+		return held !== undefined && valueKey(held) === valueKey(v)
+	})
 
-const appliedTo = (state: NativeState, statement: NativeStatement): NativeState => {
+/** A row with the given columns set. */
+const withSet = (row: NativeRow, set: NativeMatch): NativeRow => new Map([...row, ...set])
+
+/** The written column a referencing column is: a field by its name, a drawn column by its identifier. */
+const writtenName = (c: ColumnRead): string => (c.kind === "field" ? c.field : c.column)
+
+/**
+ * The state an UPDATE leaves: its rows set, and each update cascaded through every ON UPDATE CASCADE key into the rows
+ * that referenced the updated row's old values, and from those rows on.
+ */
+const updated = (
+	installation: NativeInstallation,
+	state: NativeState,
+	relation: string,
+	where: (row: NativeRow) => boolean,
+	set: (row: NativeRow) => NativeRow
+): NativeState => {
 	const next = new Map(state)
+	const of = relationOf(installation, relation)
+	const changes: Array<readonly [Generated, Generated]> = []
+	next.set(
+		relation,
+		Arr.map(state.get(relation) ?? [], (row) => {
+			if (!where(row)) {
+				return row
+			}
+			const after = set(row)
+			changes.push([generated(of, row), generated(of, after)])
+			return after
+		})
+	)
+	let cascaded: NativeState = next
+	for (const c of installation.constraints) {
+		if (c.kind !== "ForeignKey" || c.onUpdate !== "cascade" || c.target !== relation) {
+			continue
+		}
+		for (const [before, after] of changes) {
+			const old = keyOf(before, c.targetColumns)
+			const now = keyOf(after, c.targetColumns)
+			if (Option.isNone(old) || (Option.isSome(now) && now.value === old.value)) {
+				continue
+			}
+			const values = Arr.map(c.targetColumns, (t) => cellOf(after, t))
+			const source = relationOf(installation, c.relation)
+			cascaded = updated(
+				installation,
+				cascaded,
+				c.relation,
+				(row) => Option.getOrUndefined(keyOf(generated(source, row), c.columns)) === old.value,
+				(row) =>
+					withSet(
+						row,
+						new Map(
+							Arr.map(c.columns, (column, i) => {
+								const cell = values[i]
+								if (cell === undefined || cell.kind === "null") {
+									throw new Error(`a cascade of ${c.name} sets a referencing column to NULL`)
+								}
+								return [writtenName(column), cell.value] as const
+							})
+						)
+					)
+			)
+		}
+	}
+	return cascaded
+}
+
+const appliedTo = (
+	installation: NativeInstallation,
+	state: NativeState,
+	statement: NativeStatement
+): NativeState => {
 	const current = state.get(statement.relation) ?? []
 	switch (statement.kind) {
-		case "insert":
+		case "insert": {
+			const next = new Map(state)
 			next.set(statement.relation, [...current, ...statement.rows])
 			return next
+		}
 		case "delete": {
-			const gone = new Set(Arr.map(statement.rows, rowKey))
+			const next = new Map(state)
 			next.set(
 				statement.relation,
-				Arr.filter(current, (row) => !gone.has(rowKey(row)))
+				Arr.filter(current, (row) => !Arr.some(statement.where, (m) => matches(row, m)))
 			)
 			return next
 		}
+		case "update":
+			return updated(
+				installation,
+				state,
+				statement.relation,
+				(row) => matches(row, statement.where),
+				(row) => withSet(row, statement.set)
+			)
 	}
 }
 
 /**
- * A transaction from a committed state: each statement applied in order, the immediate constraints checked at its end,
- * and the deferred ones at COMMIT. Its verdict is the first point where a constraint checked there is broken, with
- * every constraint broken there, or the state its statements leave.
+ * A transaction from a committed state: each statement applied in order, its cascades within it, the immediate
+ * constraints checked at its end, and the deferred ones at COMMIT. Its verdict is the first point where a constraint
+ * checked there is broken, with every constraint broken there, or the state its statements leave.
  */
 export const transact = (
 	installation: NativeInstallation,
@@ -653,7 +979,7 @@ export const transact = (
 ): TransactionVerdict => {
 	let state = before
 	for (const [index, statement] of statements.entries()) {
-		state = appliedTo(state, statement)
+		state = appliedTo(installation, state, statement)
 		const [first, ...rest] = violationsOf(installation, state, ["immediate"])
 		if (first !== undefined) {
 			return { kind: "refused", at: { kind: "statement", index }, violations: [first, ...rest] }
@@ -678,7 +1004,9 @@ export interface Precedence {
 /** Every immediate foreign key of the installation between two tables, as the precedence it imposes. */
 export const immediateReferences = (installation: NativeInstallation): ReadonlyArray<Precedence> =>
 	Arr.flatMap(installation.constraints, (c): ReadonlyArray<Precedence> =>
-		c.kind === "ForeignKey" && c.timing === "immediate" && c.relation !== c.target
+		(c.kind === "ForeignKey" || c.kind === "PeriodForeignKey") &&
+		c.timing === "immediate" &&
+		c.relation !== c.target
 			? [{ from: c.relation, to: c.target }]
 			: []
 	)

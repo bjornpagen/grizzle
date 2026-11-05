@@ -1,6 +1,7 @@
 import { Array as Arr, Formatter, Result } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
@@ -88,6 +89,8 @@ export interface StatementRows {
 	 * reference.
 	 */
 	readonly types: ReadonlyArray<ScalarType>
+	/** The installation's codes, which a closed id's or a set's text is read under. */
+	readonly codes: Codebook
 	readonly unstated: Unstated
 	readonly rows: ReadonlyArray<RawRow>
 }
@@ -110,12 +113,12 @@ const cellAt = (row: RawRow, i: number): string => {
  * which admits only what the output function writes, written in the value's one form (values/identity.ts
  * canonicalText). Two cells have one canonical text exactly when their values are equal, so 1.50 and 1.5, or -0 and 0,
  * agree, and any other difference of value does not. The comparison shares no text shortcut with production
- * (codec/scalar.ts cellText): it reads every cell to its value first. A text the strict reader refuses is no output of
- * the type, a defect of the run.
+ * (codec/scalar.ts cellText): it reads every cell to its value first, a closed id's or a set's under the installation's
+ * codes. A text the strict reader refuses is no output of the type, a defect of the run.
  */
-export const canonicalCell = (type: ScalarType): ((cell: string) => string) => {
-	const read = strictReader(type)
-	const spec = carrierSpecOf(type)
+export const canonicalCell = (type: ScalarType, codes: Codebook): ((cell: string) => string) => {
+	const read = strictReader(type, codes)
+	const spec = carrierSpecOf(type, codes)
 	return (cell) => {
 		const value = read(cell)
 		if (Result.isFailure(value)) {
@@ -139,7 +142,7 @@ export const canonicalRows = (s: StatementRows): ReadonlyArray<RawRow> => {
 		if (type === undefined) {
 			throw new Error(`${s.label}: no type for column ${i}`)
 		}
-		return canonicalCell(type)
+		return canonicalCell(type, s.codes)
 	})
 	return Arr.map(s.rows, (row) => Arr.map(texts, (text, i) => text(cellAt(row, i))))
 }
@@ -156,7 +159,7 @@ const readRows = (
 		if (type === undefined) {
 			throw new Error(`${s.label}: no type for column ${i}`)
 		}
-		return canonicalCell(type)
+		return canonicalCell(type, s.codes)
 	})
 	return Arr.map(indexes, (r) => {
 		const row = s.rows[r]

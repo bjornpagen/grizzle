@@ -129,7 +129,7 @@ export interface Payroll extends ReturnType<typeof members> {
 /**
  * The payroll ledger, installed for the law-bearing end-to-end suites.
  *
- * Reporting installs completely under a fresh schema name, its residual laws and RunTotal's materialized view included,
+ * Reporting installs completely under a fresh schema name, every law native and RunTotal's materialized view included,
  * with the facts of the state after onboard, logShifts and draftRun (test/support/fixtures/golden/payroll.ts stateA).
  * The facts carry the six postings' entry numbers, so the identity sequence is advanced past them as the owner, as a
  * migration that writes explicit serial values ends. The ChangeSets are applied to Payroll rebuilt under the installed

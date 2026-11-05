@@ -26,10 +26,10 @@ import * as S from "#compiler/ir/shape.ts"
 import { queryOver as queryBuilt, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
-import { isDrawn, isSpan } from "#test/pg/laws/families/model.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { isDrawn, isSpan } from "#test/support/laws/model.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import {
 	type Bindings,
@@ -70,6 +70,7 @@ import type {
 	FieldSpec,
 	HostFact,
 	HostState,
+	InstallSpec,
 	ModelState,
 	Occurrence,
 	Rule,
@@ -736,6 +737,7 @@ const stateOf = (
 		primaryKeys: {},
 		laws: [],
 		domains: {},
+		rosterConstants: {},
 		roles: {},
 		logins: {}
 	},
@@ -759,6 +761,63 @@ const writableEntries = Arr.flatMap(docsInstall.roles, (role) =>
 			: []
 	})
 )
+
+/** One scan of every Doc field, each a variable of its own name. */
+const docScan: Rule["matches"][number] = {
+	source: { kind: "ordinary", name: "Doc" },
+	fields: {
+		id: { kind: "var", name: "v_id" },
+		org: { kind: "var", name: "v_org" },
+		owner: { kind: "var", name: "v_owner" },
+		words: { kind: "var", name: "v_words" }
+	}
+}
+
+/**
+ * A role's union of two Doc arms told apart by words: one keeps every Doc's id, org and owner where words is 0, the
+ * other one row per org where words is 1, its id and owner fixed. Each arm's own key misses the other arm, so only the
+ * whole heading's minimization keys the union by (id, org, words).
+ */
+const unionAcrossArms: InstallSpec = {
+	base: docsBase,
+	roles: [
+		{
+			name: "alpha",
+			entries: {
+				View0: {
+					kind: "query",
+					rules: [
+						{
+							matches: [docScan],
+							negations: [],
+							comparisons: [],
+							head: {
+								id: { kind: "var", name: "v_id" },
+								org: { kind: "var", name: "v_org" },
+								owner: { kind: "var", name: "v_owner" },
+								words: { kind: "literal", value: 0 }
+							}
+						},
+						{
+							matches: [docScan],
+							negations: [],
+							comparisons: [],
+							head: {
+								id: { kind: "literal", value: "5eeda101-7c3e-4a1b-9d2f-0e5c7a9b3d1f" },
+								org: { kind: "var", name: "v_org" },
+								owner: { kind: "literal", value: "u_nxyob" },
+								words: { kind: "literal", value: 1 }
+							}
+						}
+					]
+				}
+			},
+			write: [],
+			refresh: []
+		}
+	],
+	logins: [{ name: "web", roles: ["alpha"] }]
+}
 
 /** The shared budget of the host properties: one at a time, unsteered, shrunk until no pass helps. */
 const budget = {
@@ -881,6 +940,14 @@ describe("the worlds model's host semantics", () => {
 							cases: 60,
 							sense: notesOnly
 						}),
+						kept: [
+							{
+								note: "a union keyed by Doc's id where words is 0 and by its org where words is 1: (id, org, words) is a key though no one arm's key beside the separator is",
+								sketch: unionAcrossArms,
+								draws: "",
+								reaches: ["a key", "no key"]
+							}
+						],
 						runs: 60
 					},
 					(install, c) =>

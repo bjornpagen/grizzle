@@ -20,23 +20,13 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import {
-	capacity,
-	context,
-	key,
-	login,
-	on,
-	relation,
-	role,
-	schema,
-	select,
-	within
-} from "#compiler/public/schema.ts"
+import { context, key, login, on, relation, role, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { loginLayer, tokenOf } from "#test/support/worlds.ts"
@@ -44,24 +34,23 @@ import { loginLayer, tokenOf } from "#test/support/worlds.ts"
 /**
  * A query entry's write meets every stored fact at every unique object of its target as that object's law.
  *
- * README, "Writing through a role" and "Errors and outcomes": a put or insert that collides with a fact outside the entry, at a key or
- * at an at-most-one capacity, is `invariant-rejected` on that law, and a key or an at-most-one capacity broken by a
- * stored fact inside the entry or outside it shows the key you submitted, in the fields you wrote it in.
+ * README, "Writing through a role" and "Errors and outcomes": a put or insert that collides with a fact outside the
+ * entry, at a key, is `invariant-rejected` on that key's law alone, and a key broken by a stored fact inside the entry
+ * or outside it shows the key you submitted, in the fields you wrote it in.
  *
- * Seat(id, code, grp, lead, team, holder) has four unique objects: its primary key; the candidate key code; at most one
- * lead per group, an at-most-one capacity over a selected source (a unique index on grp where lead); and at most one
- * seat per team, an at-most-one capacity over an unselected source (a unique index on team). The role `holder` writes
+ * Seat(id, code, grp, lead, team, holder) has four unique objects, each a key (fin.md §6, "at most one"): its primary
+ * key; the candidate key code; at most one lead per group, `key(on(select(Seat, lead), "grp"))`, a UNIQUE over the
+ * selected side's generated law column; and at most one seat per team, `key(on(Seat, "team"))`. The role `holder` writes
  * MySeat, the seats of the session's subject, so a seat of another holder is a fact outside its world. A case stores
  * carl's seat (outside ann's world), ann's own seat (inside it), both or neither, lawfully, and ann inserts one seat
  * through MySeat. Every stored seat that conflicts with hers at an object is a refusal by that object's law, whichever
  * world holds it; with none she inserts it, and an exact repeat of her own changes nothing. No outcome is a
  * TransientFailure: nothing runs concurrently, so a write that meets a stored fact the role cannot see and fails
- * transiently fails again on every retry (the livelock FR2 fixed at the at-most-one capacities, which the precheck did
- * not probe).
+ * transiently fails again on every retry (the livelock FR2 fixed at the at-most-one objects, which the precheck did
+ * not probe). The oracle is the specification turned into a checker: each object's conflict, stated over the drawn
+ * values.
  */
 const Subject = str.regex("^u_[a-z]{1,8}$")
-const Group = relation("Group", { id: pg.integer }, ["id"])
-const Team = relation("Team", { id: pg.integer }, ["id"])
 const Seat = relation(
 	"Seat",
 	{
@@ -75,17 +64,16 @@ const Seat = relation(
 	["id"]
 )
 const codeKey = key(on(Seat, "code"))
-const oneLead = capacity(on(Group, "id"), {
-	from: on(
+const oneLead = key(
+	on(
 		select(Seat, (x) => x.eq(x.lead, true)),
 		"grp"
-	),
-	within: within(0n, 1n)
-})
-const oneSeat = capacity(on(Team, "id"), { from: on(Seat, "team"), within: within(0n, 1n) })
+	)
+)
+const oneSeat = key(on(Seat, "team"))
 
 const seatsAt = (name: string) => {
-	const base = schema(name, { Group, Team, Seat }, [codeKey, oneLead, oneSeat])
+	const base = schema(name, { Seat }, [codeKey, oneLead, oneSeat])
 	const Session = context("Session", { sub: Subject })
 	const mine = query(base).rule((r) => {
 		const { id, code, grp, lead, team, holder } = v(Seat, "seat")
@@ -231,7 +219,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 							later: [],
 							apply: { kind: "noPlaceholders" },
 							register: true,
-							renames: "kept",
+							declared: () => noDeclarations,
 							observe: noObservation
 						})
 						const { holder, desk } = defined(built[0], "the installed version")
@@ -351,7 +339,8 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 												)} and answered ${outcome.kind}`
 											)
 										}
-										const law = names.reported(outcome.law)
+										const [law, ...more] = Arr.map(outcome.laws, (l) => names.reported(l))
+										assert.deepEqual(more, [], "a key's refusal names its one law")
 										const object = Option.getOrThrowWith(
 											Arr.findFirst(met, (o) => lawOf[o.name] === law),
 											() =>

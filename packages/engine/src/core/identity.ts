@@ -1,5 +1,6 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import type { ConstantDigest, DomainDigest } from "#compiler/core/fingerprint.ts"
 import type { Identifier, IdentityKind } from "#compiler/core/ids.ts"
 import { derived, type Limit, namedatalen } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -16,7 +17,8 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  * length or a collision.
  *
  * - Readable: a declared name's conversion (its segments, lowercased, joined by single underscores: the schema, tables,
- *   derived relations, rosters and contracts, columns, row checks and a role's views), a login's or role's
+ *   derived relations, rosters' domains, columns, row checks and a role's views), a closed id's decoded
+ *   column `<field>_name` beside it in a role's view, a login's or role's
  *   `<schema>__<name>` (a role's schema and policies take its role's), or a name grizzle fixes (`check` for a domain's
  *   CHECK, the per-schema singletons `__ledger` with its key and checks, `__refuse`, `__require_serializable` and
  *   `__snapshot_guard`, the per-table trigger `__isolation`). The declaration rules make each one-to-one in its
@@ -28,9 +30,9 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  *   login's or role's name is refused when it does not fit with its schema's (physical/ddl/names.ts).
  * - Hashed: `__`, a readable stem cut to `stemBudget` bytes at a segment boundary, `_` and a digest of the identity's
  *   canonical encoding, the first `5 * digestChars` bits of its SHA-256 as `digestChars` characters of lowercase RFC
- *   4648 base32: keys, foreign keys, span, norm and law checks, indexes and statistics, sequences, text-pattern domains,
- *   law and arm tag columns, laws and their functions and triggers, filter functions, key and unique probes and advance
- *   functions, and a migration's temporaries. Every name grizzle derives starts with `__`, so no declared name meets
+ *   4648 base32: keys, foreign keys, span, norm and law checks, indexes and statistics, sequences, contract and
+ *   text-pattern domains, named by their definitions, constants, sets' domains, law and arm tag columns, laws and their functions and triggers, filter functions, key and unique probes
+ *   and advance functions, and a migration's temporaries. Every name grizzle derives starts with `__`, so no declared name meets
  *   one; two distinct hashed identities meet only where their stems and their digests do, which the installation's
  *   census refuses as DigestCollision (`censusOf`), and a migration's census (`TemporaryCensus`) where a temporary
  *   meets a name standing while the migration runs or another temporary.
@@ -497,9 +499,9 @@ export const censused = (census: Census, identifier: string): Censused | undefin
 	return census.readable.has(identifier) ? { form: "readable" } : undefined
 }
 
-/** The kinds of identity only a migration mints: the temporary names a holder is set aside under, an index is built
- * under before it is swapped in, and an enum's new roster is built under before it replaces the old one. */
-export type TemporaryKind = Extract<IdentityKind, "aside" | "swap" | "rebuild">
+/** The kinds of identity only a migration mints: the temporary names a holder is set aside under, and an index is built
+ * under before it is swapped in. */
+export type TemporaryKind = Extract<IdentityKind, "aside" | "swap">
 
 /**
  * A hashed name that stands while a migration runs: one the previous installation or the target installs, by its
@@ -622,9 +624,13 @@ const fieldsOf = (relation: string, fields: ReadonlyArray<KeyColumnName>): strin
 
 /**
  * What a law column is, as the law model states it: a constant a selected target fixes on its source, by the target
- * relation, the field the constant meets and its value; or a side's term, a field or pred of one, under the side's
- * selection, its conjuncts by their canonical texts, none for every row. Its relation is the table the column is added
- * to, whose namespace holds it.
+ * relation, the field the constant meets and its value; a side's term, a field or pred of one, under the side's
+ * selection, its conjuncts by their canonical texts, none for every row; a column the host draws for the family its
+ * owner relation and count field name: ‹n›, the owner's count on a member (copy), a counted family's index, a tree's
+ * parent start, or a fold's hidden accumulator before or after plane `plane` of the fold whose law is `fold`, so removing
+ * another fold renames none of its columns; or a counted family's
+ * predecessor, pred of its drawn index, which PostgreSQL generates from the row. Its relation is the table the column
+ * is added to, whose namespace holds it.
  */
 export type LawColumnStatement =
 	| {
@@ -638,9 +644,37 @@ export type LawColumnStatement =
 			readonly term: { readonly kind: "field" | "pred"; readonly field: string }
 			readonly selection: ReadonlyArray<string>
 	  }
+	| {
+			readonly kind: "copy" | "index" | "parentStart" | "predecessor"
+			readonly owner: string
+			readonly count: string
+	  }
+	| {
+			readonly kind: "before" | "after"
+			readonly owner: string
+			readonly count: string
+			/** The fold's own law, whose identity is no position among its family's folds. */
+			readonly fold: Identifier<"law">
+			readonly plane: 0 | 1
+	  }
 
-/** A row event a residual law's unit fires on: each unit has one trigger for one event. */
-export type LawEvent = "INSERT" | "DELETE" | "UPDATE"
+/** What each drawn law column of a family is, in its display. */
+const drawnWords = {
+	copy: "the owner's count",
+	index: "the index",
+	parentStart: "the parent's start",
+	predecessor: "the predecessor of the index"
+} as const
+
+/** The suffix of a decoded column's name after its field's conversion. */
+const decodedSuffix = "_name"
+
+/**
+ * Whether a closed-id field's decoded column fits maxIdentifierBytes: its field's conversion and the suffix, which a
+ * field whose conversion fills the identifier leaves no room for.
+ */
+export const decodedColumnFits = (field: DeclaredName): boolean =>
+	utf8Length(`${conversionOf(field)}${decodedSuffix}`) <= maxIdentifierBytes.value
 
 /** One constructor per kind: nothing else mints an identity. */
 export const identity = Object.freeze({
@@ -650,15 +684,60 @@ export const identity = Object.freeze({
 	/** A stored relation's table. */
 	table: (relation: DeclaredName): Identity<"table"> =>
 		mint("table", [relation], [relation], `relation ${relation}`, readable(conversionOf(relation))),
-	/** A closed relation's enum type. */
-	enumType: (relation: DeclaredName): Identity<"enum"> =>
+	/**
+	 * A roster's domain over smallint, its codes' range proof: its one CHECK admits exactly the roster's live codes, so
+	 * every closed id it types is one, and every digit a closed relation's constant is indexed by is in range.
+	 */
+	rosterDomain: (roster: DeclaredName): Identity<"rosterDomain"> =>
+		mint("rosterDomain", [roster], [roster], `roster ${roster}`, readable(conversionOf(roster))),
+	/**
+	 * A roster's names constant, named by its roster and the digest of its names in code order: a changed constant is a
+	 * new function, never one replaced in place.
+	 */
+	rosterConstant: (
+		roster: DeclaredName,
+		digest: ConstantDigest<"roster-names">
+	): Identity<"rosterConstant"> =>
 		mint(
-			"enum",
-			[relation],
-			[relation],
-			`closed relation ${relation}`,
-			readable(conversionOf(relation))
+			"rosterConstant",
+			[roster, digest],
+			[roster, "names"],
+			`names of roster ${roster} (${digest})`,
+			hashed
 		),
+	/**
+	 * A roster's live codes as a bit string, one bit per code, set where its names constant names a handle: derived from
+	 * the names constant, so it is named by that constant's digest, and a removal is a new function.
+	 */
+	rosterLive: (
+		roster: DeclaredName,
+		digest: ConstantDigest<"roster-names">
+	): Identity<"rosterLive"> =>
+		mint(
+			"rosterLive",
+			[roster, digest],
+			[roster, "live"],
+			`live codes of roster ${roster} (${digest})`,
+			hashed
+		),
+	/**
+	 * The domain of a set over a roster, bit(size) with size every code the roster has minted, whose one CHECK admits
+	 * only its live codes' bits: one per roster and size, so a growth is a new domain and a column moves to it.
+	 */
+	bitsDomain: (roster: DeclaredName, size: number): Identity<"bitsDomain"> =>
+		mint(
+			"bitsDomain",
+			[roster, `${size}`],
+			[roster, "bits", `${size}`],
+			`sets over roster ${roster} of ${size} codes`,
+			hashed
+		),
+	/**
+	 * A closed relation's or a side's constant, named by the digest of its content alone: two of equal content are one
+	 * function, and a changed one is a new function.
+	 */
+	closedConstant: (digest: ConstantDigest<"closed-constant">): Identity<"closedConstant"> =>
+		mint("closedConstant", [digest], ["constant"], `closed constant ${digest}`, hashed),
 	/** A derived relation's materialized view. */
 	view: (relation: DeclaredName): Identity<"view"> =>
 		mint(
@@ -671,6 +750,19 @@ export const identity = Object.freeze({
 	/** A field's column, in whatever table or view holds it: its name alone, so renaming a relation renames no column. */
 	column: (field: DeclaredName): Identity<"column"> =>
 		mint("column", [field], [field], `field ${field}`, readable(conversionOf(field))),
+	/**
+	 * A role view's decoded column beside a closed-id field's, `<field>_name`, the handle its code names. It is readable
+	 * in its view's column namespace exactly when no other field of the relation converts to it, which ownership
+	 * refuses, and fits maxIdentifierBytes exactly when the field's conversion leaves room for its suffix.
+	 */
+	decodedColumn: (field: DeclaredName): Identity<"decodedColumn"> =>
+		mint(
+			"decodedColumn",
+			[field],
+			[field, "name"],
+			`decoded name of field ${field}`,
+			readable(`${conversionOf(field)}${decodedSuffix}`)
+		),
 	/** A law column (`LawColumnStatement`). */
 	lawColumn: (column: LawColumnStatement): Identity<"lawColumn"> => {
 		switch (column.kind) {
@@ -693,19 +785,37 @@ export const identity = Object.freeze({
 					hashed
 				)
 			}
+			case "copy":
+			case "index":
+			case "parentStart":
+			case "predecessor":
+				return mint(
+					"lawColumn",
+					[column.kind, column.owner, column.count],
+					[column.kind === "parentStart" ? "parent_start" : column.kind, column.count],
+					`${drawnWords[column.kind]} of the family ${column.owner}.${column.count}`,
+					hashed
+				)
+			case "before":
+			case "after":
+				return mint(
+					"lawColumn",
+					[column.kind, column.owner, column.count, column.fold, `${column.plane}`],
+					[column.kind, column.count, `${column.plane}`],
+					`the accumulator ${column.kind} plane ${column.plane} of the fold ${column.fold} over the family ${column.owner}.${column.count}`,
+					hashed
+				)
 		}
 	},
-	contractDomain: (contract: DeclaredName): Identity<"contractDomain"> =>
-		mint(
-			"contractDomain",
-			[contract],
-			[contract],
-			`contract ${contract}`,
-			readable(conversionOf(contract))
-		),
-	/** A structural text domain, by the digest of its canonical pattern key: equal patterns share it. */
-	textDomain: (patternDigest: string): Identity<"textDomain"> =>
-		mint("textDomain", [patternDigest], ["text"], `text pattern ${patternDigest}`, hashed),
+	/**
+	 * A contract's domain, by the digest of its physical definition alone: two contracts of one definition are one
+	 * domain, and the contract a column is of stays its type's brand.
+	 */
+	contractDomain: (definition: DomainDigest): Identity<"contractDomain"> =>
+		mint("contractDomain", [definition], ["domain"], `domain of definition ${definition}`, hashed),
+	/** A structural text domain, by the digest of its physical definition alone: equal definitions share it. */
+	textDomain: (definition: DomainDigest): Identity<"textDomain"> =>
+		mint("textDomain", [definition], ["text"], `text domain of definition ${definition}`, hashed),
 	sequence: (relation: string, field: string): Identity<"sequence"> =>
 		mint(
 			"sequence",
@@ -728,7 +838,7 @@ export const identity = Object.freeze({
 	 */
 	primaryKey: (relation: string): Identity<"primaryKey"> =>
 		mint("primaryKey", [relation], [relation, "pk"], `primary key of ${relation}`, hashed),
-	/** A candidate key, a generated unique or a temporal unique, its span field among its fields. */
+	/** A candidate key or a generated unique, a span key's span field among its fields. */
 	key: (relation: string, fields: ReadonlyArray<KeyColumnName>): Identity<"key"> =>
 		mint(
 			"key",
@@ -746,7 +856,7 @@ export const identity = Object.freeze({
 			`check ${name} of ${relation}`,
 			readable(conversionOf(name))
 		),
-	/** The CHECK a law lowers to on a table: a finite membership or a capacity's row check. */
+	/** The CHECK a law lowers to on a table: a closed law's, or a family's. */
 	generatedCheck: (relation: string, law: Identity<"law">): Identity<"generatedCheck"> =>
 		mint(
 			"generatedCheck",
@@ -775,8 +885,10 @@ export const identity = Object.freeze({
 			`cosine norm check of ${relation}.${field}`,
 			hashed
 		),
-	/** A contract's or text domain's CHECK, `check` in its domain's constraint namespace. */
-	domainCheck: (domain: Identity<"contractDomain" | "textDomain">): Identity<"domainCheck"> =>
+	/** A contract's, text domain's, roster's or set's domain's CHECK, `check` in its domain's constraint namespace. */
+	domainCheck: (
+		domain: Identity<"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain">
+	): Identity<"domainCheck"> =>
 		mint(
 			"domainCheck",
 			[domain],
@@ -828,24 +940,6 @@ export const identity = Object.freeze({
 	/** The law of a structural text domain's CHECK. */
 	patternLaw: (domain: Identity<"textDomain">): Identity<"patternLaw"> =>
 		mint("patternLaw", [domain], [domain.stem], `law of ${domain.display}`, hashed),
-	/** The function of one unit of a residual law, the one its trigger on `relation` for `event` executes. */
-	lawFunction: (law: Identity<"law">, relation: string, event: LawEvent): Identity<"lawFunction"> =>
-		mint(
-			"lawFunction",
-			[law, relation, event],
-			["law", law.stem],
-			`function of law ${law.display} on ${relation} for ${event}`,
-			hashed
-		),
-	/** The deferred constraint trigger of one unit of a residual law: on `relation`, for `event` alone. */
-	lawTrigger: (law: Identity<"law">, relation: string, event: LawEvent): Identity<"lawTrigger"> =>
-		mint(
-			"lawTrigger",
-			[law, relation, event],
-			["law", law.stem],
-			`trigger of law ${law.display} on ${relation} for ${event}`,
-			hashed
-		),
 	/** A login's PostgreSQL role, `<schema>__<login>`: roles are cluster-wide, so its installation is part of it. */
 	login: (installation: Identity<"schema">, name: DeclaredName): Identity<"login"> =>
 		mint(
@@ -963,9 +1057,5 @@ export const identity = Object.freeze({
 	aside: (of: string): Identity<"aside"> =>
 		mint("aside", [of], ["aside", of], `${of} set aside`, hashed),
 	/** The name an index is built under before it is swapped in for `of`. */
-	swap: (of: string): Identity<"swap"> =>
-		mint("swap", [of], ["next", of], `the next ${of}`, hashed),
-	/** The name an enum's new roster is built under before it replaces `of`. */
-	rebuild: (of: string): Identity<"rebuild"> =>
-		mint("rebuild", [of], ["rebuild", of], `the rebuilt ${of}`, hashed)
+	swap: (of: string): Identity<"swap"> => mint("swap", [of], ["next", of], `the next ${of}`, hashed)
 })

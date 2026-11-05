@@ -3,7 +3,9 @@ import { Refusal } from "#compiler/core/canonical.ts"
 import type { TransientReason } from "#compiler/core/errors.ts"
 import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
+import type { FamilyId } from "#compiler/ir/law.ts"
 import type { StatementRole, StatementSpec, WriteSlot } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { mapTree, type StatementRoots } from "#compiler/lower/conservative/types.ts"
@@ -27,6 +29,8 @@ import { type NameMap, renderNameMap } from "#compiler/sql/naming.ts"
 import type { Carrier } from "#compiler/write/carriers/carriers.ts"
 import { groupBy } from "#compiler/write/defined.ts"
 import type { AddedTag, RemovedTag } from "#compiler/write/delta/net.ts"
+import type { FamilyStatement } from "#compiler/write/family/order.ts"
+import type { FamilySql } from "#compiler/write/family/statements.ts"
 import type {
 	DeleteResult,
 	InsertResult,
@@ -125,6 +129,29 @@ export type WriteStep =
 			/** Every part's unique aborts: each part writes its own relation, so a violation names its part's constraint. */
 			readonly uniqueAborts: ReadonlyArray<UniqueAbort>
 	  }
+	| FamilyStep
+
+/**
+ * The statements of one kind of one family of a stratum's nested writes (write/family/statements.ts): its text is
+ * sent once per chunk of its plan's statements of that kind (write/family/order.ts plan), each chunk binding its own
+ * arrays (bind.ts BoundWrite chunks), and its rows are every chunk's, in order. It writes `relation`, the family's
+ * member, or its owner for a count, and its rows are facts as `result` says, as a write step's are. A chunk's violation
+ * is a family law's native, which the installation's classifier names; it aborts nothing.
+ */
+export interface FamilyStep {
+	readonly kind: "family"
+	readonly stratum: number
+	/** The nested write's member slot whose facts nest the rows it writes. */
+	readonly slot: ParamId
+	/** What its statements write: a member relation's rows, or a family's owners' counts. */
+	readonly target:
+		| { readonly kind: "rows"; readonly relation: string }
+		| { readonly kind: "owners"; readonly family: FamilyId }
+	readonly statement: FamilyStatement["kind"]
+	/** The relation its rows are facts of: the member relation, or the counted family's owner. */
+	readonly relation: string
+	readonly result: FamilySql["result"]
+}
 
 /** One write action of a single statement: its step, whose rows are the statement's rows tagged with the part's index,
  * each the tag and then the step's `width` columns, the rest of the row padding. */
@@ -133,12 +160,15 @@ interface WritePart {
 	readonly width: number
 }
 
-/** The write steps of a statement: a write step itself, a single statement's parts' steps; no other step writes facts. */
-const writesOf = (
-	step: WriteStep
-): ReadonlyArray<Extract<WriteStep, { readonly kind: "write" }>> => {
+/** What a statement's rows are read as: the relation they are facts of, and their result. */
+export type RowsStep = Pick<Extract<WriteStep, { readonly kind: "write" }>, "relation" | "result">
+
+/** The write steps of a statement: a write step itself, a single statement's parts' steps, a family step; no other step
+ * writes facts. */
+const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 	switch (step.kind) {
 		case "write":
+		case "family":
 			return [step]
 		case "single":
 			return step.parts.map((part) => part.step)
@@ -151,17 +181,19 @@ const writesOf = (
 	}
 }
 
-/** The write steps a statement's rows are read as, each with its own rows: a write step's are the statement's, a single
- * statement's parts' are its rows of their tag, cut to their width; no other step has rows the outcome reads. */
+/** The write steps a statement's rows are read as, each with its own rows: a write step's and a family step's are the
+ * statement's, a single statement's parts' are its rows of their tag, cut to their width; no other step has rows the
+ * outcome reads. */
 export const writeRows = (
 	step: WriteStep,
 	rows: ReadonlyArray<ReadonlyArray<string>>
 ): ReadonlyArray<{
-	readonly step: Extract<WriteStep, { readonly kind: "write" }>
+	readonly step: RowsStep
 	readonly rows: ReadonlyArray<ReadonlyArray<string>>
 }> => {
 	switch (step.kind) {
 		case "write":
+		case "family":
 			return [{ step, rows }]
 		case "single":
 			return step.parts.map((part, tag) => {
@@ -362,6 +394,7 @@ export const stratumOf = (step: WriteStep): number | undefined => {
 		case "advance":
 		case "check":
 		case "single":
+		case "family":
 			return step.stratum
 	}
 }
@@ -474,14 +507,16 @@ export const resultHeading = (result: (WriteStatement | PutStatement)["result"])
 	}
 }
 
-/** The StatementSpec of a write, carrier or sequence-advance statement. */
+/** The StatementSpec of a write, carrier or sequence-advance statement, its placeholders encoded under the
+ * installation's codes. */
 export const writeStatementSpec = (
 	statement: WriteStatement | PutStatement,
-	dependsOn: ReadonlyArray<number>
+	dependsOn: ReadonlyArray<number>,
+	codes: Codebook
 ): StatementSpec<WriteSlot> =>
 	Object.freeze({
 		sql: statement.sql.text,
-		paramSlots: Object.freeze(statement.params.map(writeSlotOf)),
+		paramSlots: Object.freeze(statement.params.map(writeSlotOf(codes))),
 		heading: resultHeading(statement.result),
 		role: statement.role,
 		dependsOn: Object.freeze([...dependsOn])
@@ -491,11 +526,12 @@ export const writeStatementSpec = (
  * columns, padded with empty texts to the widest part, every column a text but the tag. */
 export const singleStatementSpec = (
 	statement: SingleStatement,
-	dependsOn: ReadonlyArray<number>
+	dependsOn: ReadonlyArray<number>,
+	codes: Codebook
 ): StatementSpec<WriteSlot> =>
 	Object.freeze({
 		sql: statement.sql.text,
-		paramSlots: Object.freeze(statement.params.map(writeSlotOf)),
+		paramSlots: Object.freeze(statement.params.map(writeSlotOf(codes))),
 		heading: [
 			{ name: "tag", type: plainType("int4") },
 			...indices(statement.width).map((i) => ({ name: `column ${i + 1}`, type: wildcardText }))
@@ -508,10 +544,11 @@ export const singleStatementSpec = (
  * executable texts, each statement's dependencies moved to artifact positions. */
 export const readBackSpecs = <S extends FusedStatement>(
 	roots: StatementRoots<S>,
-	offset: number
+	offset: number,
+	codes: Codebook
 ): StatementRoots<{ readonly statement: S; readonly spec: StatementSpec<WriteSlot> }> =>
 	mapTree(roots, (statement) => {
-		const spec = statementSpec(statement, declaredSlotOf)
+		const spec = statementSpec(statement, declaredSlotOf(codes))
 		if (!spec.ok) {
 			throw new Refusal(spec.error)
 		}

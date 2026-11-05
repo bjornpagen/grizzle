@@ -28,12 +28,11 @@ import {
 	type NumericBound,
 	type NumericTypmod,
 	type RegexRef,
+	type Roster,
 	type ScalarType,
 	type SpanCarrier,
-	serialCarriers,
 	type TextInfo,
-	typeLabel,
-	type ValueType
+	typeLabel
 } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
@@ -119,7 +118,13 @@ export const nativeCapabilities = {
 	/** PostgreSQL 19 has no min(uuid) or max(uuid). */
 	uuid: ["equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
 	text: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
-	enum: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
+	/** A closed id is its code, a smallint under its roster's domain, ordered by code: int2's classes and order. */
+	code: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
+	/**
+	 * bit has a B-tree class, bit_ops, and a BRIN class, and no hash or GiST class (pg_opclass.dat), and PostgreSQL has
+	 * no min or max over it. Its own algebra is the set algebra: &, |, ~ and bit_count.
+	 */
+	bits: ["equality", "expressionIndex", "setAlgebra", "storage"],
 	/** No min or max over a range; GiST is range_ops, the operator class every Allen atom uses. */
 	range4: ["equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
 	range8: ["equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
@@ -134,12 +139,9 @@ export const nativeCapabilities = {
 	exactMoney: ["equality", "hashing", "minMax", "ordering", "sum"]
 } as const satisfies { readonly [C in Carrier]: ReadonlyArray<Capability> }
 
-/** The capability set of a carrier; a serial generation declaration has no span endpoint. */
-export const capabilitiesOf = (carrier: Carrier, serial: boolean): CapabilitySet => {
-	const native: ReadonlyArray<Capability> = nativeCapabilities[carrier]
-	const caps = native.filter((c) => !(serial && c === "spanEndpoint"))
-	return capabilitySet(caps)
-}
+/** The capability set of a carrier. */
+export const capabilitiesOf = (carrier: Carrier): CapabilitySet =>
+	capabilitySet(nativeCapabilities[carrier])
 
 export const hasCapability = (t: ScalarType, capability: Capability): boolean =>
 	t.caps.includes(capability)
@@ -151,11 +153,8 @@ export const hasCapability = (t: ScalarType, capability: Capability): boolean =>
 const capabilityError = (loc: SourceLoc, capability: Capability, detail: string): CompileError =>
 	unsupported(loc, `${capability}: ${detail}`)
 
-/** Why a type is not a span endpoint: integer, bigint and contracts over them only, never a serial. */
+/** Why a type is not a span endpoint: integer, bigint and contracts over them only. */
 const spanEndpointDetail = (t: ScalarType): string => {
-	if ("serial" in t) {
-		return "is a serial generation declaration; use its integer type"
-	}
 	const base = baseOf(t)
 	if (base.carrier === "money") {
 		return "is money, for which no span is admitted"
@@ -175,7 +174,8 @@ export const carrierSql = {
 	bool: "boolean",
 	uuid: "uuid",
 	text: "text",
-	enum: "enum",
+	code: "code",
+	bits: "bits",
 	range4: "range",
 	range8: "range",
 	vector: "vector",
@@ -224,7 +224,7 @@ type DescriptorMembers = Readonly<Record<string, unknown>> & Columned<unknown>
  * (aggregate.ts), and the only span endpoints are integer and bigint.
  *
  * A contract keeps its base's capabilities: a domain has its base's operators, and arithmetic on it yields the base.
- * A serial keeps its integer's, less spanEndpoint. Every vector has vectorDistance: its
+ * Every vector has vectorDistance: its
  * operands share one dimension count, which the type tags.
  *
  * A runtime descriptor: what it carries for the compiler, and the brand every builder-made value holds
@@ -544,49 +544,36 @@ const scalarAt = (
 		}
 		case "numeric":
 			return Result.ok(numericType(Object.freeze({ precision: desc.precision, scale: desc.scale })))
-		case "serial": {
-			const carrier = serialCarriers[desc.type]
-			return Result.ok(
-				Object.freeze({ carrier, caps: capabilitiesOf(carrier, true), serial: "always" })
-			)
-		}
 		case "uuid":
 			return Result.ok(plainType("uuid"))
 		case "text":
 			return Result.map(env.text(desc.source, desc.flags), (info) =>
 				Object.freeze({
 					carrier: "text",
-					caps: capabilitiesOf("text", false),
+					caps: capabilitiesOf("text"),
 					contract: undefined,
 					text: ownedTextInfo(info)
 				})
 			)
-		case "closedId": {
-			const name = parseDeclaredName(desc.roster)
-			const handles = name.ok ? env.roster(name.value) : undefined
-			if (!name.ok || handles === undefined) {
-				return Result.err(
-					malformedDescription(loc, `a closed relation named ${JSON.stringify(desc.roster)}`)
-				)
-			}
-			return Result.ok(
+		case "closedId":
+			return Result.map(rosterAt(desc.roster, env, loc), (roster) =>
 				Object.freeze({
-					carrier: "enum",
-					caps: capabilitiesOf("enum", false),
+					carrier: "code",
+					caps: capabilitiesOf("code"),
 					contract: undefined,
-					roster: Object.freeze({
-						closed: name.value,
-						handles: Object.isFrozen(handles) ? handles : Object.freeze(handles)
-					})
+					roster
 				})
 			)
-		}
+		case "bits":
+			return Result.map(rosterAt(desc.roster, env, loc), (roster) =>
+				Object.freeze({ carrier: "bits", caps: capabilitiesOf("bits"), roster })
+			)
 		case "vector": {
 			const dims = desc.dimensions
 			return Result.ok(
 				Object.freeze({
 					carrier: "vector",
-					caps: capabilitiesOf("vector", false),
+					caps: capabilitiesOf("vector"),
 					typmod: Object.freeze({ dims }),
 					contract: undefined
 				})
@@ -601,14 +588,38 @@ const scalarAt = (
 	}
 }
 
+/**
+ * The roster a closed id or a set names, by the closed relation's declared name, its handles frozen: a name the
+ * declared-name rule refuses, or no closed relation's, is MalformedDescription.
+ */
+const rosterAt = (
+	closed: string,
+	env: ScalarEnv,
+	loc: SourceLoc
+): Result.Result<Roster, CompileError> => {
+	const name = parseDeclaredName(closed)
+	const handles = name.ok ? env.roster(name.value) : undefined
+	if (!name.ok || handles === undefined) {
+		return Result.err(
+			malformedDescription(loc, `a closed relation named ${JSON.stringify(closed)}`)
+		)
+	}
+	return Result.ok(
+		Object.freeze({
+			closed: name.value,
+			handles: Object.isFrozen(handles) ? handles : Object.freeze(handles)
+		})
+	)
+}
+
 /** A plain value type of `carrier`: no typmod, refinement or contract. */
 const plainType = (carrier: (typeof pgCarriers)[keyof typeof pgCarriers] | "uuid"): ContractBase =>
-	Object.freeze({ carrier, caps: capabilitiesOf(carrier, false), contract: undefined })
+	Object.freeze({ carrier, caps: capabilitiesOf(carrier), contract: undefined })
 
 const numericType = (typmod: NumericTypmod): ContractBase =>
 	Object.freeze({
 		carrier: "numeric",
-		caps: capabilitiesOf("numeric", false),
+		caps: capabilitiesOf("numeric"),
 		typmod,
 		contract: undefined
 	})
@@ -617,10 +628,10 @@ const numericType = (typmod: NumericTypmod): ContractBase =>
  * A computed numeric of `bound`, frozen (ir/scalar.ts NumericBound), its keys in the decoder's order: an operation's,
  * an aggregate's or a literal's numeric, which no declaration states.
  */
-export const numericValue = (bound: NumericBound): ValueType =>
+export const numericValue = (bound: NumericBound): ScalarType =>
 	Object.freeze({
 		carrier: "numeric",
-		caps: capabilitiesOf("numeric", false),
+		caps: capabilitiesOf("numeric"),
 		typmod: undefined,
 		contract: undefined,
 		bound: Object.freeze({ digits: bound.digits, scale: bound.scale })
@@ -628,14 +639,14 @@ export const numericValue = (bound: NumericBound): ValueType =>
 
 /**
  * A span over `endpoint`: range4 over integer and range8 over bigint, through contracts, refused with a
- * capability diagnostic for any other endpoint, a serial among them.
+ * capability diagnostic for any other endpoint.
  */
 export const spanType = (
 	endpoint: ScalarType,
 	width: bigint | undefined,
 	loc: SourceLoc
 ): Result.Result<Extract<ScalarType, { readonly carrier: SpanCarrier }>, CompileError> => {
-	if ("serial" in endpoint || (endpoint.carrier !== "int4" && endpoint.carrier !== "int8")) {
+	if (endpoint.carrier !== "int4" && endpoint.carrier !== "int8") {
 		return Result.err(
 			capabilityError(loc, "spanEndpoint", `${typeLabel(endpoint)} ${spanEndpointDetail(endpoint)}`)
 		)
@@ -644,7 +655,7 @@ export const spanType = (
 	return Result.ok(
 		Object.freeze({
 			carrier,
-			caps: capabilitiesOf(carrier, false),
+			caps: capabilitiesOf(carrier),
 			contract: undefined,
 			span: Object.freeze({ endpoint, width })
 		})
@@ -661,11 +672,7 @@ const withContract = (base: ContractBase, contract: ContractInfo): ContractBase 
 /**
  * A nominal contract over `base`: the base's carrier, typmod, refinements and capabilities, the contract's
  * name, the facts it declares it proves, and the predicate table when the checker supplies one (undefined from a
- * builder, which needs none). A contract over a serial is refused UnsupportedOperation: a serial is a generation
- * declaration, not a value domain.
- *
- * A serial is a generation declaration, not a value domain: no registry capability is missing, so the refusal is
- * an unsupported operation in its own words, never a capability diagnostic.
+ * builder, which needs none). A contract over a set over a roster is refused UnsupportedOperation.
  */
 export const contractType = (
 	name: DeclaredName,
@@ -678,7 +685,7 @@ export const contractType = (
 		withContract(info.base, info)
 	)
 
-/** The contract `name` over `base` with `predicate`'s table: a contract over a serial is a generation refusal. */
+/** The contract `name` over `base` with `predicate`'s table: a contract over a set is refused. */
 const contractOver = (
 	name: DeclaredName,
 	base: DeclaredType,
@@ -686,11 +693,11 @@ const contractOver = (
 	predicate: ExprTable | undefined,
 	facts: ReadonlyArray<Fact>
 ): Result.Result<ContractInfo, CompileError> => {
-	if ("serial" in base) {
+	if (base.carrier === "bits") {
 		return Result.err(
 			unsupported(
 				loc,
-				`contractBase: ${typeLabel(base)} is a column generation declaration, not a value domain; a contract over its integer type is the domain`
+				`contractBase: ${typeLabel(base)} is a set over a roster, whose hole and padding bits no predicate keeps apart; no contract is over one`
 			)
 		)
 	}
@@ -729,8 +736,7 @@ export const contractInfoOf = (
 /**
  * The declared type of a FieldDesc (ir/scalar.ts DeclaredType): carrier, typmod, refinements and capability set, never
  * a computed numeric or an exact value, which no declaration states. A span over an endpoint without the
- * spanEndpoint capability is a capability diagnostic and a contract over a serial a generation refusal (both
- * UnsupportedOperation); an unknown roster, and a contract name the declared-name rule refuses, is MalformedDescription.
+ * spanEndpoint capability is a capability diagnostic and a contract over a set a refusal (both UnsupportedOperation); an unknown roster, and a contract name the declared-name rule refuses, is MalformedDescription.
  */
 export const scalarTypeOf = (
 	desc: FieldDesc,
@@ -799,10 +805,12 @@ const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDes
 			return toUuid(value)
 		case "text":
 			return validateText(value)
-		case "enum":
+		case "code":
 			return typeof value === "string" && base.roster.handles.includes(value)
 				? Result.ok(value)
-				: Result.err("enumHandle")
+				: Result.err("codeHandle")
+		case "bits":
+			return bitsLiteral(value, base.roster.handles)
 		case "range4":
 		case "range8": {
 			if (!hasProperties(value) || isList(value)) {
@@ -827,6 +835,30 @@ const hostLiteral = (base: ScalarType, value: unknown): Result.Result<LiteralDes
 		case "exactMoney":
 			return value instanceof Money ? Result.ok(value) : Result.err("moneyType")
 	}
+}
+
+/**
+ * A set's literal: a Set whose members are each a handle of the roster, as its handles in the roster's declared order,
+ * so one set has one literal. A value that is no Set, or holds a member that is no string, is bitsType; a string the
+ * roster does not hold is bitsMember.
+ */
+const bitsLiteral = (
+	value: unknown,
+	roster: ReadonlyArray<string>
+): Result.Result<LiteralDesc, ValueFault> => {
+	if (!(value instanceof Set)) {
+		return Result.err("bitsType")
+	}
+	const members: ReadonlyArray<unknown> = Array.from(value)
+	if (!members.every((member) => typeof member === "string")) {
+		return Result.err("bitsType")
+	}
+	if (!members.every((member) => roster.includes(member))) {
+		return Result.err("bitsMember")
+	}
+	return Result.ok({
+		handles: Object.freeze(roster.filter((handle) => members.includes(handle)))
+	})
 }
 
 /** The throwing form, for builders: a literal of the wrong host kind is MalformedDescription naming what was needed. */

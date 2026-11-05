@@ -4,28 +4,35 @@
  * them. With model.ts's arithmetic this is the host billing model: model.ts says what the application computes, this
  * file what the laws admit.
  *
- * A state is a platform's facts, each relation a set of facts (stateOf). A law is a predicate a state holds or breaks,
- * named by the statement that declares it; a suite reads its law id through the naming door when it compares the law
- * with the one grizzle reported:
+ * A state is a platform's facts, each relation a set of facts as its caller writes them (stateOf): no count or sum a
+ * counted family draws is a fact's field, so every sum below is the host's own, over the members' rows, each counted
+ * once by its key. A law is a predicate a state holds or breaks, named by the statement that declares it; a suite reads
+ * its law id through the naming door when it compares the law with the one grizzle reported:
  * - a key: no two facts agree on the key's fields; a span key: no two facts agree on its scalar fields while their
  *   spans overlap. A relation's primary key is a span key when one of its fields is a span;
  * - a containment: every source fact's fields, where the source's selection holds, are some target fact's fields where
  *   the target's selection holds;
  * - a coverage: the target facts agreeing with a source fact on its scalar fields cover its span with theirs, which may
  *   abut;
- * - a capacity: for every target fact where its selection holds, the source facts agreeing with it on the paired fields
- *   weigh a sum within its bounds, an empty sum weighing zero;
+ * - a counted family: every member's group fields are the key of some owner fact (its owner axis);
+ * - a fold: each owner's accumulator is the sum of its members' step values. grizzle accumulates it from the members'
+ *   rows, so the rows a write states never break it; a refusal names it only beside its family's law (the predecessor
+ *   and last axes carry both), which judges it;
+ * - a check: every fact of its relation holds its predicate, which over an owner reads its family's sum, the sum of its
+ *   members' step values, an empty family's zero;
  * - an alternatives arm: every arm fact's key is the key of a parent fact whose discriminator is the arm's handle; and
- *   the alternatives' reverse law: every parent fact of an armed handle has its arm fact.
+ *   each armed handle's reverse law: every parent fact of that handle has its arm fact.
  * The contracts' checks (an amount at least zero) and the closed rosters' heads are left out: no write the suites build
  * holds a value outside its contract or its roster.
  *
  * A write is its operations: facts deleted, inserted, and put at their keys. grizzle applies them as sets: the state
  * after is (S \ D \ the facts at the put keys) ∪ I ∪ P. A write that leaves the state as it was is no-change, one whose
  * state after breaks laws is refused by one of them, and any other is accepted. A direct SQL writer's statements run in
- * order, its deletions and then its insertions: keys are checked at each statement, so an insertion at a key a fact
- * already holds, or that two of its own facts share, is refused there by that key; every other law is checked on the
- * state the transaction leaves, at COMMIT or at SET CONSTRAINTS ALL IMMEDIATE.
+ * order, its deletions and then its insertions: keys, a family's owner axis (a foreign key no family defers) and a row
+ * check over a fact's own fields are checked at each statement, so an insertion at a key a fact already holds or that
+ * two of its own facts share, a member inserted before its owner, an owner deleted from under its members, and a fact
+ * its own check refuses are refused there by that law; every other law is checked on the state the transaction leaves,
+ * at COMMIT or at SET CONSTRAINTS ALL IMMEDIATE.
  */
 import { Array as Arr, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -124,7 +131,9 @@ export type LawFamily =
 	| "span key"
 	| "containment"
 	| "coverage"
-	| "capacity"
+	| "family"
+	| "fold"
+	| "check"
 	| "arm"
 	| "reverse"
 
@@ -133,7 +142,7 @@ export interface HostLaw {
 	readonly family: LawFamily
 	/** The relations whose facts it reads. */
 	readonly relations: ReadonlyArray<RelationName>
-	/** A key is checked at each statement; every other law on the state a transaction leaves. */
+	/** Checked at each statement (a key, a family's owner axis, a row check), or on the state a transaction leaves. */
 	readonly immediate: boolean
 	readonly id: (names: LawNames) => LawId
 	readonly broken: (s: State) => boolean
@@ -212,30 +221,40 @@ const coverBroken = (s: State, source: Side, target: Side): boolean => {
 	)
 }
 
-/** A capacity's bound: zero, or a field of the target fact. */
-type Bound = { readonly kind: "zero" } | { readonly kind: "field"; readonly field: string }
-const zero: Bound = { kind: "zero" }
-const field = (name: string): Bound => ({ kind: "field", field: name })
-const boundOf = (b: Bound, row: Row): bigint => (b.kind === "zero" ? 0n : amountValue(row[b.field]))
-
-const capacityBroken = (
-	s: State,
-	target: Side,
-	source: Side,
-	weight: string,
-	low: Bound,
-	high: Bound
-): boolean => {
-	const sums = new Map<string, bigint>()
-	for (const row of rowsOf(s, source)) {
-		const k = tupleKey(row, source.fields)
-		sums.set(k, (sums.get(k) ?? 0n) + amountValue(row[weight]))
-	}
-	return Arr.some(rowsOf(s, target), (row) => {
-		const sum = sums.get(tupleKey(row, target.fields)) ?? 0n
-		return sum < boundOf(low, row) || sum > boundOf(high, row)
-	})
+/**
+ * A counted family on the host: the facts of `member`, each in the group of the owner fact whose key fields `key` its
+ * group fields `group` equal, pair by pair.
+ */
+interface Counted {
+	readonly member: RelationName
+	readonly group: ReadonlyArray<string>
+	readonly owner: RelationName
+	readonly key: ReadonlyArray<string>
 }
+
+const counted = (
+	member: RelationName,
+	group: ReadonlyArray<string>,
+	owner: RelationName,
+	key: ReadonlyArray<string>
+): Counted => ({ member, group, owner, key })
+
+/**
+ * Each owner's sum of its members' `value`, by the owner's key: a sum over the members' facts, each counted once, an
+ * owner no member names absent (its sum is zero).
+ */
+const sumsOf = (s: State, f: Counted, value: string): ReadonlyMap<string, bigint> => {
+	const sums = new Map<string, bigint>()
+	for (const row of rowsIn(s, f.member)) {
+		const k = tupleKey(row, f.group)
+		sums.set(k, (sums.get(k) ?? 0n) + amountValue(row[value]))
+	}
+	return sums
+}
+
+/** The family's sums, read at one owner fact. */
+const sumAt = (sums: ReadonlyMap<string, bigint>, f: Counted, owner: Row): bigint =>
+	sums.get(tupleKey(owner, f.key)) ?? 0n
 
 /** A relation's primary key: its fields, or its scalar fields and its span field. */
 type PrimaryKey =
@@ -347,26 +366,76 @@ const coverage = (name: string, statement: Statement, source: Side, target: Side
 	broken: (s) => coverBroken(s, source, target)
 })
 
-const capacity = (
-	name: string,
-	statement: Statement,
-	target: Side,
-	source: Side,
-	weight: string,
-	low: Bound,
-	high: Bound
-): HostLaw => ({
+/**
+ * A counted family's law: every member's group is its owner's key. grizzle draws every slot, count and copy from the
+ * members' rows, so of the rest of the family's law only the owner axis is the rows' to break; it is no deferred foreign
+ * key, so a direct writer meets it at each statement.
+ */
+const family = (name: string, statement: Statement, f: Counted): HostLaw => ({
 	name,
-	family: "capacity",
-	relations: [target.relation, source.relation],
-	immediate: false,
+	family: "family",
+	relations: [f.member, f.owner],
+	immediate: true,
 	id: (names) => names.lawOf(statement),
-	broken: (s) => capacityBroken(s, target, source, weight, low, high)
+	broken: (s) => containBroken(s, side(f.member, ...f.group), side(f.owner, ...f.key))
 })
 
 /**
- * An alternatives statement's laws: each arm's key into its parent's facts of the arm's handle, and the reverse law,
- * every parent fact of an armed handle obliged to its arm fact.
+ * A sum fold's law: each owner's accumulator is its members' sum. grizzle accumulates it from the members' rows, so no
+ * state of rows breaks it; a refusal names it beside its family's law, which judges that refusal.
+ */
+const sumFold = (name: string, statement: Statement, f: Counted): HostLaw => ({
+	name,
+	family: "fold",
+	relations: [f.member, f.owner],
+	immediate: false,
+	id: (names) => names.lawOf(statement),
+	broken: () => false
+})
+
+/**
+ * A row check over an owner that reads its family's sum of `value`: every owner fact holds `holds` of itself and that
+ * sum. The sum is accumulated for the state the write leaves, so the check is judged there.
+ */
+const sumCheck = (
+	name: string,
+	statement: Statement,
+	f: Counted,
+	value: string,
+	holds: (owner: Row, sum: bigint) => boolean
+): HostLaw => ({
+	name,
+	family: "check",
+	relations: [f.owner, f.member],
+	immediate: false,
+	id: (names) => names.lawOf(statement),
+	broken: (s) => {
+		const sums = sumsOf(s, f, value)
+		return Arr.some(rowsIn(s, f.owner), (row) => !holds(row, sumAt(sums, f, row)))
+	}
+})
+
+/** A row check over a relation's own fields: every fact holds `holds`, checked at each statement. */
+const rowCheck = (
+	name: string,
+	statement: Statement,
+	relation: RelationName,
+	holds: (row: Row) => boolean
+): HostLaw => ({
+	name,
+	family: "check",
+	relations: [relation],
+	immediate: true,
+	id: (names) => names.lawOf(statement),
+	broken: (s) => Arr.some(rowsIn(s, relation), (row) => !holds(row))
+})
+
+/** An integer field of a fact. */
+const amountOf = (row: Row, field: string): bigint => amountValue(row[field])
+
+/**
+ * An alternatives statement's laws: each arm's key into its parent's facts of the arm's handle, and each armed handle's
+ * reverse law, every parent fact of that handle obliged to its arm fact.
  */
 const alternativesLaws = (
 	name: string,
@@ -388,18 +457,31 @@ const alternativesLaws = (
 		broken: (s) =>
 			containBroken(s, side(arm, key), selected(parent, { [discriminator]: handle }, "id"))
 	})),
-	{
-		name: `${name}: every armed ${parent} has its arm`,
+	...Arr.map(armed, ({ handle, arm, key }): HostLaw => ({
+		name: `${name}: every ${handle} ${parent} has its ${arm}`,
 		family: "reverse",
-		relations: [parent, ...Arr.map(armed, (a) => a.arm)],
+		relations: [parent, arm],
 		immediate: false,
-		id: (names) => names.alternativesOf(value).reverse,
+		id: (names) =>
+			defined(names.alternativesOf(value).reverse[handle], `the ${handle} reverse law`),
 		broken: (s) =>
-			Arr.some(armed, ({ handle, arm, key }) =>
-				containBroken(s, selected(parent, { [discriminator]: handle }, "id"), side(arm, key))
-			)
-	}
+			containBroken(s, selected(parent, { [discriminator]: handle }, "id"), side(arm, key))
+	}))
 ]
+
+/** The platform's counted families, as the fixture states them: member, group, owner and the owner's key. */
+const eventCharges = counted("UsageCharge", ["event"], "EventCharge", ["event"])
+const chargeDebits = counted("CreditDebit", ["event", "kind"], "UsageCharge", ["event", "kind"])
+const grantDebits = counted("CreditDebit", ["grant"], "CreditGrant", ["id"])
+const limitCharges = counted(
+	"EventCharge",
+	["workspace", "month"],
+	"WorkspaceLimit",
+	["workspace", "month"]
+)
+const invoiceLines = counted("InvoiceLine", ["invoice"], "Invoice", ["id"])
+const lineAllocations = counted("Allocation", ["line"], "InvoiceLine", ["id"])
+const invoiceRefunds = counted("Refund", ["invoice"], "Invoice", ["id"])
 
 /** Every law the platform declares, in the order the fixture states them. */
 export const platformLaws: ReadonlyArray<HostLaw> = [
@@ -594,77 +676,74 @@ export const platformLaws: ReadonlyArray<HostLaw> = [
 		side("Allocation", "subscription", "during"),
 		side("Segment", "subscription", "during")
 	),
-	capacity(
+	family("eventCharges", P.eventCharges, eventCharges),
+	sumFold("eventCharged", P.eventCharged, eventCharges),
+	sumCheck(
 		"chargeExact",
 		P.chargeExact,
-		side("EventCharge", "event"),
-		side("UsageCharge", "event"),
+		eventCharges,
 		"amount",
-		field("amount"),
-		field("amount")
+		(e, charged) => charged === amountOf(e, "amount")
 	),
-	capacity(
+	family("chargeDebits", P.chargeDebits, chargeDebits),
+	sumFold("chargeDebited", P.chargeDebited, chargeDebits),
+	sumCheck(
 		"creditedExact",
 		P.creditedExact,
-		side("UsageCharge", "event", "kind"),
-		side("CreditDebit", "event", "kind"),
+		chargeDebits,
 		"amount",
-		field("credited"),
-		field("credited")
+		(c, debited) => debited === amountOf(c, "credited")
 	),
-	capacity(
+	rowCheck(
 		"creditedWithinCharge",
 		P.creditedWithinCharge,
-		side("UsageCharge", "event", "kind"),
-		side("UsageCharge", "event", "kind"),
-		"credited",
-		zero,
-		field("amount")
+		"UsageCharge",
+		(c) => amountOf(c, "credited") <= amountOf(c, "amount")
 	),
-	capacity(
+	family("grantDebits", P.grantDebits, grantDebits),
+	sumFold("grantDebited", P.grantDebited, grantDebits),
+	sumCheck(
 		"grantWithinAmount",
 		P.grantWithinAmount,
-		side("CreditGrant", "id"),
-		side("CreditDebit", "grant"),
+		grantDebits,
 		"amount",
-		zero,
-		field("amount")
+		(g, debited) => debited <= amountOf(g, "amount")
 	),
-	capacity(
+	family("limitCharges", P.limitCharges, limitCharges),
+	sumFold("limitSpent", P.limitSpent, limitCharges),
+	sumCheck(
 		"spendWithinCap",
 		P.spendWithinCap,
-		side("WorkspaceLimit", "workspace", "month"),
-		side("EventCharge", "workspace", "month"),
+		limitCharges,
 		"amount",
-		zero,
-		field("cap")
+		(l, spent) => spent <= amountOf(l, "cap")
 	),
-	capacity(
+	family("invoiceLines", P.invoiceLines, invoiceLines),
+	sumFold("invoiceBilled", P.invoiceBilled, invoiceLines),
+	sumCheck(
 		"invoiceExact",
 		P.invoiceExact,
-		side("Invoice", "id"),
-		side("InvoiceLine", "invoice"),
+		invoiceLines,
 		"amount",
-		field("amount"),
-		field("amount")
+		(i, billed) => billed === amountOf(i, "amount")
 	),
-	capacity(
+	family("lineAllocations", P.lineAllocations, lineAllocations),
+	sumFold("lineAllocated", P.lineAllocated, lineAllocations),
+	sumCheck(
 		"allocationExact",
 		P.allocationExact,
-		selected("InvoiceLine", { source: "plan" }, "id"),
-		side("Allocation", "line"),
+		lineAllocations,
 		"amount",
-		field("amount"),
-		field("amount")
+		(l, allocated) => l["source"] !== "plan" || allocated === amountOf(l, "amount")
 	),
-	capacity(
+	family("invoiceRefunds", P.invoiceRefunds, invoiceRefunds),
+	sumFold("invoiceRefunded", P.invoiceRefunded, invoiceRefunds),
+	sumCheck(
 		"refundWithinInvoice",
 		P.refundWithinInvoice,
-		side("Invoice", "id"),
-		side("Refund", "invoice"),
+		invoiceRefunds,
 		"amount",
-		zero,
-		field("amount")
+		(i, refunded) => refunded <= amountOf(i, "amount")
 	),
 	containment(
 		"refundOnlyPaid",
@@ -799,7 +878,9 @@ export interface DirectStatement {
 /**
  * What a direct writer's statements decide on a state, in order: a direct transaction commits or is refused, so a
  * commit that changes nothing is accepted too. The state is a bag: an inserted fact equal to a stored one is a second
- * fact at its key.
+ * fact at its key. The laws checked at each statement are judged after every statement that writes a relation they
+ * read: an insertion meets a key, a row check and the owner axis of the families it is a member of, a deletion the
+ * owner axis of the families it owns.
  */
 export const decideStatements = (
 	s: State,
@@ -808,21 +889,19 @@ export const decideStatements = (
 	let at = s
 	for (const statement of statements) {
 		const rows = rowsIn(at, statement.relation)
-		if (statement.kind === "delete") {
-			const gone = keySet(statement.facts)
-			at = withRows(
-				at,
-				statement.relation,
-				Arr.filter(rows, (row) => !gone.has(rowKey(row)))
-			)
-			continue
-		}
-		at = withRows(at, statement.relation, [...rows, ...statement.facts])
-		const keys = Arr.filter(
+		const gone = keySet(statement.kind === "delete" ? statement.facts : [])
+		at = withRows(
+			at,
+			statement.relation,
+			statement.kind === "delete"
+				? Arr.filter(rows, (row) => !gone.has(rowKey(row)))
+				: [...rows, ...statement.facts]
+		)
+		const immediate = Arr.filter(
 			platformLaws,
 			(law) => law.immediate && law.relations.includes(statement.relation)
 		)
-		const broken = Arr.filter(keys, (law) => law.broken(at))
+		const broken = Arr.filter(immediate, (law) => law.broken(at))
 		if (broken.length > 0) {
 			return { kind: "refused", laws: broken }
 		}

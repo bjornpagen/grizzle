@@ -35,22 +35,21 @@ const kindRank: Readonly<Record<GraphIdent["kind"], number>> = {
 	schema: 0,
 	table: 1,
 	materializedView: 2,
-	enum: 3,
-	domain: 4,
-	column: 5,
-	constraint: 6,
-	index: 7,
-	function: 8,
-	trigger: 9,
-	statistics: 10,
-	role: 11,
-	membership: 12,
-	view: 13,
-	policy: 14,
-	rowSecurity: 15,
-	privileges: 16,
-	extension: 17,
-	other: 18
+	domain: 3,
+	column: 4,
+	constraint: 5,
+	index: 6,
+	function: 7,
+	trigger: 8,
+	statistics: 9,
+	role: 10,
+	membership: 11,
+	view: 12,
+	policy: 13,
+	rowSecurity: 14,
+	privileges: 15,
+	extension: 16,
+	other: 17
 }
 
 const rank = (ident: string): number => kindRank[parseIdent(ident).kind]
@@ -72,7 +71,6 @@ const nameOf = (ident: GraphIdent): string => {
 		case "membership":
 		case "privileges":
 			return ident.name
-		case "enum":
 		case "domain":
 		case "table":
 		case "materializedView":
@@ -106,8 +104,6 @@ const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
 			return { kind: "MATERIALIZED VIEW", name: { schema: ident.schema, name: ident.name } }
 		case "view":
 			return { kind: "VIEW", name: { schema: ident.schema, name: ident.name } }
-		case "enum":
-			return { kind: "TYPE", name: { schema: ident.schema, name: ident.name } }
 		case "domain":
 			return { kind: "DOMAIN", name: { schema: ident.schema, name: ident.name } }
 		case "index":
@@ -217,12 +213,13 @@ export const derivedMigrationName = (
 	}
 	for (const [name, now] of Object.entries(next.theory.relations)) {
 		const was = previous.theory.relations[name]
-		if (was === undefined || was.ident !== now.ident || now.kind === "derived") {
+		if (was === undefined || was.ident !== now.ident || now.kind !== "relation") {
 			continue
 		}
 		const column = (c: string) => innerIdent("column", next.schema, now.ident, c)
-		/** A derived relation stores no field of its own: a stored relation that took its name adds every field. */
-		const wasFields: ReadonlyArray<SnapshotField> = was.kind === "derived" ? [] : was.fields
+		/** A derived relation and a roster store no field of their own: a stored relation that took the name adds every
+		 * field. */
+		const wasFields: ReadonlyArray<SnapshotField> = was.kind === "relation" ? was.fields : []
 		appendAll(changes, [
 			...now.fields.flatMap((f): ReadonlyArray<Change> => {
 				const old = wasFields.find((w) => w.name === f.name)

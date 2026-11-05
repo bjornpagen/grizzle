@@ -5,6 +5,7 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -26,6 +27,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { inForce } from "#compiler/write/family/order.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
@@ -192,7 +194,9 @@ describe("a write's enumerated members", () => {
 				const changes = ChangeSet.empty(Shop).insert(Item, rows)
 				const compiled = program(changes)
 				const members = yield* collectInputs(compiled.frontend, parsedOf(changes).inputs)
-				const bound = succeeded(bindWrite(compiled, { members, params: {} }))
+				const bound = succeeded(
+					bindWrite(compiled, { members, params: {}, transport: inForce(bindFrame) })
+				)
 				assert.equal(bound.kind, "bound")
 				if (bound.kind !== "bound") {
 					return

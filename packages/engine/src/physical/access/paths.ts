@@ -7,13 +7,8 @@ import {
 	mapInput
 } from "#compiler/core/order.ts"
 
-import {
-	type AccessIndexRequest,
-	type AccessKey,
-	type AccessPath,
-	defaultOpclass,
-	type IndexOpclass
-} from "#compiler/ir/products.ts"
+import { defaultOpclass, type IndexOpclass } from "#compiler/ir/law.ts"
+import type { AccessIndexRequest, AccessKey, AccessPath } from "#compiler/ir/products.ts"
 
 /** The operator class every key of a path takes, by its access method: the column type's default for a B-tree or a
  * GiST index, pgvector's cosine class for an HNSW one, whose schema is the installation's vector extension schema. */

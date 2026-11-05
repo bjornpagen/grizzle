@@ -12,12 +12,17 @@ import {
 import { Array as Arr, Effect, Option } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { indices } from "#compiler/core/array.ts"
-import { conversionOf, parseDeclaredName } from "#compiler/core/identity.ts"
+import {
+	conversionOf,
+	type DeclaredName,
+	decodedColumnFits,
+	parseDeclaredName
+} from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, numericTypmodOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
-import { anyNumeric, plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
+import { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { analyzeText, textInfo } from "#compiler/text/refinement.ts"
@@ -106,6 +111,7 @@ import {
 	sourceFields,
 	type Var
 } from "#test/support/oracle/public/program.ts"
+import { argType, computedType } from "#test/support/oracle/public/terms.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 
 /**
@@ -1231,9 +1237,9 @@ class Names {
 		this.kinds = kinds
 	}
 
-	#take(declared: string): string | undefined {
+	#take(declared: string, admits: (name: DeclaredName) => boolean): string | undefined {
 		const parsed = parseDeclaredName(declared)
-		if (!parsed.ok || this.#taken.has(conversionOf(parsed.value))) {
+		if (!parsed.ok || !admits(parsed.value) || this.#taken.has(conversionOf(parsed.value))) {
 			return undefined
 		}
 		this.#taken.add(conversionOf(parsed.value))
@@ -1242,27 +1248,43 @@ class Names {
 
 	/** Takes a name's conversion before any is drawn, so no name of the scope converts as it does. */
 	reserve(declared: string): void {
-		if (this.#take(declared) === undefined) {
+		if (this.#take(declared, everyName) === undefined) {
 			throw new Error(`the name ${declared} is taken before it is reserved`)
 		}
 	}
 
 	draw(pick: number, fallback: string): string {
+		return this.#drawAdmitted(pick, fallback, everyName)
+	}
+
+	/**
+	 * A closed-id field's name: one whose decoded column `<field>_name` fits an identifier (core/identity.ts
+	 * decodedColumnFits), as ownership requires of every closed-id field a role view decodes, so the dictionary's longest
+	 * names fall back.
+	 */
+	drawClosedId(pick: number, fallback: string): string {
+		return this.#drawAdmitted(pick, fallback, decodedColumnFits)
+	}
+
+	#drawAdmitted(pick: number, fallback: string, admits: (name: DeclaredName) => boolean): string {
 		const drawn = pickFrom(dictionary, pick)
-		const taken = this.#take(drawn.declared)
+		const taken = this.#take(drawn.declared, admits)
 		if (taken !== undefined) {
 			this.kinds.add(drawn.feature)
 			return taken
 		}
 		this.kinds.add("fallback")
 		for (let n = 0; ; n++) {
-			const name = this.#take(`${fallback}${n}`)
+			const name = this.#take(`${fallback}${n}`, admits)
 			if (name !== undefined) {
 				return name
 			}
 		}
 	}
 }
+
+/** Every declared name: a field of any kind but a closed id is named by the dictionary alone. */
+const everyName = (_name: DeclaredName): boolean => true
 
 const rosterHandles: Arr.NonEmptyReadonlyArray<string> = ["Red", "Green", "Blue"]
 
@@ -1287,7 +1309,7 @@ const typeOf = (kind: FieldKind, roster: { readonly name: string }): ScalarType 
 			return proseType
 		case "handle":
 			return scalarOfSpec({
-				carrier: "enum",
+				carrier: "code",
 				roster: { closed: roster.name, handles: [...rosterHandles] }
 			})
 		case "span4":
@@ -1428,7 +1450,11 @@ const resolveRelation = (
 					: pickFrom(fieldKinds, pick)
 	const fields: Array<ProgramField> = Arr.map(sketches, (f, i) => {
 		const kind = kindAt(i, f.kind)
-		return { name: fieldNames.draw(f.name, "field"), kind, type: typeOf(kind, roster) }
+		const name =
+			kind === "handle"
+				? fieldNames.drawClosedId(f.name, "field")
+				: fieldNames.draw(f.name, "field")
+		return { name, kind, type: typeOf(kind, roster) }
 	})
 	const [first, ...rest] = fields
 	if (first === undefined) {
@@ -1819,7 +1845,7 @@ const equalityOps: Arr.NonEmptyReadonlyArray<CompareOp> = ["eq", "ne"]
 const ordered = (v: Var): boolean =>
 	hasCap(v.field.type, "ordering") &&
 	v.field.type.carrier !== "bool" &&
-	v.field.type.carrier !== "enum" &&
+	v.field.type.carrier !== "code" &&
 	!isSpan(v)
 
 /**
@@ -1955,12 +1981,6 @@ const resolveNegation = <P>(state: RuleState<P>, sketch: NegationSketch): Negati
 	return first === undefined ? undefined : { source, bindings: [first, ...rest] }
 }
 
-/**
- * A computed numeric at numeric's own limits: a padding's type, a reading's, and every quotient, root and power the
- * generator draws, the checker typing each by the bound it proves.
- */
-const computedNumeric: ScalarType = anyNumeric
-
 /** The kinds a Compute term takes as its variable: the numeric ones. */
 const computableKinds: ReadonlyArray<FieldKind> = ["int4", "int8", "numeric", "fixed", "tick"]
 
@@ -1981,10 +2001,6 @@ const paddingOf = (arg: Var, scale: number): Padding => ({
 	scale: leastScale(arg.field.type) + pickFrom(numericPaddings, scale)
 })
 
-/** The type of what an aggregate or a reading reads: its variable's, or a padding's computed numeric. */
-const argTermType = (t: ArgTerm): ScalarType =>
-	t.kind === "var" ? t.var.field.type : computedNumeric
-
 /**
  * The aggregate a fold sketch draws over `arg`: its function where the argument's type has it, count otherwise. Sums
  * and means over every carrier that has them, double precision and money among them, are drawn freely: grizzle's exact
@@ -1995,7 +2011,7 @@ const foldOf = (fn: AggregateFn, arg: ArgTerm | undefined, name: string): HeadIt
 	if (fn === "count" || arg === undefined) {
 		return count
 	}
-	const type = argTermType(arg)
+	const type = argType(arg)
 	const applies =
 		fn === "sum"
 			? hasCap(type, "sum")
@@ -2026,6 +2042,14 @@ const foldArg = <P>(state: RuleState<P>, sketch: FoldSketch): ArgTerm | undefine
 }
 
 const computedKinds = ["base", "cast numeric", "cond"] as const
+
+/** A computed head key, typed as the checker types its term (terms.ts computedType). */
+const computedItem = (name: string, term: ComputedTerm): HeadItem => ({
+	kind: "computed",
+	name,
+	term,
+	type: computedType(term)
+})
 
 /**
  * What a computed sketch draws in place of its kind: none, the floor, which keeps the kind; a padding; or a
@@ -2075,44 +2099,29 @@ const resolveComputed = <P>(
 			? { kind: "padded", padding: paddingOf(arg, sketch.scale) }
 			: { kind: "var", var: own }
 	}
-	const item = (term: ComputedTerm, type: ScalarType): HeadItem => ({
-		kind: "computed",
-		name,
-		term,
-		type
-	})
+	const item = (term: ComputedTerm): HeadItem => computedItem(name, term)
 	const reading = pickFrom(readingKinds, sketch.reading)
 	const kind = reading === "none" ? pickFrom(computedKinds, sketch.kind) : reading
 	switch (kind) {
 		case "base":
-			return item({ kind, arg }, baseOf(arg.field.type))
 		case "cast numeric":
-			return item({ kind, arg }, computedNumeric)
+			return item({ kind, arg })
 		case "cond":
-			return item(
-				{
-					kind,
-					arg,
-					op: pickFrom(orderedOps, sketch.op),
-					than: drawValue(arg.field.type, sketch.than, state.scope.dense),
-					otherwise: drawValue(arg.field.type, sketch.otherwise, state.scope.dense)
-				},
-				arg.field.type
-			)
+			return item({
+				kind,
+				arg,
+				op: pickFrom(orderedOps, sketch.op),
+				than: drawValue(arg.field.type, sketch.than, state.scope.dense),
+				otherwise: drawValue(arg.field.type, sketch.otherwise, state.scope.dense)
+			})
 		case "padded":
-			return item({ kind, padding: paddingOf(arg, sketch.scale) }, computedNumeric)
+			return item({ kind, padding: paddingOf(arg, sketch.scale) })
 		case "div":
-			return item(
-				{ kind, dividend: operand(), divisor: pickFrom(divisors, sketch.op) },
-				computedNumeric
-			)
+			return item({ kind, dividend: operand(), divisor: pickFrom(divisors, sketch.op) })
 		case "sqrt":
-			return item({ kind, radicand: operand() }, computedNumeric)
+			return item({ kind, radicand: operand() })
 		case "power":
-			return item(
-				{ kind, base: operand(), exponent: pickFrom(exponents, sketch.op) },
-				computedNumeric
-			)
+			return item({ kind, base: operand(), exponent: pickFrom(exponents, sketch.op) })
 	}
 }
 
@@ -2917,7 +2926,7 @@ const armFirst = <P extends ParentColumn>(
 	)
 	pins.set(chosen.handleField, {
 		kind: "literal",
-		literal: { kind: "enum", handle: pickFrom(scope.schema.roster.handles, sketch.handle) }
+		literal: { kind: "handle", handle: pickFrom(scope.schema.roster.handles, sketch.handle) }
 	})
 	return { source: chosen.source, pins }
 }
@@ -3426,13 +3435,13 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 			canonicallySpelled({ kind: "int", value: 0n }),
 			spelledAt(spelled.type, value, at),
 			spelledAt(signed.type, zero, 0),
-			canonicallySpelled({ kind: "enum", handle: selected })
+			canonicallySpelled({ kind: "handle", handle: selected })
 		],
 		[
 			canonicallySpelled({ kind: "int", value: 1n }),
 			spelledAt(spelled.type, value, (at + 1) % spellings),
 			spelledAt(signed.type, zero, 1),
-			canonicallySpelled({ kind: "enum", handle: other })
+			canonicallySpelled({ kind: "handle", handle: other })
 		]
 	]
 	const keyAt = (f: StoredFact) => keyOf(storedFactValues(f), relation, relation.primaryKey)
@@ -3468,7 +3477,7 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	const heading = headingOf(rootRule.head)
 	const keyColumn = elementOf(heading, 0, "the root's key column")
 	const signedColumn = elementOf(heading, 2, "the root's signed column")
-	const handleColumn = elementOf(heading, 3, "the root's handle column")
+	const handleOut = elementOf(heading, 3, "the root's handle column")
 	const armValue = mint(spelled)
 	const armChild = setQuery<ParentColumn>(
 		soleRule(
@@ -3476,7 +3485,10 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 			[
 				parentOf(key, keyColumn),
 				varOf(spelled, armValue),
-				{ field: handle, operand: { kind: "literal", literal: { kind: "enum", handle: selected } } }
+				{
+					field: handle,
+					operand: { kind: "literal", literal: { kind: "handle", handle: selected } }
+				}
 			],
 			[headOf(new Names(kinds), "arm column", armValue)]
 		),
@@ -3485,7 +3497,7 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	const armDelivery = Option.getOrThrowWith(
 		Arr.findFirst(
 			licensed(deliveryProof({ heading, arms: [rootRule] }, armChild)),
-			(d) => d.kind === "arm" && d.field.name === handleColumn.name && d.handle === selected
+			(d) => d.kind === "arm" && d.field.name === handleOut.name && d.handle === selected
 		),
 		() => new Error("the planted arm is not licensed")
 	)
@@ -3639,30 +3651,24 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		[varOf(spelled, collapsed)],
 		[
 			headOf(collapseNames, "collapse column", collapsed),
-			{
-				kind: "computed",
-				name: collapseNames.draw(pick("collapse padded column"), "column"),
-				term: { kind: "padded", padding: padding(collapsed) },
-				type: computedNumeric
-			},
-			{
-				kind: "computed",
-				name: collapseNames.draw(pick("collapse quotient column"), "column"),
-				term: { kind: "div", dividend: { kind: "var", var: collapsed }, divisor: divisors[0] },
-				type: computedNumeric
-			},
-			{
-				kind: "computed",
-				name: collapseNames.draw(pick("collapse root column"), "column"),
-				term: { kind: "sqrt", radicand: { kind: "padded", padding: padding(collapsed) } },
-				type: computedNumeric
-			},
-			{
-				kind: "computed",
-				name: collapseNames.draw(pick("collapse power column"), "column"),
-				term: { kind: "power", base: { kind: "var", var: collapsed }, exponent: exponents[0] },
-				type: computedNumeric
-			}
+			computedItem(collapseNames.draw(pick("collapse padded column"), "column"), {
+				kind: "padded",
+				padding: padding(collapsed)
+			}),
+			computedItem(collapseNames.draw(pick("collapse quotient column"), "column"), {
+				kind: "div",
+				dividend: { kind: "var", var: collapsed },
+				divisor: divisors[0]
+			}),
+			computedItem(collapseNames.draw(pick("collapse root column"), "column"), {
+				kind: "sqrt",
+				radicand: { kind: "padded", padding: padding(collapsed) }
+			}),
+			computedItem(collapseNames.draw(pick("collapse power column"), "column"), {
+				kind: "power",
+				base: { kind: "var", var: collapsed },
+				exponent: exponents[0]
+			})
 		]
 	)
 	/** The fifth read: the mean of every distinct value of v, and of their paddings, the two facts' v one value. */
@@ -3677,7 +3683,7 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 				name: meanNames.draw(pick("mean padded column"), "column"),
 				fn: "mean",
 				arg: { kind: "padded", padding: padding(meant) },
-				type: aggregateResult("avg", computedNumeric)
+				type: aggregateResult("avg", argType({ kind: "padded", padding: padding(meant) }))
 			},
 			{
 				kind: "fold",
@@ -3878,17 +3884,17 @@ const acceptanceCollapse = (sketch: CaseSketch): ProgramCase => {
 	const interval = canonicallySpelled({ kind: "span", start: 1n, end: 3n })
 	const facts: ReadonlyArray<StoredFact> = [
 		[
-			canonicallySpelled({ kind: "enum", handle: "Green" }),
+			canonicallySpelled({ kind: "handle", handle: "Green" }),
 			twinSpelled(zero, "0.0"),
-			canonicallySpelled({ kind: "enum", handle: "Green" }),
+			canonicallySpelled({ kind: "handle", handle: "Green" }),
 			interval,
 			canonicallySpelled({ kind: "int", value: 0n }),
 			canonicallySpelled(one)
 		],
 		[
-			canonicallySpelled({ kind: "enum", handle: "Red" }),
+			canonicallySpelled({ kind: "handle", handle: "Red" }),
 			canonicallySpelled(zero),
-			canonicallySpelled({ kind: "enum", handle: "Red" }),
+			canonicallySpelled({ kind: "handle", handle: "Red" }),
 			interval,
 			canonicallySpelled({ kind: "int", value: 1n }),
 			twinSpelled(one, "1.00")
@@ -3900,7 +3906,7 @@ const acceptanceCollapse = (sketch: CaseSketch): ProgramCase => {
 	const p0: Param = {
 		name: "p0_0",
 		type: compareParamType(payroll.type),
-		value: { kind: "enum", handle: "Green" },
+		value: { kind: "handle", handle: "Green" },
 		declaration: { kind: "base" }
 	}
 	const rootRule = soleRule<never>(

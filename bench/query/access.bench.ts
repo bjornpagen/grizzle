@@ -178,7 +178,7 @@ export const loadEntries = Effect.fn("loadEntries")(function* <S>(
 	yield* fill(fx, "Entry", size.entries, {
 		id: "g::int8",
 		account: `(1 + g % ${size.accounts})::int8`,
-		kind: `(ARRAY['Open', 'Done', 'Held']::${fx.enumType("Kind")}[])[1 + g % 3]`,
+		kind: `(ARRAY[${fx.handle("Kind", "Open")}, ${fx.handle("Kind", "Done")}, ${fx.handle("Kind", "Held")}])[1 + g % 3]`,
 		amount: "((g * 37) % 100000)::int8",
 		code: codeExpr
 	})

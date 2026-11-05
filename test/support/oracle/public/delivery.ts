@@ -196,7 +196,7 @@ const arms = <P extends ParentColumn>(
 	Arr.flatMap(rule.matches[0].bindings, (h) => {
 		const operand = h.operand
 		const m = soleMatch(rule, h.field)
-		if (m === undefined || operand.kind !== "literal" || operand.literal.kind !== "enum") {
+		if (m === undefined || operand.kind !== "literal" || operand.literal.kind !== "handle") {
 			return []
 		}
 		const handle = operand.literal.handle
@@ -211,7 +211,7 @@ const arms = <P extends ParentColumn>(
 			return []
 		}
 		return Arr.flatMap(parent.heading, (d) =>
-			d.type.carrier === "enum" &&
+			d.type.carrier === "code" &&
 			Arr.every(parent.arms, (pr) =>
 				Arr.some(
 					pr.matches,

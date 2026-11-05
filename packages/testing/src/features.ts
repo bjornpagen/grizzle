@@ -128,12 +128,17 @@ export type Phase = WitnessPhase | "independent" | "fuzzed"
 /** The phases whose tallies steer: what a steered case's Pending and a seed's pick read. */
 export type SteeringPhase = Exclude<Phase, "independent">
 
-/** How often each situation was reached, and how many cases gave themselves up, by the cases of one phase. */
+/**
+ * How often each situation was reached, and how many cases gave themselves up, by the cases of one phase, and how many
+ * of its last cases in a row reached no situation an earlier case of it had not (`sinceNew`): all of them when none
+ * reached any.
+ */
 export type Tally<P extends Phase> = Readonly<{
 	phase: P
 	cases: number
 	discards: number
 	counts: ReadonlyMap<string, number>
+	sinceNew: number
 }>
 
 /** A tally being filled: a passing case adds its notes, a case that gave itself up is a discard. */
@@ -148,34 +153,70 @@ export type TallyBuilder<P extends Phase> = Readonly<{
 export const tallyOf = <P extends Phase>(phase: P): TallyBuilder<P> => {
 	let cases = 0
 	let discards = 0
+	let lastNew = 0
 	const counts = new Map<string, number>()
 	return {
 		phase,
 		add: (notes) => {
 			cases += 1
 			for (const key of notes) {
-				counts.set(key, (counts.get(key) ?? 0) + 1)
+				const count = counts.get(key) ?? 0
+				if (count === 0) {
+					lastNew = cases
+				}
+				counts.set(key, count + 1)
 			}
 		},
 		discard: () => {
 			discards += 1
 		},
-		tally: () => ({ phase, cases, discards, counts: new Map(counts) })
+		tally: () => ({ phase, cases, discards, counts: new Map(counts), sinceNew: cases - lastNew })
 	}
 }
 
 /**
- * The Good–Turing estimate of what a suite has not yet seen, from independent cases alone: `risk` is the chance the
- * next case reaches a situation no case reached (singletons over cases), and `unseen` is Chao1's estimate of how many
- * situations no case reached. Both measure the generator and its features, never the program: a bug can hide inside a
- * situation seen a thousand times, so a low risk says no new situation is coming soon, not that no bug remains.
+ * The chance that a residual's bound is wrong, whatever the generator's distribution: the bound holds at 95%, the
+ * confidence its line prints.
+ */
+export const RISK_BOUND_MISS = 0.05
+
+/**
+ * What a residual says of the chance that the next independent case reaches a situation no case reached: unknown when
+ * no independent case ran, or when none noted a situation (a suite that notes no features measures nothing);
+ * otherwise Good–Turing's estimate, the situations seen once over the cases, beside an upper bound that holds at 95%
+ * (riskBoundOf). The estimate is 0 whenever every situation was seen twice or more, however few the cases, so the bound
+ * is what tells a thorough search from a shallow one.
+ */
+export type Risk =
+	| Readonly<{ kind: "unknown"; why: "no-cases" | "nothing-noted" }>
+	| Readonly<{ kind: "estimated"; estimate: number; bound: number }>
+
+/**
+ * The upper bound on the chance that the next independent case reaches a situation none reached, after `cases`
+ * independent cases whose last `sinceNew` in a row reached none an earlier case had not. It holds with probability at
+ * least 1 − RISK_BOUND_MISS whatever the generator's distribution, a case's notes being any set of situations. Were
+ * that chance above b, it was above b when the run began, since a case that reaches nothing new leaves it as it was;
+ * so each case of the run, drawn independently, missed every new situation with chance below 1 − b, and the whole run
+ * did with chance below (1 − b)^sinceNew. Spreading RISK_BOUND_MISS over the `cases` lengths the run can have gives
+ * b = 1 − (RISK_BOUND_MISS / cases)^(1 / sinceNew). With no such run the bound is 1: nothing is known.
+ */
+export const riskBoundOf = (cases: number, sinceNew: number): number =>
+	sinceNew === 0 ? 1 : 1 - (RISK_BOUND_MISS / cases) ** (1 / sinceNew)
+
+/**
+ * What a suite has not yet seen, from independent cases alone: the risk that the next case reaches a situation no case
+ * reached (Risk), how many of the last cases in a row reached none an earlier case had not (`sinceNew`), and `unseen`,
+ * Chao1's estimate of how many situations no case reached, none when the risk is unknown. They measure the generator
+ * and its features, never the program: a bug can hide inside a situation seen a thousand times, so a low risk says no
+ * new situation is coming soon, not that no bug remains.
  */
 export type Residual = Readonly<{
 	cases: number
 	observed: number
 	singletons: number
 	doubletons: number
-	risk: Option.Option<number>
+	sinceNew: number
+	risk: Risk
 	unseen: Option.Option<number>
 }>
 
@@ -185,14 +226,25 @@ export const residualOf = (tally: Tally<"independent">): Residual => {
 	const counts = Arr.fromIterable(tally.counts.values())
 	const singletons = Arr.filter(counts, (count) => count === 1).length
 	const doubletons = Arr.filter(counts, (count) => count === 2).length
+	const risk: Risk =
+		tally.cases === 0
+			? { kind: "unknown", why: "no-cases" }
+			: counts.length === 0
+				? { kind: "unknown", why: "nothing-noted" }
+				: {
+						kind: "estimated",
+						estimate: singletons / tally.cases,
+						bound: riskBoundOf(tally.cases, tally.sinceNew)
+					}
 	return {
 		cases: tally.cases,
 		observed: counts.length,
 		singletons,
 		doubletons,
-		risk: tally.cases === 0 ? Option.none() : Option.some(singletons / tally.cases),
+		sinceNew: tally.sinceNew,
+		risk,
 		unseen:
-			tally.cases === 0
+			risk.kind === "unknown"
 				? Option.none()
 				: Option.some(
 						doubletons > 0

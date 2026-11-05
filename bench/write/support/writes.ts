@@ -4,7 +4,6 @@ import {
 	Effect,
 	Fiber,
 	Layer,
-	Option,
 	Record as Rec,
 	Result,
 	type Scope
@@ -34,10 +33,8 @@ import {
 import type { TransactionPlan, TransactionStatement } from "#bench/harness/transaction.ts"
 import { type Fixture, GateSetupError, installFixture } from "#bench/query/support/kit.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { ResidualLaw } from "#compiler/ir/law.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
 import type { Insert, SqlStatement, With } from "#compiler/sql/ast.ts"
@@ -48,7 +45,6 @@ import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/types/schema/wor
 import { isChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { ArtifactStatement, WriteStepResult } from "#compiler/write/program/artifact.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
-import { namesOf, type UnitNames } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -61,11 +57,11 @@ import { fullWorld, loginLayerIn, tokenOf } from "#test/support/worlds.ts"
 const round = (x: number): number => Math.round(x * 1000) / 1000
 
 /**
- * The shared kit of the write, law, queue and refresh gates (R19, R23, R33-R35, R40, the queue gate).
+ * The shared kit of the write, law, queue, refresh and families gates (R12, R33-R35, R40, the queue and families gates).
  *
  * "Use the same dataset, laws, result equality, and isolation in generated and handwritten baselines".
- * Every gate under bench/write and bench/queue installs a schema built by the public builders with its residual laws
- * (packages/engine/src/physical/laws) and, where it has derived relations, their materialized views, through the query kit's
+ * Every gate under bench/write and bench/queue installs a schema built by the public builders, its laws native
+ * constraints (fin.md §7), and, where it has derived relations, their materialized views, through the query kit's
  * installFixture (bench/query/support/kit.ts), under a fresh schema name of the gate's own database. The schema value
  * is then rebuilt under that name, and its worlds over the rebuilt value, so a Db opened on one of its roles logs in as
  * the installed login and takes on the installed role. Two kinds of writer measure the same laws:
@@ -86,13 +82,11 @@ const round = (x: number): number => Math.round(x * 1000) / 1000
  * Every session and DbLayer reaches PostgreSQL directly: no function here takes a port.
  *
  * A statement of a compiled program is named by its step (packages/engine/src/write/program/artifact.ts WriteStep), never by
- * its SQL text, and its form is read from its audited AST. A law is named by its declaration (S-NAMES, namesOf) and its
- * objects are read from the installation record (`installation.laws.residuals`): nothing here re-derives a production
- * name. The catalog readings here are the observed side a gate's mechanism checks compare with that record: the
- * functions and triggers the installation holds (R19: the partial-unique specialization removes the law function and
- * its triggers), the table scans a transaction made so far (pg_stat_xact_user_tables, which counts the scans of a
- * SECURITY DEFINER law function run in the same backend), and the trigger calls an explained statement fired with a
- * law's triggers set IMMEDIATE.
+ * its SQL text, and its form is read from its audited AST. A law is named by its declaration (S-NAMES, namesOf):
+ * nothing here re-derives a production name. The catalog readings here are the observed side a gate's mechanism checks
+ * compare with the installation: the functions, triggers and indexes it holds, and the table scans and row changes a
+ * transaction made so far (pg_stat_xact_user_tables, which counts the scans a foreign key's RI check runs in the same
+ * backend).
  *
  * The rows of a catalog or statistics query come as the row type its SQL casts them to. The one row a query returns:
  * none or several is a defect of the gate's setup.
@@ -206,7 +200,19 @@ export type StatementLabel =
 			readonly position: number
 			readonly parts: ReadonlyArray<WriteLabel>
 	  }
+	| FamilyLabel
 	| { readonly kind: "commit" }
+
+/**
+ * A family's statement of one kind (write/program/artifact.ts FamilyStep): its member's deletes, a tree's whole delete,
+ * its owner's count update, its member's inserts, or its member's in-place updates, by the relation it writes.
+ */
+export interface FamilyLabel {
+	readonly kind: "family"
+	readonly position: number
+	readonly relation: string
+	readonly statement: "delete" | "deleteTree" | "count" | "insert" | "update"
+}
 
 export type WriteLabel = {
 	readonly kind: "write"
@@ -242,6 +248,8 @@ const statementLabel = (statement: ArtifactStatement): StatementLabel => {
 					result: p.step.result
 				}))
 			}
+		case "family":
+			return { kind: "family", position, relation: step.relation, statement: step.statement }
 	}
 }
 
@@ -283,6 +291,8 @@ export const labelText = (label: StatementLabel): string => {
 				Arr.map(label.parts, (p) => writeText(p.relation, p.result)),
 				", "
 			)})`
+		case "family":
+			return `family ${label.statement} ${label.relation}`
 		case "commit":
 			return "COMMIT"
 	}
@@ -311,6 +321,15 @@ const observedStatement = (statement: ArtifactStatement): ObservedStatement => (
 })
 
 /** The write labels of `relation` among `statements`, in position order. */
+/** The family statements of a compiled program that write `relation`, in position order. */
+export const familyWritesOf = (
+	statements: ReadonlyArray<ObservedStatement>,
+	relation: string
+): ReadonlyArray<FamilyLabel> =>
+	Arr.flatMap(statements, (s) =>
+		s.label.kind === "family" && s.label.relation === relation ? [s.label] : []
+	)
+
 export const writesOf = (
 	statements: ReadonlyArray<ObservedStatement>,
 	relation: string
@@ -811,31 +830,6 @@ const observedArtifact = (
 }
 
 /**
- * A residual law of the fixture by its id, as the installation records it; a law the installation does not hold as a
- * residual is a defect of the gate's setup.
- */
-export const residualLaw = <S>(fixture: Fixture<S>, law: LawId): ResidualLaw =>
-	Option.getOrThrowWith(
-		Arr.findFirst(fixture.installed.installation.laws.residuals, (r) => r.lawId === law),
-		() => new GateSetupError({ what: `the installation holds no residual law ${law}` })
-	)
-
-/**
- * The units of a residual law, each a relation, an event and the installed identifier of the unit's constraint trigger,
- * as S-NAMES names them (namesOf).
- */
-const lawUnitsOf = <S>(fixture: Fixture<S>, law: LawId): ReadonlyArray<UnitNames> =>
-	namesOf(fixture.installed).residual(law).units
-
-/**
- * `SET CONSTRAINTS <the law's triggers> IMMEDIATE`, each schema-qualified as S-NAMES names it: the law fires at the end
- * of each statement, so an explained statement reports the law's trigger calls and the time a statement waits for its
- * anchor.
- */
-const immediate = <S>(fixture: Fixture<S>, law: LawId): string =>
-	`SET CONSTRAINTS ${Arr.join(namesOf(fixture.installed).triggers(law), ", ")} IMMEDIATE`
-
-/**
  * The functions every installation has whatever it declares: the refusal function a write statement raises through
  * (packages/engine/src/write/refusal.ts), the guard every table's statement trigger calls (physical/ddl/isolation.ts)
  * and the snapshot guard every Db transaction calls behind the ledger's fence (physical/ddl/ledger.ts).
@@ -847,14 +841,12 @@ const installationFunctions: ReadonlyArray<string> = [
 ]
 
 interface LawObjects {
-	/** The functions of the fixture's schema but those every installation has: its residual laws'. */
+	/** The functions of the fixture's schema but those every installation has: none, since every law is native. */
 	readonly functions: ReadonlyArray<string>
 	/** Its non-internal triggers, as `<table>.<trigger>`; PostgreSQL's internal foreign-key triggers are not listed. */
 	readonly triggers: ReadonlyArray<string>
 	/** Its indexes, by name. */
 	readonly indexes: ReadonlyArray<string>
-	/** The definitions of the installation's residual law functions, by name. */
-	readonly definitions: Readonly<Record<string, string>>
 }
 
 export const lawObjects = Effect.fn("lawObjects")(function* <S>(
@@ -878,18 +870,7 @@ export const lawObjects = Effect.fn("lawObjects")(function* <S>(
 		[schema]
 	)
 	const indexes = Arr.map(trusted<ReadonlyArray<TextRow>>(indexRows), ([index]) => index)
-	const names = namesOf(fixture.installed)
-	const definitions: Record<string, string> = {}
-	for (const residual of fixture.installed.installation.laws.residuals) {
-		for (const unit of names.residual(residual.lawId).units) {
-			const definitionRows = yield* s.admin.queryValues(
-				"SELECT pg_catalog.pg_get_functiondef(p.oid)::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname = $2::text",
-				[schema, unit.function]
-			)
-			definitions[unit.function] = trusted<TextRow>(oneRow(definitionRows))[0]
-		}
-	}
-	return { functions, triggers, indexes, definitions }
+	return { functions, triggers, indexes }
 })
 
 export interface TableScans {
@@ -911,7 +892,7 @@ type ScanRow = readonly [
 
 /**
  * The scans and row changes this session's backend has counted and not yet reported on each table of `schema`, by table
- * name: pg_stat_xact_user_tables, which counts the work of a law function the transaction's deferred events ran in this
+ * name: pg_stat_xact_user_tables, which counts the work of an RI check the transaction's deferred events ran in this
  * backend as well as its own statements'. Since PostgreSQL 15 the counters are the backend's pending statistics, which
  * may still hold earlier transactions' counts until the backend reports them when idle, so a measurement reads them
  * twice inside one transaction and takes the difference (`scanDelta`); nothing is reported within a transaction. The
@@ -976,82 +957,6 @@ const scanDelta = (
 			]
 		})
 	)
-
-/** The calls of a law's constraint trigger on one participant. */
-interface LawCalls {
-	readonly relation: string
-	readonly trigger: string
-	readonly calls: number
-}
-
-interface LawProbe {
-	/** Calls of the law's triggers the statements fired, summed per participant, in the law's participant order. */
-	readonly calls: ReadonlyArray<LawCalls>
-	/** The total over every participant. */
-	readonly total: number
-	/** The scans and row changes the statements and the law functions they fired made, by table. */
-	readonly scans: Readonly<Record<string, TableScans>>
-	/** Each statement's execution time as EXPLAIN reports it, law triggers included. */
-	readonly executionMs: ReadonlyArray<number>
-}
-
-/** The calls of a probe's law on `relation`; a relation that is no participant of the law is a defect of the gate. */
-export const callsOn = (probe: LawProbe, relation: string): number => {
-	const participant = Option.getOrThrowWith(
-		Arr.findFirst(probe.calls, (c) => c.relation === relation),
-		() => new GateSetupError({ what: `${relation} is no participant of the probed law` })
-	)
-	return participant.calls
-}
-
-/**
- * Runs `statements` on `session` in one SERIALIZABLE transaction with the triggers of `law` set IMMEDIATE, each under
- * EXPLAIN ANALYZE, and rolls it back: the law calls each statement queued, fired at its end (R12: a key changed many
- * times in one transaction is checked many times), counted by the law's participants' triggers, and the scans they
- * made. `prelude` runs first, unexplained, inside the same transaction.
- */
-export const probeLaws = Effect.fn("probeLaws")(function* <S>(
-	session: RawSession,
-	fixture: Fixture<S>,
-	law: LawId,
-	statements: ReadonlyArray<string>,
-	prelude: ReadonlyArray<string>
-): Effect.fn.Return<LawProbe, SqlError | MalformedPlan> {
-	const tallies = Arr.map(lawUnitsOf(fixture, law), (u) => ({
-		relation: u.relation,
-		table: fixture.relationName(u.relation),
-		trigger: u.trigger,
-		calls: 0
-	}))
-	yield* session.begin
-	return yield* Effect.gen(function* () {
-		yield* session.values(immediate(fixture, law), [])
-		for (const p of prelude) {
-			yield* session.values(p, [])
-		}
-		const before = yield* transactionScans(session, fixture.installed.schema)
-		const executionMs: Array<number> = []
-		for (const sql of statements) {
-			const e = yield* explain(session, sql, [], { wal: false, serialize: { kind: "off" } })
-			executionMs.push(e.executionMs)
-			for (const t of e.triggers) {
-				for (const tally of tallies) {
-					if (tally.trigger === t.name && tally.table === t.relation) {
-						tally.calls += t.calls
-					}
-				}
-			}
-		}
-		const after = yield* transactionScans(session, fixture.installed.schema)
-		const scans = scanDelta(before, after)
-		const calls = Arr.map(tallies, (t): LawCalls => ({
-			relation: t.relation,
-			trigger: t.trigger,
-			calls: t.calls
-		}))
-		return { calls, total: Arr.reduce(calls, 0, (sum, c) => sum + c.calls), scans, executionMs }
-	}).pipe(Effect.ensuring(Effect.orDie(session.values("ROLLBACK", []))))
-})
 
 /**
  * Runs `statements` on `session` in one SERIALIZABLE transaction with every constraint IMMEDIATE, each under EXPLAIN
@@ -1197,7 +1102,7 @@ export const transactionOf = (
 
 /** The schema state of a gate that installs its fixture and loads its facts by the owner. */
 export const loadedByOwner =
-	"fresh install with its residual laws and workload access paths; facts loaded by the owner, then VACUUM (ANALYZE) of every table"
+	"fresh install with its laws and workload access paths; facts loaded by the owner, then VACUUM (ANALYZE) of every table"
 
 /** The cache state of a measured operation run once before its timed samples. */
 export const warmedOnce = "warm: each measured operation runs once before its timed samples"

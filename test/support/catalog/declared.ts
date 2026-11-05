@@ -1,4 +1,6 @@
 import { Array as Arr, Record as Rec } from "effect"
+import { everyProperty } from "#compiler/core/canonical.ts"
+import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { decodeDesc, type RelationDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
@@ -59,11 +61,15 @@ const levels = (desc: SchemaDesc): Declared => {
  *   its trigger on every table, the snapshot guard and the migrations ledger;
  * - a relation is immutable unless a `mutable(R)` statement names it, and only a mutable relation's table may be
  *   updated by a non-owner role;
- * - a closed relation is an enum whose labels are its declared handles, in declared order.
+ * - a roster is its domain and its names constant, named by the digest of its handles in code order, which a first
+ *   installation numbers by declared position, so the constant holds the declared handles in order and no hole; a
+ *   roster a set field is typed over also installs its live-codes constant, named by the same digest, and its bits
+ *   domain at its size, the handles' count;
+ * - a closed relation installs constants named by their content's digest (`closedConstants`).
  *
- * The authored tables, the mutable ones among them, the derived relations' views and the serial fields' advance
- * functions a schema declares, beside the singletons; no law function, law trigger, world or membership: the schema's
- * declaration alone, installed with no login.
+ * The authored tables, the mutable ones among them, the derived relations' views, the serial fields' advance functions
+ * and the rosters' constants a schema declares, beside the singletons; no law function, law trigger, world or
+ * membership: the schema's declaration alone, installed with no login, as a first installation.
  */
 export const declaredErasure = (schema: unknown): ErasureExpectation => {
 	const { relations, mutable } = levels(descOf(schema))
@@ -85,10 +91,41 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 			[identifierOf(identity.refusal()), { kind: "refusal" }],
 			[identifierOf(identity.isolationGuard()), { kind: "isolationGuard" }],
 			[identifierOf(identity.snapshotGuard()), { kind: "snapshotGuard" }],
+			...Arr.flatMap(relations, (r): ReadonlyArray<readonly [string, InstalledFunction]> => {
+				if (r.kind !== "closed") {
+					return []
+				}
+				const roster = parsedName(r.name)
+				const digest = constantDigest("roster-names", r.handles, everyProperty)
+				const names = identifierOf(identity.rosterConstant(roster, digest))
+				const sets = Arr.some(relations, (o) =>
+					o.kind === "relation"
+						? Arr.some(
+								Rec.values(o.fields),
+								(f) => f.type.kind === "bits" && f.type.roster === r.name
+							)
+						: false
+				)
+				return [
+					[names, { kind: "names", domain: identifierOf(identity.rosterDomain(roster)) }],
+					...(sets
+						? [
+								[
+									identifierOf(identity.rosterLive(roster, digest)),
+									{
+										kind: "live",
+										names,
+										domain: identifierOf(identity.bitsDomain(roster, r.handles.length))
+									}
+								] as const
+							]
+						: [])
+				]
+			}),
 			...Arr.flatMap(relations, (r) =>
 				r.kind === "relation"
-					? Arr.flatMap(Rec.toEntries(r.fields), ([field, type]) =>
-							type.kind === "serial"
+					? Arr.flatMap(Rec.toEntries(r.fields), ([field, decl]) =>
+							decl.writing.kind === "serial"
 								? [
 										[
 											identifierOf(identity.advance(r.name, field)),
@@ -106,16 +143,7 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 		rowSecure: new Set(),
 		logins: new Map(),
 		refreshes: new Map(),
-		barrierViews: new Set()
+		barrierViews: new Set(),
+		closedConstants: Arr.some(relations, (r) => r.kind === "closedRelation")
 	}
 }
-
-/** Each closed relation's enum, by its type name, with its declared handles in order. */
-export const declaredEnums = (schema: unknown): ReadonlyMap<string, ReadonlyArray<string>> =>
-	new Map(
-		Arr.flatMap(levels(descOf(schema)).relations, (r) =>
-			r.kind === "closed"
-				? [[identifierOf(identity.enumType(parsedName(r.name))), r.handles] as const]
-				: []
-		)
-	)

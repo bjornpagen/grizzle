@@ -1,6 +1,8 @@
 import { exact, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Data, Formatter, Option, Order, Record as Rec, String as Str } from "effect"
+import { withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { CompileError, type CompileReason, prose, type ProseTag } from "#compiler/core/errors.ts"
+import { domainDigest } from "#compiler/core/fingerprint.ts"
 
 import {
 	type DeclaredName,
@@ -14,6 +16,8 @@ import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
+import { type CodeSlot, type RosterCodes } from "#compiler/ir/cells.ts"
+import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import { candidateKeyFields, decodeDesc, descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
@@ -61,15 +65,15 @@ import {
 	type InstallPlan,
 	type OracleColumn,
 	type OracleDomain,
-	type OracleEnum,
 	type OracleForeignKey,
 	type OracleKey,
 	type OracleOmission,
+	type OracleRoster,
 	type OracleTable,
 	type PlanOptions,
 	uncontracted
 } from "#test/support/oracle/install/model.ts"
-import { IdentifierScope } from "#test/support/oracle/install/names.ts"
+import { IdentifierScope, rosterNamesIdentity } from "#test/support/oracle/install/names.ts"
 import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 
@@ -168,6 +172,16 @@ const vectorNorm = (vectorSchema: string, column: string): Expr => ({
 	not: false
 })
 
+/**
+ * A descriptor's physical definition, which a contract's domain is named by: a contract's base's definition with its
+ * predicate (true where it states none), any other descriptor itself. A contract's name is its type-level brand alone,
+ * so two contracts of one definition share one domain.
+ */
+const physicalDefinition = (field: FieldDesc): unknown =>
+	field.kind === "contract"
+		? { base: physicalDefinition(field.base), predicate: field.predicate ?? true }
+		: field
+
 /** What a field descriptor stores under its contracts: the descriptor the column's storage CHECKs follow. */
 const storedDesc = (field: FieldDesc): FieldDesc =>
 	field.kind === "contract" ? storedDesc(field.base) : field
@@ -227,7 +241,7 @@ const pgValues: {
 
 /**
  * A column or domain of builtin text names pg_catalog.pg_c_utf8; every other type takes none: a named domain carries
- * its own, an enum or an extension type takes none.
+ * its own, and smallint, a roster's base, or an extension type takes none.
  */
 const takesCollation = (t: TypeRef): boolean => t.kind === "builtin" && t.name === "text"
 
@@ -239,8 +253,6 @@ const columnOfField = (table: OracleTable, field: string) => {
 	return column.value.column
 }
 
-const plain = (type: ColumnType) => ({ type, serial: false })
-
 const builtin = (sql: ColumnType["sql"], value: ColumnType["value"]): ColumnType => ({
 	sql,
 	value,
@@ -248,15 +260,47 @@ const builtin = (sql: ColumnType["sql"], value: ColumnType["value"]): ColumnType
 })
 
 /**
- * A contract that only a closed relation's payload uses still gets its domain, as the real installer gives it one:
- * a lowering casts a refined delivered payload value to its domain, so the domain must exist even though the closed
- * facts themselves live in the query as a typed VALUES relation and no table column is typed by it.
+ * PostgreSQL's array input text of a roster's names: every element double-quoted, its quotes and backslashes escaped,
+ * so a handle spelled NULL, with a comma, a brace or spaces at either end reads back as itself, and a hole is "".
+ */
+const namesArrayText = (names: ReadonlyArray<string>): string =>
+	`{${Arr.join(
+		Arr.map(names, (name) => `"${Str.replaceAll('"', '\\"')(Str.replaceAll("\\", "\\\\")(name))}"`),
+		","
+	)}}`
+
+/**
+ * A roster's codes in a fresh installation, which numbers its handles from 0 in declared order: the oracle's own
+ * numbering, no hole.
+ */
+const freshCodes = (handles: ReadonlyArray<string>): RosterCodes =>
+	Arr.map(handles, (handle): CodeSlot => ({ kind: "live", handle }))
+
+/**
+ * The roster domain's one CHECK over VALUE, the documented range proof: the names constant names a handle at the code,
+ * `(names())[VALUE + 1] <> ''::pg_catalog.name`, which a code past either end reads as NULL, refused by IS TRUE.
+ */
+const rosterCheck = (names: ObjectName): Expr =>
+	binary(
+		"<>",
+		{
+			kind: "subscript",
+			array: qualifiedCall(names.schema, names.name, []),
+			index: binary("+", { kind: "domainValue" }, lit.int(1, types.integer))
+		},
+		lit.text("", types.name(false))
+	)
+
+/**
+ * A contract that only a closed relation's field uses still gets its domain, as the real installer gives it one: a
+ * lowering casts a refined delivered value to its domain, so the domain must exist even though the closed rows live
+ * in the installation's constants and no table column is typed by it.
  *
  * Keys first, so a containment may name a key declared after it.
  */
 const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): InstallPlan => {
 	const desc = unwrap(decodeDesc("schema", describedOf(input)))
-	const { unsupported, vectorSchema, extensionSchema } = options
+	const { unsupported, vectorSchema, extensionSchema, codes: numbering } = options
 	const schemaLocation = formatLoc(desc.loc)
 
 	/** schema.extend: the base's relations and statements come first, under the one schema. */
@@ -334,9 +378,10 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 
 	/**
 	 * One namespace for everything that lands in pg_class or pg_type: tables and their row types, sequences, the
-	 * indexes behind PRIMARY KEY and UNIQUE, enums and domains.
+	 * indexes behind PRIMARY KEY and UNIQUE, and domains. Functions land in pg_proc, a namespace of their own.
 	 */
 	const schemaScope = new IdentifierScope(`schema ${schema}`)
+	const functionScope = new IdentifierScope(`the functions of schema ${schema}`)
 	const skipped: Array<OracleOmission> = []
 	const omit = (location: string, what: string, reason: string) => {
 		if (unsupported === "skip") {
@@ -346,31 +391,65 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		}
 	}
 
-	const enums = new Map<string, OracleEnum>()
+	/**
+	 * The codes of a roster: a fresh installation's, or the installation's own, which must hold the roster's live
+	 * handles in their declared order.
+	 */
+	const codesOf = (
+		closed: DeclaredName,
+		handles: ReadonlyArray<string>,
+		location: string
+	): RosterCodec => {
+		if (numbering.kind === "fresh") {
+			return rosterCodec(closed, freshCodes(handles))
+		}
+		const codec = numbering.codes.rosters.get(closed)
+		const live = codec === undefined ? undefined : Arr.filter(codec.names, (name) => name !== "")
+		if (
+			codec === undefined ||
+			live === undefined ||
+			!Arr.makeEquivalence(Str.Equivalence)(live, handles)
+		) {
+			return refuse(
+				"MalformedDescription",
+				location,
+				`the installation's codes hold roster ${closed} with its handles ${Formatter.format(handles)} live in their declared order`
+			)
+		}
+		return codec
+	}
+	const rosters = new Map<string, OracleRoster>()
 	for (const { value: r, location } of relations) {
 		if (r.kind !== "closed") {
 			continue
 		}
-		const name = schemaScope.claim(door.enumType(declaredAt(r.name, location)).identifier, location)
-		enums.set(r.name, { closed: r.name, name: objectName(schema, unwrap(name)), labels: r.handles })
+		const closed = declaredAt(r.name, location)
+		const codes = codesOf(closed, r.handles, location)
+		const names = unwrap(functionScope.claim(rosterNamesIdentity(codes).identifier, location))
+		const domain = unwrap(schemaScope.claim(door.rosterDomain(closed).identifier, location))
+		rosters.set(r.name, {
+			closed: r.name,
+			names: objectName(schema, names),
+			domain: objectName(schema, domain),
+			codes
+		})
 	}
 
 	const domains = new Map<string, { readonly identity: string; readonly domain: OracleDomain }>()
+	/** Each contract domain by its identifier: contracts of one physical definition share one domain. */
+	const definitionDomains = new Map<string, string>()
 
 	/**
-	 * A field descriptor's column type, and whether it is a serial declaration.
+	 * A field descriptor's column type.
 	 *
 	 * The column is text COLLATE pg_c_utf8, without the text refinement domain and its CHECK.
 	 *
 	 * The domain is installed without its predicate's CHECK.
 	 */
-	const resolve = (
-		field: FieldDesc,
-		location: string
-	): { readonly type: ColumnType; readonly serial: boolean } => {
+	const resolve = (field: FieldDesc, location: string): ColumnType => {
 		switch (field.kind) {
 			case "pg":
-				return plain(builtin(builtinType(field.type), pgValues[field.type]))
+				return builtin(builtinType(field.type), pgValues[field.type])
 			case "numeric": {
 				const { precision, scale } = field
 				if (precision < 1 || precision > numericMaxPrecision.value) {
@@ -387,20 +466,12 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 						`a numeric scale lies in ${numericMinScale.value}..${numericMaxScale.value}`
 					)
 				}
-				return plain(builtin(numericType(precision, scale), { kind: "numeric" }))
-			}
-			case "serial": {
-				const carrier =
-					field.type === "smallserial" ? "int2" : field.type === "serial" ? "int4" : "int8"
-				const sql = builtinType(
-					carrier === "int2" ? "smallint" : carrier === "int4" ? "integer" : "bigint"
-				)
-				return { type: builtin(sql, { kind: "integer", carrier }), serial: true }
+				return builtin(numericType(precision, scale), { kind: "numeric" })
 			}
 			case "uuid":
-				return plain(builtin(builtinType("uuid"), { kind: "uuid" }))
+				return builtin(builtinType("uuid"), { kind: "uuid" })
 			case "text":
-				return plain(builtin(builtinType("text"), { kind: "text" }))
+				return builtin(builtinType("text"), { kind: "text" })
 			case "contract": {
 				const existing = domains.get(field.name)
 				if (existing !== undefined && existing.identity !== identity(field)) {
@@ -416,39 +487,36 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 				}
 				if (existing !== undefined) {
 					const { domain } = existing
-					return plain({
+					return {
 						...domain.base,
 						sql: namedType(testTypeSchema(domain.name.schema), domain.name.name, []),
 						contract: { kind: "contract", name: field.name }
-					})
+					}
 				}
 				const base = resolve(field.base, location)
-				if (base.serial) {
-					refuse("MalformedDescription", location, "a contract is not itself a serial declaration")
-				}
-				const name = unwrap(
-					schemaScope.claim(
-						door.contractDomain(declaredAt(field.name, location)).identifier,
-						location
-					)
-				)
+				const named = door.contractDomain(
+					domainDigest(physicalDefinition(field), withoutSourceLocs)
+				).identifier
+				const shared = definitionDomains.get(named)
+				const name = shared ?? unwrap(schemaScope.claim(named, location))
+				definitionDomains.set(named, name)
 				const domain: OracleDomain = {
 					contract: field.name,
 					name: objectName(schema, name),
-					base: base.type,
+					base,
 					location
 				}
 				domains.set(field.name, { identity: identity(field), domain })
-				return plain({
-					...base.type,
+				return {
+					...base,
 					sql: namedType(testTypeSchema(schema), name, []),
 					contract: { kind: "contract", name: field.name }
-				})
+				}
 			}
 			case "span": {
 				const endpoint = resolve(field.endpoint, location)
-				const carrier = integerSpanCarrier(endpoint.type)
-				if (endpoint.serial || carrier === undefined) {
+				const carrier = integerSpanCarrier(endpoint)
+				if (carrier === undefined) {
 					return refuse(
 						"UnsupportedOperation",
 						location,
@@ -456,25 +524,28 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					)
 				}
 				const range = carrier === "range4" ? "int4range" : "int8range"
-				return plain(builtin(builtinType(range), { kind: "span", carrier }))
+				return builtin(builtinType(range), { kind: "span", carrier })
 			}
 			case "closedId": {
-				const target = enums.get(field.roster)
+				const target = rosters.get(field.roster)
 				if (target === undefined) {
 					return refuse(
 						"MalformedDescription",
 						location,
-						`closedId names ${field.roster}, which is no closed relation of the schema`
+						`closedId names ${field.roster}, which is no roster of the schema`
 					)
 				}
-				return plain(
-					builtin(namedType(testTypeSchema(schema), target.name.name, []), {
-						kind: "enum",
-						closed: field.roster,
-						labels: target.labels
-					})
-				)
+				return builtin(namedType(testTypeSchema(schema), target.domain.name, []), {
+					kind: "code",
+					roster: target.codes
+				})
 			}
+			case "bits":
+				return refuse(
+					"UnsupportedOperation",
+					location,
+					"oracle install: a set column's bits domain reads the roster's live() constant, which the minimal installer leaves to the real installer"
+				)
 			case "vector": {
 				if (
 					!Number.isInteger(field.dimensions) ||
@@ -483,26 +554,29 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 				) {
 					refuse("MalformedDescription", location, "a vector has 1..16000 dimensions")
 				}
-				return plain(
-					builtin(namedType(testTypeSchema(vectorSchema), "vector", [field.dimensions]), {
-						kind: "vector",
-						dimensions: field.dimensions
-					})
-				)
+				return builtin(namedType(testTypeSchema(vectorSchema), "vector", [field.dimensions]), {
+					kind: "vector",
+					dimensions: field.dimensions
+				})
 			}
 		}
 	}
 
 	for (const { value: r, location } of relations) {
-		if (r.kind !== "closed") {
+		if (r.kind !== "closedRelation") {
 			continue
 		}
-		const contracts = Arr.flatMap(Rec.toEntries(r.payload), ([name, field]) =>
+		const contracts = Arr.flatMap(Rec.toEntries(r.fields), ([name, field]) =>
 			field.kind === "contract" ? [[name, field] as const] : []
 		)
 		for (const [name, field] of contracts) {
-			resolve(field, `${location} payload ${name}`)
+			resolve(field, `${location} field ${name}`)
 		}
+		omit(
+			location,
+			`closed relation ${r.name}`,
+			"its rows are installation constants the closed lowering packs, and its laws are discharged in the migration"
+		)
 	}
 
 	/**
@@ -579,14 +653,30 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			unwrap(constraints.claim(name, at))
 			tableChecks.push({ kind: "check", name, predicate })
 		}
-		for (const [field, fieldDesc] of Rec.toEntries(r.fields)) {
+		for (const [field, decl] of Rec.toEntries(r.fields)) {
 			const fieldLocation = formatLoc(
 				SourceLoc(`field ${r.name}.${field}`, [desc.name, "relations", r.name, "fields", field])
 			)
+			if (decl.writing.kind === "generated") {
+				refuse(
+					"UnsupportedOperation",
+					fieldLocation,
+					"oracle install: a generated field's STORED expression needs the expression lowering"
+				)
+			}
+			const fieldDesc = decl.type
 			const column = unwrap(
 				columnScope.claim(door.column(declaredAt(field, fieldLocation)).identifier, fieldLocation)
 			)
-			const { type, serial } = resolve(fieldDesc, fieldLocation)
+			if (decl.writing.kind === "drawn" || decl.writing.kind === "accumulated") {
+				refuse(
+					"UnsupportedOperation",
+					fieldLocation,
+					`oracle install: a ${decl.writing.kind} field needs the family lowering`
+				)
+			}
+			const type = resolve(fieldDesc, fieldLocation)
+			const serial = decl.writing.kind === "serial"
 			/**
 			 * The column's storage CHECKs, in the real installer's order: a span's shape and its width; a vector's norm. A
 			 * span endpoint's contract predicate is a predicate CHECK, which the minimal installer leaves out (see the
@@ -700,11 +790,17 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 				break
 			case "contained":
 			case "check":
-			case "capacity":
+			case "family":
+			case "tree":
+			case "fold":
+			case "alternatives":
 				break
 		}
 	}
-	/** A containment law: a foreign key between stored tables, an enum's membership, or omitted with why. */
+	/**
+	 * A containment law: a foreign key between stored tables, a closed id's membership in its own roster (the roster's
+	 * domain), or omitted with why.
+	 */
 	const planContained = (
 		s: Extract<StatementDesc, { readonly kind: "contained" }>,
 		location: string
@@ -730,18 +826,29 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			)
 		}
 		if (target?.value.kind === "closed") {
-			/** closedId membership is the enum itself: no table, no FK. */
+			/** A lone closed-id field contained in its own roster's id is the roster's domain: no table, no FK. */
 			const handle = leftFields.length === 1 && rightFields.length === 1 && rightFields[0] === "id"
 			const column = handle
 				? columnFor(source, elementAt(leftFields, 0, "the containment's fields"), location)
 				: undefined
-			if (column?.type.value.kind === "enum" && column.type.value.closed === right.relation) {
+			if (
+				column?.type.value.kind === "code" &&
+				column.type.value.roster.roster === right.relation
+			) {
 				return
 			}
 			omit(
 				location,
+				`a containment into the roster ${right.relation}`,
+				"only a closed id's membership in its own roster is the roster's domain; any other is a closed CHECK"
+			)
+			return
+		}
+		if (target?.value.kind === "closedRelation") {
+			omit(
+				location,
 				`a containment into the closed relation ${right.relation}`,
-				"only closedId membership is enforced by the enum; a payload containment is a finite CHECK"
+				"a containment into a closed relation is a closed CHECK over its constant, which needs the closed lowering"
 			)
 			return
 		}
@@ -814,8 +921,11 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					)
 				}
 				break
-			case "capacity":
-				omit(location, "capacity", "a capacity law needs a residual law")
+			case "family":
+			case "tree":
+			case "fold":
+			case "alternatives":
+				omit(location, `a ${s.kind} law`, `a ${s.kind} law needs its native lowering`)
 				break
 			case "mutable":
 				break
@@ -876,8 +986,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	}
 
 	/**
-	 * DDL, in installation order: namespace; enums and domains; tables with their keys; references; then the PUBLIC
-	 * revokes.
+	 * DDL, in installation order: namespace; each roster's names constant and its domain; contract domains; tables with
+	 * their keys; references; then the PUBLIC revokes.
 	 */
 	const ddl: Array<Ddl> = [{ kind: "createSchema", name: schema, authorization: undefined }]
 	/** A span key over more than its span field needs btree_gist's operator classes for the others. */
@@ -887,10 +997,31 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	if (needsBtreeGist) {
 		ddl.push({ kind: "createExtension", name: "btree_gist", schema: extensionSchema })
 	}
-	for (const e of enums.values()) {
-		ddl.push({ kind: "createEnum", name: e.name, labels: e.labels })
+	for (const r of rosters.values()) {
+		ddl.push({
+			kind: "createConstant",
+			name: r.names,
+			params: [],
+			returns: types.name(true),
+			body: lit.text(namesArrayText(r.codes.names), types.name(true))
+		})
+		ddl.push({
+			kind: "createDomain",
+			name: r.domain,
+			base: types.smallint,
+			collation: undefined,
+			constraints: [
+				{
+					name: door.domainCheck(door.rosterDomain(declaredAt(r.closed, r.closed))).identifier,
+					predicate: rosterCheck(r.names)
+				}
+			]
+		})
 	}
-	for (const { domain } of domains.values()) {
+	for (const { domain } of Arr.dedupeWith(
+		[...domains.values()],
+		(a, b) => a.domain.name.name === b.domain.name.name
+	)) {
 		ddl.push({
 			kind: "createDomain",
 			name: domain.name,
@@ -983,7 +1114,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 							columns: foreignKeyColumns(table, fk.fields, fk.period),
 							references: referenced.name,
 							referencedColumns: foreignKeyColumns(referenced, fk.referencedFields, fk.period),
-							deferrable: fk.period ? "INITIALLY DEFERRED" : undefined
+							deferrable: fk.period ? "INITIALLY DEFERRED" : undefined,
+							onUpdate: undefined
 						},
 						notValid: false
 					}
@@ -997,8 +1129,14 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	const sequenceNames = Arr.flatMap(Rec.values(finalTables), (t) =>
 		Arr.flatMap(t.columns, (c) => (c.sequence.kind === "none" ? [] : [c.sequence.name]))
 	)
-	const enumNames = Arr.map([...enums.values()], (e) => e.name)
-	const domainNames = Arr.map([...domains.values()], (d) => d.domain.name)
+	const constantNames = Arr.map([...rosters.values()], (r) => ({ ...r.names, args: [] }))
+	const domainNames = [
+		...Arr.map([...rosters.values()], (r) => r.domain),
+		...Arr.dedupeWith(
+			Arr.map([...domains.values()], (d): ObjectName => d.domain.name),
+			(a: ObjectName, b: ObjectName) => a.name === b.name
+		)
+	]
 	const revokeFromPublic = (on: GrantObjects): Ddl => ({
 		kind: "revoke",
 		privileges: ["ALL"],
@@ -1011,8 +1149,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	if (Arr.isReadonlyArrayNonEmpty(sequenceNames)) {
 		ddl.push(revokeFromPublic({ kind: "SEQUENCE", names: sequenceNames }))
 	}
-	if (Arr.isReadonlyArrayNonEmpty(enumNames)) {
-		ddl.push(revokeFromPublic({ kind: "TYPE", names: enumNames }))
+	if (Arr.isReadonlyArrayNonEmpty(constantNames)) {
+		ddl.push(revokeFromPublic({ kind: "FUNCTION", names: constantNames }))
 	}
 	if (Arr.isReadonlyArrayNonEmpty(domainNames)) {
 		ddl.push(revokeFromPublic({ kind: "DOMAIN", names: domainNames }))
@@ -1023,7 +1161,10 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		declared: desc.name,
 		schema,
 		tables: finalTables,
-		enums: Rec.fromEntries(enums),
+		rosters: Rec.fromEntries(rosters),
+		codes: {
+			rosters: new Map(Arr.map([...rosters.values()], (r) => [r.codes.roster, r.codes] as const))
+		},
 		domains: Rec.fromEntries(Arr.map([...domains], ([name, { domain }]) => [name, domain])),
 		loadOrder,
 		ddl,
@@ -1044,7 +1185,12 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
  *   GENERATED ALWAYS AS IDENTITY with a named sequence;
  * - PRIMARY KEY from the relation's third argument and UNIQUE from each key(R, fields), with no implicit full-row
  *   UNIQUE;
- * - an enum per closed relation, in roster order, typing every closedId column;
+ * - per roster, its names constant, a zero-argument IMMUTABLE SQL function returning each code's handle in code order
+ *   as a name[] (a hole the empty name), named by the digest of those names, and its smallint domain, typing every
+ *   closedId column, whose one CHECK admits exactly the codes the constant names a handle at; the codes are a fresh
+ *   installation's or the installation's own (PlanOptions.codes);
+ * - no closed relation: its rows are installation constants the closed lowering packs, and its laws are discharged in
+ *   the migration, so it and every containment into it are recorded in `skipped`;
  * - a domain per contract, with no constraint;
  * - the fixed-form CHECKs of every span and vector column, under the names the real installer gives them (below);
  * - an immediate NO ACTION foreign key for each containment whose target fields are a key of a stored relation;

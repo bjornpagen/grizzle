@@ -18,8 +18,7 @@ import {
 	exactType,
 	familyDigits,
 	plainType,
-	valueType,
-	withoutSerial
+	valueType
 } from "#compiler/scalar/compute/types.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
 
@@ -203,8 +202,10 @@ const catalogName = (t: ScalarType): string => {
 			return "uuid"
 		case "text":
 			return "text"
-		case "enum":
-			return "anyenum"
+		case "code":
+			return "smallint"
+		case "bits":
+			return "bit"
 		case "range4":
 		case "range8":
 			return "anyrange"
@@ -243,7 +244,10 @@ export const bigintSumType: ScalarType = numericValue(
 	sumBound({ digits: int8Digits.value, scale: 0 })
 )
 
-/** The carriers with min and max: those with the minMax capability, PostgreSQL's min(anyenum) included. */
+/**
+ * The carriers with min and max: those with the minMax capability. A closed id's is min(smallint) over its code, which
+ * is its roster's order.
+ */
 const minMaxCarriers: ReadonlyArray<Carrier> = [
 	"int2",
 	"int4",
@@ -253,7 +257,7 @@ const minMaxCarriers: ReadonlyArray<Carrier> = [
 	"float8",
 	"money",
 	"text",
-	"enum",
+	"code",
 	"exactInteger",
 	"exactMoney"
 ]
@@ -360,7 +364,7 @@ export const unaryOverload = (
 		}))
 	}
 	/** min and max keep the input's type, contract included. */
-	const kept = withoutSerial(arg)
+	const kept = arg
 	if (c === "bool") {
 		const sql = name === "min" ? "bool_and" : "bool_or"
 		return Result.ok({

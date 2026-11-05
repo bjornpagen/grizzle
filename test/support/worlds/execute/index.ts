@@ -21,11 +21,9 @@ import type { FolderSource } from "#adapter/migrate/input.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { defined } from "#compiler/core/invariant.ts"
-import { noWorkload, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { identity } from "#compiler/core/identity.ts"
+import { codebookOf, noWorkload, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { lawUnits } from "#compiler/ir/law.ts"
 import { roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { login as loginBuilder } from "#compiler/program/workload/login.ts"
@@ -41,7 +39,7 @@ import {
 	installationOf,
 	parsedSchemaName
 } from "#test/support/kernel/naming.ts"
-import { fromEmpty, generate } from "#test/support/migrate/kit.ts"
+import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
@@ -75,7 +73,7 @@ import type { DirectNames } from "#test/support/worlds/execute/direct.ts"
 import { beginSql } from "#test/support/worlds/execute/direct.ts"
 import { carrierOf, valueOfText } from "#test/support/worlds/execute/host.ts"
 import { leakOf } from "#test/support/worlds/execute/leak.ts"
-import { installedRoleName, namesOfBuilt } from "#test/support/worlds/execute/names.ts"
+import { installedRoleName, namesOfBuiltAt } from "#test/support/worlds/execute/names.ts"
 import { openRefused, witnessTexts } from "#test/support/worlds/execute/observe.ts"
 import { isNativePool, leasedBackend, probePool } from "#test/support/worlds/execute/pool.ts"
 import { RealizeRefused, Thrown } from "#test/support/worlds/execute/refused.ts"
@@ -355,7 +353,7 @@ const realizeWith = (
 					kind: "installed",
 					installation: identity.schema(parsedSchemaName(installed.declared))
 				}
-				const names = yield* namesOfBuilt(spec, built, at)
+				const names = yield* namesOfBuiltAt(spec, built, at, codebookOf(snapshot))
 				yield* Effect.orDie(Effect.fromResult(registerSnapshot(built.base, snapshot)))
 				/** Each login's layer, given the version's snapshot, built in the realization's scope. */
 				const layers: Record<string, Context.Context<DbLayerOf<BuiltLogin>>> = {}
@@ -404,7 +402,8 @@ const realizeWith = (
 			name: "earlier",
 			timestamp: "20261012000000",
 			previous: fromEmpty,
-			workload: noWorkload
+			workload: noWorkload,
+			declared: noDeclarations
 		})
 		const earlier = earlierDraft.ok
 			? snapshotJson(earlierDraft.value.snapshotText)
@@ -457,7 +456,8 @@ const realizeWith = (
 			name: "foreign",
 			timestamp: "20261013000000",
 			previous: fromEmpty,
-			workload: noWorkload
+			workload: noWorkload,
+			declared: noDeclarations
 		})
 		const foreign = foreignDraft.ok
 			? snapshotJson(foreignDraft.value.snapshotText)
@@ -1142,8 +1142,8 @@ const realizeWith = (
 
 		/**
 		 * The next version's migration, drafted from the directory's snapshot.json, landed and ended as `how` says and run
-		 * with every folder of the directory. An installation grizzle's builders refuse is compile-refused before anything
-		 * is drafted.
+		 * with every folder of the directory. An installation grizzle's builders refuse, or one generate refuses for
+		 * declaring a roster out of its codes' order (D1), is compile-refused before anything is drafted.
 		 */
 		const migrate = (action: Extract<Action, { readonly kind: "migrate" }>): Effect.Effect<Seen> =>
 			Effect.gen(function* () {
@@ -1151,13 +1151,19 @@ const realizeWith = (
 				if (Result.isFailure(built)) {
 					return refusedWith({ kind: "compile-refused" }, built.failure.refusal)
 				}
-				const drafted = yield* draftNext(
-					built.success.base,
-					Rec.values(built.success.logins),
-					installed.declared,
-					substrate.owner.role,
-					{ snapshot: directorySnapshot(), folders: foldersOf(state.directory) }
+				const next_ = yield* Effect.result(
+					draftNext(
+						built.success.base,
+						Rec.values(built.success.logins),
+						installed.declared,
+						substrate.owner.role,
+						{ snapshot: directorySnapshot(), folders: foldersOf(state.directory) }
+					)
 				)
+				if (Result.isFailure(next_)) {
+					return refusedWith({ kind: "compile-refused" }, next_.failure.refusal)
+				}
+				const drafted = next_.success
 				const next: Next = { spec: action.to, plan: drafted.plan, snapshot: drafted.snapshot }
 				const end = yield* runEndOf(drafted.folder, action.how)
 				const outcome = yield* runTo(
@@ -1425,12 +1431,11 @@ const ownedOf = (v: Version, role: string): Effect.Effect<OwnedRole> =>
 
 /**
  * The schema-qualified, quoted name of a function, as the installation's naming gives it: the one the installation
- * defines, a residual law's its first unit's, every unit's being revoked from PUBLIC alike, or, for a filter, a probe
- * or a law it holds no function of (a query entry that needs no filter, a native law), a function no call finds.
+ * defines, or, for a filter or a probe it holds no function of (a query entry that needs no filter), a function no call
+ * finds.
  */
 const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 	Effect.gen(function* () {
-		const schema = v.installation.names.schema
 		switch (fn.kind) {
 			case "filter": {
 				const owned = yield* ownedOf(v, fn.role)
@@ -1460,22 +1465,6 @@ const functionOf = (v: Version, fn: WorldFunction): Effect.Effect<string> =>
 			case "advance": {
 				const name = v.installation.names.advance(fn.relation, fn.field)
 				return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
-			}
-			case "law": {
-				const residual = Option.getOrUndefined(
-					Arr.findFirst(v.installation.laws.residuals, (r) => r.lawId === fn.law)
-				)
-				if (residual !== undefined) {
-					const [first] = lawUnits(residual)
-					return `${quoteIdent(schema)}.${quoteIdent(identifierOf(first.unit.function))}`
-				}
-				const law = defined(
-					Option.getOrUndefined(
-						Arr.findFirst(v.installation.laws.theory.laws, (l) => l.id === fn.law)
-					),
-					`the law ${fn.law} of the installed theory`
-				)
-				return `${quoteIdent(schema)}.${quoteIdent(identifierOf(identity.lawFunction(law.named, law.id, "INSERT")))}`
 			}
 		}
 	})
