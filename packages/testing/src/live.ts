@@ -10,6 +10,18 @@ export const liveMillis = Clock.currentTimeMillis.pipe(
 )
 
 /**
+ * A sleep on the live clock until it reads `moment`, in milliseconds since the epoch, or later. A timer may fire a
+ * millisecond before the clock reads its moment, so the sleep sleeps again until it does, and whatever reads the clock
+ * once it has ended finds the moment passed.
+ */
+export const liveSleepUntil = (moment: number): Effect.Effect<void> =>
+	Effect.flatMap(liveMillis, (now) =>
+		now >= moment
+			? Effect.void
+			: Effect.andThen(liveSleep(Duration.millis(moment - now)), liveSleepUntil(moment))
+	)
+
+/**
  * How long a hung fiber's cleanup may run once a guard has interrupted it, on the live clock. Cleanup that waits on a
  * clock the work froze (a TestClock no one advances) or on a server that never answers would never end, so a guard
  * reports the hang once this grace has passed, whether or not the cleanup finished, and never waits on it longer.

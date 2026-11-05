@@ -36,7 +36,7 @@ import {
 } from "#features.ts"
 import type { Corpus, Fuzz, FuzzBudget } from "#fuzz.ts"
 import type { Gen } from "#gen.ts"
-import { abandon, liveMillis, liveSleep, stopHung } from "#live.ts"
+import { abandon, liveMillis, liveSleep, liveSleepUntil, stopHung } from "#live.ts"
 import { mutate } from "#mutate.ts"
 import {
 	between,
@@ -129,16 +129,14 @@ export class Run extends Context.Service<Run, ProcessRun & Readonly<{ deadline: 
 	"@grizzle/testing/explore/Run"
 ) {}
 
-/**
- * How long a case begun at `now` may run before its search must stop for its deadline: none for an unbounded deadline,
- * and zero once the moment PRINT_MARGIN_MILLIS before the deadline has passed.
- */
-const leftOf = (deadline: Deadline, now: number): Option.Option<number> => {
+/** The moment on the live clock a search must stop its work for its deadline: PRINT_MARGIN_MILLIS before it, and none
+ * for an unbounded deadline. */
+const cutOf = (deadline: Deadline): Option.Option<number> => {
 	switch (deadline.kind) {
 		case "unbounded":
 			return Option.none()
 		case "at":
-			return Option.some(Math.max(0, deadline.millis - PRINT_MARGIN_MILLIS - now))
+			return Option.some(deadline.millis - PRINT_MARGIN_MILLIS)
 	}
 }
 
@@ -633,9 +631,9 @@ const runCase = <S, T, F extends string, E, R, K>(
 				})
 			)
 		return Effect.gen(function* () {
+			const cut = cutOf(deadline)
 			const now = yield* liveMillis
-			const left = leftOf(deadline, now)
-			if (Option.exists(left, (millis) => millis === 0)) {
+			if (Option.exists(cut, (moment) => now >= moment)) {
 				return finish({ kind: "cut" })
 			}
 			const running = yield* Effect.forkDetach(settled)
@@ -644,11 +642,9 @@ const runCase = <S, T, F extends string, E, R, K>(
 					Exit.isSuccess(exit) ? exit.value : { kind: "failed", cause: exit.cause }
 				),
 				Effect.as(liveSleep(caseHang), { kind: "hung" } as const),
-				...Option.match(left, {
+				...Option.match(cut, {
 					onNone: () => [],
-					onSome: (millis) => [
-						Effect.as(liveSleep(Duration.millis(millis)), { kind: "cut" } as const)
-					]
+					onSome: (moment) => [Effect.as(liveSleepUntil(moment), { kind: "cut" } as const)]
 				})
 			]
 			const ended = yield* Effect.raceAllFirst(guards).pipe(
