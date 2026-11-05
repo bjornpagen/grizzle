@@ -174,7 +174,7 @@ const need = (
 				: all(input)
 		case "Group":
 			return new Set([
-				...reader.bound,
+				...reader.bound.columns,
 				...reader.keys,
 				...exprColumns(
 					reader.aggs.flatMap((a) => [...a.args, ...(a.filter === undefined ? [] : [a.filter])]),

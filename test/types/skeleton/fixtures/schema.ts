@@ -1,5 +1,13 @@
 import type { Brand } from "effect"
-import { accumulated, closedId, drawn, natural, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	closedId,
+	drawn,
+	natural,
+	pg,
+	type Uuid,
+	uuid
+} from "#compiler/public/fields.ts"
 import {
 	alternatives,
 	check,
@@ -188,7 +196,12 @@ export const Pool = relation(
 )
 export const Claim = relation("Claim", { id: uuid, pool: uuid, units: pg.bigint }, ["id"])
 export const claims = counted(on(Claim, "pool"), fin(Pool, "n"))
-export const claimUnits = fold(claims, Monoid.sum, on(Claim, "pool", "units"), on(Pool, "id", "total"))
+export const claimUnits = fold(
+	claims,
+	Monoid.sum,
+	on(Claim, "pool", "units"),
+	on(Pool, "id", "total")
+)
 export const poolBudget = check("ClaimsWithinBudget", Pool, (p) => p.le(p.total, p.budget))
 export const poolCount = check("AtLeastOneClaim", Pool, (p) => p.n.ge(1n))
 export const WorkPools = schema("WorkPools", { Pool, Claim }, [

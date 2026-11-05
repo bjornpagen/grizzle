@@ -545,7 +545,7 @@ export const count = (extra: ReadonlyArray<unknown>): AggregateValue<bigint, "bi
 	if (extra.length > 0) {
 		throw malformed(
 			"r.count",
-			"r.count() takes no argument: it counts the rule's distinct bindings"
+			"r.count() takes no argument: it counts the facts the rule matches, each by its key"
 		)
 	}
 	return aggregateValue("count", aggregateHead("count", undefined), {

@@ -1,14 +1,17 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { appendNonEmpty, isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { appendNonEmpty } from "#compiler/core/nonempty.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import {
+	type ColumnMap,
 	columnIn,
 	type Env,
 	extendEnv,
+	type InputSource,
 	type LowerContext,
 	type Lowerers,
 	type NodeLowerer,
+	namedMap,
 	nodeLabel
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
@@ -18,18 +21,8 @@ import {
 	callOverload,
 	type ExactCarrier
 } from "#compiler/scalar/aggregate.ts"
-import type { Call, CountStar, Expr, Target, WindowSpec } from "#compiler/sql/ast.ts"
-import {
-	binary,
-	call,
-	core,
-	countStar,
-	derived,
-	distinctCore,
-	lit,
-	select,
-	target
-} from "#compiler/sql/build.ts"
+import type { Call, CountStar, Expr, FromSource, WindowSpec } from "#compiler/sql/ast.ts"
+import { binary, call, core, countStar, derived, lit, select, target } from "#compiler/sql/build.ts"
 
 type Aggregate = NodeOf<"Group">["aggs"][number]
 
@@ -125,67 +118,79 @@ const aggregateCall = (cx: LowerContext, agg: Aggregate, scope: Env, at: string)
 	)
 
 /**
- * Group: fold the rule's distinct complete bindings, grouped by the nonaggregate head terms.
+ * Group: fold the input's rows, grouped by the nonaggregate head terms.
  *
- *   SELECT r3.c4, sum(r3.c5) FROM (SELECT DISTINCT r2.c1, r2.c2 FROM (<input>) AS r2(c1, c2)) AS r3(c4, c5)
- *   GROUP BY r3.c4
+ *   SELECT r2.c2, sum(r2.c3) FROM (<input>) AS r2(c1, c2, c3) GROUP BY r2.c2
  *
- * The aggregate's input is the set of the complete bound tuple B, bindings omitted from find included, deduplicated
- * before the fold: equal bindings contribute once and distinct ones each contribute, and
- * a DISTINCT after the fold could not repair an overcount. An aggregate-only group has no key, so the
- * bound tuple carries one more column, the constant private group key `true`, and the fold groups by that column: an
- * empty input creates no group and no NULL-bearing aggregate row. No literal is a GROUP BY item;
- * the constant is a column its input carries.
+ * The bound tuple B is a key of the input (ir/rel.ts FoldInput): every fact the rule matches is read by a key the
+ * bindings hold, so the input, a set over its heading as every conservative fragment is, holds one row per value of B,
+ * and each row is one contribution. An aggregate-only group has no key, so the input is read through B and one more
+ * column, the constant private group key `true`, one row per input row, and the fold groups by that column: an empty
+ * input creates no group and no NULL-bearing aggregate row. No literal is a GROUP BY item; the constant is a column its
+ * input carries.
  *
  * Boolean min and max are bool_and and bool_or over actual groups; count is count(*), and only count is
- * filtered. Each aggregate is its overload's lowering (aggregateExpr), so it is a function of its arguments' multiset.
+ * filtered. Each aggregate is its overload's lowering (aggregateExpr), so it is a function of its contributions, one
+ * per keyed row, in any order.
  */
 const lowerGroup: NodeLowerer<"Group"> = (node, cx, env) => {
 	const input = cx.source(node.input, env)
-	const aggregateOnly = node.keys.length === 0
-	const boundTargets = node.bound.map((name) => target(columnIn(input.map, name)))
-	/**
-	 * SELECT DISTINCT <bound tuple> [, true]: the contributions, the constant private group key after the bound tuple
-	 * exactly when the fold has no key, as a bound tuple of no field has none.
-	 */
-	const read: { readonly targets: NonEmptyReadonlyArray<Target>; readonly present: boolean } =
-		!aggregateOnly && isNonEmpty(boundTargets)
-			? { targets: boundTargets, present: false }
-			: { targets: appendNonEmpty(boundTargets, target(lit.bool(true))), present: true }
-	const contributions = select(distinctCore(read.targets, [input.item], undefined))
-	const origin = { kind: "node", node: node.id } as const
-	const boundColumns = node.bound.map((name) => ({ name, column: cx.supply.column(origin) }))
-	const presentColumns = read.present ? [cx.supply.column(origin)] : []
-	const columns = [...boundColumns.map((b) => b.column), ...presentColumns]
-	const alias = cx.relationAlias(origin)
-	const bound = new Map<string, Expr>()
-	for (const { name, column } of boundColumns) {
-		bound.set(name, { kind: "column", table: alias, column })
-	}
+	const read = groupRead(node, cx, input)
 	/**
 	 * The aggregates read the bound tuple only, and each heading column is a key, within the bound tuple, or an
 	 * aggregate (valid DAG), read through the input's node id.
 	 */
-	const scope = extendEnv(env, [[node.input.id, bound]])
+	const scope = extendEnv(env, [[node.input.id, read.bound]])
 	const aggOf = new Map(node.aggs.map((a) => [a.name, a]))
 	const targets = node.heading.map((c) =>
 		target(
 			node.keys.includes(c.name)
-				? columnIn(bound, c.name)
+				? columnIn(read.bound, c.name)
 				: aggregateCall(cx, columnIn(aggOf, c.name), scope, nodeLabel(node))
 		)
 	)
-	const groupBy: ReadonlyArray<Expr> = read.present
-		? presentColumns.map((column) => ({ kind: "column", table: alias, column }))
-		: node.keys.map((k) => columnIn(bound, k))
+	const groupBy: ReadonlyArray<Expr> =
+		read.present === undefined ? node.keys.map((k) => columnIn(read.bound, k)) : [read.present]
 	return select({
-		...core(
-			targets.length === 0 ? [target(lit.bool(true))] : targets,
-			[derived(contributions, alias, columns, false)],
-			undefined
-		),
+		...core(targets.length === 0 ? [target(lit.bool(true))] : targets, [read.from], undefined),
 		groupBy
 	})
+}
+
+/**
+ * What a fold reads: its input as it is, for a fold with group keys; for an aggregate-only fold, its input through B
+ * and the carried constant group key, one row per input row since B is a key of it.
+ */
+const groupRead = (
+	node: NodeOf<"Group">,
+	cx: LowerContext,
+	input: InputSource
+): {
+	readonly from: FromSource
+	readonly bound: ColumnMap
+	readonly present: Expr | undefined
+} => {
+	if (node.keys.length > 0) {
+		return { from: input.item, bound: input.map, present: undefined }
+	}
+	const targets = appendNonEmpty(
+		node.bound.columns.map((name) => target(columnIn(input.map, name))),
+		target(lit.bool(true))
+	)
+	const origin = { kind: "node", node: node.id } as const
+	const boundColumns = node.bound.columns.map((name) => ({ name, column: cx.supply.column(origin) }))
+	const presentColumn = cx.supply.column(origin)
+	const alias = cx.relationAlias(origin)
+	return {
+		from: derived(
+			select(core(targets, [input.item], undefined)),
+			alias,
+			[...boundColumns.map((b) => b.column), presentColumn],
+			false
+		),
+		bound: namedMap(alias, boundColumns),
+		present: { kind: "column", table: alias, column: presentColumn }
+	}
 }
 
 /** This kind's entry of the conservative kind table (dispatch.ts). */

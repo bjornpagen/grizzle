@@ -1,7 +1,5 @@
-import { exact, multiset } from "@grizzle/testing/oracle"
-import { Array as Arr, Option, Record as Rec } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import {
-	contributionCertificate,
 	elisionCertificate,
 	existenceCertificate,
 	multiplicityRules,
@@ -30,10 +28,8 @@ import * as Result from "#compiler/core/result.ts"
 import type { Certificate, ElisionRule, MultiplicityRule } from "#compiler/ir/certificate.ts"
 import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { contextAdmits, type EvidenceCatalog, type TemplateContext } from "#compiler/ir/evidence.ts"
-import { deliveredInput, type NodeOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
-import type { FoldInput } from "#compiler/lower/optimize/dedup/plan.ts"
+import { deliveredInput, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 import {
-	edgeFold,
 	elisionKinds,
 	isPinnedDistinct,
 	placementTarget
@@ -48,7 +44,6 @@ const multiplicityRuleClass: {
 	readonly [R in MultiplicityRule]: R extends ElisionRule ? "elision" : "proof"
 } = {
 	"R02.existence": "proof",
-	"R17.contribution": "proof",
 	"R17.unionAll": "proof",
 	"R17.recursiveTerms": "proof",
 	"R17.placement": "proof",
@@ -78,8 +73,6 @@ const isElisionRule = (rule: MultiplicityRule): rule is ElisionRule =>
 export interface PlanUnderVerification {
 	readonly context: TemplateContext
 	readonly realization: Readonly<Record<NodeId, Realization>>
-	/** Each fold's form. */
-	readonly folds: Readonly<Record<NodeId, { readonly input: FoldInput }>>
 	readonly certificates: ReadonlyArray<Certificate<MultiplicityRule>>
 }
 
@@ -91,13 +84,6 @@ interface VerificationEnv {
 	/** How the program consumes its roots. */
 	readonly roots: RootObservation
 }
-
-/** Two column lists that hold the same columns, each once, in any order. */
-const sameSet = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-	Option.isNone(multiset(exact)(a, b))
-
-const isFold = (node: RelNode | undefined): node is NodeOf<"Group"> =>
-	node?.kind === "Group" && node.aggs.length > 0
 
 const nodeLabel = (node: RelNode): string => `${node.kind} ${node.id}`
 
@@ -124,23 +110,11 @@ const coverage = (
 				)
 			)
 		}
-		if (isFold(node) && plan.folds[node.id] === undefined) {
-			out.push(
-				problem("foldCoverage", `node ${node.id}`, "a fold form, plain or distinct, for every fold")
-			)
-		}
 	}
 	for (const id of Arr.map(Rec.keys(plan.realization), (k) => NodeId(k))) {
 		if (!labelled.has(id)) {
 			out.push(
 				problem("realizationCoverage", `node ${id}`, "a realization only for nodes of the DAG")
-			)
-		}
-	}
-	for (const id of Arr.map(Rec.keys(plan.folds), (k) => NodeId(k))) {
-		if (!isFold(labelled.get(id))) {
-			out.push(
-				problem("foldCoverage", `node ${id}`, "a fold form only for a Group with aggregates")
 			)
 		}
 	}
@@ -196,19 +170,6 @@ const obligations = (
 		if (o.discharged) {
 			return []
 		}
-		const fold = edgeFold(o.edge)
-		if (fold !== undefined && plan.folds[fold.id]?.input === "distinct") {
-			if (sameSet(o.heading, fold.bound)) {
-				return []
-			}
-			return [
-				problem(
-					"unprovedMultiplicity",
-					`Group ${fold.id}`,
-					`a fold deduplicating exactly its complete bound tuple (${Arr.join(fold.bound, ", ")}), not (${Arr.join(o.heading, ", ")})`
-				)
-			]
-		}
 		return [
 			problem(
 				"unprovedMultiplicity",
@@ -244,10 +205,6 @@ const rederive = (
 	switch (rule) {
 		case multiplicityRules.unionAll:
 			return r === "plain" ? unionAllCertificate(a, node) : "a union realized as UNION ALL"
-		case multiplicityRules.contribution:
-			return plan.folds[output]?.input === "plain"
-				? contributionCertificate(a, node)
-				: "a fold without its DISTINCT"
 		case multiplicityRules.existence:
 			return existenceCertificate(a, node)
 		case multiplicityRules.recursiveTerms:
@@ -257,8 +214,7 @@ const rederive = (
 
 /**
  * The placement certificates a plan's placement on `input` before `output` may carry, rebuilt from the DAG
- * (placedDeduplication), or what the placement lacks. A fold's own DISTINCT deduplicates its input on its complete
- * bound tuple B. A node realized `distinct` deduplicates what an observing consumer of it needs, through the nodes
+ * (placedDeduplication), or what the placement lacks. A node realized `distinct` deduplicates what an observing consumer of it needs, through the nodes
  * that only deliver its rows (placementTarget), or the program's result its root delivers, which the certificate names
  * as the placed node itself. The consumer is classified as realized plain: a placement placed later on the consumer
  * itself absorbs the repeats it once observed, but this placement still deduplicates what it needed then.
@@ -271,9 +227,6 @@ const placements = (
 	input: RelNode,
 	output: RelNode
 ): ReadonlyArray<Result.Result<Certificate<MultiplicityRule>, CompileError>> | string => {
-	if (isFold(output) && output.input === input && plan.folds[output.id]?.input === "distinct") {
-		return [placedDeduplication(input, output, output.bound)]
-	}
 	if (plan.realization[input.id] !== "distinct") {
 		return "a duplicate elimination the plan actually places"
 	}
@@ -391,27 +344,6 @@ const certificates = (
 			)
 		}
 		if (
-			isFold(node) &&
-			plan.folds[id]?.input === "distinct" &&
-			!has(multiplicityRules.placement, (c) => c.outputs, id)
-		) {
-			out.push(
-				problem(
-					"missingCertificate",
-					`Group ${id}`,
-					"an R17.placement certificate for its contributions"
-				)
-			)
-		}
-		if (
-			isFold(node) &&
-			plan.folds[id]?.input === "plain" &&
-			a.of(node).contribution?.identity.kind === "removable" &&
-			!has(multiplicityRules.contribution, (c) => c.outputs, id)
-		) {
-			out.push(problem("missingCertificate", `Group ${id}`, "an R17.contribution certificate"))
-		}
-		if (
 			(node.kind === "SemiJoin" || node.kind === "AntiJoin") &&
 			!a.of(node.right).observed &&
 			!has(multiplicityRules.existence, (c) => c.outputs, id)
@@ -444,15 +376,15 @@ interface MultiplicityVerification {
  * not merely scan SQL for DISTINCT keywords." Verification recomputes the physical analysis of the plan's realization
  * from the DAG, the execution context and the evidence catalog, and trusts nothing the plan says about itself:
  *
- * - the plan is for this execution context, and names a realization for every node and a fold form for every fold;
+ * - the plan is for this execution context, and names a realization for every node;
  * - recursive closure keeps its recursive UNION and INTERSECT and EXCEPT their set forms;
  * - no node that only delivers another node's rows (an attachment, a law query, an ordered result) is realized
  *   `distinct`: it has no fragment of its own, so no emission could carry that DISTINCT (rel.ts deliveredInput);
  * - a union realized as UNION ALL has a plain form a physical key proves unique: unique arms pairwise disjoint on their
  *   final coerced headings;
- * - every observing edge is discharged by the input's physical keys, or is a fold's input deduplicated by the fold on
- *   exactly its complete bound tuple B: COUNT, SUM, a bound, a page, a window, an attachment or the
- *   public result never sees an input whose repeats nothing proves away;
+ * - every observing edge is discharged by the input's physical keys: COUNT, SUM, a bound, a page, a window, an
+ *   attachment or the public result never sees an input whose repeats nothing proves away (a fold reads its input on
+ *   the input's whole heading, of which its bound tuple is a key);
  * - every certificate is the one the recomputed analysis proves for the rewrite it names, equal in every field, in an
  *   evidence context the execution context admits, and every rewrite the realization performs has its certificate.
  *   A placement's is rebuilt for the placement the plan performs, from the DAG and what its consumer needs.

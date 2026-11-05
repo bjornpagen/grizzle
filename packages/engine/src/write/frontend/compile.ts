@@ -65,7 +65,12 @@ import {
 	type SerialDraw
 } from "#compiler/write/frontend/entry.ts"
 
-import { closedLeaf, type ClosedRows, hostEvaluator } from "#compiler/write/family/fold.ts"
+import {
+	closedLeaf,
+	type ClosedRows,
+	type HostEvaluator,
+	hostEvaluator
+} from "#compiler/write/family/fold.ts"
 import { isSequence, isTreeOf, type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import {
 	canonicalActionOrder,
@@ -398,6 +403,9 @@ export interface WriteFrontend extends WriteQueries {
 	readonly deltaEntries: ReadonlyMap<string, CheckedEntry>
 	/** The installation's codes, which binding encodes the declared parameters' closed ids and sets by. */
 	readonly codes: Codebook
+	/** The host's evaluation of generated fields, as PostgreSQL generates them, which the family planner's fill reads
+	 * (write/family/edit.ts FillContext). */
+	readonly evaluate: HostEvaluator
 }
 
 const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
@@ -1604,6 +1612,7 @@ const compile = (
 		deltas: Object.freeze(namedDeltas),
 		references: Object.freeze(references),
 		deltaEntries,
-		codes
+		codes,
+		evaluate
 	})
 }

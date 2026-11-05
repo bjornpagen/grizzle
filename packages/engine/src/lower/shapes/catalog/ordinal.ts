@@ -215,7 +215,7 @@ export const selfMatch = (cx: CatalogContext, groupCell: Cell, group: Group): Se
 		)
 		for (const [name, column] of secondColumn) {
 			if (order.some((o) => o.column === column) || partition.includes(column)) {
-				demand(group.bound.includes(name), `the second occurrence's ${name} in the bound tuple`)
+				demand(group.bound.columns.includes(name), `the second occurrence's ${name} in the bound tuple`)
 			}
 		}
 		for (const c of firstConditions) {

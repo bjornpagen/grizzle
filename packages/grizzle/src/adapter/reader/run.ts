@@ -23,6 +23,7 @@ import type { BatchStatement, Flight } from "#adapter/wire/batch.ts"
 import { carrierSpecOf, scalarCodec } from "#compiler/codec/scalar.ts"
 import { type Layout, type Row, rowText } from "#compiler/core/decoder.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { CompletedOrder, Heading, TakeBound } from "#compiler/ir/rel.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
@@ -366,8 +367,11 @@ interface Keyed<G> {
 	readonly key: OrderKey
 }
 
-/** The Rows of a heading group in a flight whose sent statements answered `sent`. */
-const groupRows = (group: HeadingGroup, sent: SentRuns): ReadonlyArray<Row> =>
+/** The Rows of a heading group in a flight whose sent statements answered `sent`, or the repeat that refuses them. */
+const groupRows = (
+	group: HeadingGroup,
+	sent: SentRuns
+): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> =>
 	rowsOf(group.record, sent, runOf(group.record, sent), group.group)
 
 /**
@@ -392,15 +396,44 @@ const mergedOn = <G>(
 const emitKeyed = <T>(keyed: ReadonlyArray<Keyed<HeadingGroup>>, emit: Emit<T>): ReadonlyArray<T> =>
 	keyed.map((one) => emit(one.row, one.group))
 
-/** Each kept Row is keyed by its own group's reading of the union's order, and emitted with its group. */
+/**
+ * Each kept Row is keyed by its own group's reading of the union's order, and emitted with its group. Every group's
+ * Rows are read first, so a group whose answer repeats a row refuses the whole delivery (execution.ts rowsOf).
+ */
 const merged = <T>(
 	merge: MergePlan,
 	groups: Arr.NonEmptyReadonlyArray<HeadingGroup>,
 	sent: SentRuns,
 	params: HostParams,
 	emit: Emit<T>
+): Result.Result<ReadonlyArray<T>, UnreadableAnswer> => {
+	const read: Array<ReadonlyArray<Row>> = []
+	for (const group of groups) {
+		const rows = groupRows(group, sent)
+		if (Result.isFailure(rows)) {
+			return Result.fail(rows.failure)
+		}
+		read.push(rows.success)
+	}
+	return Result.succeed(
+		mergedRows(
+			merge,
+			(group) => defined(read[group.group], `the Rows of heading group ${group.group}`),
+			groups,
+			params,
+			emit
+		)
+	)
+}
+
+/** The merge of the groups' Rows, each group's read by `rowsOfGroup`. */
+const mergedRows = <T>(
+	merge: MergePlan,
+	rowsOfGroup: (group: HeadingGroup) => ReadonlyArray<Row>,
+	groups: Arr.NonEmptyReadonlyArray<HeadingGroup>,
+	params: HostParams,
+	emit: Emit<T>
 ): ReadonlyArray<T> => {
-	const rowsOfGroup = (group: HeadingGroup) => groupRows(group, sent)
 	switch (merge.kind) {
 		case "concat": {
 			const out: Array<T> = []
@@ -431,12 +464,15 @@ const merged = <T>(
 
 const asRow: Emit<Row> = (row) => row
 
-/** The delivered Rows of a program in a flight whose sent statements answered `sent`: its heading groups', merged. */
+/**
+ * The delivered Rows of a program in a flight whose sent statements answered `sent`: its heading groups', merged; or
+ * UnreadableAnswer at a statement whose answer repeats a row.
+ */
 export const deliveredRows = (
 	program: ReadProgram,
 	sent: SentRuns,
 	params: HostParams
-): ReadonlyArray<Row> =>
+): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> =>
 	merged(program.delivery.merge, program.delivery.groups, sent, params, asRow)
 
 /** A delivered Row with the heading group whose statement delivered it. */
@@ -469,19 +505,23 @@ const programStatements = (
 
 /**
  * The one flight of a read program (see the header), reading its delivered Rows through `read`, the value's decoder
- * bound to the program's layouts.
+ * bound to the program's layouts. A statement whose answer repeats a row is UnreadableAnswer (deliveredRows).
  */
 export const programFlight = <A>(
 	program: ReadProgram,
 	inputs: ExecutionInputs,
 	read: (row: Row) => A
-): Effect.Effect<Flight<ReadonlyArray<A>, never>, InputRefusal> =>
+): Effect.Effect<Flight<ReadonlyArray<A>, UnreadableAnswer>, InputRefusal> =>
 	Effect.map(programStatements(program, inputs), (statements) => ({
 		statements,
 		read: (outcomes) =>
-			Effect.sync(() => {
+			Effect.suspend(() => {
 				const sent: SentRuns = outcomes.map((outcome) => outcome.rows)
-				return deliveredRows(program, sent, inputs.params).map((row) => read(row))
+				return Effect.fromResult(
+					Result.map(deliveredRows(program, sent, inputs.params), (rows) =>
+						rows.map((row) => read(row))
+					)
+				)
 			})
 	}))
 
@@ -516,7 +556,9 @@ export const programGetFlight = <A>(
 				const sent: SentRuns = outcomes.map((outcome) => outcome.rows)
 				const { merge, groups } = program.delivery
 				return Effect.fromResult(
-					atMostOne(merged(merge, groups, sent, inputs.params, withGroup), read)
+					Result.flatMap(merged(merge, groups, sent, inputs.params, withGroup), (delivered) =>
+						atMostOne(delivered, read)
+					)
 				)
 			})
 	}))

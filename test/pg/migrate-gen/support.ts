@@ -1,14 +1,4 @@
-import {
-	array,
-	boolean,
-	constant,
-	element,
-	type Gen,
-	int,
-	map,
-	shuffled,
-	weighted
-} from "@grizzle/testing/gen"
+import { array, boolean, constant, element, type Gen, int, map } from "@grizzle/testing/gen"
 import { type Swarm, swarm, swarmChoice, weightOf } from "@grizzle/testing/swarm"
 import {
 	Array as Arr,
@@ -1676,25 +1666,6 @@ const movedRelations = (from: Version, to: Version): ReadonlySet<string> => {
 	)
 }
 
-/** Whether a closed roster's handles changing from `old` to `next` rebuild its enum, as documented: neither
- * renamed in place (as many handles, each that differs a label the other roster lacks), which the same handles are
- * too, nor only added to (every old handle kept, in its order): a handle removed, or the handles reordered. */
-const rosterRebuilt = (old: ReadonlyArray<string>, next: ReadonlyArray<string>): boolean => {
-	const inPlace =
-		old.length === next.length &&
-		Arr.every(old, (h, i) => {
-			const n = next[i]
-			return n === h || (n !== undefined && !next.includes(h) && !old.includes(n))
-		})
-	let kept = 0
-	for (const h of next) {
-		if (old[kept] === h) {
-			kept++
-		}
-	}
-	return !inPlace && kept < old.length
-}
-
 /** A version traced: its relations' and fields' origins beside it. */
 export interface TracedVersion {
 	readonly version: Version
@@ -1958,32 +1929,6 @@ const statedOrigins = (
 	columns: ReadonlyArray<readonly [string, string]>
 ): Origins => ({ relations: new Map(relations), columns: new Map(columns) })
 const firstSpellings: Spelling = { mode: "drawn", edge: false }
-const keptRoster = statedRoster("K0", ["H0", "H1"])
-const shortRoster = statedRoster("K0", ["H0"])
-/** R0 keyed by a field of K0, beside an integer field. */
-const keyedByRoster = (name: string, roster: GenClosed, mutable: boolean): GenRelation =>
-	statedRelation(
-		name,
-		[
-			{ name: "a", type: closedIdType(roster) },
-			{ name: "b", type: int4 }
-		],
-		["a"],
-		mutable
-	)
-
-const ownR0 = statedOrigins(
-	[["R0", "R0"]],
-	[
-		["R0.a", "R0.a"],
-		["R0.b", "R0.b"]
-	]
-)
-
-/** B swaps the names of R0 and R1 and spells R0's new name R1_, an identifier R1 held: the draft keeps each table under
- * its identifier, so R1's rows stay in r_1, B's R1_, converted as its field's type changes, whatever R1_'s origin. */
-const intRelation = (name: string) =>
-	statedRelation(name, [{ name: "a", type: int4 }], ["a"], false)
 
 /** Planted renames the generated paths reach only a few times a run, each over int4 fields. */
 const ints = (
@@ -2051,30 +1996,6 @@ export interface JointSketch {
 	readonly references: ReadonlyArray<number>
 	readonly back: boolean
 }
-
-/** Every conversion between two integer types, the widening of int4 to int8 first. */
-const jointConversions = [
-	["int4", "int8"],
-	["int2", "int4"],
-	["int2", "int8"],
-	["int8", "int4"],
-	["int4", "int2"],
-	["int8", "int2"]
-] as const
-
-const jointSketchGen: Gen<JointSketch> = (source) => ({
-	referencedFirst: source.draw(boolean),
-	conversion: source.draw(element(jointConversions)),
-	keys: source.draw(shuffled([1, 2, 3], { min: 1, max: 3 })),
-	references: source.draw(array(pickGen, { min: 0, max: 2 })),
-	back: source.draw(boolean)
-})
-
-/** Joint renames as a suite draws them. */
-const jointDrawGen: Gen<RenamedDraw> = map(jointSketchGen, (sketch): RenamedDraw => ({
-	kind: "joint",
-	sketch
-}))
 
 const keyedBy = (name: string, type: ScalarType): GenRelation =>
 	statedRelation(name, [{ name: "a", type }], ["a"], false)
@@ -2328,35 +2249,6 @@ export const renamedWithRetype: StatedRenamedPath = plantedRename(
 	},
 	true,
 	{ toB: ["relationRetyped"], toC: [] }
-)
-
-/** B's R0 with its field a of K0 retyped to c of int4, beside Q1, R1 renamed. */
-const retypedAtRebuildB = statedSchema(
-	[
-		statedRelation(
-			"R0",
-			[
-				{ name: "b", type: int4 },
-				{ name: "c", type: int4 }
-			],
-			["b"],
-			false
-		),
-		ints("Q1", ["a"], ["a"])
-	],
-	[shortRoster]
-)
-
-const retypedAtRebuildOrigins = statedOrigins(
-	[
-		["R0", "R0"],
-		["Q1", "R1"]
-	],
-	[
-		["R0.b", "R0.b"],
-		["R0.c", "R0.a"],
-		["Q1.a", "R1.a"]
-	]
 )
 
 /** The value a reviewer supplies for a placeholder of a field of `type`: the first value of its domain, the same on
@@ -2864,91 +2756,6 @@ export const statisticsOfRenamedRelation: StatedRenamedPath = plantedRenameWith(
 	{ toB: ["relation"], toC: [] }
 )
 
-/** B renames R0's field b, under statistics over a and b, to d, chosen, the statistics now over a and d; C declares a new
- * field b with statistics over a and b (statistics created again over the wrong column). */
-const renamedFieldOrigins = (fields: ReadonlyArray<readonly [string, string]>) =>
-	statedOrigins(
-		[["R0", "R0"]],
-		Arr.map(fields, ([f, o]) => [`R0.${f}`, `R0.${o}`] as const)
-	)
-
-/** R0 with a serial field, which B aliases to R0_: its table keeps its name, and its field's identity sequence takes the
- * name R0_'s identity gives it (an identity sequence left under its old name while every statement names the new). */
-const serialOfR0: Extras = { ...noExtras, serials: [{ relation: 0, big: false }] }
-
-const aliasOrigins = (relation: string) =>
-	statedOrigins([[relation, "R0"]], [[`${relation}.a`, "R0.a"]])
-
-/** R0 keyed by its field of K0, which B renames to q0 and C back to a while C renames K0 to P0K: C's field rename holds
- * only under the roster's, which the reviewer who chooses it chooses too (a field's rename chosen without the type's
- * rename it requires). */
-const ofRoster = (field: string, roster: GenClosed): GenRelation =>
-	statedRelation("R0", [{ name: field, type: closedIdType(roster) }], [field], false)
-
-const onlyHandle = statedRoster("K0", ["H0"])
-const renamedOnlyHandle = statedRoster("P0K", ["H0"])
-
-/** R1's field a, of the roster K0 and contained in R0's key b, which B renames to route with its type changed to an
- * integer, its containment gone: the rename converts the column in place, so it drops the foreign key over it first
- * (a conversion PostgreSQL refuses under a foreign key whose sides no longer compare). */
-const keyOfRoster = statedRelation(
-	"R0",
-	[{ name: "b", type: closedIdType(onlyHandle) }],
-	["b"],
-	false
-)
-
-const retypedReferrer: GenSchema = statedSchema(
-	[keyOfRoster, statedRelation("R1", [{ name: "route", type: int4 }], ["route"], false)],
-	[onlyHandle]
-)
-
-const referrerOrigins = (field: string) =>
-	statedOrigins(
-		[
-			["R0", "R0"],
-			["R1", "R1"]
-		],
-		[
-			["R0.b", "R0.b"],
-			[`R1.${field}`, "R1.a"]
-		]
-	)
-
-const referrerRetypedAway: StatedRenamedPath = plantedRename(
-	{
-		a: {
-			...statedSchema(
-				[
-					keyOfRoster,
-					statedRelation("R1", [{ name: "a", type: closedIdType(onlyHandle) }], ["a"], false)
-				],
-				[onlyHandle]
-			),
-			containments: [containedIn("R1", "a", "R0", "b")]
-		},
-		b: retypedReferrer,
-		c: retypedReferrer
-	},
-	{ R0: [], R1: [] },
-	{ a: referrerOrigins("a"), b: referrerOrigins("route"), c: referrerOrigins("route") },
-	true,
-	{ toB: ["retyped"], toC: [] }
-)
-
-/** The same, with R0's key b retyped to an integer too and route still contained in it: the key's conversion drops the
- * foreign key first (dropReplaced), so the rename's alternative leaves it to that drop. */
-const retypedWithKey: GenSchema = {
-	...statedSchema(
-		[
-			statedRelation("R0", [{ name: "b", type: int4 }], ["b"], false),
-			statedRelation("R1", [{ name: "route", type: int4 }], ["route"], false)
-		],
-		[onlyHandle]
-	),
-	containments: [containedIn("R1", "route", "R0", "b")]
-}
-
 /** The adversarial rename generator: named rename intents over a hazard base.
  *
  * The base A holds one of each hazard: the roster K0 of six handles; R0 keyed by k, with a handle a of K0 and an
@@ -3318,22 +3125,6 @@ const intentRenameKinds: { readonly [K in LegalIntentKind]: ReadonlyArray<Rename
 
 const renameKindsOf = (intents: ReadonlyArray<LegalIntent>): ReadonlyArray<RenameKind> =>
 	Arr.flatMap(intents, (i) => intentRenameKinds[i.kind])
-
-/** A path of intents, resolved: a legal path, as every renamed path is; the version that renames onto a taken name,
- * for the boundary to refuse; or the ambiguous path, with the removed relation and the two added ones of its heading. */
-type IntentPath =
-	| {
-			readonly kind: "legal"
-			readonly path: StatedRenamedPath
-			readonly intents: ReadonlyArray<LegalIntent>
-	  }
-	| { readonly kind: "ontoTaken"; readonly version: Version }
-	| {
-			readonly kind: "ambiguousPair"
-			readonly path: StatedRenamedPath
-			readonly removed: string
-			readonly added: readonly [string, string]
-	  }
 
 /** A legal path of intents resolved: its stated path, and the intents it made. */
 const legalIntentPath = (

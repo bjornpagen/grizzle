@@ -3,12 +3,14 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { type Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
+import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
-import { assert, refusalLoc, refused } from "#test/support/assert.ts"
+import type { NodeOf } from "#compiler/ir/rel.ts"
+import { assert, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import type {
 	AuthoredExprDesc as ExprDesc,
 	QueryDesc,
@@ -177,6 +179,55 @@ describe("a union of different headings", () => {
 								r.what
 							)
 							assert.ok(formatLoc(refusalLoc(e)).length > 0, `${r.what}: located`)
+						})
+				)
+			)
+	)
+})
+
+/** A set over Kind, a head literal typed by bits(Kind). */
+const kindSet = (handles: ReadonlyArray<string>) =>
+	typedLit({ handles }, { kind: "bits", roster: "Kind" })
+
+/** The keyed arms, each with a set literal `marks` beside its kind's handle: the same set in both, or one apiece. */
+const marked = (same: boolean): QueryDesc => {
+	const [automatic, manual] = arms("id", ref("Task", "account"))
+	return queryDesc(
+		{ ...automatic, head: { ...automatic.head, marks: kindSet(["Automatic"]) } },
+		{ ...manual, head: { ...manual.head, marks: kindSet(same ? ["Automatic"] : ["Manual"]) } }
+	)
+}
+
+describe("a union's discriminant", () => {
+	it.effect(
+		"is its closed-id literal columns when they tell its arms apart, and never a set's: a set orders by its bits, not by handles",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/check/union-discriminant",
+						generator: element([true, false]),
+						literal: Formatter.format,
+						/** The space is the two set literals: one set in both arms, or a set apiece. */
+						limit: 2,
+						coverage: noCoverage,
+						caseHang
+					},
+					(same) =>
+						Effect.sync(() => {
+							const q = succeeded(
+								checkQuery(checking(WorkDesc), marked(same), checkOptions("query"))
+							)
+							const unions = Arr.filter(
+								topoOrder(q.dag),
+								(n): n is NodeOf<"Union"> => n.kind === "Union"
+							)
+							assert.deepEqual(
+								Arr.map(unions, (u) => u.discriminant),
+								[["kind"]],
+								same ? "one set in both arms" : "a set apiece"
+							)
 						})
 				)
 			)

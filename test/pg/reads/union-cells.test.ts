@@ -20,7 +20,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Formatter, Option, Order, Record as Rec } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
-import { appendAll } from "#compiler/core/array.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
@@ -43,11 +42,12 @@ import { withLayer } from "#test/support/with-layer.ts"
  *
  * Property: for a drawn union of plain arms over one relation, in one heading group or two (told apart by a tag
  * literal), every arm delivering each key of its heading as a head literal or as the relation's field, the records
- * db.execute delivers for the union are, as a set, the records it delivers for each arm run as a query of its own. The
- * oracle is that decoding: an arm alone is one heading group of one arm, whose cells no other arm shares, so it reads
- * each literal as itself and each field by its type; the union must read every cell as the arm that wrote it would.
- * Records compare by their keys, and each value by its host kind and value (an int4 has no -0: the literal -0 is
- * PostgreSQL's 0, and equal to it).
+ * db.execute delivers for the union are the set union of the records it delivers for each arm run as a query of its
+ * own: the union holds each record once, however many arms deliver it, and each arm alone holds each of its records
+ * once, so a delivery that repeats a record fails. The oracle is that decoding: an arm alone is one heading group of one
+ * arm, whose cells no other arm shares, so it reads each literal as itself and each field by its type; the union must
+ * read every cell as the arm that wrote it would. Records compare by their keys, and each value by its host kind and
+ * value (an int4 has no -0: the literal -0 is PostgreSQL's 0, and equal to it).
  *
  * A column's cells are drawn from one dictionary per kind (int4, int8,
  * bool, a refined text, a closed handle), shared by literals and facts, so a field's cell spells some arm's literal or
@@ -365,6 +365,25 @@ const sameRecord: Equivalence<unknown> = (a, b) => {
 	return Option.none()
 }
 
+/** Records as the set they denote: each record once, by sameRecord, in the order it first appears. */
+const distinctRecords = (records: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>
+	Arr.dedupeWith(records, (a, b) => Option.isNone(sameRecord(a, b)))
+
+/**
+ * The records a union's arms deliver alone, as the set union they denote, each record once however many arms deliver
+ * it. Each arm's own delivery is a set: one that repeats a record is named.
+ */
+const armsAlone = (arms: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<unknown> => {
+	for (const delivered of arms) {
+		assert.deepEqual(
+			set(sameRecord)(delivered, distinctRecords(delivered)),
+			Option.none(),
+			`an arm alone delivered ${printRecords(delivered)}`
+		)
+	}
+	return distinctRecords(Arr.flatten(arms))
+}
+
 const printRecords = (records: ReadonlyArray<unknown>): string =>
 	Arr.join(
 		Arr.map(records, (r) =>
@@ -559,7 +578,7 @@ layer(Substrate.layer)("union cells", (it) => {
 										const delivered = yield* records(planted)
 										const first = yield* records(queryOver(Cells).rule(a))
 										const second = yield* records(queryOver(Cells).rule(b))
-										const alone = [...first, ...second]
+										const alone = armsAlone([first, second])
 										assert.deepEqual(
 											set(sameRecord)(delivered, alone),
 											Option.none(),
@@ -569,11 +588,9 @@ layer(Substrate.layer)("union cells", (it) => {
 									}
 									const arms = armsOf(c.groups)
 									const union = yield* records(unionOf(arms))
-									const alone: Array<unknown> = []
-									for (const arm of arms) {
-										const armRecords = yield* records(unionOf([arm]))
-										appendAll(alone, armRecords)
-									}
+									const alone = armsAlone(
+										yield* Effect.forEach(arms, (arm) => records(unionOf([arm])))
+									)
 									assert.deepEqual(
 										set(sameRecord)(union, alone),
 										Option.none(),

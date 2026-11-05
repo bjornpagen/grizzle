@@ -404,7 +404,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 	const cColumn = (name: string): string | undefined =>
 		cOcc.bindings.find((b) => b.var.name === name)?.column
 	const covered = new Set(
-		c.group.bound.flatMap((b) => {
+		c.group.bound.columns.flatMap((b) => {
 			const column = cColumn(b)
 			return column === undefined ? [] : [column]
 		})

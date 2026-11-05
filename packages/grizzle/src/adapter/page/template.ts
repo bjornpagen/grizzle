@@ -42,13 +42,18 @@ import {
 	type PageTemplate,
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"
-import type { PageComparator, PageVariant, ProbeKind } from "#compiler/lower/shapes/page/seek.ts"
+import type {
+	PageComparator,
+	PageDirection,
+	PageVariant,
+	ProbeKind
+} from "#compiler/lower/shapes/page/seek.ts"
 import { pageStatementSlotOf, statementSpec } from "#compiler/lower/template.ts"
 import { vectorExpectations } from "#compiler/physical/vector/admission.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { pageQueryFingerprint } from "#compiler/program/workload/fingerprint.ts"
-import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
+import { type CarrierHost, compareValues } from "#compiler/scalar/values/identity.ts"
 
 /**
  * The page runtime template of an ordered query.
@@ -114,6 +119,33 @@ export interface RunProgram<P extends PageProgram = PageRequestProgram> {
 	readonly records: ReadonlyArray<PageRecord>
 	readonly delivery: PageDelivery
 	readonly layouts: Arr.NonEmptyReadonlyArray<Layout>
+	/** The fetch order of two delivered rows' comparison tuples (fetchOrder). */
+	readonly fetch: (a: ComparisonTuple, b: ComparisonTuple) => number
+}
+
+/**
+ * The fetch order of a request's comparison tuples: the comparators in order, each by its carrier's B-tree order
+ * (scalar/values/identity.ts compareValues) in its direction, all reversed for a backward request. The comparators
+ * are the completed order's keys, a key of the result, so the rows a request fetches strictly increase under it.
+ */
+const fetchOrder = (
+	comparators: ReadonlyArray<readonly [PageComparator, ScalarCodec]>,
+	direction: PageDirection
+): ((a: ComparisonTuple, b: ComparisonTuple) => number) => {
+	const fetched = direction === "backward" ? -1 : 1
+	const keys = Arr.map(comparators, ([c, value]) => ({
+		spec: value.spec,
+		sign: (c.direction === "desc" ? -1 : 1) * fetched
+	}))
+	return (a, b) => {
+		for (const [k, [x, y]] of Arr.zip(keys, Arr.zip(a, b))) {
+			const c = compareValues(k.spec, x, y)
+			if (c !== 0) {
+				return c * k.sign
+			}
+		}
+		return 0
+	}
 }
 
 /**
@@ -299,7 +331,8 @@ const runArtifact = (
 					program,
 					records,
 					delivery,
-					layouts: deliveredLayouts(delivery)
+					layouts: deliveredLayouts(delivery),
+					fetch: fetchOrder(Arr.zip(parts.comparators, parts.values), program.direction)
 				}
 				return run
 			})

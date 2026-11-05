@@ -74,7 +74,7 @@ const foldedRows = (
 	}
 	const source = occ.source
 	const covered = new Set(
-		group.bound.flatMap((b) => {
+		group.bound.columns.flatMap((b) => {
 			const c = column.get(b)
 			return c === undefined ? [] : [c]
 		})
@@ -139,8 +139,8 @@ const groupedShare = (cx: CatalogContext, cell: Cell, region: Region): ShareResu
 			})()
 	if (oneInput) {
 		demand(
-			grouped.bound.length === total.bound.length &&
-				grouped.bound.every((c) => total.bound.includes(c)),
+			grouped.bound.columns.length === total.bound.columns.length &&
+				grouped.bound.columns.every((c) => total.bound.columns.includes(c)),
 			"both counts over the same binding set"
 		)
 	}

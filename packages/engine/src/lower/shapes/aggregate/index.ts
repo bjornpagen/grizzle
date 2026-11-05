@@ -1,5 +1,5 @@
 import { Refusal } from "#compiler/core/canonical.ts"
-import { appendNonEmpty, isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { appendNonEmpty } from "#compiler/core/nonempty.ts"
 import { makeCertificate } from "#compiler/ir/certificate.ts"
 import { integerLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { AggregateSpec, NodeOf } from "#compiler/ir/rel.ts"
@@ -19,14 +19,13 @@ import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { aggregateExpr, groupAggregateOverload } from "#compiler/lower/conservative/group/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { AggregateOverload } from "#compiler/scalar/aggregate.ts"
-import type { Expr, FromItem, Target, TypeRef } from "#compiler/sql/ast.ts"
+import type { Expr, FromItem, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	cast,
 	col,
 	core,
 	countStar,
 	derived,
-	distinctCoreWhen,
 	lit,
 	sameTypeRef,
 	select,
@@ -129,35 +128,31 @@ const certifyConditional = (facts: ShapeFacts, node: NodeOf<"Group">, agg: Aggre
 }
 
 /**
- * Aggregates: fold the distinct complete bindings, with a constant group key and native types (R24).
+ * Aggregates: fold the input's rows, with a constant group key and native types (R24).
  *
- * A Group folds the set of its complete bound tuple B, bindings omitted from find included: equal
- * bindings contribute once, distinct ones each contribute, and no DISTINCT after the fold repairs an overcount.
- * The fold therefore reads its input deduplicated on B unless the physical facts prove the input, as
- * realized, has exactly one row per B (analysis/contribution). Binding (account, amount) of a
- * Posting keyed by id keeps the inner DISTINCT; binding (id, account, amount) elides it, so two postings with equal
- * amounts both contribute.
+ * A Group's bound tuple B is a key of its input (ir/rel.ts FoldInput): every fact the rule matches is read by a key the
+ * bindings hold, so the input holds one row per value of B, the input distinct over its heading as placement realizes
+ * it. Each row is one contribution: two postings with equal amounts are two rows, keyed by their ids, and both
+ * contribute. The fold reads the input directly, grouped by its keys:
  *
- *   SELECT r3.c4, sum(r3.c5) FROM (SELECT DISTINCT r2.c2, r2.c3 FROM (<input>) AS r2(c1, c2, c3)) AS r3(c4, c5)
- *   GROUP BY r3.c4
+ *   SELECT r2.c2, sum(r2.c3) FROM (<input>) AS r2(c1, c2, c3) GROUP BY r2.c2
  *
  * An aggregate-only fold groups by a constant private column `true` carried by real input rows, so an empty input
- * creates no group and no NULL-bearing row; no literal is a GROUP BY item. Its single
- * output row needs no outer DISTINCT, nor does a grouped fold's, whose group key is a key of its output.
+ * creates no group and no NULL-bearing row; no literal is a GROUP BY item. The input is read through B and that column,
+ * one row per input row, since B is a key of it. Its single output row needs no outer DISTINCT, nor does a grouped
+ * fold's, whose group key is a key of its output.
  *
  * Types are PostgreSQL's own overloads (scalar/aggregate.ts): count is bigint, a bigint sum numeric, min and
  * max keep their input's type. Where the native result type differs from the IR's heading type, as min or max over a
  * contract returns the contract's base, the result is cast to the IR type. Each aggregate is its overload's lowering
  * (conservative/group aggregateExpr): a sum or mean over real, double precision or money accumulates exact values and
- * rounds once, so the fold is a function of its contributions' multiset under every plan.
+ * rounds once, so the fold is a function of its contributions, one per keyed row, in any order, under every plan.
  *
  * R24: `sum(cond(p, 1, 0))` is `count(*) FILTER (WHERE p)`, exact because count over
  * no qualifying row is zero, cast to the composition's sum type when that is not bigint; `sum(cond(p, x, 0))` stays
  * `sum(CASE WHEN p THEN x ELSE 0 END)` with the zero of x's type, never `sum(x) FILTER (WHERE p)`, which is NULL for a
  * group where no binding satisfies p; over real, double precision or money the exact value is taken of the CASE, the
  * argument. The count's literals are integers by value, so sum(cond(p, 1.0, 0)) and typmod literals are counts too.
- *
- * One row per B already: fold the input directly.
  */
 export const aggregateLowerer =
 	(facts: ShapeFacts): NodeLowerer<"Group"> =>
@@ -165,39 +160,29 @@ export const aggregateLowerer =
 		const at = nodeLabel(node)
 		const input = cx.source(node.input, env)
 		const aggregateOnly = node.keys.length === 0
-		const exact = facts.contributionExact(node)
 		let from: FromItem
 		let bound: ColumnMap
 		let present: Expr | undefined
-		if (exact && !aggregateOnly) {
+		if (!aggregateOnly) {
 			from = input.item
 			bound = input.map
 		} else {
-			const boundTargets = node.bound.map((name) => target(columnIn(input.map, name)))
 			/**
-			 * SELECT [DISTINCT] <B> [, true] FROM (<input>): the contributions, and the carried constant group key, after
-			 * the bound tuple exactly when the fold has no key, as a bound tuple of no field has none.
+			 * SELECT <B>, true FROM (<input>): each input row once, B a key of it, carrying the constant group key after
+			 * the bound tuple, as a bound tuple of no field has none.
 			 */
-			const read: { readonly targets: NonEmptyReadonlyArray<Target>; readonly present: boolean } =
-				!aggregateOnly && isNonEmpty(boundTargets)
-					? { targets: boundTargets, present: false }
-					: { targets: appendNonEmpty(boundTargets, target(lit.bool(true))), present: true }
-			const contributions = select(distinctCoreWhen(!exact, read.targets, [input.item], undefined))
-			const origin = { kind: "node", node: node.id } as const
-			const named = cx.freshColumns(node.bound, origin)
-			const presentColumn = read.present ? cx.supply.column(origin) : undefined
-			const alias = cx.relationAlias(origin)
-			const columns = named.map((n) => n.column)
-			from = derived(
-				contributions,
-				alias,
-				presentColumn === undefined ? columns : [...columns, presentColumn],
-				false
+			const targets = appendNonEmpty(
+				node.bound.columns.map((name) => target(columnIn(input.map, name))),
+				target(lit.bool(true))
 			)
+			const contributions = select(core(targets, [input.item], undefined))
+			const origin = { kind: "node", node: node.id } as const
+			const named = cx.freshColumns(node.bound.columns, origin)
+			const presentColumn = cx.supply.column(origin)
+			const alias = cx.relationAlias(origin)
+			from = derived(contributions, alias, [...named.map((n) => n.column), presentColumn], false)
 			bound = namedMap(alias, named)
-			if (presentColumn !== undefined) {
-				present = col(alias, presentColumn)
-			}
+			present = col(alias, presentColumn)
 		}
 		/** The aggregates read the bound tuple only (valid DAG), through the input's node id. */
 		const scope = extendEnv(env, [[node.input.id, bound]])

@@ -111,6 +111,24 @@ const breaksWith = (
 	}
 }
 
+/**
+ * The relations whose primary key no law states: a unique law over exactly its key's columns, or Room's span key. A
+ * state holds each relation's facts as a set because its primary key's law refuses a second fact at one key, an exact
+ * repeat of a stored fact included, so a model missing one would let a direct INSERT hold a fact twice.
+ */
+const unkeyedRelations = (laws: ReadonlyArray<LawSpec>): ReadonlyArray<Rel> =>
+	Arr.filter(
+		relationNames,
+		(relation) =>
+			!Arr.some(laws, (law) =>
+				law.kind === "unique"
+					? law.relation === relation &&
+						law.columns.length === primaryKeyOf[relation].length &&
+						Arr.every(law.columns, (c, i) => c === primaryKeyOf[relation][i])
+					: law.kind === "spanKey" && law.relation === relation
+			)
+	)
+
 /** The laws a state breaks. */
 const violated = (laws: ReadonlyArray<LawSpec>, state: State): ReadonlyArray<LawSpec> =>
 	Arr.filter(laws, (law) => {
@@ -619,6 +637,12 @@ export const judgeRun = (
 	observed: ReadonlyArray<Observed>,
 	final: State
 ): string | undefined => {
+	const unkeyed = unkeyedRelations(laws)
+	if (Arr.isReadonlyArrayNonEmpty(unkeyed)) {
+		throw new Error(
+			`the schedule model states no law for the primary key of ${Arr.join(unkeyed, ", ")}: without it a direct INSERT of a stored fact would hold that fact twice`
+		)
+	}
 	const pins: Pins = new Map(Arr.map(final.Ticket, (f) => [f[1] ?? "", f[0] ?? ""]))
 	const explicitSerials =
 		initial.Ticket.length > 0 ||

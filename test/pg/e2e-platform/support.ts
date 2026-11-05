@@ -44,6 +44,7 @@ import { Reference, unobserved } from "#test/support/oracle/reference/evaluate.t
 import { distinctRows, equal, type Row, type Value } from "#test/support/oracle/reference/values.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, noFacts, type PlatformFacts } from "#test/support/platform/generate.ts"
+import { stateOf, withDrawn } from "#test/support/platform/laws.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { loginLayer } from "#test/support/worlds.ts"
@@ -429,14 +430,18 @@ const literalOf = (value: unknown, type: ScalarType, what: string) => {
 	return succeeded(irLiteral(decoded, type), `${what} is a literal of its type`).literal
 }
 
-/** The host facts of a relation by declared name, the platform's stored facts and DailySpend's refreshed rows. */
+/**
+ * The host facts of a relation by declared name: the platform's stored facts, each owner with the count and sums the
+ * host draws for its counted families (withDrawn), as a read reads the stored row whole, and DailySpend's refreshed
+ * rows.
+ */
 export type HostFacts = Readonly<Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>>>
 
 export const hostFacts = (
 	f: PlatformFacts,
 	dailySpend: ReadonlyArray<Readonly<Record<string, unknown>>>
 ): HostFacts => ({
-	...f,
+	...Rec.fromEntries([...withDrawn(stateOf(f))]),
 	DailySpend: dailySpend
 })
 

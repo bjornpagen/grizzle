@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Result } from "effect"
+import { UnreadableAnswer } from "#adapter/errors/failures.ts"
 import type { AttachmentFacts, AttachmentScope } from "#adapter/reader/analysis.ts"
 import type { InputRefusal, RelationInputs } from "#adapter/reader/relations.ts"
 import { sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
@@ -242,6 +243,8 @@ interface ChildPlan<Run> {
 interface FusedPlan {
 	readonly position: number
 	readonly texts: FusedTexts
+	/** A child's identity, over the child columns its texts hold. */
+	readonly identity: RowIdentity
 }
 
 /**
@@ -249,9 +252,33 @@ interface FusedPlan {
  * under it, then those of its fused attachment columns, the order its layout's attachment slots name.
  */
 interface RowPlan<Run> {
+	/** A row's identity, over every output column of the statement. */
+	readonly identity: RowIdentity
 	readonly children: ReadonlyArray<ChildPlan<Run>>
 	readonly fused: ReadonlyArray<FusedPlan>
 }
+
+/**
+ * A row's identity: each cell's value text under its column's type (codec/scalar.ts cellText), each written after its
+ * length, so two rows have one identity exactly when every column holds equal values under its type's equality, 1.0
+ * and 1.00 or -0 and 0 alike, whatever their spellings.
+ */
+type RowIdentity = (texts: ReadonlyArray<string>) => string
+
+/** The identity of rows whose cells, position by position, are read by `cells`. */
+const rowIdentity =
+	(cells: ReadonlyArray<(cell: string) => string>): RowIdentity =>
+	(texts) => {
+		let out = ""
+		for (const [at, cell] of cells.entries()) {
+			const identity = cell(rowText(texts, at))
+			out = `${out}${identity.length}:${identity}`
+		}
+		return out
+	}
+
+/** A fused attachment's column text as it is: its children are held to their own identities (FusedPlan). */
+const itself = (cell: string): string => cell
 
 /**
  * One statement of a program as a flight runs it and its readers read it: its forms (`run`), how its rows arrive, how
@@ -377,6 +404,9 @@ const recordOf = <Run extends Arrived>(
 		})
 		return {
 			position: output.fusedAt(j),
+			identity: rowIdentity(
+				Arr.map(f.layout.columns, ({ column }) => scalarCodec(column.type, codes).cellText)
+			),
 			texts: fusedTexts(f.layout, (column) => {
 				const at = output.own(columnPosition(statement.heading, column))
 				return (row) => rowText(row, at)
@@ -386,7 +416,14 @@ const recordOf = <Run extends Arrived>(
 	return {
 		run,
 		arrival: run.arrival,
-		plan: { children: Arr.map(attached, (a) => a.plan), fused },
+		plan: {
+			identity: rowIdentity([
+				...Arr.map(output.heading, (column) => scalarCodec(column.type, codes).cellText),
+				...Arr.map(fused, () => itself)
+			]),
+			children: Arr.map(attached, (a) => a.plan),
+			fused
+		},
 		layout: { columns: columnsOf(statement, under, facts), attachments }
 	}
 }
@@ -472,26 +509,63 @@ const noSlots: ReadonlyArray<ReadonlyArray<Row>> = Object.freeze([])
 const noRows: ReadonlyArray<Row> = Object.freeze([])
 
 /**
+ * Whether two of `rows` have one identity (RowIdentity): a repeat, which no statement grizzle delivers holds, since
+ * every delivered statement, an attachment's and a fused child array's included, is a set by its compiled proof.
+ */
+const repeats = (
+	rows: ReadonlyArray<ReadonlyArray<string>>,
+	identity: RowIdentity
+): boolean => {
+	const seen = new Set<string>()
+	for (const texts of rows) {
+		const one = identity(texts)
+		if (seen.has(one)) {
+			return true
+		}
+		seen.add(one)
+	}
+	return false
+}
+
+/**
+ * The server's answer to `record`'s statement holding a row twice, which its compiled proof says it cannot deliver:
+ * UnreadableAnswer at the statement whose rows they are, after the read committed.
+ */
+const repeated = <Run>(record: StatementRecord<Run>): UnreadableAnswer =>
+	new UnreadableAnswer({ index: answerOf(record.arrival), fate: "committed" })
+
+/**
  * The Rows of `rows`, rows of `record` delivered as heading group `group` (0 unless the statement is one of a
  * heterogeneous union's heading groups), in a flight whose sent statements answered `sent`, each with the child Rows
  * of every attachment slot: an attachment statement's rows whose parent key equals the row's under the key's type, in
  * the statement's row order, then each fused column's children. A child Row is heading group 0: an attachment's child
  * is one statement of one layout (programRecords).
+ *
+ * Every statement's rows are a set, and so is every fused column's children: a repeat (repeats) is UnreadableAnswer,
+ * never a row delivered twice. A child statement's rows lead with their parent key, so its rows are distinct exactly
+ * when each parent's children are.
  */
 export const rowsOf = <Run>(
 	record: StatementRecord<Run>,
 	sent: SentRuns,
 	rows: StatementRun,
 	group: number
-): ReadonlyArray<Row> => {
+): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> => {
 	const plan = record.plan
+	if (repeats(rows, plan.identity)) {
+		return Result.fail(repeated(record))
+	}
 	const grouped: Array<{
 		readonly child: ChildPlan<Run>
 		readonly groups: Map<string, Array<Row>>
 	}> = []
 	for (const child of plan.children) {
+		const childRows = rowsOf(child.record, sent, runOf(child.record, sent), 0)
+		if (Result.isFailure(childRows)) {
+			return childRows
+		}
 		const groups = new Map<string, Array<Row>>()
-		for (const row of rowsOf(child.record, sent, runOf(child.record, sent), 0)) {
+		for (const row of childRows.success) {
 			const key = keyOf(row.texts, child.child)
 			const known = groups.get(key)
 			if (known === undefined) {
@@ -514,13 +588,17 @@ export const rowsOf = <Run>(
 			children.push(one.groups.get(keyOf(texts, one.child.parent)) ?? noRows)
 		}
 		for (const f of plan.fused) {
+			const elements = f.texts(rowText(texts, f.position), texts)
+			if (repeats(elements, f.identity)) {
+				return Result.fail(repeated(record))
+			}
 			const fusedChildren: Array<Row> = []
-			for (const child of f.texts(rowText(texts, f.position), texts)) {
+			for (const child of elements) {
 				fusedChildren.push({ group: 0, texts: child, children: noSlots })
 			}
 			children.push(fusedChildren)
 		}
 		out.push({ group, texts, children })
 	}
-	return out
+	return Result.succeed(out)
 }

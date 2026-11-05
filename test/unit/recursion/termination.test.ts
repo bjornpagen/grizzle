@@ -50,6 +50,24 @@ const copied: Arr.NonEmptyReadonlyArray<readonly [string, FieldDesc]> = [
 	["label", { kind: "text", source: "^v[0-9]+$", flags: "u" }]
 ]
 
+/**
+ * A graph with a roster of `handles`, over which a recursion's state may hold a set. A set column never reaches the
+ * estimate: PostgreSQL has no hash operator class for bit strings, and a recursive UNION deduplicates only by hashing,
+ * so admission refuses a set state column at the row (check/recursion/state.ts requireHashing) before termination
+ * reads it. The estimate's cap of a set at 2ⁿ (termination.ts domainSize) is unreachable from a recursion, whatever
+ * the roster's n.
+ */
+const setsOver = ([first, ...rest]: Arr.NonEmptyReadonlyArray<string>) =>
+	schema(
+		"Sets",
+		{
+			Flag: closed("Flag", [first, ...rest]),
+			Node: relation("Node", { id: uuid }, ["id"]),
+			Link: relation("Link", { from: uuid, to: uuid }, ["from", "to"])
+		},
+		[]
+	)
+
 type EstimateFeature = `copies ${string}` | "a computed column" | "two tags" | "the widest grid"
 
 describe("the seen-state estimate", () => {
@@ -192,45 +210,41 @@ describe("the seen-state estimate", () => {
 			)
 	)
 
-	it.effect("caps a set column at the 2ⁿ subsets of its roster's n handles, never at n", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/recursion/estimate-sets",
-					generator: element([1, 2, 3]),
-					literal: Formatter.format,
-					/** The space is a roster of one, two or three handles. */
-					limit: 3,
-					coverage: requiredInSpace<`${number} handles`>(["1 handles", "2 handles", "3 handles"]),
-					caseHang
-				},
-				(n, c) =>
-					Effect.sync(() => {
-						c.note(`${n} handles`)
-						const handles = Arr.map(Arr.range(1, n), (i) => `h${i}`)
-						const [first = "h1"] = handles
-						const Flag = closed("Flag", [first, ...handles.slice(1)])
-						const Node = relation("Node", { id: uuid }, ["id"])
-						const Link = relation("Link", { from: uuid, to: uuid }, ["from", "to"])
-						const Sets = schema("Sets", { Flag, Node, Link }, [])
-						const set: FieldDesc = { kind: "bits", roster: "Flag" }
-						const of = (members: ReadonlyArray<string>) => typedLit({ handles: members }, set)
-						const q = succeeded(
-							checkQuery(
-								checking(Sets),
+	it.effect(
+		"refuses a set state column, which no hash operator class deduplicates, at every roster size",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/recursion/estimate-sets",
+						generator: element([1, 2, 3]),
+						literal: Formatter.format,
+						/** The space is a roster of one, two or three handles. */
+						limit: 3,
+						coverage: requiredInSpace<`${number} handles`>(["1 handles", "2 handles", "3 handles"]),
+						caseHang
+					},
+					(n, c) =>
+						Effect.sync(() => {
+							c.note(`${n} handles`)
+							const handles = Arr.map(Arr.range(1, n), (i) => `h${i}`)
+							const set: FieldDesc = { kind: "bits", roster: "Flag" }
+							const of = (members: ReadonlyArray<string>) => typedLit({ handles: members }, set)
+							const r = checkQuery(
+								checking(setsOver(handles)),
 								{
 									stage: {
 										kind: "recursive",
 										recursive: {
 											name: "Marks",
-											row: { node: { kind: "uuid" }, t: set, u: set, m: set },
+											row: { node: { kind: "uuid" }, m: set },
 											base: [
 												rule({
 													vars: vars("Node", "id"),
 													matches: [match(relationSource("Node"), { id: ref("Node", "id") })],
 													where: [eq(ref("Node", "id"), param("start", { kind: "uuid" }))],
-													head: { node: ref("Node", "id"), t: of([]), u: of([]), m: of([]) },
+													head: { node: ref("Node", "id"), m: of([]) },
 													interiors: [],
 													attach: []
 												})
@@ -238,26 +252,18 @@ describe("the seen-state estimate", () => {
 											rec: [
 												rule({
 													vars: [
-														...Arr.map(["node", "t", "u", "m"], (v) => plainVar(`self.${v}`)),
+														...Arr.map(["node", "m"], (v) => plainVar(`self.${v}`)),
 														...vars("Link", "to")
 													],
 													matches: [
-														match(
-															{ kind: "self" },
-															{ node: s("node"), t: s("t"), u: s("u"), m: s("m") }
-														),
+														match({ kind: "self" }, { node: s("node"), m: s("m") }),
 														match(relationSource("Link"), {
 															from: s("node"),
 															to: ref("Link", "to")
 														})
 													],
 													where: [],
-													head: {
-														node: ref("Link", "to"),
-														t: of([first]),
-														u: of(handles),
-														m: compute("union", s("t"), s("u"))
-													},
+													head: { node: ref("Link", "to"), m: of(handles) },
 													interiors: [],
 													attach: []
 												})
@@ -267,19 +273,18 @@ describe("the seen-state estimate", () => {
 								},
 								checkOptions("query")
 							)
-						)
-						/**
-						 * t and u each take two literals, below every roster's 2ⁿ, so each counts 2; m, computed from both, counts
-						 * their product beside its own literal, 2 * 2 + 1 = 5, which the roster's 2ⁿ subsets cap at 2 for one
-						 * handle and at 4 for two, and which 2³ = 8 leaves. A cap at n would give 1, 2 and 3.
-						 */
-						const subsets = 2n ** BigInt(n)
-						const m = 5n < subsets ? 5n : subsets
-						const cert = theRecursive(q).termination
-						assert.equal(cert.kind, "finiteCarrier")
-						assert.equal(cert.stateEstimate, 2n * 2n * m)
-					})
+							assert.ok(!r.ok, "a set state column is refused")
+							assert.equal(r.error.reason._tag, "RecursionRefused")
+							if (r.error.reason._tag === "RecursionRefused") {
+								assert.deepEqual(r.error.reason.cause, {
+									kind: "unhashableState",
+									recursion: "Marks",
+									column: "m",
+									type: "bits Flag"
+								})
+							}
+						})
+				)
 			)
-		)
 	)
 })

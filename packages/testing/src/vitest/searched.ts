@@ -39,6 +39,14 @@ const ratesText = (explored: Explored): string =>
 			)}`
 		: ""
 
+/** The run of cases a residual's bound rests on, as its line prints it. */
+const runText = (sinceNew: number): string =>
+	sinceNew === 0
+		? "its last case reached a new situation"
+		: sinceNew === 1
+			? "none new in its last case"
+			: `none new in its last ${sinceNew} cases`
+
 /**
  * A residual's risk as its line prints it: unknown, and why, or Good–Turing's estimate beside its bound, the confidence
  * the bound holds at, and the run of cases it rests on.
@@ -50,7 +58,7 @@ const riskText = (residual: Residual): string => {
 				? "risk unknown: no independent case ran"
 				: "risk unknown: no case noted a situation"
 		case "estimated":
-			return `risk ${residual.risk.estimate.toFixed(RISK_DIGITS)}, at most ${residual.risk.bound.toFixed(RISK_DIGITS)} at ${Math.round((1 - RISK_BOUND_MISS) * 100)}% (none new in its last ${residual.sinceNew} cases), unseen ${Option.match(residual.unseen, { onNone: () => "unknown", onSome: (unseen) => `about ${unseen.toFixed(UNSEEN_DIGITS)}` })}`
+			return `risk ${residual.risk.estimate.toFixed(RISK_DIGITS)}, at most ${residual.risk.bound.toFixed(RISK_DIGITS)} at ${Math.round((1 - RISK_BOUND_MISS) * 100)}% (${runText(residual.sinceNew)}), unseen ${Option.match(residual.unseen, { onNone: () => "unknown", onSome: (unseen) => `about ${unseen.toFixed(UNSEEN_DIGITS)}` })}`
 	}
 }
 

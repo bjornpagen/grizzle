@@ -226,6 +226,7 @@ const BOX_RULES: NonEmptyReadonlyArray<Rule> = [
 			ranked,
 			{ kind: "or", left: live, right: ranked },
 			{ kind: "and", left: { kind: "compare", op: "eq", field: "rank", value: 1 }, right: live },
+			{ kind: "and", left: live, right: ranked },
 			{ kind: "compare", op: "eq", field: "id", value: 1 }
 		] satisfies ReadonlyArray<Phi>,
 		(psi): Rule => ({ rule: "a containment into a selected side", psi })

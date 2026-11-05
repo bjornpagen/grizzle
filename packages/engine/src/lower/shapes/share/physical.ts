@@ -6,7 +6,6 @@ import type { Cardinality } from "#compiler/ir/cardinality.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { KeySet, NodeOf, RelNode } from "#compiler/ir/rel.ts"
-import type { FoldInput } from "#compiler/lower/optimize/dedup/plan.ts"
 
 /**
  * The physical facts every shape lowering reads.
@@ -19,7 +18,8 @@ import type { FoldInput } from "#compiler/lower/optimize/dedup/plan.ts"
  *
  * Every observing consumer a shape lowers discharges its own input's obligation when the facts do not prove the input
  * unique ("verify that ... no sensitive consumer sees unproved multiplicity"): a bound deduplicates
- * before it selects, a fold deduplicates its complete bound tuple, a delivered attachment its rows per parent. Where
+ * before it selects, a delivered attachment its rows per parent; a fold reads its input as the placement realized it,
+ * one row per bound tuple, since its bound tuple is a key of the input (ir/rel.ts FoldInput). Where
  * the placement already realized the input `distinct`, the input is unique and no second DISTINCT is emitted.
  */
 export interface ShapeFacts {
@@ -59,14 +59,10 @@ interface AnalysisFactsOptions {
 /**
  * The facts of a placement (dedup/plan.ts): its physical analysis, run over its realization (analysis/physical
  * analyzePhysical with `realization`), gives uniqueness and keys under that realization, cardinality bounds and the
- * per-parent discharge of each attachment's child obligation; its fold forms say which folds take their input as it
- * is (dedup/place.ts decides it, once).
+ * per-parent discharge of each attachment's child obligation.
  */
 export const shapeFactsFromPlan = (
-	plan: {
-		readonly analysis: PhysicalAnalysis
-		readonly folds: Readonly<Record<NodeId, { readonly input: FoldInput }>>
-	},
+	plan: { readonly analysis: PhysicalAnalysis },
 	options: AnalysisFactsOptions
 ): ShapeFacts => {
 	const analysis = plan.analysis

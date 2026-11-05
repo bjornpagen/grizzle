@@ -100,19 +100,21 @@ import {
 } from "#test/support/native/schemas.ts"
 
 /**
- * The native constraints grizzle installs mean what its laws mean. Three readings of one schema meet here: the host
- * law model (test/support/laws/model.ts) reads each statement's meaning; the native model
- * (test/support/native/model.ts) evaluates the native objects the law model installs, UNIQUE NULLS DISTINCT, FOREIGN
- * KEY … MATCH SIMPLE immediate or deferred, CHECK, the generated law columns and the contract domains, with
- * PostgreSQL's semantics; PostgreSQL itself is the third, at the pg tier. Oracle: the host law model, a second
- * implementation of the laws' meaning, never the compiler's.
+ * The native constraints grizzle installs mean what its laws mean. Three readings of one schema meet here: an oracle
+ * of the laws' meaning; the native model (test/support/native/model.ts), which evaluates the native objects the law
+ * model installs with PostgreSQL's semantics (UNIQUE NULLS DISTINCT and WITHOUT OVERLAPS, FOREIGN KEY … MATCH SIMPLE
+ * and PERIOD, immediate or deferred, ON UPDATE CASCADE, CHECK, generated and drawn law columns, contract domains); and
+ * PostgreSQL itself, at the pg tier. The oracle is never the compiler: the host law model (test/support/laws/model.ts)
+ * for partial projections, keys, containments, span keys and coverage, and for a family the family model
+ * (test/support/families), which states when PostgreSQL checks each of the lemma's constraints, and the theorem.
  *
  * Over every state, every law the host model finds broken is refused by a constraint that discharges it, and every
  * constraint the state breaks discharges a law it breaks, so the installation accepts a state exactly when every law
- * holds. Over every transaction from a committed state, each order
- * a writer may send its statements in (one per table and change, a table's removals before its additions, and each
- * immediate reference's target added before and removed after its source) commits exactly when the state it leaves is
- * lawful, and a refusal names a law broken at that moment.
+ * holds. Over every transaction from a committed state, each order a writer may send its statements in (one per table
+ * and change, a table's removals before its additions, and each immediate reference's target added before and removed
+ * after its source) commits exactly when the state it leaves is lawful, and a refusal names a law broken at that
+ * moment. A family's transactions, its count's update cascading into its members' drawn copies, commit or are refused
+ * where the family model says, at the same statement or at COMMIT, reporting the laws of the constraints it finds broken.
  */
 
 const relations = RELATIONS
@@ -434,7 +436,7 @@ type RuleFeature = RuleKind | Verdict
 const boxLiteral = (b: BoxCase): string => `${ruleText(b.rule)}: ${Formatter.format(b.state)}`
 
 /** The box's size, counted by the library's own enumeration. */
-const BOX_CASES = 9_016
+const BOX_CASES = 9_645
 
 /** The oracle of the state and transaction suites: the laws' meaning, read from each statement by the host. */
 const HOST_ORACLE: Oracle = {

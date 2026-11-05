@@ -732,6 +732,7 @@ export const typeRefusals = [
 	"a derived definition reads no context: a materialized view holds no session",
 	"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)",
 	"a fold over a counted family hides its accumulators: name the step's value alone",
+	"a fold reads each fact it matches once, by a key: bind a key of every source the rule matches, or match a query of the distinct values",
 	"a fold's end names one accumulated field of the owner per plane",
 	"a fold's step is its family's member: its group, its value, then an accumulated pair per plane",
 	"a generated field is named apart from the relation's written fields",

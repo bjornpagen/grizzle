@@ -593,9 +593,9 @@ runs it again, it sees the other's debit, and it comes back as an outcome you ma
 }
 ```
 
-`laws` is never empty: it names the rule the refused constraint states, or, where one constraint carries several
-rules, as a family's foreign key carries every containment merged into it, each of them. A row check's witness is
-`unreported`: PostgreSQL states the failing row only in its message, which grizzle never reads.
+`laws` is never empty: it names the rule the failing constraint states, or each rule of one that carries several
+([Errors and outcomes](#errors-and-outcomes)). A row check's witness is `unreported`: PostgreSQL states the failing row
+only in its message, which grizzle never reads.
 
 ### 6. Books that always balance
 
@@ -1303,7 +1303,8 @@ becomes one PostgreSQL schema.
   table of its own, like `PostViews`.
 - **Tables are immutable by default.** Rows are inserted and deleted, never updated in place, and no role holds
   UPDATE on them. List `mutable(Post)` among a schema's rules for a table whose rows are replaced often; it changes how
-  a `put` is carried out, never what it means.
+  a `put` is carried out, never what it means. A family's owner whose family changes after it is inserted is mutable
+  too ([Families](#families)).
 - **No timestamp type.** An instant is a `bigint` contract, such as milliseconds since the epoch, and the current time
   is a parameter you pass in.
 
@@ -1345,7 +1346,7 @@ index entry.
 
 Every field says who writes it, and an insert or a put takes exactly the fields its caller writes, `Written<R>`:
 
-- **The caller**, the default: every field of `relation(...)`.
+- **The caller**, the default: a field declared by its type alone, `title: Title`.
 - **PostgreSQL**, as a STORED generated column: `relation.generated(name, written, primaryKey, (r) => ({ f:
   generated(type, term) }))`. `r` holds the written fields alone, since PostgreSQL's generation expression reads no
   generated column, and the term is of the declared type exactly, with no implicit cast. It may read closed
@@ -1362,8 +1363,8 @@ A fact and a query's row hold every field. A primary key holds no set, generated
 
 `closed.relation(name, fields, key, rows)` is a relation whose rows are fixed when the schema compiles, such as a
 grammar, a price list, or which states may follow which. Its key is required, a nonempty list of its closed-id fields,
-and a set lists every field; its other fields are closed ids or values of an open type, never a serial, span, set or
-vector, and no two of its rows share a key. `closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag),
+and one whose key lists every field is a set; its other fields are closed ids or values of an open type, never a
+serial, span, set or vector, and no two of its rows share a key. `closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag),
 weight: pg.integer }, ["kind", "flag"], rows)` says which flags each kind admits, and at what weight.
 
 It has no table. The migration installs it as content-addressed IMMUTABLE constants, a bit string indexed by its key's
@@ -1374,7 +1375,8 @@ selection or a generated field's term: `Allowed.at("weight", kind, flag)`, the p
 no row holds the key, so a row check over it refuses that row; and `Allowed.row(kind)`, the set of the last key
 field's handles that complete the prefix, for the set algebra above. A rule over closed relations alone is checked
 once, by PostgreSQL, in the migration that installs them: a violating row refuses the migration, and nothing is left
-behind.
+behind. A containment from a closed relation into an open one is refused: it would require rows of an open relation,
+which belong in a closed relation of their own.
 
 ## Rules
 
@@ -1479,9 +1481,9 @@ A family is a rule over rows the caller writes: each owner's members, counted by
 
 - **`ordered(on(F, g…, "at"), fin(O, "n"))`**: each owner's members, its group `g…` paired with O's primary key,
   indexed by their drawn `at` exactly 0 … n − 1, in order.
-- **`counted(on(F, g…), fin(O, "n"))`**: each owner's `n` members, an unordered set of rows, one per member key. The
-  index the proof counts them by is hidden: no field, no fact and no query holds it, and it is a coordinate, never a
-  multiplicity.
+- **`counted(on(F, g…), fin(O, "n"))`**: each owner's `n` members, its group `g…` naming the owner by O's primary
+  key: an unordered set of rows, one per member key. The index the proof counts them by is hidden: no field, no fact
+  and no query holds it, and it is a coordinate, never a multiplicity.
 - **`tree(on(T, "parent", "at"), fin(T, "children"), { root: "doc" })`**: T over itself, with drawn `at`, `children`,
   `start` and `end`. Each value of the root field `doc` is one tree: its root is the one row whose `parent` is its own
   id, every other row is a member of its parent's ordered family, and `[start, end)` is each row's pre-order interval.
@@ -1979,14 +1981,16 @@ channel as a tagged class.
 
 **Outcomes** come from `db.apply` and a compiled ChangeSet's `apply`:
 
-- `invariant-rejected` carries `law`, the rule as your schema states it, and `witness`, which says what broke it. Match
-  on `law` directly: `{ kind: "key", relation: "User", fields: ["email"] }`.
+- `invariant-rejected` carries `laws`, the rules as your schema states them, never empty, and `witness`, which says
+  what broke them. Match on a law directly: `{ kind: "check", relation: "Grant", name: "WithinGrant" }`. `laws` holds
+  the one rule the failing constraint states, or, where one PostgreSQL object discharges several and its report does
+  not say which failed, each of them: a family's foreign key carries every containment merged into it, and one domain
+  serves every contract and pattern of the same definition.
 - The witness is `{ kind: "key", relation, values }`, the key values of one row that breaks the rule, never another
-  column; `{ kind: "withheld" }`, for a rule checked at COMMIT when your role does not hold that table whole; or
-  `{ kind: "unreported" }`, for a constraint PostgreSQL raises itself (a foreign key, a row check, a contract or a
-  pattern), whose key it states only in its message. A key, over a table or over a side of one, that grizzle's own
-  write statement finds broken, by two rows you submitted or by a stored row inside or outside your role's view, names
-  the key you submitted, in the fields you wrote it in.
+  column; or `{ kind: "unreported" }`, for a constraint PostgreSQL raises itself (a foreign key, a row check, a
+  contract or a pattern), whose key it states only in its message. A key, over a table or over a side of one, that
+  grizzle's own write statement finds broken, by two rows you submitted or by a stored row inside or outside your
+  role's view, names the key you submitted, in the fields you wrote it in.
 - `outside-world` names the role's table a row cannot belong to.
 
 A value its contract or pattern refuses passes the encoder, which checks only the base type, and is refused by its
@@ -1996,18 +2000,22 @@ the contract's or pattern's rule, witness `unreported`.
 <details>
 <summary>Every rule an outcome can name</summary>
 
-| `law.kind`              | Its fields                                                                                    |
-| ----------------------- | --------------------------------------------------------------------------------------------- |
-| `primaryKey`, `key`     | `relation`, `fields`: a key over a table's own fields                                         |
-| `projectedKey`          | `side`: a key over a selected side, or one with a `pred` term                                 |
-| `check`                 | `relation`, `name`                                                                            |
-| `contained`             | `from`, `to`: each side a `relation`, its terms as `fields` (a field, or `pred(<field>)`), and its `selection`, `{ kind: "all" }` or `{ kind: "where", predicate }` with the predicate's canonical text; a `mirrors` is its two containments |
-| `coverage`              | a containment over spans: `from`, `to`                                                        |
-| `alternatives`          | the parent `relation` and its discriminator `field`, for every arm's reverse obligation       |
-| `alternativesArm`       | the parent `relation`, its discriminator `field`, the `arm` table and the `handles` it serves: each arm row's parent has one of them |
-| `capacity`              | `target`, `from`, `weight`, `within`                                                          |
-| `contract`              | `contract`                                                                                    |
-| `pattern`               | `source`, `flags`: one rule for every spelling of the same language                           |
+| `law.kind`   | Its fields                                                                                               |
+| ------------ | -------------------------------------------------------------------------------------------------------- |
+| `primaryKey` | `relation`, `fields`: a relation's primary key (a span field makes it a no-overlap key)                  |
+| `key`        | `side`: a key statement, a candidate key of its relation when its side reads every row and its terms are fields |
+| `check`      | `relation`, `name`                                                                                       |
+| `contained`  | `from`, `to`: a containment, a foreign key included; an `alternatives` statement and a `mirrors` are their containments |
+| `coverage`   | `from`, `to`: a containment whose sides pair a span field                                                |
+| `family`     | `order` (`"ordered"` or `"counted"`), `member`, a side, and `slots`, `{ owner, count }`                  |
+| `tree`       | `member`, `slots` and `root`, the root field                                                             |
+| `fold`       | `family`, its slots; `monoid`; `step` and `end`, sides                                                   |
+| `contract`   | `contract`                                                                                               |
+| `pattern`    | `source`, `flags`: one rule for every spelling of the same language                                      |
+
+A side is its `relation`, its `terms` in the order the rule pairs them, each `{ kind: "field", field }` or
+`{ kind: "pred", field }`, and its `selection`, `{ conjuncts }`: each conjunct a row predicate as its description
+states it, in canonical order, and none for a side that reads every row.
 
 </details>
 
@@ -2091,8 +2099,9 @@ its meta.json, the ledger's rows, a cursor) malformed at the path `at`; `Unsuppo
 and the `access` it doesn't hold; `DuplicateIdentity`, the `earlier` declaration; `IdentifierCollision`, the `other`
 declaration and the `identifier` both convert to; `LawOnDerived`, its `relation`; `UnrepresentableKey`, the key and
 its `fault`; `RecursionRefused` and `DerivedRefused`, their `cause`; `RoleRefused`, `LoginRefused` and
-`ContextRefused`, the `rule` broken; `RoleNameTooLong`, the PostgreSQL `role` and its `limit`; and the remaining rules,
-a `capability` sentence.
+`ContextRefused`, the `rule` broken; `RoleNameTooLong`, the PostgreSQL `role` and its `limit`; `GeneratedRefused`, the
+generated `field` of a `relation` and the `rule` it breaks; `UndeclaredDrop`, the name a migration would drop, which no
+`--drop` or `--rename` declares; and the remaining rules, a `capability` sentence.
 
 **`EncodingFailure`**'s reason is its codec's fault word, never the value, and its `place` the `Slot` the value fills,
 by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault word.
@@ -2225,29 +2234,29 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 | SQLSTATE            | When                                                                                                                                                         |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 42501               | a table outside the role; a row its filter refuses; an UPDATE of an immutable table, or through a query entry of a column outside it, in a key or fixed by a claim |
-| 42501               | `SET ROLE` to another login's role or the owner; `SET SESSION AUTHORIZATION` to anyone but the login; a call of another role's filter or probe function, of the advance function of a table the role does not write, or of a rule's function |
+| 42501               | `SET ROLE` to another login's role or the owner; `SET SESSION AUTHORIZATION` to anyone but the login; a call of another role's filter or probe function, or of the advance function of a table the role does not write |
 | 22023               | `SET ROLE` or `SET SESSION AUTHORIZATION` to a role that does not exist                                                                                      |
 | 428C9               | an UPDATE of a serial column, before any privilege check                                                                                                     |
 | 25000               | a write below SERIALIZABLE                                                                                                                                   |
 | 22P02, 22003, 23514 | a `grizzle.claims` setting PostgreSQL cannot read, where a statement reads it (below)                                                                         |
-| 23514               | a row check; a value its contract or pattern refuses, as the statement casts it, before row-level security and the row's constraints                          |
+| 23514               | a row check, a family's CHECK or a rule over a closed relation, each named by its rule; a value its contract or pattern refuses, or a code or set its roster's domain refuses, as the statement casts it, before row-level security and the row's constraints |
 | 23505               | at the statement: a duplicate key, over a table or over a side of one, an exact repeat included; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
 | 23P01               | an overlap under a no-overlap key, at the statement; or a span a concurrent transaction committed after this one's snapshot, which is retryable               |
-| 23503               | a foreign key, a containment between sides included: at COMMIT when it is deferred (an `alternatives` arm's or one over spans always, any other when its target has a field that is not one of the columns it references, or it lies on a cycle of foreign keys), at the statement otherwise |
-| 23000               | a rule PostgreSQL has no constraint for, at COMMIT, its constraint name the rule's                                                                           |
+| 23503               | a foreign key, a containment between sides included: at COMMIT when it is deferred (a family's key as its proof needs: a counted family's predecessor key, every last-slot key, and an owner key a cascade feeds; any other whose target has a field that is not one of the columns it references, or that lies on a cycle of foreign keys), at the statement otherwise |
 | 40001, 40P01        | a serialization failure or a deadlock: run the transaction again                                                                                             |
 
 - **The claims setting** is readable exactly when it has the shape a `Db` writes: empty, or a JSON object with no key
   repeated at any depth whose every member is an object of JSON strings. Anything else, text that is no JSON included,
   is 22P02 with constraint `grizzle.claims` and DETAIL `c[]`. A context's member holding other keys than exactly its
   fields is 22P02 with DETAIL `c["<Context>"]`; a member of a context the statement does not read is never judged.
-  Each claim is then cast to its field's type: one its type refuses (not a uuid, not an integer, not a boolean, an
-  unknown enum name) is 22P02, an integer out of range 22003, and a value its contract or pattern refuses 23514. No
-  DETAIL carries a claim's value. A plan that drops the row through a join or condition before it reads the claims
+  Each claim is then cast to its field's type, a closed id's claim being its handle's code: one its type refuses (not a
+  uuid, not an integer, not a boolean) is 22P02, an integer out of range 22003, and a value its contract, pattern or
+  roster refuses 23514. No DETAIL carries a claim's value. A plan that drops the row through a join or condition before it reads the claims
   gives that judgment's own answer: 42501 for a write, no rows for a read, false from a function.
-- **COMMIT** of a transaction a refusal aborted rolls it back, without an error. A rule PostgreSQL has no constraint
-  for is judged as whoever the transaction acts as at COMMIT, the role it took on or else the login, and shows its
-  witness keys only to an identity that holds the witness table whole; a login after `RESET ROLE` holds nothing.
+- **COMMIT** of a transaction a refusal aborted rolls it back, without an error.
+- **A family's values** are a direct writer's to fill, as grizzle fills them: each member's hidden index, its copy of
+  its owner's count and each fold's running values, and the owner's count and ends, by the names `grizzle names`
+  prints. PostgreSQL refuses every value that breaks the family, with 23505, 23514 or 23503.
 - **Spellings** are not values. A direct writer may store `-0` in a float or vector field. grizzle reads it as its
   value, `0`, and no query result depends on which spelling is stored.
   A key holds one fact per value: `[-0,1]` and `[0,1]` stored in a vector key field collide on it (23505).
@@ -2278,8 +2287,7 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
   every writer writes whole has no row-level security and no policy, since each policy would be true: the grants
   alone decide its writes. A query entry's view is a security-barrier view; a whole-table entry hides nothing, so its
   view is plain, and PostgreSQL plans through it onto the table's indexes. Constraint messages omit row and key detail
-  there, and rule functions show witness keys only when the identity the transaction acts as at COMMIT holds the
-  witness table whole.
+  there.
 - **What a role can learn.** Rules hold across the whole database. A delete refused by a comment you cannot see, or a
   limit that counts rows outside your view, tells you such rows exist; a collision at a key tells you a row exists at
   the key you submitted (one overlapping the span you submitted, for a no-overlap key), never any of its other
@@ -2293,19 +2301,24 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 <summary>Exactly what a role holds</summary>
 
 - USAGE on the schema, on its own schema, on the vector extension's schema when a column it reads or writes is a
-  vector, and on exactly the enums and domains its columns use, including the domains a contract is built on.
+  vector, and on exactly the domains its columns use: its rosters' and sets', and its contracts' and patterns', down
+  each contract's base.
 - SELECT on its views, and on no materialized view.
 - On a table it writes through a whole-table entry: SELECT, INSERT and DELETE, and UPDATE when the table is mutable.
 - On a table it writes through a query entry: column SELECT and INSERT on every column, column UPDATE (when the table
   is mutable) on each of the entry's columns outside every key that no claim fixes directly, and DELETE; never
   table-level SELECT, INSERT or UPDATE.
+- On the owner of a family whose member it writes: column UPDATE on that family's drawn count and accumulated ends,
+  and SELECT on what grizzle reads to fill them; nothing else of the owner unless its `write` lists the owner.
 - EXECUTE on one key probe (a function that looks a key up across the whole table) per key of such a table, and one
   unique probe per key over a selected side or a `pred` term whose collisions no other probe finds, for each writable
   query entry; on the entry's filter function exactly when its filter reads a table besides the written row; on the
-  advance function of each serial column of a table it writes; and on the refusal function when it writes or reads a
-  context, which only raises, in the caller's own statement.
+  advance function of each serial column of a table it writes; on the refusal function when it writes or reads a
+  context, which only raises, in the caller's own statement; and on every constant a statement it runs calls, since
+  PostgreSQL checks EXECUTE as the invoker: each roster's names constant its domains and views read, and the closed
+  constants its tables' CHECKs and generated fields and its queries read.
 - MAINTAIN on the materialized view of each derived table its `refresh` names.
-- Nothing else: no TRUNCATE, no sequence, no rule function, and no other role's view or function.
+- Nothing else: no TRUNCATE, no sequence, and no other role's view or function.
 
 </details>
 
@@ -2335,6 +2348,12 @@ workflows, whose rules are worth declaring and whose users see different slices 
   paths, 8 anchors, and 8,192 for anchors times positions. The measures sit inside PostgreSQL's limit, so a pattern
   past one may still compile there. A counted repetition's bound is at most 255, PostgreSQL's limit.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
+- **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted
+  families. A tree is written whole, by inserting its root with the whole tree nested.
+- **A closed relation is as large as its key's code space.** Its constant holds one cell per combination of its key
+  fields' codes, so a sparse relation over a large product of rosters is costly in proportion to the product: choose
+  coordinates that make it dense. A constant holds at most 2,147,483,640 bits, PostgreSQL's longest bit string, and a
+  longer one is refused with `ResourceBound` when the schema is compiled.
 - **No interactive transactions, and no retries.** A transaction is one call; you retry `TransientFailure` yourself.
 - **One statement's parameters are at most 1,073,741,822 bytes**, PostgreSQL's longest message
   (`PQ_LARGE_MESSAGE_LIMIT`), and one input column's array literal at most 536,870,888 UTF-16 code units, V8's

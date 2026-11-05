@@ -3,9 +3,9 @@ import { arrayTexts, parameterNormalizer, positionalColumns } from "#compiler/co
 import { paramEncoder } from "#compiler/codec/scalar.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
-import { defined } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
@@ -16,16 +16,32 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
 import { compose, type RelationPlanAt, relationDepths } from "#compiler/write/family/compose.ts"
+import {
+	decodeRead,
+	type Fact,
+	type FillContext,
+	ownersOf,
+	planEdits,
+	readKeys,
+	type RelationChanges,
+	type StoredFamily,
+	type Values
+} from "#compiler/write/family/edit.ts"
 import { familyKey } from "#compiler/write/family/fold.ts"
 import type { NestedRow } from "#compiler/write/family/nesting.ts"
 import {
 	type FamilyStatement,
+	type Phase,
 	type Plan,
+	planOwners,
+	planRead,
 	planRelation,
 	textsOf,
 	type Transport,
 	type Unsendable
 } from "#compiler/write/family/order.ts"
+import type { ReadShape } from "#compiler/write/family/statements.ts"
+import type { EnumeratedInput } from "#compiler/write/frontend/compile.ts"
 import {
 	type MemberFacts,
 	type Normalized,
@@ -38,7 +54,7 @@ import {
 	sentForm,
 	type WriteArtifact
 } from "#compiler/write/program/artifact.ts"
-import type { CompiledWrite } from "#compiler/write/program/compile.ts"
+import type { CompiledWrite, EditProgram } from "#compiler/write/program/compile.ts"
 import { keyWitness } from "#compiler/write/program/outcome.ts"
 
 interface BindInputs {
@@ -146,7 +162,7 @@ export const bindWrite = (
 	program: CompiledWrite,
 	inputs: BindInputs
 ): Result.Result<BindResult, EncodingFailure | CompileError> => {
-	const { frontend } = program
+	const { frontend, edits: programEdits } = program
 	const normalization = normalizeChangeSet(frontend, inputs.members)
 	if (!normalization.ok) {
 		return Result.err(normalization.error)
@@ -258,14 +274,19 @@ export const bindWrite = (
 	const noRows: ReadonlyMap<string, ReadonlyMap<string, NestedRow>> = new Map()
 	/** Each relation's depth among the families, which orders a stratum's relations' statements. */
 	const depthOf = relationDepths(frontend.laws.families)
-	/** Each stratum's plan, planned once, at its first family step: the rows its nested writes insert, by relation,
-	 * composed by depth. */
-	const plans = new Map<number, Result.Result<Plan, FamilyRowBound>>()
-	const planOf = (stratum: number): Result.Result<Plan, FamilyRowBound> => {
-		const known = plans.get(stratum)
-		if (known !== undefined) {
-			return known
-		}
+	/** A member relation's row no statement carries even alone, as the first family it is a member of names it. */
+	const rowBound = (relation: string, row: Unsendable): FamilyRowBound => ({
+		_tag: "FamilyRowBound",
+		family: defined(
+			frontend.laws.families.find((f) => f.member.name === relation),
+			`a family whose member is ${relation}, which a family write writes`
+		),
+		row
+	})
+	/** Each stratum's nested rows planned, by relation: the rows its nested writes insert. */
+	const nestedPlans = (
+		stratum: number
+	): Result.Result<ReadonlyArray<RelationPlanAt>, FamilyRowBound> => {
 		const relations: Array<RelationPlanAt> = []
 		for (const [relation, rows] of normalized.nested.get(stratum) ?? noRows) {
 			const planned = planRelation(
@@ -279,22 +300,148 @@ export const bindWrite = (
 				inputs.transport
 			)
 			if (!planned.ok) {
-				const refused: Result.Result<Plan, FamilyRowBound> = Result.err({
-					_tag: "FamilyRowBound",
-					family: defined(
-						frontend.laws.families.find((f) => f.member.name === relation),
-						`a family whose member is ${relation}, which a nested write reaches`
-					),
-					row: planned.error
-				})
-				plans.set(stratum, refused)
-				return refused
+				return Result.err(rowBound(relation, planned.error))
 			}
 			relations.push({ depth: depthOf(relation), plan: planned.value })
 		}
-		const result: Result.Result<Plan, FamilyRowBound> = Result.ok(compose(relations, []))
-		plans.set(stratum, result)
-		return result
+		return Result.ok(relations)
+	}
+	const ctx: FillContext = { codes: frontend.codes, evaluate: frontend.evaluate }
+	const factsAt = (slot: ParamId | undefined): ReadonlyArray<Fact> =>
+		slot === undefined ? [] : factsOf(slot).facts
+	/** The facts a stratum inserts of `relation`, by every insert slot of its but a generated addition's, whose key does
+	 * not exist yet, so no member names it. */
+	const insertedOf = (stratum: number, relation: string): ReadonlyArray<Fact> =>
+		frontend.slots
+			.filter((g) => g.stratum === stratum && g.relation.name === relation)
+			.flatMap((g) => g.inputs.flatMap(insertSlots))
+			.flatMap((slot) => factsOf(slot).facts)
+	/** An edit as one application binds it: its changes, its families' inserted owners, and each family's reads, by
+	 * their positions in the read flight. */
+	interface BoundEdit {
+		readonly program: EditProgram
+		readonly changes: RelationChanges
+		readonly owners: (family: Family) => ReadonlyMap<string, Values>
+		readonly reads: ReadonlyArray<{
+			readonly family: Family
+			readonly shape: ReadShape
+			readonly at: ReadonlyArray<number>
+		}>
+	}
+	const reads: Array<ReadStatement> = []
+	const edits: Array<BoundEdit> = []
+	/** A read no statement carries even alone: the application cannot be sent, which every family step reports. */
+	let unreadable: FamilyRowBound | undefined
+	for (const program of programEdits) {
+		const { edit, target } = program
+		const changes: RelationChanges = {
+			inserts: factsAt(edit.inserts),
+			puts: factsAt(edit.puts),
+			deletes: factsAt(edit.deletes)
+		}
+		const known = new Map<string, ReadonlyMap<string, Values>>()
+		const owners = (family: Family): ReadonlyMap<string, Values> => {
+			const id = familyKey(family.id)
+			const had = known.get(id)
+			if (had !== undefined) {
+				return had
+			}
+			const found = ownersOf(ctx, family, insertedOf(edit.stratum, family.owner.name))
+			known.set(id, found)
+			return found
+		}
+		const familyReads: Array<BoundEdit["reads"][number]> = []
+		for (const read of program.reads) {
+			const touched = readKeys(
+				ctx,
+				target,
+				read.family,
+				changes,
+				new Set(owners(read.family).keys())
+			)
+			const at: Array<number> = []
+			if (touched !== undefined) {
+				const parts = planRead(
+					touched.keys,
+					touched.groups,
+					{ key: target.layout.key.length, group: read.family.group.length },
+					inputs.transport
+				)
+				if (!parts.ok) {
+					unreadable ??= rowBound(target.relation.name, parts.error)
+				} else {
+					for (const part of parts.value) {
+						at.push(reads.length)
+						reads.push({
+							family: read.family.id,
+							sql: read.sql.sql.text,
+							params: [
+								...readLiterals(target.relation.name, part.keys, target.layout.key.length),
+								...readLiterals(target.relation.name, part.groups, read.family.group.length)
+							]
+						})
+					}
+				}
+			}
+			familyReads.push({ family: read.family, shape: read.sql.shape, at })
+		}
+		edits.push({ program, changes, owners, reads: familyReads })
+	}
+	/** Each stratum's plan from the reads' rows, one array of rows per read in order: its nested rows and its edits'
+	 * rows by relation, composed by depth with its edits' counts. */
+	const planned = (
+		rows: ReadonlyArray<Raw>
+	): Result.Result<ReadonlyMap<number, Plan>, EncodingFailure | FamilyRowBound> => {
+		const strata = [
+			...new Set([
+				...frontend.nested.map((n) => n.stratum),
+				...edits.map((e) => e.program.edit.stratum)
+			])
+		]
+		const out = new Map<number, Plan>()
+		for (const stratum of strata) {
+			const relations = nestedPlans(stratum)
+			if (!relations.ok) {
+				return relations
+			}
+			const all: Array<RelationPlanAt> = [...relations.value]
+			const counts: Array<Phase<"count">> = []
+			for (const bound of edits.filter((e) => e.program.edit.stratum === stratum)) {
+				const { target } = bound.program
+				const stored = new Map<string, StoredFamily>()
+				for (const read of bound.reads) {
+					const decoded = decodeRead(
+						ctx,
+						target,
+						read.family,
+						read.shape,
+						read.at.flatMap((i) => defined(rows[i], `the rows of read ${i}`))
+					)
+					if (!decoded.ok) {
+						return decoded
+					}
+					stored.set(familyKey(read.family.id), decoded.value)
+				}
+				const edited = planEdits(ctx, target, bound.changes, stored, bound.owners)
+				if (!edited.ok) {
+					return edited
+				}
+				const rowsPlan = planRelation(edited.value.rows, inputs.transport)
+				if (!rowsPlan.ok) {
+					return Result.err(rowBound(target.relation.name, rowsPlan.error))
+				}
+				all.push({ depth: depthOf(target.relation.name), plan: rowsPlan.value })
+				for (const owner of edited.value.owners) {
+					const phase = planOwners(owner, inputs.transport)
+					if (!phase.ok) {
+						return Result.err(rowBound(target.relation.name, phase.error))
+					}
+					counts.push(phase.value)
+				}
+			}
+			out.set(stratum, compose(all, counts))
+		}
+		return Result.ok(out)
 	}
 	/** A planned statement's arrays: its rows' texts, column by column, each array within the longest string. */
 	const arraysOf = (
@@ -310,46 +457,91 @@ export const bindWrite = (
 			maxStringLength.value
 		)
 	}
-	const chunks = (
-		statement: ArtifactStatement
-	): Result.Result<
-		ReadonlyArray<ReadonlyArray<string>>,
-		EncodingFailure | LiteralBound | FamilyRowBound
-	> => {
-		const step = statement.step
-		if (step.kind !== "family") {
-			return Result.map(values(statement), (one) => [one])
-		}
-		const planned = planOf(step.stratum)
-		if (!planned.ok) {
-			return planned
-		}
-		const target = step.target
-		const sent: ReadonlyArray<FamilyStatement> = planned.value
-			.flat()
-			.filter(
-				(s) =>
-					s.kind === step.statement &&
-					(s.kind === "count"
-						? target.kind === "owners" && familyKey(s.family) === familyKey(target.family)
-						: target.kind === "rows" && s.relation === target.relation)
-			)
-		const out: Array<ReadonlyArray<string>> = []
-		for (const s of sent) {
-			const arrays = arraysOf(step.relation, s)
-			if (!arrays.ok) {
-				return arrays
+	/** The chunks of the artifact's statements under the strata's plans: a family step's, one execution per planned
+	 * statement of its kind and target; any other's, its one execution. */
+	const chunksOf =
+		(plans: Result.Result<ReadonlyMap<number, Plan>, EncodingFailure | FamilyRowBound>): Chunks =>
+		(statement) => {
+			const step = statement.step
+			if (step.kind !== "family") {
+				return Result.map(values(statement), (one) => [one])
 			}
-			out.push(arrays.value)
+			if (!plans.ok) {
+				return plans
+			}
+			const target = step.target
+			const sent: ReadonlyArray<FamilyStatement> = (plans.value.get(step.stratum) ?? noPlan)
+				.flat()
+				.filter(
+					(s) =>
+						s.kind === step.statement &&
+						(s.kind === "count"
+							? target.kind === "owners" && familyKey(s.family) === familyKey(target.family)
+							: target.kind === "rows" && s.relation === target.relation)
+				)
+			const out: Array<ReadonlyArray<string>> = []
+			for (const s of sent) {
+				const arrays = arraysOf(step.relation, s)
+				if (!arrays.ok) {
+					return arrays
+				}
+				out.push(arrays.value)
+			}
+			return Result.ok(out)
 		}
-		return Result.ok(out)
-	}
+	const flights: Flights =
+		unreadable !== undefined
+			? { kind: "write", chunks: chunksOf(Result.err(unreadable)) }
+			: isNonEmpty(reads)
+				? {
+						kind: "read",
+						reads,
+						then: (rows) => {
+							const plans = planned(rows)
+							return plans.ok ? Result.ok(chunksOf(plans)) : plans
+						}
+					}
+				: { kind: "write", chunks: chunksOf(planned([])) }
 	return Result.ok({
 		kind: "bound",
 		normalized,
 		skip,
 		form,
 		values,
-		flights: { kind: "write", chunks }
+		flights
 	})
 }
+
+/** A read's keys as its placeholders carry them: one array literal per key field, each within the longest string. The
+ * read was cut to its transport (order.ts planRead), so every literal fits. */
+const readLiterals = (
+	relation: string,
+	keys: ReadonlyArray<ReadonlyArray<string>>,
+	width: number
+): ReadonlyArray<string> => {
+	const literals = arrayTexts(
+		relation,
+		Array.from({ length: width }, (_, i) => `key ${i + 1}`),
+		keys,
+		maxStringLength.value
+	)
+	if (!literals.ok) {
+		throw defect("a read cut to its transport carries every literal it writes")
+	}
+	return literals.value
+}
+
+/** The insert slots of an enumerated input whose facts carry their keys: an insert's, a nested insert's, and a classed
+ * insert's complete one. */
+const insertSlots = (input: EnumeratedInput): ReadonlyArray<ParamId> => {
+	switch (input.kind) {
+		case "single":
+			return input.act.op === "insert" ? [input.slot.slot] : []
+		case "nested":
+			return [input.slot.slot]
+		case "classed":
+			return [input.complete.slot]
+	}
+}
+
+const noPlan: Plan = [[], [], [], []]

@@ -126,17 +126,23 @@ const groupOf = (ctx: FillContext, family: Family, values: Values): Owner =>
 	mapNonEmpty(family.group, (g) => textOf(ctx, g.member.type, values.get(fieldKey(g.member.name))))
 
 /**
- * The placeholder texts of one family's read: the touched members' keys, one array per key field, then the touched
- * groups' keys, one array per group field, each once; none when nothing it touches can be stored, no key named and
- * every group an owner's the changeset inserts.
+ * What one family's read reads (statements.ts suffixReadSql): the touched members' keys, each once, and the touched
+ * groups' keys, each once, which its placeholders carry as arrays, the keys' first; undefined when nothing it touches
+ * can be stored, no key named and every group an owner's the changeset inserts.
  */
-export const readArrays = (
+export interface ReadKeys {
+	readonly keys: ReadonlyArray<MemberKey>
+	readonly groups: ReadonlyArray<Owner>
+}
+
+/** One family's read's keys (`ReadKeys`): `inserted` holds the group key texts of the owners the changeset inserts. */
+export const readKeys = (
 	ctx: FillContext,
 	target: EditTarget,
 	family: Family,
 	changes: RelationChanges,
 	inserted: ReadonlySet<string>
-): ReadonlyArray<ReadonlyArray<string>> | undefined => {
+): ReadKeys | undefined => {
 	const keys = new Map<string, MemberKey>()
 	for (const fact of [...changes.deletes, ...changes.puts]) {
 		const key = keyOf(ctx, target.layout, valuesOfFact(fact))
@@ -152,18 +158,27 @@ export const readArrays = (
 	if (keys.size === 0 && groups.size === 0) {
 		return undefined
 	}
-	const column = (list: ReadonlyArray<ReadonlyArray<string>>, i: number): ReadonlyArray<string> =>
-		list.map((k) => defined(k[i], `component ${i} of a read key`))
-	return [
-		...target.layout.key.map((_, i) => column([...keys.values()], i)),
-		...family.group.map((_, i) => column([...groups.values()], i))
-	]
+	return { keys: [...keys.values()], groups: [...groups.values()] }
 }
 
+/** The owners of `family` among an owner relation's inserted facts, by group key text, with their values. */
+export const ownersOf = (
+	ctx: FillContext,
+	family: Family,
+	facts: ReadonlyArray<Fact>
+): ReadonlyMap<string, Values> =>
+	new Map(
+		facts.map((fact) => {
+			const values = valuesOfFact(fact)
+			return [textsKey(groupOfOwner(ctx, family, values)), values] as const
+		})
+	)
+
 /**
- * One family's read's rows decoded (statements.ts suffixReadSql): each `o` row an owner, its key and its read columns;
- * each `m` row a member, its key and its row layout's columns, each text read through its column's codec. A text the
- * codec does not read is the read's EncodingFailure.
+ * One family's reads' rows decoded (statements.ts suffixReadSql), every read of the family's (order.ts planRead) as one
+ * set: each `o` row an owner, its key and its read columns; each `m` row a member, its key and its row layout's columns,
+ * each text read through its column's codec. A row two reads return is one, an owner by its group and a member by its
+ * key. A text the codec does not read is the read's EncodingFailure.
  */
 export const decodeRead = (
 	ctx: FillContext,
@@ -176,7 +191,7 @@ export const decodeRead = (
 		string,
 		{ readonly values: Map<ColumnKey, unknown>; readonly count: number }
 	>()
-	const members: Array<StoredMember> = []
+	const members = new Map<string, StoredMember>()
 	const failure = encodeFailure("factShape", slotPlace(target.relation.name))
 	const read = (
 		type: LawField["type"],
@@ -218,22 +233,27 @@ export const decodeRead = (
 			values.set(c.key, v.value)
 		}
 		const slot = values.get(columnKey(family.index))
-		members.push({
-			key: textsKey(keyOf(ctx, target.layout, values)),
-			slot: typeof slot === "bigint" ? Number(slot) : -1,
-			group: textsKey(groupOf(ctx, family, values)),
-			values
-		})
+		const key = textsKey(keyOf(ctx, target.layout, values))
+		if (!members.has(key)) {
+			members.set(key, {
+				key,
+				slot: typeof slot === "bigint" ? Number(slot) : -1,
+				group: textsKey(groupOf(ctx, family, values)),
+				values
+			})
+		}
 	}
 	const groups = new Map<string, StoredGroup>()
 	for (const [group, o] of owners) {
 		groups.set(group, {
 			owner: o.values,
 			count: o.count,
-			members: members.filter((m) => m.group === group).toSorted((a, b) => a.slot - b.slot)
+			members: [...members.values()]
+				.filter((m) => m.group === group)
+				.toSorted((a, b) => a.slot - b.slot)
 		})
 	}
-	return Result.ok({ groups, members: new Map(members.map((m) => [m.key, m] as const)) })
+	return Result.ok({ groups, members })
 }
 
 /** An owner's group key texts, its key fields paired with the family's group in order. */

@@ -36,7 +36,8 @@ type UnaryAggregateFn = Exclude<AggregateFn, "count">
 export type ExactCarrier = "float4" | "float8" | "money"
 
 /**
- * How an aggregate overload is lowered so that its result is a function of its arguments' multiset. Every overload
+ * How an aggregate overload is lowered so that its result is a function of its contributions, one per keyed row, in
+ * any order. Every overload
  * states one, so a new aggregate cannot be added without deciding; every emitter (grouped and windowed) dispatches on
  * it exhaustively (lower/conservative/group aggregateExpr):
  *
@@ -81,7 +82,7 @@ interface OverloadCommon {
 	/** The SQL function name. */
 	readonly sql: "count" | "sum" | "avg" | "min" | "max" | "bool_and" | "bool_or"
 	readonly result: ScalarType
-	/** How the overload is lowered so that its result is a function of its arguments' multiset. */
+	/** How the overload is lowered so that its result is a function of its contributions in any order. */
 	readonly lowering: AggregateLowering
 }
 
@@ -290,7 +291,8 @@ const refusedAggregate = (loc: SourceLoc, capability: string): Result.Result<nev
  * PostgreSQL defines no AVG(money), no sum or mean over any other type, and no min or max over uuid, ranges or vectors,
  * so those are UnsupportedOperation with the capability named.
  *
- * Every aggregate is a function of its arguments' multiset: no plan, scan order, join order, hash or sort grouping,
+ * Every aggregate is a function of its contributions, one per keyed row, in any order: no plan, scan order, join order,
+ * hash or sort grouping,
  * parallel worker, window frame or co-located aggregate can change it. count, min, max, bool_and, bool_or and the sums
  * over the integers and numeric already accumulate exactly or return an input, and are native. The others are lowered
  * to an exact accumulator (AggregateLowering):

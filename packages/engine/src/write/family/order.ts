@@ -170,7 +170,7 @@ type Bound =
 	| { readonly kind: "message"; readonly bytes: number; readonly limit: number }
 
 /** A row of a `statement` that no statement can carry, even alone: the write is refused before any statement is sent. */
-export type Unsendable = Bound & { readonly statement: FamilyStatement["kind"] }
+export type Unsendable = Bound & { readonly statement: FamilyStatement["kind"] | "read" }
 
 /** A text's array literal written alone, as the transport writes it: its length in UTF-16 code units and UTF-8 bytes. */
 interface Alone {
@@ -269,7 +269,7 @@ const joined = (
 }
 
 /** A row's bound as the bound of a row of a `statement`. */
-const unsendable = (statement: FamilyStatement["kind"], bound: Bound): Unsendable => ({
+const unsendable = (statement: Unsendable["statement"], bound: Bound): Unsendable => ({
 	...bound,
 	statement
 })
@@ -335,4 +335,45 @@ export const planOwners = (
 		(rows) => ({ kind: "count", family: write.family, rows }) as const
 	)
 	return Result.ok(planned)
+}
+
+/** What one read of a family's stored suffixes carries (statements.ts suffixReadSql): member keys and group keys. */
+export interface ReadPart {
+	readonly keys: ReadonlyArray<MemberKey>
+	readonly groups: ReadonlyArray<Owner>
+}
+
+/**
+ * A family's read cut into the reads the transport carries: its member keys in runs, each run one read whose group
+ * arrays are empty, then its groups in runs, each one read whose key arrays are empty; each read's empty arrays counted
+ * in its Bind message. The reads' rows together are the one read's: each returns the suffix of every group it touches
+ * from its own least slot, so their union, as a set by key, holds every member from the least slot of all. A key or
+ * group no read can carry alone refuses the cut.
+ */
+export const planRead = (
+	keys: ReadonlyArray<MemberKey>,
+	groups: ReadonlyArray<Owner>,
+	widths: { readonly key: number; readonly group: number },
+	transport: Transport
+): Result.Result<ReadonlyArray<ReadPart>, Unsendable> => {
+	/** The transport for reads of one kind: the other kind's empty arrays, `{}` each, in every Bind message. */
+	const beside = (empty: number): Transport => ({
+		...transport,
+		frame: {
+			statement: transport.frame.statement + empty * (transport.frame.parameter + 2),
+			parameter: transport.frame.parameter
+		}
+	})
+	const byKey = cut(keys, keyTexts, beside(widths.group))
+	if (!byKey.ok) {
+		return Result.err(unsendable("read", byKey.error))
+	}
+	const byGroup = cut(groups, (g: Owner): ReadonlyArray<string> => g, beside(widths.key))
+	if (!byGroup.ok) {
+		return Result.err(unsendable("read", byGroup.error))
+	}
+	return Result.ok([
+		...byKey.value.map((run): ReadPart => ({ keys: run, groups: [] })),
+		...byGroup.value.map((run): ReadPart => ({ keys: [], groups: run }))
+	])
 }

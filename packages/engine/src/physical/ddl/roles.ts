@@ -33,6 +33,7 @@ import {
 import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
+import type { Family } from "#compiler/ir/family.ts"
 import type {
 	ClosedTheoryRelation,
 	LawField,
@@ -90,6 +91,7 @@ import {
 	namedType,
 	not,
 	objectName,
+	or,
 	param,
 	qualifiedCall,
 	simpleSelect,
@@ -98,10 +100,11 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { nameOf } from "#compiler/sql/constants.ts"
-import { printStartupOptions } from "#compiler/sql/print.ts"
+import { printExpr, printStartupOptions } from "#compiler/sql/print.ts"
 import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
 import { filterFields, renderMembership } from "#compiler/write/entry/render.ts"
+import { endColumns, ownerReadColumns } from "#compiler/write/family/statements.ts"
 import {
 	type OutsideProbe,
 	probeIdentity,
@@ -662,9 +665,18 @@ interface WorldFunction {
 /**
  * The rows of T a writable entry holds, which its policy holds the role's reads and writes of T to: "every" row, for a
  * whole entry and for a query entry whose filter is none, which narrows nothing the role's grants do not; or a
- * "narrowed" set, a query entry's with a filter, whose predicate over T's row is `filter`.
+ * "narrowed" set, a query entry's with a filter, whose predicate over T's row is `filter`. `over` is the same predicate
+ * over another row, each field of T it `reads` given by `row`: a family's owner rows, by the columns its group and copies
+ * pair with those fields (`translated`).
  */
-type Membership = { readonly kind: "every" } | { readonly kind: "narrowed"; readonly filter: Expr }
+type Membership =
+	| { readonly kind: "every" }
+	| {
+			readonly kind: "narrowed"
+			readonly filter: Expr
+			readonly reads: ReadonlyArray<LawField>
+			readonly over: (row: (field: LawField) => Expr) => Expr
+	  }
 
 const everyRow: Membership = { kind: "every" }
 
@@ -877,17 +889,24 @@ const writePlan = (
 	if (filter.kind === "none") {
 		return { membership: everyRow, functions: probes, grants: [...grants, ...probeGrants] }
 	}
+	const reads = filterFields(writable)
 	if (!filter.readsOther) {
-		const membership = unwrap(
-			renderMembership(writable, {
-				schema: cx.checked,
-				names: b.names,
-				catalog: cx.catalog,
-				row: (f) => col(tableName.name, column(f))
-			})
-		)
+		const over = (row: (field: LawField) => Expr): Expr =>
+			unwrap(
+				renderMembership(writable, {
+					schema: cx.checked,
+					names: b.names,
+					catalog: cx.catalog,
+					row: (f) => row(f)
+				})
+			)
 		return {
-			membership: { kind: "narrowed", filter: membership },
+			membership: {
+				kind: "narrowed",
+				filter: over((f) => col(tableName.name, column(f))),
+				reads,
+				over
+			},
 			functions: probes,
 			grants: [...grants, ...probeGrants]
 		}
@@ -896,7 +915,7 @@ const writePlan = (
 	const fnIdent = b.name(filterNamed)
 	/** The fields of T the membership reads, each with its column and its base type, the type the membership reads it
 	 * at and the filter function's parameter's. */
-	const fields = filterFields(writable).map((field) => ({
+	const fields = reads.map((field) => ({
 		column: column(field),
 		type: baseTypeRef(b.names, field.type)
 	}))
@@ -935,14 +954,18 @@ const writePlan = (
 		reasons: [enforcement(`the writable entry ${role.name}.${e.name}`)],
 		phase: "publish"
 	}
+	const over = (row: (field: LawField) => Expr): Expr =>
+		qualifiedCall(
+			b.schema,
+			fnIdent,
+			reads.map((f) => row(f))
+		)
 	return {
 		membership: {
 			kind: "narrowed",
-			filter: qualifiedCall(
-				b.schema,
-				fnIdent,
-				fields.map((f) => col(tableName.name, f.column))
-			)
+			filter: over((f) => col(tableName.name, column(f))),
+			reads,
+			over
 		},
 		functions: [{ name, spec }, ...probes],
 		grants: [...grants, grant(["EXECUTE"], { kind: "FUNCTION", names: [name] }), ...probeGrants]
@@ -979,6 +1002,142 @@ const drawnColumnsOf = (b: InstallBuilder, relation: string): ReadonlyArray<stri
 			? [o.column]
 			: []
 	)
+
+/**
+ * What a role that writes a member of a family holds on the family's owner O (rows-first.md §2), beside what its own
+ * entries grant, and nothing wider. Column SELECT on exactly what the family's read flight reads of O
+ * (write/family/statements.ts suffixReadSql): its key, the owner fields the group pairs with, and `ownerReadColumns`:
+ * its count, its ends and the fields its owner axis copies into members, which the role writes into its own member rows.
+ * Column UPDATE, when O is mutable, on exactly what the family's count statement sets (countStatement): its count and
+ * `endColumns`. No UPDATE on an immutable O, whose family is fixed when it is inserted. None of O's other fields. A role
+ * that writes O whole holds all of O already and takes none. `families` are the families of O whose member it writes, in
+ * the law model's order; each column list is in O's field order.
+ */
+interface OwnerHold {
+	readonly owner: RelationInfo
+	readonly families: NonEmptyReadonlyArray<Family>
+	readonly select: ReadonlyArray<LawField>
+	readonly update: ReadonlyArray<LawField>
+}
+
+/** The owners whose members a role writes (`written`), each with what the role holds on it (`OwnerHold`), in the law
+ * model's order of their first family. */
+const ownerHolds = (
+	b: InstallBuilder,
+	role: OwnedRole,
+	written: ReadonlyArray<WrittenEntry>
+): ReadonlyArray<OwnerHold> => {
+	const writes = new Set(written.map((w) => w.relation.name))
+	const whole = new Set(
+		written.flatMap((w) => (w.write.kind === "whole" ? [w.relation.name] : []))
+	)
+	const byOwner = new Map<string, NonEmptyReadonlyArray<Family>>()
+	for (const f of b.model.families) {
+		if (writes.has(f.member.name) && !whole.has(f.owner.name)) {
+			const at = byOwner.get(f.owner.name)
+			byOwner.set(f.owner.name, at === undefined ? [f] : appendNonEmpty(at, f))
+		}
+	}
+	return [...byOwner].map(([name, families]): OwnerHold => {
+		const owner = (
+			b.model.relations.get(name) ??
+			refuse("MalformedDescription", role.loc, `a family owned by an ordinary relation, not ${name}`)
+		).relation
+		const selected = new Set(
+			families.flatMap((f) => [
+				...f.group.map((g) => g.owner.name),
+				...ownerReadColumns(f).map((c) => c.name)
+			])
+		)
+		const updated = new Set(
+			owner.mutable
+				? families.flatMap((f) => [f.count.name, ...endColumns(f).map((c) => c.name)])
+				: []
+		)
+		return {
+			owner,
+			families,
+			select: owner.fields.filter((field) => selected.has(field.name)),
+			update: owner.fields.filter((field) => updated.has(field.name))
+		}
+	})
+}
+
+/**
+ * The field of a family's owner O that a field of its member reads as, for every member: a group field's paired owner
+ * key field, or, for a copy, the field of O the owner axis carries into it. The owner axis's foreign key proves each
+ * equal; undefined for any other field of the member.
+ */
+const ownerPaired = (f: Family, field: LawField): LawField | undefined =>
+	f.group.find((g) => g.member.name === field.name)?.owner ??
+	f.axes.owner
+		.flatMap((p) =>
+			p.from.kind === "field" && p.from.field.name === field.name && p.to.kind === "field"
+				? [p.to.field]
+				: []
+		)
+		.at(0)
+
+/**
+ * A member writer's membership on a family F's member as a predicate over F's owner O's row: the rows of O whose groups
+ * it admits, the rows of O its family reads and counts may touch. Every field of the member the membership reads is
+ * read as the field of O it pairs with (`ownerPaired`), so the predicate holds of O's row exactly when it holds of every
+ * member O's group names, a first append's included. A membership reading any other field of the member is refused: no
+ * predicate over O's row alone decides it, and one over O's members misses an owner whose first member is appended.
+ */
+const translated = (
+	b: InstallBuilder,
+	role: OwnedRole,
+	entry: string,
+	f: Family,
+	m: Membership
+): Membership => {
+	if (m.kind === "every") {
+		return everyRow
+	}
+	const paired = (field: LawField): LawField =>
+		ownerPaired(f, field) ??
+		refuse(
+			"UnsupportedOperation",
+			role.loc,
+			`the role ${role.name} writes ${f.member.name} through ${entry}, a member of the family ${f.id.owner}.${f.id.count}, whose filter reads ${f.member.name}.${field.name}: a family's reads and count updates of ${f.owner.name} hold to the owners its writer's filter admits, and ${field.name} is neither a group field nor a field ${f.owner.name} copies into its members, so no predicate over ${f.owner.name}'s own row decides it; filter ${f.member.name} by ${f.group.map((g) => g.member.name).join(", ")} or a copy of ${f.owner.name}'s fields`
+		)
+	const reads = m.reads.map(paired)
+	const ownerTable = b.names.relation(f.owner.name)
+	const over = (row: (field: LawField) => Expr): Expr => m.over((field) => row(paired(field)))
+	return {
+		kind: "narrowed",
+		filter: over((field) => col(ownerTable.name, b.names.column(f.owner.name, field.name))),
+		reads,
+		over
+	}
+}
+
+/** The rows of an owner a role's member writes of several of its families may touch: every row when one family's may,
+ * else the rows any family's translated membership admits. */
+const familyMembership = (ms: NonEmptyReadonlyArray<Membership>): Membership => {
+	const narrowed = ms.flatMap((m) => (m.kind === "narrowed" ? [m] : []))
+	if (narrowed.length < ms.length || !isNonEmpty(narrowed)) {
+		return everyRow
+	}
+	if (narrowed.length === 1) {
+		return narrowed[0]
+	}
+	const over = (row: (field: LawField) => Expr): Expr => or(mapNonEmpty(narrowed, (m) => m.over(row)))
+	return {
+		kind: "narrowed",
+		filter: or(mapNonEmpty(narrowed, (m) => m.filter)),
+		reads: [...new Map(narrowed.flatMap((m) => m.reads).map((f) => [f.name, f])).values()],
+		over
+	}
+}
+
+/** Whether a role's own policy on an owner, its entry's membership `own`, already holds the rows its family writes
+ * touch, `family`: every row, or the same predicate. A narrower own policy would hide owners its members name, and a
+ * wider one would widen the entry, so any other pair is refused. */
+const covers = (own: Membership, family: Membership): boolean =>
+	own.kind === "every" ||
+	(family.kind === "narrowed" && printExpr(own.filter) === printExpr(family.filter))
 
 /**
  * The constants a role is granted EXECUTE on, with their objects (InstallBuilder.reached): every one a statement it runs
@@ -1097,7 +1256,8 @@ const addRole = (
 	}
 
 	const writers: Array<Writer> = []
-	for (const w of roleWrites(checked)) {
+	const written = roleWrites(checked)
+	for (const w of written) {
 		const plan = writePlan(b, cx, role, named, w)
 		const relation = w.relation.name
 		useColumns(b, w.relation.fields, use)
@@ -1120,6 +1280,60 @@ const addRole = (
 			entry: `${role.name}.${w.write.name}`,
 			membership: plan.membership
 		})
+	}
+	const holds = ownerHolds(b, role, written)
+	for (const hold of holds) {
+		const owner = hold.owner.name
+		const ownerTable = b.names.relation(owner)
+		const columns = (fields: ReadonlyArray<LawField>): ReadonlyArray<string> =>
+			fields.map((field) => b.names.column(owner, field.name))
+		const select = columns(hold.select)
+		const update = columns(hold.update)
+		if (isNonEmpty(select)) {
+			grants.push({
+				kind: "grantColumns",
+				privilege: "SELECT",
+				table: ownerTable,
+				columns: select,
+				to: theory
+			})
+		}
+		if (isNonEmpty(update)) {
+			grants.push({
+				kind: "grantColumns",
+				privilege: "UPDATE",
+				table: ownerTable,
+				columns: update,
+				to: theory
+			})
+		}
+		useColumns(b, hold.update, use)
+		after.push(b.table(owner))
+		const membership = familyMembership(
+			mapNonEmpty(hold.families, (f) => {
+				const member = defined(
+					writers.find((w) => w.relation === f.member.name),
+					`the writer of ${f.member.name}, a member ${role.name} writes`
+				)
+				return translated(b, role, member.entry, f, member.membership)
+			})
+		)
+		const own = writers.find((w) => w.relation === owner)
+		if (own === undefined) {
+			writers.push({
+				relation: owner,
+				role: named,
+				roleObject,
+				entry: `${role.name}'s members of ${owner}'s families`,
+				membership
+			})
+		} else if (!covers(own.membership, membership)) {
+			refuse(
+				"UnsupportedOperation",
+				role.loc,
+				`the role ${role.name} writes ${owner} through ${own.entry}, whose filter narrows it, and members of its families ${hold.families.map((f) => `${f.id.owner}.${f.id.count}`).join(", ")}, whose reads and count updates of ${owner} hold to the owners its member writes admit, which ${own.entry}'s filter does not state: one policy holds the role on ${owner}, so filter ${owner} and its members alike, or write the members of ${owner} through another role`
+			)
+		}
 	}
 	const refuses = role.writes.size > 0 || Object.keys(role.contexts).length > 0
 	if (refuses) {
@@ -1157,7 +1371,10 @@ const addRole = (
 	const executes = roleExecutes(
 		b,
 		use,
-		roleWrites(checked).map((w) => w.relation.name),
+		[
+			...written.map((w) => w.relation.name),
+			...holds.flatMap((h) => (isNonEmpty(h.update) ? [h.owner.name] : []))
+		],
 		viewStatements
 	)
 	if (isNonEmpty(executes)) {

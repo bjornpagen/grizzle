@@ -54,8 +54,8 @@ export const tryMode = (cx: CatalogContext, cell: Cell): ModeResult => {
 	const inputCell = group.input
 	const input = inputCell.current
 	demand(
-		group.bound.length === input.heading.length &&
-			input.heading.every((h) => group.bound.includes(h.name)),
+		group.bound.columns.length === input.heading.length &&
+			input.heading.every((h) => group.bound.columns.includes(h.name)),
 		"a count of the input's rows: the bound tuple is its whole heading"
 	)
 	const [first, second] = take.order.keys

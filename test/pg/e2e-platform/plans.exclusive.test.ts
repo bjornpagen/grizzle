@@ -567,8 +567,10 @@ const runLawWrite = (o: OpenedPlatform, w: LawWrite) =>
 
 /**
  * Each law's probe as the index engine states it (physical/indexes/engine.ts): a B-tree request's an equality on every
- * requested column, a GiST request's an equality on each scalar column and an overlap on each span, the column's kind
- * read off its relation's heading; every platform probe reads every row. Labelled, with its request.
+ * requested column, a GiST request's an equality on each scalar column and an overlap on each span, a field's kind read
+ * off its relation's heading. A law column (an alternatives arm's tagged key, say) is probed by equality in a B-tree
+ * request; no platform law asks for one in a GiST request, where its kind would decide the operator. Every platform
+ * probe reads every row. Labelled, with its request.
  */
 const lawProbes = (
 	o: OpenedPlatform
@@ -593,7 +595,14 @@ const lawProbes = (
 				Option.fromUndefinedOr(o.installed.installation.laws.theory.relations[r.relation]),
 				() => new Error(`${label}: no relation ${r.relation}`)
 			)
-			const conditions = Arr.map(fields, (field, at) => {
+			const conditions = Arr.map(r.keys, (k, at) => {
+				if (k.column.kind === "law") {
+					if (r.method === "gist") {
+						return assert.fail(`${label} asks GiST for the law column ${k.column.column}`)
+					}
+					return `${quoteIdent(k.column.column)} = $${at + 1}`
+				}
+				const field = k.column.field.name
 				const column = Option.getOrThrowWith(
 					Arr.findFirst(relation.heading, (h) => h.name === field),
 					() => new Error(`${label}: ${r.relation} has no ${field}`)

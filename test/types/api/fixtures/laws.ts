@@ -1,4 +1,4 @@
-import * as Grizzle from "#index.ts"
+import type * as Grizzle from "#index.ts"
 import {
 	type Check,
 	check,
@@ -69,7 +69,10 @@ export const badSelection = mirrors(
  * and its owner's slots, the check its name and relation.
  */
 export type ClaimsFamily = Expect<
-	Equals<typeof poolClaims, Counted<Side<typeof Claim, readonly ["pool"]>, Fin<typeof Pool, "claims">>>
+	Equals<
+		typeof poolClaims,
+		Counted<Side<typeof Claim, readonly ["pool"]>, Fin<typeof Pool, "claims">>
+	>
 >
 export type ClaimsCheck = Expect<
 	Equals<typeof claimsWithinSeats, Check<"ClaimsWithinSeats", typeof Pool>>
@@ -81,10 +84,10 @@ export const seatSlots = fin(Pool, "seats")
 export const unslotted = counted(on(Claim, "pool"), on(Pool, "id"))
 /** capacity, its bound and its weight are no part of the public API. */
 // @ts-expect-error -- TS2339: capacity is gone, a counted family and a row check in its place
-export const noCapacity = Grizzle.capacity
+export type NoCapacity = typeof Grizzle.capacity
 // @ts-expect-error -- TS2339: within is gone, a row check on the count in its place
-export const noWithin = Grizzle.within
+export type NoWithin = typeof Grizzle.within
 // @ts-expect-error -- TS2339: weigh is gone, a sum fold in its place
-export const noWeigh = Grizzle.weigh
+export type NoWeigh = typeof Grizzle.weigh
 // @ts-expect-error -- TS2339: ref is gone, a row check reads the field
-export const noRef = Grizzle.ref
+export type NoRef = typeof Grizzle.ref

@@ -229,21 +229,26 @@ const coverBroken = (s: State, source: Side, target: Side): boolean => {
 
 /**
  * A counted family on the host: the facts of `member`, each in the group of the owner fact whose key fields `key` its
- * group fields `group` equal, pair by pair.
+ * group fields `group` equal, pair by pair; the owner's `count` field, and the end of its sum fold, the sum of the
+ * members' `step`.
  */
 interface Counted {
 	readonly member: RelationName
 	readonly group: ReadonlyArray<string>
 	readonly owner: RelationName
 	readonly key: ReadonlyArray<string>
+	readonly count: string
+	readonly sum: { readonly step: string; readonly end: string }
 }
 
 const counted = (
 	member: RelationName,
 	group: ReadonlyArray<string>,
 	owner: RelationName,
-	key: ReadonlyArray<string>
-): Counted => ({ member, group, owner, key })
+	key: ReadonlyArray<string>,
+	count: string,
+	sum: Counted["sum"]
+): Counted => ({ member, group, owner, key, count, sum })
 
 /**
  * Each owner's sum of its members' `value`, by the owner's key: a sum over the members' facts, each counted once, an
@@ -406,8 +411,7 @@ const sumFold = (name: string, statement: Statement, f: Counted): HostLaw => ({
 })
 
 /**
- * A row check over an owner that reads its family's sum of `value`: every owner fact holds `holds` of itself and that
- * sum. PostgreSQL checks it where the owner's end is written: at a member's statement, which appends to a stored owner
+ * A row check over an owner that reads its family's sum: every owner fact holds `holds` of itself and that sum. PostgreSQL checks it where the owner's end is written: at a member's statement, which appends to a stored owner
  * and rewrites its end, or at the insertion of an owner the transaction inserts with its members, its end their sum
  * already. Either way it is judged on the host after the members' statement, and at commit.
  */
@@ -415,7 +419,6 @@ const sumCheck = (
 	name: string,
 	statement: Statement,
 	f: Counted,
-	value: string,
 	holds: (owner: Row, sum: bigint) => boolean
 ): HostLaw => ({
 	name,
@@ -424,7 +427,7 @@ const sumCheck = (
 	checkedAt: [f.member],
 	id: (names) => names.lawOf(statement),
 	broken: (s) => {
-		const sums = sumsOf(s, f, value)
+		const sums = sumsOf(s, f, f.sum.step)
 		return Arr.some(rowsIn(s, f.owner), (row) => !holds(row, sumAt(sums, f, row)))
 	}
 })
@@ -483,17 +486,93 @@ const alternativesLaws = (
 	}))
 ]
 
-/** The platform's counted families, as the fixture states them: member, group, owner and the owner's key. */
-const eventCharges = counted("UsageCharge", ["event"], "EventCharge", ["event"])
-const chargeDebits = counted("CreditDebit", ["event", "kind"], "UsageCharge", ["event", "kind"])
-const grantDebits = counted("CreditDebit", ["grant"], "CreditGrant", ["id"])
-const limitCharges = counted("EventCharge", ["workspace", "month"], "WorkspaceLimit", [
-	"workspace",
-	"month"
-])
-const invoiceLines = counted("InvoiceLine", ["invoice"], "Invoice", ["id"])
-const lineAllocations = counted("Allocation", ["line"], "InvoiceLine", ["id"])
-const invoiceRefunds = counted("Refund", ["invoice"], "Invoice", ["id"])
+/**
+ * The platform's counted families, as the fixture states them: the member and its group, the owner and its key, the
+ * owner's count, and the sum its fold accumulates.
+ */
+const eventCharges = counted("UsageCharge", ["event"], "EventCharge", ["event"], "charges", {
+	step: "amount",
+	end: "charged"
+})
+const chargeDebits = counted(
+	"CreditDebit",
+	["event", "kind"],
+	"UsageCharge",
+	["event", "kind"],
+	"debits",
+	{ step: "amount", end: "debited" }
+)
+const grantDebits = counted("CreditDebit", ["grant"], "CreditGrant", ["id"], "debits", {
+	step: "amount",
+	end: "debited"
+})
+const limitCharges = counted(
+	"EventCharge",
+	["workspace", "month"],
+	"WorkspaceLimit",
+	["workspace", "month"],
+	"charges",
+	{ step: "amount", end: "spent" }
+)
+const invoiceLines = counted("InvoiceLine", ["invoice"], "Invoice", ["id"], "lines", {
+	step: "amount",
+	end: "billed"
+})
+const lineAllocations = counted("Allocation", ["line"], "InvoiceLine", ["id"], "allocations", {
+	step: "amount",
+	end: "allocated"
+})
+const invoiceRefunds = counted("Refund", ["invoice"], "Invoice", ["id"], "refunds", {
+	step: "amount",
+	end: "refunded"
+})
+
+const platformFamilies: ReadonlyArray<Counted> = [
+	eventCharges,
+	chargeDebits,
+	grantDebits,
+	limitCharges,
+	invoiceLines,
+	lineAllocations,
+	invoiceRefunds
+]
+
+/**
+ * A state's facts with the fields grizzle draws and accumulates for each owner, as the host counts and sums them over
+ * the owner's members: its count, how many facts its family holds, and its sum fold's end, the sum of their step
+ * values, an empty family's zero. A read reads an owner's whole row, so a reference over the host's facts states them
+ * too, and wherever a read delivers one the host's count or sum is a second implementation of grizzle's.
+ */
+export const withDrawn = (s: State): ReadonlyMap<RelationName, ReadonlyArray<Row>> =>
+	new Map(
+		Arr.map(loadOrder, (relation): readonly [RelationName, ReadonlyArray<Row>] => {
+			const tallies = Arr.map(
+				Arr.filter(platformFamilies, (f) => f.owner === relation),
+				(f) => {
+					const counts = new Map<string, bigint>()
+					for (const m of rowsIn(s, f.member)) {
+						const k = tupleKey(m, f.group)
+						counts.set(k, (counts.get(k) ?? 0n) + 1n)
+					}
+					return { f, counts, sums: sumsOf(s, f, f.sum.step) }
+				}
+			)
+			return [
+				relation,
+				Arr.map(rowsIn(s, relation), (row) =>
+					Arr.reduce(
+						tallies,
+						row,
+						(out: Row, { f, counts, sums }): Row => ({
+							...out,
+							[f.count]: counts.get(tupleKey(row, f.key)) ?? 0n,
+							[f.sum.end]: sumAt(sums, f, row)
+						})
+					)
+				)
+			]
+		})
+	)
 
 /** Every law the platform declares, in the order the fixture states them. */
 export const platformLaws: ReadonlyArray<HostLaw> = [
@@ -694,7 +773,6 @@ export const platformLaws: ReadonlyArray<HostLaw> = [
 		"chargeExact",
 		P.chargeExact,
 		eventCharges,
-		"amount",
 		(e, charged) => charged === amountOf(e, "amount")
 	),
 	family("chargeDebits", P.chargeDebits, chargeDebits),
@@ -703,7 +781,6 @@ export const platformLaws: ReadonlyArray<HostLaw> = [
 		"creditedExact",
 		P.creditedExact,
 		chargeDebits,
-		"amount",
 		(c, debited) => debited === amountOf(c, "credited")
 	),
 	rowCheck(
@@ -718,7 +795,6 @@ export const platformLaws: ReadonlyArray<HostLaw> = [
 		"grantWithinAmount",
 		P.grantWithinAmount,
 		grantDebits,
-		"amount",
 		(g, debited) => debited <= amountOf(g, "amount")
 	),
 	family("limitCharges", P.limitCharges, limitCharges),
@@ -727,7 +803,6 @@ export const platformLaws: ReadonlyArray<HostLaw> = [
 		"spendWithinCap",
 		P.spendWithinCap,
 		limitCharges,
-		"amount",
 		(l, spent) => spent <= amountOf(l, "cap")
 	),
 	family("invoiceLines", P.invoiceLines, invoiceLines),
@@ -736,7 +811,6 @@ export const platformLaws: ReadonlyArray<HostLaw> = [
 		"invoiceExact",
 		P.invoiceExact,
 		invoiceLines,
-		"amount",
 		(i, billed) => billed === amountOf(i, "amount")
 	),
 	family("lineAllocations", P.lineAllocations, lineAllocations),
@@ -745,7 +819,6 @@ export const platformLaws: ReadonlyArray<HostLaw> = [
 		"allocationExact",
 		P.allocationExact,
 		lineAllocations,
-		"amount",
 		(l, allocated) => l["source"] !== "plan" || allocated === amountOf(l, "amount")
 	),
 	family("invoiceRefunds", P.invoiceRefunds, invoiceRefunds),
@@ -754,7 +827,6 @@ export const platformLaws: ReadonlyArray<HostLaw> = [
 		"refundWithinInvoice",
 		P.refundWithinInvoice,
 		invoiceRefunds,
-		"amount",
 		(i, refunded) => refunded <= amountOf(i, "amount")
 	),
 	containment(
