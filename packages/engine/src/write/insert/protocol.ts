@@ -1,5 +1,6 @@
 import { appendAll } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
 	isNonEmpty,
@@ -43,6 +44,7 @@ import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compi
 import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
 	inputGuarantees,
+	inputHeading,
 	inputSharing,
 	keyUniqueBy,
 	readInput,
@@ -62,6 +64,7 @@ import {
 	resultText,
 	rowType,
 	type SpanClassifyResult,
+	startOf,
 	type WriteContext,
 	type WriteStatement
 } from "#compiler/write/insert/statement.ts"
@@ -265,7 +268,21 @@ export const buildInsert = (
 	const variant: InsertVariant = shape.variant
 	const guarantees = inputGuarantees(input)
 	const sameKeyCheck = variant === "protocol" && !keyUniqueBy(guarantees.keyUnique)
-	const fields = insertedFields(relation, serial)
+	const written = insertedFields(relation, serial)
+	/** The written fields the input carries, which the insert reads from it, and the rest, each written at its start: a
+	 * fresh owner's counts and ends, which a nesting's input carries and a plain insert's does not. */
+	const heading = inputHeading(input)
+	const carries = (f: LawField): boolean => heading.some((c) => c.name === f.name)
+	const fields = written.filter(carries)
+	const starts = written
+		.filter((f) => !carries(f))
+		.map((f) => ({
+			field: f,
+			value: defined(
+				startOf(w.names, f),
+				`the start of ${relation.name}.${f.name}, a written field its input does not carry`
+			)
+		}))
 	const all = keyFirst(relation)
 	const pk = relation.primaryFields
 	/** Every comparison is at its field's type: a vector, in the payload or in a small key, compares through the
@@ -413,7 +430,7 @@ export const buildInsert = (
 				: [unique.kind === "gate" ? unique.guarded.guard : unique.probe.gate])
 		]
 		/** r1 already holds each value cast into its column's type (`into`), so the INSERT selects it as is. */
-		const values = fields.map((f) => target(inCol(f)))
+		const values = [...fields.map((f) => target(inCol(f))), ...starts.map((s) => target(s.value))]
 		const source: Select = {
 			...simpleSelect(values, [cteRef(r1)], conjunction(gates)),
 			orderBy: variant === "generated" ? [] : pk.map((f) => asc(inCol(f)))
@@ -423,7 +440,7 @@ export const buildInsert = (
 			with: undefined,
 			table: w.names.relation(relation.name),
 			alias: r3,
-			columns: fields.map(column),
+			columns: [...fields.map(column), ...starts.map((s) => column(s.field))],
 			overriding: explicitSerials(relation, serial).length > 0 ? "SYSTEM VALUE" : undefined,
 			source: { kind: "query", query: source },
 			onConflict:

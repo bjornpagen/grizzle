@@ -67,7 +67,7 @@ interface DraftMarker {
 	readonly line: number
 }
 
-/** A loss of stored data a drafted folder leaves to the reviewer: its file, and what it loses (chosen.ts lossText). */
+/** A loss of stored data a drafted folder leaves to the reviewer: its file, and what it loses (render/folder.ts lossText). */
 interface DraftLoss {
 	readonly file: string
 	readonly loses: string
@@ -105,9 +105,10 @@ type Written =
  * data steps, named `--name`; snapshot.json does not change.
  *
  * Every selected schema drafts before anything is written, so a schema the compiler refuses writes no folder of any
- * schema. The report lists each written file, each unresolved marker, the placeholders and candidate renames a reviewer
- * must settle, and each loss of stored data a reviewer must decide, before `grizzle check` and `grizzle migrate` accept
- * the folder. A schema's first draft beside the migrations of schemas the configuration no longer lists, which a schema
+ * schema, and a name the previous snapshot holds that the schema no longer does is refused unless the command line
+ * declares it renamed or dropped (`--rename`, `--drop`). The report lists each written file, each marker a reviewer
+ * must resolve (a placeholder to fill, a group of statements to confirm), and each loss of stored data a reviewer must
+ * decide, before `grizzle check` and `grizzle migrate` accept the folder. A schema's first draft beside the migrations of schemas the configuration no longer lists, which a schema
  * renamed in code leaves, starts the schema under the loss of their rows (abandonedSchemas). generate never reads the
  * configuration's connection.
  */

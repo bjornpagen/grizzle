@@ -471,11 +471,9 @@ export type KeyHost =
  * What a law's refusal names: the violating fact's key, or why it names none.
  *
  * - `key`: one violating fact's relation and its key values, never a payload column. A write statement's refusal names
- *   the key you submitted, in the fields you wrote it in, a collision with a fact outside the written entry included;
- *   a residual law names the key its function reports.
- * - `withheld`: a residual law's key, withheld from a role that does not hold the violating relation whole.
- * - `unreported`: a violation PostgreSQL raised itself, on a native constraint, states its key only in its message,
- *   which the runtime neither forwards nor parses.
+ *   the key you submitted, in the fields you wrote it in, a collision with a fact outside the written entry included.
+ * - `unreported`: every law is a native constraint, and a violation PostgreSQL raised itself states its key only in
+ *   its message, which the runtime neither forwards nor parses.
  */
 export type Witness =
 	| {
@@ -483,7 +481,6 @@ export type Witness =
 			readonly relation: string
 			readonly values: Readonly<Record<string, KeyHost>>
 	  }
-	| { readonly kind: "withheld" }
 	| { readonly kind: "unreported" }
 
 /**

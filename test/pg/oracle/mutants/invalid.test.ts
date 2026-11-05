@@ -1,7 +1,7 @@
 /**
- * The invalid mutants I1-I8 are each killed by their population's witnesses, the floor and steered cases the suite's
- * label fixes, so a kill holds on every run seed: each of the eight deliberately invalid transformations must produce
- * its listed counterexample.
+ * The invalid mutants I1-I3 and I5-I8 are each killed by their population's witnesses, the floor and steered cases the
+ * suite's label fixes, so a kill holds on every run seed: each of the seven deliberately invalid transformations must
+ * produce its listed counterexample.
  *
  * Each runs on generated cases rooted at the construct its flawed rule rewrites (mutants/cases.ts); I3 runs on the
  * hand-built noninjective-key cases, with generated facts. The harness
@@ -13,14 +13,12 @@
  *
  * - duplicate answers (I1, I2, I3, I5, I6) and a repeated endpoint state (I8): the same statements, columns and
  *   distinct rows, the mutant repeating some, the conservative lowering none;
- * - an overcount (I4): no repeated row on either side and the same groups, the rows differing only in aggregate
- *   columns, among them a count, sum or avg, every differing count larger in the mutant;
  * - an incorrect second-value witness (I7): no repeated row, and only left tuples of the semi-join the mutant lost,
  *   since the first k rows of a bag hold no value outside the first k distinct values.
  *
  * Any other difference, a changed value, a lost column or a missing statement, is not the mutant's bug and fails.
  *
- * The mutant is the right side: duplicates and overcounts are rows only it has.
+ * The mutant is the right side: duplicates are rows only it has.
  */
 
 import { layer } from "@effect/vitest"
@@ -45,7 +43,6 @@ import {
 	closureRoot,
 	existsOverTakeRoot,
 	fanoutJoinRoot,
-	groupRoot,
 	noninjectiveKeyCaseGen,
 	projectGroupRoot,
 	projectRoot,
@@ -56,7 +53,7 @@ import { type MutantId, mutants } from "#test/support/oracle/mutants/mutants.ts"
 import type { KillVerdict } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-type Shape = "duplicates" | "overcount" | "lostWitness"
+type Shape = "duplicates" | "lostWitness"
 
 /** An invalid mutant, the population it runs on, and the shape its listed counterexample takes. */
 interface Population {
@@ -69,7 +66,6 @@ const populations: Arr.NonEmptyReadonlyArray<Population> = [
 	{ id: "I1", gen: rootedCaseGen(projectRoot, defaultGenConfig), shape: "duplicates" },
 	{ id: "I2", gen: rootedCaseGen(fanoutJoinRoot, defaultGenConfig), shape: "duplicates" },
 	{ id: "I3", gen: noninjectiveKeyCaseGen, shape: "duplicates" },
-	{ id: "I4", gen: rootedCaseGen(groupRoot, defaultGenConfig), shape: "overcount" },
 	{ id: "I5", gen: rootedCaseGen(projectGroupRoot, defaultGenConfig), shape: "duplicates" },
 	{ id: "I6", gen: rootedCaseGen(untaggedUnionRoot, defaultGenConfig), shape: "duplicates" },
 	{ id: "I7", gen: rootedCaseGen(existsOverTakeRoot, defaultGenConfig), shape: "lostWitness" },
@@ -138,77 +134,6 @@ const expectDuplicates = (j: Judged, c: Comparison): void => {
 	}
 }
 
-/**
- * An overcount: the same groups, differing only in aggregate columns, at least one of which a repeated contribution
- * changes, and a differing count only upward.
- */
-const expectOvercount = (j: Judged, c: Comparison): void => {
-	assert.deepEqual(c.repeated, [], "no repeated row")
-	const group = j.case.query.dag.roots[0]
-	assert.equal(group.kind, "Group")
-	assertVariant(group, "kind", "Group")
-	const columns = Option.match(
-		Arr.findFirst(j.left.statements, (s) => s.label === "main"),
-		{
-			onNone: (): ReadonlyArray<string> => [],
-			onSome: (s) => s.columns
-		}
-	)
-	const keyAt = Arr.map(group.keys, (k) => columns.indexOf(k))
-	const fnAt = new Map(Arr.map(group.aggs, (a) => [columns.indexOf(a.name), a.fn]))
-	assert.deepEqual(
-		Arr.map(c.diffs, (d) => d.label),
-		["main"]
-	)
-	const diff = c.diffs[0]
-	if (diff === undefined) {
-		return
-	}
-	const sameGroup = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-		Arr.every(keyAt, (i) => a[i] === b[i])
-	const groupOf = (row: ReadonlyArray<string>): string =>
-		Arr.join(
-			Arr.map(keyAt, (i) => row[i] ?? "no column"),
-			", "
-		)
-	const conservativeRows = Arr.map(diff.missing, (r) => r.row)
-	const mutantRows = Arr.map(diff.extra, (r) => r.row)
-	assert.equal(mutantRows.length, conservativeRows.length, "the same groups")
-	assert.ok(
-		Arr.every(conservativeRows, (row) => Arr.some(mutantRows, (m) => sameGroup(m, row))),
-		"the same groups"
-	)
-	assert.ok(mutantRows.length > 0)
-	for (const mutantRow of mutantRows) {
-		const key = groupOf(mutantRow)
-		const conservativeRow = Option.getOrThrowWith(
-			Arr.findFirst(conservativeRows, (row) => sameGroup(row, mutantRow)),
-			() => new Error(`group ${key} is one of the conservative program's groups`)
-		)
-		const differing = Arr.flatMap(mutantRow, (v, i) => (v === conservativeRow[i] ? [] : [i]))
-		for (const i of differing) {
-			assert.notEqual(
-				fnAt.get(i),
-				undefined,
-				`column ${columns[i]} of group ${key} is an aggregate`
-			)
-		}
-		for (const i of Arr.filter(differing, (at) => fnAt.get(at) === "count")) {
-			const [mutantCount, conservativeCount] = [mutantRow[i], conservativeRow[i]]
-			assert.ok(
-				mutantCount !== undefined &&
-					conservativeCount !== undefined &&
-					BigInt(mutantCount) > BigInt(conservativeCount)
-			)
-		}
-		assert.equal(
-			Arr.some(differing, (i) => ["count", "sum", "avg"].includes(fnAt.get(i) ?? "")),
-			true,
-			`group ${key}: a count, sum or avg differs`
-		)
-	}
-}
-
 /** An incorrect second-value witness: no repeated row, and only left tuples the mutant's semi-join lost. */
 const expectLostWitness = (j: Judged, c: Comparison): void => {
 	assert.deepEqual(c.repeated, [], "no repeated row")
@@ -259,8 +184,6 @@ const killed = ({ id, gen, shape }: Population) =>
 		}
 		if (shape === "duplicates") {
 			expectDuplicates(kill, c)
-		} else if (shape === "overcount") {
-			expectOvercount(kill, c)
 		} else {
 			expectLostWitness(kill, c)
 		}

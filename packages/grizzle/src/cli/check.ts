@@ -165,7 +165,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				}
 			}
 			for (const marker of findMarkers(file.text)) {
-				at("placeholder", `${where}:${marker.line}`, refusalText.placeholder.problem)
+				at(marker.kind, `${where}:${marker.line}`, refusalText[marker.kind].problem)
 			}
 		}
 	}

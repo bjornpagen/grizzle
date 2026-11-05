@@ -450,7 +450,7 @@ const privilegesSelect = (): C.CatalogSelect => {
 				["oid"],
 				C.query([r.col("oid")], [r.item], C.eq(r.col("rolname"), C.param(1, "text")))
 			),
-			C.cte("held", ["family", "oid", "attname", "privilege"], C.unionAll(heldArms())),
+			C.cte("held", ["family", "oid", "attname", "privilege"], C.union(heldArms())),
 			C.cte(
 				"expected",
 				["family", "object", "attname", "privilege", "schema", "name"],
@@ -470,7 +470,7 @@ const privilegesSelect = (): C.CatalogSelect => {
 				)
 			)
 		],
-		C.unionAll([
+		C.union([
 			C.core(
 				[
 					C.text("missing"),
@@ -937,7 +937,7 @@ export const defaultPrivilegesQuery = (
 					C.cte(
 						"acls",
 						["scope", "objects", "acl"],
-						C.unionAll([
+						C.union([
 							C.core(
 								[
 									C.text(""),

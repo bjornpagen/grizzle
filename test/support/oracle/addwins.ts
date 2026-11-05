@@ -232,9 +232,11 @@ const loadedSequence = (facts: FactSet, field: string): SequenceState => {
 export const loadedSequences: Readonly<Record<string, SequenceState>> = {}
 
 /**
- * An initial state. Facts are admitted against their headings; the state must satisfy every key. Each identity
- * sequence starts where a migration that loaded these facts leaves it: past the largest stored value,
- * or fresh at 1 when none is stored, unless `sequences` states it.
+ * An initial state. Facts are admitted against their headings; the state must satisfy every key, and states each fact
+ * once: a stored relation holds a fact once, its primary key refusing a second row at one key, so an initial state that
+ * lists a fact twice is no state PostgreSQL holds, a defect of its caller, never one fact. Each identity sequence starts
+ * where a migration that loaded these facts leaves it: past the largest stored value, or fresh at 1 when none is
+ * stored, unless `sequences` states it.
  */
 export const oracleState = (
 	schema: OracleSchema,
@@ -247,6 +249,9 @@ export const oracleState = (
 		const set = new Map<string, Fact>()
 		for (const fact of facts[relation.name] ?? []) {
 			const admitted = admit(relation, relation.heading, fact)
+			if (set.has(admitted.identity)) {
+				throw new Error(`initial state lists a fact of ${relation.name} twice`)
+			}
 			set.set(admitted.identity, admitted.fact)
 		}
 		relations.set(relation.name, set)

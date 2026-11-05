@@ -327,16 +327,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 		const sa = C.from("pg_attribute", "a")
 		return C.scalar(
 			C.query(
-				[
-					labelled(
-						"on ",
-						C.aggregate(
-							"string_agg",
-							[quoted(sa.col("attname")), C.text(", ")],
-							[C.collateC(C.asText(sa.col("attname")))]
-						)
-					)
-				],
+				[labelled("on ", C.joinedSet(C.collateC(quoted(sa.col("attname"))), C.text(", ")))],
 				[
 					C.join(
 						u.item,
@@ -363,16 +354,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 		const roleName = C.asText(C.call("pg_get_userbyid", [o.col("role")]))
 		return C.scalar(
 			C.query(
-				[
-					labelled(
-						"to ",
-						C.aggregate(
-							"string_agg",
-							[C.call("quote_ident", [roleName]), C.text(", ")],
-							[C.collateC(roleName)]
-						)
-					)
-				],
+				[labelled("to ", C.joinedSet(C.collateC(C.call("quote_ident", [roleName])), C.text(", ")))],
 				[o.item],
 				undefined
 			)
@@ -392,7 +374,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 		return C.notExists(C.anyRow([e.item], C.eq(e.col("typarray"), t.col("oid"))))
 	}
 	const relations = inNamespace(c.item, n, c.col("relnamespace"))
-	return C.unionAll([
+	return C.union([
 		C.core(
 			[
 				C.concat([C.text("schema "), C.call("quote_ident", [C.param(2, "text")])]),

@@ -713,7 +713,6 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 				 * give it; the mutant states the uniqueness or exactness the elision would need.
 				 */
 				const unique = { unique: () => true }
-				const exact = { contributionExact: () => true }
 				const perParent = { childUniquePerParent: () => true, keyedBy: () => true }
 				/** A query of no parameters, its statements compared in order where `ordered` lists them. */
 				const program = (
@@ -734,13 +733,6 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 				assert.deepEqual(topAmountsFaults, [])
 				const topAmountsUnsound = yield* program(topAmounts().query, [0], unique)
 				assert.ok(topAmountsUnsound.length > 0, "a unique fact the take does not have disagrees")
-				const byAmountFaults = yield* program(Cases.byAmount().query, [], {})
-				assert.deepEqual(byAmountFaults, [])
-				const byAmountUnsound = yield* program(Cases.byAmount().query, [], exact)
-				assert.ok(
-					byAmountUnsound.length > 0,
-					"an exact contribution the aggregate does not have disagrees"
-				)
 				/** take, row_number and DISTINCT ON over every group: (A, 100) ranks first and second. */
 				const perGroup = (
 					shape: "distinctOn" | "rowNumber",

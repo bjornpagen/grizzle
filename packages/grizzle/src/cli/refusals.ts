@@ -48,6 +48,10 @@ export const refusalText = {
 		problem: "unresolved placeholder",
 		fix: "write the value or the UPDATE, then delete the marker line"
 	},
+	confirm: {
+		problem: "unconfirmed group",
+		fix: "keep every statement below the marker as drafted, then delete the two marker lines"
+	},
 	unresolvedLoss: {
 		problem:
 			"unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented",

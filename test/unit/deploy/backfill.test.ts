@@ -108,22 +108,21 @@ const migrationOf = (before: AnySchema, after: AnySchema): Migration => {
 	return { before, first, firstDraft, second, secondDraft }
 }
 
-/** The draft that takes `m`'s target to `to`, `m`'s first schema unless named, dropping `drops`, each a relation and a
- * field of it, as declared. */
+/** The draft that takes `m`'s target to `to`, dropping `drops`, each a relation and a field of it, as declared. */
 const removalOf = (
 	m: Migration,
-	drops: ReadonlyArray<readonly [string, string]>,
-	to: AnySchema = m.before
+	to: AnySchema,
+	drops: ReadonlyArray<readonly [string, string]>
 ): GenerateResult =>
 	succeeded(
 		generate({
-			installation: compile(m.before, asDrafted),
+			installation: compile(to, asDrafted),
 			timestamp: draftedAt(3),
 			previous: fromSnapshot(m.secondDraft.snapshot),
 			workload: noWorkload,
 			declared: {
 				renames: [],
-				drops: Arr.map(fields, (field) => ({
+				drops: Arr.map(drops, ([relation, field]) => ({
 					kind: "field",
 					relation: parsedName(relation),
 					field: parsedName(field)
@@ -434,6 +433,19 @@ const countedCase: FoldCase = {
 	migration: migrationOf(countedBefore, countedAfter),
 	...countedNames
 }
+
+/** The counted case's relations with every field its family draws, accumulates or copies left to its caller, each of
+ * the type it was drawn as. */
+const countedWritten = schema(
+	"Backfill",
+	{
+		Owner: relation("Owner", { id: pg.int4, tag: pg.int4, n: natural, end: pg.int4 }, ["id"]),
+		Member: relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4, ownerTag: pg.int4 }, [
+			"member"
+		])
+	},
+	[]
+)
 
 /** How an ordered case's lines are keyed after the migration: by line, as they were, or by their order and index. */
 type LineKey = "line" | "order and index"
@@ -924,31 +936,36 @@ describe("backfilling a family added to populated relations", () => {
 		"removing a family drops its law columns and natives, and its fields as declared, keeping every row",
 		() =>
 			Effect.sync(() => {
-				for (const [m, stored, owner, fields] of [
+				for (const [m, stored, drops] of [
 					[
 						countedCase.migration,
 						foldRows(countedCase, members([5, 1, 2, 3])),
-						"Owner",
-						["n", "end", "ownerTag"]
+						[
+							["Owner", "n"],
+							["Owner", "end"],
+							["Member", "ownerTag"]
+						]
 					],
 					[
 						treeMigration,
 						[{ relation: "Node", rows: Arr.getUnsafe(FORESTS, 2) }],
-						"Node",
-						[
-							"at",
-							"children",
-							"start",
-							"end",
-							"parentKind",
-							"grandKind",
-							"before",
-							"after",
-							"total"
-						]
+						Arr.map(
+							[
+								"at",
+								"children",
+								"start",
+								"end",
+								"parentKind",
+								"grandKind",
+								"before",
+								"after",
+								"total"
+							],
+							(f) => ["Node", f] as const
+						)
 					]
 				] as const) {
-					const removal = removalOf(m, owner, fields)
+					const removal = removalOf(m, m.before, drops)
 					const schemaName = m.first.names.schema
 					const run = interpret(schemaName, migrated(m, stored), plainPlan(removal), (p) => {
 						throw new Error(`a removal asks no placeholder, but drafted a ${p.kind}`)
@@ -972,6 +989,98 @@ describe("backfilling a family added to populated relations", () => {
 							`${r.relation} keeps its stored rows`
 						)
 					}
+				}
+			})
+	)
+
+	it.effect(
+		"a field its caller wrote that the target draws is drawn anew over the caller's values; one the target leaves to its caller keeps its drawn values",
+		() =>
+			Effect.sync(() => {
+				const stored = members([5, 1, 2, 3])
+				const toDrawn = migrationOf(countedWritten, countedAfter)
+				const schemaName = toDrawn.second.names.schema
+				const junk: ReadonlyArray<Rows> = [
+					{
+						relation: "Owner",
+						rows: Arr.map(OWNERS, (id) => ({ id, tag: tagOf(id), n: 7, end: 99 }))
+					},
+					{
+						relation: "Member",
+						rows: Arr.map(stored, (m) => ({ member: m.key, g: m.owner, x: m.x, ownerTag: 55 }))
+					}
+				]
+				const drawnState = migrated(toDrawn, junk)
+				const drawnCase: FoldCase = { migration: toDrawn, ...countedNames }
+				assert.deepEqual(foldObserved(drawnCase, drawnState), foldExpected(stored))
+				assert.deepEqual(copiesObserved(drawnCase, drawnState), copiesExpected(drawnCase, stored))
+				assert.deepEqual(
+					catalogOf(drawnState),
+					catalogOf(freshState(schemaName, toDrawn.secondDraft))
+				)
+				const redrawn = Arr.map(
+					[
+						["Owner", "n"],
+						["Owner", "end"],
+						["Member", "ownerTag"]
+					] as const,
+					([relation, field]) => fieldColumn(toDrawn.second, relation, field)
+				)
+				const steps = toDrawn.secondDraft.plan.steps
+				for (const column of redrawn) {
+					assert.ok(
+						Arr.contains(defaultColumns(steps, "addColumnDefault"), column),
+						`${column} is added again under its placeholder`
+					)
+					assert.ok(
+						Arr.some(
+							slotsOf(
+								steps,
+								(s) =>
+									s.kind === "alterTable" &&
+									Arr.some(s.actions, (a) => a.kind === "dropColumn" && a.column === column)
+							),
+							(slot) => slot === "structure.drop"
+						),
+						`${column}'s caller-written column is dropped first`
+					)
+				}
+
+				const before = migrated(countedCase.migration, foldRows(countedCase, stored))
+				const toWritten = removalOf(countedCase.migration, countedWritten, [])
+				const run = interpret(schemaName, before, plainPlan(toWritten), (p) => {
+					throw new Error(
+						`leaving a field to its caller asks no placeholder, but drafted a ${p.kind}`
+					)
+				})
+				assert.ok(Result.isSuccess(run), "the migration runs on the model")
+				assert.ok(
+					!Arr.some(statementsOf(toWritten.plan.steps), (s) => s.kind === "update"),
+					"no field the caller now writes is drawn"
+				)
+				assert.deepEqual(
+					catalogOf(run.success),
+					catalogOf(freshState(schemaName, migrationOf(countedWritten, countedWritten).firstDraft)),
+					"the family's law columns and natives are gone"
+				)
+				for (const [relation, fields] of [
+					["Owner", ["id", "n", "end"]],
+					["Member", ["member", "ownerTag"]]
+				] as const) {
+					const read = (state: State) =>
+						rowsOf(countedCase.migration, state, relation, (cell) =>
+							Arr.join(
+								Arr.map(fields, (f) =>
+									String(cell(fieldColumn(countedCase.migration.second, relation, f)))
+								),
+								","
+							)
+						)
+					assert.deepEqual(
+						read(run.success),
+						read(before),
+						`${relation} keeps its drawn values as the caller's`
+					)
 				}
 			})
 	)

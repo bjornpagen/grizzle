@@ -10,7 +10,6 @@ import { nodesByLabel, relNode, rooted } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import { deliveredInput, metaSpecOf, type RelDag } from "#compiler/ir/rel.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
-import { edgeFold } from "#compiler/lower/optimize/dedup/policy.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
@@ -119,10 +118,6 @@ const sound = (dag: RelDag, input: ReferenceInput, env: Env, c: Case<DedupFeatur
 				assert.deepEqual(keys(delivered.rows), keys(expected.rows))
 			}
 			for (const o of plan.analysis.obligations) {
-				const fold = edgeFold(o.edge)
-				if (fold !== undefined && plan.folds[fold.id]?.input === "distinct") {
-					continue
-				}
 				if (o.edge.consumer.kind === "result" || !bag.closed(o.edge.input)) {
 					continue
 				}

@@ -1,5 +1,5 @@
 /**
- * The mutant suite's six valid transformations are performed by the optimized lowering, which its certificates
+ * The mutant suite's five valid transformations are performed by the optimized lowering, which its certificates
  * assert.
  *
  * Each runs on the generated population rooted at the construct its rule is about (test/support/oracle/mutants
@@ -12,7 +12,6 @@
  * | V1 | R17.elide.retainedPrimaryKey    | fewer DISTINCT cores                                                  |
  * | V2 | R17.elide.combinedJoinKeys      | fewer DISTINCT cores                                                  |
  * | V3 | R02.existence                   | an EXISTS whose query has no DISTINCT core, which the conservative lowering never emits |
- * | V4 | R17.contribution                | a grouped core reading its contributions without DISTINCT             |
  * | V5 | R17.unionAll                    | a UNION ALL, which the conservative lowering never emits              |
  * | V6 | R17.recursiveTerms              | a WITH RECURSIVE whose seed and step cores, and the derived tables they read directly, carry no DISTINCT, which the conservative lowering never emits |
  */
@@ -41,7 +40,6 @@ import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
 import {
 	closureRoot,
-	groupRoot,
 	keyedJoinRoot,
 	projectRoot,
 	rootedCaseGen,
@@ -56,7 +54,7 @@ const cases = 300
 
 /** A valid transformation's certificate rule, and the mutant it is. */
 type ValidRule = (typeof validRewriteRules)[number]
-type ValidId = "V1" | "V2" | "V3" | "V4" | "V5" | "V6"
+type ValidId = "V1" | "V2" | "V3" | "V5" | "V6"
 
 /**
  * The parts of some statements' ASTs, read through the transform's typed hooks, each returning what it was given:
@@ -177,13 +175,6 @@ const shows: Readonly<Record<ValidId, (o: DifferentialOutcome) => string | undef
 			? undefined
 			: "no EXISTS over a plain witness"
 	},
-	V4: (o) =>
-		Arr.some(
-			partsOf(flight(o.optimizedProgram.roots)).selects,
-			(q) => q.body.kind === "core" && q.body.groupBy.length > 0 && plainQuery(q)
-		)
-			? undefined
-			: "no grouped core over plain contributions",
 	V5: (o) => {
 		if (unionAll(flight(o.conservativeProgram.roots))) {
 			return "the conservative lowering emitted UNION ALL"
@@ -246,7 +237,7 @@ const performed = (ctx: TestContext, id: ValidId, gen: Gen<QueryCase>, rule: Val
 const titleOf = (id: ValidId, rule: ValidRule): string =>
 	`${id} (${mutants[id].check}): ${rule} is recorded and the SQL shows it, on ${cases} agreeing cases`
 
-layer(Substrate.layer)("the six valid transformations, performed and certified", (it) => {
+layer(Substrate.layer)("the five valid transformations, performed and certified", (it) => {
 	it.effect(titleOf("V1", validRewriteRules[0]), (ctx) =>
 		performed(ctx, "V1", rootedCaseGen(projectRoot, defaultGenConfig), validRewriteRules[0])
 	)
@@ -256,13 +247,10 @@ layer(Substrate.layer)("the six valid transformations, performed and certified",
 	it.effect(titleOf("V3", validRewriteRules[2]), (ctx) =>
 		performed(ctx, "V3", rootedCaseGen(witnessRoot, defaultGenConfig), validRewriteRules[2])
 	)
-	it.effect(titleOf("V4", validRewriteRules[3]), (ctx) =>
-		performed(ctx, "V4", rootedCaseGen(groupRoot, defaultGenConfig), validRewriteRules[3])
+	it.effect(titleOf("V5", validRewriteRules[3]), (ctx) =>
+		performed(ctx, "V5", rootedCaseGen(taggedUnionRoot, defaultGenConfig), validRewriteRules[3])
 	)
-	it.effect(titleOf("V5", validRewriteRules[4]), (ctx) =>
-		performed(ctx, "V5", rootedCaseGen(taggedUnionRoot, defaultGenConfig), validRewriteRules[4])
-	)
-	it.effect(titleOf("V6", validRewriteRules[5]), (ctx) =>
-		performed(ctx, "V6", rootedCaseGen(closureRoot(false), defaultGenConfig), validRewriteRules[5])
+	it.effect(titleOf("V6", validRewriteRules[4]), (ctx) =>
+		performed(ctx, "V6", rootedCaseGen(closureRoot(false), defaultGenConfig), validRewriteRules[4])
 	)
 })

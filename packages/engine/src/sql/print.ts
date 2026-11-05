@@ -1671,14 +1671,8 @@ const catalogLiteral = (value: string | bigint | boolean, type: CatalogCast): Pr
 	return printed(`${quoteString(value)}::${printCatalogCast(type)}`, "cast")
 }
 
-const catalogCall = (call: CatalogCall): string => {
-	const args = call.args.map((arg) => catalogExpr(arg).text).join(", ")
-	const order =
-		call.orderBy.length === 0
-			? ""
-			: ` ORDER BY ${call.orderBy.map((e) => catalogExpr(e).text).join(", ")}`
-	return `${inCatalog(call.fn)}(${args}${order})`
-}
+const catalogCall = (call: CatalogCall): string =>
+	`${inCatalog(call.fn)}(${call.args.map((arg) => catalogExpr(arg).text).join(", ")})`
 
 const catalogExprs = (list: ReadonlyArray<CatalogExpr>): string =>
 	list.map((e) => catalogExpr(e).text).join(", ")
@@ -1698,6 +1692,13 @@ const catalogExpr = (e: CatalogExpr): Printed => {
 			return printed(catalogCall(e), "atom")
 		case "countStar":
 			return printed(`${inCatalog("count")}(*)`, "atom")
+		case "joinedSet": {
+			const value = catalogExpr(e.value).text
+			return printed(
+				`${inCatalog("string_agg")}(DISTINCT ${value}, ${catalogExpr(e.separator).text} ORDER BY ${value})`,
+				"atom"
+			)
+		}
 		case "compare":
 			return printed(
 				`${wrapTighter(catalogExpr(e.left), "compare")} ${e.op} ${wrapTighter(catalogExpr(e.right), "compare")}`,
@@ -1822,7 +1823,7 @@ const catalogCoreText = (core: CatalogCore, into: ReadonlyArray<string>): string
 	return clauses.join(" ")
 }
 
-/** A catalog read on one line: its CTEs, then its arms, each with its own ORDER BY or LIMIT parenthesized. */
+/** A catalog read on one line: its CTEs, then the UNION of its arms, each with its own ORDER BY or LIMIT parenthesized. */
 const catalogSelectText = (select: CatalogSelect): string => {
 	const ctes =
 		select.with.length === 0
@@ -1833,7 +1834,7 @@ const catalogSelectText = (select: CatalogSelect): string => {
 		const text = catalogCoreText(arm, [])
 		return several && (arm.orderBy.length > 0 || arm.limit !== undefined) ? `(${text})` : text
 	})
-	return `${ctes}${arms.join(" UNION ALL ")}`
+	return `${ctes}${arms.join(" UNION ")}`
 }
 
 /** What an EXECUTE runs: a statement printed and quoted, or the text an expression computes. */

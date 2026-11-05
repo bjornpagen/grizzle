@@ -55,7 +55,6 @@ import { loginLayer } from "#test/support/worlds.ts"
 /** A refusal's witness as plain values: the violating fact's key, or why it names none. */
 export type OutcomeWitness =
 	| { readonly kind: "key"; readonly relation: string; readonly values: Fact }
-	| { readonly kind: "withheld" }
 	| { readonly kind: "unreported" }
 
 /** The apply outcome as plain values. */

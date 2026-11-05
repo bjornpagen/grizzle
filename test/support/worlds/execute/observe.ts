@@ -164,7 +164,7 @@ export const readFailed = (error: ReadError): Effect.Effect<Observation> => {
 	}
 }
 
-/** A witness as the model reads it: the key grizzle names, shown; a withheld or unreported key shows none. */
+/** A witness as the model reads it: the key grizzle names, shown; an unreported key shows none. */
 const witnessOf = (witness: GrizzleWitness): Effect.Effect<Witness> =>
 	witness.kind === "key"
 		? Effect.map(factOfKey(witness.values, "witness key"), (fact): Witness => ({

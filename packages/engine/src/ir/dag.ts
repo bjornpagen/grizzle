@@ -618,6 +618,11 @@ const highest = (dag: RelDag): Record<AllocatedKind, number> => {
 		if (node.kind === "Base") {
 			see("occurrence", node.occurrence)
 		}
+		if (node.kind === "Group") {
+			for (const k of node.bound.keyed) {
+				see("occurrence", k.occurrence)
+			}
+		}
 		if (node.kind === "MatchRegion") {
 			see("scope", node.scope)
 			for (const v of node.vars) {

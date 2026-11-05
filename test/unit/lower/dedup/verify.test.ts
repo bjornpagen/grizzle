@@ -615,28 +615,6 @@ const planBreaks: Readonly<
 			}
 		]
 	},
-	"a fold form dropped": {
-		expect: including("foldCoverage"),
-		sites: (p) =>
-			Arr.map(Rec.keys(p.folds), (id) => ({
-				plan: {
-					...p,
-					folds: Rec.fromEntries(Arr.filter(Rec.toEntries(p.folds), ([k]) => k !== id))
-				},
-				context: p.context
-			}))
-	},
-	"a fold form of no fold": {
-		expect: exactly("foldCoverage"),
-		sites: (p, dag) =>
-			Arr.map(
-				Arr.filter(topoOrder(dag), (n) => !(n.id in p.folds)),
-				(n) => ({
-					plan: { ...p, folds: { ...p.folds, [n.id]: { input: "plain" } } },
-					context: p.context
-				})
-			)
-	},
 	"verified for another context": {
 		expect: exactly("context"),
 		sites: (p) => [{ plan: p, context: p.context === "snapshot" ? "transaction" : "snapshot" }]

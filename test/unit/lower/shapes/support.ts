@@ -5,12 +5,10 @@ import {
 	type PhysicalAnalysis,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
-import { consumerIn } from "#compiler/analysis/physical/consumers.ts"
 import type { Realization } from "#compiler/analysis/physical/props.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { unbounded } from "#compiler/ir/cardinality.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelDag, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { LowerContext, type NodeDispatch } from "#compiler/lower/conservative/context.ts"
 import { Delivery } from "#compiler/lower/conservative/deliver.ts"
@@ -19,8 +17,6 @@ import type {
 	ConservativeOptions,
 	ConservativeProgram
 } from "#compiler/lower/conservative/types.ts"
-import { foldOf } from "#compiler/lower/optimize/dedup/place.ts"
-import type { FoldInput } from "#compiler/lower/optimize/dedup/plan.ts"
 import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"
 import { withBoundary, withoutBoundary } from "#compiler/lower/shapes/index.ts"
 import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
@@ -53,8 +49,8 @@ import { ledgerCatalog } from "#test/unit/lower/rewrite/support.ts"
  * again, until none is outstanding. One placement at a time, so a DISTINCT that discharges a later obligation too is
  * not repeated there.
  *
- * Under `shapes`, an obligation whose consumer is a shape that discharges its own input (a Take's bound, a Group's
- * fold, an attachment's child, a heterogeneous union's delivered heading groups, share/physical.ts) is
+ * Under `shapes`, an obligation whose consumer is a shape that discharges its own input (a Take's bound, an
+ * attachment's child, a heterogeneous union's delivered heading groups, share/physical.ts) is
  * left outstanding: its input stays realized plain and carries its repeats into the shape, which must then deduplicate
  * by itself unless the facts prove it need not.
  */
@@ -68,7 +64,7 @@ const dischargedByShape = (edge: Obligation["edge"]): boolean => {
 		return false
 	}
 	const node = edge.consumer.node
-	return node.kind === "Take" || node.kind === "Group" || node.kind === "Attach"
+	return node.kind === "Take" || node.kind === "Attach"
 }
 
 /**
@@ -88,10 +84,7 @@ const placed = (dag: RelDag, discharge: Discharge): PhysicalAnalysis => {
 	for (let i = 0; i < 64; i++) {
 		const outstanding = Arr.filter(
 			analysis.obligations,
-			(o) =>
-				!o.discharged &&
-				consumerIn(o.edge.consumer, "feedback") === undefined &&
-				!(discharge === "shapes" && dischargedByShape(o.edge))
+			(o) => !o.discharged && !(discharge === "shapes" && dischargedByShape(o.edge))
 		)
 		if (outstanding.length === 0) {
 			return analysis
@@ -116,7 +109,7 @@ export interface Shaped {
 	readonly analysis: PhysicalAnalysis
 }
 
-/** The facts of that placement, each fold's form the compiler's own decision over its analysis (dedup/place.ts foldOf). */
+/** The facts of that placement. */
 export const shapedFacts = (
 	dag: RelDag,
 	overrides: Partial<ShapeFacts>,
@@ -124,17 +117,9 @@ export const shapedFacts = (
 ): Shaped => {
 	const certificates: Array<Certificate> = []
 	const analysis = placed(dag, discharge)
-	const folds: Record<NodeId, { readonly input: FoldInput }> = {}
-	for (const node of topoOrder(dag)) {
-		if (node.kind === "Group" && node.aggs.length > 0) {
-			folds[node.id] = {
-				input: foldOf(analysis, node).kind === "plain" ? "plain" : "distinct"
-			}
-		}
-	}
 	const facts = {
 		...shapeFactsFromPlan(
-			{ analysis, folds },
+			{ analysis },
 			{
 				derivedDefinition: false,
 				certify: (c) => {
@@ -148,7 +133,7 @@ export const shapedFacts = (
 }
 
 /**
- * The baseline facts: nothing is unique, no fold input is exact, every boundary is realized `distinct`, and no
+ * The baseline facts: nothing is unique, every boundary is realized `distinct`, and no
  * certificate is kept. Shapes driven by them deduplicate at every set boundary, like the conservative lowering.
  */
 export const conservativeShapeFacts = (overrides: Partial<ShapeFacts>): ShapeFacts => ({
@@ -157,7 +142,6 @@ export const conservativeShapeFacts = (overrides: Partial<ShapeFacts>): ShapeFac
 	unique: () => false,
 	keyedBy: () => false,
 	maxCard: () => unbounded,
-	contributionExact: () => false,
 	childUniquePerParent: () => false,
 	derivedDefinition: false,
 	certify: () => {},

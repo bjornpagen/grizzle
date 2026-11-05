@@ -17,7 +17,6 @@ import {
 	closureRoot,
 	existsOverTakeRoot,
 	fanoutJoinRoot,
-	groupRoot,
 	noninjectiveKeyCaseGen,
 	projectGroupRoot,
 	projectRoot,

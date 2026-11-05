@@ -100,12 +100,11 @@ export interface CatalogCast {
 /** A comparison of two catalog values. */
 export type CatalogComparison = "=" | "<>" | "<" | "<=" | ">" | ">="
 
-/** A function call of a catalog read; an aggregate's own ORDER BY, ascending, is empty for none. */
+/** A function call of a catalog read. */
 export interface CatalogCall {
 	readonly kind: "call"
 	readonly fn: CatalogFunction
 	readonly args: ReadonlyArray<CatalogExpr>
-	readonly orderBy: ReadonlyArray<CatalogExpr>
 }
 
 /**
@@ -124,6 +123,11 @@ export type CatalogExpr =
 	| { readonly kind: "cast"; readonly expr: CatalogExpr; readonly type: CatalogCast }
 	| CatalogCall
 	| { readonly kind: "countStar" }
+	| {
+			readonly kind: "joinedSet"
+			readonly value: CatalogExpr
+			readonly separator: CatalogExpr
+	  }
 	| {
 			readonly kind: "compare"
 			readonly op: CatalogComparison
@@ -205,7 +209,7 @@ export type CatalogFrom =
 
 /**
  * One arm of a catalog read: an empty FROM, GROUP BY or ORDER BY is none, and an undefined WHERE, HAVING or LIMIT is
- * none. Its own ORDER BY, ascending, and LIMIT parenthesize it inside a UNION ALL.
+ * none. Its own ORDER BY, ascending, and LIMIT parenthesize it inside a UNION.
  */
 export interface CatalogCore {
 	readonly targets: NonEmptyReadonlyArray<CatalogExpr>
@@ -224,7 +228,10 @@ export interface CatalogCte {
 	readonly query: CatalogSelect
 }
 
-/** A catalog read: its CTEs, none when empty, then the UNION ALL of its arms. */
+/**
+ * A catalog read: its CTEs, none when empty, then the UNION of its arms, a set union, so every read is a set of rows
+ * whatever its arms hold: no catalog read can state the ALL form.
+ */
 export interface CatalogSelect {
 	readonly kind: "catalogSelect"
 	readonly with: ReadonlyArray<CatalogCte>
@@ -391,16 +398,19 @@ export const asText = (expr: CatalogExpr): CatalogExpr => cast(expr, "text")
 export const call = (fn: CatalogFunction, args: ReadonlyArray<CatalogExpr>): CatalogCall => ({
 	kind: "call",
 	fn,
-	args,
-	orderBy: []
+	args
 })
 
-/** An aggregate over its own ascending order. */
-export const aggregate = (
-	fn: CatalogFunction,
-	args: ReadonlyArray<CatalogExpr>,
-	orderBy: NonEmptyReadonlyArray<CatalogExpr>
-): CatalogCall => ({ kind: "call", fn, args, orderBy })
+/**
+ * The distinct texts `value` takes over the read's rows, ascending, joined by `separator`: `string_agg(DISTINCT value,
+ * separator ORDER BY value)`. It aggregates a set, whatever the rows repeat, a catalog array that may hold an element
+ * twice (pg_policy.polroles of `TO a, a`) included, and orders by the value itself, which DISTINCT requires.
+ */
+export const joinedSet = (value: CatalogExpr, separator: CatalogExpr): CatalogExpr => ({
+	kind: "joinedSet",
+	value,
+	separator
+})
 
 export const countStar: CatalogExpr = { kind: "countStar" }
 
@@ -517,15 +527,15 @@ export const core = (
 	limit: undefined
 })
 
-/** The UNION ALL of `arms`, with no CTE. */
-export const unionAll = (arms: NonEmptyReadonlyArray<CatalogCore>): CatalogSelect => ({
+/** The UNION of `arms`, with no CTE. */
+export const union = (arms: NonEmptyReadonlyArray<CatalogCore>): CatalogSelect => ({
 	kind: "catalogSelect",
 	with: [],
 	arms
 })
 
 /** A read of one arm, with no CTE. */
-export const select = (arm: CatalogCore): CatalogSelect => unionAll([arm])
+export const select = (arm: CatalogCore): CatalogSelect => union([arm])
 
 /** SELECT <targets> [FROM <from>] [WHERE <where>] as a read. */
 export const query = (

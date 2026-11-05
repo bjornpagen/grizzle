@@ -46,6 +46,13 @@ export interface CliReport {
 const noChanges = "no changes"
 
 /**
+ * A marker a drafted folder leaves to resolve, as generate prints it: its file and line, its kind, and that kind's fix,
+ * so a confirm is never told to fill a placeholder.
+ */
+export const markerLine = (folder: string, marker: SchemaGenerateReport["markers"][number]): string =>
+	`${folder}/${marker.file}:${marker.line}: ${marker.kind}: ${refusalText[marker.kind].fix}`
+
+/**
  * Each written file, relative to `cwd`; then each marker to resolve and each loss to decide, with what to do; then the
  * next step.
  */
@@ -62,12 +69,7 @@ const renderGenerate = (
 		...Arr.map([...r.files, metaFileName], (f) => `${folderOf(r)}/${f}`),
 		...(r.kind === "drafted" ? [relative(r.snapshotPath)] : [])
 	])
-	const markers = Arr.flatMap(written, (r) =>
-		Arr.map(
-			r.markers,
-			(m) => `${folderOf(r)}/${m.file}:${m.line}: placeholder: ${refusalText.placeholder.fix}`
-		)
-	)
+	const markers = Arr.flatMap(written, (r) => Arr.map(r.markers, (m) => markerLine(folderOf(r), m)))
 	const losses = Arr.flatMap(written, (r) =>
 		Arr.map(
 			r.losses,

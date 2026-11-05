@@ -11,6 +11,7 @@ import type { Heading, KeySet, ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import { LowerContext, WriteParams } from "#compiler/lower/conservative/context.ts"
+import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import type {
@@ -394,6 +395,29 @@ export const isWritten = (field: LawField): boolean => field.writing.kind !== "g
 export const writtenFields = (relation: RelationInfo): NonEmptyReadonlyArray<LawField> => {
 	const key: NonEmptyReadonlyArray<LawField> = relation.primaryFields
 	return [...key, ...relation.heading.filter((f) => !key.includes(f) && isWritten(f))]
+}
+
+/** Whether a fact carries a field: a caller's or a serial one. A drawn or accumulated field is grizzle's (rows-first.md
+ * §1) and a generated one PostgreSQL's, so no fact carries either. */
+export const isCarried = (field: Pick<LawField, "writing">): boolean =>
+	field.writing.kind === "caller" || field.writing.kind === "serial"
+
+/**
+ * The value an insert writes a field at when its input does not carry it (rows-first.md §1): a drawn field, which
+ * outside a nesting is a fresh owner's count of a counted family, at 0, and an accumulated one, a fresh owner's empty
+ * family's end, at its start; none for a field its fact carries.
+ */
+export const startOf = (names: PhysicalNames, field: LawField): Expr | undefined => {
+	switch (field.writing.kind) {
+		case "drawn":
+			return lowerLiteral(names, { kind: "int", value: 0n }, field.type)
+		case "accumulated":
+			return lowerLiteral(names, field.writing.start, field.type)
+		case "caller":
+		case "serial":
+		case "generated":
+			return undefined
+	}
 }
 
 /** Whether a field is written by its sequence: its writing says so (ir/law.ts FieldWriting). */

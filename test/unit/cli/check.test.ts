@@ -112,7 +112,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 			)
 			const markers = Arr.flatMap(files, (f) =>
 				Arr.map(findMarkers(f.text), (m) =>
-					finding(`${rel}/${f.name}:${m.line}`, refusalText.placeholder)
+					finding(`${rel}/${f.name}:${m.line}`, refusalText[m.kind])
 				)
 			)
 			assert.ok(markers.length > 0)

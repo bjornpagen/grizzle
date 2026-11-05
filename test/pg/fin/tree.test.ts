@@ -355,7 +355,8 @@ const judgeCase = (
 		seats,
 		(t) =>
 			Effect.gen(function* () {
-				const j = yield* judged(t, statements)
+				/** Uninterruptible: a seat's transaction and its clearing run whole, so one seat's failure never leaves another's rows. */
+				const j = yield* Effect.uninterruptible(judged(t, statements))
 				for (const v of j.verdicts) {
 					note(`${t.label} ${v}`)
 				}
@@ -391,10 +392,15 @@ const judgeCase = (
 					})
 				}
 				const gt = gtPredicted(RFC, statements)
-				const rootsAt = Option.contains(breach, "a root's at")
-				const agrees =
-					gt.kind === "committed"
-						? j.committed || rootsAt
+				/**
+				 * The one declared difference: grizzle's root pin refuses a root off slot 0 at its statement, which GT's
+				 * lowering leaves free, so there grizzle must refuse, and GT's verdict and moment are not grizzle's.
+				 */
+				const rootsAt = offSlot(rows)
+				const agrees = rootsAt
+					? !j.committed
+					: gt.kind === "committed"
+						? j.committed
 						: !j.committed && Option.exists(j.moment, (m) => sameMoment(m, gt.moment))
 				if (!agrees) {
 					return yield* new Disagreed({

@@ -127,7 +127,8 @@ export const skipWhenEmptyOf = (input: WriteInput): ParamId | undefined =>
 export const inputGuarantees = (input: WriteInput): InputProof =>
 	input.kind === "relation" ? normalized : input.proof
 
-const inputHeading = (input: WriteInput): Heading => {
+/** The fields an input carries: a slot's heading, a carrier's, or a described member's head. */
+export const inputHeading = (input: WriteInput): Heading => {
 	switch (input.kind) {
 		case "relation":
 			return input.heading

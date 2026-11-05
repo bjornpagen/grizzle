@@ -758,8 +758,11 @@ const compile = (
 		families.find((f) => f.member.name === name && isSequence(f) && !isTreeOf(f, name))
 	/** Whether `name` is a member of a family: its rows' drawn values are the family planner's (write/family/edit.ts). */
 	const managed = (name: string): boolean => families.some((f) => f.member.name === name)
-	/** Whether an insert into `name` nests families: it owns one, or is a tree's relation. */
-	const nests = (name: string): boolean => families.some((f) => f.owner.name === name)
+	/** Whether an insert into `name` nests families: it owns a sequence, ordered or a tree, or is a tree's relation
+	 * (rows-first.md §1). A counted family's members are rows of their own, inserted directly by their group key, so an
+	 * owner of counted families alone is inserted on the plain path, its counts at 0 and its ends at their starts. */
+	const nests = (name: string): boolean =>
+		families.some((f) => f.owner.name === name && isSequence(f))
 	/** A relation written whole, its classes its own serial fields'. */
 	const wholeTarget = (name: string, loc: SourceLoc): CheckedTarget => {
 		const relation = writtenOf(name, loc)
@@ -868,7 +871,7 @@ const compile = (
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`a ${member.op} of ${relation.name}, both a family's member and an owner: its rows' own families are drawn by a nesting, which a member's edit does not reach`
+					`a ${member.op} of ${relation.name}, both a counted family's member and a sequence's owner: its sequence's members are nested under its rows, which a member's edit does not reach`
 				)
 			}
 			const nested = member.op === "insert" && nests(relation.name)
@@ -876,7 +879,7 @@ const compile = (
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`an insert into ${relation.name}, which owns a family, ${entry.kind !== "whole" ? "through a query entry" : "by a query"}: a family is written as nested arrays, so insert ${relation.name} whole from an array or a Stream`
+					`an insert into ${relation.name}, which owns a sequence, ${entry.kind !== "whole" ? "through a query entry" : "by a query"}: a sequence's members are written nested in order under their owner, so insert ${relation.name} whole from an array or a Stream`
 				)
 			}
 			const classes: InsertClasses<Heading> = nested

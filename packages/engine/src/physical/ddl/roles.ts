@@ -972,8 +972,8 @@ const writePlan = (
 	}
 }
 
-/** A role's writable entry as the row security of the table T it writes reads it: T, the role and its object, the
- * entry's name in its role, and the entry's membership. */
+/** A role's writable entry as the row security of the table T it writes reads it, or its member writes as their
+ * family's owner T's reads them (`translated`): T, the role and its object, what the policy is for, and the membership. */
 interface Writer {
 	readonly relation: string
 	readonly role: Identity<"role">
@@ -1577,8 +1577,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   at their base types>) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER`, owned by the
  *   owner: whether T holds a fact at the submitted key values (overlapping at a span field) that lies outside the
  *   entry's membership, which the policy's own predicate decides over that row; and one unique probe, alike, per
- *   unique object of T no key subsumes (write/insert/unique.ts OutsideProbe), such as an at-most-one capacity's unique
- *   index, over the fields the object reads: whether such a fact conflicts with the submitted values there, within
+ *   unique object of T no key subsumes (write/insert/unique.ts OutsideProbe), such as a key over a selected side, over
+ *   the fields the object reads: whether such a fact conflicts with the submitted values there, within
  *   the object's predicate. A write's precheck calls each for the facts it submits and refuses a collision with a
  *   hidden fact under the object's law, in the same statement;
  * - its privileges: USAGE on the base schema, on its own schema, on the vector extension's schema when a relation it
@@ -1591,18 +1591,25 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   are all of them), column UPDATE on its mutable head fields that are neither fixed nor in a key, and DELETE;
  *   EXECUTE on the advance function of every serial field of T (`addAdvanceFunctions`), the one way a write moves the field's
  *   identity sequence past explicit values, since no role holds a privilege on a sequence; EXECUTE on its filter
- *   functions and key and unique probes. EXECUTE on the refusal function to a role that writes or reads a context: its
+ *   functions and key and unique probes. For each family whose member it writes, on the family's owner O, unless it
+ *   writes O whole (`ownerHolds`): column SELECT on what the family's read flight reads, O's key, count, ends and the
+ *   fields its owner axis copies into members, and, when O is mutable, column UPDATE on what its count statement
+ *   sets, O's count and ends, none on an immutable O, whose family is fixed at insert; USAGE on those fields' domains.
+ *   EXECUTE on the refusal function to a role that writes or reads a context: its
  *   context sources refuse an unreadable claims setting through it, and PostgreSQL checks EXECUTE on every function of
  *   a plan as the plan starts, a branch never taken included. EXECUTE on every constant a statement it runs calls,
  *   through constants' bodies (`roleExecutes`): the CHECKs of the domains it holds USAGE on, the CHECKs and generated
- *   columns of the tables it writes, its views' decoded columns, and every closed relation's constants, which its
+ *   columns of the tables it writes or updates an owner's count in, its views' decoded columns, and every closed relation's constants, which its
  *   queries' closed reads call. TRUNCATE is granted to no one, and no role holds a privilege on a base table it does
- *   not write.
+ *   not write or own a member of.
  *
  * Row security is enabled on exactly the tables some role writes through a query entry with a filter, once their
  * policies stand, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`; its owner, the migration identity, bypasses it, and FORCE
- * is never used. A table every writer of which holds every row has no row security and no policy: each policy would be
- * TRUE, and the grants already decide every write (`addRowSecurity`).
+ * is never used. A role that writes a family's member and not its owner O is one of O's writers there, its membership
+ * on the member translated onto O through the group and the copies (`translated`): it reads and updates exactly the
+ * owners whose groups its member writes admit, and a filter that reads any other field of the member is refused, as is
+ * a narrowed entry on O that is not the members' translated filter. A table every writer of which holds every row has no
+ * row security and no policy: each policy would be TRUE, and the grants already decide every write (`addRowSecurity`).
  *
  * For the schema as a whole: REVOKE ALL ... FROM PUBLIC on the base schema and every role's schema, every table and
  * view, every identity sequence and every domain, and each constant in its own object, so PUBLIC holds nothing on any

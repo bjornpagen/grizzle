@@ -426,6 +426,15 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 			]
 		case "updateFrom":
 			return [{ op: "updateFrom", inPlace: choice.inPlace }]
+		case "ownerPut":
+			return [
+				...(choice.inPlace === undefined
+					? []
+					: [{ op: "updateFrom", inPlace: choice.inPlace } as const]),
+				...precheckOf(put, completeClass),
+				{ op: "putInsert" },
+				...classify(relation, completeClass, "put")
+			]
 		case "merge":
 			return [
 				{ op: "merge", inPlace: choice.inPlace, arbiter: choice.arbiter, scope: choice.merge.scope }

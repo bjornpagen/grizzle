@@ -241,10 +241,7 @@ export const irLiteral = (
 			const handles = setHandles(value)
 			return handles === undefined
 				? Result.err("a set's handles")
-				: finish(
-						{ kind: "handles", handles: Object.freeze([...handles]) },
-						new Set(handles)
-					)
+				: finish({ kind: "handles", handles: Object.freeze([...handles]) }, new Set(handles))
 		}
 		case "range4":
 		case "range8": {

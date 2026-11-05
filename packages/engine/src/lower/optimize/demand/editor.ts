@@ -295,6 +295,11 @@ export class DagEditor<R extends Roots = Roots> {
 		if (node.kind === "Base") {
 			this.#fresh.occ.note(node.occurrence)
 		}
+		if (node.kind === "Group") {
+			for (const k of node.bound.keyed) {
+				this.#fresh.occ.note(k.occurrence)
+			}
+		}
 		if (node.kind === "MatchRegion") {
 			this.#fresh.scope.note(node.scope)
 			for (const v of node.vars) {

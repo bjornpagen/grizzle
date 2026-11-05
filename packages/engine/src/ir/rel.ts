@@ -919,8 +919,12 @@ export function* mapNode<R extends RefKinds, S extends RefKinds>(
 		}
 		case "Group": {
 			const input: S["node"] = yield n.input
+			const bound: FoldInput = {
+				columns: n.bound.columns,
+				keyed: n.bound.keyed.map((k) => ({ occurrence: m.occurrence(k.occurrence), key: k.key }))
+			}
 			const aggs = n.aggs.map((a) => mapAggregate(a, (e) => m.expr(e)))
-			return { ...n, input, aggs, meta: m.meta(n.meta) }
+			return { ...n, input, bound, aggs, meta: m.meta(n.meta) }
 		}
 		case "Produce": {
 			const input: S["node"] = yield n.input

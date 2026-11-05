@@ -1,6 +1,5 @@
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import { conservativeMeta } from "#compiler/ir/rel.ts"
-import { Posting, Q, T, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
+import { uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
  * The conservative lowering's test queries over the ledger fixture, with the facts the pg tests load and the rows the
@@ -56,21 +55,3 @@ export interface LoweringCase {
 	readonly query: LogicalQuery
 }
 
-const sumInt8 = { fn: "sum" as const, op: "int8_sum", type: T.numeric } as const
-
-/** byAmount binds account and amount, grouped by account. */
-export const byAmount = (): LoweringCase => {
-	const q = new Q()
-	const posting = q.base(Posting, conservativeMeta)
-	const m = q.region([
-		{ source: posting, bind: { account: "account", amount: "amount" }, constants: {} }
-	])
-	const g = q.group(
-		m,
-		["account", "amount"],
-		["account"],
-		[{ name: "total", args: ["amount"], ...sumInt8 }],
-		conservativeMeta
-	)
-	return { name: "byAmount", query: q.build(g) }
-}

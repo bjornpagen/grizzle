@@ -60,6 +60,12 @@ export type PutChoice = {
 	  }
 	| { readonly target: "updateFrom"; readonly reason: "existingKeys"; readonly inPlace: InPlace }
 	| {
+			readonly target: "ownerPut"
+			readonly reason: "owner"
+			/** The payload its UPDATE sets, none for an owner whose facts carry nothing outside its key. */
+			readonly inPlace: InPlace | undefined
+	  }
+	| {
 			readonly target: "merge"
 			readonly reason: "scopedMerge"
 			readonly inPlace: InPlace
@@ -67,6 +73,10 @@ export type PutChoice = {
 			readonly merge: { readonly deletion: number; readonly scope: MergeScope }
 	  }
 )
+
+/** Whether a relation owns a family, whose count and ends grizzle draws on the owner's row (rows-first.md §3). */
+const ownsFamily = (frontend: WriteFrontend, relation: string): boolean =>
+	frontend.laws.families.some((f) => f.owner.name === relation)
 
 /** An action of a stratum as its statements are planned: the front end's action with its information, and for a put the
  * statement chosen for it. */
@@ -199,10 +209,19 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 					if (info.entry.kind === "entry") {
 						return pair("entry")
 					}
+					const payload = payloadOf(relation)
+					if (relation.mutable && ownsFamily(frontend, relation.name)) {
+						return chosen({
+							...place,
+							target: "ownerPut",
+							reason: "owner",
+							inPlace:
+								payload.kind === "keyed" ? Object.freeze({ payload: payload.fields }) : undefined
+						})
+					}
 					if (!relation.mutable) {
 						return pair("immutable")
 					}
-					const payload = payloadOf(relation)
 					if (payload.kind === "pureSet") {
 						return pair("pureSet")
 					}
