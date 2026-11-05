@@ -1,5 +1,5 @@
 import type { CharSet, Interval } from "#compiler/scalar/regex/charset.ts"
-import type { LiveNode } from "#compiler/scalar/regex/ir.ts"
+import { folded, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 
 const hex = (c: number, width: number): string => c.toString(16).toUpperCase().padStart(width, "0")
 
@@ -75,10 +75,10 @@ interface Printed {
 const group = (p: Printed, minimum: number): string => (p.prec < minimum ? `(?:${p.text})` : p.text)
 
 /**
- * A node's ARE text and its precedence. An assertion prints at sequence precedence, so it is grouped before a
- * quantifier applies to it.
+ * A node's ARE text and its precedence, from its children's (`of`). An assertion prints at sequence precedence, so it
+ * is grouped before a quantifier applies to it.
  */
-const print = (node: LiveNode): Printed => {
+const printed = (node: LiveNode, of: (child: LiveNode) => Printed): Printed => {
 	switch (node.kind) {
 		case "empty":
 			return { text: "", prec: precSeq }
@@ -89,20 +89,23 @@ const print = (node: LiveNode): Printed => {
 		case "end":
 			return { text: "\\Z", prec: precSeq }
 		case "seq":
-			return { text: node.items.map((item) => group(print(item), precSeq)).join(""), prec: precSeq }
+			return { text: node.items.map((item) => group(of(item), precSeq)).join(""), prec: precSeq }
 		case "alt": {
 			const arms = node.arms.filter((arm) => arm.kind !== "empty")
+			const alternation = (): Printed => ({
+				text: arms.map((arm) => group(of(arm), precAlt)).join("|"),
+				prec: precAlt
+			})
 			if (arms.length === node.arms.length) {
-				return { text: arms.map((arm) => group(print(arm), precAlt)).join("|"), prec: precAlt }
+				return alternation()
 			}
 			const [only] = arms
-			const rest =
-				arms.length === 1 && only !== undefined ? print(only) : print({ kind: "alt", arms })
+			const rest = arms.length === 1 && only !== undefined ? of(only) : alternation()
 			return { text: `${group(rest, precAtom)}?`, prec: precQuantified }
 		}
 		case "repeat":
 			return {
-				text: `${group(print(node.body), precAtom)}${quantifier(node.min, node.max)}`,
+				text: `${group(of(node.body), precAtom)}${quantifier(node.min, node.max)}`,
 				prec: precQuantified
 			}
 	}
@@ -125,9 +128,11 @@ const print = (node: LiveNode): Printed => {
  *   in an ARE means the character itself, inside or outside brackets; everything else prints as the fixed-width
  *   character-entry escape \uXXXX or \UXXXXXXXX, so no escape can absorb a following literal digit.
  *
- * The output is a pattern string; refinement.ts places it in a typed text literal, `VALUE ~ '<pattern>'::text`.
+ * The output is a pattern string; refinement.ts places it in a typed text literal, `VALUE ~ '<pattern>'::text`. The
+ * printer folds the IR children first (scalar/regex/ir.ts folded), so a pattern of any depth prints without recursing.
  *
  * The ARE spelling of a pattern's IR. The empty language has none: the language analysis that refuses it hands over the
  * IR of a language with a member (refinement.ts languageOf).
  */
-export const toAre = (node: LiveNode): string => print(node).text
+export const toAre = (node: LiveNode): string =>
+	folded(new Map<RegexNode, Printed>(), node, printed).text

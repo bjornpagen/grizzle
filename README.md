@@ -1995,6 +1995,12 @@ workflows, whose rules are worth declaring and whose users see different slices 
 - **A bare `pg.numeric` holds at most 1,000 integer digits**, NaN and the infinities; its column's installed CHECK
   refuses a longer value from any writer, so every numeric expression has a known digit bound. One expression's digit
   bound is at most 131,072 digits, PostgreSQL's numeric limit, or compilation refuses it with `ResourceBound`.
+- **A `str.regex` pattern is bounded by the automaton PostgreSQL compiles from it**, not by its length or nesting.
+  PostgreSQL refuses a regular expression whose automaton outgrows its compile space (`REG_MAX_COMPILE_SPACE`) as
+  "regular expression is too complex", and compilation refuses with `ResourceBound` a pattern past grizzle's measures
+  of that space: 4,096 positions once counted repetitions are written out, 65,536 pairs of positions joined by empty
+  paths, 8 anchors, and 8,192 for anchors times positions. The measures sit inside PostgreSQL's limit, so a pattern
+  past one may still compile there. A counted repetition's bound is at most 255, PostgreSQL's limit.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
 - **No interactive transactions, and no retries.** A transaction is one call; you retry `TransientFailure` yourself.
 - **No bulk loads.** One ChangeSet input holds at most 100,000 rows.

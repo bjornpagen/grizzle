@@ -1,5 +1,5 @@
 import { maxUtf8Width } from "#compiler/scalar/regex/charset.ts"
-import type { RegexNode } from "#compiler/scalar/regex/ir.ts"
+import { folded, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 
 interface Extent {
 	readonly length: number
@@ -56,56 +56,58 @@ const starKinds = (star: Paths, body: Paths): Paths => {
 const sameKinds = (a: Paths, b: Paths): boolean =>
 	a.every((x, i) => (x === undefined) === (b[i] === undefined))
 
-const pathsOf = (node: RegexNode): Paths => {
-	switch (node.kind) {
-		case "empty":
-			return unit
-		case "never":
-			return none
-		case "set":
-			return [{ length: 1, bytes: maxUtf8Width(node.set) }, undefined, undefined, undefined]
-		case "start":
-			return [undefined, { length: 0, bytes: 0 }, undefined, undefined]
-		case "end":
-			return [undefined, undefined, { length: 0, bytes: 0 }, undefined]
-		case "seq":
-			return node.items.reduce((acc, item) => concat(acc, pathsOf(item)), unit)
-		case "alt":
-			return node.arms.reduce((acc, arm) => unite(acc, pathsOf(arm)), none)
-		case "repeat": {
-			const body = pathsOf(node.body)
-			let current = unit
-			for (let k = 0; k < node.min; k++) {
-				current = concat(current, body)
-			}
-			if (node.max !== "unbounded") {
-				let acc = current
-				for (let k = node.min; k < node.max; k++) {
+/** Each node's longest path of each kind, from its children's (`of`), folded children first, so of any depth. */
+const pathsOf = (root: RegexNode): Paths =>
+	folded(new Map<RegexNode, Paths>(), root, (node, of): Paths => {
+		switch (node.kind) {
+			case "empty":
+				return unit
+			case "never":
+				return none
+			case "set":
+				return [{ length: 1, bytes: maxUtf8Width(node.set) }, undefined, undefined, undefined]
+			case "start":
+				return [undefined, { length: 0, bytes: 0 }, undefined, undefined]
+			case "end":
+				return [undefined, undefined, { length: 0, bytes: 0 }, undefined]
+			case "seq":
+				return node.items.reduce((acc, item) => concat(acc, of(item)), unit)
+			case "alt":
+				return node.arms.reduce((acc, arm) => unite(acc, of(arm)), none)
+			case "repeat": {
+				const body = of(node.body)
+				let current = unit
+				for (let k = 0; k < node.min; k++) {
 					current = concat(current, body)
-					acc = unite(acc, current)
 				}
-				return acc
+				if (node.max !== "unbounded") {
+					let acc = current
+					for (let k = node.min; k < node.max; k++) {
+						current = concat(current, body)
+						acc = unite(acc, current)
+					}
+					return acc
+				}
+				/**
+				 * body*: the kinds reachable by any number of iterations; unbounded length once an iteration can consume.
+				 */
+				const star = starKinds(unit, body)
+				const consumes = body.some((x) => x !== undefined && x.length > 0)
+				const extent = consumes
+					? { length: Number.POSITIVE_INFINITY, bytes: Number.POSITIVE_INFINITY }
+					: undefined
+				const stretch = (x: Extent | undefined): Extent | undefined =>
+					x === undefined ? undefined : (extent ?? x)
+				const starred: Paths = [
+					stretch(star[0]),
+					stretch(star[1]),
+					stretch(star[2]),
+					stretch(star[3])
+				]
+				return concat(current, starred)
 			}
-			/**
-			 * body*: the kinds reachable by any number of iterations; unbounded length once an iteration can consume.
-			 */
-			const star = starKinds(unit, body)
-			const consumes = body.some((x) => x !== undefined && x.length > 0)
-			const extent = consumes
-				? { length: Number.POSITIVE_INFINITY, bytes: Number.POSITIVE_INFINITY }
-				: undefined
-			const stretch = (x: Extent | undefined): Extent | undefined =>
-				x === undefined ? undefined : (extent ?? x)
-			const starred: Paths = [
-				stretch(star[0]),
-				stretch(star[1]),
-				stretch(star[2]),
-				stretch(star[3])
-			]
-			return concat(current, starred)
 		}
-	}
-}
+	})
 
 interface LengthBounds {
 	/** The most code points a member can hold. */

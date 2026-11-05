@@ -7,15 +7,9 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { regexMaxNodes } from "#compiler/core/policy.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import {
-	analyzeText,
-	refinementBounds,
-	type TextRefinement,
-	textLimits
-} from "#compiler/text/refinement.ts"
+import { analyzeText, refinementBounds, type TextRefinement } from "#compiler/text/refinement.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { pickGen } from "#test/support/pick.ts"
@@ -86,7 +80,7 @@ const caseGen: Gen<{
 /**
  * The language a generated pattern recognizes may be empty, which analyzeText refuses; a generated pattern may also
  * exceed the compile-space budgets (ResourceBound), most often by its anchors. Both are refusals, not lowerings, so the
- * membership checks skip them; the refusals themselves are pinned in parse.test.ts. Emptiness is the language's own
+ * membership checks skip them; the refusals themselves are pinned in parse.test.ts and compile-space.test.ts. Emptiness is the language's own
  * classification (the IR fixtures' analyzeLanguage), never a refusal's text.
  */
 const refineOrEmpty = (source: string, flags: Flags): TextRefinement | "empty" | "bound" => {
@@ -97,9 +91,8 @@ const refineOrEmpty = (source: string, flags: Flags): TextRefinement | "empty" |
 	if (result.error.reason._tag === "ResourceBound") {
 		return "bound"
 	}
-	const limits = textLimits(regexMaxNodes)
-	const parsed = parsePattern(source, flags, limits)
-	if (parsed.ok && analyzeLanguage(parsed.value, limits).kind === "empty") {
+	const parsed = parsePattern(source, flags)
+	if (parsed.ok && analyzeLanguage(parsed.value).kind === "empty") {
 		return "empty"
 	}
 	throw new Error(`/${source}/${flags}: ${result.error.message}`)

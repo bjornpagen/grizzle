@@ -8,7 +8,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Exit, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { regexMaxNodes } from "#compiler/core/policy.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
@@ -16,12 +15,7 @@ import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { emit, unmetered } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import {
-	analyzeText,
-	type TextRefinement,
-	textDomainDdl,
-	textLimits
-} from "#compiler/text/refinement.ts"
+import { analyzeText, type TextRefinement, textDomainDdl } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -79,12 +73,11 @@ const refine = (
 	if (result.error.reason._tag === "ResourceBound") {
 		return "bound"
 	}
-	const limits = textLimits(regexMaxNodes)
-	const parsed = parsePattern(source, flags, limits)
+	const parsed = parsePattern(source, flags)
 	if (!parsed.ok) {
 		throw new Error(`/${source}/${flags} does not parse: ${parsed.error.message}`)
 	}
-	if (analyzeLanguage(parsed.value, limits).kind === "empty") {
+	if (analyzeLanguage(parsed.value).kind === "empty") {
 		return "empty"
 	}
 	throw new Error(`/${source}/${flags}: ${result.error.message}`)
@@ -331,7 +324,8 @@ layer(Substrate.layer)(
 		)
 
 		/**
-		 * The compile-space budgets (refinement.ts TextLimits) must keep every admitted pattern inside what
+		 * The compile-space measures (core/policy.ts regexMaxPositions, regexMaxClosurePairs, regexMaxAnchors,
+		 * regexMaxAnchorWeight) must keep every admitted pattern inside what
 		 * PostgreSQL 19 compiles: it refuses none of them as too complex. How long a compile takes is no part of the
 		 * property, since the machine's load sets it; the session's statement timeout guards against a hang alone.
 		 */

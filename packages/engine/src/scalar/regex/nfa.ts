@@ -1,5 +1,4 @@
 import { defect } from "#compiler/core/invariant.ts"
-import { regexMaxNodes, regexMaxRepeat } from "#compiler/core/policy.ts"
 import { codePoints } from "#compiler/core/text.ts"
 import type { RegexRef } from "#compiler/ir/scalar.ts"
 import { type CharSet, has, isAdmittedCodePoint } from "#compiler/scalar/regex/charset.ts"
@@ -26,6 +25,30 @@ interface State {
 	readonly edges: Array<NfaEdge>
 }
 
+type Seq = Extract<RegexNode, { readonly kind: "seq" }>
+type Repeat = Extract<RegexNode, { readonly kind: "repeat" }>
+
+/**
+ * The builder's work, on its explicit stack: the paths of a node between two states, or a sequence or repetition
+ * going on from the part it has built. A sequence's `item` is the next item, which starts at `at`; a repetition's
+ * `chain` holds its states q0 .. qk once k copies are built.
+ */
+type Task =
+	| { readonly kind: "build"; readonly node: RegexNode; readonly from: State; readonly to: State }
+	| {
+			readonly kind: "item"
+			readonly node: Seq
+			readonly item: number
+			readonly at: State
+			readonly to: State
+	  }
+	| {
+			readonly kind: "copy"
+			readonly node: Repeat
+			readonly chain: Array<State>
+			readonly to: State
+	  }
+
 class Builder {
 	readonly states: Array<State> = []
 
@@ -41,9 +64,30 @@ class Builder {
 
 	/**
 	 * Adds the paths of `node` from `from` to `to`. It adds edges only out of `from`, into `to`, and among states it
-	 * allocates, so sibling constructions that share `from` or `to` never enter each other's interiors.
+	 * allocates, so sibling constructions that share `from` or `to` never enter each other's interiors. Its work is a
+	 * stack of tasks, so a node of any depth builds without recursing; a sequence and a repetition allocate the state
+	 * after each part just before they build that part, and every part is built whole before the next begins, so the
+	 * states and edges come in the order a recursive construction makes them.
 	 */
 	build(node: RegexNode, from: State, to: State): void {
+		const tasks: Array<Task> = [{ kind: "build", node, from, to }]
+		for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+			switch (task.kind) {
+				case "build":
+					this.#start(task.node, task.from, task.to, tasks)
+					break
+				case "item":
+					this.#item(task.node, task.item, task.at, task.to, tasks)
+					break
+				case "copy":
+					this.#copy(task.node, task.chain, task.to, tasks)
+					break
+			}
+		}
+	}
+
+	/** Begins the paths of `node` from `from` to `to`: a leaf's edge, or the tasks its parts need. */
+	#start(node: RegexNode, from: State, to: State, tasks: Array<Task>): void {
 		switch (node.kind) {
 			case "empty":
 				this.edge(from, { kind: "eps", to: to.id })
@@ -59,18 +103,12 @@ class Builder {
 			case "end":
 				this.edge(from, { kind: "end", to: to.id })
 				return
-			case "seq": {
-				let at = from
-				for (const [i, item] of node.items.entries()) {
-					const next = i === node.items.length - 1 ? to : this.fresh()
-					this.build(item, at, next)
-					at = next
-				}
+			case "seq":
+				tasks.push({ kind: "item", node, item: 0, at: from, to })
 				return
-			}
 			case "alt":
-				for (const arm of node.arms) {
-					this.build(arm, from, to)
+				for (const arm of node.arms.toReversed()) {
+					tasks.push({ kind: "build", node: arm, from, to })
 				}
 				return
 			case "repeat": {
@@ -78,28 +116,41 @@ class Builder {
 				 * q0 .. qn are fresh: n copies of the body in a chain, with an exit after each copy at or above the
 				 * minimum. An unbounded repetition writes max(min, 1) copies and loops back over the last one.
 				 */
-				const copies = copiesOf(node)
 				const first = this.fresh()
-				const q: Array<State> = [first]
 				this.edge(from, { kind: "eps", to: first.id })
-				/** The last state of the chain, and the one before it. */
-				let before = first
-				let at = first
-				for (let i = 0; i < copies; i++) {
-					const next = this.fresh()
-					q.push(next)
-					this.build(node.body, at, next)
-					before = at
-					at = next
-				}
-				for (const exit of q.slice(node.min)) {
-					this.edge(exit, { kind: "eps", to: to.id })
-				}
-				if (node.max === "unbounded") {
-					this.edge(at, { kind: "eps", to: before.id })
-				}
+				tasks.push({ kind: "copy", node, chain: [first], to })
 				return
 			}
+		}
+	}
+
+	/** Builds a sequence's item from `at`, into a fresh state or, for the last item, into `to`, and then the rest. */
+	#item(node: Seq, item: number, at: State, to: State, tasks: Array<Task>): void {
+		const last = item === node.items.length - 1
+		const next = last ? to : this.fresh()
+		if (!last) {
+			tasks.push({ kind: "item", node, item: item + 1, at: next, to })
+		}
+		tasks.push({ kind: "build", node: entry(node.items, item), from: at, to: next })
+	}
+
+	/** Builds a repetition's next copy at the end of its chain, or, once every copy is built, its exits and loop. */
+	#copy(node: Repeat, chain: Array<State>, to: State, tasks: Array<Task>): void {
+		const built = chain.length - 1
+		const copies = copiesOf(node)
+		const at = entry(chain, built)
+		if (built < copies) {
+			const next = this.fresh()
+			chain.push(next)
+			tasks.push({ kind: "copy", node, chain, to })
+			tasks.push({ kind: "build", node: node.body, from: at, to: next })
+			return
+		}
+		for (const exit of chain.slice(node.min)) {
+			this.edge(exit, { kind: "eps", to: to.id })
+		}
+		if (node.max === "unbounded") {
+			this.edge(at, { kind: "eps", to: entry(chain, built - 1).id })
 		}
 	}
 }
@@ -249,15 +300,12 @@ export const matches = (nfa: Nfa, value: string): boolean => {
 }
 
 /**
- * Whether a text is a member of a regex refinement: the NFA of its pattern's parse under the production limits, the
- * automaton the text analysis builds (text/refinement.ts analyzeText). A RegexRef is minted only from a pattern that
+ * Whether a text is a member of a regex refinement: the NFA of its pattern's parse, the automaton the text analysis
+ * builds (text/refinement.ts analyzeText). A RegexRef is minted only from a pattern that
  * analysis admitted, so its parse succeeds.
  */
 export const regexMember = (regex: RegexRef, value: string): boolean => {
-	const parsed = parsePattern(regex.source, regex.flags, {
-		maxNodes: regexMaxNodes,
-		maxRepeat: regexMaxRepeat
-	})
+	const parsed = parsePattern(regex.source, regex.flags)
 	if (!parsed.ok) {
 		throw defect(
 			`the pattern of a RegexRef, which its text analysis admitted: /${regex.source}/${regex.flags}`

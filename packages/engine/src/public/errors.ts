@@ -25,6 +25,7 @@ export {
 	type Duplicate,
 	EncodingFailure,
 	type EncodingPlace,
+	type RegexSpaceMeasure,
 	type RoleAccess
 } from "#compiler/core/errors.ts"
 export type { ConstraintName } from "#compiler/core/ids.ts"
