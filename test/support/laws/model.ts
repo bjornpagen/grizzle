@@ -1,4 +1,4 @@
-import { type Equivalence, exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { type Equivalence, exact, ordered, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 
@@ -655,8 +655,11 @@ export const stateRows = (schema: HostSchema, state: HostState): StateRows =>
 		)
 	)
 
-/** The difference between two states' rows, none when every relation holds the same rows, in any order. */
-export const rowsDifference: Equivalence<StateRows> = ordered(multiset(ordered(exact)))
+/**
+ * The difference between two states' rows, none when every relation holds the same rows, in any order, each once: a
+ * relation holds each fact once, so a repeated row on either side is a difference.
+ */
+export const rowsDifference: Equivalence<StateRows> = ordered(set(ordered(exact)))
 
 /** A row's order: its value texts, field by field. */
 const rowOrder: Order.Order<ReadonlyArray<string>> = Arr.makeOrder(Order.String)

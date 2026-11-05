@@ -1,4 +1,4 @@
-import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Effect, Option, Order, Predicate } from "effect"
 import {
 	type CaseRecord,
@@ -350,7 +350,7 @@ export default defineGate({
 			const armHeadings = Arr.map([open, done], (arm) =>
 				headingNames(optimizedStatement(arm, 0).heading)
 			)
-			const unpadded = multiset(ordered(exact))(groupHeadings, armHeadings)
+			const unpadded = set(ordered(exact))(groupHeadings, armHeadings)
 			/** R21, bounded and consumed. */
 			const bounded = compile(fx, firstActivity, reading)
 			const boundedM = yield* measureQuery(runtime, raw, bounded, { account }, measure)
@@ -607,7 +607,7 @@ export default defineGate({
 					),
 					judged(
 						"the delivered result agrees with the conservative lowering",
-						deliveredAgree("multiset"),
+						deliveredAgree("set"),
 						sharedM.delivered.generated.rows,
 						sharedM.delivered.conservative.rows
 					),

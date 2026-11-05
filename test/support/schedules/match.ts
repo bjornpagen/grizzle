@@ -1,4 +1,4 @@
-import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Formatter, Option } from "effect"
 import { messageOf } from "#test/support/message.ts"
 import type {
@@ -75,10 +75,10 @@ const outcomeIs =
 		return holds(outcome) ? meets(shown) : misses(shown, `expected ${what}`)
 	}
 
-/** Rows in order, cell by cell; and rows as a multiset, each row cell by cell. */
+/** Rows in order, cell by cell; and rows as a set that fails on a repeated row, each row cell by cell. */
 type Rows = ReadonlyArray<ReadonlyArray<string | null>>
 const sameRows = (a: Rows, b: Rows): boolean => Option.isNone(ordered(ordered(exact))(a, b))
-const sameRowSet = (a: Rows, b: Rows): boolean => Option.isNone(multiset(ordered(exact))(a, b))
+const sameRowSet = (a: Rows, b: Rows): boolean => Option.isNone(set(ordered(exact))(a, b))
 
 /** Success, its rows unchecked. */
 export const ok = (): Expectation<ScheduleOutcome> =>
@@ -87,7 +87,7 @@ export const ok = (): Expectation<ScheduleOutcome> =>
 /**
  * Expectations of a direct step's outcome, the combinator over any expectation, and printing outcomes.
  *
- * Rows compare cell by cell, through the testing library's equivalences; a row set is a multiset of rows, so no
+ * Rows compare cell by cell, through the testing library's equivalences; a row set holds each row once, so no
  * comparison goes through a text rendering of the values.
  *
  * Success with exactly these text rows, in order. `rows()` is success with no rows.

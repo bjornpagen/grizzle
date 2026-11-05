@@ -17,6 +17,7 @@
  * - **Refusals:** a world is refused exactly when a role writes a member, not its owner whole, through a filter reading
  *   a field that is neither its group nor a copy, or writes the owner through a narrowed entry whose filter is not the
  *   members' translated; the refusal names the role and the family.
+ * - **The audit naming rule:** every installed statement, a translated policy's included, passes the SQL audit.
  * - **The advance closure:** every role that holds INSERT on a table with a serial field holds EXECUTE on the field's
  *   advance function, and no other role does: a member writer, holding SELECT and UPDATE on its owner, holds none.
  *
@@ -60,6 +61,7 @@ import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** A text field over lowercase words, every literal of the world one. */
@@ -685,6 +687,7 @@ describe("a member writer's hold on its family's owner", () => {
 							}
 							assert.deepEqual(refusals, [], "a world the rule refuses is refused")
 							const i = result.value
+							checkedStatements(i.statements, "installation statement")
 							const control = compiled(withoutMembers(w))
 							assert.ok(control.ok, "the control with no member written installs")
 							const ci = control.value

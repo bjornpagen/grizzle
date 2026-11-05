@@ -90,14 +90,16 @@ export type InputFailure = EncodingFailure | InputTooLarge | CompileError
 
 /**
  * A statement's placeholder texts refused (write/program/bind.ts BoundWrite.chunks): a codec's refusal as itself, a
- * column whose array no string can hold as the InputTooLarge of its bound, and a family's row no statement of its plan
- * can carry as the InputTooLarge naming its family and statement (errors/failures.ts familyRowBound).
+ * column whose array no string can hold as the InputTooLarge of its bound, a family's row no statement of its plan
+ * can carry as the InputTooLarge naming its family and statement (errors/failures.ts familyRowBound), and a change an
+ * immutable owner's family refuses, which only the run time could decide, as the same CompileError its static form is.
  */
 export const valuesFailure = (
-	failure: EncodingFailure | LiteralBound | FamilyRowBound
-): EncodingFailure | InputTooLarge => {
+	failure: EncodingFailure | LiteralBound | FamilyRowBound | CompileError
+): InputFailure => {
 	switch (failure._tag) {
 		case "EncodingFailure":
+		case "CompileError":
 			return failure
 		case "LiteralBound":
 			return literalBound(failure)
@@ -362,7 +364,7 @@ const writeStatements = (
 		readonly sent: ReadonlyArray<SentStatement>
 		readonly statements: ReadonlyArray<BatchStatement>
 	},
-	EncodingFailure | InputTooLarge
+	InputFailure
 > => {
 	const skip = inputs.bound.skip(artifact)
 	const sent: Array<SentStatement> = []
@@ -411,13 +413,16 @@ export const runWrite = <R>(
 		const closing = (
 			chunks: Chunks,
 			before: ReadonlyArray<SentStatement>
-		): Result.Result<ReadonlyArray<FlightStatement>, EncodingFailure | InputTooLarge> =>
+		): Result.Result<ReadonlyArray<FlightStatement>, InputFailure> =>
 			Result.map(writeStatements(artifact, inputs, chunks), (w) => {
 				sent = [...before, ...w.sent]
 				written = sent.length
 				return nameStatements(entry.naming, [...w.statements, ...backs.statements])
 			})
-		let ran: Result.Result<ReadonlyArray<BatchOutcome>, FlightFailure | EncodingFailure>
+		let ran: Result.Result<
+			ReadonlyArray<BatchOutcome>,
+			FlightFailure | EncodingFailure | CompileError
+		>
 		if (flights.kind === "write") {
 			const one = closing(flights.chunks, [])
 			if (Result.isFailure(one)) {
@@ -455,7 +460,9 @@ export const runWrite = <R>(
 			const failure = ran.failure
 			return yield* failure._tag === "EncodingFailure"
 				? Effect.fail(failure)
-				: flightFailure<R>(failure, sent, context)
+				: failure._tag === "CompileError"
+					? Effect.fail(inputApplyError(failure))
+					: flightFailure<R>(failure, sent, context)
 		}
 		const outcomes = ran.success
 		/**

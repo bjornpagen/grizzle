@@ -21,12 +21,15 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
 import { compose, type RelationPlanAt, relationDepths } from "#compiler/write/family/compose.ts"
+import { textsKey } from "#compiler/write/family/draw.ts"
 import {
 	decodeRead,
 	type EditedTarget,
 	type Fact,
 	type FillContext,
+	fixedRefusal,
 	foldRecounts,
+	groupKey,
 	ownersOf,
 	planEdits,
 	readKeys,
@@ -107,13 +110,14 @@ export interface BoundWrite {
  * statement but a family step's; a family step's, one per statement of its kind in its family's plan (write/family/
  * order.ts plan), each its rows' arrays, none when the application writes no row of that kind. Every execution sends
  * the statement's one text, and its rows are every execution's, in order. A row no statement carries even alone is its
- * family's FamilyRowBound, before any statement is sent.
+ * family's FamilyRowBound, and a change an immutable owner's family refuses its CompileError (write/family/edit.ts
+ * fixedRefusal), before any write statement is sent.
  */
 export type Chunks = (
 	statement: ArtifactStatement
 ) => Result.Result<
 	ReadonlyArray<ReadonlyArray<string>>,
-	EncodingFailure | LiteralBound | FamilyRowBound
+	EncodingFailure | LiteralBound | FamilyRowBound | CompileError
 >
 
 /** One family's read as one execution sends it (write/family/edit.ts SuffixRead): its text and its placeholders' texts. */
@@ -140,7 +144,7 @@ export type Flights =
 			readonly reads: NonEmptyReadonlyArray<ReadStatement>
 			readonly writes: (
 				rows: ReadonlyArray<Raw>
-			) => Result.Result<Chunks, EncodingFailure | FamilyRowBound>
+			) => Result.Result<Chunks, EncodingFailure | FamilyRowBound | CompileError>
 	  }
 
 type BindResult =
@@ -366,6 +370,27 @@ export const bindWrite = (
 			known.set(id, found)
 			return found
 		}
+		/** An insert appends to its group's owner, which an immutable owner takes only when this stratum inserts it: the
+		 * group key is a value, so the host refuses it here, before any SQL. */
+		for (const { family, fixed } of target.families) {
+			if (!fixed) {
+				continue
+			}
+			const inserted = owners(family)
+			for (const fact of changes.inserts) {
+				const group = groupKey(ctx, family, fact)
+				if (!inserted.has(textsKey(group))) {
+					return Result.err(
+						fixedRefusal(
+							target.relation.name,
+							`an insert into ${target.relation.name}`,
+							family,
+							`appending to the owner ${family.owner.name} with key (${group.join(", ")}), which this stratum does not insert`
+						)
+					)
+				}
+			}
+		}
 		const familyReads: Array<BoundEdit["reads"][number]> = []
 		for (const read of editProgram.reads) {
 			const touched = readKeys(
@@ -407,7 +432,7 @@ export const bindWrite = (
 	 * rows by relation, composed by depth with its edits' counts. */
 	const planned = (
 		rows: ReadonlyArray<Raw>
-	): Result.Result<ReadonlyMap<number, Plan>, EncodingFailure | FamilyRowBound> => {
+	): Result.Result<ReadonlyMap<number, Plan>, EncodingFailure | FamilyRowBound | CompileError> => {
 		const strata = [
 			...new Set([
 				...frontend.nested.map((n) => n.stratum),
@@ -481,7 +506,12 @@ export const bindWrite = (
 	/** The chunks of the artifact's statements under the strata's plans: a family step's, one execution per planned
 	 * statement of its kind and target; any other's, its one execution. */
 	const chunksOf =
-		(plans: Result.Result<ReadonlyMap<number, Plan>, EncodingFailure | FamilyRowBound>): Chunks =>
+		(
+			plans: Result.Result<
+				ReadonlyMap<number, Plan>,
+				EncodingFailure | FamilyRowBound | CompileError
+			>
+		): Chunks =>
 		(statement) => {
 			const step = statement.step
 			if (step.kind !== "family") {

@@ -65,6 +65,7 @@ import {
 	type SerialDraw
 } from "#compiler/write/frontend/entry.ts"
 
+import { fixedSentence } from "#compiler/write/family/edit.ts"
 import {
 	closedLeaf,
 	type ClosedRows,
@@ -856,7 +857,7 @@ const compile = (
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`a delete of ${relation.name}, a member of the family ${fixed.id.owner}.${fixed.id.count} of the immutable ${fixed.owner.name}: an immutable owner's family is fixed when its owner is inserted; declare mutable(${fixed.owner.name}) to change it`
+					fixedSentence(`a delete of ${relation.name}`, fixed, undefined)
 				)
 			}
 			/** An insert appends to its owners' families, which only an owner the same stratum inserts may take when the
@@ -869,7 +870,11 @@ const compile = (
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`an insert into ${relation.name}, a member of the family ${fixed.id.owner}.${fixed.id.count} of the immutable ${fixed.owner.name}, which this stratum inserts none of: an immutable owner's family is fixed when its owner is inserted; declare mutable(${fixed.owner.name}) to change it`
+					fixedSentence(
+						`an insert into ${relation.name}`,
+						fixed,
+						"appending to an owner this stratum does not insert"
+					)
 				)
 			}
 			const owned = families.find((f) => f.owner.name === relation.name)

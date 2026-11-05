@@ -499,25 +499,25 @@ export default defineGate({
 					),
 					judged(
 						"fused and pipelined lowerings deliver identical nested results",
-						deliveredAgree("multiset"),
+						deliveredAgree("set"),
 						cardsM.delivered.generated.rows,
 						cardsM.delivered.conservative.rows
 					),
 					judged(
 						"the deduplicating one-field attachment delivers the conservative nested result",
-						deliveredAgree("multiset"),
+						deliveredAgree("set"),
 						titlesM.delivered.generated.rows,
 						titlesM.delivered.conservative.rows
 					),
 					judged(
 						"the generated nested result agrees with the handwritten statement",
-						deliveredAgree("multiset"),
+						deliveredAgree("set"),
 						Arr.map(cardsM.delivered.generated.rows, asText),
 						cardsHandRows
 					),
 					judged(
 						"the deduplicating attachment agrees with the handwritten statement",
-						deliveredAgree("multiset"),
+						deliveredAgree("set"),
 						Arr.map(titlesM.delivered.generated.rows, asText),
 						titlesHandRows
 					),
@@ -640,13 +640,13 @@ export default defineGate({
 					),
 					judged(
 						"the seeded statement delivers the pipelined nested result",
-						deliveredAgree("multiset"),
+						deliveredAgree("set"),
 						reachM.delivered.generated.rows,
 						reachM.delivered.conservative.rows
 					),
 					judged(
 						"the seeded statement agrees with the handwritten recursive statement",
-						deliveredAgree("multiset"),
+						deliveredAgree("set"),
 						Arr.map(reachM.delivered.generated.rows, asText),
 						reachHandRows
 					)

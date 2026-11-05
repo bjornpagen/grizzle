@@ -200,6 +200,34 @@ const sourceDesc = (source: SourceName): SourceDesc =>
 const fieldVar = (source: SourceName, field: string, id: string): VarDesc =>
 	source === relationParam ? { id, origin: undefined } : { id, origin: { relation: source, field } }
 
+/**
+ * Whether every match of a rule binds every field of its source: a stored or closed relation, the parameter, or the
+ * imported closure, by its whole heading. A fold reads each fact it matches once, by a key (FoldOverProjection
+ * otherwise), and the whole heading holds a key of every source under every variant, so a count or a sum is offered
+ * over such a rule alone: a fold over a projection is no plan.
+ */
+const wholeMatches = (matches: RuleDesc["matches"]): boolean =>
+	Arr.every(matches, (m) => {
+		const bound = Object.keys(m.bindings)
+		switch (m.source.kind) {
+			case "relation":
+			case "param": {
+				const name = m.source.name
+				const source = Arr.findFirst(
+					[...relationNames, closedName, relationParam] as const,
+					(n) => n === name
+				)
+				return (
+					Option.isSome(source) && Arr.every(fieldsOf(source.value), (f) => bound.includes(f.field))
+				)
+			}
+			case "query":
+				return Arr.every(["a", "b"], (f) => bound.includes(f))
+			default:
+				return false
+		}
+	})
+
 const variedRead = (source: SourceName): ReadonlyArray<VariedRead> =>
 	source === "R" || source === "S" || source === relationParam ? [source] : []
 
@@ -670,8 +698,10 @@ const stepsAfter = (plan: Plan, grammar: Grammar): ReadonlyArray<Step> => {
 				Arr.map(integerFields(source), (field): Step => ({ op: "negate", source, column, field }))
 			)
 		),
-		...(allVariables ? Arr.map(proper, (by): Step => ({ op: "count", by })) : []),
-		...(grammar.extended && allVariables
+		...(allVariables && wholeMatches(state.matches)
+			? Arr.map(proper, (by): Step => ({ op: "count", by }))
+			: []),
+		...(grammar.extended && allVariables && wholeMatches(state.matches)
 			? Arr.flatMap(proper, (by) => Arr.map(vars, (arg): Step => ({ op: "sum", by, arg })))
 			: []),
 		...(grammar.extended

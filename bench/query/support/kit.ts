@@ -1,5 +1,5 @@
 import { inspect } from "node:util"
-import { by, type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
+import { type Equivalence, exact, ordered } from "@grizzle/testing/oracle"
 import {
 	Array as Arr,
 	Data,
@@ -667,11 +667,15 @@ export const judged = <O>(name: string, judge: Equivalence<O>, left: O, right: O
 	)
 }
 
+/** How a delivery's nested arrays compare: in order, or as sets, where a repeated item is a difference. */
+export type NestedAgreement = "ordered" | "set"
+
 /**
  * One delivered value as its canonical text: records by sorted key, bigints apart from numbers, a Decimal or Money by
- * its exact text, an Option by its case, a vector by its components; nested arrays in order, or as multisets.
+ * its exact text, an Option by its case, a vector by its components; nested arrays in order, or as sets, each nested
+ * set's repeated item pushed to `repeats`.
  */
-const canonicalOf = (value: unknown, nested: "ordered" | "multiset"): string => {
+const canonicalOf = (value: unknown, nested: NestedAgreement, repeats: Array<string>): string => {
 	switch (typeof value) {
 		case "undefined":
 			return "undefined"
@@ -687,7 +691,7 @@ const canonicalOf = (value: unknown, nested: "ordered" | "multiset"): string => 
 		case "function":
 			return value.toString()
 		case "object":
-			return value === null ? "null" : canonicalObject(value, nested)
+			return value === null ? "null" : canonicalObject(value, nested, repeats)
 	}
 }
 
@@ -696,14 +700,27 @@ const hasOwnText = (value: object): value is { toString(): string } =>
 	Predicate.hasProperty(value, "toString") && value.toString !== Object.prototype.toString
 
 /** One delivered object's canonical text, as canonicalOf states it. */
-const canonicalObject = (value: object, nested: "ordered" | "multiset"): string => {
-	const text = (v: unknown): string => canonicalOf(v, nested)
+const canonicalObject = (
+	value: object,
+	nested: NestedAgreement,
+	repeats: Array<string>
+): string => {
+	const text = (v: unknown): string => canonicalOf(v, nested, repeats)
 	if (value instanceof Float32Array) {
 		return `f32[${Arr.join(Arr.map([...value], String), ",")}]`
 	}
 	if (Arr.isArray(value)) {
 		const items = Arr.map(value, (v: unknown) => text(v))
-		return `[${Arr.join(nested === "multiset" ? Arr.sort(items, Order.String) : items, ",")}]`
+		if (nested === "ordered") {
+			return `[${Arr.join(items, ",")}]`
+		}
+		const sorted = Arr.sort(items, Order.String)
+		for (const [i, item] of sorted.entries()) {
+			if (i > 0 && sorted[i - 1] === item) {
+				repeats.push(item)
+			}
+		}
+		return `[${Arr.join(sorted, ",")}]`
 	}
 	if (Option.isOption(value)) {
 		return Option.isSome(value) ? `Some(${text(value.value)})` : "None"
@@ -725,21 +742,35 @@ const canonicalObject = (value: object, nested: "ordered" | "multiset"): string 
 }
 
 /**
- * Delivered (decoded) results as multisets of their canonical forms; `nested` says whether nested arrays compare in
- * order or as multisets. The library's multiset matches pairwise, and these results reach about 90 000 rows, so the
- * canonical forms are sorted and compared in order.
+ * Delivered (decoded) results as sets of their canonical forms; `nested` says whether nested arrays compare in order or
+ * as sets. A delivery is a set, so a row it repeats, or an item a nested set repeats, is a difference on either side.
+ * These results reach about 90 000 rows, so the canonical forms are sorted and compared in order, and a repeat is two
+ * equal neighbours.
  */
-export const deliveredAgree = (
-	nested: "ordered" | "multiset"
-): Equivalence<ReadonlyArray<unknown>> =>
-	by(
-		(rows) =>
-			Arr.sort(
-				Arr.map(rows, (r) => canonicalOf(r, nested)),
+export const deliveredAgree =
+	(nested: NestedAgreement): Equivalence<ReadonlyArray<unknown>> =>
+	(left, right) => {
+		const canonical = (rows: ReadonlyArray<unknown>) => {
+			const repeats: Array<string> = []
+			const texts = Arr.sort(
+				Arr.map(rows, (r) => canonicalOf(r, nested, repeats)),
 				Order.String
-			),
-		ordered(exact)
-	)
+			)
+			for (const [i, row] of texts.entries()) {
+				if (i > 0 && texts[i - 1] === row) {
+					repeats.push(row)
+				}
+			}
+			return { texts, repeats }
+		}
+		const l = canonical(left)
+		const r = canonical(right)
+		if (l.repeats.length > 0 || r.repeats.length > 0) {
+			const [side, repeats] = l.repeats.length > 0 ? ["left", l.repeats] : ["right", r.repeats]
+			return Option.some(`${side} repeats ${Arr.join(repeats, ", ")}, and a delivery is a set`)
+		}
+		return ordered(exact)(l.texts, r.texts)
+	}
 
 interface Keyed {
 	/** Each key's first value. */
@@ -1032,6 +1063,6 @@ export const measureQuery = Effect.fn("measureQuery")(function* (
 		generated: generatedMeasure,
 		conservative: conservativeMeasure,
 		delivered: { generated, conservative },
-		agreement: agreementOf(deliveredAgree("multiset")(generated.rows, conservative.rows))
+		agreement: agreementOf(deliveredAgree("set")(generated.rows, conservative.rows))
 	}
 })

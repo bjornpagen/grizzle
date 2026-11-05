@@ -351,9 +351,13 @@ export interface ChangeSet<
 		Reads,
 		Cx | ContextsOf<M>
 	>
-	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, Fact<R>>>(
+	/**
+	 * Removes each member fact, stated as its caller writes it (Written<R>): the fields PostgreSQL and grizzle write are
+	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row.
+	 */
+	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, Written<R>>>(
 		relation: R & WritableCheck<S, R>,
-		facts: M & MemberCheck<M, Fact<R>, R>
+		facts: M & MemberCheck<M, Written<R>, R>
 	): ChangeSet<S, Simplify<Params & ParamsOf<M>>, Writes | NameOf<R>, Reads, Cx | ContextsOf<M>>
 	/**
 	 * After the change, R's fact at each member's key is that member, with the fields its caller does not write as

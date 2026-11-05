@@ -353,7 +353,11 @@ const checkRead =
 			sent,
 			conversion
 		)
-		const rows = deliveredRows(program, sent, isRecord(params) ? params : {})
+		const delivered = deliveredRows(program, sent, isRecord(params) ? params : {})
+		if (Result.isFailure(delivered)) {
+			throw new Error(`the rows PostgreSQL sent are unreadable: ${delivered.failure.message}`)
+		}
+		const rows = delivered.success
 		checkRecords(records, rows, program.layouts, headingsOf(statements))
 		return Arr.map(rows, (row) =>
 			sentRow(row, defined(program.layouts[row.group], `the layout of group ${row.group}`))

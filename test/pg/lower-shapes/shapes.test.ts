@@ -2,7 +2,7 @@ import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, type Gen, int } from "@grizzle/testing/gen"
-import { exact, multiset, ordered } from "@grizzle/testing/oracle"
+import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -285,8 +285,8 @@ const statementOf = (
 }
 
 /**
- * The problems of a shaped run against the conservative oracle's, statement by statement: a different row multiset
- * (or sequence, for an ordered statement) or a repeated row. Empty when they agree.
+ * The problems of a shaped run against the conservative oracle's, statement by statement: a different row set (or
+ * sequence, for an ordered statement) or a repeated row. Empty when they agree.
  */
 const disagreements = (
 	base: ReadonlyArray<Ran>,
@@ -299,10 +299,7 @@ const disagreements = (
 	}
 	for (const [i, ran] of shaped.entries()) {
 		const want = base[i]?.text ?? []
-		const difference = (orderedStatements.includes(i) ? ordered(exact) : multiset(exact))(
-			ran.text,
-			want
-		)
+		const difference = (orderedStatements.includes(i) ? ordered(exact) : set(exact))(ran.text, want)
 		if (Option.isSome(difference)) {
 			out.push(`statement ${i}: ${Formatter.format(ran.text)} for ${Formatter.format(want)}`)
 		}
@@ -387,7 +384,7 @@ const childSets = (
 
 /**
  * The problems of one nested result against another: parents in order (or as a set) and each parent's children in
- * the attachment's order (or as a multiset).
+ * the attachment's order (or as a set, which fails on a repeated child).
  */
 const nestedDisagreements = (
 	want: Nested,
@@ -395,7 +392,7 @@ const nestedDisagreements = (
 	attached: Attached
 ): ReadonlyArray<string> => {
 	const out: Array<string> = []
-	const parentsAgree = attached.order === undefined ? multiset(exact) : ordered(exact)
+	const parentsAgree = attached.order === undefined ? set(exact) : ordered(exact)
 	if (Option.isSome(parentsAgree(want.parents, got.parents))) {
 		out.push(`parents ${Formatter.format(got.parents)} for ${Formatter.format(want.parents)}`)
 	}
@@ -409,7 +406,7 @@ const nestedDisagreements = (
 		for (const parent of want.parents) {
 			const x = a.sets.get(keyOf(parent, a.keys)) ?? []
 			const y = b.sets.get(keyOf(parent, b.keys)) ?? []
-			const childrenAgree = attach.order === undefined ? multiset(exact) : ordered(exact)
+			const childrenAgree = attach.order === undefined ? set(exact) : ordered(exact)
 			if (Option.isSome(childrenAgree(x, y))) {
 				out.push(
 					`${attach.name} of ${Formatter.format(parent)}: ${Formatter.format(y)} for ${Formatter.format(x)}`

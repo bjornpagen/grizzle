@@ -397,16 +397,11 @@ describe("head literal typing", () => {
 							const arms: Arr.NonEmptyReadonlyArray<Arm> = [defined(first, "a drawn arm"), ...rest]
 							const expected = expectedOf(arms)
 							c.noteAll(featuresOf(arms, expected))
-							/**
-							 * A union whose arms deliver `c` at carriers no rule combines is refused as its rules are added
-							 * (schema/record.ts carrierUnion), the builder's MalformedDescription; any other union the rule
-							 * refuses, by the checker.
-							 */
 							if (Result.isFailure(Result.try(() => unionOf(arms)))) {
 								assert.equal(
 									expected.kind,
 									"refused",
-									"the builder refuses only a union the rule refuses"
+									"the builder refuses only a union the rule refuses: one whose arms deliver c at carriers no rule combines, refused as its rules are added (schema/record.ts carrierUnion); the checker refuses any other"
 								)
 								throwsRefused(
 									() => unionOf(arms),

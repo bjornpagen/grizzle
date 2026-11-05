@@ -3,7 +3,7 @@ import { assertInstanceOf } from "@effect/vitest/utils"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
-import { multiset } from "@grizzle/testing/oracle"
+import { set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -558,7 +558,7 @@ export const explainSuite = (): void => {
 							)
 						}).pipe(Effect.scoped, withLayer(o.layer))
 						const after = yield* tableState(o.installed, W.TaskNote)
-						assert.deepEqual(multiset(exactValue)(after, before), Option.none())
+						assert.deepEqual(set(exactValue)(after, before), Option.none())
 						return exhausted
 					}).pipe(Effect.scoped)
 				)

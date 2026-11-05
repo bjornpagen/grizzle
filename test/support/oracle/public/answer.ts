@@ -1,4 +1,4 @@
-import { type Equivalence, exact, multiset, ordered, type Side } from "@grizzle/testing/oracle"
+import { type Equivalence, exact, ordered, type Side, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Formatter, Option, Predicate, Record, Result } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -68,11 +68,12 @@ export interface Nested {
  * Decimal with no display scale, a float a double with one zero, a handle its name. The contract fixes exactly this
  * much of an answer:
  *
- * - a set is a multiset with each row once, compared as a multiset; an ordered root is compared in order;
+ * - a set holds each row once and is compared as a set, a repeated row on either side a difference; an ordered root
+ *   is compared in order;
  * - a column's values are compared exactly: equal values are identical (1.0 and 1.00 are one Decimal, NaN is NaN, a
  *   float's zero is 0), so a delivered value that is equal but not identical, a -0 among them, is a difference;
- * - an attachment's children are a set per parent, compared as a multiset with exact multiplicities: a child missing
- *   from one parent, repeated, or given to another parent is a difference;
+ * - an attachment's children are a set per parent, compared as a set: a child missing from one parent, repeated, or
+ *   given to another parent is a difference;
  * - get's Option is the set of its one row or none.
  *
  * A public record is read into this form strictly: a missing or extra key, a value of another host type, or an
@@ -210,16 +211,14 @@ const unstated = (left: Declines, right: Declines): Declines => ({
 
 /**
  * Two rows of one shape, exactly: every column's value one value (sameValue), but for the columns `skip` holds, and
- * every attachment's children as a multiset. Every side delivers each value in its one form, so equal is identical,
+ * every attachment's children as a set. Every side delivers each value in its one form, so equal is identical,
  * and anything a plan, a storage order or a stored spelling could change is a difference.
  */
 const nestedEquivalence = (shape: Shape, skip: Declines): Equivalence<Nested> => {
 	const columns = Arr.map(shape.columns, value)
 	const children = Arr.map(shape.attachments, (a, i) => ({
 		name: a.name,
-		rows: multiset(
-			nestedEquivalence(a.shape, defined(skip.attachments[i], `the declines of ${a.name}`))
-		)
+		rows: set(nestedEquivalence(a.shape, defined(skip.attachments[i], `the declines of ${a.name}`)))
 	}))
 	return (a, b) => {
 		for (const [i, equal] of columns.entries()) {
@@ -262,7 +261,7 @@ const result =
 	}
 
 /**
- * The equivalence of a read's answers: its rows as a multiset, or in order where the root is ordered, every column
+ * The equivalence of a read's answers: its rows as a set, or in order where the root is ordered, every column
  * exactly but those one answer declines and the other states (unstated), which no reference judges: there the sides
  * judge each other (pg/oracle/public/run.ts, against itself).
  */
@@ -274,7 +273,7 @@ export const answerEquivalence =
 				? unstated(declinesOf(shape, left.success), declinesOf(shape, right.success))
 				: declinesOf(shape, [])
 		const rows = nestedEquivalence(shape, skip)
-		return result(inOrder ? ordered(rows) : multiset(rows), exact)(left, right)
+		return result(inOrder ? ordered(rows) : set(rows), exact)(left, right)
 	}
 
 const endpoint = (x: unknown): bigint | undefined =>

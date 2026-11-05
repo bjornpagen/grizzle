@@ -28,8 +28,9 @@
  */
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import { carrierSpecOf, scalarCodec } from "#compiler/codec/scalar.ts"
-import type { EncodingFailure } from "#compiler/core/errors.ts"
+import { type CompileError, type EncodingFailure, unsupported } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -77,8 +78,34 @@ export interface RelationChanges {
 export interface EditTarget {
 	readonly relation: RelationInfo
 	readonly layout: RowLayout
-	readonly families: ReadonlyArray<{ readonly family: Family; readonly shape: ReadShape }>
+	/** Each family with its read's shape, and whether its owner is immutable, its family fixed when it is inserted. */
+	readonly families: ReadonlyArray<{
+		readonly family: Family
+		readonly shape: ReadShape
+		readonly fixed: boolean
+	}>
 }
+
+/** Why an immutable owner's family refuses a change, the sentence its static and read-time refusals share. */
+export const fixedRule = (owner: string): string =>
+	`an immutable owner's family is fixed when its owner is inserted; declare mutable(${owner}) to change it`
+
+/**
+ * The sentence of a refused write that changes the family `family` of an immutable owner: `head` names the write and
+ * its member relation, `effect` the owner it changes when the run time found it, and the rule is `fixedRule`, so a
+ * caller meets one sentence whether compile proved the refusal or the run time found the owner.
+ */
+export const fixedSentence = (head: string, family: Family, effect: string | undefined): string =>
+	`${head}, a member of the family ${family.id.owner}.${family.id.count} of the immutable ${family.owner.name}${effect === undefined ? "" : `, ${effect}`}: ${fixedRule(family.owner.name)}`
+
+/** The run time's refusal of a write of `member` that changes an immutable owner's family (`fixedSentence`). */
+export const fixedRefusal = (
+	member: string,
+	head: string,
+	family: Family,
+	effect: string
+): CompileError =>
+	unsupported(SourceLoc("ChangeSet", [member]), fixedSentence(head, family, effect))
 
 /** A stored member as a read returns it: its slot in the read's family, its group's key text, and its values. */
 interface StoredMember {
@@ -161,6 +188,10 @@ export const readKeys = (
 	}
 	return { keys: [...keys.values()], groups: [...groups.values()] }
 }
+
+/** A member fact's group key texts in `family`, its group fields' in the family's order. */
+export const groupKey = (ctx: FillContext, family: Family, fact: Fact): Owner =>
+	groupOf(ctx, family, valuesOfFact(fact))
 
 /** The owners of `family` among an owner relation's inserted facts, by group key text, with their values. */
 export const ownersOf = (
@@ -357,8 +388,9 @@ const fillGroup = (
 	ctx: FillContext,
 	relation: LawRelation,
 	family: Family,
-	edit: GroupEdit
-): Result.Result<GroupFilled, EncodingFailure> => {
+	edit: GroupEdit,
+	fixed: Owner | undefined
+): Result.Result<GroupFilled, EncodingFailure | CompileError> => {
 	const failure = encodeFailure("integerRange", slotPlace(relation.name))
 	const n0 = edit.stored?.count ?? 0
 	const stored = edit.stored?.members ?? []
@@ -373,6 +405,26 @@ const fillGroup = (
 			)
 		})
 	const removedSlots = stored.filter((m) => edit.removals.has(m.key)).map((m) => m.slot)
+	/** A stored group of an immutable owner takes no append, no removal and no change of what its family values read:
+	 * every one would change a value fixed when the owner was inserted. An update of anything else is in place. */
+	if (fixed !== undefined) {
+		const at = `the owner ${family.owner.name} with key (${fixed.join(", ")}), which is already stored`
+		const changed = [...edit.updates].some(([key, values]) => {
+			const m = stored.find((x) => x.key === key)
+			return m !== undefined && changesInput(m.values, values)
+		})
+		const effect =
+			edit.appends.length > 0
+				? `appending to ${at}`
+				: removedSlots.length > 0
+					? `moving a member out of ${at}`
+					: changed
+						? `changing a value its family reads of a member of ${at}`
+						: undefined
+		if (effect !== undefined) {
+			return Result.err(fixedRefusal(relation.name, `a put of ${relation.name}`, family, effect))
+		}
+	}
 	const kept = n0 - removedSlots.length
 	const n1 = kept + edit.appends.length
 	const counted = !isSequence(family)
@@ -612,7 +664,7 @@ export const planEdits = (
 	changes: RelationChanges,
 	stored: ReadonlyMap<string, StoredFamily>,
 	insertedOwners: (family: Family) => ReadonlyMap<string, Values>
-): Result.Result<Edited, EncodingFailure> => {
+): Result.Result<Edited, EncodingFailure | CompileError> => {
 	const relation = target.relation
 	/** Each row the changes name, once: a key named twice is refused, never a second member. */
 	const named = new Map<
@@ -646,7 +698,7 @@ export const planEdits = (
 	}
 	const placements = new Map<string, Array<Placement>>()
 	const owners: Array<OwnerWrite> = []
-	for (const { family } of target.families) {
+	for (const { family, fixed } of target.families) {
 		const read = stored.get(familyKey(family.id))
 		const inserted = insertedOwners(family)
 		const groups = new Map<
@@ -710,7 +762,13 @@ export const planEdits = (
 		}
 		const recounts = new Map<string, Recount>()
 		for (const [text, { owner, edit }] of groups) {
-			const filled = fillGroup(ctx, relation, family, edit)
+			const filled = fillGroup(
+				ctx,
+				relation,
+				family,
+				edit,
+				fixed && !inserted.has(text) ? owner : undefined
+			)
 			if (!filled.ok) {
 				return filled
 			}

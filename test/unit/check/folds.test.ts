@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -58,7 +58,7 @@ import type {
  *   five views each sum to ten, and two comments on one post count two: equal values on distinct facts both
  *   contribute.
  *
- * Bound: the box is exhausted, 336 cases.
+ * Bound: the box is exhausted, 540 cases (18 rule shapes, 5 aggregates, grouped or not, 3 databases).
  */
 
 const Blog: SchemaDesc = {
@@ -161,33 +161,35 @@ interface FoldCase {
 
 /** Every nonempty subset of a relation's fields, in field order. */
 const subsets = (fields: ReadonlyArray<Field>): ReadonlyArray<ReadonlyArray<Field>> =>
-	Arr.filter(
-		Arr.map(Arr.range(1, (1 << fields.length) - 1), (mask) =>
-			Arr.filter(fields, (_, i) => ((mask >> i) & 1) === 1)
-		),
-		Arr.isReadonlyArrayNonEmpty
+	Arr.map(Arr.range(1, (1 << fields.length) - 1), (mask) =>
+		Arr.filter(fields, (_, i) => ((mask >> i) & 1) === 1)
 	)
 
-const shapes: ReadonlyArray<Shape> = [
-	...Arr.flatMap(["Post", "Comment"] as const, (relation) =>
-		Arr.map(subsets(fieldsOf[relation]), (bound): Shape => ({ kind: "one", relation, bound }))
-	),
+const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
 	{ kind: "join", commentId: true },
 	{ kind: "join", commentId: false },
 	{ kind: "attached", commentId: true },
-	{ kind: "attached", commentId: false }
+	{ kind: "attached", commentId: false },
+	...Arr.flatMap(["Post", "Comment"] as const, (relation) =>
+		Arr.map(subsets(fieldsOf[relation]), (bound): Shape => ({ kind: "one", relation, bound }))
+	)
 ]
+
+const databaseNames: Arr.NonEmptyReadonlyArray<Database> = [
+	"equal values",
+	"distinct values",
+	"empty"
+]
+
+const groupings: Arr.NonEmptyReadonlyArray<boolean> = [false, true]
 
 const cases: Arr.NonEmptyReadonlyArray<FoldCase> = Arr.flatMap(shapes, (shape) =>
 	Arr.flatMap(fns, (fn) =>
-		Arr.flatMap([false, true], (grouped) =>
-			Arr.map(
-				Rec.keys(databases),
-				(database): FoldCase => ({ shape, fn, grouped, database })
-			)
+		Arr.flatMap(groupings, (grouped) =>
+			Arr.map(databaseNames, (database): FoldCase => ({ shape, fn, grouped, database }))
 		)
 	)
-).filter((c) => c.shape.kind !== "attached" || c.database !== "distinct values") as never
+)
 
 /** The variable a match binds at a relation's field, named by its relation and field (dsl.ts vars). */
 const v = (relation: RelationName, field: Field) => ref(relation, field)
@@ -235,11 +237,15 @@ const built = (c: FoldCase): Built => {
 		case "one": {
 			const relation = c.shape.relation
 			const bound = c.shape.bound
-			const [first, second] = bound
-			const groupField = c.grouped && second !== undefined ? first : undefined
+			/** A grouped fold groups by its first bound field but the key, where it binds another to fold. */
+			const groupField = c.grouped
+				? Option.getOrUndefined(
+						Arr.findFirst(bound, (field, i) => field !== "id" && i < bound.length - 1)
+					)
+				: undefined
 			const argField = Option.getOrElse(
 				Arr.findLast(bound, (field) => field !== groupField),
-				() => first ?? "id"
+				() => "id"
 			)
 			const group = groupField === undefined ? undefined : { relation, field: groupField }
 			const head: Record<string, HeadTermDesc> = {
@@ -368,7 +374,7 @@ const folded = (fn: Fn, values: Arr.NonEmptyReadonlyArray<number>): string => {
 		case "sum":
 			return String(total)
 		case "mean":
-			return String(total / values.length)
+			return (total / values.length).toFixed(meanDigits)
 		case "min":
 			return String(Math.min(...values))
 		case "max":
@@ -404,12 +410,24 @@ const hostAnswer = (c: FoldCase, b: Built): ReadonlyArray<string> => {
 	)
 }
 
-/** A reference value as the host's canonical text: an integer's digits, a double's shortest spelling. */
+/**
+ * The digits a mean is compared to: its exact value is the total over the count, which the reference holds as a numeric
+ * of some scale and the host as a double, and a contribution counted twice or dropped moves it far more than either's
+ * rounding at this many digits.
+ */
+const meanDigits = 9
+
+/** A reference value as the host's canonical text: an integer's digits, a numeric (a mean) to meanDigits places. */
 const valueText = (value: Value): string =>
-	typeof value === "bigint" || typeof value === "number" ? String(value) : `unexpected ${String(value)}`
+	typeof value === "bigint" ? String(value) : Number(String(value)).toFixed(meanDigits)
 
 /** The reference evaluator's answer to the checked root, in the host's canonical form. */
-const referenceAnswer = (root: RelNode, dag: Parameters<typeof Reference.of>[0], c: FoldCase, b: Built) => {
+const referenceAnswer = (
+	root: RelNode,
+	dag: Parameters<typeof Reference.of>[0],
+	c: FoldCase,
+	b: Built
+): ReadonlyArray<string> => {
 	const literals = (rows: ReadonlyArray<Fact>): ReadonlyArray<ReadonlyArray<TypedLiteral>> =>
 		Arr.map(rows, (row) => Arr.map(row, (n): TypedLiteral => ({ kind: "int", value: BigInt(n) })))
 	const db = databases[c.database]
@@ -446,14 +464,14 @@ type Feature =
 	| "equal values summed twice"
 
 const required: Arr.NonEmptyReadonlyArray<Feature> = [
-	...Arr.flatMap(fns, (fn): ReadonlyArray<Feature> => [`refused ${fn}`, `admitted ${fn}`]),
 	"refused one",
 	"admitted one",
 	"refused join",
 	"admitted join",
 	"refused attached",
 	"admitted attached",
-	"equal values summed twice"
+	"equal values summed twice",
+	...Arr.flatMap(fns, (fn): ReadonlyArray<Feature> => [`refused ${fn}`, `admitted ${fn}`])
 ]
 
 const refusalOf = (reason: CompileReason): Extract<CompileReason, { _tag: "FoldOverProjection" }> | undefined =>
@@ -469,7 +487,7 @@ describe("a fold reads each fact it matches once, by a key", () => {
 					{
 						suite: "unit/check/folds",
 						generator: element(cases),
-						literal: (c: FoldCase) => JSON.stringify(c),
+						literal: Formatter.format,
 						limit: cases.length,
 						coverage: requiredInSpace<Feature>(required),
 						caseHang

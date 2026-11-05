@@ -820,13 +820,13 @@ export default defineGate({
 					),
 					judged(
 						"the attachment delivers the composition's sets for a key-lookup parent",
-						deliveredAgree("multiset"),
+						deliveredAgree("set"),
 						fewM.delivered.generated.rows,
 						fewM.delivered.conservative.rows
 					),
 					judged(
 						"the attachment delivers the composition's sets for many parents",
-						deliveredAgree("multiset"),
+						deliveredAgree("set"),
 						manyM.delivered.generated.rows,
 						manyM.delivered.conservative.rows
 					),

@@ -122,6 +122,22 @@ const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConv
 	}
 }
 
+/**
+ * The identity a write step's rows are told apart by: a relation's facts' (`relationIdentity` over its heading), but a
+ * family's count statement's, whose rows are its owners' keys, counts and ends alone (write/family/statements.ts
+ * countReturned), over exactly those columns, so no identity reads a column its statement did not return. A member's
+ * writer reads no other column of its owner, and an owner's change from a member write is that part of it.
+ */
+const stepIdentity = (
+	counts: boolean,
+	result: WriteStepResult,
+	identity: (fact: Fact) => string,
+	codes: Codebook
+): ((fact: Fact) => string) =>
+	counts && result.kind === "update"
+		? relationIdentity(result.columns.slice(0, result.fields.length), codes)
+		: identity
+
 /** The changes of an artifact's statements from their rows; `rowsOf(i)` is statement i's rows, none when the runtime
  * skipped it, and is read only for the statements of the strata. Per stratum of the artifact (`byStratum`), its change
  * to each written relation its write steps returned rows for, keyed by fact identity (`stratumChange`); a write step
@@ -136,7 +152,12 @@ export const interpretRows = (
 ): WriteChanges => {
 	const changes = byStratum(artifact.statements).map((statements) => {
 		const returned = statements
-			.flatMap((s) => writeRows(s.step, rowsOf(s.index)))
+			.flatMap((s) =>
+				writeRows(s.step, rowsOf(s.index)).map((w) => ({
+					...w,
+					counts: s.step.kind === "family" && s.step.statement === "count"
+				}))
+			)
 			.filter((w) => w.rows.length > 0)
 		return new Map(
 			context.written.flatMap(({ relation, identity }) => {
@@ -146,10 +167,11 @@ export const interpretRows = (
 				}
 				const rows = own.flatMap((w) => {
 					const convert = changesConverter(w.step.result, context.codes)
+					const identityOf = stepIdentity(w.counts, w.step.result, identity, context.codes)
 					return w.rows.flatMap((raw) =>
 						convert(raw).map((change): ChangeRow => ({
 							...change,
-							identity: identity(change.fact)
+							identity: identityOf(change.fact)
 						}))
 					)
 				})

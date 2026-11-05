@@ -1,9 +1,8 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, boolean, element, type Gen, int } from "@grizzle/testing/gen"
+import { array, boolean, element, type Gen, int, map, shuffled } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
-import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { agreementCounts, deliveredAgree, within } from "#bench/query/support/kit.ts"
@@ -16,9 +15,9 @@ import { caseHang } from "#test/support/limits.ts"
  * - `within(tolerance)` agrees on two keyed lists of numeric texts exactly when every key occurs once on each side and
  *   its two values are equal texts or within the tolerance as numbers: a repeated key, a key on one side only, or a
  *   difference above the tolerance disagrees. `agreementCounts` counts as unmatched exactly the keys on one side only.
- * - `deliveredAgree` compares delivered values as multisets of rows: a permutation of the rows agrees, a permutation
- *   inside a nested array agrees as a multiset and disagrees in order unless it changed nothing, and a changed field
- *   disagrees.
+ * - `deliveredAgree` compares delivered values as sets of rows: a permutation of the rows agrees, a permutation inside
+ *   a nested array agrees as a set and disagrees in order unless it changed nothing, and a changed field, a repeated
+ *   row, or an item a nested set repeats disagrees.
  */
 type KeyedRows = ReadonlyArray<readonly [string, string]>
 
@@ -138,20 +137,23 @@ interface Delivered {
 	readonly xs: ReadonlyArray<number>
 }
 
-type DeliveredFeature = "permutation" | "nested permutation" | "changed field"
+type DeliveredFeature =
+	| "permutation"
+	| "nested permutation"
+	| "changed field"
+	| "repeated row"
+	| "repeated nested item"
 
 const sameOrder = (a: ReadonlyArray<number>, b: ReadonlyArray<number>): boolean =>
 	a.length === b.length && Arr.every(a, (x, i) => x === b[i])
 
 describe("the query kit's delivered agreement", () => {
-	it.effect("deliveredAgree is multiset equality of delivered values", (ctx) =>
+	it.effect("deliveredAgree is set equality of delivered values", (ctx) =>
 		Effect.gen(function* () {
-			const rowsGen: Gen<ReadonlyArray<Delivered>> = array(
-				(source) => ({
-					id: source.draw(bigint(0n, 3n)),
-					xs: source.draw(array(int(0, 2), { min: 0, max: 3 }))
-				}),
-				{ min: 0, max: 5 }
+			/** Rows distinct by construction, each with its own id, and nested arrays that repeat no item. */
+			const rowsGen: Gen<ReadonlyArray<Delivered>> = map(
+				array(shuffled([0, 1, 2], { min: 0, max: 3 }), { min: 0, max: 5 }),
+				(arrays) => Arr.map(arrays, (xs, i): Delivered => ({ id: BigInt(i), xs }))
 			)
 			yield* searched(
 				ctx,
@@ -168,7 +170,13 @@ describe("the query kit's delivered agreement", () => {
 						),
 						literal: Formatter.format,
 						coverage: required<DeliveredFeature>(
-							["permutation", "nested permutation", "changed field"],
+							[
+								"permutation",
+								"nested permutation",
+								"changed field",
+								"repeated row",
+								"repeated nested item"
+							],
 							{ cases: 200, sense: notesOnly }
 						),
 						kept: [],
@@ -181,7 +189,7 @@ describe("the query kit's delivered agreement", () => {
 					([rows, n, reverse], c) =>
 						Effect.sync(() => {
 							const ordered = deliveredAgree("ordered")
-							const multiset = deliveredAgree("multiset")
+							const unordered = deliveredAgree("set")
 							if (rows.length === 0) {
 								return
 							}
@@ -192,7 +200,7 @@ describe("the query kit's delivered agreement", () => {
 							if (Arr.some(permuted, (r, i) => r !== rows[i])) {
 								c.note("permutation")
 							}
-							assert.deepEqual(multiset(rows, permuted), Option.none())
+							assert.deepEqual(unordered(rows, permuted), Option.none())
 							assert.deepEqual(ordered(rows, permuted), Option.none())
 							/** A nested permutation: the n-th row's array reversed. */
 							const nested = Arr.map(rows, (r, i) =>
@@ -203,7 +211,7 @@ describe("the query kit's delivered agreement", () => {
 							if (!unchanged) {
 								c.note("nested permutation")
 							}
-							assert.deepEqual(multiset(rows, nested), Option.none())
+							assert.deepEqual(unordered(rows, nested), Option.none())
 							assert.equal(Option.isNone(ordered(rows, nested)), unchanged)
 							/** A changed field: the n-th row's id, or its first element, moved outside every drawn value. */
 							const changed = Arr.map(rows, (r, i) =>
@@ -214,8 +222,23 @@ describe("the query kit's delivered agreement", () => {
 										: { id: r.id, xs: Arr.map(r.xs, (x, j) => (j === 0 ? x + 3 : x)) }
 							)
 							c.note("changed field")
-							assert.notDeepEqual(multiset(rows, changed), Option.none())
+							assert.notDeepEqual(unordered(rows, changed), Option.none())
 							assert.notDeepEqual(ordered(rows, changed), Option.none())
+							/** A repeated row: the n-th row delivered again. */
+							const repeated = [...permuted, target]
+							c.note("repeated row")
+							assert.notDeepEqual(unordered(rows, repeated), Option.none())
+							assert.notDeepEqual(unordered(repeated, repeated), Option.none())
+							assert.notDeepEqual(ordered(repeated, repeated), Option.none())
+							/** A repeated nested item: the n-th row's first item delivered again in its array. */
+							const [first] = target.xs
+							if (first !== undefined) {
+								const doubled = Arr.map(rows, (r, i) =>
+									i === at ? { id: r.id, xs: [...r.xs, first] } : r
+								)
+								c.note("repeated nested item")
+								assert.notDeepEqual(unordered(doubled, doubled), Option.none())
+							}
 						})
 				)
 			)

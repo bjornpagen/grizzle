@@ -309,7 +309,11 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 			target: Object.freeze({
 				relation: edit.relation,
 				layout,
-				families: reads.map((r) => ({ family: r.family, shape: r.sql.shape }))
+				families: reads.map((r) => ({
+					family: r.family,
+					shape: r.sql.shape,
+					fixed: stored.get(r.family.owner.name)?.mutable !== true
+				}))
 			}),
 			reads
 		})

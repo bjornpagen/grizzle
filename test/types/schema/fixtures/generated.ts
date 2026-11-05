@@ -1,12 +1,24 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { Bits, bits, closedId, generated, pg, uuid } from "#compiler/public/fields.ts"
+import {
+	Bits,
+	bits,
+	closedId,
+	drawn,
+	generated,
+	natural,
+	pg,
+	type Uuid,
+	uuid
+} from "#compiler/public/fields.ts"
 import {
 	closed,
 	type Fact,
+	fin,
 	type KeysOf,
 	key,
 	on,
+	ordered,
 	relation,
 	type Schema,
 	type Statement,
@@ -195,6 +207,28 @@ export const conflictingDeleted = ChangeSet.empty(Items).delete(
 )
 declare const someItems: ReadonlyArray<{ readonly id: bigint; readonly v: number }>
 export const widenedItems = ChangeSet.empty(Items).put(Item, someItems)
+
+/**
+ * A delete states each fact as its caller writes it (Written<R>): a drawn count, like a generated or accumulated field,
+ * is grizzle's to write, so a delete that states one is refused, and an insert and a delete of one fact state one row.
+ */
+export const Doc = relation("Doc", { id: uuid, n: drawn(natural) }, ["id"])
+export const Line = relation("Line", { at: drawn(natural), doc: uuid, text: pg.integer }, [
+	"doc",
+	"at"
+])
+export const lines = ordered(on(Line, "doc", "at"), fin(Doc, "n"))
+export const Docs = schema("Docs", { Doc, Line }, [lines])
+declare const docId: Uuid
+export const drawnDeleted = ChangeSet.empty(Docs).delete(
+	Doc,
+	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
+	[{ id: docId, n: 0n }]
+)
+export const writtenDeleted = ChangeSet.empty(Docs).delete(Doc, [{ id: docId }])
+export const insertedDeleted = ChangeSet.empty(Docs)
+	.insert(Doc, [{ id: docId, n: [{ text: 1 }] }])
+	.delete(Doc, [{ id: docId }])
 
 /** A closed relation's rows are a set by identity too: a repeated row is one row, and a conflicting one is refused. */
 export const RepeatedRow = closed.relation(
