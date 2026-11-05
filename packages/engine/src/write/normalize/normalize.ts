@@ -3,7 +3,7 @@ import type { RelationNormalizer } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type EncodingFailure, KeyConflict } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
@@ -20,9 +20,16 @@ import {
 } from "#compiler/scalar/values/identity.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { KeyHost, Law } from "#compiler/types/changeset/changeset.ts"
-import type { Row } from "#compiler/write/family/draw.ts"
-import { nestedRows } from "#compiler/write/family/nesting.ts"
-import type { MemberSlot, WriteFrontend } from "#compiler/write/frontend/compile.ts"
+import {
+	type NestedFact,
+	type NestedRow,
+	type NestedSet,
+	nestedConflict,
+	nestedRows,
+	nestedRowsOf,
+	nestedSet
+} from "#compiler/write/family/nesting.ts"
+import type { MemberSlot, SlotFacts, WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type { RelationUniques } from "#compiler/write/insert/unique.ts"
 
 type Fact = { readonly [field: string]: unknown }
@@ -50,8 +57,9 @@ interface KeyRefusal {
 export interface Normalized {
 	readonly kind: "normalized"
 	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
-	/** Each nested write's rows, by its member slot and then by relation, in the order they are inserted. */
-	readonly nested: ReadonlyMap<ParamId, ReadonlyMap<string, ReadonlyArray<Row>>>
+	/** Each stratum's nested rows, by reached member relation, a set by key (nesting.ts NestedSet), in the order they
+	 * are inserted. */
+	readonly nested: ReadonlyMap<number, ReadonlyMap<string, ReadonlyMap<string, NestedRow>>>
 }
 
 export type Normalization = Normalized | KeyRefusal
@@ -260,6 +268,105 @@ const keyValues = (
 
 const names = (fields: ReadonlyArray<HostKeyField>): KeySet => fields.map((f) => f.field)
 
+/** The refusal of two additions of `facts`'s relation at one key, `fact` the later. */
+const conflictOf = (
+	stratum: number,
+	facts: SlotFacts,
+	fact: Fact,
+	fields: ReadonlyArray<HostKeyField>,
+	law: { readonly law: LawId; readonly described: Law }
+): KeyRefusal => {
+	const keyFields = names(fields)
+	return {
+		kind: "keyConflict",
+		stratum,
+		relation: facts.name,
+		fields: keyFields,
+		law: law.law,
+		described: law.described,
+		values: keyValues(fact, fields),
+		conflict: KeyConflict.make({
+			relation: facts.name,
+			fields: keyFields,
+			values: keyFields.map((f) => fact[f])
+		})
+	}
+}
+
+/** The refusal of two nested facts or rows of `facts`'s relation at its primary key, the key a nested set holds them
+ * by, `fact` the later. */
+const primaryConflict = (stratum: number, facts: SlotFacts, fact: NestedFact): KeyRefusal => {
+	const [primary] = facts.host.keys
+	if (primary === undefined) {
+		throw defect(`the primary key of ${facts.name}, which a nested write keys its rows by`)
+	}
+	return conflictOf(stratum, facts, fact, primary.fields, primary)
+}
+
+/**
+ * Same-key refusal over one stratum's additions of one relation (`normalizeChangeSet`, step 3): the first addition, in
+ * canonical order, sharing a declared key's value with an earlier one of another identity, the keys tried primary key
+ * first; then the first whose span overlaps an earlier one's at equal scalar fields. A generated addition takes part
+ * only on the keys and spans that hold no serial field.
+ */
+const sameKey = (
+	stratum: number,
+	facts: SlotFacts,
+	serial: ReadonlyArray<string>,
+	complete: ReadonlyArray<Entry>,
+	generated: ReadonlyArray<Entry>
+): KeyRefusal | undefined => {
+	for (const key of facts.host.keys) {
+		const { fields } = key
+		const keyText = keyTextOf(fields)
+		const candidates = fields.some((f) => serial.includes(f.field))
+			? complete
+			: [...complete, ...generated]
+		const seen = new Map<string, Entry>()
+		for (const e of candidates) {
+			const k = keyText(e.fact)
+			const prior = seen.get(k)
+			if (prior !== undefined && prior.identity !== e.identity) {
+				return conflictOf(stratum, facts, e.fact, fields, key)
+			}
+			seen.set(k, e)
+		}
+	}
+	for (const check of facts.host.spans) {
+		const { span, witness } = check
+		const keyText = keyTextOf(check.equal)
+		const onKey = witness.some((f) => serial.includes(f.field))
+			? complete
+			: [...complete, ...generated]
+		const groups = new Map<string, Array<{ readonly entry: Entry; readonly span: HostSpan }>>()
+		for (const e of onKey) {
+			const value = admitted(span.spec, e.fact[span.field])
+			const k = keyText(e.fact)
+			const group = groups.get(k) ?? []
+			group.push({ entry: e, span: value })
+			groups.set(k, group)
+		}
+		for (const group of groups.values()) {
+			/** In start order, a span overlaps an earlier one of its group exactly when it starts before the latest
+			 * end so far. */
+			const ordered = group.toSorted((x, y) => {
+				const byStart = spanStartOrder(x.span.start, y.span.start)
+				return byStart !== 0 ? byStart : identityOrder(x.entry, y.entry)
+			})
+			let reach: HostSpan["end"] | undefined
+			for (const { entry, span: value } of ordered) {
+				if (reach !== undefined && value.start < reach) {
+					return conflictOf(stratum, facts, entry.fact, witness, check)
+				}
+				if (reach === undefined || value.end > reach) {
+					reach = value.end
+				}
+			}
+		}
+	}
+	return undefined
+}
+
 /** Normalizes every enumerated slot of a compiled ChangeSet over the facts its member slots supply.
  *
  * A fact both an insert and a put request is the put's.
@@ -282,11 +389,14 @@ const names = (fields: ReadonlyArray<HostKeyField>): KeySet => fields.map((f) =>
  *    (`EnumeratedInput` "classed") is routed once by the serial fields it supplies: one that omits all is a generated
  *    addition, admitted against its class's heading, the unit relation's when that holds no field; one that supplies
  *    all is complete; one that omits some is no fact of either heading (factShape).
- * 2. Collapses equal facts: the members of one operation are one set, and equal generated additions are
- *    one requested addition that yields one new fact.
- * 3. Refuses conflicting additions before any SQL is sent: two facts that one stratum adds, by insert or
- *    by put, with one value of a declared key and different facts, are a key conflict, which is invariant-rejected
- *    with that key's law. Additions win the transition S' = (S \ D) ∪ A, so both facts
+ * 2. Collapses equal facts: a ChangeSet's facts of one relation are a set by identity (rule 0), so a fact stated twice,
+ *    in one array, across arrays or across inserts, is one fact, and equal generated additions are one requested
+ *    addition that yields one new fact. A nested insert's facts are one set across its stratum (nesting.ts NestedSet):
+ *    a fact stated twice with every row it nests is one, and so is each member row it nests.
+ * 3. Refuses conflicting additions before any SQL is sent: two facts that one stratum adds, by insert or by put, or
+ *    nests under an insert, with one value of a declared key and different identities, are a key conflict, which is
+ *    invariant-rejected with that key's law; two nested facts at one key that nest different rows are one too, on
+ *    their relation's primary key. Additions win the transition S' = (S \ D) ∪ A, so both facts
  *    would be in the final state and break the key whatever was stored. A generated addition takes part on every key
  *    that holds no serial field; its identity does not exist yet on the others. Keys are tried primary
  *    key first, then in declaration order, and facts in canonical order, so the refusal is deterministic. A span
@@ -305,10 +415,10 @@ export const normalizeChangeSet = (
 	inputs: MemberFacts
 ): Result.Result<Normalization, EncodingFailure> => {
 	const out = new Map<ParamId, NormalizedSlot>()
-	const nested = new Map<ParamId, Map<string, Array<Row>>>()
+	/** Each stratum's nested writes, one set across its every nested input, and the relations their rows are of. */
+	const nested = new Map<number, NestedSet>()
+	const reached = new Map<number, Map<string, SlotFacts>>()
 	for (const { stratum, facts: relation, inputs: enumerated } of frontend.slots) {
-		/** The own row of a nested fact at a key an earlier nested fact holds with other rows nested. */
-		let nestedConflict: { readonly [field: string]: unknown } | undefined
 		const sets: Record<"insert" | "generated" | "put" | "delete", Map<string, Entry>> = {
 			insert: new Map(),
 			generated: new Map(),
@@ -323,33 +433,28 @@ export const normalizeChangeSet = (
 			switch (input.kind) {
 				case "nested": {
 					slotOf.set("insert", input.slot)
+					const set = nested.get(stratum) ?? nestedSet()
+					nested.set(stratum, set)
+					const relations = reached.get(stratum) ?? new Map<string, SlotFacts>()
+					reached.set(stratum, relations)
+					relations.set(input.nesting.relation.name, relation)
+					for (const [name, facts] of input.reached) {
+						relations.set(name, facts)
+					}
 					for (const member of input.members) {
 						const given = inputs.get(member.name)
 						if (given === undefined) {
 							return Result.err(encodeFailure("factShape", slotPlace(member.name)))
 						}
-						const rows = nestedRows(input.nesting, member.name, given)
+						const rows = nestedRows(input.nesting, member.name, given, set)
 						if (!rows.ok) {
-							if (rows.error.kind === "encoding") {
-								return Result.err(rows.error.failure)
-							}
-							nestedConflict = rows.error.fact
-							break
+							return rows
 						}
-						const own = admit(member.normalize, rows.value.tops)
+						const own = admit(member.normalize, rows.value)
 						if (!own.ok) {
 							return own
 						}
 						collect(sets.insert, own.value)
-						const mine = nested.get(input.slot.slot) ?? new Map<string, Array<Row>>()
-						for (const [written, list] of rows.value.rows) {
-							const known = mine.get(written) ?? []
-							for (const row of list) {
-								known.push(row)
-							}
-							mine.set(written, known)
-						}
-						nested.set(input.slot.slot, mine)
 					}
 					break
 				}
@@ -399,83 +504,15 @@ export const normalizeChangeSet = (
 		for (const id of sets.put.keys()) {
 			sets.insert.delete(id)
 		}
-		/** The refusal of two additions at one key, `fact` the later. */
-		const conflict = (
-			fact: Fact,
-			fields: ReadonlyArray<HostKeyField>,
-			law: { readonly law: LawId; readonly described: Law }
-		): KeyRefusal => {
-			const keyFields = names(fields)
-			return {
-				kind: "keyConflict",
-				stratum,
-				relation: relation.name,
-				fields: keyFields,
-				law: law.law,
-				described: law.described,
-				values: keyValues(fact, fields),
-				conflict: KeyConflict.make({
-					relation: relation.name,
-					fields: keyFields,
-					values: keyFields.map((f) => fact[f])
-				})
-			}
-		}
-		const [primary] = relation.host.keys
-		if (nestedConflict !== undefined && primary !== undefined) {
-			return Result.ok(conflict(nestedConflict, primary.fields, primary))
-		}
-		/** Same-key refusal over the stratum's additions: the first candidate sharing a key value with an earlier
-		 * different fact. */
-		const complete = sorted([...sets.put.values(), ...sets.insert.values()])
-		const generated = sorted(sets.generated.values())
-		for (const key of relation.host.keys) {
-			const { fields } = key
-			const keyText = keyTextOf(fields)
-			const candidates = fields.some((f) => serial.includes(f.field))
-				? complete
-				: [...complete, ...generated]
-			const seen = new Map<string, Entry>()
-			for (const e of candidates) {
-				const k = keyText(e.fact)
-				const prior = seen.get(k)
-				if (prior !== undefined && prior.identity !== e.identity) {
-					return Result.ok(conflict(e.fact, fields, key))
-				}
-				seen.set(k, e)
-			}
-		}
-		for (const check of relation.host.spans) {
-			const { span, witness } = check
-			const keyText = keyTextOf(check.equal)
-			const onKey = witness.some((f) => serial.includes(f.field))
-				? complete
-				: [...complete, ...generated]
-			const groups = new Map<string, Array<{ readonly entry: Entry; readonly span: HostSpan }>>()
-			for (const e of onKey) {
-				const value = admitted(span.spec, e.fact[span.field])
-				const k = keyText(e.fact)
-				const group = groups.get(k) ?? []
-				group.push({ entry: e, span: value })
-				groups.set(k, group)
-			}
-			for (const group of groups.values()) {
-				/** In start order, a span overlaps an earlier one of its group exactly when it starts before the latest
-				 * end so far. */
-				const ordered = group.toSorted((x, y) => {
-					const byStart = spanStartOrder(x.span.start, y.span.start)
-					return byStart !== 0 ? byStart : identityOrder(x.entry, y.entry)
-				})
-				let reach: HostSpan["end"] | undefined
-				for (const { entry, span: value } of ordered) {
-					if (reach !== undefined && value.start < reach) {
-						return Result.ok(conflict(entry.fact, witness, check))
-					}
-					if (reach === undefined || value.end > reach) {
-						reach = value.end
-					}
-				}
-			}
+		const refused = sameKey(
+			stratum,
+			relation,
+			serial,
+			sorted([...sets.put.values(), ...sets.insert.values()]),
+			sorted(sets.generated.values())
+		)
+		if (refused !== undefined) {
+			return Result.ok(refused)
 		}
 		for (const id of [...sets.insert.keys(), ...sets.put.keys()]) {
 			sets.delete.delete(id)
@@ -487,5 +524,34 @@ export const normalizeChangeSet = (
 			out.set(slot.slot, Object.freeze({ ...normal, slot, count: normal.facts.length }))
 		}
 	}
-	return Result.ok({ kind: "normalized", slots: out, nested })
+	/** Each stratum's nested rows by relation, judged as the stratum's additions of that relation (step 3): a row its
+	 * set holds once at its key may still share another declared key with another row. */
+	const rows = new Map<number, ReadonlyMap<string, ReadonlyMap<string, NestedRow>>>()
+	for (const [stratum, set] of nested) {
+		const factsOf = (name: string): SlotFacts =>
+			defined(
+				reached.get(stratum)?.get(name),
+				`the facts of ${name}, a relation a nested write writes`
+			)
+		const conflict = nestedConflict(set)
+		if (conflict !== undefined) {
+			return Result.ok(primaryConflict(stratum, factsOf(conflict.relation), conflict.fact))
+		}
+		const held = nestedRowsOf(set)
+		for (const [name, byKey] of held) {
+			const facts = factsOf(name)
+			const refused = sameKey(
+				stratum,
+				facts,
+				[],
+				sorted([...byKey.values()].map((r) => ({ identity: r.identity, fact: r.fact }))),
+				[]
+			)
+			if (refused !== undefined) {
+				return Result.ok(refused)
+			}
+		}
+		rows.set(stratum, held)
+	}
+	return Result.ok({ kind: "normalized", slots: out, nested: rows })
 }

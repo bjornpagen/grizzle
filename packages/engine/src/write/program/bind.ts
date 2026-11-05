@@ -15,9 +15,9 @@ import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
-import { compose, type RelationPlanAt } from "#compiler/write/family/compose.ts"
-import type { Row } from "#compiler/write/family/draw.ts"
+import { compose, type RelationPlanAt, relationDepths } from "#compiler/write/family/compose.ts"
 import { familyKey } from "#compiler/write/family/fold.ts"
+import type { NestedRow } from "#compiler/write/family/nesting.ts"
 import {
 	type FamilyStatement,
 	type Plan,
@@ -255,8 +255,11 @@ export const bindWrite = (
 		}
 		return Result.ok(out)
 	}
-	/** Each stratum's plan, planned once, at its first family step: the rows of every nested write of the stratum, by
-	 * relation, composed by depth. */
+	const noRows: ReadonlyMap<string, ReadonlyMap<string, NestedRow>> = new Map()
+	/** Each relation's depth among the families, which orders a stratum's relations' statements. */
+	const depthOf = relationDepths(frontend.laws.families)
+	/** Each stratum's plan, planned once, at its first family step: the rows its nested writes insert, by relation,
+	 * composed by depth. */
 	const plans = new Map<number, Result.Result<Plan, FamilyRowBound>>()
 	const planOf = (stratum: number): Result.Result<Plan, FamilyRowBound> => {
 		const known = plans.get(stratum)
@@ -264,31 +267,30 @@ export const bindWrite = (
 			return known
 		}
 		const relations: Array<RelationPlanAt> = []
-		for (const nested of frontend.nested) {
-			if (nested.stratum !== stratum) {
-				continue
+		for (const [relation, rows] of normalized.nested.get(stratum) ?? noRows) {
+			const planned = planRelation(
+				{
+					relation,
+					deletes: new Map(),
+					trees: new Map(),
+					updates: new Map(),
+					inserts: new Map([...rows].map(([key, r]) => [key, r.row] as const))
+				},
+				inputs.transport
+			)
+			if (!planned.ok) {
+				const refused: Result.Result<Plan, FamilyRowBound> = Result.err({
+					_tag: "FamilyRowBound",
+					family: defined(
+						frontend.laws.families.find((f) => f.member.name === relation),
+						`a family whose member is ${relation}, which a nested write reaches`
+					),
+					row: planned.error
+				})
+				plans.set(stratum, refused)
+				return refused
 			}
-			const rows = normalized.nested.get(nested.slot.slot) ?? new Map<string, ReadonlyArray<Row>>()
-			for (const [relation, inserts] of rows) {
-				const reached = defined(
-					nested.nesting.reached.find((r) => r.family.member.name === relation),
-					`the family a nested write reaches ${relation} by`
-				)
-				const planned = planRelation(
-					{ relation, deletes: [], trees: [], updates: [], inserts },
-					inputs.transport
-				)
-				if (!planned.ok) {
-					const refused: Result.Result<Plan, FamilyRowBound> = Result.err({
-						_tag: "FamilyRowBound",
-						family: reached.family,
-						row: planned.error
-					})
-					plans.set(stratum, refused)
-					return refused
-				}
-				relations.push({ depth: reached.depth, plan: planned.value })
-			}
+			relations.push({ depth: depthOf(relation), plan: planned.value })
 		}
 		const result: Result.Result<Plan, FamilyRowBound> = Result.ok(compose(relations, []))
 		plans.set(stratum, result)

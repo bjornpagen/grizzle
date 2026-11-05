@@ -53,22 +53,24 @@ import {
 } from "#compiler/write/family/draw.ts"
 
 /**
- * One member relation's rows of a write: those deleted by key, its trees deleted whole by their root fields' texts, its
- * kept rows updated in place, and its new and re-placed rows inserted, in the order they go: a sequence's members in
- * ascending slot order per owner, a tree's in pre-order.
+ * One member relation's rows of a write, each kind a set by its key's text (draw.ts textsKey), so no row is written
+ * twice by one kind: those deleted by key, its trees deleted whole by their root fields' texts, its kept rows updated in
+ * place, and its new and re-placed rows inserted, in the order they go: a sequence's members in ascending slot order
+ * per owner, a tree's in pre-order.
  */
 export interface RelationWrite {
 	readonly relation: string
-	readonly deletes: ReadonlyArray<MemberKey>
-	readonly trees: ReadonlyArray<Owner>
-	readonly updates: ReadonlyArray<Row>
-	readonly inserts: ReadonlyArray<Row>
+	readonly deletes: ReadonlyMap<string, MemberKey>
+	readonly trees: ReadonlyMap<string, Owner>
+	readonly updates: ReadonlyMap<string, Row>
+	readonly inserts: ReadonlyMap<string, Row>
 }
 
-/** One family's owners whose count or ends change, each set by one count statement (draw.ts Recount). */
+/** One family's owners whose count or ends change, each set by one count statement (draw.ts Recount), by its key's
+ * text. */
 export interface OwnerWrite {
 	readonly family: FamilyId
-	readonly recounts: ReadonlyArray<Recount>
+	readonly recounts: ReadonlyMap<string, Recount>
 }
 
 /**
@@ -272,16 +274,6 @@ const unsendable = (statement: FamilyStatement["kind"], bound: Bound): Unsendabl
 	statement
 })
 
-/** Each of `keys` once. */
-const once = (keys: ReadonlyArray<ReadonlyArray<string>>, what: string): void => {
-	const seen = new Set<string>()
-	for (const key of keys) {
-		const text = JSON.stringify(key)
-		invariant(!seen.has(text), what)
-		seen.add(text)
-	}
-}
-
 /** A relation's write's statements: its deletes, its updates and its inserts. */
 export type RelationPlan = readonly [
 	deletes: Phase<"delete" | "deleteTree">,
@@ -292,43 +284,30 @@ export type RelationPlan = readonly [
 /**
  * A member relation's write cut into the statements the transport carries: its deletes by key, then its trees by root
  * field, its updates, and its inserts in their order; or the first row no statement can carry, before any statement is
- * planned. A row is deleted, updated and inserted at most once each, and updated only if neither deleted nor inserted.
+ * planned. A row updated in place is neither deleted nor inserted.
  */
 export const planRelation = (
 	write: RelationWrite,
 	transport: Transport
 ): Result.Result<RelationPlan, Unsendable> => {
 	const { relation } = write
-	once(write.deletes, "a write deletes each row once")
-	once(
-		write.inserts.map((r) => r.key),
-		"a write inserts each row once"
-	)
-	once(
-		write.updates.map((r) => r.key),
-		"a write updates each row once"
-	)
-	const touched = new Set([
-		...write.inserts.map((r) => JSON.stringify(r.key)),
-		...write.deletes.map((k) => JSON.stringify(k))
-	])
 	invariant(
-		write.updates.every((r) => !touched.has(JSON.stringify(r.key))),
+		[...write.updates.keys()].every((k) => !write.deletes.has(k) && !write.inserts.has(k)),
 		"a row updated in place is neither deleted nor inserted"
 	)
-	const deletes = cut(write.deletes, keyTexts, transport)
+	const deletes = cut([...write.deletes.values()], keyTexts, transport)
 	if (!deletes.ok) {
 		return Result.err(unsendable("delete", deletes.error))
 	}
-	const trees = cut(write.trees, (t: Owner): ReadonlyArray<string> => t, transport)
+	const trees = cut([...write.trees.values()], (t: Owner): ReadonlyArray<string> => t, transport)
 	if (!trees.ok) {
 		return Result.err(unsendable("deleteTree", trees.error))
 	}
-	const updates = cut(write.updates, rowTexts, transport)
+	const updates = cut([...write.updates.values()], rowTexts, transport)
 	if (!updates.ok) {
 		return Result.err(unsendable("update", updates.error))
 	}
-	const inserts = cut(write.inserts, rowTexts, transport)
+	const inserts = cut([...write.inserts.values()], rowTexts, transport)
 	if (!inserts.ok) {
 		return Result.err(unsendable("insert", inserts.error))
 	}
@@ -343,16 +322,12 @@ export const planRelation = (
 	return Result.ok(planned)
 }
 
-/** A family's owners' counts cut into the statements the transport carries, each owner counted once. */
+/** A family's owners' counts cut into the statements the transport carries. */
 export const planOwners = (
 	write: OwnerWrite,
 	transport: Transport
 ): Result.Result<Phase<"count">, Unsendable> => {
-	once(
-		write.recounts.map((r) => r.owner),
-		"a write counts each owner once"
-	)
-	const counts = cut(write.recounts, recountTexts, transport)
+	const counts = cut([...write.recounts.values()], recountTexts, transport)
 	if (!counts.ok) {
 		return Result.err(unsendable("count", counts.error))
 	}

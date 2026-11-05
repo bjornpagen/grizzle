@@ -146,6 +146,8 @@ export type EnumeratedInput =
 			readonly act: Extract<SingleAct, { readonly op: "insert" }>
 			readonly slot: MemberSlot
 			readonly nesting: Nesting
+			/** Each member relation its families reach, as its same-key checks judge its nested rows. */
+			readonly reached: ReadonlyMap<string, SlotFacts>
 			readonly members: NonEmptyReadonlyArray<InputMember<RelationNormalizer>>
 	  }
 	| {
@@ -1184,6 +1186,12 @@ const compile = (
 										act: complete,
 										slot,
 										nesting,
+										reached: new Map(
+											nesting.reached.map((r) => {
+												const member = writtenOf(r.family.member.name, loc)
+												return [member.name, { name: member.name, host: member.host }] as const
+											})
+										),
 										members: Object.freeze(
 											mapNonEmpty(enumerated, (m) =>
 												Object.freeze({ name: m.slot, normalize: normalizer(m.slot) })
@@ -1456,11 +1464,15 @@ const compile = (
 		deltaEntries.set(name, entry)
 		return { kind: "relation", relation: entry.target.name, via: { kind: "entry", entry } }
 	}
-	/** The relations a nested write writes through its families' statements: every reached family's member, a tree's
-	 * relation among them. Their statements fill no delta carrier, so no read-back names their deltas. */
+	/** The relations a family write writes through its families' statements: every reached family's member, a tree's
+	 * relation among them, every edited member relation, and the owners of its families, whose count statements return
+	 * only their keys, counts and ends. Their statements fill no delta carrier, so no read-back names their deltas. */
 	const nestedRelations = new Set([
 		...nestedWrites.flatMap((n) => n.nesting.reached.map((r) => r.family.member.name)),
-		...edits.map((e) => e.relation)
+		...edits.map((e) => e.relation),
+		...families
+			.filter((f) => edits.some((e) => e.relation === f.member.name))
+			.map((f) => f.owner.name)
 	])
 	if (new Set(edits.map((e) => e.stratum)).size > 1) {
 		refuse(
@@ -1489,7 +1501,7 @@ const compile = (
 				refuse(
 					"UnsupportedOperation",
 					childLoc(at, "reads", r.name),
-					`a delta of ${d.relation}, which a nested write writes through its family's statements: read ${d.relation} itself after the change`
+					`a delta of ${d.relation}, which a family write writes through its family's statements: read ${d.relation} itself after the change`
 				)
 			}
 		}

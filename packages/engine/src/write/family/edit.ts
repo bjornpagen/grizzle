@@ -36,7 +36,13 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import { admittedText, admitValue } from "#compiler/scalar/values/identity.ts"
-import type { MemberKey, Owner, Recount, Row } from "#compiler/write/family/draw.ts"
+import {
+	type MemberKey,
+	type Owner,
+	type Recount,
+	type Row,
+	textsKey
+} from "#compiler/write/family/draw.ts"
 import {
 	baseOf,
 	type ColumnKey,
@@ -101,8 +107,6 @@ export interface FillContext {
 }
 
 /** A key text, which keys of one relation are told apart by. */
-const keyText = (texts: ReadonlyArray<string>): string => JSON.stringify(texts)
-
 const specOf = (ctx: FillContext, type: LawField["type"]) => carrierSpecOf(type, ctx.codes)
 
 /** A host value's text in its type's carrier. */
@@ -136,22 +140,20 @@ export const readArrays = (
 	const keys = new Map<string, MemberKey>()
 	for (const fact of [...changes.deletes, ...changes.puts]) {
 		const key = keyOf(ctx, target.layout, valuesOfFact(fact))
-		keys.set(keyText(key), key)
+		keys.set(textsKey(key), key)
 	}
 	const groups = new Map<string, Owner>()
 	for (const fact of [...changes.inserts, ...changes.puts]) {
 		const group = groupOf(ctx, family, valuesOfFact(fact))
-		if (!inserted.has(keyText(group))) {
-			groups.set(keyText(group), group)
+		if (!inserted.has(textsKey(group))) {
+			groups.set(textsKey(group), group)
 		}
 	}
 	if (keys.size === 0 && groups.size === 0) {
 		return undefined
 	}
-	const column = <K extends ReadonlyArray<string>>(
-		list: ReadonlyArray<K>,
-		i: number
-	): ReadonlyArray<string> => list.map((k) => defined(k[i], `component ${i} of a read key`))
+	const column = (list: ReadonlyArray<ReadonlyArray<string>>, i: number): ReadonlyArray<string> =>
+		list.map((k) => defined(k[i], `component ${i} of a read key`))
 	return [
 		...target.layout.key.map((_, i) => column([...keys.values()], i)),
 		...family.group.map((_, i) => column([...groups.values()], i))
@@ -203,7 +205,7 @@ export const decodeRead = (
 				values.set(fieldKey(f.name), v.value)
 			}
 			const count = values.get(fieldKey(family.count.name))
-			const group = keyText(groupOfOwner(ctx, family, values))
+			const group = textsKey(groupOfOwner(ctx, family, values))
 			owners.set(group, { values, count: typeof count === "bigint" ? Number(count) : 0 })
 			continue
 		}
@@ -217,9 +219,9 @@ export const decodeRead = (
 		}
 		const slot = values.get(columnKey(family.index))
 		members.push({
-			key: keyText(keyOf(ctx, target.layout, values)),
+			key: textsKey(keyOf(ctx, target.layout, values)),
 			slot: typeof slot === "bigint" ? Number(slot) : -1,
-			group: keyText(groupOf(ctx, family, values)),
+			group: textsKey(groupOf(ctx, family, values)),
 			values
 		})
 	}
@@ -345,8 +347,7 @@ const fillGroup = (
 		[...inputs].some((name) => {
 			const field = relation.fields.find((f) => f.name === name)
 			return (
-				field !== undefined &&
-				field.writing.kind === "caller" &&
+				field?.writing.kind === "caller" &&
 				!same(ctx, field.type, before.get(fieldKey(name)), after.get(fieldKey(name)))
 			)
 		})
@@ -554,9 +555,6 @@ const typeOfKey = (relation: LawRelation, family: Family, key: ColumnKey): LawFi
 	return type
 }
 
-/** Why a relation's edits cannot be planned: a member key its changes name twice, or a row the host cannot fill. */
-export type EditRefusal = EncodingFailure
-
 /** What one stratum's edits of a member relation write: its rows, and each family's changed owners. */
 export interface Edited {
 	readonly rows: RelationWrite
@@ -575,7 +573,7 @@ export const planEdits = (
 	changes: RelationChanges,
 	stored: ReadonlyMap<string, StoredFamily>,
 	insertedOwners: (family: Family) => ReadonlyMap<string, Values>
-): Result.Result<Edited, EditRefusal> => {
+): Result.Result<Edited, EncodingFailure> => {
 	const relation = target.relation
 	/** Each row the changes name, once: a key named twice is refused, never a second member. */
 	const named = new Map<
@@ -591,7 +589,7 @@ export const planEdits = (
 		for (const fact of facts) {
 			const values = valuesOfFact(fact)
 			const key = keyOf(ctx, target.layout, values)
-			const text = keyText(key)
+			const text = textsKey(key)
 			if (named.has(text)) {
 				return Result.err(encodeFailure("factShape", slotPlace(relation.name)))
 			}
@@ -626,7 +624,7 @@ export const planEdits = (
 			}
 		>()
 		const groupEdit = (owner: Owner) => {
-			const text = keyText(owner)
+			const text = textsKey(owner)
 			const known = groups.get(text)
 			if (known !== undefined) {
 				return known.edit
@@ -661,7 +659,7 @@ export const planEdits = (
 						break
 					}
 					const merged = new Map([...was.values, ...values])
-					if (was.group === keyText(group)) {
+					if (was.group === textsKey(group)) {
 						groupEdit(group).updates.set(key, merged)
 					} else {
 						groupEdit(storedGroupOf(was)).removals.add(key)
@@ -671,8 +669,8 @@ export const planEdits = (
 				}
 			}
 		}
-		const recounts: Array<Recount> = []
-		for (const { owner, edit } of groups.values()) {
+		const recounts = new Map<string, Recount>()
+		for (const [text, { owner, edit }] of groups) {
 			const filled = fillGroup(ctx, relation, family, edit)
 			if (!filled.ok) {
 				return filled
@@ -685,20 +683,20 @@ export const planEdits = (
 			}
 			const after = filled.value.recount
 			if (after !== undefined) {
-				recounts.push({
+				recounts.set(text, {
 					owner,
 					count: edit.appends.length + (edit.stored?.count ?? 0) - edit.removals.size,
 					ends: endColumns(family).map((f) => textOf(ctx, f.type, after.get(fieldKey(f.name))))
 				})
 			}
 		}
-		if (recounts.length > 0) {
+		if (recounts.size > 0) {
 			owners.push({ family: family.id, recounts })
 		}
 	}
-	const deletes: Array<MemberKey> = []
-	const updates: Array<Row> = []
-	const inserts: Array<Row> = []
+	const deletes = new Map<string, MemberKey>()
+	const updates = new Map<string, Row>()
+	const inserts = new Map<string, Row>()
 	const keyOfText = (text: string): MemberKey => defined(keys.get(text), "a named or stored key")
 	const rowOf = (text: string, values: Values): Row => ({
 		key: keyOfText(text),
@@ -709,7 +707,7 @@ export const planEdits = (
 		const op = named.get(text)
 		if (op?.op === "delete") {
 			if (storedRows.has(text)) {
-				deletes.push(keyOfText(text))
+				deletes.set(text, keyOfText(text))
 			}
 			continue
 		}
@@ -721,16 +719,16 @@ export const planEdits = (
 			}
 		}
 		if (!storedRows.has(text)) {
-			inserts.push(rowOf(text, merged))
+			inserts.set(text, rowOf(text, merged))
 		} else if (list.some((p) => p.change === "replace")) {
-			deletes.push(keyOfText(text))
-			inserts.push(rowOf(text, merged))
+			deletes.set(text, keyOfText(text))
+			inserts.set(text, rowOf(text, merged))
 		} else {
-			updates.push(rowOf(text, merged))
+			updates.set(text, rowOf(text, merged))
 		}
 	}
 	return Result.ok({
-		rows: { relation: relation.name, deletes, trees: [], updates, inserts },
+		rows: { relation: relation.name, deletes, trees: new Map(), updates, inserts },
 		owners
 	})
 }

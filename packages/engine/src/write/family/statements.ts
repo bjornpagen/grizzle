@@ -274,9 +274,12 @@ interface Returned {
 	readonly type: ScalarType
 }
 
-/** Each fact field of `relation` key first, returned under a fresh column name. */
-const returnedFields = (supply: NameSupply, relation: RelationInfo): ReadonlyArray<Returned> =>
-	keyFirst(relation).map((field) => ({
+/** Each of `fields`, returned under a fresh column name. */
+const returnedFields = (
+	supply: NameSupply,
+	fields: ReadonlyArray<LawField>
+): ReadonlyArray<Returned> =>
+	fields.map((field) => ({
 		field,
 		column: supply.column(internal("returned field")),
 		type: rowType(field)
@@ -308,17 +311,32 @@ const deleted = (relation: RelationInfo): DeleteResult => ({
 	key: relation.primaryKey
 })
 
-/** The updated facts' result: each after and before. */
-const updated = (relation: RelationInfo): UpdateResult => {
-	const all = keyFirst(relation)
+/** The updated rows' result at `fields`, the key's first: each row's values there after the update and before. */
+const updated = (relation: RelationInfo, fields: ReadonlyArray<LawField>): UpdateResult => {
+	const columns = fields.map((f) => ({ name: f.name, type: rowType(f) }))
 	return {
 		kind: "update",
 		relation: relation.name,
-		columns: [...factColumns(relation), ...factColumns(relation)],
-		fields: fieldNames(all),
+		columns: [...columns, ...columns],
+		fields: fieldNames(fields),
 		key: relation.primaryKey,
-		old: all.length
+		old: fields.length
 	}
+}
+
+/**
+ * The owner fields a family's count statement returns: the owner's key, its count and its ends (`endColumns`), the
+ * columns it sets. A member's writer holds SELECT on no other column of its owner, so the count statement's RETURNING
+ * reads none, and an owner's change from a member write is its key, its count and its ends.
+ */
+const countReturned = (owner: RelationInfo, family: Family): NonEmptyReadonlyArray<LawField> => {
+	const out: [LawField, ...Array<LawField>] = [...owner.primaryFields]
+	for (const f of [family.count, ...endColumns(family)]) {
+		if (!out.some((g) => g.name === f.name)) {
+			out.push(f)
+		}
+	}
+	return out
 }
 
 /** The RETURNING of an update's new and old facts. */
@@ -371,7 +389,7 @@ export const rowStatement = (
 	switch (kind) {
 		case "delete": {
 			const input = arraysOf(w, supply, keyCarried)
-			const returned = returnedFields(supply, relation)
+			const returned = returnedFields(supply, keyFirst(relation))
 			const ast = returningSelect(
 				r,
 				{
@@ -414,8 +432,8 @@ export const rowStatement = (
 					unbuildable(relation.name, "an update in place of a row with a settable column")
 				)
 			}
-			const fresh = returnedFields(supply, relation)
-			const old = returnedFields(supply, relation)
+			const fresh = returnedFields(supply, keyFirst(relation))
+			const old = returnedFields(supply, keyFirst(relation))
 			const ast = returningSelect(
 				r,
 				{
@@ -436,12 +454,12 @@ export const rowStatement = (
 				ast,
 				sql: sql(ast),
 				arrays: all.length,
-				result: updated(relation)
+				result: updated(relation, keyFirst(relation))
 			})
 		}
 		case "insert": {
 			const input = arraysOf(w, supply, all)
-			const returned = returnedFields(supply, relation)
+			const returned = returnedFields(supply, keyFirst(relation))
 			const ast = returningSelect(
 				r,
 				{
@@ -511,7 +529,7 @@ export const treeDelete = (
 	const r = supply.relation(internal("tree delete"))
 	const target = supply.relation(internal("tree row"))
 	const input = arraysOf(w, supply, [{ column: { kind: "field", field: root }, type: root.type }])
-	const returned = returnedFields(supply, member)
+	const returned = returnedFields(supply, keyFirst(member))
 	const stored = (f: LawField): Expr => col(target, w.names.column(member.name, f.name))
 	const ast = returningSelect(
 		r,
@@ -536,7 +554,8 @@ export const treeDelete = (
 	})
 }
 
-/** A family's count statement: each owner's count and ends, by its key, returning its fact after and before. */
+/** A family's count statement: each owner's count and ends, by its key, returning them after and before with its key
+ * (`countReturned`). */
 export const countStatement = (
 	family: Family,
 	w: WriteContext,
@@ -559,8 +578,9 @@ export const countStatement = (
 	const r = supply.relation(internal("family count"))
 	const target = supply.relation(internal("family owner"))
 	const input = arraysOf(w, supply, carried)
-	const fresh = returnedFields(supply, owner)
-	const old = returnedFields(supply, owner)
+	const returned = countReturned(owner, family)
+	const fresh = returnedFields(supply, returned)
+	const old = returnedFields(supply, returned)
 	const column = (f: LawField): string => w.names.column(owner.name, f.name)
 	const k = keys.length
 	const ast = returningSelect(
@@ -589,7 +609,7 @@ export const countStatement = (
 		ast,
 		sql: emitText(ast, supply.map()),
 		arrays: carried.length,
-		result: updated(owner)
+		result: updated(owner, returned)
 	})
 }
 
