@@ -30,7 +30,6 @@ export const limitGen = (inForce: number, small: Arr.NonEmptyReadonlyArray<numbe
  * admits it under production's budgets or refuses it with a ResourceBound naming the budget it crossed.
  */
 export const budgetsGen: Gen<Budgets> = (source) => ({
-	nodes: source.draw(element([compileBudgets.nodes, 8, 32, 128])),
 	fields: source.draw(element([compileBudgets.fields, 4, 16, 64])),
 	sqlBytes: source.draw(element([compileBudgets.sqlBytes, 256, 2048, 16_384])),
 	params: source.draw(element([compileBudgets.params, 1, 2])),

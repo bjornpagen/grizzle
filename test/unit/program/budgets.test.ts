@@ -134,7 +134,6 @@ describe("compile budgets", () => {
 							[
 								"compiled",
 								"compiled under drawn budgets",
-								"refused budgets.nodes",
 								"refused budgets.fields",
 								"refused budgets.sqlBytes"
 							],

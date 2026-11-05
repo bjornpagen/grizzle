@@ -89,7 +89,6 @@ const caseGen: Gen<{
 	readonly steps: ReadonlyArray<Step>
 }> = (source) => ({
 	limits: {
-		nodes: source.draw(limitGen),
 		fields: source.draw(limitGen),
 		sqlBytes: source.draw(limitGen),
 		params: source.draw(limitGen),
@@ -123,7 +122,7 @@ describe("BudgetMeter and checkBound", () => {
 						),
 						kept: [],
 						/**
-						 * Each case runs up to 24 steps over five kinds at limits of 0 to 12: three hundred cases cross, exhaust
+						 * Each case runs up to 24 steps over four kinds at limits of 0 to 12: three hundred cases cross, exhaust
 						 * and charge past every kind many times over.
 						 */
 						runs: 300,
@@ -136,7 +135,6 @@ describe("BudgetMeter and checkBound", () => {
 						Effect.sync(() => {
 							const meter = new BudgetMeter(limits)
 							const used: Record<BudgetKind, number> = {
-								nodes: 0,
 								fields: 0,
 								sqlBytes: 0,
 								params: 0,

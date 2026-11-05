@@ -28,7 +28,6 @@ export const checkBound = (
 export class BudgetMeter {
 	readonly #limits: Budgets
 	readonly #used: Record<BudgetKind, number> = {
-		nodes: 0,
 		fields: 0,
 		sqlBytes: 0,
 		params: 0,

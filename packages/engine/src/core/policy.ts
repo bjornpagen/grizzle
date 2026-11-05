@@ -20,9 +20,6 @@ export const lateralParentMax = 256
 /** An attachment with at most this many fields may be fused into its parent statement. */
 export const attachFuseMaxFields = 4
 
-/** A sub-query referenced at least this many times in one snapshot is shared. */
-export const cteShareMinRefs = 2
-
 /** Recursion: the bounded unrolling depth, and the admitted termination-certificate state estimate. */
 export const recursionUnrollMax = 4
 export const recursionMaxStates = 1_000_000
@@ -32,7 +29,7 @@ export const regexMaxNodes = 512
 export const regexMaxRepeat = 255
 
 /** The compiler's budgets, in the order a meter reports them. */
-export const budgetKinds = ["nodes", "fields", "sqlBytes", "params", "variants"] as const
+export const budgetKinds = ["fields", "sqlBytes", "params", "variants"] as const
 export type BudgetKind = (typeof budgetKinds)[number]
 
 /**
@@ -41,7 +38,6 @@ export type BudgetKind = (typeof budgetKinds)[number]
  */
 export type Budgets = Readonly<Record<BudgetKind, number>>
 export const compileBudgets: Budgets = Object.freeze({
-	nodes: 10_000,
 	fields: 10_000,
 	sqlBytes: 1024 * 1024,
 	params: 65_535,

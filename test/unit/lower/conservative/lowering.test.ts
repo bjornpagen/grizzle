@@ -8,7 +8,7 @@ import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { makeIdSupply, type ParamId } from "#compiler/core/ids.ts"
-import { type BudgetKind, compileBudgets } from "#compiler/core/policy.ts"
+import { compileBudgets } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
@@ -749,12 +749,8 @@ const budgetCases: Arr.NonEmptyReadonlyArray<Cases.LoweringCase> = [
 	Cases.averageAmount()
 ]
 
-/** The budgets the lowering charges: the nodes it lowers and the text it emits. */
-type LoweringBudget = Extract<BudgetKind, "nodes" | "sqlBytes">
-const budgetKinds: Arr.NonEmptyReadonlyArray<LoweringBudget> = ["nodes", "sqlBytes"]
-
 describe("budgets", () => {
-	it.effect("charge the meter given and stop exactly at its bound, for every budget", (ctx) =>
+	it.effect("charge the text emitted to the meter given and stop exactly at its bound", (ctx) =>
 		searched(
 			ctx,
 			exhaust(
@@ -762,16 +758,12 @@ describe("budgets", () => {
 					suite: "unit/lower/conservative/budgets",
 					literal: Formatter.format,
 					/** A case by its name, so a counterexample reports the name and not the whole DAG. */
-					generator: (source) =>
-						[
-							source.draw(element(Arr.map(budgetCases, (b) => b.name))),
-							source.draw(element(budgetKinds))
-						] as const,
-					limit: 32,
-					coverage: requiredInSpace<`${LoweringBudget} bound`>(["nodes bound", "sqlBytes bound"]),
+					generator: element(Arr.map(budgetCases, (b) => b.name)),
+					limit: budgetCases.length,
+					coverage: requiredInSpace<"sqlBytes bound">(["sqlBytes bound"]),
 					caseHang: Duration.minutes(2)
 				},
-				([name, kind], c) =>
+				(name, c) =>
 					Effect.sync(() => {
 						const { query } = Option.getOrThrowWith(
 							Arr.findFirst(budgetCases, (b) => b.name === name),
@@ -781,19 +773,19 @@ describe("budgets", () => {
 							lowerConservative(conservativeInput(query), optionsFor(query.params, meter, "query"))
 						const full = new BudgetMeter(compileBudgets)
 						succeeded(lowerWith(full), name)
-						/** Every lowering lowers nodes and emits text, charged to the meter it is given. */
-						const used = full.used(kind)
-						assert.ok(used > 0, `${name} charges ${kind}`)
+						/** Every lowering emits text, charged to the meter it is given. */
+						const used = full.used("sqlBytes")
+						assert.ok(used > 0, `${name} charges sqlBytes`)
 						succeeded(
-							lowerWith(new BudgetMeter({ ...compileBudgets, [kind]: used })),
-							`${name} at ${kind} ${used}`
+							lowerWith(new BudgetMeter({ ...compileBudgets, sqlBytes: used })),
+							`${name} at sqlBytes ${used}`
 						)
 						refused(
-							lowerWith(new BudgetMeter({ ...compileBudgets, [kind]: used - 1 })),
+							lowerWith(new BudgetMeter({ ...compileBudgets, sqlBytes: used - 1 })),
 							"ResourceBound",
-							`${name} below ${kind} ${used}`
+							`${name} below sqlBytes ${used}`
 						)
-						c.note(`${kind} bound`)
+						c.note("sqlBytes bound")
 					})
 			)
 		)

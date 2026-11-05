@@ -722,7 +722,7 @@ const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
  *   Checked against a role, a query reads only the contexts the role's relations read, as they declare them: a Db of
  *   the role holds facts of those alone.
  *
- * Recursive and approximate stages are plug-ins (context.ts). Every node is charged to the policy's budgets
+ * Recursive and approximate stages are plug-ins (context.ts). Every node's heading is charged to the fields budget
  * (ResourceBound). A query reads only what its schema declares: checked against a role, only the role's relations.
  */
 export class Checker {
@@ -780,7 +780,6 @@ export class Checker {
 	}
 
 	#charge(spec: CheckedNodeSpec, loc: SourceLoc): void {
-		unwrap(this.meter.charge("nodes", 1, loc))
 		unwrap(this.meter.charge("fields", spec.heading.length, loc))
 	}
 

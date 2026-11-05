@@ -5,8 +5,9 @@ import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { OuterRefs } from "#compiler/ir/dag.ts"
+import { type NodeScope, nodeScopes, type OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
+import type { Fold } from "#compiler/ir/fold.ts"
 import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	exprsOf,
@@ -31,7 +32,7 @@ import {
 	unitColumn
 } from "#compiler/lower/conservative/types.ts"
 import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
-import type { Expr, FromItem, FromSource, Select, Target, TypeRef } from "#compiler/sql/ast.ts"
+import type { Cte, Expr, FromItem, FromSource, Select, Target, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	col,
 	columnDefinition,
@@ -294,13 +295,35 @@ export type Lowerers<K extends RelKind> = { readonly [P in K]: NodeLowerer<P> }
 
 /**
  * What one lowering shares across every scope of it: the statement being lowered, whose names and placeholders a
- * statement accumulates and never crosses, and each node's outer references as this lowering computed them, the
- * traversal's state for the life of the lowering.
+ * statement accumulates and never crosses, and each node's outer references and scope as this lowering computed them,
+ * the traversal's state for the life of the lowering. The scopes are a fold over the DAG, made at their first read.
  */
 interface Shared {
 	supply: NameSupply
 	statement: StatementPlaceholders
 	readonly free: Map<RelNode, OuterRefs>
+	scopes: Fold<RelNode, NodeScope> | undefined
+}
+
+/**
+ * A query of the conservative lowering whose WITH holds one MATERIALIZED CTE for each node in `shared`: the nodes its
+ * lowering would otherwise lower more than once (dispatch.ts). Every use of such a node in the query reads its CTE, so
+ * the node is lowered once, in the CTE's body, and a query's text grows with its DAG, not with the DAG's paths.
+ *
+ * A frame encloses the queries lowered inside its root's, and its CTEs are read from all of them. A CTE's body is
+ * lowered where the frame's root was, in `cx` and `env`: the outer values it reads are bound outside the root, so they
+ * are in scope at the root's WITH, and nothing lowered inside the root binds them anew.
+ */
+export interface ShareFrame {
+	/** The frame the root was lowered in, whose CTEs the queries of this one read too. */
+	readonly outer: ShareFrame | undefined
+	readonly shared: ReadonlySet<RelNode>
+	readonly cx: LowerContext
+	readonly env: Env
+	/** Each shared node's CTE, defined at its first use. */
+	readonly defined: Map<RelNode, { readonly name: string; readonly columns: ReadonlyArray<string> }>
+	/** The WITH entries, in definition order: each after every entry its body reads. */
+	readonly ctes: Array<Cte>
 }
 
 /**
@@ -315,6 +338,8 @@ interface Scope {
 	/** The feedback relation of each Recursive being lowered, by its label, the name its SelfRef holds. */
 	readonly feedback: ReadonlyMap<NodeId, Feedback>
 	readonly dispatch: NodeDispatch
+	/** The innermost share frame the query is lowered in, if its dispatch shares (dispatch.ts). */
+	readonly sharing: ShareFrame | undefined
 }
 
 /**
@@ -350,9 +375,10 @@ export class LowerContext {
 		this.#shared = {
 			supply: new NameSupply(freshNames),
 			statement: { kind: "query", params: new StatementParams<never>() },
-			free: new Map()
+			free: new Map(),
+			scopes: undefined
 		}
-		this.#scope = { sublinkDepth: 0, feedback: new Map(), dispatch }
+		this.#scope = { sublinkDepth: 0, feedback: new Map(), dispatch, sharing: undefined }
 	}
 
 	/**
@@ -402,6 +428,16 @@ export class LowerContext {
 	/** The scope whose nodes lower through `dispatch`. */
 	withDispatch(dispatch: NodeDispatch): LowerContext {
 		return this.#within({ ...this.#scope, dispatch })
+	}
+
+	/** The innermost share frame the query being lowered is inside, undefined outside every frame. */
+	get sharing(): ShareFrame | undefined {
+		return this.#scope.sharing
+	}
+
+	/** The scope whose queries are lowered inside `frame`. */
+	withSharing(frame: ShareFrame): LowerContext {
+		return this.#within({ ...this.#scope, sharing: frame })
 	}
 
 	/**
@@ -469,19 +505,8 @@ export class LowerContext {
 		}
 	}
 
-	/**
-	 * The query of a node, output columns in heading order. Each lowered node instance is charged to the
-	 * nodes budget, which bounds the inlining of shared subgraphs.
-	 */
+	/** The query of a node, output columns in heading order, as the scope's dispatch lowers it. */
 	lower(node: RelNode, env: Env): Select {
-		const charged = this.options.meter.charge(
-			"nodes",
-			1,
-			SourceLoc("conservative lowering", ["nodes", node.id])
-		)
-		if (!charged.ok) {
-			throw new Refusal(charged.error)
-		}
 		return this.#scope.dispatch(node, this, env)
 	}
 
@@ -590,6 +615,15 @@ export class LowerContext {
 		}
 		this.#shared.free.set(node, free)
 		return free
+	}
+
+	/**
+	 * The scope of `node` (ir/dag.ts nodeScopes): the columns of nodes outside it that its evaluation reads, which an
+	 * environment must bind wherever it is lowered.
+	 */
+	scopeOf(node: RelNode): NodeScope {
+		this.#shared.scopes ??= nodeScopes(this.dag)
+		return this.#shared.scopes.of(node)
 	}
 
 	/**

@@ -732,7 +732,7 @@ describe("checker diagnostics", () => {
 		"refuse a check that crosses a budget with ResourceBound, and admit it at exactly what it charges",
 		(ctx) => {
 			type Bound = "below what it charges" | "exactly what it charges"
-			const budgetKinds = ["nodes", "fields", "params"] as const
+			const budgetKinds = ["fields", "params"] as const
 			const programs = [
 				{ name: "taskCards", query: taskCards },
 				{ name: "automaticTasksFor", query: automaticTasksFor },

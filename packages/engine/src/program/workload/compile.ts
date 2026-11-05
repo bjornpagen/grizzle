@@ -227,33 +227,21 @@ const checkedProgramIr = (
 	)
 }
 
-/**
- * The access paths and statistics of a program's checked IR. The extraction charges its own meter, not pre-charged
- * with the check, so its bound never stacks on the check's: a program the checker admits
- * within the node budget, as compilation checks it, is never refused here for the check's cost.
- */
-const irAccess = (ir: ProgramIr, label: string): Result.Result<ProgramAccess, CompileError> =>
-	Result.map(
-		extractAccess(ir.roots, {
-			pageable: ir.pageable,
-			meter: new BudgetMeter(compileBudgets),
-			label
-		}),
-		(extraction): ProgramAccess => ({
-			paths: uniquePaths([...extraction.paths, ...ir.targets]),
-			statistics: extraction.statistics
-		})
-	)
+/** The access paths and statistics of a program's checked IR. */
+const irAccess = (ir: ProgramIr): ProgramAccess => {
+	const extraction = extractAccess(ir.roots, { pageable: ir.pageable })
+	return {
+		paths: uniquePaths([...extraction.paths, ...ir.targets]),
+		statistics: extraction.statistics
+	}
+}
 
 /** One program's access paths and statistics. The check charges a fresh meter, as compilation's does. */
 const programAccess = (
-	name: string,
 	program: ProgramDesc,
 	reads: WorkloadReads
 ): Result.Result<ProgramAccess, CompileError> =>
-	Result.flatMap(programIr(program, reads, new BudgetMeter(compileBudgets)), (ir) =>
-		irAccess(ir, `workload program ${name}`)
-	)
+	Result.map(programIr(program, reads, new BudgetMeter(compileBudgets)), irAccess)
 
 /**
  * A workload input: a workload value, or a WorkloadDesc with the schema it belongs to. A Description carries no content
@@ -333,7 +321,7 @@ const workloadAccess = (
 	}
 	const programs: Array<readonly [string, ProgramAccess]> = []
 	for (const [name, program] of Object.entries(workload.value.desc.programs)) {
-		const access = Result.mapError(programAccess(name, program, reads.value), (e) =>
+		const access = Result.mapError(programAccess(program, reads.value), (e) =>
 			within(e, ["programs", name])
 		)
 		if (!access.ok) {
@@ -368,11 +356,7 @@ const filterAccess = (
 		if (!ir.ok) {
 			return ir
 		}
-		const access = irAccess(ir.value, label)
-		if (!access.ok) {
-			return access
-		}
-		out.push(access.value)
+		out.push(irAccess(ir.value))
 	}
 	return Result.ok(out)
 }

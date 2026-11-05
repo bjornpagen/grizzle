@@ -4,7 +4,7 @@ import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { compileBudgets, cteShareMinRefs } from "#compiler/core/policy.ts"
+import { compileBudgets } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -1060,8 +1060,7 @@ const compile = (
 	const state = new ShapeState<RelationInput>("small", emptyCtePlan)
 	const sharing = new StatementSharing(
 		new ShareIndex(restated.ir.dag),
-		optimizedDispatch(placed.facts, state),
-		cteShareMinRefs
+		optimizedDispatch(placed.facts, state)
 	)
 	const lowering: Lowering = {
 		state,
@@ -1077,7 +1076,7 @@ const compile = (
 	}
 	const plan = planWrite(restated, chosenIn(chosen, frontend.restate), {
 		distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
-		shares: (members) => unwrap(planStatementShares(sharing.index, members, cteShareMinRefs))
+		shares: (members) => unwrap(planStatementShares(sharing.index, members))
 	})
 	const optimized = optimizedArtifact(restated, plan, lowering, options)
 	const conservative = conservativeArtifact(

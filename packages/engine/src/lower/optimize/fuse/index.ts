@@ -47,6 +47,9 @@ const fusable = (cx: RewriteCx, cell: Cell, o: Occurrence, chain: RegionChain): 
 	if (![...chain.nodes, chain.regionCell, ...inner.occurrences.map((x) => x.source)].every(quiet)) {
 		return false
 	}
+	if (![...chain.nodes, chain.regionCell].every((c) => d.references(c) === 1)) {
+		return false
+	}
 	if (ed.correlated(o.source)) {
 		return false
 	}
@@ -352,7 +355,9 @@ const fusionMeasure: Measure = (cx) => {
  * Refused when moving would change scope: a correlated chain, a chain node or source some expression reads laterally,
  * a correlated inner region, or a fixed column whose variable a predicate reads through a non-constant expression. Refused too when
  * two columns carrying one inner variable are fixed, or one fixed and one bound: the occurrence then also requires the
- * two values to be equal, which the substitution of one image per inner variable cannot state.
+ * two values to be equal, which the substitution of one image per inner variable cannot state. And refused for a chain
+ * another reference also reads: fusing it would copy it into each reader, so the program would grow with the paths
+ * through it rather than with its nodes; it stays one shared stage, which the CTE policy places.
  *
  * Measure: the multiset of the nesting heights of the occurrences over region chains (fusionMeasure). Fusion replaces
  * one occurrence by copies of lower ones; the number of fusable occurrences alone would not fall, because a copy can

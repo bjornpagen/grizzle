@@ -47,9 +47,9 @@ import type { CarrierName } from "#compiler/sql/naming.ts"
  *   carried the same way: evaluated once into a carrier at the start of the stratum, before any of its writes, and
  *   every statement reads the carrier in place of its copy, so every member sees the same rows (the
  *   compiler evaluates pick once and every member sees the same item and seat).
- * - Inside one statement (statementCtes). A sub-query the statement reads at least twice is one MATERIALIZED CTE of
- *   the statement under the CTE policy (lower/optimize/cte-policy): a node that folds, sorts, bounds,
- *   applies a set operation or recurses, read at least cteShareMinRefs times or proved to deliver at most one row.
+ * - Inside one statement (statementCtes). A sub-query the statement reads more than once is one MATERIALIZED CTE of
+ *   the statement under the CTE policy (lower/optimize/cte-policy): a node that folds, sorts, bounds, applies a set
+ *   operation or recurses.
  *
  * Both placements share only what the CTE policy would share: an expensive node (cte-policy costClass), uncorrelated,
  * off every recursion's feedback, read laterally by no expression, so that its rows are a set the statement can read
@@ -153,7 +153,7 @@ const reach = (
 }
 
 /**
- * The sub-queries at least cteShareMinRefs of `roots` read, each statement rooted at one root, to carry across them.
+ * The sub-queries more than one of `roots` reads, each statement rooted at one root, to carry across them.
  * The highest shared sub-query is chosen first; a sub-query inside it is then read by the carrier's fill instead of by
  * the statements, and is carried too only when enough statements, that fill among them, still read it. The result is
  * in fill order: a carried sub-query before every carried sub-query that reads it.
@@ -162,8 +162,7 @@ const reach = (
  */
 export const planStatementShares = (
 	index: ShareIndex,
-	roots: ReadonlyArray<RelNode>,
-	minRefs: number
+	roots: ReadonlyArray<RelNode>
 ): Result.Result<ReadonlyArray<CarriedShare>, CompileError> =>
 	catchRefusal(() => {
 		const chosen: Array<CarriedShare> = []
@@ -205,7 +204,7 @@ export const planStatementShares = (
 				| undefined
 			for (const [key, statements] of statementsOf) {
 				const [node] = copiesOf.get(key) ?? []
-				if (statements.size < Math.max(2, minRefs) || node === undefined) {
+				if (statements.size < 2 || node === undefined) {
 					continue
 				}
 				const height = index.height(node)
@@ -276,14 +275,12 @@ const occurrencesByKey = (
  * The share keys one statement rooted at `root` reads at least twice and computes once as a MATERIALIZED CTE, never
  * entering a node `carried` names (the statement reads its carrier). Occurrences are counted in the statement as it is
  * lowered, every use of a node lowered anew: a copy under a CTE already chosen is lowered once, in the CTE's body. The
- * highest such sub-query is chosen first (cte-policy rule 5: MATERIALIZED at cteShareMinRefs reads, or at two reads of
- * a node proved to deliver at most one row).
+ * highest such sub-query is chosen first (cte-policy rule 5: a shared expensive node is MATERIALIZED).
  */
 export const statementCtes = (
 	index: ShareIndex,
 	root: RelNode,
-	carried: (node: RelNode) => boolean,
-	minRefs: number
+	carried: (node: RelNode) => boolean
 ): ReadonlySet<string> => {
 	const nodes = reach(index, root, carried)
 	/** Parents before children: by decreasing height, a node's inputs being strictly lower. */
@@ -298,9 +295,7 @@ export const statementCtes = (
 			if (key === undefined || chosen.has(key)) {
 				continue
 			}
-			const occ = byKey.get(key) ?? 0
-			const bounded = node.meta.card !== "many"
-			if (occ < 2 || (!bounded && occ < minRefs)) {
+			if ((byKey.get(key) ?? 0) < 2) {
 				continue
 			}
 			const height = index.height(node)
@@ -348,14 +343,12 @@ interface StatementScope {
 export class StatementSharing {
 	readonly index: ShareIndex
 	readonly #inner: NodeDispatch
-	readonly #minRefs: number
 	/** What each carried copy reads, by the copy's label. */
 	readonly #carried = new Map<NodeId, { readonly key: string; readonly source: SharedSource }>()
 
-	constructor(index: ShareIndex, inner: NodeDispatch, minRefs: number) {
+	constructor(index: ShareIndex, inner: NodeDispatch) {
 		this.index = index
 		this.#inner = inner
-		this.#minRefs = minRefs
 	}
 
 	/** Every copy of `share` reads `source` from now on. */
@@ -433,12 +426,7 @@ export class StatementSharing {
 		const scope: StatementScope = {
 			ctes: new Set(),
 			defined: new Map(),
-			materialize: statementCtes(
-				this.index,
-				node,
-				(n) => this.#carrierIn(n, filling) !== undefined,
-				this.#minRefs
-			)
+			materialize: statementCtes(this.index, node, (n) => this.#carrierIn(n, filling) !== undefined)
 		}
 		const inScope: NodeDispatch = (n, ncx, nenv) =>
 			this.#readCarrier(n, ncx, filling) ?? this.#shared(n, ncx, nenv, scope)

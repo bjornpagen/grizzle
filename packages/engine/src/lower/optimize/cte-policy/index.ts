@@ -1,7 +1,6 @@
 import { analyzeDemand, noPins } from "#compiler/analysis/demand/demand.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { cteShareMinRefs } from "#compiler/core/policy.ts"
 import { type CertificateRule, makeCertificate } from "#compiler/ir/certificate.ts"
 import { nodeScopes } from "#compiler/ir/dag.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
@@ -25,8 +24,6 @@ type CteReason =
 	| "feedback"
 	| "cheapScan"
 	| "sharedExpensive"
-	| "boundedExpensive"
-	| "belowThreshold"
 	| "sharedJoin"
 
 interface CteDecision {
@@ -92,10 +89,10 @@ interface Decided {
 }
 
 /**
- * The policy's decision for every shared node of a DAG, in topological order: an expensive node read at least
- * `minRefs` times is materialized.
+ * The policy's decision for every shared node of a DAG, a node read more than once, in topological order: an expensive
+ * one is materialized.
  */
-const ctePlan = (dag: ValidDag, minRefs: number): ReadonlyArray<Decided> => {
+const ctePlan = (dag: ValidDag): ReadonlyArray<Decided> => {
 	const d = analyzeDemand(dag, noPins)
 	const scopes = nodeScopes(dag)
 	const feedback = feedbackReadsOf(nodeGraph, d.order)
@@ -129,12 +126,7 @@ const ctePlan = (dag: ValidDag, minRefs: number): ReadonlyArray<Decided> => {
 		} else if (cost === "scan") {
 			decision = decide("inline", "cheapScan")
 		} else if (cost === "expensive") {
-			decision =
-				node.meta.card !== "many"
-					? decide("materialized", "boundedExpensive")
-					: references >= minRefs
-						? decide("materialized", "sharedExpensive")
-						: decide("notMaterialized", "belowThreshold")
+			decision = decide("materialized", "sharedExpensive")
 		} else {
 			decision = decide("notMaterialized", "sharedJoin")
 		}
@@ -155,8 +147,8 @@ const cteRule = (strategy: Exclude<CteStrategy, "inline">): CertificateRule => `
  * read by several consumers is a sharing boundary; the emitter must spell each such node as a derived table at every
  * use (inline), a CTE PostgreSQL may fold into each use (NOT MATERIALIZED), or a CTE it computes once (MATERIALIZED).
  * The choice is the compiler's, never an application hint, and is made here from the graph alone: reference count,
- * complete parameter bindings, correlation, demanded fields, cost class and known boundedness. It runs no
- * trial query and reads no statistics; its threshold is core/policy.ts cteShareMinRefs.
+ * complete parameter bindings, correlation, demanded fields and cost class. It runs no trial query and reads no
+ * statistics. A node is shared when it is read more than once.
  *
  * The rules, in order:
  *
@@ -167,9 +159,8 @@ const cteRule = (strategy: Exclude<CteStrategy, "inline">): CertificateRule => `
  * 4. A node whose stages are all scans, filters and projections of one source is inlined at each use: each use can then
  *    probe the source's indexes with its own restrictions, which a shared result would hide ("sharing an unfiltered
  *    computation is not automatically preferable to two selective indexed probes").
- * 5. A node that folds, sorts, bounds, deduplicates a set operation or recurses is expensive. Read at least
- *    `cteShareMinRefs` times, or proved to deliver at most one row, it is MATERIALIZED: one evaluation feeds every
- *    use. Below the threshold it is NOT MATERIALIZED.
+ * 5. A node that folds, sorts, bounds, deduplicates a set operation or recurses is expensive. Shared, it is
+ *    MATERIALIZED: one evaluation feeds every use.
  * 6. Any other shared node, a join of several sources, is NOT MATERIALIZED: PostgreSQL may optimize each use jointly
  *    with its consumer, and the boundary stays a program boundary rather than a forced fence.
  *
@@ -183,7 +174,7 @@ export const ctePolicyPass: Pass<LogicalQuery, CtePlannedQuery> = {
 	measure: "single-traversal",
 	run: (query, ctx) =>
 		catchRefusal(() => {
-			const decided = ctePlan(query.dag, cteShareMinRefs)
+			const decided = ctePlan(query.dag)
 			const decisions: Record<NodeId, CteDecision> = {}
 			for (const { node, decision } of decided) {
 				decisions[node.id] = decision

@@ -1,6 +1,6 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { array, element, filter, type Gen, subarray, uniqueArray } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
@@ -8,35 +8,22 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order, Record as Rec } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { AccessPath, StatisticsShape } from "#compiler/ir/products.ts"
-import { extractAccess } from "#compiler/physical/access/extract.ts"
 import {
 	mergeStatistics,
 	type StatisticsRequest,
 	type StatisticsUse,
 	statisticsKinds
 } from "#compiler/physical/statistics/statistics.ts"
-import { queryInput } from "#compiler/program/compile.ts"
-import {
-	assert,
-	defined,
-	nonEmpty,
-	refused,
-	succeeded,
-	unorderedEqual
-} from "#test/support/assert.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
+import { assert, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { fixtureLogin, planOf, W, workPrograms } from "#test/unit/workload/fixtures.ts"
 
 import { regex } from "arkregex"
 /**
  * Access-path extraction and the workload plan (physical/access, program/workload): the plan records each program's
  * access under its name, the same for one program under any name, and plans exactly the paths and statistics its
- * programs request, whatever the programs are named or in what order the workload lists them; statistics over one
- * column set merge; and extraction is charged to the node budget, refused with ResourceBound exactly where it crosses it.
+ * programs request, whatever the programs are named or in what order the workload lists them; and statistics over one
+ * column set merge.
  *
  * The programs are the worked example's (workload/fixtures.ts workPrograms), drawn into workloads under drawn names.
  */
@@ -269,64 +256,5 @@ describe("mergeStatistics", () => {
 						})
 				)
 			)
-	)
-})
-
-describe("extraction", () => {
-	it.effect(
-		"is refused with ResourceBound exactly when the node budget is below what it charges",
-		(ctx) =>
-			Effect.gen(function* () {
-				type Bound = "below what it charges" | "exactly what it charges"
-				const queries = Arr.filter(named, ([, program]) => queryInput(program).ok)
-				yield* searched(
-					ctx,
-					exhaust(
-						{
-							suite: "unit/workload/extract-budget",
-							generator: (source) =>
-								[
-									source.draw(element(nonEmpty(queries, "the built queries"))),
-									source.draw(element<Bound>(["below what it charges", "exactly what it charges"]))
-								] as const,
-							literal: Formatter.format,
-							limit: queries.length * 2,
-							coverage: requiredInSpace<Bound>([
-								"below what it charges",
-								"exactly what it charges"
-							]),
-							caseHang: Duration.minutes(2)
-						},
-						([[name, program], bound], c) =>
-							Effect.sync(() => {
-								const input = succeeded(queryInput(program), name)
-								if (input.kind !== "built") {
-									return assert.fail(`${name} is a built query, which carries its schema`)
-								}
-								const checked = succeeded(
-									checkQuery(checking(input.schema), input.desc, checkOptions("query")),
-									name
-								)
-								const extract = (meter: BudgetMeter) =>
-									extractAccess([checked.dag.roots[0]], {
-										pageable: [],
-										meter,
-										label: name
-									})
-								const ample = new BudgetMeter(compileBudgets)
-								succeeded(extract(ample), name)
-								const charged = ample.used("nodes")
-								const limit = bound === "exactly what it charges" ? charged : charged - 1
-								const meter = new BudgetMeter({ ...compileBudgets, nodes: limit })
-								if (bound === "exactly what it charges") {
-									succeeded(extract(meter), name)
-								} else {
-									refused(extract(meter), "ResourceBound", name)
-								}
-								c.note(bound)
-							})
-					)
-				)
-			})
 	)
 })

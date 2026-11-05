@@ -238,9 +238,6 @@ const rewriteCx = (
  * - a step bound: at most a fixed multiple of the input's size in rewrite steps, beyond which the pass fails with a
  *   source-located ResourceBound.
  *
- * Every node a rewrite creates is charged to the compilation's `nodes` budget at the node it rewrote, so a rewrite that
- * grows the program past the budget is a ResourceBound at that node.
- *
  * Every applied rewrite records a certificate: its rule, the nodes it read and wrote, the premises
  * its proof used, the evidence context it requires, the heading it preserves, and through its constraint premises the
  * installed constraints it rests on. Rewrites run only in the optimized lowering, the one that
@@ -280,10 +277,6 @@ export const rewritePass = (spec: RewritePassSpec): Pass<LogicalQuery, LogicalQu
 					)
 				}
 				before = after
-				const added = editor.takeAdded()
-				if (added > 0) {
-					unwrap(ctx.budgets.charge("nodes", added, loc))
-				}
 			}
 			return settle(query, editor)
 		})
@@ -329,13 +322,6 @@ export const traversalPass = (spec: {
 			const editor = new DagEditor(query.dag)
 			const { cx } = rewriteCx(editor, ctx, spec.name)
 			spec.step(cx)
-			const added = editor.takeAdded()
-			if (added > 0) {
-				const root = editor.roots[0]
-				const loc =
-					root === undefined ? SourceLoc(spec.name, []) : nodeLoc(spec.name, root.id, root.current)
-				unwrap(ctx.budgets.charge("nodes", added, loc))
-			}
 			return settle(query, editor)
 		})
 })

@@ -157,8 +157,7 @@ const certificatesContext = (certificates: ReadonlyArray<Certificate>): Template
 	certificates.every((c) => contextAdmits("transaction", c.context)) ? "transaction" : "snapshot"
 
 /**
- * The conservative artifact, charged to the compilation's meter: its lowered nodes under the meter's own bound, so an
- * inlining blowup stops at the node where it crosses it, and each statement's text at that statement (exceeding a
+ * The conservative artifact, charged to the compilation's meter: each statement's text at that statement (exceeding a
  * compiler resource bound yields a source-located error).
  */
 const conservativeArtifact = (
@@ -167,7 +166,6 @@ const conservativeArtifact = (
 	meter: BudgetMeter
 ): Result.Result<ConservativeProgram, CompileError> => {
 	const lowering = new BudgetMeter({
-		nodes: meter.limit("nodes"),
 		fields: meter.limit("fields"),
 		params: meter.limit("params"),
 		variants: meter.limit("variants"),
@@ -175,7 +173,7 @@ const conservativeArtifact = (
 	})
 	const at = (path: ReadonlyArray<string | number>): SourceLoc =>
 		SourceLoc("conservative artifact", path)
-	for (const kind of ["nodes", "fields", "params", "variants"] as const) {
+	for (const kind of ["fields", "params", "variants"] as const) {
 		lowering.charge(kind, meter.used(kind), at([]))
 	}
 	return Result.flatMap(
@@ -186,14 +184,6 @@ const conservativeArtifact = (
 			meter: lowering
 		}),
 		(program) => {
-			const nodes = meter.charge(
-				"nodes",
-				lowering.used("nodes") - meter.used("nodes"),
-				at(["nodes"])
-			)
-			if (!nodes.ok) {
-				return Result.err(nodes.error)
-			}
 			for (const [i, s] of flight(program.roots).entries()) {
 				const charged = meter.chargeSql(s.sql.text, at(["statements", i, s.role.kind]))
 				if (!charged.ok) {
