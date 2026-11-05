@@ -211,8 +211,8 @@ export type KeysOf<S, R> = R extends { readonly kind: "context" }
 						: R extends AnyClosedRelation
 							? R["key"]
 							: R extends { readonly kind: "derived" | "world"; readonly definition: infer Q }
-							? DefinitionKeysOf<Q>
-							: never)
+								? DefinitionKeysOf<Q>
+								: never)
 			| Lookup<KeyIndexOf<S>, NameOf<R>>
 
 /**

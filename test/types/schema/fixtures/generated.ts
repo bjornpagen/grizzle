@@ -4,6 +4,7 @@ import { Bits, bits, closedId, generated, pg, uuid } from "#compiler/public/fiel
 import {
 	closed,
 	type Fact,
+	type KeysOf,
 	key,
 	on,
 	relation,
@@ -184,3 +185,10 @@ export const twiceDeleted = ChangeSet.empty(Items).delete(
 )
 declare const someItems: ReadonlyArray<{ readonly id: bigint; readonly v: number }>
 export const widenedItems = ChangeSet.empty(Items).put(Item, someItems)
+
+/** A roster is keyed by its handle, and a closed relation by its declared key. */
+export const ClosedOnly = schema("ClosedOnly", { Kind, Flag, Allowed }, [])
+export type RosterKeys = Expect<Equals<KeysOf<typeof ClosedOnly, typeof Kind>, readonly ["id"]>>
+export type ClosedRelationKeys = Expect<
+	Equals<KeysOf<typeof ClosedOnly, typeof Allowed>, readonly ["kind", "flag"]>
+>

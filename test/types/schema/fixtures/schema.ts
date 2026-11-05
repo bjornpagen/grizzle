@@ -1,9 +1,12 @@
 import type { Brand } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
 import {
+	accumulated,
 	type ClosedIdField,
 	closedId,
 	contract,
+	drawn,
+	natural,
 	pg,
 	type Uuid,
 	uuid
@@ -13,23 +16,25 @@ import {
 	alternatives,
 	type Containment,
 	type ContainmentsOf,
-	capacity,
 	check,
 	closed,
 	contained,
 	derived,
 	type ExpansionOf,
 	type Fact,
+	fin,
+	fold,
 	type KeysOf,
 	key,
 	type LawsOf,
 	type LevelsOf,
 	type Mirrors,
+	Monoid,
 	mirrors,
 	mutable,
 	on,
+	ordered,
 	type Relation,
-	ref,
 	relation,
 	role,
 	type Schema,
@@ -37,9 +42,7 @@ import {
 	type Side,
 	type StatementsOf,
 	schema,
-	select,
-	weigh,
-	within
+	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
@@ -59,7 +62,7 @@ import type { Equals, Expect, IsAssignable, Not } from "#test/types/schema/suppo
 export const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 export const Rate = contract("Rate", pg.numeric(7, 6), (x) => x.between(0n, 1n))
 export const Kind = closed("Kind", ["Automatic", "Manual"])
-/** A roster holds at least one handle: an enum of none has no column to read. */
+/** A roster holds at least one handle: a roster of none has no code to read. */
 // @ts-expect-error -- TS2345: a closed relation's handles are a non-empty tuple
 export const Empty = closed("Empty", [])
 export const Account = relation("Account", { id: uuid, name: str.regex("^[a-z]{1,40}$") }, ["id"])
@@ -105,22 +108,34 @@ export type TicketFact = Expect<
 	Not<IsAssignable<{ readonly amount: bigint }, Pick<Fact<typeof Ticket>, "amount">>>
 >
 
-export const Tier = closed("Tier", ["Free", "Pro"]).with(
-	{ budget: Cents },
-	{ Free: { budget: Cents(100n) }, Pro: { budget: Cents(1000n) } }
+/** A roster's fact is its handle; a closed relation's, keyed by closed ids, a fact of its fields. */
+export const Tier = closed("Tier", ["Free", "Pro"])
+export const TierBudget = closed.relation(
+	"TierBudget",
+	{ tier: closedId(Tier), budget: Cents },
+	["tier"],
+	[
+		{ tier: "Free", budget: Cents(100n) },
+		{ tier: "Pro", budget: Cents(1000n) }
+	]
 )
 
-export type TierFact = Expect<
+export type TierFact = Expect<Equals<Fact<typeof Tier>, { readonly id: "Free" | "Pro" }>>
+export type TierBudgetFact = Expect<
 	Equals<
-		Fact<typeof Tier>,
-		{ readonly id: "Free" | "Pro"; readonly budget: bigint & Brand.Brand<"Cents"> }
+		Fact<typeof TierBudget>,
+		{ readonly tier: "Free" | "Pro"; readonly budget: bigint & Brand.Brand<"Cents"> }
 	>
 >
 
-export const BareTier = closed("BareTier", ["Free"]).with(
-	{ budget: Cents },
-	// @ts-expect-error -- TS2322: a payload fact takes the contract's branded value, built by Cents(...)
-	{ Free: { budget: 100n } }
+export const BareTier = closed.relation(
+	"BareTier",
+	{ tier: closedId(Tier), budget: Cents },
+	["tier"],
+	[
+		// @ts-expect-error -- TS2322: a row's contract field takes the contract's branded value, built by Cents(...)
+		{ tier: "Free", budget: 100n }
+	]
 )
 
 /** A handle is a member of its roster. */
@@ -165,8 +180,8 @@ export const taskArms = alternatives(Task, "kind", Kind, {
 })
 
 /**
- * alternatives is one statement that keeps its four inputs. Its expansion is the containment and one mirrors per arm,
- * each keeping its arm's relation and key fields; the schema expands them in roster order.
+ * alternatives is one statement that keeps its four inputs. Its expansion is a containment each way per arm, each
+ * keeping its arm's relation and key fields, and no head: the discriminator's roster domain types it.
  */
 export type TaskArms = Expect<
 	Equals<
@@ -180,23 +195,16 @@ export type TaskArms = Expect<
 	>
 >
 
-type TaskHead = Containment<
-	Side<typeof Task, readonly ["kind"]>,
-	Side<typeof Kind, readonly ["id"]>
->
-
-type AutomaticArm = Mirrors<
-	Side<Selection<typeof Task>, readonly ["id"]>,
-	Side<typeof AutomaticTask, readonly ["task"]>
->
-
-type ManualArmLaw = Mirrors<
-	Side<Selection<typeof Task>, readonly ["id"]>,
-	Side<typeof ManualTask, readonly ["task"]>
->
+type ArmSelection = Side<Selection<typeof Task>, readonly ["id"]>
+type AutomaticKey = Side<typeof AutomaticTask, readonly ["task"]>
+type ManualKey = Side<typeof ManualTask, readonly ["task"]>
+type AutomaticArm =
+	| Containment<AutomaticKey, ArmSelection>
+	| Containment<ArmSelection, AutomaticKey>
+type ManualArmLaw = Containment<ManualKey, ArmSelection> | Containment<ArmSelection, ManualKey>
 
 export type TaskArmsExpansion = Expect<
-	Equals<ExpansionOf<typeof taskArms>, TaskHead | AutomaticArm | ManualArmLaw>
+	Equals<ExpansionOf<typeof taskArms>, AutomaticArm | ManualArmLaw>
 >
 /** Arms written out of roster order are the same law, and a handle without an arm adds nothing. */
 export const manualArm = alternatives(Task, "kind", Kind, { Manual: ManualTask })
@@ -204,7 +212,7 @@ export const reversedArms = alternatives(Task, "kind", Kind, {
 	Manual: ManualTask,
 	Automatic: AutomaticTask
 })
-export type ManualArm = Expect<Equals<ExpansionOf<typeof manualArm>, TaskHead | ManualArmLaw>>
+export type ManualArm = Expect<Equals<ExpansionOf<typeof manualArm>, ManualArmLaw>>
 export type ReversedArms = Expect<Equals<typeof reversedArms, typeof taskArms>>
 // @ts-expect-error -- TS2345 refusal: alternatives takes at least one arm
 export const noArms = alternatives(Task, "kind", Kind, {})
@@ -231,23 +239,17 @@ export type WorkKeys = Expect<
 >
 export type WorkStatements = Expect<Equals<StatementsOf<typeof Work>[0], typeof byName>>
 /**
- * The schema's laws read the alternatives statement as its expansion, and each arm's mirrors as the two containments
- * it is sugar for: its head and both directions of every arm are the schema's containments, and no mirrors is left.
+ * The schema's laws read the alternatives statement as its expansion: both directions of every arm are the schema's
+ * containments, and no mirrors stands for them.
  */
 export type WorkArms = Expect<Equals<StatementsOf<typeof Work>[2], typeof taskArms>>
-type ArmSelection = Side<Selection<typeof Task>, readonly ["id"]>
-type AutomaticKey = Side<typeof AutomaticTask, readonly ["task"]>
-type ManualKey = Side<typeof ManualTask, readonly ["task"]>
-type ArmContainments =
-	| Containment<ArmSelection, AutomaticKey>
-	| Containment<AutomaticKey, ArmSelection>
-	| Containment<ArmSelection, ManualKey>
-	| Containment<ManualKey, ArmSelection>
+type ArmContainments = AutomaticArm | ManualArmLaw
+type ArmMirrors = Mirrors<ArmSelection, AutomaticKey> | Mirrors<ArmSelection, ManualKey>
 export type WorkContainments = Expect<
-	Equals<ContainmentsOf<typeof Work>, typeof taskAccount | TaskHead | ArmContainments>
+	Equals<ContainmentsOf<typeof Work>, typeof taskAccount | ArmContainments>
 >
 export type WorkLaws = Expect<IsAssignable<ArmContainments, LawsOf<typeof Work>>>
-export type WorkSugar = Expect<Not<IsAssignable<AutomaticArm | ManualArmLaw, LawsOf<typeof Work>>>>
+export type WorkSugar = Expect<Not<IsAssignable<ArmMirrors, LawsOf<typeof Work>>>>
 export type WorkRoot = Expect<Equals<LevelsOf<typeof Work>, typeof Work>>
 // @ts-expect-error -- TS2345 refusal: the sides' field types differ
 export const centsRaw = contained(on(Ticket, "amount"), on(Ticket, "id"))
@@ -256,14 +258,36 @@ export const kindMutable = mutable(Kind)
 // @ts-expect-error -- TS2345: a write list names ordinary relations and query entries only
 export const kindWrite = role(Work, "bad", Work.relations, { write: ["Kind"] })
 
-export const Pool = relation("Pool", { id: uuid, budget: pg.bigint }, ["id"])
-export const Claim = relation("Claim", { id: uuid, pool: uuid, units: pg.bigint }, ["id"])
-export const poolBudget = capacity(on(Pool, "id"), {
-	from: on(Claim, "pool"),
-	weight: weigh("units"),
-	within: within(0n, ref("budget"))
-})
-export const exactlyTwo = within(2n)
+/**
+ * A weighted bound (fin §6): a pool's claims are an ordered family over its drawn count, their units summed into its
+ * total, which a row check holds within its budget; a count bound is a row check on the count.
+ */
+export const Pool = relation(
+	"Pool",
+	{ id: uuid, budget: pg.bigint, n: drawn(natural), total: accumulated(pg.bigint, 0n) },
+	["id"]
+)
+export const Claim = relation(
+	"Claim",
+	{
+		pool: uuid,
+		at: drawn(natural),
+		units: pg.bigint,
+		before: accumulated(pg.bigint, 0n),
+		after: accumulated(pg.bigint, 0n)
+	},
+	["pool", "at"]
+)
+export const claims = ordered(on(Claim, "pool", "at"), fin(Pool, "n"))
+export const claimUnits = fold(
+	claims,
+	Monoid.sum,
+	on(Claim, "pool", "units", "before", "after"),
+	on(Pool, "id", "total")
+)
+export const poolBudget = check("UnitsWithinBudget", Pool, (p) => p.le(p.total, p.budget))
+export const exactlyTwo = check("ExactlyTwoClaims", Pool, (p) => p.n.eq(2n))
+export const Pools = schema("Pools", { Pool, Claim }, [claims, claimUnits, poolBudget, exactlyTwo])
 
 /** Derived relations and levels. */
 export const Edu = schema("Edu", { Account, Task, Kind }, [])

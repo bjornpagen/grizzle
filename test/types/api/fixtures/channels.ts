@@ -333,7 +333,11 @@ export type NoChangeShape = Expect<
 export type RejectedShape = Expect<
 	Equals<
 		Extract<Outcome, { readonly kind: "invariant-rejected" }>,
-		{ readonly kind: "invariant-rejected"; readonly law: Law; readonly witness: Witness }
+		{
+			readonly kind: "invariant-rejected"
+			readonly laws: Arr.NonEmptyReadonlyArray<Law>
+			readonly witness: Witness
+		}
 	>
 >
 

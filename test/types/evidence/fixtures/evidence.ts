@@ -51,9 +51,16 @@ type Keys<Q> = EvidenceOfQuery<Q>["keys"]
 
 export const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 export const Kind = closed("Kind", ["Automatic", "Manual"])
-export const Plan = closed("Plan", ["Free", "Pro"]).with(
-	{ budget: Cents },
-	{ Free: { budget: Cents(1n) }, Pro: { budget: Cents(2n) } }
+export const Plan = closed("Plan", ["Free", "Pro"])
+/** Each plan's budget: a closed relation keyed by its plan, its rows constants every role reads. */
+export const PlanBudget = closed.relation(
+	"PlanBudget",
+	{ plan: closedId(Plan), budget: Cents },
+	["plan"],
+	[
+		{ plan: "Free", budget: Cents(1n) },
+		{ plan: "Pro", budget: Cents(2n) }
+	]
 )
 export const Account = relation("Account", { id: uuid, name: text, plan: closedId(Plan) }, ["id"])
 export const Task = relation(
@@ -81,6 +88,7 @@ export const Work = schema(
 	{
 		Kind,
 		Plan,
+		PlanBudget,
 		Account,
 		Task,
 		AutomaticTask,
@@ -94,13 +102,27 @@ export const Work = schema(
 	[
 		byName,
 		contained(on(Task, "account"), on(Account, "id")),
-		contained(on(Account, "plan"), on(Plan, "id")),
+		contained(on(Account, "plan"), on(PlanBudget, "plan")),
 		contained(on(TaskNote, "task"), on(Task, "id")),
 		contained(on(TaskLabel, "account", "label"), on(Label, "account", "label")),
 		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
 	]
 )
-export const Reader = role(Work, "reader", Work.relations)
+/** Every relation of Work but the closed relation, which is no entry: a full role's whole entries. */
+const workEntries = {
+	Kind,
+	Plan,
+	Account,
+	Task,
+	AutomaticTask,
+	ManualTask,
+	TaskNote,
+	Label,
+	TaskLabel,
+	Sitting,
+	Upgrade
+}
+export const Reader = role(Work, "reader", workEntries)
 
 /** Pinning by match bindings: a key bound entirely to inputs pins its occurrence. */
 export const taskById = query(Work).rule((r) => {
@@ -399,7 +421,7 @@ export const accountNames = query(Work).rule((r) => {
 })
 export const AccountNames = derived("AccountNames", accountNames)
 export const Reports = schema.extend(Work, { AccountNames }, [])
-export const Reporter = role(Reports, "reporter", Reports.relations)
+export const Reporter = role(Reports, "reporter", { ...workEntries, AccountNames })
 export type AccountNamesKeys = Expect<
 	Equals<
 		KeysOf<typeof Reports, typeof AccountNames>,
@@ -476,10 +498,10 @@ export const accounts = query(Work).rule((r) => {
 /**
  * Attachment delivery:
  * - a child whose binding on the parent's variable covers its key is an Option;
- * - a child keyed by the parent through a declared containment, with no further predicate, is the bare fact. Into
- *   closed facts whose source field is of the roster's type, enum membership is immediate, so it holds in a read-back
- *   too; into an ordinary relation it may lower to a deferred foreign key, so the immediate heading, which read-backs
- *   deliver, keeps the Option;
+ * - a child keyed by the parent through a declared containment, with no further predicate, is the bare fact. Into a
+ *   closed relation the containment is a constant membership check, immediate, so it holds in a read-back too; into
+ *   an ordinary relation it may lower to a deferred foreign key, so the immediate heading, which read-backs deliver,
+ *   keeps the Option;
  * - an aggregate grouped only by parent variables is an Option, and the bare row when a reflexive self-match on the
  *   relation the parent's fact was read from proves its group nonempty;
  * - an alternatives arm keyed by the parent's key is Some in the arm the parent's handle selects and None in the
@@ -491,8 +513,8 @@ export const accountCards = accounts
 		"planFact",
 		(a) =>
 			query(Work).rule((r) => {
-				const { budget } = v(Plan, "plan")
-				return r.match(Plan, { id: a.plan, budget }).find({ budget })
+				const { budget } = v(PlanBudget, "planBudget")
+				return r.match(PlanBudget, { plan: a.plan, budget }).find({ budget })
 			}),
 		"one"
 	)
@@ -697,9 +719,9 @@ export const filteredPlan = accounts.attach(
 	"cheap",
 	(a) =>
 		query(Work).rule((r) => {
-			const { budget } = v(Plan, "plan")
+			const { budget } = v(PlanBudget, "planBudget")
 			return r
-				.match(Plan, { id: a.plan, budget })
+				.match(PlanBudget, { plan: a.plan, budget })
 				.where(r.lt(budget, Cents(2n)))
 				.find({ budget })
 		}),
@@ -940,7 +962,7 @@ export type TaskLabelsImmediateColor = Expect<
 
 /**
  * A parent's head field carries its own origin's containments, never those of another field of the same type. The
- * head's plan is Upgrade.target, which no containment into Plan describes, while the rule also binds Account.plan,
+ * head's plan is Upgrade.target, which no containment into PlanBudget describes, while the rule also binds Account.plan,
  * which one does: both are closedId(Plan), so the types tell them apart by origin (an origin names one variable, its
  * scope's field), and the plan child is an Option by its key.
  */
@@ -957,8 +979,8 @@ export const upgradeTargets = query(Work)
 		"target",
 		(u) =>
 			query(Work).rule((r) => {
-				const { budget } = v(Plan, "plan")
-				return r.match(Plan, { id: u.plan, budget }).find({ budget })
+				const { budget } = v(PlanBudget, "planBudget")
+				return r.match(PlanBudget, { plan: u.plan, budget }).find({ budget })
 			}),
 		"option"
 	)

@@ -69,56 +69,39 @@ export type SharesKey<M, K extends ReadonlyArray<string>> = K extends readonly [
 	: M extends ReadonlyArray<unknown>
 		? number extends M["length"]
 			? false
-			: RepeatsKey<M, K, never>
+			: M extends readonly [...Facts1024, unknown, ...ReadonlyArray<unknown>]
+				? false
+				: [UnionToIntersection<KeyClaims<M, K>[number]>] extends [never]
+					? true
+					: false
 		: false
 
 /**
- * Whether a later fact of Facts repeats a key text: tail-recursive over chunks of sixteen facts, each chunk judged
- * within itself (ChunkRepeats) and against the texts of the chunks before it, Seen. The chunks keep the recursion a
- * sixteenth of the tuple's length, and each step's work is its chunk's.
+ * A tuple of 1,024 facts, the longest literal SharesKey judges: merging a literal's claims compares a union of a
+ * claim per fact, which TypeScript holds within its comparison limit (TS2859, "excessive complexity") at a thousand
+ * claims and passes at three thousand; a longer literal is the run time's to refuse, as a wider array is. Built by
+ * doubling, so no recursion reaches the instantiation depth limit.
  */
-type RepeatsKey<Facts extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>, Seen> = Facts extends readonly [
-	infer A0, infer A1, infer A2, infer A3, infer A4, infer A5, infer A6, infer A7, infer A8, infer A9, infer A10, infer A11, infer A12, infer A13, infer A14, infer A15,
-	...infer Rest extends ReadonlyArray<unknown>
-]
-	? ChunkRepeats<readonly [A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15], K, Seen> extends true
-		? true
-		: RepeatsKey<Rest, K, Seen | ChunkTexts<readonly [A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15], K>>
-	: ChunkRepeats<Facts, K, Seen>
-
-/** A chunk's key texts: a fact whose key no single literal types has none. */
-type ChunkTexts<C extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>> = {
-	readonly [I in keyof C]: KeyText<C[I], K>
-}[number]
+type Facts1 = readonly [unknown]
+type Facts2 = readonly [...Facts1, ...Facts1]
+type Facts4 = readonly [...Facts2, ...Facts2]
+type Facts8 = readonly [...Facts4, ...Facts4]
+type Facts16 = readonly [...Facts8, ...Facts8]
+type Facts32 = readonly [...Facts16, ...Facts16]
+type Facts64 = readonly [...Facts32, ...Facts32]
+type Facts128 = readonly [...Facts64, ...Facts64]
+type Facts256 = readonly [...Facts128, ...Facts128]
+type Facts512 = readonly [...Facts256, ...Facts256]
+type Facts1024 = readonly [...Facts512, ...Facts512]
 
 /**
- * Whether a chunk repeats a key text, within itself or of the texts Seen before it (SeenBefore). Within: each position claims its
- * fact's key text in a record of that one text to the position, a unit type; merged into one record, two claims of one
- * text meet in never, so the merged record is never.
+ * Each position's claim on its fact's key text, a record of that one text to the position, a unit type. Merged into
+ * one record, the claims clash exactly where two positions claim one text: two unit types of one property meet in
+ * never, so the merged record is never. A mapped type over the positions with no recursion, so the work is one claim
+ * per fact; a fact whose key no single literal types claims nothing, and no claims merge to unknown.
  */
-type ChunkRepeats<C extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>, Seen> = [
-	UnionToIntersection<KeyClaims<C, K>[number]>
-] extends [never]
-	? true
-	: true extends SeenBefore<C, K, Seen>
-		? true
-		: false
-
-/**
- * Whether a chunk's fact has a key text Seen holds: one literal against a union of literals each, which the checker
- * answers by lookup, so a step's work is its chunk's whatever Seen's size.
- */
-type SeenBefore<C extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>, Seen> = {
-	readonly [I in keyof C]: [KeyText<C[I], K>] extends [never]
-		? false
-		: KeyText<C[I], K> extends Seen
-			? true
-			: false
-}[number]
-
-/** Each position's claim on its fact's key text; a fact whose key no single literal types claims nothing. */
-type KeyClaims<C extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>> = {
-	readonly [I in keyof C]: { readonly [T in KeyText<C[I], K>]: I }
+type KeyClaims<M extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>> = {
+	readonly [I in keyof M]: { readonly [T in KeyText<M[I], K>]: I }
 }
 
 /**

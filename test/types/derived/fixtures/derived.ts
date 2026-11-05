@@ -7,11 +7,11 @@ import { closedId, contract, Decimal, pg, type Uuid, uuid } from "#compiler/publ
 import { query, v } from "#compiler/public/query.ts"
 import {
 	alternatives,
-	capacity,
 	check,
 	closed,
 	contained,
 	derived,
+	fin,
 	type KeysOf,
 	key,
 	type LevelsOf,
@@ -22,9 +22,7 @@ import {
 	relation,
 	role,
 	schema,
-	select,
-	weigh,
-	within
+	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Carrier, SqlOfCarrier } from "#compiler/types/core/phantom.ts"
@@ -276,11 +274,8 @@ export const laws = () => [
 	select(AccountBudget, (b) => b.and()),
 	// @ts-expect-error -- TS2345: alternatives takes no derived parent
 	alternatives(AccountBudget, "account", Kind, {}),
-	capacity(
-		on(Account, "id"),
-		// @ts-expect-error -- TS2345: a capacity source is never a derived relation
-		{ from: on(AccountBudget, "account"), weight: weigh("tasks"), within: within(0n, 10n) }
-	)
+	// @ts-expect-error -- TS2345: a family's slots are never a derived relation's
+	fin(AccountBudget, "tasks")
 ]
 
 /** A role's write list never names a derived relation, and its refresh list names derived relations only. */

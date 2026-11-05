@@ -128,7 +128,7 @@ export type VarsOf<R extends Headed<Carriers>, N extends string> = Minted<
 	VarOrigins<R, N>
 >
 export type VarOrigins<R, N extends string> = R extends {
-	readonly kind: "relation" | "closed" | "derived" | "world" | "context"
+	readonly kind: "relation" | "closed" | "closedRelation" | "derived" | "world" | "context"
 	readonly name: infer Rel extends string
 }
 	? R extends Headed<infer C>
