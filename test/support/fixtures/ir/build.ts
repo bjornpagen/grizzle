@@ -17,6 +17,7 @@ import {
 	literalNegated,
 	rangeOperatorCodes
 } from "#compiler/allen/atoms.ts"
+import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
 import { AllenMask } from "#compiler/allen/mask.ts"
 import { makeIdSupply, type NodeId, ParamId } from "#compiler/core/ids.ts"
@@ -753,7 +754,7 @@ export class Ir {
 		return this.b.node({
 			kind: "Group",
 			input,
-			bound,
+			bound: foldInputOf(input, bound),
 			keys,
 			aggs: Arr.map(resolved, (r) => r.spec),
 			heading: [

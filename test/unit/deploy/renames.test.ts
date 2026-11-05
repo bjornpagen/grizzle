@@ -740,9 +740,7 @@ describe("declared renames and drops", () => {
 									reason?._tag === "UndeclaredDrop",
 									"a caller's field dropped undeclared is refused"
 								)
-								if (reason?._tag === "UndeclaredDrop") {
-									assert.deepEqual(reason.dropped, x)
-								}
+								assert.deepEqual(reason.dropped, x, "naming the field")
 								c.note("a caller's field refused")
 								return
 							}
@@ -750,11 +748,9 @@ describe("declared renames and drops", () => {
 								return assert.fail(`the draft drafts: ${drafted.failure.message}`)
 							}
 							const p = drafted.success.snapshot.theory.relations["P"]
-							assert.deepEqual(
-								p?.kind === "relation" ? Arr.map(p.fields, (y) => y.name) : [],
-								["id", "n"],
-								"the field is dropped"
-							)
+							const fields: ReadonlyArray<string> =
+								p?.kind === "relation" ? Arr.map(p.fields, (y) => y.name) : []
+							assert.deepEqual(fields, ["id", "n"], "the field is dropped")
 							c.note(
 								gone.writing === "caller" ? "a caller's field dropped" : "a generated field dropped"
 							)

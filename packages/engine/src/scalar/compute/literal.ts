@@ -46,7 +46,7 @@ export const bareLiteralKind = (value: unknown): BareLiteralKind | undefined => 
 /**
  * The exact carrier value of a literal, as the evaluator holds it: integers as bigint, numeric as Decimal, floats as
  * number, money as Money, booleans, text, uuid and closed ids' handles as their primitives, a set over a roster as the
- * frozen Set of its handles, spans as { start, end } bigints, vectors as their canonical value.
+ * fresh Set of its handles, spans as { start, end } bigints, vectors as their canonical value.
  */
 export type CarrierValue =
 	| bigint
@@ -243,7 +243,7 @@ export const irLiteral = (
 				? Result.err("a set's handles")
 				: finish(
 						{ kind: "handles", handles: Object.freeze([...handles]) },
-						Object.freeze(new Set(handles))
+						new Set(handles)
 					)
 		}
 		case "range4":

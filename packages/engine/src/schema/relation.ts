@@ -712,8 +712,9 @@ export const closedRelation = <
 const mintBits = <C>() => nominal<ReadonlySet<HandleOf<C>>, Bits<C>>()
 
 /**
- * Bits.of(roster, handles): the set of `handles`, a fresh frozen Set branded by the roster. Each handle is one of the
- * roster's, each once: a JavaScript caller's other value is MalformedDescription.
+ * Bits.of(roster, handles): the set of `handles`, a fresh Set branded by the roster, which the caller owns: a Set
+ * cannot be frozen, and every boundary that admits one copies it. Each handle is one of the roster's, each once: a
+ * JavaScript caller's other value is MalformedDescription.
  */
 export const bitsOf = <C extends AnyRoster>(
 	roster: C,
@@ -737,7 +738,7 @@ export const bitsOf = <C extends AnyRoster>(
 		}
 		members.add(h)
 	}
-	return mintBits<C>()(Object.freeze(members))
+	return mintBits<C>()(members)
 }
 
 /** The admission core of derived(...): the definition checked and recorded, as relation's is. */

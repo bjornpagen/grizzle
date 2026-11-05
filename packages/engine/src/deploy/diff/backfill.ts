@@ -215,16 +215,16 @@ interface Layer {
 }
 
 /**
- * The member's rows, one per stored member, with each column the layers compute: `carried` read off the member table
+ * The rows of `source`, one per row it holds, with each column the layers compute: `carried` read off the source
  * itself, then each layer a derived table over the one below it, which reads every column below it by name, so a window
  * of a layer reads its own layer's inputs only. A layer of no column adds no table.
  */
 const layered = (
-	member: ObjectName,
+	source: FromSource,
 	carried: NonEmptyReadonlyArray<string>,
 	layers: ReadonlyArray<Layer>
 ): Select => {
-	let from: FromSource = { kind: "table", table: member, alias: "m" }
+	let from: FromSource = source
 	const names: Array<string> = [...carried]
 	let query: Select | undefined
 	let depth = 0
@@ -340,6 +340,92 @@ const memberKey = (
 	return columns
 }
 
+/** A fold of a family by its place among the family's folds, which names its columns in the backfill's layers. */
+interface FoldAt {
+	readonly fold: FamilyFold
+	readonly f: number
+}
+
+/** Each fold's masked step over a member's row (maskedStep), in its first plane's end's base type. */
+const stepColumns = (
+	installation: Installation,
+	member: RelationInfo,
+	folds: ReadonlyArray<FoldAt>
+): Layer["columns"] =>
+	folds.map(({ fold, f }) => {
+		const [first] = fold.planes
+		const base = baseTypeRef(installation.names, first.end.type)
+		return {
+			name: stepName(f),
+			expr: maskedStep(installation, member, fold, base, identityOf(installation, first))
+		}
+	})
+
+/**
+ * The layers that accumulate each fold over rows that carry its step (stepColumns), each partition its family's group
+ * in `inOrder`: each first plane's after, the running aggregate of its steps, its frame ROWS from the partition's first
+ * row to the current one; each before its predecessor's after, the identity at the first slot; and twos's second plane,
+ * the running union of each step's meet with the first plane before it, and its before the same way.
+ */
+const planeLayers = (
+	installation: Installation,
+	folds: ReadonlyArray<FoldAt>,
+	partition: ReadonlyArray<Expr>,
+	inOrder: ReadonlyArray<Expr>
+): ReadonlyArray<Layer> => {
+	const firstAfters: Layer = {
+		columns: folds.map(({ fold, f }) => {
+			const [first] = fold.planes
+			const base = baseTypeRef(installation.names, first.end.type)
+			return {
+				name: afterName(f, 0),
+				expr: cast(
+					over(runningOf(fold), [tableCol(stepName(f))], window(partition, inOrder, true)),
+					base
+				)
+			}
+		})
+	}
+	const befores = (p: number): Layer => ({
+		columns: folds.flatMap(({ fold, f }) => {
+			const plane = fold.planes[p]
+			return plane === undefined
+				? []
+				: [
+						{
+							name: beforeName(f, p),
+							expr: over(
+								"lag",
+								[
+									tableCol(afterName(f, p)),
+									lit.int(1n, types.integer),
+									identityOf(installation, plane)
+								],
+								window(partition, inOrder, false)
+							)
+						}
+					]
+		})
+	})
+	const secondAfters: Layer = {
+		columns: folds.flatMap(({ fold, f }) => {
+			const second = fold.planes[1]
+			if (second === undefined) {
+				return []
+			}
+			const base = baseTypeRef(installation.names, second.end.type)
+			const met = binary("&", tableCol(beforeName(f, 0)), tableCol(stepName(f)))
+			return [
+				{
+					name: afterName(f, 1),
+					expr: cast(over("bit_or", [met], window(partition, inOrder, true)), base)
+				}
+			]
+		})
+	}
+	return [firstAfters, befores(0), secondAfters, befores(1)]
+}
+
 /** A fold plane's columns the backfill writes on its member, by `added`. */
 const planesAdded = (fold: FamilyFold, added: ReadonlySet<string>): boolean =>
 	fold.planes.some((p) => holds(added, p.before) || holds(added, p.after))
@@ -396,70 +482,13 @@ const memberUpdate = (
 		columns: [
 			{ name: indexName, expr: drawIndex ? numbered : tableCol(index) },
 			{ name: countName, expr: { ...countStar(), over: window(partition, [], false) } },
-			...folds.map(({ fold, f }) => {
-				const [first] = fold.planes
-				const base = baseTypeRef(installation.names, first.end.type)
-				return {
-					name: stepName(f),
-					expr: maskedStep(installation, member, fold, base, identityOf(installation, first))
-				}
-			})
+			...stepColumns(installation, member, folds)
 		]
 	}
-	/** Each fold's first plane after its step: the running aggregate of its masked steps, in its end's base type. */
-	const firstAfters: Layer = {
-		columns: folds.map(({ fold, f }) => {
-			const [first] = fold.planes
-			const base = baseTypeRef(installation.names, first.end.type)
-			return {
-				name: afterName(f, 0),
-				expr: cast(
-					over(runningOf(fold), [tableCol(stepName(f))], window(partition, inOrder, true)),
-					base
-				)
-			}
-		})
-	}
-	/** Each before its predecessor's after, the identity at the first slot. */
-	const befores = (p: number): Layer => ({
-		columns: folds.flatMap(({ fold, f }) => {
-			const plane = fold.planes[p]
-			return plane === undefined
-				? []
-				: [
-						{
-							name: beforeName(f, p),
-							expr: over(
-								"lag",
-								[
-									tableCol(afterName(f, p)),
-									lit.int(1n, types.integer),
-									identityOf(installation, plane)
-								],
-								window(partition, inOrder, false)
-							)
-						}
-					]
-		})
-	})
-	/** twos's second plane after its step: the running union of each step's meet with the first plane before it. */
-	const secondAfters: Layer = {
-		columns: folds.flatMap(({ fold, f }) => {
-			const second = fold.planes[1]
-			if (second === undefined) {
-				return []
-			}
-			const base = baseTypeRef(installation.names, second.end.type)
-			const met = binary("&", tableCol(beforeName(f, 0)), tableCol(stepName(f)))
-			return [
-				{
-					name: afterName(f, 1),
-					expr: cast(over("bit_or", [met], window(partition, inOrder, true)), base)
-				}
-			]
-		})
-	}
-	const rows = layered(table, carried, [steps, firstAfters, befores(0), secondAfters, befores(1)])
+	const rows = layered({ kind: "table", table, alias: "m" }, carried, [
+		steps,
+		...planeLayers(installation, folds, partition, inOrder)
+	])
 	return {
 		kind: "update",
 		with: undefined,
@@ -530,6 +559,7 @@ const sizedName = "__sized"
 const rankedName = "__ranked"
 const steppedName = "__stepped"
 const startedName = "__started"
+const foldedName = "__folded"
 
 /**
  * A tree's UPDATE: each row's drawn columns over the stored rows, under one WITH RECURSIVE.
@@ -554,10 +584,12 @@ const treeUpdate = (
 	table: ObjectName,
 	added: ReadonlySet<string>
 ): Update => {
-	const member = relationOf(input.installation, family.member.name)
+	const { installation } = input
+	const member = relationOf(installation, family.member.name)
 	const owner = mapNonEmpty(family.group, (g) => g.owner.column)
 	const parent = mapNonEmpty(family.group, (g) => g.member.column)
 	const key = memberKey(family, member, input.previous, added)
+	const folds: ReadonlyArray<FoldAt> = family.folds.map((fold, f) => ({ fold, f }))
 	const self = (alias: string): FromSource => ({ kind: "table", table, alias })
 	const rootOf = (alias: string): Expr =>
 		and(
@@ -661,7 +693,8 @@ const treeUpdate = (
 						},
 						"__at"
 					),
-					targetAs({ ...countStar(), over: window(siblings, [], false) }, "__siblings")
+					targetAs({ ...countStar(), over: window(siblings, [], false) }, "__siblings"),
+					...stepColumns(installation, member, folds).map((c) => targetAs(c.expr, c.name))
 				],
 				[
 					join(
@@ -674,7 +707,42 @@ const treeUpdate = (
 			)
 		)
 	)
-	const rankedColumns = [...carried, "__root", "__size", "__children", "__at", "__siblings"]
+	const steps = folds.map(({ f }) => stepName(f))
+	const rankedColumns = [
+		...carried,
+		"__root",
+		"__size",
+		"__children",
+		"__at",
+		"__siblings",
+		...steps
+	]
+	/** Each fold over the tree, its family each row's siblings in slot order, the root alone at slot 0: the layers over
+	 * the ranked rows that accumulate it (planeLayers). */
+	const folded = isNonEmpty(folds)
+		? [
+				cte(
+					foldedName,
+					[],
+					layered(
+						cteRefAs(rankedName, "r"),
+						[...key, ...parent.filter((p) => !key.includes(p)), "__root", "__at", ...steps] as unknown as NonEmptyReadonlyArray<string>,
+						planeLayers(
+							installation,
+							folds,
+							[...parent.map((p) => tableCol(p)), tableCol("__root")],
+							[tableCol("__at")]
+						)
+					)
+				)
+			]
+		: []
+	const planes = folds.flatMap(({ fold, f }) =>
+		fold.planes.flatMap((plane, p) => [
+			{ column: columnOf(plane.before), name: beforeName(f, p) },
+			{ column: columnOf(plane.after), name: afterName(f, p) }
+		])
+	)
 	const stepped = cte(
 		steppedName,
 		[],
@@ -751,7 +819,8 @@ const treeUpdate = (
 					cast(binary("+", col("s", "__start"), col("st", "__size")), types.bigint),
 					"__end"
 				),
-				targetAs(cast(col("ps", "__start"), types.bigint), "__ps")
+				targetAs(cast(col("ps", "__start"), types.bigint), "__ps"),
+				...planes.map(({ name }) => targetAs(col("f", name), name))
 			],
 			[
 				{
@@ -767,7 +836,16 @@ const treeUpdate = (
 							kind: "on",
 							source: cteRefAs(startedName, "ps"),
 							on: and(mapNonEmpty(parent, (p, k) => eq(col("ps", descendantName(k)), col("st", p))))
-						}
+						},
+						...(isNonEmpty(folds)
+							? [
+									{
+										kind: "on" as const,
+										source: cteRefAs(foldedName, "f"),
+										on: and(mapNonEmpty(key, (k) => eq(col("f", k), col("st", k))))
+									}
+								]
+							: [])
 					]
 				}
 			],
@@ -780,11 +858,12 @@ const treeUpdate = (
 		{ column: family.copy, value: col("b", "__n") },
 		{ column: shape.start.column, value: col("b", "__start") },
 		{ column: shape.end.column, value: col("b", "__end") },
-		{ column: shape.parentStart, value: col("b", "__ps") }
+		{ column: shape.parentStart, value: col("b", "__ps") },
+		...planes.map(({ column, name }) => ({ column, value: col("b", name) }))
 	]
 	return {
 		kind: "update",
-		with: { recursive: true, ctes: [closure, sized, ranked, stepped, started] },
+		with: { recursive: true, ctes: [closure, sized, ranked, stepped, started, ...folded] },
 		table,
 		alias: "t",
 		set,

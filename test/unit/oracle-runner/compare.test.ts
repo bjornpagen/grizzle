@@ -182,9 +182,9 @@ const runOf = (name: string, rows: ReadonlyArray<Row>): Run => ({
 const valueKey = (row: Row): string =>
 	`${row[0].cls % numericClasses.length}/${row[1].cls % floatClasses.length}`
 
-describe("canonical cell multisets", () => {
+describe("canonical cell keyed sets", () => {
 	it.effect(
-		"agree exactly when the runs' cells spell one multiset of values, whatever the spellings",
+		"agree exactly when each run's cells spell a set of values and the two sets are one, whatever the spellings",
 		(ctx) =>
 			searched(
 				ctx,

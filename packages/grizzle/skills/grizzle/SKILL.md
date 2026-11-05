@@ -143,20 +143,24 @@ breaking change may briefly break older application instances that are still run
   selected target's constant is a generated column too, `__tag_<field>_<value>_…`. A family's hidden columns, which
   grizzle fills on every write, are each their own `ADD COLUMN` (`__index_<count>_…`, `__copy_<count>_…`,
   `__before_<count>_<plane>_…`, `__after_<count>_<plane>_…`, `__predecessor_<count>_…`), and each CHECK over them its
-  own `ADD CONSTRAINT`. A roster whose names changed has its domain's CHECK dropped and added `NOT VALID` against the
-  new names constant, validated in Validate; a set over a roster that grew is converted to the new size's domain by its
-  cast, the new handles absent. A table CHECK or generated field over a changed closed relation is replaced the same
-  way, or takes its new expression (`SET EXPRESSION`). A field whose type changes is converted in place, `ALTER COLUMN
-  ... TYPE ... USING` with a placeholder for the conversion, or by its cast, with no placeholder, when the new type
-  holds the old one's values (a pattern changed, a contract added, removed or swapped for another over the same base),
-  after the constraints, indexes and statistics over it are dropped; they are built again as on any table with rows, but
-  a key over it, which is added again right after the conversion in the same transaction, so it holds throughout. A
-  contract's changed predicate replaces its domain's one CHECK in place, `NOT VALID`, validated in Validate. A changed
-  pattern is another pattern's domain, so each field it types is converted to it by its cast, which refuses a stored
-  value the new pattern doesn't admit (23514). Every world object an existing role relies on (a view, a policy, a filter
-  function, a key or unique probe) that changes, or that reads anything the migration changes or drops (a relation, a
-  column, a type, a materialized view, a function), is dropped at the start of this transaction and created again, with
-  its grants, at its end, so no committed state lacks it.
+  own `ADD CONSTRAINT`. A family new to a table that may hold rows is backfilled here: its columns are added under
+  placeholder defaults, SQL over the stored rows draws each index, count, fold value and interval (window functions, and
+  one recursive step for a tree), each default is dropped, and only then are the constraints that read them added, `NOT
+  VALID`, for Validate to prove the values. A family whose values the stored rows alone don't give is refused, naming
+  it. A roster whose names changed has its domain's CHECK dropped and added `NOT VALID` against the new names constant,
+  validated in Validate; a set over a roster that grew is converted to the new size's domain by its cast, the new
+  handles absent. A table CHECK or generated field over a changed closed relation is replaced the same way, or takes its
+  new expression (`SET EXPRESSION`). A field whose type changes is converted in place, `ALTER COLUMN ... TYPE ... USING`
+  with a placeholder for the conversion, or by its cast, with no placeholder, when the new type holds the old one's
+  values (a pattern changed, a contract added, removed or swapped for another over the same base), after the
+  constraints, indexes and statistics over it are dropped; they are built again as on any table with rows, but a key
+  over it, which is added again right after the conversion in the same transaction, so it holds throughout. A contract's
+  changed predicate replaces its domain's one CHECK in place, `NOT VALID`, validated in Validate. A changed pattern is
+  another pattern's domain, so each field it types is converted to it by its cast, which refuses a stored value the new
+  pattern doesn't admit (23514). Every world object an existing role relies on (a view, a policy, a filter function, a
+  key or unique probe) that changes, or that reads anything the migration changes or drops (a relation, a column, a
+  type, a materialized view, a function), is dropped at the start of this transaction and created again, with its
+  grants, at its end, so no committed state lacks it.
 - **indexes**: `CREATE INDEX CONCURRENTLY` on tables that may hold rows, in a no-transaction file, so writes keep
   flowing. A table this migration creates gets an ordinary build. The extended statistics a workload program earns are
   created here too, on a table or a materialized view, each followed by an `ANALYZE` of a relation that may hold rows.

@@ -193,22 +193,6 @@ const resolvePlaceholders = (
 	return Arr.join(out, "\n")
 }
 
-/** A reviewed file of the plan printed as the drafter prints a file, its placeholders resolved by `value`. */
-const renderReviewed = (
-	file: ReviewedFile,
-	value: (placeholder: Placeholder) => string
-): string => {
-	const text = renderFile({ ...file.draft, drafts: file.actions })
-	if (!text.ok) {
-		throw new DraftTextDefect({ defect: `${file.draft.name}: ${text.error.message}` })
-	}
-	return resolvePlaceholders(
-		file.draft.name,
-		Str.split(text.value, "\n"),
-		Arr.map(placeholdersOf(file), value)
-	)
-}
-
 /** A drafted step the text marks: a loss, a confirmed group. */
 type Marked = LossDecision | Confirm
 
@@ -365,26 +349,4 @@ export const readsBack = (
 		(loss): ReadonlyArray<ReadBackFault> =>
 			loss.kind === "unresolved" ? [{ kind: "undecided", loss }] : []
 	)
-}
-
-/**
- * The statements a drafted file holds as drafted, uncommented, in the record's order: each statement, and each
- * confirmed group's; a loss is drafted commented.
- */
-const draftedAsRecorded = (steps: ReadonlyArray<MetaStep>): ReadonlyArray<string> =>
-	Arr.flatMap(steps, (s): ReadonlyArray<string> => {
-		switch (s.kind) {
-			case "statement":
-				return [s.statement]
-			case "confirm":
-				return s.statements
-			case "loss":
-				return []
-		}
-	})
-
-/** A recorded statement of a file, which a reviewer may delete or edit: the reviewer's own. */
-interface FreeSite {
-	readonly file: string
-	readonly statement: string
 }

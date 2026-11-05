@@ -397,10 +397,16 @@ describe("head literal typing", () => {
 							const arms: Arr.NonEmptyReadonlyArray<Arm> = [defined(first, "a drawn arm"), ...rest]
 							const expected = expectedOf(arms)
 							c.noteAll(featuresOf(arms, expected))
-							const input = succeeded(
-								queryInput(unionOf(arms)),
-								"the builder admits every drawn union"
-							)
+							/**
+							 * A union whose arms deliver `c` at types no rule combines is refused at its description: by the
+							 * builder's read of the union's arms (program/compile.ts queryInput), or else by the checker.
+							 */
+							const built = queryInput(unionOf(arms))
+							if (expected.kind === "refused" && !built.ok) {
+								refused(built, "MalformedDescription", "the union the rule refuses is refused")
+								return
+							}
+							const input = succeeded(built, "the builder admits every union the rule types")
 							const result = checkQuery(checked, input.desc, checkOptions("head literals"))
 							if (expected.kind === "refused") {
 								refused(result, "MalformedDescription", "the union the rule refuses is refused")

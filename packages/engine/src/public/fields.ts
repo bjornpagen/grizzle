@@ -180,8 +180,8 @@ export const bits: BitsConstructor = <C extends AnyRoster>(
 }
 
 /**
- * Bits.of(roster, handles): the set of `handles`, each a handle of `roster`, each once; a fresh frozen Set, branded by
- * the roster. A JavaScript caller's handle outside the roster, or a repeat, is MalformedDescription.
+ * Bits.of(roster, handles): the set of `handles`, each a handle of `roster`, each once; a fresh Set, branded by the
+ * roster, which every boundary that admits it copies. A JavaScript caller's handle outside the roster, or a repeat, is MalformedDescription.
  */
 export const Bits: {
 	readonly of: <C extends AnyRoster, const H extends ReadonlyArray<HandleOf<C>>>(

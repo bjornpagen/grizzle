@@ -71,7 +71,7 @@ const fieldsOf = (
 
 /**
  * A cell's conversion under its column: the convert closure, the head literal it converts to, the text itself for a
- * refined text, the handle the installation's names give a closed id's code, and the frozen set of the handles a bit
+ * refined text, the handle the installation's names give a closed id's code, and a fresh set of the handles a bit
  * string's 1 bits name, position i code i.
  */
 const conversion = (column: Column<unknown>, names: CodeNames): ((text: string) => unknown) => {
@@ -96,7 +96,7 @@ const conversion = (column: Column<unknown>, names: CodeNames): ((text: string) 
 						members.add(handle)
 					}
 				}
-				return Object.freeze(members)
+				return members
 			}
 		}
 	}

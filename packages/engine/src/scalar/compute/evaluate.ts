@@ -115,7 +115,7 @@ export const literalValue = (literal: TypedLiteral): CarrierValue => {
 		case "handle":
 			return literal.handle
 		case "handles":
-			return Object.freeze(new Set(literal.handles))
+			return new Set(literal.handles)
 		case "span":
 			return { start: literal.start, end: literal.end }
 		case "vector":
@@ -422,14 +422,14 @@ const apply = (
 		case "not":
 			return typeof a === "boolean" ? Result.ok(!a) : mismatch(op)
 		case "union":
-			return isSet(a) && isSet(b) ? Result.ok(Object.freeze(new Set([...a, ...b]))) : mismatch(op)
+			return isSet(a) && isSet(b) ? Result.ok(new Set([...a, ...b])) : mismatch(op)
 		case "intersection":
 			return isSet(a) && isSet(b)
-				? Result.ok(Object.freeze(new Set([...a].filter((h) => b.has(h)))))
+				? Result.ok(new Set([...a].filter((h) => b.has(h))))
 				: mismatch(op)
 		case "difference":
 			return isSet(a) && isSet(b)
-				? Result.ok(Object.freeze(new Set([...a].filter((h) => !b.has(h)))))
+				? Result.ok(new Set([...a].filter((h) => !b.has(h))))
 				: mismatch(op)
 		case "cardinality":
 			return isSet(a) ? Result.ok(BigInt(a.size)) : mismatch(op)
@@ -702,7 +702,7 @@ interface LiteralRefusal {
  *
  * Values are exact carriers: integers and exact integers as bigint, numeric as Decimal, floats as number, money and
  * exact money as Money, booleans, text,
- * uuids and closed ids' handles as primitives, sets as frozen Sets of handles, spans as { start, end } bigints.
+ * uuids and closed ids' handles as primitives, sets as fresh Sets of handles, spans as { start, end } bigints.
  * Comparison follows PostgreSQL's total orders: NaN above every number and equal to itself, -0 equal to 0, numeric by
  * value, text in code point order under the fixed C.UTF-8 collation, closed ids in roster order, which is code order. A regex refinement's membership is the text package's NFA,
  * which the caller supplies.

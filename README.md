@@ -1513,6 +1513,13 @@ never narrowed into its column's type unproved.
   inserted or removed in the middle shifts every later interval.
 - **A counted member is a row.** It is never nested: its group key names its owner, and it is inserted, put and
   deleted like any row.
+- **A change rewrites what it shifts.** Every change to one owner's family is one edit of it: an append takes the
+  slots after the last; a counted member's removal moves the last member into the freed slot and refills from there;
+  an update that changes a step value, or a value a selection or a copy reads, refills from its slot; one that
+  changes its group key leaves its old owner's family and joins the new one's; any other update is in place. In an
+  ordered family, an insertion or a removal rewrites the later siblings. So a change near the start of a long family
+  costs the members after it, and an edit of an owner already stored reads its stored values first
+  ([Transactions and concurrency](#transactions-and-concurrency)).
 - **An immutable owner's family is fixed when the owner is inserted.** Declare `mutable(Owner)` for a family that
   changes later; a delete of a member of an immutable owner's family is refused before any SQL.
 
@@ -1655,7 +1662,7 @@ parameter `{ org: string }`.
 | exclude          | `r.not(Table, { ... })`: no matching row exists                                                                        |
 | take a parameter | `r.param("name", type)`: a term of that type, which stands wherever such a term does                                  |
 | pass a row list  | `r.relation("name", fields)`: a parameter that is a list of rows, matched like a table                                 |
-| aggregate        | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`; a sum of real or double precision values is their exact total rounded once, of money values exact money, a mean that total over the count |
+| aggregate        | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`, over matches that each bind a key; a sum of real or double precision values is their exact total rounded once, of money values exact money, a mean that total over the count |
 | combine          | a second `.rule(...)`: the union of both rules' rows; rules of different columns need a constant that tells them apart, a rule with an attachment shares its columns with no other rule, and a take or an attachment over a union of several headings is no rule of a further union, takes once and is never paged |
 | nest             | `.attach(name, (parent) => child, delivery)`: `"array"`, `"option"`, `"one"`, or `arm(field, name)`                    |
 | order and limit  | `.orderBy(["title", "asc"])`, then `.take(10)` or `db.page`                                                            |
@@ -1666,8 +1673,11 @@ parameter `{ org: string }`.
 
 Six things work differently from SQL:
 
-- **A query returns a set.** Identical rows are one row, and `r.count()` counts distinct matches. Bind a key when
-  every record should count, as `commentsPerAuthor` binds the comment's `id`.
+- **A query returns a set, and an aggregate folds keyed rows.** Identical rows are one row. An aggregate reads each
+  row its rule matches once, by its key: in a rule with an aggregate, every match binds a whole key of its source, by
+  a variable, a parent's variable or a constant, as `commentsPerAuthor` binds the comment's `id`, or the query is
+  refused with `FoldOverProjection`, naming the match and the key to bind. To aggregate distinct values, match a query
+  of them, a set keyed by its columns.
 - **grizzle knows each result's keys.** It works them out from primary keys, equalities and constants, and keeps a key
   through `find` whenever the chosen columns still determine the row. `db.get` takes only a query that returns at most
   one row, an `"option"` or `"one"` nested result needs the same proof, and a page is ordered by a key. A delivery the
@@ -1947,6 +1957,13 @@ deploy. A migration's name, `--name` or derived from its change, is at most 240 
   a reader. A rule over closed relations alone runs as its violation query at the start of the migration's first
   file, when it is new or its closed rows changed, so rows that break it refuse the migration before it changes
   anything.
+- **A family added to stored rows is backfilled.** grizzle draws every value a family holds, so a family new to
+  relations that may hold rows takes its values from SQL over those rows, in the migration that adds it, never from
+  you: each member's index in its member key's order, each count, each fold's running values in index order, and a
+  tree's intervals. Its constraints are added after the backfill, `NOT VALID`, and validated, so a value drawn wrongly
+  refuses the migration. A family whose values the stored rows alone don't give (a fold over a tree, a copy along an
+  axis) is refused, naming the family. The backfill's window functions and its one recursive step over a tree are
+  migration SQL you review; queries at run time hold neither.
 - **`check` reads no database.** It refuses a schema change you haven't generated, a drop no declaration names, a
   workload program whose index needs differ from the snapshot's (naming it), an unresolved marker, an undecided data
   loss, and an edited `snapshot.json` or `meta.json`.
@@ -2100,8 +2117,9 @@ and the `access` it doesn't hold; `DuplicateIdentity`, the `earlier` declaration
 declaration and the `identifier` both convert to; `LawOnDerived`, its `relation`; `UnrepresentableKey`, the key and
 its `fault`; `RecursionRefused` and `DerivedRefused`, their `cause`; `RoleRefused`, `LoginRefused` and
 `ContextRefused`, the `rule` broken; `RoleNameTooLong`, the PostgreSQL `role` and its `limit`; `GeneratedRefused`, the
-generated `field` of a `relation` and the `rule` it breaks; `UndeclaredDrop`, the name a migration would drop, which no
-`--drop` or `--rename` declares; and the remaining rules, a `capability` sentence.
+generated `field` of a `relation` and the `rule` it breaks; `FoldOverProjection`, the match's `source` and the `key` it
+must bind for an aggregate to read each row once; `UndeclaredDrop`, the name a migration would drop, which no `--drop`
+or `--rename` declares; and the remaining rules, a `capability` sentence.
 
 **`EncodingFailure`**'s reason is its codec's fault word, never the value, and its `place` the `Slot` the value fills,
 by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault word.

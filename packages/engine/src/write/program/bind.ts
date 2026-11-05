@@ -122,7 +122,7 @@ export interface ReadStatement {
  * - `write`: one flight of the artifact's statements, every family write planned already, since every group it touches
  *   is an owner's the changeset inserts, empty before;
  * - `read`: first a flight of the family reads, one batched SELECT per family of the stored suffixes and the owners'
- *   counts and ends of every touched group, then the artifact's statements, whose family writes `then` plans from the
+ *   counts and ends of every touched group, then the artifact's statements, whose family writes `writes` plans from the
  *   reads' rows, one array of rows per read in order. Under SERIALIZABLE a concurrent writer to a group the reads read
  *   meets 40001 at one of the two, and grizzle does not retry.
  */
@@ -131,7 +131,7 @@ export type Flights =
 	| {
 			readonly kind: "read"
 			readonly reads: NonEmptyReadonlyArray<ReadStatement>
-			readonly then: (
+			readonly writes: (
 				rows: ReadonlyArray<Raw>
 			) => Result.Result<Chunks, EncodingFailure | FamilyRowBound>
 	  }
@@ -496,7 +496,7 @@ export const bindWrite = (
 				? {
 						kind: "read",
 						reads,
-						then: (rows) => {
+						writes: (rows) => {
 							const plans = planned(rows)
 							return plans.ok ? Result.ok(chunksOf(plans)) : plans
 						}

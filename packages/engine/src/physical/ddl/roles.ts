@@ -315,7 +315,7 @@ const readsOf = (
 
 /** The serial fields of a stored relation, in heading order. */
 const serialFields = (relation: TheoryRelation): ReadonlyArray<string> =>
-	relation.fields.filter((c) => "serial" in c.type).map((c) => c.name)
+	relation.fields.filter((c) => c.writing.kind === "serial").map((c) => c.name)
 
 const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
 	if (!result.ok) {

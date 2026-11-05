@@ -279,8 +279,10 @@ const repeatsOf = (side: RunSide, s: StatementRows): ReadonlyArray<StatementRepe
 					return row === undefined ? [] : [row]
 				})
 			: rows
-	return Arr.flatMap(Arr.sort(rowMultiset(stated).entries(), byKey), ([, entry]) =>
-		entry.count > 1 ? [{ side, label: s.label, row: entry.row, count: entry.count - 1 }] : []
+	return Arr.flatMap(
+		Arr.sort(rowMultiset(stated).entries(), byKey),
+		([, entry]: readonly [string, RowCount]): ReadonlyArray<StatementRepeat> =>
+			entry.count > 1 ? [{ side, label: s.label, row: entry.row, count: entry.count - 1 }] : []
 	)
 }
 

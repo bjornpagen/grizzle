@@ -233,7 +233,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 	])
 	return yield* plansAfter(ctx, changeSetFrame, reads, (outcomes) => {
 		const rows = Arr.flatMap(outcomes, (outcome, at) => (at % 2 === 1 ? [outcome.rows] : []))
-		const filled = flights.then(rows)
+		const filled = flights.writes(rows)
 		return filled.ok
 			? explainedOf(filled.value)
 			: Result.fail(new ReadFailure({ reason: valuesFailure(filled.error) }))

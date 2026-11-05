@@ -443,7 +443,7 @@ export const runWrite = <R>(
 					),
 					(outcomes) => {
 						sent = read
-						const filled = flights.then(Arr.map(outcomes, (o) => o.rows))
+						const filled = flights.writes(Arr.map(outcomes, (o) => o.rows))
 						return Effect.fromResult(
 							filled.ok ? closing(filled.value, read) : Result.fail(valuesFailure(filled.error))
 						)

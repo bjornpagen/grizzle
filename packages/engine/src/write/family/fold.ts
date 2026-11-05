@@ -372,7 +372,7 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
 			index = built
 			prefixes.set(relation, index)
 		}
-		return Object.freeze(new Set(index.get(keyText(args)) ?? []))
+		return new Set(index.get(keyText(args)) ?? [])
 	}
 }
 
@@ -691,15 +691,15 @@ export const combineHost = (
 		case "max":
 			return maxHost(spec, before, x)
 		case "or":
-			return isSetOf(before) && isSetOf(x) ? Object.freeze(new Set([...before, ...x])) : undefined
+			return isSetOf(before) && isSetOf(x) ? new Set([...before, ...x]) : undefined
 		case "twos": {
 			const [ones, twos] = befores
 			if (!isSetOf(ones) || !isSetOf(twos) || !isSetOf(x)) {
 				return undefined
 			}
 			return plane === 0
-				? Object.freeze(new Set([...ones, ...x]))
-				: Object.freeze(new Set([...twos, ...[...ones].filter((h) => x.has(h))]))
+				? new Set([...ones, ...x])
+				: new Set([...twos, ...[...ones].filter((h) => x.has(h))])
 		}
 	}
 }
