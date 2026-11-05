@@ -88,11 +88,11 @@ export default defineConfig({
    - **Placeholder** (`-- grizzle: placeholder` above a `__GRIZZLE_PLACEHOLDER__`): a value for a new NOT NULL column
      on a table with rows, or the conversion for a changed type. Write the value or the UPDATE, then delete the marker
      line.
-   - **Confirm** (`-- grizzle: confirm:` followed by `-- Keep the renames below and delete this line; they are one
-     decision, kept or removed together.`): a holder set aside, a relation or roster whose name a declared rename
-     takes or that moves to another kind, renamed aside with every index, identity sequence and statistics object it
-     owns, so a declared rename takes it from there or the end of the migration drops it, as declared. Keep every
-     statement as drafted and delete the two marker lines; `check` refuses a group kept in part.
+   - **Confirm** (`-- grizzle: confirm:` and the instruction line below it): a holder set aside, a relation or roster
+     whose name a declared rename takes or that moves to another kind, renamed aside with every index, identity
+     sequence and statistics object it owns, so a declared rename takes it from there or the end of the migration
+     drops it, as declared. Keep every statement as drafted and delete the two marker lines; `check` refuses a group
+     kept in part.
    - **Data loss** (`-- grizzle: data loss:` above a commented `CREATE SCHEMA`): a schema's first migration beside a
      schema the configuration no longer lists, which a schema renamed in code leaves; see [Renames and
      drops](#renames-and-drops). The decision is the SQL itself: `check` and `migrate` refuse the folder while it is

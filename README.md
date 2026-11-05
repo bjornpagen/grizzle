@@ -536,9 +536,9 @@ export const spend = (db: Db<typeof Metering, unknown>, debit: Fact<typeof Debit
 		.pipe(Effect.retry({ while: (e) => e._tag === "TransientFailure", times: 3 }))
 ```
 
-**What you get.** The rule holds at commit, for every writer. A debit is written as its own row, `{ call, grant,
-amount }`, which names its grant; the grant's count `debits` and its total `spent` are grizzle's to draw, so no insert
-or put takes them, and `mutable(Grant)` lets them change after the grant is inserted. `grizzle generate` compiles the
+**What you get.** The rule holds at commit, for every writer. A debit is written as its own row,
+`{ call, grant, amount }`, which names its grant; the grant's count `debits` and its total `spent` are grizzle's to
+draw, so no insert or put takes them, and `mutable(Grant)` lets them change after the grant is inserted. `grizzle generate` compiles the
 family, the fold and the check to PostgreSQL's own constraints, over columns of each debit that grizzle fills on every
 write and no query reads; abridged:
 
@@ -1347,8 +1347,8 @@ index entry.
 Every field says who writes it, and an insert or a put takes exactly the fields its caller writes, `Written<R>`:
 
 - **The caller**, the default: a field declared by its type alone, `title: Title`.
-- **PostgreSQL**, as a STORED generated column: `relation.generated(name, written, primaryKey, (r) => ({ f:
-  generated(type, term) }))`. `r` holds the written fields alone, since PostgreSQL's generation expression reads no
+- **PostgreSQL**, as a STORED generated column:
+  `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`. `r` holds the written fields alone, since PostgreSQL's generation expression reads no
   generated column, and the term is of the declared type exactly, with no implicit cast. It may read closed
   relations ([Closed relations](#closed-relations)).
 - **grizzle, drawn:** `drawn(natural)`, a family's count or index, and a tree's `start` and `end`
@@ -1364,8 +1364,9 @@ A fact and a query's row hold every field. A primary key holds no set, generated
 `closed.relation(name, fields, key, rows)` is a relation whose rows are fixed when the schema compiles, such as a
 grammar, a price list, or which states may follow which. Its key is required, a nonempty list of its closed-id fields,
 and one whose key lists every field is a set; its other fields are closed ids or values of an open type, never a
-serial, span, set or vector, and no two of its rows share a key. `closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag),
-weight: pg.integer }, ["kind", "flag"], rows)` says which flags each kind admits, and at what weight.
+serial, span, set or vector, and no two of its rows share a key.
+`closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag), weight: pg.integer }, ["kind", "flag"], rows)`
+says which flags each kind admits, and at what weight.
 
 It has no table. The migration installs it as content-addressed IMMUTABLE constants, a bit string indexed by its key's
 codes and an array of each open-typed field's values, which PostgreSQL folds into every statement that reads them.
