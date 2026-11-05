@@ -37,7 +37,7 @@
 		"./oxlint": "./src/oxlint/plugin.ts"
 	},
 	"bin": {
-		"grizzle-mutate": "./scripts/mutate.js"
+		"grizzle-mutate": "./scripts/mutate.sh"
 	},
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs --noEmit -p tsconfig.json",
