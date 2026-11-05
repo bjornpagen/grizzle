@@ -263,11 +263,13 @@ const holds = (state: ModelState, roster: string, handle: string): boolean =>
 	)
 
 /**
- * Whether the base names `handle` of `roster` anywhere but its roster: a handle literal (`{kind: "handle", closed,
- * member}`) in a law, a rule or a role, or an alternatives law's arm. A removal leaves such a handle alone, a harness
- * invariant: the base it would leave names a handle its roster no longer holds, a schema no migration starts from.
+ * Whether the installation names `handle` of `roster` anywhere but its roster: a handle literal (`{kind: "handle",
+ * closed, member}`) in a law, a rule or a role's entry, a match of the roster itself whose field is the handle's literal
+ * (generate/install.ts's closed filter, `{source: {kind: "closed", name}, fields: {id: {kind: "literal", value}}}`), or
+ * an alternatives law's arm. A removal leaves such a handle alone, a harness invariant: the installation it would leave
+ * names a handle its roster no longer holds, which the builders refuse before any migration is drafted.
  */
-const mentioned = (base: BaseSpec, roster: string, handle: string): boolean => {
+const mentioned = (install: InstallSpec, roster: string, handle: string): boolean => {
 	const walk = (value: unknown): boolean => {
 		if (Arr.isArray(value)) {
 			return Arr.some(value, walk)
@@ -276,6 +278,20 @@ const mentioned = (base: BaseSpec, roster: string, handle: string): boolean => {
 			return false
 		}
 		if (value["kind"] === "handle" && value["closed"] === roster && value["member"] === handle) {
+			return true
+		}
+		const source = value["source"]
+		const fields = value["fields"]
+		if (
+			Predicate.isObject(source) &&
+			source["kind"] === "closed" &&
+			source["name"] === roster &&
+			Predicate.isObject(fields) &&
+			Arr.some(
+				Record.values(fields),
+				(term) => Predicate.isObject(term) && term["kind"] === "literal" && term["value"] === handle
+			)
+		) {
 			return true
 		}
 		const arms = value["arms"]
@@ -289,7 +305,7 @@ const mentioned = (base: BaseSpec, roster: string, handle: string): boolean => {
 		}
 		return Arr.some(Record.values(value), walk)
 	}
-	return walk({ ...base, closed: [] })
+	return walk({ ...install, base: { ...install.base, closed: [] } })
 }
 
 /** The base with roster `roster`'s handles declared as `members`. */
@@ -324,7 +340,7 @@ const rosterChanges = (
 	const closed = state.install.base.closed
 	const removals = Arr.flatMap(closed, (c) =>
 		Arr.flatMap(
-			Arr.filter(c.members, (m) => !mentioned(state.install.base, c.name, m)),
+			Arr.filter(c.members, (m) => !mentioned(state.install, c.name, m)),
 			(m: string): ReadonlyArray<{ readonly change: RosterChange; readonly held: boolean }> => {
 				const kept = Arr.filter(c.members, (x) => x !== m)
 				return Arr.isReadonlyArrayNonEmpty(kept)
