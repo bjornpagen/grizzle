@@ -629,13 +629,10 @@ export const keyedSchema = (schema: HostSchema): HostSchema => {
  * is S. A key's or a span key's refusal names the violating facts by the law's own fields (witnessOf); every other
  * native violation, whose key PostgreSQL reports only in prose, carries none.
  *
- * Every relation's primary key is one of its laws (keyedSchema): a schema whose relation's key no law states is refused,
- * so a state holding one fact twice is always the primary key's violation.
- *
  * Every law's violation query over `state`.
  */
 export const violations = (schema: HostSchema, state: HostState): ReadonlyArray<Violation> => {
-	const out = Arr.flatMap(keyedSchema(schema).laws, (law) => Option.toArray(violationOf(state, law)))
+	const out = Arr.flatMap(schema.laws, (law) => Option.toArray(violationOf(state, law)))
 	/** Two statements of one law identity are one law (a restated containment): their violators merge. */
 	const merged = new Map<string, Violation>()
 	for (const v of out) {
@@ -736,13 +733,16 @@ export const overlapsUnequally = (state: HostState, law: HostLaw): boolean => {
 	return pairs.length > 0 && Arr.every(pairs, (equal) => !equal)
 }
 
-/** What a ChangeSet of `ops` must do from the lawful `state`. */
+/**
+ * What a ChangeSet of `ops` must do from the lawful `state`. Every relation's primary key is one of the schema's laws
+ * (keyedSchema), so a state holding one fact twice is always that key's violation, never an outcome the laws pass.
+ */
 export const expect = (
 	schema: HostSchema,
 	state: HostState,
 	ops: ReadonlyArray<HostOp>
 ): Expected => {
-	const next = transition(schema, state, ops)
+	const next = transition(keyedSchema(schema), state, ops)
 	const all = violations(schema, next)
 	const immediate = Arr.filter(all, (v) => v.immediate)
 	if (immediate.length > 0) {

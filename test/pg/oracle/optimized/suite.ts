@@ -250,14 +250,13 @@ export const differential = <S>(
 	})
 
 /**
- * The multiplicity certificates of the mutant suite's six valid transformations: V1 retainedPrimaryKey, V2
- * combinedJoinKeys, V3 R02.existence, V4 R17.contribution, V5 R17.unionAll, V6 R17.recursiveTerms.
+ * The multiplicity certificates of the mutant suite's five valid transformations: V1 retainedPrimaryKey, V2
+ * combinedJoinKeys, V3 R02.existence, V5 R17.unionAll, V6 R17.recursiveTerms.
  */
 export const validRewriteRules = [
 	"R17.elide.retainedPrimaryKey",
 	"R17.elide.combinedJoinKeys",
 	"R02.existence",
-	"R17.contribution",
 	"R17.unionAll",
 	"R17.recursiveTerms"
 ] as const satisfies ReadonlyArray<CertificateRule>

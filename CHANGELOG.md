@@ -26,8 +26,9 @@ How to upgrade:
   `codes`). The API still reads and writes names. Each role's view adds a decoded column `<field>_name` beside each
   closed id; a roster among a role's entries has no view of its own. A closed id's claim in `grizzle.claims` holds its
   handle's code.
-  - Codemod: `EnumClosed<N, H>` → `Roster<N, H>`, and `Closed` → `AnyClosed`; a psql reader of a closed-id column
-    reads `<field>_name` in a role's view; a direct writer writes the handle's code,
+  - Codemod: `EnumClosed<N, H>` → `Roster<N, H>`; `Closed<N, H, P>` → `Roster` for its handles and `ClosedRelation`
+    for a payload (below); `AnyClosed`, which now holds closed relations too, → `AnyRoster` where a roster is meant; a
+    psql reader of a closed-id column reads `<field>_name` in a role's view; a direct writer writes the handle's code,
     `array_position(<names constant>(), '<handle>') - 1`.
 - **`closed.relation(name, fields, key, rows)` is the one closed relation, and a roster's `.with(payload, facts)` is
   gone.** Its rows are fixed when the schema compiles, its key is a required list of closed-id fields (a set lists every
@@ -92,8 +93,8 @@ How to upgrade:
   to one owner's family is one edit, which grizzle refills from the first slot it touches, and an edit of a stored
   group reads its stored values first: the apply sends two flights in its one transaction, the reads and then the
   writes, and a 40001 at either is a `TransientFailure` grizzle never retries. A role that writes a family's member
-  holds column UPDATE on that family's drawn count and accumulated ends on the owner, and SELECT on what the read
-  reads.
+  holds column SELECT on what the read reads of the owner and, when the owner is mutable, column UPDATE on that
+  family's drawn count and accumulated ends on it, and nothing else of the owner.
   - Codemod: a capacity's target and source written as two inserts stay two inserts for a counted family; an ordered
     family's members move under their owner's insert, `insert(O, [{ …o, n: [m₁, m₂] }])`, each member without its
     group or index.

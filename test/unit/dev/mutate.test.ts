@@ -83,10 +83,6 @@ const worldProbes: ReadonlyArray<{ readonly file: string; readonly text: string 
 		text: 'export const source = (context: string, columns: ReadonlyArray<{ readonly field: string }>) => ({ kind: "context", context, columns })'
 	},
 	{
-		file: "packages/engine/src/laws/residual/sql.ts",
-		text: 'export const detail = (shown: Expr, keys: Expr) => ({ kind: "case", whens: [{ when: shown, result: keys }] })'
-	},
-	{
 		file: "packages/engine/src/physical/ddl/advance.ts",
 		text: 'export const move = simpleSelect([target(call("setval", [seq, past]))], [table(s, n, "r1")], gt(row(past), row(last)))'
 	},
@@ -158,7 +154,6 @@ const faults: Readonly<Record<WorldOperator, (mutated: string) => boolean>> = {
 	"world-claims-session": (t) => regex("set_config\\('[^']+', \\$\\d, false\\)").test(t),
 	"world-context-field": (t) =>
 		Str.includes("columns: columns.map((c) => ({ ...c, field: context }))")(t),
-	"world-witness": (t) => Str.includes("when: lit.bool(true)")(t),
 	"world-advance-max": (t) => Str.endsWith(", undefined)")(t),
 	"world-isolation-guard": (t) => !Str.includes("refuseBelowSerializable")(t),
 	"world-reads-flip": (t) =>

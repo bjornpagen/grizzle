@@ -2406,7 +2406,65 @@ const resolveImport = <P>(
 	}
 }
 
+/**
+ * The keys a match's source is read by, narrowest first: a stored relation's primary key and its candidate keys, a
+ * roster's id, and the whole heading of any other source, a set keyed by its heading.
+ */
+const matchKeys = (source: Source): Arr.NonEmptyReadonlyArray<ReadonlyArray<ProgramField>> => {
+	switch (source.kind) {
+		case "stored":
+			return [source.primaryKey, ...source.candidates]
+		case "roster":
+			return [[source.id]]
+		case "import":
+		case "interior":
+		case "relation param":
+		case "closure":
+			return [source.fields]
+	}
+}
+
+/**
+ * A match that binds a whole key of its source, as a fold over its rule requires: the match itself where some key's
+ * every field is bound, otherwise the match with its first key's unbound fields bound to fresh variables, which filter
+ * nothing.
+ */
+const keyedMatch = <P>(scope: ReadScope, m: Match<P>): Match<P> => {
+	const bound = new Set(Arr.map(m.bindings, (b) => b.field.name))
+	const keys = matchKeys(m.source)
+	if (Arr.some(keys, (k) => Arr.every(k, (f) => bound.has(f.name)))) {
+		return m
+	}
+	const added = Arr.flatMap(keys[0], (field): ReadonlyArray<Binding<P>> =>
+		bound.has(field.name) ? [] : [{ field, operand: { kind: "var", var: scope.mint(field) } }]
+	)
+	return { source: m.source, bindings: [m.bindings[0], ...m.bindings.slice(1), ...added] }
+}
+
+/**
+ * A drawn rule, its folds read over keyed rows: a rule whose head folds binds a key of every source it matches, since
+ * a fold reads each fact once by its key and the language refuses one over a projection (FoldOverProjection). The
+ * refused form is the invalid case of the fold suite (test/unit/check/folds.test.ts), not drawn here.
+ */
 const resolveRule = <P>(
+	scope: ReadScope,
+	sketch: RuleSketch,
+	name: (i: number) => string,
+	parent: (field: ProgramField, pick: number) => P | undefined,
+	form: RuleForm<P>
+): Rule<P> => {
+	const rule = resolveDrawnRule(scope, sketch, name, parent, form)
+	if (!isAggregate(rule)) {
+		return rule
+	}
+	const [first, ...rest] = rule.matches
+	return {
+		...rule,
+		matches: [keyedMatch(scope, first), ...Arr.map(rest, (m) => keyedMatch(scope, m))]
+	}
+}
+
+const resolveDrawnRule = <P>(
 	scope: ReadScope,
 	sketch: RuleSketch,
 	name: (i: number) => string,

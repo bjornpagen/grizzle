@@ -1,5 +1,5 @@
 import { Array as Arr, Option } from "effect"
-import type { FoldInput, KeySet, KeyedOccurrence, RelNode } from "#compiler/ir/rel.ts"
+import type { FoldInput, KeyedOccurrence, KeySet, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 
 /**
  * The keys a fixture's matched source is read by, as the checker states them for a fold (check/checker.ts
@@ -43,12 +43,32 @@ const sourceKeys = (source: RelNode): ReadonlyArray<KeySet> => {
 	}
 }
 
-/** The region a fold's input reads its facts through: under its filters, negations, existence tests and projections. */
+/**
+ * Whether a projection passes every column of its input on under the column's own name, as the checker's projection
+ * of a fold's computed group keys does: its rows are its input's, one for one.
+ */
+const passesThrough = (p: NodeOf<"ProjectSet">): boolean =>
+	Arr.every(p.input.heading, (c) =>
+		Arr.some(
+			p.out,
+			(o) =>
+				o.name === c.name &&
+				o.expr.kind === "column" &&
+				o.expr.column.node === p.input.id &&
+				o.expr.column.name === c.name
+		)
+	)
+
+/**
+ * The region a fold's input reads its facts through: under its filters, negations, existence tests and the
+ * projections that pass every column on.
+ */
 const regionUnder = (input: RelNode): RelNode => {
 	switch (input.kind) {
 		case "Filter":
-		case "ProjectSet":
 			return regionUnder(input.input)
+		case "ProjectSet":
+			return passesThrough(input) ? regionUnder(input.input) : input
 		case "SemiJoin":
 		case "AntiJoin":
 			return regionUnder(input.left)

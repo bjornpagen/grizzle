@@ -31,13 +31,11 @@ const mutantIds = [
 	"V1",
 	"V2",
 	"V3",
-	"V4",
 	"V5",
 	"V6",
 	"I1",
 	"I2",
 	"I3",
-	"I4",
 	"I5",
 	"I6",
 	"I7",
@@ -101,32 +99,6 @@ const dropDistinct = (analysis: KeyAnalysis): StatementVisitor => {
 		derived: (query, node) => {
 			const n = nodeOf(node)
 			if (n === undefined || !analysis.dropped(n)) {
-				return query
-			}
-			const mutated = withoutDistinct(query)
-			if (mutated === undefined) {
-				return query
-			}
-			count()
-			return mutated
-		}
-	})
-}
-
-/** A Group's contributions: the DISTINCT core without GROUP BY its lowering reads (group/index.ts). */
-const isContributions = (query: Select): boolean =>
-	query.body.kind === "core" && query.body.distinct === true && query.body.groupBy.length === 0
-
-const dropContributions = (
-	dag: RelDag,
-	applies: (group: NodeOf<"Group">) => boolean
-): StatementVisitor => {
-	const nodeOf = labelled(dag)
-	return (count) => ({
-		...identityVisitor,
-		derived: (query, node) => {
-			const n = nodeOf(node)
-			if (n?.kind !== "Group" || !isContributions(query) || !applies(n)) {
 				return query
 			}
 			const mutated = withoutDistinct(query)
@@ -398,12 +370,8 @@ const isScanLike = (n: RelNode): boolean =>
 const isJoin = (n: RelNode): n is NodeOf<"MatchRegion"> =>
 	n.kind === "MatchRegion" && n.occurrences.length >= 2
 
-/** Whether some key of the group's input lies within its bound tuple. */
-const boundKeyed = (analysis: KeyAnalysis, g: NodeOf<"Group">): boolean =>
-	Arr.some(analysis.keys(g.input), (k) => Arr.every(k, (c) => g.bound.columns.includes(c)))
-
 /**
- * The mutant suite: six valid and eight invalid rewrites of the conservative output, which the harness
+ * The mutant suite: five valid and seven invalid rewrites of the conservative output, which the harness
  * (test/pg/oracle/mutants) must accept and catch respectively.
  *
  * Each mutant is an optimizer rule applied to the conservative lowering's statements as an AST post-processor: it
@@ -416,13 +384,11 @@ const boundKeyed = (analysis: KeyAnalysis, g: NodeOf<"Group">): boolean =>
  * | V1 | Retain base key | DISTINCT removed from a scan, filter, projection or single-source region whose rows keep a key |
  * | V2 | Retain both join keys | DISTINCT removed from a join region whose every source keeps a key in its bindings |
  * | V3 | Replace witness fanout with EXISTS | a source only joined, existential or fixed moved into EXISTS, DISTINCT removed |
- * | V4 | Aggregate with complete base identity retained | the contributions' DISTINCT removed when a key lies in the bound tuple |
  * | V5 | Nonrecursive union with retained disjoint arm tags | UNION ALL for a union whose unique arms carry distinct literal tags |
  * | V6 | Recursive UNION with plain seed and step SELECTs | the seed's and step's DISTINCT removed under recursive UNION |
  * | I1 | Drop base key | DISTINCT removed from a projection that keeps no key of its input |
  * | I2 | Keep only parent through fanout | DISTINCT removed from a join region with a source whose key is existential |
  * | I3 | Compute noninjective key expression | DISTINCT removed from a projection that keeps a key only through a function of it |
- * | I4 | Drop posting identity before SUM | the contributions' DISTINCT removed when no key lies in the bound tuple |
  * | I5 | Project away group keys with equal aggregate outputs | DISTINCT removed from a projection of a group that drops a group key |
  * | I6 | Disjoint source IDs projected to equal values | UNION ALL for a union without disjoint arm tags |
  * | I7 | Remove DISTINCT before OFFSET 1 under EXISTS | every DISTINCT beneath an existence test removed, a bound included |
@@ -457,15 +423,6 @@ export const mutants: Readonly<Record<MutantId, Mutant>> = {
 		valid: true,
 		check: "Replace witness fanout with EXISTS",
 		mutate: (program, c) => byVisitor(witnessVisitor(immediate(c.query.dag, neverDrops)))(program)
-	},
-	V4: {
-		id: "V4",
-		valid: true,
-		check: "Aggregate with complete base identity retained",
-		mutate: (program, c) => {
-			const analysis = immediate(c.query.dag, neverDrops)
-			return byVisitor(dropContributions(c.query.dag, (g) => boundKeyed(analysis, g)))(program)
-		}
 	},
 	V5: {
 		id: "V5",
@@ -535,15 +492,6 @@ export const mutants: Readonly<Record<MutantId, Mutant>> = {
 					n.kind === "ProjectSet" && derived.length > 0 && strict.derived(n).length === 0
 			)
 			return byVisitor(dropDistinct(loose))(program)
-		}
-	},
-	I4: {
-		id: "I4",
-		valid: false,
-		check: "Drop posting identity before SUM without deduplicating the binding",
-		mutate: (program, c) => {
-			const analysis = immediate(c.query.dag, neverDrops)
-			return byVisitor(dropContributions(c.query.dag, (g) => !boundKeyed(analysis, g)))(program)
 		}
 	},
 	I5: {

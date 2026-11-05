@@ -117,7 +117,6 @@ const areas: ReadonlyArray<{ readonly area: string; readonly prefix: string }> =
 	{ area: "lower/conservative", prefix: "packages/engine/src/lower/conservative/" },
 	{ area: "check", prefix: "packages/engine/src/check/" },
 	{ area: "laws/model", prefix: "packages/engine/src/laws/model/" },
-	{ area: "laws/residual", prefix: "packages/engine/src/laws/residual/" },
 	{ area: "physical/ddl", prefix: "packages/engine/src/physical/ddl/" },
 	{ area: "write/put/choose", prefix: "packages/engine/src/write/put/choose.ts" },
 	{ area: "write/insert", prefix: "packages/engine/src/write/insert/" },

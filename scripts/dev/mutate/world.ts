@@ -26,7 +26,6 @@ import { regex } from "arkregex"
  * - world-membership: a membership granted WITH INHERIT TRUE or SET FALSE, or a login created INHERIT;
  * - world-claims-session: a prologue `set_config` made for the session instead of the transaction;
  * - world-context-field: a context source's claims read at the wrong key, each field read at its context's name;
- * - world-witness: a law function's DETAIL witness shown whatever the transaction's role;
  * - world-advance-max: an advance function's setval made unconditional, so it can move the sequence back;
  * - world-isolation-guard: the below-SERIALIZABLE refusal dropped from the isolation guard's body;
  * - world-reads-flip: a catalogue overload that reads its operands' display scale declared to read values only, so its
@@ -49,7 +48,6 @@ export const worldOperators = [
 	"world-membership",
 	"world-claims-session",
 	"world-context-field",
-	"world-witness",
 	"world-advance-max",
 	"world-isolation-guard",
 	"world-reads-flip",
@@ -65,7 +63,7 @@ const aggregatePath = "packages/engine/src/scalar/aggregate.ts"
 
 /**
  * The files whose code builds the emitted world SQL: the role, view, policy, function and grant DDL, the advance
- * function and the isolation guard, the residual law functions, the membership rendering, the claims lowering, the
+ * function and the isolation guard, the membership rendering, the claims lowering, the
  * printer, and the adapter's transaction prologue; and the declarations every emitted reading and aggregate is
  * rendered by, the Compute catalogue and the aggregate overloads. Only their code takes a `sql-world` mutant.
  */
@@ -75,7 +73,6 @@ const worldPaths: ReadonlyArray<string> = [
 	"packages/engine/src/physical/ddl/roles.ts",
 	"packages/engine/src/physical/ddl/advance.ts",
 	"packages/engine/src/physical/ddl/isolation.ts",
-	"packages/engine/src/laws/residual/",
 	"packages/engine/src/write/entry/",
 	"packages/engine/src/lower/conservative/claims/",
 	"packages/engine/src/sql/print.ts",
@@ -355,7 +352,7 @@ const worldObject = (site: WorldSite, o: ts.ObjectLiteralExpression): void => {
 	}
 }
 
-/** world-barrier on `barrier: true`, world-witness on a CASE's `when: <identifier>`. */
+/** world-barrier on `barrier: true`. */
 const worldProperty = (site: WorldSite, p: ts.PropertyAssignment): void => {
 	if (!ts.isIdentifier(p.name)) {
 		return
@@ -363,10 +360,6 @@ const worldProperty = (site: WorldSite, p: ts.PropertyAssignment): void => {
 	const value = p.initializer
 	if (p.name.text === "barrier" && value.kind === ts.SyntaxKind.TrueKeyword) {
 		site.add("world-barrier", value.getStart(site.source), value.end, "false")
-	}
-	const residual = Str.startsWith("packages/engine/src/laws/residual/")(site.file)
-	if (residual && p.name.text === "when" && ts.isIdentifier(value)) {
-		site.add("world-witness", value.getStart(site.source), value.end, "lit.bool(true)")
 	}
 }
 

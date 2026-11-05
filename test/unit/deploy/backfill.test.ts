@@ -33,14 +33,17 @@ import type { NativeColumn } from "#compiler/ir/law.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
+	contained,
 	counted,
 	fin,
 	fold,
 	Monoid,
 	on,
 	ordered,
+	pred,
 	relation,
 	schema,
+	select,
 	tree
 } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
@@ -105,8 +108,13 @@ const migrationOf = (before: AnySchema, after: AnySchema): Migration => {
 	return { before, first, firstDraft, second, secondDraft }
 }
 
-/** The draft that takes `m`'s target back to its first schema, dropping `fields` of `relation` as declared. */
-const removalOf = (m: Migration, relation: string, fields: ReadonlyArray<string>): GenerateResult =>
+/** The draft that takes `m`'s target to `to`, `m`'s first schema unless named, dropping `drops`, each a relation and a
+ * field of it, as declared. */
+const removalOf = (
+	m: Migration,
+	drops: ReadonlyArray<readonly [string, string]>,
+	to: AnySchema = m.before
+): GenerateResult =>
 	succeeded(
 		generate({
 			installation: compile(m.before, asDrafted),
@@ -246,6 +254,65 @@ const members = (xs: readonly [number, number, number, number]): ReadonlyArray<S
 	{ key: 21, owner: 2, x: xs[3] }
 ]
 
+/** Each stored owner's tag, which a copy along the owner axis carries onto its members. */
+const tagOf = (owner: number): number => 100 + owner
+
+/** The stored members of `owner` in key order. */
+const ownedBy = (stored: ReadonlyArray<Stored>, owner: number): ReadonlyArray<Stored> =>
+	Arr.sort(
+		Arr.filter(stored, (m) => m.owner === owner),
+		Order.mapInput(Order.Number, (m: Stored) => m.key)
+	)
+
+/** The stored member keyed `key`. */
+const memberOf = (stored: ReadonlyArray<Stored>, key: number): Stored =>
+	defined(Option.getOrUndefined(Arr.findFirst(stored, (m) => m.key === key)))
+
+/**
+ * A copy a fold case's family carries, and the value the reference says it holds (rows-first §6 as amended): its
+ * axis target's value, or its base where the axis names no row. `on` is the relation it fills, a member by its key or
+ * an owner by its id.
+ */
+interface CopyCheck {
+	readonly on: "member" | "owner"
+	readonly field: string
+	readonly value: (stored: ReadonlyArray<Stored>, row: number) => number
+}
+
+/** The text a copy reads as on one row. */
+const copyText = (field: string, row: bigint | number, value: bigint | number): string =>
+	`${field}(${row})=${value}`
+
+/** What the reference says a fold case's copies hold, on every stored member and owner. */
+const copiesExpected = (c: FoldCase, stored: ReadonlyArray<Stored>): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.flatMap(c.copies, (k) =>
+			Arr.map(k.on === "member" ? Arr.map(stored, (m) => m.key) : OWNERS, (row) =>
+				copyText(k.field, row, k.value(stored, row))
+			)
+		),
+		Order.String
+	)
+
+/** What the migrated model holds of a fold case's copies. */
+const copiesObserved = (c: FoldCase, state: State): ReadonlyArray<string> => {
+	const second = c.migration.second
+	return Arr.sort(
+		Arr.flatMap(c.copies, (k) => {
+			const relation = k.on === "member" ? c.member : c.owner
+			const key = k.on === "member" ? c.key : "id"
+			return rowsOf(c.migration, state, relation, (cell) =>
+				copyText(
+					k.field,
+					cell(fieldColumn(second, relation, key)),
+					cell(fieldColumn(second, relation, k.field))
+				)
+			)
+		}),
+		Order.String
+	)
+}
+
 /** What the reference fold says a fold family leaves: each owner's members in key order, folded from the identity. */
 const foldExpected = (stored: ReadonlyArray<Stored>) => {
 	const reference = foldStoredOf(
@@ -284,11 +351,12 @@ interface FoldCase {
 	readonly key: string
 	readonly group: string
 	readonly step: string
+	readonly copies: ReadonlyArray<CopyCheck>
 }
 
 /** The stored rows of a fold case: every owner, then its members in `stored`'s order. */
 const foldRows = (c: FoldCase, stored: ReadonlyArray<Stored>): ReadonlyArray<Rows> => [
-	{ relation: c.owner, rows: Arr.map(OWNERS, (id) => ({ id })) },
+	{ relation: c.owner, rows: Arr.map(OWNERS, (id) => ({ id, tag: tagOf(id) })) },
 	{
 		relation: c.member,
 		rows: Arr.map(stored, (m) => ({ [c.key]: m.key, [c.group]: m.owner, [c.step]: m.x }))
@@ -320,38 +388,52 @@ const foldObserved = (c: FoldCase, state: State) => {
 	}
 }
 
-/** A counted family of Member per Owner, its x summed into the owner's end. */
-const countedCase: FoldCase = (() => {
-	const name = "Backfill"
+/** The counted case's schemas: before, an owner with its tag and members naming it; after, the members counted per
+ * owner in n, their x summed into its end, and its tag copied onto each member along the owner axis. */
+const countedBefore = schema(
+	"Backfill",
+	{
+		Owner: relation("Owner", { id: pg.int4, tag: pg.int4 }, ["id"]),
+		Member: relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+	},
+	[]
+)
+const countedAfter = (() => {
 	const Owner = relation(
 		"Owner",
-		{ id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) },
+		{ id: pg.int4, tag: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) },
 		["id"]
 	)
-	const Member = relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
+	const Member = relation(
+		"Member",
+		{ member: pg.int4, g: pg.int4, x: pg.int4, ownerTag: accumulated(pg.int4, 0) },
+		["member"]
+	)
 	const family = counted(on(Member, "g"), fin(Owner, "n"))
-	return {
-		migration: migrationOf(
-			schema(
-				name,
-				{
-					Owner: relation("Owner", { id: pg.int4 }, ["id"]),
-					Member: relation("Member", { member: pg.int4, g: pg.int4, x: pg.int4 }, ["member"])
-				},
-				[]
-			),
-			schema(name, { Owner, Member }, [
-				family,
-				fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end"))
-			])
-		),
-		owner: "Owner",
-		member: "Member",
-		key: "member",
-		group: "g",
-		step: "x"
-	}
+	return schema("Backfill", { Owner, Member }, [
+		family,
+		fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
+		contained(on(Member, "g", "ownerTag"), on(Owner, "id", "tag"))
+	])
 })()
+
+/** How the counted case's rows are named, and its one copy: each member's owner's tag. */
+const countedNames: Omit<FoldCase, "migration"> = {
+	owner: "Owner",
+	member: "Member",
+	key: "member",
+	group: "g",
+	step: "x",
+	copies: [
+		{ on: "member", field: "ownerTag", value: (stored, key) => tagOf(memberOf(stored, key).owner) }
+	]
+}
+
+/** A counted family of Member per Owner, its x summed into the owner's end, its tag copied onto each member. */
+const countedCase: FoldCase = {
+	migration: migrationOf(countedBefore, countedAfter),
+	...countedNames
+}
 
 /** How an ordered case's lines are keyed after the migration: by line, as they were, or by their order and index. */
 type LineKey = "line" | "order and index"
@@ -381,10 +463,23 @@ const orderedCase = (key: LineKey): FoldCase => {
 	const name = "Ordering"
 	const Order_ = relation(
 		"Order",
-		{ id: pg.int4, n: drawn(natural), total: accumulated(pg.int4, 0) },
+		{
+			id: pg.int4,
+			tag: pg.int4,
+			n: drawn(natural),
+			total: accumulated(pg.int4, 0),
+			lastQty: accumulated(pg.int4, -1)
+		},
 		["id"]
 	)
-	const fields = { line: pg.int4, order: pg.int4, at: drawn(natural), qty: pg.int4 }
+	const fields = {
+		line: pg.int4,
+		order: pg.int4,
+		at: drawn(natural),
+		qty: pg.int4,
+		orderTag: accumulated(pg.int4, 0),
+		prevQty: accumulated(pg.int4, -1)
+	}
 	const Line =
 		key === "line" ? relation("Line", fields, ["line"]) : relation("Line", fields, ["order", "at"])
 	const family = ordered(on(Line, "order", "at"), fin(Order_, "n"))
@@ -393,25 +488,60 @@ const orderedCase = (key: LineKey): FoldCase => {
 			schema(
 				name,
 				{
-					Order: relation("Order", { id: pg.int4 }, ["id"]),
+					Order: relation("Order", { id: pg.int4, tag: pg.int4 }, ["id"]),
 					Line: relation("Line", { line: pg.int4, order: pg.int4, qty: pg.int4 }, ["line"])
 				},
 				[]
 			),
 			schema(name, { Order: Order_, Line }, [
 				family,
-				fold(family, Monoid.sum, on(Line, "order", "qty"), on(Order_, "id", "total"))
+				fold(family, Monoid.sum, on(Line, "order", "qty"), on(Order_, "id", "total")),
+				contained(on(Line, "order", "orderTag"), on(Order_, "id", "tag")),
+				contained(on(Line, "order", pred("at"), "prevQty"), on(Line, "order", "at", "qty")),
+				contained(on(Order_, "id", pred("n"), "lastQty"), on(Line, "order", "at", "qty"))
 			])
 		),
 		owner: "Order",
 		member: "Line",
 		key: "line",
 		group: "order",
-		step: "qty"
+		step: "qty",
+		copies: [
+			{
+				on: "member",
+				field: "orderTag",
+				value: (stored, line) => tagOf(memberOf(stored, line).owner)
+			},
+			{
+				on: "member",
+				field: "prevQty",
+				value: (stored, line) => {
+					const lines = ownedBy(stored, memberOf(stored, line).owner)
+					const at = Arr.findFirstIndex(lines, (m) => m.key === line)
+					return Option.match(at, {
+						onNone: () => -1,
+						onSome: (i) => (i === 0 ? -1 : Arr.getUnsafe(lines, i - 1).x)
+					})
+				}
+			},
+			{
+				on: "owner",
+				field: "lastQty",
+				value: (stored, order) =>
+					Option.match(Arr.last(ownedBy(stored, order)), {
+						onNone: () => -1,
+						onSome: (m) => m.x
+					})
+			}
+		]
 	}
 }
 
-/** A tree of Node over its parent, one per doc. */
+/**
+ * A tree of Node over its parent, one per doc, as NP's fold suite holds it (test/pg/fin/fold.test.ts FoldedTree):
+ * folded by count over each node's children, its accumulators named; with each node's parent's kind copied along the
+ * owner axis, and that copy copied again one level down, a copy of a copy.
+ */
 const treeMigration: Migration = (() => {
 	const name = "Forest"
 	const Node_ = relation(
@@ -423,52 +553,81 @@ const treeMigration: Migration = (() => {
 			children: drawn(natural),
 			start: drawn(natural),
 			end: drawn(natural),
-			doc: pg.int4
+			doc: pg.int4,
+			kind: pg.int4,
+			parentKind: accumulated(pg.int4, 0),
+			grandKind: accumulated(pg.int4, 0),
+			before: accumulated(natural, 0n),
+			after: accumulated(natural, 0n),
+			total: accumulated(natural, 0n)
 		},
 		["id"]
 	)
+	const members = select(Node_, (n) => n.gt(n.start, 0n))
+	const t = tree(on(Node_, "parent", "at"), fin(Node_, "children"), { root: "doc" })
 	return migrationOf(
 		schema(
 			name,
-			{ Node: relation("Node", { id: pg.int4, parent: pg.int4, doc: pg.int4 }, ["id"]) },
+			{
+				Node: relation("Node", { id: pg.int4, parent: pg.int4, doc: pg.int4, kind: pg.int4 }, [
+					"id"
+				])
+			},
 			[]
 		),
 		schema(name, { Node: Node_ }, [
-			tree(on(Node_, "parent", "at"), fin(Node_, "children"), { root: "doc" })
+			t,
+			fold(t, Monoid.count, on(Node_, "parent", "before", "after"), on(Node_, "id", "total")),
+			contained(on(members, "parent", "parentKind"), on(Node_, "id", "kind")),
+			contained(on(members, "parent", "grandKind"), on(Node_, "id", "parentKind"))
 		])
 	)
 })()
 
-/** A stored forest: each node's key, its parent's (a root's its own) and its tree's root key as its doc. */
+/** A stored forest: each node's key, its parent's (a root's its own), its tree's root key as its doc, and its kind. */
 type StoredNode = {
 	readonly id: number
 	readonly parent: number
 	readonly doc: number
+	readonly kind: number
 }
+
+/** A stored node, its kind drawn from its key. */
+const node = (id: number, parent: number, doc: number): StoredNode => ({
+	id,
+	parent,
+	doc,
+	kind: (id * 5) % 7
+})
 
 /** The forests of the box, each node keyed apart from its siblings' order. */
 const FORESTS: ReadonlyArray<ReadonlyArray<StoredNode>> = [
-	[{ id: 1, parent: 1, doc: 1 }],
+	[node(1, 1, 1)],
+	[node(5, 5, 5), node(3, 5, 5), node(9, 3, 5)],
 	[
-		{ id: 5, parent: 5, doc: 5 },
-		{ id: 3, parent: 5, doc: 5 },
-		{ id: 9, parent: 3, doc: 5 }
-	],
-	[
-		{ id: 1, parent: 1, doc: 1 },
-		{ id: 6, parent: 1, doc: 1 },
-		{ id: 2, parent: 1, doc: 1 },
-		{ id: 4, parent: 1, doc: 1 },
-		{ id: 9, parent: 2, doc: 1 },
-		{ id: 7, parent: 2, doc: 1 },
-		{ id: 8, parent: 4, doc: 1 },
-		{ id: 11, parent: 7, doc: 1 },
-		{ id: 30, parent: 30, doc: 30 },
-		{ id: 31, parent: 30, doc: 30 }
+		node(1, 1, 1),
+		node(6, 1, 1),
+		node(2, 1, 1),
+		node(4, 1, 1),
+		node(9, 2, 1),
+		node(7, 2, 1),
+		node(8, 4, 1),
+		node(11, 7, 1),
+		node(30, 30, 30),
+		node(31, 30, 30)
 	]
 ]
 
-/** NP's numbering of a stored forest, each node's children in key order. */
+/** The text a tree row reads as: its key, slot, count, interval, parent's count and start, its parent's kind and its
+ * parent's parent kind, and its count fold's before, after and total. */
+const treeText = (row: ReadonlyArray<bigint | number>): string =>
+	Arr.join(Arr.map(row, String), " ")
+
+/**
+ * What the references say a stored forest's backfill leaves: NP's numbering, each node's children in key order; each
+ * copy its parent row's value, the root its own; and NP's lawful count fold, `before = at, after = at + 1, total =
+ * children`, the root's the one state its pins admit.
+ */
 const treeExpected = (stored: ReadonlyArray<StoredNode>): ReadonlyArray<string> => {
 	const nodeOf = (id: number): Node => ({
 		id,
@@ -480,28 +639,33 @@ const treeExpected = (stored: ReadonlyArray<StoredNode>): ReadonlyArray<string> 
 			(n) => nodeOf(n.id)
 		)
 	})
+	const byId = (id: number): StoredNode =>
+		defined(Option.getOrUndefined(Arr.findFirst(stored, (n) => n.id === id)))
+	const parentKind = (id: number): number => byId(byId(id).parent).kind
 	const roots = Arr.sort(
 		Arr.filter(stored, (n) => n.parent === n.id),
 		Order.mapInput(Order.Number, (n: StoredNode) => n.doc)
 	)
 	return Arr.sort(
 		Arr.map(numbered(Arr.map(roots, (r) => ({ root: r.doc, tree: nodeOf(r.id) }))), (r) =>
-			treeText(r.id, r.at, r.children, r.start, r.end, r.copy, r.parentStart)
+			treeText([
+				r.id,
+				r.at,
+				r.children,
+				r.start,
+				r.end,
+				r.copy,
+				r.parentStart,
+				parentKind(r.id),
+				parentKind(byId(r.id).parent),
+				r.at,
+				r.at + 1,
+				r.children
+			])
 		),
 		Order.String
 	)
 }
-
-/** The text a tree row reads as: its key, slot, count, interval, parent's count and parent's start. */
-const treeText = (
-	id: bigint | number,
-	at: bigint | number,
-	children: bigint | number,
-	start: bigint | number,
-	end: bigint | number,
-	copy: bigint | number,
-	parentStart: bigint | number
-): string => `${id}@${at} #${children} [${start}, ${end}) n=${copy} ps=${parentStart}`
 
 /** What the migrated model holds of the tree. */
 const treeObserved = (state: State): ReadonlyArray<string> => {
@@ -509,16 +673,22 @@ const treeObserved = (state: State): ReadonlyArray<string> => {
 	const family: Family = defined(second.laws.families[0])
 	assert.ok(family.members.kind === "tree", "the family is a tree")
 	const shape = family.members
+	const field = (name: string): string => fieldColumn(second, "Node", name)
 	return rowsOf(treeMigration, state, "Node", (cell) =>
-		treeText(
-			cell(fieldColumn(second, "Node", "id")),
+		treeText([
+			cell(field("id")),
 			cell(columnOf(family.index)),
 			cell(family.count.column),
 			cell(shape.start.column),
 			cell(shape.end.column),
 			cell(family.copy),
-			cell(shape.parentStart)
-		)
+			cell(shape.parentStart),
+			cell(field("parentKind")),
+			cell(field("grandKind")),
+			cell(field("before")),
+			cell(field("after")),
+			cell(field("total"))
+		])
 	)
 }
 
@@ -577,9 +747,10 @@ const windowCalls = (q: Select): ReadonlyArray<FunctionCall> => {
 	return found
 }
 
-/** The drawn columns of a fold family: its index, copy, count, and its plane's before, after and end. */
+/** The drawn columns of a fold family: its index, copy, count, its plane's before, after and end, and its copies. */
 const foldColumns = (c: FoldCase): ReadonlyArray<string> => {
-	const family: Family = defined(c.migration.second.laws.families[0])
+	const second = c.migration.second
+	const family: Family = defined(second.laws.families[0])
 	const plane = defined(defined(family.folds[0]).planes[0])
 	return Arr.sort(
 		[
@@ -588,7 +759,10 @@ const foldColumns = (c: FoldCase): ReadonlyArray<string> => {
 			columnOf(plane.before),
 			columnOf(plane.after),
 			family.count.column,
-			plane.end.column
+			plane.end.column,
+			...Arr.map(c.copies, (k) =>
+				fieldColumn(second, k.on === "member" ? c.member : c.owner, k.field)
+			)
 		],
 		Order.String
 	)
@@ -650,13 +824,15 @@ describe("backfilling a family added to populated relations", () => {
 				] as const) {
 					for (const stored of permutations(members(xs))) {
 						const state = migrated(countedCase.migration, foldRows(countedCase, stored))
+						const order = `stored in the order ${Arr.join(
+							Arr.map(stored, (m) => String(m.key)),
+							", "
+						)}`
+						assert.deepEqual(foldObserved(countedCase, state), foldExpected(stored), order)
 						assert.deepEqual(
-							foldObserved(countedCase, state),
-							foldExpected(stored),
-							`stored in the order ${Arr.join(
-								Arr.map(stored, (m) => String(m.key)),
-								", "
-							)}`
+							copiesObserved(countedCase, state),
+							copiesExpected(countedCase, stored),
+							order
 						)
 						cases += 1
 					}
@@ -674,20 +850,23 @@ describe("backfilling a family added to populated relations", () => {
 					for (const stored of permutations(members([3, 1, 4, 1]))) {
 						const state = migrated(c.migration, foldRows(c, stored))
 						assert.deepEqual(foldObserved(c, state), foldExpected(stored), `keyed by ${key}`)
+						assert.deepEqual(copiesObserved(c, state), copiesExpected(c, stored), `keyed by ${key}`)
 					}
 				}
 			})
 	)
 
-	it.effect("a tree draws NP's pre-order numbering, each node's children in key order", () =>
-		Effect.sync(() => {
-			for (const forest of FORESTS) {
-				for (const stored of [forest, Arr.reverse(forest)]) {
-					const state = migrated(treeMigration, [{ relation: "Node", rows: stored }])
-					assert.deepEqual(treeObserved(state), treeExpected(stored))
+	it.effect(
+		"a tree draws NP's pre-order numbering, its count fold over each node's siblings, and each parent copy, a copy of a copy after the copy it reads",
+		() =>
+			Effect.sync(() => {
+				for (const forest of FORESTS) {
+					for (const stored of [forest, Arr.reverse(forest)]) {
+						const state = migrated(treeMigration, [{ relation: "Node", rows: stored }])
+						assert.deepEqual(treeObserved(state), treeExpected(stored))
+					}
 				}
-			}
-		})
+			})
 	)
 
 	it.effect(
@@ -750,13 +929,23 @@ describe("backfilling a family added to populated relations", () => {
 						countedCase.migration,
 						foldRows(countedCase, members([5, 1, 2, 3])),
 						"Owner",
-						["n", "end"]
+						["n", "end", "ownerTag"]
 					],
 					[
 						treeMigration,
 						[{ relation: "Node", rows: Arr.getUnsafe(FORESTS, 2) }],
 						"Node",
-						["at", "children", "start", "end"]
+						[
+							"at",
+							"children",
+							"start",
+							"end",
+							"parentKind",
+							"grandKind",
+							"before",
+							"after",
+							"total"
+						]
 					]
 				] as const) {
 					const removal = removalOf(m, owner, fields)
@@ -791,9 +980,10 @@ describe("backfilling a family added to populated relations", () => {
 		"adds every drawn column under a placeholder default, draws it, drops the default, then adds the constraints",
 		() =>
 			Effect.sync(() => {
-				assertBackfillOrder(countedCase.migration, foldColumns(countedCase), 2)
-				assertBackfillOrder(orderedCase("line").migration, foldColumns(orderedCase("line")), 2)
-				const family: Family = defined(treeMigration.second.laws.families[0])
+				assertBackfillOrder(countedCase.migration, foldColumns(countedCase), 3)
+				assertBackfillOrder(orderedCase("line").migration, foldColumns(orderedCase("line")), 5)
+				const second = treeMigration.second
+				const family: Family = defined(second.laws.families[0])
 				assert.ok(family.members.kind === "tree", "the family is a tree")
 				assertBackfillOrder(
 					treeMigration,
@@ -804,11 +994,14 @@ describe("backfilling a family added to populated relations", () => {
 							family.copy,
 							family.members.start.column,
 							family.members.end.column,
-							family.members.parentStart
+							family.members.parentStart,
+							...Arr.map(["parentKind", "grandKind", "before", "after", "total"], (f) =>
+								fieldColumn(second, "Node", f)
+							)
 						],
 						Order.String
 					),
-					1
+					4
 				)
 			})
 	)

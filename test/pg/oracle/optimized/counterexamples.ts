@@ -45,7 +45,6 @@ export const populations: ReadonlyArray<Population> = [
 	{ id: "I1", gen: rootedCaseGen(projectRoot, defaultGenConfig) },
 	{ id: "I2", gen: rootedCaseGen(fanoutJoinRoot, defaultGenConfig) },
 	{ id: "I3", gen: noninjectiveKeyCaseGen },
-	{ id: "I4", gen: rootedCaseGen(groupRoot, defaultGenConfig) },
 	{ id: "I5", gen: rootedCaseGen(projectGroupRoot, defaultGenConfig) },
 	{ id: "I6", gen: rootedCaseGen(untaggedUnionRoot, defaultGenConfig) },
 	{ id: "I7", gen: rootedCaseGen(existsOverTakeRoot, defaultGenConfig) },

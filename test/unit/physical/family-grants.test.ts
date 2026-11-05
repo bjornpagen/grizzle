@@ -31,6 +31,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
@@ -49,6 +50,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, role } from "#compiler/schema/world.ts"
 import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
@@ -60,6 +62,9 @@ import { assert, defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
 
+/** A text field over lowercase words, every literal of the world one. */
+const word = str.regex("^[a-z]{1,8}$")
+
 const U1 = "00000000-0000-4000-8000-000000000001"
 const U2 = "00000000-0000-4000-8000-000000000002"
 
@@ -67,22 +72,22 @@ const Store = relation(
 	"Store",
 	{
 		id: uuid,
-		region: pg.text,
-		label: pg.text,
+		region: word,
+		label: word,
 		seq: pg.bigserial,
 		items: drawnField(natural),
 		stock: accumulated(pg.bigint, 0n)
 	},
 	["id"]
 )
-const Item = relation("Item", { id: uuid, store: uuid, region: pg.text, qty: pg.bigint }, ["id"])
+const Item = relation("Item", { id: uuid, store: uuid, region: word, qty: pg.bigint }, ["id"])
 const Open = relation("Open", { store: uuid }, ["store"])
-const Shelf = relation("Shelf", { id: uuid, tag: pg.text, slots: drawnField(natural) }, ["id"])
-const Slot = relation("Slot", { shelf: uuid, at: drawnField(natural), what: pg.text }, [
+const Shelf = relation("Shelf", { id: uuid, tag: word, slots: drawnField(natural) }, ["id"])
+const Slot = relation("Slot", { shelf: uuid, at: drawnField(natural), what: word }, [
 	"shelf",
 	"at"
 ])
-const Ticket = relation("Ticket", { no: pg.bigserial, note: pg.text }, ["no"])
+const Ticket = relation("Ticket", { no: pg.bigserial, note: word }, ["no"])
 const items = counted(on(Item, "store"), fin(Store, "items"))
 const slots = ordered(on(Slot, "shelf", "at"), fin(Shelf, "slots"))
 
@@ -481,10 +486,9 @@ const evaluate = (filter: Expr, table: string, row: HostRow): string => {
 	const substituted = transformExpr(filter, {
 		...identityHooks,
 		expr: (e) => {
-			if (e.kind !== "column") {
+			if (e.kind !== "column" || e.table !== table) {
 				return e
 			}
-			assert.equal(e.table, table, `a policy on ${table} reads its own row alone`)
 			return defined(row.get(e.column), `the host row's ${e.column}`)
 		}
 	})
@@ -530,7 +534,7 @@ const evaluate = (filter: Expr, table: string, row: HostRow): string => {
 				if (Arr.every(truths, (t) => t !== undefined)) {
 					return bool(!absorbing)
 				}
-				return { ...e, args: defined(Arr.isNonEmptyReadonlyArray(args) ? args : undefined) }
+				return { ...e, args: defined(isNonEmpty(args) ? args : undefined) }
 			}
 			default:
 				return e

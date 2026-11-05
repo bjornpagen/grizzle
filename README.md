@@ -1539,9 +1539,9 @@ Three declarations, all in the [example](#example):
   no vector search; aggregates, negation, span comparisons, `take`, recursion, contexts and every Compute operation
   are all allowed, since no expression fails on a value (see [Queries](#queries)), on the rows outside the role a view
   evaluates it on included. Its keys are the ones its query provably has. A role declares no rules of its own: the
-  schema's rules hold, whoever writes. A role that writes a family's member may change that family's drawn count and
-  accumulated ends on the owner, and read what grizzle reads to fill them, and nothing else of the owner unless
-  `write` lists the owner too: `role(Credits, "metering", Credits.relations, { write: ["Debit"] })` spends grants and
+  schema's rules hold, whoever writes. A role that writes a family's member reads what grizzle reads of the owner to
+  fill the family and, when the owner is mutable, changes that family's drawn count and accumulated ends on it, and
+  nothing else of the owner unless `write` lists the owner too: `role(Credits, "metering", Credits.relations, { write: ["Debit"] })` spends grants and
   edits no grant's amount. A roster among a role's entries has no view of its own: every query reads its handles as
   codes.
 - **`login(schema, name, roles, { workload? })`** is one PostgreSQL user and one pool for some roles of one schema,
@@ -2326,8 +2326,9 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 - On a table it writes through a query entry: column SELECT and INSERT on every column, column UPDATE (when the table
   is mutable) on each of the entry's columns outside every key that no claim fixes directly, and DELETE; never
   table-level SELECT, INSERT or UPDATE.
-- On the owner of a family whose member it writes: column UPDATE on that family's drawn count and accumulated ends,
-  and SELECT on what grizzle reads to fill them; nothing else of the owner unless its `write` lists the owner.
+- On the owner of a family whose member it writes: column SELECT on what grizzle reads of the owner to fill the
+  family (its key, its count and ends, and the fields its members copy), and, when the owner is mutable, column UPDATE
+  on that family's count and ends; nothing else of the owner unless its `write` lists the owner.
 - EXECUTE on one key probe (a function that looks a key up across the whole table) per key of such a table, and one
   unique probe per key over a selected side or a `pred` term whose collisions no other probe finds, for each writable
   query entry; on the entry's filter function exactly when its filter reads a table besides the written row; on the
@@ -2367,7 +2368,9 @@ workflows, whose rules are worth declaring and whose users see different slices 
   past one may still compile there. A counted repetition's bound is at most 255, PostgreSQL's limit.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
 - **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted
-  families. A tree is written whole, by inserting its root with the whole tree nested.
+  families. A tree is written whole, by inserting its root with the whole tree nested. A ChangeSet's write of a
+  relation that is both a family's member, outside a tree, and an owner of a family is refused: a member's edit does
+  not reach the families it owns, which only a nesting draws.
 - **A closed relation is as large as its key's code space.** Its constant holds one cell per combination of its key
   fields' codes, so a sparse relation over a large product of rosters is costly in proportion to the product: choose
   coordinates that make it dense. A constant holds at most 2,147,483,640 bits, PostgreSQL's longest bit string, and a

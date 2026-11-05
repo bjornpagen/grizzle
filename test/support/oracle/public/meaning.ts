@@ -50,6 +50,7 @@ import { widening } from "#compiler/scalar/compute/types.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { defined } from "#test/support/assert.ts"
+import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { bool, compareParamType } from "#test/support/oracle/gen/domain.ts"
 import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
 import {
@@ -936,7 +937,10 @@ class Translation {
 				meta: conservativeMeta,
 				kind: "Group",
 				input: grouped.node,
-				bound: Arr.map(grouped.heading, (c) => c.name),
+				bound: foldInputOf(
+					grouped.node,
+					Arr.map(grouped.heading, (c) => c.name)
+				),
 				keys: Arr.map(keys, (c) => c.name),
 				aggs,
 				heading: groupHeading
