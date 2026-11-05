@@ -27,6 +27,13 @@ import {
 } from "vitest/node"
 import { applied, type Mutant, mutantsOf, OPERATORS, type Operator } from "#mutants.ts"
 import { fnv1a32, mix } from "#random.ts"
+import {
+	type OpenSuite,
+	type RunVerdict,
+	type TimedVerdict,
+	timedRun,
+	verdictWithin
+} from "#vitest/mutant-verdict.ts"
 import { type MutatedFile, type RealPath, realPathOf } from "#vitest/mutated-file.ts"
 
 /**
@@ -39,11 +46,12 @@ import { type MutatedFile, type RealPath, realPathOf } from "#vitest/mutated-fil
  * first failing test, with the MutatedFile provided to every test process, where the library's mutated-setup.ts
  * hooks Node's module loader so every import of the target loads the mutated text. A failing test, or a test file
  * that no longer loads, kills the mutant; one every test passes on survives, naming behaviour no test pins; one whose
- * suite runs ten times as long as the unmutated suite times out. Every mutant runs in a Vitest of its own, whose test
- * files each run in a fresh process, so no process that loaded one mutant's target loads another's; `--workers N`
- * judges N mutants at once, each in its own Vitest. `--sample N` judges N mutants drawn by `--seed`, which is also the
- * suite's run seed; `--operator` and `--mutant` choose some; `--list` prints them and runs nothing. A test that reads
- * the target's source from disk, or loads it in a child process of its own, sees the unmutated file.
+ * run takes ten times as long as the unmutated suite's run times out, however long its workers then take to stop.
+ * Every mutant runs in a Vitest of its own, whose test files each run in a fresh process, so no process that loaded
+ * one mutant's target loads another's; `--workers N` judges N mutants at once, each in its own Vitest. `--sample N`
+ * judges N mutants drawn by `--seed`, which is also the suite's run seed; `--operator` and `--mutant` choose some;
+ * `--list` prints them and runs nothing. A test that reads the target's source from disk, or loads it in a child
+ * process of its own, sees the unmutated file.
  */
 class MutationRunRefused extends Schema.TaggedError<
 	MutationRunRefused,
@@ -53,14 +61,11 @@ class MutationRunRefused extends Schema.TaggedError<
 /** Diagnostics a mutant raises only by leaving code unused or unreachable: no type error. */
 const UNUSED: ReadonlySet<number> = new Set([6133, 6138, 6192, 6196, 6198, 6199, 6205, 7027])
 
-/** How many times the unmutated suite's wall time a mutant's suite may take before it times out. */
+/** How many times the unmutated suite's run a mutant's run may take before it times out. */
 const DEADLINE_FACTOR = 10
 
-type Verdict =
-	| Readonly<{ kind: "killed"; by: string }>
-	| Readonly<{ kind: "survived" }>
-	| Readonly<{ kind: "invalid" }>
-	| Readonly<{ kind: "timeout" }>
+/** A mutant's verdict: its run's, timed against its deadline, or invalid when its program has a type error. */
+type Verdict = TimedVerdict | Readonly<{ kind: "invalid" }>
 
 /** A mutant, and the file it makes of its target. */
 type Candidate = Readonly<{ mutant: Mutant; mutated: MutatedFile }>
@@ -182,7 +187,7 @@ const typecheckerOf = Effect.fnUntraced(function* (pkg: RealPath) {
 const silent: Reporter = {}
 
 /** What a run of the suite says of its mutant: the first failing test, or a test file that no longer loads. */
-const verdictOf = (result: TestRunResult): Verdict => {
+const verdictOf = (result: TestRunResult): RunVerdict => {
 	const failedTest = Arr.head(
 		Arr.flatMap(result.testModules, (module) =>
 			Arr.fromIterable(module.children.allTests("failed"))
@@ -257,32 +262,45 @@ const ownedFreshProcesses = (vitest: Vitest) => {
 }
 
 /**
- * The package's suite, run in process in a Vitest of its own on a pool it owns, with `mutated` provided to every test
- * process. However the run ends, finished, failed, past its deadline or interrupted, its release stops every worker
- * still running and then closes the Vitest, whose close waits for the run in flight and so never ends a hung worker.
+ * The package's suite, open for the enclosing scope in a Vitest of its own on a pool it owns, with `mutated` provided
+ * to every test process. Its run, the suite to its first failing test, is the verdict. Closing the scope is its release,
+ * however the run ended, finished, failed, past its deadline or interrupted: it stops every worker still running
+ * (SIGTERM, then SIGKILL once Vitest's SIGKILL_TIMEOUT has passed) and then closes the Vitest, whose close waits for the
+ * run in flight and so never ends a hung worker, and at most Vitest's STOP_TIMEOUT for a worker it was already
+ * stopping. The release follows the verdict and never decides it.
  */
-const suiteOf = (pkg: RealPath, setup: string, seed: number) => (mutated: MutatedFile) =>
-	Effect.suspend(() => {
-		const running = new Set<OwnedFork>()
-		return Effect.acquireUseRelease(
-			Effect.tryPromise({
-				try: () =>
-					createVitest(
-						{
-							root: pkg,
-							watch: false,
-							bail: 1,
-							reporters: [silent],
-							env: { TEST_SEED: String(seed) },
-							provide: { "grizzle.testing.mutated": mutated }
-						},
-						{ test: { setupFiles: [setup], pool: ownedForks(running) } }
-					),
-				catch: refused("Vitest did not start")
-			}),
-			(vitest) =>
-				Effect.andThen(
-					ownedFreshProcesses(vitest),
+const suiteOf =
+	(pkg: RealPath, setup: string, seed: number) =>
+	(mutated: MutatedFile): OpenSuite<MutationRunRefused> =>
+		Effect.suspend(() => {
+			const running = new Set<OwnedFork>()
+			return Effect.acquireRelease(
+				Effect.tryPromise({
+					try: () =>
+						createVitest(
+							{
+								root: pkg,
+								watch: false,
+								bail: 1,
+								reporters: [silent],
+								env: { TEST_SEED: String(seed) },
+								provide: { "grizzle.testing.mutated": mutated }
+							},
+							{ test: { setupFiles: [setup], pool: ownedForks(running) } }
+						),
+					catch: refused("Vitest did not start")
+				}),
+				(vitest) =>
+					Effect.andThen(
+						Effect.forEach(Arr.fromIterable(running), (fork) => Effect.promise(() => fork.stop()), {
+							concurrency: "unbounded",
+							discard: true
+						}),
+						Effect.promise(() => vitest.close())
+					)
+			).pipe(
+				Effect.tap(ownedFreshProcesses),
+				Effect.map((vitest) =>
 					Effect.map(
 						Effect.tryPromise({
 							try: () => vitest.start(),
@@ -290,17 +308,9 @@ const suiteOf = (pkg: RealPath, setup: string, seed: number) => (mutated: Mutate
 						}),
 						verdictOf
 					)
-				),
-			(vitest) =>
-				Effect.andThen(
-					Effect.forEach(Arr.fromIterable(running), (fork) => Effect.promise(() => fork.stop()), {
-						concurrency: "unbounded",
-						discard: true
-					}),
-					Effect.promise(() => vitest.close())
 				)
-		)
-	})
+			)
+		})
 
 /**
  * A run that judged every mutant exits 0: the measurement succeeded, whatever exit status the suites it ran in process
@@ -364,27 +374,27 @@ const run = Effect.fn("testing.mutate.run")(function* (flags: Flags) {
 	})
 	const setup = yield* path.fromFileUrl(setupUrl)
 	const suite = suiteOf(pkg, setup, flags.seed)
-	const [unmutatedTime, unmutated] = yield* Effect.timed(
+	const [unmutatedTime, unmutated] = yield* timedRun(
 		suite({ target: first.value.target, text: first.value.text })
 	)
 	if (unmutated.kind !== "survived") {
 		return yield* MutationRunRefused.make({
-			message: `the unmutated package's suite does not pass${unmutated.kind === "killed" ? `: ${unmutated.by}` : ""}`
+			message: `the unmutated package's suite does not pass: ${unmutated.by}`
 		})
 	}
 	const deadline = Duration.times(unmutatedTime, DEADLINE_FACTOR)
 	yield* Console.log(
 		`mutate: ${String(population.length)} of ${String(every.length)} mutants of ${Arr.join(flags.files, ", ")}, TEST_SEED=${String(flags.seed)}, ${String(flags.workers)} at once`
 	)
-	/** One mutant: invalid when its program has a type error, otherwise its suite's verdict, or a timeout. */
+	/** One mutant: invalid when its program has a type error, otherwise its run's verdict, or a timeout when its run
+	 * passes the deadline. */
 	const judge = ({ mutant, mutated }: Candidate, at: number) =>
 		Effect.gen(function* () {
 			const invalid = yield* mistyped(mutated)
 			if (invalid) {
 				return { kind: "invalid" } satisfies Verdict
 			}
-			const ran = yield* Effect.timeoutOption(suite(mutated), deadline)
-			return Option.getOrElse(ran, (): Verdict => ({ kind: "timeout" }))
+			return yield* verdictWithin(suite(mutated), deadline)
 		}).pipe(
 			Effect.tap((verdict) =>
 				Console.log(
