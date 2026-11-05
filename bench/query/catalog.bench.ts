@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from "node:util"
 import { Array as Arr, Effect, Option } from "effect"
 import { findNodes, type PlanNode } from "#bench/harness/explain.ts"
 import {
@@ -9,6 +8,7 @@ import {
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
+import { deepEquals } from "#test/support/assert.ts"
 
 import {
 	compareVariants,
@@ -290,7 +290,7 @@ export default defineGate({
 						c.fn.name === "sum" &&
 						Arr.some(c.args, (a) =>
 							Arr.some(casesOf(a), (k) =>
-								Arr.some(k.whens, (w) => Arr.some(predicates, (p) => isDeepStrictEqual(w.when, p)))
+								Arr.some(k.whens, (w) => Arr.some(predicates, (p) => deepEquals(w.when, p)))
 							)
 						)
 				).length

@@ -33,7 +33,6 @@ import type {
 	Action,
 	ActionKind,
 	AdditionFeature,
-	SuppliedSerialFeature,
 	BaseSpec,
 	ClaimState,
 	ContextFacts,
@@ -1436,14 +1435,14 @@ export const additionsOf = (
 
 /**
  * The generated additions through a Db's query entries that supply a serial value, one the entry's filter reads or its
- * fill fixes (SuppliedSerialFeature): a fact leaving out every classed serial head field (writes.ts serialHead) of an
+ * fill fixes, a stored value the driver holds to the model's (README "Writing through a role"): a fact leaving out every classed serial head field (writes.ts serialHead) of an
  * entry whose target holds a serial field no classed head field writes. Noted of an applied ChangeSet alone, whose
  * committed state the driver then holds to the model's, the supplied value stored.
  */
 const suppliedSerialsOf = (
 	state: ModelState,
 	action: Extract<Action, { readonly kind: "apply" }>
-): ReadonlyArray<SuppliedSerialFeature> => {
+): ReadonlyArray<WorldFeature> => {
 	const base = state.install.base
 	const role = Option.flatMap(Option.fromUndefinedOr(sessionAt(state, action.session)), (session) =>
 		session.kind === "db" ? roleIn(state.install, session.role) : Option.none()
@@ -1451,9 +1450,9 @@ const suppliedSerialsOf = (
 	return Option.match(role, {
 		onNone: () => [],
 		onSome: (r) =>
-			Arr.flatMap(action.strata.flat(), (op): ReadonlyArray<SuppliedSerialFeature> => {
+			Arr.flatMap(action.strata.flat(), (op): ReadonlyArray<WorldFeature> => {
 				const written = writtenNamed(base, r, op.relation)
-				if (op.kind !== "insert" || written === undefined || written.kind !== "query") {
+				if (op.kind !== "insert" || written?.kind !== "query") {
 					return []
 				}
 				const { classed } = serialHead(base, written)
@@ -1469,7 +1468,7 @@ const suppliedSerialsOf = (
 					(f) => f.domain.kind === "serial" && !drawn.has(f.name)
 				)
 				return supplied
-					? Arr.flatMap(op.facts, (fact): ReadonlyArray<SuppliedSerialFeature> =>
+					? Arr.flatMap(op.facts, (fact): ReadonlyArray<WorldFeature> =>
 							Arr.every(classed, (h) => fact[h] === undefined)
 								? ["addition:generated:entry:supplied-serial"]
 								: []

@@ -97,6 +97,24 @@ const leads = inductiveLeads(situations)
 /** How many cases the steered phase may run, as a multiple of the cases. */
 const steeredFactor = 10
 
+/** The most shrink candidates a failing case tries. */
+const shrinkCandidates = 200
+
+/**
+ * A case's time bound, on average over the search: a case installs, reaches its planned state and performs one
+ * action, about 2 s, 2.7 s on average in a loaded run (TEST_SEED=1759583718); a case that does not end at all is the
+ * hang guard's (caseHang).
+ */
+const caseMillis = 5_000
+
+/**
+ * The test's time bound: every case its search may make at caseMillis each, its floor stream's quarter of its cases,
+ * its steered phase, its rotating cases and a failure's shrink candidates, so the search never outlives its test.
+ */
+const timeout =
+	(Math.max(1, Math.ceil(cases / 4)) + steeredFactor * cases + cases + shrinkCandidates) *
+	caseMillis
+
 const name = "every invariant holds after one action from any generated state"
 
 /**
@@ -513,7 +531,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							}),
 							kept: [],
 							runs: cases,
-							shrink: { kind: "bounded", candidates: 200 },
+							shrink: { kind: "bounded", candidates: shrinkCandidates },
 							concurrency: 1,
 							steerEvery: 16,
 							caseHang: Duration.minutes(2)
@@ -566,7 +584,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							)
 					)
 				),
-			3_600_000
+			timeout
 		)
 	}
 )

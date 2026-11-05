@@ -2,7 +2,12 @@ import { layer } from "@effect/vitest"
 import { required } from "@grizzle/testing/features"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { exploreWrite, type WriteSuite, writeSituations } from "#test/support/oracle/write/index.ts"
+import {
+	exploreWrite,
+	type WriteSuite,
+	writeSituations,
+	writeTimeout
+} from "#test/support/oracle/write/index.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The runs of each suite's rotating stream.
@@ -28,6 +33,6 @@ export const writeSuite = (s: WriteSuite, title: string): void =>
 		it.effect(
 			`${s.runs} generated write runs agree three ways: db.apply, add-wins and the conservative realization`,
 			(ctx) => searched(ctx, exploreWrite(s)),
-			1_800_000
+			writeTimeout(s)
 		)
 	})

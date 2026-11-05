@@ -1119,12 +1119,12 @@ export class Normalizer {
 			)
 		]
 		const groups = mapNonEmpty(leads, (l) => {
-			const members: NonEmptyReadonlyArray<Armed> = [
+			const sharing: NonEmptyReadonlyArray<Armed> = [
 				l,
 				...armed.filter((a) => a !== l && a.arm.relation === l.arm.relation)
 			]
 			const armKey = mapNonEmpty(l.arm.key, (p) => p.arm)
-			for (const m of members) {
+			for (const m of sharing) {
 				if (
 					!sameOrder(
 						mapNonEmpty(m.arm.key, (p) => p.arm),
@@ -1138,7 +1138,7 @@ export class Normalizer {
 					)
 				}
 			}
-			return { lead: l, handles: mapNonEmpty(members, (m) => m.arm.handle), members }
+			return { lead: l, handles: mapNonEmpty(sharing, (m) => m.arm.handle), members: sharing }
 		})
 		const tagOfRelation = new Map<string, string>()
 		const moved: Array<ArmTagMove> = []

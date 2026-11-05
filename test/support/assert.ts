@@ -528,6 +528,10 @@ export function assertVariant<T, K extends keyof T, const V extends T[K]>(
 	}
 }
 
+/** Whether two values of one type are deeply and strictly equal, as `assert.deepEqual` judges them: the typed predicate. */
+export const deepEquals = <T>(actual: T, expected: NoInfer<T>): boolean =>
+	isDeepStrictEqual(actual, expected)
+
 /** Narrows `value` past `excluded`, as `assert.ok(value !== excluded)` would, but failing names the value it met. */
 export function assertNot<T, const V extends T>(
 	value: T,

@@ -1455,12 +1455,34 @@ export const noteNaming = (pc: ProgramCase, c: Case<WorldFeature>): void => {
 	}
 }
 
+/** The most shrink candidates a failing program tries: every case installs a schema of its own. */
+const programShrink = 200
+
+/** How many cases a program suite's steered phase may run, as a multiple of its cases. */
+const programSteered = 4
+
+/**
+ * A program case's time bound, on average over a search: a case realizes a fresh installation and drives up to its
+ * suite's steps, each judged against the model, about 5 s, 11 s on average at the slowest seen (pg/world-model/laws in
+ * a loaded run); a case that does not end at all is the hang guard's (caseHang).
+ */
+const programMillis = 15_000
+
+/**
+ * A program suite's test time bound: every case its search may make at programMillis each, its floor stream's quarter of
+ * its cases (at least one), its steered phase, its rotating cases and a failure's shrink candidates, so a search never
+ * outlives its test and a failure always prints its report.
+ */
+const programTimeout = (cases: number): number =>
+	(Math.max(1, Math.ceil(cases / 4)) + programSteered * cases + cases + programShrink) *
+	programMillis
+
 /**
  * Registers a program suite's test: each case realizes its installation, stages its reality and runs its program under
- * the driver and the suite's rule. A steered phase of up to as many cases as the suite runs aims programs, through
- * their leads and aims, at the required features no case has reached yet, and stops once every one is reached; the
- * rotating stream's programs aim at nothing. Every case installs a schema of its own, so a failure shrinks through at
- * most 200 candidates.
+ * the driver and the suite's rule. A steered phase of up to programSteered times as many cases as the suite runs aims
+ * programs, through their leads and aims, at the required features no case has reached yet, and stops once every one
+ * is reached; the rotating stream's programs aim at nothing. Every case installs a schema of its own, so a failure
+ * shrinks through at most programShrink candidates, all of it within the test's bound (programTimeout).
  */
 export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: ProgramSuite): void => {
 	it.effect(
@@ -1474,12 +1496,12 @@ export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: Program
 						draw: drawn(programCaseGen(spec.installs, worldDraws(spec), spec.steps)),
 						literal: Formatter.format,
 						coverage: required<WorldFeature>(spec.required, {
-							cases: 4 * spec.cases,
+							cases: programSteered * spec.cases,
 							sense: notesOnly
 						}),
 						kept: [],
 						runs: spec.cases,
-						shrink: { kind: "bounded", candidates: 200 },
+						shrink: { kind: "bounded", candidates: programShrink },
 						concurrency: 1,
 						steerEvery: 16,
 						caseHang: Duration.minutes(2)
@@ -1495,7 +1517,7 @@ export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: Program
 						)
 				)
 			),
-		3_600_000
+		programTimeout(spec.cases)
 	)
 }
 

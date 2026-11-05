@@ -953,8 +953,9 @@ export type ObjectKind =
 /**
  * The closed feature vocabulary of the worlds suites: an operation in a situation with its outcome, a world object and
  * what was shown of it, an invalid input drawn, an invariant checked, the ambient session the case's owner sessions
- * started under, a feature of a name the installation drew from the kernel dictionary, and a base object or a role
- * entry named after a PostgreSQL type.
+ * started under, a feature of a name the installation drew from the kernel dictionary, a base object or a role
+ * entry named after a PostgreSQL type, and a generated addition through a query entry that stores a serial value it
+ * supplies, one its filter reads or its fill fixes, which the driver holds to the model's committed state.
  */
 export type WorldFeature =
 	| AmbientFeature
@@ -969,7 +970,7 @@ export type WorldFeature =
 	| `readback:${"empty-delta" | "projected-delta" | "refused-delta"}`
 	| `strata:${"one" | "union" | "sequence" | "refused-order"}`
 	| AdditionFeature
-	| SuppliedSerialFeature
+	| "addition:generated:entry:supplied-serial"
 	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-transient" | "after-interrupted" | "after-stale-snapshot"}`
 
 /**
@@ -979,13 +980,6 @@ export type WorldFeature =
  */
 export type AdditionFeature =
 	`addition:${"complete" | "generated"}:${"whole" | "entry"}:${"carried" | "unit"}`
-
-/**
- * A generated addition through a query entry that stores a serial value it supplies, one the entry's filter reads or
- * its fill fixes, beside the serial fields its identity draws (README "Writing through a role"). The stored value is
- * the one supplied: the driver holds every committed state to the model's, whose fact holds that value.
- */
-export type SuppliedSerialFeature = "addition:generated:entry:supplied-serial"
 
 /** The weights a run draws its actions with: swarm testing draws a fresh set per run. */
 export type ActionWeights = Readonly<Record<ActionKind, number>>

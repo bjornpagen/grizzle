@@ -281,6 +281,16 @@ const runResolved = (
 		}
 	})
 
+/** The most shrink candidates a failing write run tries (see exploreWrite). */
+const shrinkCandidates = 300
+
+/**
+ * A write run's time bound, on average over a suite's runs: a run installs its schema and applies up to twelve drawn
+ * cases and every planted one, each two ways, about 4 s alone and 11 s at the slowest seen (write/oracle-0 at
+ * TEST_SEED=1974982561, a candidate of its shrink); a run that does not end at all is the hang guard's (caseHang).
+ */
+const runMillis = 15_000
+
 export interface WriteSuite {
 	/** The suite's label in reports and the residual line; the library derives its floor stream from it. */
 	readonly suite: string
@@ -291,6 +301,16 @@ export interface WriteSuite {
 	 * floor's finds toward what it missed.
 	 */
 	readonly coverage: Coverage<WriteOracleFeature>
+}
+
+/**
+ * A write suite's test time bound: every run its search may make, at runMillis each: its floor stream's quarter of its
+ * rotating runs (at least one), its steered phase's cases, its rotating runs, and a failure's shrink candidates. A search
+ * never outlives its test, so a failure always prints its report.
+ */
+export const writeTimeout = (s: WriteSuite): number => {
+	const steered = s.coverage.kind === "required" ? s.coverage.steered.cases : 0
+	return (Math.max(1, Math.ceil(s.runs / 4)) + steered + s.runs + shrinkCandidates) * runMillis
 }
 
 /**
@@ -310,9 +330,9 @@ export interface WriteSuite {
  *
  * Explores a write suite (see the header), every run under its perturbation, each case noting its features through its
  * own Case; the suite must reach its required features, and a failure fails. Runs go one at a time, since every run
- * installs a schema on the file's database. Shrinking stops after 300 candidates, about ten minutes at two seconds a
- * candidate: each candidate is a whole write run on PostgreSQL, a schema installed and up to twelve cases applied two
- * ways.
+ * installs a schema on the file's database. Shrinking stops after shrinkCandidates candidates, about twenty minutes at
+ * four seconds a candidate alone: each candidate is a whole write run on PostgreSQL, a schema installed and up to
+ * twelve cases applied two ways. The suite's test is bounded by all of it (writeTimeout).
  */
 export const exploreWrite = (
 	s: WriteSuite
@@ -325,7 +345,7 @@ export const exploreWrite = (
 			coverage: s.coverage,
 			kept: [],
 			runs: s.runs,
-			shrink: boundedShrink(300),
+			shrink: boundedShrink(shrinkCandidates),
 			concurrency: 1,
 			steerEvery: 16,
 			caseHang: Duration.minutes(2)
