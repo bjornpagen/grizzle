@@ -159,32 +159,63 @@ export const Flagged = relation("Flagged", { id: uuid, flags: bits(Flag) }, ["id
 export const setKey = key(on(Flagged, "flags"))
 
 /**
- * A ChangeSet's facts of one relation are a set: two facts written out with one key are refused, whatever else they
- * hold, and facts of distinct keys are admitted. An array whose key values no literal types is the run time's to
+ * A ChangeSet's facts of one relation are a set by identity: a fact written twice is one fact and typechecks, and two
+ * facts of one key and different values break the key law, a key naming one fact, and are refused, in an insert and a
+ * delete alike. Facts of distinct keys are admitted, and an array whose values no literal types is the run time's to
  * judge.
  */
 export const distinctItems = ChangeSet.empty(Items).insert(Item, [
 	{ id: 1n, v: 2 },
 	{ id: 2n, v: 2 }
 ])
-export const twiceItem = ChangeSet.empty(Items).insert(
+export const repeatedItem = ChangeSet.empty(Items)
+	.insert(Item, [
+		{ id: 1n, v: 2 },
+		{ id: 1n, v: 2 }
+	])
+	.delete(Item, [
+		{ id: 1n, v: 2 },
+		{ id: 1n, v: 2 }
+	])
+export const conflictingItem = ChangeSet.empty(Items).insert(
 	Item,
-	// @ts-expect-error -- TS2345 refusal: a ChangeSet's facts of one relation are a set: two of these facts share a key
+	// @ts-expect-error -- TS2345 refusal: two facts of one relation share a key with different values; a key names one fact
 	[
 		{ id: 1n, v: 2 },
 		{ id: 1n, v: 3 }
 	]
 )
-export const twiceDeleted = ChangeSet.empty(Items).delete(
+export const conflictingDeleted = ChangeSet.empty(Items).delete(
 	Item,
-	// @ts-expect-error -- TS2345 refusal: a ChangeSet's facts of one relation are a set: two of these facts share a key
+	// @ts-expect-error -- TS2345 refusal: two facts of one relation share a key with different values; a key names one fact
 	[
 		{ id: 1n, v: 2 },
-		{ id: 1n, v: 2 }
+		{ id: 1n, v: 4 }
 	]
 )
 declare const someItems: ReadonlyArray<{ readonly id: bigint; readonly v: number }>
 export const widenedItems = ChangeSet.empty(Items).put(Item, someItems)
+
+/** A closed relation's rows are a set by identity too: a repeated row is one row, and a conflicting one is refused. */
+export const RepeatedRow = closed.relation(
+	"RepeatedRow",
+	{ kind: closedId(Kind), weight: pg.integer },
+	["kind"],
+	[
+		{ kind: "text", weight: 1 },
+		{ kind: "text", weight: 1 }
+	]
+)
+export const ConflictingRow = closed.relation(
+	"ConflictingRow",
+	{ kind: closedId(Kind), weight: pg.integer },
+	["kind"],
+	// @ts-expect-error -- TS2345 refusal: two facts of one relation share a key with different values; a key names one fact
+	[
+		{ kind: "text", weight: 1 },
+		{ kind: "text", weight: 2 }
+	]
+)
 
 /** A roster is keyed by its handle, and a closed relation by its declared key. */
 export const ClosedOnly = schema("ClosedOnly", { Kind, Flag, Allowed }, [])

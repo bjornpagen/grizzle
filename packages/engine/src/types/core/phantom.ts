@@ -721,9 +721,7 @@ export const typeRefusals = [
 	"PostgreSQL has no cast between these types that Compute admits",
 	"a ChangeSet writes only relations its role's write list names",
 	"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes",
-	"a ChangeSet's facts of one relation are a set: two of these facts share a key",
 	"a closed relation's field is a closed id, or a value of a type that is no serial, span, set or vector",
-	"a closed relation's rows are a set: two rows share a key",
 	"a compiled ChangeSet applies, and a compiled query reads",
 	"a contract is a value domain; a serial is a generation declaration, so use its integer type",
 	"a contract's name is one literal, the brand of its values",
@@ -805,6 +803,7 @@ export const typeRefusals = [
 	"the query's head is not a fact of the relation",
 	"the relation is not in this query's schema",
 	"the sides' field types differ",
+	"two facts of one relation share a key with different values; a key names one fact",
 	"two programs of one name across a login's workloads"
 ] as const
 export type TypeRefusal = (typeof typeRefusals)[number]

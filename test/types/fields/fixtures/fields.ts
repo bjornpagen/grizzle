@@ -3,6 +3,9 @@ import { type Column, convertColumn } from "#compiler/core/decoder.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import type { Result } from "#compiler/core/result.ts"
 import {
+	Bits,
+	type BitsField,
+	bits,
 	type ClosedIdField,
 	type Contract,
 	closedId,
@@ -27,6 +30,7 @@ import {
 } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
 import type { DomainOf, LanguageOf } from "#compiler/types/core/phantom.ts"
+import type { Bits as BitsOf } from "#compiler/types/fields/field.ts"
 import type { Equals, Expect, IsAssignable, Not } from "#test/types/fields/support.ts"
 
 /**
@@ -208,6 +212,24 @@ export const Kind = closed("Kind", ["Automatic", "Manual"])
 export const kind = closedId(Kind)
 export type KindHost = Expect<Equals<Infer<typeof kind>, "Automatic" | "Manual">>
 export type KindShape = Expect<Equals<typeof kind, ClosedIdField<typeof Kind>>>
+/** A closed id is carried as a code, the smallint its handle has under the installation's codebook. */
+export type KindTag = Expect<Equals<(typeof kind)["sql"], "code">>
+
+/**
+ * bits(R): a set over the roster R, carried as a bit string over R's codes. A set is branded by its roster, so a set
+ * over one roster is never a set over another, even of the same handles, and Bits.of takes R's own handles.
+ */
+export const Shade = closed("Shade", ["Automatic", "Manual"])
+export const kinds = bits(Kind)
+export type KindsShape = Expect<Equals<typeof kinds, BitsField<typeof Kind>>>
+export type KindsTag = Expect<Equals<(typeof kinds)["sql"], "bits">>
+export type KindsHost = Expect<Equals<Infer<typeof kinds>, BitsOf<typeof Kind>>>
+export type SetsApart = Expect<Not<IsAssignable<BitsOf<typeof Kind>, BitsOf<typeof Shade>>>>
+export const manual: BitsOf<typeof Kind> = Bits.of(Kind, ["Manual"])
+// @ts-expect-error -- TS2322: Bits<Kind> is not Bits<Shade>, though their handles agree
+export const shadeSet: BitsOf<typeof Shade> = Bits.of(Kind, ["Manual"])
+// @ts-expect-error -- TS2322: a set lists handles of its roster
+export const nopeSet = Bits.of(Kind, ["nope"])
 export const Mode = contract("Mode", kind, (v) => v.ne("Manual"))
 // @ts-expect-error -- TS2345: a literal of a closed reference is one of its handles
 export const badMode = contract("BadMode", kind, (v) => v.ne("Unknown"))

@@ -35,8 +35,9 @@ import type {
 	AnyRelation,
 	Fact,
 	NameOf,
-	SerialFieldsOf,
-	SharesKey
+	ConflictsAtKey,
+	KeyLawRefusal,
+	SerialFieldsOf
 } from "#compiler/types/schema/relation.ts"
 import type {
 	AnySchema,
@@ -91,8 +92,8 @@ type MemberCheck<M, F, R> =
 			: Refusal<"the query's head is not a fact of the relation">
 		: M extends ReadonlyArray<infer E> | Stream.Stream<infer E, unknown, unknown>
 			? [UnfitArms<E, F>] extends [never]
-				? SharesKey<M, PrimaryKeyOf<R>> extends true
-					? Refusal<"a ChangeSet's facts of one relation are a set: two of these facts share a key">
+				? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
+					? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
 					: unknown
 				: Refusal<"a member fact is not a fact of the relation">
 			: unknown

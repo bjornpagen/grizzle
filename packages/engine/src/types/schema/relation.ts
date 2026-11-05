@@ -59,28 +59,57 @@ export type KeyFieldOf<Fields> = {
 	string
 
 /**
- * Whether two facts of an array written out in the call share their values at the key fields K: a relation's facts,
- * a ChangeSet's and a closed relation's rows alike, are a set, so two of one key are never two rows. Decided where the
- * array is a tuple whose facts' key values are each one literal; a wider array or value, which no type tells apart, is
- * the run time's to refuse.
+ * Whether two facts of an array written out in the call share their values at the key fields K and differ elsewhere: a
+ * relation's facts, a ChangeSet's and a closed relation's rows alike, are a set by identity, so a fact written twice is
+ * one fact, and two facts of one key and different values break the key law, a key naming one fact. Decided where the
+ * array is a tuple of at most 1,024 facts and the values are each one literal; a wider array or value, which no type
+ * tells apart, and a longer literal are the run time's to judge.
  */
-export type SharesKey<M, K extends ReadonlyArray<string>> = K extends readonly []
+export type ConflictsAtKey<M, K extends ReadonlyArray<string>> = K extends readonly []
 	? false
 	: M extends ReadonlyArray<unknown>
 		? number extends M["length"]
 			? false
 			: M extends readonly [...Facts1024, unknown, ...ReadonlyArray<unknown>]
 				? false
-				: [UnionToIntersection<KeyClaims<M, K>[number]>] extends [never]
+				: [UnionToIntersection<FieldClaims<M, K>[number]>] extends [never]
 					? true
 					: false
 		: false
 
 /**
- * A tuple of 1,024 facts, the longest literal SharesKey judges: merging a literal's claims compares a union of a
- * claim per fact, which TypeScript holds within its comparison limit (TS2859, "excessive complexity") at a thousand
- * claims and passes at three thousand; a longer literal is the run time's to refuse, as a wider array is. Built by
- * doubling, so no recursion reaches the instantiation depth limit.
+ * Each position's claims: for each field of its fact whose value is one literal, a record of the text of its key and
+ * that field to the value's text, a unit type. Merged into one record, two facts of one key claim each field they share
+ * at one property, which two different values meet at in never, so the merged record is never exactly where two facts
+ * of one key differ at a field; an identical repeat claims the same units and merges with itself. A mapped type over
+ * the positions with no recursion, so the work is a fact's claims per fact; a fact whose key no single literal types
+ * claims nothing, and no claims merge to unknown.
+ */
+type FieldClaims<M extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>> = {
+	readonly [I in keyof M]: KeyText<M[I], K> extends infer Key extends string
+		? FactClaims<M[I], Key, Exclude<keyof M[I] & string, K[number]>>
+		: unknown
+}
+
+/**
+ * One fact's claims at the fields F beside its key: each field whose value is one literal, its value's text under the
+ * text of the key and the field; a field of a wider value claims nothing, so it tells no two facts apart.
+ */
+type FactClaims<H, Key extends string, F extends string> = {
+	readonly [
+		P in F as P extends keyof H
+			? [ValueText<H[P]>] extends [never]
+				? never
+				: `${Key}\u0001${P}`
+			: never
+	]: P extends keyof H ? ValueText<H[P]> : never
+}
+
+/**
+ * A tuple of 1,024 facts, the longest literal ConflictsAtKey judges: merging a literal's claims compares a union of a
+ * claim record per fact, which TypeScript holds within its comparison limit (TS2859, "excessive complexity") at a
+ * thousand facts and exceeds at three thousand; a longer literal is the run time's to judge, as a wider array is. Built
+ * by doubling, so no recursion reaches the instantiation depth limit.
  */
 type Facts1 = readonly [unknown]
 type Facts2 = readonly [...Facts1, ...Facts1]
@@ -95,14 +124,14 @@ type Facts512 = readonly [...Facts256, ...Facts256]
 type Facts1024 = readonly [...Facts512, ...Facts512]
 
 /**
- * Each position's claim on its fact's key text, a record of that one text to the position, a unit type. Merged into
- * one record, the claims clash exactly where two positions claim one text: two unit types of one property meet in
- * never, so the merged record is never. A mapped type over the positions with no recursion, so the work is one claim
- * per fact; a fact whose key no single literal types claims nothing, and no claims merge to unknown.
+ * The key law's refusal of two facts of relation Name that share the key K with different values: a key names one
+ * fact. It names the relation and the key beside its sentence.
  */
-type KeyClaims<M extends ReadonlyArray<unknown>, K extends ReadonlyArray<string>> = {
-	readonly [I in keyof M]: { readonly [T in KeyText<M[I], K>]: I }
-}
+export type KeyLawRefusal<Name, K> =
+	Refusal<"two facts of one relation share a key with different values; a key names one fact"> & {
+		readonly relation: Name
+		readonly key: K
+	}
 
 /**
  * A fact's key values as one text, when each is one literal: each value tagged by its kind and the values joined by
