@@ -5,8 +5,6 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
@@ -84,7 +82,6 @@ const preserves = (inst: Installed, plan: Plan, c: Case<UniverseFeature>): void 
 	const inContext = (context: TemplateContext): void => {
 		const at = `${where} (${context})`
 		const ctx = makePassContext({
-			budgets: new BudgetMeter(compileBudgets),
 			evidenceContext: context,
 			catalog: inst.physical(context).catalog
 		})

@@ -2,8 +2,6 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
@@ -161,14 +159,12 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 						const optimized = lowerAligned(logicalOf(c), "query", {
 							names,
 							context: "snapshot",
-							catalog: installedCatalog(plan.installation),
-							meter: new BudgetMeter(compileBudgets)
+							catalog: installedCatalog(plan.installation)
 						})
 						const baseline = lowerConservative(conservativeInput(logicalOf(c)), {
 							names,
 							params: logicalOf(c).params,
-							subject: { kind: "query" },
-							meter: new BudgetMeter(compileBudgets)
+							subject: { kind: "query" }
 						})
 						if (!optimized.ok || !baseline.ok) {
 							throw new Error("lowering failed")

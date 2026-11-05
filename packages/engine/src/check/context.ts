@@ -19,7 +19,7 @@ export interface StageScope {
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 /**
  * A node as a check states it: its body without the location, which the services record from the `loc` the node is
- * charged at, so every checked node stands for the Description node there. A check claims no metadata: the services
+ * recorded at, so every checked node stands for the Description node there. A check claims no metadata: the services
  * record conservativeMeta, and annotation computes the rest (logical/annotate.ts).
  */
 export type CheckedNodeSpec = DistributiveOmit<NodeSpec, "loc" | "meta">
@@ -33,21 +33,21 @@ export type ApproximateStage = Extract<ResolvedStage, { readonly kind: "approx" 
  * check/index.ts dispatches three families to fixed plug-in directories: recursion/, approximate/ and refinement/. The
  * dispatch is written once; each directory implements its family behind it and never edits the dispatch. This module
  * states what a plug-in receives, so every plug-in codes against one interface: the checker's services (the DAG under
- * construction, the schema, the budgets, rule checking in a scope) and the stage it is asked to check.
+ * construction, the schema, rule checking in a scope) and the stage it is asked to check.
  *
  * The checker's services.
  */
 export interface CheckServices {
 	readonly schema: SchemaReading
 	readonly builder: DagBuilder
-	/** Records a node located at `loc`, charging the node budget there. */
+	/** Records a node located at `loc`. */
 	readonly node: (spec: CheckedNodeSpec, loc: SourceLoc) => RelNode
 	/**
 	 * A fresh label to define later (DagBuilder.reserve): a Recursive, which its SelfRef names. The services track it as
 	 * reserved until it is defined (`reserved`).
 	 */
 	readonly reserve: () => ReservedNode
-	/** Defines a reserved label (a Recursive its SelfRef names), charging the same budgets. */
+	/** Defines a reserved label (a Recursive its SelfRef names). */
 	readonly define: (id: ReservedNode, spec: CheckedNodeSpec, loc: SourceLoc) => RelNode
 	/**
 	 * Whether a label is reserved and not yet defined: a rule's region, which the lateral sources and constants checked

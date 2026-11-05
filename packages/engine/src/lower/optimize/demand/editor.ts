@@ -256,8 +256,6 @@ export class DagEditor<R extends Roots = Roots> {
 		scope: new FreshIds("sw", [])
 	}
 	#version = 0
-	/** Cells added since the last call to `takeAdded`, for the budget meter. */
-	#added = 0
 	/**
 	 * The editor's analyses of its current cells, each made on its first read and dropped by the next change
 	 * (#changed): the topological order, the cells reading a recursion's feedback, the discriminant spine, and each
@@ -378,7 +376,6 @@ export class DagEditor<R extends Roots = Roots> {
 		this.#cells.push(cell)
 		this.#note(cell.id, node)
 		this.#changed()
-		this.#added++
 		return cell
 	}
 
@@ -400,12 +397,6 @@ export class DagEditor<R extends Roots = Roots> {
 	/** A stored relation scanned again under a fresh occurrence: its body and metadata kept, a new cell. */
 	rescan(base: KindOver<"Base", EditRefs>): Cell {
 		return this.add({ ...base, occurrence: this.freshOccurrence() })
-	}
-
-	takeAdded(): number {
-		const n = this.#added
-		this.#added = 0
-		return n
 	}
 
 	/**

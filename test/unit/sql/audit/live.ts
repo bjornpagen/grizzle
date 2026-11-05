@@ -10,10 +10,8 @@ import {
 	weighted
 } from "@grizzle/testing/gen"
 import { Array as Arr, Option } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type Action,
@@ -268,8 +266,7 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	const conservative = lowerConservative(conservativeInput(query), {
 		names,
 		params: query.params,
-		subject: { kind: "query" },
-		meter: new BudgetMeter(compileBudgets)
+		subject: { kind: "query" }
 	})
 	if (!conservative.ok) {
 		throw failure("the conservative lowering", conservative.error)
@@ -284,7 +281,6 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 		names,
 		catalog: schemaCatalog(artifacts.value),
 		subject: { kind: "query" },
-		meter: new BudgetMeter(compileBudgets),
 		context
 	})
 	if (!optimized.ok) {

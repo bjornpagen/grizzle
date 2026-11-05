@@ -572,12 +572,6 @@ export class Q {
 		})
 	}
 
-	/** A take bound parameter, which the checker declares an integer when no other use widens it. */
-	bound(name: string): TakeBound {
-		this.#declare({ id: ParamId(name), name, kind: "scalar", type: T.int4 })
-		return { kind: "param", param: ParamId(name) }
-	}
-
 	/** The query rooted at `root`, built by the builder, so valid by construction. */
 	build(root: RelNode): LogicalQuery {
 		const params = Arr.sort(

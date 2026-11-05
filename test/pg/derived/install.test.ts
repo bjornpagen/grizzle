@@ -5,8 +5,6 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
@@ -70,8 +68,7 @@ const conservativeSql = (installed: Installed, relation: string): string => {
 	const program = lowerConservative(conservativeInput(analysis.query), {
 		names: installed.names,
 		params: [],
-		subject: { kind: "query" },
-		meter: new BudgetMeter(compileBudgets)
+		subject: { kind: "query" }
 	})
 	if (!program.ok) {
 		throw program.error

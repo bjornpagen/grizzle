@@ -8,9 +8,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { NodeId } from "#compiler/core/ids.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -88,7 +86,6 @@ const network = ownedSchemaFixture(Network).catalog
 
 const context = () =>
 	makePassContext({
-		budgets: new BudgetMeter(compileBudgets),
 		evidenceContext: "snapshot",
 		catalog: network
 	})
@@ -592,7 +589,6 @@ type GraphFeature =
 /** The pass context of a generated case: its own catalog. */
 const caseContext = (c: RecursiveCase) =>
 	makePassContext({
-		budgets: new BudgetMeter(compileBudgets),
 		evidenceContext: "snapshot",
 		catalog: genCatalog(c.schema)
 	})
@@ -672,8 +668,7 @@ const optimizedOf = (c: RecursiveCase): OptimizedProgram => {
 	const r = lowerAligned(generatedQuery(c), "query", {
 		names: caseNames(c.schema.name),
 		context: "snapshot",
-		catalog: genCatalog(c.schema),
-		meter: new BudgetMeter(compileBudgets)
+		catalog: genCatalog(c.schema)
 	})
 	if (!r.ok) {
 		throw new Error(`${c.label}: ${r.error.message}`)

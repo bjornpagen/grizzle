@@ -7,10 +7,8 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -93,8 +91,7 @@ const lowered = (schemaValue: unknown, read: unknown): Lowered => {
 	const conservative = lowerConservative(conservativeInput(checked.value), {
 		names: artifacts.names,
 		params: checked.value.params,
-		subject: { kind: "query" },
-		meter: new BudgetMeter(compileBudgets)
+		subject: { kind: "query" }
 	})
 	if (!conservative.ok) {
 		return { kind: "refused before" }
@@ -105,8 +102,7 @@ const lowered = (schemaValue: unknown, read: unknown): Lowered => {
 		names: artifacts.names,
 		subject: { kind: "query" },
 		catalog,
-		context: "snapshot",
-		meter: new BudgetMeter(compileBudgets)
+		context: "snapshot"
 	})
 	if (optimized.ok) {
 		validateDag(optimized.value.query.dag)

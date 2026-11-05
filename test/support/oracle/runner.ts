@@ -27,11 +27,9 @@ import {
 	type Scope
 } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
@@ -151,8 +149,7 @@ export const conservative: Lowering = {
 			lowerConservative(conservativeInput(c.query), {
 				names,
 				params: genParamDecls(c.query),
-				subject: { kind: "query" },
-				meter: new BudgetMeter(compileBudgets)
+				subject: { kind: "query" }
 			}),
 			(program) => {
 				checkedStatements(

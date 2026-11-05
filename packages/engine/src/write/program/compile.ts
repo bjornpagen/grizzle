@@ -1,9 +1,7 @@
 import type { CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { compileBudgets, cteShareMinRefs } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -733,8 +731,7 @@ const optimizedPlacement = (
 					reads: options.reads,
 					entries: frontend.deltaEntries,
 					params: frontend.params,
-					schema: frontend,
-					meter: w.meter
+					schema: frontend
 				})
 				const reads = [
 					...step.read.node.meta.reads.map((r) => `relation:${r}`),
@@ -992,16 +989,13 @@ const checkReads = (step: Extract<PlanStep, { readonly kind: "check" }>): Readon
 	return [check.entry.target.name, ...read].map((r) => `relation:${r}`)
 }
 
-/** The compilation charges a fresh meter. */
 const compile = (
 	schema: CheckedSchema,
 	desc: ChangeSetDesc,
 	options: CompileWriteOptions
 ): CompiledWrite => {
-	const meter = new BudgetMeter(compileBudgets)
 	const frontend = unwrap(
 		compileChangeSet(schema, desc, {
-			meter,
 			claims: options.claims,
 			laws: options.laws,
 			derived: options.derived,
@@ -1021,8 +1015,7 @@ const compile = (
 	const state = new ShapeState<RelationInput>("small", emptyCtePlan)
 	const sharing = new StatementSharing(
 		new ShareIndex(restated.ir.dag),
-		optimizedDispatch(placed.facts, state),
-		cteShareMinRefs
+		optimizedDispatch(placed.facts, state)
 	)
 	const lowering: Lowering = {
 		state,
@@ -1031,14 +1024,13 @@ const compile = (
 			names: options.names,
 			reads: options.reads,
 			params: frontend.params,
-			meter,
 			dispatch: sharing.dispatch,
 			share
 		})
 	}
 	const plan = planWrite(restated, chosenIn(chosen, frontend.restate), {
 		distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
-		shares: (members) => unwrap(planStatementShares(sharing.index, members, cteShareMinRefs))
+		shares: (members) => unwrap(planStatementShares(sharing.index, members))
 	})
 	const optimized = optimizedArtifact(restated, plan, lowering, options)
 	const conservative = conservativeArtifact(
@@ -1046,7 +1038,6 @@ const compile = (
 			realizeConservative(frontend, {
 				names: options.names,
 				reads: options.reads,
-				meter,
 				share
 			})
 		)

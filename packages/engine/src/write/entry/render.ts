@@ -1,9 +1,7 @@
 import type { CheckedEntry, CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { LawField } from "#compiler/ir/law.ts"
@@ -91,10 +89,8 @@ export const renderMembership = (
 	if (filter.kind === "none") {
 		return Result.ok(lit.bool(true))
 	}
-	const meter = new BudgetMeter(compileBudgets)
 	const query = checkQuery(options.schema, filter.query, {
 		read: "membership",
-		meter,
 		label: `write ${entry.entry}`
 	})
 	if (!query.ok) {
@@ -117,8 +113,7 @@ export const renderMembership = (
 			}
 		},
 		context: "transaction",
-		catalog: options.catalog,
-		meter
+		catalog: options.catalog
 	})
 	if (!program.ok) {
 		return program

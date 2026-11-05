@@ -1,4 +1,3 @@
-import type { BudgetMeter } from "#compiler/core/budget.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -101,8 +100,6 @@ export interface ConservativeOptions {
 	/** The declared parameters: a take or page bound parameter has the type its declaration gives. */
 	readonly params: ReadonlyArray<ParamDecl>
 	readonly subject: ConservativeSubject
-	/** The compilation's meter: every lowered node instance is charged to `nodes`. */
-	readonly meter: BudgetMeter
 }
 
 /**

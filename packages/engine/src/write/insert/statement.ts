@@ -1,5 +1,4 @@
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
-import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import type { ConstraintName, ParamId } from "#compiler/core/ids.ts"
@@ -194,7 +193,6 @@ export type ModifyingStatement<R extends InsertResult | DeleteResult> = WriteSta
 export interface WriteContext {
 	readonly cx: LowerContext
 	readonly names: WriteNames
-	readonly meter: BudgetMeter
 	/** Where a statement's generated names start: r0 and c1 for a statement of its own; past every name the parts before
 	 * it used, for a part of a stratum's single statement, so the parts' names never collide. */
 	readonly start: NameStart
@@ -236,7 +234,6 @@ interface WriteContextOptions {
 	readonly reads: PhysicalNames
 	/** The ChangeSet's declared parameters, for a described member's take bound. */
 	readonly params: ReadonlyArray<ParamDecl>
-	readonly meter: BudgetMeter
 	/** How a described member's query lowers: the conservative baseline (`dispatchNode`) or an optimized
 	 * dispatch. */
 	readonly dispatch: ConstructorParameters<typeof LowerContext>[2]
@@ -249,15 +246,13 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 		{
 			names: options.reads,
 			params: options.params,
-			subject: { kind: "query" },
-			meter: options.meter
+			subject: { kind: "query" }
 		},
 		options.dispatch
 	)
 	return {
 		cx,
 		names: options.names,
-		meter: options.meter,
 		start: ownStatement,
 		share: options.share
 	}

@@ -1,6 +1,4 @@
 import { Array as Arr } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { edgesOf, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
@@ -81,8 +79,7 @@ export const lower = (q: LogicalQuery): ConservativeProgram => {
 	const r = lowerConservative(conservativeInput(q), {
 		names: productionNames("Graph", { kind: "declared" }, localVectorSchema),
 		params: q.params,
-		subject: { kind: "query" },
-		meter: new BudgetMeter(compileBudgets)
+		subject: { kind: "query" }
 	})
 	if (!r.ok) {
 		throw new Error(`expected a program, got ${r.error.message}`)

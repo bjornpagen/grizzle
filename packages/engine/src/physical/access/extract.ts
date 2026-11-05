@@ -1,7 +1,4 @@
 import { firstIndex, appendAll } from "#compiler/core/array.ts"
-import type { BudgetMeter } from "#compiler/core/budget.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	type Comparator,
@@ -13,7 +10,6 @@ import {
 	flip,
 	mapInput
 } from "#compiler/core/order.ts"
-import * as Result from "#compiler/core/result.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type {
 	AccessKey,
@@ -42,10 +38,6 @@ const statisticsMaxColumns = 8
 interface ExtractOptions {
 	/** The roots that are a paged ordered program: a workload program whose root is an ordered result. */
 	readonly pageable: ReadonlyArray<RelNode>
-	/** The compilation's meter; each node visit costs one node. */
-	readonly meter: BudgetMeter
-	/** The program's label, where a ResourceBound refusal is located. */
-	readonly label: string
 }
 
 type Bound = "lower" | "upper" | "pair"
@@ -600,35 +592,21 @@ class Extractor {
 		return this.keysOf(base).find((k) => k.every((f) => columns.has(f)))
 	}
 
-	visit(n: RelNode, pushed: Pushed): Result.Result<void, CompileError> {
+	visit(n: RelNode, pushed: Pushed): void {
 		const key = pushedKey(pushed)
 		const seen = this.#visited.get(n)
 		if (seen?.has(key) === true) {
-			return Result.ok(undefined)
+			return
 		}
 		if (seen === undefined) {
 			this.#visited.set(n, new Set([key]))
 		} else {
 			seen.add(key)
 		}
-		const charged = this.options.meter.charge(
-			"nodes",
-			1,
-			SourceLoc(this.options.label, ["nodes", n.id])
-		)
-		if (!charged.ok) {
-			return charged
-		}
-		const all = (
-			steps: ReadonlyArray<readonly [RelNode, Pushed]>
-		): Result.Result<void, CompileError> => {
+		const all = (steps: ReadonlyArray<readonly [RelNode, Pushed]>): void => {
 			for (const [child, p] of steps) {
-				const r = this.visit(child, p)
-				if (!r.ok) {
-					return r
-				}
+				this.visit(child, p)
 			}
-			return Result.ok(undefined)
 		}
 		switch (n.kind) {
 			case "MatchRegion":
@@ -646,7 +624,7 @@ class Extractor {
 					},
 					alone
 				)
-				return Result.ok(undefined)
+				return
 			case "Filter":
 				return this.visit(n.input, withAtoms(pushed, predicateAtoms(n.input.id, n.pred)))
 			case "ProjectSet":
@@ -714,7 +692,7 @@ class Extractor {
 			case "InputSet":
 			case "Delta":
 			case "SelfRef":
-				return Result.ok(undefined)
+				return
 		}
 	}
 
@@ -740,7 +718,7 @@ class Extractor {
 		return operand.kind === "fixed" || operand.kind === "literal"
 	}
 
-	region(n: NodeOf<"MatchRegion">, pushed: Pushed): Result.Result<void, CompileError> {
+	region(n: NodeOf<"MatchRegion">, pushed: Pushed): void {
 		const facts = regionFacts(n, pushed)
 		const keyDriven = new Set(
 			facts.occurrences.flatMap((o, at) => {
@@ -749,12 +727,8 @@ class Extractor {
 			})
 		)
 		for (const o of facts.occurrences) {
-			const r = this.occurrence(o, keyDriven)
-			if (!r.ok) {
-				return r
-			}
+			this.occurrence(o, keyDriven)
 		}
-		return Result.ok(undefined)
 	}
 
 	/** Whether an occurrence of a stored relation drives a plan through one of its keys' own indexes: its own fixed
@@ -772,22 +746,15 @@ class Extractor {
 
 	/** One occurrence of a region: a stored source's access paths, or each probe context pushed into another source.
 	 * `keyDriven` holds the region's occurrences that drive through their keys (drivesByKey), by index. */
-	occurrence(
-		o: OccurrenceFacts,
-		keyDriven: ReadonlySet<number>
-	): Result.Result<void, CompileError> {
+	occurrence(o: OccurrenceFacts, keyDriven: ReadonlySet<number>): void {
 		const source = o.source
 		if (source.kind === "Base") {
 			this.basePaths(source, o, keyDriven)
-			return Result.ok(undefined)
+			return
 		}
 		for (const ctx of this.contexts(o, source.heading, () => undefined, keyDriven)) {
-			const r = this.visit(o.source, pushedOf(ctx))
-			if (!r.ok) {
-				return r
-			}
+			this.visit(o.source, pushedOf(ctx))
 		}
-		return Result.ok(undefined)
 	}
 
 	/** The probe contexts of an occurrence whose source has `heading` and whose keys `keyWithin` finds among equal
@@ -1261,8 +1228,8 @@ class Extractor {
  * IR justifies, a query's filters in their Allen normal form (`allenNormalDag`), under the fixed form policy below.
  *
  * The walk visits every node reachable from the program's roots once per distinct set of facts its consumers fix about
- * its heading ("pushed" facts), so the work is linear in the nodes times the probe contexts and is charged to the
- * compilation's node budget; it never enumerates column subsets or permutations. Pushed facts are
+ * its heading ("pushed" facts), so the work is linear in the nodes times the probe contexts; it never enumerates column
+ * subsets or permutations. Pushed facts are
  * equalities with fixed values (parameters and outer values) or literals, ranges and span predicates against fixed
  * values, and pair relations between two of the node's columns, which a match region turns into join conditions. They
  * pass through a Filter, which adds its predicate's atoms (`predicateAtoms`), and through a projection by column reference;
@@ -1320,16 +1287,13 @@ class Extractor {
 export const extractAccess = (
 	roots: ReadonlyArray<RelNode>,
 	options: ExtractOptions
-): Result.Result<ProgramAccess, CompileError> => {
+): ProgramAccess => {
 	const x = new Extractor(options)
 	for (const root of roots) {
-		const r = x.visit(root, nothing)
-		if (!r.ok) {
-			return r
-		}
+		x.visit(root, nothing)
 	}
-	return Result.ok({
+	return {
 		paths: uniquePaths(x.paths),
 		statistics: [...x.statistics.values()].toSorted(statisticsOrder)
-	})
+	}
 }

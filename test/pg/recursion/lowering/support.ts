@@ -1,10 +1,8 @@
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { planNodeTypes } from "#bench/harness/explain.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import { type ConservativeProgram, flight } from "#compiler/lower/conservative/types.ts"
@@ -83,8 +81,7 @@ export const lowerCase = (
 	lowerAligned({ dag: c.query.dag, params: caseParams(c) }, "query", {
 		names,
 		context: "snapshot",
-		catalog: genCatalog(c.schema),
-		meter: new BudgetMeter(compileBudgets)
+		catalog: genCatalog(c.schema)
 	})
 
 /**

@@ -4,11 +4,10 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { formatLoc } from "#compiler/core/loc.ts"
-import { compileBudgets, recursionUnrollMax } from "#compiler/core/policy.ts"
+import { recursionUnrollMax } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { conservativeMeta, type Heading, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import { emptyEnv, LowerContext } from "#compiler/lower/conservative/context.ts"
@@ -332,8 +331,7 @@ const conservative = (b: Built): Result.Result<unknown, CompileError> =>
 	lowerConservative(conservativeInput(b), {
 		names,
 		params: [],
-		subject: { kind: "query" },
-		meter: new BudgetMeter(compileBudgets)
+		subject: { kind: "query" }
 	})
 
 /** The optimized recursion lowerer over the optimized dispatch. */
@@ -344,8 +342,7 @@ const optimized = (b: Built): Result.Result<unknown, CompileError> => {
 		{
 			names,
 			params: [],
-			subject: { kind: "query" },
-			meter: new BudgetMeter(compileBudgets)
+			subject: { kind: "query" }
 		},
 		optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan))
 	)

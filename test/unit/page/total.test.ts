@@ -9,10 +9,8 @@ import { Array as Arr, Duration, Effect, Formatter, Record as Rec, Result } from
 import { pageRuntimeOf } from "#adapter/page/template.ts"
 import type { AttachmentFacts } from "#adapter/reader/analysis.ts"
 import { indices } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { nodesByLabel, relNode, rooted } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { CompletedOrder, OrderKey, RelDag } from "#compiler/ir/rel.ts"
@@ -426,8 +424,7 @@ describe("the page compiler and the page runtime template", () => {
 							const conservative = lowerConservative(conservativeInput(query), {
 								names,
 								params: query.params,
-								subject: { kind: "query" },
-								meter: new BudgetMeter(compileBudgets)
+								subject: { kind: "query" }
 							})
 							if (!conservative.ok) {
 								return yield* c.assume(false)
@@ -437,8 +434,7 @@ describe("the page compiler and the page runtime template", () => {
 								names,
 								context: "snapshot",
 								catalog,
-								subject: { kind: "query" },
-								meter: new BudgetMeter(compileBudgets)
+								subject: { kind: "query" }
 							})
 							if (!optimized.ok) {
 								return yield* c.assume(false)

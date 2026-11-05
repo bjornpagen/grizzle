@@ -8,9 +8,7 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect"
 import type { TestContext } from "vitest"
 import { indices } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -628,8 +626,7 @@ const lowerNative = (dag: ValidDag, root: RelNode, names: PhysicalNames) =>
 				{
 					names,
 					params: [],
-					subject: { kind: "query" },
-					meter: new BudgetMeter(compileBudgets)
+					subject: { kind: "query" }
 				},
 				catalogDispatch
 			)

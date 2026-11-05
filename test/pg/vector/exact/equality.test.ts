@@ -16,9 +16,7 @@ import {
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { keyedColumns, recordsetEncoder } from "#compiler/codec/recordset.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
@@ -151,7 +149,6 @@ const writeSteps = (installed: Installed, changeSet: unknown): ReadonlyArray<Wri
 	)
 	const frontend = compileChangeSet(checking(Pairs), desc, {
 		claims: reality.claims,
-		meter: new BudgetMeter(compileBudgets),
 		laws: reality.laws,
 		derived: reality.derived,
 		world: reality.world
@@ -162,7 +159,6 @@ const writeSteps = (installed: Installed, changeSet: unknown): ReadonlyArray<Wri
 	const realized = realizeConservative(frontend.value, {
 		names: reality.names,
 		reads: reality.reads,
-		meter: new BudgetMeter(compileBudgets),
 		share: new StatementShare()
 	})
 	if (!realized.ok) {

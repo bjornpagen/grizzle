@@ -572,6 +572,21 @@ How to upgrade:
 - **Format and state:** a query, row check or contract that wrote `and` or `or` of one predicate now holds that
   predicate itself in its Description, so a fingerprint over that Description changes once; none otherwise.
 
+#### A stage a statement reads more than once is computed once, and the `nodes` budget is removed
+
+- **No query is refused for its number of attachments or for the stages it shares.** The conservative artifact computed
+  a stage again at every place its statement read it, so its size grew with the number of paths through the query,
+  and a budget of 10,000 lowered nodes refused large queries: one attaching about 90 relations was refused with
+  `ResourceBound`. Now a stage a statement reads more than once is one `MATERIALIZED` CTE, of the statement, or of the
+  LATERAL subquery or EXISTS whose outer row it reads, so a statement grows with its query, and a query attaching 200
+  relations compiles. No codemod.
+- **`ResourceBound` has no `budget` bound.** `nodes` was the last compiler budget, so no compilation is metered and a
+  `ResourceBound`'s bound is never `{ kind: "budget" }`.
+  - Fix: a program that switches over the `kind` of a `ResourceBound`'s bound drops the case `"budget"`.
+- **Format and state:** a drafted law validation (`<n>-validate.sql`, and its statement in meta.json) reads a stage
+  its violation query reads more than once from one `MATERIALIZED` CTE. snapshot.json and every fingerprint are
+  unchanged, so a folder drafted before keeps passing `grizzle check`.
+
 #### `AcquisitionBudgetExceeded.saturated` is removed
 
 - **The `saturated` getter of `AcquisitionBudgetExceeded` is removed.** It was derived from the error's own fields.

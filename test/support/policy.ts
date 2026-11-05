@@ -1,8 +1,6 @@
 import { type CheckedSchema, checkedRoleOver, checkedSchema } from "#compiler/analysis/schema.ts"
 import { checkMember, type CheckOptions, checkReadBack } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
@@ -58,13 +56,9 @@ export const checkedIn = (schema: unknown): Result.Result<CheckedSchema, Compile
 
 export const checking = (schema: unknown): CheckedSchema => orThrow(checkedIn(schema))
 
-/**
- * The check options an entry point states for a query read as rows: a fresh meter over production's budgets, and the
- * query's label.
- */
+/** The check options an entry point states for a query read as rows: the query's label. */
 export const checkOptions = (label: string): CheckOptions => ({
 	read: "rows",
-	meter: new BudgetMeter(compileBudgets),
 	label
 })
 

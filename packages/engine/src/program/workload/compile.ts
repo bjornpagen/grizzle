@@ -1,11 +1,9 @@
 import { checkedRoleOver, type CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchCompileError, catchRefusal, compareText } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, within } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
 	type WorkloadDesc,
@@ -91,8 +89,7 @@ interface ProgramIr {
  */
 const programIr = (
 	program: ProgramDesc,
-	reads: WorkloadReads,
-	meter: BudgetMeter
+	reads: WorkloadReads
 ): Result.Result<ProgramIr, CompileError> => {
 	const world = reads.world
 	const base = reads.artifacts.derived.schema
@@ -100,11 +97,10 @@ const programIr = (
 		return checkedProgramIr(
 			{ kind: "query", query: inlineWorlds(program.query, world.role) },
 			base,
-			reads,
-			meter
+			reads
 		)
 	}
-	return checkedProgramIr(program, world.kind === "role" ? world.checked : base, reads, meter)
+	return checkedProgramIr(program, world.kind === "role" ? world.checked : base, reads)
 }
 
 /** What a workload's programs are checked over: reality, or a role over the artifacts' base. */
@@ -146,11 +142,10 @@ const checkedQueryIr = (
 	query: QueryDesc,
 	read: CheckedSchema,
 	reading: "rows" | "membership",
-	label: string,
-	meter: BudgetMeter
+	label: string
 ): Result.Result<ProgramIr, CompileError> => {
 	const ordered = isOrderedQuery(query)
-	return Result.flatMap(checkQuery(read, query, { read: reading, meter, label }), (checked) =>
+	return Result.flatMap(checkQuery(read, query, { read: reading, label }), (checked) =>
 		Result.flatMap(allenNormalDag(checked.dag), (allen) =>
 			Result.flatMap(keyJoinNormalDag(allen), (dag) =>
 				Result.map(analyzeLogical(dag, checkerEvidence), (analysis): ProgramIr => {
@@ -173,12 +168,11 @@ const checkedQueryIr = (
 const checkedProgramIr = (
 	program: ProgramDesc,
 	read: CheckedSchema,
-	reads: WorkloadReads,
-	meter: BudgetMeter
+	reads: WorkloadReads
 ): Result.Result<ProgramIr, CompileError> => {
 	const derived = reads.artifacts.derived
 	if (program.kind === "query") {
-		return checkedQueryIr(program.query, read, "rows", "query", meter)
+		return checkedQueryIr(program.query, read, "rows", "query")
 	}
 	const world = reads.world
 	const writeWorld = catchRefusal((): WriteWorld =>
@@ -192,7 +186,6 @@ const checkedProgramIr = (
 	return Result.map(
 		compileChangeSet(read, program.changeSet, {
 			claims: { kind: "every" },
-			meter,
 			laws: reads.artifacts.laws,
 			derived,
 			world: writeWorld.value
@@ -227,33 +220,20 @@ const checkedProgramIr = (
 	)
 }
 
-/**
- * The access paths and statistics of a program's checked IR. The extraction charges its own meter, not pre-charged
- * with the check, so its bound never stacks on the check's: a program the checker admits
- * within the node budget, as compilation checks it, is never refused here for the check's cost.
- */
-const irAccess = (ir: ProgramIr, label: string): Result.Result<ProgramAccess, CompileError> =>
-	Result.map(
-		extractAccess(ir.roots, {
-			pageable: ir.pageable,
-			meter: new BudgetMeter(compileBudgets),
-			label
-		}),
-		(extraction): ProgramAccess => ({
-			paths: uniquePaths([...extraction.paths, ...ir.targets]),
-			statistics: extraction.statistics
-		})
-	)
+/** The access paths and statistics of a program's checked IR. */
+const irAccess = (ir: ProgramIr): ProgramAccess => {
+	const extraction = extractAccess(ir.roots, { pageable: ir.pageable })
+	return {
+		paths: uniquePaths([...extraction.paths, ...ir.targets]),
+		statistics: extraction.statistics
+	}
+}
 
-/** One program's access paths and statistics. The check charges a fresh meter, as compilation's does. */
+/** One program's access paths and statistics. */
 const programAccess = (
-	name: string,
 	program: ProgramDesc,
 	reads: WorkloadReads
-): Result.Result<ProgramAccess, CompileError> =>
-	Result.flatMap(programIr(program, reads, new BudgetMeter(compileBudgets)), (ir) =>
-		irAccess(ir, `workload program ${name}`)
-	)
+): Result.Result<ProgramAccess, CompileError> => Result.map(programIr(program, reads), irAccess)
 
 /**
  * A workload input: a workload value, or a WorkloadDesc with the schema it belongs to. A Description carries no content
@@ -333,7 +313,7 @@ const workloadAccess = (
 	}
 	const programs: Array<readonly [string, ProgramAccess]> = []
 	for (const [name, program] of Object.entries(workload.value.desc.programs)) {
-		const access = Result.mapError(programAccess(name, program, reads.value), (e) =>
+		const access = Result.mapError(programAccess(program, reads.value), (e) =>
 			within(e, ["programs", name])
 		)
 		if (!access.ok) {
@@ -362,17 +342,12 @@ const filterAccess = (
 			e.writable.filter.query,
 			artifacts.derived.schema,
 			"membership",
-			label,
-			new BudgetMeter(compileBudgets)
+			label
 		)
 		if (!ir.ok) {
 			return ir
 		}
-		const access = irAccess(ir.value, label)
-		if (!access.ok) {
-			return access
-		}
-		out.push(access.value)
+		out.push(irAccess(ir.value))
 	}
 	return Result.ok(out)
 }

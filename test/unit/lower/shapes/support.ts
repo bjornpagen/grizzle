@@ -7,9 +7,7 @@ import {
 } from "#compiler/analysis/physical/analyze.ts"
 import { consumerIn } from "#compiler/analysis/physical/consumers.ts"
 import type { Realization } from "#compiler/analysis/physical/props.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { unbounded } from "#compiler/ir/cardinality.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -219,15 +217,11 @@ const shapeDispatch = (facts: ShapeFacts): NodeDispatch => {
 	}
 }
 
-/**
- * What production passes to lower a query that declares no take bound parameter: no parameters, a meter of
- * compileBudgets.
- */
+/** What production passes to lower a query that declares no take bound parameter: no parameters. */
 export const testOptions = (schema: string): ConservativeOptions => ({
 	names: productionNames(schema, { kind: "declared" }, localVectorSchema),
 	params: [],
-	subject: { kind: "query" },
-	meter: new BudgetMeter(compileBudgets)
+	subject: { kind: "query" }
 })
 
 export const context = (

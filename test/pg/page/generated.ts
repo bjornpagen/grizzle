@@ -30,12 +30,10 @@ import { serverFailure } from "#adapter/wire/failure.ts"
 import { recordsetJson } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { indices } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { type CursorError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { nodesByLabel, relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -1117,8 +1115,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 			const conservative = lowerConservative(conservativeInput(query), {
 				names,
 				params: query.params,
-				subject: { kind: "query" },
-				meter: new BudgetMeter(compileBudgets)
+				subject: { kind: "query" }
 			})
 			if (!conservative.ok) {
 				c.note("skipped: baseline refuses")
@@ -1129,8 +1126,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 				names,
 				context: "snapshot",
 				catalog,
-				subject: { kind: "query" },
-				meter: new BudgetMeter(compileBudgets)
+				subject: { kind: "query" }
 			})
 			if (!optimized.ok) {
 				return yield* new PropertyFailed({

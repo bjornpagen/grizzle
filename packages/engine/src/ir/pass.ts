@@ -1,4 +1,3 @@
-import type { BudgetMeter } from "#compiler/core/budget.ts"
 import type { Diagnostic } from "#compiler/core/diag.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -18,7 +17,6 @@ interface DiagnosticSink {
 }
 
 export interface PassContext {
-	readonly budgets: BudgetMeter
 	readonly certificates: CertificateLog
 	readonly diagnostics: DiagnosticSink
 	readonly evidenceContext: TemplateContext
@@ -29,9 +27,9 @@ export interface PassContext {
 /**
  * Passes and their context.
  *
- * A pass is a pure function from its input to a Result: passes never throw, and a budget overrun is a source-located
+ * A pass is a pure function from its input to a Result: passes never throw, and a bound overrun is a source-located
  * ResourceBound. Each pass states its measure: one traversal, or a bounded worklist; there is no unrestricted rewrite loop. The context is the optimized pipeline's: it carries the compilation's
- * budget meter, the certificate log, the diagnostics, the evidence context the artifact is compiled for, the evidence
+ * certificate log, the diagnostics, the evidence context the artifact is compiled for, the evidence
  * catalog its proofs resolve declared keys and containments through.
  * Every pass reads the one catalog of its compilation, so no pass can prove over constraints named another way. The conservative lowering is no pass: it runs outside any context,
  * deduplicates at every set boundary and records no certificate.
@@ -62,13 +60,11 @@ const diagnosticSink = (): DiagnosticSink => {
 	}
 }
 
-/** A fresh context for one compilation. The meter, the log and the sink are local to it and never shared. */
+/** A fresh context for one compilation. The log and the sink are local to it and never shared. */
 export const makePassContext = (input: {
-	readonly budgets: BudgetMeter
 	readonly evidenceContext: TemplateContext
 	readonly catalog: EvidenceCatalog
 }): PassContext => ({
-	budgets: input.budgets,
 	certificates: certificateLog(),
 	diagnostics: diagnosticSink(),
 	evidenceContext: input.evidenceContext,

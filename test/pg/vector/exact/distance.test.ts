@@ -20,12 +20,10 @@ import {
 } from "effect"
 import { planIndexNames } from "#bench/harness/explain.ts"
 import { indices } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
@@ -541,8 +539,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 					const program = lowerConservative(conservativeInput(q.build(nearest)), {
 						names: installed.names,
 						params: [],
-						subject: { kind: "query" },
-						meter: new BudgetMeter(compileBudgets)
+						subject: { kind: "query" }
 					})
 					if (!program.ok) {
 						throw new Error(program.error.message)

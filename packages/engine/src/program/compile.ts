@@ -1,9 +1,7 @@
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchCompileError, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { Budgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import { decodeDesc, isOrderedQuery, type QueryDesc } from "#compiler/ir/desc.ts"
@@ -101,11 +99,6 @@ export interface CompileQueryOptions extends TemplateReading {
 	readonly context: TemplateContext
 	/** The schema's artifacts: its installed names, law model and evidence catalog (program/schema.ts). */
 	readonly artifacts: SchemaArtifacts
-	/**
-	 * The resource bounds one meter holds the whole compilation to: core/policy.ts compileBudgets in production, a smaller
-	 * one where a test drives a bound.
-	 */
-	readonly budgets: Budgets
 }
 
 /**
@@ -156,20 +149,15 @@ export const queryInput = (query: unknown): Result.Result<QueryInput, CompileErr
 const certificatesContext = (certificates: ReadonlyArray<Certificate>): TemplateContext =>
 	certificates.every((c) => contextAdmits("transaction", c.context)) ? "transaction" : "snapshot"
 
-/**
- * The conservative artifact, its lowered nodes charged to the compilation's meter, so an inlining blowup stops at the
- * node where it crosses its bound (exceeding a compiler resource bound yields a source-located error).
- */
+/** The conservative artifact: the checked query, lowered with no evidence. */
 const conservativeArtifact = (
 	checked: LogicalQuery,
-	artifacts: SchemaArtifacts,
-	meter: BudgetMeter
+	artifacts: SchemaArtifacts
 ): Result.Result<ConservativeProgram, CompileError> =>
 	lowerConservative(conservativeInput(checked), {
 		names: artifacts.reads,
 		params: checked.params,
-		subject: { kind: "query" },
-		meter
+		subject: { kind: "query" }
 	})
 
 /**
@@ -242,20 +230,14 @@ export const compileQuery = (
 	options: CompileQueryOptions
 ): Result.Result<QueryTemplate, CompileError> => {
 	const { context, artifacts } = options
-	/** One meter bounds the whole compilation: the checker and both artifacts. */
-	const meter = new BudgetMeter(options.budgets)
 	/** The checked schema the query is checked against, its artifacts' own: a role's, over its base, or reality's. */
 	const read = artifacts.world.kind === "role" ? artifacts.world.checked : artifacts.derived.schema
-	const checkedQuery = checkQuery(read, source.desc, {
-		read: options.read,
-		meter,
-		label: "query"
-	})
+	const checkedQuery = checkQuery(read, source.desc, { read: options.read, label: "query" })
 	if (!checkedQuery.ok) {
 		return checkedQuery
 	}
 	const checked = checkedQuery.value
-	const conservativeArtifactOf = conservativeArtifact(checked, artifacts, meter)
+	const conservativeArtifactOf = conservativeArtifact(checked, artifacts)
 	if (!conservativeArtifactOf.ok) {
 		return conservativeArtifactOf
 	}
@@ -281,8 +263,7 @@ export const compileQuery = (
 		names: artifacts.reads,
 		subject: { kind: "query" },
 		catalog: schemaCatalog(artifacts),
-		context,
-		meter
+		context
 	})
 	if (!lowered.ok) {
 		return lowered

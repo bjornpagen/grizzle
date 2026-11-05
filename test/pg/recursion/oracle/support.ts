@@ -1,9 +1,7 @@
 import { drawn } from "@grizzle/testing/explore"
 import type { Gen } from "@grizzle/testing/gen"
 import { Array as Arr, Effect } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { rebuildDag, relNode, unchangedEdges } from "#compiler/ir/dag.ts"
 import type { NodeOver, RelNode, ValueRefs } from "#compiler/ir/rel.ts"
@@ -108,8 +106,7 @@ const atRoot = (name: string, root: (c: QueryCase) => RelNode): Lowering => ({
 			{
 				names,
 				params: genParamDecls(c.query),
-				subject: { kind: "query" },
-				meter: new BudgetMeter(compileBudgets)
+				subject: { kind: "query" }
 			}
 		)
 })
@@ -239,8 +236,7 @@ export const eraseEdgeIdentity: Lowering = {
 			{
 				names,
 				params: genParamDecls(c.query),
-				subject: { kind: "query" },
-				meter: new BudgetMeter(compileBudgets)
+				subject: { kind: "query" }
 			}
 		)
 	}
@@ -274,8 +270,7 @@ export const movedInside =
 			return lowerConservative(conservativeInput(m.query), {
 				names,
 				params: genParamDecls(m.query),
-				subject: { kind: "query" },
-				meter: new BudgetMeter(compileBudgets)
+				subject: { kind: "query" }
 			})
 		}
 	})

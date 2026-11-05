@@ -1,6 +1,5 @@
 import { sameOrder, appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -20,7 +19,6 @@ import {
 	flip,
 	mapInput
 } from "#compiler/core/order.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { type Aside, asideStatements } from "#compiler/deploy/diff/aside.ts"
@@ -3926,8 +3924,7 @@ class Differ {
 			{
 				names: this.input.installation.names,
 				params: [],
-				subject: { kind: "violationProbe" },
-				meter: new BudgetMeter(compileBudgets)
+				subject: { kind: "violationProbe" }
 			}
 		)
 		if (!lowered.ok) {

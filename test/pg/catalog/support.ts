@@ -1,10 +1,8 @@
 import { array, constant, type Gen, int, map, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { Certificate, CertificateRule } from "#compiler/ir/certificate.ts"
@@ -241,8 +239,7 @@ export const catalogLowering = (
 								{
 									names,
 									params: genParamDecls(c.query),
-									subject: { kind: "query" },
-									meter: new BudgetMeter(compileBudgets)
+									subject: { kind: "query" }
 								},
 								catalogDispatch
 							)

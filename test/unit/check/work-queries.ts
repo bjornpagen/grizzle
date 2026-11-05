@@ -1,14 +1,8 @@
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import {
-	attach,
-	count,
-	eq,
 	lit,
 	match,
-	orderBy,
-	param,
-	parent,
 	queryDesc,
 	ref,
 	relationSource,
@@ -23,32 +17,11 @@ const kindHandle = (value: LiteralDesc) => typedLit(value, { kind: "closedId", r
 const automaticVars = vars("AutomaticTask", "task", "budget")
 
 /**
- * The worked example's queries as the Descriptions the query builder records for them.
+ * The worked example's taskPayloads as the Description the query builder records for it.
  *
- * Each is the query's rule, transcribed onto the Description boundary with the DSL: `v(Task, "task")` mints one
+ * Its rules are the query's, transcribed onto the Description boundary with the DSL: `v(Task, "task")` mints one
  * variable per field, named `Task.<field>` and carrying its origin, and a match binds the fields the rule uses.
  */
-export const automaticTasksFor: QueryDesc = queryDesc(
-	rule({
-		vars: [...taskVars, ...automaticVars],
-		matches: [
-			match(relationSource("Task"), {
-				id: ref("Task", "id"),
-				account: ref("Task", "account"),
-				kind: lit("Automatic")
-			}),
-			match(relationSource("AutomaticTask"), {
-				task: ref("Task", "id"),
-				budget: ref("AutomaticTask", "budget")
-			})
-		],
-		where: [eq(ref("Task", "account"), param("account", { kind: "uuid" }))],
-		head: { id: ref("Task", "id"), budget: ref("AutomaticTask", "budget") },
-		interiors: [],
-		attach: []
-	})
-)
-
 export const taskPayloads: QueryDesc = queryDesc(
 	rule({
 		vars: [...taskVars, ...automaticVars],
@@ -96,111 +69,4 @@ export const taskPayloads: QueryDesc = queryDesc(
 		interiors: [],
 		attach: []
 	})
-)
-
-export const taskCards: QueryDesc = attach(
-	attach(
-		queryDesc(
-			rule({
-				vars: taskVars,
-				matches: [
-					match(relationSource("Task"), {
-						id: ref("Task", "id"),
-						account: ref("Task", "account"),
-						kind: ref("Task", "kind")
-					})
-				],
-				where: [eq(ref("Task", "account"), param("account", { kind: "uuid" }))],
-				head: { id: ref("Task", "id"), kind: ref("Task", "kind") },
-				interiors: [],
-				attach: []
-			})
-		),
-		"note",
-		queryDesc(
-			rule({
-				vars: vars("TaskNote", "note"),
-				matches: [
-					match(relationSource("TaskNote"), { task: parent("id"), note: ref("TaskNote", "note") })
-				],
-				head: { note: ref("TaskNote", "note") },
-				where: [],
-				interiors: [],
-				attach: []
-			})
-		)
-	),
-	"automatic",
-	queryDesc(
-		rule({
-			vars: vars("AutomaticTask", "budget"),
-			matches: [
-				match(relationSource("AutomaticTask"), {
-					task: parent("id"),
-					budget: ref("AutomaticTask", "budget")
-				})
-			],
-			head: { budget: ref("AutomaticTask", "budget") },
-			where: [],
-			interiors: [],
-			attach: []
-		})
-	)
-)
-
-export const accountCards: QueryDesc = attach(
-	attach(
-		queryDesc(
-			rule({
-				vars: vars("Account", "id", "name"),
-				matches: [
-					match(relationSource("Account"), {
-						id: ref("Account", "id"),
-						name: ref("Account", "name")
-					})
-				],
-				head: { id: ref("Account", "id"), name: ref("Account", "name") },
-				where: [],
-				interiors: [],
-				attach: []
-			})
-		),
-		"tasks",
-		orderBy(
-			queryDesc(
-				rule({
-					vars: taskVars,
-					matches: [
-						match(relationSource("Task"), {
-							id: ref("Task", "id"),
-							account: parent("id"),
-							kind: ref("Task", "kind")
-						})
-					],
-					head: { id: ref("Task", "id"), kind: ref("Task", "kind") },
-					where: [],
-					interiors: [],
-					attach: []
-				})
-			),
-			["id", "asc"]
-		)
-	),
-	"automaticTasks",
-	queryDesc(
-		rule({
-			vars: taskVars,
-			matches: [
-				match(relationSource("Task"), {
-					id: ref("Task", "id"),
-					account: parent("id"),
-					kind: lit("Automatic")
-				})
-			],
-			head: { count: count() },
-			where: [],
-			interiors: [],
-			attach: []
-		})
-	)
 )

@@ -6,8 +6,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -292,8 +290,7 @@ layer(Substrate.layer)("span producers on PostgreSQL 19", (it) => {
 								const program = lowerConservative(conservativeInput(built), {
 									names: spanNames(schema),
 									params: [],
-									subject: { kind: "query" },
-									meter: new BudgetMeter(compileBudgets)
+									subject: { kind: "query" }
 								})
 								if (!program.ok) {
 									throw new Error(program.error.message)

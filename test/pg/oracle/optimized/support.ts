@@ -4,11 +4,9 @@ import { decodePlan } from "#adapter/explain/plan.ts"
 import { type PlanLabel, planEdges, planNodeTypes } from "#bench/harness/explain.ts"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -832,8 +830,7 @@ const runDifferential = (
 			lowerConservative(conservativeInput(query), {
 				names,
 				params: query.params,
-				subject: { kind: "query" },
-				meter: new BudgetMeter(compileBudgets)
+				subject: { kind: "query" }
 			})
 		)
 		const catalog = installedCatalog(plan.installation)
@@ -847,7 +844,6 @@ const runDifferential = (
 					names,
 					catalog,
 					subject: { kind: "query" },
-					meter: new BudgetMeter(compileBudgets),
 					context: "snapshot"
 				})
 			)

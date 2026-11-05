@@ -7,10 +7,8 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { appendNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
@@ -126,8 +124,7 @@ const lowered = (dag: ValidDag, root: RelNode): ChannelProgram =>
 				{
 					names,
 					params: [],
-					subject: { kind: "query" },
-					meter: new BudgetMeter(compileBudgets)
+					subject: { kind: "query" }
 				}
 			)
 		)
@@ -870,8 +867,7 @@ const generatedProgram = (c: QueryCase): ChannelProgram =>
 			lowerConservative(conservativeInput(c.query), {
 				names: standInNames(c.schema.name),
 				params: genParamDecls(c.query),
-				subject: { kind: "query" },
-				meter: new BudgetMeter(compileBudgets)
+				subject: { kind: "query" }
 			})
 		)
 	)

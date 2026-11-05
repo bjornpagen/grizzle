@@ -7,11 +7,9 @@ import { Array as Arr, Duration, Effect, Formatter, Option, Order } from "effect
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { hnswPolicy, hnswSearchSettings } from "#compiler/check/approximate/policy.ts"
 import { subtree } from "#compiler/check/approximate/trace.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { relNode, rooted } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { RelDag } from "#compiler/ir/rel.ts"
@@ -741,8 +739,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 			const options = {
 				names: fx.installed.names,
 				context: "snapshot",
-				catalog: installedCatalog(fx.installed.installation),
-				meter: new BudgetMeter(compileBudgets)
+				catalog: installedCatalog(fx.installed.installation)
 			} as const
 			const law = failed(lowerAligned(forbid, "query", options))
 			assert.equal(law.reason._tag, "UnsupportedOperation")

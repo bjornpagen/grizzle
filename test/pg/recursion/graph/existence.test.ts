@@ -4,8 +4,6 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -163,8 +161,7 @@ const optimized = (c: QueryCase, names: PhysicalNames, context: TemplateContext)
 	lowerAligned(logicalOf(c), "query", {
 		names,
 		context,
-		catalog,
-		meter: new BudgetMeter(compileBudgets)
+		catalog
 	})
 
 const optimizedIn = (context: TemplateContext): Lowering => ({

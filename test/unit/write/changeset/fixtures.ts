@@ -1,6 +1,4 @@
 import { pipe, String as Str } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { contained, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
@@ -47,13 +45,12 @@ export const parsedOf = (value: unknown): ParsedChangeSet => {
 	return parsed
 }
 
-/** The front end's options as compileWrite states them for reality over `schemaValue`: every context's fact held, the
- * keys of its views as its artifacts know them, and a fresh meter over the compile budgets. */
+/** The front end's options as compileWrite states them for reality over `schemaValue`: every context's fact held, and the
+ * keys of its views as its artifacts know them. */
 const frontendOptions = (schemaValue: unknown): FrontendOptions => {
 	const artifacts = succeeded(testArtifacts(schemaValue, testCompile))
 	return {
 		claims: { kind: "every" },
-		meter: new BudgetMeter(compileBudgets),
 		laws: artifacts.laws,
 		derived: artifacts.derived,
 		world: { kind: "reality" }

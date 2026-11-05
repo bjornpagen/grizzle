@@ -1,5 +1,4 @@
 import { approximatePageMisuse } from "#compiler/check/approximate/provenance.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, reportedAt } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -9,7 +8,6 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
@@ -331,12 +329,11 @@ const filtered = (
 		: select(core(targets, [input.item], where))
 }
 
-const conservativeKit = (input: PageCompileInput, meter: BudgetMeter): Kit => {
+const conservativeKit = (input: PageCompileInput): Kit => {
 	const options: ConservativeOptions = {
 		names: input.names,
 		params: input.checked.params,
-		subject: { kind: "query" },
-		meter
+		subject: { kind: "query" }
 	}
 	const cx = new LowerContext(input.checked.dag, options, dispatchNode)
 	const delivery = new Delivery<PageParamSlot>(cx)
@@ -362,14 +359,13 @@ const conservativeKit = (input: PageCompileInput, meter: BudgetMeter): Kit => {
 	}
 }
 
-const optimizedKit = (input: PageCompileInput, facts: ShapeFacts, meter: BudgetMeter): Kit => {
+const optimizedKit = (input: PageCompileInput, facts: ShapeFacts): Kit => {
 	const query = input.optimized.query
 	const state = new ShapeState<ChoiceInput>("small", input.optimized.cte)
 	const options: ConservativeOptions = {
 		names: input.names,
 		params: query.params,
-		subject: { kind: "query" },
-		meter
+		subject: { kind: "query" }
 	}
 	const cx = new LowerContext(query.dag, options, optimizedDispatch(facts, state))
 	const delivery = new OptimizedDelivery<PageInput, PageParamSlot>(cx, facts, state)
@@ -754,8 +750,6 @@ const unionPageOrder = (
 		: { keys: [...order.keys, ...missing.map((column) => ({ column, dir: "asc" as const }))] }
 }
 
-const meterFor = (): BudgetMeter => new BudgetMeter(compileBudgets)
-
 /**
  * The page template of a compiled ordered query: every request variant and probe of both artifacts.
  *
@@ -837,8 +831,8 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 			derivedDefinition: false,
 			certify: discardCertificates
 		})
-		const conservativeShape = shapeOf(conservativeKit(input, meterFor()).delivery, checkedRoot)
-		const optimizedShape = shapeOf(optimizedKit(input, facts, meterFor()).delivery, optimizedRoot)
+		const conservativeShape = shapeOf(conservativeKit(input).delivery, checkedRoot)
+		const optimizedShape = shapeOf(optimizedKit(input, facts).delivery, optimizedRoot)
 		/** The checker's completion begins with the stated keys (check/checker.ts complete). */
 		const statedPrefix = conservativeShape.order.keys.slice(0, input.stated.keys.length)
 		if (
@@ -866,16 +860,14 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 		}
 		const order = completed.value
 		const comparators = pageComparators(order, conservativeShape.heading)
-		const conservativeMeter = meterFor()
 		const conservative = artifactStatements(
-			() => conservativeKit(input, conservativeMeter),
+			() => conservativeKit(input),
 			checkedRoot,
 			order,
 			comparators
 		)
-		const optimizedMeter = meterFor()
 		const optimized = artifactStatements(
-			() => optimizedKit(input, facts, optimizedMeter),
+			() => optimizedKit(input, facts),
 			optimizedRoot,
 			order,
 			comparators

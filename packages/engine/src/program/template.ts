@@ -1,5 +1,4 @@
 import type { CompileError } from "#compiler/core/errors.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -29,9 +28,8 @@ export interface CompiledTemplate {
 
 /**
  * The template of `query` over `schema`, whose artifacts the caller holds (a DbLayer computes each role's once, when it
- * is built), compiled for `request` under production's budgets, with the artifact that runs (context.ts). Every call
- * compiles: grizzle keeps no cache of templates, and a caller that runs a program again keeps its compiled form itself
- * (the workload, db.compile).
+ * is built), compiled for `request`, with the artifact that runs (context.ts). Every call compiles: grizzle keeps no
+ * cache of templates, and a caller that runs a program again keeps its compiled form itself (the workload, db.compile).
  */
 export const templateFor = (
 	query: QueryInput,
@@ -44,7 +42,6 @@ export const templateFor = (
 			compileQuery(source, {
 				context: request.context,
 				artifacts,
-				budgets: compileBudgets,
 				read: request.read
 			}),
 			(template): CompiledTemplate => ({

@@ -8,7 +8,6 @@ import { inheritedKeys } from "#compiler/analysis/logical/derived.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
 import {
@@ -20,7 +19,6 @@ import {
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { classMembers, type KeyProof, type ViewKey, type ViewRead } from "#compiler/ir/keys.ts"
@@ -195,8 +193,7 @@ export const analyzeDerivedRelation = (
 	const at = loc
 	const checkedResult = checkQuery(schema, owned.desc.query, {
 		read: "rows",
-		label: `derived ${name}`,
-		meter: new BudgetMeter(compileBudgets)
+		label: `derived ${name}`
 	})
 	if (!checkedResult.ok) {
 		return checkedResult

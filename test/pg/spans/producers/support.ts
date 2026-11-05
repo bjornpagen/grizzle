@@ -1,9 +1,7 @@
 import { exact, multiset, ordered } from "@grizzle/testing/oracle"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Heading, RelNode, ValidDag } from "#compiler/ir/rel.ts"
@@ -143,8 +141,7 @@ export const emitWith = (
 		{
 			names,
 			params: [],
-			subject: { kind: "query" },
-			meter: new BudgetMeter(compileBudgets)
+			subject: { kind: "query" }
 		},
 		dispatchNode
 	)

@@ -14,9 +14,7 @@ import type { OpenError, ReadError } from "#adapter/errors/execution.ts"
 import type { ReaderValue } from "#adapter/reader/reader.ts"
 import type { DbLayerOf } from "#adapter/types/layer.ts"
 import { type DerivedAnalysis, derivedAnalysis } from "#compiler/analysis/schema.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -180,8 +178,7 @@ export const installDerived = (
 			const program = lowerConservative(conservativeInput(r.query), {
 				names: installed.names,
 				params: [],
-				subject: { kind: "query" },
-				meter: new BudgetMeter(compileBudgets)
+				subject: { kind: "query" }
 			})
 			if (!program.ok) {
 				return yield* Effect.fail(program.error)

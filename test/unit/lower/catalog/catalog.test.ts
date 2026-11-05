@@ -15,9 +15,7 @@ import {
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, Result } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal, encode, everyProperty } from "#compiler/core/canonical.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
@@ -91,8 +89,7 @@ const sql = (q: LogicalQuery, r: CatalogResult<Rooted>): ReadonlyArray<string> =
 							{
 								names: productionNames("lab", { kind: "declared" }, localVectorSchema),
 								params: q.params,
-								subject: { kind: "query" },
-								meter: new BudgetMeter(compileBudgets)
+								subject: { kind: "query" }
 							},
 							catalogDispatch
 						)
@@ -828,7 +825,6 @@ describe("determinism and the catalog pass", () => {
 							assert.deepEqual(encode(a.r.dag, everyProperty), encode(b.r.dag, everyProperty))
 							assert.deepEqual(sql(a.q, a.r), sql(b.q, b.r))
 							const ctx = makePassContext({
-								budgets: new BudgetMeter(compileBudgets),
 								evidenceContext: "snapshot",
 								catalog: labOptions.catalog
 							})

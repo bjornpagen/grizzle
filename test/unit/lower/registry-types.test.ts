@@ -5,8 +5,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { contractOf, numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
@@ -101,8 +99,7 @@ describe("the scalar types of lowered statements", () => {
 							const conservative = lowerConservative(conservativeInput(query), {
 								names,
 								params: query.params,
-								subject: { kind: "query" },
-								meter: new BudgetMeter(compileBudgets)
+								subject: { kind: "query" }
 							})
 							if (!conservative.ok) {
 								return yield* n.assume(false)
@@ -112,8 +109,7 @@ describe("the scalar types of lowered statements", () => {
 								names,
 								context: "snapshot",
 								catalog,
-								subject: { kind: "query" },
-								meter: new BudgetMeter(compileBudgets)
+								subject: { kind: "query" }
 							})
 							if (!optimized.ok) {
 								return yield* n.assume(false)

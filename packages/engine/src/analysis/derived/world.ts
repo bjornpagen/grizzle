@@ -6,12 +6,10 @@ import {
 import { type InheritedKey, inheritedKeys } from "#compiler/analysis/logical/derived.ts"
 import { checkWorldDefinition } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
@@ -85,7 +83,7 @@ export const analyzeWorld = (
 	base: SchemaReading,
 	entry: WorldEntry
 ): Result.Result<WorldAnalysis, CompileError> => {
-	const checkedResult = checkWorldDefinition(base, entry, new BudgetMeter(compileBudgets))
+	const checkedResult = checkWorldDefinition(base, entry)
 	if (!checkedResult.ok) {
 		return checkedResult
 	}

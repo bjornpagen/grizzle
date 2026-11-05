@@ -1,4 +1,3 @@
-import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -96,8 +95,6 @@ interface ConservativeWriteOptions {
 	readonly names: WriteNames
 	/** The names the members and read-backs read their relations under: reality's own, or a role's views. */
 	readonly reads: PhysicalNames
-	/** The compilation's meter, which every lowered node and emitted text is charged to. */
-	readonly meter: BudgetMeter
 	/** The statements the compilation's optimized artifact built, which an equal request shares. */
 	readonly share: StatementShare
 }
@@ -108,7 +105,6 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		names: options.names,
 		reads: options.reads,
 		params: frontend.params,
-		meter: options.meter,
 		/** The conservative realization lowers every described member by the conservative baseline. */
 		dispatch: dispatchNode,
 		share: options.share
@@ -295,8 +291,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					kind: "readBack",
 					deltas: deltaSource,
 					breach: breachGuard(options.names.schema)
-				},
-				meter: options.meter
+				}
 			}
 		)
 		if (!program.ok) {

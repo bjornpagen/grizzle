@@ -1,8 +1,6 @@
 import { Array as Arr } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Identity } from "#compiler/core/identity.ts"
-import { type Budgets, compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery, StatementSpec } from "#compiler/ir/products.ts"
@@ -100,15 +98,13 @@ export const schemaInputOf = (schema: unknown): SchemaInput => {
 }
 
 /**
- * The template of `query` over `schema` (querySchema: undefined is the query's own schema) under `budgets`, the
- * schema parsed here as the compiler's boundary parses a caller's: what a test of a compile budget drives with a
- * drawn Budgets through compileQuery's own parameter.
+ * The template of `query` over `schema` (querySchema: undefined is the query's own schema), the schema parsed here as
+ * the compiler's boundary parses a caller's.
  */
-export const compileTemplateUnder = (
+export const compileTemplate = (
 	query: unknown,
 	schema: unknown,
-	options: TestCompileOptions,
-	budgets: Budgets
+	options: TestCompileOptions
 ): Result.Result<QueryTemplate, CompileError> => {
 	const named = schema === undefined ? Result.ok(undefined) : parseSchemaInput(schema)
 	if (!named.ok) {
@@ -129,7 +125,6 @@ export const compileTemplateUnder = (
 	const template = compileQuery(source.value, {
 		context: options.context,
 		artifacts: artifacts.value,
-		budgets,
 		read: options.read
 	})
 	if (!template.ok) {
@@ -138,14 +133,6 @@ export const compileTemplateUnder = (
 	checkedLowering(templateLowering(template.value, options.context, schemaCatalog(artifacts.value)))
 	return template
 }
-
-/** The template of `query` over `schema` under production's budgets (compileTemplateUnder). */
-export const compileTemplate = (
-	query: unknown,
-	schema: unknown,
-	options: TestCompileOptions
-): Result.Result<QueryTemplate, CompileError> =>
-	compileTemplateUnder(query, schema, options, compileBudgets)
 
 /**
  * The options a write over reality compiles under, from the schema's artifacts: its installed names written and read,
@@ -188,8 +175,7 @@ export const lowerAligned = (
 		lowerConservative(conservativeInput(query), {
 			names: options.names,
 			params: query.params,
-			subject: { kind: "query" },
-			meter: new BudgetMeter(compileBudgets)
+			subject: { kind: "query" }
 		}),
 		(conservative) =>
 			Result.map(lowerOptimized(query, { ...options, subject: { kind } }), (optimized) => {

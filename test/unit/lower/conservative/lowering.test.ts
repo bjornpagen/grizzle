@@ -4,11 +4,9 @@ import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element, filter, map, oneOf } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
+import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { makeIdSupply, type ParamId } from "#compiler/core/ids.ts"
-import { type BudgetKind, compileBudgets } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
@@ -54,7 +52,7 @@ import * as Cases from "#test/unit/lower/conservative/queries.ts"
 import { present } from "#test/unit/lower/support.ts"
 
 /**
- * The conservative lowering: the dispatch over every kind, the delivery of heading groups, its refusals and its budget.
+ * The conservative lowering: the dispatch over every kind, the delivery of heading groups and its refusals.
  * What a lowered statement computes is checked on PostgreSQL against the reference evaluator
  * (test/pg/oracle/conservative), and its SQL by the structural audit over every lowered case
  * (test/unit/sql/audit.test.ts); a statement's text is asserted nowhere. The rules here, each an exhaustive property
@@ -66,8 +64,7 @@ import { present } from "#test/unit/lower/support.ts"
  * - a heterogeneous union delivered to the host is one statement per heading group, its take's order apart from the
  *   delivery order in the merge, a filter applied per group; matched inside a statement it is a UNION over the common
  *   columns; any other node over it, and an attachment on an arm of a group of several, is refused;
- * - an outer reference resolves only to a node in scope that one occurrence reads;
- * - the lowering charges the meter it is given and stops exactly at its bound, for every budget.
+ * - an outer reference resolves only to a node in scope that one occurrence reads.
  */
 
 const names = productionNames("Ledger", { kind: "declared" }, localVectorSchema)
@@ -75,14 +72,10 @@ const names = productionNames("Ledger", { kind: "declared" }, localVectorSchema)
 type Subject = "query" | "readBack"
 
 /**
- * What production passes to lower a query: its declared parameters, a meter, and the subject; a write program's read
- * back supplies the deltas it reads as a carrier.
+ * What production passes to lower a query: its declared parameters and the subject; a write program's read back
+ * supplies the deltas it reads as a carrier.
  */
-const optionsFor = (
-	params: ReadonlyArray<ParamDecl>,
-	meter: BudgetMeter,
-	subject: Subject
-): ConservativeOptions => ({
+const optionsFor = (params: ReadonlyArray<ParamDecl>, subject: Subject): ConservativeOptions => ({
 	names,
 	params,
 	subject:
@@ -92,15 +85,11 @@ const optionsFor = (
 					kind: "readBack",
 					deltas: () => ({ carrier: carrierName(1), columns: ["c1", "c2", "c3", "c4"] }),
 					breach: breachGuard("Ledger")
-				},
-	meter
+				}
 })
 
 const lowered = (query: LogicalQuery): Result.Result<ConservativeProgram, CompileError> =>
-	lowerConservative(
-		conservativeInput(query),
-		optionsFor(query.params, new BudgetMeter(compileBudgets), "query")
-	)
+	lowerConservative(conservativeInput(query), optionsFor(query.params, "query"))
 
 /**
  * What a node reads that the conservative lowering refuses, by the rule it breaks: read by walking its inputs, the
@@ -186,10 +175,7 @@ describe("the kind table", () => {
 					([[key, root], subject], c) =>
 						Effect.sync(() => {
 							const expected = kindOutcome(readsOf(root), subject)
-							const r = lowerConservative(
-								{ dag, root },
-								optionsFor([], new BudgetMeter(compileBudgets), subject)
-							)
+							const r = lowerConservative({ dag, root }, optionsFor([], subject))
 							c.note(`${expected} ${subject}`)
 							if (expected !== "lowered") {
 								refused(r, expected, key)
@@ -669,8 +655,7 @@ describe("take bound parameters", () => {
 		lowerConservative(conservativeInput(c.query), {
 			names: generatedNames,
 			params,
-			subject: { kind: "query" },
-			meter: new BudgetMeter(compileBudgets)
+			subject: { kind: "query" }
 		})
 
 	it.effect(
@@ -727,74 +712,5 @@ describe("take bound parameters", () => {
 						})
 				)
 			)
-	)
-})
-
-/**
- * Queries of every lowering the cases cover: regions, groups, negation, unions, takes, a correlated take, an
- * attachment, a recursion, a closed relation and set operations.
- */
-const budgetCases: Arr.NonEmptyReadonlyArray<Cases.LoweringCase> = [
-	Cases.byFact(),
-	Cases.countAll(),
-	Cases.withPostings(true),
-	Cases.unionArms(),
-	Cases.heterogeneous(true),
-	Cases.topTasks(),
-	Cases.topTaskPerAccount(),
-	Cases.accountTotals(),
-	Cases.reach(),
-	Cases.closedLabels(),
-	Cases.accountSets("Difference"),
-	Cases.averageAmount()
-]
-
-/** The budgets the lowering charges: the nodes it lowers. */
-const loweringBudgets: Arr.NonEmptyReadonlyArray<BudgetKind> = ["nodes"]
-
-describe("budgets", () => {
-	it.effect("charge the meter given and stop exactly at its bound, for every budget", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/lower/conservative/budgets",
-					literal: Formatter.format,
-					/** A case by its name, so a counterexample reports the name and not the whole DAG. */
-					generator: (source) =>
-						[
-							source.draw(element(Arr.map(budgetCases, (b) => b.name))),
-							source.draw(element(loweringBudgets))
-						] as const,
-					limit: 32,
-					coverage: requiredInSpace<`${BudgetKind} bound`>(["nodes bound"]),
-					caseHang: Duration.minutes(2)
-				},
-				([name, kind], c) =>
-					Effect.sync(() => {
-						const { query } = Option.getOrThrowWith(
-							Arr.findFirst(budgetCases, (b) => b.name === name),
-							() => new Error(name)
-						)
-						const lowerWith = (meter: BudgetMeter) =>
-							lowerConservative(conservativeInput(query), optionsFor(query.params, meter, "query"))
-						const full = new BudgetMeter(compileBudgets)
-						succeeded(lowerWith(full), name)
-						/** Every lowering lowers nodes, charged to the meter it is given. */
-						const used = full.used(kind)
-						assert.ok(used > 0, `${name} charges ${kind}`)
-						succeeded(
-							lowerWith(new BudgetMeter({ ...compileBudgets, [kind]: used })),
-							`${name} at ${kind} ${used}`
-						)
-						refused(
-							lowerWith(new BudgetMeter({ ...compileBudgets, [kind]: used - 1 })),
-							"ResourceBound",
-							`${name} below ${kind} ${used}`
-						)
-						c.note(`${kind} bound`)
-					})
-			)
-		)
 	)
 })

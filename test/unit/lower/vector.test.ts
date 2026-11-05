@@ -5,11 +5,9 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ExprId, NodeId } from "#compiler/core/ids.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { rebuildDag, relNode, rooted, topoOrder, unchangedEdges } from "#compiler/ir/dag.ts"
@@ -88,8 +86,7 @@ const lowered = (
 	lowerAligned(q, purpose, {
 		names: installation.names,
 		context: "snapshot",
-		catalog,
-		meter: new BudgetMeter(compileBudgets)
+		catalog
 	})
 
 /** The queries of a statement that rank by the cosine distance: one per approximate search the statement runs. */

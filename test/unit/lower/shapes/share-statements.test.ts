@@ -25,15 +25,14 @@ import { present } from "#test/unit/lower/support.ts"
 /**
  * Sub-queries shared by the statements of one program and repeated inside one statement (shapes/share/statements.ts):
  * the carried sub-queries of a stratum's statements, the MATERIALIZED CTEs of one statement, and the attachment
- * statements a delivered program feeds from an earlier one. The first two rules are exhausted over the number of copies
- * and the threshold they take:
+ * statements a delivered program feeds from an earlier one. The first two rules are exhausted over the number of
+ * copies:
  *
- * - n statements each reading `pick` carry it once, its every copy read through the carrier, exactly when n reaches
- *   cteShareMinRefs; the highest shared sub-query is chosen, so `first`, which pick reads, is never carried beside it;
- * - a statement reading r copies of an unbounded union computes it once as a CTE exactly when r reaches
- *   cteShareMinRefs;
- * - two attachments of one parent over the same sub-query are computed once, the later fed from the earlier, under
- *   core/policy.ts cteShareMinRefs of 2; over different sub-queries each is sent.
+ * - n statements each reading `pick` carry it once, its every copy read through the carrier, exactly when n is more
+ *   than one; the highest shared sub-query is chosen, so `first`, which pick reads, is never carried beside it;
+ * - a statement reading r copies of an unbounded union computes it once as a CTE exactly when r is more than one;
+ * - two attachments of one parent over the same sub-query are computed once, the later fed from the earlier; over
+ *   different sub-queries each is sent.
  */
 
 /**
@@ -129,16 +128,16 @@ describe("sub-queries carried across a stratum's statements", () => {
 					{
 						suite: "unit/lower/shapes/share-statements/carried",
 						literal: Formatter.format,
-						generator: (source) => [source.draw(int(1, 4)), source.draw(int(2, 5))] as const,
-						limit: 16,
+						generator: int(1, 4),
+						limit: 4,
 						coverage: requiredInSpace<"carried" | "inline">(["carried", "inline"]),
 						caseHang: Duration.minutes(2)
 					},
-					([statements, minRefs], c) =>
+					(statements, c) =>
 						Effect.sync(() => {
 							const p = program(statements)
-							const shares = succeeded(planStatementShares(new ShareIndex(p.dag), p.roots, minRefs))
-							if (statements < minRefs) {
+							const shares = succeeded(planStatementShares(new ShareIndex(p.dag), p.roots))
+							if (statements < 2) {
 								assert.deepEqual(shares, [])
 								c.note("inline")
 								return
@@ -156,38 +155,29 @@ describe("sub-queries carried across a stratum's statements", () => {
 })
 
 describe("sub-queries repeated inside one statement", () => {
-	it.effect(
-		"compute an unbounded sub-query once exactly when it is read cteShareMinRefs times",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/shapes/share-statements/ctes",
-						literal: Formatter.format,
-						generator: (source) => [source.draw(int(1, 4)), source.draw(int(2, 5))] as const,
-						limit: 16,
-						coverage: requiredInSpace<"shared" | "inline">(["shared", "inline"]),
-						caseHang: Duration.minutes(2)
-					},
-					([reads, minRefs], c) =>
-						Effect.sync(() => {
-							const { built, copies } = repeated(reads)
-							const ctes = statementCtes(
-								new ShareIndex(built.dag),
-								built.dag.roots[0],
-								() => false,
-								minRefs
-							)
-							const expected =
-								reads >= minRefs
-									? [succeeded(shareKey(built.dag, present(copies[0], "a copy")))]
-									: []
-							assert.deepEqual([...ctes], expected)
-							c.note(reads >= minRefs ? "shared" : "inline")
-						})
-				)
+	it.effect("compute an unbounded sub-query once exactly when it is read more than once", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/lower/shapes/share-statements/ctes",
+					literal: Formatter.format,
+					generator: int(1, 4),
+					limit: 4,
+					coverage: requiredInSpace<"shared" | "inline">(["shared", "inline"]),
+					caseHang: Duration.minutes(2)
+				},
+				(reads, c) =>
+					Effect.sync(() => {
+						const { built, copies } = repeated(reads)
+						const ctes = statementCtes(new ShareIndex(built.dag), built.dag.roots[0], () => false)
+						const expected =
+							reads > 1 ? [succeeded(shareKey(built.dag, present(copies[0], "a copy")))] : []
+						assert.deepEqual([...ctes], expected)
+						c.note(reads > 1 ? "shared" : "inline")
+					})
 			)
+		)
 	)
 })
 

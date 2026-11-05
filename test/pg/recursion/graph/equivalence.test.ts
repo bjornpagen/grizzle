@@ -6,8 +6,6 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import { type ConservativeProgram, flight } from "#compiler/lower/conservative/types.ts"
@@ -226,8 +224,7 @@ const optimizedAt = (note: Note, which: 0 | 1): Lowering => ({
 			lowerAligned({ dag, params: genParamDecls(c.query) }, "query", {
 				names,
 				context: "snapshot",
-				catalog: genCatalog(c.schema),
-				meter: new BudgetMeter(compileBudgets)
+				catalog: genCatalog(c.schema)
 			}),
 			(p) => {
 				note(optimizedFeatures(p))

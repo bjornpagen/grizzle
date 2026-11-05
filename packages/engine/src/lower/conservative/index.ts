@@ -31,7 +31,9 @@ import type {
  * - Take is ORDER BY LIMIT over its deduplicated input, LATERAL when correlated;
  * - Recursive is WITH RECURSIVE ... UNION with every column cast to the state type;
  * - Attach is a pipelined statement keyed by the delivered parent keys, and a heterogeneous union delivered to the host
- *   is one statement per heading group (deliver.ts).
+ *   is one statement per heading group (deliver.ts);
+ * - a node its statement reads more than once is one MATERIALIZED CTE, read at every use (dispatch.ts), so a statement
+ *   grows with the DAG it lowers, never with the paths through it.
  *
  * Every statement leaves through sql/emit.
  */

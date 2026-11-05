@@ -8,9 +8,7 @@ import { double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
@@ -62,8 +60,7 @@ const lowers = (q: LogicalQuery): void => {
 		lowerConservative(conservativeInput(q), {
 			names: productionNames("lab", { kind: "declared" }, localVectorSchema),
 			params: q.params,
-			subject: { kind: "query" },
-			meter: new BudgetMeter(compileBudgets)
+			subject: { kind: "query" }
 		}),
 		"the admitted query lowers"
 	)

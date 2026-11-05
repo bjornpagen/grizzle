@@ -8,10 +8,8 @@ import { bigint as bigintGen, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { childLoc, formatLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { assert, defined, refusalLoc, refused, succeeded } from "#test/support/assert.ts"
 import {
@@ -41,7 +39,6 @@ import {
 	vars
 } from "#test/unit/check/dsl.ts"
 import { Lab, Qty } from "#test/unit/check/schemas.ts"
-import { accountCards, automaticTasksFor, taskCards } from "#test/unit/check/work-queries.ts"
 
 import { regex } from "arkregex"
 /**
@@ -722,57 +719,6 @@ describe("checker diagnostics", () => {
 							const expected = p.expected()
 							answers(p.check(), expected, p.what)
 							c.note(expected.kind)
-						})
-				)
-			)
-		}
-	)
-
-	it.effect(
-		"refuse a check that crosses a budget with ResourceBound, and admit it at exactly what it charges",
-		(ctx) => {
-			type Bound = "below what it charges" | "exactly what it charges"
-			const budgetKinds = ["nodes"] as const
-			const programs = [
-				{ name: "taskCards", query: taskCards },
-				{ name: "automaticTasksFor", query: automaticTasksFor },
-				{ name: "accountCards", query: accountCards }
-			] as const
-			return searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/check/reasons-budget",
-						generator: (source) =>
-							[
-								source.draw(element<(typeof programs)[number]>(programs)),
-								source.draw(element(budgetKinds)),
-								source.draw(element<Bound>(["below what it charges", "exactly what it charges"]))
-							] as const,
-						literal: Formatter.format,
-						limit: programs.length * budgetKinds.length * 2,
-						coverage: requiredInSpace<Bound>(["below what it charges", "exactly what it charges"]),
-						caseHang: Duration.minutes(2)
-					},
-					([p, kind, bound], c) =>
-						Effect.sync(() => {
-							const ample = new BudgetMeter(compileBudgets)
-							succeeded(
-								checkQuery(checking(WorkDesc), p.query, { ...checkOptions("query"), meter: ample }),
-								p.name
-							)
-							const charged = ample.used(kind)
-							if (bound === "below what it charges" && charged === 0) {
-								return
-							}
-							const limit = bound === "exactly what it charges" ? charged : charged - 1
-							const meter = new BudgetMeter({ ...compileBudgets, [kind]: limit })
-							answers(
-								checkQuery(checking(WorkDesc), p.query, { ...checkOptions("query"), meter }),
-								bound === "exactly what it charges" ? admitted : refusedFor("ResourceBound"),
-								`${p.name} ${kind} ${bound}`
-							)
-							c.note(bound)
 						})
 				)
 			)

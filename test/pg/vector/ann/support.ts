@@ -5,9 +5,7 @@ import { runOfProcess } from "@grizzle/testing/vitest/run"
 import { Array as Arr, Effect, Option, pipe, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { indices } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -492,8 +490,7 @@ export const compile = (
 	const program = lowerAligned(logical.value, purpose, {
 		names: installed.names,
 		context: "snapshot",
-		catalog: installedCatalog(installed.installation),
-		meter: new BudgetMeter(compileBudgets)
+		catalog: installedCatalog(installed.installation)
 	})
 	if (!program.ok) {
 		throw failed("lower", program.error)

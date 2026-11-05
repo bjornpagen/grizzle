@@ -1,7 +1,5 @@
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { type CompileError, malformedDescription, unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
@@ -211,8 +209,7 @@ export const lowerDefinition = (
 		names: options.names,
 		subject: { kind: "derivedDefinition" },
 		context: "transaction",
-		catalog: options.catalog,
-		meter: new BudgetMeter(compileBudgets)
+		catalog: options.catalog
 	})
 	if (!lowered.ok) {
 		return lowered

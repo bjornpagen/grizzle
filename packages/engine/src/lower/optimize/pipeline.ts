@@ -1,4 +1,3 @@
-import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/canonical.ts"
 import type { Diagnostic } from "#compiler/core/diag.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -38,7 +37,7 @@ import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/shar
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 
-interface OptimizedOptions extends Omit<ConservativeOptions, "meter" | "params" | "subject"> {
+interface OptimizedOptions extends Omit<ConservativeOptions, "params" | "subject"> {
 	readonly subject: OptimizedSubject
 }
 
@@ -96,10 +95,9 @@ export interface OptimizedProgram<L = FusedStatement> extends OptimizedDeliveryP
  * The lowering trusts its own construction: the plan's obligations recomputed from the DAG, every statement's channels
  * and the alignment with the conservative artifact are properties of the test kernel that every lowering of the suites
  * is checked against (test/support/oracle/verify), never steps of a compilation.
- * Every pass charges the compilation's budget meter and records its certificates in the context's log; the context
- * fixes the evidence context the artifact is compiled for, and the pipeline refuses a conservative
- * context: the conservative artifact is the separate oracle lowering. Each pass states its measure; no
- * rewrite loops without one.
+ * Every pass records its certificates in the context's log; the context fixes the evidence context the artifact is
+ * compiled for, and the pipeline refuses a conservative context: the conservative artifact is the separate oracle
+ * lowering. Each pass states its measure; no rewrite loops without one.
  */
 export const optimizedInput = (
 	query: LogicalQuery,
@@ -137,15 +135,13 @@ const deliver = (
 	query: LogicalQuery,
 	facts: ShapeFacts,
 	cte: CtePlan,
-	options: OptimizedOptions,
-	ctx: PassContext
+	options: OptimizedOptions
 ): Result.Result<DeliveredProgram<RelationChoice>, CompileError> =>
 	catchRefusal(() => {
 		const state = new ShapeState<RelationInput>("small", cte)
 		const lowering: ConservativeOptions = {
 			names: options.names,
 			params: query.params,
-			meter: ctx.budgets,
 			/** A derived relation's definition lowers as a query. */
 			subject: options.subject.kind === "derivedDefinition" ? { kind: "query" } : options.subject
 		}
@@ -174,7 +170,7 @@ const optimizedLowering = (options: OptimizedOptions): Pass<LogicalQuery, Optimi
 		}
 		const cte = planned.value.cte
 		const facts = factsOf(plan, ctx, options)
-		const delivered = deliver(query, facts, cte, options, ctx)
+		const delivered = deliver(query, facts, cte, options)
 		if (!delivered.ok) {
 			return delivered
 		}
@@ -204,8 +200,6 @@ export interface LowerOptimizedOptions extends OptimizedOptions {
 	 * the compilation proves over this one catalog.
 	 */
 	readonly catalog: EvidenceCatalog
-	/** The compilation's meter, which every pass charges. */
-	readonly meter: BudgetMeter
 }
 
 /** The optimized lowering in a fresh optimized context: the entry the differential suites and the program package use. */
@@ -213,10 +207,6 @@ export const lowerOptimized = (
 	query: LogicalQuery,
 	options: LowerOptimizedOptions
 ): Result.Result<OptimizedProgram, CompileError> => {
-	const ctx = makePassContext({
-		budgets: options.meter,
-		evidenceContext: options.context,
-		catalog: options.catalog
-	})
+	const ctx = makePassContext({ evidenceContext: options.context, catalog: options.catalog })
 	return optimizedLowering(options).run(query, ctx)
 }

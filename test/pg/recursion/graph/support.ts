@@ -6,9 +6,7 @@ import {
 	planNodes
 } from "#bench/harness/explain.ts"
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
@@ -404,8 +402,7 @@ export const optimizedLoweringWith = (note: Note, context: TemplateContext): Low
 			lowerAligned(logicalOf(c), "query", {
 				names,
 				context,
-				catalog: genCatalog(c.schema),
-				meter: new BudgetMeter(compileBudgets)
+				catalog: genCatalog(c.schema)
 			}),
 			(p) => {
 				note(optimizedFeatures(p))

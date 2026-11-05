@@ -1,7 +1,5 @@
 import { describe, it } from "@effect/vitest"
 import { Array as Arr } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
@@ -27,8 +25,7 @@ describe("fixture queries", () => {
 		const lowered = lowerConservative(P.payrollQueries.runStages(), {
 			names: productionNames("fixture", { kind: "declared" }, localVectorSchema),
 			params: [],
-			subject: { kind: "query" },
-			meter: new BudgetMeter(compileBudgets)
+			subject: { kind: "query" }
 		})
 		assert.equal(lowered.ok, true)
 		if (!lowered.ok) {

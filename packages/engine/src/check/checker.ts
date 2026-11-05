@@ -33,7 +33,6 @@ import {
 } from "#compiler/check/scan.ts"
 
 import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
-import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
@@ -130,7 +129,6 @@ export type QueryRead = "rows" | "page" | "readBack" | "membership"
 
 export interface CheckOptions {
 	readonly read: QueryRead
-	readonly meter: BudgetMeter
 	/**
 	 * The label of the query's location in diagnostics: "query", `read <name>`, `<op> <relation>`, `derived <name>`.
 	 */
@@ -722,14 +720,13 @@ const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
  *   Checked against a role, a query reads only the contexts the role's relations read, as they declare them: a Db of
  *   the role holds facts of those alone.
  *
- * Recursive and approximate stages are plug-ins (context.ts). Every node is charged to the policy's budgets
- * (ResourceBound). A query reads only what its schema declares: checked against a role, only the role's relations.
+ * Recursive and approximate stages are plug-ins (context.ts). A query reads only what its schema declares: checked
+ * against a role, only the role's relations.
  */
 export class Checker {
 	readonly schema: SchemaReading
 	readonly options: CheckOptions
 	readonly b: DagBuilder
-	readonly meter: BudgetMeter
 	readonly params: ParamTable
 	/**
 	 * The literal head columns of every arm node, for typing a bare one by its position in a union, for discriminants
@@ -770,7 +767,6 @@ export class Checker {
 		this.schema = schema
 		this.options = options
 		this.b = new DagBuilder(makeIdSupply())
-		this.meter = options.meter
 		this.params = params
 	}
 
@@ -779,12 +775,7 @@ export class Checker {
 		return this.b.expr(spec)
 	}
 
-	#charge(loc: SourceLoc): void {
-		unwrap(this.meter.charge("nodes", 1, loc))
-	}
-
 	node(spec: CheckedNodeSpec, loc: SourceLoc): RelNode {
-		this.#charge(loc)
 		return this.b.node({ ...spec, loc, meta: conservativeMeta })
 	}
 
@@ -796,14 +787,13 @@ export class Checker {
 	}
 
 	define(id: ReservedNode, spec: CheckedNodeSpec, loc: SourceLoc): RelNode {
-		this.#charge(loc)
 		this.#reserved.delete(id)
 		return this.b.define(id, { ...spec, loc, meta: conservativeMeta })
 	}
 
 	/**
 	 * `node` restated as `spec`, at `loc`, under its own label: the node an order completion puts in its place, its
-	 * inputs and fields the checker's but its order (order.ts StatedOrder withOrder). No budget is charged again.
+	 * inputs and fields the checker's but its order (order.ts StatedOrder withOrder).
 	 */
 	#restated(node: RelNode, spec: CheckedNodeSpec, loc: SourceLoc): RelNode {
 		return relNode(node.id, { ...spec, loc, meta: conservativeMeta })

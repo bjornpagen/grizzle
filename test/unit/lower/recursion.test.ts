@@ -6,9 +6,8 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Order } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { type CounterAnalysis, counterBound } from "#compiler/check/recursion/bound.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
-import { compileBudgets, recursionUnrollMax } from "#compiler/core/policy.ts"
+import { recursionUnrollMax } from "#compiler/core/policy.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { conservativeMeta, type NodeOf } from "#compiler/ir/rel.ts"
@@ -335,7 +334,6 @@ const optimize = (q: LogicalQuery): OptimizedProgram =>
 	succeeded(
 		lowerAligned(q, "query", {
 			names,
-			meter: new BudgetMeter(compileBudgets),
 			context: "snapshot",
 			catalog: graphCatalog
 		})
@@ -734,8 +732,7 @@ describe("the form a recursion lowers to (packages/engine/src/lower/shapes/recur
 								{
 									names,
 									params: q.params,
-									subject: { kind: "query" },
-									meter: new BudgetMeter(compileBudgets)
+									subject: { kind: "query" }
 								},
 								optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan))
 							)

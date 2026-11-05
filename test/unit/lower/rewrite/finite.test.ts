@@ -4,8 +4,6 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element, int, subarray } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Duration, Effect, Formatter, Record as Rec } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
@@ -121,7 +119,6 @@ describe("finite membership", () => {
 									queryOf(dag, []),
 									[finitePassWithin(maxTerms)],
 									makePassContext({
-										budgets: new BudgetMeter(compileBudgets),
 										evidenceContext: "snapshot",
 										catalog: ledgerCatalog
 									})

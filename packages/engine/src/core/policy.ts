@@ -20,9 +20,6 @@ export const lateralParentMax = 256
 /** An attachment with at most this many fields may be fused into its parent statement. */
 export const attachFuseMaxFields = 4
 
-/** A sub-query referenced at least this many times in one snapshot is shared. */
-export const cteShareMinRefs = 2
-
 /**
  * A membership of declared closed facts whose terms (its facts times the columns it binds, at least one) are at most
  * this many is rewritten into native constant membership (lower/optimize/finite); a larger one keeps its VALUES join.
@@ -206,16 +203,6 @@ export const regexDfaMaxStates = 2_048
  * second
  */
 export const regexDfaMaxWork = 2_097_152
-
-/** The compiler's budgets, in the order a meter reports them. */
-export const budgetKinds = ["nodes"] as const
-export type BudgetKind = (typeof budgetKinds)[number]
-
-/** The compiler's resource bounds per compilation; exceeding one is a source-located ResourceBound (budget.ts). */
-export type Budgets = Readonly<Record<BudgetKind, number>>
-export const compileBudgets: Budgets = Object.freeze({
-	nodes: 10_000
-})
 
 /** The session pool: a short idle timeout, a floor of one session, a maximum above one. */
 export const poolBounds = Object.freeze({ idleTimeoutMs: 5_000, min: 1, max: 10 })

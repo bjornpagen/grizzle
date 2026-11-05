@@ -6,9 +6,7 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { rebuildDag, relNode } from "#compiler/ir/dag.ts"
 import {
 	conservativeMeta,
@@ -246,8 +244,7 @@ describe("determinism", () => {
 												lowerConservative(conservativeInput(r.query), {
 													names: standInNames("s"),
 													params: r.query.params,
-													subject: { kind: "query" },
-													meter: new BudgetMeter(compileBudgets)
+													subject: { kind: "query" }
 												})
 											).roots
 										),

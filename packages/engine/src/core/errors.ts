@@ -14,7 +14,6 @@ import {
 } from "#compiler/core/causes.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { formatLoc, formatPath, prefixedLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import type { BudgetKind } from "#compiler/core/policy.ts"
 
 /** A path inside a value: object keys and array indices. */
 type Path = ReadonlyArray<string | number>
@@ -74,7 +73,6 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
 
 /**
  * The bound a ResourceBound crossed, with the facts it states:
- * - `budget`: a compiler budget's charge (core/budget.ts BudgetMeter), its limit and the total the charge needed;
  * - `rewriteSteps`: the steps of the rewrite pass `rewrite`, its limit and the step that crossed it;
  * - `nesting`: a container nested deeper than `limit`;
  * - `carriers`: more than `limit` carriers of one heading's column types in one program;
@@ -92,12 +90,6 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  *   (131072), where PostgreSQL's numeric arithmetic would raise.
  */
 export type CompileBound =
-	| {
-			readonly kind: "budget"
-			readonly budget: BudgetKind
-			readonly limit: number
-			readonly needed: number
-	  }
 	| {
 			readonly kind: "rewriteSteps"
 			readonly rewrite: string
@@ -125,8 +117,6 @@ export type CompileBound =
 
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
-		case "budget":
-			return `budgets.${bound.budget} <= ${bound.limit} (needed ${bound.needed})`
 		case "rewriteSteps":
 			return `${bound.rewrite} rewrite steps <= ${bound.limit} (needed ${bound.needed})`
 		case "nesting":

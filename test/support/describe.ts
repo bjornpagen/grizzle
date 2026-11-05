@@ -1,9 +1,7 @@
 import { checkQuery } from "#compiler/check/index.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { fromJson } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { MoneyText, moneyTag, VectorText, vectorTag } from "#compiler/ir/carriers.ts"
 import { DecimalText, decimalTag } from "#compiler/ir/decimal.ts"
@@ -81,7 +79,6 @@ export const queryFromDescription = (
 					Result.flatMap(checkedIn(schema), (checked) =>
 						checkQuery(checked, desc, {
 							read: "rows",
-							meter: new BudgetMeter(compileBudgets),
 							label: "query"
 						})
 					),

@@ -5,7 +5,6 @@ import { fail, rootLoc, unwrap } from "#compiler/check/fail.ts"
 import { checkMemberHeading } from "#compiler/check/member.ts"
 import { resolveQuery } from "#compiler/check/params.ts"
 import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
-import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
@@ -21,8 +20,7 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 export type { CheckOptions } from "#compiler/check/checker.ts"
 
 /**
- * One check of a decoded description, charged to the caller's meter: every parameter is of its declared type, so one
- * pass types them all.
+ * One check of a decoded description: every parameter is of its declared type, so one pass types them all.
  */
 const run = (
 	schema: SchemaReading,
@@ -77,10 +75,9 @@ export const checkQuery = (
  */
 export const checkWorldDefinition = (
 	base: SchemaReading,
-	entry: { readonly name: string; readonly query: QueryDesc },
-	meter: BudgetMeter
+	entry: { readonly name: string; readonly query: QueryDesc }
 ): Result.Result<LogicalQuery, CompileError> => {
-	const options: CheckOptions = { read: "rows", label: `world ${entry.name}`, meter }
+	const options: CheckOptions = { read: "rows", label: `world ${entry.name}` }
 	return Result.flatMap(decoded(entry.query, { read: "rows" }), (q) =>
 		catchRefusal(() => run(base, q, options, rootLoc(options.label), { kind: "rows" }))
 	)

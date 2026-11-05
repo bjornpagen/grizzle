@@ -18,10 +18,8 @@ import { executionInputs, type InputRefusal, paramCodecs } from "#adapter/reader
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import { indices } from "#compiler/core/array.ts"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
@@ -584,7 +582,6 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					),
 					{
 						claims: reality.claims,
-						meter: new BudgetMeter(compileBudgets),
 						laws: reality.laws,
 						derived: reality.derived,
 						world: reality.world
@@ -596,7 +593,6 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 				realizeConservative(frontend, {
 					names: reality.names,
 					reads: reality.reads,
-					meter: new BudgetMeter(compileBudgets),
 					share: new StatementShare()
 				}),
 				"realize"

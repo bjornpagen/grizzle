@@ -1,5 +1,4 @@
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
-import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -21,7 +20,6 @@ interface ReadBackOptions {
 	readonly params: ReadonlyArray<ParamDecl>
 	/** The schema's law model and views, whose immediate keys and containments are the read-back's evidence. */
 	readonly schema: CatalogSchema
-	readonly meter: BudgetMeter
 	/** The query entries whose deltas the read-backs name, by name (`WriteFrontend.deltaEntries`). */
 	readonly entries: ReadonlyMap<string, CheckedEntry>
 }
@@ -99,8 +97,7 @@ export const lowerReadBack = (
 			},
 			/** A read-back runs in its write's transaction and records no constraint premise. */
 			catalog: evidenceCatalog(options.schema),
-			context: "transaction",
-			meter: options.meter
+			context: "transaction"
 		}
 	)
 	if (!program.ok) {

@@ -12,7 +12,6 @@ import {
 	type RelationSpec,
 	relationNormalizer
 } from "#compiler/codec/recordset.ts"
-import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { ParamId, type RaisedLawId } from "#compiler/core/ids.ts"
@@ -77,7 +76,6 @@ import { type HostChecks, hostChecks } from "#compiler/write/normalize/normalize
 export interface FrontendOptions {
 	/** Which contexts the Db holds a fact of: a query entry's addition fills its fixed fields from them. */
 	readonly claims: EntryClaims
-	readonly meter: BudgetMeter
 	/** The law model of the checked schema's Owned (`SchemaArtifacts.laws`). */
 	readonly laws: LawModel
 	/** The derived analysis of the schema every written relation is an ordinary relation of, reality's own or the
@@ -606,10 +604,8 @@ const compile = (
 	options: FrontendOptions
 ): WriteFrontend => {
 	const at = SourceLoc("ChangeSet", [])
-	const meter = options.meter
 	const { laws, derived } = options
 	const views = derivedKeyConstraints(derived)
-	const checkOptions = { meter }
 	/** The base every written relation is an ordinary relation of: reality's own, or the role's base. */
 	const base = checked.definitions()
 
@@ -720,7 +716,7 @@ const compile = (
 				checkMember(
 					checked,
 					{ op: member.op, relation: written, query: source.query, loc },
-					{ ...checkOptions, label: `${member.op} ${member.relation}` }
+					{ label: `${member.op} ${member.relation}` }
 				)
 			)
 			for (const p of query.params) {
@@ -764,7 +760,7 @@ const compile = (
 		}
 	}
 	const readBacks = desc.reads.map((r) => {
-		const query = unwrap(checkReadBack(checked, r, { ...checkOptions, label: `read ${r.name}` }))
+		const query = unwrap(checkReadBack(checked, r, { label: `read ${r.name}` }))
 		for (const p of query.params) {
 			merge(params, p, childLoc(at, "reads", r.name))
 		}
@@ -794,7 +790,7 @@ const compile = (
 				checkFill(
 					base,
 					{ op, relation: target, query: fillQuery(entry, input, loc), loc },
-					{ ...checkOptions, label: `${op} ${entry.entry}` }
+					{ label: `${op} ${entry.entry}` }
 				)
 			)
 		)

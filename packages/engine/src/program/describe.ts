@@ -1,6 +1,5 @@
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LoweredProgram } from "#compiler/ir/products.ts"
@@ -48,7 +47,6 @@ export const lowerQuery = (query: unknown): Result.Result<LoweredProgram, Compil
 	const template = compileQuery(source.value, {
 		context: "snapshot",
 		artifacts: artifacts.value,
-		budgets: compileBudgets,
 		read: "rows"
 	})
 	if (!template.ok) {

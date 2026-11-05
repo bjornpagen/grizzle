@@ -1,9 +1,7 @@
 import { type Equivalence, multiset, ordered } from "@grizzle/testing/oracle"
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
 import type { Certificate, CertificateRule } from "#compiler/ir/certificate.ts"
 import { rooted, topoOrder } from "#compiler/ir/dag.ts"
@@ -57,13 +55,12 @@ import { ledgerSchema, type Q, type RelationSpec } from "#test/unit/lower/conser
  */
 export const ledgerCatalog: EvidenceCatalog = ownedFixture(ledgerSchema).catalog
 
-/** A fresh pass context over a catalog, in an evidence context, under grizzle's compiler budgets. */
+/** A fresh pass context over a catalog, in an evidence context. */
 export const passContext = (options: {
 	readonly catalog: EvidenceCatalog
 	readonly evidence: TemplateContext
 }): PassContext =>
 	makePassContext({
-		budgets: new BudgetMeter(compileBudgets),
 		evidenceContext: options.evidence,
 		catalog: options.catalog
 	})
@@ -223,15 +220,14 @@ export const agrees = (c: QueryCase, rewritten: LogicalQuery): RewriteAgreement 
  */
 const rewriteNames = standInNames("rewrite")
 
-/** The conservative lowering of a query, under grizzle's compiler budgets. */
+/** The conservative lowering of a query. */
 export const lowerConservatively = (
 	query: LogicalQuery
 ): Engine.Result<ConservativeProgram, CompileError> =>
 	lowerConservative(conservativeInput(query), {
 		names: rewriteNames,
 		params: query.params,
-		subject: { kind: "query" },
-		meter: new BudgetMeter(compileBudgets)
+		subject: { kind: "query" }
 	})
 
 export const lowersConservatively = (query: LogicalQuery): void => {
