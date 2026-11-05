@@ -75,13 +75,19 @@ const exported = (module: unknown, name: string, from: string): unknown => {
 	return module[name]
 }
 
-/** The arguments the capture calls a function value with: at most four, each call's own. */
+/** A module's export by name, or none where the tree lacks the module or the export: an entry point only a newer tree
+ * has, which a baseline's calls pass nothing for. */
+const optionallyExported = (module: unknown, name: string): unknown =>
+	isRecord(module) && name in module ? module[name] : undefined
+
+/** The arguments the capture calls a function value with: at most five, each call's own. */
 type CallArguments =
 	| readonly []
 	| readonly [unknown]
 	| readonly [unknown, unknown]
 	| readonly [unknown, unknown, unknown]
 	| readonly [unknown, unknown, unknown, unknown]
+	| readonly [unknown, unknown, unknown, unknown, unknown]
 
 /** Calls a function value with arguments, its answer read as unknown. */
 const call = (fn: unknown, args: CallArguments): unknown => {
@@ -174,6 +180,12 @@ type Write = (path: string, text: string) => void
 /** A module of the tree, by its specifier; a module that fails to load fails the capture. */
 const load = (specifier: string): Effect.Effect<unknown> => Effect.promise(() => import(specifier))
 
+/** A module only a newer tree has, by its specifier: none where it does not resolve, as in a baseline before it. */
+const loadOptional = (specifier: string): Effect.Effect<unknown> =>
+	Effect.tryPromise({ try: () => import(specifier), catch: () => undefined }).pipe(
+		Effect.orElseSucceed(() => undefined)
+	)
+
 const phantom = await Effect.runPromise(load("#compiler/core/phantom.ts"))
 const builtKey = exported(phantom, "built", "phantom.ts")
 const compiler = await Effect.runPromise(load("#compiler/program/describe.ts"))
@@ -210,6 +222,7 @@ const printStatement = exported(
 const snapshotBuild = await Effect.runPromise(load("#compiler/deploy/snapshot/build.ts"))
 const emptySnapshot = exported(snapshotBuild, "emptySnapshot", "deploy/snapshot/build.ts")
 const noWorkload = exported(snapshotBuild, "noWorkload", "deploy/snapshot/build.ts")
+const codebookOf = optionallyExported(snapshotBuild, "codebookOf")
 const changeSets = await Effect.runPromise(load("#compiler/write/changeset/value.ts"))
 const isChangeSetValue = exported(changeSets, "isChangeSetValue", "write/changeset/value.ts")
 const parseChangeSet = exported(changeSets, "parseChangeSet", "write/changeset/value.ts")
@@ -228,11 +241,28 @@ const schemaDescOf = exported(
 	"schema/schema.ts"
 )
 
-const ownLogin = exported(
-	await Effect.runPromise(load("#compiler/schema/own.ts")),
-	"ownLogin",
-	"schema/own.ts"
-)
+const ownModule = await Effect.runPromise(load("#compiler/schema/own.ts"))
+const ownLogin = exported(ownModule, "ownLogin", "schema/own.ts")
+
+/**
+ * The installation's codes, a tree that numbers its rosters' handles has (ir/codes.ts): a first installation's, each
+ * roster's handles from 0, or those drafted from the snapshot a draft continues, with no rename declared. A baseline
+ * that has no codes passes none, and its entry points take none.
+ */
+const codesModule = await Effect.runPromise(loadOptional("#compiler/ir/codes.ts"))
+const firstCodebook = optionallyExported(codesModule, "firstCodebook")
+const draftCodebook = optionallyExported(codesModule, "draftCodebook")
+const noRenames = optionallyExported(codesModule, "noRenames")
+const rostersOf = optionallyExported(ownModule, "rostersOf")
+const codesOf = (owned: unknown, previous: unknown): Settled => {
+	if (firstCodebook === undefined) {
+		return { ok: true, value: undefined }
+	}
+	const rosters = call(rostersOf, [owned])
+	return previous === undefined
+		? { ok: true, value: call(firstCodebook, [rosters]) }
+		: settle(call(draftCodebook, [call(codebookOf, [previous]), noRenames, rosters]))
+}
 
 const loginDescOf = exported(
 	await Effect.runPromise(load("#compiler/schema/world.ts")),
@@ -353,8 +383,15 @@ const captureWrite = (write: Write, path: string, value: unknown): void => {
 		if (!input.ok) {
 			return input
 		}
+		const codes = codesOf(call(owning, [schema]), undefined)
+		if (!codes.ok) {
+			return codes
+		}
 		const artifacts = settle(
-			call(schemaArtifacts, [input.value, { installation: undefined, vectorSchema: undefined }])
+			call(schemaArtifacts, [
+				input.value,
+				{ installation: undefined, vectorSchema: undefined, codes: codes.value }
+			])
 		)
 		if (!artifacts.ok) {
 			return artifacts
@@ -454,13 +491,17 @@ const chainOf = (steps: ReadonlyArray<() => Settled>): Settled => {
  * schema's artifacts with the logins' roles and planned as the workload extension, every other installer extension a
  * deployment needs; with each login's programs' access and the access requests for the draft. Or the refusal.
  */
-const installationOf = (version: Version): Settled =>
+const installationOf = (version: Version, previous: unknown): Settled =>
 	attempt(() => {
 		const subject =
 			version.renamed === undefined
 				? version.subject
 				: renamedDesc(call(schemaDescOf, [version.subject]), version.renamed)
 		const owned = call(owning, [subject])
+		const codes = codesOf(owned, previous)
+		if (!codes.ok) {
+			return codes
+		}
 		/** The installation's identity the ownership minted (core/identity.ts), which installs it under its schema. */
 		const identity = isRecord(owned) ? owned["installation"] : undefined
 		const logins: Array<unknown> = []
@@ -486,7 +527,10 @@ const installationOf = (version: Version): Settled =>
 				},
 				() => {
 					const r = settle(
-						call(schemaArtifacts, [input, { installation: undefined, vectorSchema: undefined }])
+						call(schemaArtifacts, [
+							input,
+							{ installation: undefined, vectorSchema: undefined, codes: codes.value }
+						])
 					)
 					artifacts = r.ok ? r.value : undefined
 					return r
@@ -502,7 +546,7 @@ const installationOf = (version: Version): Settled =>
 		const installation = settle(
 			call(compileInstallation, [
 				owned,
-				call(completeInstallOptions, [owned, identity, logins, extensions])
+				call(completeInstallOptions, [owned, identity, logins, extensions, codes.value])
 			])
 		)
 		if (!installation.ok) {
@@ -523,7 +567,7 @@ const captureDraft = (
 	previous: unknown,
 	name: string
 ): unknown => {
-	const compiled = installationOf(version)
+	const compiled = installationOf(version, previous)
 	if (!compiled.ok) {
 		write(`${path}/REFUSED.txt`, refusal(compiled.error))
 		return undefined
@@ -564,6 +608,7 @@ const captureDraft = (
 					previous: from,
 					installation: value,
 					workload: isRecord(holder) ? holder["workload"] : noWorkload,
+					declared: { renames: [], drops: [] },
 					naming: { kind: "named", name },
 					timestamp,
 					abandoned: []
