@@ -44,7 +44,8 @@ export const stopHung = <A, E>(running: Fiber.Fiber<A, E>): Effect.Effect<void> 
  * Where the watchdog's two threads meet in their shared memory: three Int32 counters (bumped when the earliest moment
  * moves earlier; the last ping the main thread answered; one nothing writes, for the watchdog's thread to time a wait
  * on), then, at the first 8-byte boundary past them, two Float64 moments (the earliest moment a case in flight passes
- * its hang limit, in milliseconds since the epoch, and that case's hang limit, in milliseconds).
+ * its hang limit, in milliseconds since the epoch, and how long that case's thread then has to answer, in
+ * milliseconds).
  */
 const LAYOUT = {
 	generation: 0,
@@ -63,13 +64,13 @@ type Layout = typeof LAYOUT
 /**
  * The watchdog's thread, evaluated from its source text in a worker of its own, so it reads no module of the library
  * and none a transform could rewrite, only Node's built-ins. It sleeps until the earliest moment a case in flight
- * passes its hang limit; then it pings the main thread and waits that case's hang limit again for the answer. A main
- * thread that answers is alive, so the case's own guard reports it, and the thread sleeps on. One that does not answer
+ * passes its hang limit; then it pings the main thread and waits that case's grace for the answer. A main thread that
+ * answers is alive, so the case's own guard reports it, and the thread sleeps on. One that does not answer
  * is running JavaScript that never yields, a synchronous loop its guard cannot interrupt, since the guard's timer runs
  * on the thread the loop holds: the thread asks it, through the inspector, which interrupts even a synchronous loop, for
  * its watchdog's report, writes the report to the process's stderr, and ends the process with SIGKILL, the one signal a
- * blocked thread cannot hold. A main thread whose inspector does not answer either is ended after the hang limit once
- * more, with a report that says only that. Its open port keeps it alive; the main thread unrefs it. Its layout is its
+ * blocked thread cannot hold. A main thread whose inspector does not answer either is ended after the grace once more,
+ * with a report that says only that. Its open port keeps it alive; the main thread unrefs it. Its layout is its
  * argument, written into its source text, since the thread shares no module with the main thread.
  */
 const watchdogThread = (layout: Layout): void => {
@@ -84,10 +85,7 @@ const watchdogThread = (layout: Layout): void => {
 	const counters = new Int32Array(shared, 0, layout.counters)
 	const moments = new Float64Array(shared, layout.momentsOffset, layout.moments)
 	const nowMillis = () => performance.timeOrigin + performance.now()
-	const after = (
-		waited: ReturnType<typeof Atomics.waitAsync>,
-		then: () => void
-	): void => {
+	const after = (waited: ReturnType<typeof Atomics.waitAsync>, then: () => void): void => {
 		if (waited.async) {
 			void waited.value.then(then)
 		} else {
@@ -100,7 +98,7 @@ const watchdogThread = (layout: Layout): void => {
 	}
 	const blocked = (graceMillis: number): void => {
 		const unanswered =
-			"@grizzle/testing: a case ran past twice its hang limit without yielding, and its process's inspector did not answer for its report; the process is ended"
+			"@grizzle/testing: a case held its process's main thread past its hang limit without yielding, and the thread's inspector did not answer for its report; the watchdog ended the process: a hang"
 		const session = new Session()
 		session.connectToMainThread()
 		session.post(
@@ -147,7 +145,8 @@ const watchdogThread = (layout: Layout): void => {
 	watch()
 }
 
-/** A case the watchdog watches: when it passes its hang limit, the limit itself, and its report should it block. */
+/** A case the watchdog watches: when it passes its hang limit, how long the thread then has to answer, and its report
+ * should it block. */
 type Watched = Readonly<{ hangsAt: number; graceMillis: number; report: () => string }>
 
 /**
@@ -242,20 +241,30 @@ const watchdogOfProcess = (): Watchdog => {
 }
 
 /**
- * `effect`, a case, watched by the process's watchdog for as long as it runs: should it hold the main thread past twice
- * `caseHang` without yielding, the process ends with `report`, the case's hang verdict, on its stderr, since nothing on
- * that thread can stop it. A case that yields is the guard's to stop at `caseHang`, and the watchdog never acts on it.
+ * How long the main thread may go without answering the watchdog once a case in flight has passed its hang limit:
+ * the hang limit again, and never less than HUNG_CLEANUP_GRACE, so a thread slowed by a loaded machine or a long
+ * collection, which answers late, is never taken for one a loop holds.
+ */
+export const watchdogGrace = (caseHang: Duration.Input): Duration.Duration =>
+	Duration.max(Duration.fromInputUnsafe(caseHang), HUNG_CLEANUP_GRACE)
+
+/**
+ * `effect`, a case, watched by the process's watchdog for as long as it runs: should it hold the main thread without
+ * yielding for its hang limit and then watchdogGrace more, the process ends with `report`, the case's hang verdict, on
+ * its stderr, since nothing on that thread can stop it. A case that yields is the guard's to stop at `caseHang`, and the
+ * watchdog never acts on it.
  */
 export const watchedCase = <A, E, R>(
 	caseHang: Duration.Input,
 	report: () => string,
 	effect: Effect.Effect<A, E, R>
 ): Effect.Effect<A, E, R> => {
-	const graceMillis = Duration.toMillis(Duration.fromInputUnsafe(caseHang))
+	const hangMillis = Duration.toMillis(Duration.fromInputUnsafe(caseHang))
+	const graceMillis = Duration.toMillis(watchdogGrace(caseHang))
 	return Effect.acquireUseRelease(
 		Effect.flatMap(liveMillis, (now) =>
 			Effect.sync(() =>
-				watchdogOfProcess().watch({ hangsAt: now + graceMillis, graceMillis, report })
+				watchdogOfProcess().watch({ hangsAt: now + hangMillis, graceMillis, report })
 			)
 		),
 		() => effect,

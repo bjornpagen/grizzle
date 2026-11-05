@@ -36,7 +36,15 @@ import {
 } from "#features.ts"
 import type { Corpus, Fuzz, FuzzBudget } from "#fuzz.ts"
 import type { Gen } from "#gen.ts"
-import { abandon, liveMillis, liveSleep, liveSleepUntil, stopHung } from "#live.ts"
+import {
+	abandon,
+	liveMillis,
+	liveSleep,
+	liveSleepUntil,
+	stopHung,
+	watchdogGrace,
+	watchedCase
+} from "#live.ts"
 import { mutate } from "#mutate.ts"
 import {
 	between,
@@ -554,6 +562,9 @@ const keepNothing = (): void => undefined
 /** Keeps a case's whole tape: an enumeration steps from it, and a shrink compares it. */
 const keepTape = (recorded: Recording): Tape => recorded.tape()
 
+/** What the watchdog prints of a case that blocked its process: given the case's sketch, when it was drawn, and its tape. */
+type Blocked<S> = (sketch: Option.Option<S>, tape: Tape) => string
+
 /**
  * Runs one case on a recorder from the pool: generates its sketch from the chooser, resolves it, and runs the property
  * in its own scope and fiber, raced against the hang guard and the search's deadline, so a case's finalizers always
@@ -562,7 +573,10 @@ const keepTape = (recorded: Recording): Tape => recorded.tape()
  * stop is cut before its property runs. The property's own draws continue the same tape, so they replay and shrink with
  * the case, and it steers as `under` says. The tape is copied out only for a failed, hung or cut case and for what
  * `keep` asks; the recorder goes back to the pool when the case ends, so a use of the case after that is marked a
- * misuse and never reaches the recorder, which another case may be drawing on.
+ * misuse and never reaches the recorder, which another case may be drawing on. The process's watchdog watches the case
+ * from before its sketch is drawn (live.ts watchedCase): a case that holds the main thread without yielding, which the
+ * hang guard's timer cannot interrupt, ends the process once it is past its hang limit by the watchdog's grace, with
+ * `blocked`'s report.
  */
 const runCase = <S, T, F extends string, E, R, K>(
 	generator: Gen<S>,
@@ -574,12 +588,51 @@ const runCase = <S, T, F extends string, E, R, K>(
 	caseHang: Duration.Input,
 	deadline: Deadline,
 	keep: (recorded: Recording) => K,
-	sense: Sense
+	sense: Sense,
+	blocked: Blocked<S>
 ): Effect.Effect<CaseRun<S, K>, never, Exclude<R, Scope.Scope>> =>
 	Effect.suspend(() => {
 		const recorded = pool.pop() ?? recorder()
 		recorded.reset(chooser)
+		let drawnSketch: Option.Option<S> = Option.none()
+		return watchedCase(
+			caseHang,
+			() => blocked(drawnSketch, recorded.tape()),
+			runRecorded(
+				generator,
+				resolve,
+				property,
+				recorded,
+				pool,
+				under,
+				caseHang,
+				deadline,
+				keep,
+				sense,
+				(sketch) => {
+					drawnSketch = Option.some(sketch)
+				}
+			)
+		)
+	})
+
+/** One case's run on its recorder, once runCase has it watched: `onDrawn` hears of the sketch as soon as it is drawn. */
+const runRecorded = <S, T, F extends string, E, R, K>(
+	generator: Gen<S>,
+	resolve: (sketch: S) => T,
+	property: (value: T, c: Case<F>) => Effect.Effect<void, E, R>,
+	recorded: Recorder,
+	pool: Array<Recorder>,
+	under: Under<F>,
+	caseHang: Duration.Input,
+	deadline: Deadline,
+	keep: (recorded: Recording) => K,
+	sense: Sense,
+	onDrawn: (sketch: S) => void
+): Effect.Effect<CaseRun<S, K>, never, Exclude<R, Scope.Scope>> =>
+	Effect.suspend(() => {
 		const sketch = generator(recorded.source)
+		onDrawn(sketch)
 		const sketchDecisions = recorded.decided()
 		const notes = new Set<string>()
 		const drew: Array<unknown> = []
@@ -693,6 +746,35 @@ const hex = (seed: number) => `0x${Str.padStart(8, "0")((seed >>> 0).toString(16
 /** The line a search's failure report opens with: the run's seed, which reproduces it, and where it was drawn. */
 const seedLine = (run: Context.Service.Shape<typeof Run>, suite: string, where: string) =>
 	`TEST_SEED=${run.seed}${run.source === "fresh" ? " (drawn by this run)" : ""}: ${suite}, ${where}`
+
+/**
+ * The report of a case that held its process's main thread without yielding past its hang limit and its watchdog
+ * grace, which the watchdog prints as it ends the process: the run's seed, the suite, the case as far as it was drawn, and, when the
+ * case has a token (`how` it was drawn; none for a kept case, which replays by value), how to replay it alone.
+ */
+const blockedIn =
+	<S>(
+		run: Context.Service.Shape<typeof Run>,
+		suite: string,
+		literal: (sketch: S) => string,
+		caseHang: Duration.Input,
+		how: Option.Option<Drawn>
+	): Blocked<S> =>
+	(sketch, tape) =>
+		Arr.join(
+			[
+				seedLine(run, suite, "a case that blocked its process"),
+				`it held the process's main thread without yielding past its hang limit of ${hangOf(caseHang)}, and ${Duration.format(watchdogGrace(caseHang))} more, so its hang guard could not stop it, and the watchdog ended the process: a hang`,
+				`counterexample: ${Option.match(sketch, { onNone: () => "none yet: it hung while its generator drew it", onSome: literal })}`,
+				...Option.match(how, {
+					onNone: () => [],
+					onSome: (drawnUnder) => [
+						`replay it alone: TEST_REPLAY='${replayTokenOf(suite, replayCaseOf(drawnUnder, tape))}'`
+					]
+				})
+			],
+			"\n"
+		)
 
 /** The token of what a case's property drew: its tape's decisions after its sketch's, which a kept case replays. */
 const drawsOf = (caseRun: CaseRun<unknown, unknown>, tape: Tape) =>
@@ -876,7 +958,8 @@ const replayOne = <S, T, F extends string, E, R, A>(
 			search.caseHang,
 			run.deadline,
 			keepNothing,
-			notesOnly
+			notesOnly,
+			blockedIn(run, search.suite, search.literal, search.caseHang, Option.some(replayed.drawn))
 		)
 		const where = "the replayed case"
 		return yield* judge<Effect.Effect<A, SearchFailure>>(caseRun, {
@@ -1107,6 +1190,8 @@ export const explore = <S, T, F extends string, E, R>(
 		const unsteered = underOf(situations, { kind: "unsteered" })
 		let cases = 0
 		let discards = 0
+		const blockedUnder = (under: Under<F>) =>
+			blockedIn(run, spec.suite, spec.literal, spec.caseHang, Option.some(under.drawn))
 		const caseOf = (chooser: Chooser, under: Under<F>) =>
 			runCase(
 				spec.draw.generator,
@@ -1118,7 +1203,8 @@ export const explore = <S, T, F extends string, E, R>(
 				spec.caseHang,
 				run.deadline,
 				keepNothing,
-				notesOnly
+				notesOnly,
+				blockedUnder(under)
 			)
 		const seedOf = (chooser: Chooser, under: Under<F>, sense: Sense) =>
 			runCase(
@@ -1131,7 +1217,8 @@ export const explore = <S, T, F extends string, E, R>(
 				spec.caseHang,
 				run.deadline,
 				keepTape,
-				sense
+				sense,
+				blockedUnder(under)
 			)
 		const candidateOf = (values: Float64Array, under: Under<F>) =>
 			runCase(
@@ -1144,7 +1231,8 @@ export const explore = <S, T, F extends string, E, R>(
 				spec.caseHang,
 				run.deadline,
 				keepTape,
-				notesOnly
+				notesOnly,
+				blockedUnder(under)
 			)
 		const explored = (): Explored => ({
 			kind: "explored",
@@ -1169,7 +1257,8 @@ export const explore = <S, T, F extends string, E, R>(
 				spec.caseHang,
 				run.deadline,
 				keepNothing,
-				notesOnly
+				notesOnly,
+				blockedIn(run, spec.suite, spec.literal, spec.caseHang, Option.none())
 			)
 			const where = `the kept case "${kept.note}"`
 			yield* judge<Effect.Effect<void, SearchFailure>>(keptRun, {
@@ -1623,6 +1712,8 @@ export const exhaust = <A, F extends string, E, R>(
 		const exhaustive = tallyOf("exhaustive")
 		const pool: Array<Recorder> = []
 		const hang = hangOf(spec.caseHang)
+		const blockedUnder = (under: Under<F>) =>
+			blockedIn(run, spec.suite, spec.literal, spec.caseHang, Option.some(under.drawn))
 		const caseAt = (at: Branch, under: Under<F>) =>
 			runCase(
 				spec.generator,
@@ -1634,7 +1725,8 @@ export const exhaust = <A, F extends string, E, R>(
 				spec.caseHang,
 				run.deadline,
 				keepTape,
-				notesOnly
+				notesOnly,
+				blockedUnder(under)
 			)
 
 		const candidateOf = (values: Float64Array, under: Under<F>) =>
@@ -1648,7 +1740,8 @@ export const exhaust = <A, F extends string, E, R>(
 				spec.caseHang,
 				run.deadline,
 				keepTape,
-				notesOnly
+				notesOnly,
+				blockedUnder(under)
 			)
 
 		let branch: Option.Option<Branch> = Option.some(firstBranch)

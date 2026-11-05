@@ -36,6 +36,9 @@
 		"./pattern": "./src/pattern.ts",
 		"./oxlint": "./src/oxlint/plugin.ts"
 	},
+	"bin": {
+		"grizzle-mutate": "./scripts/mutate.js"
+	},
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs --noEmit -p tsconfig.json",
 		"superlint": "superlint",
@@ -50,6 +53,7 @@
 		"arkregex": "catalog:",
 		"effect": "catalog:",
 		"oxlint": "catalog:",
+		"typescript": "catalog:",
 		"vite": "catalog:",
 		"vitest": "catalog:"
 	}
