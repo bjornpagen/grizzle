@@ -1,13 +1,14 @@
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import type { TestContext } from "vitest"
 import { type Case, drawn, type Exploration, explore, Run } from "#explore.ts"
 import { noCoverage } from "#features.ts"
 import type { Corpus } from "#fuzz.ts"
 import { int } from "#gen.ts"
 import { completeShrink } from "#shrink.ts"
 import { shortlex } from "#tape.ts"
-import { runOfProcess } from "#vitest/run.ts"
+import { runOfTest } from "#vitest/run.ts"
 
 type Found = "sevens" | "other"
 
@@ -61,9 +62,9 @@ const memoryCorpus = (tapes: ReadonlyArray<ReadonlyArray<number>>) => {
 	return { saved, corpus }
 }
 
-/** A fuzz run of `suite` from this process's seed, for one window of cases over `corpus`. */
-const fuzzRun = (suite: string, corpus: Corpus) =>
-	Effect.map(runOfProcess, (run) =>
+/** A fuzz run of `suite` in the test `ctx` runs, from this process's seed, for one window of cases over `corpus`. */
+const fuzzRun = (ctx: TestContext, suite: string, corpus: Corpus) =>
+	Effect.map(runOfTest(ctx), (run) =>
 		Run.of({
 			...run,
 			replay: Option.none(),
@@ -72,11 +73,11 @@ const fuzzRun = (suite: string, corpus: Corpus) =>
 	)
 
 describe("a fuzz run's corpus", () => {
-	it.effect("drops each case that adds nothing the cases replayed before it did not", () =>
+	it.effect("drops each case that adds nothing the cases replayed before it did not", (ctx) =>
 		Effect.gen(function* () {
 			const { saved, corpus } = memoryCorpus([[777], [7777], [12_345]])
 			yield* explore(search("minimized corpus"), noteFound).pipe(
-				Effect.provideServiceEffect(Run, fuzzRun("minimized corpus", corpus))
+				Effect.provideServiceEffect(Run, fuzzRun(ctx, "minimized corpus", corpus))
 			)
 			deepStrictEqual(
 				Arr.map(saved, (values) => Arr.fromIterable(values)),
@@ -85,7 +86,7 @@ describe("a fuzz run's corpus", () => {
 		})
 	)
 
-	it.effect("is never read by a suite the run does not fuzz", () =>
+	it.effect("is never read by a suite the run does not fuzz", (ctx) =>
 		Effect.gen(function* () {
 			const unread: Corpus = {
 				load: Effect.die("the corpus was read"),
@@ -93,7 +94,7 @@ describe("a fuzz run's corpus", () => {
 				drop: () => Effect.die("the corpus was written")
 			}
 			const explored = yield* explore(search("unfuzzed"), noteFound).pipe(
-				Effect.provideServiceEffect(Run, fuzzRun("another suite", unread))
+				Effect.provideServiceEffect(Run, fuzzRun(ctx, "another suite", unread))
 			)
 			strictEqual(explored.cases, 125)
 		})

@@ -22,14 +22,19 @@ export type Failing<X> = Readonly<{ tape: Tape; failure: X }>
 
 /**
  * One run of a candidate, with the tape it really drew: it still fails, with what the caller reports of the failure,
- * or it holds. A candidate that gave itself up never ran its property, so it holds.
+ * or it holds. A candidate that gave itself up never ran its property, so it holds. A candidate is cut when its
+ * caller's deadline arrived before it ended, so shrinking ends there with the smallest failing case so far.
  */
 export type Attempt<X> =
 	| Readonly<{ kind: "fails"; tape: Tape; failure: X }>
 	| Readonly<{ kind: "holds"; tape: Tape }>
+	| Readonly<{ kind: "cut" }>
 
-/** The smallest failing case shrinking reached, how many candidates it ran, and whether its budget cut it short. */
-export type Shrunk<X> = Readonly<{ best: Failing<X>; candidates: number; cut: boolean }>
+/** Why shrinking ended: no pass made progress, its budget of candidates ran out, or its caller's deadline arrived. */
+export type ShrinkEnd = "minimal" | "budget" | "deadline"
+
+/** The smallest failing case shrinking reached, how many candidates it ran to their end, and why it ended. */
+export type Shrunk<X> = Readonly<{ best: Failing<X>; candidates: number; ended: ShrinkEnd }>
 
 /** Values with the decisions `[start, end)` removed. */
 const without = (values: Float64Array, start: number, end: number) => {
@@ -107,17 +112,18 @@ const arrayOf = (tape: Tape, element: number): Option.Option<number> => {
 /**
  * Shrinks a failing attempt by editing its tape. Every pass proposes smaller values; `attempt` runs them and reports
  * the tape it really drew, which counts only when it is strictly smaller in shortlex order and still fails, so
- * shrinking always ends and only ever moves toward simpler cases. The passes, in order of how much each removes:
+ * shrinking always ends and only ever moves toward simpler cases. A cut attempt ends shrinking at once, with the
+ * smallest failing case so far. The passes, in order of how much each removes:
  * - delete one item of a collection (its span, and one off the collection's length);
  * - delete any span outright;
  * - set every decision of a span to its simplest;
  * - swap two items of a collection, so a sequence whose failure needs its items in some order reaches the simplest
  *   order, which deleting and lowering alone cannot reorder into;
  * - lower each decision by binary search toward its simplest.
- * The candidates already tried are remembered for this shrink alone, and forgotten when it ends: a digest finds them,
- * and their values are compared before one is skipped, so a collision never passes over a distinct candidate. Every
- * candidate is smaller than the best, so each accepted shrink forgets those it is not smaller than: none of them could
- * be proposed again.
+ * Once its budget is spent or its deadline has arrived, no pass builds another candidate. The candidates already tried
+ * are remembered for this shrink alone, and forgotten when it ends: a digest finds them, and their values are compared
+ * before one is skipped, so a collision never passes over a distinct candidate. Every candidate is smaller than the
+ * best, so each accepted shrink forgets those it is not smaller than: none of them could be proposed again.
  */
 export const shrinkAttempt = <X, R>(
 	failing: Failing<X>,
@@ -127,13 +133,21 @@ export const shrinkAttempt = <X, R>(
 	Effect.gen(function* () {
 		let best = failing
 		let candidates = 0
+		let deadlineArrived = false
 		const tried = new Map<number, Array<Float64Array>>()
 		const triedBefore = (digest: number, values: Float64Array) =>
 			Arr.some(
 				tried.get(digest) ?? [],
 				(seen) => shortlex(seen, seen.length, values, values.length) === 0
 			)
-		const exhausted = () => budget.kind === "bounded" && candidates >= budget.candidates
+		const budgetSpent = () => budget.kind === "bounded" && candidates >= budget.candidates
+		const exhausted = () => deadlineArrived || budgetSpent()
+		const endOf = (): ShrinkEnd => {
+			if (deadlineArrived) {
+				return "deadline"
+			}
+			return budgetSpent() ? "budget" : "minimal"
+		}
 		const belowBest = (values: Float64Array) =>
 			shortlex(values, values.length, best.tape.values, best.tape.length) === -1
 		const forgetAboveBest = () => {
@@ -148,27 +162,39 @@ export const shrinkAttempt = <X, R>(
 		}
 
 		const propose = Effect.fnUntraced(function* (values: Float64Array) {
+			if (exhausted()) {
+				return false
+			}
 			const digest = digestOf(values, values.length)
-			if (exhausted() || triedBefore(digest, values) || !belowBest(values)) {
+			if (triedBefore(digest, values) || !belowBest(values)) {
 				return false
 			}
 			tried.set(digest, [...(tried.get(digest) ?? []), values])
-			candidates += 1
 			const result = yield* attempt(values)
-			if (
-				result.kind === "holds" ||
-				shortlex(result.tape.values, result.tape.length, best.tape.values, best.tape.length) !== -1
-			) {
+			if (result.kind === "cut") {
+				deadlineArrived = true
 				return false
 			}
-			best = { tape: result.tape, failure: result.failure }
-			forgetAboveBest()
-			return true
+			candidates += 1
+			switch (result.kind) {
+				case "holds":
+					return false
+				case "fails":
+					if (
+						shortlex(result.tape.values, result.tape.length, best.tape.values, best.tape.length) !==
+						-1
+					) {
+						return false
+					}
+					best = { tape: result.tape, failure: result.failure }
+					forgetAboveBest()
+					return true
+			}
 		})
 
 		const deleteItems = Effect.fnUntraced(function* () {
 			let progressed = false
-			for (let span = best.tape.spanLabel.length - 1; span >= 0; span -= 1) {
+			for (let span = best.tape.spanLabel.length - 1; span >= 0 && !exhausted(); span -= 1) {
 				if (best.tape.spanLabel[span] !== "element") {
 					continue
 				}
@@ -190,7 +216,7 @@ export const shrinkAttempt = <X, R>(
 
 		const deleteSpans = Effect.fnUntraced(function* () {
 			let progressed = false
-			for (let span = best.tape.spanLabel.length - 1; span >= 0; span -= 1) {
+			for (let span = best.tape.spanLabel.length - 1; span >= 0 && !exhausted(); span -= 1) {
 				const start = best.tape.spanStart[span] ?? 0
 				const end = best.tape.spanEnd[span] ?? 0
 				if (end > start) {
@@ -202,7 +228,7 @@ export const shrinkAttempt = <X, R>(
 
 		const simplifySpans = Effect.fnUntraced(function* () {
 			let progressed = false
-			for (let span = best.tape.spanLabel.length - 1; span >= 0; span -= 1) {
+			for (let span = best.tape.spanLabel.length - 1; span >= 0 && !exhausted(); span -= 1) {
 				const start = best.tape.spanStart[span] ?? 0
 				const end = best.tape.spanEnd[span] ?? 0
 				if (end > start) {
@@ -214,12 +240,12 @@ export const shrinkAttempt = <X, R>(
 
 		const reorderItems = Effect.fnUntraced(function* () {
 			let progressed = false
-			for (let span = 0; span < best.tape.spanLabel.length; span += 1) {
+			for (let span = 0; span < best.tape.spanLabel.length && !exhausted(); span += 1) {
 				if (best.tape.spanLabel[span] !== "element") {
 					continue
 				}
 				let later = nextItemOf(best.tape, span)
-				while (Option.isSome(later)) {
+				while (Option.isSome(later) && !exhausted()) {
 					progressed =
 						(yield* propose(
 							swapped(
@@ -238,7 +264,7 @@ export const shrinkAttempt = <X, R>(
 
 		const lowerChoices = Effect.fnUntraced(function* () {
 			let progressed = false
-			for (let at = 0; at < best.tape.length; at += 1) {
+			for (let at = 0; at < best.tape.length && !exhausted(); at += 1) {
 				const lo = best.tape.lo[at] ?? 0
 				const value = best.tape.values[at] ?? 0
 				if (value === lo) {
@@ -272,7 +298,7 @@ export const shrinkAttempt = <X, R>(
 			const lowered = yield* lowerChoices()
 			progressed = deleted || dropped || simplifiedAny || reordered || lowered
 		}
-		return { best, candidates, cut: exhausted() }
+		return { best, candidates, ended: endOf() }
 	})
 
 /** Shrinks a failing case of a plain generator against a predicate that says whether a value still fails. */

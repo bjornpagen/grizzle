@@ -23,7 +23,7 @@ import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { runOfProcess } from "@grizzle/testing/vitest/run"
+import { runOfTest } from "@grizzle/testing/vitest/run"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -169,7 +169,7 @@ const fixtureCase = (name: FixtureName): LabelledCase => {
 layer(Substrate.layer)("the reference side of the oracle discriminates", (it) => {
 	it.effect(
 		"tells the I1 mutant from the reference in its floor cases and shrinks to the printed case",
-		() =>
+		(ctx) =>
 			Effect.gen(function* () {
 				const s = yield* Substrate
 				const name = yield* s.schema({ create: false, label: "oracle" })
@@ -201,7 +201,7 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 								return yield* comparisonFailed(outcome)
 							}
 						})
-				).pipe(Effect.provideServiceEffect(Run, runOfProcess))
+				).pipe(Effect.provideServiceEffect(Run, runOfTest(ctx)))
 				assert.deepEqual(harnessErrors, [], Arr.join(harnessErrors, "\n\n"))
 				if (result.kind === "survived") {
 					return assert.fail("the I1 mutant survived every case")

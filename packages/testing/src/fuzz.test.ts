@@ -1,13 +1,14 @@
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
+import type { TestContext } from "vitest"
 import { type Case, drawn, type Exploration, exhaust, explore, Run } from "#explore.ts"
 import { noCoverage } from "#features.ts"
 import { budgetOf, type Corpus } from "#fuzz.ts"
 import { array, element, type Gen, int } from "#gen.ts"
 import { completeShrink } from "#shrink.ts"
 import { shortlex } from "#tape.ts"
-import { runOfProcess } from "#vitest/run.ts"
+import { runOfTest } from "#vitest/run.ts"
 import { searched } from "#vitest/searched.ts"
 
 const MAGIC = [13, 27, 4, 30, 9] as const
@@ -79,9 +80,9 @@ const memoryCorpus = () => {
 	return { saved, corpus }
 }
 
-/** A fuzz run of `suite` from this process's seed, for `cases` cases over `corpus`. */
-const fuzzRun = (suite: string, corpus: Corpus, cases: number) =>
-	Effect.map(runOfProcess, (run) =>
+/** A fuzz run of `suite` in the test `ctx` runs, from this process's seed, for `cases` cases over `corpus`. */
+const fuzzRun = (ctx: TestContext, suite: string, corpus: Corpus, cases: number) =>
+	Effect.map(runOfTest(ctx), (run) =>
 		Run.of({
 			...run,
 			replay: Option.none(),
@@ -90,19 +91,19 @@ const fuzzRun = (suite: string, corpus: Corpus, cases: number) =>
 	)
 
 describe("a fuzz run", () => {
-	it.effect("finds a failure the test streams never reach, and keeps it in its corpus", () =>
+	it.effect("finds a failure the test streams never reach, and keeps it in its corpus", (ctx) =>
 		Effect.gen(function* () {
 			const { saved, corpus } = memoryCorpus()
 			const failure = yield* Effect.flip(
 				explore(search("lock"), lock).pipe(
-					Effect.provideServiceEffect(Run, fuzzRun("lock", corpus, 200_000))
+					Effect.provideServiceEffect(Run, fuzzRun(ctx, "lock", corpus, 200_000))
 				)
 			)
 			strictEqual(failure._tag, "PropertyFalsified")
 			const seeds = saved.length
 			const again = yield* Effect.flip(
 				explore(search("lock"), lock).pipe(
-					Effect.provideServiceEffect(Run, fuzzRun("lock", corpus, 1))
+					Effect.provideServiceEffect(Run, fuzzRun(ctx, "lock", corpus, 1))
 				)
 			)
 			deepStrictEqual(
@@ -112,12 +113,12 @@ describe("a fuzz run", () => {
 		})
 	)
 
-	it.effect("leaves every other suite to run as under test", () =>
+	it.effect("leaves every other suite to run as under test", (ctx) =>
 		Effect.gen(function* () {
 			const { saved, corpus } = memoryCorpus()
 			const explored = yield* explore(search("unfuzzed"), (drawnValues, c) =>
 				Effect.sync(() => c.note(`${matchedOf(drawnValues)} matched`))
-			).pipe(Effect.provideServiceEffect(Run, fuzzRun("lock", corpus, 1000)))
+			).pipe(Effect.provideServiceEffect(Run, fuzzRun(ctx, "lock", corpus, 1000)))
 			deepStrictEqual([explored.cases, saved.length], [125, 0])
 		})
 	)

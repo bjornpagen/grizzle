@@ -325,7 +325,7 @@ describe("shrinking", () => {
 				}
 			)
 			deepStrictEqual(shrunk.best.failure, [500])
-			strictEqual(shrunk.cut, false)
+			strictEqual(shrunk.ended, "minimal")
 		})
 	)
 
@@ -371,7 +371,7 @@ describe("shrinking", () => {
 			deepStrictEqual(shrunk, {
 				best: { tape: failing.tape, failure: failing.value },
 				candidates: 0,
-				cut: true
+				ended: "budget"
 			})
 		})
 	)

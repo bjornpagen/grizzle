@@ -36,7 +36,7 @@ import {
 } from "#features.ts"
 import type { Corpus, Fuzz, FuzzBudget } from "#fuzz.ts"
 import type { Gen } from "#gen.ts"
-import { liveMillis, liveSleep, stopHung } from "#live.ts"
+import { abandon, liveMillis, liveSleep, stopHung } from "#live.ts"
 import { mutate } from "#mutate.ts"
 import {
 	between,
@@ -53,7 +53,7 @@ import {
 import { type Drawn, type Replay, ReplayCase, replayTokenOf } from "#replay.ts"
 import { seedsOf } from "#seeds.ts"
 import { notesOnly, type Sense } from "#sense.ts"
-import { type Attempt, type ShrinkBudget, shrinkAttempt } from "#shrink.ts"
+import { type Attempt, type ShrinkBudget, shrinkAttempt, type Shrunk } from "#shrink.ts"
 import {
 	type Chooser,
 	forcedChooser,
@@ -72,20 +72,75 @@ import { type Tape, tokenOf, valuesFromToken } from "#tape.ts"
 export type SeedSource = "environment" | "fresh"
 
 /**
- * The run every exploration draws from. The runner provides it once per process, so every suite of a run shares one
- * seed and one failure names the whole run: rerunning with that seed reproduces it. A replay names the one suite whose
+ * The run every test process of one run shares. Global setup chooses it once, so every suite of a run shares one seed
+ * and one failure names the whole run: rerunning with that seed reproduces it. A replay names the one suite whose
  * streams give way to one case, drawn under the steering its token records. A fuzz run names the one suite it fuzzes;
  * every other suite runs as under test.
  */
-export class Run extends Context.Service<
-	Run,
-	Readonly<{
-		seed: number
-		source: SeedSource
-		replay: Option.Option<Replay>
-		fuzz: Option.Option<Fuzz>
-	}>
->()("@grizzle/testing/explore/Run") {}
+export type ProcessRun = Readonly<{
+	seed: number
+	source: SeedSource
+	replay: Option.Option<Replay>
+	fuzz: Option.Option<Fuzz>
+}>
+
+/**
+ * When the test a search runs in fails on its own timeout: never, when its timeout is unbounded, or at `millis` on the
+ * live clock, in milliseconds since the epoch. A search ends its work PRINT_MARGIN_MILLIS before its deadline, so it
+ * reports what it found before its test fails as a bare timeout: a shrink the deadline cuts short reports the smallest
+ * failing case it reached, and a search cut short before any case failed reports the case it had in flight.
+ */
+export type Deadline = Readonly<{ kind: "unbounded" }> | Readonly<{ kind: "at"; millis: number }>
+
+/** The deadline of a search whose test's timeout is unbounded. */
+export const noDeadline: Deadline = { kind: "unbounded" }
+
+/**
+ * How long before its test's deadline a search stops its work and reports: the time from the moment it is due to stop
+ * to the moment its test's function has failed with the report, which then beats the test's own timeout.
+ *
+ * @limitKind measured
+ * @owner the choice-stream testing library (explore)
+ * @unit milliseconds
+ * @scope every search under a bounded deadline (Run.deadline), in each test process alone
+ * @evidence packages/testing/out/print-margin/ in superstarter's checkout of this library: busy-20261104T220121.jsonl,
+ * loaded-20261104T220131.jsonl and suite-load-20261104T220131.jsonl, one row per cut search, its time from its cut to
+ * its failure leaving @effect/vitest's logging; grizzle-write-literal-20261104T220220.json, four runs of
+ * Formatter.format over 300 of grizzle's write-oracle sketches
+ * @observed 2026-11-04 21:59 to 22:03 CST
+ * @environment macOS (Darwin 27.0.0) on 10 cores, Node 26.13.0, Vitest 5.1.0, effect and @effect/vitest 4.1.2, the
+ * library's pool of forks under its hardened flags; load average 27 to 44 from other sessions throughout
+ * @workload 240 cut searches, four test files at once, two thirds of them while the library's whole suite ran at four
+ * workers: a floor case fails, the shrink's next candidate never ends, and the deadline cuts it; reports of 1.6 KB (an
+ * int) and 68 KB (300 records), each with a cause's stack and 50 drawn values; and grizzle's write-oracle literal, 30 KB,
+ * the largest sketch the three repositories print
+ * @result every search ended in its PropertyFalsified; print time 0 to 6 ms for 1.6 KB reports and 2 to 30 ms for 68 KB
+ * ones, the slowest a process's first; grizzle's literal alone 0.3 to 0.4 ms median, 11 to 47 ms p99 and 29 to 87 ms
+ * worst, each worst a run's first, cold; event-loop lag and garbage collection not measured apart from them
+ * @decision the slowest report seen (30 ms) with the slowest literal seen (87 ms) is about 120 ms; 500 ms is four times
+ * that, for timers late on a machine loaded four times over its cores
+ * @revalidate a Node, Vitest or effect upgrade; a literal much slower than 87 ms; a property or finalizer that holds the
+ * event loop near its deadline; any report lost to a bare timeout
+ */
+export const PRINT_MARGIN_MILLIS = 500
+
+/** The run an exploration draws from, as the test it runs in sees it: the process's run, and its test's deadline. */
+export class Run extends Context.Service<Run, ProcessRun & Readonly<{ deadline: Deadline }>>()(
+	"@grizzle/testing/explore/Run"
+) {}
+
+/**
+ * How long a case begun at `now` may run before its search must stop for its deadline: none for an unbounded deadline,
+ * and zero once the moment PRINT_MARGIN_MILLIS before the deadline has passed.
+ */
+const leftOf = (deadline: Deadline, now: number): Option.Option<number> => {
+	switch (deadline.kind) {
+		case "unbounded":
+			return Option.none()
+		case "at":
+			return Option.some(Math.max(0, deadline.millis - PRINT_MARGIN_MILLIS - now))
+	}
+}
 
 /** A case gave itself up: its precondition did not hold. It never counts as a pass or a failure. */
 export class CaseDiscarded extends Schema.TaggedError<
@@ -210,10 +265,15 @@ export const isWitness = (phase: CasePhase): boolean => {
 	}
 }
 
+/** How far a falsified case was shrunk, as its shrink ended (ShrinkEnd), or `unshrunk`: a kept case, a replayed case
+ * and an exhaustion's first failure are reported as they ran. */
+const Shrinking = Schema.Literals(["minimal", "budget", "deadline", "unshrunk"])
+
 /**
  * A property failed on a case; the report names the run, the stream, the shrunk case and how to replay it. `phase` is
- * where the case was drawn, as data, so a caller judges a failure by where it came from, never by its prose. `replay`
- * is the case a replay token names, none for a kept case, which replays by value.
+ * where the case was drawn and `shrink` how far it was shrunk, as data, so a caller judges a failure by where it came
+ * from and whether it is the smallest its shrink could reach, never by its prose. `replay` is the case a replay token
+ * names, none for a kept case, which replays by value.
  */
 export class PropertyFalsified extends Schema.TaggedError<
 	PropertyFalsified,
@@ -221,6 +281,7 @@ export class PropertyFalsified extends Schema.TaggedError<
 >()("PropertyFalsified", {
 	suite: Schema.String,
 	phase: CasePhase,
+	shrink: Shrinking,
 	replay: Schema.Option(ReplayCase),
 	message: Schema.String
 }) {}
@@ -230,6 +291,20 @@ export class CaseHung extends Schema.TaggedError<CaseHung, { readonly brand: uni
 	"CaseHung",
 	{ suite: Schema.String, replay: Schema.Option(ReplayCase), message: Schema.String }
 ) {}
+
+/**
+ * The deadline of the test a search runs in arrived before any case failed: the search stopped PRINT_MARGIN_MILLIS
+ * before it, and reports where it stopped and the case it had in flight, so its test fails with this report rather than
+ * as a bare timeout. `replay` is the case in flight, none for a kept case, which replays by value.
+ */
+export class DeadlineReached extends Schema.TaggedError<
+	DeadlineReached,
+	{ readonly brand: unique symbol }
+>()("DeadlineReached", {
+	suite: Schema.String,
+	replay: Schema.Option(ReplayCase),
+	message: Schema.String
+}) {}
 
 /** More of the floor stream's cases gave themselves up than ran: the generator rarely meets the property's
  * precondition, and should build values that meet it rather than filter for them. The floor is the label-fixed set of
@@ -305,6 +380,7 @@ export class SpaceBeyondLimit extends Schema.TaggedError<
 export type SearchFailure =
 	| PropertyFalsified
 	| CaseHung
+	| DeadlineReached
 	| CasesStalled
 	| FeaturesUnreached
 	| KeptUnreached
@@ -313,16 +389,20 @@ export type SearchFailure =
 	| CaseMisused
 	| SpaceBeyondLimit
 
-/** What a case did. A failed or hung case carries its tape, the property's own draws included, to shrink or replay. */
+/**
+ * What a case did. A case is cut when its search's deadline arrived before it ended. A failed, hung or cut case carries
+ * its tape, the property's own draws included, to shrink or replay.
+ */
 type Outcome =
 	| Readonly<{ kind: "passed" }>
 	| Readonly<{ kind: "discarded" }>
 	| Readonly<{ kind: "failed"; cause: Cause.Cause<unknown>; tape: Tape }>
 	| Readonly<{ kind: "hung"; tape: Tape }>
+	| Readonly<{ kind: "cut"; tape: Tape }>
 
 /**
  * A case's outcome as its search judges it: what it did, or misused, when a case that passed or gave itself up was used
- * after it ended. A failure or a hang is judged as itself, whatever was done with the case after.
+ * after it ended. A failure, a hang or a cut is judged as itself, whatever was done with the case after.
  */
 type Judged = Outcome | Readonly<{ kind: "misused" }>
 
@@ -362,6 +442,8 @@ const judge = <A>(caseRun: CaseRun<unknown, unknown>, judgment: Judgment<A>): A 
 			return judgment.failed(judged)
 		case "hung":
 			return judgment.hung(judged)
+		case "cut":
+			return judgment.cut(judged)
 		case "misused":
 			return judgment.misused(judged)
 	}
@@ -374,6 +456,7 @@ const judgedOf = (caseRun: CaseRun<unknown, unknown>): Judged => {
 			return caseRun.misused() ? { kind: "misused" } : caseRun.outcome
 		case "failed":
 		case "hung":
+		case "cut":
 			return caseRun.outcome
 	}
 }
@@ -382,7 +465,7 @@ const judgedOf = (caseRun: CaseRun<unknown, unknown>): Judged => {
 type Failure<S> = Readonly<{ run: CaseRun<S, unknown>; cause: Cause.Cause<unknown> }>
 
 /** A shrink candidate's judgment: it is a smaller case of the failure only when its property failed; a pass, a discard,
- * a hang or a misuse is not the failure being shrunk. */
+ * a hang or a misuse is not the failure being shrunk, and a cut candidate ends the shrink. */
 const candidateJudgment = <S>(candidate: CaseRun<S, Tape>): Judgment<Attempt<Failure<S>>> => {
 	const holds = (): Attempt<Failure<S>> => ({ kind: "holds", tape: candidate.kept })
 	return {
@@ -390,6 +473,7 @@ const candidateJudgment = <S>(candidate: CaseRun<S, Tape>): Judgment<Attempt<Fai
 		discarded: holds,
 		hung: holds,
 		misused: holds,
+		cut: () => ({ kind: "cut" }),
 		failed: (failed) => ({
 			kind: "fails",
 			tape: candidate.kept,
@@ -422,9 +506,10 @@ type Settled =
 	| Readonly<{ kind: "discarded" }>
 	| Readonly<{ kind: "failed"; cause: Cause.Cause<unknown> }>
 	| Readonly<{ kind: "hung" }>
+	| Readonly<{ kind: "cut" }>
 
 /** A case's outcome: discarded whenever its recording gave up, however its property ended, otherwise as its property
- * settled, a failed or hung case with its tape. */
+ * settled, a failed, hung or cut case with its tape. */
 const outcomeOf = (recorded: Recording, settled: Settled): Outcome => {
 	if (recorded.status() === "discarded") {
 		return { kind: "discarded" }
@@ -438,6 +523,8 @@ const outcomeOf = (recorded: Recording, settled: Settled): Outcome => {
 			return { kind: "failed", cause: settled.cause, tape: recorded.tape() }
 		case "hung":
 			return { kind: "hung", tape: recorded.tape() }
+		case "cut":
+			return { kind: "cut", tape: recorded.tape() }
 	}
 }
 
@@ -449,11 +536,13 @@ const keepTape = (recorded: Recording): Tape => recorded.tape()
 
 /**
  * Runs one case on a recorder from the pool: generates its sketch from the chooser, resolves it, and runs the property
- * in its own scope and fiber, raced against the hang guard, so a case's finalizers always run, a hung case's included,
- * for as long as HUNG_CLEANUP_GRACE allows (live.ts). The property's own draws continue the same tape, so they replay
- * and shrink with the case, and it steers as `under` says. The tape is copied out only for a failed or hung case and
- * for what `keep` asks; the recorder goes back to the pool when the case ends, so a use of the case after that is
- * marked a misuse and never reaches the recorder, which another case may be drawing on.
+ * in its own scope and fiber, raced against the hang guard and the search's deadline, so a case's finalizers always
+ * run, a hung case's included, for as long as HUNG_CLEANUP_GRACE allows (live.ts). A case the deadline cuts is stopped
+ * without waiting on its cleanup, which runs on while the search reports, and a case begun once the search is due to
+ * stop is cut before its property runs. The property's own draws continue the same tape, so they replay and shrink with
+ * the case, and it steers as `under` says. The tape is copied out only for a failed, hung or cut case and for what
+ * `keep` asks; the recorder goes back to the pool when the case ends, so a use of the case after that is marked a
+ * misuse and never reaches the recorder, which another case may be drawing on.
  */
 const runCase = <S, T, F extends string, E, R, K>(
 	generator: Gen<S>,
@@ -463,6 +552,7 @@ const runCase = <S, T, F extends string, E, R, K>(
 	pool: Array<Recorder>,
 	under: Under<F>,
 	caseHang: Duration.Input,
+	deadline: Deadline,
 	keep: (recorded: Recording) => K,
 	sense: Sense
 ): Effect.Effect<CaseRun<S, K>, never, Exclude<R, Scope.Scope>> =>
@@ -543,21 +633,48 @@ const runCase = <S, T, F extends string, E, R, K>(
 				})
 			)
 		return Effect.gen(function* () {
+			const now = yield* liveMillis
+			const left = leftOf(deadline, now)
+			if (Option.exists(left, (millis) => millis === 0)) {
+				return finish({ kind: "cut" })
+			}
 			const running = yield* Effect.forkDetach(settled)
-			const ended = yield* Effect.raceFirst(
+			const guards: ReadonlyArray<Effect.Effect<Settled>> = [
 				Effect.map(Fiber.await(running), (exit): Settled =>
 					Exit.isSuccess(exit) ? exit.value : { kind: "failed", cause: exit.cause }
 				),
-				Effect.as(liveSleep(caseHang), { kind: "hung" } as const)
-			).pipe(Effect.onInterrupt(() => stopHung(running)))
-			if (ended.kind === "hung") {
-				yield* stopHung(running)
+				Effect.as(liveSleep(caseHang), { kind: "hung" } as const),
+				...Option.match(left, {
+					onNone: () => [],
+					onSome: (millis) => [
+						Effect.as(liveSleep(Duration.millis(millis)), { kind: "cut" } as const)
+					]
+				})
+			]
+			const ended = yield* Effect.raceAllFirst(guards).pipe(
+				Effect.onInterrupt(() => stopHung(running))
+			)
+			switch (ended.kind) {
+				case "hung":
+					yield* stopHung(running)
+					break
+				case "cut":
+					yield* abandon(running)
+					break
+				case "passed":
+				case "discarded":
+				case "failed":
+					break
 			}
 			return finish(ended)
 		})
 	})
 
 const hex = (seed: number) => `0x${Str.padStart(8, "0")((seed >>> 0).toString(16))}`
+
+/** The line a search's failure report opens with: the run's seed, which reproduces it, and where it was drawn. */
+const seedLine = (run: Context.Service.Shape<typeof Run>, suite: string, where: string) =>
+	`TEST_SEED=${run.seed}${run.source === "fresh" ? " (drawn by this run)" : ""}: ${suite}, ${where}`
 
 /** The token of what a case's property drew: its tape's decisions after its sketch's, which a kept case replays. */
 const drawsOf = (caseRun: CaseRun<unknown, unknown>, tape: Tape) =>
@@ -612,7 +729,7 @@ const falsifiedReport = (
 ) =>
 	Arr.join(
 		[
-			`TEST_SEED=${run.seed}${run.source === "fresh" ? " (drawn by this run)" : ""}: ${suite}, ${where}`,
+			seedLine(run, suite, where),
 			`counterexample: ${reported.literal}`,
 			...(Arr.isReadonlyArrayNonEmpty(reported.drew)
 				? [`the property drew: ${Formatter.format(reported.drew)}`]
@@ -626,6 +743,51 @@ const falsifiedReport = (
 			`keep it: { note: "…", sketch: ${reported.literal}, draws: ${Formatter.format(reported.draws)}, reaches: ${Formatter.format(Arr.fromIterable(reported.notes))} }`
 		],
 		"\n"
+	)
+
+/** How a shrink went, as a failure report prints it. */
+const shrinkingOf = (shrunk: Shrunk<unknown>): string => {
+	switch (shrunk.ended) {
+		case "minimal":
+			return `shrunk in ${shrunk.candidates} candidates`
+		case "budget":
+			return `shrunk in ${shrunk.candidates} candidates, cut short by its budget`
+		case "deadline":
+			return `shrunk in ${shrunk.candidates} candidates, cut short by its test's deadline: the smallest failing case it reached, ${PRINT_MARGIN_MILLIS} ms before the deadline; give the test a longer timeout to shrink it further`
+	}
+}
+
+/**
+ * The failure of a search its test's deadline cut short before any case failed: where it stopped, the case in flight,
+ * and how to replay that case alone, when it has a token.
+ */
+const deadlineReachedIn = (
+	run: Context.Service.Shape<typeof Run>,
+	suite: string,
+	where: string,
+	inFlight: string,
+	replay: Option.Option<ReplayCase>
+) =>
+	Effect.fail(
+		DeadlineReached.make({
+			suite,
+			replay,
+			message: Arr.join(
+				[
+					seedLine(run, suite, where),
+					`its test's deadline cut the search short here, before any case failed: it stopped ${PRINT_MARGIN_MILLIS} ms before the deadline to report`,
+					`the case in flight: ${inFlight}`,
+					...Option.match(replay, {
+						onNone: () => [],
+						onSome: (replayed) => [
+							`replay it alone: TEST_REPLAY='${replayTokenOf(suite, replayed)}'`
+						]
+					}),
+					"give the test a longer timeout, or its search fewer cases"
+				],
+				"\n"
+			)
+		})
 	)
 
 /** How long a case may run, as a failure report prints it. */
@@ -694,6 +856,7 @@ const replayOne = <S, T, F extends string, E, R, A>(
 			[],
 			underOf(search.situations, replayed.drawn),
 			search.caseHang,
+			run.deadline,
 			keepNothing,
 			notesOnly
 		)
@@ -724,12 +887,21 @@ const replayOne = <S, T, F extends string, E, R, A>(
 						message: `${search.suite}: ${where} ran past ${hangOf(search.caseHang)}: ${search.literal(caseRun.sketch)}`
 					})
 				),
+			cut: (cut) =>
+				deadlineReachedIn(
+					run,
+					search.suite,
+					where,
+					search.literal(caseRun.sketch),
+					Option.some(replayCaseOf(replayed.drawn, cut.tape))
+				),
 			failed: (failed) => {
 				const again = Option.some(replayCaseOf(replayed.drawn, failed.tape))
 				return Effect.fail(
 					PropertyFalsified.make({
 						suite: search.suite,
 						phase: "replayed",
+						shrink: "unshrunk",
 						replay: again,
 						message: falsifiedReport(
 							run,
@@ -848,11 +1020,26 @@ const fuzzSenseOf = <F extends string>(coverage: Coverage<F>): Sense => {
 }
 
 /**
+ * A window's cases in the order its search settles them: case order, but every case its deadline cut after the rest,
+ * so a case that failed before the deadline arrived is reported, shrunk as far as the deadline allows, rather than lost
+ * behind a lower case still in flight.
+ */
+const settlingOrder = <S, K>(
+	window: ReadonlyArray<CaseRun<S, K>>
+): ReadonlyArray<readonly [number, CaseRun<S, K>]> => {
+	const entries = Arr.fromIterable(window.entries())
+	const wasCut = ([, caseRun]: readonly [number, CaseRun<S, K>]) => caseRun.outcome.kind === "cut"
+	return [...Arr.filter(entries, (entry) => !wasCut(entry)), ...Arr.filter(entries, wasCut)]
+}
+
+/**
  * Searches a property: kept cases first; then the witnesses, the floor stream and, for a search that requires
  * situations, the steered phase grown from it, both fixed by the suite's label; then the rotating stream, fresh each
  * run. Cases run in windows of `steerEvery`, up to `concurrency` at once; each window's results are taken in case
  * order, so concurrency changes how fast a search runs and never what it finds. A failing case, the lowest of its
- * window, is shrunk by editing its tape, property draws included, under the steering it was drawn under. The stall
+ * window, is shrunk by editing its tape, property draws included, under the steering it was drawn under. The run's
+ * deadline bounds every phase and the shrink (Deadline), and a case it cuts is settled after the rest of its window
+ * (settlingOrder). The stall
  * verdict is judged on the floor stream, and the coverage verdict on the witnesses alone, before the rotating stream
  * runs: neither moves with the run's seed, and a coverage failure spends no sample. The residual comes from the
  * rotating stream's independent cases alone. A replay runs its one case instead; a fuzz run searches its run-seeded
@@ -909,6 +1096,7 @@ export const explore = <S, T, F extends string, E, R>(
 				pool,
 				under,
 				spec.caseHang,
+				run.deadline,
 				keepNothing,
 				notesOnly
 			)
@@ -921,6 +1109,7 @@ export const explore = <S, T, F extends string, E, R>(
 				pool,
 				under,
 				spec.caseHang,
+				run.deadline,
 				keepTape,
 				sense
 			)
@@ -933,6 +1122,7 @@ export const explore = <S, T, F extends string, E, R>(
 				pool,
 				under,
 				spec.caseHang,
+				run.deadline,
 				keepTape,
 				notesOnly
 			)
@@ -956,6 +1146,7 @@ export const explore = <S, T, F extends string, E, R>(
 				pool,
 				unsteered,
 				spec.caseHang,
+				run.deadline,
 				keepNothing,
 				notesOnly
 			)
@@ -1000,11 +1191,14 @@ export const explore = <S, T, F extends string, E, R>(
 							message: `${spec.suite}: ${where} ran past ${hang}`
 						})
 					),
+				cut: () =>
+					deadlineReachedIn(run, spec.suite, where, spec.literal(kept.sketch), Option.none()),
 				failed: (failed) =>
 					Effect.fail(
 						PropertyFalsified.make({
 							suite: spec.suite,
 							phase: "kept",
+							shrink: "unshrunk",
 							replay: Option.none(),
 							message: falsifiedReport(
 								run,
@@ -1023,8 +1217,8 @@ export const explore = <S, T, F extends string, E, R>(
 		const seeds = seedsOf()
 
 		/** Judges one case of a phase: a pass counts in its phase's tally and a discard is its phase's, a failure is
-		 * shrunk under the steering the case was drawn under and reported with its phase and its replay token, and a
-		 * hang is reported as drawn. */
+		 * shrunk under the steering the case was drawn under, as far as the deadline allows, and reported with its phase
+		 * and its replay token, and a hang or a cut is reported as drawn. */
 		const settle = <K>(
 			caseRun: CaseRun<S, K>,
 			where: string,
@@ -1055,6 +1249,14 @@ export const explore = <S, T, F extends string, E, R>(
 						})
 					)
 				},
+				cut: (cut) =>
+					deadlineReachedIn(
+						run,
+						spec.suite,
+						where,
+						spec.literal(caseRun.sketch),
+						Option.some(replayCaseOf(under.drawn, cut.tape))
+					),
 				failed: (failed) =>
 					Effect.flatMap(
 						shrinkAttempt(
@@ -1072,6 +1274,7 @@ export const explore = <S, T, F extends string, E, R>(
 								PropertyFalsified.make({
 									suite: spec.suite,
 									phase: tally.phase,
+									shrink: shrunk.ended,
 									replay: replayed,
 									message: falsifiedReport(
 										run,
@@ -1083,7 +1286,7 @@ export const explore = <S, T, F extends string, E, R>(
 											shrunk.best.failure.cause,
 											drawsOf(best, shrunk.best.tape)
 										),
-										`shrunk in ${shrunk.candidates} candidates${shrunk.cut ? ", cut short by its budget" : ""}`,
+										shrinkingOf(shrunk),
 										replayed
 									)
 								})
@@ -1130,7 +1333,7 @@ export const explore = <S, T, F extends string, E, R>(
 					},
 					{ concurrency: sense.concurrent ? spec.concurrency : 1 }
 				)
-				for (const [offset, caseRun] of window.entries()) {
+				for (const [offset, caseRun] of settlingOrder(window)) {
 					const where = `${mutatedLabel(mutated)} (seed ${hex(mutated.stream)}), case ${Arr.getUnsafe(indices, offset)}`
 					if ((yield* settle(caseRun, where, under, mutated.tally)) && keepIfNew(caseRun)) {
 						yield* found(caseRun)
@@ -1161,7 +1364,7 @@ export const explore = <S, T, F extends string, E, R>(
 						(index) => runOne(randomChooser(wordsOf(caseSeed(floor, index))), under),
 						{ concurrency: spec.concurrency }
 					)
-					for (const [offset, caseRun] of window.entries()) {
+					for (const [offset, caseRun] of settlingOrder(window)) {
 						const where = `the floor stream (seed ${hex(floor)}), case ${windowStart + offset}`
 						if (yield* settle(caseRun, where, under, floorTally)) {
 							passed(caseRun)
@@ -1302,7 +1505,7 @@ export const explore = <S, T, F extends string, E, R>(
 				(index) => caseOf(randomChooser(wordsOf(caseSeed(rotating, index))), unsteered),
 				{ concurrency: spec.concurrency }
 			)
-			for (const [offset, caseRun] of window.entries()) {
+			for (const [offset, caseRun] of settlingOrder(window)) {
 				yield* settle(
 					caseRun,
 					`the rotating stream (seed ${hex(rotating)}), case ${windowStart + offset}`,
@@ -1386,6 +1589,7 @@ export const exhaust = <A, F extends string, E, R>(
 				pool,
 				under,
 				spec.caseHang,
+				run.deadline,
 				keepTape,
 				notesOnly
 			)
@@ -1410,12 +1614,21 @@ export const exhaust = <A, F extends string, E, R>(
 						})
 					)
 				},
+				cut: (cut) =>
+					deadlineReachedIn(
+						run,
+						spec.suite,
+						where,
+						spec.literal(caseRun.sketch),
+						Option.some(replayCaseOf(under.drawn, cut.tape))
+					),
 				failed: (failed) => {
 					const replayed = Option.some(replayCaseOf(under.drawn, failed.tape))
 					return Effect.fail(
 						PropertyFalsified.make({
 							suite: spec.suite,
 							phase: "exhaustive",
+							shrink: "unshrunk",
 							replay: replayed,
 							message: falsifiedReport(
 								run,

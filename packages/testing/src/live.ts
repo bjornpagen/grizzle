@@ -16,9 +16,13 @@ export const liveMillis = Clock.currentTimeMillis.pipe(
  */
 const HUNG_CLEANUP_GRACE = Duration.seconds(5)
 
+/** Interrupts a fiber and never waits for its cleanup, which runs on in a fiber of its own. */
+export const abandon = <A, E>(running: Fiber.Fiber<A, E>): Effect.Effect<void> =>
+	Effect.asVoid(Effect.forkDetach(Fiber.interrupt(running)))
+
 /** Interrupts a hung fiber and waits for its cleanup for HUNG_CLEANUP_GRACE at most, never longer. */
 export const stopHung = <A, E>(running: Fiber.Fiber<A, E>): Effect.Effect<void> =>
 	Effect.andThen(
-		Effect.forkDetach(Fiber.interrupt(running)),
+		abandon(running),
 		Effect.raceFirst(Effect.asVoid(Fiber.await(running)), liveSleep(HUNG_CLEANUP_GRACE))
 	)

@@ -1,13 +1,14 @@
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, String as Str } from "effect"
+import type { TestContext } from "vitest"
 import { type Case, drawn, type Exploration, explore, Run } from "#explore.ts"
 import { type Coverage, required } from "#features.ts"
 import { array, type Gen, int } from "#gen.ts"
 import { floorSeed, rotatingSeed } from "#random.ts"
 import { notesOnly, type Sense, v8Coverage } from "#sense.ts"
 import { completeShrink } from "#shrink.ts"
-import { runOfProcess } from "#vitest/run.ts"
+import { runOfTest } from "#vitest/run.ts"
 
 const MAGIC = [13, 27, 4, 30, 9] as const
 
@@ -34,10 +35,11 @@ const matchedOf = (drawnValues: ReadonlyArray<number>): number => {
 	return matched
 }
 
-/** This process's run, never replaying or fuzzing: the steered and unsteered searches draw from its seed. */
-const run = Effect.map(runOfProcess, (processRun) =>
-	Run.of({ ...processRun, replay: Option.none(), fuzz: Option.none() })
-)
+/** The run of the test `ctx` runs, never replaying or fuzzing: the steered and unsteered searches draw from its seed. */
+const runIn = (ctx: TestContext) =>
+	Effect.map(runOfTest(ctx), (testRun) =>
+		Run.of({ ...testRun, replay: Option.none(), fuzz: Option.none() })
+	)
 
 /** A search that must reach what its coverage requires, from six values of 0..31. */
 const magicSearch = <F extends string>(
@@ -108,7 +110,7 @@ const fiveMatched = (cases: number) => required<Matched>(["5 matched"], { cases,
 const byValues = Arr.makeOrder(Order.Number)
 
 describe("a steered search", () => {
-	it.effect("climbs to a situation random search never reaches, one new note at a time", () =>
+	it.effect("climbs to a situation random search never reaches, one new note at a time", (ctx) =>
 		Effect.gen(function* () {
 			const unsteered = yield* Effect.flip(
 				explore(magicSearch("unsteered", fiveMatched(0), 4), noteMatched)
@@ -116,14 +118,14 @@ describe("a steered search", () => {
 			strictEqual(unsteered._tag, "FeaturesUnreached")
 			const steered = yield* explore(magicSearch("steered", fiveMatched(50_000), 4), noteMatched)
 			strictEqual(steered.residual.cases, 100)
-		}).pipe(Effect.provideServiceEffect(Run, run))
+		}).pipe(Effect.provideServiceEffect(Run, runIn(ctx)))
 	)
 
 	it.effect(
 		"finds the same witnesses, floor and steered, however many run at once and whatever the run's seed",
-		() =>
+		(ctx) =>
 			Effect.gen(function* () {
-				const processRun = yield* run
+				const processRun = yield* runIn(ctx)
 				const seeds = [processRun.seed, rotatingSeed(processRun.seed, floorSeed("another run"))]
 				const searches = yield* Effect.forEach(
 					Arr.flatMap(seeds, (seed) =>
@@ -155,12 +157,12 @@ describe("a steered search", () => {
 				for (const search of rest) {
 					deepStrictEqual(search, first)
 				}
-			}).pipe(Effect.provideServiceEffect(Run, run))
+			}).pipe(Effect.provideServiceEffect(Run, runIn(ctx)))
 	)
 
 	it.effect(
 		"climbs through branches it perceives in V8's block coverage, with no note on the way",
-		() =>
+		(ctx) =>
 			Effect.scoped(
 				Effect.gen(function* () {
 					const sense = yield* v8Coverage(Str.endsWith("/steer.test.ts"))
@@ -169,7 +171,7 @@ describe("a steered search", () => {
 					)
 					strictEqual(blind._tag, "FeaturesUnreached")
 					yield* explore(lockSearch("coverage", sense, 100_000), noteOpened)
-				}).pipe(Effect.provideServiceEffect(Run, run))
+				}).pipe(Effect.provideServiceEffect(Run, runIn(ctx)))
 			),
 		0
 	)

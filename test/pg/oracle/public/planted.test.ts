@@ -6,7 +6,7 @@
  */
 import { layer } from "@effect/vitest"
 import { Run } from "@grizzle/testing/explore"
-import { runOfProcess } from "@grizzle/testing/vitest/run"
+import { runOfTest } from "@grizzle/testing/vitest/run"
 import { Effect, Option } from "effect"
 import { asConverted, asDelivered, boolByF, bySpelling } from "#test/pg/oracle/public/planted.ts"
 import type { DisagreementCheck } from "#test/pg/oracle/public/run.ts"
@@ -27,10 +27,10 @@ const caughtBy = (caught: Caught, check: DisagreementCheck): void => {
 }
 
 layer(Substrate.layer)("the public-boundary differential against a planted defect", (it) => {
-	it.effect("finds children stitched by the spelling of their parent's key", () =>
+	it.effect("finds children stitched by the spelling of their parent's key", (ctx) =>
 		Effect.map(
 			catchPlanted("public/planted-stitch", bySpelling, asConverted).pipe(
-				Effect.provideServiceEffect(Run, runOfProcess)
+				Effect.provideServiceEffect(Run, runOfTest(ctx))
 			),
 			(caught) => {
 				caughtBy(caught, "answer")
@@ -38,14 +38,16 @@ layer(Substrate.layer)("the public-boundary differential against a planted defec
 		)
 	)
 
-	it.effect("finds a boolean cell whose trusting conversion differs from its strict reading", () =>
-		Effect.map(
-			catchPlanted("public/planted-conversion", asDelivered, boolByF).pipe(
-				Effect.provideServiceEffect(Run, runOfProcess)
-			),
-			(caught) => {
-				caughtBy(caught, "cell")
-			}
-		)
+	it.effect(
+		"finds a boolean cell whose trusting conversion differs from its strict reading",
+		(ctx) =>
+			Effect.map(
+				catchPlanted("public/planted-conversion", asDelivered, boolByF).pipe(
+					Effect.provideServiceEffect(Run, runOfTest(ctx))
+				),
+				(caught) => {
+					caughtBy(caught, "cell")
+				}
+			)
 	)
 })

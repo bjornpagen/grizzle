@@ -21,6 +21,7 @@ import {
 	explore,
 	isWitness,
 	type Kept,
+	noDeadline,
 	type PropertyFalsified,
 	Run,
 	type Witnessed
@@ -45,7 +46,7 @@ import { searched } from "#vitest/searched.ts"
 
 /** A run with a given seed, replaying what it is asked to. */
 const runOf = (seed: number, replay: Option.Option<Replay>) =>
-	Run.of({ seed, source: "environment", replay, fuzz: Option.none() })
+	Run.of({ seed, source: "environment", replay, fuzz: Option.none(), deadline: noDeadline })
 
 const fullRun = runOf(7, Option.none())
 

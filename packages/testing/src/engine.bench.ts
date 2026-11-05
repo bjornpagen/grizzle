@@ -1,7 +1,7 @@
 import { Array as Arr, Duration, Effect, Formatter, Option } from "effect"
 import { describe, it } from "vitest"
 import { count } from "#enumerate.ts"
-import { drawn, explore, Run } from "#explore.ts"
+import { drawn, explore, noDeadline, Run } from "#explore.ts"
 import { noCoverage } from "#features.ts"
 import { array, boolean, type Gen, int, weighted } from "#gen.ts"
 import { wordsOf } from "#random.ts"
@@ -28,7 +28,13 @@ const composite: Gen<unknown> = (source) => {
 
 const sampled = generate(composite, randomChooser(wordsOf(99)))
 
-const run = Run.of({ seed: 7, source: "environment", replay: Option.none(), fuzz: Option.none() })
+const run = Run.of({
+	seed: 7,
+	source: "environment",
+	replay: Option.none(),
+	fuzz: Option.none(),
+	deadline: noDeadline
+})
 
 /** An exploration of 125 cases of `composite` whose property costs what `property` costs. */
 const explored = (concurrency: number, property: () => Effect.Effect<void>) =>
