@@ -42,3 +42,31 @@ export const compose = (
 		byDepth(relations, "shallowest").flatMap((p) => p.plan[2])
 	]
 }
+
+/**
+ * Each relation's depth among the law model's `families`: 0 for a relation no family has as a member, and one more
+ * than its deepest owner's for a member; a tree's own family, of its relation over itself, adds none. A relation on a
+ * cycle of families, which no nesting orders, takes the depth its walk met it at.
+ */
+export const relationDepths = (
+	families: ReadonlyArray<{
+		readonly owner: { readonly name: string }
+		readonly member: { readonly name: string }
+	}>
+): ((relation: string) => number) => {
+	const known = new Map<string, number>()
+	const depthOf = (relation: string, seen: ReadonlySet<string>): number => {
+		const memo = known.get(relation)
+		if (memo !== undefined) {
+			return memo
+		}
+		const owners = families.filter(
+			(f) => f.member.name === relation && f.owner.name !== relation && !seen.has(f.owner.name)
+		)
+		const next = new Set([...seen, relation])
+		const depth = owners.reduce((d, f) => Math.max(d, 1 + depthOf(f.owner.name, next)), 0)
+		known.set(relation, depth)
+		return depth
+	}
+	return (relation) => depthOf(relation, new Set())
+}

@@ -20,9 +20,16 @@
  *   sequence's members in ascending slot order per owner and a tree's in pre-order, so each statement's first member of
  *   an owner finds its predecessor already written.
  *
- * Updating a count before its deletes and moves would cascade it into a member at or beyond the new count, which the
- * bound refuses: the shrink-order cascade failure. A count updated twice would pass through counts no family has. So
- * a plan updates each count once, and an append is one update however many members it adds.
+ * Why updates come before counts: a counted removal is swap-with-last, so the last member moves, by an update, into the
+ * slot a delete freed. Were the count to fall first, the owner axis would cascade the new count n − 1 into every
+ * member's ‹n›, the last member's included while it still holds slot n − 1, and the bound `CHECK (i < ‹n›)` refuses it
+ * at that statement's end: the shrink-order cascade failure. After the moves, every member below the new count holds a
+ * slot below it, so the count falls safely. An update never sets a member's ‹n› (the cascade does), and a refill's
+ * accumulators are checked row by row (`after = combine(before, x)`, the first-slot pin), each true of the row the
+ * update writes; the predecessor axis it also changes is a counted family's, deferred, so its prefix proof waits for
+ * commit. A sequence's suffix is never updated in place but deleted and inserted again, since its predecessor axis is
+ * immediate. A count updated twice would pass through counts no family has, so a plan updates each count once, and an
+ * append is one update however many members it adds.
  *
  * Each phase is cut into consecutive statements, each holding as many rows as fit: its arrays' literals within V8's
  * longest string, and its Bind message within PostgreSQL's longest message. A family larger than one statement goes as

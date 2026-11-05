@@ -46,18 +46,28 @@ import type {
 import {
 	and,
 	arrays,
+	binary,
+	call,
 	cast,
 	col,
 	columnDefinition,
 	core,
 	cte,
 	cteRef,
+	cteRefAs,
 	eq,
+	ge,
+	join,
+	lit,
+	notExists,
 	positionalValue,
 	sameTypeRef,
 	select,
+	setOp,
 	simpleSelect,
-	targetAs
+	table,
+	targetAs,
+	types
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
@@ -580,5 +590,244 @@ export const countStatement = (
 		sql: emitText(ast, supply.map()),
 		arrays: carried.length,
 		result: updated(owner)
+	})
+}
+
+/**
+ * The owner columns a family's read returns of each touched group's owner, after its key: its count, its ends
+ * (`endColumns`), and every column its owner axis carries into its members, which an appended or refilled member
+ * copies.
+ */
+export const ownerReadColumns = (family: Family): ReadonlyArray<LawField> => {
+	const out: Array<LawField> = [family.count]
+	const add = (f: LawField): void => {
+		if (!out.some((g) => g.name === f.name)) {
+			out.push(f)
+		}
+	}
+	for (const f of endColumns(family)) {
+		add(f)
+	}
+	for (const pair of family.axes.owner) {
+		if (pair.to.kind === "field") {
+			add(pair.to.field)
+		}
+	}
+	return out
+}
+
+/**
+ * The columns of a family read's rows, tag first: an owner row's are its group's key texts and its `ownerReadColumns`;
+ * a member row's are its key's texts and its row layout's columns. A row of the shorter kind is padded with empty
+ * texts to `width` columns after the tag.
+ */
+export interface ReadShape {
+	readonly owner: { readonly key: number; readonly columns: ReadonlyArray<LawField> }
+	readonly member: { readonly key: number; readonly columns: number }
+	readonly width: number
+}
+
+/** A family's read statement and the shape of its rows. */
+export interface ReadSql {
+	readonly ast: SqlStatement
+	readonly sql: EmittedSql
+	readonly arrays: number
+	readonly shape: ReadShape
+}
+
+/** The arrays FROM item over `carried`, placeholders from `$first` on, under a fresh alias, each read raw. */
+const arraysAt = (
+	w: WriteContext,
+	supply: NameSupply,
+	carried: NonEmptyReadonlyArray<Carried>,
+	first: number
+): { readonly from: FromSource; readonly raw: (i: number) => Expr } => {
+	const alias = supply.relation(internal("read keys"))
+	const named = mapNonEmpty(carried, (c) => ({
+		carried: c,
+		name: supply.column(internal("read key"))
+	}))
+	const columns = mapNonEmpty(named, (n, i) => ({
+		definition: columnDefinition(n.name, w.cx.baseTypeRef(n.carried.type)),
+		array: positionalValue(first + i)
+	}))
+	return {
+		from: arrays({ kind: "columns", columns }, alias),
+		raw: (i) => col(alias, defined(named[i], `read key ${i}`).name)
+	}
+}
+
+/**
+ * A family's read (rows-first.md §2), one SELECT. $1 … $k are the touched members' keys, one array per key field, and
+ * the next ones the touched groups' keys, one array per group field. A touched group is the stored group of a member a
+ * key names, or a group the arrays name whose owner is stored. It returns, tag `o`, each touched group's owner, its key
+ * and its `ownerReadColumns`; and, tag `m`, each member of a touched group from one slot before the least slot a key
+ * names in it, or from its last member when no key names one, to its end, by its key and its row layout's columns.
+ * Every column is text:
+ *
+ *   WITH h(g…, s) AS (SELECT m.g…, min(m.i) FROM F m JOIN keys k ON m.key = k.key GROUP BY m.g…),
+ *        t(g…, s) AS (SELECT h.g…, h.s FROM h
+ *                     UNION SELECT o.k…, o.n FROM O o JOIN groups g ON o.k = g.g
+ *                           WHERE NOT EXISTS (SELECT FROM h WHERE h.g = o.k))
+ *   SELECT 'o', o.k…, o.n, o.e…, '' … FROM O o JOIN t ON o.k = t.g
+ *   UNION ALL SELECT 'm', m.key…, m.c… FROM F m JOIN t ON m.g = t.g WHERE m.i >= t.s - 1
+ */
+export const suffixReadSql = (
+	family: Family,
+	layout: RowLayout,
+	w: WriteContext,
+	relations: ReadonlyMap<string, RelationInfo>
+): Result.Result<ReadSql, CompileError> => {
+	const member = relations.get(family.member.name)
+	const owner = relations.get(family.owner.name)
+	if (member === undefined || owner === undefined) {
+		return Result.err(
+			unbuildable(family.member.name, "its owner and member, stored relations of the schema")
+		)
+	}
+	const supply = begun(w)
+	const keyCarried = mapNonEmpty(layout.key, carriedOf)
+	const groupCarried = mapNonEmpty(family.group, (g): Carried => ({
+		column: { kind: "field", field: g.owner },
+		type: g.owner.type
+	}))
+	const ownerColumns = ownerReadColumns(family)
+	const width = Math.max(
+		family.group.length + ownerColumns.length,
+		layout.key.length + layout.columns.length
+	)
+	const memberTable = w.names.relation(member.name)
+	const ownerTable = w.names.relation(owner.name)
+	const mCol = (alias: string, c: NativeColumn): Expr => col(alias, installed(w, member.name, c))
+	const oCol = (alias: string, f: LawField): Expr => col(alias, w.names.column(owner.name, f.name))
+	const groupNames = family.group.map(() => supply.column(internal("read group")))
+	const g = (i: number): string => defined(groupNames[i], `read group ${i}`)
+	const slotName = supply.column(internal("read slot"))
+	const keys = arraysAt(w, supply, keyCarried, 1)
+	const groups = arraysAt(w, supply, groupCarried, 1 + keyCarried.length)
+	const h = supply.relation(internal("touched slots"))
+	const hm = supply.relation(internal("touched member"))
+	const hBody = select({
+		...core(
+			[
+				...family.group.map((pair, i) =>
+					targetAs(mCol(hm, { kind: "field", field: pair.member }), g(i))
+				),
+				targetAs(call("min", [mCol(hm, family.index)]), slotName)
+			],
+			[
+				join(
+					table(memberTable.schema, memberTable.name, hm),
+					keys.from,
+					and(mapNonEmpty(layout.key, (c, i) => eq(mCol(hm, c.column), keys.raw(i))))
+				)
+			],
+			undefined
+		),
+		groupBy: family.group.map((pair) => mCol(hm, { kind: "field", field: pair.member }))
+	})
+	const t = supply.relation(internal("touched groups"))
+	const th = supply.relation(internal("touched by key"))
+	const to = supply.relation(internal("touched owner"))
+	const tx = supply.relation(internal("touched before"))
+	const tBody = select(
+		setOp("UNION", [
+			core(
+				[
+					...family.group.map((_, i) => targetAs(col(th, g(i)), g(i))),
+					targetAs(col(th, slotName), slotName)
+				],
+				[cteRefAs(h, th)],
+				undefined
+			),
+			core(
+				[
+					...family.group.map((pair, i) => targetAs(oCol(to, pair.owner), g(i))),
+					targetAs(oCol(to, family.count), slotName)
+				],
+				[
+					join(
+						table(ownerTable.schema, ownerTable.name, to),
+						groups.from,
+						and(mapNonEmpty(family.group, (pair, i) => eq(oCol(to, pair.owner), groups.raw(i))))
+					)
+				],
+				notExists(
+					simpleSelect(
+						[targetAs(lit.int(1, types.integer), supply.column(internal("touched")))],
+						[cteRefAs(h, tx)],
+						and(mapNonEmpty(family.group, (pair, i) => eq(col(tx, g(i)), oCol(to, pair.owner))))
+					)
+				)
+			)
+		])
+	)
+	const tag = supply.column(internal("read tag"))
+	const out = Array.from({ length: width }, () => supply.column(internal("read column")))
+	const at = (i: number): string => defined(out[i], `read column ${i}`)
+	const pad = (from: number): ReadonlyArray<Target> =>
+		Array.from({ length: width - from }, (_, j) => targetAs(lit.text("", types.text), at(from + j)))
+	const o = supply.relation(internal("read owner"))
+	const ot = supply.relation(internal("read owner group"))
+	const ownerTexts: ReadonlyArray<Expr> = [
+		...family.group.map((pair) => resultText(oCol(o, pair.owner), pair.owner.type)),
+		...ownerColumns.map((f) => resultText(oCol(o, f), f.type))
+	]
+	const ownerArm = core(
+		[
+			targetAs(lit.text("o", types.text), tag),
+			...ownerTexts.map((e, i) => targetAs(e, at(i))),
+			...pad(ownerTexts.length)
+		],
+		[
+			join(
+				table(ownerTable.schema, ownerTable.name, o),
+				cteRefAs(t, ot),
+				and(mapNonEmpty(family.group, (pair, i) => eq(oCol(o, pair.owner), col(ot, g(i)))))
+			)
+		],
+		undefined
+	)
+	const m = supply.relation(internal("read member"))
+	const mt = supply.relation(internal("read member group"))
+	const memberTexts: ReadonlyArray<Expr> = [
+		...layout.key.map((c) => resultText(mCol(m, c.column), c.type)),
+		...layout.columns.map((c) => resultText(mCol(m, c.column), c.type))
+	]
+	const memberArm = core(
+		[
+			targetAs(lit.text("m", types.text), tag),
+			...memberTexts.map((e, i) => targetAs(e, at(i))),
+			...pad(memberTexts.length)
+		],
+		[
+			join(
+				table(memberTable.schema, memberTable.name, m),
+				cteRefAs(t, mt),
+				and(
+					mapNonEmpty(family.group, (pair, i) =>
+						eq(mCol(m, { kind: "field", field: pair.member }), col(mt, g(i)))
+					)
+				)
+			)
+		],
+		ge(mCol(m, family.index), binary("-", col(mt, slotName), lit.int(1, types.bigint)))
+	)
+	const ast: SqlStatement = {
+		...select(setOp("UNION ALL", [ownerArm, memberArm])),
+		with: {
+			recursive: false,
+			ctes: [cte(h, [...groupNames, slotName], hBody), cte(t, [...groupNames, slotName], tBody)]
+		}
+	}
+	return Result.ok({
+		ast,
+		sql: emitText(ast, supply.map()),
+		arrays: keyCarried.length + groupCarried.length,
+		shape: {
+			owner: { key: family.group.length, columns: ownerColumns },
+			member: { key: layout.key.length, columns: layout.columns.length },
+			width
+		}
 	})
 }

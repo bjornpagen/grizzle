@@ -201,7 +201,7 @@ interface Layout {
 const keyOf = (f: LawField): ColumnKey => fieldKey(f.name)
 
 /** The field names an expression reads of its row. */
-const readsOf = (expr: ScalarExpr): ReadonlyArray<string> => {
+export const readsOf = (expr: ScalarExpr): ReadonlyArray<string> => {
 	const table = predicateTable(expr)
 	return [
 		...new Set(
@@ -281,7 +281,7 @@ const hostValue = (spec: CarrierSpec, value: CarrierValue): unknown => {
 }
 
 /** A typed literal as a column's host value: a base, an identity or a start. */
-const literalHost = (spec: CarrierSpec, literal: TypedLiteral): unknown =>
+export const literalHost = (spec: CarrierSpec, literal: TypedLiteral): unknown =>
 	hostValue(spec, literalValue(literal))
 
 /**
@@ -412,7 +412,7 @@ const unfillable = (detail: string): CompileError =>
  * The base of an accumulated column: an accumulated field's start, a hidden before's plane identity; none for a column
  * carried with no base (a caller's column the axis also carries, which its row supplies).
  */
-const baseOf = (
+export const baseOf = (
 	family: Family,
 	column: NativeColumn,
 	spec: CarrierSpec
@@ -675,7 +675,7 @@ const nameOf = (column: NativeColumn): string =>
 	column.kind === "field" ? column.field.name : column.column
 
 /** One step of a monoid's combine on host values, at the after's carrier; undefined when the result leaves it. */
-const combineHost = (
+export const combineHost = (
 	fold: FamilyFold,
 	plane: 0 | 1,
 	befores: ReadonlyArray<unknown>,

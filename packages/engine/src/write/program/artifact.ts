@@ -141,8 +141,6 @@ export type WriteStep =
 export interface FamilyStep {
 	readonly kind: "family"
 	readonly stratum: number
-	/** The nested write's member slot whose facts nest the rows it writes. */
-	readonly slot: ParamId
 	/** What its statements write: a member relation's rows, or a family's owners' counts. */
 	readonly target:
 		| { readonly kind: "rows"; readonly relation: string }

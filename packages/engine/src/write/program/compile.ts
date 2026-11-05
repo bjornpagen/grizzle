@@ -8,6 +8,7 @@ import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
+import type { Family } from "#compiler/ir/family.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type {
 	CountRule,
@@ -71,10 +72,23 @@ import {
 	type WriteWorld
 } from "#compiler/write/entry/precheck.ts"
 
-import { type FamilySql, rowStatement } from "#compiler/write/family/statements.ts"
+import { relationDepths } from "#compiler/write/family/compose.ts"
+import type { EditTarget } from "#compiler/write/family/edit.ts"
+import { isTreeOf } from "#compiler/write/family/nesting.ts"
+import {
+	countStatement,
+	type FamilySql,
+	memberFamilies,
+	type ReadSql,
+	type RowLayout,
+	rowLayout,
+	rowStatement,
+	suffixReadSql
+} from "#compiler/write/family/statements.ts"
 import {
 	compileChangeSet,
 	type SlotGroup,
+	type StratumEdit,
 	type WriteFrontend,
 	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
@@ -156,6 +170,8 @@ export interface CompileWriteOptions {
 
 export interface CompiledWrite extends WriteProgram {
 	readonly frontend: WriteFrontend
+	/** Each stratum's edits of a family's member relation, with their reads, built once. */
+	readonly edits: ReadonlyArray<EditProgram>
 	readonly choices: ReadonlyArray<PutChoice>
 	readonly plan: WritePlan
 	readonly artifacts: { readonly optimized: WriteArtifact; readonly conservative: WriteArtifact }
@@ -238,44 +254,115 @@ interface ArtifactBuilder {
 
 const newBuilder = (codes: Codebook): ArtifactBuilder => ({ statements: [], codes })
 
-/**
- * A stratum's nested write's family statements, built once over the installed names: each member relation it reaches,
- * one insert of its whole rows (write/family/statements.ts rowStatement), shallowest first, as its plan composes them
- * (write/family/compose.ts). An owner the changeset inserts has empty families, so its nesting deletes nothing, and a
- * sequence's count rides its owner's own row, so no count statement.
- */
+/** A stratum's family statements, built once over the installed names, in the order they run (`familyProgram`). */
 interface FamilyPlacement {
 	readonly stratum: number
 	readonly statements: ReadonlyArray<{ readonly step: FamilyStep; readonly sql: FamilySql }>
 }
 
-const familyPlacements = (
-	frontend: WriteFrontend,
-	w: WriteContext
-): ReadonlyArray<FamilyPlacement> =>
-	frontend.nested.map((nested) => {
-		const relations = [...new Set(nested.nesting.reached.map((r) => r.family.member.name))]
+/** A stratum's edits of one member relation as the program runs them: its slots, its row layout and families, and each
+ * family's read, built once (write/family/edit.ts). */
+export interface EditProgram {
+	readonly edit: StratumEdit
+	readonly target: EditTarget
+	readonly reads: ReadonlyArray<{ readonly family: Family; readonly sql: ReadSql }>
+}
+
+/** The family statements of a program, by stratum, and its edits with their reads. */
+interface FamilyProgram {
+	readonly placements: ReadonlyArray<FamilyPlacement>
+	readonly edits: ReadonlyArray<EditProgram>
+}
+
+/**
+ * A program's family statements (write/family/statements.ts), built once over the installed names: per stratum, the
+ * rows of every member relation its nested writes reach and its edits write, and the counts of its edited relations'
+ * families, in the order compose.ts composes them: deletes and updates deepest relation first, then counts, then
+ * inserts shallowest relation first. A nested write's owners are inserted by the changeset, so it deletes nothing and
+ * counts nothing: a sequence's count rides its owner's own row.
+ */
+const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram => {
+	const all = frontend.laws.families
+	const depthOf = relationDepths(all)
+	const layoutOf = (name: string): RowLayout => {
+		const info = defined(frontend.schema.relations.get(name), `the family relation ${name}`)
+		return unwrap(rowLayout(info, all))
+	}
+	const edits = frontend.edits.map((edit): EditProgram => {
+		const layout = layoutOf(edit.relation.name)
+		const families = memberFamilies(edit.relation.name, all).filter(
+			(f) => !isTreeOf(f, edit.relation.name)
+		)
+		const reads = families.map((family) => ({
+			family,
+			sql: unwrap(suffixReadSql(family, layout, w, frontend.schema.relations))
+		}))
 		return Object.freeze({
-			stratum: nested.stratum,
-			statements: Object.freeze(
-				relations.map((name) => {
-					const info = defined(frontend.schema.relations.get(name), `the reached relation ${name}`)
-					const layout = defined(nested.nesting.layouts.get(name), `the row layout of ${name}`)
-					const sql = unwrap(rowStatement(info, layout, "insert", w))
-					const step: FamilyStep = {
-						kind: "family",
-						stratum: nested.stratum,
-						slot: nested.slot.slot,
-						target: { kind: "rows", relation: name },
-						statement: sql.kind,
-						relation: sql.result.relation,
-						result: sql.result
-					}
-					return Object.freeze({ step: Object.freeze(step), sql })
-				})
-			)
+			edit,
+			target: Object.freeze({
+				relation: edit.relation,
+				layout,
+				families: reads.map((r) => ({ family: r.family, shape: r.sql.shape }))
+			}),
+			reads
 		})
 	})
+	const strata = [
+		...new Set([...frontend.nested.map((n) => n.stratum), ...edits.map((e) => e.edit.stratum)])
+	].toSorted((a, b) => a - b)
+	const placements = strata.map((stratum): FamilyPlacement => {
+		const edited = edits.filter((e) => e.edit.stratum === stratum)
+		const nestedHere = frontend.nested.filter((n) => n.stratum === stratum)
+		const editedNames = edited.map((e) => e.edit.relation.name)
+		const inserted = [
+			...new Set([
+				...nestedHere.flatMap((n) => n.nesting.reached.map((r) => r.family.member.name)),
+				...editedNames
+			])
+		]
+		const deepest = (names: ReadonlyArray<string>) =>
+			names.toSorted((a, b) => depthOf(b) - depthOf(a))
+		const statements: Array<{ readonly step: FamilyStep; readonly sql: FamilySql }> = []
+		const add = (sql: FamilySql, target: FamilyStep["target"]): void => {
+			const step: FamilyStep = {
+				kind: "family",
+				stratum,
+				target,
+				statement: sql.kind,
+				relation: sql.result.relation,
+				result: sql.result
+			}
+			statements.push(Object.freeze({ step: Object.freeze(step), sql }))
+		}
+		const info = (name: string) =>
+			defined(frontend.schema.relations.get(name), `the family relation ${name}`)
+		for (const kind of ["delete", "update"] as const) {
+			for (const name of deepest(editedNames)) {
+				const layout = layoutOf(name)
+				if (kind === "update" && !layout.columns.some((c) => c.settable)) {
+					continue
+				}
+				add(unwrap(rowStatement(info(name), layout, kind, w)), { kind: "rows", relation: name })
+			}
+		}
+		for (const e of edited) {
+			for (const { family } of e.reads) {
+				add(unwrap(countStatement(family, w, frontend.schema.relations)), {
+					kind: "owners",
+					family: family.id
+				})
+			}
+		}
+		for (const name of deepest(inserted).toReversed()) {
+			add(unwrap(rowStatement(info(name), layoutOf(name), "insert", w)), {
+				kind: "rows",
+				relation: name
+			})
+		}
+		return Object.freeze({ stratum, statements: Object.freeze(statements) })
+	})
+	return { placements, edits }
+}
 
 /**
  * Places each nested write's family statements of the strata before `before`, or of every stratum, after the
@@ -598,7 +685,7 @@ const optimizedPlacement = (
 		]
 	}
 	/** The nested writes' family statements, each placed after every statement of its stratum. */
-	const families = [...familyPlacements(frontend, w)]
+	const families = [...familyProgram(frontend, w).placements]
 	const familyDeps = (step: FamilyStep): ReadonlyArray<number> =>
 		tracker.add(step.target.kind === "owners" ? [`relation:${step.relation}`] : [], [
 			`relation:${step.relation}`
@@ -1169,7 +1256,7 @@ const compile = (
 			})
 		),
 		options.names.codes,
-		familyPlacements(frontend, lowering.w)
+		familyProgram(frontend, lowering.w).placements
 	)
 	const ir = frontend.ir
 	const vector =
@@ -1186,6 +1273,7 @@ const compile = (
 		reads[r.name] = r.statements[0].index
 	}
 	const program: CompiledWrite = {
+		edits: familyProgram(frontend, lowering.w).edits,
 		kind: "write",
 		context: "transaction",
 		optimized: optimized.specs,

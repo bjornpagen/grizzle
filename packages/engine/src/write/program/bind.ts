@@ -16,6 +16,7 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
 import { compose, type RelationPlanAt } from "#compiler/write/family/compose.ts"
+import type { Row } from "#compiler/write/family/draw.ts"
 import { familyKey } from "#compiler/write/family/fold.ts"
 import {
 	type FamilyStatement,
@@ -254,43 +255,43 @@ export const bindWrite = (
 		}
 		return Result.ok(out)
 	}
-	/** Each nested write by its member slot, as its program reached it. */
-	const nestedOf = new Map(frontend.nested.map((n) => [n.slot.slot, n] as const))
-	/** Each nested write's plan, planned once, at its first step: its relations' rows, composed by depth. */
-	const plans = new Map<ParamId, Result.Result<Plan, FamilyRowBound>>()
-	const planOf = (slot: ParamId): Result.Result<Plan, FamilyRowBound> | undefined => {
-		const known = plans.get(slot)
+	/** Each stratum's plan, planned once, at its first family step: the rows of every nested write of the stratum, by
+	 * relation, composed by depth. */
+	const plans = new Map<number, Result.Result<Plan, FamilyRowBound>>()
+	const planOf = (stratum: number): Result.Result<Plan, FamilyRowBound> => {
+		const known = plans.get(stratum)
 		if (known !== undefined) {
 			return known
 		}
-		const rows = normalized.nested.get(slot)
-		const nested = nestedOf.get(slot)
-		if (rows === undefined || nested === undefined) {
-			return undefined
-		}
 		const relations: Array<RelationPlanAt> = []
-		for (const [relation, inserts] of rows) {
-			const reached = defined(
-				nested.nesting.reached.find((r) => r.family.member.name === relation),
-				`the family a nested write reaches ${relation} by`
-			)
-			const planned = planRelation(
-				{ relation, deletes: [], trees: [], updates: [], inserts },
-				inputs.transport
-			)
-			if (!planned.ok) {
-				const refused: Result.Result<Plan, FamilyRowBound> = Result.err({
-					_tag: "FamilyRowBound",
-					family: reached.family,
-					row: planned.error
-				})
-				plans.set(slot, refused)
-				return refused
+		for (const nested of frontend.nested) {
+			if (nested.stratum !== stratum) {
+				continue
 			}
-			relations.push({ depth: reached.depth, plan: planned.value })
+			const rows = normalized.nested.get(nested.slot.slot) ?? new Map<string, ReadonlyArray<Row>>()
+			for (const [relation, inserts] of rows) {
+				const reached = defined(
+					nested.nesting.reached.find((r) => r.family.member.name === relation),
+					`the family a nested write reaches ${relation} by`
+				)
+				const planned = planRelation(
+					{ relation, deletes: [], trees: [], updates: [], inserts },
+					inputs.transport
+				)
+				if (!planned.ok) {
+					const refused: Result.Result<Plan, FamilyRowBound> = Result.err({
+						_tag: "FamilyRowBound",
+						family: reached.family,
+						row: planned.error
+					})
+					plans.set(stratum, refused)
+					return refused
+				}
+				relations.push({ depth: reached.depth, plan: planned.value })
+			}
 		}
 		const result: Result.Result<Plan, FamilyRowBound> = Result.ok(compose(relations, []))
-		plans.set(slot, result)
+		plans.set(stratum, result)
 		return result
 	}
 	/** A planned statement's arrays: its rows' texts, column by column, each array within the longest string. */
@@ -317,10 +318,7 @@ export const bindWrite = (
 		if (step.kind !== "family") {
 			return Result.map(values(statement), (one) => [one])
 		}
-		const planned = planOf(step.slot)
-		if (planned === undefined) {
-			return Result.ok([])
-		}
+		const planned = planOf(step.stratum)
 		if (!planned.ok) {
 			return planned
 		}

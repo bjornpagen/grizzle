@@ -66,7 +66,7 @@ import {
 } from "#compiler/write/frontend/entry.ts"
 
 import { closedLeaf, type ClosedRows, hostEvaluator } from "#compiler/write/family/fold.ts"
-import { isTreeOf, type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
+import { isSequence, isTreeOf, type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import {
 	canonicalActionOrder,
 	type ImmediateReference,
@@ -194,6 +194,15 @@ export interface SlotGroup {
 export interface SlotFacts {
 	readonly name: string
 	readonly host: HostChecks
+}
+
+/** A stratum's edits of one member relation: its slots, each normalized as any slot is, by operation. */
+export interface StratumEdit {
+	readonly stratum: number
+	readonly relation: WrittenRelation
+	readonly inserts: ParamId | undefined
+	readonly puts: ParamId | undefined
+	readonly deletes: ParamId | undefined
 }
 
 /** A nested write of a stratum: the insert's relation's nesting and the slot its facts travel in. */
@@ -377,6 +386,9 @@ export interface WriteFrontend extends WriteQueries {
 	/** Each stratum's nested writes, by stratum and relation: the families each reaches, whose statements follow the
 	 * stratum's own. */
 	readonly nested: ReadonlyArray<NestedWrite>
+	/** Each stratum's edits of a family's member relation (write/family/edit.ts): its slots of inserted, put and deleted
+	 * rows, which no action of its own writes, the family planner's statements following the stratum's own. */
+	readonly edits: ReadonlyArray<StratumEdit>
 	/** The relations whose deltas the read-backs name, in code point order. */
 	readonly deltas: ReadonlyArray<NamedDelta>
 	readonly references: ReadonlyArray<ImmediateReference>
@@ -735,9 +747,11 @@ const compile = (
 		nestings.set(relation.name, built.value)
 		return built.value
 	}
-	/** The family `name` is a member of, a tree's aside: its rows are written only under their owner. */
-	const memberFamily = (name: string) =>
-		families.find((f) => f.member.name === name && !isTreeOf(f, name))
+	/** The sequence `name` is a member of, a tree's aside: its members are written only under their owner. */
+	const sequenceOf = (name: string) =>
+		families.find((f) => f.member.name === name && isSequence(f) && !isTreeOf(f, name))
+	/** Whether `name` is a member of a family: its rows' drawn values are the family planner's (write/family/edit.ts). */
+	const managed = (name: string): boolean => families.some((f) => f.member.name === name)
 	/** Whether an insert into `name` nests families: it owns one, or is a tree's relation. */
 	const nests = (name: string): boolean => families.some((f) => f.owner.name === name)
 	/** A relation written whole, its classes its own serial fields'. */
@@ -807,27 +821,48 @@ const compile = (
 			const loc = member.loc
 			const target = targetOf(member.relation, loc)
 			const { relation, entry } = target
-			const family = memberFamily(relation.name)
-			if (family !== undefined && (member.op === "insert" || member.op === "delete")) {
-				const slots = `${family.id.owner}.${family.id.count}`
+			const sequence = sequenceOf(relation.name)
+			if (sequence !== undefined && member.op === "insert") {
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					member.op === "insert"
-						? `an insert into ${relation.name}, a member of the family ${slots}: a family is written under its owner, so nest its members at the owner's count field`
-						: !writtenOf(family.owner.name, loc).mutable
-							? `a delete of ${relation.name}, a member of the family ${slots} of the immutable ${family.owner.name}: an immutable owner's family is fixed when its owner is inserted; declare mutable(${family.owner.name}) to change it`
-							: `a delete of ${relation.name}, a member of the family ${slots}: a member's slot is drawn, so its removal rewrites its family, which grizzle plans only under an owner the same ChangeSet inserts`
+					`an insert into ${relation.name}, a member of the sequence ${sequence.id.owner}.${sequence.id.count}: a sequence's member is written under its owner: nest it in order at the owner's count field`
 				)
 			}
-			const drawnField = relation.fields.find(
-				(f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated"
-			)
-			if (member.op === "put" && drawnField !== undefined) {
+			const tree = families.find((f) => isTreeOf(f, relation.name))
+			if (tree !== undefined && member.op !== "insert") {
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`a put of ${relation.name}, whose ${drawnField.name} grizzle ${drawnField.writing.kind === "drawn" ? "draws" : "accumulates"} from its family: a put that inserts or displaces a fact of it would write its family's drawn and accumulated columns, which grizzle plans only for an insert that nests the family`
+					`a ${member.op} of ${relation.name}, a node of the tree ${tree.id.owner}.${tree.id.count}: a tree is rewritten whole, which grizzle plans only by inserting its root with the whole tree nested`
+				)
+			}
+			const fixed = families.find(
+				(f) =>
+					f.member.name === relation.name &&
+					!isTreeOf(f, relation.name) &&
+					!writtenOf(f.owner.name, loc).mutable
+			)
+			if (fixed !== undefined && member.op === "delete") {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					`a delete of ${relation.name}, a member of the family ${fixed.id.owner}.${fixed.id.count} of the immutable ${fixed.owner.name}: an immutable owner's family is fixed when its owner is inserted; declare mutable(${fixed.owner.name}) to change it`
+				)
+			}
+			const edited = managed(relation.name) && tree === undefined
+			if (edited && (entry.kind !== "whole" || member.member.kind === "query")) {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					`a ${member.op} of ${relation.name}, a member of a family, ${entry.kind !== "whole" ? "through a query entry" : "by a query"}: grizzle draws its family's values from its rows on the host, so write ${relation.name} whole from an array or a Stream`
+				)
+			}
+			if (edited && nests(relation.name)) {
+				refuse(
+					"UnsupportedOperation",
+					loc,
+					`a ${member.op} of ${relation.name}, both a family's member and an owner: its rows' own families are drawn by a nesting, which a member's edit does not reach`
 				)
 			}
 			const nested = member.op === "insert" && nests(relation.name)
@@ -957,6 +992,13 @@ const compile = (
 	 * protocol makes a second equal fact an exact repeat. */
 	/** Each stratum's nested writes, by its position among the occupied strata, the stratum its statements run in. */
 	const nestedWrites: Array<NestedWrite> = []
+	/** Each stratum's slots of the relations whose rows a family planner writes, by operation. */
+	const edits: Array<{
+		readonly stratum: number
+		readonly relation: string
+		readonly op: "insert" | "put" | "delete"
+		readonly slot: ParamId
+	}> = []
 	const draftsByStratum = occupied.map(({ s, members }, stratum) => {
 		const drafts: Array<Draft> = []
 		const outside: Array<OutsideDraft> = []
@@ -1099,6 +1141,16 @@ const compile = (
 				}
 				if (op !== "delete") {
 					refuseGeneratedUnique(relation, loc)
+				}
+				if (managed(relation.name) && !families.some((f) => isTreeOf(f, relation.name))) {
+					const heading = op === "delete" ? factHeading(written) : classes.complete
+					const act: SingleAct =
+						op === "insert" ? { op, serial: completeClass } : op === "put" ? { op } : { op }
+					const slot = singleInput(act, heading)
+					if (slot !== undefined) {
+						edits.push(Object.freeze({ stratum, relation: relation.name, op, slot: slot.slot }))
+					}
+					continue
 				}
 				switch (op) {
 					case "put": {
@@ -1406,9 +1458,31 @@ const compile = (
 	}
 	/** The relations a nested write writes through its families' statements: every reached family's member, a tree's
 	 * relation among them. Their statements fill no delta carrier, so no read-back names their deltas. */
-	const nestedRelations = new Set(
-		nestedWrites.flatMap((n) => n.nesting.reached.map((r) => r.family.member.name))
-	)
+	const nestedRelations = new Set([
+		...nestedWrites.flatMap((n) => n.nesting.reached.map((r) => r.family.member.name)),
+		...edits.map((e) => e.relation)
+	])
+	if (new Set(edits.map((e) => e.stratum)).size > 1) {
+		refuse(
+			"UnsupportedOperation",
+			at,
+			"family members written in more than one stratum: each stratum's edits are planned from what one read before the changeset's writes finds, so write a ChangeSet's family members in one stratum"
+		)
+	}
+	const stratumEdits: ReadonlyArray<StratumEdit> = [
+		...groupBy(edits, (e) => `${e.stratum}\u0000${e.relation}`)
+	].map(([, list]): StratumEdit => {
+		const first = list[0]
+		const slotOf = (op: "insert" | "put" | "delete"): ParamId | undefined =>
+			list.find((e) => e.op === op)?.slot
+		return Object.freeze({
+			stratum: first.stratum,
+			relation: writtenOf(first.relation, at),
+			inserts: slotOf("insert"),
+			puts: slotOf("put"),
+			deletes: slotOf("delete")
+		})
+	})
 	for (const r of readBacks) {
 		for (const d of r.deltas) {
 			if (nestedRelations.has(d.relation)) {
@@ -1514,6 +1588,7 @@ const compile = (
 		bindings: Object.freeze([...desc.bindings]),
 		slots: Object.freeze(slots),
 		nested: Object.freeze(nestedWrites),
+		edits: stratumEdits,
 		deltas: Object.freeze(namedDeltas),
 		references: Object.freeze(references),
 		deltaEntries,
