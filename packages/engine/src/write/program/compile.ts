@@ -1161,8 +1161,8 @@ const compile = (
  *    analyzed after it is filled and before the first statement that joins it against a stored relation.
  * 5. The template: its requirements, and the outcome: count rules, the witness decoder and the constraint-to-law map.
  *
- * A WriteProgram holds no parameter value; binding normalizes and encodes one application's inputs, applies
- * the transport size rule, and says which statements an empty input lets the runtime skip. */
+ * A WriteProgram holds no parameter value; binding normalizes and encodes one application's inputs as their arrays,
+ * and says which statements an empty input lets the runtime skip. */
 export const compileWrite = (
 	schema: CheckedSchema,
 	desc: ChangeSetDesc,

@@ -43,10 +43,10 @@ export type ShapeFeature =
 	| "from cte"
 	| "from derived"
 	| "from function"
-	| "from recordset"
+	| "from arrays"
 	| "from values"
 	| "from context"
-	| `${"derived" | "function" | "recordset" | "cte"} of no column`
+	| `${"derived" | "function" | "arrays" | "cte"} of no column`
 	| "core of no target"
 	| "insert of no column"
 	| "join"
@@ -175,10 +175,8 @@ const fromFeature = (item: FromSource): ReadonlyArray<ShapeFeature> => {
 				...(item.lateral ? (["lateral"] as const) : []),
 				...(item.columns.length === 0 ? (["function of no column"] as const) : [])
 			]
-		case "recordset":
-			return item.columns.length === 0
-				? ["from recordset", "recordset of no column"]
-				: ["from recordset"]
+		case "arrays":
+			return item.source.kind === "count" ? ["from arrays", "arrays of no column"] : ["from arrays"]
 		case "values":
 			return ["from values"]
 		case "context":
@@ -312,9 +310,9 @@ const selectFeatures = (s: Select): ReadonlyArray<ShapeFeature> => [
  *
  * A statement's shape is the multiset of its structural features, each named in words:
  *
- * - FROM items by kind (`from table`, `from derived`, `from recordset`, `from values`, `join`, `cross join`) and
+ * - FROM items by kind (`from table`, `from derived`, `from arrays`, `from values`, `join`, `cross join`) and
  *   `lateral` for a lateral derived table or function;
- * - the zero-width forms PostgreSQL spells by absence: a derived table, function, recordset or query CTE of no column
+ * - the zero-width forms PostgreSQL spells by absence: a derived table, function, input arrays or query CTE of no column
  *   (`derived of no column`, ...), a `core of no target`, an `insert of no column`;
  * - set operations (`union all`, `except`, ...), WITH (`with`, `with recursive`, `cte materialized`, a data-modifying
  *   `cte insert`), `distinct`, `distinct on`, `group by`, `having`, `order by`;

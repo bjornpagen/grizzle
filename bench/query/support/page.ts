@@ -16,7 +16,6 @@ import {
 } from "#bench/query/support/kit.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 
 /**
  * A page request as the page runtime runs it (R05).
@@ -63,7 +62,7 @@ export const deliverPage = Effect.fn("deliverPage")(
 		values: HostParams,
 		call: PageCall
 	): Effect.fn.Return<DeliveredPage, DeliveryFailed | ReadError | FlightFailure> {
-		const inputs = executionInputs(paramCodecs(pages.params), values, transportLimits)
+		const inputs = executionInputs(paramCodecs(pages.params), values)
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}

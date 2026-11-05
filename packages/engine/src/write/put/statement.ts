@@ -130,7 +130,7 @@ export type PutResult =
  *   unique on the key, so one INSERT never proposes two rows at one key (which PostgreSQL refuses with
  *   21000 for DO UPDATE):
  *
- *     WITH "r1"(...) AS (SELECT ... FROM jsonb_to_recordset($1::jsonb) AS "r0"(...)),
+ *     WITH "r1"(...) AS (SELECT ... FROM (SELECT pg_catalog.unnest($1::...[]) ...) AS "r0"),
  *     "r2" AS (INSERT INTO "s"."t" AS "r3" (k..., p...) [OVERRIDING SYSTEM VALUE] SELECT ... FROM "r1" ORDER BY k...
  *              ON CONFLICT (k...) DO UPDATE SET "p" = EXCLUDED."p", ...
  *                WHERE ("r3"."p", ...) <> (EXCLUDED."p", ...)

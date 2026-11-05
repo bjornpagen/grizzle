@@ -27,20 +27,23 @@ import {
 	String as Str
 } from "effect"
 import {
-	keyedColumns,
-	normalEncoder,
+	arraysEncoder,
+	arrayTexts,
+	normalArrays,
 	normalForm,
 	normalRows,
 	positionalColumns,
 	type RelationSpec,
-	recordsetEncoder,
-	recordsetJson,
 	relationNormalizer
 } from "#compiler/codec/recordset.ts"
+import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { EncodingFailure } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
+import { Vector } from "#compiler/scalar/values/vector.ts"
+import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -49,10 +52,10 @@ import { asDecimal } from "#test/unit/codec/values.ts"
 
 /**
  * Relation inputs: the host codec owns the set property and the null ban, deduplicating by fact identity after native
- * coercion and encoding canonically. The host collects a Stream member up to recordsetMaxRows before it normalizes it
- * (adapter/reader/params.ts). Deduplication is the pg relation suite's, against
- * PostgreSQL's own DISTINCT on generated cases (test/pg/codec/relation.test.ts); here, the refusals and the canonical
- * encoding PostgreSQL cannot see.
+ * coercion and encoding canonically as one array literal per column. The host collects a Stream member whole before it
+ * normalizes it (adapter/reader/params.ts). Deduplication and PostgreSQL's reading of the arrays are the pg relation
+ * suite's, against PostgreSQL's own DISTINCT and array_in on generated cases (test/pg/codec/relation.test.ts); here,
+ * the refusals, the canonical encoding and the literals' grammar, read back by array_in's rules (test/support/arrays.ts).
  */
 
 const reading: RelationSpec = {
@@ -254,9 +257,9 @@ describe("relation normalization", () => {
 			})
 	)
 
-	it.effect("encodes canonically: the same set in any order gives byte-identical JSON", (ctx) =>
+	it.effect("encodes canonically: the same set in any order gives byte-identical arrays", (ctx) =>
 		Effect.gen(function* () {
-			const encode = recordsetEncoder(reading)
+			const encode = arraysEncoder(reading)
 			yield* searched(
 				ctx,
 				explore(
@@ -291,7 +294,10 @@ describe("relation normalization", () => {
 							const second = succeeded(encode([...shuffled, ...shuffled]))
 							assert.deepEqual(second, first)
 							assert.equal(first.count, facts.length)
-							assert.equal(trustedJson<ReadonlyArray<unknown>>(first.json).length, facts.length)
+							assert.equal(first.arrays.length, 3)
+							for (const array of first.arrays) {
+								assert.equal(readArrayLiteral(array).length, facts.length)
+							}
 						})
 				)
 			)
@@ -307,21 +313,21 @@ describe("relation normalization", () => {
 					columns: reading.columns,
 					slot: { kind: "none" }
 				}
-				/** A statement's encoder over the same heading: its own column order and wire names. */
+				/** A statement's encoder over the same heading in its own column order. */
 				const statement: RelationSpec = {
 					relation: "Reading",
-					columns: keyedColumns([
-						{ name: "raw", type: types.float8, key: "x" },
-						{ name: "id", type: types.uuid, key: "y" },
-						{ name: "value", type: types.numeric52, key: "z" }
+					columns: positionalColumns([
+						{ name: "raw", type: types.float8 },
+						{ name: "id", type: types.uuid },
+						{ name: "value", type: types.numeric52 }
 					]),
 					slot: { kind: "none" }
 				}
 				const normalize = relationNormalizer(heading)
 				const again = relationNormalizer(statement)
-				const encode = recordsetEncoder(statement)
+				const encode = arraysEncoder(statement)
 				const rows = normalRows(statement)
-				const encodeNormal = normalEncoder(statement)
+				const encodeNormal = normalArrays(statement)
 				/** An id in either case, so equal facts are spelled differently. */
 				const fact: Gen<Reading> = (source) => {
 					const id = source.draw(uuid(4))
@@ -353,7 +359,7 @@ describe("relation normalization", () => {
 								const written = succeeded(rows(marked))
 								assert.equal(written.facts, marked.facts)
 								assert.deepEqual(written.rows, succeeded(again(facts)).rows)
-								assert.equal(succeeded(encodeNormal(marked)).json, succeeded(encode(facts)).json)
+								assert.deepEqual(succeeded(encodeNormal(marked)), succeeded(encode(facts)).arrays)
 							})
 					)
 				)
@@ -370,7 +376,7 @@ describe("relation normalization", () => {
 				]),
 				slot: { kind: "none" }
 			}
-			const encode = recordsetEncoder(spec)
+			const encode = arraysEncoder(spec)
 			const normalize = relationNormalizer(spec)
 			const spellings: Arr.NonEmptyReadonlyArray<string> = [
 				"1",
@@ -447,7 +453,7 @@ describe("relation normalization", () => {
 							)
 							const first = succeeded(encode(all))
 							const second = succeeded(encode(Arr.reverse([...shuffled])))
-							assert.equal(second.json, first.json)
+							assert.deepEqual(second.arrays, first.arrays)
 							assert.equal(first.count, facts.length)
 							const a = succeeded(normalize(all))
 							const b = succeeded(normalize(shuffled))
@@ -462,59 +468,191 @@ describe("relation normalization", () => {
 		})
 	)
 
-	it.effect("writes the recordset JSON of the same rows as objects", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					suite: "unit/codec/recordset-1",
-					draw: drawn((source) => {
-						const wires = source.draw(
-							map(
-								uniqueArray(
-									string(codePoint(0x20, 0x7e), { min: 0, max: 10 }),
-									(item) => item,
-									{ min: 0, max: 4 },
-									20
-								),
-								(names) => Arr.map(names, (name) => `c${name}`)
+	it.effect(
+		"writes one array literal per column that array_in reads back as the column's texts, whatever they hold",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/codec/arrays-literal",
+						draw: drawn((source) => {
+							const width = source.draw(int(0, 4))
+							/** Every character array_in reads as syntax, blanks, and NULL's letters among plain ones. */
+							const cell = string(
+								weighted([
+									[3, element(['"', "\\", ",", "{", "}", " ", "\t", "\n", "N", "U", "L", "l"])],
+									[2, codePoint(0x20, 0x7e)],
+									[1, codePoint(0xa0, 0x10_ffff)]
+								]),
+								{ min: 0, max: 8 }
 							)
-						)
-						return [
-							wires,
-							source.draw(
-								array(
-									array(string(codePoint(0x20, 0x7e), { min: 0, max: 10 }), {
-										min: wires.length,
-										max: wires.length
-									}),
-									{ min: 0, max: 4 }
+							return [
+								width,
+								source.draw(array(array(cell, { min: width, max: width }), { min: 0, max: 6 }))
+							] as const
+						}),
+						literal: Formatter.format,
+						coverage: noCoverage,
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang: Duration.minutes(2)
+					},
+					([width, rows]) =>
+						Effect.sync(() => {
+							const columns = Array.from({ length: width }, (_, i) => `f${i}`)
+							const written = succeeded(arrayTexts("Input", columns, rows, 2 ** 20))
+							if (width === 0) {
+								assert.deepEqual(written, [String(rows.length)])
+								return
+							}
+							assert.equal(written.length, width)
+							for (const [j, literal] of written.entries()) {
+								assert.deepEqual(
+									readArrayLiteral(literal),
+									Arr.map(rows, (row) => defined(row[j])),
+									`column ${j} of ${literal}`
 								)
-							)
-						] as const
-					}),
-					literal: Formatter.format,
-					coverage: noCoverage,
-					kept: [],
-					runs: 100,
-					shrink: completeShrink,
-					concurrency: 1,
-					steerEvery: 16,
-					caseHang: Duration.minutes(2)
-				},
-				([wires, rows]) =>
-					Effect.sync(() => {
-						const objects = Arr.map(rows, (row) =>
-							Record.fromEntries(Arr.map(row, (cell, i) => [defined(wires[i]), cell]))
-						)
-						assert.deepEqual(
-							trustedJson<ReadonlyArray<Readonly<Record<string, string>>>>(
-								recordsetJson(wires, rows)
-							),
-							objects
-						)
-					})
+							}
+						})
+				)
 			)
+	)
+
+	it("refuses a column whose literal would pass the string bound, naming it, before building it", () => {
+		const rows = [["ab"], ["c\\"]]
+		/** {"ab","c\\"}: two braces, two elements of two quotes each, a comma, and the texts, one escape added. */
+		const length = 2 + (2 + 2) + 1 + (2 + 3)
+		assert.deepEqual(succeeded(arrayTexts("Input", ["x"], rows, length)), ['{"ab","c\\\\"}'])
+		assert.deepEqual(
+			arrayTexts("Input", ["x"], rows, length - 1),
+			Result.err({
+				_tag: "LiteralBound",
+				input: "Input",
+				column: "x",
+				limit: length - 1
+			})
 		)
+	})
+})
+
+/** One column of every carrier, and the contract and refinement forms, each with a generator of its host values. */
+const everyType: ReadonlyArray<{
+	readonly name: string
+	readonly type: ScalarType
+	readonly value: Gen<unknown>
+}> = [
+	{
+		name: "text",
+		type: types.text,
+		/** Text PostgreSQL stores, no NUL and no lone surrogate, with array_in's syntax characters among it. */
+		value: string(
+			weighted([
+				[2, element(['"', "\\", ",", "{", "}", " ", "N", "U", "L"])],
+				[2, codePoint(0x20, 0x7e)],
+				[1, codePoint(0xa0, 0xd7_ff)],
+				[1, codePoint(0xe0_00, 0x10_ffff)]
+			]),
+			{ min: 0, max: 6 }
+		)
+	},
+	{
+		name: "pattern",
+		type: scalarOf(f.regex("^[a-z ,]+$", "u"), {}),
+		value: string(element(["a", "b", " ", ","]), { min: 1, max: 4 })
+	},
+	{ name: "uuid", type: types.uuid, value: uuid(4) },
+	{ name: "kind", type: types.kind, value: element(["Manual", "Automatic", "Ünïcode"]) },
+	{
+		name: "numeric",
+		type: types.numeric,
+		value: map(int(-99999, 99999), (n) => Decimal.of(`${n}e-3`))
+	},
+	{
+		name: "scaled",
+		type: types.numeric52,
+		value: map(int(-99999, 99999), (n) => Decimal.of(`${n}e-2`))
+	},
+	{
+		name: "span4",
+		type: types.range4,
+		value: map(int(-1000, 1000), (start) => ({ start, end: start + 3 }))
+	},
+	{
+		name: "span8",
+		type: types.range8,
+		value: map(int(-1000, 1000), (start) => ({ start: BigInt(start), end: BigInt(start) + 5n }))
+	},
+	{ name: "cents", type: types.cents, value: map(int(-1000, 1000), (n) => BigInt(n) * 7n) },
+	{ name: "big", type: types.int8, value: map(int(-1000, 1000), (n) => BigInt(n) ** 3n) },
+	{ name: "small", type: types.int2, value: int(-32768, 32767) },
+	{ name: "whole", type: types.int4, value: int(-(2 ** 31), 2 ** 31 - 1) },
+	{ name: "flag", type: types.bool, value: element([true, false]) },
+	{
+		name: "embedding",
+		type: types.vector3,
+		value: map(int(1, 1000), (n) => Vector.make(Float32Array.of(n / 8, -n, 0.5), 3))
+	},
+	{ name: "raw", type: types.float8, value: anyDouble },
+	{
+		name: "single",
+		type: types.float4,
+		value: element([0, -0, 1.5, -2.25, Number.NaN, Number.POSITIVE_INFINITY])
+	},
+	{ name: "price", type: types.money, value: map(int(-100000, 100000), (n) => Money.of(BigInt(n))) }
+]
+
+describe("the arrays of every field type", () => {
+	it.effect(
+		"carry each value's canonical text, which array_in reads back exactly, in the facts' canonical order",
+		(ctx) =>
+			Effect.gen(function* () {
+				const spec: RelationSpec = {
+					relation: "Every",
+					columns: positionalColumns(Arr.map(everyType, ({ name, type }) => ({ name, type }))),
+					slot: { kind: "none" }
+				}
+				const encode = arraysEncoder(spec)
+				const normalize = relationNormalizer(spec)
+				const factGen: Gen<Readonly<Record<string, unknown>>> = (source) =>
+					Record.fromEntries(
+						Arr.map(everyType, ({ name, value }) => [name, source.draw(value)] as const)
+					)
+				yield* searched(
+					ctx,
+					explore(
+						{
+							suite: "unit/codec/arrays-every-type",
+							draw: drawn(array(factGen, { min: 0, max: 8 })),
+							literal: Formatter.format,
+							coverage: noCoverage,
+							kept: [],
+							runs: 200,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang: Duration.minutes(2)
+						},
+						(facts) =>
+							Effect.sync(() => {
+								const normal = succeeded(normalize(facts))
+								const { arrays, count } = succeeded(encode(facts))
+								assert.equal(count, normal.count)
+								assert.equal(arrays.length, everyType.length)
+								for (const [j, column] of everyType.entries()) {
+									const codec = scalarCodec(column.type)
+									assert.deepEqual(
+										readArrayLiteral(defined(arrays[j])),
+										Arr.map(normal.facts, (fact) => codec.text(fact[column.name])),
+										`the ${column.name} column`
+									)
+								}
+							})
+					)
+				)
+			})
 	)
 })

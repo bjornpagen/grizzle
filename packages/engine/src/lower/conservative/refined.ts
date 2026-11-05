@@ -50,7 +50,7 @@ const collectItems = (items: ReadonlyArray<FromItem>, into: Map<string, FromSour
 			case "enclosing":
 			case "derived":
 			case "function":
-			case "recordset":
+			case "arrays":
 			case "values":
 			case "context":
 				into.set(item.alias, item)
@@ -211,7 +211,7 @@ export class Tracer {
 				return this.cte(item.name, column, scope, claim)
 			case "enclosing":
 			case "function":
-			case "recordset":
+			case "arrays":
 			case "context":
 				return ["unproved"]
 		}
@@ -374,7 +374,7 @@ export const castDomain = (
  *   validated CHECK is immediate evidence), a placeholder or literal typed by the domain, or a cast into
  *   it. min, max, LEAST, GREATEST and CASE deliver one of their operands' values, and a cast to the base type relabels
  *   without changing the value, so each is proved when its operands are;
- * - unproved: anything else, a recordset column of a relation parameter, a base-typed placeholder or literal, a
+ * - unproved: anything else, an array column of a relation parameter, a base-typed placeholder or literal, a
  *   base-typed recursive state column, a derived relation's column, or a definition the trace does not follow.
  *
  * Both deliveries use it: the optimized one in shapes/refined, and the conservative one here (refineConservative), in

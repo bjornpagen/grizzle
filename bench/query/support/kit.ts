@@ -45,7 +45,6 @@ import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import type { TransportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -526,18 +525,16 @@ export interface Delivered {
 /**
  * Delivers one artifact of `compiled` with `values`, as a read does: its relation inputs normalized before any SQL
  * (relations.ts), then its flights, a lone statement alone and anything more in one SERIALIZABLE READ ONLY transaction.
- * `limits` decide the relation transport; a gate that compares transports passes others.
  */
 export const deliver = Effect.fn("deliver")(
 	function* (
 		runtime: Runtime,
 		compiled: Compiled,
 		artifact: Artifact,
-		values: HostParams,
-		limits: TransportLimits
+		values: HostParams
 	): Effect.fn.Return<Delivered, DeliveryFailed | ReadError | FlightFailure> {
 		const start = performance.now()
-		const inputs = executionInputs(paramCodecs(compiled.compiled.template.params), values, limits)
+		const inputs = executionInputs(paramCodecs(compiled.compiled.template.params), values)
 		if (Result.isFailure(inputs)) {
 			return yield* deliveryFailed(new ReadFailure({ reason: inputs.failure }))
 		}
@@ -576,13 +573,12 @@ export const timeDeliveries = Effect.fn("timeDeliveries")(function* (
 	compiled: Compiled,
 	artifact: Artifact,
 	values: HostParams,
-	samples: number,
-	limits: TransportLimits
+	samples: number
 ): Effect.fn.Return<Summary, DeliveryFailed> {
-	yield* deliver(runtime, compiled, artifact, values, limits)
+	yield* deliver(runtime, compiled, artifact, values)
 	const ms: Array<number> = []
 	for (let i = 0; i < Math.max(1, samples); i++) {
-		ms.push((yield* deliver(runtime, compiled, artifact, values, limits)).ms)
+		ms.push((yield* deliver(runtime, compiled, artifact, values)).ms)
 	}
 	return summarize(ms)
 })
@@ -964,8 +960,6 @@ export interface MeasureOptions {
 	readonly explainSamples: number
 	readonly serverPlans: ReadonlyArray<PlanMode>
 	readonly explain: ExplainOptions
-	/** The relation transport limits of the deliveries. */
-	readonly limits: TransportLimits
 	/** The conservative artifact's timed samples; its answer and plans are always captured. */
 	readonly conservativeSamples: number
 }
@@ -989,24 +983,15 @@ export const measureQuery = Effect.fn("measureQuery")(function* (
 	values: HostParams,
 	options: MeasureOptions
 ): Effect.fn.Return<QueryMeasure, DeliveryFailed | SqlError | MalformedPlan | MalformedRows> {
-	const limits = options.limits
-	const generated = yield* deliver(runtime, compiled, "optimized", values, limits)
-	const conservative = yield* deliver(runtime, compiled, "conservative", values, limits)
-	const generatedOp = yield* timeDeliveries(
-		runtime,
-		compiled,
-		"optimized",
-		values,
-		options.samples,
-		limits
-	)
+	const generated = yield* deliver(runtime, compiled, "optimized", values)
+	const conservative = yield* deliver(runtime, compiled, "conservative", values)
+	const generatedOp = yield* timeDeliveries(runtime, compiled, "optimized", values, options.samples)
 	const conservativeOp = yield* timeDeliveries(
 		runtime,
 		compiled,
 		"conservative",
 		values,
-		options.conservativeSamples,
-		limits
+		options.conservativeSamples
 	)
 	const variantOptions: VariantOptions = {
 		samples: options.samples,

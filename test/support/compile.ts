@@ -213,13 +213,26 @@ export const paramTexts = (
 ): ReadonlyArray<string> =>
 	Arr.map(spec.paramSlots, (slot): string => {
 		switch (slot.kind) {
-			case "scalar":
-			case "relation": {
+			case "scalar": {
 				const encoded = slot.encode(params[slot.param])
 				if (!encoded.ok) {
 					throw new Error(`encode ${slot.param}: ${encoded.error.message}`)
 				}
 				return encoded.value
+			}
+			case "relation": {
+				const encoded = slot.encode(params[slot.param])
+				if (!encoded.ok) {
+					const error = encoded.error
+					throw new Error(
+						`encode ${slot.param}: ${error._tag === "EncodingFailure" ? error.message : `column ${error.column} past ${error.limit}`}`
+					)
+				}
+				const array = encoded.value[slot.part]
+				if (array === undefined) {
+					throw new Error(`encode ${slot.param}: no array ${slot.part}`)
+				}
+				return array
 			}
 			case "member":
 			case "page":

@@ -5,7 +5,6 @@ import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
@@ -22,7 +21,7 @@ import {
  * relation parameter named like a source the runtime might read ("relation", "cursor", "parentKeys") or like a
  * page's reserved placeholder identity binds exactly as one named "items" does: every statement's placeholder texts. */
 const membersOf = (program: CompiledWrite, value: unknown) =>
-	collectInputs(program.frontend, parsedOf(value).inputs, recordsetMaxRows)
+	collectInputs(program.frontend, parsedOf(value).inputs)
 
 const fact = (n: number) => ({ id: uuidOf(n), label: "a", qty: 1n })
 

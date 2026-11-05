@@ -291,6 +291,7 @@ export type Failure =
 	| { readonly tag: "ConnectionLost"; readonly operation: string; readonly sqlstate: string | null }
 	| { readonly tag: "DriverFailure"; readonly operation: string }
 	| { readonly tag: "UnreadableAnswer"; readonly index: number; readonly fate: TransactionFate }
+	| { readonly tag: "InputTooLarge"; readonly statement: number; readonly bytes: number }
 
 export type AloneResult =
 	| { readonly kind: "rows"; readonly rows: Rows }
@@ -339,6 +340,12 @@ const failureData = (failure: FlightFailure | ConnectionLost | DriverFailure): F
 			return { tag: "DriverFailure", operation: failure.operation }
 		case "UnreadableAnswer":
 			return { tag: "UnreadableAnswer", index: failure.index, fate: failure.fate }
+		case "InputTooLarge": {
+			const bound = failure.bound
+			return bound.kind === "message"
+				? { tag: "InputTooLarge", statement: bound.statement, bytes: bound.bytes }
+				: { tag: "InputTooLarge", statement: -1, bytes: -1 }
+		}
 	}
 }
 

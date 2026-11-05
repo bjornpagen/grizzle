@@ -25,8 +25,8 @@ import {
  * - `encode` admits a host value through the exact carrier's boundary (values/identity.ts admitValue: integer range,
  *   numeric precision and scale, binary32 rounding, -0 as +0, uuid case, span order and fixed width, vector dimensions, finite components
  *   and cosine domain) and writes the value's canonical text. That text is the parameter text (bound untyped and cast by the statement, $n::type),
- *   the JSON string of a recordset field (recordset.ts) and the fact identity's part. Every value is a JSON string, so NaN and the infinities
- *   travel as text and reach the column's input function exactly.
+ *   the element of an input's array (recordset.ts) and the fact identity's part. Every value is a quoted array element, so NaN and the
+ *   infinities travel as text and reach the column's input function exactly.
  * - `text` writes the canonical text of a value the carrier already admitted (values/identity.ts canonicalText): one
  *   text per value under native equality.
  * - `convert` reads the text PostgreSQL writes for the column into its host value in its one form, trusting it
@@ -63,7 +63,7 @@ export interface ScalarCodec {
 	readonly type: ScalarType
 	/** The exact carrier's admission spec (values/identity.ts), which fact identity uses. */
 	readonly spec: CarrierSpec
-	/** Admit a host value and write its canonical text: the parameter text, the recordset field, the fact identity's part. */
+	/** Admit a host value and write its canonical text: the parameter text, the array element, the fact identity's part. */
 	readonly encode: (value: unknown) => Result.Result<string, CodecFault>
 	/**
 	 * The canonical text of an admitted value: one text per value under native equality. A value of another carrier's

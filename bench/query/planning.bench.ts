@@ -43,7 +43,6 @@ import {
 import { outline, planOf, scansOf, summaryOf } from "#bench/query/support/plans.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -340,7 +339,6 @@ export default defineGate({
 					explainSamples: Math.max(1, options.samples),
 					serverPlans: [],
 					explain: plainExplain,
-					limits: transportLimits,
 					conservativeSamples: 1
 				}
 				const m = yield* measureQuery(runtime, raw, compiled, values, measure)
@@ -372,10 +370,10 @@ export default defineGate({
 				const versusHand = compareVariants(m.generated, hand)
 				/** The first execution of the template's statement on a backend that has run nothing, then warm ones. */
 				const fresh = yield* runtimeSession(fx, fx.world.app, `m15b planning fresh ${kind} ${size}`)
-				const first = yield* deliver(fresh, compiled, "optimized", values, transportLimits)
+				const first = yield* deliver(fresh, compiled, "optimized", values)
 				const warm: Array<number> = []
 				for (let i = 0; i < Math.max(2, options.samples); i++) {
-					warm.push((yield* deliver(fresh, compiled, "optimized", values, transportLimits)).ms)
+					warm.push((yield* deliver(fresh, compiled, "optimized", values)).ms)
 				}
 				const sql = Arr.join(m.generated.statements, "\n")
 				const plan = planOf(m.generated, 0)
@@ -442,7 +440,7 @@ export default defineGate({
 			 * statement and the handwritten chain each explained with ANALYZE and run, to completion.
 			 */
 			const long = compile(fx, path12, reading)
-			const longDelivered = yield* deliver(runtime, long, "optimized", { start }, transportLimits)
+			const longDelivered = yield* deliver(runtime, long, "optimized", { start })
 			const [longStatement] = longDelivered.statements
 			if (longDelivered.statements.length !== 1) {
 				throw new GateSetupError({

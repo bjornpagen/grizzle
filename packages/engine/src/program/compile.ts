@@ -64,8 +64,8 @@ export interface QueryTemplate extends ProgramArtifacts {
 	/** How the runtime delivers the result, the same for both artifacts. */
 	readonly delivery: ProgramDelivery
 	/**
-	 * Both lowered programs, their statements' ASTs included, for per-execution VALUES specialization
-	 * and inspection; an optimized statement's large form holds its spec.
+	 * Both lowered programs, their statements' ASTs included, for inspection; an optimized statement's large form holds
+	 * its spec.
 	 */
 	readonly programs: {
 		readonly optimized: OptimizedProgram<SpecifiedForm>

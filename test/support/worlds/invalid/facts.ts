@@ -1,5 +1,5 @@
 import { array, boolean, element, type Gen, int, map } from "@grizzle/testing/gen"
-import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import { expect, projection, selected } from "#test/pg/laws/families/model.ts"
 import {
 	fieldsOfSource,
@@ -13,7 +13,6 @@ import { headingOf } from "#test/support/worlds/generate/entries.ts"
 import type { Strata, Variant } from "#test/support/worlds/invalid/kinds.ts"
 import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
 import { classifyEntry, entryRows, factKey, isMember } from "#test/support/worlds/model/host.ts"
-import { inputLimit } from "#test/support/worlds/model/session/apply.ts"
 import {
 	keysOf,
 	serialHead,
@@ -27,7 +26,6 @@ import type {
 	ContextFacts,
 	EntryOp,
 	EntrySpec,
-	FieldDomain,
 	FieldSpec,
 	HostFact,
 	InvalidKind,
@@ -279,8 +277,8 @@ const hiddenCollision = (
 }
 
 /**
- * The invalid kinds of a ChangeSet's ops through a writer's role, as the README's rules name its facts: an input past
- * 100,000 facts (judged before any fact is read), a fact twice in one input, a fact the entry cannot hold, a key a fact
+ * The invalid kinds of a ChangeSet's ops through a writer's role, as the README's rules name its facts: a fact twice in
+ * one input, a fact the entry cannot hold, a key a fact
  * outside the entry holds, a reference to a fact the role cannot see or to none at all, and a final state some law
  * refuses. An op through a relation the role does not write carries no fact kind: its refusal is the relation's.
  */
@@ -291,16 +289,9 @@ export const opKinds = (
 ): ReadonlyArray<InvalidKind> => {
 	const kinds = new Set<InvalidKind>()
 	for (const op of ops) {
-		const distinct = distinctFacts(op.facts)
-		if (distinct > inputLimit) {
-			kinds.add("fact:past-input-limit")
-		}
-		if (distinct < op.facts.length) {
+		if (distinctFacts(op.facts) < op.facts.length) {
 			kinds.add("fact:duplicate-in-input")
 		}
-	}
-	if (kinds.has("fact:past-input-limit")) {
-		return [...kinds]
 	}
 	const base = state.install.base
 	const written = writtenOf(base, writer.role)
@@ -453,43 +444,6 @@ const candidates = (
 		...Arr.map(picks, (p, i) => pooledFact(heading, [p, p + i + 1, p + 2 * i + 3, p + 5]))
 	]
 }
-
-/** A field an input's facts are counted through, and its `i`th value. */
-export interface Counter {
-	readonly field: string
-	readonly valueAt: (i: number) => HostValue
-}
-
-/** How a domain counts: an integer of at least 32 bits as itself, a uuid spelling the count in its last group; none else. */
-const countingOf = (domain: FieldDomain): ((i: number) => HostValue) | undefined => {
-	switch (domain.kind) {
-		case "integer":
-		case "serial":
-			return domain.bits === 16 ? undefined : (i) => i
-		case "uuid":
-			return (i) => `00000000-0000-4000-8000-${Str.padStart(12, "0")(i.toString(16))}`
-		case "text":
-		case "boolean":
-		case "handle":
-		case "span":
-		case "contract":
-			return undefined
-	}
-}
-
-/** The first field of a heading whose domain counts past the input limit; none for a heading without one. */
-export const counterOf = (heading: ReadonlyArray<FieldSpec>): Option.Option<Counter> =>
-	Arr.findFirst(heading, (f) => {
-		const valueAt = countingOf(f.domain)
-		return valueAt === undefined ? Option.none() : Option.some({ field: f.name, valueAt })
-	})
-
-/**
- * An input past the limit: one more than the limit of distinct facts, a fact with its counter's field counted through.
- * grizzle collapses equal facts before it counts, so a repeated fact is one fact.
- */
-export const pastLimitFacts = (counter: Counter, fact: HostFact): ReadonlyArray<HostFact> =>
-	Arr.makeBy(inputLimit + 1, (i): HostFact => ({ ...fact, [counter.field]: counter.valueAt(i) }))
 
 /** How many distinct facts an input holds: equal facts are one, as grizzle collapses them before it counts. */
 const distinctFacts = (facts: ReadonlyArray<HostFact>): number =>
@@ -815,18 +769,6 @@ export const opStrata = (
 					return op(draw.kind, [first, first])
 				}
 			},
-			...Option.match(counterOf(heading), {
-				onNone: (): ReadonlyArray<Variant<EntryOp>> => [],
-				onSome: (counter): ReadonlyArray<Variant<EntryOp>> => [
-					{
-						invalid: "fact:past-input-limit",
-						gen: (source) => {
-							const [first] = source.draw(factsOf(source.draw(opDrawGen)))
-							return op("delete", pastLimitFacts(counter, first))
-						}
-					}
-				]
-			}),
 			...Arr.match(refused, {
 				onEmpty: (): ReadonlyArray<Variant<EntryOp>> => [],
 				onNonEmpty: (all): ReadonlyArray<Variant<EntryOp>> => [

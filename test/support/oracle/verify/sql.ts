@@ -1392,22 +1392,28 @@ class StatementAuditor {
 				this.defineRelation(item.alias, "alias")
 				return register(item.alias, { columns })
 			}
-			case "recordset": {
-				const columns = this.at("columns", () => {
-					for (const [i, column] of item.columns.entries()) {
+			case "arrays": {
+				const source = item.source
+				if (source.kind === "count") {
+					this.at("source", () => {
+						this.placeholder(source.count.number, types.bigint)
+					})
+					this.defineRelation(item.alias, "alias")
+					return register(item.alias, { columns: this.columnList([], "input arrays", true) })
+				}
+				const columns = this.at("source", () => {
+					for (const [i, { definition, array }] of source.columns.entries()) {
 						this.at(i, () => {
-							this.type(column.type)
-							this.collatable(column.type, column.collation, "column definition")
+							this.type(definition.type)
+							this.collatable(definition.type, definition.collation, "column definition")
+							this.placeholder(array.number, { ...definition.type, array: true })
 						})
 					}
 					return this.columnList(
-						Arr.map(item.columns, (column) => column.name),
-						"recordset",
+						Arr.map(source.columns, (column) => column.definition.name),
+						"input arrays",
 						true
 					)
-				})
-				this.at("source", () => {
-					this.placeholder(item.source.number, types.jsonb)
 				})
 				this.defineRelation(item.alias, "alias")
 				return register(item.alias, { columns })

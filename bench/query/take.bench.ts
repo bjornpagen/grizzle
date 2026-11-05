@@ -73,7 +73,6 @@ import { lateralParentMax, poolBounds } from "#compiler/core/policy.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { installedDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
@@ -216,7 +215,6 @@ export default defineGate({
 				explainSamples: 1,
 				serverPlans: [],
 				explain: plainExplain,
-				limits: transportLimits,
 				conservativeSamples: 1
 			}
 			const installed =
@@ -536,8 +534,7 @@ export default defineGate({
 					read: "rows"
 				}),
 				"optimized",
-				{},
-				transportLimits
+				{}
 			)
 			const definitionWhole =
 				scansOf(definitionPlan, definitionSitting).length > 0 &&

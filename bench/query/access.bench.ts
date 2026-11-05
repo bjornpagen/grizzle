@@ -53,7 +53,6 @@ import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { executableQuery } from "#compiler/lower/template.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -246,8 +245,12 @@ const definedBy = (
 		case "function":
 		case "values":
 			return { aliases: [item.alias], columns: item.columns }
-		case "recordset":
-			return { aliases: [item.alias], columns: Arr.map(item.columns, (c) => c.name) }
+		case "arrays":
+			return {
+				aliases: [item.alias],
+				columns:
+					item.source.kind === "count" ? [] : Arr.map(item.source.columns, (c) => c.definition.name)
+			}
 		case "context":
 			return { aliases: [item.alias], columns: Arr.map(item.columns, (c) => c.column.name) }
 	}
@@ -413,7 +416,6 @@ export default defineGate({
 				explainSamples: 1,
 				serverPlans: [],
 				explain: plainExplain,
-				limits: transportLimits,
 				conservativeSamples: options.samples
 			}
 			const handOptions = {

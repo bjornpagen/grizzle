@@ -15,7 +15,12 @@ import {
 	TransientFailure,
 	TransportFailure
 } from "#adapter/errors/execution.ts"
-import { InputTooLarge, type MissingCapability, StaleStatement } from "#adapter/errors/failures.ts"
+import {
+	type InputTooLarge,
+	literalBound,
+	type MissingCapability,
+	StaleStatement
+} from "#adapter/errors/failures.ts"
 import {
 	type Classified,
 	classifyServerError,
@@ -39,9 +44,7 @@ import type { Session } from "#adapter/wire/session.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import { bindGroups, type Row, type RowDecoder } from "#compiler/core/decoder.ts"
 import { type CompileError, type EncodingFailure } from "#compiler/core/errors.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
-import type { ParamDecl } from "#compiler/ir/products.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
+import type { LiteralBound, ParamDecl } from "#compiler/ir/products.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap, ParamValue } from "#compiler/types/core/phantom.ts"
 import type { ArtifactStatement, UniqueAbort } from "#compiler/write/program/artifact.ts"
@@ -65,10 +68,20 @@ type HostInputs =
 	| { readonly kind: "rejected"; readonly law: Law; readonly witness: Witness }
 
 /**
- * How readying an application's inputs fails, before any SQL: a codec refused an input, an input is past the size
- * limit, or the WriteProgram refused the binding (its CompileError), which each caller reports in its own channel.
+ * How readying an application's inputs fails, before any SQL: a codec refused an input, an input's texts are past a
+ * bound of their transport, or the WriteProgram refused the binding (its CompileError), which each caller reports in
+ * its own channel.
  */
 export type InputFailure = EncodingFailure | InputTooLarge | CompileError
+
+/**
+ * A statement's placeholder texts refused (write/program/bind.ts BoundWrite.values): a codec's refusal as itself, and a
+ * column whose array no string can hold as the InputTooLarge of its bound.
+ */
+export const valuesFailure = (
+	failure: EncodingFailure | LiteralBound
+): EncodingFailure | InputTooLarge =>
+	failure._tag === "EncodingFailure" ? failure : literalBound(failure)
 
 /** An input's refusal as an apply's error: a codec's as itself, any other as the ExecutionFailure whose reason it is. */
 export const inputApplyError = (failure: InputFailure): EncodingFailure | ExecutionFailure =>
@@ -79,12 +92,13 @@ export const inputApplyError = (failure: InputFailure): EncodingFailure | Execut
  *
  * One application is two halves.
  *
- * Before any SQL (`hostInputs`): the ChangeSet value's array and Stream members are collected, a Stream at most
- * recordsetMaxRows facts (apply/collect.ts), and so is a Stream relation parameter; the WriteProgram binds
- * them (write/program/bind.ts): host normalization, which refuses a same-key pair among the enumerated additions as
- * invariant-rejected with the key law without sending any SQL; and the transport size rule, which refuses an input
- * past the size limit with InputTooLarge. A caller that runs the apply again after a
- * TransientFailure replays this half too, so a Stream member must be repeatable.
+ * Before any SQL (`hostInputs`): the ChangeSet value's array and Stream members are collected, a Stream whole
+ * (apply/collect.ts), and so is a Stream relation parameter; the WriteProgram binds them (write/program/bind.ts): host
+ * normalization, which refuses a same-key pair among the enumerated additions as invariant-rejected with the key law
+ * without sending any SQL. No input is bounded by its number of facts: its arrays are written per statement as the
+ * transaction is built, and one whose texts are past a bound of their transport is InputTooLarge before the flight is
+ * sent (wire/batch.ts). A caller that runs the apply again after a TransientFailure replays this half too, so a Stream
+ * member must be repeatable.
  *
  * Then the transaction (`runWrite`), one transaction of the Db's role on one session, in one flight
  * (../wire/batch.ts runFramed):
@@ -120,33 +134,19 @@ export const capabilityFailure = (
 	missing: MissingCapability
 ): Effect.Effect<never, ExecutionFailure> => Effect.fail(new ExecutionFailure({ reason: missing }))
 
-/**
- * A Stream relation parameter collected on the host: one that fails encodes nothing, and one of more than `maxRows`
- * facts is a relation input past the size limit.
- */
+/** A Stream relation parameter collected on the host, whole: one that fails encodes nothing. */
 const collectParam = (
 	decl: ParamDecl,
-	stream: Stream.Stream<unknown, unknown>,
-	maxRows: number
-): Effect.Effect<ReadonlyArray<unknown>, EncodingFailure | InputTooLarge> =>
-	Stream.runCollect(
-		Stream.take(
-			Stream.mapError(stream, () => encodeFailure("factShape", slotPlace(decl.name))),
-			maxRows + 1
-		)
-	).pipe(
-		Effect.filterOrFail(
-			(facts) => facts.length <= maxRows,
-			() => new InputTooLarge()
-		)
-	)
+	stream: Stream.Stream<unknown, unknown>
+): Effect.Effect<ReadonlyArray<unknown>, EncodingFailure> =>
+	Stream.runCollect(Stream.mapError(stream, () => encodeFailure("factShape", slotPlace(decl.name))))
 
 /** The values of the declared parameters by name: a ChangeSet.bind value under its private name, else the caller's. */
 const declaredParams = (
 	declared: ReadonlyArray<ParamDecl>,
 	params: ParamMap,
 	bindings: ReadonlyMap<string, ParamValue>
-): Effect.Effect<HostParams, EncodingFailure | InputTooLarge> =>
+): Effect.Effect<HostParams, EncodingFailure> =>
 	Effect.suspend(() => {
 		/**
 		 * The caller's map, read once at the boundary (../reader/params.ts readParams); a map or a value whose reading
@@ -179,10 +179,7 @@ const declaredParams = (
 		}
 		return Effect.map(
 			Effect.forEach(streams, ({ decl, stream }) =>
-				Effect.map(
-					collectParam(decl, stream, recordsetMaxRows),
-					(facts) => [decl.name, facts] as const
-				)
+				Effect.map(collectParam(decl, stream), (facts) => [decl.name, facts] as const)
 			),
 			(collected) => ({ ...out, ...Rec.fromEntries(collected) })
 		)
@@ -198,7 +195,7 @@ export const hostInputs = (
 ): Effect.Effect<HostInputs, InputFailure> =>
 	Effect.gen(function* () {
 		const program = compiled.program
-		const members = yield* collectInputs(program.frontend, compiled.change.inputs, recordsetMaxRows)
+		const members = yield* collectInputs(program.frontend, compiled.change.inputs)
 		const host = yield* declaredParams(program.params, params, compiled.change.values)
 		/**
 		 * `host` holds every bound value under its private name with its Stream collected, so the statements bind the
@@ -206,7 +203,7 @@ export const hostInputs = (
 		 */
 		const bound = bindWrite(program, { members, params: host })
 		if (!bound.ok) {
-			return yield* Effect.fail(bound.error === "ResourceBound" ? new InputTooLarge() : bound.error)
+			return yield* Effect.fail(bound.error)
 		}
 		if (bound.value.kind === "invariant-rejected") {
 			return {
@@ -215,7 +212,7 @@ export const hostInputs = (
 				witness: bound.value.witness
 			} as const
 		}
-		const ready = executionInputs(compiled.codecs, host, transportLimits)
+		const ready = executionInputs(compiled.codecs, host)
 		if (Result.isFailure(ready)) {
 			return yield* Effect.fail(ready.failure)
 		}
@@ -279,6 +276,7 @@ const flightFailure = <R>(
 		case "DriverFailure":
 			return Effect.fail(new TransportFailure({ reason: failure }))
 		case "UnreadableAnswer":
+		case "InputTooLarge":
 			return Effect.fail(new ExecutionFailure({ reason: failure }))
 		case "PrologueRefused":
 			return Effect.fail(new ExecutionFailure({ reason: failure.failure }))
@@ -330,7 +328,7 @@ export const runWrite = <R>(
 			}
 			const values = inputs.bound.values(s)
 			if (!values.ok) {
-				return yield* Effect.fail(values.error)
+				return yield* Effect.fail(inputApplyError(valuesFailure(values.error)))
 			}
 			sent.push(s)
 			statements.push({ sql: inputs.bound.form(s).sql, params: values.value })

@@ -20,6 +20,8 @@ import {
 } from "#compiler/ir/rel.ts"
 import { contractOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
+	type ArrayPart,
+	type ArraySlot,
 	type ConservativeOptions,
 	type ConservativeParamSlot,
 	type DeclaredParamSlot,
@@ -31,7 +33,15 @@ import {
 	unitColumn
 } from "#compiler/lower/conservative/types.ts"
 import { typedEq } from "#compiler/lower/conservative/vector/equality.ts"
-import type { Expr, FromItem, FromSource, Select, Target, TypeRef } from "#compiler/sql/ast.ts"
+import type {
+	ArraysSource,
+	Expr,
+	FromItem,
+	FromSource,
+	Select,
+	Target,
+	TypeRef
+} from "#compiler/sql/ast.ts"
 import {
 	col,
 	columnDefinition,
@@ -39,6 +49,7 @@ import {
 	derived,
 	distinctCore,
 	lit,
+	positionalValue,
 	sameTypeRef,
 	select,
 	slotParam,
@@ -118,8 +129,8 @@ export const queryInputs = (node: RelNode): ReadonlyArray<RelNode> =>
 	node.kind === "Attach" ? [node.parent] : inputsOf(node)
 
 /**
- * The columns of a relation input of `heading`, each traveling as a recordset column under the JSON key `key` allocates
- * (a membership's row as a VALUES column of that name), of its base type `base` gives.
+ * The columns of a relation input of `heading`, each traveling as the array column `key` allocates (a membership's row
+ * as a VALUES column of that name), of its base type `base` gives.
  */
 export const relationColumns = (
 	heading: Heading,
@@ -131,6 +142,35 @@ export const relationColumns = (
 		type: c.type,
 		definition: columnDefinition(key(), base(c.type))
 	}))
+
+/**
+ * The arrays one relation input over `columns` travels as, in placeholder order: one per column, or, for an input of no
+ * column, its count of facts.
+ */
+const arrayParts = (columns: ReadonlyArray<RelationColumn>): NonEmptyReadonlyArray<ArrayPart> =>
+	isNonEmpty(columns)
+		? mapNonEmpty(columns, (_, index): ArrayPart => ({ kind: "column", index }))
+		: [{ kind: "count" }]
+
+/**
+ * The arrays of a relation input as a FROM item reads them (sql/ast.ts ArraysSource), from its placeholders in part
+ * order (`arrayParts`): each column's definition with its array's placeholder, or the count's.
+ */
+export const arraysSource = (slots: NonEmptyReadonlyArray<ArraySlot>): ArraysSource => {
+	const columns = slots[0].columns
+	if (!isNonEmpty(columns)) {
+		return { kind: "count", count: positionalValue(slots[0].number) }
+	}
+	return {
+		kind: "columns",
+		columns: mapNonEmpty(columns, (column, index) => ({
+			definition: column.definition,
+			array: positionalValue(
+				defined(slots[index], `the placeholder of column ${index} of a relation input`).number
+			)
+		}))
+	}
+}
 
 /**
  * The placeholders of one statement, numbered from $1 in first-use order: its declared parameters', which every lowering
@@ -146,7 +186,7 @@ export class StatementParams<in out Own extends OwnParamSlot> {
 		ParamId,
 		Array<{ readonly type: TypeRef; readonly slot: ScalarParamSlot }>
 	>()
-	readonly #relations = new Map<ParamId, RelationParamSlot>()
+	readonly #relations = new Map<ParamId, NonEmptyReadonlyArray<RelationParamSlot>>()
 
 	get slots(): ReadonlyArray<DeclaredParamSlot | Own> {
 		return this.#slots
@@ -157,6 +197,16 @@ export class StatementParams<in out Own extends OwnParamSlot> {
 		const slot = make(this.#slots.length + 1)
 		this.#slots.push(slot)
 		return slot
+	}
+
+	/** The slots of one relation input over `columns`, one per array (arrayParts), each `make` makes of its number and part. */
+	protected allocateArrays<S extends DeclaredParamSlot | Own>(
+		columns: ReadonlyArray<RelationColumn>,
+		make: (number: number, part: ArrayPart) => S
+	): NonEmptyReadonlyArray<S> {
+		return mapNonEmpty(arrayParts(columns), (part) =>
+			this.#allocate((number) => make(number, part))
+		)
 	}
 
 	/** The scalar slot `slot` cast as `sqlType` in place of the type its first use gave it, at its number. */
@@ -193,23 +243,28 @@ export class StatementParams<in out Own extends OwnParamSlot> {
 	}
 
 	/**
-	 * One jsonb placeholder per relation parameter, its columns those `allocate` gives at the first use: every recordset
-	 * over it reads the same JSON keys.
+	 * The array placeholders of a relation parameter, one per column or its count, its columns those `allocate` gives at
+	 * the first use: every read of it in the statement reads the same arrays.
 	 */
-	relation(param: ParamId, allocate: () => ReadonlyArray<RelationColumn>): RelationParamSlot {
-		let slot = this.#relations.get(param)
-		if (slot === undefined) {
-			const columns = allocate()
-			slot = this.#allocate((number): RelationParamSlot => ({
-				kind: "relation",
-				placeholder: "recordset",
-				number,
-				param,
-				columns
-			}))
-			this.#relations.set(param, slot)
+	relation(
+		param: ParamId,
+		allocate: () => ReadonlyArray<RelationColumn>
+	): NonEmptyReadonlyArray<RelationParamSlot> {
+		const known = this.#relations.get(param)
+		if (known !== undefined) {
+			return known
 		}
-		return slot
+		const columns = allocate()
+		const slots = this.allocateArrays(columns, (number, part): RelationParamSlot => ({
+			kind: "relation",
+			placeholder: "value",
+			number,
+			param,
+			columns,
+			part
+		}))
+		this.#relations.set(param, slots)
+		return slots
 	}
 
 	/** A new placeholder of the lowering's own slot, which `make` makes of its number. */
@@ -218,31 +273,35 @@ export class StatementParams<in out Own extends OwnParamSlot> {
 	}
 }
 
-/** The placeholders of one write statement: its declared parameters' and one jsonb placeholder per member slot. */
+/** The placeholders of one write statement: its declared parameters' and its member slots' arrays. */
 export class WriteParams extends StatementParams<MemberParamSlot> {
-	readonly #members = new Map<ParamId, MemberParamSlot>()
+	readonly #members = new Map<ParamId, NonEmptyReadonlyArray<MemberParamSlot>>()
 
-	/** One jsonb placeholder per enumerated member slot of a write, its columns those `allocate` gives at the first use. */
+	/**
+	 * The array placeholders of an enumerated member slot of a write, one per column or its count, its columns those
+	 * `allocate` gives at the first use.
+	 */
 	member(
 		slot: ParamId,
 		relation: string,
 		allocate: () => ReadonlyArray<RelationColumn>
-	): MemberParamSlot {
+	): NonEmptyReadonlyArray<MemberParamSlot> {
 		const known = this.#members.get(slot)
 		if (known !== undefined) {
 			return known
 		}
 		const columns = allocate()
-		const member = this.own((number): MemberParamSlot => ({
+		const slots = this.allocateArrays(columns, (number, part): MemberParamSlot => ({
 			kind: "member",
-			placeholder: "recordset",
+			placeholder: "value",
 			number,
 			slot,
 			relation,
-			columns
+			columns,
+			part
 		}))
-		this.#members.set(slot, member)
-		return member
+		this.#members.set(slot, slots)
+		return slots
 	}
 }
 
@@ -257,7 +316,7 @@ export interface Placeholders {
 	readonly relation: (
 		param: ParamId,
 		allocate: () => ReadonlyArray<RelationColumn>
-	) => RelationParamSlot
+	) => NonEmptyReadonlyArray<RelationParamSlot>
 }
 
 /**
@@ -425,16 +484,16 @@ export class LowerContext {
 	}
 
 	/**
-	 * The jsonb placeholder of the enumerated member slot `slot` of `relation`, its columns those `allocate` gives at the
-	 * first use. A member slot is a write's: outside a write statement, which fills it, it is UnsupportedOperation, as a
-	 * Delta outside a write program is.
+	 * The array placeholders of the enumerated member slot `slot` of `relation`, its columns those `allocate` gives at
+	 * the first use. A member slot is a write's: outside a write statement, which fills it, it is UnsupportedOperation,
+	 * as a Delta outside a write program is.
 	 */
 	member(
 		slot: ParamId,
 		relation: string,
 		allocate: () => ReadonlyArray<RelationColumn>,
 		at: string
-	): MemberParamSlot {
+	): NonEmptyReadonlyArray<MemberParamSlot> {
 		const statement = this.#shared.statement
 		switch (statement.kind) {
 			case "write":
@@ -609,7 +668,7 @@ export class LowerContext {
 	}
 
 	/**
-	 * The type with every refinement dropped: a contract's base, unrefined text. Recordsets, VALUES lists, literals
+	 * The type with every refinement dropped: a contract's base, unrefined text. Input arrays, VALUES lists, literals
 	 * and recursive state are cast to it; a value checked at compile time or already stored
 	 * needs no domain check again.
 	 */

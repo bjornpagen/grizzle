@@ -141,7 +141,7 @@ const requiredStatementFeatures: Arr.NonEmptyReadonlyArray<StatementFeature> = [
 	"cte merge",
 	"from derived",
 	"from values",
-	"from recordset",
+	"from arrays",
 	"from cte",
 	"lateral",
 	"join",
@@ -170,7 +170,7 @@ const requiredStatementFeatures: Arr.NonEmptyReadonlyArray<StatementFeature> = [
 	"window lead",
 	"derived of no column",
 	"function of no column",
-	"recordset of no column",
+	"arrays of no column",
 	"cte of no column",
 	"core of no target",
 	"insert of no column"

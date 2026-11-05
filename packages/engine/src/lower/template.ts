@@ -1,9 +1,9 @@
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import {
-	keyedColumns,
-	normalEncoder,
-	type RelationSpec,
-	recordsetEncoder
+	arraysEncoder,
+	normalArrays,
+	positionalColumns,
+	type RelationSpec
 } from "#compiler/codec/recordset.ts"
 import { paramEncoder, resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { BudgetMeter } from "#compiler/core/budget.ts"
@@ -13,15 +13,16 @@ import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type {
-	Encoder,
 	MemberEncoder,
 	PageFill,
 	ParamSlot,
+	RelationEncoder,
 	StatementSpec,
 	WriteSlot
 } from "#compiler/ir/products.ts"
 
 import {
+	type ArrayPart,
 	type ConservativeParamSlot,
 	type ConservativeStatement,
 	type DeclaredParamSlot,
@@ -199,37 +200,61 @@ export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>
 	}
 }
 
-/** The recordset spec of a relation-valued placeholder over `columns`, its refusals naming `label`. */
+/** The spec of a relation input's placeholders over `columns`, its refusals naming `label`. */
 const placeholderSpec = (label: string, columns: ReadonlyArray<RelationColumn>): RelationSpec => ({
 	relation: label,
 	slot: { kind: "slot", name: label },
-	columns: keyedColumns(
-		columns.map((c) => ({ name: c.name, type: c.type, key: c.definition.name }))
-	)
+	columns: positionalColumns(columns)
 })
 
 /**
- * The encoder of a member slot's placeholder over `columns`: the host normalized the slot's facts already, so it
+ * The encoders of relation inputs' placeholders, by the columns the placeholders of one input in one statement share
+ * (conservative/context.ts StatementParams.relation and WriteParams.member): every placeholder of an input takes the
+ * one encoder its columns were given, which a binder runs once for all of them (ir/products.ts ParamSlot). Keyed by
+ * those columns' identity, an entry lives as long as the statement holding them.
+ */
+const memberEncoders = new WeakMap<ReadonlyArray<RelationColumn>, MemberEncoder>()
+const relationEncoders = new WeakMap<ReadonlyArray<RelationColumn>, RelationEncoder>()
+
+/**
+ * The encoder of a member slot's placeholders over `columns`: the host normalized the slot's facts already, so it
  * writes their rows in its column order (codec/recordset.ts normalRows) and refuses no same-key pair.
  */
 const memberEncoder = (label: string, columns: ReadonlyArray<RelationColumn>): MemberEncoder => {
-	const encode = normalEncoder(placeholderSpec(label, columns))
-	return (facts) => Result.map(encode(facts), (encoded) => encoded.json)
+	const known = memberEncoders.get(columns)
+	if (known !== undefined) {
+		return known
+	}
+	const encode = normalArrays(placeholderSpec(label, columns))
+	memberEncoders.set(columns, encode)
+	return encode
 }
 
 /**
- * The deduplicating recordset encoder of a relation parameter's placeholder over `columns`, its refusals naming
+ * The deduplicating arrays encoder of a relation parameter's placeholders over `columns`, its refusals naming
  * `label`: a relation parameter is a set of facts, deduplicated.
  */
-const relationEncoder = (label: string, columns: ReadonlyArray<RelationColumn>): Encoder => {
-	const encode = recordsetEncoder(placeholderSpec(label, columns))
-	return (value) => {
+const relationEncoder = (
+	label: string,
+	columns: ReadonlyArray<RelationColumn>
+): RelationEncoder => {
+	const known = relationEncoders.get(columns)
+	if (known !== undefined) {
+		return known
+	}
+	const arrays = arraysEncoder(placeholderSpec(label, columns))
+	const encode: RelationEncoder = (value) => {
 		if (!isIterableObject(value)) {
 			return Result.err(encodeFailure("factShape", slotPlace(label)))
 		}
-		return Result.map(encode(value), (encoded) => encoded.json)
+		return Result.map(arrays(value), (encoded) => encoded.arrays)
 	}
+	relationEncoders.set(columns, encode)
+	return encode
 }
+
+/** The position of a placeholder's array among its input's arrays: its column's, or the count's, the only one. */
+const partIndex = (part: ArrayPart): number => (part.kind === "column" ? part.index : 0)
 
 /**
  * The label a page placeholder's encoder names. It is never observable: the page runtime turns an encoding refusal of
@@ -247,7 +272,10 @@ const pageLabel = (fill: PageFill): string => {
 	}
 }
 
-/** What fills a declared parameter's placeholder, with its encoder: a scalar's text codec, a relation's recordset encoder. */
+/**
+ * What fills a declared parameter's placeholder, with its encoder: a scalar's text codec, a relation's arrays encoder,
+ * whose array at the placeholder's part it takes.
+ */
 export const declaredSlotOf = (
 	slot: DeclaredParamSlot
 ): Extract<ParamSlot, { readonly kind: "scalar" | "relation" }> => {
@@ -258,15 +286,17 @@ export const declaredSlotOf = (
 			return {
 				kind: "relation",
 				param: slot.param,
+				part: partIndex(slot.part),
 				encode: relationEncoder(slot.param, slot.columns)
 			}
 	}
 }
 
-/** What fills a member slot's placeholder, with its recordset encoder over the slot's normal facts. */
+/** What fills a member slot's placeholder, with its arrays encoder over the slot's normal facts. */
 const memberSlotOf = (slot: MemberParamSlot): Extract<ParamSlot, { readonly kind: "member" }> => ({
 	kind: "member",
 	slot: slot.slot,
+	part: partIndex(slot.part),
 	encode: memberEncoder(slot.relation, slot.columns)
 })
 
@@ -361,9 +391,9 @@ export const statementSpec = <Slot extends ConservativeParamSlot, P extends Para
  *   texts rather than the values (1.0 and 1.00 are one numeric and two texts: PostgreSQL's output texts are raw, and
  *   only decode reads them into one form), so the statement is read as a derived table that deduplicates values and
  *   the casts are applied outside it, with its ORDER BY re-applied to the uncast columns;
- * - one encoder per placeholder: a scalar parameter's text codec, a relation parameter's deduplicating recordset
- *   encoder (codec/recordset.ts), and the delivered parent keys of an attachment, whose texts the runtime reads from
- *   the parent statement's rows;
+ * - one encoder per placeholder: a scalar parameter's text codec, a relation parameter's deduplicating arrays encoder
+ *   (codec/recordset.ts), one per input, which each of its placeholders takes its array of, and the delivered parent
+ *   keys of an attachment, whose texts the runtime reads from the parent statement's rows;
  * - its heading, the statement's output heading: its rows are texts, a rows statement's its heading's columns then one
  *   per fused attachment column, an attachment statement's the parent key columns first, which the runtime stitches
  *   onto its parents; the value's decoder converts them (adapter/reader/execution.ts).

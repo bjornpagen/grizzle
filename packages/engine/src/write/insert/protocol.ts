@@ -145,7 +145,7 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  * Set insertion is one statement. For an enumerated member of Task(id, account, kind) keyed by id:
  *
  *   WITH "r1"("c1", "c2", "c3") AS (
- *     SELECT "r0"."c1", "r0"."c2", "r0"."c3" FROM jsonb_to_recordset($1::jsonb) AS "r0"("c1" uuid, ...)
+ *     SELECT "r0"."c1", "r0"."c2", "r0"."c3" FROM (SELECT pg_catalog.unnest($1::uuid[]) AS "c1", ...) AS "r0"
  *   ),
  *   "r2" AS (
  *     INSERT INTO "work"."task" AS "r3" ("id", "account", "kind")
@@ -222,7 +222,7 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  * whose rows are the facts it inserted, followed by a later statement, buildSpanClassify, that classifies each requested
  * fact it did not insert and raises the refusal it finds, so it returns no row. An occupant the arbiter waited on and
  * saw commit is not in the transaction's snapshot, so the insert meets it as 40001. The classification reads the input
- * again (the recordset, or the carrier the schedule then gives a described member, which has two consumers) and returns
+ * again (the arrays, or the carrier the schedule then gives a described member, which has two consumers) and returns
  * the requested facts no equal stored fact accounts for, an inserted fact and an exact repeat both being stored and
  * equal:
  *

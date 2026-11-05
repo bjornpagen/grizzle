@@ -1740,8 +1740,9 @@ const staleHandle = (kind: ActionKind, writers: Arr.NonEmptyReadonlyArray<Writer
  *   a fact it meets is hidden from it;
  * - an insert whose claimed field disagrees with the claims is outside-world (a Db) or refused by the policy (a direct
  *   writer) before any key is compared, so not-matching claims are required inside only;
- * - outcomes decided before a fact is read (compile-refused, resource-bound) and races (transient, commit-unknown) are
- *   required through their invalid kinds and the race suites, not here; a leak is a mismatch, never an outcome;
+ * - outcomes decided before a fact is read (compile-refused) and races (transient, commit-unknown) are required through
+ *   their invalid kinds and the race suites, not here; resource-bound, a statement's Bind message past PostgreSQL's
+ *   message limit, is past any input a world sends; a leak is a mismatch, never an outcome;
  * - a wild value handed to a Db call is the wrong kind of host value, refused before the encoder (compile-refused on
  *   an open session, handle-refused on a closed one, open-refused at Db.open), so it never meets the encoder:
  *   encoding-refused is required of an apply, whose right-kind value the encoder refuses (past an integer type's

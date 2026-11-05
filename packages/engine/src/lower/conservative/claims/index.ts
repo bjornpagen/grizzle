@@ -20,7 +20,7 @@ import { col, columnDefinition, core, select, target } from "#compiler/sql/build
  * (ir/desc.ts ContextDesc) and never pruned, so the source holds the member to exactly the keys the Db path writes for
  * it (adapter/db/claims.ts), and a member holding any other keys is refused where the context is read. The source reads
  * the member once, and each field is a column of it: its claim read by its base type, the type a relation parameter's
- * recordset reads (input-set/). The claims are encoded once per Db through each field's encoder, which checks the base
+ * arrays read (input-set/). The claims are encoded once per Db through each field's encoder, which checks the base
  * type, and PostgreSQL validated each refined claim at Db.open against its field's domain, a contract's or a pattern's
  * (adapter/admission/admit.ts), so no domain is applied again here. A text field is collated pg_catalog.pg_c_utf8, as
  * every stored text column is.

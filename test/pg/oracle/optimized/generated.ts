@@ -65,7 +65,6 @@ const situations = [
 	"fused attachment",
 	"pipelined attachment",
 	"heading groups",
-	"form:optimized VALUES",
 	"computed term",
 	"nested attachment",
 	"per-parent take over an attachment",
@@ -342,7 +341,7 @@ export const paramNamesSuite = (): void => {
 							suite: "optimized/param-names",
 							literal: Formatter.format,
 							coverage: required<OptimizedFeature>(
-								[["form:optimized VALUES", "relation parameter named from the dictionary"]],
+								["relation parameter named from the dictionary"],
 								{ cases: casesPerPopulation, sense: notesOnly }
 							),
 							kept: [],

@@ -102,8 +102,8 @@ const objectSpace = (
  *
  * The rewrite serves the passes that change one kind of node wherever it appears: a rename of schema-qualified names
  * (deploy/snapshot/objects.ts), the move of a statement into a scratch schema (adapter/admission/drift.ts), the refined
- * placeholders' recast and output casts (lower/shapes/refined) and the VALUES specialization of a relation parameter
- * (lower/shapes/relparam).
+ * placeholders' recast and output casts (lower/shapes/refined) and the renumbering of a single statement's parts'
+ * placeholders (write/program/single.ts).
  * Each node is rebuilt from its children: a node none of whose children changed keeps its identity, and a node whose
  * children changed is copied with the new children in their keys' places, so its other keys and their order stay as
  * they were. A hook sees a node after its children were rewritten, with the node as it was, and returns it or its
@@ -423,9 +423,16 @@ class Transform {
 				const call = this.plainCall(item.call)
 				return call === item.call ? item : { ...item, call }
 			}
-			case "recordset": {
-				const columns = mapList(item.columns, (c) => this.columnDefinition(c))
-				return columns === item.columns ? item : { ...item, columns }
+			case "arrays": {
+				const source = item.source
+				if (source.kind === "count") {
+					return item
+				}
+				const columns = mapNonEmptyKept(source.columns, (c) => {
+					const definition = this.columnDefinition(c.definition)
+					return definition === c.definition ? c : { ...c, definition }
+				})
+				return columns === source.columns ? item : { ...item, source: { ...source, columns } }
 			}
 			case "values": {
 				const rows = mapNonEmptyKept(item.rows, this.exprs)
@@ -1526,7 +1533,7 @@ class Visit {
 			case "table":
 			case "cte":
 			case "enclosing":
-			case "recordset":
+			case "arrays":
 			case "context":
 				return
 			case "derived": {

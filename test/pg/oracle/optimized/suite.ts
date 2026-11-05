@@ -236,15 +236,7 @@ export const differential = <S>(
 		return yield* oracleCheck(draw, check, (resolved, k) =>
 			Effect.gen(function* () {
 				const o = yield* differentialCase(k.draw(resolved), { ...plainDifferential, schema })
-				/** A relation parameter named from the dictionary that the optimized VALUES form carries in the same case. */
-				const reached = outcomeFeatures(o)
-				k.noteAll(reached)
-				if (
-					reached.includes("form:optimized VALUES") &&
-					reached.includes("relation parameter named from the dictionary")
-				) {
-					k.pair("form:optimized VALUES", "relation parameter named from the dictionary")
-				}
+				k.noteAll(outcomeFeatures(o))
 				if (!baselineIsSet(o)) {
 					return yield* new PropertyFailed({
 						report: `the conservative baseline repeats a row\n${printDifferential(o)}`

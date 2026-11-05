@@ -1,18 +1,38 @@
 /**
- * An enumerated relation parameter at or below this many facts travels as a VALUES list of typed literals.
+ * PostgreSQL's MaxAllocSize, the largest chunk its allocator hands out, which bounds the messages a backend reads.
  *
- * Every constant of this module is one of grizzle's fixed thresholds, read where it decides. None is configurable,
- * none is measured, and none is digested: no fingerprint or snapshot depends on them, since a change of a
- * constant is a change of grizzle. A function that decides a threshold takes it as its own parameter where a test
- * drives that decision with a smaller value; production passes the constant.
+ * Every constant of this module is one of grizzle's fixed thresholds, read where it decides, or a limit of PostgreSQL
+ * or V8 that grizzle states where it applies. None is configurable, none is measured, and none is digested: no
+ * fingerprint or snapshot depends on them, since a change of a constant is a change of grizzle. A function that decides
+ * a threshold takes it as its own parameter where a test drives that decision with a smaller value; production passes
+ * the constant.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19
+ * @unit bytes
+ * @scope one allocation of a backend
+ * @constraint protocol constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/utils/memutils.h#L40 "#define MaxAllocSize	((Size) 0x3fffffff)"
+ * @verified 2026-11-04
  */
-export const valuesMaxRows = 16
+const maxAllocSize = 0x3fff_ffff
 
 /**
- * Above valuesMaxRows, one jsonb_to_recordset parameter up to this many facts, a Stream member's collected facts
- * included. A larger input is refused before any SQL is sent.
+ * The longest message a PostgreSQL backend reads from a client, as the message's Int32 length counts it, itself
+ * included: a Bind message, which carries one execution's parameters, among them. A longer one is "invalid message
+ * length" (src/backend/libpq/pqcomm.c pq_getmessage), after which the backend ends the connection without an
+ * ErrorResponse, so a statement whose Bind message would be longer is refused on the host as InputTooLarge before its
+ * flight is sent (the shell's wire/batch.ts).
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19
+ * @unit bytes
+ * @scope one message from client to server, a Bind message's parameters included
+ * @constraint protocol constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/libpq/libpq.h#L34 "#define PQ_LARGE_MESSAGE_LIMIT	(MaxAllocSize - 1)"
+ * @verified 2026-11-04
  */
-export const recordsetMaxRows = 100_000
+export const messageMaxBytes = maxAllocSize - 1
 
 /** A bound parent set at or below this size takes the correlated LATERAL form. */
 export const lateralParentMax = 256

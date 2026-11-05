@@ -30,16 +30,14 @@ import {
 	String as Str
 } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
-import { ReadFailure, TransientFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import { makeReader, poolExecutor } from "#adapter/reader/reader.ts"
 import { indices } from "#compiler/core/array.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, defined, failed, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -70,14 +68,6 @@ const plain = (value: unknown): unknown => {
 
 const uuidAt = (group: number, n: number): Uuid =>
 	`00000000-0000-4000-${(0x9000 + group).toString(16)}-${pipe(n.toString(16), Str.padStart(12, "0"))}`
-
-/** A read failure's stage, or its tag for a failure that has none (a TransientFailure). */
-const stageOf = (failure: unknown): string =>
-	failure instanceof ReadFailure
-		? failure.stage
-		: failure instanceof TransientFailure
-			? failure._tag
-			: String(failure)
 
 /** The id of a delivered row, every row here being a record with one. */
 const idOf = (row: unknown): string => {
@@ -236,27 +226,26 @@ type RelationFeature =
 	| "a repeated fact"
 	| "an absent key"
 	| "no fact"
-	| "at the recordset rule"
-	| "past the recordset rule"
-	| "past the Stream cap"
+	| "a large input"
+
+/** A large input's distinct facts: past the 100,000 rows a relation input once was bounded by. */
+const largeInput = 250_000
 
 interface RelationCase {
-	/** The distinct facts: a size near the rule (recordsetMaxRows), or a small one. */
-	readonly size:
-		| { readonly kind: "near the rule"; readonly offset: number }
-		| { readonly kind: "small"; readonly n: number }
+	/** The distinct facts: a large input's, or a small number. */
+	readonly size: { readonly kind: "large" } | { readonly kind: "small"; readonly n: number }
 	/** How many of the distinct facts are stored tasks' keys, by pick, and the repeats added. */
 	readonly present: number
 	readonly repeats: number
 	readonly stream: boolean
 }
 
-/** A size near the rule is a read of about recordsetMaxRows facts, so it is drawn one case in four. */
+/** A large input is a read of largeInput facts, so it is drawn one case in six. */
 const relationCaseGen: Gen<RelationCase> = (source) => ({
 	size: source.draw(
 		weighted<RelationCase["size"]>([
-			[1, map(int(-2, 2), (offset) => ({ kind: "near the rule", offset }))],
-			[3, map(int(0, 6), (n) => ({ kind: "small", n }))]
+			[1, constant({ kind: "large" })],
+			[5, map(int(0, 6), (n) => ({ kind: "small", n }))]
 		])
 	),
 	present: source.draw(pickGen),
@@ -374,9 +363,7 @@ const byId: Order.Order<unknown> = Order.mapInput(Order.String, idOf)
  * the public-boundary differential's (test/pg/oracle/public), over generated programs. Here, as properties:
  *
  * - a relation parameter is a set of facts, as an array or as a Stream: a repeated fact is one, an absent key matches
- *   nothing; past recordsetMaxRows (core/policy.ts) distinct facts, with sizes drawn around that constant, it is
- *   ReadError{stage: resource} before any SQL, and so is a Stream past recordsetMaxRows facts, each leasing no
- *   session;
+ *   nothing, and an input of 250,000 distinct facts, past any bound of rows, is read like a small one;
  * - a heterogeneous union over drawn facts is delivered merged on its completed order, its take the first k;
  * - a union's heading groups and an attachment's statements read one snapshot: with a commit landing between two of
  *   their statements at a drawn interleaving point (the table whose lock the read waits on), the read answers as the
@@ -385,7 +372,7 @@ const byId: Order.Order<unknown> = Order.mapInput(Order.String, idOf)
 export const readSuite = () => {
 	layer(Substrate.layer)("reads through Db", (it) => {
 		it.effect(
-			"a relation parameter is a set of facts as an array or a Stream, refused before any SQL past recordsetMaxRows or the Stream cap",
+			"a relation parameter is a set of facts as an array or a Stream, of any number of facts",
 			(ctx) =>
 				searched(
 					ctx,
@@ -395,7 +382,7 @@ export const readSuite = () => {
 						const db = yield* Db.open(opened.server.roles.app, {}).pipe(
 							Effect.provideContext(sessions)
 						)
-						const { reader, leases } = countingReader(db)
+						const { reader } = countingReader(db)
 						const stored = workFacts.Task
 						return yield* explore(
 							{
@@ -411,20 +398,14 @@ export const readSuite = () => {
 										"a repeated fact",
 										"an absent key",
 										"no fact",
-										"at the recordset rule",
-										"past the recordset rule",
-										"past the Stream cap"
+										"a large input"
 									],
 									{ cases: 60, sense: notesOnly }
 								)
 							},
 							(c, notes) =>
 								Effect.gen(function* () {
-									const rule = recordsetMaxRows
-									const distinct = Math.max(
-										0,
-										c.size.kind === "small" ? c.size.n : rule + c.size.offset
-									)
+									const distinct = c.size.kind === "small" ? c.size.n : largeInput
 									/**
 									 * The distinct keys: some of the stored tasks', the rest absent; then repeats of the first.
 									 */
@@ -441,7 +422,6 @@ export const readSuite = () => {
 										],
 										(id) => ({ id })
 									)
-									const before = leases.count
 									const outcome = yield* Effect.result(
 										Effect.flatMap(
 											reader.execute(W.tasksById, {
@@ -450,26 +430,15 @@ export const readSuite = () => {
 											(result) => result.collect
 										)
 									)
-									const leased = leases.count - before
-									if (c.stream && facts.length > rule) {
-										assert.deepEqual(pipe(outcome, failed, stageOf), "resource")
-										assert.equal(leased, 0, "no session leased")
-										notes.note("past the Stream cap")
-									} else if (distinct > rule) {
-										assert.deepEqual(pipe(outcome, failed, stageOf), "resource")
-										assert.equal(leased, 0, "no session leased")
-										notes.note("past the recordset rule")
-									} else {
-										unorderedEqual(
-											Arr.map(succeeded(outcome, `${distinct} facts read`), plain),
-											Arr.map(
-												Arr.filter(stored, (x) => keys.includes(x.id)),
-												(x) => ({ id: x.id, kind: x.kind })
-											)
+									unorderedEqual(
+										Arr.map(succeeded(outcome, `${distinct} facts read`), plain),
+										Arr.map(
+											Arr.filter(stored, (x) => keys.includes(x.id)),
+											(x) => ({ id: x.id, kind: x.kind })
 										)
-										if (distinct === rule) {
-											notes.note("at the recordset rule")
-										}
+									)
+									if (distinct === largeInput) {
+										notes.note("a large input")
 									}
 									notes.note(c.stream ? "a Stream" : "an array")
 									if (facts.length > distinct) {

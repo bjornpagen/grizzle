@@ -9,7 +9,7 @@ import {
 	map,
 	weighted
 } from "@grizzle/testing/gen"
-import { Array as Arr, Option } from "effect"
+import { Array as Arr } from "effect"
 import { BudgetMeter } from "#compiler/core/budget.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -29,11 +29,6 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { deliveredAsOptimized, type FusedStatement } from "#compiler/lower/shapes/index.ts"
-import {
-	relationTransport,
-	specializeValues,
-	transportLimits
-} from "#compiler/lower/shapes/relparam/index.ts"
 import { executableQuery } from "#compiler/lower/template.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
@@ -68,7 +63,6 @@ import {
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
-import { inputText } from "#test/support/oracle/runner.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { owning } from "#test/support/policy.ts"
 import {
@@ -109,8 +103,7 @@ import {
  *   once lost, and which the generator draws at one numeric site among many, too seldom to reach in a run;
  * - lowered: a query case of the oracle generators (test/support/oracle/gen, and the mutant roots that densify one
  *   construct each), lowered conservatively and optimized under a drawn template context, with the R20
- *   variants, the VALUES transport of every relation parameter it admits and the executable form of every statement,
- *   beside the installation of the case's schema;
+ *   variants and the executable form of every statement, beside the installation of the case's schema;
  * - installed: the installation of a fixture schema: the dictionary's real DDL, PL/pgSQL law functions, triggers and
  *   grants, which seed the search with what grizzle ships;
  * - drafted: the statements a migration drafted along a fixture chain holds, read from its draft's typed plan: the
@@ -249,9 +242,8 @@ const logicalQuery = (c: QueryCase): LogicalQuery => ({
 type Lowered = ReadonlyArray<{ readonly ast: SqlStatement; readonly text: string }>
 
 /**
- * Every statement a case lowers to: conservative and optimized, the R20 variants, the VALUES transport of each
- * relation parameter the transport rule sends as VALUES, and the executable form of every conservative and optimized
- * statement.
+ * Every statement a case lowers to: conservative and optimized, the R20 variants, and the executable form of every
+ * conservative and optimized statement.
  */
 const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	const artifacts = Result.flatMap(parseSchemaInput(schemaDesc(c.schema)), (schema) =>
@@ -294,36 +286,6 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	Arr.forEach(flight(program.roots), statement)
 	for (const large of largeStatements(flight(program.roots), (l) => l)) {
 		out.push({ ast: large.ast, text: large.sql.text })
-	}
-	for (const s of flight(program.roots)) {
-		for (const slot of s.params) {
-			if (slot.kind !== "relation") {
-				continue
-			}
-			const p = c.query.params[slot.param]
-			if (p?.kind !== "relation") {
-				continue
-			}
-			const transport = relationTransport(p.rows, transportLimits)
-			if (transport.kind !== "values") {
-				continue
-			}
-			const rows = Arr.map(transport.rows, (row) =>
-				Arr.map(slot.columns, (column, i) => {
-					const k = Arr.findFirstIndex(p.heading, (h) => h.name === column.name)
-					const cell = Option.isSome(k) ? row[k.value] : undefined
-					if (cell === undefined) {
-						throw new Error(`a row of ${slot.param} has no cell for the slot's column ${i}`)
-					}
-					return { column, text: inputText(cell) }
-				})
-			)
-			const specialized = specializeValues(
-				{ ast: s.ast, nameMap: s.sql.nameMap, params: s.params },
-				[{ slot, rows }]
-			)
-			out.push({ ast: specialized.ast, text: specialized.sql.text })
-		}
 	}
 	return out
 }

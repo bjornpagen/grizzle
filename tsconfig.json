@@ -210,7 +210,11 @@
 						}
 					},
 					{
-						"include": ["test/support/wire-tap.ts", "test/unit/adapter/pool.test.ts"],
+						"include": [
+							"test/support/wire-tap.ts",
+							"test/unit/adapter/bind.test.ts",
+							"test/unit/adapter/pool.test.ts"
+						],
 						"options": {
 							"diagnosticSeverity": {
 								"nodeBuiltinImport": "off"

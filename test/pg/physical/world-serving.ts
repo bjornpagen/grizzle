@@ -43,7 +43,6 @@ import {
 } from "#bench/harness/explain.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { worldNames } from "#compiler/physical/ddl/names.ts"
@@ -898,9 +897,7 @@ const precheck = (
 				derived: artifacts.derived
 			})
 		)
-		const members = yield* Effect.orDie(
-			collectInputs(program.frontend, change.inputs, recordsetMaxRows)
-		)
+		const members = yield* Effect.orDie(collectInputs(program.frontend, change.inputs))
 		const bound = succeeded(bindWrite(program, { members, params: {} }))
 		if (bound.kind !== "bound") {
 			return assert.fail(`${label}: the fact is refused before any SQL`)

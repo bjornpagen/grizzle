@@ -248,7 +248,7 @@ const canonicalTexts: CanonicalTexts = {
  * - `canonicalText` gives every admitted value its one text, equal exactly when PostgreSQL's equality for the type
  *   holds, because every host value is in its one form (a Decimal has no display scale, a float and a vector component
  *   one zero): numeric 1.0 = 1.00 are one Decimal written 1, NaN = NaN, -0 = +0, text by exact scalar sequence. It is
- *   the parameter text, the recordset field and the fact identity's part alike (codec/scalar.ts text).
+ *   the parameter text, the array element and the fact identity's part alike (codec/scalar.ts text).
  * - `compareValues` is PostgreSQL's B-tree order for the type: float and numeric total orders with NaN last, text in
  *   code point order, uuid by bytes, closed handles in roster order, spans by start then end, vectors as vector_cmp.
  * - `factIdentity` admits a whole fact against its heading and gives it one text, so two facts are the same fact

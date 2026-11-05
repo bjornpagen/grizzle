@@ -7,10 +7,10 @@ import {
 } from "#compiler/core/nonempty.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import type {
+	ArraysSource,
 	Cte,
 	EmittedSql,
 	Expr,
-	RecordsetPlaceholder,
 	Select,
 	SelectCore,
 	ValuePlaceholder
@@ -77,8 +77,17 @@ export const freshNames = (
 }
 
 /** `slot` numbered `offset` later. */
-const moved = <P extends ValuePlaceholder | RecordsetPlaceholder>(slot: P, offset: number): P =>
+const moved = <P extends ValuePlaceholder>(slot: P, offset: number): P =>
 	offset === 0 ? slot : { ...slot, number: slot.number + offset }
+
+/** A relation input's arrays with each placeholder numbered `offset` later. */
+const movedArrays = (source: ArraysSource, offset: number): ArraysSource =>
+	source.kind === "count"
+		? { kind: "count", count: moved(source.count, offset) }
+		: {
+				kind: "columns",
+				columns: mapNonEmpty(source.columns, (c) => ({ ...c, array: moved(c.array, offset) }))
+			}
 
 /**
  * A part's query and slots with each placeholder $n renumbered $n + offset: a part's placeholders number from $1, and
@@ -95,7 +104,9 @@ const shifted = (
 				query: transformSelect(query, {
 					...identityHooks,
 					replaceSource: (item) =>
-						item.kind === "recordset" ? { ...item, source: moved(item.source, offset) } : undefined,
+						item.kind === "arrays"
+							? { ...item, source: movedArrays(item.source, offset) }
+							: undefined,
 					expr: (e) => (e.kind === "param" ? { ...e, slot: moved(e.slot, offset) } : e)
 				}),
 				params: params.map((slot) => moved(slot, offset))

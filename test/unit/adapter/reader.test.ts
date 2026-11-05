@@ -21,18 +21,18 @@ import { missingExtension } from "#adapter/admission/expectation.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { hostParams } from "#adapter/reader/params.ts"
-import { executionInputs, paramCodecs, type RelationInputs } from "#adapter/reader/relations.ts"
+import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import { ParamId } from "#compiler/core/ids.ts"
-import { recordsetMaxRows, valuesMaxRows } from "#compiler/core/policy.ts"
 import type { ParamDecl, RelationParamDecl } from "#compiler/ir/products.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
-import { relationTransport } from "#compiler/lower/shapes/relparam/index.ts"
+import { flight, type RelationColumn } from "#compiler/lower/conservative/types.ts"
 import { closedId, pg, uuid as uuidField } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { columnDefinition, types } from "#compiler/sql/build.ts"
+import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
@@ -41,8 +41,8 @@ import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { largeStatements } from "#test/support/oracle/forms.ts"
 
 /**
- * The pure parts of the reader: Stream relation parameters collected under the cap, the size rule's transport per
- * relation input, every declared parameter admitted at the read boundary whatever the optimizer eliminated, the
+ * The pure parts of the reader: Stream relation parameters collected on the host, each relation input's arrays, every
+ * declared parameter admitted at the read boundary whatever the optimizer eliminated, the
  * capability check of a compiled template against the installed extensions, the key positions get reads through, and
  * the head keys an attachment delivers.
  *
@@ -64,7 +64,7 @@ const refusalOf = (failure: ReadFailure): Refusal =>
 /** A uuid column's type, as the registry builds it. */
 const uuid = scalarOf(f.uuid, {})
 
-describe("Stream relation parameters collected on the host under the cap", () => {
+describe("Stream relation parameters collected on the host", () => {
 	const ids: RelationParamDecl = {
 		id: ParamId("p1"),
 		name: "ids",
@@ -76,29 +76,24 @@ describe("Stream relation parameters collected on the host under the cap", () =>
 	it.effect("passes arrays and scalars through and collects a Stream on the host", () =>
 		Effect.gen(function* () {
 			const given = { ids: [{ id: "a" }], account: "x" }
-			const passed = yield* hostParams([ids, account], given, recordsetMaxRows)
+			const passed = yield* hostParams([ids, account], given)
 			assert.deepEqual(passed, given)
-			const streamed = yield* hostParams(
-				[ids, account],
-				{ ids: Stream.fromIterable([{ id: "a" }, { id: "b" }]), account: "x" },
-				recordsetMaxRows
-			)
+			const streamed = yield* hostParams([ids, account], {
+				ids: Stream.fromIterable([{ id: "a" }, { id: "b" }]),
+				account: "x"
+			})
 			assert.deepEqual(streamed, { ids: [{ id: "a" }, { id: "b" }], account: "x" })
 		})
 	)
 
 	it.effect(
-		"refuses a Stream above the row bound as a resource failure, and a failing Stream as an encoding failure",
+		"collects a Stream of 250,000 facts whole, with no row bound, and refuses a failing Stream as an encoding failure",
 		() =>
 			Effect.gen(function* () {
-				const maxRows = 2
-				const atCap = yield* hostParams([ids], { ids: Stream.fromIterable([1, 2]) }, maxRows)
-				assert.deepEqual(atCap, { ids: [1, 2] })
-				const over = yield* Effect.flip(
-					hostParams([ids], { ids: Stream.fromIterable([1, 2, 3]) }, maxRows)
-				)
-				assert.equal(over.stage, "resource")
-				const failing = yield* Effect.flip(hostParams([ids], { ids: Stream.fail("boom") }, maxRows))
+				const many = Arr.makeBy(250_000, (i) => i)
+				const collected = yield* hostParams([ids], { ids: Stream.fromIterable(many) })
+				assert.deepEqual(collected, { ids: many })
+				const failing = yield* Effect.flip(hostParams([ids], { ids: Stream.fail("boom") }))
 				assert.deepEqual(refusalOf(failing), { kind: "codec", slot: "ids" })
 			})
 	)
@@ -230,11 +225,10 @@ describe("every declared parameter admitted at the read boundary", () => {
 									: "a parameter only an eliminated rule reads"
 							)
 							const valid = { p: kind.valid, q: 3 }
-							const refused = executionInputs(
-								paramCodecs(template.params),
-								{ ...valid, p: wrong },
-								{ valuesMaxRows, recordsetMaxRows }
-							)
+							const refused = executionInputs(paramCodecs(template.params), {
+								...valid,
+								p: wrong
+							})
 							assert.ok(
 								Result.isFailure(refused),
 								`p declared ${kind.field}, given a value of another host type, is admitted`
@@ -247,10 +241,7 @@ describe("every declared parameter admitted at the read boundary", () => {
 							 * A valid value is admitted, and every declared scalar parameter is encoded, the eliminated one too.
 							 */
 							const admitted = Result.getOrThrow(
-								executionInputs(paramCodecs(template.params), valid, {
-									valuesMaxRows,
-									recordsetMaxRows
-								})
+								executionInputs(paramCodecs(template.params), valid)
 							)
 							assert.deepEqual(
 								new Set(admitted.scalars.keys()),
@@ -264,7 +255,14 @@ describe("every declared parameter admitted at the read boundary", () => {
 
 const u = (n: number) => ({ id: `00000000-0000-4000-8000-00000000000${n}` })
 
-describe("relation transport by the size rule", () => {
+/** A statement slot's column `name` of type uuid, under the generated name `column`. */
+const slotColumn = (name: string, column: string): RelationColumn => ({
+	name,
+	type: uuid,
+	definition: columnDefinition(column, types.uuid)
+})
+
+describe("relation inputs as arrays", () => {
 	const ids: RelationParamDecl = {
 		id: ParamId("p1"),
 		name: "ids",
@@ -272,47 +270,45 @@ describe("relation transport by the size rule", () => {
 		heading: [{ name: "id", type: uuid }]
 	}
 	const account: ParamDecl = { id: ParamId("p2"), name: "account", kind: "scalar", type: uuid }
-	const limits = { valuesMaxRows: 2, recordsetMaxRows: 4 }
-	const transport = (facts: unknown) => {
-		const prepared = executionInputs(
-			paramCodecs([ids, account]),
-			{ ids: facts, account: u(9).id },
-			limits
-		)
+	const idColumns: ReadonlyArray<RelationColumn> = [slotColumn("id", "c1")]
+	/** The input's arrays over its one column, each read back as array_in reads it, or the read's refusal. */
+	const arraysOf = (facts: unknown) => {
+		const prepared = executionInputs(paramCodecs([ids, account]), { ids: facts, account: u(9).id })
 		if (Result.isFailure(prepared)) {
 			return refusalOf(new ReadFailure({ reason: prepared.failure }))
 		}
-		const normalized = prepared.success.relations.get(ids.id)?.normalized
-		return [
-			normalized === undefined ? undefined : relationTransport(normalized.facts, limits).kind,
-			normalized?.count
-		]
+		const input = prepared.success.relations.get(ids.id)
+		if (input === undefined) {
+			throw new Error("the read admits ids")
+		}
+		return Result.map(input.arrays(idColumns), (arrays) => Arr.map(arrays, readArrayLiteral))
 	}
-
-	/** The text rows of a prepared input over `columns`, in their column order. */
-	const rowsOver = (
-		input: ReturnType<RelationInputs["get"]>,
-		columns: RelationParamDecl["heading"]
-	) => (input === undefined ? undefined : Result.map(input.over(columns), (n) => n.rows))
 
 	/** Whether a refusal is at encode and names the parameter `ids`, alone or with one of its fields. */
 	const namesIds = (refusal: Refusal): boolean =>
 		refusal.kind === "codec" &&
 		(refusal.slot === "ids" || (refusal.slot !== undefined && Str.startsWith("ids.")(refusal.slot)))
 
-	it("refuses an input above recordsetMaxRows as a resource failure, and one the codec refuses as encode, naming it", () => {
-		assert.deepEqual(transport([u(1), u(2), u(3), u(4), u(5)]), {
-			kind: "stage",
-			stage: "resource"
-		})
-		assert.deepEqual(transport([{ id: "not-a-uuid" }]), { kind: "codec", slot: "ids.id" })
-		const refused = transport([u(1), null])
-		assert.ok(!Arr.isArray(refused) && namesIds(refused))
-		assert.deepEqual(transport("not facts"), { kind: "codec", slot: "ids" })
-		assert.deepEqual(transport(undefined), { kind: "codec", slot: "ids" })
+	it("admits an input of any number of facts, 250,000 among them, and refuses one the codec refuses at encode, naming it", () => {
+		assert.deepEqual(
+			arraysOf([u(1), u(2), u(3), u(4), u(5), u(1)]),
+			Result.succeed([[u(1).id, u(2).id, u(3).id, u(4).id, u(5).id]])
+		)
+		const many = Arr.makeBy(250_000, (i) => ({
+			id: `00000000-0000-4000-8000-${Str.padStart(12, "0")(i.toString(16))}`
+		}))
+		const all = arraysOf(many)
+		assert.ok(Result.isResult(all) && Result.isSuccess(all), "250,000 facts are admitted")
+		assert.equal(Result.getOrThrow(all)[0]?.length, 250_000)
+		assert.deepEqual(arraysOf([]), Result.succeed([[]]))
+		assert.deepEqual(arraysOf([{ id: "not-a-uuid" }]), { kind: "codec", slot: "ids.id" })
+		const refused = arraysOf([u(1), null])
+		assert.ok(!Result.isResult(refused) && namesIds(refused))
+		assert.deepEqual(arraysOf("not facts"), { kind: "codec", slot: "ids" })
+		assert.deepEqual(arraysOf(undefined), { kind: "codec", slot: "ids" })
 	})
 
-	it("gives the text rows in each slot's column order", () => {
+	it("gives each slot's arrays in its column order, written once per statement reading", () => {
 		const pair: RelationParamDecl = {
 			...ids,
 			heading: [
@@ -321,17 +317,27 @@ describe("relation transport by the size rule", () => {
 			]
 		}
 		const prepared = succeeded(
-			executionInputs(paramCodecs([pair]), { ids: [{ a: u(1).id, b: u(2).id }] }, limits)
+			executionInputs(paramCodecs([pair]), { ids: [{ a: u(1).id, b: u(2).id }] })
 		)
 		const input = prepared.relations.get(pair.id)
-		assert.deepEqual(rowsOver(input, pair.heading), Result.succeed([[u(1).id, u(2).id]]))
-		assert.deepEqual(
-			rowsOver(input, Arr.reverse(pair.heading)),
-			Result.succeed([[u(2).id, u(1).id]])
+		if (input === undefined) {
+			throw new Error("the read admits ids")
+		}
+		const forward = [slotColumn("a", "c1"), slotColumn("b", "c2")]
+		const backward = [slotColumn("b", "c3"), slotColumn("a", "c4")]
+		const read = (columns: ReadonlyArray<RelationColumn>) =>
+			Result.map(input.arrays(columns), (arrays) => Arr.map(arrays, readArrayLiteral))
+		assert.deepEqual(read(forward), Result.succeed([[u(1).id], [u(2).id]]))
+		assert.deepEqual(read(backward), Result.succeed([[u(2).id], [u(1).id]]))
+		const first = Result.getOrThrow(input.arrays(forward))
+		const again = Result.getOrThrow(input.arrays(forward))
+		assert.ok(
+			first === again,
+			"one statement reading's placeholders share one writing of its arrays"
 		)
 	})
 
-	it("gives another column order's rows for an input that can be iterated only once", () => {
+	it("gives another column order's arrays for an input that can be iterated only once", () => {
 		const pair: RelationParamDecl = {
 			...ids,
 			heading: [
@@ -343,13 +349,18 @@ describe("relation transport by the size rule", () => {
 			yield { a: u(1).id, b: u(2).id }
 			yield { a: u(3).id, b: u(4).id }
 		})()
-		const prepared = succeeded(executionInputs(paramCodecs([pair]), { ids: once }, limits))
+		const prepared = succeeded(executionInputs(paramCodecs([pair]), { ids: once }))
 		const input = prepared.relations.get(pair.id)
+		if (input === undefined) {
+			throw new Error("the read admits ids")
+		}
 		assert.deepEqual(
-			rowsOver(input, Arr.reverse(pair.heading)),
+			Result.map(input.arrays([slotColumn("b", "c1"), slotColumn("a", "c2")]), (arrays) =>
+				Arr.map(arrays, readArrayLiteral)
+			),
 			Result.succeed([
-				[u(2).id, u(1).id],
-				[u(4).id, u(3).id]
+				[u(2).id, u(4).id],
+				[u(1).id, u(3).id]
 			])
 		)
 	})

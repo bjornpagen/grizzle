@@ -127,6 +127,7 @@ const refreshFailure =
 			case "DriverFailure":
 				return Effect.fail(new TransportFailure({ reason: failure }))
 			case "UnreadableAnswer":
+			case "InputTooLarge":
 				return Effect.fail(new ExecutionFailure({ reason: failure }))
 			case "StaleSnapshot":
 				return Effect.fail(failure)

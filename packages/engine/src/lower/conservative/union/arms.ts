@@ -33,7 +33,7 @@ const typedAs = (e: Expr, type: TypeRef): Expr =>
  *
  * Every arm delivers each column at one explicit PostgreSQL type, so the operation never resolves a common type across
  * its arms. An unrefined column is its base type in every arm already. A refined column is
- * not: an arm reading a stored refined field delivers its domain, while an arm of a literal, a VALUES or recordset
+ * not: an arm reading a stored refined field delivers its domain, while an arm of a literal, a VALUES or input array
  * column or a recursive state delivers the base type. Every arm therefore casts a refined column to its
  * base type, which is the type literals and recursive state use; the cast of a domain to its base is a binary-compatible
  * relabel, which PostgreSQL strips when it matches an index, and it is never a cast of a column to its own type.

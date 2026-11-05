@@ -65,7 +65,7 @@ const situations: Arr.NonEmptyReadonlyArray<AuditFeature> = [
 	"lateral planned",
 	"derived of no column",
 	"function of no column",
-	"recordset of no column",
+	"arrays of no column",
 	"cte of no column",
 	"core of no target",
 	"insert of no column",

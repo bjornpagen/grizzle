@@ -84,7 +84,8 @@ const clip = (text: string): string =>
 
 /**
  * The type every use of each placeholder index is cast to, by its printed form: an expression's placeholder is cast to
- * its type, and a recordset's, `jsonb_to_recordset($n::jsonb)`, to jsonb.
+ * its type, an input array's, `unnest($n::<type>[])`, to its column's type made an array, and an input count's to
+ * bigint.
  */
 const placeholderTypes = (s: SqlStatement): ReadonlyMap<number, ReadonlySet<string>> => {
 	const types = new Map<number, Set<string>>()
@@ -102,8 +103,15 @@ const placeholderTypes = (s: SqlStatement): ReadonlyMap<number, ReadonlySet<stri
 			return e
 		},
 		fromSource: (item) => {
-			if (item.kind === "recordset") {
-				use(item.source.number, builtinType("jsonb"))
+			if (item.kind === "arrays") {
+				const source = item.source
+				if (source.kind === "count") {
+					use(source.count.number, builtinType("bigint"))
+				} else {
+					for (const c of source.columns) {
+						use(c.array.number, { ...c.definition.type, array: true })
+					}
+				}
 			}
 			return item
 		}
@@ -414,7 +422,7 @@ describe("every Live statement", () => {
 				"probe and refusal in a CASE WHEN",
 				"constraint trigger WHEN",
 				"statement grant",
-				"from recordset",
+				"from arrays",
 				"lateral",
 				"with recursive",
 				"float literal special",
@@ -471,7 +479,7 @@ describe("every statement a generated write program places", () => {
 				"statement analyze",
 				"cte insert",
 				"cte delete",
-				"from recordset",
+				"from arrays",
 				"overriding system value"
 			]
 			return searched(

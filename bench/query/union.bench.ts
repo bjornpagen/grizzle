@@ -44,7 +44,6 @@ import {
 import { dedupNodes, plansOf, summaryOf } from "#bench/query/support/plans.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { templateFor } from "#compiler/program/template.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
@@ -298,7 +297,6 @@ export default defineGate({
 				explainSamples: 1,
 				serverPlans: [],
 				explain: plainExplain,
-				limits: transportLimits,
 				conservativeSamples: 1
 			}
 			const handOptions: VariantOptions = {

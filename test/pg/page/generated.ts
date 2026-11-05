@@ -27,7 +27,7 @@ import { type PageArtifactName, type PageRuntime, pageRuntimeOf } from "#adapter
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
 import type { BatchOutcome, Flight } from "#adapter/wire/batch.ts"
 import { serverFailure } from "#adapter/wire/failure.ts"
-import { recordsetJson } from "#compiler/codec/recordset.ts"
+import { arrayTexts } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { indices } from "#compiler/core/array.ts"
 import { BudgetMeter } from "#compiler/core/budget.ts"
@@ -35,6 +35,7 @@ import { type CursorError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { textMaxLength } from "#compiler/core/policy.ts"
 import { compileBudgets } from "#compiler/core/policy.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { nodesByLabel, relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
@@ -57,7 +58,6 @@ import {
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { compilePage, type PageTemplate } from "#compiler/lower/shapes/page/compile.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
 import { declaredSlotOf, statementSpec } from "#compiler/lower/template.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
@@ -458,9 +458,18 @@ const slotText = (c: QueryCase, slot: ConservativeStatement["params"][number]): 
 				return callerInput(type, defined(row[at], "column")).text
 			})
 		)
-		return recordsetJson(
-			Arr.map(slot.columns, (col) => col.definition.name),
-			Arr.dedupeWith(texts, (x, y) => x.length === y.length && Arr.every(x, (t, i) => t === y[i]))
+		const arrays = arrayTexts(
+			String(slot.param),
+			Arr.map(slot.columns, (col) => col.name),
+			Arr.dedupeWith(texts, (x, y) => x.length === y.length && Arr.every(x, (t, i) => t === y[i])),
+			textMaxLength
+		)
+		if (!arrays.ok) {
+			throw new Error(`the arrays of ${slot.param} pass the string bound`)
+		}
+		return defined(
+			arrays.value[slot.part.kind === "column" ? slot.part.index : 0],
+			`the array of placeholder ${slot.number}`
 		)
 	}
 	throw new Error(`no value for a ${slot.kind} placeholder`)
@@ -696,7 +705,7 @@ const pager =
 			const variant = request.variant
 			const inputs = yield* Effect.fromResult(
 				Result.mapError(
-					executionInputs(paramCodecs(runtime.params), params, transportLimits),
+					executionInputs(paramCodecs(runtime.params), params),
 					(reason) => new ReadFailure({ reason })
 				)
 			)

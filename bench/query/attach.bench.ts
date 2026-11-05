@@ -50,7 +50,6 @@ import {
 import { attachFuseMaxFields } from "#compiler/core/policy.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
@@ -350,7 +349,6 @@ export default defineGate({
 				explainSamples: 1,
 				serverPlans: [],
 				explain: serializedExplain,
-				limits: transportLimits,
 				conservativeSamples: options.samples
 			}
 			const handOptions: VariantOptions = {

@@ -13,15 +13,10 @@ import {
 	Effect,
 	Formatter,
 	Option,
-	pipe,
 	Record as Rec,
 	String as Str
 } from "effect"
-import {
-	positionalColumns,
-	type RelationSpec,
-	recordsetEncoder
-} from "#compiler/codec/recordset.ts"
+import { arraysEncoder, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -39,7 +34,8 @@ import { codecOf } from "#test/unit/codec/support.ts"
  * - Host fact equality is PostgreSQL's: on explored batches of generated cases over small domains that collide (numeric
  *   display scale, NaN, signed zero, numeric(5,2) rounding, the float8-to-real cast, uuid case, composed and decomposed
  *   text), the host's fact identity partitions every case exactly as GROUP BY, which is DISTINCT's equality, does.
- * - The recordset encoder deduplicates, so PostgreSQL receives a set.
+ * - The arrays encoder deduplicates, so PostgreSQL receives a set, which it reads back from the arrays in the
+ *   select-list form the lowering prints (sql/print.ts printArrays).
  *
  * The heading of the equality cases, and how each field is spelled raw to PostgreSQL: the host value's own spelling,
  * not the codec's normalized text, so PostgreSQL decides the equality independently.
@@ -95,10 +91,6 @@ const factGen = (source: Source) => ({
 
 /** The heading's field names, any one of which a case varies. */
 const fieldNames: ReadonlyArray<string> = Arr.map(fields, (f) => f.name)
-
-/** The recordset column a spec sends `field` in, as the encoder names it. */
-const wireOf = (spec: RelationSpec, field: string): string =>
-	Option.getOrThrow(Arr.findFirst(spec.columns, (c) => c.field === field)).wire
 
 /** A field of a generated fact, by a name of the heading. */
 const fieldOf = (fact: Readonly<Record<string, unknown>>, name: string): unknown => fact[name]
@@ -225,7 +217,7 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 	)
 
 	it.effect(
-		"sends PostgreSQL a set: the encoder's rows are distinct under PostgreSQL's equality",
+		"sends PostgreSQL a set: the encoder's arrays hold rows distinct under PostgreSQL's equality",
 		(ctx) =>
 			searched(
 				ctx,
@@ -237,15 +229,21 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 						columns: positionalColumns(fields),
 						slot: { kind: "none" }
 					}
-					const encode = recordsetEncoder(spec)
-					const record = Arr.join(
-						Arr.map(fields, (f) => `${wireOf(spec, f.name)} ${f.sql}`),
+					const encode = arraysEncoder(spec)
+					/** The arrays in the lowering's select-list form: a text column's collated, numeric(5,2)'s typmod cast back. */
+					const input = `(SELECT ${Arr.join(
+						Arr.map(fields, (f, i) => {
+							const element =
+								f.name === "t"
+									? `$${i + 1}::text[] COLLATE pg_catalog.pg_c_utf8`
+									: `$${i + 1}::${f.sql}[]`
+							const unnest = `pg_catalog.unnest(${element})`
+							return `${f.name === "m" ? `${unnest}::${f.sql}` : unnest} AS ${f.name}`
+						}),
 						", "
-					)
+					)}) AS r`
 					const columns = Arr.join(
-						Arr.map(fields, (f) =>
-							pipe(f.group, Str.replace(`r.${f.name}`, `r.${wireOf(spec, f.name)}`))
-						),
+						Arr.map(fields, (f) => f.group),
 						", "
 					)
 					return yield* explore(
@@ -268,13 +266,13 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 						},
 						(facts, c) =>
 							Effect.gen(function* () {
-								const { json, count } = succeeded(encode(facts))
+								const { arrays, count } = succeeded(encode(facts))
 								if (count < facts.length) {
 									c.note("deduplicated")
 								}
 								const [row] = yield* db.values(
-									`SELECT count(*)::text, (SELECT count(*) FROM (SELECT DISTINCT ${columns} FROM jsonb_to_recordset($1::text::jsonb) AS r(${record})) AS q)::text FROM jsonb_to_recordset($1::text::jsonb) AS r(${record})`,
-									[json]
+									`SELECT count(*)::text, (SELECT count(*) FROM (SELECT DISTINCT ${columns} FROM ${input}) AS q)::text FROM ${input}`,
+									arrays
 								)
 								assert.deepEqual(row, [String(count), String(count)])
 							})

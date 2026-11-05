@@ -50,8 +50,6 @@ export const conservativeChannels = (program: ConservativeProgram): ChannelProgr
 	delivery: program.delivery
 })
 
-const jsonb: TypeRef = builtinType("jsonb")
-
 const sameType = (a: TypeRef | undefined, b: TypeRef): boolean =>
 	a !== undefined && canonicalEquals(a, b, everyProperty)
 
@@ -116,7 +114,8 @@ const statementSql = (
  *
  * A declared scalar parameter is one placeholder cast to the slot's type.
  *
- * A relation parameter is one jsonb recordset under distinct JSON keys.
+ * A relation parameter is one placeholder per array, each cast to its column's type made an array, or an input of no
+ * column's count cast to bigint, under distinct column names.
  */
 const slotProblem = (
 	slot: FusedStatement["params"][number],
@@ -135,14 +134,30 @@ const slotProblem = (
 						)
 					]
 		case "relation": {
-			const keys = Arr.map(slot.columns, (c) => c.definition.name)
+			const names = Arr.map(slot.columns, (c) => c.definition.name)
+			const part = slot.part
+			const column = part.kind === "column" ? slot.columns[part.index] : undefined
+			const expected: TypeRef | undefined =
+				part.kind === "count"
+					? builtinType("bigint")
+					: column === undefined
+						? undefined
+						: { ...column.definition.type, array: true }
 			return [
-				...(sameType(emitted, jsonb)
+				...(expected !== undefined && sameType(emitted, expected)
 					? []
-					: [problem("paramTypes", at, "a jsonb recordset parameter")]),
-				...(new Set(keys).size === keys.length
+					: [
+							problem(
+								"paramTypes",
+								at,
+								part.kind === "count"
+									? "an input count placeholder cast to bigint"
+									: "an input array placeholder cast to its column's type made an array"
+							)
+						]),
+				...(new Set(names).size === names.length
 					? []
-					: [problem("paramCodec", at, "distinct JSON keys for the recordset's columns")])
+					: [problem("paramCodec", at, "distinct column names for the input's arrays")])
 			]
 		}
 	}
@@ -344,7 +359,8 @@ const programShape = (program: ChannelProgram): ReadonlyArray<VerificationProble
  * - the AST passes the structural statement audit, the text is exactly the AST's emission, and the text passes the
  *   text audit (sql.ts): never a keyword scan;
  * - the placeholders the text uses are exactly $1..$n for the n parameter slots, the audit's type for each placeholder
- *   is the slot's cast (a scalar's base or domain type, jsonb for a recordset), and every slot has an encoder (every
+ *   is the slot's cast (a scalar's base or domain type, an input array's element type made an array, bigint for an input
+ *   count), and every slot has an encoder (every
  *   placeholder carries its cast);
  * - the outermost SELECT's output columns are the statement's output (conservative/types.ts statementOutput: an
  *   attachment's parent key, then the delivered relation's columns, or the private unit column of a zero-column one,

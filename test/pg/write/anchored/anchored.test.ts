@@ -52,8 +52,8 @@ type Shape = (typeof shapes)[number]
 
 type AnchoredFeature = `${Shape}: Wanted read once, by an index condition`
 
-/** Wanted and Work items loaded, keyed by digest: enough that a probe per input row is the right join even at the
- * 100-row estimate PostgreSQL assumes for a relation parameter's jsonb_to_recordset scan. */
+/** Wanted and Work items loaded, keyed by digest: enough that a probe per input row is the right join at any estimate of
+ * a relation parameter's arrays, their length in a custom plan and the default ten in a generic one. */
 const items = 200_000
 
 const hostParams: Readonly<Record<string, unknown>> = {
@@ -68,13 +68,27 @@ const hostParams: Readonly<Record<string, unknown>> = {
 	keys: [{ key: Digest(Str.repeat(64)("a")) }, { key: Digest(Str.repeat(64)("b")) }]
 }
 
-/** The placeholder texts of a statement, each through its own encoder, from the fixed parameters. */
+/**
+ * The placeholder texts of a statement, each through its own encoder, from the fixed parameters: a relation
+ * parameter's placeholder its array at its part.
+ */
 const texts = (spec: StatementSpec): ReadonlyArray<string> =>
 	Arr.map(spec.paramSlots, (slot) => {
-		if (slot.kind !== "scalar" && slot.kind !== "relation") {
-			throw new Error(`a ${slot.kind} placeholder`)
+		switch (slot.kind) {
+			case "scalar":
+				return succeeded(slot.encode(hostParams[slot.param]), `the parameter ${slot.param}`)
+			case "relation": {
+				const arrays = succeeded(slot.encode(hostParams[slot.param]), `the parameter ${slot.param}`)
+				const array = arrays[slot.part]
+				if (array === undefined) {
+					throw new Error(`the parameter ${slot.param} has no array ${slot.part}`)
+				}
+				return array
+			}
+			case "member":
+			case "page":
+				throw new Error(`a ${slot.kind} placeholder`)
 		}
-		return succeeded(slot.encode(hostParams[slot.param]), `the parameter ${slot.param}`)
 	})
 
 /** Every node of a plan that reads `relation`'s rows: not the DELETE itself, nor a bitmap index scan, which only yields

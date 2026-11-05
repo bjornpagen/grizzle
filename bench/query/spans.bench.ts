@@ -40,7 +40,6 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { indexAccessOn, outline, planOf, rowsReadFrom } from "#bench/query/support/plans.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, relation, schema } from "#compiler/public/schema.ts"
@@ -151,7 +150,6 @@ export default defineGate({
 				explainSamples: 1,
 				serverPlans: [],
 				explain: plainExplain,
-				limits: transportLimits,
 				conservativeSamples: options.samples
 			}
 			const middle = Math.floor(options.days / 2)

@@ -1,7 +1,6 @@
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
@@ -41,14 +40,13 @@ export const offlineCompile = (
 
 /**
  * A compiled write's inputs bound as db.apply binds them before any SQL: the ChangeSet's facts collected, normalized
- * and encoded for the program's slots. Its failure is the host's refusal of the facts: an encoder's, an input past its
- * bound, or a CompileError.
+ * and encoded for the program's slots. Its failure is the host's refusal of the facts: an encoder's, or a
+ * CompileError.
  */
 export const offlineBind = (
 	program: CompiledWrite,
 	change: ParsedChangeSet
 ): Effect.Effect<ReturnType<typeof bindWrite>> =>
-	Effect.map(
-		Effect.orDie(collectInputs(program.frontend, change.inputs, recordsetMaxRows)),
-		(members) => bindWrite(program, { members, params: {} })
+	Effect.map(collectInputs(program.frontend, change.inputs), (members) =>
+		bindWrite(program, { members, params: {} })
 	)

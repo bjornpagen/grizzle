@@ -16,6 +16,23 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A relation input of any number of rows travels as one array per column; `InputTooLarge` names its byte bound
+
+- **A ChangeSet input and a relation parameter hold any number of rows.** The 100,000-row limit is gone, and so is the
+  transport it stood for: an input traveled as one `jsonb_to_recordset` parameter, which PostgreSQL caps at 268,435,455
+  bytes, or below 17 rows as a VALUES list rewritten into each execution's text. Now every input, an empty one and one
+  of no column included, travels as its arrays, one text-format array literal per column read by `unnest` in one
+  select list (one `generate_series` count for an input of no column), in every read, write, page and `db.explain`. A
+  Stream member or parameter is collected whole before any SQL. No codemod.
+- **The planner estimates an input as its length.** Each array is a constant of the execution's custom plan, so a
+  join against an input plans for its true size where `jsonb_to_recordset` was always 100 rows; a statement of a
+  compiled program the plan cache serves generically is estimated at 10 rows. No codemod.
+- **`InputTooLarge` carries its `bound`.** It is raised only for a real transport bound, before anything is sent:
+  `{ kind: "message", statement, bytes, limit }`, one statement's Bind message past PostgreSQL's longest message,
+  1,073,741,822 bytes (`PQ_LARGE_MESSAGE_LIMIT`), which the server would answer by closing the connection; or
+  `{ kind: "literal", input, column, limit }`, one column's array literal past JavaScript's longest string. Its stage is
+  still `resource`. No codemod; a handler that matched `InputTooLarge` keeps matching and may read `error.bound`.
+
 #### A value is only its value: `Decimal` has no display scale; float and money sums are exact (#3)
 
 - **`Decimal` is value-only.** `1`, `1.0` and `1.00` are one `Decimal`, written `"1"`; every constructor, the decoder of

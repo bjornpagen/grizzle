@@ -1,6 +1,7 @@
 import { type DecimalParts, partsText } from "#compiler/core/decimal.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
+	ArraysSource,
 	BinaryOperator,
 	BuiltinFunctionName,
 	BuiltinTypeName,
@@ -21,7 +22,6 @@ import type {
 	LiteralValue,
 	ObjectName,
 	OrderItem,
-	RecordsetPlaceholder,
 	Select,
 	SelectBody,
 	SelectCore,
@@ -128,8 +128,8 @@ export const functionNameOf = (fn: CreateFunction): FunctionName => ({
 export const cUtf8Collation: Collation = { schema: "pg_catalog", name: "pg_c_utf8" }
 
 /**
- * A column of a function's column definition list (jsonb_to_recordset(...) AS r(c1 uuid, c2 text COLLATE
- * pg_catalog.pg_c_utf8)): builtin text names the fixed collation like a stored column, and no other type takes one.
+ * A column of a relation input or a context source: builtin text names the fixed collation like a stored column, and
+ * no other type takes one.
  */
 export const columnDefinition = (name: string, type: TypeRef): ColumnDefinition => ({
 	name,
@@ -155,12 +155,6 @@ export const slotParam = (slot: ValuePlaceholder, type: TypeRef): Expr => param(
 /** The positional value placeholder $<number>. */
 export const positionalValue = (number: number): ValuePlaceholder => ({
 	placeholder: "value",
-	number
-})
-
-/** The positional recordset placeholder $<number>, of a recordset no lowering allocated. */
-export const positionalRecordset = (number: number): RecordsetPlaceholder => ({
-	placeholder: "recordset",
 	number
 })
 
@@ -416,18 +410,13 @@ export const join = (first: FromSource, source: FromSource, on: Expr): FromItem 
 })
 
 /**
- * jsonb_to_recordset($<n>::jsonb) AS "<alias>"(<columns>), $n the number of `source`, a lowering's slot or a positional
- * placeholder, which the recordset holds as its placeholder (sql/ast.ts RecordsetPlaceholder).
+ * A relation input's arrays under `alias` (sql/ast.ts ArraysSource): its columns' arrays, read in lockstep, or its count
+ * of rows of no column (sql/print.ts).
  */
-export const recordset = (
-	source: RecordsetPlaceholder,
-	alias: string,
-	columns: ReadonlyArray<ColumnDefinition>
-): FromSource => ({
-	kind: "recordset",
-	source: positionalRecordset(source.number),
-	alias,
-	columns
+export const arrays = (source: ArraysSource, alias: string): FromSource => ({
+	kind: "arrays",
+	source,
+	alias
 })
 
 /**

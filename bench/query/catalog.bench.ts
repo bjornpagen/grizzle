@@ -77,7 +77,6 @@ import {
 import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import type { Expr, FunctionCall, WindowSpec } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
@@ -205,7 +204,6 @@ export default defineGate({
 				explainSamples: 1,
 				serverPlans: [],
 				explain: plainExplain,
-				limits: transportLimits,
 				conservativeSamples: 1
 			}
 			/**
