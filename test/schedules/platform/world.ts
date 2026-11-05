@@ -34,10 +34,10 @@ import {
 	insertOp,
 	type PlatformOp,
 	putOp,
-	type Row,
+	type PlatformRow,
 	rowsIn,
 	type State,
-	valueKey
+	hostValueKey
 } from "#test/support/platform/laws.ts"
 import { pricedAt, type SpanV, platformSpan } from "#test/support/platform/model.ts"
 
@@ -317,9 +317,9 @@ export const capWrite = (from: bigint, to: bigint): Write => ({
 	direct: statementsOf([putOp("WorkspaceLimit", [limitOf(to)])])
 })
 
-const sameKey = (row: Row, cap: Addition<typeof P.WorkspaceLimit>): boolean =>
-	valueKey(row["workspace"]) === valueKey(cap.workspace) &&
-	valueKey(row["month"]) === valueKey(cap.month)
+const sameKey = (row: PlatformRow, cap: Addition<typeof P.WorkspaceLimit>): boolean =>
+	hostValueKey(row["workspace"]) === hostValueKey(cap.workspace) &&
+	hostValueKey(row["month"]) === hostValueKey(cap.month)
 
 /**
  * The workspace's caps replaced by `caps`: the fixture's setCaps, one MERGE putting each given month's cap and
@@ -427,7 +427,7 @@ export const refundWrite = (r: Fact<typeof P.Refund>, label: string): Write => {
 const settledAt = P.Instant(month.during.start + 2n * 86_400n)
 
 /** The invoice as the state holds it, when it is in `state`. */
-const invoiceIn = (s: State, state: InvoiceState): Option.Option<Row> =>
+const invoiceIn = (s: State, state: InvoiceState): Option.Option<PlatformRow> =>
 	Arr.findFirst(rowsIn(s, "Invoice"), (row) => row["id"] === ids.invoice && row["state"] === state)
 
 /**
@@ -535,7 +535,7 @@ export const spentIn = (s: State): bigint =>
 	Arr.reduce(
 		Arr.filter(
 			rowsIn(s, "EventCharge"),
-			(f) => f["workspace"] === ids.workspace && valueKey(f["month"]) === valueKey(monthNo)
+			(f) => f["workspace"] === ids.workspace && hostValueKey(f["month"]) === hostValueKey(monthNo)
 		),
 		0n,
 		(sum, f) => sum + amountOf(f, "amount")
@@ -546,7 +546,7 @@ export const capIn = (s: State): Option.Option<bigint> =>
 	Option.map(
 		Arr.findFirst(
 			rowsIn(s, "WorkspaceLimit"),
-			(f) => f["workspace"] === ids.workspace && valueKey(f["month"]) === valueKey(monthNo)
+			(f) => f["workspace"] === ids.workspace && hostValueKey(f["month"]) === hostValueKey(monthNo)
 		),
 		(limit) => amountOf(limit, "cap")
 	)

@@ -95,7 +95,9 @@ const parentLayout = (proved: Delivery): Layout => ({
 const parentRow = (n: number): Row => ({
 	group: 0,
 	texts: [],
-	children: [Arr.makeBy(n, (i): Row => ({ group: 0, texts: [`c${i}`], children: [] }))]
+	children: [
+		Array.from({ length: n }, (_, i): Row => ({ group: 0, texts: [`c${i}`], children: [] }))
+	]
 })
 
 /** How a field reads the children: an attachment delivering one of the three ways, or an alternatives arm's. */
@@ -208,7 +210,7 @@ describe("an attachment's delivery", () => {
 									c.note("delivered")
 									assert.deepEqual(
 										read(row),
-										Arr.makeBy(want.n, (i) => `c${i}`)
+										Array.from({ length: want.n }, (_, i) => `c${i}`)
 									)
 									return
 								case "option":
@@ -340,6 +342,9 @@ describe("a statement's rows", () => {
 					),
 					"the attachment statement"
 				)
+				const role = attached.run.statement.role
+				/** How many columns an attachment statement's rows lead with: its parent key's. */
+				const keyCount = role.kind === "attachment" ? role.parentKey.length : 0
 				const outputOf = (record: typeof root) =>
 					statementOutput(
 						record.run.statement.role,
@@ -379,11 +384,15 @@ describe("a statement's rows", () => {
 										cellText(col.type, postId(p), defined(numeric[p], "n"), false)
 									)
 								)
+								/** A comment's row: its parent key and its post field the post's id, its own id, and its value. */
 								const childRows = Arr.map(comments, (p, k) =>
-									Arr.map(outputOf(attached), (col) =>
-										col.name === "comments" || col.name === "post" || col.type.carrier !== "uuid"
-											? cellText(col.type, postId(p), defined(numeric[posts + k], "n"), false)
-											: cellText(col.type, commentId(k), defined(numeric[posts + k], "n"), false)
+									Arr.map(outputOf(attached), (col, at) =>
+										cellText(
+											col.type,
+											at < keyCount || col.name === "post" ? postId(p) : commentId(k),
+											defined(numeric[posts + k], "n"),
+											false
+										)
 									)
 								)
 								const planted = (

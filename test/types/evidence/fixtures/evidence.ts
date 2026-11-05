@@ -109,7 +109,7 @@ export const Work = schema(
 	]
 )
 /** Every relation of Work but the closed relation, which is no entry: a full role's whole entries. */
-const workEntries = {
+const workEntries = Object.freeze({
 	Kind,
 	Plan,
 	Account,
@@ -121,7 +121,7 @@ const workEntries = {
 	TaskLabel,
 	Sitting,
 	Upgrade
-}
+})
 export const Reader = role(Work, "reader", workEntries)
 
 /** Pinning by match bindings: a key bound entirely to inputs pins its occurrence. */

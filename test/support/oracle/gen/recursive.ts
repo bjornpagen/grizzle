@@ -1130,7 +1130,7 @@ class GraphQueryBuilder {
 		return this.region(vars, [
 			{
 				source: projected,
-				bind: Object.fromEntries(Arr.map(vars, (v) => [v.name, v] as const))
+				bind: Rec.fromEntries(Arr.map(vars, (v) => [v.name, v] as const))
 			}
 		])
 	}

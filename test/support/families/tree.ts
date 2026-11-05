@@ -154,7 +154,11 @@ const forestOf = (rows: ReadonlyArray<TreeRow>): Result.Result<Forest, Numbering
 		for (let row = pending.pop(); row !== undefined; row = pending.pop()) {
 			if (!reached.has(row.id)) {
 				reached.add(row.id)
-				pending.push(...Arr.filter(childrenOf(row), (c) => c.root === value))
+				for (const c of childrenOf(row)) {
+					if (c.root === value) {
+						pending.push(c)
+					}
+				}
 			}
 		}
 	}
@@ -477,7 +481,9 @@ export const descendantsOf = (rows: ReadonlyArray<TreeRow>, id: number): Readonl
 	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
 		if (next !== id && !found.has(next)) {
 			found.add(next)
-			pending.push(...(kids.get(next) ?? []))
+			for (const k of kids.get(next) ?? []) {
+				pending.push(k)
+			}
 		}
 	}
 	return [...found]

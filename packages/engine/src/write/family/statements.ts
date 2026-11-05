@@ -507,46 +507,6 @@ export const rowStatement = (
 	}
 }
 
-/** A tree's delete of every row of each tree it names by its root field. */
-export const treeDelete = (
-	family: Family,
-	w: WriteContext,
-	relations: ReadonlyMap<string, RelationInfo>
-): Result.Result<FamilySql, CompileError> => {
-	const member = relations.get(family.member.name)
-	if (member === undefined || family.members.kind !== "tree") {
-		return Result.err(unbuildable(family.member.name, "a tree relation of the schema"))
-	}
-	const root = family.members.root
-	const supply = begun(w)
-	const r = supply.relation(internal("tree delete"))
-	const target = supply.relation(internal("tree row"))
-	const input = arraysOf(w, supply, [{ column: { kind: "field", field: root }, type: root.type }])
-	const returned = returnedFields(supply, keyFirst(member))
-	const stored = (f: LawField): Expr => col(target, w.names.column(member.name, f.name))
-	const ast = returningSelect(
-		r,
-		{
-			kind: "delete",
-			with: undefined,
-			table: w.names.relation(member.name),
-			alias: target,
-			using: [input.from],
-			where: eq(stored(root), input.raw(0)),
-			returning: returned.map((f) => targetAs(stored(f.field), f.column))
-		},
-		returned
-	)
-	return Result.ok({
-		kind: "deleteTree",
-		relation: member.name,
-		ast,
-		sql: emitText(ast, supply.map()),
-		arrays: 1,
-		result: deleted(member)
-	})
-}
-
 /** A family's count statement: each owner's count and ends, by its key, returning them after and before with its key
  * (`countReturned`). */
 export const countStatement = (

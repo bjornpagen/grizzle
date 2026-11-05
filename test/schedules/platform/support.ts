@@ -57,12 +57,12 @@ import {
 	type PlatformOp,
 	platformLaws,
 	type RelationName,
-	type Row,
+	type PlatformRow,
 	rowsIn,
 	type State,
 	spanValue,
 	stateOf,
-	valueKey
+	hostValueKey
 } from "#test/support/platform/laws.ts"
 import type { SpanV } from "#test/support/platform/model.ts"
 import {
@@ -706,7 +706,7 @@ const directFamilies = (names: Names): ReadonlyArray<DirectFamily> =>
 const drawnText = (n: bigint): string => `${n}::bigint`
 
 /** An integer field of a fact: the step value a sum folds. */
-const stepOf = (row: Row, field: string): bigint => {
+const stepOf = (row: PlatformRow, field: string): bigint => {
 	const v = row[field]
 	if (typeof v === "bigint") {
 		return v
@@ -728,51 +728,56 @@ const stepOf = (row: Row, field: string): bigint => {
  * owner holds, which its owner axis refuses. An owner put takes its written fields in place and keeps its families. A
  * member is never deleted or put: that edits its family, which only the planner does.
  */
-export const directSql = (
+const directSql = (
 	names: Names,
 	statements: ReadonlyArray<DirectStatement>
 ): ReadonlyArray<string> => {
 	const families = directFamilies(names)
-	const keyText = (row: Row, fields: ReadonlyArray<string>): string =>
+	const keyText = (row: PlatformRow, fields: ReadonlyArray<string>): string =>
 		Arr.join(
-			Arr.map(fields, (f) => valueKey(row[f])),
+			Arr.map(fields, (f) => hostValueKey(row[f])),
 			"|"
 		)
-	const groupOf = (f: DirectFamily, member: Row): string =>
+	const groupOf = (f: DirectFamily, member: PlatformRow): string =>
 		keyText(
 			member,
 			Arr.map(f.group, (g) => g.member)
 		)
-	const ownerKeyOf = (f: DirectFamily, owner: Row): string =>
+	const ownerKeyOf = (f: DirectFamily, owner: PlatformRow): string =>
 		keyText(
 			owner,
 			Arr.map(f.group, (g) => g.owner)
 		)
-	const inserted = (relation: RelationName): ReadonlyArray<Row> =>
+	const inserted = (relation: RelationName): ReadonlyArray<PlatformRow> =>
 		Arr.flatMap(statements, (s) => (s.kind === "insert" && s.relation === relation ? s.facts : []))
 	/** Each family's members the transaction inserts into an owner it inserts, by group, in member-key order. */
 	const own = new Map(
-		Arr.map(families, (f): readonly [DirectFamily, ReadonlyMap<string, ReadonlyArray<Row>>] => {
-			const owners = new Set(Arr.map(inserted(f.owner), (o) => ownerKeyOf(f, o)))
-			const groups = new Map<string, Array<Row>>()
-			for (const m of inserted(f.member)) {
-				const g = groupOf(f, m)
-				if (!owners.has(g)) {
-					continue
+		Arr.map(
+			families,
+			(f): readonly [DirectFamily, ReadonlyMap<string, ReadonlyArray<PlatformRow>>] => {
+				const owners = new Set(Arr.map(inserted(f.owner), (o) => ownerKeyOf(f, o)))
+				const groups = new Map<string, Array<PlatformRow>>()
+				for (const m of inserted(f.member)) {
+					const g = groupOf(f, m)
+					if (!owners.has(g)) {
+						continue
+					}
+					const members = groups.get(g) ?? []
+					groups.set(g, members)
+					members.push(m)
 				}
-				const members = groups.get(g) ?? []
-				groups.set(g, members)
-				members.push(m)
+				const byKey = Order.mapInput(Order.String, (m: PlatformRow) =>
+					keyText(m, primaryKeyOf[f.member])
+				)
+				return [f, new Map(Arr.map([...groups], ([g, ms]) => [g, Arr.sort(ms, byKey)]))]
 			}
-			const byKey = Order.mapInput(Order.String, (m: Row) => keyText(m, primaryKeyOf[f.member]))
-			return [f, new Map(Arr.map([...groups], ([g, ms]) => [g, Arr.sort(ms, byKey)]))]
-		})
+		)
 	)
-	const ownGroup = (f: DirectFamily, g: string): ReadonlyArray<Row> | undefined =>
+	const ownGroup = (f: DirectFamily, g: string): ReadonlyArray<PlatformRow> | undefined =>
 		own.get(f)?.get(g)
 	const table = (relation: RelationName): string => tableOf(names, relation)
 	const column = (relation: RelationName, field: string): string => columnOf(names, relation, field)
-	const sumOf = (rows: ReadonlyArray<Row>, field: string): bigint =>
+	const sumOf = (rows: ReadonlyArray<PlatformRow>, field: string): bigint =>
 		Arr.reduce(rows, 0n, (sum, r) => sum + stepOf(r, field))
 	const ownedBy = (relation: RelationName): ReadonlyArray<DirectFamily> =>
 		Arr.filter(families, (f) => f.owner === relation)
@@ -783,7 +788,11 @@ export const directSql = (
 	 * An owner's count and ends as an insert states them: over the transaction's own members of it, or, `fresh`, over
 	 * none, as a put that inserts it starts its families empty.
 	 */
-	const ownerValues = (relation: RelationName, row: Row, fresh: boolean): ReadonlyArray<string> =>
+	const ownerValues = (
+		relation: RelationName,
+		row: PlatformRow,
+		fresh: boolean
+	): ReadonlyArray<string> =>
 		Arr.flatMap(ownedBy(relation), (f) => {
 			const members = fresh ? [] : (ownGroup(f, ownerKeyOf(f, row)) ?? [])
 			return [
@@ -799,7 +808,7 @@ export const directSql = (
 			f.copy,
 			...Arr.flatMap(f.planes, (p) => [p.before, p.after])
 		])
-	const insertSql = (relation: RelationName, facts: ReadonlyArray<Row>): string => {
+	const insertSql = (relation: RelationName, facts: ReadonlyArray<PlatformRow>): string => {
 		/** One update per stored owner the statement appends to, by family and group. */
 		const appends: Array<{
 			readonly f: DirectFamily
@@ -815,9 +824,9 @@ export const directSql = (
 			appends.push({ f, group, alias })
 			return alias
 		}
-		const appended = (f: DirectFamily, group: string): ReadonlyArray<Row> =>
+		const appended = (f: DirectFamily, group: string): ReadonlyArray<PlatformRow> =>
 			Arr.filter(facts, (m) => groupOf(f, m) === group)
-		const memberValues = (row: Row): ReadonlyArray<string> =>
+		const memberValues = (row: PlatformRow): ReadonlyArray<string> =>
 			Arr.flatMap(memberFamilies(relation), (f) => {
 				const group = groupOf(f, row)
 				const mine = ownGroup(f, group)
@@ -902,7 +911,7 @@ export const directSql = (
 			)
 		}
 	}
-	const deleteSql = (relation: RelationName, facts: ReadonlyArray<Row>): string =>
+	const deleteSql = (relation: RelationName, facts: ReadonlyArray<PlatformRow>): string =>
 		`DELETE FROM ${table(relation)} WHERE ${Arr.join(
 			Arr.map(
 				facts,
@@ -918,7 +927,7 @@ export const directSql = (
 			" OR "
 		)}`
 	/** A put: the written fields at each key in place, a fact the key holds none of inserted with empty families. */
-	const putSql = (relation: RelationName, facts: ReadonlyArray<Row>): string => {
+	const putSql = (relation: RelationName, facts: ReadonlyArray<PlatformRow>): string => {
 		const key = primaryKeyOf[relation]
 		const payload = Arr.filter(fieldsOf[relation], (f) => !key.includes(f))
 		const columns = [
@@ -983,7 +992,7 @@ const loadSql = (names: Names, facts: State): ReadonlyArray<string> => [
 const textRows = (
 	names: Names,
 	relation: RelationName,
-	rows: ReadonlyArray<Row>
+	rows: ReadonlyArray<PlatformRow>
 ): ReadonlyArray<string> =>
 	Arr.sort(
 		Arr.map(rows, (row) =>
@@ -1669,7 +1678,7 @@ export const commonRequired: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	"exact repeats"
 ]
 
-export const amountOf = (row: Row, field: string): bigint => {
+export const amountOf = (row: PlatformRow, field: string): bigint => {
 	const v = row[field]
 	if (typeof v === "bigint") {
 		return v
@@ -1680,7 +1689,7 @@ export const amountOf = (row: Row, field: string): bigint => {
 	throw new Error(`${field} is no amount: ${String(v)}`)
 }
 
-export const textOf = (row: Row, field: string): string => {
+export const textOf = (row: PlatformRow, field: string): string => {
 	const v = row[field]
 	if (typeof v !== "string") {
 		throw new Error(`${field} is no text: ${String(v)}`)
@@ -1688,4 +1697,4 @@ export const textOf = (row: Row, field: string): string => {
 	return v
 }
 
-export const spanOf = (row: Row, field: string): SpanV => spanValue(row[field])
+export const spanOf = (row: PlatformRow, field: string): SpanV => spanValue(row[field])

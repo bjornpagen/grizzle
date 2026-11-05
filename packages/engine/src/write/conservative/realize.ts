@@ -242,14 +242,13 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					break
 				case "put": {
 					const payload = payloadOf(relation)
-					/** An owner's put updates the fields its facts carry in place and inserts the rest, its families left
-					 * as they are (put/choose.ts ownerPut); any other put displaces its occupants first. */
 					if (payload.kind === "keyed") {
-						statement(
-							ownsFamily(relation.name)
-								? buildUpdateFrom(w, { relation, input, inPlace: { payload: payload.fields } })
-								: buildDisplacingDelete(w, { relation, input, payload: payload.fields })
-						)
+						/** An owner's put updates the fields its facts carry in place and inserts the rest, its families
+						 * left as they are (put/choose.ts ownerPut); any other put displaces its occupants first. */
+						const first = ownsFamily(relation.name)
+							? buildUpdateFrom(w, { relation, input, inPlace: { payload: payload.fields } })
+							: buildDisplacingDelete(w, { relation, input, payload: payload.fields })
+						statement(first)
 					}
 					add(completeClass, "put")
 					break

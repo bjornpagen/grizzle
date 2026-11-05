@@ -8,6 +8,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import type { CompileReason } from "#compiler/core/errors.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert } from "#test/support/assert.ts"
 import { f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import type {
@@ -34,8 +35,7 @@ import {
 	ref,
 	relationSource,
 	rule,
-	sum,
-	vars
+	sum
 } from "#test/unit/check/dsl.ts"
 
 /**
@@ -191,6 +191,10 @@ const cases: Arr.NonEmptyReadonlyArray<FoldCase> = Arr.flatMap(shapes, (shape) =
 	)
 )
 
+/** The variables a rule declares at a relation's fields, each named by its relation and field (dsl.ts vars). */
+const varsOf = (relation: RelationName, fields: ReadonlyArray<Field>) =>
+	Arr.map(fields, (field) => ({ id: `${relation}.${field}`, origin: { relation, field } }))
+
 /** The variable a match binds at a relation's field, named by its relation and field (dsl.ts vars). */
 const v = (relation: RelationName, field: Field) => ref(relation, field)
 
@@ -247,7 +251,7 @@ const built = (c: FoldCase): Built => {
 				: undefined
 			const argField = Option.getOrElse(
 				Arr.findLast(bound, (field) => field !== groupField),
-				() => "id"
+				(): Field => "id"
 			)
 			const group = groupField === undefined ? undefined : { relation, field: groupField }
 			const head: Record<string, HeadTermDesc> = {
@@ -257,7 +261,7 @@ const built = (c: FoldCase): Built => {
 			return {
 				query: queryDesc(
 					rule({
-						vars: vars(relation, ...bound),
+						vars: varsOf(relation, bound),
 						matches: [matchOf(relation, bound)],
 						where: [],
 						head,
@@ -279,7 +283,7 @@ const built = (c: FoldCase): Built => {
 			return {
 				query: queryDesc(
 					rule({
-						vars: [...vars("Post", "id", "org"), ...vars("Comment", ...commentBound)],
+						vars: [...varsOf("Post", ["id", "org"]), ...varsOf("Comment", commentBound)],
 						matches: [
 							matchOf("Post", ["id", "org"]),
 							match(relationSource("Comment"), {
@@ -304,7 +308,7 @@ const built = (c: FoldCase): Built => {
 			const commentBound: ReadonlyArray<Field> = c.shape.commentId ? ["id", "author"] : ["author"]
 			const child = queryDesc(
 				rule({
-					vars: vars("Comment", ...commentBound),
+					vars: varsOf("Comment", commentBound),
 					matches: [
 						match(relationSource("Comment"), {
 							post: parent("id"),
@@ -326,7 +330,7 @@ const built = (c: FoldCase): Built => {
 				query: attach(
 					queryDesc(
 						rule({
-							vars: vars("Post", "id"),
+							vars: varsOf("Post", ["id"]),
 							matches: [matchOf("Post", ["id"])],
 							where: [],
 							head: { id: v("Post", "id") },
@@ -376,9 +380,9 @@ const folded = (fn: Fn, values: Arr.NonEmptyReadonlyArray<number>): string => {
 		case "mean":
 			return (total / values.length).toFixed(meanDigits)
 		case "min":
-			return String(Math.min(...values))
+			return String(Arr.reduce(values, values[0], (a, b) => Math.min(a, b)))
 		case "max":
-			return String(Math.max(...values))
+			return String(Arr.reduce(values, values[0], (a, b) => Math.max(a, b)))
 	}
 }
 
@@ -419,7 +423,11 @@ const meanDigits = 9
 
 /** A reference value as the host's canonical text: an integer's digits, a numeric (a mean) to meanDigits places. */
 const valueText = (value: Value): string =>
-	typeof value === "bigint" ? String(value) : Number(String(value)).toFixed(meanDigits)
+	typeof value === "bigint"
+		? String(value)
+		: value instanceof Decimal
+			? Number(value.toString()).toFixed(meanDigits)
+			: `a value of no fold this box folds: ${typeof value}`
 
 /** The reference evaluator's answer to the checked root, in the host's canonical form. */
 const referenceAnswer = (

@@ -139,7 +139,28 @@ export const keyedFoldInput = (
 				? undefined
 				: { columns, keyed: [{ occurrence: region.occurrence, key }] }
 		}
-		default:
+		case "Closed":
+		case "Context":
+		case "InputSet":
+		case "Delta":
+		case "Filter":
+		case "ProjectSet":
+		case "SemiJoin":
+		case "AntiJoin":
+		case "Union":
+		case "Intersect":
+		case "Difference":
+		case "Take":
+		case "Group":
+		case "Produce":
+		case "Recursive":
+		case "SelfRef":
+		case "ApproximateNearest":
+		case "OrderedResult":
+		case "Attach":
+		case "Forbid":
+		case "Window":
+		case "OrderedSetAggregate":
 			return Arr.every(region.heading, (c) => Arr.contains(columns, c.name))
 				? { columns, keyed: [] }
 				: undefined

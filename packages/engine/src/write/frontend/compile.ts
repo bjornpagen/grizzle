@@ -862,11 +862,11 @@ const compile = (
 			}
 			/** An insert appends to its owners' families, which only an owner the same stratum inserts may take when the
 			 * owner is immutable; with no insert of the owner in the stratum, every append is to a stored owner. */
-			if (
+			const appendsToStored =
 				fixed !== undefined &&
 				member.op === "insert" &&
 				!stratum.members.some((m) => m.relation === fixed.owner.name && m.op === "insert")
-			) {
+			if (fixed !== undefined && appendsToStored) {
 				refuse(
 					"UnsupportedOperation",
 					loc,

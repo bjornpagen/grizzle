@@ -3725,7 +3725,7 @@ export const load = (
 }
 
 /** A column's type as it prints, for comparing columns across installations. */
-export const typeText = (column: Column): string => printType(column.type)
+const typeText = (column: Column): string => printType(column.type)
 
 const list = (names: ReadonlyArray<string>): string => Arr.join(names, ", ")
 const sortedList = (names: Iterable<string>): string =>

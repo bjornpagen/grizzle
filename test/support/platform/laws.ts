@@ -46,20 +46,22 @@ import { loadOrder, type PlatformFacts } from "#test/support/platform/generate.t
 import { coveredBy, overlaps, type SpanV, platformSpan } from "#test/support/platform/model.ts"
 
 export type RelationName = (typeof loadOrder)[number]
-export type Row = Readonly<Record<string, unknown>>
-export type State = ReadonlyMap<RelationName, ReadonlyArray<Row>>
+export type PlatformRow = Readonly<Record<string, unknown>>
+export type State = ReadonlyMap<RelationName, ReadonlyArray<PlatformRow>>
 
 export const stateOf = (facts: PlatformFacts): State =>
-	new Map(Arr.map(loadOrder, (r): readonly [RelationName, ReadonlyArray<Row>] => [r, facts[r]]))
+	new Map(
+		Arr.map(loadOrder, (r): readonly [RelationName, ReadonlyArray<PlatformRow>] => [r, facts[r]])
+	)
 
-export const rowsIn = (s: State, relation: RelationName): ReadonlyArray<Row> =>
+export const rowsIn = (s: State, relation: RelationName): ReadonlyArray<PlatformRow> =>
 	s.get(relation) ?? []
 
 /**
  * A host value's identity: a uuid, enum label or text; an integer, whichever host type carries it; a span by its
  * bounds. Any other value is a defect of the suite that wrote it.
  */
-export const valueKey = (v: unknown): string => {
+export const hostValueKey = (v: unknown): string => {
 	if (typeof v === "string") {
 		return `s${v}`
 	}
@@ -99,20 +101,21 @@ const amountValue = (v: unknown): bigint => {
 	throw new Error(`no integer: ${String(v)}`)
 }
 
-const tupleKey = (row: Row, fields: ReadonlyArray<string>): string =>
+const tupleKey = (row: PlatformRow, fields: ReadonlyArray<string>): string =>
 	Arr.join(
-		Arr.map(fields, (f) => valueKey(row[f])),
+		Arr.map(fields, (f) => hostValueKey(row[f])),
 		"|"
 	)
 
 /** A fact's identity: every field's value. */
-const rowKey = (row: Row): string =>
+const rowKey = (row: PlatformRow): string =>
 	Arr.join(
-		Arr.map(Arr.sort(Rec.keys(row), Order.String), (f) => `${f}=${valueKey(row[f])}`),
+		Arr.map(Arr.sort(Rec.keys(row), Order.String), (f) => `${f}=${hostValueKey(row[f])}`),
 		";"
 	)
 
-const keySet = (rows: ReadonlyArray<Row>): ReadonlySet<string> => new Set(Arr.map(rows, rowKey))
+const keySet = (rows: ReadonlyArray<PlatformRow>): ReadonlySet<string> =>
+	new Set(Arr.map(rows, rowKey))
 
 /** Where two states differ, relation by relation as sets of facts, or undefined when they agree. */
 const stateDifference = (a: State, b: State): string | undefined => {
@@ -177,17 +180,17 @@ const selected = (
 	where
 })
 
-const rowsOf = (s: State, at: Side): ReadonlyArray<Row> =>
+const rowsOf = (s: State, at: Side): ReadonlyArray<PlatformRow> =>
 	Arr.filter(rowsIn(s, at.relation), (row) =>
 		Arr.every(Rec.toEntries(at.where), ([f, label]) => row[f] === label)
 	)
 
 /** Two rows of `rows` agreeing on `fields` (span keys: overlapping on `spanField` too). */
-const keyBroken = (rows: ReadonlyArray<Row>, fields: ReadonlyArray<string>): boolean =>
+const keyBroken = (rows: ReadonlyArray<PlatformRow>, fields: ReadonlyArray<string>): boolean =>
 	new Set(Arr.map(rows, (row) => tupleKey(row, fields))).size !== rows.length
 
 const spanKeyBroken = (
-	rows: ReadonlyArray<Row>,
+	rows: ReadonlyArray<PlatformRow>,
 	scalars: ReadonlyArray<string>,
 	spanField: string
 ): boolean => {
@@ -264,7 +267,7 @@ const sumsOf = (s: State, f: Counted, value: string): ReadonlyMap<string, bigint
 }
 
 /** The family's sums, read at one owner fact. */
-const sumAt = (sums: ReadonlyMap<string, bigint>, f: Counted, owner: Row): bigint =>
+const sumAt = (sums: ReadonlyMap<string, bigint>, f: Counted, owner: PlatformRow): bigint =>
 	sums.get(tupleKey(owner, f.key)) ?? 0n
 
 /** A relation's primary key: its fields, or its scalar fields and its span field. */
@@ -419,7 +422,7 @@ const sumCheck = (
 	name: string,
 	statement: Statement,
 	f: Counted,
-	holds: (owner: Row, sum: bigint) => boolean
+	holds: (owner: PlatformRow, sum: bigint) => boolean
 ): HostLaw => ({
 	name,
 	family: "check",
@@ -437,7 +440,7 @@ const rowCheck = (
 	name: string,
 	statement: Statement,
 	relation: RelationName,
-	holds: (row: Row) => boolean
+	holds: (row: PlatformRow) => boolean
 ): HostLaw => ({
 	name,
 	family: "check",
@@ -448,7 +451,7 @@ const rowCheck = (
 })
 
 /** An integer field of a fact. */
-const amountOf = (row: Row, field: string): bigint => amountValue(row[field])
+const amountOf = (row: PlatformRow, field: string): bigint => amountValue(row[field])
 
 /**
  * An alternatives statement's laws: each arm's key into its parent's facts of the arm's handle, and each armed handle's
@@ -543,9 +546,9 @@ const platformFamilies: ReadonlyArray<Counted> = [
  * values, an empty family's zero. A read reads an owner's whole row, so a reference over the host's facts states them
  * too, and wherever a read delivers one the host's count or sum is a second implementation of grizzle's.
  */
-export const withDrawn = (s: State): ReadonlyMap<RelationName, ReadonlyArray<Row>> =>
+export const withDrawn = (s: State): ReadonlyMap<RelationName, ReadonlyArray<PlatformRow>> =>
 	new Map(
-		Arr.map(loadOrder, (relation): readonly [RelationName, ReadonlyArray<Row>] => {
+		Arr.map(loadOrder, (relation): readonly [RelationName, ReadonlyArray<PlatformRow>] => {
 			const tallies = Arr.map(
 				Arr.filter(platformFamilies, (f) => f.owner === relation),
 				(f) => {
@@ -560,7 +563,7 @@ export const withDrawn = (s: State): ReadonlyMap<RelationName, ReadonlyArray<Row
 			return [
 				relation,
 				Arr.map(rowsIn(s, relation), (row) =>
-					Arr.reduce(tallies, row, (out: Row, { f, counts, sums }): Row => ({
+					Arr.reduce(tallies, row, (out: PlatformRow, { f, counts, sums }): PlatformRow => ({
 						...out,
 						[f.count]: counts.get(tupleKey(row, f.key)) ?? 0n,
 						[f.sum.end]: sumAt(sums, f, row)
@@ -867,14 +870,14 @@ export const lawsById = (names: LawNames): ReadonlyMap<LawId, HostLaw> => {
 export interface PlatformOp {
 	readonly kind: "delete" | "insert" | "put"
 	readonly relation: RelationName
-	readonly facts: ReadonlyArray<Row>
+	readonly facts: ReadonlyArray<PlatformRow>
 }
 
 /** An exact deletion of facts of one relation, typed by the relation. */
 export const deleteOp: <K extends RelationName>(
 	relation: K,
 	facts: PlatformFacts[K]
-) => PlatformOp = (relation: RelationName, facts: ReadonlyArray<Row>): PlatformOp => ({
+) => PlatformOp = (relation: RelationName, facts: ReadonlyArray<PlatformRow>): PlatformOp => ({
 	kind: "delete",
 	relation,
 	facts
@@ -884,7 +887,7 @@ export const deleteOp: <K extends RelationName>(
 export const insertOp: <K extends RelationName>(
 	relation: K,
 	facts: PlatformFacts[K]
-) => PlatformOp = (relation: RelationName, facts: ReadonlyArray<Row>): PlatformOp => ({
+) => PlatformOp = (relation: RelationName, facts: ReadonlyArray<PlatformRow>): PlatformOp => ({
 	kind: "insert",
 	relation,
 	facts
@@ -893,7 +896,7 @@ export const insertOp: <K extends RelationName>(
 /** A put of facts of one relation, typed by the relation. */
 export const putOp: <K extends RelationName>(relation: K, facts: PlatformFacts[K]) => PlatformOp = (
 	relation: RelationName,
-	facts: ReadonlyArray<Row>
+	facts: ReadonlyArray<PlatformRow>
 ): PlatformOp => ({
 	kind: "put",
 	relation,
@@ -906,7 +909,7 @@ export type Decision =
 	| { readonly kind: "no-change" }
 	| { readonly kind: "refused"; readonly laws: ReadonlyArray<HostLaw> }
 
-const withRows = (s: State, relation: RelationName, rows: ReadonlyArray<Row>): State =>
+const withRows = (s: State, relation: RelationName, rows: ReadonlyArray<PlatformRow>): State =>
 	new Map([...s, [relation, rows]])
 
 /** The state grizzle's operations leave, as sets (see the header). */
@@ -917,7 +920,7 @@ const applied = (s: State, ops: ReadonlyArray<PlatformOp>): State => {
 		if (mine.length === 0) {
 			continue
 		}
-		const of = (kind: PlatformOp["kind"]): ReadonlyArray<Row> =>
+		const of = (kind: PlatformOp["kind"]): ReadonlyArray<PlatformRow> =>
 			Arr.flatMap(
 				Arr.filter(mine, (o: PlatformOp) => o.kind === kind),
 				(o: PlatformOp) => o.facts
@@ -929,7 +932,7 @@ const applied = (s: State, ops: ReadonlyArray<PlatformOp>): State => {
 			rowsIn(s, relation),
 			(row) => !deleted.has(rowKey(row)) && !putKeys.has(tupleKey(row, key))
 		)
-		const rows = new Map(Arr.map(kept, (row): [string, Row] => [rowKey(row), row]))
+		const rows = new Map(Arr.map(kept, (row): [string, PlatformRow] => [rowKey(row), row]))
 		for (const row of [...of("insert"), ...of("put")]) {
 			rows.set(rowKey(row), row)
 		}
@@ -955,14 +958,14 @@ export const decideSet = (s: State, ops: ReadonlyArray<PlatformOp>): Decision =>
 export interface DirectStatement {
 	readonly kind: "delete" | "insert" | "put"
 	readonly relation: RelationName
-	readonly facts: ReadonlyArray<Row>
+	readonly facts: ReadonlyArray<PlatformRow>
 }
 
 /** A relation's rows after one direct statement: the facts deleted exactly, appended, or put at their keys. */
 const statementRows = (
-	rows: ReadonlyArray<Row>,
+	rows: ReadonlyArray<PlatformRow>,
 	statement: DirectStatement
-): ReadonlyArray<Row> => {
+): ReadonlyArray<PlatformRow> => {
 	switch (statement.kind) {
 		case "delete": {
 			const gone = keySet(statement.facts)

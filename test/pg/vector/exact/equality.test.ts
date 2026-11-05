@@ -26,6 +26,7 @@ import {
 import { realizeConservative } from "#compiler/write/conservative/realize.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { StatementShare, type WriteStatement } from "#compiler/write/insert/statement.ts"
+import type { PutStatement } from "#compiler/write/put/statement.ts"
 import { textRows } from "#test/pg/codec/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, lacksText, bareRecord, succeeded } from "#test/support/assert.ts"
@@ -128,7 +129,10 @@ const sortedIds = (rows: ReadonlyArray<unknown>): ReadonlyArray<string> =>
  * placeholder is the member slot of the one member the ChangeSet enumerates over its relation, whose facts `facts`
  * holds by relation.
  */
-const writeSteps = (installed: Installed, changeSet: unknown): ReadonlyArray<WriteStatement> => {
+const writeSteps = (
+	installed: Installed,
+	changeSet: unknown
+): ReadonlyArray<WriteStatement | PutStatement> => {
 	const desc = changeSetDesc(changeSet)
 	if (desc === undefined) {
 		throw new Error("not a ChangeSet")
@@ -165,7 +169,7 @@ const writeSteps = (installed: Installed, changeSet: unknown): ReadonlyArray<Wri
 
 /** One statement's result kind and the raw text rows it returned. */
 interface StatementOut {
-	readonly result: WriteStatement["result"]
+	readonly result: (WriteStatement | PutStatement)["result"]
 	readonly rows: ReadonlyArray<unknown>
 }
 

@@ -487,12 +487,13 @@ export const buildProbe = (
 			if (f.writing.kind !== "generated") {
 				/** A field the requested fact does not carry is written at its start (statement.ts startOf): a fresh
 				 * owner's count and ends, which name no key. */
-				return fields.includes(f)
+				const value = fields.includes(f)
 					? refusalCol(f)
 					: defined(
 							startOf(w.names, f),
 							`the start of ${relation.name}.${f.name}, a field a requested fact does not carry`
 						)
+				return value
 			}
 			const row: ColumnMap = new Map(fields.map((g) => [g.name, refusalCol(g)] as const))
 			const env: Env = new Map(columnReads(f.writing.expr).map((c) => [c.node, row] as const))

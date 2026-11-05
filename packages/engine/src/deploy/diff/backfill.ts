@@ -249,7 +249,9 @@ const layered = (
 			...layer.columns.map((c) => targetAs(c.expr, c.name))
 		]
 		query = select(core(targets, [from], undefined))
-		names.push(...layer.columns.map((c) => c.name))
+		for (const c of layer.columns) {
+			names.push(c.name)
+		}
 		depth += 1
 		from = derived(query, `l${depth}`, [], false)
 	}
@@ -1223,7 +1225,9 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			)
 		}
 	}
-	updates.push(...orderedCopies(drawnCopies).map(copyUpdate))
+	for (const c of orderedCopies(drawnCopies)) {
+		updates.push(copyUpdate(c))
+	}
 	const dropDefaults = [...input.added.values()].flatMap(
 		({ table, columns }): ReadonlyArray<SqlStatement> => {
 			const [first, ...rest] = columns

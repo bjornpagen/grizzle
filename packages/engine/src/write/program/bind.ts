@@ -370,12 +370,10 @@ export const bindWrite = (
 			known.set(id, found)
 			return found
 		}
-		/** An insert appends to its group's owner, which an immutable owner takes only when this stratum inserts it: the
-		 * group key is a value, so the host refuses it here, before any SQL. */
-		for (const { family, fixed } of target.families) {
-			if (!fixed) {
-				continue
-			}
+		/** The families whose owner is immutable: an insert appends to its group's owner, which such an owner takes only
+		 * when this stratum inserts it. The group key is a value, so the host refuses it here, before any SQL. */
+		const fixedFamilies = target.families.filter((f) => f.fixed)
+		for (const { family } of fixedFamilies) {
 			const inserted = owners(family)
 			for (const fact of changes.inserts) {
 				const group = groupKey(ctx, family, fact)
@@ -447,7 +445,7 @@ export const bindWrite = (
 			}
 			const all: Array<RelationPlanAt> = [...relations.value]
 			const counts: Array<Phase<"count">> = []
-			const planned: Array<EditedTarget> = []
+			const editsPlanned: Array<EditedTarget> = []
 			for (const bound of edits.filter((e) => e.program.edit.stratum === stratum)) {
 				const { target } = bound.program
 				const stored = new Map<string, StoredFamily>()
@@ -468,10 +466,10 @@ export const bindWrite = (
 				if (!edited.ok) {
 					return edited
 				}
-				planned.push({ target, edited: edited.value })
+				editsPlanned.push({ target, edited: edited.value })
 			}
-			for (const [i, edited] of foldRecounts(ctx, planned).entries()) {
-				const { target } = defined(planned[i], "a planned edit")
+			for (const [i, edited] of foldRecounts(ctx, editsPlanned).entries()) {
+				const { target } = defined(editsPlanned[i], "a planned edit")
 				const rowsPlan = planRelation(edited.rows, inputs.transport)
 				if (!rowsPlan.ok) {
 					return Result.err(rowBound(target.relation.name, rowsPlan.error))

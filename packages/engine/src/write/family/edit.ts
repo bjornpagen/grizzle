@@ -87,7 +87,7 @@ export interface EditTarget {
 }
 
 /** Why an immutable owner's family refuses a change, the sentence its static and read-time refusals share. */
-export const fixedRule = (owner: string): string =>
+const fixedRule = (owner: string): string =>
 	`an immutable owner's family is fixed when its owner is inserted; declare mutable(${owner}) to change it`
 
 /**
@@ -142,7 +142,7 @@ const textOf = (ctx: FillContext, type: LawField["type"], value: unknown): strin
 	admittedText(specOf(ctx, type), value)
 
 /** A fact's values by column key. */
-export const valuesOfFact = (fact: Fact): Map<ColumnKey, unknown> =>
+const valuesOfFact = (fact: Fact): Map<ColumnKey, unknown> =>
 	new Map(Object.entries(fact).map(([name, v]) => [fieldKey(name), v] as const))
 
 /** A row's key texts in its layout. */
@@ -407,8 +407,9 @@ const fillGroup = (
 	const removedSlots = stored.filter((m) => edit.removals.has(m.key)).map((m) => m.slot)
 	/** A stored group of an immutable owner takes no append, no removal and no change of what its family values read:
 	 * every one would change a value fixed when the owner was inserted. An update of anything else is in place. */
-	if (fixed !== undefined) {
-		const at = `the owner ${family.owner.name} with key (${fixed.join(", ")}), which is already stored`
+	const storedFixed = fixed
+	if (storedFixed !== undefined) {
+		const at = `the owner ${family.owner.name} with key (${storedFixed.join(", ")}), which is already stored`
 		const changed = [...edit.updates].some(([key, values]) => {
 			const m = stored.find((x) => x.key === key)
 			return m !== undefined && changesInput(m.values, values)

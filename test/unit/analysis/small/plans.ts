@@ -208,7 +208,7 @@ const fieldVar = (source: SourceName, field: string, id: string): VarDesc =>
  */
 const wholeMatches = (matches: RuleDesc["matches"]): boolean =>
 	Arr.every(matches, (m) => {
-		const bound = Object.keys(m.bindings)
+		const bound = Rec.keys(m.bindings)
 		switch (m.source.kind) {
 			case "relation":
 			case "param": {
@@ -223,7 +223,12 @@ const wholeMatches = (matches: RuleDesc["matches"]): boolean =>
 			}
 			case "query":
 				return Arr.every(["a", "b"], (f) => bound.includes(f))
-			default:
+			case "context":
+			case "delta":
+			case "interior":
+			case "paramOf":
+			case "row":
+			case "self":
 				return false
 		}
 	})
