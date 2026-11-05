@@ -404,7 +404,7 @@ const claimSql = (domain: FieldDomain): string => {
  *   each spread over rows / 50 values;
  * - Share: a document per number, at most one per document under either capacity, a user spread over rows / 50;
  * - Note: its identity numbers it, a document and an author each spread over rows / 50, every document one Doc holds;
- * - Visit: its identity numbers it, its one field.
+ * - Visit: its two serials number it, so it writes no field of its own.
  *
  * Every value a spread field holds is one an identity field holds too, so a link from either finds its fact, and each
  * spread value is held by some 50 rows, so a probe that rechecks another field on them is told from one that binds it.
