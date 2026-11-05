@@ -677,6 +677,15 @@ codemod unless it says so.
 - **A literal equality in a role or workload filter is indexed.** The index request of a filter such as
   `org = '<uuid>'` now holds that column, so it is read by an index and not a scan; an equality over a roster handle
   alone is still no index. Index names and snapshots change.
+- **Writing an exact value into a plain field is a type error.** A ChangeSet member (put, insert, delete, an entry
+  write) whose head writes a field a term of another SQL type than the field's, an exact integer or exact money into
+  a `bigint` or `money` field above all, is refused by the types,
+  `Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast">`;
+  before, the types admitted it and compilation refused it (`DescribedHeadingMismatch`). A JavaScript value is judged
+  by its host type as before.
+  - Fix: narrow the term under a guard, the way a credit into a `bigint` balance is written:
+    `balance: Compute.when(Compute.within(Compute.add(balance, amount), -(2n ** 63n), 2n ** 63n - 1n), (b) => Compute.cast(b, pg.bigint), balance)`,
+    with the otherwise-value your domain chooses.
 - **Smaller corrections:** a rewritten WITH or target table of an INSERT is no longer lost (the SQL transformer);
   a residual law's violation probe admits a contract over text; a read's relation parameter outside its refinement
   is refused at bind (`EncodingFailure` with `refinedValue`), as a scalar parameter is; a page over a vector key

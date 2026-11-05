@@ -734,6 +734,7 @@ export const typeRefusals = [
 	"a login's roles share its base",
 	"a login's workload is over its base, a level of it, or one of its roles",
 	"a member fact is not a fact of the relation",
+	"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast",
 	"a new field name for the attachment",
 	"a page over a bounded heterogeneous union: a group statement cannot tell which of its rows are among the union's first k",
 	"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Compute.when(Compute.positive(x), (x) => …, otherwise)",

@@ -7,6 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { bigint, double } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, pipe, String as Str } from "effect"
+import type { CompileReason } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
@@ -20,7 +21,7 @@ import {
 	parseAnswer
 } from "#test/pg/compute/support.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
+import { type CatalogResult, constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	adoptedLiteral,
@@ -50,13 +51,33 @@ interface Fixture {
 }
 
 /**
- * A value the sides disagree on: its domain cast, PostgreSQL's answer, the oracle's, and whether the ContractLiteral
- * check admits it.
+ * Compilation's verdict on a literal's domain cast: refused before any SQL, with the SQLSTATE of the PostgreSQL refusal
+ * its reason is (refusalState), or admitted, with the host evaluator's result.
+ */
+type Verdict =
+	| { readonly kind: "refused"; readonly state: string | undefined; readonly why: string }
+	| { readonly kind: "admitted"; readonly host: CatalogResult }
+
+/**
+ * The SQLSTATE of PostgreSQL's refusal of a domain cast that a compilation refusal of the literal's cast is, or none: a
+ * literal the contract's predicate refuses (ContractLiteral) is the domain's check violation, 23514, and one its base's
+ * typmod cannot hold, which nothing proves fits it (PartialOperation of `fits`), numeric's field overflow, 22003.
+ */
+const refusalState = (reason: CompileReason): string | undefined =>
+	reason._tag === "ContractLiteral"
+		? "23514"
+		: reason._tag === "PartialOperation" && reason.precondition === "fits"
+			? "22003"
+			: undefined
+
+/**
+ * A value the sides disagree on: its domain cast, PostgreSQL's answer, compilation's verdict, and whether the
+ * ContractLiteral check admits the value as a literal of the contract.
  */
 interface Problem {
 	readonly sql: string
 	readonly answer: PgAnswer
-	readonly host: string
+	readonly verdict: string
 	readonly admitted: boolean
 }
 
@@ -273,8 +294,10 @@ const contractSearch = (f: Fixture) =>
 		)
 		/**
 		 * The domain cast of each value from the base's value type, on both sides: PostgreSQL's CAST into the domain over
-		 * the value's literal, and compilation's, which judges a literal cast into a contract before any SQL
-		 * (ContractLiteral) and, where it admits it, the host evaluator's.
+		 * the value's literal, and compilation's, which judges a literal cast into a contract before any SQL and, where it
+		 * admits it, the host evaluator's. PostgreSQL admits a value exactly where compilation admits its cast, the host
+		 * delivers a value and the literal adopts the contract; it refuses one exactly where compilation refuses the cast
+		 * for the reason PostgreSQL's SQLSTATE names and the literal is no value of the contract.
 		 */
 		const cast = spelled(Compute.cast(v("x", f.base), f.field).expr)
 		const operand = spelled(v("x", f.base).expr)
@@ -300,13 +323,17 @@ const contractSearch = (f: Fixture) =>
 					const cases = Arr.map([...f.edges, ...batch], (value) => {
 						const bindings = { x: { kind: "literal", field: f.base, value } } as const
 						const lowered = lowerWith("query", cast, bindings, false, baseParams)
-						if (!lowered.ok && lowered.error.reason._tag !== "ContractLiteral") {
-							throw new Error(`${f.name}: ${lowered.error.message}`)
-						}
 						const literal = succeeded(lowerWith("query", operand, bindings, false, baseParams))
+						const verdict: Verdict = lowered.ok
+							? { kind: "admitted", host: evaluate(lowered.value.root.expr, constantEnv) }
+							: {
+									kind: "refused",
+									state: refusalState(lowered.error.reason),
+									why: lowered.error.message
+								}
 						return {
 							sql: `CAST((${renderSql(literal.root.expr, plainRender)}) AS ${target})`,
-							host: lowered.ok ? evaluate(lowered.value.root.expr, constantEnv) : undefined,
+							verdict,
 							admitted: adoptedLiteral(value, f.field.scalar).ok
 						}
 					})
@@ -316,26 +343,28 @@ const contractSearch = (f: Fixture) =>
 					)
 					const problems = Arr.flatMap(cases, (k, i): ReadonlyArray<Problem> => {
 						const answer = parseAnswer(String(rows[i]?.[0]))
-						const hostAdmits = k.host?._tag === "Success"
+						const { verdict } = k
 						const problem: Problem = {
 							sql: k.sql,
 							answer,
-							host:
-								k.host === undefined
-									? "refused at compilation"
-									: k.host._tag === "Success"
-										? carrierText(k.host.success)
-										: Formatter.format(k.host.failure),
+							verdict:
+								verdict.kind === "refused"
+									? `refused at compilation: ${verdict.why}`
+									: verdict.host._tag === "Success"
+										? carrierText(verdict.host.success)
+										: Formatter.format(verdict.host.failure),
 							admitted: k.admitted
 						}
 						if (answer.kind === "error") {
 							c.note("refused")
-							return k.host !== undefined || answer.sqlstate !== "23514" || k.admitted
-								? [problem]
-								: []
+							return verdict.kind === "refused" && verdict.state === answer.sqlstate && !k.admitted
+								? []
+								: [problem]
 						}
 						c.note("admitted")
-						return hostAdmits && k.admitted ? [] : [problem]
+						return verdict.kind === "admitted" && verdict.host._tag === "Success" && k.admitted
+							? []
+							: [problem]
 					})
 					assert.deepEqual(problems, [])
 				})

@@ -5,7 +5,7 @@ import { constant, element, subarray, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Duration, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Order, Record as Rec } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import type * as Result from "#compiler/core/result.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
@@ -31,9 +31,12 @@ import {
 /**
  * The workload in the installation (physical/access withWorkload): access requests merge with law maintenance against the
  * key and law indexes, every installed index and statistics object stands on a law id or the workload's access, and
- * the installation of any sub-workload of the worked example holds exactly the objects of the whole workload's that a law
- * stands on or one of its own programs asks for, as installing each of those programs alone asks for it. A workload
- * that cannot install is refused with its reason.
+ * the installation of any sub-workload of the worked example holds exactly the objects of the whole workload's that the
+ * laws alone install or one of its own programs asks for, as installing each of those programs alone asks for it, and
+ * the laws' own index where the whole workload's serving one is wider for programs the sub-workload drops: a law's
+ * request lands on a wider index a program asks for, and on an index of its own without one (physical/indexes/engine.ts
+ * planIndexes). It stands on every law the laws alone stand on. A workload that cannot install is refused with its
+ * reason.
  */
 
 const installWith = (
@@ -56,6 +59,15 @@ const hasLaw = (reasons: ReadonlyArray<PhysicalReason>): boolean =>
 const hasAccess = (reasons: ReadonlyArray<PhysicalReason>): boolean =>
 	Arr.some(reasons, (r) => r.kind === "access")
 
+/** The laws installed objects stand on, in order. */
+const lawsOf = (objects: Installation["manifest"]["objects"]): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.dedupe(
+			Arr.flatMap(objects, (o) => Arr.flatMap(o.reasons, (r) => (r.kind === "law" ? [r.law] : [])))
+		),
+		Order.String
+	)
+
 /** The objects of an installation the workload's access stands on, by ident. */
 const accessIdents = (i: Installation): ReadonlySet<string> =>
 	new Set(
@@ -71,6 +83,12 @@ const all = succeeded(
 	installWith(W.Work, whole),
 	"the worked example installs with its whole workload"
 )
+const lawsAlone = succeeded(
+	installWith(W.Work, planOf(W.Work, {})),
+	"the worked example installs with the empty workload"
+)
+const lawsAloneIdents = new Set(Arr.map(lawsAlone.manifest.objects, (o) => o.ident))
+const wholeIdents = new Set(Arr.map(all.manifest.objects, (o) => o.ident))
 
 /** The objects each program alone asks for, by its name. */
 const alone: ReadonlyMap<string, ReadonlySet<string>> = new Map(
@@ -86,6 +104,7 @@ type SubFeature =
 	| "an index only removed programs asked for"
 	| "a key or law object a kept program asks for too"
 	| "an index a kept program asks for alone"
+	| "a law's own index, where the whole workload's is wider for a dropped program"
 	| "the empty workload"
 
 describe("the worked example's workload in the installation", () => {
@@ -114,6 +133,7 @@ describe("the worked example's workload in the installation", () => {
 								"an index only removed programs asked for",
 								"a key or law object a kept program asks for too",
 								"an index a kept program asks for alone",
+								"a law's own index, where the whole workload's is wider for a dropped program",
 								"the empty workload"
 							],
 							{ cases: 20, sense: notesOnly }
@@ -140,10 +160,11 @@ describe("the worked example's workload in the installation", () => {
 								Arr.flatMap(kept, ([name]) => [...defined(alone.get(name), name)])
 							)
 							/**
-							 * The whole workload's objects, each standing on the access only where a kept program asks for it: one only
-							 * the access stands on goes with the programs that asked for it.
+							 * The whole workload's objects the laws alone install or a kept program asks for, each standing on the
+							 * access only where a kept program asks for it: one only the access stands on goes with the programs that
+							 * asked for it.
 							 */
-							const expected = Arr.flatMap(all.manifest.objects, (o) => {
+							const keptWhole = Arr.filter(all.manifest.objects, (o) => {
 								const access = asked.has(o.ident)
 								const standsElsewhere = Arr.some(o.reasons, (r) => r.kind !== "access")
 								if (standsElsewhere && access) {
@@ -155,15 +176,48 @@ describe("the worked example's workload in the installation", () => {
 								if (!standsElsewhere && !access) {
 									c.note("an index only removed programs asked for")
 								}
-								return standsElsewhere || access ? [{ ident: o.ident, access }] : []
+								return access || lawsAloneIdents.has(o.ident)
 							})
-							assert.deepEqual(
-								Arr.map(sub.manifest.objects, (o) => ({
-									ident: o.ident,
-									access: hasAccess(o.reasons)
-								})),
-								expected
+							/** The laws a kept program's object serves beside it, an object the laws alone do not install. */
+							const widened = new Set(
+								lawsOf(Arr.filter(keptWhole, (o) => !lawsAloneIdents.has(o.ident)))
 							)
+							/**
+							 * The laws alone's objects the whole workload holds none of, whose laws no kept program's object serves: a
+							 * law's own index, where the whole workload's serving one is wider for programs the sub-workload drops.
+							 */
+							const lawsOwn = Arr.filter(lawsAlone.manifest.objects, (o) => {
+								const own =
+									!wholeIdents.has(o.ident) &&
+									Arr.every(o.reasons, (r) => r.kind !== "law" || !widened.has(r.law))
+								if (own) {
+									c.note(
+										"a law's own index, where the whole workload's is wider for a dropped program"
+									)
+								}
+								return own
+							})
+							const byIdent = Order.mapInput(
+								Order.String,
+								(o: { readonly ident: string }) => o.ident
+							)
+							assert.deepEqual(
+								Arr.sort(
+									Arr.map(sub.manifest.objects, (o) => ({
+										ident: o.ident,
+										access: hasAccess(o.reasons)
+									})),
+									byIdent
+								),
+								Arr.sort(
+									Arr.map([...keptWhole, ...lawsOwn], (o) => ({
+										ident: o.ident,
+										access: asked.has(o.ident)
+									})),
+									byIdent
+								)
+							)
+							assert.deepEqual(lawsOf(sub.manifest.objects), lawsOf(lawsAlone.manifest.objects))
 							/** The same workload listed in reverse installs the same statements. */
 							const reversed = succeeded(
 								installWith(W.Work, planOf(W.Work, Rec.fromEntries(Arr.reverse(kept))))

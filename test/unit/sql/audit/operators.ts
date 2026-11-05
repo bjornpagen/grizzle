@@ -724,6 +724,9 @@ const requiredBreakTable = breakTable([
 					return []
 				}
 				const body = item.query.body
+				if (!Arr.isReadonlyArrayNonEmpty(body.targets)) {
+					return []
+				}
 				const [first, ...rest] = body.targets
 				if (first.alias === undefined) {
 					return []
@@ -751,7 +754,7 @@ const requiredBreakTable = breakTable([
 					return []
 				}
 				const right = Arr.lastNonEmpty(q.body.arms)
-				if (right.kind !== "core") {
+				if (right.kind !== "core" || !Arr.isReadonlyArrayNonEmpty(right.targets)) {
 					return []
 				}
 				const [first, ...rest] = right.targets
@@ -1400,7 +1403,7 @@ const requiredBreakTable = breakTable([
 					return []
 				}
 				const right = Arr.lastNonEmpty(q.body.arms)
-				if (right.kind !== "core") {
+				if (right.kind !== "core" || !Arr.isReadonlyArrayNonEmpty(right.targets)) {
 					return []
 				}
 				const [first, ...rest] = right.targets

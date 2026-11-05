@@ -84,7 +84,11 @@ const relations = { Account, Pending, Entry } as const
 const build = (name: string) => schema(name, relations, [])
 const buildMutable = (name: string) => schema(name, relations, [mutable(Account)])
 
-/** The described put: credit `amount` to account `id`, reading its balance; the read-back reads the post-change row. */
+/**
+ * The described put: credit `amount` to account `id`, reading its balance; the read-back reads the post-change row. The
+ * credited balance is an exact integer, narrowed back into the bigint field under a guard that it fits; a credit past
+ * bigint's range leaves the balance as it was.
+ */
 const credit = <St extends ReadonlyArray<Statement>>(
 	s: GrizzleSchema<string, typeof relations, St>
 ) =>
@@ -95,7 +99,15 @@ const credit = <St extends ReadonlyArray<Statement>>(
 				const { balance } = v(Account, "account")
 				return r.match(Account, { id: r.param("id", Account.fields.id), balance }).find({
 					id: r.param("id", Account.fields.id),
-					balance: Compute.add(balance, r.param("amount", pg.bigint))
+					balance: Compute.when(
+						Compute.within(
+							Compute.add(balance, r.param("amount", pg.bigint)),
+							-9223372036854775808n,
+							9223372036854775807n
+						),
+						(credited) => Compute.cast(credited, pg.bigint),
+						balance
+					)
 				})
 			})
 		)

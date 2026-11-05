@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util"
 import { Array as Arr, Effect, Option } from "effect"
 import { findNodes, type PlanNode } from "#bench/harness/explain.ts"
 import {
@@ -78,7 +79,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { OptimizedStatement } from "#compiler/lower/shapes/index.ts"
 import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import type { Expr, FunctionCall, WindowSpec } from "#compiler/sql/ast.ts"
-import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
 
 /**
@@ -155,8 +156,20 @@ const callsOf = (statement: OptimizedStatement): ReadonlyArray<FunctionCall> => 
 	return calls
 }
 
-/** An expression with its casts seen through. */
-const uncast = (e: Expr): Expr => (e.kind === "cast" ? uncast(e.expr) : e)
+/** Every CASE of an expression, nested queries included. */
+const casesOf = (e: Expr): ReadonlyArray<Extract<Expr, { readonly kind: "case" }>> => {
+	const cases: Array<Extract<Expr, { readonly kind: "case" }>> = []
+	transformExpr(e, {
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind === "case") {
+				cases.push(x)
+			}
+			return x
+		}
+	})
+	return cases
+}
 
 /** @internal */
 export default defineGate({
@@ -260,10 +273,26 @@ export default defineGate({
 				)
 				const plan = planOf(m.generated, 0)
 				const calls = callsOf(optimizedStatement(compiled, 0))
-				/** The conditional count is count(*) with FILTER, and the conditional sum a sum of a CASE. */
-				const filteredCounts = Arr.filter(calls, (c) => c.star && c.filter !== undefined).length
-				const caseSums = Arr.filter(calls, (c) =>
-					Arr.some(c.args, (a) => uncast(a).kind === "case")
+				/**
+				 * The conditional count is count(*) with FILTER (WHERE p), and the conditional sum a sum, which takes no FILTER,
+				 * of a CASE that tests the same p: its argument, the CASE an exact float sum takes the exact value of, through
+				 * the binding of its operand.
+				 */
+				const predicates = Arr.flatMap(calls, (c) =>
+					c.star && c.filter !== undefined ? [c.filter] : []
+				)
+				const filteredCounts = predicates.length
+				const caseSums = Arr.filter(
+					calls,
+					(c) =>
+						!c.star &&
+						c.fn.kind === "builtin" &&
+						c.fn.name === "sum" &&
+						Arr.some(c.args, (a) =>
+							Arr.some(casesOf(a), (k) =>
+								Arr.some(k.whens, (w) => Arr.some(predicates, (p) => isDeepStrictEqual(w.when, p)))
+							)
+						)
 				).length
 				conditionalChecks.push(
 					agrees(`${label}: generated agrees with the composition`, m),
@@ -280,7 +309,7 @@ export default defineGate({
 					mechanism(
 						`${label}: the count is FILTER and the sum CASE`,
 						filteredCounts > 0 && caseSums > 0,
-						`${filteredCounts} filtered counts, ${caseSums} sums of a CASE`
+						`${filteredCounts} filtered counts, ${caseSums} sums of a CASE on a FILTER's predicate`
 					)
 				)
 				if (label === "none") {

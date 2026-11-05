@@ -4,7 +4,7 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { MemberDesc } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { typeLabel } from "#compiler/ir/scalar.ts"
+import { contractOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { compatible } from "#compiler/scalar/compute/types.ts"
 
 /**
@@ -27,6 +27,21 @@ const memberHeading = (
 }
 
 const names = (h: Heading): string => h.map((c) => c.name).join(", ")
+
+/**
+ * The one way a member column of type `value` is written into a field of another type `field`: an exact value, which
+ * no field stores, by Compute.cast under a guard that proves it fits; a value into or out of a contract by
+ * Compute.cast; any other value by Compute.cast into the field's type.
+ */
+const writtenOnly = (value: ScalarType, field: ScalarType): string => {
+	if (value.carrier === "exactInteger" || value.carrier === "exactMoney") {
+		return "an exact value is written into a field only by Compute.cast under a guard that proves it fits"
+	}
+	if (contractOf(value) !== undefined || contractOf(field) !== undefined) {
+		return "a value re-enters a contract only by Compute.cast"
+	}
+	return "a value is written into a field of another type only by Compute.cast"
+}
 
 /**
  * ChangeSet members described by queries.
@@ -89,7 +104,7 @@ export const checkMemberHeading = (
 			fail(
 				"DescribedHeadingMismatch",
 				loc,
-				`a member column ${c.name} of ${relation.name}'s type ${typeLabel(c.type)}, not ${typeLabel(d.type)}; a value re-enters a contract only by Compute.cast`
+				`a member column ${c.name} of ${relation.name}'s type ${typeLabel(c.type)}, not ${typeLabel(d.type)}; ${writtenOnly(d.type, c.type)}`
 			)
 		}
 	}

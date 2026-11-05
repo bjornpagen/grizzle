@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
+import { type Case, drawn, explore } from "@grizzle/testing/explore"
 import { required, type Situations } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { boolean, element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec, Result } from "effect"
@@ -17,17 +17,28 @@ import { plannedWrite } from "#test/support/worlds/execute/session.ts"
 import { additionsOf } from "#test/support/worlds/features.ts"
 import { actionGen } from "#test/support/worlds/generate/action.ts"
 import { contextsRead } from "#test/support/worlds/generate/entries.ts"
+import { defaultScope } from "#test/support/worlds/generate/enumerate.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
 import { realityGen } from "#test/support/worlds/generate/reality.ts"
-import { type Weights, weightsGen, zeroWeights } from "#test/support/worlds/generate/weights.ts"
+import {
+	everyActionWorth,
+	type Weights,
+	weightsGen,
+	zeroWeights
+} from "#test/support/worlds/generate/weights.ts"
 import { liveFactsGen } from "#test/support/worlds/invalid/tokens.ts"
-import { docsBase } from "#test/support/worlds/model/bases/docs.ts"
+import { docsBase, docsVisitsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
+import { serialHead, writtenOf } from "#test/support/worlds/model/session/writes.ts"
 import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
 import type {
+	Action,
+	ActionOutcome,
 	AdditionFeature,
 	DbSessionState,
-	ModelState
+	InstallSpec,
+	ModelState,
+	RoleSpec
 } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -44,13 +55,13 @@ import type {
  * itself and then refuses (the class of a generated addition through an entry whose every carried field is serial)
  * is caught on every seed of the unit tier. Required: both verdicts, and the additions the model admits whose every
  * carried field is serial (through a query entry, and into the base's every-serial relation written whole), complete
- * and generated, and generated ones beside carried fields.
+ * and generated, and generated ones beside carried fields. A witness aims at the additions no witness reached yet
+ * (additionAim).
  */
 type CompileFeature = "compiled" | "compile-refused" | AdditionFeature
 
-const situations: Situations<CompileFeature> = [
-	"compiled",
-	"compile-refused",
+/** The additions the suite requires. */
+const additions: Arr.NonEmptyReadonlyArray<AdditionFeature> = [
 	"addition:complete:entry:unit",
 	"addition:generated:entry:unit",
 	"addition:complete:whole:unit",
@@ -58,6 +69,52 @@ const situations: Situations<CompileFeature> = [
 	"addition:generated:entry:carried",
 	"addition:generated:whole:carried"
 ]
+
+const situations: Situations<CompileFeature> = ["compiled", "compile-refused", ...additions]
+
+/**
+ * The additions a witness aims at, in half its cases by a draw of its own: those no witness reached yet (Case.steering).
+ * None for a rotating or kept case, which runs as drawn.
+ */
+const additionAim = (
+	c: Case<CompileFeature>
+): Option.Option<Arr.NonEmptyReadonlyArray<AdditionFeature>> => {
+	const pending = Option.match(c.steering, {
+		onNone: (): ReadonlyArray<AdditionFeature> => [],
+		onSome: (p) => Arr.filter(additions, (f) => p.has(f))
+	})
+	return Arr.isReadonlyArrayNonEmpty(pending) && c.draw(boolean)
+		? Option.some(pending)
+		: Option.none()
+}
+
+/**
+ * The installation an aimed witness writes under: the documents base's worlds whose roles write Visit through a query
+ * entry whose every carried field is serial and through one filtering on a serial field (docsVisitsInstall), beside
+ * the member's notes, whose number is serial; the drawn one otherwise, whose roles hold those shapes too rarely to rely
+ * on.
+ */
+const aimedInstall = (
+	aim: Option.Option<Arr.NonEmptyReadonlyArray<AdditionFeature>>,
+	drawnInstall: InstallSpec
+): InstallSpec => (Option.isSome(aim) ? docsVisitsInstall : drawnInstall)
+
+/** Whether a role writes a query entry with a serial field a fact may leave out (model/session/writes.ts serialHead). */
+const leavesOutSerials = (install: InstallSpec, role: RoleSpec): boolean =>
+	Arr.some(
+		writtenOf(install.base, role),
+		(w) => w.kind === "query" && serialHead(install.base, w).classed.length > 0
+	)
+
+/** What an apply notes where the model admits it past its compile: its additions (features.ts additionsOf). */
+const compiledAdditions = (
+	state: ModelState,
+	action: Action,
+	observation: ActionOutcome
+): ReadonlyArray<string> =>
+	action.kind === "apply" && observation.kind !== "compile-refused"
+		? additionsOf(state, action)
+		: []
 
 /** A compile's refusal; none when it compiles. */
 const refusalOf = <A>(compiled: Engine.Result<A, CompileError>): CompileError | undefined =>
@@ -87,15 +144,24 @@ describe("the worlds model's compile rules", () => {
 					steerEvery: 16,
 					caseHang: Duration.minutes(2)
 				},
-				(install, c) =>
+				(drawnInstall, c) =>
 					Effect.gen(function* () {
+						const aim = additionAim(c)
+						const install = aimedInstall(aim, drawnInstall)
 						const built = yield* Effect.orDie(buildInstall(install, install.base.name))
 						const names = yield* namesOfBuilt(install, built, atDeclaredName)
 						const host = hostSchemaOf(install.base, names)
 						const loaded = initialState(install, names, c.draw(realityGen(install.base, host)))
 						const writers = Arr.filter(install.roles, (r) => r.write.length > 0)
+						const leaving = Arr.filter(writers, (r) => leavesOutSerials(install, r))
 						const role = c.draw(
-							element(Arr.isReadonlyArrayNonEmpty(writers) ? writers : install.roles)
+							element(
+								Option.isSome(aim) && Arr.isReadonlyArrayNonEmpty(leaving)
+									? leaving
+									: Arr.isReadonlyArrayNonEmpty(writers)
+										? writers
+										: install.roles
+							)
 						)
 						const login = defined(
 							Option.getOrUndefined(
@@ -112,7 +178,25 @@ describe("the worlds model's compile rules", () => {
 							snapshot: { version: loaded.version, install, names, host }
 						}
 						const state: ModelState = { ...loaded, sessions: [session] }
-						const action = c.draw(actionGen(state, appliesOnly(c.draw(weightsGen))))
+						const weights = appliesOnly(c.draw(weightsGen))
+						const action = c.draw(
+							actionGen(
+								state,
+								Option.match(aim, {
+									onNone: () => weights,
+									onSome: (features): Weights => ({
+										...weights,
+										aims: {
+											kind: "every",
+											features,
+											read: compiledAdditions,
+											worth: everyActionWorth,
+											scope: defaultScope
+										}
+									})
+								})
+							)
+						)
 						if (action.kind !== "apply") {
 							return assert.fail(`an apply, not ${action.kind}`)
 						}

@@ -1477,7 +1477,9 @@ Six things work differently from SQL:
   the guard to write. A precondition that rests on
   magnitudes, a narrowing's range or a power's, compilation proves from `Compute.within`'s bounds, or refuses as
   `PartialOperation`: narrow an exact integer into an integer field with
-  `Compute.when(Compute.within(x, 0n, 1000000n), (x) => Compute.cast(x, pg.integer), 0)`.
+  `Compute.when(Compute.within(x, 0n, 1000000n), (x) => Compute.cast(x, pg.integer), 0)`. An exact value binds at a
+  plain integer or money column, but a ChangeSet member stores one into a field only through that cast: a head that
+  writes `Compute.add(balance, amount)` into a `pg.bigint` field is a type error.
 
 There are no outer joins. Where SQL would LEFT JOIN and fill the gaps with NULL, a second rule covers the rows that
 have no match:

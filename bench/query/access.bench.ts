@@ -89,7 +89,8 @@ const Entry = relation(
  * (page.bench.ts), a file of its own, so a page failure records only R05's verdict:
  *
  * - R04: a range over the domain column with a closed-roster literal is an Index Cond, planned generic and planned
- *   custom, each tested separately, and the scan of Entry reads exactly the range's rows.
+ *   custom, each tested separately, and the scan of Entry reads exactly the rows the query selects, the open entries
+ *   in the range: the index serves the literal equality and the range, and no row is fetched to be filtered out.
  * - R18: the range and prefix statements are single-assignment (each relation alias and each derived column defined
  *   once, read off the statement the runtime sends), and each one's server statement signature is exactly its
  *   parameter slots' types, the base type for a parameter compared with the domain column; the domain column keeps
@@ -450,16 +451,19 @@ export default defineGate({
 			)
 			const generic = serverStatementPlanOf(rangeM.generated, "generic", 0)
 			const custom = serverStatementPlanOf(rangeM.generated, "custom", 0)
-			/** The Entry rows the range selects, counted once on the raw session: what a scan of the range reads. */
+			/**
+			 * The Entry rows the query selects, open and in the range, counted once on the raw session: what a scan whose
+			 * index serves both predicates reads.
+			 */
 			const rows = yield* raw.values(
-				`SELECT pg_catalog.count(*)::text FROM ${E} WHERE ${col("amount")} >= ${rangeValues.lo} AND ${col("amount")} < ${rangeValues.hi}`,
+				`SELECT pg_catalog.count(*)::text FROM ${E} WHERE ${col("kind")} = 'Open' AND ${col("amount")} >= ${rangeValues.lo} AND ${col("amount")} < ${rangeValues.hi}`,
 				[]
 			)
 			const [countRow] = trusted<ReadonlyArray<TextRow>>(rows)
 			if (countRow === undefined) {
-				throw new GateSetupError({ what: "the range count returned no row" })
+				throw new GateSetupError({ what: "the count of the selected rows returned no row" })
 			}
-			const rangeRows = Number(countRow[0])
+			const selectedRows = Number(countRow[0])
 			/**
 			 * The rows the scans of Entry fetched, filtered out or not, over every loop; rechecks aside, so a lossy bitmap does
 			 * not count.
@@ -476,8 +480,8 @@ export default defineGate({
 			 */
 			const fetchedLoops = (plan: PlanNode): number =>
 				Arr.reduce(scansOf(plan, entry), 0, (sum, n) => sum + n.actualLoops)
-			const readsRange = (plan: PlanNode): boolean =>
-				Math.abs(rowsFetched(plan) - rangeRows) <= 0.005 * fetchedLoops(plan)
+			const readsSelected = (plan: PlanNode): boolean =>
+				Math.abs(rowsFetched(plan) - selectedRows) <= 0.005 * fetchedLoops(plan)
 			const amountColumn = fx.columnName("Entry", "amount")
 			const amountCond = (plan: PlanNode): boolean =>
 				Arr.every(scansOf(plan, entry), (s) => s.nodeType !== "Seq Scan") &&
@@ -524,9 +528,9 @@ export default defineGate({
 						outline(generic, 0)
 					),
 					mechanism(
-						"the entry scan reads exactly the range's rows",
-						readsRange(generic) && readsRange(custom),
-						`${rangeRows} rows in range; generic fetched ${rowsFetched(generic)}, custom ${rowsFetched(custom)}`
+						"the entry scan reads exactly the open entries in the range",
+						readsSelected(generic) && readsSelected(custom),
+						`${selectedRows} open entries in range; generic fetched ${rowsFetched(generic)}, custom ${rowsFetched(custom)}`
 					),
 					agrees("generated and conservative agree", rangeM),
 					equivalence(

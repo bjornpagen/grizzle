@@ -8,11 +8,15 @@ import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
 import type {
 	Carriers,
+	DomainOf,
 	Headed,
+	InputTerm,
 	Invariant,
+	IsRetyped,
 	ParamArg,
 	Refusal,
 	Simplify,
+	SqlOfCarrier,
 	Source
 } from "#compiler/types/core/phantom.ts"
 import type {
@@ -48,18 +52,49 @@ export type Member<S, F> = ReadonlyArray<F> | Stream.Stream<F> | QueryAt<LevelsO
  * Each arm of a member's facts must be one arm of F exactly: assignable to it and with no field beyond it, so an
  * insert's facts either omit every serial field or supply them all, and no fact carries a field its
  * relation lacks. An array or Stream member is an inferred type argument, so TypeScript runs no excess-property check
- * on its elements; the check is this one, as for a query member's head.
+ * on its elements; the check is this one, as for a query member's head. A query member's head also writes each field
+ * of R at the field's own type (MistypedFields), as the checker requires (check/member.ts checkMemberHeading): an exact
+ * integer or exact money binds at a plain integer or money column (Meets), but is stored into one only through
+ * Compute.cast. This is the one place a member's membership is decided, for insert, delete and put, an addition that
+ * omits its serial fields and a world relation's entry alike.
  */
-type MemberCheck<M, F> =
+type MemberCheck<M, F, R> =
 	M extends Phantom<{ readonly heading: infer H }>
 		? [UnfitArms<H, F>] extends [never]
-			? unknown
+			? [MistypedFields<M, R>] extends [never]
+				? unknown
+				: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast">
 			: Refusal<"the query's head is not a fact of the relation">
 		: M extends ReadonlyArray<infer E> | Stream.Stream<infer E, unknown, unknown>
 			? [UnfitArms<E, F>] extends [never]
 				? unknown
 				: Refusal<"a member fact is not a fact of the relation">
 			: unknown
+
+/** The fields of R a query member's head delivers at a type other than the field's own (WritesAt). */
+type MistypedFields<M, R> =
+	M extends Headed<infer Hc>
+		? R extends Headed<infer C>
+			? {
+					[K in keyof Hc & keyof C]-?: WritesAt<Hc[K], C[K]> extends true ? never : K
+				}[keyof Hc & keyof C]
+			: never
+		: never
+
+/**
+ * Whether a head's carrier X writes the field F: a JavaScript value, which takes its field's type and stands as a
+ * fact of the relation (MemberCheck), or a term of F's identity and SQL type exactly, as the checker compares a member
+ * column with its field (scalar/compute/types.ts compatible), whatever its values, facts and language.
+ */
+type WritesAt<X, F> =
+	IsRetyped<X> extends true
+		? true
+		: [InputTerm<DomainOf<X>, unknown, unknown, SqlOfCarrier<X>>] extends [
+					InputTerm<DomainOf<F>, unknown, unknown, SqlOfCarrier<F>>
+			  ]
+			? true
+			: false
+
 type UnfitArms<H, F> = H extends unknown ? ([FitsAnArm<H, F>] extends [never] ? H : never) : never
 type FitsAnArm<Ha, F> = F extends unknown
 	? [Ha] extends [F]
@@ -151,16 +186,16 @@ export interface ChangeSet<
 	readonly reads: RowDecoder<Reads>
 	insert<R extends AnyRelation | AnyWorld, const M extends Member<S, Addition<R>>>(
 		relation: R & WritableCheck<S, R>,
-		facts: M & MemberCheck<M, Addition<R>>
+		facts: M & MemberCheck<M, Addition<R>, R>
 	): ChangeSet<S, Simplify<Params & ParamsOf<M>>, Writes | NameOf<R>, Reads, Cx | ContextsOf<M>>
 	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, Fact<R>>>(
 		relation: R & WritableCheck<S, R>,
-		facts: M & MemberCheck<M, Fact<R>>
+		facts: M & MemberCheck<M, Fact<R>, R>
 	): ChangeSet<S, Simplify<Params & ParamsOf<M>>, Writes | NameOf<R>, Reads, Cx | ContextsOf<M>>
 	/** After the change, R's fact at each member's key is that member. */
 	put<R extends AnyRelation | AnyWorld, const M extends Member<S, Fact<R>>>(
 		relation: R & WritableCheck<S, R>,
-		facts: M & MemberCheck<M, Fact<R>>
+		facts: M & MemberCheck<M, Fact<R>, R>
 	): ChangeSet<S, Simplify<Params & ParamsOf<M>>, Writes | NameOf<R>, Reads, Cx | ContextsOf<M>>
 	/**
 	 * A query over the post-change state and the change's own delta, delivered in the outcome under `name`. It runs

@@ -25,6 +25,7 @@ import {
 } from "#compiler/scalar/compute/lower.ts"
 import { firstOperand, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import {
+	commonType,
 	exactType,
 	meets as engineMeets,
 	meetingType,
@@ -220,8 +221,9 @@ export const compareSketchGen = (depth: number): Gen<CompareSketch> => {
 }
 
 /**
- * The Compute operations the generator draws, by the carrier of their first operand. Each is a ComputeFn whose
- * overloads the registry admits over that carrier (or a composite lowering of them); casts are drawn separately.
+ * The Compute operations the generator draws, by the carrier they compute at: a unary operation's operand's, a binary
+ * one's the carrier its operands meet at (types.ts meetingType). Each is a ComputeFn whose overloads the registry admits
+ * over that carrier (or a composite lowering of them); casts are drawn separately.
  */
 const unaryFns: Readonly<Partial<Record<Carrier, ReadonlyArray<ComputeFn>>>> = {
 	int2: ["neg", "abs", "sign"],
@@ -498,20 +500,15 @@ const plainOf = (c: Carrier, fallback: ScalarType): ScalarType =>
 	isPlain(c) ? plainType(c) : fallback
 
 /**
- * The term a sketch resolves to, of a type meeting `want` when one is given.
- *
- * money / money is double precision; it meets a double precision `want` only by a cast, so it is left out
- * where a money operand is wanted.
- *
- * A cosine distance is double precision, which never meets a vector operand.
- *
- * LEAST, GREATEST, gcd and lcm take terms or parameters, never a bare literal (the checker refuses one).
- *
- * A cosine distance is double precision, which meets no other wanted type.
- *
- * A numeric typmod coercion is the cast numeric -> numeric, which rounds and can overflow.
- *
- * money / money is double precision, which meets a money operand only by a cast.
+ * The term a sketch resolves to, of a type meeting `want` when one is given (types.ts meets), each node typed as the
+ * checker types it:
+ * - a binary operation is drawn among those over the carrier its operands meet at (types.ts meetingType), the carrier
+ *   the checker computes it at, so money is never divided by exact money, which has no division; and it stands only
+ *   where its result meets `want`, so money / money and a cosine distance, double precision, stand only opposite
+ *   double precision. A binary sketch whose operation cannot stand is its left operand.
+ * - LEAST, GREATEST, gcd and lcm take terms or parameters, never a bare literal (the checker refuses one).
+ * - a conditional is of its branches' common type (types.ts commonType), so money beside exact money is exact money.
+ * - a numeric typmod coercion is the cast numeric -> numeric, which rounds and can overflow.
  */
 const resolveTerm = (
 	scope: TermScope,
@@ -556,32 +553,29 @@ const resolveTerm = (
 			if (left === undefined || left.free) {
 				return left
 			}
-			const carrier = baseOf(left.type).carrier
+			const right = resolveTerm(scope, s.right, left.type)
+			if (right === undefined) {
+				return left
+			}
+			const operand = meetingType(left.type, right.type)
+			const carrier = baseOf(operand).carrier
 			const fns = binaryFns[carrier] ?? []
 			if (fns.length === 0) {
 				return left
 			}
 			const fn = at(fns, s.fn)
-			if (fn === "div" && carrier === "money" && want?.carrier === "money") {
-				return left
-			}
-			if (fn === "cosineDistance" && want !== undefined && want.carrier !== "float8") {
-				return left
-			}
-			const right = resolveTerm(scope, s.right, left.type)
-			if (right === undefined) {
-				return left
-			}
 			if (literalShy.has(fn) && right.desc.kind === "literal") {
 				return left
 			}
-			const operand = meetingType(left.type, right.type)
 			const type =
 				fn === "least" || fn === "greatest"
 					? operand
 					: fn === "cosineDistance"
 						? plainType("float8")
-						: resultOf(fn, baseOf(operand).carrier, operand)
+						: resultOf(fn, carrier, operand)
+			if (want !== undefined && !meets(type, want)) {
+				return left
+			}
 			if (!divisions.has(fn) || floatCarriers.has(carrier)) {
 				return { desc: { kind: "compute", fn, args: [left.desc, right.desc] }, type, free: false }
 			}
@@ -690,7 +684,7 @@ const resolveTerm = (
 			}
 			return {
 				desc: { kind: "cond", pred: pred, onTrue: onTrue.desc, onFalse: onFalse.desc },
-				type: onTrue.type,
+				type: commonType(onTrue.type, onFalse.type),
 				free: false
 			}
 		}

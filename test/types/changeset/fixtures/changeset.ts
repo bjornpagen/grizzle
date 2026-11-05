@@ -2,8 +2,10 @@ import type { Brand, Effect } from "effect"
 import type { ApplyOutcome } from "#adapter/public/db.ts"
 import type { DbOf } from "#adapter/types/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import type { Uuid } from "#compiler/public/fields.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { pg, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
 import type { ReadsOf, WritesOf } from "#compiler/types/changeset/changeset.ts"
 import type { ParamType } from "#compiler/types/core/phantom.ts"
 import type { ParamsOf } from "#compiler/types/query/query.ts"
@@ -177,6 +179,58 @@ export type DistinctReads = Expect<Equals<keyof ReadsOf<typeof distinctNames>, "
 export const closedMember = () =>
 	// @ts-expect-error -- TS2345 refusal: a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes
 	ChangeSet.empty(Work).insert(Kind, [{ id: "Automatic" }])
+
+/**
+ * A computed exact value is stored into a plain field only through Compute.cast: a credit's balance is an exact
+ * integer and a doubled fee exact money, each binding at its field's column but written into a bigint or money field
+ * only narrowed under a guard.
+ */
+const Ledger = relation("Ledger", { id: pg.bigint, balance: pg.bigint, fee: pg.money }, ["id"])
+const Bank = schema("Bank", { Ledger }, [])
+
+export const creditNarrowed = ChangeSet.empty(Bank).put(
+	Ledger,
+	query(Bank).rule((r) => {
+		const { balance, fee } = v(Ledger, "ledger")
+		return r.match(Ledger, { id: r.param("id", Ledger.fields.id), balance, fee }).find({
+			id: r.param("id", Ledger.fields.id),
+			balance: Compute.when(
+				Compute.within(
+					Compute.add(balance, r.param("amount", pg.bigint)),
+					-9223372036854775808n,
+					9223372036854775807n
+				),
+				(credited) => Compute.cast(credited, pg.bigint),
+				balance
+			),
+			fee
+		})
+	})
+)
+
+export const creditUnnarrowed = () =>
+	ChangeSet.empty(Bank).put(
+		Ledger,
+		// @ts-expect-error -- TS2345 refusal: a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast
+		query(Bank).rule((r) => {
+			const { balance, fee } = v(Ledger, "ledger")
+			return r.match(Ledger, { id: r.param("id", Ledger.fields.id), balance, fee }).find({
+				id: r.param("id", Ledger.fields.id),
+				balance: Compute.add(balance, r.param("amount", pg.bigint)),
+				fee
+			})
+		})
+	)
+
+export const feeUnnarrowed = () =>
+	ChangeSet.empty(Bank).insert(
+		Ledger,
+		// @ts-expect-error -- TS2345 refusal: a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast
+		query(Bank).rule((r) => {
+			const { id, balance, fee } = v(Ledger, "ledger")
+			return r.match(Ledger, { id, balance, fee }).find({ id, balance, fee: Compute.add(fee, fee) })
+		})
+	)
 
 /** The write list: the writer may apply the switch, the reader may not. */
 type Writer = DbOf<typeof WriterRole, unknown>
