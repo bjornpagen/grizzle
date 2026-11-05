@@ -779,13 +779,12 @@ export class Checker {
 		return this.b.expr(spec)
 	}
 
-	#charge(spec: CheckedNodeSpec, loc: SourceLoc): void {
+	#charge(loc: SourceLoc): void {
 		unwrap(this.meter.charge("nodes", 1, loc))
-		unwrap(this.meter.charge("fields", spec.heading.length, loc))
 	}
 
 	node(spec: CheckedNodeSpec, loc: SourceLoc): RelNode {
-		this.#charge(spec, loc)
+		this.#charge(loc)
 		return this.b.node({ ...spec, loc, meta: conservativeMeta })
 	}
 
@@ -797,7 +796,7 @@ export class Checker {
 	}
 
 	define(id: ReservedNode, spec: CheckedNodeSpec, loc: SourceLoc): RelNode {
-		this.#charge(spec, loc)
+		this.#charge(loc)
 		this.#reserved.delete(id)
 		return this.b.define(id, { ...spec, loc, meta: conservativeMeta })
 	}
@@ -856,8 +855,6 @@ export class Checker {
 	/**
 	 * The query's DAG as a whole: its stages, then an OrderedResult when it is an Ordered. Its parameters are the
 	 * table's once the pass is final (check/index.ts).
-	 *
-	 * One charge per parameter at its first use, so an overrun names the use that crossed the bound.
 	 */
 	root(desc: ResolvedQuery, loc: SourceLoc, role: RootRole): LogicalQuery["dag"] {
 		if (this.options.read === "page" && desc.stage.kind !== "order") {
@@ -869,9 +866,6 @@ export class Checker {
 		}
 		const out = this.stage(desc.stage, this.ownScope(role))
 		const root = out.order === undefined ? out.node : this.#orderedResult(out.node, out.order)
-		for (const at of this.params.firstUses()) {
-			unwrap(this.meter.charge("params", 1, at))
-		}
 		return unwrap(completeStatedOrders(this.b.build([root]), this.#stated))
 	}
 

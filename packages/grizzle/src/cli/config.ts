@@ -1,6 +1,7 @@
 import { Array as Arr, Effect, Option, Path, Record as Rec, Result } from "effect"
 import { definedConfig } from "#adapter/config/define.ts"
 import { toResult } from "#adapter/engine.ts"
+import { loginRoleValues } from "#adapter/pool/registry.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import {
 	type CliError,
@@ -19,6 +20,7 @@ import { type BuiltSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
 import type { LoginWorkloads } from "#compiler/program/workload/compile.ts"
 import { type Owned, type OwnedLogin, own, ownLogin } from "#compiler/schema/own.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
+import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 
 const defaultMigrationsDir = "migrations"
 
@@ -52,6 +54,15 @@ const defaultMigrationsDir = "migrations"
  * channel exist only in its type, which defineConfig's signature checks. Nothing else is configurable: an unknown key
  * is refused, so a misspelt one is never ignored. The default export is checked here before any command runs.
  */
+/**
+ * One login's workloads as the configuration gives them, and its role values: what DbLayer.make compiles for the
+ * login (adapter/pool/registry.ts loginRoles), which generate compiles too.
+ */
+export interface ConfiguredWorkloads extends LoginWorkloads {
+	readonly workloads: ReadonlyArray<AnyWorkload>
+	readonly roles: ReadonlyArray<unknown>
+}
+
 export interface ConfiguredSchema {
 	/** The schema value as configured. */
 	readonly value: unknown
@@ -61,8 +72,8 @@ export interface ConfiguredSchema {
 	readonly ident: string
 	/** The logins over the schema, in configured order. */
 	readonly logins: ReadonlyArray<OwnedLogin>
-	/** Each login's workloads, in configured order. */
-	readonly workloads: ReadonlyArray<LoginWorkloads>
+	/** Each login's workloads, in configured order, with the role values its Dbs open. */
+	readonly workloads: ReadonlyArray<ConfiguredWorkloads>
 	/** `<migrations>/<ident>`. */
 	readonly directory: string
 }
@@ -155,7 +166,7 @@ const resolveConfigWith = (
 	const schemas: Array<
 		Omit<ConfiguredSchema, "workloads" | "logins"> & {
 			logins: Array<OwnedLogin>
-			workloads: Array<LoginWorkloads>
+			workloads: Array<ConfiguredWorkloads>
 		}
 	> = []
 	for (const [i, s] of schemaValues.entries()) {
@@ -247,7 +258,11 @@ const resolveConfigWith = (
 			)
 		}
 		entry.logins.push(login)
-		entry.workloads.push({ login: login.name, workloads: built.value.workload })
+		entry.workloads.push({
+			login: login.name,
+			workloads: built.value.workload,
+			roles: loginRoleValues(built.value)
+		})
 	}
 	return Result.succeed({
 		file,

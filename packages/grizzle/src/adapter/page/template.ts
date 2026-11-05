@@ -40,12 +40,7 @@ import {
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"
 import type { PageComparator, PageVariant, ProbeKind } from "#compiler/lower/shapes/page/seek.ts"
-import {
-	pageSlotOf,
-	pageStatementSlotOf,
-	type SpecCharge,
-	statementSpec
-} from "#compiler/lower/template.ts"
+import { pageSlotOf, pageStatementSlotOf, statementSpec } from "#compiler/lower/template.ts"
 import { vectorExpectations } from "#compiler/physical/vector/admission.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
@@ -178,15 +173,10 @@ const pageForm = (
 	)
 })
 
-/** A statement of a page program at position `i` as it runs, each form with the spec rebuilt from it. */
-const pageRun = (
-	statement: PageStatement,
-	i: number
-): Engine.Result<PageRunStatement, CompileError> => {
-	/** The page compiler charged the template's statements; the runtime rebuilds their specs. */
-	const charge: SpecCharge = { kind: "unmetered" }
-	return Engine.flatMap(
-		statementSpec(statement, charge, i, pageStatementSlotOf),
+/** A statement of a page program as it runs, each form with the spec rebuilt from it. */
+const pageRun = (statement: PageStatement): Engine.Result<PageRunStatement, CompileError> =>
+	Engine.flatMap(
+		statementSpec(statement, pageStatementSlotOf),
 		(spec): Engine.Result<PageRunStatement, CompileError> => {
 			const form = pageForm(statement, spec)
 			const forms = statement.forms
@@ -194,7 +184,7 @@ const pageRun = (
 				return Engine.ok({ ...form, forms, arrival: statement.arrival })
 			}
 			return Engine.map(
-				statementSpec(forms.large, charge, i, pageStatementSlotOf),
+				statementSpec(forms.large, pageStatementSlotOf),
 				(large): PageRunStatement => ({
 					...form,
 					forms: { kind: "chosen", choices: forms.choices, large: pageForm(forms.large, large) },
@@ -203,7 +193,6 @@ const pageRun = (
 			)
 		}
 	)
-}
 
 /** The statements of a page program as they run (pageRun), in their tree. */
 const specsOf = (
@@ -296,7 +285,7 @@ const runArtifact = (
 				const program = artifact.probes[k]
 				const run: RunProbe<K> = {
 					program,
-					statement: yield* toResult(pageRun(program.statement, 0))
+					statement: yield* toResult(pageRun(program.statement))
 				}
 				return run
 			})

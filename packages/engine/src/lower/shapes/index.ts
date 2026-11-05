@@ -1,6 +1,5 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	extendNonEmpty,
 	isNonEmpty,
@@ -93,7 +92,7 @@ import { groupRows, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { approximateLowerer } from "#compiler/lower/shapes/vector/index.ts"
 import type { Cte, OrderItem, Select } from "#compiler/sql/ast.ts"
 import { and, col, conjunction, core, cteRefAs, select, target } from "#compiler/sql/build.ts"
-import { emit, metered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { renameToPublicHeading } from "#compiler/sql/naming.ts"
 
 /**
@@ -704,17 +703,16 @@ export class OptimizedDelivery<
 	}
 
 	/**
-	 * The statement at `position` delivering `query`, a relation of heading `rows`, after the columns its role puts
-	 * first, with the choices its lowering made: the refined output casts, the statement's WITH entries, the public names
-	 * (the output heading, then each fused attachment's column), printed by sql/emit. A zero-column relation delivers its
-	 * private unit column.
+	 * The statement delivering `query`, a relation of heading `rows`, after the columns its role puts first, with the
+	 * choices its lowering made: the refined output casts, the statement's WITH entries, the public names (the output
+	 * heading, then each fused attachment's column), printed by sql/emit. A zero-column relation delivers its private
+	 * unit column.
 	 */
 	#emitted(
 		query: Select,
 		rows: Heading,
 		statement: StatementPlacement,
-		fused: ReadonlyArray<FusedAttachment>,
-		position: number
+		fused: ReadonlyArray<FusedAttachment>
 	): Lowered<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
 		const output = statementOutput(statement.role, rows, fused)
 		const log = this.state.drain()
@@ -733,14 +731,7 @@ export class OptimizedDelivery<
 		if (!renamed.ok) {
 			throw new Refusal(renamed.error)
 		}
-		const printed = emit(
-			renamed.value,
-			this.cx.supply.map(),
-			metered(
-				this.cx.options.meter,
-				SourceLoc("optimized delivery", ["statements", position, statement.role.kind])
-			)
-		)
+		const printed = emit(renamed.value, this.cx.supply.map())
 		if (!printed.ok) {
 			throw new Refusal(printed.error)
 		}
@@ -763,16 +754,15 @@ export class OptimizedDelivery<
 		lower: () => Select,
 		rows: Heading,
 		statement: StatementPlacement,
-		fused: ReadonlyArray<FusedAttachment>,
-		position: number
+		fused: ReadonlyArray<FusedAttachment>
 	): Lowered<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
 		this.state.begin(mode)
 		this.beginStatement()
-		return this.#emitted(lower(), rows, statement, fused, position)
+		return this.#emitted(lower(), rows, statement, fused)
 	}
 
 	/**
-	 * The statement at `position` in its forms: its query lowered by `lower` in the small mode, each per-execution take
+	 * The statement in its forms: its query lowered by `lower` in the small mode, each per-execution take
 	 * in its small form, and, when that lowering made choices, lowered again in the large mode, each take in its large
 	 * form, as the statement's large form. Both forms are this placement's, so they share its role and heading; only
 	 * the query, its names and its placeholders differ.
@@ -781,15 +771,14 @@ export class OptimizedDelivery<
 		lower: () => Select,
 		rows: Heading,
 		statement: StatementPlacement,
-		fused: ReadonlyArray<FusedAttachment>,
-		position: number
+		fused: ReadonlyArray<FusedAttachment>
 	): DeliveredStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
-		const small = this.#lowered("small", lower, rows, statement, fused, position)
+		const small = this.#lowered("small", lower, rows, statement, fused)
 		const choices = small.choices
 		if (!isNonEmpty(choices)) {
 			return { ...small.statement, forms: oneForm }
 		}
-		const large = this.#lowered("large", lower, rows, statement, fused, position)
+		const large = this.#lowered("large", lower, rows, statement, fused)
 		return { ...small.statement, forms: { kind: "chosen", choices, large: large.statement } }
 	}
 
@@ -898,7 +887,7 @@ export class OptimizedDelivery<
 		}
 		const columns = fused.map((a) => fusedDescription(cx, a.attach, a.spine, spec.heading))
 		return {
-			build: (position) => this.formed(lowered, spec.heading, spec.statement, columns, position),
+			build: () => this.formed(lowered, spec.heading, spec.statement, columns),
 			attachments: (place) => {
 				const rows: DeliveredRows<I> = {
 					...statementRows(spec.heading, spec.rel),
@@ -956,7 +945,7 @@ export class OptimizedDelivery<
 		}
 		const child = attach.child
 		const parentKey = parentColumnsOf(cx, attach, spine, rows.heading)
-		const statement = place((position) =>
+		const statement = place(() =>
 			this.formed(
 				() =>
 					checkedAttachment(
@@ -969,8 +958,7 @@ export class OptimizedDelivery<
 					),
 				child.heading,
 				{ role: { kind: "attachment", parentKey }, dependsOn: [] },
-				[],
-				position
+				[]
 			)
 		)
 		const childSpine = this.spine(attach.child)

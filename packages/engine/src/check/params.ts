@@ -33,8 +33,8 @@ import { commonType, compatible, withoutSerial } from "#compiler/scalar/compute/
  */
 type Entry =
 	| { readonly kind: "untyped" }
-	| { readonly kind: "scalar"; readonly type: ScalarType; readonly loc: SourceLoc }
-	| { readonly kind: "relation"; readonly heading: Heading; readonly loc: SourceLoc }
+	| { readonly kind: "scalar"; readonly type: ScalarType }
+	| { readonly kind: "relation"; readonly heading: Heading }
 
 const untyped: Entry = { kind: "untyped" }
 
@@ -80,7 +80,7 @@ export class ParamCell {
 					`parameter ${this.name} as one kind: it is also a relation parameter`
 				)
 			case "untyped":
-				this.#entry = { kind: "scalar", type: adopted, loc }
+				this.#entry = { kind: "scalar", type: adopted }
 				return this.id
 			case "scalar":
 				if (!compatible(prior.type, adopted)) {
@@ -90,7 +90,7 @@ export class ParamCell {
 						`compatible uses of parameter ${this.name}: it is used as ${typeLabel(prior.type)} and as ${typeLabel(adopted)}`
 					)
 				}
-				this.#entry = { kind: "scalar", type: commonType(prior.type, adopted), loc: prior.loc }
+				this.#entry = { kind: "scalar", type: commonType(prior.type, adopted) }
 				return this.id
 		}
 	}
@@ -106,7 +106,7 @@ export class ParamCell {
 					`parameter ${this.name} as one kind: it is also a scalar parameter`
 				)
 			case "untyped":
-				this.#entry = { kind: "relation", heading, loc }
+				this.#entry = { kind: "relation", heading }
 				return this.id
 			case "relation":
 				if (!sameHeading(prior.heading, heading)) {
@@ -135,11 +135,6 @@ export class ParamCell {
 					`a use of parameter ${this.name}: the query names it where none of its uses is checked`
 				)
 		}
-	}
-
-	/** Where a use first typed the parameter, undefined while it is untyped. */
-	firstUse(): SourceLoc | undefined {
-		return this.#entry.kind === "untyped" ? undefined : this.#entry.loc
 	}
 }
 
@@ -190,17 +185,6 @@ export class ParamTable {
 	/** The declared parameters, in name order, refused at `loc` for a parameter no checked use typed. */
 	decls(loc: SourceLoc): ReadonlyArray<ParamDecl> {
 		return this.#cells.map((c) => c.decl(loc))
-	}
-
-	/**
-	 * Where each typed parameter was first used, in name order, so a budget overrun is located at the use of the
-	 * parameter that crossed it.
-	 */
-	firstUses(): ReadonlyArray<SourceLoc> {
-		return this.#cells.flatMap((c) => {
-			const at = c.firstUse()
-			return at === undefined ? [] : [at]
-		})
 	}
 }
 

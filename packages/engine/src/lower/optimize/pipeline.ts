@@ -2,21 +2,17 @@ import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/canonical.ts"
 import type { Diagnostic } from "#compiler/core/diag.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import { makePassContext, type Pass, type PassContext } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import type { RelDag } from "#compiler/ir/rel.ts"
 import { annotateQuery, type LogicalEnv } from "#compiler/logical/annotate.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
-import {
-	type ConservativeOptions,
-	flight,
-	type MembershipLowering,
-	type ReadBackLowering,
-	type StatementRoots
+import type {
+	ConservativeOptions,
+	MembershipLowering,
+	ReadBackLowering
 } from "#compiler/lower/conservative/types.ts"
 import { type CtePlan, ctePolicyPass } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { dedupPlacement } from "#compiler/lower/optimize/dedup/pass.ts"
@@ -33,7 +29,6 @@ import {
 	type FusedStatement,
 	OptimizedDelivery,
 	type OptimizedDeliveryProgram,
-	type OptimizedStatement,
 	optimizedDispatch,
 	type RelationChoice,
 	ShapeState
@@ -158,34 +153,6 @@ const deliver = (
 		return new OptimizedDelivery<never>(cx, facts, state).program(query.dag.roots[0])
 	})
 
-/**
- * Each statement with how the runtime has it (shapes/share arrivalsOf), a statement of two forms charged to the variants
- * budget (closed-domain variants stay bounded) at its position in flight order.
- */
-const arrivedStatements = (
-	dag: RelDag,
-	delivered: DeliveredProgram<RelationChoice>,
-	ctx: PassContext
-): Result.Result<
-	StatementRoots<OptimizedStatement<RelationChoice, FusedStatement>>,
-	CompileError
-> =>
-	Result.flatMap(arrivalsOf(dag, delivered.roots), (roots) => {
-		for (const [i, s] of flight(roots).entries()) {
-			if (s.forms.kind === "chosen") {
-				const charged = ctx.budgets.charge(
-					"variants",
-					1,
-					SourceLoc("optimized pipeline", ["variants", i])
-				)
-				if (!charged.ok) {
-					return Result.err(charged.error)
-				}
-			}
-		}
-		return Result.ok(roots)
-	})
-
 /** The optimized lowering of a checked query, as a pass. */
 const optimizedLowering = (options: OptimizedOptions): Pass<LogicalQuery, OptimizedProgram> => ({
 	name: "optimizedLowering",
@@ -212,7 +179,8 @@ const optimizedLowering = (options: OptimizedOptions): Pass<LogicalQuery, Optimi
 			return delivered
 		}
 		const program = delivered.value
-		const arrived = arrivedStatements(query.dag, program, ctx)
+		/** Each statement with how the runtime has it (shapes/share arrivalsOf). */
+		const arrived = arrivalsOf(query.dag, program.roots)
 		if (!arrived.ok) {
 			return arrived
 		}

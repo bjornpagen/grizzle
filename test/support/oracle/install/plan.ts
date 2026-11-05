@@ -47,7 +47,7 @@ import {
 	tableCol,
 	types
 } from "#compiler/sql/build.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printType } from "#compiler/sql/print.ts"
 import type {
@@ -1017,7 +1017,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		ddl.push(revokeFromPublic({ kind: "DOMAIN", names: domainNames }))
 	}
 
-	const sql = Arr.map(ddl, (statement) => unwrap(emit(statement, emptyNameMap, unmetered)).text)
+	const sql = Arr.map(ddl, (statement) => unwrap(emit(statement, emptyNameMap)).text)
 	return {
 		declared: desc.name,
 		schema,

@@ -14,7 +14,7 @@ import {
 	simpleSelect,
 	targetAs
 } from "#compiler/sql/build.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
@@ -170,7 +170,7 @@ const relationStatements = (
 			onConflict: undefined,
 			returning: []
 		}
-		const emitted = emit(insert, emptyNameMap, unmetered)
+		const emitted = emit(insert, emptyNameMap)
 		if (!emitted.ok) {
 			return Result.err(emitted.error)
 		}
@@ -181,7 +181,7 @@ const relationStatements = (
 		const advanced =
 			column.sequence.kind === "none" || max === undefined || max < 1n
 				? undefined
-				: emit(advanceSequence(column.sequence.name, max), emptyNameMap, unmetered)
+				: emit(advanceSequence(column.sequence.name, max), emptyNameMap)
 		if (advanced !== undefined && !advanced.ok) {
 			return Result.err(advanced.error)
 		}

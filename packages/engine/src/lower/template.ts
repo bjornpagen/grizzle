@@ -6,11 +6,9 @@ import {
 	recordsetEncoder
 } from "#compiler/codec/recordset.ts"
 import { paramEncoder, resultTextCasts } from "#compiler/codec/scalar.ts"
-import type { BudgetMeter } from "#compiler/core/budget.ts"
 import { canonicalEquals, catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type {
 	Encoder,
@@ -54,7 +52,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import { emit, metered, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { NameSupply, renderNameMap } from "#compiler/sql/naming.ts"
 
 const textCast = (e: Expr, castTypes: ReadonlyArray<"numeric" | "text">): Expr =>
@@ -285,14 +283,6 @@ export const writeSlotOf = (slot: WriteParamSlot): WriteSlot =>
 export const pageStatementSlotOf = (slot: PageStatementSlot): ParamSlot =>
 	slot.kind === "page" ? pageSlotOf(slot) : declaredSlotOf(slot)
 
-/**
- * How the executable texts are charged: against the compilation's meter, an overrun located at the artifact the
- * statements are; or not at all, as the runtime rebuilds the specs of a page template its compilation already charged.
- */
-export type SpecCharge =
-	| { readonly kind: "metered"; readonly meter: BudgetMeter; readonly artifact: string }
-	| { readonly kind: "unmetered" }
-
 /** A query statement's large form as a template holds it: the large mode's statement and the spec emitted from it. */
 export interface SpecifiedForm {
 	readonly statement: FusedStatement
@@ -317,34 +307,18 @@ export interface SpecifiedArtifact {
 /** The spec emitted from `statement`, each placeholder filled as `slotOf` says. */
 export const statementSpec = <Slot extends ConservativeParamSlot, P extends ParamSlot>(
 	statement: FusedStatement<Slot>,
-	charge: SpecCharge,
-	index: number,
 	slotOf: (slot: Slot) => P
 ): Result.Result<StatementSpec<P>, CompileError> =>
 	Result.flatMap(
-		catchRefusal(() => {
-			const executable = emit(
-				executableQuery(statement),
-				statement.sql.nameMap,
-				charge.kind === "metered"
-					? metered(
-							charge.meter,
-							SourceLoc(`${charge.artifact} template`, ["statements", index, statement.role.kind])
-						)
-					: unmetered
-			)
-			if (!executable.ok) {
-				return Result.err(executable.error)
-			}
-			return Result.ok({
-				sql: executable.value.text,
+		catchRefusal(() => executableQuery(statement)),
+		(query) =>
+			Result.map(emit(query, statement.sql.nameMap), (executable): StatementSpec<P> => ({
+				sql: executable.text,
 				paramSlots: statement.params.map(slotOf),
 				heading: statementOutput(statement.role, statement.heading, statement.fused).heading,
 				role: statement.role.kind,
 				dependsOn: statement.dependsOn
-			})
-		}),
-		(spec) => spec
+			}))
 	)
 
 /**
@@ -369,15 +343,14 @@ export const statementSpec = <Slot extends ConservativeParamSlot, P extends Para
  *   onto its parents; the value's decoder converts them (adapter/reader/execution.ts).
  */
 export const specifiedStatements = <S extends FusedStatement>(
-	roots: StatementRoots<S>,
-	charge: SpecCharge
+	roots: StatementRoots<S>
 ): Result.Result<
 	StatementRoots<{ readonly statement: S; readonly spec: StatementSpec }>,
 	CompileError
 > =>
 	catchRefusal(() =>
-		mapTree(roots, (statement, i) => {
-			const spec = statementSpec(statement, charge, i, declaredSlotOf)
+		mapTree(roots, (statement) => {
+			const spec = statementSpec(statement, declaredSlotOf)
 			if (!spec.ok) {
 				throw new Refusal(spec.error)
 			}

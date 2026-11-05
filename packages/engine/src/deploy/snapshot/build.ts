@@ -14,7 +14,7 @@ import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
 import { type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
-import { textMaxLength } from "#compiler/core/policy.ts"
+import { maxStringLength } from "#compiler/core/policy.ts"
 import { isList } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import {
@@ -459,13 +459,13 @@ const jsonValue = (out: Lines, head: string, value: Json, tail: string): void =>
 const jsonTextLoc = SourceLoc("JSON text", [])
 
 /** The reviewable text of a canonical value: its JSON form, keys in code point order, indented by tabs, ending in a
- * newline. Equal values are equal bytes. A text past JavaScript's longest string is refused as ResourceBound (text),
+ * newline. Equal values are equal bytes. A text past V8's longest string is refused as ResourceBound (stringLength),
  * and a kernel Refusal its writer throws is its failure. */
 export const writeJsonText = (value: unknown): Result.Result<string, CompileError> =>
 	Result.flatMap(toJson(value, everyProperty), (json) =>
 		Result.flatMap(
 			catchRefusal(() =>
-				textOf(textMaxLength, "\t", jsonTextLoc, (out) => {
+				textOf(maxStringLength, "\t", jsonTextLoc, (out) => {
 					jsonValue(out, "", json, "")
 					out.line("")
 				})
@@ -525,7 +525,7 @@ const formValue = (out: Lines, head: string, value: FormOf<StatementLine>, tail:
 export const writeSnapshot = (snapshot: DeploySnapshot): Result.Result<string, CompileError> =>
 	catchRefusal(() =>
 		valueOf(
-			textOf(textMaxLength, "\t", jsonTextLoc, (out) => {
+			textOf(maxStringLength, "\t", jsonTextLoc, (out) => {
 				formValue(out, "", snapshotForm(snapshot, asLine), "")
 				out.line("")
 			})

@@ -88,7 +88,10 @@ export const inlineText = (write: (out: Lines) => void): string => {
 	return out.join(" ")
 }
 
-/** `open`, the parts joined by `separator`, and `close`; ResourceBound (text) when that would be longer than `limit`. */
+/**
+ * `open`, the parts joined by `separator`, and `close`; ResourceBound (stringLength) when that would be longer than
+ * `limit` UTF-16 code units, the unit of V8's string limit (core/policy.ts maxStringLength), measured before it is built.
+ */
 export const enclosedWithin = (
 	limit: number,
 	at: SourceLoc,
@@ -102,13 +105,13 @@ export const enclosedWithin = (
 		needed += part.length
 	}
 	return needed > limit
-		? Result.err(resourceBound(at, { kind: "text", limit, needed }))
+		? Result.err(resourceBound(at, { kind: "stringLength", limit, needed }))
 		: Result.ok(`${open}${parts.join(separator)}${close}`)
 }
 
 /**
- * The text `write` writes, its lines joined by newlines; ResourceBound (text) at `at` when it would be longer than
- * `limit`, measured before it is built.
+ * The text `write` writes, its lines joined by newlines; ResourceBound (stringLength) at `at` when it would be longer
+ * than `limit` UTF-16 code units, measured before it is built.
  */
 export const textOf = (
 	limit: number,

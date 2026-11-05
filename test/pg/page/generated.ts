@@ -504,8 +504,8 @@ const fullResult = (
 	statements: ReadonlyArray<OptimizedStatement>
 ): Effect.Effect<Full, SqlError> =>
 	Effect.gen(function* () {
-		const specs = Arr.map(statements, (s, i) => {
-			const spec = statementSpec(s, { kind: "unmetered" }, i, declaredSlotOf)
+		const specs = Arr.map(statements, (s) => {
+			const spec = statementSpec(s, declaredSlotOf)
 			if (!spec.ok) {
 				throw new Error(spec.error.message)
 			}

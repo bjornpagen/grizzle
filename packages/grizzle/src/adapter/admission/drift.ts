@@ -40,7 +40,7 @@ import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { EmittedText, SqlStatement, TypeSchema } from "#compiler/sql/ast.ts"
 import * as C from "#compiler/sql/catalog.ts"
-import { emit, emitCatalog, unmetered } from "#compiler/sql/emit.ts"
+import { emit, emitCatalog } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
@@ -745,7 +745,7 @@ const scratchStatements = (
 ): Result.Result<ReadonlyArray<EmittedText>, CompileError> => {
 	const texts: Array<EmittedText> = []
 	for (const d of Arr.flatMap(statements, (s) => inScratch(s, scratchOf))) {
-		const e = emit(d, emptyNameMap, unmetered)
+		const e = emit(d, emptyNameMap)
 		if (!e.ok) {
 			return Result.fail(e.error)
 		}

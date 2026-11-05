@@ -1,4 +1,3 @@
-import { BudgetMeter } from "#compiler/core/budget.ts"
 import { catchRefusal, compareText, Refusal } from "#compiler/core/canonical.ts"
 import type { RoleRule } from "#compiler/core/causes.ts"
 import {
@@ -30,7 +29,6 @@ import {
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray, sortNonEmpty } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { compileBudgets } from "#compiler/core/policy.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
@@ -156,8 +154,7 @@ export interface OwnedContract {
  * - a primary or candidate key whose index entry can exceed PostgreSQL's limit (UnrepresentableKey, representability.ts);
  * - a declared name the naming door's rule refuses (MalformedDescription, core/identity.ts parseDeclaredName, and
  *   parseSchemaName for the schema's), and two names of one namespace that convert to one identifier
- *   (IdentifierCollision with both locations, core/identity.ts DeclaredNamespace), a role's views included;
- * - a schema whose fields exceed the field budget (ResourceBound).
+ *   (IdentifierCollision with both locations, core/identity.ts DeclaredNamespace), a role's views included.
  *
  * Semantic identity excludes allocation order, callback identity, aliases and source locations.
  * Equivalent declarations agree: a relation, closed relation or statement declared twice identically is one
@@ -529,10 +526,8 @@ class Owner {
 		{ readonly desc: FieldDesc & { readonly kind: "contract" }; readonly loc: SourceLoc }
 	>()
 	readonly #mutable = new Set<string>()
-	readonly #budget: BudgetMeter
 
 	constructor(desc: SchemaDesc) {
-		this.#budget = new BudgetMeter(compileBudgets)
 		const levels: Array<SchemaDesc> = []
 		for (let level: SchemaDesc | undefined = desc; level !== undefined; level = level.extends) {
 			levels.unshift(level)
@@ -679,9 +674,9 @@ class Owner {
 	}
 
 	/**
-	 * Fields: closed references resolve to declared rosters, contract names are not reused with a conflicting
-	 * descriptor, and every field is charged to the field budget. A derived relation's fields are its definition's,
-	 * which derived analysis reads.
+	 * Fields: closed references resolve to declared rosters, and contract names are not reused with a conflicting
+	 * descriptor. A derived relation's fields are its definition's, which derived analysis reads. How many columns a
+	 * table holds is PostgreSQL's limit, checked where the installation emits the table (physical/ddl/context.ts).
 	 */
 	#collectFields(): void {
 		const ordered = [...this.#relations.values()].toSorted((a, b) =>
@@ -692,7 +687,6 @@ class Owner {
 				continue
 			}
 			const heading = headingOf(entry.desc)
-			unwrap(this.#budget.charge("fields", Object.keys(heading).length, entry.desc.loc))
 			for (const [field, desc] of Object.entries(heading)) {
 				const loc = labeledChildLoc(entry.desc.loc, field, `field ${entry.desc.name}.${field}`)
 				nestedFields(desc, (d) => {

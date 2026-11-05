@@ -157,53 +157,20 @@ const certificatesContext = (certificates: ReadonlyArray<Certificate>): Template
 	certificates.every((c) => contextAdmits("transaction", c.context)) ? "transaction" : "snapshot"
 
 /**
- * The conservative artifact, charged to the compilation's meter: its lowered nodes under the meter's own bound, so an
- * inlining blowup stops at the node where it crosses it, and each statement's text at that statement (exceeding a
- * compiler resource bound yields a source-located error).
+ * The conservative artifact, its lowered nodes charged to the compilation's meter, so an inlining blowup stops at the
+ * node where it crosses its bound (exceeding a compiler resource bound yields a source-located error).
  */
 const conservativeArtifact = (
 	checked: LogicalQuery,
 	artifacts: SchemaArtifacts,
 	meter: BudgetMeter
-): Result.Result<ConservativeProgram, CompileError> => {
-	const lowering = new BudgetMeter({
-		nodes: meter.limit("nodes"),
-		fields: meter.limit("fields"),
-		params: meter.limit("params"),
-		variants: meter.limit("variants"),
-		sqlBytes: Number.MAX_SAFE_INTEGER
+): Result.Result<ConservativeProgram, CompileError> =>
+	lowerConservative(conservativeInput(checked), {
+		names: artifacts.reads,
+		params: checked.params,
+		subject: { kind: "query" },
+		meter
 	})
-	const at = (path: ReadonlyArray<string | number>): SourceLoc =>
-		SourceLoc("conservative artifact", path)
-	for (const kind of ["nodes", "fields", "params", "variants"] as const) {
-		lowering.charge(kind, meter.used(kind), at([]))
-	}
-	return Result.flatMap(
-		lowerConservative(conservativeInput(checked), {
-			names: artifacts.reads,
-			params: checked.params,
-			subject: { kind: "query" },
-			meter: lowering
-		}),
-		(program) => {
-			const nodes = meter.charge(
-				"nodes",
-				lowering.used("nodes") - meter.used("nodes"),
-				at(["nodes"])
-			)
-			if (!nodes.ok) {
-				return Result.err(nodes.error)
-			}
-			for (const [i, s] of flight(program.roots).entries()) {
-				const charged = meter.chargeSql(s.sql.text, at(["statements", i, s.role.kind]))
-				if (!charged.ok) {
-					return Result.err(charged.error)
-				}
-			}
-			return Result.ok(program)
-		}
-	)
-}
 
 /**
  * The schema a query compiles against: for a query value the caller names no schema for, the one it was built over;
@@ -321,34 +288,24 @@ export const compileQuery = (
 		return lowered
 	}
 	const optimized = lowered.value
-	const optimizedSpecs = specifiedStatements(optimized.roots, {
-		kind: "metered",
-		meter,
-		artifact: "optimized"
-	})
+	const optimizedSpecs = specifiedStatements(optimized.roots)
 	if (!optimizedSpecs.ok) {
 		return optimizedSpecs
 	}
 	const conservativeRuns = specifiedStatements(
-		deliveredAsOptimized<RelationChoice, SpecifiedForm, DeclaredParamSlot>(conservative).roots,
-		{ kind: "metered", meter, artifact: "conservative" }
+		deliveredAsOptimized<RelationChoice, SpecifiedForm, DeclaredParamSlot>(conservative).roots
 	)
 	if (!conservativeRuns.ok) {
 		return conservativeRuns
 	}
-	/** Each statement's large form with the spec emitted from it, charged as the optimized artifact's variants. */
+	/** Each statement's large form with the spec emitted from it. */
 	const specified = catchRefusal(() =>
-		mapTree(optimizedSpecs.value, ({ statement: s, spec }, i): SpecifiedStatement => {
+		mapTree(optimizedSpecs.value, ({ statement: s, spec }): SpecifiedStatement => {
 			const forms = s.forms
 			if (forms.kind === "one") {
 				return { statement: { ...s, forms }, spec }
 			}
-			const large = statementSpec(
-				forms.large,
-				{ kind: "metered", meter, artifact: "optimized variant" },
-				i,
-				declaredSlotOf
-			)
+			const large = statementSpec(forms.large, declaredSlotOf)
 			if (!large.ok) {
 				throw new Refusal(large.error)
 			}

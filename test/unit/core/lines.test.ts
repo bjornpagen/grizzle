@@ -1,6 +1,6 @@
 /**
  * The text bound (core/lines.ts): every text grizzle builds as one string is measured before it is built, and refused as
- * ResourceBound (text) past the limit. The limit is V8's longest string, which a Node upgrade can move, so it is
+ * ResourceBound (stringLength) past the limit. The limit is V8's longest string, which a Node upgrade can move, so it is
  * checked against the running V8; the measure is checked against the text itself, at limits drawn around its length.
  */
 import { constants } from "node:buffer"
@@ -26,13 +26,13 @@ import { Array as Arr, Duration, Effect, Formatter, String as Str } from "effect
 import type { CompileError } from "#compiler/core/errors.ts"
 import { enclosedWithin, type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { textMaxLength } from "#compiler/core/policy.ts"
+import { maxStringLength } from "#compiler/core/policy.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 
 describe("the text bound", () => {
 	it("is V8's longest string on the running Node", () => {
-		assert.equal(textMaxLength, constants.MAX_STRING_LENGTH)
+		assert.equal(maxStringLength, constants.MAX_STRING_LENGTH)
 	})
 
 	/** Where a drawn limit falls against the text's length: the situations the measure's arithmetic must get right. */
@@ -89,7 +89,7 @@ describe("the text bound", () => {
 		assert.deepEqual(refused(actual, "ResourceBound").reason, {
 			_tag: "ResourceBound",
 			at,
-			bound: { kind: "text", limit, needed: expected.length }
+			bound: { kind: "stringLength", limit, needed: expected.length }
 		})
 	}
 
@@ -183,20 +183,20 @@ describe("the text bound", () => {
 					({ width, extra }, c) =>
 						Effect.sync(() => {
 							const line = Str.repeat(width)("x")
-							const count = Math.floor(textMaxLength / (width + 1)) + 1 + extra
+							const count = Math.floor(maxStringLength / (width + 1)) + 1 + extra
 							const write = (out: Lines): void => {
 								for (let i = 0; i < count; i++) {
 									out.line(line)
 								}
 							}
 							const needed = count * width + count - 1
-							assert.ok(needed > textMaxLength)
+							assert.ok(needed > maxStringLength)
 							assert.deepEqual(
-								refused(textOf(textMaxLength, "  ", at, write), "ResourceBound").reason,
+								refused(textOf(maxStringLength, "  ", at, write), "ResourceBound").reason,
 								{
 									_tag: "ResourceBound",
 									at,
-									bound: { kind: "text", limit: textMaxLength, needed }
+									bound: { kind: "stringLength", limit: maxStringLength, needed }
 								}
 							)
 							c.note(extra === 0 ? "the fewest lines past" : "more lines past")

@@ -505,14 +505,13 @@ export const singleStatementSpec = (
 	})
 
 /** Each statement of one read-back with its StatementSpec, placed at artifact position `offset`: the template module's
- * executable texts, which the program charges once it is placed, each statement's dependencies moved to artifact
- * positions. */
+ * executable texts, each statement's dependencies moved to artifact positions. */
 export const readBackSpecs = <S extends FusedStatement>(
 	roots: StatementRoots<S>,
 	offset: number
 ): StatementRoots<{ readonly statement: S; readonly spec: StatementSpec<WriteSlot> }> =>
-	mapTree(roots, (statement, i) => {
-		const spec = statementSpec(statement, { kind: "unmetered" }, offset + i, declaredSlotOf)
+	mapTree(roots, (statement) => {
+		const spec = statementSpec(statement, declaredSlotOf)
 		if (!spec.ok) {
 			throw new Refusal(spec.error)
 		}

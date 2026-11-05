@@ -10,10 +10,10 @@ import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canoni
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 import type { CteBody, PlStatement, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { builtinType } from "#compiler/sql/build.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
-import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import { identityHooks, statementParams, transformStatement } from "#compiler/sql/transform.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { type ShapeFeature, shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
@@ -138,11 +138,12 @@ const universal = (t: Twinned): void => {
 		succeeded(encode(s, everyProperty), "the statement's canonical text"),
 		"the snapshot stores the statement as itself and reads it back as itself"
 	)
-	const emitted = succeeded(emit(s, emptyNameMap, unmetered), "emit emits an admitted statement")
+	const emitted = succeeded(emit(s, emptyNameMap), "emit emits an admitted statement")
 	assert.equal<string>(emitted.text, text, "emit prints the statement")
 	const order: ReadonlyArray<TypeRef> = auditStatementDetailed(s).params
 	const used = placeholderTypes(s)
 	assert.equal(order.length, used.size, "one type per placeholder index")
+	assert.equal(statementParams(s), order.length, "the parameters a Bind of the statement supplies")
 	for (const [i, type] of order.entries()) {
 		unorderedEqual([...(used.get(i + 1) ?? [])], [printType(type)], `$${i + 1}`)
 	}

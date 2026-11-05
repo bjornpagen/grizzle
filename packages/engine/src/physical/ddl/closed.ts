@@ -11,7 +11,7 @@ import { columnType } from "#compiler/physical/ddl/names.ts"
 import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts"
 import type { EmittedText, Expr, ObjectName, Select } from "#compiler/sql/ast.ts"
 import { cast, col, simpleSelect, targetAs } from "#compiler/sql/build.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 export interface ClosedTemplate {
@@ -51,7 +51,7 @@ const closedTemplate = (b: InstallBuilder, r: ClosedTheoryRelation): ClosedTempl
 		[{ kind: "values", rows, alias: "r1", columns: aliases }],
 		undefined
 	)
-	const emitted = emit(select, emptyNameMap, unmetered)
+	const emitted = emit(select, emptyNameMap)
 	if (!emitted.ok) {
 		throw new Refusal(emitted.error)
 	}

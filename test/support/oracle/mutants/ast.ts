@@ -20,7 +20,7 @@ import type {
 	SetOperation,
 	Target
 } from "#compiler/sql/ast.ts"
-import { emit, unmetered } from "#compiler/sql/emit.ts"
+import { emit } from "#compiler/sql/emit.ts"
 
 /** The node each relation alias of a statement names. */
 export const aliasOrigins = (statement: ConservativeStatement): ReadonlyMap<string, NodeId> => {
@@ -389,7 +389,7 @@ export const rewriteProgram = (
 		if (ast === statement.ast) {
 			return Result.ok(statement)
 		}
-		return Result.map(emit(ast, statement.sql.nameMap, unmetered), (sql) => ({
+		return Result.map(emit(ast, statement.sql.nameMap), (sql) => ({
 			...statement,
 			ast,
 			sql

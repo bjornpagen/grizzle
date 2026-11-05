@@ -4,6 +4,7 @@ import { digest } from "#compiler/core/fingerprint.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { tableMaxColumns } from "#compiler/core/policy.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
@@ -22,6 +23,7 @@ import type {
 import { col, core, cUtf8Collation, select, simpleSelect, target } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { type CarrierName, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
+import { printTableName } from "#compiler/sql/print.ts"
 import {
 	type AnalyzeResult,
 	buildStatement,
@@ -163,8 +165,22 @@ export const carrierScan = (carrier: Carrier, alias: string): FromItem => ({
 	alias
 })
 
+/**
+ * A carrier's CREATE TEMPORARY TABLE, refused as ResourceBound (tableColumns) for a heading wider than a table of
+ * PostgreSQL holds, tableMaxColumns.
+ */
 const createAst = (w: WriteContext, carrier: Carrier): CreateCarrier => {
 	const at = `carrier ${carrier.name}`
+	if (carrier.heading.length > tableMaxColumns) {
+		throw new Refusal(
+			resourceBound(SourceLoc("write lowering", ["carriers", carrier.name]), {
+				kind: "tableColumns",
+				table: printTableName(carrier.name),
+				limit: tableMaxColumns,
+				needed: carrier.heading.length
+			})
+		)
+	}
 	return {
 		kind: "createCarrier",
 		name: carrier.name,

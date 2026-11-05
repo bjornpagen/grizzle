@@ -51,7 +51,9 @@ export default defineConfig({
 ## The loop
 
 1. Edit the schema, its roles and logins in code. A program the application runs on every request belongs in a
-   workload of its login: its access paths earn indexes, and DbLayer.make compiles it once, at startup.
+   workload of its login: its access paths earn indexes, and DbLayer.make compiles it once, at startup. `grizzle
+   generate` compiles it the same way for every role of its login first, so a program the layer would refuse fails
+   generate with the same CompileError.
 2. Run `grizzle generate`. It prints one line per written file, then each marker to resolve as
    `<file>:<line>: <placeholder|rename candidate>: <what to do>`, then each loss to decide as `<file>: data loss:
    <what it loses>: <what to do>`, then `next: resolve the markers, then run grizzle check`. With no change it writes

@@ -40,7 +40,7 @@ export type ApproximateStage = Extract<ResolvedStage, { readonly kind: "approx" 
 export interface CheckServices {
 	readonly schema: SchemaReading
 	readonly builder: DagBuilder
-	/** Records a node located at `loc`, charging the node and field budgets there. */
+	/** Records a node located at `loc`, charging the node budget there. */
 	readonly node: (spec: CheckedNodeSpec, loc: SourceLoc) => RelNode
 	/**
 	 * A fresh label to define later (DagBuilder.reserve): a Recursive, which its SelfRef names. The services track it as

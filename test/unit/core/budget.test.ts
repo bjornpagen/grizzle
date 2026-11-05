@@ -1,8 +1,7 @@
-import { Buffer } from "node:buffer"
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, codePoint, element, type Gen, int, oneOf, string } from "@grizzle/testing/gen"
+import { array, element, type Gen, int, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -17,14 +16,12 @@ import { budgetBoundOf } from "#test/support/kernel/policy.ts"
  * Compiler resource bounds (core/budget.ts): "Exceeding a compiler resource bound yields a source-located error."
  *
  * A meter is checked against a reference model over drawn limits and drawn charges: each kind's use is the sum of its
- * charges, a charge succeeds exactly while that sum is within the kind's limit, and a refusal is ResourceBound at the
- * charge's own location, naming the kind, its limit and the sum it needed. It never truncates: a refused charge still
- * counts, so the kind stays exhausted and every later charge to it is refused too, while the other kinds go on. A SQL
- * text is charged its UTF-8 bytes, the platform encoder's count. A one-shot bound (checkBound) admits a value exactly up
- * to its limit.
+ * charges, a charge succeeds exactly while that sum is within the kind's limit, and the first that crosses it is
+ * ResourceBound at the charge's own location, naming the kind, its limit and the sum it needed. It never truncates and
+ * stops at that first refusal: every later charge returns the same refusal and counts nothing, so the use stays what it
+ * was before the refused charge. A one-shot bound (checkBound) admits a value exactly up to its limit.
  *
- * One step against a meter: a charge of one kind, a SQL text charged to sqlBytes, or a one-shot bound, each at its own
- * location.
+ * One step against a meter: a charge of one kind, or a one-shot bound, each at its own location.
  */
 type Step =
 	| {
@@ -33,15 +30,12 @@ type Step =
 			readonly amount: number
 			readonly at: number
 	  }
-	| { readonly kind: "sql"; readonly text: string; readonly at: number }
 	| { readonly kind: "bound"; readonly limit: number; readonly value: number; readonly at: number }
 
 type BudgetFeature =
 	| "a charge within its limit"
 	| "a charge crossing its limit"
-	| "a charge after its kind is exhausted"
-	| "a charge to another kind after one is exhausted"
-	| "a SQL text of multi-byte characters"
+	| "a charge after the meter refused"
 	| "a one-shot bound met exactly"
 	| "a one-shot bound exceeded"
 
@@ -67,16 +61,6 @@ const stepGen: Gen<Step> = oneOf<Step>([
 		at: source.draw(int(0, 63))
 	}),
 	(source) => ({
-		kind: "sql",
-		text: source.draw(
-			string(
-				oneOf([codePoint(0x20, 0x7e), codePoint(0xa0, 0xd7_ff), codePoint(0xe0_00, 0x10_ffff)]),
-				{ min: 0, max: 4 }
-			)
-		),
-		at: source.draw(int(0, 63))
-	}),
-	(source) => ({
 		kind: "bound",
 		limit: source.draw(int(0, 6)),
 		value: source.draw(int(0, 8)),
@@ -88,19 +72,13 @@ const caseGen: Gen<{
 	readonly limits: Readonly<Record<BudgetKind, number>>
 	readonly steps: ReadonlyArray<Step>
 }> = (source) => ({
-	limits: {
-		nodes: source.draw(limitGen),
-		fields: source.draw(limitGen),
-		sqlBytes: source.draw(limitGen),
-		params: source.draw(limitGen),
-		variants: source.draw(limitGen)
-	},
+	limits: { nodes: source.draw(limitGen) },
 	steps: source.draw(array(stepGen, { min: 1, max: 24 }))
 })
 
 describe("BudgetMeter and checkBound", () => {
 	it.effect(
-		"count every charge, refuse exactly past the limit at the charge's location, and never truncate",
+		"count every charge, refuse exactly past the limit at the charge's location, and stop at that first refusal",
 		(ctx) =>
 			searched(
 				ctx,
@@ -113,9 +91,7 @@ describe("BudgetMeter and checkBound", () => {
 							[
 								"a charge within its limit",
 								"a charge crossing its limit",
-								"a charge after its kind is exhausted",
-								"a charge to another kind after one is exhausted",
-								"a SQL text of multi-byte characters",
+								"a charge after the meter refused",
 								"a one-shot bound met exactly",
 								"a one-shot bound exceeded"
 							],
@@ -123,8 +99,8 @@ describe("BudgetMeter and checkBound", () => {
 						),
 						kept: [],
 						/**
-						 * Each case runs up to 24 steps over five kinds at limits of 0 to 12: three hundred cases cross, exhaust
-						 * and charge past every kind many times over.
+						 * Each case runs up to 24 steps at limits of 0 to 12: three hundred cases cross the limit and charge past
+						 * a refusal many times over.
 						 */
 						runs: 300,
 						shrink: completeShrink,
@@ -135,61 +111,44 @@ describe("BudgetMeter and checkBound", () => {
 					({ limits, steps }, c) =>
 						Effect.sync(() => {
 							const meter = new BudgetMeter(limits)
-							const used: Record<BudgetKind, number> = {
-								nodes: 0,
-								fields: 0,
-								sqlBytes: 0,
-								params: 0,
-								variants: 0
-							}
-							const exhausted = new Set<BudgetKind>()
-							const charged = (
-								budget: BudgetKind,
-								amount: number,
-								at: number,
-								result: ReturnType<BudgetMeter["charge"]>
-							) => {
-								const before = exhausted.has(budget)
-								used[budget] += amount
-								const limit: number = limits[budget]
-								if (used[budget] <= limit) {
-									succeeded(result)
-									c.note("a charge within its limit")
-									if (exhausted.size > 0) {
-										c.note("a charge to another kind after one is exhausted")
-									}
-								} else {
-									const error = refused(result, "ResourceBound")
-									assert.equal(formatLoc(refusalLoc(error)), formatLoc(locOf(at)))
-									assert.deepEqual(budgetBoundOf(error), {
-										kind: "budget",
-										budget,
-										limit,
-										needed: used[budget]
-									})
-									exhausted.add(budget)
-									c.note(
-										before ? "a charge after its kind is exhausted" : "a charge crossing its limit"
-									)
-								}
-								assert.equal(meter.used(budget), used[budget])
-							}
+							const used: Record<BudgetKind, number> = { nodes: 0 }
+							/** The first refusal's location and bound, once a charge crossed its limit. */
+							let first:
+								| { readonly at: number; readonly budget: BudgetKind; readonly needed: number }
+								| undefined
 							for (const step of steps) {
 								switch (step.kind) {
-									case "charge":
-										charged(
-											step.budget,
-											step.amount,
-											step.at,
-											meter.charge(step.budget, step.amount, locOf(step.at))
-										)
-										break
-									case "sql": {
-										const bytes = Buffer.byteLength(step.text, "utf8")
-										if (bytes > step.text.length) {
-											c.note("a SQL text of multi-byte characters")
+									case "charge": {
+										const result = meter.charge(step.budget, step.amount, locOf(step.at))
+										const limit: number = limits[step.budget]
+										if (first !== undefined) {
+											const error = refused(result, "ResourceBound")
+											assert.equal(formatLoc(refusalLoc(error)), formatLoc(locOf(first.at)))
+											assert.deepEqual(budgetBoundOf(error), {
+												kind: "budget",
+												budget: first.budget,
+												limit: limits[first.budget],
+												needed: first.needed
+											})
+											c.note("a charge after the meter refused")
+										} else if (used[step.budget] + step.amount <= limit) {
+											succeeded(result)
+											used[step.budget] += step.amount
+											c.note("a charge within its limit")
+										} else {
+											const needed = used[step.budget] + step.amount
+											const error = refused(result, "ResourceBound")
+											assert.equal(formatLoc(refusalLoc(error)), formatLoc(locOf(step.at)))
+											assert.deepEqual(budgetBoundOf(error), {
+												kind: "budget",
+												budget: step.budget,
+												limit,
+												needed
+											})
+											first = { at: step.at, budget: step.budget, needed }
+											c.note("a charge crossing its limit")
 										}
-										charged("sqlBytes", bytes, step.at, meter.chargeSql(step.text, locOf(step.at)))
+										assert.equal(meter.used(step.budget), used[step.budget])
 										break
 									}
 									case "bound": {
