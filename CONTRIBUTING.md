@@ -28,6 +28,9 @@ library, with the tests, benches and scripts at its root:
   script and the source-mutation tester (`scripts/mutate.ts`). Its own suite and bench (`src/*.test.ts`, `src/engine.bench.ts`) are its `test` and `bench`.
 - **`test/`, `bench/` and `scripts/`** reach both packages' modules through the root's `#` subpath imports: `#compiler/*`
   is the engine's `src`, `#adapter/*` and `#cli/*` the shell's, `#index.ts` the shell's entry point.
+- **`.agents/skills/`** is the one agent skills folder: `.claude/skills` and `.cursor/skills` link to it, its `grizzle`
+  links the shell's shipped skill, pnpm links approved dependencies' skills into it (`skills.dirs` and `permissions` in
+  `pnpm-workspace.yaml`) behind its own `.gitignore` there, and a personal skill is `local-<name>`, ignored.
 
 ## Development environment
 
@@ -232,7 +235,7 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   Elsewhere, types are plain. Type-checking cost is never budgeted: never trade precision for checker speed.
 - **Representation first.** When a new case shows up, change the data so the case stops being special or stops being
   expressible, instead of adding a branch, flag, guard or sentinel. Parse at the boundary, dispatch exhaustively, and
-  make invalid states unrepresentable. See `.claude/skills/representation-first/SKILL.md`.
+  make invalid states unrepresentable. See `.agents/skills/representation-first/SKILL.md`.
 - **Immutable by default is pinned.** Relations are immutable unless declared `mutable(R)`. Code follows the same
   default: readonly data, values rather than mutable builders.
 - **Layering.** Each area of `src` imports only the areas its rule in `.fallowrc.json`'s `boundaries` allows, a DAG;

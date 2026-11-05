@@ -2,6 +2,10 @@ packages:
   - "packages/*"
 allowBuilds:
   lefthook: true
+# Approved dependencies' agent skills link into the one skills folder, which .claude/skills and .cursor/skills link to.
+skills:
+  dirs:
+    - .agents/skills
 catalogMode: strict
 # Admit a release once it is a day old.
 minimumReleaseAge: 1440
@@ -30,3 +34,6 @@ catalog:
   typescript: 7.1.0-beta
   vite: 8.3.5
   vitest: 5.1.0
+permissions:
+  fallow:
+    skills: true
