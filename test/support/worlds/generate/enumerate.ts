@@ -28,12 +28,7 @@ import { applicable, namesOffered } from "#test/support/worlds/generate/offered.
 import { entryKey } from "#test/support/worlds/generate/reads.ts"
 import { actionKinds } from "#test/support/worlds/generate/weights.ts"
 import { enumeratePerturbations, worldFunctionsOf } from "#test/support/worlds/invalid/catalog.ts"
-import {
-	counterOf,
-	opKinds,
-	pastLimitFacts,
-	type FactWriter
-} from "#test/support/worlds/invalid/facts.ts"
+import { opKinds, type FactWriter } from "#test/support/worlds/invalid/facts.ts"
 import { jsonObject, jsonText } from "#test/support/worlds/invalid/json.ts"
 import { violatingLaws } from "#test/support/worlds/invalid/migrations.ts"
 import { patternEdges } from "#test/support/worlds/invalid/patterns.ts"
@@ -759,11 +754,6 @@ const applyActions = (
 				? []
 				: [
 						{ relation: entry, kind: "insert", facts: [first, first] },
-						...Arr.map(Arr.fromOption(counterOf(heading)), (counter): EntryOp => ({
-							relation: entry,
-							kind: "delete",
-							facts: pastLimitFacts(counter, first)
-						})),
 						...Arr.map(
 							[...Arr.fromOption(refused), ...Arr.fromOption(unencodableField(heading))],
 							({ at, outside }): EntryOp => ({

@@ -2,11 +2,10 @@ import { Array as Arr, Effect, Result } from "effect"
 import type { AttachmentFacts, AttachmentScope } from "#adapter/reader/analysis.ts"
 import type { InputRefusal, RelationInputs } from "#adapter/reader/relations.ts"
 import { sentAnswer, type BatchStatement } from "#adapter/wire/batch.ts"
-import { type Cell, factCells, recordsetJson } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { type AttachmentLayout, type Layout, type Row, rowText } from "#compiler/core/decoder.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
-import { defect } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import { columnPosition } from "#compiler/lower/conservative/context.ts"
@@ -15,8 +14,6 @@ import {
 	type ConservativeParamSlot,
 	type DeclaredParamSlot,
 	keyColumns,
-	type RelationColumn,
-	type RelationParamSlot,
 	type StatementOutput,
 	type StatementRoots,
 	type StatementTree,
@@ -31,13 +28,6 @@ import {
 
 import type { Arrival, FusedStatement, StatementForms } from "#compiler/lower/shapes/index.ts"
 
-import {
-	relationTransport,
-	specializeValues,
-	type TransportLimits,
-	type ValuesInput
-} from "#compiler/lower/shapes/relparam/index.ts"
-import { executableQuery } from "#compiler/lower/template.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 
 /**
@@ -52,12 +42,10 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
  *   binds it, by one walk of the declarations (relations.ts executionInputs): a scalar's value encoded by its declared
  *   type's codec, a relation's input normalized. A placeholder binds what that walk produced, so a read's refusal never
  *   depends on which parameters the optimizer eliminated, and what is admitted is what is sent. A scalar placeholder
- *   takes its declared parameter's encoded text. A relation placeholder takes its relation input (relations.ts),
- *   normalized over its slot's columns, in the transport those facts select: the recordset text, or, for one to
- *   valuesMaxRows facts, a VALUES list of typed literals, each fact's cells paired with the slot's columns, which the
- *   execution writes into the statement's text-cast form with every later placeholder renumbered
- *   (lower/shapes/relparam specializeValues), so the planner sees exact estimates and equal parameters run equal texts.
- *   A page's own placeholders, its limit, size and boundary values, are its own (page/execute.ts).
+ *   takes its declared parameter's encoded text. A relation placeholder takes one array of its relation input
+ *   (relations.ts), normalized over its slot's columns: its column's array, or the input's count, which every
+ *   statement sends as emitted, so equal parameters run equal texts and the planner reads each array's length as its
+ *   estimate. A page's own placeholders, its limit, size and boundary values, are its own (page/execute.ts).
  * - Forms. A statement with a variant runs it when one of its choices' inputs exceeds the choice's threshold: a
  *   relation parameter's distinct fact count, or, for a page's attachment, the requested size. Both forms deliver the
  *   same set, so the choice is cost only.
@@ -122,14 +110,12 @@ export const readForm = <S extends FusedStatement>(
 /**
  * What an execution reads, from one walk of the read's declared parameters (relations.ts executionInputs): the host
  * parameters (Streams collected), every declared scalar parameter's encoded text, and every declared relation
- * parameter's input in its transport.
+ * parameter's normalized input.
  */
 export interface ExecutionInputs {
 	readonly params: HostParams
 	readonly scalars: ReadonlyMap<ParamId, string>
 	readonly relations: RelationInputs
-	/** The bounds each relation placeholder's transport is chosen by (relparam relationTransport). */
-	readonly limits: TransportLimits
 }
 
 /**
@@ -169,51 +155,27 @@ export const formFor = <S extends LoweredStatement, Slot, Choice>(
 }
 
 /**
- * What a placeholder binds in one execution: its text, or the rows of a relation input travelling as a VALUES list, each
- * fact's cells over its slot's columns.
- */
-export type Binding =
-	| { readonly kind: "text"; readonly text: string }
-	| {
-			readonly kind: "values"
-			readonly slot: RelationParamSlot
-			readonly rows: Arr.NonEmptyReadonlyArray<ReadonlyArray<Cell<RelationColumn>>>
-	  }
-
-/**
- * The binding of a read placeholder. A relation placeholder takes its input's normal facts over the slot's columns in
- * the transport they select: as VALUES cells, or as the recordset text.
+ * The text of a read placeholder in one execution: a scalar's encoded text, or one array of a relation input over the
+ * columns the slot shares with its input's other placeholders in the statement, the array at its part.
  */
 export const readBinding = (
 	slot: DeclaredParamSlot,
 	inputs: ExecutionInputs
-): Result.Result<Binding, InputRefusal> => {
+): Result.Result<string, InputRefusal> => {
 	switch (slot.kind) {
 		case "scalar":
-			return Result.succeed({ kind: "text", text: scalarInput(inputs, slot.param) })
-		case "relation":
+			return Result.succeed(scalarInput(inputs, slot.param))
+		case "relation": {
+			const part = slot.part
 			return Result.map(
-				declaredInput(inputs.relations, slot.param).over(slot.columns),
-				(normal): Binding => {
-					const transport = relationTransport(normal.facts, inputs.limits)
-					switch (transport.kind) {
-						case "values":
-							return {
-								kind: "values",
-								slot,
-								rows: Arr.map(transport.rows, factCells(slot.columns))
-							}
-						case "recordset":
-							return {
-								kind: "text",
-								text: recordsetJson(
-									Arr.map(slot.columns, (c) => c.definition.name),
-									normal.rows
-								)
-							}
-					}
-				}
+				declaredInput(inputs.relations, slot.param).arrays(slot.columns),
+				(arrays) =>
+					defined(
+						arrays[part.kind === "column" ? part.index : 0],
+						`array ${part.kind === "column" ? part.index : 0} of relation input ${slot.param}`
+					)
 			)
+		}
 	}
 }
 
@@ -222,46 +184,26 @@ export interface EmittedStatement extends BatchStatement {
 	readonly sql: EmittedText
 }
 
-/**
- * The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`: the statement as
- * emitted, or its VALUES form, the text-cast statement with every input that travels as VALUES written into its
- * recordsets in one rewrite, which renumbers the placeholders after the ones it removes, as the texts already skip them.
- */
+/** The text and placeholder texts of one execution of `form`, each placeholder bound by `bind`. */
 export const executionOf = <S extends LoweredStatement, Slot, E>(
 	form: StatementForm<S, Slot>,
-	bind: (slot: Slot) => Result.Result<Binding, E>
+	bind: (slot: Slot) => Result.Result<string, E>
 ): Result.Result<EmittedStatement, E> => {
 	const encoded: Array<string> = []
-	const values: Array<ValuesInput> = []
 	for (const slot of form.slots) {
 		const bound = bind(slot)
 		if (Result.isFailure(bound)) {
 			return Result.fail(bound.failure)
 		}
-		if (bound.success.kind === "text") {
-			encoded.push(bound.success.text)
-		} else {
-			values.push(bound.success)
-		}
+		encoded.push(bound.success)
 	}
-	if (!Arr.isReadonlyArrayNonEmpty(values)) {
-		return Result.succeed({ sql: form.spec.sql, params: encoded })
-	}
-	const specialized = specializeValues(
-		{
-			ast: executableQuery(form.statement),
-			nameMap: form.statement.sql.nameMap,
-			params: form.statement.params
-		},
-		values
-	)
-	return Result.succeed({ sql: specialized.sql.text, params: encoded })
+	return Result.succeed({ sql: form.spec.sql, params: encoded })
 }
 
 /** One execution of `form`, its parameters encoded. */
 export const encodeForm = <S extends LoweredStatement, Slot, E>(
 	form: StatementForm<S, Slot>,
-	bind: (slot: Slot) => Result.Result<Binding, E>
+	bind: (slot: Slot) => Result.Result<string, E>
 ): Effect.Effect<BatchStatement, E> =>
 	Effect.suspend(() => Effect.fromResult(executionOf(form, bind)))
 

@@ -27,7 +27,6 @@ import { identity } from "#compiler/core/identity.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { specializeValues } from "#compiler/lower/shapes/relparam/index.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -71,8 +70,8 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  *   parents times k (at most k + 1 per parent) and never scans entry sequentially (R20);
  * - a pipelined attachment's take over parent rows the facts do not bound reads entry in one scan, once (R20);
  * - a relation parameter joined to a keyed relation, over drawn id sets with repeats and absent ids, reads Item only
- *   by index probes, never sequentially, as the recordset the template carries and as the VALUES list the R22 rule
- *   sends below valuesMaxRows (R22);
+ *   by index probes, never sequentially, as the arrays the template carries, whose estimate is the input's length
+ *   (R22);
  * - the aggregate over (id, account, amount) folds the scan in one grouping step with no deduplication, while the
  *   aggregate over (account, amount) deduplicates its contributions first;
  * - a query whose discriminator stays a literal never scans its relation sequentially, under a generic and a custom
@@ -391,7 +390,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 	)
 
 	it.effect(
-		"a relation-parameter join reads Item only by index probes, as a recordset and as VALUES",
+		"a relation-parameter join reads Item only by index probes, as the arrays the template carries",
 		(ctx) =>
 			searched(
 				ctx,
@@ -399,14 +398,6 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 					const { schema, relation } = yield* fixture
 					const template = compiled(itemsById, schema)
 					const spec = only(template.optimized, "optimized statement")
-					const statement = only(flight(template.programs.optimized.roots), "program statement")
-					const relationSlot = Arr.findFirst(statement.params, (p) =>
-						p.kind === "relation" ? Option.some(p) : Option.none()
-					)
-					if (Option.isNone(relationSlot)) {
-						return yield* Effect.die(new Error("the relation parameter"))
-					}
-					const slot = relationSlot.value
 					const item = relation("Item")
 					/** Every scan of Item is an index scan with an index condition: a probe by the key. */
 					const probesOnly = (plan: EstimatedNode, transport: string) => {
@@ -443,26 +434,8 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 						(drawnIds) =>
 							Effect.gen(function* () {
 								const ids = Arr.map(drawnIds, (n) => ({ id: uid(6, n) }))
-								const recordsetPlan = yield* estimate(spec.sql, paramTexts(spec, { ids }))
-								probesOnly(recordsetPlan, "recordset")
-								/** The VALUES transport of the same statement: the input's canonical texts as a VALUES list. */
-								const rows = Arr.map(drawnIds, (n) =>
-									Arr.map(slot.columns, (column) => ({ column, text: uid(6, n) }))
-								)
-								if (!Arr.isReadonlyArrayNonEmpty(rows)) {
-									return yield* Effect.die(new Error("a drawn id"))
-								}
-								const specialized = specializeValues(
-									{
-										ast: statement.ast,
-										nameMap: statement.sql.nameMap,
-										params: statement.params
-									},
-									[{ slot, rows }]
-								)
-								assert.deepEqual(specialized.params, [])
-								const valuesPlan = yield* estimate(specialized.sql.text, [])
-								probesOnly(valuesPlan, "VALUES")
+								const plan = yield* estimate(spec.sql, paramTexts(spec, { ids }))
+								probesOnly(plan, "arrays")
 							})
 					)
 				})

@@ -1,7 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
@@ -22,7 +21,7 @@ const fact = (n: number, label: string, qty: bigint) => ({ id: uuidOf(n), label,
 
 /** The program bound to the value's members, as the runtime collects them, and `params`. */
 const bind = (program: CompiledWrite, value: unknown, params: Readonly<Record<string, unknown>>) =>
-	Effect.map(collectInputs(program.frontend, parsedOf(value).inputs, recordsetMaxRows), (members) =>
+	Effect.map(collectInputs(program.frontend, parsedOf(value).inputs), (members) =>
 		bindWrite(program, { members, params })
 	)
 

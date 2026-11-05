@@ -101,10 +101,11 @@ export type InsertClasses<A> =
 	  }
 
 /** One relation parameter of a write: the facts of one class of one operation's enumerated members, normalized on the
- * host (normalize/) and sent as one recordset. Its codecs are built with it, over its heading's positional columns. */
+ * host (normalize/) and sent as its arrays, one per column. Its codecs are built with it, over its heading's positional
+ * columns. */
 export interface MemberSlot {
 	readonly slot: ParamId
-	/** stream when some member is a Stream, collected on the host up to recordsetMaxRows facts. */
+	/** stream when some member is a Stream, collected on the host, whole. */
 	readonly transport: "enumerated" | "stream"
 	/** The fields its facts carry, in heading order, typed without the serial generation flag: its class's
 	 * (`InsertClasses`), none for the unit relation. */

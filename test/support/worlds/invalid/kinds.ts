@@ -57,7 +57,6 @@ const boundaryOf: { readonly [K in InvalidKind]: Boundary } = {
 	"fact:duplicate-in-input": "fact",
 	"fact:partial-serial": "fact",
 	"fact:filtered-serial-omitted": "fact",
-	"fact:past-input-limit": "fact",
 	"fact:domain-refused": "fact",
 	"handle:closed-db": "handle",
 	"handle:closed-direct": "handle",

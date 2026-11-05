@@ -907,7 +907,6 @@ export type InvalidKind =
 	| "fact:duplicate-in-input"
 	| "fact:partial-serial"
 	| "fact:filtered-serial-omitted"
-	| "fact:past-input-limit"
 	| "fact:domain-refused"
 	| "handle:closed-db"
 	| "handle:closed-direct"

@@ -29,7 +29,6 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { withWorkload } from "#compiler/physical/access/extension.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { withResidualLaws } from "#compiler/physical/laws/objects.ts"
@@ -269,7 +268,6 @@ export default defineGate({
 					explainSamples: 1,
 					serverPlans: [],
 					explain: plainExplain,
-					limits: transportLimits,
 					conservativeSamples: options.samples
 				}
 			)

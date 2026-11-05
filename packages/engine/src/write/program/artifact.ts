@@ -257,8 +257,8 @@ export const sentForm = (
  *
  * Every write statement's text already casts its outer columns to text; a read-back statement's text is
  * the template module's executable text. Every placeholder gets its encoder from the template
- * module (`writeSlotOf`): a member slot the recordset encoder under the statement's own JSON keys, a
- * declared parameter its scalar codec or recordset encoder. Encoding a member slot re-admits facts the host already
+ * module (`writeSlotOf`): a member slot the arrays encoder over the statement's own columns, a
+ * declared parameter its scalar codec or arrays encoder. Encoding a member slot re-admits facts the host already
  * normalized, so it never refuses a same-key pair. */
 export interface WriteArtifact {
 	/** Every statement, in the order they run in one flight: position order, since each depends only on earlier ones

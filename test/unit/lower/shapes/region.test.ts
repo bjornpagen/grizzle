@@ -134,7 +134,7 @@ const aliasOf = (item: FromSource): string => {
 		case "derived":
 		case "enclosing":
 		case "function":
-		case "recordset":
+		case "arrays":
 		case "table":
 		case "values":
 		case "context":

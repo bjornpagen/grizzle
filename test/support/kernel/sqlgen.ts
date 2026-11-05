@@ -18,7 +18,6 @@ import type {
 	Merge,
 	MergeWhen,
 	OrderItem,
-	RecordsetPlaceholder,
 	Select,
 	SelectBody,
 	SelectCore,
@@ -27,11 +26,13 @@ import type {
 	Target,
 	TypeRef,
 	Update,
+	ValuePlaceholder,
 	WindowSpec,
 	With
 } from "#compiler/sql/ast.ts"
 
 import {
+	arrays,
 	asc,
 	binary,
 	call,
@@ -51,8 +52,7 @@ import {
 	join,
 	lit,
 	param,
-	positionalRecordset,
-	recordset,
+	positionalValue,
 	select,
 	table,
 	tableCol,
@@ -484,7 +484,7 @@ const statementFeatures = [
 	"lateral",
 	"derived",
 	"values",
-	"recordset",
+	"arrays",
 	"cte",
 	"materialized",
 	"recursive",
@@ -615,14 +615,14 @@ const statementLiterals: { readonly [T in SqlColumnType]: Gen<Expr> } = {
 
 /**
  * The state of one statement: the source it draws from, its swarm, the next relation alias and the parameters numbered
- * so far (a recordset's source is a jsonb parameter, never reused). Every draw is one decision of the source, bounded
+ * so far (an input's array is a parameter of its own, never reused). Every draw is one decision of the source, bounded
  * by what the statement drawn so far allows.
  */
 class Draw {
 	readonly swarm: Swarm<StatementFeature>
 	readonly catalog: SqlCatalog
 	readonly #source: Source
-	readonly #params: Array<SqlColumnType | "jsonb"> = []
+	readonly #params: Array<SqlColumnType | "array"> = []
 	#relations = 0
 
 	constructor(source: Source, catalog: SqlCatalog, drawn: Swarm<StatementFeature>) {
@@ -681,10 +681,10 @@ class Draw {
 		return param(this.#params.length, typeRefs[type])
 	}
 
-	/** A fresh jsonb parameter, a recordset's source. */
-	jsonbParam(): RecordsetPlaceholder {
-		this.#params.push("jsonb")
-		return positionalRecordset(this.#params.length)
+	/** A fresh parameter of a relation input's array or count, never reused. */
+	arrayParam(): ValuePlaceholder {
+		this.#params.push("array")
+		return positionalValue(this.#params.length)
 	}
 
 	literal(type: SqlColumnType): Expr {
@@ -979,20 +979,29 @@ const valuesEntry = (d: Draw): Entry => {
 }
 
 /**
- * jsonb_to_recordset($n::jsonb) AS r(c1 <type>, ...): a fresh jsonb placeholder's rows under a column definition list,
- * a text column under the fixed collation the lowering states (lower/conservative/input-set).
+ * A relation input's arrays, `(SELECT pg_catalog.unnest($n::<type>[]) AS c1, ...) AS r`: one fresh placeholder per
+ * column, a text column's array under the fixed collation the lowering states (lower/conservative/input-set), or, of no
+ * column, `pg_catalog.generate_series(1::bigint, $n::bigint) AS r` of a fresh count placeholder.
  */
-const recordsetEntry = (d: Draw): Entry => {
+const arraysEntry = (d: Draw): Entry => {
 	const width = d.keep("zero width") ? 0 : d.count(1, 2)
 	const outputs = Array.from({ length: width }, () => d.from(statementTypes))
 	const alias = d.relation()
 	const columns = generatedColumns(outputs)
+	const named = nonEmpty(columns)
 	return {
 		items: [
-			recordset(
-				d.jsonbParam(),
-				alias,
-				Arr.map(columns, (c) => columnDefinition(c.name, typeRefs[c.type]))
+			arrays(
+				named === undefined
+					? { kind: "count", count: d.arrayParam() }
+					: {
+							kind: "columns",
+							columns: Arr.map(named, (c) => ({
+								definition: columnDefinition(c.name, typeRefs[c.type]),
+								array: d.arrayParam()
+							}))
+						},
+				alias
 			)
 		],
 		rels: [{ alias, columns }]
@@ -1051,7 +1060,7 @@ const cteEntry = (d: Draw, ctes: Arr.NonEmptyReadonlyArray<CteDef>): Entry => {
 	return { items: [cteRefAs(cte.name, alias)], rels: [{ alias, columns: cte.columns }] }
 }
 
-/** One FROM entry that sees `outer` only: a table, a derived table, a VALUES list, a recordset or a CTE. */
+/** One FROM entry that sees `outer` only: a table, a derived table, a VALUES list, input arrays or a CTE. */
 const entryOf = (d: Draw, env: Env, outer: ReadonlyArray<Rel>): Entry =>
 	d.span("from entry", () => {
 		const ctes = nonEmpty(env.ctes)
@@ -1069,7 +1078,7 @@ const entryOf = (d: Draw, env: Env, outer: ReadonlyArray<Rel>): Entry =>
 			[
 				...nested,
 				["values", () => valuesEntry(d)],
-				["recordset", () => recordsetEntry(d)],
+				["arrays", () => arraysEntry(d)],
 				["zero width", () => unitFunctionEntry(d)],
 				...read
 			]
@@ -2009,12 +2018,12 @@ const statementUnder =
  * `statementGen` extends the query generator to every query and write form the statement audit admits: WITH
  * (query CTEs, MATERIALIZED, a bounded recursive CTE, and a data-modifying CTE in the statement's own WITH), set
  * operations whose arms may be parenthesized queries with clauses of their own, derived, lateral, VALUES and
- * recordset FROM items and CTE references, inner and cross joins, grouped cores with aggregates (an aggregate's own
+ * input arrays FROM items and CTE references, inner and cross joins, grouped cores with aggregates (an aggregate's own
  * ORDER BY among them), HAVING, FILTER and WITHIN GROUP, window calls with ROWS frames that always hold the current
  * row, DISTINCT and DISTINCT ON, ORDER BY, LIMIT, OFFSET, correlated EXISTS, IN and scalar subqueries, and INSERT,
  * UPDATE, DELETE and MERGE with ON CONFLICT, FROM, USING, every WHEN form and RETURNING; a double literal, NaN, the
- * infinities and -0 among its values, cast to numeric; and the zero-width forms PostgreSQL spells by absence: a
- * recordset, a derived table, a CTE and a function item of no column, cores of no target, an INSERT of no column and
+ * infinities and -0 among its values, cast to numeric; and the zero-width forms PostgreSQL spells by absence: input
+ * arrays, a derived table, a CTE and a function item of no column, cores of no target, an INSERT of no column and
  * a MERGE's INSERT DEFAULT VALUES. A statement is a swarm over `statementFeatures` and the decisions drawn under it in
  * order, each bounded by what the statement drawn so far allows, the first option of each
  * the simplest; so any tape draws a valid statement, and a failing one shrinks by deleting and lowering decisions, an

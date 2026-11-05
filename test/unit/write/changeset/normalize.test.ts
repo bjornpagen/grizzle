@@ -9,7 +9,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Order, Stream } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { key, relation, schema } from "#compiler/public/schema.ts"
@@ -142,7 +141,7 @@ describe("admission", () => {
 })
 
 describe("Stream members", () => {
-	it.live("are collected up to the cap and normalized like arrays", () =>
+	it.live("are collected whole and normalized like arrays", () =>
 		Effect.gen(function* () {
 			const changes = cs(Small).insert(
 				Pair,
@@ -153,12 +152,9 @@ describe("Stream members", () => {
 			)
 			const frontend = compiled(Small, changes)
 			const inputs = parsedOf(changes).inputs
-			const collected = yield* collectInputs(frontend, inputs, recordsetMaxRows)
+			const collected = yield* collectInputs(frontend, inputs)
 			const r = succeeded(normalizeChangeSet(frontend, collected))
 			assert.deepEqual(slotFacts(r, frontend, "insert", "Pair"), [bareRecord({ k: 1, v: 1, c: 1 })])
-			/** A cap below the Stream's two facts, passed as the cap's own parameter, refuses it before any SQL. */
-			const over = yield* Effect.flip(collectInputs(frontend, inputs, 1))
-			assert.equal(over._tag, "InputTooLarge")
 		})
 	)
 })

@@ -21,7 +21,7 @@ import type { Source } from "@grizzle/testing/source"
 import { bigint, double, float, uuid } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
-import { keyedColumns, positionalColumns, recordsetEncoder } from "#compiler/codec/recordset.ts"
+import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
 import type { ScalarCodec } from "#compiler/codec/scalar.ts"
 import * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -44,7 +44,7 @@ import {
 	vectorSchemaOf,
 	wireSql
 } from "#test/pg/codec/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { headingRecord } from "#test/support/statement-rows.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -553,7 +553,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 		)
 	)
 
-	it.effect("stores facts through the recordset and decodes the stored rows positionally", (ctx) =>
+	it.effect("stores facts through their arrays and decodes the stored rows positionally", (ctx) =>
 		searched(
 			ctx,
 			Effect.gen(function* () {
@@ -592,36 +592,35 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 					during: source.draw(span(int8Gen)),
 					value: source.draw(vectorGen(16))
 				})
-				/** Each column with the recordset column the encoder sends it in. */
-				const wired = Arr.map(
-					positionalColumns(Arr.map(columns, (c) => ({ name: c.field, type: c.type }))),
-					(w, i) => ({
-						...defined(columns[i], `the column ${w.field}`),
-						wire: w.wire
-					})
-				)
-				const encode = recordsetEncoder({
+				const encode = arraysEncoder({
 					relation: "Reading",
-					columns: keyedColumns(
-						Arr.map(wired, (c) => ({ name: c.field, type: c.type, key: c.wire }))
-					),
+					columns: positionalColumns(Arr.map(columns, (c) => ({ name: c.field, type: c.type }))),
 					slot: { kind: "none" }
 				})
-				const selectList = Arr.join(
-					Arr.map(wired, (c) => {
-						const wire = `r0.${c.wire}`
-						if (c.type.carrier === "money") {
-							return `(${wire})::money`
-						}
-						if (contractOf(c.type) !== undefined) {
-							return `(${wire})::${c.sql}`
-						}
-						return wire
+				/** Each column's array as the lowering reads it: its base type made an array, a typmod cast back. */
+				const arrayColumns = Arr.join(
+					Arr.map(columns, (c, i) => {
+						const base = wireSql(c.type, names)
+						const unnest = `pg_catalog.unnest($${i + 1}::${base}[])`
+						const typed =
+							c.type.carrier === "vector" || Str.startsWith("numeric(")(base)
+								? `${unnest}::${base}`
+								: unnest
+						return `${typed} AS c${i + 1}`
 					}),
 					", "
 				)
-				const recordColumns = Arr.join(
-					Arr.map(wired, (c) => `${c.wire} ${wireSql(c.type, names)}`),
+				const selectList = Arr.join(
+					Arr.map(columns, (c, i) => {
+						const column = `r0.c${i + 1}`
+						if (c.type.carrier === "money") {
+							return `(${column})::money`
+						}
+						if (contractOf(c.type) !== undefined) {
+							return `(${column})::${c.sql}`
+						}
+						return column
+					}),
 					", "
 				)
 				const decodeRow = headingRecord(Arr.map(columns, (c) => ({ name: c.field, type: c.type })))
@@ -644,10 +643,10 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 					(facts) =>
 						Effect.gen(function* () {
 							yield* db.values(`TRUNCATE ${table}`, [])
-							const { json, count } = succeeded(encode(facts))
+							const { arrays, count } = succeeded(encode(facts))
 							const inserted = yield* db.query(
-								`INSERT INTO ${table} SELECT ${selectList} FROM jsonb_to_recordset($1::text::jsonb) AS r0(${recordColumns})`,
-								[json]
+								`INSERT INTO ${table} SELECT ${selectList} FROM (SELECT ${arrayColumns}) AS r0`,
+								arrays
 							)
 							assert.equal(inserted.rowCount, count)
 							const rows = yield* db.values(

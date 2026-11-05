@@ -16,6 +16,23 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A relation input of any number of rows travels as one array per column; `InputTooLarge` names its byte bound
+
+- **A ChangeSet input and a relation parameter hold any number of rows.** The 100,000-row limit is gone, and so is the
+  transport it stood for: an input traveled as one `jsonb_to_recordset` parameter, which PostgreSQL caps at 268,435,455
+  bytes, or below 17 rows as a VALUES list rewritten into each execution's text. Now every input, an empty one and one
+  of no column included, travels as its arrays, one text-format array literal per column read by `unnest` in one
+  select list (one `generate_series` count for an input of no column), in every read, write, page and `db.explain`. A
+  Stream member or parameter is collected whole before any SQL. No codemod.
+- **The planner estimates an input as its length.** Each array is a constant of the execution's custom plan, so a
+  join against an input plans for its true size where `jsonb_to_recordset` was always 100 rows; a statement of a
+  compiled program the plan cache serves generically is estimated at 10 rows. No codemod.
+- **`InputTooLarge` carries its `bound`.** It is raised only for a real transport bound, before anything is sent:
+  `{ kind: "message", statement, bytes, limit }`, one statement's Bind message past PostgreSQL's longest message,
+  1,073,741,822 bytes (`PQ_LARGE_MESSAGE_LIMIT`), which the server would answer by closing the connection; or
+  `{ kind: "literal", input, column, limit }`, one column's array literal past JavaScript's longest string. Its stage is
+  still `resource`. No codemod; a handler that matched `InputTooLarge` keeps matching and may read `error.bound`.
+
 #### A value is only its value: `Decimal` has no display scale; float and money sums are exact (#3)
 
 - **`Decimal` is value-only.** `1`, `1.0` and `1.00` are one `Decimal`, written `"1"`; every constructor, the decoder of
@@ -154,12 +171,12 @@ How to upgrade:
   function, drafted file or snapshot.json ran past about 120,000 lines (an alternatives law with about 240 armed
   handles) failed with `RangeError: Maximum call stack size exceeded`. Every text is now written once into one line
   sink, and grizzle passes no list as a call's argument list, so these schemas generate. No codemod.
-- **A text past JavaScript's longest string is `ResourceBound`.** One SQL statement, migration file, `snapshot.json`,
+- **A text past V8's longest string is `ResourceBound`.** One SQL statement, migration file, `snapshot.json`,
   `meta.json` or fingerprint text may hold at most 536,870,888 UTF-16 code units (2^29 − 24, about 512 MiB of ASCII).
   Before: `generate` and `check` crashed with `RangeError: Invalid string length` (an internal error). After: they
-  refuse with `ResourceBound` whose `bound` is `{ kind: "text", limit, needed }`.
-  - Fix: a program that switches over `CompileBound["kind"]` exhaustively gains the case `"text"`; its message is
-    `a text of at most 536870888 UTF-16 code units, JavaScript's longest string (needed <n>)`.
+  refuse with `ResourceBound` whose `bound` is `{ kind: "stringLength", limit, needed }`.
+  - Fix: a program that switches over `CompileBound["kind"]` exhaustively gains the case `"stringLength"`; its message
+    is `a text of at most 536870888 UTF-16 code units, V8's longest string (needed <n>)`.
 - **A commented alternative in a drafted file comments every line PostgreSQL reads as one.** A literal holding a
   carriage return inside a commented rename or loss alternative is now followed by `-- ` after the carriage return too,
   so no part of a commented alternative is live SQL. Uncomment it as before. No codemod.

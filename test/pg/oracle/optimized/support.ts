@@ -24,8 +24,7 @@ import {
 	flight,
 	keyColumns,
 	type StatementRoots,
-	statementOutput,
-	traverseTree
+	statementOutput
 } from "#compiler/lower/conservative/types.ts"
 
 import {
@@ -42,12 +41,6 @@ import {
 
 import { canonicalTextOf, type Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
-import {
-	relationTransport,
-	specializeValues,
-	transportLimits,
-	type ValuesInput
-} from "#compiler/lower/shapes/relparam/index.ts"
 import { explainOf } from "#compiler/sql/emit.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
@@ -81,7 +74,6 @@ import {
 } from "#test/support/oracle/perturb.ts"
 import {
 	factSet,
-	inputText,
 	type Lowering,
 	printOracleCase,
 	PropertyFailed,
@@ -661,22 +653,16 @@ export interface DifferentialOptions {
 /** The plain differential: no other lowering. */
 export const plainDifferential: Omit<DifferentialOptions, "schema"> = { others: [] }
 
-/**
- * An optimized form that runs: the default program, the per-execution variant of one statement, or the VALUES
- * transport.
- */
+/** An optimized form that runs: the default program, or the per-execution variant of one statement. */
 export type OptimizedForm =
 	| { readonly kind: "optimized" }
 	| { readonly kind: "optimized variant"; readonly statement: number }
-	| { readonly kind: "optimized VALUES" }
 
 /** A form as the name its run and reports carry. */
 const formLabel = (form: OptimizedForm): string =>
 	form.kind === "optimized variant" ? `optimized variant ${form.statement}` : form.kind
 
-/**
- * One compared run of the optimized artifact: the default program, a per-execution variant, or the VALUES transport.
- */
+/** One compared run of the optimized artifact: the default program, or a per-execution variant. */
 export interface OptimizedRun {
 	readonly form: OptimizedForm
 	readonly run: Run
@@ -721,76 +707,6 @@ const lowerSide = <A>(side: string, f: () => Engine.Result<A, CompileError>) =>
 		Effect.flatMap((r) =>
 			r.ok ? Effect.succeed(r.value) : Effect.fail(failure("lower", side, compileMessage(r.error)))
 		)
-	)
-
-/** A statement whose fields a specialization replaces, every other field kept. */
-const respecified = <S extends object>(
-	statement: OptimizedStatement,
-	specialization: S
-): OptimizedStatement & S => ({
-	...statement,
-	...specialization
-})
-
-/** The relation parameters of a statement that the transport rule sends as VALUES. */
-const byValues = (c: QueryCase, s: OptimizedStatement): ReadonlyArray<ValuesInput> =>
-	Arr.flatMap(s.params, (slot) => {
-		if (slot.kind !== "relation") {
-			return []
-		}
-		const p = c.query.params[slot.param]
-		if (p?.kind !== "relation") {
-			return []
-		}
-		const transport = relationTransport(p.rows, transportLimits)
-		if (transport.kind !== "values") {
-			return []
-		}
-		const at = Arr.map(slot.columns, (column) => ({
-			column,
-			index: Option.getOrThrowWith(
-				Arr.findFirstIndex(p.heading, (h) => h.name === column.name),
-				() => new Error(`a relation parameter has no column ${column.name}`)
-			)
-		}))
-		const rows = Arr.map(transport.rows, (row) =>
-			Arr.map(at, ({ column, index }) => {
-				const literal = row[index]
-				if (literal === undefined) {
-					throw new Error(`a relation parameter's row has no column ${index}`)
-				}
-				return { column, text: inputText(literal) }
-			})
-		)
-		return [{ slot, rows }]
-	})
-
-/** A statement with `inputs` specialized to their VALUES lists. */
-const specializedTo = (
-	s: OptimizedStatement,
-	inputs: ReadonlyArray<ValuesInput>
-): Engine.Result<OptimizedStatement, CompileError> =>
-	Arr.isReadonlyArrayNonEmpty(inputs)
-		? Engine.ok(
-				respecified(
-					s,
-					specializeValues({ ast: s.ast, nameMap: s.sql.nameMap, params: s.params }, inputs)
-				)
-			)
-		: Engine.ok(s)
-
-/**
- * The statements of an optimized program with each relation parameter the transport rule sends as VALUES specialized to
- * its VALUES list, or none when no input goes by VALUES.
- */
-const valuesForm = (
-	c: QueryCase,
-	roots: StatementRoots<OptimizedStatement>
-): Engine.Result<Option.Option<StatementRoots<OptimizedStatement>>, CompileError> =>
-	Engine.map(
-		traverseTree(roots, (s) => specializedTo(s, byValues(c, s))),
-		(out): Option.Option<StatementRoots<OptimizedStatement>> =>
-			Arr.some(flight(roots), (s) => byValues(c, s).length > 0) ? Option.some(out) : Option.none()
 	)
 
 /** Runs one case under both artifacts and every per-execution form of the optimized one. */
@@ -864,7 +780,6 @@ const runDifferential = (
 				program: yield* lowerSide(lowering.name, () => lowering.lower({ case: c, names }))
 			})
 		}
-		const values = yield* lowerSide("optimized VALUES", () => valuesForm(c, optimizedProgram.roots))
 		const isOrdered = (root: RelNode) => root.kind === "OrderedResult"
 		return yield* Effect.scoped(
 			Effect.gen(function* () {
@@ -940,9 +855,6 @@ const runDifferential = (
 							form: { kind: "optimized variant", statement: v.statement },
 							roots: v.roots
 						})
-					}
-					if (Option.isSome(values)) {
-						forms.push({ form: { kind: "optimized VALUES" }, roots: values.value })
 					}
 					const optimized: Array<OptimizedRun> = []
 					let fusedAttachments = 0

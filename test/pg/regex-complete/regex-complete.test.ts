@@ -24,7 +24,6 @@ import type * as Result from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import {
 	compileInstallation,
 	type Installation,
@@ -360,7 +359,7 @@ const bindRefusal = (
 	template: QueryTemplate,
 	params: Readonly<Record<string, unknown>>
 ): BindRefusal | undefined => {
-	const bound = executionInputs(paramCodecs(template.params), params, transportLimits)
+	const bound = executionInputs(paramCodecs(template.params), params)
 	if (bound._tag === "Success") {
 		return undefined
 	}

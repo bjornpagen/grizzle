@@ -6,6 +6,7 @@ import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
 import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
+	arraysSource,
 	columnIn,
 	columnType,
 	emptyEnv,
@@ -15,12 +16,12 @@ import {
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { Expr, FromItem, Select } from "#compiler/sql/ast.ts"
 import {
+	arrays,
 	cast,
 	col,
 	columnDefinition,
 	derived,
 	distinctCoreWhen,
-	recordset,
 	sameTypeRef,
 	select,
 	target,
@@ -93,7 +94,7 @@ export type WriteInput =
 export type RereadInput = Exclude<WriteInput, { readonly kind: "described" }>
 
 /** A relation parameter: the slot's facts, its columns in key-first order, so every statement reading it declares its
- * recordset alike. */
+ * arrays alike. */
 export interface RelationInput {
 	readonly kind: "relation"
 	readonly slot: ParamId
@@ -149,9 +150,9 @@ interface InputRead {
  * deletion and D EXCEPT A, must read it after the cast, never before.
  *
  * - input: the statement's input CTE, its fields in order under the statement's scan alias (r0), a relation
- *   parameter's recordset JSON keys named after the CTE's columns (r1(c1, c2, c3) reads r0(c1, c2, c3)), so `fields`
+ *   parameter's array columns named after the CTE's columns (r1(c1, c2, c3) reads r0(c1, c2, c3)), so `fields`
  *   covers the parameter's heading;
- * - except: an addition a deletion excepts, under a fresh alias, a relation parameter's definition list following its
+ * - except: an addition a deletion excepts, under a fresh alias, a relation parameter's arrays following its
  *   heading as given with fresh names, so every statement that reads one relation parameter declares its columns in
  *   one order. */
 type ReadOptions =
@@ -198,9 +199,9 @@ const castInto = (
 	}
 }
 
-/** Where an input's columns are read from: under the statement's scan alias with a relation parameter's recordset keys
- * named after its input CTE's columns, under the statement's scan alias with fresh keys, or under a fresh alias with
- * fresh keys. */
+/** Where an input's columns are read from: under the statement's scan alias with a relation parameter's array columns
+ * named after its input CTE's columns, under the statement's scan alias with fresh names, or under a fresh alias with
+ * fresh names. */
 type Naming =
 	| { readonly kind: "named"; readonly alias: string; readonly keys: FieldColumns<string> }
 	| { readonly kind: "aliased"; readonly alias: string }
@@ -213,7 +214,7 @@ interface FieldRead {
 	readonly type: InputColumnType
 }
 
-/** The FROM item that reads an input, and how it reads a field by its name; a relation parameter's recordset keys are
+/** The FROM item that reads an input, and how it reads a field by its name; a relation parameter's array columns are
  * named after the input CTE's columns (`Naming`), in the statement's field order. */
 const inputColumns = (
 	w: WriteContext,
@@ -232,7 +233,7 @@ const inputColumns = (
 		case "relation": {
 			const origin = { kind: "param", param: input.slot } as const
 			const base = (type: ScalarType) => w.cx.baseTypeRef(type)
-			const slot = w.cx.member(
+			const slots = w.cx.member(
 				input.slot,
 				input.relation,
 				() =>
@@ -249,13 +250,9 @@ const inputColumns = (
 				at
 			)
 			const alias = aliasOf(origin)
-			const columnOf = new Map(slot.columns.map((c) => [c.name, c] as const))
+			const columnOf = new Map(slots[0].columns.map((c) => [c.name, c] as const))
 			return {
-				from: recordset(
-					slot,
-					alias,
-					slot.columns.map((c) => c.definition)
-				),
+				from: arrays(arraysSource(slots), alias),
 				read: (field) => {
 					const { definition } = columnIn(columnOf, field)
 					return {
@@ -313,12 +310,12 @@ const inputColumns = (
  *
  * A member reaches a write statement in one of three forms, and the form decides what the statement must do itself:
  *
- * - relation: an enumerated member (an array, or a Stream collected on the host up to recordsetMaxRows facts),
- *   one relation parameter read through `jsonb_to_recordset($n::jsonb) AS r0(c1 <base type>, ...)`. The host codec
- *   owns its set property and its null ban: it deduplicates complete facts and refuses same-key conflicts, so "the
- *   recordset is a set without a DISTINCT and the statement never sees a null", and the statement has no
- *   same-key check of its own. The definition list names base types and the JSON keys are its column
- *   names, recorded in the statement's relation slot.
+ * - relation: an enumerated member (an array, or a Stream collected on the host), read through its arrays,
+ *   `(SELECT pg_catalog.unnest($n::<base type>[]) AS c1, ...) AS r0`, one placeholder per column (sql/print.ts). The
+ *   host codec owns its set property and its null ban: it deduplicates complete facts and refuses same-key conflicts,
+ *   so "the input is a set without a DISTINCT and the statement never sees a null", and the statement has no
+ *   same-key check of its own. Each array's element type is its column's base type, and its column names are
+ *   recorded in the statement's member slots.
  * - carrier: a transaction-scoped carrier (carriers/), which nobody normalized on the host.
  * - described: a member described by a query, a node of the write DAG, lowered as a leading CTE of the statement.
  *   It is evaluated once: the check and the INSERT both reference it, so PostgreSQL materializes it once and both
@@ -332,8 +329,8 @@ const inputColumns = (
  *
  * A read of no field, the generated class of a target whose every carried field is serial, is the unit relation: it
  * reads the unit marker, one row of no field for each fact the input holds, `SELECT DISTINCT true FROM
- * jsonb_array_elements($n::jsonb) AS r0` for a relation parameter, so its input CTE lists no column and an insert
- * over it assigns none. */
+ * pg_catalog.generate_series(1::bigint, $n::bigint) AS r0` for a relation parameter, $n its count, so its input CTE
+ * lists no column and an insert over it assigns none. */
 export const readInput = (
 	w: WriteContext,
 	input: WriteInput,

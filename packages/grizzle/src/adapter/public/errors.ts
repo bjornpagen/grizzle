@@ -42,6 +42,7 @@ export {
 	type DriverRefused,
 	type GeneratedSerialUnique,
 	type HandleReleased,
+	type InputBound,
 	type InputTooLarge,
 	type LawRejected,
 	type LayerReleased,

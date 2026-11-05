@@ -143,7 +143,7 @@ class Agreement {
 					case "derived":
 					case "values":
 					case "function":
-					case "recordset":
+					case "arrays":
 					case "context":
 						this.#items.set(item.alias, item)
 						return
@@ -341,7 +341,7 @@ class Agreement {
 	}
 
 	/**
-	 * A table's, a function's or a recordset's column is no SELECT's output, and a part sees no column of the
+	 * A table's, a function's or an input array's column is no SELECT's output, and a part sees no column of the
 	 * statement holding it: none is unified here.
 	 */
 	#column(alias: string, column: string, active: ReadonlySet<string>): TypeRef | undefined {
@@ -360,7 +360,7 @@ class Agreement {
 			case "table":
 			case "enclosing":
 			case "function":
-			case "recordset":
+			case "arrays":
 			case "context":
 			case undefined:
 				return undefined
@@ -601,7 +601,7 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
  *      it. A value of a domain type exists only once PostgreSQL has validated it, so the value it delivers has been
  *      checked wherever the definition sits. min, max, LEAST, GREATEST and CASE deliver one of their operands' values,
  *      and a cast to the base type relabels without changing the value, so each is proved when its operands are;
- *    - unproved: anything else, a recordset column of a relation parameter, a base-typed placeholder or literal, a
+ *    - unproved: anything else, an array column of a relation parameter, a base-typed placeholder or literal, a
  *      base-typed recursive state column, a derived relation's column, or a definition this trace does not follow. A
  *      base-typed literal is checked at compilation (ContractLiteral), but the compiler relies on its
  *      membership only once PostgreSQL has validated it, and no admission path runs the constant validation of a

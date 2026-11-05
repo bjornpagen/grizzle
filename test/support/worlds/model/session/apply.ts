@@ -12,7 +12,7 @@ import {
 	valueText
 } from "#test/pg/laws/families/model.ts"
 import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
-import { entryRows, factKey, isMember } from "#test/support/worlds/model/host.ts"
+import { entryRows, isMember } from "#test/support/worlds/model/host.ts"
 import {
 	type Cell,
 	checkLaw,
@@ -51,12 +51,6 @@ import type {
 	RoleSpec,
 	HostValue
 } from "#test/support/worlds/model/types.ts"
-
-/**
- * The most distinct facts one input of a ChangeSet may hold (README "Writes"): grizzle admits every fact through its
- * encoder, collapses equal ones, and only then counts.
- */
-export const inputLimit = 100_000
 
 type QueryWritten = Extract<Written, { readonly kind: "query" }>
 
@@ -201,29 +195,6 @@ const newCell = (
 	if (column.values.added(value)) {
 		cells.push({ domain: column.domain, value })
 	}
-}
-
-/**
- * Whether an input holds more distinct facts than `inputLimit`: equal facts are one, as grizzle collapses them before
- * it counts, so only an input longer than the limit is counted, and facts holding more distinct values at one field
- * than the limit are that many distinct facts at least.
- */
-const pastLimit = (facts: ReadonlyArray<HostFact>): boolean => {
-	if (facts.length <= inputLimit) {
-		return false
-	}
-	const distinctAt = (field: string): number => {
-		const values = new Values()
-		for (const fact of facts) {
-			values.added(fact[field])
-		}
-		return values.size
-	}
-	const fields = Arr.flatMap(facts.slice(0, 1), (f) => Rec.keys(f))
-	return (
-		Arr.some(fields, (field) => distinctAt(field) > inputLimit) ||
-		new Set(Arr.map(facts, factKey)).size > inputLimit
-	)
 }
 
 /** An op through its written relation, with the CHECK laws of the law domains its values break. */
@@ -677,8 +648,7 @@ const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [r
  *   and a read-back whose delta the change does not determine are refused when they compile;
  * - before any SQL, stratum by stratum, a value its field's encoder refuses (a base type's fault) is refused, and two
  *   facts the stratum's inserts and puts submit to one target that agree on a key and differ elsewhere are
- *   `invariant-rejected` on that key's law (keyConflictOf); then an input of more than 100,000 distinct facts (equal
- *   facts collapse first) before any statement;
+ *   `invariant-rejected` on that key's law (keyConflictOf); an input of any number of facts is admitted;
  * - an op holding a value its law domain's CHECK refuses (an integer past its contract's bounds, a text past its
  *   pattern), which the encoder admits, is `invariant-rejected` on that domain's CHECK law, its witness withheld, as
  *   its stratum's statement casts the value: before anything else the statement meets;
@@ -756,9 +726,6 @@ export const applyCall = (
 		if (refused !== undefined) {
 			return { kind: "host", refusals: [refused, ...more] }
 		}
-	}
-	if (Arr.some(strata, (ops) => Arr.some(ops, (op) => pastLimit(op.facts)))) {
-		return onHost({ kind: "resource-bound" })
 	}
 	/** The SQL phase, once the transaction's prologue lets the call through. */
 	const sql = (): Arr.NonEmptyReadonlyArray<Branch> => {

@@ -41,7 +41,7 @@ export { type CompiledChange, compiledWrite, missingCapability } from "#adapter/
  *    apply's error channel cannot carry, is the ExecutionFailure whose reason it is, and a capability the admitted
  *    database lacks the ExecutionFailure whose reason is MissingCapability, both before any SQL;
  * 2. makes one attempt: it readies its inputs on the host (run.ts hostInputs: Stream members collected,
- *    normalization, the transport size rule), and, unless the host already refused a same-key pair, runs the
+ *    normalization), and, unless the host already refused a same-key pair, runs the
  *    transaction (run.ts runWrite), whose outcome is `accepted` or `no-change` with its counts and reads once COMMIT
  *    committed; `invariant-rejected` for a law a statement or COMMIT refused; a TransientFailure for a concurrent
  *    transaction's work met at a statement or raised by COMMIT (40001, 40P01, a put-target concurrent commit, a
@@ -65,7 +65,7 @@ export { type CompiledChange, compiledWrite, missingCapability } from "#adapter/
  * that does not compile.
  */
 export type { ArtifactKind } from "#adapter/apply/readback.ts"
-export { compileFailure, hostInputs } from "#adapter/apply/run.ts"
+export { compileFailure, hostInputs, valuesFailure } from "#adapter/apply/run.ts"
 
 /**
  * A compiled ChangeSet handle, which the public Compiled<S, X, Reads> wraps (types/db): its apply takes the parameters

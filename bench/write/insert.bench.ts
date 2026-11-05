@@ -36,7 +36,7 @@ import {
 	writerSession
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
-import { jsonText, trusted } from "#compiler/core/trusted.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
@@ -351,15 +351,26 @@ export default defineGate({
 				() => applyOn(db, ChangeSet.empty(S).insert(Item, facts(repeatFrom, 2)), {}),
 				0
 			)
-			const json = (from: number, v: number) =>
-				jsonText(Arr.map(indices(options.batch), (i) => ({ c1: String(from + i), c2: v })))
+			/** The batch as the arrays the protocol reads, one per column, as grizzle sends an input. */
+			const arrays = (from: number, v: number): ReadonlyArray<string> => [
+				`{${Arr.join(
+					Arr.map(indices(options.batch), (i) => String(from + i)),
+					","
+				)}}`,
+				`{${Arr.join(
+					Arr.map(indices(options.batch), () => String(v)),
+					","
+				)}}`
+			]
+			const input =
+				"(SELECT pg_catalog.unnest($1::int8[]) AS c1, pg_catalog.unnest($2::int4[]) AS c2) AS r0"
 			const protocol =
-				`WITH r1(c1, c2) AS (SELECT r0.c1, r0.c2 FROM jsonb_to_recordset($1::jsonb) AS r0(c1 int8, c2 int4)), ` +
+				`WITH r1(c1, c2) AS (SELECT r0.c1, r0.c2 FROM ${input}), ` +
 				`r2 AS (INSERT INTO ${I} AS r3 (${c("Item", "id")}, ${c("Item", "v")}) SELECT r1.c1, r1.c2 FROM r1 ORDER BY r1.c1 ` +
 				`ON CONFLICT (${c("Item", "id")}) DO SELECT WHERE r3.${c("Item", "v")} <> EXCLUDED.${c("Item", "v")} ` +
 				`RETURNING r3.${c("Item", "id")} AS c4, r3.${c("Item", "v")} AS c5) ` +
 				"SELECT r2.c4::text, (r2.c5 = r1.c2)::text FROM r2 JOIN r1 ON r1.c1 = r2.c4"
-			const doNothing = `INSERT INTO ${I} (${c("Item", "id")}, ${c("Item", "v")}) SELECT r0.c1, r0.c2 FROM jsonb_to_recordset($1::jsonb) AS r0(c1 int8, c2 int4) ORDER BY r0.c1 ON CONFLICT (${c("Item", "id")}) DO NOTHING`
+			const doNothing = `INSERT INTO ${I} (${c("Item", "id")}, ${c("Item", "v")}) SELECT r0.c1, r0.c2 FROM ${input} ORDER BY r0.c1 ON CONFLICT (${c("Item", "id")}) DO NOTHING`
 			const handProtocol: Array<TransactionMeasure> = []
 			const handDoNothing: Array<TransactionMeasure> = []
 			for (let i = 0; i < options.samples; i++) {
@@ -367,14 +378,14 @@ export default defineGate({
 				next += options.batch
 				const protocolRun = yield* measureTransaction(
 					direct,
-					transactionOf([plainStatement("protocol", protocol, [json(from, 1)])], "plain")
+					transactionOf([plainStatement("protocol", protocol, arrays(from, 1))], "plain")
 				)
 				handProtocol.push(protocolRun)
 				const from2 = next
 				next += options.batch
 				const doNothingRun = yield* measureTransaction(
 					direct,
-					transactionOf([plainStatement("do nothing", doNothing, [json(from2, 1)])], "plain")
+					transactionOf([plainStatement("do nothing", doNothing, arrays(from2, 1))], "plain")
 				)
 				handDoNothing.push(doNothingRun)
 			}

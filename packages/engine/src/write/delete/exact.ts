@@ -201,14 +201,14 @@ const buildDelete = (
 /** Exact deletions and the deletion a put implies.
  *
  * "A deletion is exact fact identity over every column: DELETE FROM r USING (input) AS q WHERE (r.cols) = (q.cols)
- * RETURNING r.key, where the input is the recordset, the carrier, or the described member. A duplicate input row
+ * RETURNING r.key, where the input is the arrays, the carrier, or the described member. A duplicate input row
  * matches its fact once. `deleted` is the count of returned keys". Within a stratum additions win: when
  * the stratum also adds to the relation and the deletions or the additions are described or a carrier, the input is
  * D EXCEPT A, so a fact both added and deleted is neither deleted nor counted, and the insert protocol then finds it
  * a repeat or inserts it; the host nets two enumerated members the same way. The statement is the
  * deletion as a data-modifying CTE in one statement chain:
  *
- *   WITH "r1"("c1", "c2", "c3") AS (SELECT "r0"."c1", ... FROM jsonb_to_recordset($1::jsonb) AS "r0"(...)
+ *   WITH "r1"("c1", "c2", "c3") AS (SELECT "r0"."c1", ... FROM (SELECT pg_catalog.unnest($1::...[]) ...) AS "r0"
  *                                   [EXCEPT SELECT ... FROM <addition>]),
  *   "r2" AS (DELETE FROM "work"."task" AS "r3" USING "r1"
  *            WHERE ("r3"."id", "r3"."account", "r3"."kind") = ("r1"."c1", "r1"."c2", "r1"."c3")

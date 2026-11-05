@@ -15,7 +15,7 @@ import {
 	String as Str
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { keyedColumns, recordsetEncoder } from "#compiler/codec/recordset.ts"
+import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
@@ -187,7 +187,7 @@ type Applied =
 
 /**
  * Runs every statement of a ChangeSet's conservative realization in one transaction as `session`, the
- * members' facts encoded by each statement's own recordset columns; the raw text rows of each statement.
+ * members' facts encoded as each statement's own arrays; the raw text rows of each statement.
  */
 const apply = (
 	session: RawSession,
@@ -203,18 +203,19 @@ const apply = (
 				if (p.kind !== "member") {
 					throw new Error(`an unexpected ${p.kind} parameter`)
 				}
-				const encoder = recordsetEncoder({
+				const encoder = arraysEncoder({
 					relation: p.relation,
 					slot: { kind: "slot", name: String(p.slot) },
-					columns: keyedColumns(
-						Arr.map(p.columns, (c) => ({ name: c.name, type: c.type, key: c.definition.name }))
-					)
+					columns: positionalColumns(p.columns)
 				})
 				const encoded = encoder(facts[p.relation] ?? [])
 				if (!encoded.ok) {
 					throw new Error(`encode: ${encoded.error._tag}`)
 				}
-				return encoded.value.json
+				return defined(
+					encoded.value.arrays[p.part.kind === "column" ? p.part.index : 0],
+					`the array of placeholder ${p.number}`
+				)
 			})
 			const rows = yield* Effect.result(session.values(statement.sql.text, params))
 			if (Result.isFailure(rows)) {

@@ -20,7 +20,6 @@ import type {
 	EmittedSql,
 	Expr,
 	FromItem,
-	RecordsetPlaceholder,
 	Select,
 	TypeRef,
 	ValuePlaceholder
@@ -119,8 +118,9 @@ export const conservativeInput = (query: Pick<LogicalQuery, "dag">): Conservativ
 })
 
 /**
- * One column of a relation parameter: the heading column, and the recordset column it travels as, given at
- * allocation, whose name is the JSON key it travels under and whose type is its base type.
+ * One column of a relation input: the heading column, and the column of the input's arrays it travels as, given at
+ * allocation, whose name is the column the input's rows deliver it under and whose type is its base type, the
+ * element type of its array.
  */
 export interface RelationColumn {
 	readonly name: string
@@ -137,24 +137,35 @@ export interface ScalarParamSlot extends ValuePlaceholder {
 }
 
 /**
- * A declared relation-valued parameter's placeholder, sent as one jsonb array of objects: each heading column travels
- * under its JSON key, the generated column name of the recordset's definition list.
+ * Which array of a relation input one of its placeholders carries: the values of the input's column at `index`, one
+ * per fact in the input's fact order; or, for an input of no column, its count of facts.
  */
-export interface RelationParamSlot extends RecordsetPlaceholder {
+export type ArrayPart =
+	| { readonly kind: "column"; readonly index: number }
+	| { readonly kind: "count" }
+
+/**
+ * One placeholder of a declared relation-valued parameter: one array of the input over `columns`, the columns every
+ * placeholder of the parameter in its statement reads, in their order (sql/ast.ts ArraysSource). The placeholders of
+ * one input in one statement are allocated together, one per column or one count, and share `columns`.
+ */
+export interface RelationParamSlot extends ValuePlaceholder {
 	readonly kind: "relation"
 	readonly param: ParamId
 	readonly columns: ReadonlyArray<RelationColumn>
+	readonly part: ArrayPart
 }
 
 /**
- * A write's enumerated member slot, sent as one jsonb recordset under the statement's own JSON keys; `relation` names the
- * written relation an encoding refusal names.
+ * One placeholder of a write's enumerated member slot, one array of its facts over `columns`, as a relation
+ * parameter's is; `relation` names the written relation an encoding refusal names.
  */
-export interface MemberParamSlot extends RecordsetPlaceholder {
+export interface MemberParamSlot extends ValuePlaceholder {
 	readonly kind: "member"
 	readonly slot: ParamId
 	readonly relation: string
 	readonly columns: ReadonlyArray<RelationColumn>
+	readonly part: ArrayPart
 }
 
 /** A placeholder the page request fills (PageFill), cast to `sqlType`. */
@@ -171,8 +182,8 @@ export type DeclaredParamSlot = ScalarParamSlot | RelationParamSlot
 /** A placeholder only its own lowering allocates: a write statement's member slot, a page statement's fill. */
 export type OwnParamSlot = MemberParamSlot | PageParamSlot
 
-/** A placeholder a recordset reads: a relation parameter's or a write's member slot. */
-export type RecordsetSlot = RelationParamSlot | MemberParamSlot
+/** A placeholder of a relation input's arrays: a relation parameter's or a write's member slot. */
+export type ArraySlot = RelationParamSlot | MemberParamSlot
 
 /** The placeholders of a write statement: its declared parameters' and its member slots'. */
 export type WriteParamSlot = DeclaredParamSlot | MemberParamSlot

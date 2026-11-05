@@ -97,7 +97,7 @@ export const buildSequenceAdvance = (
  * One statement per explicit serial field, each calling that field's advance function with the largest value written:
  *
  *   SELECT "work"."__advance_ticket__id"("r0"."c1"::bigint)::text AS "c2"
- *   FROM jsonb_to_recordset($1::jsonb) AS "r0"("c1" bigint, ...)
+ *   FROM (SELECT pg_catalog.unnest($1::bigint[]) AS "c1", ...) AS "r0"
  *   ORDER BY "r0"."c1" DESC
  *   LIMIT 1
  *

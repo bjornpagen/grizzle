@@ -48,12 +48,40 @@ export interface NormalFacts {
 	readonly entries: ReadonlyArray<IdentifiedFact>
 }
 
-/** MemberEncoder: a member slot's normal facts to its recordset parameter. */
-export type MemberEncoder = (facts: NormalFacts) => Result.Result<string, EncodingFailure>
-/** RelationParamEncoder: a relation-valued input to its deduplicated JSON recordset text and row count. */
+/**
+ * A relation input's arrays as its placeholders in one statement carry them, in placeholder order: one text-format
+ * array literal per column of the statement's reading of it, or, for an input of no column, its count of facts
+ * (codec/recordset.ts arrayTexts).
+ */
+export type ArrayTexts = ReadonlyArray<string>
+
+/**
+ * A relation input's column whose array literal would be longer than the longest string the host builds
+ * (core/policy.ts maxStringLength): no placeholder can carry it, so the input is refused before any SQL is sent, which
+ * the shell raises as InputTooLarge. `input` names the relation parameter or the written relation, `column` its field.
+ */
+export interface LiteralBound {
+	readonly _tag: "LiteralBound"
+	readonly input: string
+	readonly column: string
+	readonly limit: number
+}
+
+/** MemberEncoder: a member slot's normal facts to its arrays. */
+export type MemberEncoder = (
+	facts: NormalFacts
+) => Result.Result<ArrayTexts, EncodingFailure | LiteralBound>
+/** RelationParamEncoder: a relation-valued input to its deduplicated arrays and its distinct fact count. */
 export type RelationParamEncoder = (
 	facts: Iterable<unknown>
-) => Result.Result<{ readonly json: string; readonly count: number }, EncodingFailure>
+) => Result.Result<
+	{ readonly arrays: ArrayTexts; readonly count: number },
+	EncodingFailure | LiteralBound
+>
+/** RelationEncoder: a relation parameter's host value to its arrays, refusing a value that is no iterable of facts. */
+export type RelationEncoder = (
+	value: unknown
+) => Result.Result<ArrayTexts, EncodingFailure | LiteralBound>
 
 /**
  * The compiler's products.
@@ -141,11 +169,25 @@ export type PageFill =
  * scalar or relation parameter, `param` is the declared ParamId, which is the parameter's declared name and the key of
  * its host value (check/params.ts). A member slot is a write's enumerated member input (write/insert/input.ts); a page
  * placeholder is one only the page compiler allocates.
+ *
+ * A relation input's placeholders in one statement, one per array, share one encoder, which writes all of its arrays
+ * (ArrayTexts), and each takes the array at its `part`; a binder encodes the input once per statement by that shared
+ * encoder (write/program/bind.ts).
  */
 export type ParamSlot =
 	| { readonly kind: "scalar"; readonly param: ParamId; readonly encode: Encoder }
-	| { readonly kind: "relation"; readonly param: ParamId; readonly encode: Encoder }
-	| { readonly kind: "member"; readonly slot: ParamId; readonly encode: MemberEncoder }
+	| {
+			readonly kind: "relation"
+			readonly param: ParamId
+			readonly part: number
+			readonly encode: RelationEncoder
+	  }
+	| {
+			readonly kind: "member"
+			readonly slot: ParamId
+			readonly part: number
+			readonly encode: MemberEncoder
+	  }
 	| { readonly kind: "page"; readonly fill: PageFill; readonly encode: Encoder }
 
 /** A placeholder of a write's statement: a declared parameter or a member slot, never a page fill. */

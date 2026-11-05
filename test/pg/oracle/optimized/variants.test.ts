@@ -219,12 +219,11 @@ const resolve = (s: Sketch): QueryCase => {
 }
 
 /**
- * The features every correlated take must reach: a per-execution variant and the VALUES transport ran, each take
- * shape, rows delivered, and the attachment both fused (the narrow child) and pipelined (the wide one).
+ * The features every correlated take must reach: a per-execution variant ran, each take shape, rows delivered, and
+ * the attachment both fused (the narrow child) and pipelined (the wide one).
  */
 const situations = [
 	"form:optimized variant",
-	"form:optimized VALUES",
 	"R20.lateral",
 	"R20.distinctOn",
 	"R20.rowNumber",

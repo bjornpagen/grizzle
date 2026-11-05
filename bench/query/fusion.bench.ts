@@ -47,7 +47,6 @@ import {
 	scansOf,
 	summaryOf
 } from "#bench/query/support/plans.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
@@ -282,7 +281,6 @@ export default defineGate({
 				explainSamples: 1,
 				serverPlans: [],
 				explain: plainExplain,
-				limits: transportLimits,
 				conservativeSamples: options.samples
 			}
 			const handOptions: VariantOptions = {

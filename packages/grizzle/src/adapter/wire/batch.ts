@@ -2,6 +2,7 @@
  * Flights, a hot path: every statement of every Db call is planned, written and answered here, so the per-statement
  * work is native loops with no Option, tuple or closure per statement, and Effect stays at the flight's boundary.
  */
+import { Buffer } from "node:buffer"
 import {
 	absurd,
 	type Array as Arr,
@@ -32,6 +33,7 @@ import {
 	CommitRefused,
 	ConnectionLost,
 	DriverFailure,
+	InputTooLarge,
 	Migrated,
 	Migrating,
 	ServerError,
@@ -51,6 +53,7 @@ import {
 } from "#adapter/wire/session.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import { messageMaxBytes } from "#compiler/core/policy.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 
@@ -143,8 +146,11 @@ class PrologueRefused extends Data.TaggedError("PrologueRefused")<{
 	readonly failure: ServerError
 }> {}
 
-/** How a transaction's flight fails: as any flight, at its prologue, or at its fence. */
-export type FlightFailure = BatchFailure | PrologueRefused | StaleSnapshot
+/**
+ * How a Db call's flight fails: as any flight, at its prologue, or at its fence; or, before anything is sent, with a
+ * statement whose Bind message PostgreSQL would not read (bindOverrun).
+ */
+export type FlightFailure = BatchFailure | PrologueRefused | StaleSnapshot | InputTooLarge
 
 /** The fence's two steps: the ledger's lock NOWAIT, and the guard's call. */
 export type FenceStep = "lock" | "guard"
@@ -188,6 +194,7 @@ export const asReadFailure = (failure: FlightFailure): ReadError => {
 		case "ConnectionLost":
 		case "DriverFailure":
 		case "UnreadableAnswer":
+		case "InputTooLarge":
 			return new ReadFailure({ reason: failure })
 	}
 }
@@ -1049,19 +1056,64 @@ export const writeFrame = (prologue: Prologue): Frame => ({
 })
 
 /**
+ * The length the Bind message of one execution of `statement` declares, its Int32 length word included and its type
+ * byte not, as pg 8.23 writes it (pg-protocol 1.16 serializer.ts `bind`): the unnamed portal's empty name, the
+ * statement's name (none, or its server statement's), the count of parameter format codes and one code per parameter,
+ * the count of parameters and each as its length and its UTF-8 bytes, and the one result format code with its count.
+ */
+export const bindLength = (statement: FlightStatement): number => {
+	const name = "server" in statement ? statement.server.name : ""
+	let length = 4 + 1 + Buffer.byteLength(name, "utf8") + 1 + 2 + 2 + 2 + 2
+	for (const param of statement.params) {
+		length += 2 + 4 + Buffer.byteLength(param, "utf8")
+	}
+	return length
+}
+
+/**
+ * The first of `statements` whose Bind message would be longer than `limit`, the longest message PostgreSQL reads from a
+ * client in production (core/policy.ts messageMaxBytes), as the InputTooLarge of its position and length, or none.
+ * PostgreSQL answers a longer message by ending the connection without an ErrorResponse ("invalid message length",
+ * pqcomm.c pq_getmessage), which a flight carrying COMMIT would report as CommitLost though nothing ran; so it is
+ * refused here, before anything is sent. The prologue's statements and the controls carry no parameter of the caller's.
+ */
+export const bindOverrun = (
+	statements: ReadonlyArray<FlightStatement>,
+	limit: number
+): InputTooLarge | undefined => {
+	let statement = 0
+	for (const one of statements) {
+		const bytes = bindLength(one)
+		statement += 1
+		if (bytes > limit) {
+			return new InputTooLarge({
+				bound: { kind: "message", statement: statement - 1, bytes, limit }
+			})
+		}
+	}
+	return undefined
+}
+
+/**
  * Sends a Db call's statements in `frame`, as one flight, and returns each statement's outcome, in order. Every call
  * sends its frame, a call of no statement included (an apply whose every member is empty): BEGIN, the prologue's
  * fence and snapshot check, and the frame's end, so a Db the database no longer holds the snapshot of fails with
  * StaleSnapshot whatever the call carries, and its outcome is released only once the end answered. A read of one
  * statement still runs framed: the prologue and its statement share one transaction, outside which the prologue's
- * settings would not hold.
+ * settings would not hold. A statement whose Bind message PostgreSQL would not read fails the call with InputTooLarge
+ * before anything is sent (bindOverrun).
  */
 export const runFramed = (
 	session: Session,
 	frame: Frame,
 	statements: ReadonlyArray<FlightStatement>
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> =>
-	runEntered(session, asDb(frame.prologue), statements, frame)
+	Effect.suspend((): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> => {
+		const overrun = bindOverrun(statements, messageMaxBytes)
+		return overrun === undefined
+			? runEntered(session, asDb(frame.prologue), statements, frame)
+			: Effect.fail(overrun)
+	})
 
 /**
  * The answer of the statement a sender sent `index`th. The one site of the fact that a flight or a step apart answers

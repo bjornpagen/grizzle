@@ -14,6 +14,8 @@ import {
 	type AlterDomainAction,
 	type AlterRoleAction,
 	type AlterTableAction,
+	type ArrayColumn,
+	type ArraysSource,
 	type CatalogTypeName,
 	catalogSpelling,
 	closedSearchPath,
@@ -609,6 +611,55 @@ const printIdentList = (names: ReadonlyArray<string>): string => names.map(quote
 const aliasList = (columns: ReadonlyArray<string>): string =>
 	isNonEmpty(columns) ? `(${printIdentList(columns)})` : ""
 
+/** Whether a type carries a typmod: numeric(p) or numeric(p, s), or a named type's, vector(n). */
+const hasTypmod = (type: TypeRef): boolean =>
+	type.kind === "builtin" ? type.precision !== undefined : type.typmod.length > 0
+
+/**
+ * One column of a relation input's arrays: the unnest of its array, the column's element type made an array and
+ * collated as the column is, so the output column carries the collation a stored column has (the result of unnest
+ * takes its argument's collation, parse_collate.c). unnest keeps no typmod (parse_relation.c: a function's column has
+ * its expression's typmod, -1 for a call that is no length coercion), so a column whose type has one, numeric(p, s)
+ * or vector(n), is cast back to it, which a recursive CTE seeded from the input needs (parse_cte.c compares typmods,
+ * 42804 otherwise).
+ */
+const printArrayColumn = ({ definition, array }: ArrayColumn): string => {
+	const elements = `$${array.number}::${printType({ ...definition.type, array: true })}`
+	const collated =
+		definition.collation === undefined
+			? elements
+			: `${elements} COLLATE ${printObjectName(definition.collation)}`
+	const unnest = `${inCatalog("unnest")}(${collated})`
+	const typed = hasTypmod(definition.type) ? `${unnest}::${printType(definition.type)}` : unnest
+	return `${typed} AS ${quoteIdent(definition.name)}`
+}
+
+/**
+ * A relation input's arrays (sql/ast.ts ArraysSource) in the select-list form, every function qualified:
+ *
+ *   (SELECT pg_catalog.unnest($1::uuid[]) AS "c1",
+ *     pg_catalog.unnest($2::text[] COLLATE pg_catalog.pg_c_utf8) AS "c2",
+ *     pg_catalog.unnest($3::numeric(10, 2)[])::numeric(10, 2) AS "c3") AS "r1"
+ *
+ * Set-returning functions of one select list run in lockstep, one row per index of arrays of one length, and a
+ * ProjectSet streams their rows, where the same calls in FROM would each be read into a tuplestore first
+ * (nodeFunctionscan.c). The bare multi-argument unnest(a, b) is PostgreSQL's spelling of the FROM form, and only
+ * unqualified (parse_clause.c), so it is never printed. Every placeholder of an execution is a constant of its custom
+ * plan (postgres.c exec_bind_message), so the planner estimates each unnest as its array's length (selfuncs.c
+ * estimate_array_length), the ProjectSet as the longest (pathnode.c create_set_projection_path).
+ *
+ * An input of no column is one row of no column per fact, `pg_catalog.generate_series(1::bigint, $1::bigint) AS "r1"`
+ * of its count, whose column no reader names; its estimate is the count too (int8.c generate_series_int8_support).
+ */
+const printArrays = (source: ArraysSource, alias: string): string => {
+	switch (source.kind) {
+		case "count":
+			return `${inCatalog("generate_series")}(1${castTo("bigint")}, $${source.count.number}${castTo("bigint")}) AS ${quoteIdent(alias)}`
+		case "columns":
+			return `(SELECT ${source.columns.map(printArrayColumn).join(", ")}) AS ${quoteIdent(alias)}`
+	}
+}
+
 const printFromItem = (item: FromItem): string => {
 	switch (item.kind) {
 		case "table":
@@ -627,19 +678,8 @@ const printFromItem = (item: FromItem): string => {
 			const lateral = item.lateral ? "LATERAL " : ""
 			return `${lateral}${printCall(item.call).text} AS ${quoteIdent(item.alias)}${aliasList(item.columns)}`
 		}
-		case "recordset": {
-			if (!isNonEmpty(item.columns)) {
-				return `${inCatalog("jsonb_array_elements")}($${item.source.number}${castTo("jsonb")}) AS ${quoteIdent(item.alias)}`
-			}
-			const columns = item.columns
-				.map((column) =>
-					column.collation === undefined
-						? `${quoteIdent(column.name)} ${printType(column.type)}`
-						: `${quoteIdent(column.name)} ${printType(column.type)} COLLATE ${printObjectName(column.collation)}`
-				)
-				.join(", ")
-			return `${inCatalog("jsonb_to_recordset")}($${item.source.number}${castTo("jsonb")}) AS ${quoteIdent(item.alias)}(${columns})`
-		}
+		case "arrays":
+			return printArrays(item.source, item.alias)
 		case "values":
 			return `(${printValuesRows(item.rows)}) AS ${quoteIdent(item.alias)}(${printIdentList(item.columns)})`
 		case "context":

@@ -1,20 +1,11 @@
 /**
- * An enumerated relation parameter at or below this many facts travels as a VALUES list of typed literals.
+ * A bound parent set at or below this size takes the correlated LATERAL form.
  *
  * Every constant of this module is one of grizzle's fixed thresholds, read where it decides, or a limit of PostgreSQL or
  * V8 that grizzle states where it applies. None is configurable, and none is digested: no fingerprint or snapshot
  * depends on them, since a change of a constant is a change of grizzle. A function that decides a threshold takes it as
  * its own parameter where a test drives that decision with a smaller value; production passes the constant.
  */
-export const valuesMaxRows = 16
-
-/**
- * Above valuesMaxRows, one jsonb_to_recordset parameter up to this many facts, a Stream member's collected facts
- * included. A larger input is refused before any SQL is sent.
- */
-export const recordsetMaxRows = 100_000
-
-/** A bound parent set at or below this size takes the correlated LATERAL form. */
 export const lateralParentMax = 256
 
 /** An attachment with at most this many fields may be fused into its parent statement. */
@@ -274,18 +265,21 @@ export const selectMaxEntries = 1_664
 const maxAllocSize = 0x3fff_ffff
 
 /**
- * The longest message a PostgreSQL backend reads from a client, its length word included: a Query or Parse message
- * holding a statement, or a Bind message. A longer one is "invalid message length" (src/backend/libpq/pqcomm.c
- * pq_getmessage), after which the backend ends the connection, so a statement whose text is longer, in UTF-8 bytes, is
- * refused as ResourceBound (statementBytes) when it is printed.
+ * The longest message a PostgreSQL backend reads from a client, as the message's Int32 length counts it, itself
+ * included: a Query or Parse message holding a statement, or a Bind message carrying one execution's parameters, each
+ * read under it by SocketBackend (src/backend/tcop/postgres.c). A longer one is "invalid message length"
+ * (src/backend/libpq/pqcomm.c pq_getmessage), after which the backend ends the connection without an ErrorResponse,
+ * so a statement whose text is longer, in UTF-8 bytes, is refused as ResourceBound (statementBytes) when it is printed,
+ * and a statement whose Bind message would be longer is refused on the host as InputTooLarge before its flight is sent
+ * (the shell's wire/batch.ts).
  *
- * @limitKind derived
+ * @limitKind published
  * @owner PostgreSQL 19's frontend/backend protocol
  * @unit bytes
- * @scope one message, as its Int32 length counts it, itself included
- * @derivation maxAllocSize less one: PQ_LARGE_MESSAGE_LIMIT, "#define PQ_LARGE_MESSAGE_LIMIT	(MaxAllocSize - 1)"
- * (https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/libpq/libpq.h#L34), the limit SocketBackend
- * (src/backend/tcop/postgres.c) reads Query, Parse and Bind messages under
+ * @scope one message from client to server, as its Int32 length counts it, itself included
+ * @constraint protocol constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC1/src/include/libpq/libpq.h#L34 "#define PQ_LARGE_MESSAGE_LIMIT	(MaxAllocSize - 1)"
+ * @verified 2026-11-04
  */
 export const messageMaxBytes = maxAllocSize - 1
 

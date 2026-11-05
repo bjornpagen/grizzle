@@ -35,7 +35,7 @@ export const Note = relation("Note", { id: uuid, ticket: uuid, open: pg.boolean 
  * The facts are generated in SQL with fixed sizes. Every table but Item holds at most 30,000 rows: ANALYZE samples 300
  * times default_statistics_target rows, 30,000 at the default 100, so those tables' statistics are computed from all of
  * their rows and are the same on every run. Item holds 200,000 rows, so that a probe per input row is the right join
- * even at the 100-row estimate PostgreSQL assumes for a jsonb_to_recordset function scan; its sampled
+ * at any input's estimate, its arrays' length in a custom plan and the default ten in a generic one; its sampled
  * statistics do not move that plan, which rests on its primary key's uniqueness and its size, and VACUUM counts its
  * rows exactly. VACUUM also sets the visibility map an index-only scan needs. The sizes make every keyed probe far
  * cheaper than a scan, so a plan that loses an index condition shows it.

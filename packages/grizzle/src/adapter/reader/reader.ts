@@ -45,9 +45,7 @@ import {
 	unsupported
 } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
@@ -97,9 +95,9 @@ import type { QueryBase } from "#compiler/types/query/query.ts"
  * extension a relation parameter's heading names that is not installed in its compiled schema, is found before any
  * SQL: a direct read fails with the MissingCapability reason, at stage capability, and compile with CompileError
  * UnsupportedOperation naming that capability. A relation input the codec refuses is a ReadFailure whose reason is the
- * EncodingFailure that names it, at stage encode, and one above the recordset rule InputTooLarge, at stage resource,
- * both before any SQL is sent (relations.ts). An acquisition that fails on a direct read is its refusal, at stage
- * acquire.
+ * EncodingFailure that names it, at stage encode, and parameters past a bound of their transport InputTooLarge, at
+ * stage resource, both before any SQL is sent (relations.ts, wire/batch.ts). An acquisition that fails on a direct read
+ * is its refusal, at stage acquire.
  *
  * Runs a read's flight on a session of its own (see the header).
  */
@@ -320,11 +318,10 @@ const runBound = <A, X>(
 ): Effect.Effect<X, ReadError> =>
 	Effect.gen(function* () {
 		const compiled = bound.compiled
-		const values = yield* hostParams(compiled.compiled.template.params, params, recordsetMaxRows)
+		const values = yield* hostParams(compiled.compiled.template.params, params)
 		const flight = yield* Effect.mapError(
-			Effect.flatMap(
-				Effect.fromResult(executionInputs(compiled.codecs, values, transportLimits)),
-				(ready) => delivery(compiled.program, ready, bound.read)
+			Effect.flatMap(Effect.fromResult(executionInputs(compiled.codecs, values)), (ready) =>
+				delivery(compiled.program, ready, bound.read)
 			),
 			(reason) => new ReadFailure({ reason })
 		)

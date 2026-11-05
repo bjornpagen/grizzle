@@ -13,9 +13,8 @@ import { executionInputs, type ParamCodecs, paramCodecs } from "#adapter/reader/
 import { bindGroups, type Row, type RowDecoder } from "#compiler/core/decoder.ts"
 import { CompileError, type CursorError, prose } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { pageMaxSize, recordsetMaxRows } from "#compiler/core/policy.ts"
+import { pageMaxSize } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
 import { queryState } from "#compiler/query/build/state.ts"
@@ -39,8 +38,8 @@ import type { Page, PageCursor, PageEdge } from "#compiler/types/page/page.ts"
  *    compile), and a capability the admitted database lacks one whose reason is MissingCapability (stage capability),
  *    never a parameter value. A handle db.compile compiled an ordered query into holds its page template, compiled
  *    the same way when the handle was.
- * 3. The parameters are made ready as a read's are: Streams collected, relation inputs normalized and their transport
- *    chosen (reader/params.ts, reader/relations.ts), a refusal being an EncodingFailure (stage encode) or InputTooLarge
+ * 3. The parameters are made ready as a read's are: Streams collected and relation inputs normalized
+ *    (reader/params.ts, reader/relations.ts), a refusal being an EncodingFailure (stage encode) or InputTooLarge
  *    (stage resource).
  * 4. An after or before token is validated against the template's codec: size, encoding, layout, generation, query,
  *    comparators and every boundary value, the first refusal being CursorError with its reason.
@@ -210,12 +209,9 @@ export const runPage = <A, Q>(
 	Effect.gen(function* () {
 		const request = yield* Effect.fromResult(pageRequest(run.request, pageMaxSize))
 		const { compiled, runtime, codecs } = yield* pageTemplateOf(run)
-		const values = yield* hostParams(compiled.template.params, run.params, recordsetMaxRows)
+		const values = yield* hostParams(compiled.template.params, run.params)
 		const inputs = yield* Effect.fromResult(
-			Result.mapError(
-				executionInputs(codecs, values, transportLimits),
-				(reason) => new ReadFailure({ reason })
-			)
+			Result.mapError(executionInputs(codecs, values), (reason) => new ReadFailure({ reason }))
 		)
 		const call: PageCall =
 			request.variant === "first" || request.variant === "last"

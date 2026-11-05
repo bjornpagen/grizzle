@@ -128,15 +128,14 @@ export type WriteResult =
  *
  * A write statement is one SQL statement of a ChangeSet's realization: the insert protocol, an exact or a
  * displacing deletion (delete/), a sequence advance (serial/), or a carrier's creation or fill (carriers/). Each keeps
- * its AST beside the emitted text, so a later stage can specialize a relation input into VALUES
- * (`specializeValues`) or explain it, and its placeholder slots in placeholder order, so the
- * caller encodes each relation input under the JSON keys the statement's recordset reads.
+ * its AST beside the emitted text, so a later stage can explain it, and its placeholder slots in placeholder order, so
+ * the caller encodes each relation input as the arrays the statement reads, one placeholder per column.
  *
  * Every DML write statement is a SELECT whose WITH holds the input CTE and the data-modifying CTE, as the insert
- * protocol is written: each enumerated member's recordset or carrier feeds the insert protocol and the deletions as
+ * protocol is written: each enumerated member's arrays or carrier feeds the insert protocol and the deletions as
  * data-modifying CTEs in one statement chain, with RETURNING carrying inserted and deleted keys. A deletion could be a
- * bare DELETE ... RETURNING; the CTE form returns the same rows and keeps one statement kind, which the VALUES
- * specialization and the conservative lowering's statement type both take.
+ * bare DELETE ... RETURNING; the CTE form returns the same rows and keeps one statement kind, which the single
+ * statement's parts and the conservative lowering's statement type both take.
  *
  * Result mode: PgConnection 4.0.2 delivers no text results, so the outermost SELECT casts every
  * result column to text, money through numeric (codec resultTextCasts), and the result descriptor records the scalar
@@ -148,7 +147,7 @@ export type WriteResult =
  * Column order. A Description's fields are unordered, so a relation's heading is in code-unit order.
  * Every statement lists a relation's columns key first, the primary key in its declared order and
  * then the other fields in heading order: for Task(id, account, kind) keyed by id that is id, account,
- * kind, and it fixes the recordset's JSON keys c1 to cn. */
+ * kind, and it fixes the input arrays' columns c1 to cn. */
 export interface WriteStatement<R extends WriteResult = WriteResult> {
 	readonly role: StatementRole
 	/** The AST; `sql` is its emission. */
@@ -416,7 +415,7 @@ export const resultText = (e: Expr, type: ScalarType): Expr =>
 	)
 
 /** The SQL type of an input column: its scalar type, and the PostgreSQL type its SQL expression has when the input
- * fixes it (a recordset's base type, a carrier's column type). A described member's lowering fixes none: a stored
+ * fixes it (an input array's base type, a carrier's column type). A described member's lowering fixes none: a stored
  * column keeps its domain, a literal is cast to its base (`context.ts` baseTypeRef). */
 export interface InputColumnType {
 	readonly type: ScalarType

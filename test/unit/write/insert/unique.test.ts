@@ -1,7 +1,6 @@
 import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { key, relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -44,7 +43,7 @@ const cs = () => ChangeSet.empty(U)
 /** The value's program bound to its members, as the runtime collects them. */
 const bind = Effect.fn("bind")(function* (value: ReturnType<typeof cs>) {
 	const p = program(value)
-	const members = yield* collectInputs(p.frontend, parsedOf(value).inputs, recordsetMaxRows)
+	const members = yield* collectInputs(p.frontend, parsedOf(value).inputs)
 	return succeeded(bindWrite(p, { members, params: {} }))
 })
 

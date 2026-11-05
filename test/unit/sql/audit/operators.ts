@@ -163,7 +163,7 @@ const injected = (item: FromItem): Holes => ({
 })
 
 /**
- * Whether `e` holds a placeholder: an expression's, or a recordset's in a subquery it holds, which is no expression. A
+ * Whether `e` holds a placeholder: an expression's, or an input array's in a subquery it holds, which is no expression. A
  * break that removes `e` would remove those uses, and the statement's placeholders would no longer be dense.
  */
 const hasParam = (e: Expr): boolean => {
@@ -177,7 +177,7 @@ const hasParam = (e: Expr): boolean => {
 			return x
 		},
 		fromSource: (item) => {
-			if (item.kind === "recordset") {
+			if (item.kind === "arrays") {
 				found = true
 			}
 			return item
@@ -216,7 +216,7 @@ const aliasesOf = (item: FromItem): ReadonlyArray<string> => {
 		case "enclosing":
 		case "derived":
 		case "function":
-		case "recordset":
+		case "arrays":
 		case "values":
 		case "context":
 			return [item.alias]
@@ -1533,19 +1533,30 @@ const requiredBreakTable = breakTable([
 		}
 	},
 	{
-		name: "a recordset's text column without the fixed collation",
+		name: "an input array's text column without the fixed collation",
 		rule: "collation",
 		holes: {
 			...noHoles,
-			fromSource: (item) =>
-				item.kind === "recordset"
-					? Arr.flatMap(item.columns, (c, i) => {
-							if (c.collation === undefined) {
-								return []
-							}
-							return [{ ...item, columns: item.columns.with(i, { ...c, collation: undefined }) }]
-						})
-					: []
+			fromSource: (item) => {
+				if (item.kind !== "arrays") {
+					return []
+				}
+				const source = item.source
+				if (source.kind === "count") {
+					return []
+				}
+				return Arr.flatMap(source.columns, (c, i) => {
+					if (c.definition.collation === undefined) {
+						return []
+					}
+					const columns = Arr.map(source.columns, (other, j) =>
+						j === i
+							? { ...other, definition: { ...other.definition, collation: undefined } }
+							: other
+					)
+					return [{ ...item, source: { ...source, columns } }]
+				})
+			}
 		}
 	}
 ])
@@ -1791,8 +1802,11 @@ const columnOfItem = (item: FromItem): Expr | undefined => {
 		case "function":
 		case "values":
 			return at(item.alias, item.columns[0])
-		case "recordset":
-			return at(item.alias, item.columns[0]?.name)
+		case "arrays":
+			return at(
+				item.alias,
+				item.source.kind === "count" ? undefined : item.source.columns[0].definition.name
+			)
 		case "context":
 			return at(item.alias, item.columns[0].column.name)
 		case "cte":

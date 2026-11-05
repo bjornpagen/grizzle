@@ -1,6 +1,11 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
 import { missingExtension } from "#adapter/admission/expectation.ts"
-import { compiledWrite, missingCapability, hostInputs } from "#adapter/apply/index.ts"
+import {
+	compiledWrite,
+	hostInputs,
+	missingCapability,
+	valuesFailure
+} from "#adapter/apply/index.ts"
 import type { DbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { LawRejected, MissingCapability, UnreadableAnswer } from "#adapter/errors/failures.ts"
@@ -18,10 +23,8 @@ import {
 } from "#adapter/wire/batch.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
@@ -100,8 +103,8 @@ const explainQuery = Effect.fn("explainQuery")(function* (
 	if (missing !== undefined) {
 		return yield* new ReadFailure({ reason: new MissingCapability({ capability: missing }) })
 	}
-	const values = yield* hostParams(template.params, params, recordsetMaxRows)
-	const ready = executionInputs(paramCodecs(template.params), values, transportLimits)
+	const values = yield* hostParams(template.params, params)
+	const ready = executionInputs(paramCodecs(template.params), values)
 	if (Result.isFailure(ready)) {
 		return yield* new ReadFailure({ reason: ready.failure })
 	}
@@ -152,7 +155,7 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
 		const sql = inputs.bound.form(s).sql
 		const texts = inputs.bound.values(s)
 		if (!texts.ok) {
-			return yield* new ReadFailure({ reason: texts.error })
+			return yield* new ReadFailure({ reason: valuesFailure(texts.error) })
 		}
 		const step = s.step
 		statements.push(
@@ -175,13 +178,12 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
  * that is rolled back.
  *
  * A query, an ordered query: the template a direct read would select (`snapshot` context, the Db's role), its
- * statements in order. A relation parameter takes the transport its distinct fact count selects, a VALUES
- * list of typed literals for a small input and the recordset otherwise, and a statement with
- * per-execution forms the form its relation inputs select. An attachment is planned as it runs: it computes its
+ * statements in order. A relation parameter travels as its arrays, as it does on a read, and a statement with
+ * per-execution forms takes the form its relation inputs select. An attachment is planned as it runs: it computes its
  * parent's rows itself.
  *
  * A ChangeSet: the WriteProgram an apply would run, its inputs readied exactly as an apply readies them (host
- * normalization, the per-transaction host bound), in a SERIALIZABLE transaction that is rolled back. The transaction
+ * normalization, each statement's arrays), in a SERIALIZABLE transaction that is rolled back. The transaction
  * carriers are
  * created, empty, by running their CREATE TEMPORARY TABLE statements, and analyzed by running the program's ANALYZE
  * statements at their places, neither of which has a plan; every other statement, a carrier's fill, each stratum's
@@ -195,7 +197,8 @@ const explainChangeSet = Effect.fn("explainChangeSet")(function* (
  * Failures are a read's, a ReadFailure with its reason: a program that does not compile for this Db, a ChangeSet's
  * binding of its inputs included, its CompileError (stage compile), and a capability it lacks MissingCapability (stage
  * capability); an input the codec refuses its EncodingFailure, and a same-key pair host normalization refuses
- * LawRejected (stage encode); an input above a size rule InputTooLarge (stage resource); an acquisition failure its
+ * LawRejected (stage encode); parameters past a bound of their transport InputTooLarge (stage resource); an
+ * acquisition failure its
  * refusal (stage acquire); a statement PostgreSQL refuses to plan the server's report (wire/batch.ts asReadFailure),
  * and a plan that does not decode UnreadableAnswer (stage decode).
  *

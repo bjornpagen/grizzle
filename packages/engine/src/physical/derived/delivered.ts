@@ -69,7 +69,7 @@ class Delivered {
 					case "derived":
 					case "values":
 					case "function":
-					case "recordset":
+					case "arrays":
 					case "context":
 						this.#items.set(item.alias, item)
 						return
@@ -172,7 +172,7 @@ class Delivered {
 				return item.columns.find((c) => c.column.name === column)?.column.type
 			case "enclosing":
 			case "function":
-			case "recordset":
+			case "arrays":
 			case undefined:
 				return undefined
 		}

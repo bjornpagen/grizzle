@@ -1,7 +1,6 @@
 import { Array as Arr, Effect, Record as Rec, Result, Stream } from "effect"
 import { readHost } from "#adapter/engine.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
-import { InputTooLarge } from "#adapter/errors/failures.ts"
 import type { HostParams } from "#adapter/reader/execution.ts"
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -12,12 +11,10 @@ import type { ParamMap, ParamValue } from "#compiler/types/core/phantom.ts"
 /**
  * A read's parameter values as the statements' encoders take them.
  *
- * A relation parameter accepts an array of facts or a Stream of facts, and travels as a statement parameter
- * (relations.ts): a Stream is collected on the host before any statement runs, and the statement's own encoder then
- * deduplicates the collected facts exactly as it does an array's. A Stream of more facts than one relation parameter
- * holds (core/policy.ts recordsetMaxRows) is refused, never truncated, as a relation input past the size limit
- * (InputTooLarge, stage resource); a Stream that fails is a read that could not encode its input, an EncodingFailure
- * naming the parameter (stage encode), as a write's is. A Stream parameter has no error or requirement
+ * A relation parameter accepts an array of facts or a Stream of facts, and travels as its arrays (relations.ts): a
+ * Stream is collected on the host before any statement runs, whole, and the statement's own encoder then deduplicates
+ * the collected facts exactly as it does an array's; a Stream that fails is a read that could not encode its input, an
+ * EncodingFailure naming the parameter (stage encode), as a write's is. A Stream parameter has no error or requirement
  * channel of its own (ParamsOf types it Stream.Stream<Fact>); a failure that arrives anyway is still the read's
  * encoding failure, never a defect.
  * Scalar parameters and arrays pass through unchanged.
@@ -46,7 +43,7 @@ type ParamValues = Readonly<Record<string, ParamValue>>
  * nothing else of the map, so every later read is of the copy. An argument that is no record (undefined, null, any
  * other primitive, a function or an array, none of which ParamArg admits) is `fault`, whether or not the program
  * declares a parameter, and so is a map whose reading throws (a refusing proxy). Each value stays opaque here, to be
- * read at its own boundary: a scalar by its codec's admitter, a relation's facts by the recordset normalizer, a Stream
+ * read at its own boundary: a scalar by its codec's admitter, a relation's facts by the relation normalizer, a Stream
  * by relationStreams.
  */
 export const readParams = <F>(
@@ -95,38 +92,22 @@ export const relationStreams = <F>(
 		)
 	)
 
-/**
- * Collects the Stream relation parameter `decl`, refusing one with more than `maxRows` facts before collecting more; a
- * Stream that fails encodes nothing of the parameter.
- */
+/** Collects the Stream relation parameter `decl`, whole; a Stream that fails encodes nothing of the parameter. */
 const collect = (
 	decl: ParamDecl,
-	stream: Stream.Stream<unknown, unknown>,
-	maxRows: number
+	stream: Stream.Stream<unknown, unknown>
 ): Effect.Effect<ReadonlyArray<unknown>, ReadFailure> =>
 	Stream.runCollect(
-		Stream.take(
-			Stream.mapError(
-				stream,
-				() => new ReadFailure({ reason: encodeFailure("factShape", slotPlace(decl.name)) })
-			),
-			maxRows + 1
-		)
-	).pipe(
-		Effect.filterOrFail(
-			(facts) => facts.length <= maxRows,
-			() => new ReadFailure({ reason: new InputTooLarge() })
+		Stream.mapError(
+			stream,
+			() => new ReadFailure({ reason: encodeFailure("factShape", slotPlace(decl.name)) })
 		)
 	)
 
-/**
- * The read's parameters, read once (readParams), with every Stream relation parameter collected, at most `maxRows`
- * facts each (core/policy.ts recordsetMaxRows in production).
- */
+/** The read's parameters, read once (readParams), with every Stream relation parameter collected. */
 export const hostParams = (
 	declared: ReadonlyArray<ParamDecl>,
-	params: ParamMap,
-	maxRows: number
+	params: ParamMap
 ): Effect.Effect<HostParams, ReadFailure> =>
 	Effect.suspend(() => {
 		const unreadable = unreadableArguments()
@@ -148,7 +129,7 @@ export const hostParams = (
 		}
 		return Effect.map(
 			Effect.forEach(streams, ({ decl, stream }) =>
-				Effect.map(collect(decl, stream, maxRows), (facts) => [decl.name, facts] as const)
+				Effect.map(collect(decl, stream), (facts) => [decl.name, facts] as const)
 			),
 			(collected) => ({ ...given.success, ...Rec.fromEntries(collected) })
 		)

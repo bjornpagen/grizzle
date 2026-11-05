@@ -9,6 +9,7 @@ import type {
 	RelationIdent
 } from "#compiler/core/ids.ts"
 import type { Sqlstate } from "#compiler/core/sqlstate.ts"
+import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
 /**
@@ -512,12 +513,56 @@ export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly law:
 	}
 }
 
-/** A relation input, a relation parameter or a Stream member, is past the size limit, before any SQL. */
-export class InputTooLarge extends Data.TaggedError("InputTooLarge") {
+/**
+ * Which transport bound an execution's parameters are past, found on the host before its flight is sent:
+ *
+ * - message: the Bind message of the flight's statement at `statement` would be `bytes` long, as its length word
+ *   counts it, past the longest message PostgreSQL reads, `limit` (core/policy.ts messageMaxBytes), past which the
+ *   backend ends the connection instead of answering;
+ * - literal: the array of the relation input `input`'s column `column` would be longer than the longest string the
+ *   host builds, `limit` UTF-16 code units (core/policy.ts maxStringLength), so no placeholder can carry it
+ *   (ir/products.ts LiteralBound).
+ *
+ * Neither bounds a count of rows: a ChangeSet input or a relation parameter of any number of facts travels whenever
+ * its texts fit.
+ */
+export type InputBound =
+	| {
+			readonly kind: "message"
+			readonly statement: number
+			readonly bytes: number
+			readonly limit: number
+	  }
+	| {
+			readonly kind: "literal"
+			readonly input: string
+			readonly column: string
+			readonly limit: number
+	  }
+
+/**
+ * An execution's parameters are past a bound of their transport (InputBound), before any SQL: split the input across
+ * calls.
+ */
+export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
+	readonly bound: InputBound
+}> {
 	override get message(): string {
-		return "a relation input is past the size limit"
+		const bound = this.bound
+		switch (bound.kind) {
+			case "message":
+				return `statement ${bound.statement} of the call would send a Bind message of ${bound.bytes} bytes, past PostgreSQL's limit of ${bound.limit}; split the input across calls`
+			case "literal":
+				return `the array of column ${bound.column} of input ${bound.input} would be longer than ${bound.limit} UTF-16 code units, the longest string the host builds; split the input across calls`
+		}
 	}
 }
+
+/** The bound of a relation input's column whose array no string can hold, as the engine reports it. */
+export const literalBound = (bound: LiteralBound): InputTooLarge =>
+	new InputTooLarge({
+		bound: { kind: "literal", input: bound.input, column: bound.column, limit: bound.limit }
+	})
 
 /**
  * Why a page request is refused: its shape (no record, one whose reading throws, a property that is no control

@@ -61,7 +61,6 @@ import {
 	docsOneShareInstall
 } from "#test/support/worlds/model/bases/docs.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
-import { inputLimit } from "#test/support/worlds/model/session/apply.ts"
 import { writtenOf } from "#test/support/worlds/model/session/writes.ts"
 import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
 import type {
@@ -291,16 +290,12 @@ export const directTransaction =
 		])
 	}
 
-/** Whether an action is a call through the open Db at `session`, of no input past the limit (afterOpen). */
+/** Whether an action is a call through the open Db at `session` (afterOpen). */
 const callThrough = (action: Action, session: number): boolean => {
 	switch (action.kind) {
 		case "read":
-			return action.session === session
 		case "apply":
-			return (
-				action.session === session &&
-				Arr.every(action.strata, (ops) => Arr.every(ops, (op) => op.facts.length <= inputLimit))
-			)
+			return action.session === session
 		case "open-db":
 		case "refresh":
 		case "close":

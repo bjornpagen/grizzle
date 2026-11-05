@@ -14,7 +14,6 @@ import type {
 
 import {
 	answerOf,
-	type Binding,
 	type ExecutionInputs,
 	encodeForm,
 	formFor,
@@ -115,12 +114,12 @@ export interface PageRows {
  * a validated size. The engine allocates the placeholders and the cursor's decode admits the boundary apart, runtime
  * facts no TypeScript type ties together, so another binding is a defect of the compiler.
  */
-const pageBinding = (slot: PageSlot, call: PageCall): Binding => {
+const pageBinding = (slot: PageSlot, call: PageCall): string => {
 	const text = pageText(slot, call)
 	if (text === undefined) {
 		throw defect(`a ${call.variant} request binds its page ${slot.fill.kind} placeholder`)
 	}
-	return { kind: "text", text }
+	return text
 }
 
 /** The text a page placeholder binds in `call`, when the request binds one there. */

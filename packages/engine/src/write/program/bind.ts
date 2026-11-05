@@ -1,13 +1,12 @@
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
-import { positionalColumns, recordsetEncoder } from "#compiler/codec/recordset.ts"
+import { parameterNormalizer, positionalColumns } from "#compiler/codec/recordset.ts"
 import { paramEncoder } from "#compiler/codec/scalar.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { WriteSlot } from "#compiler/ir/products.ts"
+import type { ArrayTexts, LiteralBound, WriteSlot } from "#compiler/ir/products.ts"
 import type { RelationChoice } from "#compiler/lower/shapes/index.ts"
-import { relationBound, transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { runsLargeForm } from "#compiler/lower/shapes/take/index.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
@@ -43,10 +42,13 @@ export interface BoundWrite {
 	readonly skip: (artifact: WriteArtifact) => ReadonlySet<number>
 	/** The form of a statement of an artifact this application sends (`sentForm`). */
 	readonly form: (statement: ArtifactStatement) => SentForm
-	/** The placeholder texts of that form: none reads another statement's rows. */
+	/**
+	 * The placeholder texts of that form: none reads another statement's rows. A relation input's arrays are written
+	 * once per statement, by the encoder its placeholders share.
+	 */
 	readonly values: (
 		statement: ArtifactStatement
-	) => Result.Result<ReadonlyArray<string>, EncodingFailure>
+	) => Result.Result<ReadonlyArray<string>, EncodingFailure | LiteralBound>
 }
 
 type BindResult =
@@ -64,18 +66,17 @@ type BindResult =
  *
  * 1. Host normalization of every enumerated member: admission through each column's exact carrier,
  *    collapse of equal facts, refusal of conflicting additions under a declared key, and netting of additions against
- *    deletions. A conflict is invariant-rejected with the key law before any SQL is sent.
- * 2. The transport size rule per member: an input above recordsetMaxRows distinct facts is refused with
- *    "ResourceBound", which the shell raises as an ExecutionFailure whose reason is InputTooLarge. A commit is never
- *    split.
- * 3. Each statement's placeholder texts, through the statement's own encoders: a member slot's normalized facts under
- *    the statement's JSON keys, a declared parameter's value (a ChangeSet.bind value under its private name,
- *    or the caller's), and an attachment's delivered parent keys from its parent statement's rows. A statement whose
- *    enumerated member holds no fact produces no statement, so the runtime may skip it. */
+ *    deletions. A conflict is invariant-rejected with the key law before any SQL is sent. A commit is never split,
+ *    whatever its members' sizes.
+ * 2. Each statement's placeholder texts, through the statement's own encoders: a member slot's normalized facts as its
+ *    arrays, a declared parameter's value (a ChangeSet.bind value under its private name, or the caller's), and an
+ *    attachment's delivered parent keys from its parent statement's rows. A statement whose enumerated member holds no
+ *    fact produces no statement, so the runtime may skip it. A column whose array would be longer than one string
+ *    holds is refused as its LiteralBound, which the shell raises as InputTooLarge. */
 export const bindWrite = (
 	program: CompiledWrite,
 	inputs: BindInputs
-): Result.Result<BindResult, EncodingFailure | "ResourceBound" | CompileError> => {
+): Result.Result<BindResult, EncodingFailure | CompileError> => {
 	const { frontend } = program
 	const normalization = normalizeChangeSet(frontend, inputs.members)
 	if (!normalization.ok) {
@@ -89,12 +90,6 @@ export const bindWrite = (
 			described: normalized.described,
 			witness: keyWitness(normalized.relation, normalized.values)
 		})
-	}
-	for (const n of normalized.slots.values()) {
-		const bound = relationBound(n.count, transportLimits)
-		if (!bound.ok) {
-			return Result.err(bound.error)
-		}
 	}
 	/** The normal facts of a member slot of the front end: the one site of the fact "normalizeChangeSet normalizes every
 	 * slot of the front end", which each statement's member placeholder and skipped input name by id. A statement is
@@ -110,7 +105,7 @@ export const bindWrite = (
 	for (const decl of program.params) {
 		const value = paramValue(decl.name)
 		if (decl.kind === "relation") {
-			const encoder = recordsetEncoder({
+			const normalize = parameterNormalizer({
 				relation: decl.name,
 				slot: { kind: "slot", name: decl.name },
 				columns: positionalColumns(decl.heading)
@@ -118,15 +113,11 @@ export const bindWrite = (
 			if (!isIterable(value)) {
 				return Result.err(encodeFailure("factShape", slotPlace(decl.name)))
 			}
-			const encoded = encoder(value)
-			if (!encoded.ok) {
-				return Result.err(encoded.error)
+			const normal = normalize(value)
+			if (!normal.ok) {
+				return Result.err(normal.error)
 			}
-			const bound = relationBound(encoded.value.count, transportLimits)
-			if (!bound.ok) {
-				return Result.err(bound.error)
-			}
-			counted.push({ param: decl.id, count: encoded.value.count })
+			counted.push({ param: decl.id, count: normal.value.count })
 			continue
 		}
 		const text = paramEncoder(decl.type, decl.name)(value)
@@ -145,15 +136,34 @@ export const bindWrite = (
 					: []
 			)
 		)
-	/** A placeholder's text: a declared parameter's host value, by its declared name, or a member slot's normal facts,
-	 * encoded. */
-	const encodeSlot = (slot: WriteSlot): Result.Result<string, EncodingFailure> => {
+	/**
+	 * A placeholder's text: a declared parameter's host value, by its declared name, or the array at its part of a
+	 * relation input's arrays, which `arrays` holds once its input's shared encoder wrote them for the statement.
+	 */
+	const encodeSlot = (
+		slot: WriteSlot,
+		arrays: Map<unknown, ArrayTexts>
+	): Result.Result<string, EncodingFailure | LiteralBound> => {
 		switch (slot.kind) {
 			case "scalar":
-			case "relation":
 				return slot.encode(inputs.params[slot.param])
-			case "member":
-				return slot.encode(factsOf(slot.slot))
+			case "relation":
+			case "member": {
+				const known = arrays.get(slot.encode)
+				const written =
+					known === undefined
+						? slot.kind === "relation"
+							? slot.encode(inputs.params[slot.param])
+							: slot.encode(factsOf(slot.slot))
+						: Result.ok(known)
+				if (!written.ok) {
+					return written
+				}
+				arrays.set(slot.encode, written.value)
+				return Result.ok(
+					defined(written.value[slot.part], `array ${slot.part} of a relation input's arrays`)
+				)
+			}
 		}
 	}
 	/** Whether a choice runs its whole-relation form: the relation parameter it reads, counted above, holds more distinct
@@ -163,10 +173,11 @@ export const bindWrite = (
 	const form = (statement: ArtifactStatement): SentForm => sentForm(statement, runsLarge)
 	const values = (
 		statement: ArtifactStatement
-	): Result.Result<ReadonlyArray<string>, EncodingFailure> => {
+	): Result.Result<ReadonlyArray<string>, EncodingFailure | LiteralBound> => {
 		const out: Array<string> = []
+		const arrays = new Map<unknown, ArrayTexts>()
 		for (const slot of form(statement).paramSlots) {
-			const encoded = encodeSlot(slot)
+			const encoded = encodeSlot(slot, arrays)
 			if (!encoded.ok) {
 				return Result.err(encoded.error)
 			}

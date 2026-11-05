@@ -37,7 +37,6 @@ import {
 } from "#bench/query/support/kit.ts"
 import { outline, planOf, serializedKb, summaryOf } from "#bench/query/support/plans.ts"
 import { maxOf } from "#compiler/core/array.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -172,7 +171,6 @@ export default defineGate({
 				explainSamples: 1,
 				serverPlans: [],
 				explain: serializedExplain,
-				limits: transportLimits,
 				conservativeSamples: options.samples
 			}
 			const schemaState = "fresh install, primary key only (no workload program); VACUUM (ANALYZE)"

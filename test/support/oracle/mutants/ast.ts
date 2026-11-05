@@ -170,7 +170,7 @@ class Rewriter {
 			case "cte":
 			case "enclosing":
 			case "function":
-			case "recordset":
+			case "arrays":
 			case "table":
 			case "values":
 			case "context":
@@ -314,7 +314,7 @@ const fromReads = (f: FromItem, alias: string): boolean => {
 			return selectReads(f.query, alias)
 		case "function":
 			return Arr.some(f.call.args, (a) => readsAlias(a, alias))
-		case "recordset":
+		case "arrays":
 		case "context":
 			return false
 		case "values":

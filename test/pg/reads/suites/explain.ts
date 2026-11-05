@@ -7,16 +7,7 @@ import { multiset } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Duration,
-	Effect,
-	Formatter,
-	Option,
-	pipe,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Duration, Effect, Formatter, Option, Record as Rec } from "effect"
 import { dbContext } from "#adapter/db/context.ts"
 import { makeDb } from "#adapter/db/db.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
@@ -24,8 +15,6 @@ import { explain } from "#adapter/explain/index.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { Plan } from "#adapter/types/db.ts"
 import type { Prologue } from "#adapter/wire/batch.ts"
-import { indices } from "#compiler/core/array.ts"
-import { recordsetMaxRows } from "#compiler/core/policy.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -233,8 +222,10 @@ const budget = {
  *   no identity sequence advanced, which EXPLAIN ANALYZE would have done; a read-back joining a delta carrier plans the
  *   empty, analyzed carrier at one row, as the apply does;
  * - every Plan is estimate-only: node type, costs, rows and width, nothing else;
- * - a ChangeSet host normalization refuses (a same-key pair), one above recordsetMaxRows, and one outside the write
- *   scope are ReadError{encode}, {resource} and {compile}, each found before a session is leased.
+ * - a ChangeSet host normalization refuses (a same-key pair) and one outside the write scope are ReadError{encode} and
+ *   {compile}, each found before a session is leased. No number of facts is refused: a statement's Bind message past
+ *   PostgreSQL's message limit is the one resource refusal, a unit test's (test/unit/adapter/bind.test.ts), since a
+ *   gibibyte of parameters is no case to send.
  */
 export const explainSuite = (): void => {
 	layer(Substrate.layer)("db.explain", (it) => {
@@ -541,14 +532,6 @@ export const explainSuite = (): void => {
 									{ task: t4, note: "a" },
 									{ task: t4, note: "b" }
 								]),
-								/** An enumerated member above the recordset rule. */
-								resource: ChangeSet.empty(o.schema).insert(
-									W.TaskNote,
-									Arr.map(indices(recordsetMaxRows + 1), (i) => ({
-										task: `00000000-0000-4000-8000-${pipe(i.toString(16), Str.padStart(12, "0"))}`,
-										note: "n"
-									}))
-								),
 								/**
 								 * A ChangeSet over a schema that is no level of the Db's role, which its compilation refuses.
 								 */
@@ -557,14 +540,10 @@ export const explainSuite = (): void => {
 							return yield* exhaust(
 								{
 									suite: "reads/explain refusals",
-									generator: element<keyof typeof programs>(["encode", "resource", "compile"]),
+									generator: element<keyof typeof programs>(["encode", "compile"]),
 									literal: Formatter.format,
-									limit: 3,
-									coverage: requiredInSpace<keyof typeof programs>([
-										"encode",
-										"resource",
-										"compile"
-									]),
+									limit: 2,
+									coverage: requiredInSpace<keyof typeof programs>(["encode", "compile"]),
 									caseHang: Duration.minutes(2)
 								},
 								(stage, c) =>

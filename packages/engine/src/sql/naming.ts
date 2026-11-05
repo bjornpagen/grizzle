@@ -21,7 +21,7 @@ import { mapTargets } from "#compiler/sql/build.ts"
  * audit (test/support/oracle/verify/sql.ts) checks that a statement actually obeys the discipline; this module only
  * produces names and performs the one rename.
  *
- * A column that passes through a stage unchanged may keep its name, as the insert protocol's recordset columns do:
+ * A column that passes through a stage unchanged may keep its name, as the insert protocol's input columns do:
  * what is defined once is the qualified pair r<n>.c<n>, never a relation alias.
  *
  * Where a generated name came from. It travels in diagnostics only, never in SQL.
@@ -138,7 +138,7 @@ export const isCarrierName = (u: unknown): u is CarrierName => {
 }
 
 /**
- * The first relation and column numbers: 1 for a statement of its own; the write protocols number the input recordset
+ * The first relation and column numbers: 1 for a statement of its own; the write protocols number the input arrays
  * r0, and a statement that continues another's numbering starts after it.
  */
 interface NameSupplyStart {

@@ -203,8 +203,8 @@ export type BinaryOperator = (typeof binaryOperators)[number]
  * PostgreSQL builtin functions grizzle emits, printed qualified by pg_catalog. Compute's catalogue, the aggregates,
  * window and ordered-set functions of the compile-target catalog, the exact value of a double's bits (float8send and
  * get_byte, build.ts exactNumericOfDouble), the span functions, the attachment transport, the runtime probes and the
- * database default's statement; a recordset is a FROM item of its own. Extension functions (pgvector) are qualified by
- * their extension's schema instead.
+ * database default's statement; a relation input's arrays are a FROM item of their own. Extension functions
+ * (pgvector) are qualified by their extension's schema instead.
  */
 export const builtinFunctionNames = [
 	"count",
@@ -350,16 +350,6 @@ export interface ValuePlaceholder {
 	readonly number: number
 }
 
-/**
- * The placeholder a recordset reads, printed `jsonb_to_recordset($n::jsonb)`, numbered and held as a value placeholder
- * is: a relation parameter's or a write's member slot. It is a recordset's source and never an expression, so a
- * statement reads a relation-valued slot only through its recordsets.
- */
-export interface RecordsetPlaceholder {
-	readonly placeholder: "recordset"
-	readonly number: number
-}
-
 export type Expr =
 	| { readonly kind: "column"; readonly table: string | undefined; readonly column: string }
 	| { readonly kind: "excluded"; readonly column: string }
@@ -444,10 +434,10 @@ export interface Target {
 }
 
 /**
- * One column of a function's column definition list. A column of builtin text names the fixed collation, so a
- * recordset's text column carries pg_catalog.pg_c_utf8 like every stored column: otherwise it
- * has the database default collation, and a recursive CTE seeded from it disagrees with its step's stored columns and
- * is refused with 42P21.
+ * One column of a relation input or a context source: its name, its type and its collation. A column of builtin text
+ * names the fixed collation, so an input's text column carries pg_catalog.pg_c_utf8 like every stored column:
+ * otherwise it has the database default collation, and a recursive CTE seeded from it disagrees with its step's stored
+ * columns and is refused with 42P21.
  */
 export interface ColumnDefinition {
 	readonly name: string
@@ -456,8 +446,25 @@ export interface ColumnDefinition {
 }
 
 /**
- * A FROM item that is no join chain: a relation, a CTE reference, a derived table, a function's rows, a recordset, a
- * VALUES list or a context source. A join chain joins sources only, so its length is never a depth.
+ * One column of a relation input read from arrays: its definition, whose type is the element type, and the value
+ * placeholder of the array of its values, one element per fact, in the input's fact order.
+ */
+export interface ArrayColumn {
+	readonly definition: ColumnDefinition
+	readonly array: ValuePlaceholder
+}
+
+/**
+ * What a relation input's arrays hold: one array per column, all of one length, read in lockstep, one row per index;
+ * or, for an input of no column, which PostgreSQL holds as rows of no column, the count of its facts.
+ */
+export type ArraysSource =
+	| { readonly kind: "columns"; readonly columns: NonEmptyReadonlyArray<ArrayColumn> }
+	| { readonly kind: "count"; readonly count: ValuePlaceholder }
+
+/**
+ * A FROM item that is no join chain: a relation, a CTE reference, a derived table, a function's rows, a relation
+ * input's arrays, a VALUES list or a context source. A join chain joins sources only, so its length is never a depth.
  */
 export type FromSource =
 	| { readonly kind: "table"; readonly table: TableName; readonly alias: string }
@@ -481,15 +488,13 @@ export type FromSource =
 			readonly lateral: boolean
 	  }
 	| {
-			readonly kind: "recordset"
-			/** The jsonb placeholder whose facts are the relation. */
-			readonly source: RecordsetPlaceholder
-			readonly alias: string
 			/**
-			 * The relation's columns, of any width: a recordset of no column is one row of no column per fact, which the
-			 * printer spells as the placeholder's array elements.
+			 * A relation input, a relation parameter's or a write's member slot, as the rows of its arrays (sql/print.ts):
+			 * its columns' arrays read in lockstep, or its count of rows of no column.
 			 */
-			readonly columns: ReadonlyArray<ColumnDefinition>
+			readonly kind: "arrays"
+			readonly source: ArraysSource
+			readonly alias: string
 	  }
 	| {
 			readonly kind: "values"

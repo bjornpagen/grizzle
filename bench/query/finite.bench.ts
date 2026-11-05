@@ -28,7 +28,6 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 import { outline, planOf } from "#bench/query/support/plans.ts"
-import { transportLimits } from "#compiler/lower/shapes/relparam/index.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
@@ -148,7 +147,6 @@ export default defineGate({
 				explainSamples: 1,
 				serverPlans: [],
 				explain: plainExplain,
-				limits: transportLimits,
 				conservativeSamples: options.samples
 			}
 			const handOptions: VariantOptions = {

@@ -22,16 +22,17 @@ import {
 	type Duration,
 	Effect,
 	Option,
+	pipe,
 	Record as Rec,
 	Result,
-	type Scope
+	type Scope,
+	String as Str
 } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Engine from "#compiler/core/result.ts"
-import { jsonText } from "#compiler/core/trusted.ts"
 import { moneyMinorUnits } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -336,7 +337,7 @@ export const factSet = (c: QueryCase): FactSet => {
 }
 
 /**
- * A literal as the text its type's input function reads: what a placeholder or a recordset field carries.
+ * A literal as the text its type's input function reads: what a placeholder or an input array's element carries.
  *
  * A double as its shortest round-trip text; a literal holds the one zero.
  *
@@ -398,7 +399,10 @@ const paramValues = (
 }
 
 /**
- * What fills one placeholder: a scalar parameter's input text, or a relation parameter's jsonb recordset.
+ * What fills one placeholder: a scalar parameter's input text, or one array of a relation parameter: its column's
+ * array literal, `{"t1","t2",...}` of the case's rows as given, repeats kept, which the conservative baseline
+ * deduplicates itself, or, for an input of no column, its count of rows. The literal is the oracle's own, each element
+ * quoted with its backslashes and quotes escaped (array_in's quoting, test/support/arrays.ts).
  *
  * A write's member slot or a page's placeholder: no query statement holds one, so the caller fails the case.
  */
@@ -413,29 +417,23 @@ export const slotValue = (c: QueryCase, slot: ConservativeParamSlot): string | u
 			if (p?.kind !== "relation") {
 				return undefined
 			}
-			const found = Option.all(
-				Arr.map(slot.columns, (col) => Arr.findFirstIndex(p.heading, (h) => h.name === col.name))
-			)
-			if (Option.isNone(found)) {
+			const part = slot.part
+			if (part.kind === "count") {
+				return String(p.rows.length)
+			}
+			const column = slot.columns[part.index]
+			const at =
+				column === undefined
+					? Option.none()
+					: Arr.findFirstIndex(p.heading, (h) => h.name === column.name)
+			if (Option.isNone(at)) {
 				return undefined
 			}
-			const index = found.value
-			return jsonText(
-				Arr.map(p.rows, (row) =>
-					Rec.fromEntries(
-						Arr.map(slot.columns, (col, k) => [
-							col.definition.name,
-							inputText(
-								elementAt(
-									row,
-									elementAt(index, k, "the slot's column positions"),
-									"a parameter row"
-								)
-							)
-						])
-					)
-				)
-			)
+			const elements = Arr.map(p.rows, (row) => {
+				const text = inputText(elementAt(row, at.value, "a parameter row"))
+				return `"${pipe(text, Str.replaceAll("\\", "\\\\"), Str.replaceAll('"', '\\"'))}"`
+			})
+			return `{${Arr.join(elements, ",")}}`
 		}
 		case "member":
 		case "page":
@@ -569,7 +567,7 @@ const inRolledBackTransaction = <A, E>(
  *    presented as the oracle's plan (install/real.ts, adopted after test/pg/physical's equivalence check of the two
  *    installers), and load the facts as typed literal INSERTs (install/load.ts);
  * 2. lower the query with the left Lowering and run every statement of its program in order, each placeholder filled
- *    from the case's parameter values, a relation parameter as one jsonb recordset, and an attachment's parent keys
+ *    from the case's parameter values, a relation parameter as its arrays, and an attachment's parent keys
  *    from the rows its parent statement delivered, capturing each statement's rows as raw
  *    output-function text (install/capture.ts);
  * 3. do the same with the right side: another Lowering, or the reference evaluator, which derives the statements the

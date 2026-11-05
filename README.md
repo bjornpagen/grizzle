@@ -1549,7 +1549,7 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
 - **`ChangeSet.union(a, b)`** applies both as one change; **`ChangeSet.sequence(a, b)`** applies `b` after `a`, in the
   same transaction.
 - **`db.apply(changes, params)`** answers `accepted` (with each table's counts and the read-backs), `no-change`,
-  `invariant-rejected` or `outside-world`. One input holds at most 100,000 rows.
+  `invariant-rejected` or `outside-world`. An input holds any number of rows: each travels as one array per column.
 
 Two writes over the blog, each one transaction and one round trip:
 
@@ -1763,6 +1763,11 @@ ended (`acquire`); `ConnectionLost` or `CommitLost` (`transport`); `DriverFailur
 grizzle cannot read or rows its compiled proof says the query cannot deliver (`decode`); and before any SQL,
 `CompileError` (`compile`), `MissingCapability` (`capability`), `EncodingFailure` or `LawRejected` (`encode`),
 `InputTooLarge` (`resource`) and `PageRequestRefused` (`request`).
+
+**`InputTooLarge`**'s `bound` is the transport bound a call's parameters are past, found before its flight is sent:
+`message`, one statement's Bind message longer than PostgreSQL reads (1,073,741,822 bytes, `PQ_LARGE_MESSAGE_LIMIT`),
+with the statement and its length; or `literal`, one column's array longer than one JavaScript string holds
+(536,870,888 UTF-16 code units), with the input and its column. Split the input across calls.
 
 **`TransportFailure`**: a connection's or the pool's refusal, `HandleReleased`, `ConnectionLost` or `DriverFailure`.
 **`ExecutionFailure`**: the server's `ServerError`, `CompileError`, `MissingCapability`, `InputTooLarge`, or
@@ -2005,7 +2010,10 @@ workflows, whose rules are worth declaring and whose users see different slices 
   past one may still compile there. A counted repetition's bound is at most 255, PostgreSQL's limit.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
 - **No interactive transactions, and no retries.** A transaction is one call; you retry `TransientFailure` yourself.
-- **No bulk loads.** One ChangeSet input holds at most 100,000 rows.
+- **One statement's parameters are at most 1,073,741,822 bytes**, PostgreSQL's longest message
+  (`PQ_LARGE_MESSAGE_LIMIT`), and one input column's array literal at most 536,870,888 UTF-16 code units, V8's
+  longest string. A relation input of any number of rows travels as one array per column, sent again to each statement
+  that reads it; a call past either bound is `InputTooLarge` before anything is sent.
 - **One generated text is at most 536,870,888 characters**, V8's longest string (2^29 − 24 UTF-16 code units, about
   512 MiB of ASCII): each SQL statement, migration file, `snapshot.json` and fingerprint text grizzle builds.
   `generate` and `check` refuse a schema whose texts would exceed it with `ResourceBound`.

@@ -176,10 +176,10 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 		)
 	},
 	R22: {
-		title: "A relation parameter is one parameter",
+		title: "A relation parameter is one array per column",
 		owner: "query",
 		gate: stated(
-			"the join uses the keyed relation's index under the VALUES transport, and under the recordset transport whenever the keyed relation is large against the function scan's default row estimate, below which a hash join over a sequential scan is the plan PostgreSQL correctly prefers; plan shape is independent of input size except through estimates; the VALUES and recordset transports produce identical outcomes on the same input, including duplicate and same-key facts."
+			"the join uses the keyed relation's index; the planner estimates the input's rows as its arrays' length at every size, so plan shape follows the input's size only through that estimate; the arrays deliver what the handwritten VALUES join and the OR tree deliver on the same input, including duplicate facts."
 		)
 	},
 	R23: {

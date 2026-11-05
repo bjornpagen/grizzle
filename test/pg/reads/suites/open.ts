@@ -91,8 +91,8 @@ const builtinCUtf8 =
 	"ENCODING 'UTF8' LOCALE_PROVIDER builtin BUILTIN_LOCALE 'C.UTF-8' LOCALE 'C.UTF-8'"
 
 /**
- * A query whose relation parameter carries a vector, over Work, which stores none: its recordset's definition list
- * names vector_ext.vector(3), so the template requires the vector extension in the vector schema.
+ * A query whose relation parameter carries a vector, over Work, which stores none: its arrays name
+ * vector_ext.vector(3), so the template requires the vector extension in the vector schema.
  */
 const vectorProbe = query(W.Work).rule((r) => {
 	const wanted = r.relation("qs", { id: uuid, e: pg.vector(3) })
