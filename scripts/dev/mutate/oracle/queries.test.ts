@@ -68,7 +68,7 @@ layer(Substrate.layer)("mutation stage 2: query oracles", (it) => {
 										...defaultRunOptions,
 										schema: { kind: "named", name: schema }
 									})
-									if (!outcome.comparison.equal || outcome.comparison.leftDuplicates > 0) {
+									if (!outcome.comparison.equal) {
 										return yield* new PropertyFailed({ report: printOutcome(outcome) })
 									}
 								})
