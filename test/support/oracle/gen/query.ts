@@ -37,6 +37,7 @@ import {
 	exprsOf,
 	type Heading,
 	type HeadingColumn,
+	headingOrder,
 	inputsOf,
 	type KindOver,
 	type Occurrence,
@@ -2885,7 +2886,7 @@ class QueryResolver {
 			correlation,
 			delivered: "array",
 			heading: parent.heading,
-			order: undefined
+			order: headingOrder(childNode.heading)
 		})
 		return { node: id, heading: parent.heading }
 	}

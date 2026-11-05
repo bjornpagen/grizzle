@@ -23,6 +23,7 @@ import {
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
 	type AttachDelivery,
+	headingOrder,
 	inputsOf,
 	type KeySet,
 	keptRefs,
@@ -276,7 +277,10 @@ class Annotator<R extends Roots> {
 					? { delivered: "one", order: undefined }
 					: d.delivered !== "array" && (childMeta.card !== "many" || keyBound)
 						? { delivered: "option", order: undefined }
-						: { delivered: "array", order: node.order }
+						: {
+								delivered: "array",
+								order: node.delivered === "array" ? node.order : headingOrder(node.child.heading)
+							}
 			const child = exclusive
 				? reviseChild(revised, node.child, values.child, d.relative)
 				: inputs.child

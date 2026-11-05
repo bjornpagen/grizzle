@@ -329,7 +329,7 @@ const nativeIdentity = (object: NativeObject): unknown => {
 				kind: rest.kind,
 				relation: rest.relation.name,
 				target: rest.target.name,
-				side: rest.side,
+				side: { key: rest.side.key, payload: rest.side.payload, rows: [...rest.side.rows] },
 				pairs: rest.pairs.map((p) => ({ source: columnNames([p.source]), target: p.target.name })),
 				guard: rest.guard.map((g) => g.predicate)
 			}

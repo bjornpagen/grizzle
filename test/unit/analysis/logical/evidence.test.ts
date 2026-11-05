@@ -16,6 +16,7 @@ import {
 	conservativeMeta,
 	type Heading,
 	type HeadingColumn,
+	headingOrder,
 	type RelNode,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
@@ -195,7 +196,7 @@ const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 				})),
 				delivered: "array",
 				heading: parent.heading,
-				order: undefined,
+				order: headingOrder(child.heading),
 				loc: undefined,
 				meta: conservativeMeta
 			})

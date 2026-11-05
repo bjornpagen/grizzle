@@ -9,6 +9,7 @@ import {
 	conservativeMeta,
 	type Heading,
 	type HeadingColumn,
+	headingOrder,
 	type KeySet,
 	type Occurrence,
 	type RelNode,
@@ -1151,7 +1152,7 @@ class GraphQueryBuilder {
 			correlation: Arr.map(correlation, ([p, c]) => ({ parent: p, child: c })),
 			delivered: "array",
 			heading: parent.heading,
-			order: undefined
+			order: headingOrder(child.node.heading)
 		})
 		return { node: id, heading: parent.heading }
 	}

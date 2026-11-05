@@ -380,7 +380,8 @@ export const tree = <F extends Side<AnyRelation>, Fi extends AnyFin, const Root 
  * fold(family, Monoid.m, step, end): the family's members' step values combined by the monoid in slot order, each
  * owner's result in its end fields. `step` is on(member | select(member, φ), g…, x, …accumulators): the group, the
  * value (none for count), then none or one accumulated (before, after) pair per plane; `end` is on(owner, k…, …ends),
- * one accumulated field per plane.
+ * one accumulated field per plane. The step is read per member row, each member once by its key in the family, never as
+ * the set of its projected tuples: two members of one step value both step, so a sum counts the value twice.
  */
 export const fold = <
 	Fa extends AnyFamily,

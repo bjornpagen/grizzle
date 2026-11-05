@@ -199,7 +199,24 @@ describe("Vector admission of a JavaScript caller's value", () => {
 							c.note(drawnFeature(d))
 							const admitted = Vector.admit(passed(d), 3)
 							if (d.kind === "live") {
-								assert.ok(succeeded(admitted) === d.value, "the buffer itself, never a copy")
+								/**
+								 * A copy grizzle alone holds: the buffer's components, never the buffer, so a later write to
+								 * it reaches no admitted value.
+								 */
+								const vector = succeeded(admitted)
+								assert.ok(vector !== d.value, "a copy, never the caller's buffer")
+								assert.ok(
+									vector.length === d.value.length &&
+										vector.every((x, i) => Object.is(x, d.value[i])),
+									"the buffer's components"
+								)
+								const buffer = new Float32Array(d.value)
+								const held = succeeded(Vector.admit(buffer, 3))
+								buffer[0] = (buffer[0] ?? 0) + 1
+								assert.ok(
+									Object.is(held[0], d.value[0]),
+									"a later write to the buffer reaches no admitted value"
+								)
 							} else {
 								faulted(admitted, "vectorType")
 							}

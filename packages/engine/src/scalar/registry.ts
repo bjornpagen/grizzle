@@ -7,6 +7,7 @@ import {
 } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { captureLoc, childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Built, built, builtMark } from "#compiler/core/phantom.ts"
@@ -429,6 +430,26 @@ export const describeFieldOrThrow = (value: unknown, loc: SourceLoc): Described 
 		throw described.error
 	}
 	return described.value
+}
+
+/** Each serial's name, by the carrier of the integer type it is written over. */
+const serialNames = { int2: "pg.smallserial", int4: "pg.serial", int8: "pg.bigserial" } as const
+
+/**
+ * The name of the serial a descriptor `describeField` read is (pg.serial), or undefined for a field its caller writes.
+ * A serial's type and Description are its integer's (scalar/serial.ts), so only its writing tells it apart: the
+ * descriptor's `writing` member, the one a relation reads a field's writing from (schema/relation.ts writingOf). It
+ * is a generation declaration, not a value type, so a contract's base and a span's endpoint are never one.
+ */
+export const serialNameOf = (described: Described): string | undefined => {
+	if (!("writing" in described) || described.writing !== "serial") {
+		return undefined
+	}
+	const { carrier } = described.scalar
+	if (carrier !== "int2" && carrier !== "int4" && carrier !== "int8") {
+		throw defect(`a serial descriptor of ${carrier}, which no serial is written over`)
+	}
+	return serialNames[carrier]
 }
 
 /**

@@ -7,6 +7,7 @@ import {
 	conservativeMeta,
 	type Heading,
 	type HeadingColumn,
+	headingOrder,
 	type Occurrence,
 	type RelNode,
 	type VarDecl
@@ -232,7 +233,7 @@ export class Q {
 			correlation: Arr.map(correlation, ([p, c]) => ({ parent: p, child: c })),
 			delivered: "array",
 			heading: parent.heading,
-			order: undefined
+			order: headingOrder(child.heading)
 		})
 	}
 

@@ -4,7 +4,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	counted,
@@ -68,6 +68,44 @@ const S2 = schema("S2", { Coded, CodedM }, [
 	mutable(Coded)
 ])
 
+/** An owner keyed WITHOUT OVERLAPS, with a counted family and a sum fold. */
+const Inv = relation(
+	"Inv",
+	{
+		org: uuid,
+		period: span(pg.integer),
+		cap: pg.bigint,
+		n: drawn(natural),
+		total: accumulated(pg.bigint, 0n)
+	},
+	["org", "period"]
+)
+const InvLine = relation(
+	"InvLine",
+	{ org: uuid, period: span(pg.integer), id: uuid, x: pg.bigint },
+	["id"]
+)
+const invLines = counted(on(InvLine, "org", "period"), fin(Inv, "n"))
+const S3 = schema("S3", { Inv, InvLine }, [
+	invLines,
+	fold(invLines, Monoid.sum, on(InvLine, "org", "period", "x"), on(Inv, "org", "period", "total")),
+	mutable(Inv)
+])
+
+/** S1 with its owner immutable: its family is fixed when the owner is inserted. */
+const Fixed = relation(
+	"Fixed",
+	{ id: uuid, n: drawn(natural), total: accumulated(pg.bigint, 0n) },
+	["id"]
+)
+const FixedM = relation("FixedM", { o: uuid, id: uuid, x: pg.bigint }, ["o", "id"])
+const fixedFam = counted(on(FixedM, "o"), fin(Fixed, "n"))
+const S4 = schema("S4", { Fixed, FixedM }, [
+	fixedFam,
+	fold(fixedFam, Monoid.sum, on(FixedM, "o", "x"), on(Fixed, "id", "total")),
+	mutable(FixedM)
+])
+
 const A = relation("A", { id: uuid, bs: drawn(natural) }, ["id"])
 const B = relation("B", { a: uuid, id: uuid, cs: drawn(natural) }, ["id"])
 const C = relation("C", { b: uuid, id: uuid }, ["id"])
@@ -78,8 +116,8 @@ const Chain = schema("Chain", { A, B, C }, [
 	mutable(B)
 ])
 
-/** A compiled write over `schemaValue`, as the platform capture compiles it. */
-const compiledFor = (schemaValue: unknown, name: string) => {
+/** A write over `schemaValue` compiled as the platform capture compiles it, or its refusal. */
+const compileFor = (schemaValue: unknown, name: string) => {
 	const owned = owning(schemaValue)
 	const names: WriteNames = succeeded(
 		compileInstallation(owned, {
@@ -88,26 +126,42 @@ const compiledFor = (schemaValue: unknown, name: string) => {
 		})
 	).names
 	const artifacts = succeeded(testArtifacts(schemaValue, testCompile))
-	return (value: unknown): CompiledWrite =>
-		succeeded(
-			compileWrite(checking(schemaValue), descOf(value), {
-				names,
-				reads: names,
-				claims: { kind: "facts", present: new Set<string>() },
-				world: { kind: "reality" },
-				laws: artifacts.laws,
-				derived: artifacts.derived
-			})
-		)
+	return (value: unknown) =>
+		compileWrite(checking(schemaValue), descOf(value), {
+			names,
+			reads: names,
+			claims: { kind: "facts", present: new Set<string>() },
+			world: { kind: "reality" },
+			laws: artifacts.laws,
+			derived: artifacts.derived
+		})
+}
+
+/** A compiled write over `schemaValue`, as the platform capture compiles it. */
+const compiledFor = (schemaValue: unknown, name: string) => {
+	const compile = compileFor(schemaValue, name)
+	return (value: unknown): CompiledWrite => succeeded(compile(value))
 }
 
 const s1 = compiledFor(S1, "s1")
 const s2 = compiledFor(S2, "s2")
+const s3 = compiledFor(S3, "s3")
 const chain = compiledFor(Chain, "chain")
 
 /** Every statement text of a program's optimized artifact. */
 const texts = (program: CompiledWrite): ReadonlyArray<string> =>
 	Arr.map(program.artifacts.optimized.statements, (s) => s.spec.sql)
+
+/** Binds an S2 write and checks that it binds. */
+const bindsS2 = (value: unknown) =>
+	Effect.gen(function* () {
+		const program = s2(value)
+		const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
+		const bound = succeeded(
+			bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+		)
+		assertVariant(bound, "kind", "bound", "the owner's facts bind")
+	})
 
 describe("an owner of counted families, rows first", () => {
 	it.effect("puts an owner by updating the fields its facts carry, its families untouched", () =>
@@ -197,22 +251,12 @@ describe("an owner of counted families, rows first", () => {
 		})
 	)
 
-	it.effect(
-		"inserts and puts an owner with a candidate key, its probe naming carried fields only",
-		() =>
-			Effect.gen(function* () {
-				for (const value of [
-					ChangeSet.empty(S2).insert(Coded, [{ id: uuidOf(1), code: 7n }]),
-					ChangeSet.empty(S2).put(Coded, [{ id: uuidOf(1), code: 7n }])
-				]) {
-					const program = s2(value)
-					const members = yield* collectInputs(program.frontend, parsedOf(value).inputs)
-					const bound = succeeded(
-						bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
-					)
-					assertVariant(bound, "kind", "bound", "the owner's facts bind")
-				}
-			})
+	it.effect("inserts an owner with a candidate key, its probe naming carried fields only", () =>
+		bindsS2(ChangeSet.empty(S2).insert(Coded, [{ id: uuidOf(1), code: 7n }]))
+	)
+
+	it.effect("puts an owner with a candidate key, its probe naming carried fields only", () =>
+		bindsS2(ChangeSet.empty(S2).put(Coded, [{ id: uuidOf(1), code: 7n }]))
 	)
 
 	it("puts and deletes owners read from one relation parameter, matching on the fields facts carry", () => {
@@ -248,5 +292,60 @@ describe("an owner of counted families, rows first", () => {
 				"a deletion's facts carry the written fields only"
 			)
 		})
+	)
+
+	it("puts an owner keyed WITHOUT OVERLAPS in place, never deleting and re-inserting it", () => {
+		const value = ChangeSet.empty(S3).put(Inv, [
+			{ org: uuidOf(1), period: { start: 0, end: 10 }, cap: 3n }
+		])
+		const all = texts(s3(value))
+		assert.equal(
+			Arr.filter(all, (t) => Str.includes('UPDATE "')(t)).length,
+			1,
+			"the put updates the owner in place"
+		)
+		assert.ok(
+			Arr.every(all, (t) => !Str.includes("DELETE FROM")(t)),
+			"the put deletes no owner, whose deletion would trip its members' owner axis"
+		)
+	})
+
+	it.effect(
+		"refuses an append to an immutable owner the stratum does not insert, statically and at bind, by one sentence",
+		() =>
+			Effect.gen(function* () {
+				const statically = ChangeSet.empty(S4).insert(FixedM, [
+					{ o: uuidOf(1), id: uuidOf(2), x: 1n }
+				])
+				const thrown = refused(
+					compileFor(S4, "s4")(statically),
+					"UnsupportedOperation",
+					"an append to an owner no insert of the stratum names is refused at compile"
+				).message
+				const atBind = ChangeSet.empty(S4)
+					.insert(Fixed, [{ id: uuidOf(3) }])
+					.insert(FixedM, [{ o: uuidOf(1), id: uuidOf(2), x: 1n }])
+				const program = compiledFor(S4, "s4")(atBind)
+				const members = yield* collectInputs(program.frontend, parsedOf(atBind).inputs)
+				const atRun = refused(
+					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) }),
+					"UnsupportedOperation",
+					"an append to an owner the stratum does not insert is refused before any SQL"
+				)
+				const rule =
+					"an immutable owner's family is fixed when its owner is inserted; declare mutable(Fixed) to change it"
+				const head =
+					"an insert into FixedM, a member of the family Fixed.n of the immutable Fixed, appending to"
+				assert.ok(Str.includes(rule)(thrown), "the static refusal states the rule")
+				assert.ok(Str.includes(head)(thrown), "the static refusal names the write")
+				assert.ok(Str.includes(rule)(atRun.message), "the run time's refusal states the same rule")
+				assert.ok(Str.includes(head)(atRun.message), "the run time's refusal names the same write")
+				assert.ok(
+					Str.includes(
+						`the owner Fixed with key (${uuidOf(1)}), which this stratum does not insert`
+					)(atRun.message),
+					"the run time's refusal names the owner it found"
+				)
+			})
 	)
 })

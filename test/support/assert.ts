@@ -40,7 +40,7 @@ export { AssertionError } from "node:assert"
  * - `throwsDefect`: the defect a thunk raises (core/invariant.ts), a bug in grizzle and never a refusal, returning what
  *   it names;
  * - `faulted`: a Result's failure that is one fault of a string-literal fault vocabulary;
- * - `unorderedEqual`: the same elements as many times each, in any order (a multiset), where the order is unspecified.
+ * - `unorderedEqual`: the same elements, each once, in any order (a set), where the order is unspecified.
  *
  * Why an assertion holds, for its report: nothing, or one reason.
  */
@@ -722,8 +722,9 @@ export function faulted<E extends string>(
 }
 
 /**
- * `actual` holds the elements of `expected`, each as many times, in any order: equality of multisets, each element
- * compared as deepStrictEqual compares. It states an unordered result's contract, where sorting both sides would order
+ * `actual` holds the elements of `expected`, each once, in any order: equality of sets, each element compared as
+ * deepStrictEqual compares, where neither side holds an element twice, since an answer that repeats an element is no
+ * set and a repeat is never folded away. It states an unordered result's contract, where sorting both sides would order
  * objects by their text and compare an order the contract leaves open. Matching is greedy, which is exact for an
  * equivalence relation.
  */
@@ -732,6 +733,23 @@ export function unorderedEqual<T>(
 	expected: ReadonlyArray<NoInfer<T>>,
 	...why: Why
 ): void {
+	for (const [side, elements] of [
+		["actual", actual],
+		["expected", expected]
+	] as const) {
+		const repeated = Arr.findFirst(elements, (element, at) =>
+			Arr.some(Arr.drop(elements, at + 1), (later) => isDeepStrictEqual(element, later))
+		)
+		if (Option.isSome(repeated)) {
+			fail(
+				why,
+				actual,
+				expected,
+				"unorderedEqual",
+				`Expected each element once, in any order: the ${side} side holds ${inspect(repeated.value, { depth: 8 })} more than once.`
+			)
+		}
+	}
 	const unmatched = [...expected]
 	const extra: Array<T> = []
 	for (const element of actual) {
@@ -748,7 +766,7 @@ export function unorderedEqual<T>(
 			actual,
 			expected,
 			"unorderedEqual",
-			`Expected the same elements, each as many times, in any order.\n\nextra: ${inspect(extra, { depth: 8 })}\nmissing: ${inspect(unmatched, { depth: 8 })}`
+			`Expected the same elements, each once, in any order.\n\nextra: ${inspect(extra, { depth: 8 })}\nmissing: ${inspect(unmatched, { depth: 8 })}`
 		)
 	}
 }

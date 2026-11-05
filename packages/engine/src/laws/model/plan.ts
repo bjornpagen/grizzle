@@ -828,7 +828,8 @@ export class Recognizer {
 		const side = sideOf(
 			{ fields: mapNonEmpty(toRel.fields, (f) => f.name), keys: [toRel.primaryKey] },
 			mapNonEmpty(toFields, (f) => f.name),
-			rows
+			rows,
+			literalKey
 		)
 		/** The source field each target field meets, by the containment's pairs. */
 		const sourceOf = (target: LawField): LawField =>

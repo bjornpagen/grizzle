@@ -2046,11 +2046,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 	Attach: S.tagged("delivered", {
 		option: unorderedAttach,
 		one: unorderedAttach,
-		array: S.structStated(
-			{ ...common, ...attachFields },
-			{ order: orderShape, ...commonStated },
-			{}
-		)
+		array: S.structStated({ ...common, ...attachFields, order: orderShape }, commonStated, {})
 	}),
 	Forbid: S.structStated(
 		{ ...common, lawId: lawIdShape, violation: nodeIdShape },

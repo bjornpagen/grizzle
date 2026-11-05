@@ -693,7 +693,9 @@ export interface ArmDesc {
  *   but its root, the one self-parented row, is a member, with T's drawn `start` and `end` its pre-order interval and
  *   `root` the caller's field each tree's rows share.
  * - A fold, fold(family, Monoid.m, step, end), combines its family's members' step values by `monoid` in slot order
- *   into each owner's end fields: the family by its slots, `step` over the member and `end` over the owner.
+ *   into each owner's end fields: the family by its slots, `step` over the member and `end` over the owner. Its step is
+ *   read per member row, each member once by its key in the family, where a key's or a containment's side is a set of
+ *   tuples: two members of one step value both step.
  * - alternatives(parent, discriminator, roster, arms) is its own statement, which expandAlternatives states.
  */
 export type StatementDesc<L = Located> = L &

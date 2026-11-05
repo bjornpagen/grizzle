@@ -336,10 +336,19 @@ export interface WindowFrame {
 export const orderedSetFns = ["percentileDisc", "percentileCont", "mode"] as const
 type OrderedSetFn = (typeof orderedSetFns)[number]
 
-/** What an attachment delivers per parent: the bare child, an option, or an array, which alone has an order. */
+/**
+ * What an attachment delivers per parent: the bare child, an option, or an array, which alone has an order. An array's
+ * order is complete, the one it states completed or, where it states none, its child's key (check/order.ts), so its
+ * positions are a function of its child's facts: a sequence is a set keyed by (parent, position).
+ */
 export type AttachDelivery =
 	| { readonly delivered: "option" | "one"; readonly order: undefined }
-	| { readonly delivered: "array"; readonly order: CompletedOrder | undefined }
+	| { readonly delivered: "array"; readonly order: CompletedOrder }
+
+/** The order of a heading ascending, column by column: total over any set of its rows, which its whole heading keys. */
+export const headingOrder = (heading: Heading): CompletedOrder => ({
+	keys: heading.map((c) => ({ column: c.name, dir: "asc" }))
+})
 
 /**
  * What fills an InputSet: a relation parameter the query declares and its caller binds, or an enumerated member slot of

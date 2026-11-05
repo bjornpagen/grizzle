@@ -181,6 +181,10 @@ export default defineConfig(
 					{ doors: ["packages/grizzle/src/adapter/migrate/input.ts"], brands: ["MigrationText"] },
 					{ doors: ["packages/engine/src/core/fingerprint.ts"], brands: ["ConstantDigest"] },
 					{ doors: ["packages/engine/src/codec/recordset.ts"], brands: ["NormalFacts"] },
+					{
+						doors: ["packages/engine/src/write/normalize/normalize.ts"],
+						brands: ["KeyNormalized"]
+					},
 					{ doors: ["packages/engine/src/codec/bits.ts"], brands: ["Accumulator"] },
 					{
 						doors: [

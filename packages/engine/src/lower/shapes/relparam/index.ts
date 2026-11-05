@@ -12,7 +12,7 @@ import { core, select } from "#compiler/sql/build.ts"
  *
  * A relation-valued parameter is a set: repeated rows are one fact and an empty input is the empty relation, which
  * matches nothing. The host codec owns the set property and the null ban: it validates every field, refuses null
- * members, deduplicates complete facts, refuses same-key conflicts and encodes canonically (codec/recordset.ts). So the
+ * members, deduplicates complete facts by their identity and encodes canonically (codec/recordset.ts). So the
  * statement reads the input as a set without a DISTINCT, which the physical analysis records as the
  * `deduplicatedInput` key of an InputSet.
  *

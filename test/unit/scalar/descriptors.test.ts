@@ -40,7 +40,15 @@ import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { checkNumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { admitVectorDimensions } from "#compiler/scalar/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
-import { assert, defined, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { writingOf } from "#compiler/schema/relation.ts"
+import {
+	assert,
+	containsText,
+	defined,
+	nonEmpty,
+	succeeded,
+	throwsRefused
+} from "#test/support/assert.ts"
 import {
 	contractDescriptor,
 	fieldIdentity,
@@ -123,54 +131,87 @@ describe("alias identity", () => {
 			})
 	)
 
-	it.effect("keeps distinct types distinct", (ctx) =>
-		Effect.gen(function* () {
-			const distinct: ReadonlyArray<unknown> = [
-				pgDescriptors.smallint,
-				pgDescriptors.integer,
-				pgDescriptors.bigint,
-				pgDescriptors.numeric(5, 2),
-				pgDescriptors.numeric(5, 3),
-				pgDescriptors.numeric(6, 2),
-				pgDescriptors.real,
-				pgDescriptors["double precision"],
-				pgDescriptors.money,
-				pgDescriptors.boolean,
-				pgDescriptors.smallserial,
-				pgDescriptors.serial,
-				pgDescriptors.bigserial,
-				uuidDescriptor,
-				pgDescriptors.vector(3),
-				pgDescriptors.vector(4),
-				pgDescriptors.vector(2),
-				pgDescriptors.vector(16000),
-				spanDescriptor(pgDescriptors.integer),
-				spanDescriptor(pgDescriptors.bigint),
-				spanDescriptor(pgDescriptors.bigint, 15n)
-			]
-			yield* searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/scalar/distinct-types",
-						/** Every pair of distinct positions, the first below the second. */
-						generator: (source) => {
-							const i = source.draw(int(0, distinct.length - 2))
-							return [i, source.draw(int(i + 1, distinct.length - 1))] as const
+	it.effect(
+		"keeps distinct types distinct, and a serial apart from its integer by its writing alone",
+		(ctx) =>
+			Effect.gen(function* () {
+				/**
+				 * Each serial with the integer it is written over. A type is what a field's Description identifies, and a
+				 * writing how the field is written (schema/relation.ts writingOf): two descriptors are two types, but a
+				 * serial is one type with its integer, and its writing alone tells the two apart.
+				 */
+				const serials: ReadonlyArray<readonly [unknown, unknown]> = [
+					[pgDescriptors.smallserial, pgDescriptors.smallint],
+					[pgDescriptors.serial, pgDescriptors.integer],
+					[pgDescriptors.bigserial, pgDescriptors.bigint]
+				]
+				/** The type a field is of, named by its caller-written descriptor: a serial's is its integer's. */
+				const typeOf = (field: unknown): unknown =>
+					Option.getOrElse(
+						Option.map(
+							Arr.findFirst(serials, ([written]) => written === field),
+							([, integer]) => integer
+						),
+						() => field
+					)
+				const distinct: ReadonlyArray<unknown> = [
+					pgDescriptors.smallint,
+					pgDescriptors.integer,
+					pgDescriptors.bigint,
+					pgDescriptors.numeric(5, 2),
+					pgDescriptors.numeric(5, 3),
+					pgDescriptors.numeric(6, 2),
+					pgDescriptors.real,
+					pgDescriptors["double precision"],
+					pgDescriptors.money,
+					pgDescriptors.boolean,
+					...Arr.map(serials, ([written]) => written),
+					uuidDescriptor,
+					pgDescriptors.vector(3),
+					pgDescriptors.vector(4),
+					pgDescriptors.vector(2),
+					pgDescriptors.vector(16000),
+					spanDescriptor(pgDescriptors.integer),
+					spanDescriptor(pgDescriptors.bigint),
+					spanDescriptor(pgDescriptors.bigint, 15n)
+				]
+				yield* searched(
+					ctx,
+					exhaust(
+						{
+							suite: "unit/scalar/distinct-types",
+							/** Every pair of distinct positions, the first below the second. */
+							generator: (source) => {
+								const i = source.draw(int(0, distinct.length - 2))
+								return [i, source.draw(int(i + 1, distinct.length - 1))] as const
+							},
+							literal: Formatter.format,
+							limit: (distinct.length * (distinct.length - 1)) / 2,
+							coverage: requiredInSpace<"two types" | "one type, two writings">([
+								"two types",
+								"one type, two writings"
+							]),
+							caseHang
 						},
-						literal: Formatter.format,
-						limit: (distinct.length * (distinct.length - 1)) / 2,
-						coverage: requiredInSpace<"a pair">(["a pair"]),
-						caseHang
-					},
-					([i, j], c) =>
-						Effect.sync(() => {
-							c.note("a pair")
-							assert.notEqual(identityOf(distinct[i]), identityOf(distinct[j]), `${i} and ${j}`)
-						})
+						([i, j], c) =>
+							Effect.sync(() => {
+								const [a, b] = [distinct[i], distinct[j]]
+								if (typeOf(a) === typeOf(b)) {
+									c.note("one type, two writings")
+									assert.equal(identityOf(a), identityOf(b), `${i} and ${j}: one type`)
+									assert.notEqual(
+										writingOf(a).kind,
+										writingOf(b).kind,
+										`${i} and ${j}: two writings`
+									)
+									return
+								}
+								c.note("two types")
+								assert.notEqual(identityOf(a), identityOf(b), `${i} and ${j}`)
+							})
+					)
 				)
-			)
-		})
+			})
 	)
 
 	it.effect(
@@ -576,27 +617,57 @@ describe("span endpoint eligibility", () => {
 					spanDescriptor(pgDescriptors.integer),
 					admittedClosedId({ kind: "closed", name: "K", handles: ["a"] })
 				]
+				/** Each serial, which its writing refuses, its type being its integer's, and the name it is refused by. */
+				const serials: Arr.NonEmptyReadonlyArray<readonly [unknown, string]> = [
+					[pgDescriptors.smallserial, "pg.smallserial"],
+					[pgDescriptors.serial, "pg.serial"],
+					[pgDescriptors.serial4, "pg.serial"],
+					[pgDescriptors.bigserial, "pg.bigserial"],
+					[pgDescriptors.serial8, "pg.bigserial"]
+				]
 				yield* searched(
 					ctx,
 					exhaust(
 						{
 							suite: "unit/scalar/span-endpoints",
-							generator: oneOf<readonly [unknown, "range4" | "range8" | "refused"]>([
+							generator: oneOf<
+								| readonly [unknown, "range4" | "range8" | "refused"]
+								| readonly [unknown, "a serial", string]
+							>([
 								element(eligible),
-								map(element(ineligible), (e): readonly [unknown, "refused"] => [e, "refused"])
+								map(element(ineligible), (e): readonly [unknown, "refused"] => [e, "refused"]),
+								map(element(serials), ([e, name]): readonly [unknown, "a serial", string] => [
+									e,
+									"a serial",
+									name
+								])
 							]),
 							literal: Formatter.format,
-							limit: eligible.length + ineligible.length,
-							coverage: requiredInSpace<"range4" | "range8" | "refused">([
+							limit: eligible.length + ineligible.length + serials.length,
+							coverage: requiredInSpace<"range4" | "range8" | "refused" | "a serial">([
 								"range4",
 								"range8",
-								"refused"
+								"refused",
+								"a serial"
 							]),
 							caseHang
 						},
-						([endpoint, expected], c) =>
+						(drawnCase, c) =>
 							Effect.sync(() => {
-								c.note(expected)
+								c.note(drawnCase[1])
+								if (drawnCase[1] === "a serial") {
+									const [serial, , name] = drawnCase
+									const thrown = throwsRefused(() => spanDescriptor(serial), "UnsupportedOperation")
+									const capability =
+										thrown.reason._tag === "UnsupportedOperation" ? thrown.reason.capability : ""
+									containsText(
+										capability,
+										`spanEndpoint: ${name} is a serial generation declaration`,
+										name
+									)
+									return
+								}
+								const [endpoint, expected] = drawnCase
 								if (expected === "refused") {
 									throwsRefused(() => spanDescriptor(endpoint), "UnsupportedOperation")
 									return

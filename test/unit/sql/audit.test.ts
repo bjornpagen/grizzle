@@ -530,6 +530,16 @@ describe("every statement a generated write program places", () => {
 		}
 	)
 
+	it("refuses a member inserted under a stored immutable owner at compile, which the written draws never state", () => {
+		const lone = shopChangeSet().insert(Hand, [{ id: uuidOf(6), crew: uuidOf(7), label: "f" }])
+		const at = refusalLoc(refused(shopWrite(lone, shopCompile), "UnsupportedOperation"))
+		assert.deepEqual(
+			{ label: at.label, path: at.path },
+			{ label: "insert Hand", path: [] },
+			"the refusal is the insert's"
+		)
+	})
+
 	it("refuses a member's delete under an immutable owner at compile: its family is fixed when its owner is inserted", () => {
 		const deleted = shopChangeSet().delete(Hand, [{ id: uuidOf(6), crew: uuidOf(7), label: "f" }])
 		const at = refusalLoc(refused(shopWrite(deleted, shopCompile), "UnsupportedOperation"))

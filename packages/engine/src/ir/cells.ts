@@ -17,7 +17,7 @@ import { everyProperty } from "#compiler/core/canonical.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import { lastNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { Comparator } from "#compiler/core/order.ts"
+import { type Comparator, compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 
 /** One code of a roster: the live handle it names, or the hole a removed handle left, which no handle takes again. */
@@ -329,23 +329,30 @@ export interface Heading {
 	readonly keys: ReadonlyArray<NonEmptyReadonlyArray<string>>
 }
 
-/** A side as a closed relation of its own: its key's fields, its payload's fields, and its rows split between them. */
+/**
+ * A side as a closed relation of its own: its key's fields, its payload's fields, and its rows split between them, one
+ * per key, by the canonical text of the key's values (sideOf). A side is a set: a row its projection repeats is one row.
+ */
 export interface CellSide<V> {
 	readonly key: NonEmptyReadonlyArray<string>
 	readonly payload: ReadonlyArray<string>
-	readonly rows: ReadonlyArray<Split<V>>
+	readonly rows: ReadonlyMap<string, Split<V>>
 }
 
 /**
  * The side of `rows`, a closed relation's rows in its heading's field order, on the fields `terms`, as a closed relation
  * of its own. Its key is the smallest declared key whose fields the side contains, the first declared among the
- * smallest, in that key's order; a side that contains no declared key is keyed by all its fields, a set. Its payload is
- * its other fields, in term order. The rows of a selected side are the rows its predicate selects.
+ * smallest, in that key's order; a side that contains no declared key is keyed by all its fields. Its payload is its
+ * other fields, in term order. The rows of a selected side are the rows its predicate selects, each once by its key's
+ * text (`text`, each value's canonical text), in key text order: two rows a projection onto a side keyed by all its
+ * fields makes equal are one row, and a side keyed by a declared key holds one row per key, which the closed relation's
+ * key law makes one payload.
  */
 export const sideOf = <V>(
 	heading: Heading,
 	terms: NonEmptyReadonlyArray<string>,
-	rows: ReadonlyArray<ReadonlyArray<V>>
+	rows: ReadonlyArray<ReadonlyArray<V>>,
+	text: (value: V) => string
 ): CellSide<V> => {
 	const smallest = heading.keys.reduce<NonEmptyReadonlyArray<string> | undefined>(
 		(best, declared) =>
@@ -364,12 +371,14 @@ export const sideOf = <V>(
 	const payloadAt = at(payload)
 	const cell = (row: ReadonlyArray<V>, position: number): V =>
 		defined(row[position], "a row holds a value for every field of its heading")
+	const split = rows.map((row): Split<V> => ({
+		key: keyAt.map((position) => cell(row, position)),
+		payload: payloadAt.map((position) => cell(row, position))
+	}))
+	const keyed = new Map(split.map((row) => [JSON.stringify(row.key.map(text)), row] as const))
 	return {
 		key,
 		payload,
-		rows: rows.map((row) => ({
-			key: keyAt.map((position) => cell(row, position)),
-			payload: payloadAt.map((position) => cell(row, position))
-		}))
+		rows: new Map([...keyed].toSorted(([a], [b]) => compareStrings(a, b)))
 	}
 }

@@ -1448,7 +1448,11 @@ export class Checker {
 		const childHeading = child.node.heading
 		const fixed = new Set(columns.map((c) => c.name))
 		const correlation = columns.map((c) => ({ parent: c.parent, child: c.name }))
-		const stated = child.order
+		/**
+		 * An array's order is its stated one or, stating none, the empty order, which the completion (check/order.ts)
+		 * extends by the child's key: its positions are a function of its child's facts.
+		 */
+		const stated = child.order ?? { keys: [], at: loc }
 		const node = this.node(
 			{
 				kind: "Attach",
@@ -1457,32 +1461,30 @@ export class Checker {
 				name: desc.name,
 				correlation,
 				delivered: "array",
-				order: stated === undefined ? undefined : this.complete(stated, childHeading, fixed),
+				order: this.complete(stated, childHeading, fixed),
 				heading
 			},
 			loc
 		)
-		if (stated !== undefined) {
-			this.#state(node, stated, {
-				input: child.node,
-				fixed: correlation.map((c) => c.child),
-				withOrder: (order) =>
-					this.#restated(
-						node,
-						{
-							kind: "Attach",
-							parent,
-							child: child.node,
-							name: desc.name,
-							correlation,
-							delivered: "array",
-							order,
-							heading
-						},
-						loc
-					)
-			})
-		}
+		this.#state(node, stated, {
+			input: child.node,
+			fixed: correlation.map((c) => c.child),
+			withOrder: (order) =>
+				this.#restated(
+					node,
+					{
+						kind: "Attach",
+						parent,
+						child: child.node,
+						name: desc.name,
+						correlation,
+						delivered: "array",
+						order,
+						heading
+					},
+					loc
+				)
+		})
 		const literals = this.#literals.get(parent)
 		if (literals !== undefined) {
 			this.#literals.set(node, literals)

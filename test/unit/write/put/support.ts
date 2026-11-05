@@ -54,7 +54,7 @@ const Worker = relation("Worker", { id: uuid }, ["id"])
 const Task = relation("Task", { id: uuid, worker: uuid }, ["id"])
 /** Every Crew has one or two Hands: Hand a counted family of Crew over its drawn count, and a check on the count
  * (fin.md §6, a count in [lo, hi]). */
-const Crew = relation("Crew", { id: uuid, hands: drawn(natural) }, ["id"])
+export const Crew = relation("Crew", { id: uuid, hands: drawn(natural) }, ["id"])
 export const Hand = relation("Hand", { id: uuid, crew: uuid, label }, ["id"])
 
 const shopRelations = {

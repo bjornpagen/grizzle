@@ -79,6 +79,7 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	Code,
 	Counter,
+	Crew,
 	mutableCrewChangeSet,
 	mutableCrewCompiled,
 	shopCompiled,
@@ -525,7 +526,9 @@ type CrewMutability = "immutable" | "mutable"
 
 /**
  * The actions a written draw may take on a relation: every one, but a Hand's delete only under a mutable Crew, since
- * an immutable Crew's family is fixed from its insert and the compiler refuses the delete.
+ * an immutable Crew's family is fixed from its insert and the compiler refuses the delete. For the same reason a Hand's
+ * insert under an immutable Crew comes with its Crew's insert (changeSetOf): a member inserted under a stored immutable
+ * owner is refused, which audit.test.ts states once.
  */
 const opsOf = (relation: unknown, crew: CrewMutability): Arr.NonEmptyReadonlyArray<WriteOp> =>
 	relation === Hand && crew === "immutable" ? ["none", "insert", "put"] : writeOps
@@ -579,7 +582,9 @@ const changeSetOf = (w: WriteSketch) => {
 	let value = w.crew === "mutable" ? mutableCrewChangeSet() : shopChangeSet()
 	for (const [i, [relation, facts]] of writeTargets.entries()) {
 		const op = w.ops[i]
-		if (op === "insert") {
+		if (op === "insert" && relation === Hand && w.crew === "immutable") {
+			value = value.insert(Crew, [{ id: uuidOf(7) }]).insert(relation, facts)
+		} else if (op === "insert") {
 			value = value.insert(relation, facts)
 		} else if (op === "put") {
 			value = value.put(relation, facts)

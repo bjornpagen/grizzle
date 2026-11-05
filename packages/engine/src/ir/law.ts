@@ -68,8 +68,8 @@ export interface LawRelation {
 }
 
 /**
- * A stored relation's handle with its installed table's identifier: what a native object, a residual law's unit and a
- * law column are installed on.
+ * A stored relation's handle with its installed table's identifier: what a native object and a law column are
+ * installed on.
  */
 export interface TableRelation extends LawRelation {
 	readonly ident: RelationIdent
@@ -156,12 +156,6 @@ export interface Selector {
 	readonly value: TypedLiteral
 }
 
-/** A selector of a residual law's side: the handle of the field it selects, and its literal. */
-export interface FieldSelector {
-	readonly field: LawField
-	readonly value: TypedLiteral
-}
-
 /**
  * One side of a law, as its dependencies read it: the relation it reads and its terms. A check's side projects the
  * fields its predicate mentions, which may be none. Which facts a declared side reads is its resolved selection
@@ -172,8 +166,10 @@ export interface LawSide {
 	readonly terms: ReadonlyArray<TermDesc>
 }
 
-/** A side a statement declares (desc.ts SideDesc), as a key's, a containment's and a capacity's are: a projection on at
- * least one term. */
+/**
+ * A side a statement declares (desc.ts SideDesc), as a key's and a containment's are: a projection on at least one
+ * term.
+ */
 export interface DeclaredSide extends LawSide {
 	readonly terms: NonEmptyReadonlyArray<TermDesc>
 }
@@ -209,19 +205,13 @@ export interface LawSource {
 }
 
 /**
- * Laws: the normalized law node, its native objects, and its residual law.
+ * Laws: the normalized law node and its native objects.
  *
- * Every law is one IR node, a violation query that must be empty (rel.ts Forbid); the public constructors
- * produce its recognized shapes. A NormalizedLaw records one recognized obligation with its source identity. Its
- * LawLowering partitions it into exact native objects and at most one residual law: one deferred constraint trigger
- * per participating table and threatening event, each executing its own PL/pgSQL function, anchored so that every
- * threatening event fires its trigger or modifies an anchor.
- *
- * The absent-anchor rule of each residual family is fixed and frozen here. A residual law's type carries its shape: a
- * nonempty anchor key, one participant per participating table with an INSERT or a DELETE and each event kind once,
- * each event its own unit, row images and DETAIL keys, and its family with exactly the detail that family checks,
- * recognized once, so a family's plug-in never reads the theory again. Only a mutable participant has an UPDATE event,
- * the world roles that write its relation alone holding UPDATE.
+ * Every law is one IR node, a violation query that must be empty (rel.ts Forbid); the public constructors produce its
+ * recognized shapes. A NormalizedLaw records one recognized obligation with its source identity, and the law model
+ * lowers it to native objects alone (LawLowering): keys, foreign keys, table CHECKs, domains and a family's drawn
+ * columns, which PostgreSQL enforces on every statement or at commit. A law over closed relations alone is checked once,
+ * by its violation query, in the migration that installs it.
  */
 export interface NormalizedLaw {
 	readonly id: LawId
@@ -278,8 +268,8 @@ export const allRows: IndexRows = Object.freeze({ kind: "all" })
 
 /**
  * An index a law's maintenance needs: its keys, each a column of the relation by its arm (a field by its handle, a law
- * column by its identifier), never a name looked up again; its probe, named for diagnostics (`anchor read`, `reverse
- * reference`); and the rows the probe reads.
+ * column by its identifier), never a name looked up again; its use, named for diagnostics (`reverse reference`); and the
+ * rows it reads.
  */
 export interface LawIndexRequest {
 	readonly relation: string

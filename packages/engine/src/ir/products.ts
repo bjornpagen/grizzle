@@ -72,10 +72,27 @@ export interface LiteralBound {
 	readonly limit: number
 }
 
-/** MemberEncoder: a member slot's normal facts to its arrays. */
-export type MemberEncoder = (
-	facts: NormalFacts
+declare const keyNormalizedBrand: unique symbol
+
+/**
+ * A write member slot's normal facts once they passed their relation's key check on the host: no two of them share a
+ * key with different identities. That is what a member input's `normalized` proof (write/insert/input.ts
+ * inputGuarantees) says of the rows its statements read, so a member placeholder takes these and nothing weaker.
+ * Branded: the write's normalization (write/normalize/normalize.ts normalizeChangeSet) mints it, after its key check
+ * and nowhere else.
+ */
+export type KeyNormalized = NormalFacts & { readonly [keyNormalizedBrand]: true }
+
+/** An arrays encoder over normal facts of kind `F`: the facts written as a statement's placeholder arrays. */
+type ArraysEncoder<F extends NormalFacts> = (
+	facts: F
 ) => Result.Result<ArrayTexts, EncodingFailure | LiteralBound>
+
+/** MemberEncoder: a member slot's key-normalized facts to its arrays. */
+export type MemberEncoder = ArraysEncoder<KeyNormalized>
+
+/** RelationEncoder: a relation parameter's input, normalized once per execution, to its arrays. */
+export type RelationEncoder = ArraysEncoder<NormalFacts>
 /** RelationParamEncoder: a relation-valued input to its deduplicated arrays and its distinct fact count. */
 export type RelationParamEncoder = (
 	facts: Iterable<unknown>
@@ -184,7 +201,7 @@ export type ParamSlot =
 			readonly param: ParamId
 			readonly part: number
 			/** Over the parameter's input, normalized once per execution: every statement encodes one set. */
-			readonly encode: MemberEncoder
+			readonly encode: RelationEncoder
 	  }
 	| {
 			readonly kind: "member"

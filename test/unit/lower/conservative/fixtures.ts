@@ -23,7 +23,7 @@ import type {
 	TakeBound,
 	VarDecl
 } from "#compiler/ir/rel.ts"
-import { conservativeMeta } from "#compiler/ir/rel.ts"
+import { conservativeMeta, headingOrder } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { defined } from "#test/support/assert.ts"
@@ -548,7 +548,13 @@ export class Q {
 				meta: conservativeMeta
 			})
 		}
-		return this.b.node({ ...body, delivered, order, loc: undefined, meta: conservativeMeta })
+		return this.b.node({
+			...body,
+			delivered,
+			order: order ?? headingOrder(child.heading),
+			loc: undefined,
+			meta: conservativeMeta
+		})
 	}
 
 	closed(name: string, h: Heading, rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>): RelNode {

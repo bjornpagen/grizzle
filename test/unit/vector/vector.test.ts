@@ -204,7 +204,12 @@ describe("the cosine domain", () => {
 									norm === lowest || norm === highest ? "admitted at a bound" : "admitted inside"
 								)
 								const refined = succeeded(from)
-								assert.ok(refined === buffer, "the refined vector is the caller's buffer")
+								assert.ok(
+									refined !== buffer &&
+										refined.length === buffer.length &&
+										refined.every((x, i) => Object.is(x, buffer[i])),
+									"the refined vector is a copy of the caller's buffer, component for component"
+								)
 								assert.equal(Vector.norm(refined), norm)
 								if (buffer.some((x) => Object.is(x, -0))) {
 									c.note("-0 written as 0")
@@ -219,9 +224,19 @@ describe("the cosine domain", () => {
 								if (!zeroedAfter) {
 									return
 								}
+								/**
+								 * The refined vector is a copy, so zeroing the caller's buffer after its check reaches none of
+								 * it; the buffer itself, branded by Vector.make, is checked again at its encode, and refused.
+								 */
 								c.note("a buffer zeroed after its check")
+								const text = succeeded(codec.encode(refined))
 								buffer.fill(0)
-								faulted(codec.encode(refined), "vectorNorm")
+								assert.equal(
+									succeeded(codec.encode(refined)),
+									text,
+									"the refined vector as it was checked"
+								)
+								faulted(codec.encode(Vector.make(buffer, dims)), "vectorNorm")
 							})
 					)
 				)

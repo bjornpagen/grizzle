@@ -17,7 +17,7 @@ import { str } from "#compiler/public/text.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
-import { assert, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { assert, containsText, defined, succeeded, throwsRefused } from "#test/support/assert.ts"
 import {
 	admitContract,
 	contractDescriptor,
@@ -126,19 +126,40 @@ describe("contract identity", () => {
 							if (kind === "serial") {
 								c.note("serial refused")
 								let ran = false
-								throwsRefused(
-									() =>
-										contractDescriptor(name, pgDescriptors.serial, (v: ScalarTerm) => {
-											ran = true
-											return v.ge(0)
-										}),
-									"UnsupportedOperation"
-								)
+								/**
+								 * A serial's type is its integer's, so its writing is what refuses it: the capability names the
+								 * serial and the integer type a contract is over instead.
+								 */
+								const refusals = [
+									{
+										thrown: throwsRefused(
+											() =>
+												contractDescriptor(name, pgDescriptors.serial, (v: ScalarTerm) => {
+													ran = true
+													return v.ge(0)
+												}),
+											"UnsupportedOperation"
+										),
+										serial: "pg.serial",
+										integer: "pg.integer"
+									},
+									{
+										thrown: throwsRefused(
+											() => contractDescriptor(name, pgDescriptors.bigserial),
+											"UnsupportedOperation"
+										),
+										serial: "pg.bigserial",
+										integer: "pg.bigint"
+									}
+								] as const
 								assert.equal(ran, false)
-								throwsRefused(
-									() => contractDescriptor(name, pgDescriptors.bigserial),
-									"UnsupportedOperation"
-								)
+								for (const { thrown, serial, integer } of refusals) {
+									const capability =
+										thrown.reason._tag === "UnsupportedOperation" ? thrown.reason.capability : ""
+									containsText(capability, "contractBase: a contract is a value domain", serial)
+									containsText(capability, `${serial} is a serial generation declaration`, serial)
+									containsText(capability, `use its integer type, ${integer}`, serial)
+								}
 								return
 							}
 							if (kind === "no predicate") {

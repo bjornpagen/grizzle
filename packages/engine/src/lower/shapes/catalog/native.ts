@@ -90,8 +90,8 @@ const windowOverload = (
 /**
  * A window's call over its input's columns `map`: its partition and order are columns of its input (valid DAG). A
  * running aggregate is its overload's lowering (conservative/group aggregateExpr) under the window, so a running sum or
- * mean over real, double precision or money accumulates exactly and is a function of the frame's multiset, never of
- * the window's order.
+ * mean over real, double precision or money accumulates exactly and is a function of the frame's rows, each once, never
+ * of the window's order.
  */
 const windowCall = (cx: LowerContext, w: NodeOf<"Window">, map: ColumnMap, scope: Env): Expr => {
 	const at = nodeLabel(w)

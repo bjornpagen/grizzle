@@ -16,14 +16,19 @@ import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 
 /** The scalar types of the forged carriers, each the registry's. */
-const types = {
+const types: {
+	readonly numeric: ScalarType
+	readonly numeric52: ScalarType
+	readonly money: ScalarType
+	readonly vector3: ScalarType
+} = {
 	numeric: anyNumeric,
 	numeric52: scalarOf(f.numeric(5, 2), {}),
 	money: plainType("money"),
 	vector3: scalarOf({ kind: "vector", dimensions: 3 }, {})
 }
 
-export type DecimalForgery =
+type DecimalForgery =
 	| "honest"
 	| "a prototype object"
 	| "a proxy"
@@ -32,7 +37,7 @@ export type DecimalForgery =
 	| "fromValue of a forged payload"
 	| "fromValue of another value's parts"
 
-export type MoneyForgery =
+type MoneyForgery =
 	| "honest"
 	| "a prototype object"
 	| "a proxy"
@@ -42,9 +47,9 @@ export type MoneyForgery =
 	| "fromValue of an honest count"
 	| "an exact amount past int64"
 
-export type VectorForgery = "honest" | "own overrides" | "a subclass's overrides" | "a proxy"
+type VectorForgery = "honest" | "own overrides" | "a subclass's overrides" | "a proxy"
 
-export const decimalForgeries: Arr.NonEmptyReadonlyArray<DecimalForgery> = [
+const decimalForgeries: Arr.NonEmptyReadonlyArray<DecimalForgery> = [
 	"honest",
 	"a prototype object",
 	"a proxy",
@@ -54,7 +59,7 @@ export const decimalForgeries: Arr.NonEmptyReadonlyArray<DecimalForgery> = [
 	"fromValue of another value's parts"
 ]
 
-export const moneyForgeries: Arr.NonEmptyReadonlyArray<MoneyForgery> = [
+const moneyForgeries: Arr.NonEmptyReadonlyArray<MoneyForgery> = [
 	"honest",
 	"a prototype object",
 	"a proxy",
@@ -65,7 +70,7 @@ export const moneyForgeries: Arr.NonEmptyReadonlyArray<MoneyForgery> = [
 	"an exact amount past int64"
 ]
 
-export const vectorForgeries: Arr.NonEmptyReadonlyArray<VectorForgery> = [
+const vectorForgeries: Arr.NonEmptyReadonlyArray<VectorForgery> = [
 	"honest",
 	"own overrides",
 	"a subclass's overrides",
@@ -78,7 +83,7 @@ export type CarrierName = "numeric" | "numeric(5,2)" | "money" | "vector(3)"
  * A carrier whose host values are objects a caller can forge: its values, each PostgreSQL's text of it and how a host
  * value spells it, colliding under PostgreSQL's equality in several spellings, and the forgeries of its host type.
  */
-export type Carried = { readonly name: CarrierName; readonly type: ScalarType } & (
+type Carried = { readonly name: CarrierName; readonly type: ScalarType } & (
 	| {
 			readonly host: "numeric"
 			readonly values: Arr.NonEmptyReadonlyArray<{
@@ -265,13 +270,13 @@ const vectorInput = (components: ReadonlyArray<number>, forgery: VectorForgery):
 }
 
 /** One built input: the forgery that built it, the PostgreSQL text it stands for, and the input or what building threw. */
-export interface Built {
+interface Built {
 	readonly forgery: string
 	readonly pg: string
 	readonly input: Result.Result<unknown, unknown>
 }
 
-export interface ForgedCase {
+interface ForgedCase {
 	readonly carrier: CarrierName
 	readonly type: ScalarType
 	readonly inputs: ReadonlyArray<Built>
@@ -284,50 +289,56 @@ const at = <A>(items: Arr.NonEmptyReadonlyArray<A>, i: number): A =>
  * A case: a carrier, and one to five inputs, each a value of it in one of its spellings built by one of its forgeries.
  * Building runs in the property, so what a forgery throws is the case's to judge.
  */
-export const forgedCases = (among: Arr.NonEmptyReadonlyArray<Carried>): Gen<ForgedCase> => (source) => {
-	const carrier = source.draw(element(among))
-	const picks = source.draw(
-		array(
-			(s) => ({
-				value: s.draw(int(0, 3)),
-				spelling: s.draw(int(0, 2)),
-				forgery: s.draw(int(0, 7))
-			}),
-			{ min: 1, max: 5 }
+export const forgedCases =
+	(among: Arr.NonEmptyReadonlyArray<Carried>): Gen<ForgedCase> =>
+	(source) => {
+		const carrier = source.draw(element(among))
+		const picks = source.draw(
+			array(
+				(s) => ({
+					value: s.draw(int(0, 3)),
+					spelling: s.draw(int(0, 2)),
+					forgery: s.draw(int(0, 7))
+				}),
+				{ min: 1, max: 5 }
+			)
 		)
-	)
-	const inputs = Arr.map(picks, (p): Built => {
-		switch (carrier.host) {
-			case "numeric": {
-				const value = at(carrier.values, p.value)
-				const forgery = at(carrier.forgeries, p.forgery)
-				const other = at(carrier.values, p.value + 1)
-				return {
-					forgery,
-					pg: value.pg,
-					input: Result.try(() =>
-						numericInput(at(value.spellings, p.spelling), value.pg, other.spellings[0], forgery)
-					)
+		const inputs = Arr.map(picks, (p): Built => {
+			switch (carrier.host) {
+				case "numeric": {
+					const value = at(carrier.values, p.value)
+					const forgery = at(carrier.forgeries, p.forgery)
+					const other = at(carrier.values, p.value + 1)
+					return {
+						forgery,
+						pg: value.pg,
+						input: Result.try(() =>
+							numericInput(at(value.spellings, p.spelling), value.pg, other.spellings[0], forgery)
+						)
+					}
+				}
+				case "money": {
+					const value = at(carrier.values, p.value)
+					const forgery = at(carrier.forgeries, p.forgery)
+					return {
+						forgery,
+						pg: value.pg,
+						input: Result.try(() => moneyInput(value.count, forgery))
+					}
+				}
+				case "vector": {
+					const value = at(carrier.values, p.value)
+					const forgery = at(carrier.forgeries, p.forgery)
+					return {
+						forgery,
+						pg: value.pg,
+						input: Result.try(() => vectorInput(value.components, forgery))
+					}
 				}
 			}
-			case "money": {
-				const value = at(carrier.values, p.value)
-				const forgery = at(carrier.forgeries, p.forgery)
-				return { forgery, pg: value.pg, input: Result.try(() => moneyInput(value.count, forgery)) }
-			}
-			case "vector": {
-				const value = at(carrier.values, p.value)
-				const forgery = at(carrier.forgeries, p.forgery)
-				return {
-					forgery,
-					pg: value.pg,
-					input: Result.try(() => vectorInput(value.components, forgery))
-				}
-			}
-		}
-	})
-	return { carrier: carrier.name, type: carrier.type, inputs }
-}
+		})
+		return { carrier: carrier.name, type: carrier.type, inputs }
+	}
 
 export type Feature =
 	| `numeric: ${DecimalForgery}`
@@ -354,4 +365,3 @@ export const pairOf = (carrier: CarrierName, forgery: string): Feature =>
 		Option.getOrUndefined(Arr.findFirst(pairs, (p) => p === `${carrier}: ${forgery}`)),
 		`the pair ${carrier}: ${forgery}`
 	)
-

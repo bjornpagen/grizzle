@@ -1,6 +1,7 @@
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import type { RelationNormalizer } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { nominal } from "#compiler/core/brand.ts"
 import { type EncodingFailure, KeyConflict } from "#compiler/core/errors.ts"
 import type { LawId, ParamId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -9,7 +10,7 @@ import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { LawField } from "#compiler/ir/law.ts"
-import type { NormalFacts } from "#compiler/ir/products.ts"
+import type { KeyNormalized, NormalFacts } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import {
 	admitted,
@@ -36,9 +37,27 @@ type Fact = { readonly [field: string]: unknown }
 
 /** A slot's normal facts (ir/products.ts NormalFacts): the distinct admitted facts, in canonical order of their
  * identities, which every placeholder of the slot encodes without normalizing them again. */
-export type NormalizedSlot = NormalFacts & {
+export type NormalizedSlot = KeyNormalized & {
 	readonly slot: MemberSlot
 	readonly count: number
+}
+
+/** The one mint of KeyNormalized: a slot's normal facts after normalization's same-key checks. */
+const keyNormalized = nominal<NormalFacts, KeyNormalized>()
+
+/**
+ * A slot's normal facts with each fact replaced by `facts`, their identities kept, as normalization would hold them:
+ * the facts of an owner the stratum inserts with its counts and ends its members' appends draw (write/program/bind.ts),
+ * which no key reads, so the same-key checks still hold of them.
+ */
+export const refilledSlot = (
+	slot: NormalizedSlot,
+	facts: (fact: { readonly [field: string]: unknown }) => { readonly [field: string]: unknown }
+): NormalizedSlot => {
+	const normal = slot.slot.normalForm(
+		new Map(slot.entries.map((e) => [e.identity, { fact: Object.freeze(facts(e.fact)) }] as const))
+	)
+	return Object.freeze({ ...keyNormalized(normal), slot: slot.slot, count: normal.facts.length })
 }
 
 /** A same-key conflict between two additions of one stratum: invariant-rejected with the key law and its description,
@@ -470,7 +489,22 @@ export const normalizeChangeSet = (
 						if (!admittedFacts.ok) {
 							return admittedFacts
 						}
-						collect(sets[category], admittedFacts.value)
+						/** A slot that carries fields beyond its facts' holds each at its start (frontend/compile.ts
+						 * EnumeratedInput "single"), its identity its facts'. */
+						const started = admittedFacts.value.map((e): Entry =>
+							input.starts.length === 0
+								? e
+								: {
+										identity: e.identity,
+										fact: Object.freeze(
+											Object.fromEntries([
+												...Object.entries(e.fact),
+												...input.starts.map((st) => [st.name, st.value] as const)
+											])
+										)
+									}
+						)
+						collect(sets[category], started)
 					}
 					break
 				}
@@ -521,7 +555,10 @@ export const normalizeChangeSet = (
 			/** Distinct by identity over the slot heading and in identity order: the slot's normal facts, which its
 			 * encoders take as they are. */
 			const normal = slot.normalForm(sets[category])
-			out.set(slot.slot, Object.freeze({ ...normal, slot, count: normal.facts.length }))
+			out.set(
+				slot.slot,
+				Object.freeze({ ...keyNormalized(normal), slot, count: normal.facts.length })
+			)
 		}
 	}
 	/** Each stratum's nested rows by relation, judged as the stratum's additions of that relation (step 3): a row its

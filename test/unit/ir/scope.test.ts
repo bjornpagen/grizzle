@@ -459,7 +459,7 @@ const withReaders = (d: DagTable, plants: ReadonlyArray<ReaderPlant>): DagTable 
 						name: "attached",
 						correlation: [],
 						delivered: "array",
-						order: undefined
+						order: { keys: [] }
 					}
 				: { ...common, kind: "SemiJoin", left: site.parent.id, right: site.child.id, on: [] }
 		const withReader: DagTable = {
@@ -579,7 +579,7 @@ const sketchedNode = (
 				name: "attached",
 				correlation: [],
 				delivered: "array",
-				order: undefined
+				order: { keys: [] }
 			}
 		case "SemiJoin":
 		case "AntiJoin":

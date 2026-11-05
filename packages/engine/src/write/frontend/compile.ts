@@ -12,9 +12,11 @@ import {
 	type RelationSpec,
 	relationNormalizer
 } from "#compiler/codec/recordset.ts"
+import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { type LawId, ParamId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	headNonEmpty,
@@ -70,7 +72,8 @@ import {
 	closedLeaf,
 	type ClosedRows,
 	type HostEvaluator,
-	hostEvaluator
+	hostEvaluator,
+	literalHost
 } from "#compiler/write/family/fold.ts"
 import { isSequence, isTreeOf, type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import {
@@ -161,6 +164,12 @@ export type EnumeratedInput =
 			readonly act: SingleAct
 			readonly slot: MemberSlot
 			readonly members: NonEmptyReadonlyArray<InputMember<RelationNormalizer>>
+			/**
+			 * The fields its slot carries beyond the ones its facts do, each at its start: an owner's counts and ends,
+			 * which an owner of counted families inserted on the plain path writes from its slot, so the stratum's
+			 * appends to it ride its own row (write/program/bind.ts); none for any other input.
+			 */
+			readonly starts: ReadonlyArray<{ readonly name: string; readonly value: unknown }>
 	  }
 	| {
 			readonly kind: "classed"
@@ -1063,15 +1072,15 @@ const compile = (
 				 * the normalizer that admits a member's facts against it. */
 				const classSlot = (
 					act: ActionOp,
-					carried: Heading
+					carried: Heading,
+					admitted: Heading
 				): {
 					readonly slot: MemberSlot
 					readonly normalizer: (member: string) => RelationNormalizer
 				} => {
-					const columns = positionalColumns(carried)
-					const spec = (slot: RelationSlot): RelationSpec => ({
+					const spec = (slot: RelationSlot, over: Heading): RelationSpec => ({
 						relation: written.name,
-						columns,
+						columns: positionalColumns(over),
 						slot,
 						codes
 					})
@@ -1081,18 +1090,37 @@ const compile = (
 							slot: id,
 							transport,
 							heading: carried,
-							normalForm: normalForm(spec({ kind: "none" })),
+							normalForm: normalForm(spec({ kind: "none" }, carried)),
 							input: relationInput(id, carried, relation)
 						}),
-						normalizer: (member) => relationNormalizer(spec({ kind: "slot", name: member }))
+						normalizer: (member) =>
+							relationNormalizer(spec({ kind: "slot", name: member }, admitted))
 					}
 				}
 				/** The operation's enumerated input of one slot, read as `act`, when it has enumerated members. */
-				const singleInput = (act: SingleAct, carried: Heading): MemberSlot | undefined => {
+				const singleInput = (
+					act: SingleAct,
+					carried: Heading,
+					admitted: Heading
+				): MemberSlot | undefined => {
 					if (!isNonEmpty(enumerated)) {
 						return undefined
 					}
-					const { slot, normalizer } = classSlot(act, carried)
+					const { slot, normalizer } = classSlot(act, carried, admitted)
+					const starts = carried.flatMap((c) => {
+						if (admitted.some((a) => a.name === c.name)) {
+							return []
+						}
+						const field = defined(
+							relation.fields.find((f) => f.name === c.name),
+							`the field ${relation.name}.${c.name} a slot carries`
+						)
+						const value =
+							field.writing.kind === "accumulated"
+								? literalHost(carrierSpecOf(field.type, codes), field.writing.start)
+								: 0n
+						return [{ name: c.name, value }]
+					})
 					groupInputs.push(
 						Object.freeze({
 							kind: "single",
@@ -1102,7 +1130,8 @@ const compile = (
 								mapNonEmpty(enumerated, (m) =>
 									Object.freeze({ name: m.slot, normalize: normalizer(m.slot) })
 								)
-							)
+							),
+							starts: Object.freeze(starts)
 						})
 					)
 					return slot
@@ -1115,8 +1144,16 @@ const compile = (
 					if (!isNonEmpty(enumerated)) {
 						return undefined
 					}
-					const complete = classSlot({ op: "insert", serial: completeClass }, classed.complete)
-					const generated = classSlot({ op: "insert", serial: classed.drawn }, classed.generated)
+					const complete = classSlot(
+						{ op: "insert", serial: completeClass },
+						classed.complete,
+						classed.complete
+					)
+					const generated = classSlot(
+						{ op: "insert", serial: classed.drawn },
+						classed.generated,
+						classed.generated
+					)
 					groupInputs.push(
 						Object.freeze({
 							kind: "classed",
@@ -1181,7 +1218,7 @@ const compile = (
 					const heading = classes.complete
 					const act: SingleAct =
 						op === "insert" ? { op, serial: completeClass } : op === "put" ? { op } : { op }
-					const slot = singleInput(act, heading)
+					const slot = singleInput(act, heading, heading)
 					if (slot !== undefined) {
 						edits.push(Object.freeze({ stratum, relation: relation.name, op, slot: slot.slot }))
 					}
@@ -1193,7 +1230,7 @@ const compile = (
 						draft(
 							act,
 							classes.complete,
-							singleInput(act, classes.complete),
+							singleInput(act, classes.complete, classes.complete),
 							queries.map((q) => q.root)
 						)
 						break
@@ -1204,7 +1241,7 @@ const compile = (
 						 * written fields, so a fact inserted and deleted is one fact with one identity, which nets. A
 						 * generated field is a function of the written ones, so it decides no match. */
 						const facts = classes.complete
-						draft(act, facts, singleInput(act, facts), [])
+						draft(act, facts, singleInput(act, facts, facts), [])
 						for (const q of queries) {
 							draft(act, facts, undefined, [q.root])
 						}
@@ -1215,7 +1252,7 @@ const compile = (
 						if (nests(relation.name)) {
 							const nesting = nestingFor(relation, loc)
 							if (isNonEmpty(enumerated)) {
-								const { slot, normalizer } = classSlot(complete, nesting.top)
+								const { slot, normalizer } = classSlot(complete, nesting.top, nesting.top)
 								groupInputs.push(
 									Object.freeze({
 										kind: "nested",
@@ -1247,9 +1284,18 @@ const compile = (
 							serial: describedClass(classes, q.query.dag.roots[0].heading)
 						}))
 						switch (classes.kind) {
-							case "unclassed":
-								draft(complete, classes.complete, singleInput(complete, classes.complete), [])
+							case "unclassed": {
+								/** An owner of counted families carries its counts and ends in its slot, at their starts,
+								 * which the stratum's appends to it replace before its insert is sent. */
+								const owned = families.some((f) => f.owner.name === relation.name)
+									? written.heading
+											.filter((c) => c.writing.kind === "drawn" || c.writing.kind === "accumulated")
+											.map(carriedColumn)
+									: []
+								const carried = [...classes.complete, ...owned]
+								draft(complete, carried, singleInput(complete, carried, classes.complete), [])
 								break
+							}
 							case "classed": {
 								const classSlots = classedInput(classes)
 								draft(complete, classes.complete, classSlots?.complete, [])

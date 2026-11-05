@@ -26,6 +26,7 @@ import {
 	conservativeMeta,
 	type Heading,
 	type HeadingColumn,
+	headingOrder,
 	type Occurrence,
 	type RelNode,
 	type ValidDag,
@@ -1023,7 +1024,7 @@ class Translation {
 					correlation: child.correlation,
 					delivered: "array",
 					heading: current.heading,
-					order: undefined
+					order: headingOrder(child.node.heading)
 				}),
 				heading: current.heading
 			}

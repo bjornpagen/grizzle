@@ -172,7 +172,8 @@ export const readKeys = (
 	inserted: ReadonlySet<string>
 ): ReadKeys | undefined => {
 	const keys = new Map<string, MemberKey>()
-	for (const fact of [...changes.deletes, ...changes.puts]) {
+	/** An insert's key too: a stored row at it is the insert's exact repeat, no change, or the key law's refusal. */
+	for (const fact of [...changes.deletes, ...changes.puts, ...changes.inserts]) {
 		const key = keyOf(ctx, target.layout, valuesOfFact(fact))
 		keys.set(textsKey(key), key)
 	}
@@ -696,6 +697,23 @@ export const planEdits = (
 			storedRows.set(m.key, m.values)
 			keys.set(m.key, keyOf(ctx, target.layout, m.values))
 		}
+	}
+	/** An insert of a row the stored state holds already, every field its fact carries equal, is that row: no change
+	 * and no statement (rule 0). A stored row at its key with another fact stays an append, which the key law refuses
+	 * at the insert. */
+	const repeats = [...named].flatMap(([text, { op, values }]) => {
+		const was = storedRows.get(text)
+		return op === "insert" &&
+			was !== undefined &&
+			[...values].every(([k, v]) => {
+				const field = target.relation.fields.find((f) => fieldKey(f.name) === k)
+				return field !== undefined && same(ctx, field.type, v, was.get(k))
+			})
+			? [text]
+			: []
+	})
+	for (const text of repeats) {
+		named.delete(text)
 	}
 	const placements = new Map<string, Array<Placement>>()
 	const owners: Array<OwnerWrite> = []

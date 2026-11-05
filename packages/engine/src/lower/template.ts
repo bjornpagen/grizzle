@@ -5,7 +5,13 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { MemberEncoder, ParamSlot, StatementSpec, WriteSlot } from "#compiler/ir/products.ts"
+import type {
+	MemberEncoder,
+	ParamSlot,
+	RelationEncoder,
+	StatementSpec,
+	WriteSlot
+} from "#compiler/ir/products.ts"
 
 import {
 	type ArrayPart,
@@ -202,7 +208,7 @@ const memberEncoders = new WeakMap<
 >()
 const relationEncoders = new WeakMap<
 	Codebook,
-	WeakMap<ReadonlyArray<RelationColumn>, MemberEncoder>
+	WeakMap<ReadonlyArray<RelationColumn>, RelationEncoder>
 >()
 
 /** The entry of `cache` for `codes` and `columns`, built by `make` the first time it is asked for. */
@@ -246,7 +252,7 @@ const relationEncoder = (
 	label: string,
 	columns: ReadonlyArray<RelationColumn>,
 	codes: Codebook
-): MemberEncoder =>
+): RelationEncoder =>
 	cachedEncoder(relationEncoders, codes, columns, () =>
 		normalArrays(placeholderSpec(label, columns, codes))
 	)

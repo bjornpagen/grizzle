@@ -632,40 +632,56 @@ const runRule = (
 	plain: boolean,
 	shift: number
 ): BuiltRule => {
-	const vars: Array<Variable> = []
-	const reads = new Set<string>()
-	let rule = r
-	for (const [mi, m] of sketch.matches.entries()) {
-		const source = pick(sources, m.source)
-		reads.add(source.name)
-		const minted = v(source.value, `match${mi}`)
-		const bindings: Record<string, unknown> = {}
-		for (const [i, c] of source.columns.entries()) {
-			/** The first column of the first match is always a variable, so every rule has one to find. */
-			const b = (mi === 0 && i === 0 ? undefined : m.binds[i]) ?? { how: 1, share: 99, n: 0 }
-			if (b.how === 0) {
-				continue
+	/**
+	 * The rule's matches, each column bound as its sketch draws it: left unbound, a literal, a shared or a fresh
+	 * variable. A rule that folds binds every column of every match (`whole`), a key of each source among them, since a
+	 * fold reads each fact it matches once, by its key, and one over a projection is refused (FoldOverProjection).
+	 */
+	const bound = (whole: boolean) => {
+		const vars: Array<Variable> = []
+		const reads = new Set<string>()
+		let rule = r
+		for (const [mi, m] of sketch.matches.entries()) {
+			const source = pick(sources, m.source)
+			reads.add(source.name)
+			const minted = v(source.value, `match${mi}`)
+			const bindings: Record<string, unknown> = {}
+			for (const [i, c] of source.columns.entries()) {
+				/** The first column of the first match is always a variable, so every rule has one to find. */
+				const drawn = (mi === 0 && i === 0 ? undefined : m.binds[i]) ?? { how: 1, share: 99, n: 0 }
+				const b = whole && drawn.how === 0 ? { ...drawn, how: 3 } : drawn
+				if (b.how === 0) {
+					continue
+				}
+				if (b.how === 2 && literal.has(c.kind)) {
+					bindings[c.name] = literalOf(c.kind, b.n + shift)
+					continue
+				}
+				const same = Arr.filter(vars, (x) => x.kind === c.kind)
+				const shared = b.how === 1 ? same[b.share] : undefined
+				if (shared !== undefined) {
+					bindings[c.name] = shared.term
+				} else {
+					bindings[c.name] = minted[c.name]
+					vars.push({ kind: c.kind, term: minted[c.name] })
+				}
 			}
-			if (b.how === 2 && literal.has(c.kind)) {
-				bindings[c.name] = literalOf(c.kind, b.n + shift)
-				continue
-			}
-			const same = Arr.filter(vars, (x) => x.kind === c.kind)
-			const shared = b.how === 1 ? same[b.share] : undefined
-			if (shared !== undefined) {
-				bindings[c.name] = shared.term
-			} else {
+			if (Rec.keys(bindings).length === 0) {
+				const c = pick(source.columns, 0)
 				bindings[c.name] = minted[c.name]
 				vars.push({ kind: c.kind, term: minted[c.name] })
 			}
+			rule = rule.match(source.value, bindings)
 		}
-		if (Rec.keys(bindings).length === 0) {
-			const c = pick(source.columns, 0)
-			bindings[c.name] = minted[c.name]
-			vars.push({ kind: c.kind, term: minted[c.name] })
-		}
-		rule = rule.match(source.value, bindings)
+		return { vars, reads, rule }
 	}
+	/** Whether the rule folds: drawn so, or a plain rule with no variable a head may find, which counts instead. */
+	const folds = (vars: ReadonlyArray<Variable>): boolean =>
+		(!plain && sketch.aggregate) || !Arr.some(vars, (x) => x.kind !== "num")
+	const drawnMatches = bound(false)
+	const matched = folds(drawnMatches.vars) ? bound(true) : drawnMatches
+	const { vars, reads } = matched
+	let rule = matched.rule
 	const predicates: Array<unknown> = []
 	for (const p of sketch.preds) {
 		const x = pick(vars, p.variable)

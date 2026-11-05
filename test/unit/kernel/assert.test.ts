@@ -68,8 +68,9 @@ const elementGen: Gen<Element> = oneOf<Element>([
 ])
 
 /**
- * The multiset oracle: element equality as deepStrictEqual has it on these elements (Object.is on numbers, so -0 is
- * not 0, and the field on records), and each element counted by it.
+ * The set oracle: element equality as deepStrictEqual has it on these elements (Object.is on numbers, so -0 is not 0,
+ * and the field on records), and each element counted by it; two lists are one set when each holds every element once
+ * and the counts agree.
  */
 const sameElement = (x: Element, y: Element): boolean =>
 	typeof x === "number"
@@ -216,9 +217,12 @@ const assertionFails = (block: () => unknown): boolean => {
 	throw outcome.failure
 }
 
-type Change = "permuted" | "removed" | "added" | "replaced"
+type Change = "permuted" | "removed" | "added" | "replaced" | "repeated"
 
-/** A permutation of `xs` by picks, or one element removed, added or replaced by another drawn element. */
+/**
+ * A permutation of `xs` by picks, or one element removed, added or replaced by another drawn element, or one of its
+ * elements repeated.
+ */
 const changed = (
 	xs: ReadonlyArray<Element>,
 	change: Change,
@@ -245,8 +249,17 @@ const changed = (
 			return [...permuted, other]
 		case "replaced":
 			return Arr.map(permuted, (x, i) => (i === at ? other : x))
+		case "repeated":
+			return [
+				...permuted,
+				...(at < 0 ? [other, other] : [defined(permuted[at], "the changed position")])
+			]
 	}
 }
+
+/** Whether a list holds every element once, elements compared as the set oracle compares them. */
+const distinct = (xs: ReadonlyArray<Element>): boolean =>
+	Arr.every(xs, (x, i) => !Arr.some(Arr.drop(xs, i + 1), (y) => sameElement(x, y)))
 
 /** The explorations of this file: every case one draw, one at a time. */
 const spec = {
@@ -276,39 +289,50 @@ const plantedGen =
 	})
 
 describe("the assertion door", () => {
-	it.effect("holds unorderedEqual exactly between lists that are one multiset", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					...spec,
-					suite: "unit/kernel/unordered-equal",
-					draw: drawn((source) => ({
-						xs: source.draw(array(elementGen, { min: 0, max: 6 })),
-						change: source.draw(element(["permuted", "removed", "added", "replaced"] as const)),
-						picks: source.draw(array(pickGen, { min: 6, max: 6 })),
-						other: source.draw(elementGen)
-					})),
-					runs: 300,
-					coverage: required<`${Change} ${"holds" | "fails"}`>(
-						["permuted holds", "removed fails", "added fails", "replaced holds", "replaced fails"],
-						{ cases: 300, sense: notesOnly }
-					)
-				},
-				({ xs, change, picks, other }, c) =>
-					Effect.sync(() => {
-						const ys = changed(xs, change, picks, other)
-						const holds = sameCounts(xs, ys)
-						c.note(`${change} ${holds ? "holds" : "fails"}`)
-						assert.equal(
-							assertionFails(() => {
-								unorderedEqual(xs, ys)
-							}),
-							!holds
+	it.effect(
+		"holds unorderedEqual exactly between lists that are one set, each holding every element once",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						...spec,
+						suite: "unit/kernel/unordered-equal",
+						draw: drawn((source) => ({
+							xs: source.draw(array(elementGen, { min: 0, max: 6 })),
+							change: source.draw(
+								element(["permuted", "removed", "added", "replaced", "repeated"] as const)
+							),
+							picks: source.draw(array(pickGen, { min: 6, max: 6 })),
+							other: source.draw(elementGen)
+						})),
+						runs: 300,
+						coverage: required<`${Change} ${"holds" | "fails"}`>(
+							[
+								"permuted holds",
+								"removed fails",
+								"added fails",
+								"replaced holds",
+								"replaced fails",
+								"repeated fails"
+							],
+							{ cases: 300, sense: notesOnly }
 						)
-					})
+					},
+					({ xs, change, picks, other }, c) =>
+						Effect.sync(() => {
+							const ys = changed(xs, change, picks, other)
+							const holds = sameCounts(xs, ys) && distinct(xs) && distinct(ys)
+							c.note(`${change} ${holds ? "holds" : "fails"}`)
+							assert.equal(
+								assertionFails(() => {
+									unorderedEqual(xs, ys)
+								}),
+								!holds
+							)
+						})
+				)
 			)
-		)
 	)
 
 	it.effect(

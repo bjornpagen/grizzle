@@ -59,6 +59,7 @@ import {
 	type Cell,
 	conservativeMeta,
 	exprsOf,
+	headingOrder,
 	inputsOf,
 	keptRefs,
 	type LiveRefs,
@@ -660,7 +661,7 @@ const build = (yFirst: boolean) => {
 		correlation: [{ parent: "x", child: "x" }],
 		delivered: "array",
 		heading: heading(["x", scalarTypes.uuid], ["y", scalarTypes.uuid]),
-		order: undefined,
+		order: headingOrder(child.heading),
 		loc: undefined,
 		meta: conservativeMeta
 	})

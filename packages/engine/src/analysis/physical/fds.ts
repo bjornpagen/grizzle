@@ -708,8 +708,10 @@ export class Dependencies {
  *
  * Uniqueness is a dependency like any other, into the table's row attribute (`row`): a start identifies at most one
  * row exactly when its closure holds the row, so a superkey question is one closure and no key is ever enumerated,
- * whose minimal keys can be exponentially many (Lucchesi and Osborn). A general functional dependency is not a key:
- * the rows of a bag may repeat, so only what the query structure and the installed keys prove reaches the row. A rule
+ * whose minimal keys can be exponentially many (Lucchesi and Osborn). A general functional dependency is not a key: a
+ * dependency says which columns a row's other columns follow from, never that two rows differ, so a start identifies a
+ * row only when its closure reaches `row`, which only the query structure, an exact duplicate elimination and the
+ * installed keys put there. A rule
  * region identifies its row by every occurrence's (an occurrence's own row, hidden, reached by its source's keys), a
  * union by every arm's and a literal telling each two apart, a placed DISTINCT by its whole heading, and a fragment of
  * at most one row by nothing.

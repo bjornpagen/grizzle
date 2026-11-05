@@ -631,8 +631,15 @@ const isClosed = (root: RelNode): boolean => {
  *   empty relation, never a row of NULL or 0;
  * - Take is the first k tuples of the set under its completed total order;
  * - Recursive is the least fixed point of its step over its base, iterated until no new state appears;
- * - Window is each input tuple with its function's value over its partition in the window's order: an ordinal, a
- *   count or an extreme over the whole partition, or the neighbouring tuple's value with the default past the edge;
+ * - Window is each input tuple with its function's value over its partition in the window's order: an ordinal, the
+ *   neighbouring tuple's value with the default past the edge, or a count, sum, mean or extreme over the tuple's frame
+ *   (its ROWS frame, or the tuples up to its last peer, or the whole partition) and over the frame's tuples its filter
+ *   holds of;
+ * - OrderedSetAggregate is each group's percentile or mode over the group's values sorted as WITHIN GROUP orders;
+ * - Context, Delta, Forbid and Produce are declined: a context's claims are no input of a query case, a delta lives
+ *   only in a write's read-back, a law's violation query is judged by the law host model, and a span producer by the
+ *   producers suite's span model; so are an aggregate over an empty frame and an ordered-set aggregate over no row,
+ *   which are NULLs the reference has no value for;
  * - ApproximateNearest is what an exact search finds: the `take` source tuples of least score, ties broken by the
  *   other columns ascending, one of the candidate sets an approximate index may return. The tie-break is this
  *   evaluator's, not the contract's: an oracle that compares a lowering's candidates with these must declare an

@@ -735,7 +735,7 @@ export const closedMembership = (
 		b.names.codes,
 		mapNonEmpty(side.key, (f) => fieldNamed(closed, f)),
 		side.payload.map((f) => fieldNamed(closed, f)),
-		side.rows,
+		[...side.rows.values()],
 		`the side of ${closed.name} a containment from ${check.relation.name} reads`
 	)
 	const why = lawReasons(check.lawIds)

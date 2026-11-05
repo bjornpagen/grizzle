@@ -106,10 +106,12 @@ type LawColumns = ReadonlyMap<string, ReadonlyMap<ColumnIdent, NativeOf<"LawColu
 /**
  * The compared fields and guards of columns over law columns (law/model/plan.ts sideColumns): two rows agree at them
  * where both meet every column's guard, so that no column is null, and agree at each column's term. A column's term
- * reads one field, its own or the pred's, injective where defined, so two rows agree at it where they agree at that
- * field: its compared fields are its columns' fields, and its guards their guards' distinct conjuncts, one expression
- * each (laws/model/model.ts ColumnLowering). Undefined for columns holding a drawn law column, which the host draws
- * apart and no field determines: only a family's planner writes those rows.
+ * reads at most one field of its own row, injective where defined, so two rows agree at it where they agree at the
+ * field it reads, which is read off the term itself, never off the field that types the column (a constant column's is
+ * its target's, which no row of this relation holds): its compared fields are the fields its columns' terms read, none
+ * for a constant, and its guards their guards' distinct conjuncts, one expression each (laws/model/model.ts
+ * ColumnLowering). Undefined for columns holding a drawn law column or reading one, which the host draws apart and no
+ * field determines: only a family's planner writes those rows.
  */
 const compared = (
 	relation: LawRelation,
@@ -131,12 +133,17 @@ const compared = (
 		if (native.value.kind === "drawn") {
 			return undefined
 		}
+		const reads = columnReads(native.value.term)
+		const fields = readsOf(relation, native.value.term)
+		if (fields.length !== new Set(reads.map((r) => r.name)).size) {
+			return undefined
+		}
 		for (const g of native.value.guard) {
 			if (!guards.has(g)) {
 				guards.set(g, { predicate: g, reads: readsOf(relation, g) })
 			}
 		}
-		equal.push(native.field)
+		equal.push(...fields)
 	}
 	const [first, ...rest] = equal
 	return first === undefined

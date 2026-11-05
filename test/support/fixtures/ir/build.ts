@@ -40,6 +40,7 @@ import {
 	type DeclaredKey,
 	type Heading,
 	type HeadingColumn,
+	headingOrder,
 	type KeySet,
 	type MetaSpec,
 	type NodeSpec,
@@ -867,7 +868,8 @@ export class Ir {
 		correlation: ReadonlyArray<readonly [string, string]>,
 		delivered: "array" | "option" | "one",
 		/**
-		 * A delivered array's order, or undefined for an unordered one (ir/rel.ts AttachDelivery); none other has one.
+		 * A delivered array's order, or undefined for one that states none, which its child's whole heading completes
+		 * (ir/rel.ts AttachDelivery); none other has one.
 		 */
 		completed: CompletedOrder | undefined
 	): RelNode {
@@ -887,7 +889,7 @@ export class Ir {
 			}
 			return this.b.node({ ...body, delivered, order: undefined })
 		}
-		return this.b.node({ ...body, delivered, order: completed })
+		return this.b.node({ ...body, delivered, order: completed ?? headingOrder(child.heading) })
 	}
 
 	/**

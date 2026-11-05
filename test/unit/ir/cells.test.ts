@@ -901,6 +901,7 @@ describe("a side", () => {
 		| "the smallest of several contained keys"
 		| "the first of tied keys"
 		| "a key in another order than the terms"
+		| "a projection's repeats are one row"
 
 	interface Heading {
 		readonly fields: NonEmptyReadonlyArray<string>
@@ -941,9 +942,9 @@ describe("a side", () => {
 
 	/**
 	 * A side is keyed by the smallest declared key whose fields it contains, the first declared among the smallest, in
-	 * that key's order, or else by all its terms, a set; its payload is its other terms in term order; its rows are its
-	 * relation's projected onto them; and they never collide. Oracle: that rule restated as a checker, and a naive
-	 * projection.
+	 * that key's order, or else by all its terms; its payload is its other terms in term order; its rows are its
+	 * relation's projected onto them, a set: one row per key, so two rows the projection makes equal are one; and they
+	 * never collide. Oracle: that rule restated as a checker, and a naive projection deduplicated by its key.
 	 */
 	const keying = ({ fields, keys, terms }: Heading, c: Case<Keyed>) =>
 		Effect.sync(() => {
@@ -956,7 +957,7 @@ describe("a side", () => {
 				Arr.findFirst(contained, (key) => key.length === shortest),
 				() => terms
 			)
-			const side = sideOf({ fields, keys }, terms, rows)
+			const side = sideOf({ fields, keys }, terms, rows, String)
 			assert.deepEqual(side.key, expected)
 			assert.deepEqual(
 				side.payload,
@@ -964,17 +965,30 @@ describe("a side", () => {
 			)
 			const valueOf = (row: ReadonlyArray<number>, field: string): number =>
 				defined(row[fields.indexOf(field)])
+			const projected = Arr.map(rows, (row) => ({
+				key: Arr.map(expected, (field) => valueOf(row, field)),
+				payload: Arr.map(side.payload, (field) => valueOf(row, field))
+			}))
+			const keyText = (key: ReadonlyArray<number>): string => Arr.join(Arr.map(key, String), ",")
+			const byKey = new Map(Arr.map(projected, (row) => [keyText(row.key), row] as const))
 			assert.deepEqual(
-				side.rows,
-				Arr.map(rows, (row) => ({
-					key: Arr.map(expected, (field) => valueOf(row, field)),
-					payload: Arr.map(side.payload, (field) => valueOf(row, field))
-				}))
+				Arr.sort(
+					Arr.map([...side.rows.values()], (row) => keyText(row.key)),
+					Order.String
+				),
+				Arr.sort([...byKey.keys()], Order.String),
+				"one row per key of the projection"
 			)
+			for (const row of side.rows.values()) {
+				assert.deepEqual(row, defined(byKey.get(keyText(row.key))))
+			}
+			if (projected.length > byKey.size) {
+				c.note("a projection's repeats are one row")
+			}
 			const encoded = succeeded(
 				constantOf(
 					{ key: nonEmpty(Arr.map(side.key, () => 2)), payload: Arr.map(side.payload, () => 2) },
-					side.rows
+					[...side.rows.values()]
 				)
 			)
 			if (contained.length === 0) {
@@ -1012,7 +1026,8 @@ describe("a side", () => {
 							"keyed by all its fields",
 							"the smallest of several contained keys",
 							"the first of tied keys",
-							"a key in another order than the terms"
+							"a key in another order than the terms",
+							"a projection's repeats are one row"
 						]),
 						caseHang
 					},
