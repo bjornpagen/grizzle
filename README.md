@@ -488,19 +488,41 @@ other's, and both commit.
 **With grizzle:**
 
 ```ts
-import { capacity, ChangeSet, Db, type Fact, ref, weigh, within } from "@bjornpagen/grizzle"
+import {
+	accumulated,
+	ChangeSet,
+	check,
+	counted,
+	Db,
+	drawn,
+	type Fact,
+	fin,
+	fold,
+	Monoid,
+	natural
+} from "@bjornpagen/grizzle"
 import { Effect } from "effect"
 
-export const Grant = relation("Grant", { id: uuid, org: ClerkOrg, amount: Micros }, ["id"])
+export const Grant = relation(
+	"Grant",
+	{
+		id: uuid,
+		org: ClerkOrg,
+		amount: Micros,
+		debits: drawn(natural),
+		spent: accumulated(Micros, Micros(0n))
+	},
+	["id"]
+)
 export const Debit = relation("Debit", { call: uuid, grant: uuid, amount: Micros }, ["call"])
 
+/** A grant's debits, counted; their amounts summed into what it has spent. */
+const grantDebits = counted(on(Debit, "grant"), fin(Grant, "debits"))
+
 export const Credits = schema("Credits", { Grant, Debit }, [
-	contained(on(Debit, "grant"), on(Grant, "id")),
-	capacity(on(Grant, "id"), {
-		from: on(Debit, "grant"),
-		weight: weigh("amount"),
-		within: within(0n, ref("amount"))
-	})
+	grantDebits,
+	fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
+	check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount))
 ])
 
 export const Metering = role(Credits, "metering", Credits.relations, { write: ["Debit"] })
@@ -577,20 +599,24 @@ CREATE CONSTRAINT TRIGGER entry_balances AFTER INSERT OR UPDATE OR DELETE ON pos
 ```ts
 const AccountCode = str.regex("^[a-z][a-z_]{0,63}$")
 
-export const Entry = relation("Entry", { id: uuid, memo: Prose }, ["id"])
+export const Entry = relation(
+	"Entry",
+	{ id: uuid, memo: Prose, postings: drawn(natural), total: accumulated(pg.bigint, 0n) },
+	["id"]
+)
 export const Posting = relation(
 	"Posting",
 	{ entry: uuid, account: AccountCode, amount: pg.bigint },
 	["entry", "account"]
 )
 
+/** An entry's postings, counted; their amounts summed into its total. */
+const entryPostings = counted(on(Posting, "entry"), fin(Entry, "postings"))
+
 export const Books = schema("Books", { Entry, Posting }, [
-	contained(on(Posting, "entry"), on(Entry, "id")),
-	capacity(on(Entry, "id"), {
-		from: on(Posting, "entry"),
-		weight: weigh("amount"),
-		within: within(0n, 0n)
-	})
+	entryPostings,
+	fold(entryPostings, Monoid.sum, on(Posting, "entry", "amount"), on(Entry, "id", "total")),
+	check("Balanced", Entry, (e) => e.total.eq(0n))
 ])
 ```
 
@@ -1266,11 +1292,15 @@ an outcome on the law `{ kind: "contract", contract: "natural" }`, and another c
 Rules are declared beside the tables, in a schema's list. Here is a box office:
 
 ```ts
-import { capacity, check, contract, key, ref, span, within } from "@bjornpagen/grizzle"
+import { check, contract, counted, drawn, fin, key, natural, span } from "@bjornpagen/grizzle"
 
 const Cents = contract("Cents", pg.bigint, (c) => c.ge(0n))
 
-export const Show = relation("Show", { id: uuid, seats: pg.bigint, price: Cents }, ["id"])
+export const Show = relation(
+	"Show",
+	{ id: uuid, seats: natural, price: Cents, tickets: drawn(natural) },
+	["id"]
+)
 export const Ticket = relation("Ticket", { id: uuid, show: uuid, holder: ClerkUser }, ["id"])
 export const Stage = relation("Stage", { id: uuid, name: Title }, ["id"])
 export const Run = relation("Run", { stage: uuid, nights: span(pg.integer), show: uuid }, [
@@ -1279,12 +1309,12 @@ export const Run = relation("Run", { stage: uuid, nights: span(pg.integer), show
 ])
 
 export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
-	contained(on(Ticket, "show"), on(Show, "id")),
+	counted(on(Ticket, "show"), fin(Show, "tickets")),
 	contained(on(Run, "stage"), on(Stage, "id")),
 	contained(on(Run, "show"), on(Show, "id")),
 	key(on(Ticket, "show", "holder")),
 	check("SomeSeats", Show, (s) => s.seats.ge(1n)),
-	capacity(on(Show, "id"), { from: on(Ticket, "show"), within: within(0n, ref("seats")) })
+	check("NoOversell", Show, (s) => s.le(s.tickets, s.seats))
 ])
 ```
 

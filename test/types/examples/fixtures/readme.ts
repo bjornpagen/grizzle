@@ -1,29 +1,34 @@
 import net from "node:net"
 import { Signer } from "@aws-sdk/rds-signer"
 import {
+	accumulated,
 	alternatives,
 	arm,
 	ChangeSet,
 	CredentialError,
-	capacity,
 	check,
 	closed,
 	closedId,
 	contained,
 	context,
 	contract,
+	counted,
 	Db,
 	DbLayer,
 	type Decimal,
 	defineConfig,
 	derived,
+	drawn,
 	type Fact,
+	fin,
+	fold,
 	type HeadOf,
 	type Infer,
 	type Page,
 	type KeysOf,
 	key,
 	login,
+	Monoid,
 	natural,
 	on,
 	type PageCursor,
@@ -32,7 +37,6 @@ import {
 	pg,
 	pred,
 	query,
-	ref,
 	relation,
 	role,
 	schema,
@@ -43,8 +47,6 @@ import {
 	uuid,
 	type Uuid,
 	v,
-	weigh,
-	within,
 	workload
 } from "@bjornpagen/grizzle"
 import { verifyToken } from "@clerk/backend"
@@ -235,16 +237,26 @@ export const Rooms = schema("Rooms", { Room, Opening, Booking }, [
 ])
 
 /** README: "Hard in Drizzle, one declaration here", 5. A budget no burst of requests can overdraw. */
-export const Grant = relation("Grant", { id: uuid, org: ClerkOrg, amount: Micros }, ["id"])
+export const Grant = relation(
+	"Grant",
+	{
+		id: uuid,
+		org: ClerkOrg,
+		amount: Micros,
+		debits: drawn(natural),
+		spent: accumulated(Micros, Micros(0n))
+	},
+	["id"]
+)
 export const Debit = relation("Debit", { call: uuid, grant: uuid, amount: Micros }, ["call"])
 
+/** A grant's debits, counted; their amounts summed into what it has spent. */
+const grantDebits = counted(on(Debit, "grant"), fin(Grant, "debits"))
+
 export const Credits = schema("Credits", { Grant, Debit }, [
-	contained(on(Debit, "grant"), on(Grant, "id")),
-	capacity(on(Grant, "id"), {
-		from: on(Debit, "grant"),
-		weight: weigh("amount"),
-		within: within(0n, ref("amount"))
-	})
+	grantDebits,
+	fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
+	check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount))
 ])
 
 export const Metering = role(Credits, "metering", Credits.relations, { write: ["Debit"] })
@@ -258,20 +270,24 @@ export const spend = (db: Db<typeof Metering, unknown>, debit: Fact<typeof Debit
 /** README: "Hard in Drizzle, one declaration here", 6. Books that always balance. */
 const AccountCode = str.regex("^[a-z][a-z_]{0,63}$")
 
-export const Entry = relation("Entry", { id: uuid, memo: Prose }, ["id"])
+export const Entry = relation(
+	"Entry",
+	{ id: uuid, memo: Prose, postings: drawn(natural), total: accumulated(pg.bigint, 0n) },
+	["id"]
+)
 export const Posting = relation(
 	"Posting",
 	{ entry: uuid, account: AccountCode, amount: pg.bigint },
 	["entry", "account"]
 )
 
+/** An entry's postings, counted; their amounts summed into its total. */
+const entryPostings = counted(on(Posting, "entry"), fin(Entry, "postings"))
+
 export const Books = schema("Books", { Entry, Posting }, [
-	contained(on(Posting, "entry"), on(Entry, "id")),
-	capacity(on(Entry, "id"), {
-		from: on(Posting, "entry"),
-		weight: weigh("amount"),
-		within: within(0n, 0n)
-	})
+	entryPostings,
+	fold(entryPostings, Monoid.sum, on(Posting, "entry", "amount"), on(Entry, "id", "total")),
+	check("Balanced", Entry, (e) => e.total.eq(0n))
 ])
 
 /** README: "Hard in Drizzle, one declaration here", 7. States that carry their own data. */
@@ -620,7 +636,11 @@ export const loadViews = (views: ReadonlyArray<{ readonly post: Uuid; readonly v
 /** README: "Rules", the box office. */
 const Cents = contract("Cents", pg.bigint, (c) => c.ge(0n))
 
-export const Show = relation("Show", { id: uuid, seats: pg.bigint, price: Cents }, ["id"])
+export const Show = relation(
+	"Show",
+	{ id: uuid, seats: natural, price: Cents, tickets: drawn(natural) },
+	["id"]
+)
 export const Ticket = relation("Ticket", { id: uuid, show: uuid, holder: ClerkUser }, ["id"])
 export const Stage = relation("Stage", { id: uuid, name: Title }, ["id"])
 export const Run = relation("Run", { stage: uuid, nights: span(pg.integer), show: uuid }, [
@@ -629,12 +649,12 @@ export const Run = relation("Run", { stage: uuid, nights: span(pg.integer), show
 ])
 
 export const BoxOffice = schema("BoxOffice", { Show, Ticket, Stage, Run }, [
-	contained(on(Ticket, "show"), on(Show, "id")),
+	counted(on(Ticket, "show"), fin(Show, "tickets")),
 	contained(on(Run, "stage"), on(Stage, "id")),
 	contained(on(Run, "show"), on(Show, "id")),
 	key(on(Ticket, "show", "holder")),
 	check("SomeSeats", Show, (s) => s.seats.ge(1n)),
-	capacity(on(Show, "id"), { from: on(Ticket, "show"), within: within(0n, ref("seats")) })
+	check("NoOversell", Show, (s) => s.le(s.tickets, s.seats))
 ])
 
 /** README: "Rules", a side's selection and its pred term: a show's waitlist. */
