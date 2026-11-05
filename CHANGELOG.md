@@ -510,6 +510,22 @@ How to upgrade:
   to skip the check, or a role record written out as a literal.
 - **Format and state:** none. snapshot.json and meta.json do not change, and no installed object changes.
 
+#### A `str.regex` pattern is bounded by PostgreSQL's regex compile space alone, never by its length or nesting
+
+- **The budget of 512 regex constructs is removed.** A pattern of any length and nesting depth parses, a group nested
+  100,000 deep included, and compilation refuses one with `ResourceBound` only past grizzle's measures of PostgreSQL's
+  regex compile space (`REG_MAX_COMPILE_SPACE`): 4,096 positions once counted repetitions are written out, 65,536
+  pairs of positions joined by empty paths, 8 anchors, and 8,192 for anchors times positions. A pattern the budget
+  refused may now be admitted, such as RFC 3986's URI-reference grammar written as one pattern.
+- **`CompileBound` loses `regexConstructs`, and `regexCompileSpace.measure` is structured.** `measure` was a sentence;
+  it is now a `RegexSpaceMeasure`, exported: `{ kind: "positions" | "anchors", limit, needed }`,
+  `{ kind: "anchorWeight", limit, anchors, positions }`, `{ kind: "closurePairs", limit }` or `{ kind: "anchorLoop" }`.
+  The error's message states the measure and names PostgreSQL's limit.
+  - Codemod: a branch on `bound.kind === "regexConstructs"` → delete it; a read of `bound.measure` as text → a switch
+    on `bound.measure.kind`, or the error's message.
+- **Format and state:** none. A pattern the budget admitted keeps its CHECK, its canonical key and its digest, so
+  snapshot.json and meta.json do not change, and no installed object changes.
+
 #### The unit relation is a relation input: every insert of serial columns alone compiles; a relation parameter has a field (#2)
 
 - **An insert whose every carried column is serial compiles and inserts.** Before, an insert through a writable query

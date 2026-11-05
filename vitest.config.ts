@@ -5,8 +5,8 @@ import { Option } from "effect"
  * `pnpm test`: the tests that need no network, the unit tier, the type tier and the testing library's own suite. The type tier's checks are one tsgo
  * program, built once per run by its global setup while the files run (test/types/batch/global-setup.ts). A file named
  * `<name>.exclusive.test.ts` runs alone, after every other. The engine's generative suites of the SQL printer and audit,
- * the lowerings, the migration drafter and the write compiler run a second time in the small-stack project, at about a
- * sixth of Node's default stack.
+ * the lowerings, the migration drafter, the write compiler and the text refinements run a second time in the
+ * small-stack project, at about a sixth of Node's default stack.
  */
 export default defineTestConfig({
 	include: [
@@ -28,6 +28,7 @@ export default defineTestConfig({
 		"test/unit/lower/**/*.test.ts",
 		"test/unit/deploy/**/*.test.ts",
 		"test/unit/write/**/*.test.ts",
+		"test/unit/text/**/*.test.ts",
 		"test/unit/core/lines.test.ts"
 	]
 })

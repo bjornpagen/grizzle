@@ -1,4 +1,5 @@
-import { compareText } from "#compiler/core/canonical.ts"
+import { defect } from "#compiler/core/invariant.ts"
+import { postorder } from "#compiler/ir/dag.ts"
 import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
 
 /**
@@ -22,6 +23,10 @@ import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
  * A pattern's IR: a node of a language, or the empty language, which the constructors collapse to the root (a sequence
  * with an empty-language item is the empty language, an alternation drops such an arm, a repetition of one is the
  * empty string or the empty language), so a node's children are never it.
+ *
+ * The IR may nest to any depth: every walk of it keeps its frames on the heap, never the call stack. Its analyses fold
+ * children first (folded), its canonical text and order read pieces off a stack (canonicalText, compareCanonical), and
+ * so do the NFA builder (nfa.ts), the ARE printer (text/are.ts) and the length bounds (text/bounds.ts).
  */
 export type RegexNode = { readonly kind: "never" } | LiveNode
 
@@ -86,18 +91,203 @@ export const seq = (items: ReadonlyArray<RegexNode>): RegexNode => {
 	return Object.freeze({ kind: "seq", items: Object.freeze(flat) })
 }
 
-/** `table`'s value for `node`, computed by `compute` the first time the table is asked for it. */
-const tabled = <A>(table: Map<RegexNode, A>, node: RegexNode, compute: () => A): A => {
+/** A node's children, in order: a sequence's items, an alternation's arms, a repetition's body. */
+const childrenOf = (node: RegexNode): ReadonlyArray<LiveNode> => {
+	switch (node.kind) {
+		case "seq":
+			return node.items
+		case "alt":
+			return node.arms
+		case "repeat":
+			return [node.body]
+		case "empty":
+		case "end":
+		case "never":
+		case "set":
+		case "start":
+			return []
+	}
+}
+
+/**
+ * `table`'s value for `root`, which `compute` gives each node below it that the table lacks first, every node after
+ * its children (ir/dag.ts postorder, whose frames are on the heap), so an analysis reads a node of any depth without
+ * recursing. `compute` reads a child's value through `of`. The one site of the fact that the order tables each child
+ * before its parent.
+ */
+export const folded = <N extends RegexNode, A>(
+	table: Map<RegexNode, A>,
+	root: N,
+	compute: (node: N | LiveNode, of: (child: LiveNode) => A) => A
+): A => {
+	const of = (node: RegexNode): A => {
+		const value = table.get(node)
+		if (value === undefined) {
+			throw defect("a regex node's analysis, which postorder tables before its parent's")
+		}
+		return value
+	}
+	for (const node of postorder<N | LiveNode>([root], (n) => (table.has(n) ? [] : childrenOf(n)))) {
+		if (!table.has(node)) {
+			table.set(node, compute(node, of))
+		}
+	}
+	return of(root)
+}
+
+/** The pieces of a list in a node's canonical text: its opening, the nodes separated by commas, and its closing. */
+const listed = (open: string, nodes: ReadonlyArray<LiveNode>): ReadonlyArray<string | LiveNode> => {
+	const out: Array<string | LiveNode> = [open]
+	for (const [i, node] of nodes.entries()) {
+		if (i > 0) {
+			out.push(",")
+		}
+		out.push(node)
+	}
+	out.push("]}")
+	return out
+}
+
+/** A node's canonical text as its pieces: literal text, and the children whose own canonical text stands there. */
+type Pieces = ReadonlyArray<string | LiveNode>
+
+/**
+ * A node's canonical text, JSON.stringify(node), as its pieces, kept in `table`: nodes are immutable, so each node's
+ * pieces are written once while the table lives.
+ */
+const piecesOf = (node: RegexNode, table: Map<RegexNode, Pieces>): Pieces => {
 	const known = table.get(node)
 	if (known !== undefined) {
 		return known
 	}
-	const value = compute()
-	table.set(node, value)
-	return value
+	const pieces = writtenPieces(node)
+	table.set(node, pieces)
+	return pieces
 }
 
-/** Above the written-out position budget (8 times regexMaxNodes, 4,096 in production). */
+const writtenPieces = (node: RegexNode): Pieces => {
+	switch (node.kind) {
+		case "seq":
+			return listed(`{"kind":"seq","items":[`, node.items)
+		case "alt":
+			return listed(`{"kind":"alt","arms":[`, node.arms)
+		case "repeat":
+			return [
+				`{"kind":"repeat","body":`,
+				node.body,
+				`,"min":${node.min},"max":${JSON.stringify(node.max)}}`
+			]
+		case "empty":
+		case "end":
+		case "never":
+		case "set":
+		case "start":
+			return [JSON.stringify(node)]
+	}
+}
+
+/**
+ * A node's canonical text, JSON.stringify(node), written from its pieces on a stack of the pieces still to write, so a
+ * node of any depth is written without recursing.
+ */
+export const canonicalText = (node: RegexNode): string => {
+	const table = new Map<RegexNode, Pieces>()
+	const out: Array<string> = []
+	const pending: Array<string | RegexNode> = [node]
+	for (let piece = pending.pop(); piece !== undefined; piece = pending.pop()) {
+		if (typeof piece === "string") {
+			out.push(piece)
+		} else {
+			for (const inner of piecesOf(piece, table).toReversed()) {
+				pending.push(inner)
+			}
+		}
+	}
+	return out.join("")
+}
+
+/**
+ * A reading of a node's canonical text, left to right: the pieces still to read, the next one last, and the literal
+ * being read with how far into it the reading is.
+ */
+interface Reading {
+	readonly pending: Array<string | RegexNode>
+	text: string
+	at: number
+}
+
+/**
+ * Where a reading stands once the literal it reads is spent: inside a literal ("text"), past its last piece ("end"), or
+ * at a node, taken off the pieces still to read, whose text comes next.
+ */
+const settle = (reading: Reading): RegexNode | "text" | "end" => {
+	while (reading.at === reading.text.length) {
+		const piece = reading.pending.pop()
+		if (piece === undefined) {
+			return "end"
+		}
+		if (typeof piece !== "string") {
+			return piece
+		}
+		reading.text = piece
+		reading.at = 0
+	}
+	return "text"
+}
+
+/** Goes on reading a node's text: its pieces come next. */
+const enter = (reading: Reading, node: RegexNode, table: Map<RegexNode, Pieces>): void => {
+	for (const piece of piecesOf(node, table).toReversed()) {
+		reading.pending.push(piece)
+	}
+}
+
+/**
+ * The order of two nodes' canonical texts (core/canonical.ts compareText, UTF-16 code-unit order), read from their
+ * pieces (kept in `table`) without writing either text: the two readings advance together, a node met at the same
+ * place in both is skipped whole, and so is a literal both read whole, and the first code unit that differs decides.
+ * It reads only up to that unit, past any subtree the two share, so ordering costs no node's whole text and a node of
+ * any depth compares without recursing.
+ */
+const compareCanonical = (a: RegexNode, b: RegexNode, table: Map<RegexNode, Pieces>): number => {
+	const x: Reading = { pending: [a], text: "", at: 0 }
+	const y: Reading = { pending: [b], text: "", at: 0 }
+	for (;;) {
+		const p = settle(x)
+		const q = settle(y)
+		if (p === "end" || q === "end") {
+			return p === q ? 0 : p === "end" ? -1 : 1
+		}
+		if (p === "text" && q === "text") {
+			if (x.at === 0 && y.at === 0 && x.text === y.text) {
+				x.at = x.text.length
+				y.at = y.text.length
+				continue
+			}
+			const n = Math.min(x.text.length - x.at, y.text.length - y.at)
+			for (let i = 0; i < n; i++) {
+				const d = x.text.charCodeAt(x.at + i) - y.text.charCodeAt(y.at + i)
+				if (d !== 0) {
+					return d < 0 ? -1 : 1
+				}
+			}
+			x.at += n
+			y.at += n
+		} else if (p !== q) {
+			if (p !== "text") {
+				enter(x, p, table)
+			}
+			if (q !== "text") {
+				enter(y, q, table)
+			}
+		}
+	}
+}
+
+/**
+ * The largest body repeat rewrites, in written-out positions: above the compile-space measure's (core/policy.ts
+ * regexMaxPositions), so a body the rewrite leaves alone is one whose rewritten pattern the measure would refuse too.
+ */
 const rewriteBudget = 1 << 14
 
 /** `body*` for a body with no zero-width match, which needs none of repeat's rewrites. */
@@ -123,11 +313,12 @@ interface ZeroPaths {
 /**
  * The constructors that read the IR's analyses, alternation and repetition, and the analyses themselves. Nodes are
  * immutable and shared, so the IR is a DAG; the rewrites below share subtrees freely. Each analysis of a node is
- * computed once while its builder lives, so it costs the DAG's size, never the size of the tree it unfolds to: a parse
- * builds its pattern with one builder, and each analysis this module exports on its own reads a builder of its call.
+ * computed once while its builder lives, folded children first (folded), so it costs the DAG's size, never the size of
+ * the tree it unfolds to, and no depth: a parse builds its pattern with one builder, and each analysis this module
+ * exports on its own reads a builder of its call.
  */
 export class RegexBuilder {
-	readonly #keys = new Map<RegexNode, string>()
+	readonly #pieces = new Map<RegexNode, Pieces>()
 	readonly #zeroWidths = new Map<RegexNode, boolean>()
 	readonly #zeroPaths = new Map<RegexNode, ZeroPaths>()
 	readonly #loops = new Map<RegexNode, boolean>()
@@ -137,31 +328,8 @@ export class RegexBuilder {
 	readonly #assertions = new Map<RegexNode, number>()
 
 	/**
-	 * A total, deterministic order on nodes, by their canonical text: JSON.stringify(node), built from the children's
-	 * keys.
-	 */
-	#key(node: RegexNode): string {
-		return tabled(this.#keys, node, () => {
-			switch (node.kind) {
-				case "seq":
-					return `{"kind":"seq","items":[${node.items.map((item) => this.#key(item)).join(",")}]}`
-				case "alt":
-					return `{"kind":"alt","arms":[${node.arms.map((arm) => this.#key(arm)).join(",")}]}`
-				case "repeat":
-					return `{"kind":"repeat","body":${this.#key(node.body)},"min":${node.min},"max":${JSON.stringify(node.max)}}`
-				case "empty":
-				case "end":
-				case "never":
-				case "set":
-				case "start":
-					return JSON.stringify(node)
-			}
-		})
-	}
-
-	/**
-	 * The alternation of the arms, flattened, deduplicated and sorted by canonical text: never arms drop, and the arms'
-	 * sets merge into one set, which is nonempty because each of them is.
+	 * The alternation of the arms, flattened, deduplicated and sorted by canonical text (compareCanonical): never arms
+	 * drop, and the arms' sets merge into one set, which is nonempty because each of them is.
 	 */
 	alt(arms: ReadonlyArray<RegexNode>): RegexNode {
 		const flat: Array<LiveNode> = []
@@ -182,13 +350,14 @@ export class RegexBuilder {
 		if (sets.length > 0) {
 			flat.push(Object.freeze({ kind: "set", set: union(sets) }))
 		}
-		const byKey = new Map<string, LiveNode>()
-		for (const arm of flat) {
-			byKey.set(this.#key(arm), arm)
+		const compare = (a: LiveNode, b: LiveNode): number => compareCanonical(a, b, this.#pieces)
+		const sorted: Array<LiveNode> = []
+		for (const arm of flat.toSorted(compare)) {
+			const previous = sorted.at(-1)
+			if (previous === undefined || compare(previous, arm) !== 0) {
+				sorted.push(arm)
+			}
 		}
-		const sorted = [...byKey.entries()]
-			.toSorted(([a], [b]) => compareText(a, b))
-			.map(([, arm]) => arm)
 		const [only] = sorted
 		if (only === undefined) {
 			return never
@@ -201,8 +370,8 @@ export class RegexBuilder {
 
 	/** Whether every match of the node is zero-width: it consumes no code point, only tests assertions. */
 	#zeroWidth(node: RegexNode): boolean {
-		return tabled(this.#zeroWidths, node, () => {
-			switch (node.kind) {
+		return folded(this.#zeroWidths, node, (n, of) => {
+			switch (n.kind) {
 				case "empty":
 				case "never":
 				case "start":
@@ -211,11 +380,11 @@ export class RegexBuilder {
 				case "set":
 					return false
 				case "seq":
-					return node.items.every((item) => this.#zeroWidth(item))
+					return n.items.every((item) => of(item))
 				case "alt":
-					return node.arms.every((arm) => this.#zeroWidth(arm))
+					return n.arms.every((arm) => of(arm))
 				case "repeat":
-					return this.#zeroWidth(node.body)
+					return of(n.body)
 			}
 		})
 	}
@@ -269,17 +438,14 @@ export class RegexBuilder {
 
 	/** Whether a repetition still loops through an assertion: one whose rewrite exceeded `rewriteBudget`. */
 	loopsThroughAnchor(node: RegexNode): boolean {
-		return tabled(this.#loops, node, () => {
-			switch (node.kind) {
+		return folded(this.#loops, node, (n, of) => {
+			switch (n.kind) {
 				case "seq":
-					return node.items.some((item) => this.loopsThroughAnchor(item))
+					return n.items.some((item) => of(item))
 				case "alt":
-					return node.arms.some((arm) => this.loopsThroughAnchor(arm))
+					return n.arms.some((arm) => of(arm))
 				case "repeat":
-					return (
-						(node.max === "unbounded" && this.#zeroPathsOf(node.body).asserted) ||
-						this.loopsThroughAnchor(node.body)
-					)
+					return (n.max === "unbounded" && this.#zeroPathsOf(n.body).asserted) || of(n.body)
 				case "empty":
 				case "never":
 				case "set":
@@ -292,23 +458,23 @@ export class RegexBuilder {
 
 	/** The zero-width matches of a node: what it matches without consuming a code point, as a zero-width node. */
 	zeroPart(node: RegexNode): RegexNode {
-		return tabled(this.#zeroParts, node, () => {
-			switch (node.kind) {
+		return folded(this.#zeroParts, node, (n, of) => {
+			switch (n.kind) {
 				case "empty":
 				case "never":
 				case "start":
 				case "end":
-					return node
+					return n
 				case "set":
 					return never
 				case "seq":
-					return seq(node.items.map((item) => this.zeroPart(item)))
+					return seq(n.items.map((item) => of(item)))
 				case "alt":
-					return this.alt(node.arms.map((arm) => this.zeroPart(arm)))
+					return this.alt(n.arms.map((arm) => of(arm)))
 				case "repeat": {
 					/** Zero-width iterations test their assertions at one position, so any positive number of them is one. */
-					const once = this.zeroPart(node.body)
-					return node.min === 0 ? this.alt([empty, once]) : once
+					const once = of(n.body)
+					return n.min === 0 ? this.alt([empty, once]) : once
 				}
 			}
 		})
@@ -319,24 +485,24 @@ export class RegexBuilder {
 	 * that consumes, the items before it matching zero-width.
 	 */
 	#consuming(node: RegexNode): RegexNode {
-		return tabled(this.#consumings, node, () => {
-			switch (node.kind) {
+		return folded(this.#consumings, node, (n, of) => {
+			switch (n.kind) {
 				case "empty":
 				case "never":
 				case "start":
 				case "end":
 					return never
 				case "set":
-					return node
+					return n
 				case "alt":
-					return this.alt(node.arms.map((arm) => this.#consuming(arm)))
+					return this.alt(n.arms.map((arm) => of(arm)))
 				case "seq":
 					return this.alt(
-						node.items.map((item, i) =>
+						n.items.map((item, i) =>
 							seq([
-								...node.items.slice(0, i).map((before) => this.zeroPart(before)),
-								this.#consuming(item),
-								...node.items.slice(i + 1)
+								...n.items.slice(0, i).map((before) => this.zeroPart(before)),
+								of(item),
+								...n.items.slice(i + 1)
 							])
 						)
 					)
@@ -347,16 +513,16 @@ export class RegexBuilder {
 					 * match, and however many there were, the count of the remaining iterations can be anything up to
 					 * max - 2 while the whole stays within min..max.
 					 */
-					const { body, min, max } = node
+					const { body, min, max } = n
 					const rest = (lo: number, hi: number | "unbounded"): RegexNode =>
 						hi !== "unbounded" && hi < lo ? never : this.repeat(body, lo, hi)
 					const first = seq([
-						this.#consuming(body),
+						of(body),
 						rest(Math.max(min - 1, 0), max === "unbounded" ? max : max - 1)
 					])
 					const later = seq([
 						this.zeroPart(body),
-						this.#consuming(body),
+						of(body),
 						rest(0, max === "unbounded" ? max : max - 2)
 					])
 					return this.alt([first, later])
@@ -374,17 +540,14 @@ export class RegexBuilder {
 	 * body.
 	 */
 	expandedSize(node: RegexNode): number {
-		return tabled(this.#sizes, node, () => {
-			switch (node.kind) {
+		return folded(this.#sizes, node, (n, of) => {
+			switch (n.kind) {
 				case "seq":
-					return node.items.reduce((n, item) => n + this.expandedSize(item), 0)
+					return n.items.reduce((total, item) => total + of(item), 0)
 				case "alt":
-					return node.arms.reduce(
-						(n, arm) => (arm.kind === "empty" ? n : n + this.expandedSize(arm)),
-						0
-					)
+					return n.arms.reduce((total, arm) => (arm.kind === "empty" ? total : total + of(arm)), 0)
 				case "repeat":
-					return copiesOf(node) * this.expandedSize(node.body)
+					return copiesOf(n) * of(n.body)
 				case "empty":
 				case "never":
 				case "set":
@@ -401,17 +564,17 @@ export class RegexBuilder {
 	 * crosses, so its compile space grows with this count times the automaton's size.
 	 */
 	expandedAssertions(node: RegexNode): number {
-		return tabled(this.#assertions, node, () => {
-			switch (node.kind) {
+		return folded(this.#assertions, node, (n, of) => {
+			switch (n.kind) {
 				case "start":
 				case "end":
 					return 1
 				case "seq":
-					return node.items.reduce((n, item) => n + this.expandedAssertions(item), 0)
+					return n.items.reduce((total, item) => total + of(item), 0)
 				case "alt":
-					return node.arms.reduce((n, arm) => n + this.expandedAssertions(arm), 0)
+					return n.arms.reduce((total, arm) => total + of(arm), 0)
 				case "repeat":
-					return copiesOf(node) * this.expandedAssertions(node.body)
+					return copiesOf(n) * of(n.body)
 				case "empty":
 				case "never":
 				case "set":
@@ -421,8 +584,8 @@ export class RegexBuilder {
 	}
 
 	#zeroPathsOf(node: RegexNode): ZeroPaths {
-		return tabled(this.#zeroPaths, node, () => {
-			switch (node.kind) {
+		return folded(this.#zeroPaths, node, (n, of) => {
+			switch (n.kind) {
 				case "empty":
 					return { plain: true, asserted: false }
 				case "start":
@@ -432,7 +595,7 @@ export class RegexBuilder {
 				case "set":
 					return { plain: false, asserted: false }
 				case "seq": {
-					const paths = node.items.map((item) => this.#zeroPathsOf(item))
+					const paths = n.items.map((item) => of(item))
 					const passable = paths.every((p) => p.plain || p.asserted)
 					return {
 						plain: paths.every((p) => p.plain),
@@ -440,12 +603,12 @@ export class RegexBuilder {
 					}
 				}
 				case "alt": {
-					const paths = node.arms.map((arm) => this.#zeroPathsOf(arm))
+					const paths = n.arms.map((arm) => of(arm))
 					return { plain: paths.some((p) => p.plain), asserted: paths.some((p) => p.asserted) }
 				}
 				case "repeat": {
-					const body = this.#zeroPathsOf(node.body)
-					return { plain: node.min === 0 || body.plain, asserted: body.asserted }
+					const body = of(n.body)
+					return { plain: n.min === 0 || body.plain, asserted: body.asserted }
 				}
 			}
 		})

@@ -25,8 +25,7 @@ import {
 	analyzeText,
 	languageOf,
 	type TextRefinement,
-	textInfo,
-	type textLimits
+	textInfo
 } from "#compiler/text/refinement.ts"
 
 export { plainType, wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -142,9 +141,8 @@ export const accepts = (refinement: TextRefinement, value: string): boolean =>
 	matches(buildNfa(refinement.ir), value)
 
 /**
- * The language of a parsed pattern (scalar/regex/parse.ts parsePattern under the same limits), classified as
+ * The language of a parsed pattern (scalar/regex/parse.ts parsePattern), classified as
  * analyzeText classifies it (text/refinement.ts languageOf): an empty language is the refusal "matches no admitted text
  * value".
  */
-export const analyzeLanguage = (ir: RegexNode, limits: ReturnType<typeof textLimits>) =>
-	languageOf(ir, buildNfa(ir), limits)
+export const analyzeLanguage = (ir: RegexNode) => languageOf(ir, buildNfa(ir))

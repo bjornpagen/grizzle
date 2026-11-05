@@ -35,14 +35,51 @@ export type Artifact =
 	| "fingerprint"
 
 /**
+ * The measure of a pattern's automaton (text/refinement.ts analyzeText) that puts it past PostgreSQL's regex compile
+ * space, with the facts it states, each bound a core/policy.ts constant:
+ * - `positions`: `needed` NFA positions once counted repetitions are written out, past `limit` (regexMaxPositions);
+ * - `anchors`: `needed` anchor positions written out, past `limit` (regexMaxAnchors);
+ * - `anchorWeight`: `anchors` anchors over `positions` positions, a product past `limit` (regexMaxAnchorWeight);
+ * - `closurePairs`: more than `limit` pairs of NFA states joined by empty paths (regexMaxClosurePairs), counted only
+ *   until they pass it;
+ * - `anchorLoop`: an unbounded repetition of a body that can match zero-width through an anchor, which PostgreSQL
+ *   breaks by cloning states exponentially and which is too large to rewrite as a loop of consuming matches.
+ */
+export type RegexSpaceMeasure =
+	| { readonly kind: "positions"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "anchors"; readonly limit: number; readonly needed: number }
+	| {
+			readonly kind: "anchorWeight"
+			readonly limit: number
+			readonly anchors: number
+			readonly positions: number
+	  }
+	| { readonly kind: "closurePairs"; readonly limit: number }
+	| { readonly kind: "anchorLoop" }
+
+const regexSpaceText = (measure: RegexSpaceMeasure): string => {
+	switch (measure.kind) {
+		case "positions":
+			return `writes out to ${measure.needed} NFA positions, more than ${measure.limit}`
+		case "anchors":
+			return `writes out ${measure.needed} anchors, more than ${measure.limit}`
+		case "anchorWeight":
+			return `writes out ${measure.anchors} anchors over ${measure.positions} NFA positions, a product of more than ${measure.limit}`
+		case "closurePairs":
+			return `joins more than ${measure.limit} pairs of NFA states by empty paths`
+		case "anchorLoop":
+			return "repeats without bound a body that can match zero-width through an anchor, too large to write as a loop of consuming matches"
+	}
+}
+
+/**
  * The bound a ResourceBound crossed, with the facts it states:
  * - `budget`: a compiler budget's charge (core/budget.ts BudgetMeter), its limit and the total the charge needed;
  * - `rewriteSteps`: the steps of the rewrite pass `rewrite`, its limit and the step that crossed it;
  * - `rewriteMeasure`: a rewrite of the pass `rewrite` whose measure did not strictly decrease, `before` to `after`;
  * - `nesting`: a container nested deeper than `limit`;
  * - `carriers`: more than `limit` carriers of one heading's column types in one program;
- * - `regexConstructs`: a pattern of more than `limit` regex constructs;
- * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts above PostgreSQL's regex compile space;
+ * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts past PostgreSQL's regex compile space;
  * - `text`: a text grizzle builds as one string, `needed` UTF-16 code units long, past `limit` (core/policy.ts
  *   textMaxLength);
  * - `numericDigits`: a numeric expression whose value may need `needed` integer digits, past numeric's `limit`
@@ -69,8 +106,11 @@ export type CompileBound =
 	  }
 	| { readonly kind: "nesting"; readonly limit: number }
 	| { readonly kind: "carriers"; readonly limit: number }
-	| { readonly kind: "regexConstructs"; readonly limit: number }
-	| { readonly kind: "regexCompileSpace"; readonly pattern: string; readonly measure: string }
+	| {
+			readonly kind: "regexCompileSpace"
+			readonly pattern: string
+			readonly measure: RegexSpaceMeasure
+	  }
 	| { readonly kind: "text"; readonly limit: number; readonly needed: number }
 	| { readonly kind: "numericDigits"; readonly limit: number; readonly needed: number }
 
@@ -86,10 +126,8 @@ const boundText = (bound: CompileBound): string => {
 			return `nesting depth at most ${bound.limit}`
 		case "carriers":
 			return `at most ${bound.limit} carriers of one heading's column types in one program`
-		case "regexConstructs":
-			return `the pattern exceeds the fixed budget of ${bound.limit} regex constructs`
 		case "regexCompileSpace":
-			return `${bound.pattern} ${bound.measure}, above the fixed budget that keeps it inside PostgreSQL's regex compile space`
+			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past grizzle's measure of PostgreSQL's regex compile space (REG_MAX_COMPILE_SPACE), beyond which PostgreSQL refuses a pattern as "regular expression is too complex"; write a smaller pattern, or bound the text's length with Compute.charLength in a contract predicate`
 		case "text":
 			return `a text of at most ${bound.limit} UTF-16 code units, JavaScript's longest string (needed ${bound.needed})`
 		case "numericDigits":

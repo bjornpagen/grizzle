@@ -1,4 +1,5 @@
 import { catchSignal } from "#compiler/core/canonical.ts"
+import { regexMaxRepeat } from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import {
@@ -23,20 +24,13 @@ export const isRegexFlags = (value: unknown): value is RegexFlags => value === "
 
 /** A precise diagnostic: where in the source (a code-point offset), which construct, and why. */
 export interface RegexDiagnostic {
-	/** Why, as the CompileError it becomes (text/refinement.ts): a malformed pattern, a construct outside the fragment, or past the construct budget. */
-	readonly reason: "MalformedDescription" | "UnsupportedOperation" | "ResourceBound"
+	/** Why, as the CompileError it becomes (text/refinement.ts): a malformed pattern, or a construct outside the fragment. */
+	readonly reason: "MalformedDescription" | "UnsupportedOperation"
 	/** The code-point offset of the construct in the source. */
 	readonly offset: number
 	/** The construct as written, for example "(?=" or "\\s". */
 	readonly construct: string
 	readonly message: string
-}
-
-export interface ParseLimits {
-	/** Parsed constructs (core/policy.ts regexMaxNodes in production). */
-	readonly maxNodes: number
-	/** PostgreSQL's explicit repetition limit, core/policy.ts regexMaxRepeat. */
-	readonly maxRepeat: number
 }
 
 /** The parser's refusal, thrown at the first one and caught by parsePattern. */
@@ -138,29 +132,73 @@ const isPropertyValueChar = (c: number | undefined): boolean =>
  */
 const refusedSet = domain
 
+/** What an open group's body becomes once the group closes: an atom, or, for a lookaround, an assertion. */
+type Closes = "node" | "assertion"
+
+/**
+ * What the scan reads at an atom's position: a node a quantifier may follow; an assertion, which none may follow in
+ * Unicode mode (ECMA-262 Term[U]) and whose placeholder is the empty string; or a group's opening, whose body the scan
+ * reads next.
+ */
+type Atom =
+	| { readonly kind: "node"; readonly node: Ir.RegexNode }
+	| { readonly kind: "assertion" }
+	| { readonly kind: "group"; readonly at: number; readonly closes: Closes }
+
+/**
+ * A disjunction the scan is reading: the whole pattern's, or the body of an open group, which closes into a term of the
+ * disjunction around it (`outer`). The open groups are a chain of these from the innermost out, the scan's explicit
+ * stack, so a pattern nested to any depth is read in one loop: its depth costs heap, never the call stack, and needs no
+ * bound.
+ */
+interface Disjunction {
+	readonly of:
+		| { readonly kind: "pattern" }
+		| {
+				readonly kind: "group"
+				/** The code-point offset of the group's `(`. */
+				readonly at: number
+				readonly closes: Closes
+				readonly outer: Disjunction
+		  }
+	/** The disjunction's number, in the order the scan opens them, by which an arm path names it. */
+	readonly id: number
+	/** The alternatives read whole, each the sequence of its terms. */
+	readonly arms: Array<Ir.RegexNode>
+	/** The terms of the alternative being read. */
+	terms: Array<Ir.RegexNode>
+}
+
+/** Where the scan stands in `open`: for each disjunction from the outermost in, its id and the arm being read. */
+const armPath = (open: Disjunction): ArmPath => {
+	const path: Array<readonly [number, number]> = []
+	for (
+		let d: Disjunction | undefined = open;
+		d !== undefined;
+		d = d.of.kind === "group" ? d.of.outer : undefined
+	) {
+		path.push([d.id, d.arms.length])
+	}
+	return path.toReversed()
+}
+
 class Parser {
 	readonly #cps: ReadonlyArray<number>
 	/** What dot matches: under the s and u flags, every code point. */
 	readonly #dot: CharSet
-	readonly #limits: ParseLimits
 	#pos = 0
-	#nodes = 0
 	/** The first construct outside the fragment, reported once the whole pattern is known to be valid ECMAScript. */
 	#deferred: Failure | undefined
-	/** Set by an assertion atom (\b, \B, a lookaround), which ECMAScript's Unicode mode does not let a quantifier follow. */
-	#assertion = false
 	#captures = 0
 	readonly #named: Array<{ readonly name: string; readonly path: ArmPath }> = []
 	readonly #references: Array<Reference> = []
-	readonly #path: Array<readonly [number, number]> = []
 	#disjunctions = 0
 	/** The builder of the pattern's IR, whose analyses of its nodes last the parse. */
 	readonly #ir = new Ir.RegexBuilder()
 
-	constructor(cps: ReadonlyArray<number>, flags: RegexFlags, limits: ParseLimits) {
+	constructor(cps: ReadonlyArray<number>, flags: RegexFlags) {
 		this.#cps = cps
 		this.#dot = flags === "su" ? domain : dotU
-		this.#limits = limits
 	}
 
 	#peek(ahead: number): number | undefined {
@@ -194,29 +232,43 @@ class Parser {
 	}
 
 	/**
-	 * The budget bounds the scan itself, its depth and its IR included: past it the first refusal found so far is
-	 * reported, the recorded unsupported construct if there is one.
+	 * The pattern, read in one loop over its code points: `|` ends an alternative, a group's opening opens a disjunction
+	 * on the chain of open ones and `)` closes it into a term of the one around it, and anything else is a term of the
+	 * alternative being read.
 	 */
-	#count(offset: number): void {
-		this.#nodes += 1
-		if (this.#nodes > this.#limits.maxNodes) {
-			throw (
-				this.#deferred ??
-				this.#fail(
-					"ResourceBound",
-					offset,
-					this.#text(offset, offset + 1),
-					`the pattern exceeds the fixed budget of ${this.#limits.maxNodes} regex constructs`
-				)
-			)
-		}
-	}
-
 	parse(): Ir.RegexNode {
-		const node = this.#disjunction()
-		if (this.#pos < this.#cps.length) {
-			throw this.#malformed(this.#pos, ")", "unmatched ')'")
+		let open = this.#open({ kind: "pattern" })
+		for (let c = this.#peek(0); c !== undefined; c = this.#peek(0)) {
+			if (c === cp("|")) {
+				this.#pos += 1
+				open.arms.push(Ir.seq(open.terms))
+				open.terms = []
+			} else if (c === cp(")")) {
+				const group = open.of
+				if (group.kind === "pattern") {
+					throw this.#malformed(this.#pos, ")", "unmatched ')'")
+				}
+				this.#pos += 1
+				const body = this.#closed(open)
+				open = group.outer
+				open.terms.push(
+					this.#term(group.closes === "node" ? { kind: "node", node: body } : { kind: "assertion" })
+				)
+			} else if (c === cp("^") || c === cp("$")) {
+				open.terms.push(this.#anchor(c))
+			} else {
+				const atom = this.#atom(c, open)
+				if (atom.kind === "group") {
+					open = this.#open({ kind: "group", at: atom.at, closes: atom.closes, outer: open })
+				} else {
+					open.terms.push(this.#term(atom))
+				}
+			}
 		}
+		if (open.of.kind === "group") {
+			throw this.#malformed(open.of.at, "(", "unterminated group")
+		}
+		const node = this.#closed(open)
 		for (const ref of this.#references) {
 			if (typeof ref.group === "number" && ref.group > this.#captures) {
 				throw this.#malformed(
@@ -239,58 +291,41 @@ class Parser {
 		return node
 	}
 
-	#disjunction(): Ir.RegexNode {
+	/** A disjunction opened at the cursor, numbered in the order the scan opens them. */
+	#open(of: Disjunction["of"]): Disjunction {
 		this.#disjunctions += 1
-		const id = this.#disjunctions
-		this.#path.push([id, 0])
-		const arms = [this.#alternative()]
-		while (this.#is("|", 0)) {
-			this.#count(this.#pos)
-			this.#pos += 1
-			this.#path[this.#path.length - 1] = [id, arms.length]
-			arms.push(this.#alternative())
-		}
-		this.#path.pop()
-		return this.#ir.alt(arms)
+		return { of, id: this.#disjunctions, arms: [], terms: [] }
 	}
 
-	#alternative(): Ir.RegexNode {
-		const items: Array<Ir.RegexNode> = []
-		for (
-			let c = this.#peek(0);
-			c !== undefined && c !== cp("|") && c !== cp(")");
-			c = this.#peek(0)
-		) {
-			items.push(this.#term(c))
-		}
-		return Ir.seq(items)
+	/** The alternation of a disjunction's arms, the alternative being read the last of them. */
+	#closed(d: Disjunction): Ir.RegexNode {
+		return this.#ir.alt([...d.arms, Ir.seq(d.terms)])
 	}
 
-	/** One term: an assertion, which is not quantifiable in Unicode mode (ECMA-262 Term[U]), or a quantified atom. */
-	#term(c: number): Ir.RegexNode {
-		const at = this.#pos
-		if (this.#is("^", 0) || this.#is("$", 0)) {
-			this.#count(at)
-			const node = this.#is("^", 0) ? Ir.start : Ir.end
-			this.#pos += 1
-			if (this.#quantifierAhead()) {
-				throw this.#malformed(this.#pos, this.#text(this.#pos, this.#pos + 1), "nothing to repeat")
-			}
-			return node
+	/** `^` or `$` at the cursor: an assertion, which is not quantifiable in Unicode mode. */
+	#anchor(c: number): Ir.RegexNode {
+		this.#pos += 1
+		if (this.#quantifierAhead()) {
+			throw this.#malformed(this.#pos, this.#text(this.#pos, this.#pos + 1), "nothing to repeat")
 		}
-		const atom = this.#atom(c)
-		if (this.#assertion) {
-			this.#assertion = false
-			if (this.#quantifierAhead()) {
-				throw this.#malformed(
-					this.#pos,
-					this.#text(this.#pos, this.#pos + 1),
-					"nothing to repeat: an assertion is not quantifiable in Unicode mode"
-				)
-			}
-			return atom
+		return c === cp("^") ? Ir.start : Ir.end
+	}
+
+	/** The term an atom makes: a node with the quantifier that follows it, or an assertion, which none may follow. */
+	#term(atom: Exclude<Atom, { readonly kind: "group" }>): Ir.RegexNode {
+		switch (atom.kind) {
+			case "assertion":
+				if (this.#quantifierAhead()) {
+					throw this.#malformed(
+						this.#pos,
+						this.#text(this.#pos, this.#pos + 1),
+						"nothing to repeat: an assertion is not quantifiable in Unicode mode"
+					)
+				}
+				return Ir.empty
+			case "node":
+				return this.#quantified(atom.node)
 		}
-		return this.#quantified(atom)
 	}
 
 	#quantifierAhead(): boolean {
@@ -321,7 +356,6 @@ class Parser {
 			return atom
 		}
 		const { min, max } = bounds
-		this.#count(at)
 		if (this.#is("?", 0)) {
 			this.#unsupported(
 				at,
@@ -355,12 +389,11 @@ class Parser {
 		if (max !== "unbounded" && max < min.value) {
 			throw this.#malformed(at, construct, "numbers out of order in the quantifier")
 		}
-		const limit = this.#limits.maxRepeat
-		if (min.value > limit || (max !== "unbounded" && max > limit)) {
+		if (min.value > regexMaxRepeat || (max !== "unbounded" && max > regexMaxRepeat)) {
 			this.#unsupported(
 				at,
 				construct,
-				`a repetition bound above ${limit}, PostgreSQL's limit; bound the length with Compute.charLength in a contract predicate`
+				`a repetition bound above ${regexMaxRepeat}, PostgreSQL's limit; bound the length with Compute.charLength in a contract predicate`
 			)
 		}
 		return { min: min.value, max }
@@ -386,18 +419,17 @@ class Parser {
 		return { value }
 	}
 
-	/** The atom at the current position, whose code point `c` is. */
-	#atom(c: number): Ir.RegexNode {
+	/** The atom at the current position, whose code point `c` is, in the disjunction `open`. */
+	#atom(c: number, open: Disjunction): Atom {
 		const at = this.#pos
-		this.#count(at)
 		switch (c) {
 			case cp("."):
 				this.#pos += 1
-				return Ir.set(this.#dot)
+				return { kind: "node", node: Ir.set(this.#dot) }
 			case cp("("):
-				return this.#group()
+				return this.#group(open)
 			case cp("["):
-				return this.#class()
+				return { kind: "node", node: this.#class() }
 			case cp("\\"):
 				return this.#escape()
 			case cp("*"):
@@ -414,7 +446,7 @@ class Parser {
 				)
 			default:
 				this.#pos += 1
-				return Ir.set(single(this.#literal(c, at, this.#text(at, at + 1))))
+				return { kind: "node", node: Ir.set(single(this.#literal(c, at, this.#text(at, at + 1)))) }
 		}
 	}
 
@@ -432,55 +464,49 @@ class Parser {
 		return c
 	}
 
-	#group(): Ir.RegexNode {
+	/**
+	 * A group's opening at the cursor, in the disjunction `open`, consumed through its `(`, `(?:`, lookaround, name or
+	 * modifiers: the scan reads its body next, as a disjunction of its own.
+	 */
+	#group(open: Disjunction): Extract<Atom, { readonly kind: "group" }> {
 		const at = this.#pos
 		this.#pos += 1
-		let lookaround = false
-		if (this.#is("?", 0)) {
-			if (this.#is(":", 1)) {
-				this.#pos += 2
-			} else if (this.#is("=", 1) || this.#is("!", 1)) {
-				this.#unsupported(at, this.#text(at, at + 3), "lookahead assertions are not admitted")
-				this.#pos += 2
-				lookaround = true
-			} else if (this.#is("<", 1) && (this.#is("=", 2) || this.#is("!", 2))) {
-				this.#unsupported(at, this.#text(at, at + 4), "lookbehind assertions are not admitted")
-				this.#pos += 3
-				lookaround = true
-			} else if (this.#is("<", 1)) {
-				this.#unsupported(
-					at,
-					"(?<",
-					"named capture groups are not admitted; use (?:...), captures are not outputs"
-				)
-				this.#pos += 1
-				const name = this.#groupName(at)
-				const path: ArmPath = [...this.#path]
-				if (this.#named.some((g) => g.name === name && mightBothParticipate(g.path, path))) {
-					throw this.#malformed(
-						at,
-						this.#text(at, this.#pos),
-						`duplicate capture group name ${name}`
-					)
-				}
-				this.#named.push({ name, path })
-				this.#captures += 1
-			} else {
-				this.#modifiers(at)
-			}
-		} else {
+		if (!this.#is("?", 0)) {
 			this.#captures += 1
+			return { kind: "group", at, closes: "node" }
 		}
-		const body = this.#disjunction()
-		if (!this.#is(")", 0)) {
-			throw this.#malformed(at, "(", "unterminated group")
+		if (this.#is(":", 1)) {
+			this.#pos += 2
+			return { kind: "group", at, closes: "node" }
 		}
-		this.#pos += 1
-		if (!lookaround) {
-			return body
+		if (this.#is("=", 1) || this.#is("!", 1)) {
+			this.#unsupported(at, this.#text(at, at + 3), "lookahead assertions are not admitted")
+			this.#pos += 2
+			return { kind: "group", at, closes: "assertion" }
 		}
-		this.#assertion = true
-		return Ir.empty
+		if (this.#is("<", 1) && (this.#is("=", 2) || this.#is("!", 2))) {
+			this.#unsupported(at, this.#text(at, at + 4), "lookbehind assertions are not admitted")
+			this.#pos += 3
+			return { kind: "group", at, closes: "assertion" }
+		}
+		if (this.#is("<", 1)) {
+			this.#unsupported(
+				at,
+				"(?<",
+				"named capture groups are not admitted; use (?:...), captures are not outputs"
+			)
+			this.#pos += 1
+			const name = this.#groupName(at)
+			const path = armPath(open)
+			if (this.#named.some((g) => g.name === name && mightBothParticipate(g.path, path))) {
+				throw this.#malformed(at, this.#text(at, this.#pos), `duplicate capture group name ${name}`)
+			}
+			this.#named.push({ name, path })
+			this.#captures += 1
+			return { kind: "group", at, closes: "node" }
+		}
+		this.#modifiers(at)
+		return { kind: "group", at, closes: "node" }
 	}
 
 	/**
@@ -633,7 +659,8 @@ class Parser {
 		this.#pos += i + 1
 	}
 
-	#escape(): Ir.RegexNode {
+	/** An escape at the cursor outside a class: a set, a character, an assertion (\b, \B) or a reference. */
+	#escape(): Atom {
 		const at = this.#pos
 		const next = this.#peek(1)
 		if (next === undefined) {
@@ -646,14 +673,13 @@ class Parser {
 			case "w":
 			case "W": {
 				this.#pos += 2
-				return Ir.set(this.#shorthand(name))
+				return { kind: "node", node: Ir.set(this.#shorthand(name)) }
 			}
 			case "b":
 			case "B":
 				this.#unsupported(at, `\\${name}`, "word-boundary assertions are not admitted")
 				this.#pos += 2
-				this.#assertion = true
-				return Ir.empty
+				return { kind: "assertion" }
 			case "k": {
 				this.#pos += 2
 				if (!this.#is("<", 0)) {
@@ -662,23 +688,23 @@ class Parser {
 				const group = this.#groupName(at)
 				this.#references.push({ at, construct: this.#text(at, this.#pos), group })
 				this.#unsupported(at, "\\k", "named backreferences are not admitted")
-				return Ir.empty
+				return { kind: "node", node: Ir.empty }
 			}
 			case "s":
 			case "S":
 			case "p":
 			case "P":
 				this.#refusedClassEscape(at, name)
-				return Ir.set(refusedSet)
+				return { kind: "node", node: Ir.set(refusedSet) }
 			default: {
 				if (next >= cp("1") && next <= cp("9")) {
 					this.#pos += 1
 					const group = this.#decimalFrom(next).value
 					this.#references.push({ at, construct: this.#text(at, this.#pos), group })
 					this.#unsupported(at, this.#text(at, this.#pos), "backreferences are not admitted")
-					return Ir.empty
+					return { kind: "node", node: Ir.empty }
 				}
-				return Ir.set(single(this.#characterEscape(at, next, false)))
+				return { kind: "node", node: Ir.set(single(this.#characterEscape(at, next, false))) }
 			}
 		}
 	}
@@ -875,7 +901,6 @@ class Parser {
 	/** The class atom at the current position, whose code point `c` is. */
 	#classAtom(c: number): ClassAtom {
 		const at = this.#pos
-		this.#count(at)
 		if (c !== cp("\\")) {
 			this.#pos += 1
 			return { kind: "char", cp: this.#literal(c, at, this.#text(at, at + 1)) }
@@ -919,35 +944,36 @@ class Parser {
  *
  * Everything else fails with its location and reason: a pattern ECMAScript itself refuses is MalformedDescription; a
  * valid ECMAScript construct outside the admitted fragment (backreferences, lookarounds, \b and \B assertions, named
- * groups, modifiers, \s \S, \p \P, lazy quantifiers, bounds above 255, NUL, lone surrogates) is UnsupportedOperation;
- * a pattern beyond the fixed size budget is ResourceBound.
- * Only the documented spellings are admitted: the table is not permission to forward unknown syntax.
+ * groups, modifiers, \s \S, \p \P, lazy quantifiers, bounds above 255, NUL, lone surrogates) is UnsupportedOperation.
+ * Only the documented spellings are admitted: the table is not permission to forward unknown syntax. The grammar sets
+ * no bound on a pattern's length or nesting, and neither does PostgreSQL's (its regex documentation: "No particular
+ * limit is imposed on the length of REs in this implementation"); what PostgreSQL bounds is the automaton the pattern
+ * compiles to, which text/refinement.ts measures once the pattern is parsed.
  *
  * Precedence follows ECMAScript: a pattern that is a syntax error anywhere is MalformedDescription, even when a
  * construct outside the fragment comes first, so an unsupported construct is recorded and the scan goes on to the end
  * of the pattern. References are checked against the whole pattern, as ECMA-262's early errors are: a `\N` past the
  * number of capture groups or a `\k<name>` naming no group is a syntax error, while a reference to an existing group
  * is a well-formed backreference outside the fragment. Of several non-syntax refusals the first in source order is
- * reported. The construct budget bounds the scan itself: past it the first refusal found so far is reported, the
- * recorded unsupported construct if there is one, so no pattern costs more than the budget to refuse.
+ * reported.
  *
  * Two ECMAScript checks need Unicode tables this scanner does not carry: the property names of \p{...} and the
  * ID_Start and ID_Continue sets of a non-ASCII capture group name. Their shape is checked; a well-shaped but unknown
  * property name, or a non-ASCII name character, is read as valid and refused as UnsupportedOperation with the rest of
  * those constructs.
  *
- * The parser is a plain scanner over code points. It constructs no RegExp and never evaluates the pattern.
+ * The parser is a plain scanner over code points, one loop whose open groups are a chain of Disjunction frames on the
+ * heap, so a group nested to any depth costs no call stack. It constructs no RegExp and never evaluates the pattern.
  *
  * Parses an admitted source pattern into normalized IR, or reports why it is refused: a syntax error anywhere in the
- * pattern, else its first construct outside the fragment or over the budget. The parser throws its Failure at the first
+ * pattern, else its first construct outside the fragment. The parser throws its Failure at the first
  * refusal; anything else it throws is a defect and propagates.
  */
 export const parsePattern = (
 	source: string,
-	flags: RegexFlags,
-	limits: ParseLimits
+	flags: RegexFlags
 ): Result.Result<Ir.RegexNode, RegexDiagnostic> =>
 	Result.mapError(
-		catchSignal(Failure, () => new Parser(codePoints(source), flags, limits).parse()),
+		catchSignal(Failure, () => new Parser(codePoints(source), flags).parse()),
 		(failure) => failure.diagnostic
 	)

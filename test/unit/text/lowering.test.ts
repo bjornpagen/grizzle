@@ -7,11 +7,10 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { regexMaxNodes } from "#compiler/core/policy.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { toAre } from "#compiler/text/are.ts"
-import { analyzeText, textLimits } from "#compiler/text/refinement.ts"
+import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { families, flagsGen, nestedPattern, patternOver } from "#test/unit/text/generators.ts"
@@ -21,7 +20,6 @@ import { families, flagsGen, nestedPattern, patternOver } from "#test/unit/text/
  * rewrites away, and the printed ARE read back for its language and for the budgets' verdict.
  */
 const loc = SourceLoc("str.regex", ["Content", "relations", "Article", "fields", "f"])
-const limits = textLimits(regexMaxNodes)
 
 const hex = (c: number): string => Str.toUpperCase(c.toString(16))
 const isAsciiAlnum = (c: number): boolean =>
@@ -227,7 +225,7 @@ describe("constraint loops (scalar/regex/ir.ts repeat)", () => {
 				},
 				([source, flags], c) =>
 					Effect.sync(() => {
-						const parsed = parsePattern(source, flags, limits)
+						const parsed = parsePattern(source, flags)
 						if (parsed.ok && loops(parsed.value)) {
 							c.note("source loops through an assertion")
 						}
@@ -269,7 +267,7 @@ describe("reading a printed ARE back", () => {
 							if (!r.ok) {
 								return
 							}
-							const language = analyzeLanguage(r.value.ir, limits)
+							const language = analyzeLanguage(r.value.ir)
 							if (language.kind === "empty") {
 								return assert.fail(`/${source}/${flags} is admitted with no member`)
 							}
@@ -293,10 +291,10 @@ describe("reading a printed ARE back", () => {
 								`/${source}/${flags} as ${r.value.are} reads back`
 							)
 							const reparsed = succeeded(
-								parsePattern(back, "su", limits),
+								parsePattern(back, "su"),
 								`/${source}/${flags} as ${r.value.are} parses back`
 							)
-							const readBack = analyzeLanguage(reparsed, limits)
+							const readBack = analyzeLanguage(reparsed)
 							assert.equal(
 								readBack.kind === "nonEmpty" && readBack.known.kind === "structure",
 								true,
@@ -341,13 +339,13 @@ describe("reading a printed ARE back", () => {
 				},
 				(source, c) =>
 					Effect.sync(() => {
-						const parsed = parsePattern(source, "u", limits)
+						const parsed = parsePattern(source, "u")
 						if (!parsed.ok || parsed.value.kind === "never") {
 							return
 						}
 						const are = toAre(parsed.value)
 						const back = defined(areSource(are), `/${source}/u as ${are} reads back`)
-						if (!parsePattern(back, "su", limits).ok) {
+						if (!parsePattern(back, "su").ok) {
 							return
 						}
 						if (back !== source) {

@@ -1,18 +1,17 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
-import { array, codePoint, element, int, map, oneOf, option, string } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
+import { array, codePoint, element, map, oneOf, option, string } from "@grizzle/testing/gen"
 import { drawnFeature, lsw, passed, WILD_KINDS, type WildKind } from "@grizzle/testing/lsw"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Duration, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import { regexMaxNodes } from "#compiler/core/policy.ts"
+import { expandedSize, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { parsePattern, type RegexFlags } from "#compiler/scalar/regex/parse.ts"
 import { admitRegex } from "#compiler/text/field.ts"
-import { textLimits } from "#compiler/text/refinement.ts"
-import { assert, matchesObject } from "#test/support/assert.ts"
+import { assert, matchesObject, succeeded } from "#test/support/assert.ts"
 import { nonStringWildKinds } from "#test/unit/values/support.ts"
 
 import { regex } from "arkregex"
@@ -23,8 +22,7 @@ import { regex } from "arkregex"
  * `new RegExp(source, "u")` also throws on, and an UnsupportedOperation refusal is valid ECMAScript outside the admitted
  * fragment.
  */
-const limits = textLimits(regexMaxNodes)
-const parse = (source: string, flags: RegexFlags) => parsePattern(source, flags, limits)
+const parse = (source: string, flags: RegexFlags) => parsePattern(source, flags)
 const failure = (source: string, flags: RegexFlags) => {
 	const result = parse(source, flags)
 	if (result.ok) {
@@ -213,49 +211,6 @@ describe("refusals with location and reason", () => {
 		)
 	)
 
-	it.effect(
-		"bounds the pattern by its construct budget (ResourceBound), whatever the budget",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/text/parse-budget",
-						draw: drawn(int(8, 2 * regexMaxNodes)),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 60,
-						shrink: completeShrink,
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang: Duration.minutes(2)
-					},
-					(maxNodes) =>
-						Effect.sync(() => {
-							const budgeted = textLimits(maxNodes)
-							const refusal = (source: string) => {
-								const result = parsePattern(source, "u", budgeted)
-								if (result.ok) {
-									return assert.fail(`expected /${source}/ to be refused under ${maxNodes}`)
-								}
-								return result.error
-							}
-							const big = Str.repeat(maxNodes + 1)("a")
-							assert.equal(parsePattern(Str.repeat(maxNodes)("a"), "u", budgeted).ok, true)
-							matchesObject(refusal(big), { reason: "ResourceBound", offset: maxNodes })
-							matchesObject(refusal(`${big}(?=a)`), { reason: "ResourceBound", offset: maxNodes })
-							matchesObject(refusal(`(?=a)${big}`), { reason: "UnsupportedOperation", offset: 0 })
-							matchesObject(refusal(`(?=a)${big}(`), { reason: "UnsupportedOperation", offset: 0 })
-							matchesObject(refusal(`(?=a)${Str.repeat(maxNodes - 3)("a")}(`), {
-								reason: "MalformedDescription",
-								offset: maxNodes + 2
-							})
-						})
-				)
-			)
-	)
-
 	/**
 	 * A Description's flags are "u" or "su" by its type, and str.regex's admission (field.ts admitRegex) is the boundary
 	 * that takes what a JavaScript caller passes. Any other flags value is malformed structure, whether or not ECMAScript
@@ -348,5 +303,86 @@ describe("refusals with location and reason", () => {
 				)
 			)
 		}
+	)
+})
+
+/**
+ * How a nesting wraps its one literal: groups of either spelling, which leave no node behind, so the parse is the
+ * literal's; a chain of `+` groups, a repetition of a repetition at each level; and a chain of optional groups, each
+ * level a literal and an optional group around the rest. The scan keeps its open groups on the heap
+ * (scalar/regex/parse.ts Disjunction) and every walk of the IR keeps its frames there too (scalar/regex/ir.ts folded),
+ * so no depth is a bound of the grammar's: a pattern nested 100,000 deep parses in the small-stack project, whose stack
+ * a recursion of about a thousand frames exhausts.
+ */
+type Nesting =
+	| "capturing groups"
+	| "non-capturing groups"
+	| "a chain of + groups"
+	| "a chain of optional groups"
+const nestings: Arr.NonEmptyReadonlyArray<Nesting> = [
+	"capturing groups",
+	"non-capturing groups",
+	"a chain of + groups",
+	"a chain of optional groups"
+]
+
+/** The pattern `depth` levels of `nesting` spell. */
+const nested = (nesting: Nesting, depth: number): string => {
+	switch (nesting) {
+		case "capturing groups":
+			return `${Str.repeat(depth)("(")}a${Str.repeat(depth)(")")}`
+		case "non-capturing groups":
+			return `${Str.repeat(depth)("(?:")}a${Str.repeat(depth)(")")}`
+		case "a chain of + groups":
+			return `${Str.repeat(depth)("(?:")}a${Str.repeat(depth)(")+")}`
+		case "a chain of optional groups":
+			return `${Str.repeat(depth)("(?:a")}${Str.repeat(depth)(")?")}`
+	}
+}
+
+/** How deep a chain of repetitions nests: the repetitions from the root down through each one's body. */
+const repetitionDepth = (node: RegexNode): number => {
+	let depth = 0
+	for (let at = node; at.kind === "repeat"; at = at.body) {
+		depth += 1
+	}
+	return depth
+}
+
+describe("nesting", () => {
+	it.effect("parses a pattern nested to any depth, 100,000 levels included", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "unit/text/parse-depth",
+					literal: Formatter.format,
+					generator: (source) => ({
+						nesting: source.draw(element(nestings)),
+						depth: source.draw(element([1, 1_000, 100_000]))
+					}),
+					limit: 12,
+					coverage: requiredInSpace<Nesting>(nestings),
+					caseHang: Duration.minutes(2)
+				},
+				({ nesting, depth }, n) =>
+					Effect.sync(() => {
+						n.note(nesting)
+						const ir = succeeded(parse(nested(nesting, depth), "u"), `${nesting}, ${depth} deep`)
+						switch (nesting) {
+							case "capturing groups":
+							case "non-capturing groups":
+								assert.deepEqual(ir, succeeded(parse("a", "u")), `${nesting}, ${depth} deep`)
+								return
+							case "a chain of + groups":
+								assert.equal(repetitionDepth(ir), depth, `${nesting}, ${depth} deep`)
+								return
+							case "a chain of optional groups":
+								assert.equal(expandedSize(ir), depth, `${nesting}, ${depth} deep`)
+								return
+						}
+					})
+			)
+		)
 	)
 })

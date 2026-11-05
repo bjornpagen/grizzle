@@ -1,15 +1,29 @@
 import { everyProperty } from "#compiler/core/canonical.ts"
-import { CompileError, prose, resourceBound, unsupported } from "#compiler/core/errors.ts"
+import {
+	CompileError,
+	prose,
+	type RegexSpaceMeasure,
+	resourceBound,
+	unsupported
+} from "#compiler/core/errors.ts"
 import { ownedDigest } from "#compiler/core/fingerprint.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { regexMaxNodes, regexMaxRepeat } from "#compiler/core/policy.ts"
+import {
+	regexDfaMaxStates,
+	regexDfaMaxWork,
+	regexMaxAnchors,
+	regexMaxAnchorWeight,
+	regexMaxClosurePairs,
+	regexMaxPositions
+} from "#compiler/core/policy.ts"
 import * as Result from "#compiler/core/result.ts"
 import { codePoints } from "#compiler/core/text.ts"
 import { RegexKey, type RegexRef, type TextInfo } from "#compiler/ir/scalar.ts"
 import { utf8Width } from "#compiler/scalar/regex/charset.ts"
 import {
+	canonicalText,
 	expandedAssertions,
 	expandedSize,
 	type LiveNode,
@@ -18,7 +32,6 @@ import {
 } from "#compiler/scalar/regex/ir.ts"
 import { buildNfa, closurePairs, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import {
-	type ParseLimits,
 	parsePattern,
 	type RegexDiagnostic,
 	type RegexFlags
@@ -40,44 +53,16 @@ import {
 } from "#compiler/text/dfa.ts"
 
 /**
- * The fixed analysis bounds, all derived from the regex node bound (core/policy.ts regexMaxNodes in production).
- *
- * The compile-space bounds keep every admitted pattern well inside what PostgreSQL 19's regex compiler accepts, and
- * quick to compile on a cold backend. A written-out position count alone does not: PostgreSQL's
- * cost also grows with nullable chains, which its empty-arc removal makes quadratic (`(?:(?:a?){255}){8}b`, 2,041
- * positions, is too complex for it), and with assertions, which it eliminates by cloning the states they cross
- * (`(?:(?:a|$){1,3}){12}(?:^)?b`, 75 positions, is too complex; `(?:\Z|a|){8}(?:\A|a|){8}b` takes seconds). Every
- * measure reads the normalized IR, which spells a construct one way whatever the source wrote, so the bounds judge the
- * ARE PostgreSQL compiles. The bounds were set by measurement: on 19rc1 the longest admitted chain of optional copies,
- * `(?:a?){255}(?:b?){100}c`, compiles in tens of milliseconds on a cold backend, and test/pg/text plants a pattern at
- * every bound and draws thousands near them.
+ * The host's bounds on a pattern's subset construction (core/policy.ts regexDfaMaxStates, regexDfaMaxWork): past
+ * either, the analysis knows the language by its structure alone.
  */
-interface TextLimits extends ParseLimits {
-	/** NFA positions once counted repetitions are written out, every node counting at least one. */
-	readonly maxExpanded: number
-	/** Pairs of NFA states joined by empty and assertion edges (scalar/regex/nfa.ts closurePairs). */
-	readonly maxClosure: number
-	/** Assertion positions once counted repetitions are written out, and that count times the written-out positions. */
-	readonly maxAssertions: number
-	readonly maxAssertionWeight: number
-	readonly dfa: DfaLimits
-	/** The most members a finite language may have and still become `VALUE IN (...)`. */
-	readonly finiteMembers: number
-}
-
-export const textLimits = (maxNodes: number): TextLimits => ({
-	maxNodes,
-	maxRepeat: regexMaxRepeat,
-	maxExpanded: maxNodes * 8,
-	maxClosure: maxNodes * 128,
-	maxAssertions: Math.floor(maxNodes / 64),
-	maxAssertionWeight: maxNodes * 16,
-	dfa: { maxStates: maxNodes * 4, maxWork: maxNodes * 4096 },
-	finiteMembers: 64
+const dfaLimits: DfaLimits = Object.freeze({
+	maxStates: regexDfaMaxStates,
+	maxWork: regexDfaMaxWork
 })
 
-/** The analysis bounds of every compilation. */
-const productionLimits = textLimits(regexMaxNodes)
+/** The most members a finite language may have and still become `VALUE IN (...)`. */
+const finiteMembers = 64
 
 /** Proved bounds on every member of a language, in code points and UTF-8 bytes. */
 interface TextBounds {
@@ -125,18 +110,14 @@ const diagnosticError = (
 	loc: SourceLoc,
 	source: string,
 	flags: string
-): CompileError => {
-	const at = childLoc(childLoc(loc, "pattern"), diagnostic.offset)
-	return diagnostic.reason === "ResourceBound"
-		? resourceBound(at, { kind: "regexConstructs", limit: productionLimits.maxNodes })
-		: CompileError.make(
-				prose(
-					diagnostic.reason,
-					at,
-					`${diagnostic.construct} at offset ${diagnostic.offset} of /${source}/${flags}: ${diagnostic.message}`
-				)
-			)
-}
+): CompileError =>
+	CompileError.make(
+		prose(
+			diagnostic.reason,
+			childLoc(childLoc(loc, "pattern"), diagnostic.offset),
+			`${diagnostic.construct} at offset ${diagnostic.offset} of /${source}/${flags}: ${diagnostic.message}`
+		)
+	)
 
 const keyDigest = (key: string): string => ownedDigest("regex-language", key, everyProperty)
 
@@ -170,14 +151,14 @@ type Known =
  * The enforcement of a language: from its automaton, a tautology, a finite language or a regex with the automaton's
  * bounds; from its structure alone, a regex with the IR's structural bounds.
  */
-const choose = (ir: RegexNode, known: Known, are: string, limits: TextLimits): TextCheck => {
+const choose = (ir: RegexNode, known: Known, are: string): TextCheck => {
 	switch (known.kind) {
 		case "automaton": {
 			const { dfa } = known
 			if (isUniversal(dfa)) {
 				return { kind: "tautology" }
 			}
-			const members = enumerate(dfa, limits.finiteMembers)
+			const members = enumerate(dfa, finiteMembers)
 			if (members !== undefined && isNonEmpty(members)) {
 				return { kind: "finite", members, bounds: boundsOfMembers(members) }
 			}
@@ -196,7 +177,7 @@ const keyOf = (ir: RegexNode, known: Known): string => {
 		case "automaton":
 			return `dfa:${dfaKey(known.dfa)}`
 		case "structure":
-			return `ir:${JSON.stringify(ir)}`
+			return `ir:${canonicalText(ir)}`
 	}
 }
 
@@ -208,12 +189,12 @@ type Language =
 	| { readonly kind: "empty" }
 	| { readonly kind: "nonEmpty"; readonly ir: LiveNode; readonly known: Known }
 
-/** The language of a pattern's IR from its NFA, under `limits`: what analyzeText classifies an admitted pattern by. */
-export const languageOf = (ir: RegexNode, nfa: Nfa, limits: TextLimits): Language => {
+/** The language of a pattern's IR from its NFA: what analyzeText classifies an admitted pattern by. */
+export const languageOf = (ir: RegexNode, nfa: Nfa): Language => {
 	if (ir.kind === "never") {
 		return { kind: "empty" }
 	}
-	const dfa = minimalDfa(nfa, limits.dfa)
+	const dfa = minimalDfa(nfa, dfaLimits)
 	if (dfa === undefined) {
 		return { kind: "nonEmpty", ir, known: { kind: "structure" } }
 	}
@@ -226,8 +207,10 @@ export const languageOf = (ir: RegexNode, nfa: Nfa, limits: TextLimits): Languag
  * Text refinements: a declared pattern, checked, analyzed and lowered.
  *
  * `analyzeText` is what schema compilation calls for every `str.regex` descriptor. It parses the admitted grammar
- * (scalar/regex/parse.ts) with source-located diagnostics, then proves what it can within fixed bounds and chooses the
- * PostgreSQL enforcement:
+ * (scalar/regex/parse.ts) with source-located diagnostics, at any length and nesting depth; refuses a pattern past a
+ * measure of PostgreSQL's regex compile space (core/policy.ts regexMaxPositions, regexMaxAnchors, regexMaxAnchorWeight,
+ * regexMaxClosurePairs) as ResourceBound, the one limit on a pattern's size, which is PostgreSQL's own; then proves
+ * what it can within the host's bounds and chooses the PostgreSQL enforcement:
  *
  * - a tautology over admitted text erases: no CHECK, no domain, the column is plain text;
  * - a proved finite language of at most `finiteMembers` values becomes `VALUE IN (...)`, which recognizes exactly the
@@ -255,12 +238,12 @@ const analyze = (
 	flags: RegexFlags,
 	loc: SourceLoc
 ): Result.Result<TextRefinement, CompileError> => {
-	const parsed = parsePattern(source, flags, productionLimits)
+	const parsed = parsePattern(source, flags)
 	if (!parsed.ok) {
 		return Result.err(diagnosticError(parsed.error, loc, source, flags))
 	}
 	const ir = parsed.value
-	const tooComplex = (measure: string): Result.Result<never, CompileError> =>
+	const tooComplex = (measure: RegexSpaceMeasure): Result.Result<never, CompileError> =>
 		Result.err(
 			resourceBound(childLoc(loc, "pattern"), {
 				kind: "regexCompileSpace",
@@ -269,35 +252,24 @@ const analyze = (
 			})
 		)
 	if (loopsThroughAnchor(ir)) {
-		return tooComplex(
-			"repeats without bound a body that can match zero-width through an anchor, too large to write as a loop of consuming matches"
-		)
+		return tooComplex({ kind: "anchorLoop" })
 	}
-	const expanded = expandedSize(ir)
-	if (expanded > productionLimits.maxExpanded) {
-		return tooComplex(
-			`writes out to ${expanded} positions; the budget is ${productionLimits.maxExpanded}`
-		)
+	const positions = expandedSize(ir)
+	if (positions > regexMaxPositions) {
+		return tooComplex({ kind: "positions", limit: regexMaxPositions, needed: positions })
 	}
-	const assertions = expandedAssertions(ir)
-	if (assertions > productionLimits.maxAssertions) {
-		return tooComplex(
-			`writes out ${assertions} anchors; the budget is ${productionLimits.maxAssertions}`
-		)
+	const anchors = expandedAssertions(ir)
+	if (anchors > regexMaxAnchors) {
+		return tooComplex({ kind: "anchors", limit: regexMaxAnchors, needed: anchors })
 	}
-	if (assertions * expanded > productionLimits.maxAssertionWeight) {
-		return tooComplex(
-			`writes out ${assertions} anchors over ${expanded} positions; the budget for their product is ${productionLimits.maxAssertionWeight}`
-		)
+	if (anchors * positions > regexMaxAnchorWeight) {
+		return tooComplex({ kind: "anchorWeight", limit: regexMaxAnchorWeight, anchors, positions })
 	}
 	const nfa = buildNfa(ir)
-	const closure = closurePairs(nfa, productionLimits.maxClosure)
-	if (closure > productionLimits.maxClosure) {
-		return tooComplex(
-			`joins more than ${productionLimits.maxClosure} pairs of positions by empty paths`
-		)
+	if (closurePairs(nfa, regexMaxClosurePairs) > regexMaxClosurePairs) {
+		return tooComplex({ kind: "closurePairs", limit: regexMaxClosurePairs })
 	}
-	const language = languageOf(ir, nfa, productionLimits)
+	const language = languageOf(ir, nfa)
 	if (language.kind === "empty") {
 		return Result.err(
 			unsupported(
@@ -307,7 +279,7 @@ const analyze = (
 		)
 	}
 	const are = toAre(language.ir)
-	const check = choose(ir, language.known, are, productionLimits)
+	const check = choose(ir, language.known, are)
 	const key = keyOf(ir, language.known)
 	return Result.ok(Object.freeze({ source, flags, ir, are, check, key, digest: keyDigest(key) }))
 }
