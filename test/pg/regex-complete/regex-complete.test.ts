@@ -10,17 +10,16 @@ import {
 	Formatter,
 	Option,
 	Order,
-	Record as Rec,
 	String as Str
 } from "effect"
 import { executionInputs, type InputRefusal, paramCodecs } from "#adapter/reader/relations.ts"
+import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type * as Result from "#compiler/core/result.ts"
-import { jsonText } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { isRefined } from "#compiler/ir/scalar.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
@@ -45,7 +44,7 @@ import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { realizeConservative } from "#compiler/write/conservative/realize.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
-import { assert, containsText, lacksText, unorderedEqual } from "#test/support/assert.ts"
+import { assert, unorderedEqual } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	type Declared,
@@ -632,26 +631,33 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 				throw new Error("an insert step")
 			}
 			const step = found.value
-			/** The enumerated member's facts fill the insert's one placeholder, the member slot. */
-			const slot = step.statement.params[0]
-			if (slot?.kind !== "member") {
-				throw new Error("a member slot")
-			}
-			const fact: Record<string, string> = { id: id(1), slug: "Not A Slug", title: "anything" }
-			const json = jsonText([
-				Rec.fromEntries(
-					Arr.map(slot.columns, (c) => [
-						c.definition.name,
-						defined(fact[c.name], `the fact's ${c.name}`)
-					])
+			/** The enumerated member's facts travel as the insert's member placeholders, one array of the facts per
+			 * column, each placeholder carrying the array of its part. */
+			const fact = { id: id(1), slug: "Not A Slug", title: "anything" }
+			const arrays = Arr.map(step.statement.params, (slot) => {
+				if (slot.kind !== "member") {
+					throw new Error(`a member placeholder, not ${slot.kind}`)
+				}
+				const encoded = arraysEncoder({
+					relation: slot.relation,
+					codes: installation.names.codes,
+					slot: { kind: "slot", name: String(slot.slot) },
+					columns: positionalColumns(slot.columns)
+				})([fact])
+				if (!encoded.ok) {
+					throw new Error(`encode: ${encoded.error._tag}`)
+				}
+				return defined(
+					encoded.value.arrays[slot.part.kind === "column" ? slot.part.index : 0],
+					`the array of placeholder ${slot.number}`
 				)
-			])
+			})
 			const world = yield* oracleWorld(installation)
 			const session = yield* s.session({ ...worldSession(world), label: "writer" })
 			const slug = slugDomain(installation)
 			const slugCheck = slug.constraint
 			yield* expectConstraint(
-				inTransaction(session, session.values(step.statement.sql.text, [json])),
+				inTransaction(session, session.values(step.statement.sql.text, arrays)),
 				slugCheck,
 				"23514"
 			)
@@ -757,7 +763,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 	)
 
 	it.effect(
-		"a fused attachment's and a union arm's emitted parameter is refused outside its pattern, and delivered inside it",
+		"an attachment's and a union arm's emitted parameter is refused outside its pattern, and delivered inside it",
 		(ctx) =>
 			searched(
 				ctx,
@@ -766,28 +772,25 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					const { schema: name } = yield* install()
 					yield* loadArticles(name, articles(3))
 					const session = yield* s.session({ ...ownerSession(), label: "reader" })
-					const fused = compiled(echoComments, name)
-					assert.equal(fused.optimized.length, 1)
-					const spec = defined(fused.optimized[0], "statement")
+					/**
+					 * An attachment over exact parents is its own statement in the flight (lower/shapes/attach R36): the parent's
+					 * rows, then the attachment's, each a parent's key then a child's fields.
+					 */
+					const attached = compiled(echoComments, name)
+					assert.equal(attached.optimized.length, 2)
+					const spec = defined(attached.optimized[1], "the attachment statement")
 					const union = compiled(slugsOrEcho, name)
 					const unionSpec = defined(union.optimized[0], "statement")
-					assert.equal(bindRefusal(fused, { slug: "Not A Slug!" }), "refinedValue")
+					assert.equal(bindRefusal(attached, { slug: "Not A Slug!" }), "refinedValue")
 					assert.equal(bindRefusal(union, { slug: "Not A Slug!" }), "refinedValue")
 					const run = (slug: string, plan: Plan) =>
-						runPlanned(session, spec.sql, paramTexts(spec, { slug }, declared(fused)), plan)
-					/** No comment exists: every array is empty, so no element is delivered and nothing is claimed. */
+						runPlanned(session, spec.sql, paramTexts(spec, { slug }, declared(attached)), plan)
+					/** No comment exists: the attachment delivers no row, so nothing is claimed. */
 					const everyPlan = element(plans)
-					yield* everyCase("fused attachment without comments", everyPlan, plans.length, (plan) =>
+					yield* everyCase("attachment without comments", everyPlan, plans.length, (plan) =>
 						Effect.gen(function* () {
 							const empty = yield* run("first", plan)
-							assert.deepEqual(
-								Arr.sort(
-									Arr.map(empty, (r) => String(r[2])),
-									Order.String
-								),
-								["{}", "{}", "{}"],
-								plan
-							)
+							assert.deepEqual(empty, [], plan)
 						})
 					)
 					yield* s.admin.query(
@@ -800,18 +803,21 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 					 * PostgreSQL resolves no type across the arms; a parameter no comment has delivers the articles' slugs alone.
 					 */
 					const withComments = yield* everyCase(
-						"fused attachment and union with comments",
+						"attachment and union with comments",
 						element(plans),
 						plans.length,
 						(plan) =>
 							Effect.gen(function* () {
-								/** A valid parameter is delivered in every element but the comment it excludes. */
+								/**
+								 * A valid parameter is delivered with every comment but the one it excludes: each row the parent's key,
+								 * then the child's correlated article, its echo and its id.
+								 */
 								const delivered = yield* run("first", plan)
-								const arrays = new Map(Arr.map(delivered, (r) => [r[0], r[2]]))
-								assert.equal(arrays.get(id(2)), "{}", plan)
-								containsText(String(arrays.get(id(1))), "first", plan)
-								containsText(String(arrays.get(id(1))), id(51), plan)
-								lacksText(String(arrays.get(id(1))), id(50), plan)
+								assert.deepEqual(
+									Arr.map(delivered, (r) => Arr.map(r, String)),
+									[[id(1), id(1), "first", id(51)]],
+									plan
+								)
 								const out = yield* runPlanned(
 									session,
 									unionSpec.sql,
