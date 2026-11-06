@@ -1,12 +1,11 @@
 import { NodeServices } from "@effect/platform-node"
-import { Array as Arr, Console, Duration, Effect } from "effect"
-import { plpgsqlCoverageReport, readPlpgsqlCoverage } from "#scripts/dev/plpgsql-coverage.ts"
+import { Array as Arr, Duration, Effect } from "effect"
 import { InitializedCluster } from "#test/support/cluster.ts"
-import { coverageAdminUrl, pgPin } from "#test/support/env.ts"
+import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { testTimeout } from "#test/support/limits.ts"
 import { run, runOptions } from "#test/support/process.ts"
-import { ensureSharedDatabase, sharedDatabase, sweep } from "#test/support/substrate/shared.ts"
+import { ensureSharedDatabase, sweep } from "#test/support/substrate/shared.ts"
 import { dropRole } from "#test/support/substrate/substrate.ts"
 import { networkWorkers } from "#test/support/substrate/workers.ts"
 
@@ -49,22 +48,6 @@ const setupCluster = Effect.gen(function* () {
 export const setup = (): Promise<void> =>
 	Effect.runPromise(Effect.provide(setupCluster, [InitializedCluster.layer, NodeServices.layer]))
 
-/**
- * On the coverage cluster, the PL/pgSQL coverage every worker database recorded, read before the sweep drops what the
- * run made, and printed once; on the main cluster, nothing.
- */
-const reportCoverage = Effect.gen(function* () {
-	if (pgPin.cluster !== "coverage") {
-		return
-	}
-	const coverage = yield* Effect.forEach(workers, (index) =>
-		readPlpgsqlCoverage(coverageAdminUrl(sharedDatabase(index)))
-	)
-	yield* Console.log(Arr.join(plpgsqlCoverageReport(Arr.flatten(coverage)), "\n"))
-})
-
-/** Vitest's global teardown: the coverage report, then the sweep, once every test file has ended. */
+/** Vitest's global teardown: the sweep, once every test file has ended. */
 export const teardown = (): Promise<void> =>
-	Effect.runPromise(
-		Effect.provide(Effect.andThen(reportCoverage, sweep(dropRole)), InitializedCluster.layer)
-	)
+	Effect.runPromise(Effect.provide(sweep(dropRole), InitializedCluster.layer))

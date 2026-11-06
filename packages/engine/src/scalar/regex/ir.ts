@@ -21,9 +21,18 @@ import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
  * consumes (see repeat). Equal normalized IR is therefore a proof of equal languages, never a cosmetic string rewrite;
  * the converse need not hold, which is what the automaton key in dfa.ts adds.
  *
- * A pattern's IR: a node of a language, or the empty language, which the constructors collapse to the root (a sequence
- * with an empty-language item is the empty language, an alternation drops such an arm, a repetition of one is the
- * empty string or the empty language), so a node's children are never it.
+ * A pattern's IR: a node of a language with a member, or the empty language, which the constructors collapse to the
+ * root (a sequence with an empty-language item is the empty language, an alternation drops such an arm, a repetition
+ * of one is the empty string or the empty language), so a node's children are never it.
+ *
+ * Every live node carries its profiles (number): the set of what its paths pass, each path's profile three bits, that
+ * it consumes a code point, that it passes `^`, that it passes `$`. Under the admitted flags, u and su, `^` holds only
+ * at a value's start and `$` only at its end; the grammar has no other assertion, and every class holds an admitted code
+ * point. So a path matches within some value exactly when no code point comes before a `^` it passes and none after a
+ * `$`, and a node has a member exactly when one of its paths does. Each constructor computes its node's profiles from
+ * its children's and makes a node with none the empty language, so a live node has a member by construction: `^$a` is
+ * the empty language, as `[]` is. The profiles are no part of the language's spelling: the canonical text, the order
+ * of an alternation's arms and every key read past them.
  *
  * The IR may nest to any depth: every walk of it keeps its frames on the heap, never the call stack. Its analyses fold
  * children first (folded), its canonical text and order read pieces off a stack (canonicalText, compareCanonical), and
@@ -31,8 +40,8 @@ import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
  */
 export type RegexNode = { readonly kind: "never" } | LiveNode
 
-/** A node of a language with a member, whose children are such nodes too. */
-export type LiveNode =
+/** The shape of a live node: what its language is spelled by. */
+type Shape =
 	| { readonly kind: "empty" }
 	| { readonly kind: "set"; readonly set: CharSet }
 	| { readonly kind: "start" }
@@ -46,20 +55,96 @@ export type LiveNode =
 			readonly max: number | "unbounded"
 	  }
 
-export const empty: RegexNode = Object.freeze({ kind: "empty" })
-const never: RegexNode = Object.freeze({ kind: "never" })
-export const start: RegexNode = Object.freeze({ kind: "start" })
-export const end: RegexNode = Object.freeze({ kind: "end" })
-
-export const set = (s: CharSet): RegexNode =>
-	isEmpty(s) ? never : Object.freeze({ kind: "set", set: s })
+/**
+ * A path's profile is a number of three bits: it consumes a code point (consumes), it passes `^` (passesStart), it
+ * passes `$` (passesEnd). The empty string's path has none of them (passesNothing).
+ */
+const passesNothing = 0b000
+const consumes = 0b001
+const passesStart = 0b010
+const passesEnd = 0b100
 
 /**
- * The sequence of the items, flattened and normalized: a never item makes it never, empty items drop, and an assertion
- * right after the same assertion tests the same position again, so `^^` is `^`.
+ * The profiles a path can have, every combination of its three bits.
+ *
+ * @formatConstant the combinations of a path profile's three bits
+ */
+const profileCount = 0b1000
+
+/** The set of one profile. A set of profiles is a number whose bit p is set when the set holds profile p. */
+const just = (p: number): number => 1 << p
+
+/** The empty set of profiles: exactly the empty language's paths. */
+const noProfiles = 0
+
+/**
+ * Whether a path of profile `q` can follow one of profile `p` within a match: no code point before a `^` and none after
+ * a `$`, the one order the anchors of the u and su flags admit.
+ */
+const canFollow = (p: number, q: number): boolean =>
+	!((p & consumes) !== 0 && (q & passesStart) !== 0) &&
+	!((p & passesEnd) !== 0 && (q & consumes) !== 0)
+
+/** The profiles of a path of `a` followed by one of `b`: every pair that can follow, the two profiles' bits joined. */
+const followed = (a: number, b: number): number => {
+	let out = noProfiles
+	for (let p = 0; p < profileCount; p++) {
+		if ((a & just(p)) !== 0) {
+			for (let q = 0; q < profileCount; q++) {
+				if ((b & just(q)) !== 0 && canFollow(p, q)) {
+					out |= just(p | q)
+				}
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * The profiles of `min` to `max` copies of a body of profiles `body` in sequence. The profiles of k + 1 copies are a
+ * function of those of k, so once two counts in a row have the same set, every later count has it too; every set of
+ * the eight profiles reaches it by its fourth copy, so a repetition's profiles cost a few steps whatever its counts.
+ */
+const repeated = (body: number, min: number, max: number | "unbounded"): number => {
+	let out = noProfiles
+	let copies = just(passesNothing)
+	for (let k = 0; ; k++) {
+		if (k >= min) {
+			out |= copies
+		}
+		if (k === max) {
+			return out
+		}
+		const next = followed(copies, body)
+		if (next === copies) {
+			return out | copies
+		}
+		copies = next
+	}
+}
+
+/** A node of a language with a member, whose children are such nodes too, with its paths' profiles, never none. */
+export type LiveNode = Shape & { readonly profiles: number }
+
+export const empty: LiveNode = Object.freeze({ kind: "empty", profiles: just(passesNothing) })
+const never: RegexNode = Object.freeze({ kind: "never" })
+export const start: LiveNode = Object.freeze({ kind: "start", profiles: just(passesStart) })
+export const end: LiveNode = Object.freeze({ kind: "end", profiles: just(passesEnd) })
+
+/** The set node of a set with a member. */
+const liveSet = (s: CharSet): LiveNode =>
+	Object.freeze({ kind: "set", set: s, profiles: just(consumes) })
+
+export const set = (s: CharSet): RegexNode => (isEmpty(s) ? never : liveSet(s))
+
+/**
+ * The sequence of the items, flattened and normalized: a never item makes it never, and so does an order of anchors no
+ * path can pass (a code point before a `^`, or after a `$`, on every path); empty items drop, and an assertion right
+ * after the same assertion tests the same position again, so `^^` is `^`.
  */
 export const seq = (items: ReadonlyArray<RegexNode>): RegexNode => {
 	const flat: Array<LiveNode> = []
+	let profiles = just(passesNothing)
 	const push = (item: LiveNode): void => {
 		if (
 			(item.kind === "start" || item.kind === "end") &&
@@ -73,6 +158,7 @@ export const seq = (items: ReadonlyArray<RegexNode>): RegexNode => {
 		if (item.kind === "never") {
 			return never
 		}
+		profiles = followed(profiles, item.profiles)
 		if (item.kind === "empty") {
 			continue
 		}
@@ -82,6 +168,9 @@ export const seq = (items: ReadonlyArray<RegexNode>): RegexNode => {
 			push(item)
 		}
 	}
+	if (profiles === noProfiles) {
+		return never
+	}
 	const [only] = flat
 	if (only === undefined) {
 		return empty
@@ -89,7 +178,7 @@ export const seq = (items: ReadonlyArray<RegexNode>): RegexNode => {
 	if (flat.length === 1) {
 		return only
 	}
-	return Object.freeze({ kind: "seq", items: Object.freeze(flat) })
+	return Object.freeze({ kind: "seq", items: Object.freeze(flat), profiles })
 }
 
 /** A node's children, in order: a sequence's items, an alternation's arms, a repetition's body. */
@@ -153,8 +242,8 @@ const listed = (open: string, nodes: ReadonlyArray<LiveNode>): ReadonlyArray<str
 type Pieces = ReadonlyArray<string | LiveNode>
 
 /**
- * A node's canonical text, JSON.stringify(node), as its pieces, kept in `table`: nodes are immutable, so each node's
- * pieces are written once while the table lives.
+ * A node's canonical text, the JSON text of its shape (JSON.stringify of the node without its profiles), as its pieces,
+ * kept in `table`: nodes are immutable, so each node's pieces are written once while the table lives.
  */
 const piecesOf = (node: RegexNode, table: Map<RegexNode, Pieces>): Pieces => {
 	const known = table.get(node)
@@ -178,18 +267,19 @@ const writtenPieces = (node: RegexNode): Pieces => {
 				node.body,
 				`,"min":${node.min},"max":${JSON.stringify(node.max)}}`
 			]
+		case "set":
+			return [`{"kind":"set","set":${JSON.stringify(node.set)}}`]
 		case "empty":
 		case "end":
 		case "never":
-		case "set":
 		case "start":
-			return [JSON.stringify(node)]
+			return [`{"kind":"${node.kind}"}`]
 	}
 }
 
 /**
- * A node's canonical text, JSON.stringify(node), written from its pieces on a stack of the pieces still to write, so a
- * node of any depth is written without recursing.
+ * A node's canonical text, the JSON text of its shape, written from its pieces on a stack of the pieces still to write,
+ * so a node of any depth is written without recursing.
  */
 export const canonicalText = (node: RegexNode): string => {
 	const table = new Map<RegexNode, Pieces>()
@@ -287,7 +377,15 @@ const compareCanonical = (a: RegexNode, b: RegexNode, table: Map<RegexNode, Piec
 
 /** `body*` for a body with no zero-width match, which needs none of repeat's rewrites. */
 const star = (body: RegexNode): RegexNode =>
-	body.kind === "never" ? empty : Object.freeze({ kind: "repeat", body, min: 0, max: "unbounded" })
+	body.kind === "never"
+		? empty
+		: Object.freeze({
+				kind: "repeat",
+				body,
+				min: 0,
+				max: "unbounded",
+				profiles: repeated(body.profiles, 0, "unbounded")
+			})
 
 /** The iterations a repetition's maximum leaves once one more is written out: an unbounded maximum stays unbounded. */
 const lessOne = (max: number | "unbounded"): number | "unbounded" =>
@@ -328,7 +426,7 @@ export class RegexBuilder {
 
 	/**
 	 * The alternation of the arms, flattened, deduplicated and sorted by canonical text (compareCanonical): never arms
-	 * drop, and the arms' sets merge into one set, which is nonempty because each of them is.
+	 * drop, and the arms' sets merge into one set, which is nonempty because each of them is. Its profiles are its arms'.
 	 */
 	alt(arms: ReadonlyArray<RegexNode>): RegexNode {
 		const flat: Array<LiveNode> = []
@@ -347,7 +445,7 @@ export class RegexBuilder {
 		}
 		arms.forEach(visit)
 		if (sets.length > 0) {
-			flat.push(Object.freeze({ kind: "set", set: union(sets) }))
+			flat.push(liveSet(union(sets)))
 		}
 		const compare = (a: LiveNode, b: LiveNode): number => compareCanonical(a, b, this.#pieces)
 		const sorted: Array<LiveNode> = []
@@ -364,7 +462,8 @@ export class RegexBuilder {
 		if (sorted.length === 1) {
 			return only
 		}
-		return Object.freeze({ kind: "alt", arms: Object.freeze(sorted) })
+		const profiles = sorted.reduce((all, arm) => all | arm.profiles, noProfiles)
+		return Object.freeze({ kind: "alt", arms: Object.freeze(sorted), profiles })
 	}
 
 	/** Whether every match of the node is zero-width: it consumes no code point, only tests assertions. */
@@ -405,6 +504,7 @@ export class RegexBuilder {
 	 *   body out again, and nested loops through assertions compound it, so it applies only to a body within the
 	 *   compile-space measure's regexMaxPositions written-out positions; a larger one stays a constraint loop, which
 	 *   analyzeText refuses as ResourceBound (loopsThroughAnchor), as the measure would refuse the rewritten pattern.
+	 * - A repetition none of whose counts has a path is the empty language: `(?:^a){2}` is never.
 	 */
 	repeat(body: RegexNode, min: number, max: number | "unbounded"): RegexNode {
 		if (max === 0) {
@@ -432,7 +532,10 @@ export class RegexBuilder {
 		) {
 			return seq([this.repeat(body, min, min), star(this.#consuming(body))])
 		}
-		return Object.freeze({ kind: "repeat", body, min, max })
+		const profiles = repeated(body.profiles, min, max)
+		return profiles === noProfiles
+			? never
+			: Object.freeze({ kind: "repeat", body, min, max, profiles })
 	}
 
 	/**

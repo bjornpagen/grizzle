@@ -39,56 +39,71 @@ const jsValid = (source: string): boolean =>
 		() => false
 	)
 
-interface Refusal {
-	readonly source: string
-	readonly reason: "UnsupportedOperation"
-	readonly offset: number
+/**
+ * A construct outside the admitted fragment, planted with the context it needs: valid ECMAScript `lead`, the construct
+ * itself, and `tail`, so the refusal stands where the construct begins, after the lead.
+ */
+interface Planting {
+	readonly lead: string
+	readonly construct: string
+	readonly tail: string
 }
 
 /** Up to `max` lowercase ASCII letters. */
 const lowercase = (max: number) => string(codePoint(0x61, 0x7a), { min: 0, max })
 
-/** Valid ECMAScript outside the admitted fragment. */
+/**
+ * Valid ECMAScript outside the admitted fragment, the dictionary of the scanner's refusals: backreferences, named groups
+ * and references, lookarounds, word-boundary assertions, \s and \S, property escapes, lazy quantifiers, bounds above
+ * 255, NUL and lone surrogates, inline modifiers, and the first of two refusals in source order.
+ */
 const unsupported = [
-	{ source: "(a)\\1", reason: "UnsupportedOperation", offset: 3 },
-	{ source: "(?<n>a)\\k<n>", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "a(?=b)", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "a(?!b)", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "(?<=a)b", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "(?<!a)b", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "\\bword", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "a\\B", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "x\\s", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "[\\S]", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "\\p{L}", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "[\\P{Lu}]", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "ab*?", reason: "UnsupportedOperation", offset: 2 },
-	{ source: "a{2,3}?", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "a{256}", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "a{0,1000}", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "a\\0", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "[\\x00-\\x7f]", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "\\u{0}", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "\\uD800", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "a\\u{DC00}", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "\\1(a)", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "(?<a>x)\\k<a>", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "\\k<a>(?<a>x)", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "(?<\\u0061>x)\\k<a>", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "(?<a>x)|(?<a>y)", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "(?:(?<a>x)|(?<a>y))z", reason: "UnsupportedOperation", offset: 3 },
-	{ source: "(?<a$1>x)", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "(?i-:a)", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "(?-ms:a)", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "\\p{gc=Lu}", reason: "UnsupportedOperation", offset: 0 },
-	{ source: "(a)\\1*", reason: "UnsupportedOperation", offset: 3 },
-	{ source: "a{256}(?=b)\\s", reason: "UnsupportedOperation", offset: 1 },
-	{ source: "a*?\\u{0}", reason: "UnsupportedOperation", offset: 1 }
-] as const satisfies ReadonlyArray<Refusal>
+	{ lead: "(a)", construct: "\\1", tail: "" },
+	{ lead: "", construct: "(?<n>a)", tail: "\\k<n>" },
+	{ lead: "a", construct: "(?=b)", tail: "" },
+	{ lead: "a", construct: "(?!b)", tail: "" },
+	{ lead: "", construct: "(?<=a)", tail: "b" },
+	{ lead: "", construct: "(?<!a)", tail: "b" },
+	{ lead: "", construct: "\\b", tail: "word" },
+	{ lead: "a", construct: "\\B", tail: "" },
+	{ lead: "x", construct: "\\s", tail: "" },
+	{ lead: "[", construct: "\\S", tail: "]" },
+	{ lead: "", construct: "\\p{L}", tail: "" },
+	{ lead: "[", construct: "\\P{Lu}", tail: "]" },
+	{ lead: "ab", construct: "*?", tail: "" },
+	{ lead: "a", construct: "{2,3}?", tail: "" },
+	{ lead: "a", construct: "{256}", tail: "" },
+	{ lead: "a", construct: "{0,1000}", tail: "" },
+	{ lead: "a", construct: "\\0", tail: "" },
+	{ lead: "[", construct: "\\x00", tail: "-\\x7f]" },
+	{ lead: "", construct: "\\u{0}", tail: "" },
+	{ lead: "", construct: "\\uD800", tail: "" },
+	{ lead: "a", construct: "\\u{DC00}", tail: "" },
+	{ lead: "", construct: "\\1", tail: "(a)" },
+	{ lead: "", construct: "(?<a>x)", tail: "\\k<a>" },
+	{ lead: "", construct: "\\k<a>", tail: "(?<a>x)" },
+	{ lead: "", construct: "(?<\\u0061>x)", tail: "\\k<a>" },
+	{ lead: "", construct: "(?<a>x)", tail: "|(?<a>y)" },
+	{ lead: "(?:", construct: "(?<a>x)", tail: "|(?<a>y))z" },
+	{ lead: "", construct: "(?<a$1>x)", tail: "" },
+	{ lead: "", construct: "(?i-:a)", tail: "" },
+	{ lead: "", construct: "(?-ms:a)", tail: "" },
+	{ lead: "", construct: "\\p{gc=Lu}", tail: "" },
+	{ lead: "(a)", construct: "\\1", tail: "*" },
+	{ lead: "a", construct: "{256}", tail: "(?=b)\\s" },
+	{ lead: "a", construct: "*?", tail: "\\u{0}" }
+] as const satisfies ReadonlyArray<Planting>
+
+type Planted = (typeof unsupported)[number]
+
+/** A planted construct's whole spelling, which names it among the required situations. */
+type Spelled = `${Planted["lead"]}${Planted["construct"]}${Planted["tail"]}`
+
+const spelling = (planted: Planted): Spelled => `${planted.lead}${planted.construct}${planted.tail}`
 
 describe("refusals with location and reason", () => {
 	it.effect(
-		"refuses valid ECMAScript outside the fragment at the construct's offset, wherever it stands",
+		"refuses valid ECMAScript outside the fragment where the construct begins, wherever it is planted",
 		(ctx) =>
 			searched(
 				ctx,
@@ -96,31 +111,34 @@ describe("refusals with location and reason", () => {
 					{
 						suite: "unit/text/parse-unsupported",
 						draw: drawn((source) => ({
-							refusal: source.draw(element<(typeof unsupported)[number]>(unsupported)),
+							planted: source.draw(element<Planted>(unsupported)),
 							before: source.draw(lowercase(6)),
 							after: source.draw(lowercase(6))
 						})),
 						literal: Formatter.format,
-						coverage: required<(typeof unsupported)[number]["source"]>(
-							Arr.map(unsupported, (r) => r.source),
-							{ cases: 600, sense: notesOnly }
-						),
+						oracle: {
+							kind: "second-implementation",
+							name: "ECMAScript's own RegExp, which reads every source"
+						},
+						coverage: required<Spelled>(Arr.map(unsupported, spelling), {
+							cases: 600,
+							sense: notesOnly
+						}),
 						kept: [],
-						/** The rotating stream's sample of thirty-three constructs. */
 						runs: 600,
 						shrink: completeShrink,
 						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
-					({ refusal, before, after }, c) =>
+					({ planted, before, after }, c) =>
 						Effect.sync(() => {
-							c.note(refusal.source)
-							const source = `${before}${refusal.source}${after}`
+							c.note(spelling(planted))
+							const source = `${before}${spelling(planted)}${after}`
 							assert.equal(jsValid(source), true, source)
 							matchesObject(failure(source, "u"), {
-								reason: refusal.reason,
-								offset: before.length + refusal.offset
+								reason: "UnsupportedOperation",
+								offset: Arr.fromIterable(`${before}${planted.lead}`).length
 							})
 						})
 				)

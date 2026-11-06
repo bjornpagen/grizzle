@@ -1,0 +1,79 @@
+CHECKLIST: PostgreSQL contribution policy, applied to planning CHECK and generation expressions once per relcache entry
+
+Outcome: a patch for master, to go to pgsql-hackers with a commitfest entry when the owner chooses. Nothing has been
+sent.
+
+A. GATES BEFORE REPORTING
+  [x] Check whether the problem is already known before reporting.
+      https://www.postgresql.org/docs/current/bug-reporting.html (5.1)
+      - "Partitioning performance: cache stringToNode() of pg_constraint.ccbin" (pgsql-hackers, 2013-06-03, Noah
+        Misch for Korry Douglas): https://postgr.es/m/20130603190727.GA360354@tornado.leadboat.com
+        - It cached the stringToNode() form of ccbin in the relcache, not the planned form, and planned it per
+          statement still.
+        - It stalled on two points Noah Misch named in 2014-08: FreeTupleDesc() freed only the root of the cached
+          tree, and ExecPrepareExpr() passed the shared tree to eval_const_expressions(), which nobody had audited
+          for writes. No one took it over, and nothing was committed.
+        - This patch keeps the planned trees in a memory context of the relcache entry's own, deleted with the entry
+          or, for a stale one, at RelationClose(); and it plans a private copy and keeps the result, so the shared
+          tree only ever reaches ExecInitExpr(), which does not modify its input (src/backend/executor/README). The
+          email cites the thread and says so.
+      - master's ExecRelCheck() and ExecInitGenerated() still read and plan per statement (EVIDENCE.txt 1).
+      - A web search for ExecRelCheck, ccbin, stringToNode and relcache with "cache" and "check constraint" finds only
+        the 2013 thread and an unrelated project's issue about the same cost.
+  [x] Check the current development branch, not only the release it was found on.
+      https://www.postgresql.org/docs/current/bug-reporting.html (5.2)
+      Found and fixed on 19rc1; rebased onto, measured on and verified on master 72b9498df9 (2026-11-06).
+  [x] Don't duplicate a discussion.
+      https://wiki.postgresql.org/wiki/Guide_to_reporting_problems
+      - The commitfests PG20-3 (in progress) and PG20-4 (open) have no entry on caching CHECK or generation
+        expressions. Their titles were read in full on 2026-11-06; the commitfest search needs a login, so the owner
+        repeats it before filing.
+      - Two entries touch the same code, and the email names neither as a duplicate:
+        - CF 6270, "skip check constraints verification for unaffected columns during UPDATE" (Needs review), changes
+          which CHECK constraints ExecRelCheck() evaluates, not how they are planned. Whichever lands second rebases.
+        - CF 7483, "Reducing relcache memory usage 2: shrink sizeof(RelationData)" (Needs review). This patch grows
+          RelationData by 56 bytes (EVIDENCE.txt 5). The email says so.
+  [x] Mind the release cycle.
+      https://wiki.postgresql.org/wiki/Submitting_a_Patch
+      19 is between RC1 and RC2. This is a master patch for the 20 cycle: the email goes to hackers with a commitfest
+      entry in PG20-4, and asks for no backpatch.
+
+B. REPORT CONTENT
+  [x] A self-contained reproduction runnable in psql without ~/.psqlrc: repro.sql, run with psql -X. It builds its
+      large constant with \gexec and drops everything it creates.
+  [x] Observed and expected behaviour:
+      - an IMMUTABLE function in a CHECK constraint or a generated column is called once per statement, 1000 times
+        over 1000 one-row INSERTs, against once with the patch (EVIDENCE.txt 2);
+      - over a bare one-row INSERT, a CHECK constraint or a generated column over a 128 kB constant costs about 26 us
+        of backend CPU time, and a CHECK constraint holding that constant as a literal 2.4 ms; with the patch, 1 to 2
+        us and nothing measurable (EVIDENCE.txt 3);
+      - the results are unchanged: the regression test's output on unpatched master differs only in the line that
+        counts the calls (EVIDENCE.txt 4).
+  [x] Version, platform and non-default settings: EVIDENCE.txt, its header and sections 3 and 5. jit is off on the
+      measuring clusters, and fsync is off, which a one-row INSERT inside one DO block never waits on.
+  [x] List: pgsql-hackers, since the report comes with a patch for master and involves no wrong result.
+      https://wiki.postgresql.org/wiki/Mailing_Lists
+  [x] Etiquette: email.txt is plain text, with no HTML, no top-posting and no confidentiality footer.
+
+C. PATCH SUBMISSION
+  [x] Against current master, one patch, named in git format-patch style (v1-0001-...patch). On master 72b9498df9;
+      `git apply --check` passes on a clean tree of that master.
+      https://wiki.postgresql.org/wiki/Submitting_a_Patch
+      https://wiki.postgresql.org/wiki/Creating_Clean_Patches
+  [x] Commit message: a summary line, then the cause, the fix, the invalidation it needs, the memory it keeps, the
+      effect and the test. Committers add Discussion, Reviewed-by and Backpatch-through themselves.
+  [x] A regression test: relcache_exprs, in the parallel group with planner_est. Its output on unpatched master
+      differs only in the planned_once line (EVIDENCE.txt 4).
+  [x] Builds with assertions (-Dcassert=true) with no warnings in the files it changes.
+  [x] Passes every suite meson runs without TAP: regress (240, relcache_exprs among them), isolation, plpgsql, ecpg,
+      contrib and the test modules (EVIDENCE.txt 5).
+  [x] pgindent (src/tools/pgindent, with the in-tree pg_bsd_indent) leaves every changed C file and header unchanged.
+  [x] `git diff --check`: no whitespace errors.
+  [ ] TAP suites (-Dtap_tests=enabled) and a build with debug_discard_caches. Neither was run. The regression test
+      is written to pass under debug_discard_caches (its planned_once line allows it), and the cfbot runs the TAP
+      suites on every platform once the commitfest entry exists.
+  [x] To be attached, not inlined.
+  [ ] The author line: the owner replaces the GitHub noreply address with his sending address before sending (NOTES.txt
+      2).
+  [ ] A commitfest entry in PG20-4, which the owner makes after the email reaches the archive.
+      https://commitfest.postgresql.org/

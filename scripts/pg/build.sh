@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Builds the pinned PostgreSQL with the pin's source patches, pgvector and plpgsql_check natively, and installs the
-# build at $GRIZZLE_PG_PREFIX. A prefix that already holds the current pin is kept unless --force is given.
+# Builds the pinned PostgreSQL with the pin's source patches and pgvector natively, and installs the build at
+# $GRIZZLE_PG_PREFIX. A prefix that already holds the current pin is kept unless --force is given.
 #
 # The prefix holds a complete build, or the build it held before, and never anything in between. Every input is
 # fetched first. PostgreSQL's regression suites must pass before the build is installed into a staging tree beside the
-# prefix, on the same file system; the extensions are built into that tree and the stamps are written last. Only then
-# does one rename exchange the tree with the prefix. A failure before the exchange leaves the prefix as it was, and the
-# staging tree, which holds the previous build after the exchange, is removed on every exit. Both clusters run from
-# the prefix, so a cluster running at the exchange is stopped just before it and started again just after it.
+# prefix, on the same file system; pgvector is built into that tree and the stamp is written last. Only then does one
+# rename exchange the tree with the prefix. A failure before the exchange leaves the prefix as it was, and the staging
+# tree, which holds the previous build after the exchange, is removed on every exit. The cluster runs from the prefix,
+# so a cluster running at the exchange is stopped just before it and started again just after it.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -15,9 +15,9 @@ here="$(cd "$(dirname "$0")" && pwd)"
 force=0
 [[ "${1:-}" == "--force" ]] && force=1
 
-if [[ $force -eq 0 && -f "$(core_stamp "$GRIZZLE_PG_PREFIX")" && -f "$(plpgsql_check_stamp "$GRIZZLE_PG_PREFIX")" &&
+if [[ $force -eq 0 && -f "$(core_stamp "$GRIZZLE_PG_PREFIX")" &&
 	"$(cat "$(core_stamp "$GRIZZLE_PG_PREFIX")")" == "$PG_PIN_PATCHES" ]]; then
-	echo "PostgreSQL $PG_PIN_VERSION, pgvector $PGVECTOR_PIN_VERSION and plpgsql_check $PLPGSQL_CHECK_PIN_VERSION already built at $GRIZZLE_PG_PREFIX"
+	echo "PostgreSQL $PG_PIN_VERSION and pgvector $PGVECTOR_PIN_VERSION already built at $GRIZZLE_PG_PREFIX"
 	exit 0
 fi
 
@@ -31,27 +31,15 @@ stage_root="$GRIZZLE_PG_PREFIX.staging"
 staged="$stage_root$GRIZZLE_PG_PREFIX"
 pgxs=(PG_CONFIG="$staged/bin/pg_config" COPT="-ffile-prefix-map=$staged=$GRIZZLE_PG_PREFIX")
 
-# Runs ctl.sh on the cluster $1 with the remaining arguments.
-ctl() {
-	local cluster=$1
-	shift
-	case "$cluster" in
-		main) "$here/ctl.sh" "$@" ;;
-		coverage) "$here/ctl.sh" --coverage "$@" ;;
-	esac
-}
-
-# The clusters stopped for the exchange. Every exit starts each of them again, from the new build after the exchange
-# and from the previous one before it, so no failure leaves a cluster down.
-stopped=""
+# Whether the cluster was stopped for the exchange. Every exit starts it again, from the new build after the exchange
+# and from the previous one before it, so no failure leaves it down.
+stopped=0
 finish() {
-	local status=$? cluster
-	for cluster in $stopped; do
-		if ! ctl "$cluster" start; then
-			echo "The $cluster cluster did not start; its log is $(use_cluster "$cluster" && echo "$GRIZZLE_PG_LOG")/startup.log" >&2
-			status=1
-		fi
-	done
+	local status=$?
+	if [[ $stopped -eq 1 ]] && ! "$here/ctl.sh" start; then
+		echo "The cluster did not start; its log is $GRIZZLE_PG_LOG/startup.log" >&2
+		status=1
+	fi
 	rm -rf "$stage_root"
 	exit "$status"
 }
@@ -96,19 +84,15 @@ if libc.renamex_np(os.fsencode(source), os.fsencode(target), flags) != 0:
 mkdir -p "$GRIZZLE_PG_SRC"
 src="$GRIZZLE_PG_SRC/postgresql-$PG_PIN_VERSION"
 vector_src="$GRIZZLE_PG_SRC/pgvector-$PGVECTOR_PIN_VERSION"
-check_src="$GRIZZLE_PG_SRC/plpgsql_check-$PLPGSQL_CHECK_PIN_VERSION"
 
 pg_tarball="$GRIZZLE_PG_SRC/postgresql-$PG_PIN_VERSION.tar.bz2"
-check_tarball="$GRIZZLE_PG_SRC/plpgsql_check-$PLPGSQL_CHECK_PIN_VERSION.tar.gz"
 fetch "$pg_tarball" "$PG_PIN_TARBALL_URL" "$PG_PIN_TARBALL_SHA256"
-fetch "$check_tarball" "$PLPGSQL_CHECK_PIN_TARBALL_URL" "$PLPGSQL_CHECK_PIN_TARBALL_SHA256"
 rm -rf "$vector_src"
 git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$PGVECTOR_PIN_TAG" \
 	https://github.com/pgvector/pgvector.git "$vector_src"
 
-rm -rf "$src" "$check_src"
+rm -rf "$src"
 tar -xjf "$pg_tarball" -C "$GRIZZLE_PG_SRC"
-tar -xzf "$check_tarball" -C "$GRIZZLE_PG_SRC"
 
 # git apply allows no fuzz.
 for entry in $PG_PIN_PATCHES; do
@@ -136,23 +120,16 @@ export PKG_CONFIG_PATH="$HOMEBREW_PREFIX/opt/readline/lib/pkgconfig:$HOMEBREW_PR
 	meson install -C build --quiet --destdir "$stage_root"
 )
 
-for extension_src in "$vector_src" "$check_src"; do
-	make -C "$extension_src" "${pgxs[@]}"
-	make -C "$extension_src" "${pgxs[@]}" install
-done
+make -C "$vector_src" "${pgxs[@]}"
+make -C "$vector_src" "${pgxs[@]}" install
 
-printf '%s' "$PLPGSQL_CHECK_PIN_COMMIT" > "$(plpgsql_check_stamp "$staged")"
 printf '%s' "$PG_PIN_PATCHES" > "$(core_stamp "$staged")"
-echo "Built PostgreSQL $PG_PIN_VERSION, pgvector $PGVECTOR_PIN_VERSION and plpgsql_check $PLPGSQL_CHECK_PIN_VERSION in $staged"
+echo "Built PostgreSQL $PG_PIN_VERSION and pgvector $PGVECTOR_PIN_VERSION in $staged"
 
-running=""
-for cluster in $PG_CLUSTERS; do
-	if (use_cluster "$cluster" && pg_running); then running="$running $cluster"; fi
-done
-echo "Clusters running from $GRIZZLE_PG_PREFIX, restarted around the exchange because it replaces their binaries:${running:- none}"
-for cluster in $running; do
-	stopped="$stopped $cluster"
-	ctl "$cluster" stop
-done
+if pg_running; then
+	echo "The cluster runs from $GRIZZLE_PG_PREFIX; it is restarted around the exchange, which replaces its binaries"
+	stopped=1
+	"$here/ctl.sh" stop
+fi
 exchange "$staged" "$GRIZZLE_PG_PREFIX"
-echo "Installed PostgreSQL $PG_PIN_VERSION, pgvector $PGVECTOR_PIN_VERSION and plpgsql_check $PLPGSQL_CHECK_PIN_VERSION at $GRIZZLE_PG_PREFIX"
+echo "Installed PostgreSQL $PG_PIN_VERSION and pgvector $PGVECTOR_PIN_VERSION at $GRIZZLE_PG_PREFIX"

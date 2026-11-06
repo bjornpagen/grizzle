@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
-# The go/no-go check for a local cluster: the main one, or with --coverage the coverage one.
-#   doctor.sh [--coverage] [--quick]
+# The go/no-go check for the local cluster.
+#   doctor.sh [--quick]
 # Every check must pass. --quick runs only the checks that need no scratch database.
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
-if [[ "${1:-}" == "--coverage" ]]; then
-	use_cluster coverage
-	shift
-fi
 require_build
 
 quick=0
@@ -22,10 +18,10 @@ check() {
 }
 dev() { tls_psql "$PG_DEV_ROLE" "$@" 2>&1; }
 
-echo "grizzle doctor: PostgreSQL $PG_PIN_VERSION at $GRIZZLE_PG_PREFIX, cluster $GRIZZLE_PG_CLUSTER on port $PG_PORT"
+echo "grizzle doctor: PostgreSQL $PG_PIN_VERSION at $GRIZZLE_PG_PREFIX, cluster on port $PG_PORT"
 
 if ! pg_running; then
-	fail "cluster running" "start it with scripts/pg/ctl.sh$([[ "$GRIZZLE_PG_CLUSTER" == coverage ]] && echo " --coverage") start"
+	fail "cluster running" "start it with scripts/pg/ctl.sh start"
 	exit 1
 fi
 
@@ -62,11 +58,6 @@ refused "wrong CA refused" "host=localhost port=$PG_PORT dbname=$PG_DEV_ROLE use
 refused "wrong hostname refused" "host=127.0.0.1 port=$PG_PORT dbname=$PG_DEV_ROLE user=$PG_DEV_ROLE sslmode=verify-full sslrootcert=$GRIZZLE_PG_TLS/ca.crt sslsni=0 hostaddr=127.0.0.1 host=grizzle.invalid"
 refused "plaintext refused" "host=localhost port=$PG_PORT dbname=$PG_DEV_ROLE user=$PG_DEV_ROLE sslmode=disable"
 
-if [[ "$GRIZZLE_PG_CLUSTER" == coverage ]]; then
-	check "plpgsql_check is preloaded" "plpgsql_check" "$(admin_psql -d postgres -At -c "SHOW shared_preload_libraries" 2>&1)"
-	check "the plpgsql_check profiler is on" "on" "$(dev "$PG_DEV_ROLE" -At -c "SHOW plpgsql_check.profiler")"
-fi
-
 if [[ $quick -eq 1 ]]; then
 	[[ $failures -eq 0 ]] && echo "doctor --quick: all checks passed" || echo "doctor --quick: $failures check(s) failed"
 	exit $((failures > 0))
@@ -95,15 +86,6 @@ check "DO SELECT exact repeat returns nothing" "" \
 	"$(dev "$scratch" -At -c "INSERT INTO t AS r VALUES (1, 'a') ON CONFLICT (id) DO SELECT WHERE (r.v) <> (EXCLUDED.v) RETURNING r.id, r.v")"
 check "DO SELECT different payload returns the witness" "1|a" \
 	"$(dev "$scratch" -At -c "INSERT INTO t AS r VALUES (1, 'b') ON CONFLICT (id) DO SELECT WHERE (r.v) <> (EXCLUDED.v) RETURNING r.id, r.v")"
-
-# The probe's statements are its block, the IF and the two RETURNs, of which a call with 1 runs three; its branches
-# are the IF's THEN and its implicit ELSE, of which it takes one. Reading needs the extension's functions, created in
-# a transaction that rolls back.
-if [[ "$GRIZZLE_PG_CLUSTER" == coverage ]]; then
-	dev "$scratch" -c "CREATE FUNCTION doctor_probe(a int) RETURNS int LANGUAGE plpgsql AS \$\$ BEGIN IF a > 0 THEN RETURN 1; END IF; RETURN 0; END \$\$" -c "SELECT doctor_probe(1)" >/dev/null
-	check "the profiler records statement and branch coverage" "0.75|0.5" \
-		"$(admin_psql -d "$scratch" -At -c "BEGIN" -c "CREATE EXTENSION plpgsql_check" -c "SELECT plpgsql_coverage_statements('doctor_probe(int)'::regprocedure) || '|' || plpgsql_coverage_branches('doctor_probe(int)'::regprocedure)" -c "ROLLBACK" 2>&1)"
-fi
 
 [[ $failures -eq 0 ]] && echo "doctor: all checks passed" || echo "doctor: $failures check(s) failed"
 exit $((failures > 0))

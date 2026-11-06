@@ -332,6 +332,13 @@ export default defineConfig(
 				})
 			},
 			{
+				files: ["packages/engine/src/types/core/identical.ts"],
+				rules: active({
+					/** Identical's T is the probe of the checker's identity relation, the one way TypeScript compares two types for identity rather than assignability. */
+					"typescript/no-unnecessary-type-parameters": "off"
+				})
+			},
+			{
 				files: ["packages/engine/src/schema/record.ts"],
 				rules: active({
 					/** assembled's R and describedHeading's C are the types the module's one assertion gives a record built key by key: TypeScript cannot derive them, so their callers name them. */

@@ -23,6 +23,7 @@ import type {
 	IsRelationOf,
 	NamedBy,
 	RelationOf,
+	RelationsOf,
 	StatementsOf
 } from "#compiler/types/schema/schema.ts"
 
@@ -209,26 +210,46 @@ export type EntryContexts<Rs> = {
 }[keyof Rs]
 
 /**
+ * The role's entry under the name N, none where the role has no entry of that name. A role's relations are its index by
+ * name, as a schema's are: a whole entry sits under its own name (EntriesCheck), so "R is a whole entry" is "R is the
+ * entry under R's name", one lookup, never a pass over the entries.
+ */
+type EntryNamed<Relations, N> = N extends keyof Relations ? Relations[N] : never
+
+/**
  * Whether a role holds every relation of its base whole, under its own name: then the base is among its levels. A
  * closed relation is no entry (its rows are constants every role reads, D3), so a role holds every relation but those.
+ * The base's record holds each relation under its own name too (UnderOwnNames), so each is read against the role's
+ * entry of its key alone.
  */
-type FullBaseOf<Base, Relations> = [
-	Exclude<RelationOf<Base>, Relations[keyof Relations] | AnyClosedRelation>
-] extends [never]
+type FullBaseOf<Base, Relations> = [UnheldOf<RelationsOf<Base>, Relations>] extends [never]
 	? Base
 	: never
 
-/** The base's laws a role keeps: those whose every relation is a whole entry. */
-type KeptStatement<St, Whole> = St extends unknown
-	? [NamedBy<St>] extends [Whole]
+/** The keys of a base's record whose relation the role does not hold whole under that key, closed relations aside. */
+type UnheldOf<BaseRelations, Relations> = {
+	[K in keyof BaseRelations]-?: [BaseRelations[K]] extends [
+		AnyClosedRelation | EntryNamed<Relations, K>
+	]
+		? never
+		: K
+}[keyof BaseRelations]
+
+/** The relations among Named that are not the role's entry under their own names. */
+type NotWhole<Relations, Named> = Named extends unknown
+	? [Named] extends [EntryNamed<Relations, NameOf<Named>>]
+		? never
+		: Named
+	: never
+
+/** The base's laws a role keeps: those whose every relation is the role's entry under that relation's name. */
+type KeptStatement<St, Relations> = St extends unknown
+	? [NotWhole<Relations, NamedBy<St>>] extends [never]
 		? St
 		: never
 	: never
 
-export type KeptStatements<Base, Relations> = KeptStatement<
-	StatementsOf<Base>[number],
-	Extract<Relations[keyof Relations], AnyRelation | AnyRoster | AnyDerived>
->
+export type KeptStatements<Base, Relations> = KeptStatement<StatementsOf<Base>[number], Relations>
 
 /** Any role: the members every one has. A role is a schema: it has a name, relations and statements. */
 export interface AnyRole extends AnySchema {

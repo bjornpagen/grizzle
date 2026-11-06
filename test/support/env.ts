@@ -39,8 +39,6 @@ const pinFile = Config.all({
 	GRIZZLE_PG_PREFIX: Config.String("GRIZZLE_PG_PREFIX"),
 	PG_PORT: Config.Port("PG_PORT"),
 	GRIZZLE_PG_STATE: Config.String("GRIZZLE_PG_STATE"),
-	PG_COVERAGE_PORT: Config.Port("PG_COVERAGE_PORT"),
-	GRIZZLE_PG_COVERAGE_STATE: Config.String("GRIZZLE_PG_COVERAGE_STATE"),
 	PG_DEV_ROLE: Config.String("PG_DEV_ROLE"),
 	PG_TEMPLATE_DB: Config.String("PG_TEMPLATE_DB")
 })
@@ -52,45 +50,24 @@ const pin = await Effect.runPromise(
 )
 
 /**
- * The cluster a run's database tests use, from GRIZZLE_PG_CLUSTER: `main`, the default, or `coverage`, the cluster
- * that preloads plpgsql_check. Any other value is refused when the module loads.
- */
-export type PgCluster = "main" | "coverage"
-
-const cluster: PgCluster = Effect.runSync(
-	Config.withDefault(Config.Literals(["main", "coverage"], "GRIZZLE_PG_CLUSTER"), "main")
-)
-
-/** Where a cluster lives: its port and its state directory, which holds tls/, socket/ and the owner's password. */
-const clusterPlace = (which: PgCluster): { readonly port: number; readonly state: string } => {
-	switch (which) {
-		case "main":
-			return { port: pin.PG_PORT, state: pin.GRIZZLE_PG_STATE }
-		case "coverage":
-			return { port: pin.PG_COVERAGE_PORT, state: pin.GRIZZLE_PG_COVERAGE_STATE }
-	}
-}
-
-const place = clusterPlace(cluster)
-
-/**
- * The repository's PostgreSQL pin (scripts/pg/pin.env) and the cluster GRIZZLE_PG_CLUSTER selects: configuration from a
- * repository file and the environment, which any module reads, with no cluster present. What exists only once
- * `pnpm pg:init` has initialised the cluster, its owner's password and its CA certificates, is the InitializedCluster
- * service's (test/support/cluster.ts).
+ * The repository's PostgreSQL pin and its local cluster (scripts/pg/pin.env): configuration from a repository file,
+ * which any module reads, with no cluster present. What exists only once `pnpm pg:init` has initialised the cluster,
+ * its owner's password and its CA certificates, is the InitializedCluster service's (test/support/cluster.ts).
  */
 export const pgPin = {
 	version: pin.PG_PIN_VERSION,
 	vectorVersion: pin.PGVECTOR_PIN_VERSION,
 	prefix: pin.GRIZZLE_PG_PREFIX,
 	host: "localhost",
-	cluster,
-	state: place.state,
-	port: place.port,
+	state: pin.GRIZZLE_PG_STATE,
+	port: pin.PG_PORT,
 	devRole: pin.PG_DEV_ROLE,
 	templateDatabase: pin.PG_TEMPLATE_DB
 } as const
 
-/** The bootstrap superuser's URL to `database` over the coverage cluster's socket, which reads plpgsql_check's profiles. */
-export const coverageAdminUrl = (database: string): string =>
+/**
+ * The bootstrap superuser's URL to `database` over the cluster's local socket, where peer authentication maps this OS
+ * user to it (scripts/pg/init.sh).
+ */
+export const adminUrl = (database: string): string =>
 	`postgresql://postgres@localhost:${pgPin.port}/${encodeURIComponent(database)}?host=${encodeURIComponent(`${pgPin.state}/socket`)}`

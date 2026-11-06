@@ -109,9 +109,10 @@ const typeOf = (spec: RelationSpec, field: string): FieldType => {
 }
 
 /**
- * A row predicate, the selection language a side's select states: a field against a literal, two fields of one type
- * against each other, a boolean field's value, BETWEEN and IN, and the connectives. Integers are small whole numbers,
- * a bigint literal for a natural field and a JavaScript integer for an int field, as each field's codec reads them.
+ * A row predicate, the selection language a side's select states: a field against a literal, written field first or,
+ * as a description may state it, literal first; two fields of one type against each other, a boolean field's value,
+ * BETWEEN and IN, and the connectives. Integers are small whole numbers, a bigint literal for a natural field and a
+ * JavaScript integer for an int field, as each field's codec reads them.
  */
 export type Phi =
 	| {
@@ -119,6 +120,12 @@ export type Phi =
 			readonly op: CompareOp
 			readonly field: string
 			readonly value: number
+	  }
+	| {
+			readonly kind: "literalFirst"
+			readonly op: CompareOp
+			readonly value: number
+			readonly field: string
 	  }
 	| {
 			readonly kind: "fields"
@@ -151,6 +158,8 @@ const phiText = (phi: Phi): string => {
 	switch (phi.kind) {
 		case "compare":
 			return `${phi.field} ${SYMBOLS[phi.op]} ${phi.value}`
+		case "literalFirst":
+			return `${phi.value} ${SYMBOLS[phi.op]} ${phi.field}`
 		case "fields":
 			return `${phi.left} ${SYMBOLS[phi.op]} ${phi.right}`
 		case "is":
@@ -171,6 +180,7 @@ const phiText = (phi: Phi): string => {
 export const phiFields = (phi: Phi): ReadonlyArray<string> => {
 	switch (phi.kind) {
 		case "compare":
+		case "literalFirst":
 		case "is":
 		case "between":
 		case "in":
@@ -215,6 +225,8 @@ export const phiHolds = (phi: Phi, fact: HostFact): boolean => {
 	switch (phi.kind) {
 		case "compare":
 			return compared(phi.op, numberAt(fact, phi.field), phi.value)
+		case "literalFirst":
+			return compared(phi.op, phi.value, numberAt(fact, phi.field))
 		case "fields":
 			return compared(phi.op, numberAt(fact, phi.left), numberAt(fact, phi.right))
 		case "is":
@@ -251,6 +263,13 @@ const phiDesc = (spec: RelationSpec, phi: Phi): ExprDesc => {
 				op: phi.op,
 				left: fieldDesc(phi.field),
 				right: literalDesc(integerLiteral(spec, phi.field, phi.value))
+			}
+		case "literalFirst":
+			return {
+				kind: "compare",
+				op: phi.op,
+				left: literalDesc(integerLiteral(spec, phi.field, phi.value)),
+				right: fieldDesc(phi.field)
 			}
 		case "fields":
 			return { kind: "compare", op: phi.op, left: fieldDesc(phi.left), right: fieldDesc(phi.right) }
@@ -329,6 +348,132 @@ export type Law =
 			readonly relation: string
 			readonly phi: Phi
 	  }
+
+/** Each comparison's mirror: the operator that holds of the same two operands written the other way round. */
+export const MIRROR: Readonly<Record<CompareOp, CompareOp>> = {
+	eq: "eq",
+	ne: "ne",
+	lt: "gt",
+	le: "ge",
+	gt: "lt",
+	ge: "le"
+}
+
+const sortedTexts = (texts: ReadonlyArray<string>): ReadonlyArray<string> =>
+	Arr.sort(texts, (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0))
+
+const setText = (texts: ReadonlyArray<string>): string =>
+	Arr.join(sortedTexts(Arr.dedupe(texts)), ", ")
+
+/** Two fields compared, read in the canonical orientation: by eq or ne unordered, an ordering as < or <=. */
+const fieldsForm = (op: CompareOp, left: string, right: string): string => {
+	switch (op) {
+		case "eq":
+		case "ne":
+			return `(${Arr.join(sortedTexts([left, right]), ` ${SYMBOLS[op]} `)})`
+		case "lt":
+		case "le":
+			return `(${left} ${SYMBOLS[op]} ${right})`
+		case "gt":
+		case "ge":
+			return `(${right} ${SYMBOLS[MIRROR[op]]} ${left})`
+	}
+}
+
+/**
+ * A predicate as ownership's canonical form reads it: a conjunction's and a disjunction's operands unordered, nested
+ * ones kept; a field and a literal read field first; two fields read by fieldsForm; an IN list the set of its values.
+ */
+const phiForm = (phi: Phi): string => {
+	switch (phi.kind) {
+		case "compare":
+			return `(${phi.field} ${SYMBOLS[phi.op]} ${phi.value})`
+		case "literalFirst":
+			return `(${phi.field} ${SYMBOLS[MIRROR[phi.op]]} ${phi.value})`
+		case "fields":
+			return fieldsForm(phi.op, phi.left, phi.right)
+		case "is":
+			return `(${phi.field} is ${String(phi.value)})`
+		case "between":
+			return `(${phi.field} between ${phi.low} and ${phi.high})`
+		case "in":
+			return `(${phi.field} in [${setText(Arr.map(phi.values, String))}])`
+		case "and":
+		case "or":
+			return `${phi.kind}(${Arr.join(sortedTexts([phiForm(phi.left), phiForm(phi.right)]), ", ")})`
+		case "not":
+			return `not ${phiForm(phi.arg)}`
+	}
+}
+
+/** A selection's conjuncts, through every nested conjunction at its top. */
+const topConjuncts = (phi: Phi): ReadonlyArray<Phi> =>
+	phi.kind === "and" ? [...topConjuncts(phi.left), ...topConjuncts(phi.right)] : [phi]
+
+/**
+ * A side as the canonical form reads it: its relation, its terms in order, and its selection the set of its conjuncts.
+ */
+const sideForm = (s: Side): string =>
+	`${s.relation}(${Arr.join(
+		Arr.map(s.terms, (t) => (t.kind === "field" ? t.field : `pred(${t.field})`)),
+		", "
+	)})${Option.match(s.where, {
+		onNone: () => "",
+		onSome: (phi) => ` where {${setText(Arr.map(topConjuncts(phi), phiForm))}}`
+	})}`
+
+/**
+ * Each statement a law states, read in ownership's canonical form, in the order Reading states them: a key by its
+ * side, a containment by its two sides, a mirrors as its two containments, and a check by its relation and name, which
+ * its law is named by. Two statements are one law exactly when their forms are one text.
+ */
+export const lawForms = (law: Law): NonEmptyReadonlyArray<string> => {
+	switch (law.kind) {
+		case "key":
+			return [`key ${sideForm(law.side)}`]
+		case "contained":
+			return [`${sideForm(law.left)} in ${sideForm(law.right)}`]
+		case "mirrors":
+			return [
+				`${sideForm(law.left)} in ${sideForm(law.right)}`,
+				`${sideForm(law.right)} in ${sideForm(law.left)}`
+			]
+		case "check":
+			return [`check ${law.name} of ${law.relation}`]
+	}
+}
+
+/** The selections a law's sides and checks state. */
+export const lawSelections = (law: Law): ReadonlyArray<Phi> => {
+	switch (law.kind) {
+		case "key":
+			return Option.toArray(law.side.where)
+		case "contained":
+		case "mirrors":
+			return [...Option.toArray(law.left.where), ...Option.toArray(law.right.where)]
+		case "check":
+			return [law.phi]
+	}
+}
+
+/** Whether a selection holds a comparison: a field against a literal, either way round, or two fields. */
+export const holdsComparison = (phi: Phi): boolean => {
+	switch (phi.kind) {
+		case "compare":
+		case "literalFirst":
+		case "fields":
+			return true
+		case "is":
+		case "between":
+		case "in":
+			return false
+		case "and":
+		case "or":
+			return holdsComparison(phi.left) || holdsComparison(phi.right)
+		case "not":
+			return holdsComparison(phi.arg)
+	}
+}
 
 /** A field descriptor of a type: natural is the builtin contract over bigint. */
 const descriptorOf = (type: FieldType): FieldDesc => {

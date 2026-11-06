@@ -622,7 +622,6 @@ const canonicalize = (dfa: RawDfa): CanonicalDfa => {
  * into a minimal DFA over the admitted code points, within fixed bounds, so no determinization is uncontrolled.
  * When the bounds hold, the minimal DFA proves the facts the schema compiler uses:
  *
- * - the language is empty, so no value can ever satisfy the field;
  * - the language is every admitted value, a tautology whose CHECK erases;
  * - the language is finite, so its members can be listed, `VALUE IN (...)` where that prints shorter than the regex;
  * - two patterns recognize the same values, because minimal DFAs are unique up to the canonical numbering below, which
@@ -651,8 +650,6 @@ export const minimalDfa = (nfa: Nfa, limits: DfaLimits): DfaOutcome => {
 /** The canonical text of a minimal DFA: equal texts, equal languages. */
 export const dfaKey = (dfa: CanonicalDfa): string =>
 	JSON.stringify(dfa.states.map((s) => [s.accept ? 1 : 0, s.edges.map((e) => [e.set, e.to])]))
-
-export const isEmptyLanguage = (dfa: CanonicalDfa): boolean => dfa.states.length === 0
 
 /** Every admitted value is a member: one accepting state looping on the whole domain. */
 export const isUniversal = (dfa: CanonicalDfa): boolean => {

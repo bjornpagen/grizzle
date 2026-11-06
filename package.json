@@ -35,14 +35,12 @@
 		"test:network": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict\" node --conditions=grizzle-source node_modules/vitest/vitest.mjs run --config vitest.network.config.ts",
 		"fuzz": "node packages/testing/scripts/fuzz.ts",
 		"mutate": "node --conditions=grizzle-source scripts/dev/mutate/main.ts",
-		"plpgsql-coverage": "node --conditions=grizzle-source scripts/dev/plpgsql-coverage.ts",
 		"bench": "node --conditions=grizzle-source bench/main.ts",
 		"bench:full": "node --conditions=grizzle-source bench/main.ts full",
 		"pg:build": "scripts/pg/build.sh",
 		"pg:init": "scripts/pg/init.sh",
 		"pg:doctor": "scripts/pg/doctor.sh",
-		"pg": "scripts/pg/ctl.sh",
-		"pg:coverage": "scripts/pg/ctl.sh --coverage"
+		"pg": "scripts/pg/ctl.sh"
 	},
 	"dependencies": {
 		"@effect/platform-node": "catalog:",

@@ -16,7 +16,6 @@ import {
 	type CanonicalDfa,
 	type DfaLimits,
 	dfaKey,
-	isEmptyLanguage,
 	isUniversal,
 	longest,
 	membersWithin,
@@ -173,7 +172,11 @@ type Language =
 	| { readonly kind: "empty" }
 	| { readonly kind: "nonEmpty"; readonly ir: LiveNode; readonly known: Known }
 
-/** The language of a pattern's IR from its NFA: what analyzeText classifies an admitted pattern by. */
+/**
+ * The language of a pattern's IR from its NFA: what analyzeText classifies an admitted pattern by. It is empty exactly
+ * when the IR is never, which the IR's constructors make it exactly when no admitted text value matches it (ir.ts), so a
+ * live IR's language is non-empty whether or not the DFA bounds reach its automaton.
+ */
 export const languageOf = (ir: RegexNode, nfa: Nfa): Language => {
 	if (ir.kind === "never") {
 		return { kind: "empty" }
@@ -183,9 +186,7 @@ export const languageOf = (ir: RegexNode, nfa: Nfa): Language => {
 		case "bounded":
 			return { kind: "nonEmpty", ir, known: { kind: "structure" } }
 		case "minimal":
-			return isEmptyLanguage(outcome.dfa)
-				? { kind: "empty" }
-				: { kind: "nonEmpty", ir, known: { kind: "automaton", dfa: outcome.dfa } }
+			return { kind: "nonEmpty", ir, known: { kind: "automaton", dfa: outcome.dfa } }
 	}
 }
 
@@ -194,8 +195,9 @@ export const languageOf = (ir: RegexNode, nfa: Nfa): Language => {
  *
  * `analyzeText` is what schema compilation calls for every `str.regex` descriptor. It admits the pattern as every
  * pattern grizzle hands PostgreSQL is admitted (scalar/regex/admit.ts admitPattern): its grammar, with source-located
- * diagnostics, and PostgreSQL's regex compile space, a pattern past one of its measures refused as ResourceBound; then
- * proves what it can within the host's bounds and chooses the PostgreSQL enforcement:
+ * diagnostics, and PostgreSQL's regex compile space, a pattern past one of its measures refused as ResourceBound. It
+ * refuses, as UnsupportedOperation, exactly the patterns no admitted text value matches, whose IR is never (languageOf),
+ * however large. Then it proves what it can within the host's bounds and chooses the PostgreSQL enforcement:
  *
  * - a tautology over admitted text erases: no CHECK, no domain, the column is plain text;
  * - a proved finite language becomes `VALUE IN (...)`, which recognizes exactly the same values, where that predicate

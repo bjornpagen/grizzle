@@ -1,0 +1,76 @@
+NOTES: relcache-planned-check-and-generation
+
+Status: ready to file, NOT filed. Nothing has been sent to any list, posted anywhere, or entered in a commitfest. The
+owner files it by hand.
+
+1. What this is.
+   - A patch for master: CHECK constraints and stored generation expressions are planned once per relcache entry, as
+     index expressions already are, instead of once per statement.
+     - ExecRelCheck and ExecInitGenerated read and plan them in every INSERT or UPDATE. Planning calls each IMMUTABLE
+       function with constant arguments and copies its result into the tree, so the call and the copy are paid per
+       statement (EVIDENCE.txt 1 and 2).
+   - Found through grizzle. A closed relation is installed as an IMMUTABLE function returning a bitmap, and every
+     table CHECK and generated field that reads one paid for the constant on every statement (README, "PostgreSQL
+     known issues").
+   - grizzle carries it as scripts/pg/patches/19rc1-relcache-planned-check-and-generation.patch, applied to every
+     build. This folder is the same change on master, for upstream. The pin patch is unchanged by this folder.
+   - Known upstream in part (CHECKLIST.txt A): Korry Douglas and Noah Misch proposed caching the stringToNode() form
+     of ccbin in 2013. That thread stalled on a memory-management defect and on whether the executor may share the
+     cached tree. The email cites it and says how this patch answers both.
+
+2. When the owner files it.
+   - Send it to pgsql-hackers with a commitfest entry, not to pgsql-bugs. It is a performance defect with a fix, and
+     no wrong result.
+   - email.txt is the plain-text draft. Attach the patch file; never paste it inline. Attaching repro.sql is optional:
+     the email quotes its core.
+   - Set the author address before sending. The patch's From line is the repository's git identity, the GitHub noreply
+     address. pgsql-hackers credits the author line, so replace it with the address you send from. In a PostgreSQL
+     master checkout:
+         git am v1-0001-*.patch
+         git commit --amend --reset-author --no-edit
+         git format-patch -1 -v1
+     Or edit the From: line by hand. The sending address is deliberately not written anywhere in this public
+     repository.
+   - Mind the release cycle. PostgreSQL 19 is between RC1 (2026-10-15) and RC2 (2026-11-12). This is a master patch
+     for the 20 cycle. The open commitfest is PG20-4 (until 2026-12-31). A reviewer may ask it to wait; that costs
+     grizzle nothing, since the pin carries the patch.
+   - If master moves before filing, rebase and re-run EVIDENCE.txt 5. A conflict is most likely in ExecRelCheck, which
+     CF entry 6270 ("skip check constraints verification for unaffected columns during UPDATE") also changes, and in
+     struct RelationData, which CF entry 7483 ("Reducing relcache memory usage 2: shrink sizeof(RelationData)")
+     reorders.
+
+3. How the master patch differs from the 19rc1 pin patch.
+   - The code is the same. git apply of the pin patch on master 72b9498df9 applied every hunk without fuzz but one:
+     nodeModifyTable.c and the regression files at their positions, execMain.c at an offset of 28 lines, and
+     relcache.c and relcache.h at offsets of 1 to 34 lines.
+   - src/include/utils/rel.h is the exception. The pin patch adds the seven RelationData fields at the end of the
+     struct, so that no existing field moves in a build that extensions compile against, and its context line names
+     struct PgStat_TableStatus, which master renamed to PgStat_RelationStatus. On master the fields sit beside the
+     partition CHECK cache (rd_partcheck, "data managed by RelationGetPartitionQual"), the nearest kind of cached
+     expression, since a master patch needn't keep field offsets. The comment above them drops the "kept last" sentence.
+   - The commit message is the pin patch's header rewritten for master: wrapped at 72 columns, the numbers measured on
+     master (EVIDENCE.txt 3), and without the sentences about field placement and about carrying it across repins.
+   - The new fields cost 56 bytes per relcache entry, whether or not the relation has a CHECK constraint or a
+     generated column. CF 7483 is trying to shrink RelationData, so a reviewer may ask for them behind one pointer to
+     a separately allocated struct. That is a mechanical change if asked for.
+
+4. Files.
+   - v1-0001-...patch       The fix and its regression test, one commit on master 72b9498df9 (2026-11-06). git
+                            format-patch output.
+   - repro.sql              psql -X script. It counts the calls of an IMMUTABLE function in a CHECK constraint and a
+                            generated column over 1000 one-row INSERTs, and times one-row INSERTs against a bare table,
+                            a CHECK constraint and a generated column over a 128 kB constant, and a CHECK constraint
+                            holding that constant as a literal.
+   - EVIDENCE.txt           The cause in the source, the counts and timings before and after, the regression test's
+                            output on unpatched master, the build and the test runs.
+   - CHECKLIST.txt          The contribution policy, item by item.
+   - email.txt              The pgsql-hackers draft.
+
+5. Where the commit lives.
+   - ~/.cache/grizzle-release/P/postgres, a depth-1 clone of github.com/postgres/postgres at master 72b9498df9, holds
+     the commit. Its build directory build (assertions on) is the verified build, build-perf the timed one. A cache
+     directory: it may be gone. git am of the patch on any clean master tree recreates the commit.
+   - ~/.cache/grizzle-release/P/postgres-stock is a worktree of the same clone at the unpatched master, the timed
+     baseline (build, assertions off).
+   - The scratch clusters used for the measurements ran from those builds on a Unix socket only, never on a TCP port,
+     and were stopped and deleted.

@@ -25,7 +25,7 @@ const positiveEnv = (name: string): Option.Option<number> =>
 		regex("^[1-9][0-9]*$").test(value) ? Option.some(Number(value)) : Option.none()
 	)
 
-export const sharedDatabase = (index: number): string => `gz_shared_${index}`
+const sharedDatabase = (index: number): string => `gz_shared_${index}`
 
 /**
  * What a clean test database does not contain, one line per object. The template holds the system schemas, `public`

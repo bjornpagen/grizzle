@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, string } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { array, element, type Gen, int, map, oneOf, string, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -14,84 +14,260 @@ import {
 	regexMaxPositions
 } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
-import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
+import { assert, assertVariant, defined, refused, succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { jsAccepts } from "#test/unit/text/generators.ts"
+import { jsAccepts, walkGen } from "#test/unit/text/generators.ts"
 
 /**
  * The compile-space measures (core/limits.ts regexMaxPositions, regexMaxClosurePairs, regexMaxAnchors,
- * regexMaxAnchorWeight), which stand for PostgreSQL's REG_MAX_COMPILE_SPACE: a pattern past one is refused as
- * ResourceBound with the measure it crossed, at any nesting depth, and no count of constructs refuses anything, so the
- * strict RFC 3986 URI-reference grammar, written out as one pattern, is admitted. That PostgreSQL compiles what the
- * measures admit is test/pg/text/differential.test.ts's.
+ * regexMaxAnchorWeight), which stand for PostgreSQL's REG_MAX_COMPILE_SPACE: a pattern is refused as ResourceBound with
+ * the first measure it crosses, in their fixed order (a loop through an anchor, positions, anchors, their weight,
+ * closure pairs), at any nesting depth, and admitted when it crosses none, so no count of constructs refuses anything
+ * and the strict RFC 3986 URI-reference grammar, written out as one pattern, is admitted. That PostgreSQL compiles what
+ * the measures admit is test/pg/text/differential.test.ts's.
  */
 const loc = SourceLoc("str.regex", ["Web", "relations", "Link", "fields", "href"])
 
-/** A chain of `+` groups and a chain of optional groups around one literal, 100,000 levels deep. */
-const depth = 100_000
-const plusChain = `${Str.repeat(depth)("(?:")}a${Str.repeat(depth)(")+")}`
-const optionalChain = `${Str.repeat(depth)("(?:a")}${Str.repeat(depth)(")?")}`
+/** A code point as its braced escape, which means itself inside a class and out. */
+const escaped = (c: number): string => `\\u{${c.toString(16)}}`
 
-type Planted = RegexSpaceMeasure["kind"]
+/**
+ * A shape whose measures its parameters state, each drawn on both sides of the limits:
+ * - counted runs, `^(?:[xy]{1,n}){k}$`: n·k + 2 positions, two anchors;
+ * - an optional chain d deep, `(?:x(?:x…)?)?`: d positions, the empty arms costing none;
+ * - optional anchors, `(?:$|x|){k}y`: 2k + 1 positions and k anchors;
+ * - weighted anchors, `(?:$|x|){p}(?:^|x|){q}(?:[xy]{255}){m}y`: 2(p + q) + 255m + 1 positions, p + q anchors;
+ * - optional pairs, `(?:x?){n}(?:y?){m}z`: n + m + 1 positions, joined in pairs by empty paths about (n² + m²) / 2 times;
+ * - a + chain d deep, `(?:(?:x)+…)+`: one position, its loops joining pairs of states;
+ * - a loop through an anchor, `(?:(?:[xy]{255}){k}|$)*y`: a body of 255k + 1 positions, which the IR writes as a loop
+ *   of consuming matches only within regexMaxPositions.
+ */
+type Shape =
+	| { readonly kind: "counted runs"; readonly n: number; readonly k: number }
+	| { readonly kind: "an optional chain"; readonly depth: number }
+	| { readonly kind: "optional anchors"; readonly anchor: "^" | "$"; readonly k: number }
+	| {
+			readonly kind: "weighted anchors"
+			readonly p: number
+			readonly q: number
+			readonly m: number
+	  }
+	| { readonly kind: "optional pairs"; readonly n: number; readonly m: number }
+	| { readonly kind: "a + chain"; readonly depth: number }
+	| {
+			readonly kind: "a loop through an anchor"
+			readonly anchor: "^" | "$"
+			readonly k: number
+			readonly quantifier: "*" | "+" | "{2,}"
+	  }
 
-/** A pattern just past each measure, and the measure it is refused for. */
-const planted: Arr.NonEmptyReadonlyArray<readonly [string, RegexSpaceMeasure]> = [
-	[
-		"^(?:[a-z]{1,255}){17}$",
-		{ kind: "positions", limit: regexMaxPositions.value, needed: 17 * 255 + 2 }
-	],
-	[optionalChain, { kind: "positions", limit: regexMaxPositions.value, needed: depth }],
-	["(?:$|a|){9}b", { kind: "anchors", limit: regexMaxAnchors.value, needed: 9 }],
-	[
-		"(?:$|a|){4}(?:^|a|){4}(?:[a-z]{255}){4}b",
-		{
-			kind: "anchorWeight",
-			limit: regexMaxAnchorWeight.value,
-			anchors: 8,
-			positions: 8 * 2 + 4 * 255 + 1
+/** A depth past a thousand levels, which a recursion would exhaust a small stack at, or one within. */
+const depthGen: Gen<number> = weighted([
+	[1, int(1, 1_000)],
+	[1, int(1_001, 100_000)]
+])
+
+const anchorGen = element(["^", "$"] as const)
+
+const shapeGen: Gen<Shape> = oneOf<Shape>([
+	(s) => ({ kind: "counted runs", n: s.draw(int(1, 255)), k: s.draw(int(1, 40)) }),
+	(s) => ({ kind: "an optional chain", depth: s.draw(depthGen) }),
+	(s) => ({ kind: "optional anchors", anchor: s.draw(anchorGen), k: s.draw(int(1, 16)) }),
+	(s) => ({
+		kind: "weighted anchors",
+		p: s.draw(int(0, 8)),
+		q: s.draw(int(0, 8)),
+		m: s.draw(int(1, 16))
+	}),
+	(s) => ({ kind: "optional pairs", n: s.draw(int(150, 255)), m: s.draw(int(150, 255)) }),
+	(s) => ({ kind: "a + chain", depth: s.draw(depthGen) }),
+	(s) => ({
+		kind: "a loop through an anchor",
+		anchor: s.draw(anchorGen),
+		k: s.draw(int(1, 40)),
+		quantifier: s.draw(element(["*", "+", "{2,}"] as const))
+	})
+])
+
+/** A shape over two code points and a third that ends it, its pattern, and the measures its parameters state. */
+interface Spelled {
+	readonly source: string
+	/** Its written-out NFA positions and anchors. */
+	readonly positions: number
+	readonly anchors: number
+	/** Whether the IR leaves a repetition looping through an anchor, which is refused before any count. */
+	readonly loops: boolean
+}
+
+const spelledOf = (shape: Shape, x: string, y: string): Spelled => {
+	const pair = `[${x}${y}]`
+	switch (shape.kind) {
+		case "counted runs":
+			return {
+				source: `^(?:${pair}{1,${shape.n}}){${shape.k}}$`,
+				positions: shape.n * shape.k + 2,
+				anchors: 2,
+				loops: false
+			}
+		case "an optional chain":
+			return {
+				source: `${Str.repeat(shape.depth)(`(?:${x}`)}${Str.repeat(shape.depth)(")?")}`,
+				positions: shape.depth,
+				anchors: 0,
+				loops: false
+			}
+		case "optional anchors":
+			return {
+				source: `(?:${shape.anchor}|${x}|){${shape.k}}${y}`,
+				positions: 2 * shape.k + 1,
+				anchors: shape.k,
+				loops: false
+			}
+		case "weighted anchors":
+			return {
+				source: `(?:$|${x}|){${shape.p}}(?:^|${x}|){${shape.q}}(?:${pair}{255}){${shape.m}}${y}`,
+				positions: 2 * (shape.p + shape.q) + 255 * shape.m + 1,
+				anchors: shape.p + shape.q,
+				loops: false
+			}
+		case "optional pairs":
+			return {
+				source: `(?:${x}?){${shape.n}}(?:${y}?){${shape.m}}${x}`,
+				positions: shape.n + shape.m + 1,
+				anchors: 0,
+				loops: false
+			}
+		case "a + chain":
+			return {
+				source: `${Str.repeat(shape.depth)("(?:")}${x}${Str.repeat(shape.depth)(")+")}`,
+				positions: 1,
+				anchors: 0,
+				loops: false
+			}
+		case "a loop through an anchor":
+			return {
+				source: `(?:(?:${pair}{255}){${shape.k}}|${shape.anchor})${shape.quantifier}${y}`,
+				positions: 0,
+				anchors: 0,
+				loops: 255 * shape.k + 1 > regexMaxPositions.value
+			}
+	}
+}
+
+/**
+ * The pairs of NFA states joined by a path of ε and assertion edges, each state with itself, counted up to `cap` + 1:
+ * PostgreSQL's empty-arc removal copies, into each state, the arcs of every state its empty arcs reach.
+ */
+const closurePairsUpTo = (nfa: Nfa, cap: number): number => {
+	let total = 0
+	for (const [from] of nfa.edges.entries()) {
+		const reached = new Set<number>([from])
+		const pending = [from]
+		for (let s = pending.pop(); s !== undefined && total <= cap; s = pending.pop()) {
+			total += 1
+			for (const e of defined(nfa.edges[s], `the edges of state ${s}`)) {
+				if (e.kind !== "set" && !reached.has(e.to)) {
+					reached.add(e.to)
+					pending.push(e.to)
+				}
+			}
 		}
-	],
-	["(?:a?){255}(?:b?){255}c", { kind: "closurePairs", limit: regexMaxClosurePairs.value }],
-	[plusChain, { kind: "closurePairs", limit: regexMaxClosurePairs.value }],
-	["(?:(?:[a-z]{255}){65}|$)*b", { kind: "anchorLoop" }]
-]
+		if (total > cap) {
+			return total
+		}
+	}
+	return total
+}
+
+/** The first measure a spelled shape crosses, in the measures' order, or undefined where it crosses none. */
+const crossed = (spelled: Spelled): RegexSpaceMeasure | undefined => {
+	if (spelled.loops) {
+		return { kind: "anchorLoop" }
+	}
+	const { positions, anchors } = spelled
+	if (positions > regexMaxPositions.value) {
+		return { kind: "positions", limit: regexMaxPositions.value, needed: positions }
+	}
+	if (anchors > regexMaxAnchors.value) {
+		return { kind: "anchors", limit: regexMaxAnchors.value, needed: anchors }
+	}
+	if (anchors * positions > regexMaxAnchorWeight.value) {
+		return { kind: "anchorWeight", limit: regexMaxAnchorWeight.value, anchors, positions }
+	}
+	const ir = succeeded(parsePattern(spelled.source, "u"), spelled.source)
+	return closurePairsUpTo(buildNfa(ir), regexMaxClosurePairs.value) > regexMaxClosurePairs.value
+		? { kind: "closurePairs", limit: regexMaxClosurePairs.value }
+		: undefined
+}
+
+type Crossed = RegexSpaceMeasure["kind"] | "admitted" | "refused past a thousand levels"
+
+/** Code points a shape is spelled over: ASCII letters and digits, and ones the printer escapes. */
+const shapePoints: Arr.NonEmptyReadonlyArray<number> = [0x61, 0x62, 0x7a, 0x30, 0x2e, 0xe9, 0x1f600]
 
 describe("the compile-space measures", () => {
 	it.effect(
-		"refuses a pattern past each measure as ResourceBound with that measure, 100,000 levels deep included",
+		"refuse a pattern as ResourceBound with the first measure it crosses, 100,000 levels deep included, and admit one that crosses none",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
 						suite: "unit/text/compile-space",
+						draw: drawn((source) => ({
+							shape: source.draw(shapeGen),
+							x: source.draw(element(shapePoints)),
+							y: source.draw(element(shapePoints))
+						})),
 						literal: Formatter.format,
-						generator: element(planted),
-						limit: planted.length,
-						coverage: requiredInSpace<Planted>([
-							"positions",
-							"anchors",
-							"anchorWeight",
-							"closurePairs",
-							"anchorLoop"
-						]),
+						oracle: {
+							kind: "specification",
+							name: "each shape's measures by its parameters, and a second count of the closure pairs"
+						},
+						coverage: required<Crossed>(
+							[
+								"positions",
+								"anchors",
+								"anchorWeight",
+								"closurePairs",
+								"anchorLoop",
+								"admitted",
+								"refused past a thousand levels"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
+						kept: [],
+						runs: 120,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					([source, measure], n) =>
+					({ shape, x, y }, c) =>
 						Effect.sync(() => {
-							n.note(measure.kind)
-							const { reason } = refused(
-								analyzeText(source, "u", loc),
-								"ResourceBound",
-								measure.kind
-							)
-							assertVariant(reason, "_tag", "ResourceBound", measure.kind)
+							const spelled = spelledOf(shape, escaped(x), escaped(y))
+							const label = `${shape.kind}: /${spelled.source}/u`
+							const expected = crossed(spelled)
+							const analyzed = analyzeText(spelled.source, "u", loc)
+							if (expected === undefined) {
+								c.note("admitted")
+								succeeded(analyzed, label)
+								return
+							}
+							c.note(expected.kind)
+							if ("depth" in shape && shape.depth > 1_000) {
+								c.note("refused past a thousand levels")
+							}
+							const { reason } = refused(analyzed, "ResourceBound", label)
+							assertVariant(reason, "_tag", "ResourceBound", label)
 							assert.deepEqual(
 								reason.bound,
-								{ kind: "regexCompileSpace", pattern: `/${source}/u`, measure },
-								measure.kind
+								{ kind: "regexCompileSpace", pattern: `/${spelled.source}/u`, measure: expected },
+								label
 							)
 						})
 				)
@@ -152,103 +328,29 @@ const uri = `${scheme}:${hierPart}(?:\\?${query})?(?:#${fragment})?`
 const relativeRef = `${relativePart}(?:\\?${query})?(?:#${fragment})?`
 const uriReference = `^(?:${uri}|${relativeRef})$`
 
-/** Every example URI and every reference of RFC 3986 sections 1.1.2 and 5.4, each a URI-reference. */
-const examples: Arr.NonEmptyReadonlyArray<string> = [
-	"ftp://ftp.is.co.za/rfc/rfc1808.txt",
-	"http://www.ietf.org/rfc/rfc2396.txt",
-	"ldap://[2001:db8::7]/c=GB?objectClass?one",
-	"mailto:John.Doe@example.com",
-	"news:comp.infosystems.www.servers.unix",
-	"tel:+1-816-555-1212",
-	"telnet://192.0.2.16:80/",
-	"urn:oasis:names:specification:docbook:dtd:xml:4.1.2",
-	"foo://example.com:8042/over/there?name=ferret#nose",
-	"http://a/b/c/d;p?q",
-	"g:h",
-	"g",
-	"./g",
-	"g/",
-	"/g",
-	"//g",
-	"?y",
-	"g?y",
-	"#s",
-	"g#s",
-	"g?y#s",
-	";x",
-	"g;x",
-	"g;x?y#s",
-	"",
-	".",
-	"./",
-	"..",
-	"../",
-	"../g",
-	"../..",
-	"../../",
-	"../../g",
-	"../../../g",
-	"/./g",
-	"/../g",
-	"g.",
-	".g",
-	"g..",
-	"..g",
-	"./../g",
-	"./g/.",
-	"g/./h",
-	"g/../h",
-	"g;x=1/./y",
-	"g;x=1/../y",
-	"g?y/./x",
-	"g#s/../x",
-	"http:g"
-]
-
 /** The code points a URI-reference is spelled in, the delimiters that make one malformed, and percent signs. */
 const uriAlphabet = "aZ09-._~!$&'()*+,;=:@/?#[]%vF "
 
 describe("the RFC 3986 URI-reference grammar as one pattern", () => {
-	it.effect("is admitted, and accepts every example URI and reference of RFC 3986", (ctx) => {
-		const refinement = succeeded(analyzeText(uriReference, "u", loc), "the grammar")
-		return searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/text/rfc3986-examples",
-					literal: Formatter.format,
-					generator: element(examples),
-					limit: examples.length,
-					coverage: requiredInSpace<"an example">(["an example"]),
-					caseHang
-				},
-				(example, n) =>
-					Effect.sync(() => {
-						n.note("an example")
-						assert.equal(accepts(refinement, example), true, example)
-					})
-			)
-		)
-	})
-
-	type Membership = "a member" | "no member"
+	type Membership = "a member" | "no member" | "a walked member"
 	it.effect(
-		"accepts exactly the strings ECMAScript's RegExp accepts, on strings over its alphabet",
+		"is admitted, and accepts exactly the strings ECMAScript's RegExp accepts, on strings over its alphabet and walks of its own NFA",
 		(ctx) => {
 			const refinement = succeeded(analyzeText(uriReference, "u", loc), "the grammar")
+			const parts = map(
+				array(string(element(Str.split(uriAlphabet, "")), { min: 0, max: 4 }), { min: 0, max: 6 }),
+				(drawnParts) => ({ value: Arr.join(drawnParts, ""), walked: false })
+			)
+			const walked = map(walkGen(buildNfa(refinement.ir)), (value) => ({ value, walked: true }))
 			return searched(
 				ctx,
 				explore(
 					{
 						suite: "unit/text/rfc3986-membership",
-						draw: drawn(
-							array(string(element(Str.split(uriAlphabet, "")), { min: 0, max: 4 }), {
-								min: 0,
-								max: 6
-							})
-						),
+						draw: drawn(oneOf([parts, walked])),
 						literal: Formatter.format,
-						coverage: required<Membership>(["a member", "no member"], {
+						oracle: { kind: "second-implementation", name: "ECMAScript's own RegExp test" },
+						coverage: required<Membership>(["a member", "no member", "a walked member"], {
 							cases: 2000,
 							sense: notesOnly
 						}),
@@ -259,11 +361,17 @@ describe("the RFC 3986 URI-reference grammar as one pattern", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(parts, n) =>
+					({ value, walked: isWalk }, n) =>
 						Effect.sync(() => {
-							const value = Arr.join(parts, "")
+							if (value === undefined) {
+								return
+							}
 							const member = jsAccepts(uriReference, "u", value)
 							n.note(member ? "a member" : "no member")
+							if (isWalk) {
+								assert.equal(member, true, `a walk spells a member: ${Formatter.format(value)}`)
+								n.note("a walked member")
+							}
 							assert.equal(accepts(refinement, value), member, value)
 						})
 				)

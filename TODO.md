@@ -23,6 +23,9 @@ How the work runs:
 - One copy of PostgreSQL (owner 2026-11-06): the cluster on 5433. The second copy, on 5435, was stopped and deleted on
   2026-11-06. Use 5433 once GG's run there has ended. Never run `pnpm pg reset`: another project's database lives in
   the cluster too.
+- 5433 is shared with the qti-pie session, which tests its own database there. Before restarting 5433 or starting a
+  pg-tier run on it, tell that session (cross-session message) and don't overlap its database tier. It tells grizzle
+  when its runs start and end.
 - Waves:
 	- wave 1 is lanes P (section 1), R (the regex fix) and T (the type layer), with main taking the test inventory;
 	- wave 2 is the test areas of 3.3, at most four lanes at a time;
@@ -112,6 +115,19 @@ How the work runs:
 		- A law is kept when each relation it names is the role's entry under that name: one lookup per relation.
 		- The full base is a mapped check over the base's record.
 	- Close #9 with a comment naming the commit.
+- **A tree insert whose member type is recursive can't typecheck** (since 46b2fc3; blocking, reported 2026-11-06).
+	- `NestedUnfit` (types/changeset/changeset.ts) unfolds a nested member array with no guard, so `children: readonly
+	  Member[]` maps one pair forever: TS2615, then `MemberCheck` refuses the member. NestedWrites already stops with
+	  `Seen`.
+	- Fix: carry the checked (member, field) pairs, so a repeated pair is checked once. An excess field at any depth is
+	  still refused.
+	- Type tests:
+		- recursive member types, written as interfaces and as aliases, are admitted;
+		- an excess field at depth 2 or deeper is refused;
+		- mutual recursion is admitted, and so is a tree whose members nest an ordered family or a second relation;
+		- the fixed-depth cases are unchanged.
+	- Two planted bugs: the guard removed, and the excess-field check removed.
+	- Send the landing commit's full hash to the downstream session that reported it.
 - **The type layer's cost grows linearly in every schema dimension.**
 	- Owner 2026-11-06: efficient, typechecker-safe types. No `as`, no `any`, no ts directive, no widened fallback, no
 	  dropped refusal and no raised limit. Precision is kept.
@@ -128,16 +144,28 @@ How the work runs:
 	- Audit every distributive conditional over a schema-sized union, and every mapped type evaluated again per element.
 	  By file: query.ts 10, evidence.ts 7, changeset.ts 5, schema.ts 3, world.ts 2, terms.ts 2, and one each in rule,
 	  regex, derived, workload and phantom.
-- **A law's identity drops a side's selection,** so two laws over selections of one relation can share a name.
-	- Verify with a generated pair of such laws. If they share an installed name, it is a naming-door bug: the identity
-	  takes the selection, and the pair installs under distinct names.
+- **One meaning, two laws.** The reported selection collision does not reproduce: every law kind over two selections of
+  one relation gets distinct ids and names (lane L, 2026-11-06). The converse is a defect: own.ts canonicalPredicate
+  keeps a comparison's operand order, so `eq(a, b)` and `eq(b, a)`, or `lt(a, b)` and `gt(b, a)`, are two laws with
+  two generated columns and two foreign keys.
+	- Fix: a symmetric comparison orders its operands canonically, and gt and ge become lt and le, swapped.
+	- A generated arm requires "two laws over selections of one relation" and "a comparison stated in both
+	  orientations".
 - **`role(...)` took 2.0 s and 271 MB over 137 relations** (measured 2026-11-06, at load 27).
 	- Measure the description's construction at n and 2n relations. If it grows faster than linearly, it is a bug of
 	  #9's family, fixed by the same index.
-- **GG's whole-suite run at 99b6217.**
-	- Every real failure in it is fixed at its root.
-	- It also settles the four suspects: the unit tests lower/conservative/parameter-refined, analysis/logical/evidence
-	  and compute/text, and the pg test recursion/oracle/fixed-length.
+- **GG's whole-suite run at 99b6217** (TEST_SEED=20261106, --maxWorkers=3). Seven files failed again when rerun alone.
+  Each is fixed at its root, and the generator that missed it gains the arm:
+	- pg/oracle/union-take: the delivered, consumed and narrowed results disagree with the conservative lowering, by
+	  kind (deep-equal);
+	- pg/program/templates: a SqlError (test/support/pg.ts:324) in "inside a write transaction neither the transaction
+	  template nor a snapshot template delivers an orphan";
+	- pg/bench/gates and pg/bench/query-gates: a SqlError under a gate's verdict at quick scale;
+	- pg/oracle/optimized/generated-1: the Node process ran out of memory;
+	- pg/oracle/optimized/generated-2: PropertyFailed, `"10" is no output text of its type (numericBound)`;
+	- pg/recursion/oracle/fixed-length: failed after 41 minutes alone, now confirmed red.
+	- pg/compute/catalogue: its rerun was still running at the last report.
+	- Root-cause each from its log (copied into ~/.cache/grizzle-release/gg/) before reproducing it on 5433.
 
 ### 3. No example-based test
 Owner 2026-11-06: example-based tests are banned. A test is an example when a person chose its inputs and wrote its
@@ -152,18 +180,65 @@ What stays:
 
 - **3.1 The rule.**
 	- CONTRIBUTING's doctrine 2 drops its exemption ("Keep an example only for…") and states the ban.
-	- The testing library's oxlint plugin refuses a test case that is not a search (explore, exhaust, commands,
-	  interleave), and an `exhaust` over an array literal. The rule lands in superstarter's packages/testing first and is
-	  copied, as every library change is.
-- **3.2 Inventory, by main, written into this file.** Every test file is classed keep, convert or delete, with the class
-  of bug that only it catches. Found so far, across 565 test files:
-	- 34 files run no search (101 cases);
-	- 19 files carry hand tables of inputs and verdicts: check/semantics 33, lower/dedup/verify 24, check/reasons 15,
-	  sql/lexer 6, and others;
-	- 95 files draw `element` or `exhaust` over 219 literal lists, each of which is a dictionary or a case list;
-	- some files have more cases than searches: write/changeset/value, cli/cli, physical/fin, deps, catalog/agreement,
-	  bench/harness, adapter/reader;
-	- the type tier has 46 fixture files: 12,836 lines with 775 `@ts-expect-error`.
+	- grizzle's devtools oxlint plugin refuses a test case that is not a search (explore, exhaust, commands,
+	  interleave, or a helper that runs one), and an `exhaust` over an array literal.
+- **3.2 Inventory** (main, 2026-11-06). Each test case was traced through the helpers it calls. Of 1,463 cases, 357 run
+  no search, in 135 files. Hand case tables also run inside searches in 16 more files. Wave 2's lanes, at most four at
+  a time, each own their files' conversion:
+	- **W-write:**
+		- test/unit/write/** (changeset/value 21, owner 10, normalize 3, delta 2, insert/unique 2, put/program 2,
+		  refusal 2, fills, unstated-key, changeset/scaling);
+		- test/pg/write/refusal;
+		- test/unit/history/check's 8 hand verdicts.
+	- **W-check:**
+		- check/semantics (66 hand verdicts), check/reasons (27), check/approximate (22), check/union-order,
+		  check/refinement, check/head-literals;
+		- compute/total (21);
+		- schema/constructors;
+		- oracle-gen/domain.
+	- **W-lower:**
+		- lower/dedup/verify (24), lower/shapes/relparam, lower/rewrite/closed;
+		- ir/shape, ir/dag, ir/desc;
+		- sql/lexer, sql/audit, sql/rows;
+		- codec/recordset;
+		- core/limits, core/lines;
+		- derived/keys, allen/mask, program/limits, laws/model.
+	- **W-adapter:**
+		- test/unit/adapter/** (reader 7, refresh 7, migrate 6, witness 5, transactions 3, bind, boundary);
+		- admission/target;
+		- pg reads/boundary, page/page (10 hand verdicts), serverless/vercel, world-model/execute,
+		  direct-writers/isolation.
+	- **W-cli:**
+		- test/unit/cli/** (cli 15, check 3, generate-opens 2, literal-pack, markers, skill);
+		- test/unit/deploy/** (backfill 6, ledger 2, render 2, folder);
+		- physical/family-columns;
+		- pg cli, migrate/renames, migrate/attnums, closed/fin-migrations.
+	- **W-physical:**
+		- physical/fin (11), physical/literal (7);
+		- pg physical/* (install, checks, row-security, search-policy, world-serving), closed/codes, plans,
+		  scalar/registry, compute/registry and aggregate, derived/install and workload-index, workload, vector/*,
+		  lower-conservative and oracle-gen vocabulary, sql/print, recursion/graph/r37, program/templates,
+		  laws/alternatives, lower-shapes/shapes;
+		- the schedules fin/contention, fin/platform, install/database-default, worlds/fence.
+	- **W-infra:**
+		- the dependency audit (deps 10);
+		- bench/harness (8);
+		- dev/mutate (5), dev/package;
+		- substrate (pg 5, cells 3, temporal 2, bits, fin, tree, unit 2);
+		- kernel dict, message and assert;
+		- fixtures-ir;
+		- oracle-runner, pg/oracle/reference, spans/oracle/reference.
+		- Each stays only if it guards a class of bugs nothing else catches, and becomes a search. The audit of the
+		  real tree is itself an exhaustion and stays.
+	- **W-types:** the type tier's 46 fixture files, after lane T. The generated population extends the existing
+	  type/engine agreement (test/support/agreement/queries.ts, test/types/evidence/agreement.test.ts) from queries to
+	  schemas, roles, ChangeSets, compute, fields, pages and derived relations.
+	- **Kept as they are:**
+		- the bench gates (test/pg/bench), which are performance properties;
+		- the README and SKILL mirror (test/types/examples/blocks.test.ts).
+	- **Out of grizzle's scope:** packages/testing's own tests (idioms 20, core 5, consumer 4, guard 3, and others).
+	  The library is shared and changes in superstarter first (see After the beta).
+	- **The lint rule of 3.1** goes into grizzle's devtools plugin, because the testing library's plugin is shared.
 - **3.3 Replacement suites, by area, each named by its oracle.**
 	- Refusals (check/semantics, check/reasons, check/head-literals, compute/text's invalid list):
 		- a planted-fault generator draws a valid program from the query and write generators;
@@ -199,7 +274,8 @@ What stays:
 	- The inventory checks each one against the suite.
 	- What is still owed becomes an arm or a required situation of the suites above, never an example.
 - **3.5 Adequacy, which is also the deletion rule.**
-	- A baseline `pnpm mutate` runs over each area's files before the area's lane starts, and again after it lands.
+	- One seeded `pnpm mutate` sample runs on the commit before wave 2 (the baseline), and the same sample runs on the
+	  final commit. Both runs use scratch copies.
 	- An example test is deleted in the commit whose new suite kills every mutant the example killed.
 	- Every surviving mutant becomes a generator arm or a written equivalence, and triage.json is pruned to the final
 	  code.
@@ -277,6 +353,8 @@ What stays:
 	  own work.
 	- The type batch's tsc stalled at 0% CPU on a type error. Reproduce it, report it upstream, and make the batch fail
 	  closed on a stall.
+- **The testing library's own example tests** (packages/testing/src: idioms, core, consumer, guard, blocking,
+  adapter and others) are converted in superstarter first, then copied, together with the test-case lint rule.
 - **Cross-repo, outside school hours for edullm:** grizzle's packages/testing differs from superstarter's in 43 files,
   though each repository's copy is meant to be byte-identical. Reconcile them. Then copy the library into edullm, with
   the no-spread-argument rule and the shared lint standard.

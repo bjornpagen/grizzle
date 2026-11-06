@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-# Creates a local cluster for the pinned build: TLS material, configuration, the grizzle_dev owner role, and the
+# Creates the local cluster for the pinned build: TLS material, configuration, the grizzle_dev owner role, and the
 # template and scratch databases.
-#   init.sh [--coverage] [--force]
-# --coverage creates the coverage cluster instead of the main one: the same setup on its own port and state directory,
-# with plpgsql_check preloaded and its profiler on. An existing cluster is refused unless --force, which deletes it.
+#   init.sh [--force]
+# An existing cluster is refused unless --force, which deletes it.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
-if [[ "${1:-}" == "--coverage" ]]; then
-	use_cluster coverage
-	shift
-fi
 require_build
 
 if [[ -d "$GRIZZLE_PG_DATA" ]]; then
@@ -49,7 +44,7 @@ chmod 600 "$GRIZZLE_PG_DEV_PASSWORD_FILE"
 
 cat >> "$GRIZZLE_PG_DATA/postgresql.conf" <<EOF
 
-# grizzle local development, cluster $GRIZZLE_PG_CLUSTER (scripts/pg/init.sh). Everything else is the PostgreSQL
+# grizzle local development (scripts/pg/init.sh). Everything else is the PostgreSQL
 # $PG_PIN_VERSION default, including jit = off server-wide.
 port = $PG_PORT
 listen_addresses = 'localhost'
@@ -66,17 +61,6 @@ logging_collector = on
 log_directory = '$GRIZZLE_PG_LOG'
 log_filename = 'postgresql-%Y-%m-%d.log'
 EOF
-
-if [[ "$GRIZZLE_PG_CLUSTER" == coverage ]]; then
-	cat >> "$GRIZZLE_PG_DATA/postgresql.conf" <<EOF
-# PL/pgSQL coverage (scripts/dev/plpgsql-coverage.ts). Profiles live in shared memory, keyed by database, function
-# and function version, and are read in the database that ran them before it is dropped. Shared storage is sized at
-# startup; 200 MB is plpgsql_check's maximum, and a full store skips new profiles with a WARNING.
-shared_preload_libraries = 'plpgsql_check'
-plpgsql_check.profiler = on
-plpgsql_check.max_stats_size = '200MB'
-EOF
-fi
 
 cat > "$GRIZZLE_PG_DATA/pg_hba.conf" <<EOF
 local   all   postgres                 peer map=admin
@@ -114,5 +98,5 @@ admin_psql -d postgres -c "CREATE DATABASE $PG_DEV_ROLE OWNER $PG_DEV_ROLE TEMPL
 # A session inside the template would make every clone fail.
 admin_psql -d postgres -c "ALTER DATABASE $PG_TEMPLATE_DB ALLOW_CONNECTIONS false"
 
-echo "Cluster $GRIZZLE_PG_CLUSTER ready: PostgreSQL $PG_PIN_VERSION on localhost:$PG_PORT (verify-full TLS, CA $GRIZZLE_PG_TLS/ca.crt)"
+echo "Cluster ready: PostgreSQL $PG_PIN_VERSION on localhost:$PG_PORT (verify-full TLS, CA $GRIZZLE_PG_TLS/ca.crt)"
 echo "Owner role $PG_DEV_ROLE; password in $GRIZZLE_PG_DEV_PASSWORD_FILE; template database $PG_TEMPLATE_DB"

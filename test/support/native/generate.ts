@@ -17,6 +17,7 @@ import type { FamilyRow, Stored } from "#test/support/families/theorem.ts"
 import {
 	type Law,
 	lawsOf,
+	MIRROR,
 	type Phi,
 	phiFields,
 	phiHolds,
@@ -24,6 +25,7 @@ import {
 	RULE_KINDS,
 	spanLawsOf,
 	type SpanRule,
+	type SpanRuleKind,
 	type Value,
 	type Rule,
 	type RuleKind,
@@ -284,13 +286,9 @@ const SPAN_BOX_RULES: NonEmptyReadonlyArray<SpanRule> = [
 	{ rule: "a coverage into a selected side", phi: live }
 ]
 
-/**
- * Every state of a span rule's box: at most two rows of Visit and of Shift, each varying the fields its laws read,
- * owner over two values and the span over two adjacent halves and their whole.
- */
-export const spanBoxGen: Gen<SpanBoxCase> = (source) => {
-	const rule = source.draw(element(SPAN_BOX_RULES))
-	const boxes = Arr.map([...readsOf(spanLawsOf(rule))], ([relation, fields]): RelationBox => ({
+/** The span box of `laws`: each relation they read, varying exactly the fields they read over the box's values. */
+const spanBoxesOf = (laws: ReadonlyArray<Law>): ReadonlyArray<RelationBox> =>
+	Arr.map([...readsOf(laws)], ([relation, fields]): RelationBox => ({
 		relation,
 		varies: Arr.flatMap([...fields], (field) => {
 			const values = VALUES[relation]?.[field]
@@ -298,7 +296,14 @@ export const spanBoxGen: Gen<SpanBoxCase> = (source) => {
 		}),
 		rows: ROWS[relation] ?? 0
 	}))
-	return { rule, state: source.draw(boxStateGen(boxes)) }
+
+/**
+ * Every state of a span rule's box: at most two rows of Visit and of Shift, each varying the fields its laws read,
+ * owner over two values and the span over two adjacent halves and their whole.
+ */
+export const spanBoxGen: Gen<SpanBoxCase> = (source) => {
+	const rule = source.draw(element(SPAN_BOX_RULES))
+	return { rule, state: source.draw(boxStateGen(spanBoxesOf(spanLawsOf(rule)))) }
 }
 
 /** The comparisons a selection draws, the simplest first. */
@@ -354,6 +359,18 @@ const atomGen =
 							op: s.draw(element(OPS)),
 							field,
 							value: s.draw(literalOf(field))
+						}
+					}
+				],
+				[
+					1,
+					(s) => {
+						const field = s.draw(element(r.numbers))
+						return {
+							kind: "literalFirst",
+							op: s.draw(element(OPS)),
+							value: s.draw(literalOf(field)),
+							field
 						}
 					}
 				],
@@ -501,82 +518,229 @@ const mirroredItems = (rules: ReadonlyArray<Rule>): ReadonlyArray<Phi> =>
  * breaks that construction where it is drawn: a key repeated, a reference to a stray id, a stray Profile or Seat, a
  * natural below zero, and an index drawn out of its order.
  */
-export const exploredGen: Gen<Explored> = (source) => {
-	const rules = source.draw(rulesGen)
-	const variants = source.draw(swarm(VARIANTS))
-	const applied = new Set<Variant>()
-	const breaks = (variant: Variant) => {
-		const broken = source.draw(keep(variants, variant))
-		if (broken) {
-			applied.add(variant)
+const exploredOver =
+	(rules: ReadonlyArray<Rule>): Gen<Explored> =>
+	(source) => {
+		const variants = source.draw(swarm(VARIANTS))
+		const applied = new Set<Variant>()
+		const breaks = (variant: Variant) => {
+			const broken = source.draw(keep(variants, variant))
+			if (broken) {
+				applied.add(variant)
+			}
+			return broken
 		}
-		return broken
-	}
-	const natural = () => (breaks("a negative natural") ? -1 : source.draw(int(0, 2)))
-	const ownerIds = source.draw(shuffled([0, 1, 2, 3], { min: 0, max: OWNERS }))
-	const owners = Arr.map(ownerIds, (id, i): Row => ({
-		id: i > 0 && breaks("a repeated key") ? (ownerIds[0] ?? id) : id,
-		rank: source.draw(int(-1, 2)),
-		live: source.draw(boolean),
-		slots: natural()
-	}))
-	const targets = ownerSelections(rules)
-	const items: Array<Row> = []
-	const count = source.draw(int(0, ITEMS))
-	for (let i = 0; i < count; i++) {
-		const selected = Arr.filter(owners, (o) => Arr.every(targets, (psi) => phiHolds(psi, o)))
-		const pool = selected.length > 0 && source.draw(boolean) ? selected : owners
-		const target =
-			pool.length > 0 && !breaks("an orphan reference")
-				? Option.some(source.draw(element(nonEmpty(pool))))
-				: Option.none<Row>()
-		const owner = Option.match(target, { onNone: () => STRAY, onSome: (o) => Number(o["id"]) })
-		const rank = Option.flatMap(target, (o) => Option.fromNullishOr(o["rank"]))
-		const indexed = Arr.filter(items, (it) => it["owner"] === owner).length
-		items.push({
-			id: i > 0 && breaks("a repeated key") ? 0 : i,
-			owner,
-			code:
-				Option.isSome(rank) && source.draw(boolean) ? Number(rank.value) : source.draw(int(-1, 2)),
+		const natural = () => (breaks("a negative natural") ? -1 : source.draw(int(0, 2)))
+		const ownerIds = source.draw(shuffled([0, 1, 2, 3], { min: 0, max: OWNERS }))
+		const owners = Arr.map(ownerIds, (id, i): Row => ({
+			id: i > 0 && breaks("a repeated key") ? (ownerIds[0] ?? id) : id,
+			rank: source.draw(int(-1, 2)),
 			live: source.draw(boolean),
-			at: breaks("a negative natural")
-				? -1
-				: breaks("an index out of order")
-					? source.draw(int(0, 3))
-					: indexed
-		})
-	}
-	const mirrored = mirroredItems(rules)
-	const named = Arr.dedupe([
-		...(source.draw(boolean) ? Arr.map(owners, (o) => Number(o["id"])) : []),
-		...Arr.flatMap(items, (it) =>
-			Arr.every(mirrored, (phi) => phiHolds(phi, it)) && mirrored.length > 0
-				? [Number(it["id"])]
-				: []
-		)
-	])
-	const profiles = [
-		...source.draw(subset(named, { min: Math.max(0, named.length - 1), max: named.length })),
-		...(breaks("an unmatched mirror") ? [STRAY] : [])
-	]
-	const seats = [
-		...source.draw(
-			subset(profiles, { min: Math.max(0, profiles.length - 1), max: profiles.length })
-		),
-		...(breaks("an unmatched mirror") ? [STRAY - 1] : [])
-	]
-	return {
-		rules,
-		variants,
-		applied: [...applied],
-		state: {
-			Owner: owners,
-			Item: items,
-			Profile: Arr.map(Arr.dedupe(profiles), (owner): Row => ({ owner })),
-			Seat: Arr.map(Arr.dedupe(seats), (owner): Row => ({ owner }))
+			slots: natural()
+		}))
+		const targets = ownerSelections(rules)
+		const items: Array<Row> = []
+		const count = source.draw(int(0, ITEMS))
+		for (let i = 0; i < count; i++) {
+			const selected = Arr.filter(owners, (o) => Arr.every(targets, (psi) => phiHolds(psi, o)))
+			const pool = selected.length > 0 && source.draw(boolean) ? selected : owners
+			const target =
+				pool.length > 0 && !breaks("an orphan reference")
+					? Option.some(source.draw(element(nonEmpty(pool))))
+					: Option.none<Row>()
+			const owner = Option.match(target, { onNone: () => STRAY, onSome: (o) => Number(o["id"]) })
+			const rank = Option.flatMap(target, (o) => Option.fromNullishOr(o["rank"]))
+			const indexed = Arr.filter(items, (it) => it["owner"] === owner).length
+			items.push({
+				id: i > 0 && breaks("a repeated key") ? 0 : i,
+				owner,
+				code:
+					Option.isSome(rank) && source.draw(boolean)
+						? Number(rank.value)
+						: source.draw(int(-1, 2)),
+				live: source.draw(boolean),
+				at: breaks("a negative natural")
+					? -1
+					: breaks("an index out of order")
+						? source.draw(int(0, 3))
+						: indexed
+			})
 		}
+		const mirrored = mirroredItems(rules)
+		const named = Arr.dedupe([
+			...(source.draw(boolean) ? Arr.map(owners, (o) => Number(o["id"])) : []),
+			...Arr.flatMap(items, (it) =>
+				Arr.every(mirrored, (phi) => phiHolds(phi, it)) && mirrored.length > 0
+					? [Number(it["id"])]
+					: []
+			)
+		])
+		const profiles = [
+			...source.draw(subset(named, { min: Math.max(0, named.length - 1), max: named.length })),
+			...(breaks("an unmatched mirror") ? [STRAY] : [])
+		]
+		const seats = [
+			...source.draw(
+				subset(profiles, { min: Math.max(0, profiles.length - 1), max: profiles.length })
+			),
+			...(breaks("an unmatched mirror") ? [STRAY - 1] : [])
+		]
+		return {
+			rules,
+			variants,
+			applied: [...applied],
+			state: {
+				Owner: owners,
+				Item: items,
+				Profile: Arr.map(Arr.dedupe(profiles), (owner): Row => ({ owner })),
+				Seat: Arr.map(Arr.dedupe(seats), (owner): Row => ({ owner }))
+			}
+		}
+	}
+
+/** A schema of drawn rules, and a state built toward its laws (exploredOver). */
+export const exploredGen: Gen<Explored> = (source) =>
+	source.draw(exploredOver(source.draw(rulesGen)))
+
+/**
+ * A selection restated without changing what it means: each comparison written the other way round under its mirror
+ * operator, a literal first where it stood second and second where it stood first; each IN list reversed, its first
+ * value repeated; and each conjunction's and disjunction's operands swapped.
+ */
+const restated = (phi: Phi): Phi => {
+	switch (phi.kind) {
+		case "compare":
+			return { kind: "literalFirst", op: MIRROR[phi.op], value: phi.value, field: phi.field }
+		case "literalFirst":
+			return { kind: "compare", op: MIRROR[phi.op], field: phi.field, value: phi.value }
+		case "fields":
+			return { kind: "fields", op: MIRROR[phi.op], left: phi.right, right: phi.left }
+		case "in":
+			return {
+				kind: "in",
+				field: phi.field,
+				values: Arr.append(Arr.reverse(phi.values), Arr.headNonEmpty(phi.values))
+			}
+		case "is":
+		case "between":
+			return phi
+		case "and":
+		case "or":
+			return { kind: phi.kind, left: restated(phi.right), right: restated(phi.left) }
+		case "not":
+			return { kind: "not", arg: restated(phi.arg) }
 	}
 }
+
+/** A rule with each of its selections restated (`restated`). */
+const restatedRule = (r: Rule): Rule => {
+	switch (r.rule) {
+		case "a key over a selected side":
+		case "a key over a selected pred term":
+		case "a containment from a selected side":
+		case "a closure under pred over a selected side":
+		case "mirrors over a selected side":
+		case "a row check":
+			return { rule: r.rule, phi: restated(r.phi) }
+		case "a containment into a selected side":
+			return { rule: r.rule, psi: restated(r.psi) }
+		case "a containment between selected sides":
+			return { rule: r.rule, phi: restated(r.phi), psi: restated(r.psi) }
+		case "a key over fields":
+		case "a key over a pred term":
+		case "a containment":
+		case "a containment into a superkey":
+		case "a closure under pred":
+		case "a cycle":
+		case "mirrors over whole relations":
+		case "natural fields":
+			return r
+	}
+}
+
+/** A span rule with its selection restated (`restated`). */
+const restatedSpanRule = (r: SpanRule): SpanRule => {
+	switch (r.rule) {
+		case "a span key over a selected side":
+		case "a coverage from a selected side":
+		case "a coverage into a selected side":
+			return { rule: r.rule, phi: restated(r.phi) }
+		case "a span key":
+		case "a coverage":
+			return r
+	}
+}
+
+/** The rules over the four relations whose laws read a selected side of one relation, each a kind a pair is of. */
+const ITEM_PAIRS = [
+	"a key over a selected side",
+	"a key over a selected pred term",
+	"a containment from a selected side",
+	"a containment into a selected side",
+	"a containment between selected sides",
+	"a closure under pred over a selected side",
+	"mirrors over a selected side"
+] as const satisfies NonEmptyReadonlyArray<RuleKind>
+
+/** The span rules whose laws read a selected side of one relation. */
+const SPAN_PAIRS = [
+	"a span key over a selected side",
+	"a coverage from a selected side",
+	"a coverage into a selected side"
+] as const satisfies NonEmptyReadonlyArray<SpanRuleKind>
+
+/** Every kind of rule a pair states twice over selections of one relation. */
+export const PAIR_KINDS = [...ITEM_PAIRS, ...SPAN_PAIRS] as const
+
+export type PairKind = (typeof PAIR_KINDS)[number]
+
+/** How a pair's second rule is stated: drawn apart from the first, or the first restated (`restated`). */
+type Stated = "apart" | "restated"
+
+const STATED: NonEmptyReadonlyArray<Stated> = ["apart", "restated"]
+
+/**
+ * Two rules of one kind over selections of one relation, and a state of their schema: over the four relations, its
+ * state built toward both rules' laws as an explored state is; over visits and shifts, a state of both rules' span box.
+ */
+export type Pair = {
+	readonly kind: PairKind
+	readonly stated: Stated
+	readonly state: State
+} & (
+	| { readonly on: "items"; readonly first: Rule; readonly second: Rule }
+	| { readonly on: "spans"; readonly first: SpanRule; readonly second: SpanRule }
+)
+
+/** The fields a selection over visits or shifts reads: each holds an id, an owner and whether it is live. */
+const SPAN: Readable = { numbers: ["owner", "id"], booleans: ["live"], pairs: [["id", "owner"]] }
+
+const spanPhi = phiGen(SPAN, PHI_DEPTH)
+
+const itemPairGen: Gen<Pair> = (source) => {
+	const kind = source.draw(element(ITEM_PAIRS))
+	const stated = source.draw(element(STATED))
+	const first = source.draw(ruleGen(kind))
+	const second = stated === "apart" ? source.draw(ruleGen(kind)) : restatedRule(first)
+	const { state } = source.draw(exploredOver([first, second]))
+	return { kind, stated, state, on: "items", first, second }
+}
+
+const spanPairGen: Gen<Pair> = (source) => {
+	const kind = source.draw(element(SPAN_PAIRS))
+	const stated = source.draw(element(STATED))
+	const first: SpanRule = { rule: kind, phi: source.draw(spanPhi) }
+	const second: SpanRule =
+		stated === "apart" ? { rule: kind, phi: source.draw(spanPhi) } : restatedSpanRule(first)
+	const state = source.draw(boxStateGen(spanBoxesOf([...spanLawsOf(first), ...spanLawsOf(second)])))
+	return { kind, stated, state, on: "spans", first, second }
+}
+
+/** A pair of either family, in proportion to their kinds. */
+export const pairGen: Gen<Pair> = weighted<Pair>([
+	[ITEM_PAIRS.length, itemPairGen],
+	[SPAN_PAIRS.length, spanPairGen]
+])
 
 /** A fin box's owner: none, or one of a count. */
 type FinOwner = { readonly kind: "absent" } | { readonly kind: "counted"; readonly count: number }

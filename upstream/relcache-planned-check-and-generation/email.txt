@@ -1,0 +1,102 @@
+To: pgsql-hackers@lists.postgresql.org
+Subject: [PATCH] Plan CHECK and generation expressions once per relcache entry
+
+Hi,
+
+ExecRelCheck() reads every CHECK constraint's ccbin with stringToNode(),
+and ExecInitGenerated() every stored generation expression with
+build_column_default(), and both run the result through
+ExecPrepareExpr() in every statement that needs them.  expression_planner()
+then calls each IMMUTABLE function whose arguments are constants and
+copies its result into the tree.  So a CHECK constraint or a generated
+column that reads such a function calls it, and copies its result, in
+every INSERT and UPDATE, and a CHECK constraint that holds a large
+constant parses it back from ccbin each time.  Index expressions are
+planned once per relcache entry, and domain constraints once per
+backend.
+
+On master (72b9498df9), one-row INSERTs in a PL/pgSQL loop take about
+1.6 us of backend CPU time each against a bare table.  Against a table
+with one CHECK constraint over a SQL function that returns a 128 kB bit
+string they take 28 us, with a stored generated column over that
+function 27 us, and with a CHECK constraint that holds the same 128 kB
+constant as a literal 2.4 ms.  An IMMUTABLE function in such a CHECK
+constraint is called 1000 times by 1000 INSERTs.
+
+The attached patch does for CHECK constraints and generation
+expressions what the relcache does for index expressions.
+RelationGetPlannedCheckExprs(), RelationGetGenerationExpr() and
+RelationGetPlannedGenerationExpr() parse, expand and plan them on first
+use and keep the result in a memory context owned by the relcache
+entry, and the executor only runs ExecInitExpr() on it.  Generation
+expressions are planned one column at a time, as the executor asks for
+them, so an UPDATE still plans only the columns it recomputes.  With the
+patch the three cases above take 2.7 us, 3.6 us and 1.8 us, and the
+function is called once.
+
+The planned trees depend on more than the relation, so the patch has to
+notice what plancache.c revalidates a plan against and the relcache
+does not: functions that planning called or inlined, a domain whose
+coercion planning dropped because it had no constraints, the EXECUTE
+privilege checked when a function is called at plan time, and the
+search_path under which an inlined SQL function's string body was
+parsed.  The entry records the user and search_path it planned under,
+and syscache callbacks on pg_proc, pg_type, pg_operator, pg_namespace,
+pg_authid and pg_auth_members advance a counter that makes every
+entry's planned expressions stale.  That counter is coarse: any change
+to those catalogs, creating a temporary table's row type included,
+makes every entry plan again on next use, which is what every statement
+does today.  Tracking each entry's dependencies as plancache.c does,
+with expression_planner_with_deps(), would be finer; I kept v1 simple
+and would like to know whether that is wanted.  CachedExpression covers
+the function and type dependencies but not the planning user or the
+search_path, which is why the patch doesn't use it.
+
+Executor state points into the cached trees rather than copies, so that
+no large constant is copied per statement.  An open relation's planned
+expressions therefore survive a rebuild or invalidation of its entry
+until RelationClose() finds it unreferenced, as rd_pdcxt does for
+partition descriptors.  They are started over at most once while the
+relation stays open; after that, planning falls back to the caller's
+memory, as today, until it is closed.  The new fields add 56 bytes to
+RelationData.
+
+Korry Douglas and Noah Misch proposed caching the parsed form of ccbin
+in 2013 [1].  That thread stopped at a memory-management defect and at
+whether eval_const_expressions() may be handed the shared tree.  Here
+the trees live in a memory context of their own, deleted with the
+entry, and planning works on a private copy whose result is kept, so the
+shared tree only ever reaches ExecInitExpr(), which does not modify its
+input.
+
+The patch adds a regression test, relcache_exprs: CHECK constraints and
+generated columns over constant functions across ADD and DROP
+CONSTRAINT and SET EXPRESSION, partitions and inheritance, COPY,
+INSERT ... ON CONFLICT, MERGE and UPDATE, a function replaced in place,
+a domain constraint added later, EXECUTE granted and revoked, a changed
+search_path, executor state outliving an invalidation within its
+statement, and a count of the calls.  On unpatched master its output
+differs only in that last line.  It also passes with
+debug_discard_caches = 1.  The patch is against master (72b9498df9),
+builds with assertions without warnings, passes the core, isolation,
+plpgsql, ecpg and contrib regression suites, and is pgindent clean.
+
+Reproduction, against a scratch database with psql -X:
+
+    CREATE FUNCTION big() RETURNS bit varying LANGUAGE sql IMMUTABLE
+      RETURN repeat('01', 524288)::bit varying;
+    CREATE TABLE bare (k int NOT NULL);
+    CREATE TABLE checked (k int NOT NULL,
+      CHECK ((substring(big() FROM k + 1 FOR 1) = B'1') IS TRUE));
+    \timing on
+    DO $$ BEGIN FOR i IN 1..10000 LOOP INSERT INTO bare VALUES (1); END LOOP; END $$;
+    DO $$ BEGIN FOR i IN 1..10000 LOOP INSERT INTO checked VALUES (1); END LOOP; END $$;
+
+We met this in generated schemas that keep a closed set of values as a
+bitmap returned by an IMMUTABLE function, read by CHECK constraints and
+generated columns on many tables.
+
+[1] https://postgr.es/m/20130603190727.GA360354@tornado.leadboat.com
+
+Thanks,
+Bjorn Pagen

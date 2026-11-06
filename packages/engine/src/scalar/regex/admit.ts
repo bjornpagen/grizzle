@@ -107,7 +107,9 @@ export const matchFlags: RegexFlags = "u"
 /**
  * A Compute.matches pattern admitted (admitPattern under matchFlags) and translated into the ARE `~` reads in its
  * place (are.ts toAre): refused where its admission refuses it, and where its IR is the empty language's, which no ARE
- * spells and no text matches, so the test could never hold (UnsupportedOperation, naming the pattern).
+ * spells, so the test could never hold (UnsupportedOperation, naming the pattern). The IR is the empty language exactly
+ * when no text matches the pattern, an empty class or an order of anchors no match can pass alike (ir.ts), so this
+ * refuses every such pattern and no other.
  */
 export const matchPattern = (
 	source: string,

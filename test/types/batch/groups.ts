@@ -1,6 +1,7 @@
 import { Array as Arr, Record as Rec } from "effect"
 import { agreementEntriesFrom, agreementModules } from "#test/support/agreement/queries.ts"
 import { checkUnit, type Group, type UnitSpec } from "#test/types/batch/batch.ts"
+import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
 import {
 	entriesFrom,
 	generateQuerySource,
@@ -38,6 +39,21 @@ export const typeGroups: ReadonlyArray<Group> = [
 	{
 		owner: "test/types/changeset/changeset.test.ts",
 		units: fixtureUnits("changeset", ["support.ts"])
+	},
+	{
+		owner: "test/types/changeset/nesting.test.ts",
+		units: {
+			"changeset/nesting": {
+				kind: "program",
+				dir: "test/types/changeset",
+				prefix: ".nesting-",
+				disarm: true,
+				heavy: true,
+				source: (entry) => [
+					{ file: "index.ts", source: nestingSource(entriesFrom(entry), nestingCases) }
+				]
+			}
+		}
 	},
 	{ owner: "test/types/compute/compute.test.ts", units: fixtureUnits("compute", ["support.ts"]) },
 	{ owner: "test/types/derived/derived.test.ts", units: fixtureUnits("derived", ["support.ts"]) },

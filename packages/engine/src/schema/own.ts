@@ -34,6 +34,7 @@ import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	candidateKeyFields,
+	type CompareOp,
 	conjunctsOf,
 	type ContextDesc,
 	decodeDesc,
@@ -190,8 +191,9 @@ export interface OwnedContract {
  * Equivalent declarations agree: a relation, closed relation or statement declared twice identically is one
  * declaration, and the canonical description sorts each level's relations by name and its statements by canonical
  * text. A statement is canonicalized first: a check's and a selection's conjunctions and disjunctions have their
- * operands in canonical order, so that reordered but equal declarations share one text. Roster order is kept, because
- * it is comparison order. The fingerprint hashes that canonical description (core/fingerprint.ts schemaFingerprint).
+ * operands in canonical order, each comparison its canonical orientation and each IN list its values in canonical
+ * order, so that reordered but equal declarations share one text. Roster order is kept, because it is comparison
+ * order. The fingerprint hashes that canonical description (core/fingerprint.ts schemaFingerprint).
  * PostgreSQL identifiers are part of the installation artifact, not of the fingerprint.
  *
  * The owned schema: the frozen schema product (desc and fingerprint, ir/products.ts) with what ownership resolved
@@ -428,10 +430,44 @@ const isRosterHandle = (roster: RosterDesc, value: LiteralDesc): boolean =>
 /** How a closed relation's fields are written: by its declaration, which is its one caller. */
 const callerWritten: Writing = Object.freeze({ kind: "caller" })
 
+/** Each comparison's mirror: the operator that holds of the same two operands written the other way round. */
+const mirrorOf: { readonly [Op in CompareOp]: CompareOp } = {
+	eq: "eq",
+	ne: "ne",
+	lt: "gt",
+	le: "ge",
+	gt: "lt",
+	ge: "le"
+}
+
+/** Whether an operand is a bare literal, which takes the type of the term it meets and so never stands first. */
+const isBare = (e: ExprDesc): boolean => e.kind === "literal" && e.type === undefined
+
 /**
- * A predicate with every conjunction's and disjunction's operands in canonical order, recursively. No operation of a
- * row check raises (scalar/compute/registry.ts Totality), so operand order carries no meaning. No other term reorders: a comparison's
- * sides and a computation's operands keep their meaning by position.
+ * A comparison in the one orientation of the two that mean it: a bare literal stands second; of two operands that may
+ * stand either way, eq and ne put them in canonical text order, and an ordering is stated as lt or le. Each of
+ * PostgreSQL's comparison operators has its mirror as its commutator: both are NULL when either operand is, and both
+ * read NaN as above every other float, so the two orientations mean the same.
+ */
+const canonicalComparison = (expr: Extract<ExprDesc, { readonly kind: "compare" }>): ExprDesc => {
+	const left = canonicalPredicate(expr.left)
+	const right = canonicalPredicate(expr.right)
+	const swapped =
+		isBare(left) !== isBare(right)
+			? isBare(left)
+			: expr.op === "eq" || expr.op === "ne"
+				? compareText(textOf(left), textOf(right)) > 0
+				: expr.op === "gt" || expr.op === "ge"
+	return swapped
+		? { ...expr, op: mirrorOf[expr.op], left: right, right: left }
+		: { ...expr, left, right }
+}
+
+/**
+ * A predicate in canonical form, recursively: every conjunction's and disjunction's operands in canonical order, every
+ * comparison in its canonical orientation (`canonicalComparison`), and every IN list's values each once, in canonical
+ * order. No operation of a row check raises (scalar/compute/registry.ts Totality), so none of these orders carries
+ * meaning. No other term reorders: a computation's operands keep their meaning by position.
  */
 const canonicalPredicate = (expr: ExprDesc): ExprDesc => {
 	switch (expr.kind) {
@@ -446,6 +482,16 @@ const canonicalPredicate = (expr: ExprDesc): ExprDesc => {
 		}
 		case "not":
 			return { ...expr, arg: canonicalPredicate(expr.arg) }
+		case "compare":
+			return canonicalComparison(expr)
+		case "in": {
+			const byText = new Map(expr.values.map((v) => [textOf(v), v] as const))
+			return {
+				...expr,
+				arg: canonicalPredicate(expr.arg),
+				values: [...byText].toSorted(([a], [b]) => compareText(a, b)).map(([, v]) => v)
+			}
+		}
 		case "var":
 		case "field":
 		case "value":
@@ -457,9 +503,7 @@ const canonicalPredicate = (expr: ExprDesc): ExprDesc => {
 		case "base":
 		case "cond":
 		case "when":
-		case "compare":
 		case "between":
-		case "in":
 		case "allen":
 		case "pointIn":
 		case "absent":

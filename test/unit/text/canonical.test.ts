@@ -7,6 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
+import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { canonicalText, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
@@ -16,11 +17,30 @@ import { families, flagsGen, nestedPattern, patternOver } from "#test/unit/text/
 
 /**
  * The IR's canonical text and order (scalar/regex/ir.ts canonicalText, compareCanonical). The canonical text is
- * JSON.stringify's text of the node, which a pattern's "ir:" key is and a snapshot's domain digest is taken over, so
- * it is written byte for byte as JSON.stringify writes it; the builder orders an alternation's arms by that text while
- * comparing it piece by piece, never writing it.
+ * JSON.stringify's text of the node's shape, its profiles left out, which a pattern's "ir:" key is and a snapshot's
+ * domain digest is taken over, so it is written byte for byte as JSON.stringify writes the shape; the builder orders an
+ * alternation's arms by that text while comparing it piece by piece, never writing it.
  */
 type Alt = Extract<RegexNode, { readonly kind: "alt" }>
+
+/** A node's shape: every field of it and of its children but the profiles, which no key reads. */
+const shapeOf = (node: RegexNode): Json => {
+	switch (node.kind) {
+		case "seq":
+			return { kind: node.kind, items: Arr.map(node.items, shapeOf) }
+		case "alt":
+			return { kind: node.kind, arms: Arr.map(node.arms, shapeOf) }
+		case "repeat":
+			return { kind: node.kind, body: shapeOf(node.body), min: node.min, max: node.max }
+		case "set":
+			return { kind: node.kind, set: node.set }
+		case "empty":
+		case "end":
+		case "never":
+		case "start":
+			return { kind: node.kind }
+	}
+}
 
 /** Every alternation in a node, the node's own included, found on a stack so that a node of any depth is walked. */
 const alternations = (root: RegexNode): ReadonlyArray<Alt> => {
@@ -59,7 +79,7 @@ type Ordered = "an alternation" | "nested alternations"
 
 describe("the canonical text and order", () => {
 	it.effect(
-		"writes each parsed pattern's IR as JSON.stringify does, and orders every alternation's arms strictly by that text",
+		"writes each parsed pattern's IR as JSON.stringify writes its shape, and orders every alternation's arms strictly by that text",
 		(ctx) =>
 			searched(
 				ctx,
@@ -87,7 +107,7 @@ describe("the canonical text and order", () => {
 							}
 							assert.equal(
 								canonicalText(parsed.value),
-								jsonText(parsed.value),
+								jsonText(shapeOf(parsed.value)),
 								`/${source}/${flags}`
 							)
 							const alts = alternations(parsed.value)

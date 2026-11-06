@@ -54,6 +54,10 @@ import {
 	exploredGen,
 	FIN_BOX_CASES,
 	finBoxGen,
+	PAIR_KINDS,
+	type Pair,
+	type PairKind,
+	pairGen,
 	VARIANTS,
 	type Variant
 } from "#test/support/native/generate.ts"
@@ -75,7 +79,10 @@ import {
 	type Compiled,
 	compiled,
 	fieldTerm,
+	holdsComparison,
 	type Law,
+	lawForms,
+	lawSelections,
 	lawsOf,
 	nativeRow,
 	nativeState,
@@ -127,12 +134,8 @@ interface Installed {
 
 const installations = new Map<string, Installed>()
 
-/** The installation of `laws` over `declared`, compiled once under `label`. */
-const installedOf = (label: string, declared: Relations, laws: ReadonlyArray<Law>): Installed => {
-	const known = installations.get(label)
-	if (known !== undefined) {
-		return known
-	}
+/** The installation of `laws` over `declared`, both readings and the native model's, compiled under `label`. */
+const install = (label: string, declared: Relations, laws: ReadonlyArray<Law>): Installed => {
 	const schema = compiled(declared, laws)
 	const installation = nativeInstallation(schema.model)
 	if (Result.isFailure(installation)) {
@@ -140,7 +143,16 @@ const installedOf = (label: string, declared: Relations, laws: ReadonlyArray<Law
 			`the native model does not evaluate ${label}: ${Formatter.format(installation.failure)}`
 		)
 	}
-	const made = { schema, installation: installation.success }
+	return { schema, installation: installation.success }
+}
+
+/** The installation of `laws` over `declared`, compiled once under `label`. */
+const installedOf = (label: string, declared: Relations, laws: ReadonlyArray<Law>): Installed => {
+	const known = installations.get(label)
+	if (known !== undefined) {
+		return known
+	}
+	const made = install(label, declared, laws)
 	installations.set(label, made)
 	return made
 }
@@ -952,6 +964,145 @@ const judgeFamilyState = (shape: Shape, stored: Stored, c: Case<FamilyFeature>):
 	c.note(shape)
 }
 
+/** A pair's relations, and its two rules' laws, the first's and the second's. */
+interface PairLaws {
+	readonly on: Relations
+	readonly first: ReadonlyArray<Law>
+	readonly second: ReadonlyArray<Law>
+}
+
+const pairLaws = (p: Pair): PairLaws => {
+	switch (p.on) {
+		case "items":
+			return { on: relations, first: lawsOf(p.first), second: lawsOf(p.second) }
+		case "spans":
+			return { on: SPAN_RELATIONS, first: spanLawsOf(p.first), second: spanLawsOf(p.second) }
+	}
+}
+
+const pairLiteral = (p: Pair): string => {
+	const rules =
+		p.on === "items"
+			? [ruleText(p.first), ruleText(p.second)]
+			: [spanRuleText(p.first), spanRuleText(p.second)]
+	return `${p.stated}: ${Arr.join(rules, " | ")}: ${Formatter.format(p.state)}`
+}
+
+/** One statement of a schema: its text in canonical form, and the law the compiler gives it. */
+interface Held {
+	readonly form: string
+	readonly law: LawId
+}
+
+/**
+ * Each statement of `laws`, in the order Reading states them, the installation compiled from them at its `from`-th law
+ * onward.
+ */
+const heldOf = (
+	installed: Installed,
+	laws: ReadonlyArray<Law>,
+	from: number
+): ReadonlyArray<Held> =>
+	Arr.flatMap(laws, (law, i) => {
+		const forms = lawForms(law)
+		const ids = installed.schema.statementLaws[from + i] ?? []
+		assert.equal(ids.length, forms.length, `the compiler gives each statement of ${forms[0]} a law`)
+		return Arr.zipWith(forms, ids, (form, id): Held => ({ form, law: id }))
+	})
+
+/** The names of an installation's constraints, sorted. */
+const constraintNames = (installed: Installed): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.map(installed.installation.constraints, (k) => k.name),
+		(a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+	)
+
+type PairFeature =
+	| PairKind
+	| Verdict
+	| "two laws over selections of one relation"
+	| "a comparison stated in both orientations"
+	| "a law of a pair refused alone"
+
+/** The oracle of the pair suite: the canonical form read off the drawn selections, and the laws' meaning. */
+const PAIR_ORACLE: Oracle = {
+	kind: "specification",
+	name: "ownership's canonical form of each drawn statement (lawForms), and the host law model's violation of each law over the states the native model evaluates"
+}
+
+/**
+ * A pair of rules of one kind over selections of one relation, judged on their schema. Two statements are one law
+ * exactly when they are one in canonical form; each two distinct laws the pair's positions pair are each discharged by
+ * a constraint of its own, which a state breaking it alone is refused by; a rule restated installs the constraints of
+ * the rule alone; and the schema accepts a state, and each order of its writes, exactly when its laws hold.
+ */
+const judgePair = (p: Pair, c: Case<PairFeature>): void => {
+	const { on, first, second } = pairLaws(p)
+	const installed = install(pairLiteral(p), on, [...first, ...second])
+	const ones = heldOf(installed, first, 0)
+	const others = heldOf(installed, second, first.length)
+	const held = [...ones, ...others]
+	for (const [i, a] of held.entries()) {
+		for (const b of held.slice(i + 1)) {
+			assert.equal(
+				a.law === b.law,
+				a.form === b.form,
+				a.form === b.form
+					? `${a.form} is one statement in canonical form, and the compiler gives it two laws, ${a.law} and ${b.law}`
+					: `${a.form} and ${b.form} are two laws, and the compiler gives both the law ${a.law}`
+			)
+		}
+	}
+	const apart = Arr.filter(Arr.zip(ones, others), ([a, b]) => a.law !== b.law)
+	const directions = Arr.flatMap(apart, ([a, b]) => [
+		[a.law, b.law] as const,
+		[b.law, a.law] as const
+	])
+	for (const [law, other] of directions) {
+		assert.ok(
+			Arr.some(
+				installed.installation.constraints,
+				(k) => k.laws.includes(law) && !k.laws.includes(other)
+			),
+			`the law ${law} has no constraint of its own beside ${other}'s: ${Arr.join(constraintNames(installed), ", ")}`
+		)
+	}
+	c.note(p.kind)
+	switch (p.stated) {
+		case "apart":
+			if (apart.length > 0) {
+				c.note("two laws over selections of one relation")
+				c.pair(p.kind, "two laws over selections of one relation")
+			}
+			break
+		case "restated":
+			assert.deepEqual(
+				constraintNames(installed),
+				constraintNames(install(`${pairLiteral(p)}, its first rule alone`, on, first)),
+				"a rule restated installs the constraints of the rule alone"
+			)
+			if (Arr.some(Arr.flatMap(first, lawSelections), holdsComparison)) {
+				c.note("a comparison stated in both orientations")
+			}
+			break
+	}
+	const broken = judgeState(installed, on, p.state, c)
+	const refused = stateViolations(installed.installation, nativeState(on, p.state))
+	for (const [law, other] of directions) {
+		if (broken.has(law) && !broken.has(other)) {
+			assert.ok(
+				Arr.some(refused, (v) => v.laws.includes(law) && !v.laws.includes(other)),
+				`the state breaks ${law} and not ${other}, and no constraint of ${law}'s own refuses it: ${Arr.join(
+					Arr.map(refused, (v) => `${v.kind} ${v.constraint}`),
+					", "
+				)}`
+			)
+			c.note("a law of a pair refused alone")
+		}
+	}
+	judgeWrites(installed, on, p.state, broken.size === 0, c)
+}
+
 const familyBoxGen: Gen<readonly [Shape, Stored]> = (source) => [
 	source.draw(element(SHAPES)),
 	source.draw(finBoxGen)
@@ -1283,6 +1434,42 @@ describe("the native constraints grizzle installs", () => {
 								judgePuts(installed, SPAN_RELATIONS, b.state, c)
 							}
 						})
+				)
+			)
+	)
+
+	it.effect(
+		"keep two laws over selections of one relation apart, each refused by its own constraint, and install a rule stated in both orientations as one law",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/laws/native/pairs",
+						draw: drawn(pairGen),
+						oracle: PAIR_ORACLE,
+						literal: pairLiteral,
+						coverage: required<PairFeature>(
+							[
+								...PAIR_KINDS,
+								...Arr.map(PAIR_KINDS, (kind): readonly [PairFeature, PairFeature] => [
+									kind,
+									"two laws over selections of one relation"
+								]),
+								"two laws over selections of one relation",
+								"a comparison stated in both orientations",
+								"a law of a pair refused alone"
+							],
+							{ cases: 500, sense: notesOnly }
+						),
+						kept: [],
+						runs: 100,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(p, c) => Effect.sync(() => judgePair(p, c))
 				)
 			)
 	)

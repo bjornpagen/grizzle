@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { array, codePoint, element, type Gen, oneOf, string } from "@grizzle/testing/gen"
+import { array, element, type Gen, oneOf } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -22,7 +22,7 @@ import {
 	type TextRefinement,
 	textDomainDdl
 } from "#compiler/text/refinement.ts"
-import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -37,9 +37,9 @@ import {
 } from "#test/unit/text/generators.ts"
 
 /**
- * Lowering a refinement to PostgreSQL: the canonical wildcard, the empty-language refusal, the constraint loops the IR
- * rewrites away, the printed ARE read back for its language and for the budgets' verdict, and the form a finite
- * language is enforced by.
+ * Lowering a refinement to PostgreSQL: the constraint loops the IR rewrites away, the printed ARE read back for its
+ * language and for the budgets' verdict, and the form a finite language is enforced by. The empty-language refusal is
+ * emptiness.test.ts's.
  */
 const loc = SourceLoc("str.regex", ["Content", "relations", "Article", "fields", "f"])
 
@@ -128,61 +128,9 @@ const areKey = (are: string): string | undefined => {
 	return analyzed.ok ? analyzed.value.key : undefined
 }
 
-/**
- * A pattern no admitted value matches is refused: an empty class, an end before a character, a character before a
- * start, or a class of every scalar negated, planted beside a drawn pattern that otherwise matches.
- */
-type Empty =
-	| "an empty class"
-	| "an end before a character"
-	| "a character after the start's end"
-	| "every scalar negated"
-
-const empties: Arr.NonEmptyReadonlyArray<readonly [Empty, string]> = [
-	["an empty class", "[]"],
-	["an end before a character", "$b"],
-	["a character after the start's end", "^$a"],
-	["every scalar negated", "[^\\u{1}-\\u{10FFFF}]"]
-]
-
 /** A pattern over any family's alphabet. */
 const familyPattern: Gen<string> = (source) =>
 	source.draw(patternOver(source.draw(element(families)).alphabet))
-
-describe("the text refinement", () => {
-	it.effect("refuses a pattern no admitted value matches", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					suite: "unit/text/empty-language",
-					draw: drawn((source) => ({
-						empty: source.draw(element(empties)),
-						prefix: source.draw(string(codePoint(0x61, 0x7a), { min: 0, max: 4 })),
-						flags: source.draw(flagsGen)
-					})),
-					literal: Formatter.format,
-					coverage: required<Empty>(
-						Arr.map(empties, ([e]) => e),
-						{ cases: 100, sense: notesOnly }
-					),
-					kept: [],
-					runs: 100,
-					shrink: completeShrink,
-					concurrency: 1,
-					steerEvery: 16,
-					caseHang
-				},
-				({ empty: [name, construct], prefix, flags }, c) =>
-					Effect.sync(() => {
-						c.note(name)
-						const source = `${prefix}${construct}`
-						refused(analyzeText(source, flags, loc), "UnsupportedOperation", source)
-					})
-			)
-		)
-	)
-})
 
 /** Whether a repetition loops through an assertion: an unbounded repeat whose body can match zero-width through one. */
 const loops = (node: RegexIr.RegexNode): boolean => {

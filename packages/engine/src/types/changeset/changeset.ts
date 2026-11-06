@@ -9,6 +9,7 @@ import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
+import type { Identical } from "#compiler/types/core/identical.ts"
 import type {
 	Carriers,
 	DomainOf,
@@ -85,13 +86,13 @@ export type Member<S, F> = ReadonlyArray<F> | Stream.Stream<F> | QueryAt<LevelsO
  */
 type MemberCheck<M, F, R> =
 	M extends Phantom<{ readonly heading: infer H }>
-		? [UnfitArms<H, F>] extends [never]
+		? [UnfitArms<H, F, never>] extends [never]
 			? [MistypedFields<M, R>] extends [never]
 				? unknown
 				: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast">
 			: Refusal<"the query's head is not a fact of the relation">
 		: M extends ReadonlyArray<infer E> | Stream.Stream<infer E, unknown, unknown>
-			? [UnfitArms<E, F>] extends [never]
+			? [UnfitArms<E, F, never>] extends [never]
 				? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
 					? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
 					: unknown
@@ -127,11 +128,15 @@ type WritesAt<X, F> =
 			? true
 			: false
 
-type UnfitArms<H, F> = H extends unknown ? ([FitsAnArm<H, F>] extends [never] ? H : never) : never
-type FitsAnArm<Ha, F> = F extends unknown
+type UnfitArms<H, F, Seen> = H extends unknown
+	? [FitsAnArm<H, F, Seen>] extends [never]
+		? H
+		: never
+	: never
+type FitsAnArm<Ha, F, Seen> = F extends unknown
 	? [Ha] extends [F]
 		? [Exclude<SuppliedKeys<Ha>, keyof F>] extends [never]
-			? [NestedUnfit<Ha, F>] extends [never]
+			? [NestedUnfit<Ha, F, Seen>] extends [never]
 				? true
 				: never
 			: never
@@ -144,14 +149,28 @@ type FitsAnArm<Ha, F> = F extends unknown
  * member nested at any depth supplies no field beyond its relation's own written ones, such as one its nesting supplies
  * (a tree member's root field or parent, an ordered member's group) or one grizzle draws. Assignability alone checks no
  * excess field of a nested object. An array of values, a vector's, nests no fact and is no nesting.
+ *
+ * A member type of any depth, `children: ReadonlyArray<Member>`, meets the pair of its member type and its nesting's
+ * arms again below itself. Seen holds the pairs whose check is in progress above: a pair met again is checked once,
+ * where it was first met, so each pair a member type reaches is checked and the walk ends.
  */
-type NestedUnfit<Ha, F> = {
+type NestedUnfit<Ha, F, Seen> = {
 	[K in keyof Ha & keyof F]-?: F[K] extends ReadonlyArray<infer Fe extends object>
 		? Ha[K] extends ReadonlyArray<infer He>
-			? UnfitArms<He, Fe>
+			? Visited<readonly [He, Fe], Seen> extends true
+				? never
+				: UnfitArms<He, Fe, Seen | readonly [He, Fe]>
 			: never
 		: never
 }[keyof Ha & keyof F]
+
+/**
+ * Whether a walk over a recursive type has met X already: X is one of the types in Seen, identical to it, not only
+ * assignable to it, so a type with a field more is never taken for one met before.
+ */
+type Visited<X, Seen> = true extends (Seen extends unknown ? Identical<X, Seen> : never)
+	? true
+	: false
 
 /**
  * The fields an arm supplies. An array literal of differently shaped objects is inferred as a union whose arms carry
@@ -278,17 +297,19 @@ type CountOf<Fa> = Fa extends { readonly slots: Fin<unknown, infer N extends str
 
 /**
  * The relations an addition of R in S writes besides R: the member relations of R's sequences, through every nesting.
- * Seen stops the walk at a tree, a family of its relation over itself.
+ * Seen holds the relations walked, so the walk stops at a tree, a family of its relation over itself, as NestedUnfit's
+ * stops at a member type met again.
  */
-export type NestedWrites<S, R, Seen = never> = [R] extends [Seen]
-	? never
-	: [DrawnFieldOf<R>] extends [never]
+export type NestedWrites<S, R, Seen = never> =
+	Visited<R, Seen> extends true
 		? never
-		: MemberRelationOf<SequencesOwnedBy<S, R>> extends infer M
-			? M extends unknown
-				? NameOf<M> | NestedWrites<S, M, Seen | R>
+		: [DrawnFieldOf<R>] extends [never]
+			? never
+			: MemberRelationOf<SequencesOwnedBy<S, R>> extends infer M
+				? M extends unknown
+					? NameOf<M> | NestedWrites<S, M, Seen | R>
+					: never
 				: never
-			: never
 
 /**
  * An ordered family's member relation is written under its owner, nested in order at the owner's count field: order
@@ -514,8 +535,8 @@ export type Witness =
  * - `key`: a key statement, key(side), by its side: a candidate key of the relation when the side reads every fact
  *   and its terms are fields (a span field makes it a nonoverlap key), and otherwise a key over the facts the side
  *   reads. A side (ir/desc.ts SideDesc, the public LawSide) is its relation, its terms in the order the statement pairs
- *   them, each a field or pred of a natural field, and its selection's conjuncts, each a row predicate as its
- *   Description states it, in canonical order: none reads every fact;
+ *   them, each a field or pred of a natural field, and its selection's conjuncts, each a row predicate in its
+ *   canonical form (schema/own.ts canonicalPredicate), in canonical order: none reads every fact;
  * - `check`: a relation's row check, by its name;
  * - `contained`: a containment, a foreign key included, from its source side into its target side (a mirrors is two);
  * - `coverage`: a containment whose sides pair a span field, the source's span covered by the target's;

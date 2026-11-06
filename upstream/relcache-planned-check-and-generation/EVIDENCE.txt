@@ -1,0 +1,114 @@
+EVIDENCE: CHECK constraint and generation expressions are planned in every statement; the patch plans them once per
+relcache entry
+
+Run 2026-11-06. Machine: Darwin 27.0.0 arm64 (macOS 27.0.1), 10 cores, Apple clang 21.0.0, meson 1.12.1, ninja 1.13.2,
+ccache 4.14.1. The cores were shared with other work (load average 25 to 40), so wall-clock times were noisy; section 3
+reports each statement's backend CPU time, which that load disturbs far less.
+
+1. THE CAUSE, IN THE SOURCE (master 72b9498df9)
+   src/backend/executor/execMain.c, ExecRelCheck() (line 1837), once per statement and result relation:
+       checkconstr = stringToNode(check[i].ccbin);
+       checkconstr = (Expr *) expand_generated_columns_in_expr((Node *) checkconstr, rel, 1);
+       resultRelInfo->ri_CheckConstraintExprs[i] = ExecPrepareExpr(checkconstr, estate);
+   src/backend/executor/nodeModifyTable.c, ExecInitGenerated() (line 444), once per statement and result relation:
+       expr = (Expr *) build_column_default(rel, i + 1);
+       ...
+       ri_GeneratedExprs[i] = ExecPrepareExpr(expr, estate);
+   src/backend/executor/execExpr.c, ExecPrepareExpr() (line 765):
+       node = expression_planner(node);
+       result = ExecInitExpr(node, NULL);
+   - expression_planner() runs eval_const_expressions(), whose simplify_function() calls evaluate_function() on every
+     IMMUTABLE function whose arguments are all constants. The call happens, and its result is copied into the tree,
+     in every statement.
+   - A CHECK constraint that holds a large constant has that constant printed into ccbin, and stringToNode() parses it
+     back in every statement.
+   - Index expressions are parsed and simplified once per relcache entry (RelationGetIndexExpressions(), relcache.c line
+     5140) and domain CHECK constraints planned once per backend (load_domaintype_info(), typcache.c line 1221).
+
+2. THE CALLS (repro.sql part 1)
+   1000 one-row INSERTs in one DO block, each its own statement, into a table whose CHECK constraint, or whose stored
+   generated column, calls an IMMUTABLE PL/pgSQL function that counts its calls in a custom setting:
+                                         master 72b9498df9    patched
+       CHECK constraint                        1000              1
+       stored generated column                 1000              1
+
+3. TIMINGS (repro.sql part 2; the same statements, timed by backend CPU time)
+   Two builds of the same configure options but the patch, assertions off: meson setup -Dcassert=false -Dllvm=disabled
+   -Dtap_tests=disabled -Ddocs=disabled -Dicu=disabled -Dssl=none -Dreadline=disabled -Dzlib=disabled -Dlz4=disabled
+   -Dzstd=disabled. Each ran a scratch cluster from initdb (UTF8, C locale) with jit = off and fsync = off, on a Unix
+   socket only.
+   - Tables: bare (k int); a CHECK constraint ((substring(f() FROM k + 1 FOR 1) = B'1') IS TRUE); a stored generated
+     column over the same expression; and a CHECK constraint holding f()'s constant as a literal. f() is LANGUAGE sql
+     IMMUTABLE RETURN of a 2^20-bit bit string, 128 kB.
+   - Each round ran every DO block once to warm the caches, then once measured, with log_statement_stats = on; the
+     figure is the DO statement's user plus system CPU time from its "QUERY STATISTICS" log entry, divided by its
+     INSERT count. Five rounds, the two servers alternating; the median:
+                                                       master 72b9498df9    patched
+       bare table, 10000 INSERTs                            1.6 us             1.8 us
+       CHECK over f(), 10000 INSERTs                       27.6 us             2.7 us
+       stored generated column over f(), 10000 INSERTs     27.1 us             3.6 us
+       CHECK holding the constant, 1000 INSERTs          2388 us               1.8 us
+   - The five rounds' CPU times, per DO statement, in ms:
+       master  bare      30.5 14.0 21.9 14.9 16.1         patched  bare      15.6 22.6 18.1 11.1 25.5
+       master  CHECK    321.7 251.5 276.5 246.2 276.7     patched  CHECK     28.6 23.7 21.9 26.9 27.9
+       master  gen      349.4 271.2 270.3 265.2 290.5     patched  gen       35.6 28.0 49.5 26.7 38.8
+       master  literal  2984 2421 2388 2173 2283          patched  literal    1.8  1.6  2.7  1.5  2.4
+   - Over a bare INSERT, a CHECK or generated column over the 128 kB constant costs about 26 us on master and 1 to 2 us
+     with the patch, and the literal 2.4 ms on master and nothing measurable with the patch.
+   - The patched figures don't grow with the constant: what remains per row is ExecInitExpr() of the cached tree and
+     evaluating it once per row.
+
+4. THE RESULTS ARE UNCHANGED
+   The patch's regression test, relcache_exprs, run by pg_regress against the unpatched master build: its output is the
+   expected output but for the one line that counts the calls (10 statements, at most one call allowed unless caches
+   are being discarded):
+       @@ -441,7 +441,7 @@
+          OR current_setting('debug_discard_caches')::int > 0 AS planned_once;
+         planned_once
+        --------------
+       - t
+       + f
+   Every other line, error messages, failing-row details and query results included, matches byte for byte.
+
+5. BUILD AND TESTS (master 72b9498df9 + v1-0001 = 0ceee8d993, one build with assertions)
+   Checkout:
+       git clone --depth 1 https://github.com/postgres/postgres.git    (master 72b9498df9)
+       git apply of scripts/pg/patches/19rc1-relcache-planned-check-and-generation.patch, rel.h placed by hand
+       (NOTES.txt 3), committed as v1-0001
+   meson setup build --prefix=<scratch> -Dcassert=true -Dllvm=disabled -Dtap_tests=disabled -Ddocs=disabled
+       -Dicu=disabled -Dssl=none -Dreadline=disabled -Dzlib=disabled -Dlz4=disabled -Dzstd=disabled
+       -DBISON=/opt/homebrew/opt/bison/bin/bison -DFLEX=/opt/homebrew/opt/flex/bin/flex
+       (meson picked up ccache: "C compiler for the host machine: /opt/homebrew/bin/ccache cc")
+   CCACHE_DIR=~/Desktop/VirtualBuddyShared/WorkSmart/ccache meson compile -C build -j 4
+       No warning in any file the patch changes. The build's only warnings are macOS's LDAP deprecations in auth.c,
+       hba.c and fe-connect.c, the same on unpatched master.
+   meson install, then meson test -C build --num-processes 4 --print-errorlogs
+       101 suites passed, 318 skipped (TAP tests, disabled), none failed. Among them:
+       regress/regress          All 240 tests passed (relcache_exprs among them)
+       isolation/isolation      All 134 tests passed
+       plpgsql/regress          All 13 tests passed
+       ecpg/ecpg                All 66 tests passed
+       test_decoding            regress 20, isolation 16
+       btree_gist, amcheck, postgres_fdw and the other contrib and test-module suites
+       The first run, with --no-rebuild, failed ecpg/ecpg because its test programs had not been built; meson test
+       without --no-rebuild built them, and the suite passed.
+   relcache_exprs under PGOPTIONS='-c debug_discard_caches=1', by pg_regress against that build's scratch cluster:
+       ok, 73 s. Every cache entry is discarded at every opportunity, so every planned expression is rebuilt from
+       scratch, and the results are unchanged.
+   src/tools/pgindent/pgindent --indent=build/src/tools/pg_bsd_indent/pg_bsd_indent on execMain.c, nodeModifyTable.c,
+       relcache.c, rel.h and relcache.h
+                                           no change
+   git diff --check                        clean
+   git apply --check of the patch on a clean tree of master 72b9498df9
+                                           ok
+   sizeof(RelationData), compiled against each build's installed server headers
+                                           496 bytes on master, 552 patched: 56 more per relcache entry
+   Not run: the TAP suites, and the core regression suite as a whole under debug_discard_caches.
+   On macOS, the regression suites run after `meson install` into a real prefix. SIP strips DYLD_LIBRARY_PATH, so the
+   temporary installation's programs must find libpq by their install name.
+
+6. THE DELIVERABLE
+   v1-0001-Plan-CHECK-and-generation-expressions-once-per-re.patch: git format-patch of commit 0ceee8d993 on master
+   72b9498df9.
+   SHA-256 1a0f2c5959b9fae5cd72ee00346e2359f78edc37e2a5d45f350490424d947350.
+   The author line is the repository's GitHub noreply identity; read NOTES.txt 2 before sending.

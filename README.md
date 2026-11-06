@@ -941,7 +941,7 @@ You need:
 - **node-postgres 8.23.1 or later.** `pg` is a peer dependency too, and `@types/pg`, which TypeScript reads its types
   from, an optional one: grizzle imports none of it, and you pass the module you import as each connection's
   `driver`. A `pg` without pipeline mode, which every call's one round trip needs, is a type error there.
-- **PostgreSQL 19**, tested on 19rc1 with the three patches under [PostgreSQL known issues](#postgresql-known-issues).
+- **PostgreSQL 19**, tested on 19rc1 with the two patches under [PostgreSQL known issues](#postgresql-known-issues).
   The database must be UTF8 with the builtin `C.UTF-8` locale, and the server host needs the `C.UTF-8` operating-system
   locale. `btree_gist` must be available; a migration creates it when a no-overlap key or a coverage rule needs it.
   pgvector 0.8.7 is needed only for vector fields; it is not a trusted extension, so a superuser creates `vector`
@@ -2139,8 +2139,9 @@ the contract's or pattern's rule, witness `unreported`.
 | `pattern`    | `source`, `flags`: one rule for every spelling of the same language                                      |
 
 A side is its `relation`, its `terms` in the order the rule pairs them, each `{ kind: "field", field }` or
-`{ kind: "pred", field }`, and its `selection`, `{ conjuncts }`: each conjunct a row predicate as its description
-states it, in canonical order, and none for a side that reads every row.
+`{ kind: "pred", field }`, and its `selection`, `{ conjuncts }`: each conjunct a row predicate in its canonical form
+(a literal second, `gt` and `ge` between two terms as `lt` and `le`, `eq` and `ne` with their terms in canonical order,
+an IN list's values a set), in canonical order, and none for a side that reads every row.
 
 </details>
 
@@ -2459,7 +2460,7 @@ app. Log in as a login, `SET ROLE` to one of its roles, set the claims in the tr
 grizzle fits applications that own their data end to end, such as accounts, ledgers, billing, scheduling and
 workflows, whose rules are worth declaring and whose users see different slices of it.
 
-- **PostgreSQL 19 only**, tested on 19rc1 with the three patches below; **Node 26 or later**; **Effect 4.1**.
+- **PostgreSQL 19 only**, tested on 19rc1 with the two patches below; **Node 26 or later**; **Effect 4.1**.
 - **grizzle owns the database.** Existing schemas, and tables created outside its migrations, are not supported.
 - **No nullable columns, outer joins, window functions, SKIP LOCKED or raw SQL at run time.** A query is written in
   grizzle's query language or not at all.
@@ -2599,12 +2600,10 @@ Only recursive queries are affected. The patch goes with the repin to 19rc2.
 the common prefix of a subtree's bounds, and ends that prefix at a character boundary under UTF8. Characters that
 share leading bytes, such as the CJK Unified Ideographs, then cost the same in every subtree, and a GiST index led by
 such a text column is imprecise: a point lookup takes 14 buffers for one row of 20,000 two-ideograph keys, where ASCII
-keys take 3. PostgreSQL's master branch fixed this in commit b82d69abf6; the repository's build applies it to 19rc1 as
-[scripts/pg/patches/19rc1-btree-gist-multibyte-penalty.patch](scripts/pg/patches/19rc1-btree-gist-multibyte-penalty.patch),
-and the lookup then takes 3 buffers. An unpatched server, managed PostgreSQL included, is affected only through GiST
-indexes led by such a text field, which grizzle builds for a no-overlap key or a span filter whose text field comes
-first. Such an index stays valid either way, and places its keys well once rebuilt on a patched server. The patch goes
-with the repin to PostgreSQL 20.
+keys take 3. This affects only GiST indexes led by such a text field, which grizzle builds for a no-overlap key or a
+span filter whose text field comes first. Such an index stays valid; only its lookups cost more. PostgreSQL's master
+branch fixed this in commit b82d69abf6, for PostgreSQL 20, where the lookup takes 3 buffers, and an index built before
+the fix places its keys well once rebuilt on a server that has it.
 
 **CHECKs and generated columns re-planned per statement.** Stock 19rc1 parses and plans every CHECK and every stored
 generation expression afresh in each statement that needs them, and planning calls each IMMUTABLE function they read
@@ -2658,7 +2657,7 @@ whether a suite reaches what it requires never depends on it.
 - `test/`: the unit, pg, schedules and types tiers, and their support in `test/support/`.
 - `bench/`: performance gates.
 - `scripts/pg/`: the pinned PostgreSQL build, cluster, doctor and patches.
-- `scripts/dev/`: the mutation tester, the golden SQL capture, the profiler and the PL/pgSQL coverage map.
+- `scripts/dev/`: the mutation tester, the golden SQL capture and the profiler.
 - `packages/devtools/`: the lint tooling: the oxlint preset and plugin, superlint and the tsconfig base.
 - `packages/testing/`: `@grizzle/testing`, the choice-stream testing library every test runs on, and `pnpm fuzz`'s
   script.

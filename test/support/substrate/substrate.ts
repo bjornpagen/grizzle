@@ -5,7 +5,7 @@ import { Client } from "pg"
 import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { InitializedCluster, type InitializedClusterShape } from "#test/support/cluster.ts"
-import { coverageAdminUrl, pgPin } from "#test/support/env.ts"
+import { adminUrl, pgPin } from "#test/support/env.ts"
 import {
 	awaitRoleQuiet,
 	type ClientBackend,
@@ -305,7 +305,7 @@ const superuserClient = (database: string, applicationName: string) =>
 	Effect.acquireRelease(
 		Effect.suspend(() => {
 			const c = new Client({
-				connectionString: coverageAdminUrl(database),
+				connectionString: adminUrl(database),
 				application_name: applicationName,
 				types: textTypes
 			})

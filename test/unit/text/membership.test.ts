@@ -1,12 +1,22 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore, type Kept } from "@grizzle/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
-import { array, element, type Gen, int, map, oneOf, weighted } from "@grizzle/testing/gen"
+import { drawn, explore, type Kept } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import {
+	array,
+	element,
+	filter,
+	type Gen,
+	map,
+	oneOf,
+	shuffled,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { codePoints } from "#compiler/core/text.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { analyzeText, refinementBounds, type TextRefinement } from "#compiler/text/refinement.ts"
@@ -463,104 +473,83 @@ describe("every claimed fact holds on the samples", () => {
 })
 
 describe("language-equivalent spellings share one canonical key", () => {
-	/** Spellings of one language each: a handwritten edge dictionary, like the families. */
-	type Group = 0 | 1 | 2 | 3 | 4 | 5
-	type Spelling = readonly [source: string, flags: Flags]
-	const groups: Arr.NonEmptyReadonlyArray<readonly [Group, Arr.NonEmptyReadonlyArray<Spelling>]> = [
-		[
-			0,
-			[
-				["^(?:draft|published)$", "u"],
-				["^(published|draft)$", "u"],
-				["^(?:dra(?:ft)|publ(i)shed)$", "su"],
-				["^draft$|^published$", "u"]
-			]
-		],
-		[
-			1,
-			[
-				["^\\d{2}-\\d{7}$", "u"],
-				["^[0-9][0-9]-[0-9]{7}$", "u"],
-				["^[0-9]{2}-[0-9]{6}\\d$", "su"]
-			]
-		],
-		[
-			2,
-			[
-				["^[a-z][a-z0-9-]*$", "u"],
-				["^[a-z](?:[a-z]|[0-9]|-)*$", "u"],
-				["^[a-z][-a-z0-9]{0,}$", "su"]
-			]
-		],
-		[
-			3,
-			[
-				["^.*$", "su"],
-				["", "u"],
-				["^[^]*$", "u"],
-				["a*", "u"],
-				["()", "u"]
-			]
-		],
-		[
-			4,
-			[
-				["draft", "u"],
-				["(?:draft)", "su"],
-				["dra(f)t", "u"]
-			]
-		],
-		[
-			5,
-			[
-				["^\\w+$", "u"],
-				["^[A-Za-z0-9_]+$", "u"],
-				["^[_\\da-zA-Z]+$", "u"],
-				["^\\w\\w*$", "su"]
-			]
-		]
-	]
+	/** A spelling of a finite language as the alternation of its members, each code point its braced escape. */
+	const memberSpelling = (members: ReadonlyArray<string>): string =>
+		`^(?:${Arr.join(
+			Arr.map(members, (m) =>
+				Arr.join(
+					Arr.map(codePoints(m), (c) => `\\u{${c.toString(16)}}`),
+					""
+				)
+			),
+			"|"
+		)})$`
 
 	/**
-	 * An ordered pair of two members: the first any member, the second any other, so every ordered pair of two is one
-	 * case and an enumeration discards none.
+	 * A finite language of at most 48 members over a family's alphabet, its pattern's flags, and its members in a drawn
+	 * order under flags of their own: two spellings of one language, which share no syntax but its anchors.
 	 */
-	const twoOf =
-		<A>(members: Arr.NonEmptyReadonlyArray<A>): Gen<readonly [A, A]> =>
-		(source) => {
-			const first = source.draw(int(0, members.length - 1))
-			const second = source.draw(int(0, members.length - 2))
-			return [
-				Arr.getUnsafe(members, first),
-				Arr.getUnsafe(members, second < first ? second : second + 1)
-			] as const
-		}
-
-	it.effect("gives every two spellings in a group one key", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/text/spelling-groups",
-					generator: oneOf(
-						Arr.map(groups, ([group, spellings]) =>
-							map(twoOf(spellings), (pair) => [group, pair] as const)
-						)
-					),
-					literal: Formatter.format,
-					/** The space: every ordered pair of two members of a group, 12 + 6 + 6 + 20 + 6 + 12. */
-					limit: 62,
-					coverage: requiredInSpace<`group ${Group}`>(
-						Arr.map(groups, ([group]): `group ${Group}` => `group ${group}`)
-					),
-					caseHang
-				},
-				([group, [[aSource, aFlags], [bSource, bFlags]]], c) =>
-					Effect.sync(() => {
-						c.note(`group ${group}`)
-						assert.equal(refine(aSource, aFlags).key, refine(bSource, bFlags).key)
-					})
-			)
+	const twoSpellings: Gen<{
+		readonly language: { readonly source: string; readonly flags: Flags }
+		readonly members: { readonly source: string; readonly flags: Flags }
+		readonly count: number
+		readonly withEmpty: boolean
+	}> = (source) => {
+		const { alphabet } = source.draw(element(families))
+		const language = source.draw(
+			filter(finiteLanguageOver(alphabet), (l) => l.members.length <= 48, 8)
 		)
+		const order = source.draw(
+			shuffled(language.members, { min: language.members.length, max: language.members.length })
+		)
+		return {
+			language: { source: language.source, flags: source.draw(flagsGen) },
+			members: { source: memberSpelling(order), flags: source.draw(flagsGen) },
+			count: language.members.length,
+			withEmpty: language.members.includes("")
+		}
+	}
+
+	type SpellingFeature = "one member" | "several members" | "the empty text a member"
+
+	it.effect(
+		"gives a finite language's pattern and the alternation of its members in any order one key",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/text/spelling-pairs",
+						draw: drawn(twoSpellings),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "a finite language's members, which its pattern's construction gives"
+						},
+						coverage: required<SpellingFeature>(
+							["one member", "several members", "the empty text a member"],
+							{ cases: 400, sense: notesOnly }
+						),
+						kept: [],
+						runs: 400,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					({ language, members, count, withEmpty }, c) =>
+						Effect.sync(() => {
+							c.note(count === 1 ? "one member" : "several members")
+							if (withEmpty) {
+								c.note("the empty text a member")
+							}
+							assert.equal(
+								refine(language.source, language.flags).key,
+								refine(members.source, members.flags).key,
+								`/${language.source}/${language.flags} and /${members.source}/${members.flags}`
+							)
+						})
+				)
+			)
 	)
 })

@@ -1,12 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { Context, Data, Effect, FileSystem, Layer, Redacted, String as Str } from "effect"
-import { type PgCluster, pgPin } from "#test/support/env.ts"
-
-/** The command that initialises each cluster (scripts/pg/init.sh). */
-const initCommand: { readonly [C in PgCluster]: string } = {
-	main: "pnpm pg:init",
-	coverage: "pnpm pg:init --coverage"
-}
+import { pgPin } from "#test/support/env.ts"
 
 /**
  * A file scripts/pg/init.sh writes into the cluster's state directory cannot be read: the cluster is not initialised.
@@ -16,7 +10,7 @@ class ClusterNotInitialized extends Data.TaggedError("ClusterNotInitialized")<{
 	readonly cause: unknown
 }> {
 	override get message(): string {
-		return `the ${pgPin.cluster} PostgreSQL ${pgPin.version} cluster is not initialised: ${this.file} cannot be read; run ${initCommand[pgPin.cluster]}`
+		return `the PostgreSQL ${pgPin.version} cluster is not initialised: ${this.file} cannot be read; run pnpm pg:init`
 	}
 }
 

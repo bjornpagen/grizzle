@@ -16,6 +16,33 @@ How to upgrade:
 
 ### Breaking changes
 
+#### A pattern whose anchors leave no match is refused, and a role's types cost linear time
+
+- **A pattern no text matches is refused wherever it is written**, through its anchors as well as its classes: a
+  `^` after a character or a `$` before one, as in `^$a` or `a^`, leaves no match. Before, only a pattern whose classes
+  were empty was refused, and `Compute.matches(x, "^$a")` compiled to a test that never holds, and a `str.regex` field
+  of such a pattern past the DFA bounds installed a CHECK no value passes. Now each is `UnsupportedOperation` naming the
+  pattern, in `Compute.matches` and `str.regex` alike, decided exactly for the admitted grammar. No codemod.
+- **`ChangeSet.empty(role)` and `query(role)` typecheck over a role of any size.** A role's kept laws and its full base
+  are read by name, one lookup a relation, where they compared every law with every entry and failed with TS2589 past
+  about 1.2 million pairs (1,107 relations with a law each). No codemod.
+- **A tree insert typed by a member type of any depth typechecks**: a member type that nests itself,
+  `children: ReadonlyArray<Member>`, directly or through others, is checked once for each pair of member type and
+  nesting, where it unfolded forever (TS2615) and refused the member. A field its nesting does not take is still
+  refused at every depth. No codemod.
+
+#### One canonical form for a comparison and an IN list
+
+- **A check's predicate and a selection state each comparison in one orientation**: a bare literal second, `gt` and
+  `ge` between two terms as `lt` and `le` with the terms swapped, `eq` and `ne` with their terms in canonical order; an
+  IN list's values are a set, in canonical order, each once. Statements that differ only so are one statement and one
+  law: `select(T, (t) => t.gt(t.a, t.b))` and `select(T, (t) => t.lt(t.b, t.a))` install one generated column and one
+  constraint, where they installed two. Each mirror is PostgreSQL's commutator of its operator, so the two
+  orientations agree on every value, NULL and NaN included. A reported `Law`'s selection conjuncts appear in this form.
+  A description that states a comparison literal first now compiles. No codemod.
+- **Format and state:** schema fingerprints, and the installed names of laws, law columns and constraints over such
+  predicates, change. Regenerate migrations and re-create databases, as every entry here asks.
+
 #### Text translates and collapses: `Compute.translate`, `.lowerAscii`, `.replaceWhitespace` and `.collapse`, casts into a refined text by language inclusion
 
 - **`Compute.translate(x, from, to)`** is PostgreSQL's `translate` (IMMUTABLE), by characters: each character of `x`
