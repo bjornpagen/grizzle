@@ -33,13 +33,22 @@ import type {
 	Expr,
 	FromItem,
 	FromSource,
+	OperandBody,
+	OperandSelect,
 	Select,
-	SelectBody,
 	SelectCore,
 	Target,
 	TypeRef
 } from "#compiler/sql/ast.ts"
-import { cast, col, mapTargets, sameTypeRef, simpleSelect, targetAs } from "#compiler/sql/build.ts"
+import {
+	cast,
+	col,
+	mapTargets,
+	provedSelect,
+	sameTypeRef,
+	setBodyOf,
+	targetAs
+} from "#compiler/sql/build.ts"
 import {
 	identityHooks,
 	inertVisitor,
@@ -101,7 +110,7 @@ const positionsOf = <K>(map: Map<K, Positions>, key: K): Positions => {
 const carries = (e: Expr, type: TypeRef): boolean =>
 	(e.kind === "param" || e.kind === "literal" || e.kind === "cast") && sameTypeRef(type, e.type)
 
-const widthOf = (body: SelectBody): number => {
+const widthOf = (body: OperandBody): number => {
 	switch (body.kind) {
 		case "core":
 			return body.targets.length
@@ -126,12 +135,12 @@ class Agreement {
 	readonly #items = new Map<string, FromSource>()
 	readonly #ctes = new Map<string, Cte>()
 	readonly #exprs = new Map<Expr, TypeRef | undefined>()
-	readonly #bodies = new Map<SelectBody, Map<number, TypeRef | undefined>>()
+	readonly #bodies = new Map<OperandBody, Map<number, TypeRef | undefined>>()
 	/**
 	 * The casts to the base: per set operation arm and position, per VALUES list and row and position, and per CASE,
 	 * GREATEST or LEAST and member (a CASE's ELSE is the member after its WHENs).
 	 */
-	readonly #arms = new Map<SelectCore | Select, Positions>()
+	readonly #arms = new Map<SelectCore | OperandSelect, Positions>()
 	readonly #cells = new Map<FromItem, Map<number, Positions>>()
 	readonly #members = new Map<Expr, Positions>()
 
@@ -410,7 +419,7 @@ class Agreement {
 		return active.has(key) ? undefined : this.#body(cte.query, p, new Set([...active, key]))
 	}
 
-	#body(body: SelectBody, p: number, active: ReadonlySet<string>): TypeRef | undefined {
+	#body(body: OperandBody, p: number, active: ReadonlySet<string>): TypeRef | undefined {
 		const memo = this.#bodies.get(body) ?? new Map<number, TypeRef | undefined>()
 		this.#bodies.set(body, memo)
 		if (memo.has(p)) {
@@ -421,7 +430,7 @@ class Agreement {
 		return out
 	}
 
-	#bodyType(body: SelectBody, p: number, active: ReadonlySet<string>): TypeRef | undefined {
+	#bodyType(body: OperandBody, p: number, active: ReadonlySet<string>): TypeRef | undefined {
 		switch (body.kind) {
 			case "core": {
 				const t = body.targets[p]
@@ -439,7 +448,7 @@ class Agreement {
 	 * carries that type is marked to be cast to it.
 	 */
 	#setOpType(
-		body: Extract<SelectBody, { readonly kind: "setOp" }>,
+		body: Extract<OperandBody, { readonly kind: "setOp" }>,
 		p: number,
 		active: ReadonlySet<string>
 	): TypeRef | undefined {
@@ -640,7 +649,7 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
  * alike: SELECT DISTINCT orders only by expressions of its output list, and the cast output is the one there.
  */
 const castOutputs = (query: Select, casts: ReadonlyMap<number, TypeRef>): Select => {
-	const body = castBody(query.body, casts)
+	const body = setBodyOf(castBody(query.body, casts), "the refined outputs' casts")
 	const before = query.body.kind === "core" ? query.body.targets : []
 	const after = body.kind === "core" ? body.targets : []
 	const orderBy = query.orderBy.map((item) => {
@@ -720,7 +729,8 @@ const constantValidations = (
 			group.rows.push(value)
 		}
 		return groups.map((g) =>
-			simpleSelect(
+			provedSelect(
+				"keyed",
 				[targetAs(cast(col("r1", "c1"), g.domain), "value")],
 				[{ kind: "values", rows: mapNonEmpty(g.rows, (r) => [r]), alias: "r1", columns: ["c1"] }],
 				undefined

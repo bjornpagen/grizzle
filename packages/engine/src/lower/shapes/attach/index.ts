@@ -34,16 +34,16 @@ import {
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
-import type { Expr, OrderItem, Select, Target } from "#compiler/sql/ast.ts"
+import type { Expr, OperandSelect, OrderItem, Select, Target } from "#compiler/sql/ast.ts"
 import {
 	asc,
 	call,
 	cast,
 	conjunction,
-	core,
 	countStar,
 	distinctCoreWhen,
 	gt,
+	keyedSet,
 	lit,
 	ne,
 	row,
@@ -198,7 +198,10 @@ const fusedAttachment = (
 				})
 	return {
 		kind: "array",
-		query: { ...select(core([target(element)], [wrapped.item], undefined)), orderBy }
+		query: {
+			...select(keyedSet([target(element)], [wrapped.item], undefined, "an attachment's array")),
+			orderBy
+		}
 	}
 }
 
@@ -212,7 +215,7 @@ const fusedBreach = (
 	attach: NodeOf<"Attach">,
 	delivered: "one" | "option",
 	spine: ReadonlyArray<RelNode>,
-	recompute: () => Select,
+	recompute: () => OperandSelect,
 	heading: Heading,
 	origin: RelNode,
 	facts: ShapeFacts
@@ -254,8 +257,8 @@ const fusedBreach = (
  */
 export const withFusedAttachments = (
 	cx: LowerContext,
-	parent: Select,
-	recompute: () => Select,
+	parent: OperandSelect,
+	recompute: () => OperandSelect,
 	heading: Heading,
 	origin: RelNode,
 	spine: ReadonlyArray<RelNode>,
@@ -292,7 +295,7 @@ export const withFusedAttachments = (
 			: subject.breach(cx.supply, [first, ...rest])
 	return {
 		query: {
-			...select(core(targets, [source.item], raised?.guard)),
+			...select(keyedSet(targets, [source.item], raised?.guard, "a fused attachment's rows")),
 			with: raised === undefined ? undefined : { recursive: false, ctes: [raised.cte] },
 			orderBy
 		},

@@ -101,8 +101,8 @@ import type { ChoiceInput, PageInput } from "#compiler/lower/shapes/take/index.t
 import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
 import { assertMergeOrder, groupRows } from "#compiler/lower/shapes/union/index.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
-import type { Expr, OrderItem, Select } from "#compiler/sql/ast.ts"
-import { and, core, or, select, target } from "#compiler/sql/build.ts"
+import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
+import { and, keyedSet, or, provedCore, select, target } from "#compiler/sql/build.ts"
 
 /**
  * A page's statement, each with its forms: a page's attachments choose by a relation parameter or by the requested
@@ -275,7 +275,7 @@ interface Kit {
 		rows: Heading,
 		placement: StatementPlacement
 	) => (position: number) => PageDelivered
-	readonly rows: (node: RelNode) => Select
+	readonly rows: (node: RelNode) => OperandSelect
 	readonly group: (
 		plan: Extract<PageShape, { kind: "groups" }>["plan"],
 		group: HeadingGroup
@@ -287,7 +287,7 @@ interface Kit {
 		origin: RelNode,
 		originHeading: Heading
 	) => ReadonlyArray<OrderItem>
-	readonly probeRel: (rel: Select) => Select
+	readonly probeRel: (rel: OperandSelect) => OperandSelect
 	readonly attach: (
 		place: Place,
 		rows: DeliveredRows<PageInput>,
@@ -326,7 +326,7 @@ const filtered = (
 	const targets = headingTargets(heading, input.map)
 	return distinct
 		? distinctSelect(targets, [input.item], [where])
-		: select(core(targets, [input.item], where))
+		: select(keyedSet(targets, [input.item], where, "a page group's filtered rows"))
 }
 
 const conservativeKit = (input: PageCompileInput): Kit => {
@@ -389,7 +389,7 @@ const optimizedKit = (input: PageCompileInput, facts: ShapeFacts): Kit => {
 				total: orderIsTotal(facts, origin, order, originHeading),
 				fixed: []
 			}),
-		probeRel: withoutBoundary,
+		probeRel: (rel) => withoutBoundary(rel, "operand"),
 		attach: (place, rows, spine, attachments) =>
 			attachments.map((attach) => delivery.pipelined(place, attach, spine, rows))
 	}
@@ -429,7 +429,7 @@ const shapeOf = (delivery: Delivery<PageParamSlot>, root: NodeOf<"OrderedResult"
 
 /** One delivered relation of a page: its rows, heading, statement and attachments. */
 interface PageSource {
-	readonly rel: () => Select
+	readonly rel: () => OperandSelect
 	readonly heading: Heading
 	/** The node whose rows these are, for names and facts. */
 	readonly origin: RelNode
@@ -598,7 +598,7 @@ const probeStatement = (
 				slots
 			})
 		)
-		return select(core([target(or(tests))], [], undefined))
+		return select(provedCore("oneRow", [target(or(tests))], [], undefined))
 	}
 	return kit.statement(query, probeHeading, {
 		role: { kind: "main" },

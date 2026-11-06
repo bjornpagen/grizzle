@@ -4,9 +4,9 @@ import {
 	cast,
 	desc,
 	lit,
+	provedSelect,
 	qualifiedCall,
 	sameTypeRef,
-	simpleSelect,
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
@@ -61,7 +61,8 @@ export const buildSequenceAdvance = (
 				? value
 				: cast(value, types.bigint)
 		const ast = {
-			...simpleSelect(
+			...provedSelect(
+				"oneRow",
 				[
 					targetAs(
 						cast(qualifiedCall(advance.schema, advance.name, [argument]), types.text),

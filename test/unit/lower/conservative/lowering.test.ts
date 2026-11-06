@@ -27,7 +27,7 @@ import {
 	flight
 } from "#compiler/lower/conservative/types.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-import type { Select } from "#compiler/sql/ast.ts"
+import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
@@ -352,8 +352,8 @@ const consumers = oneOf<Consumer>([
 ])
 
 /** The queries nested in a statement that carry a LIMIT: the bounds below its delivery. */
-const boundedQueries = (statement: Select): ReadonlyArray<Select> => {
-	const out: Array<Select> = []
+const boundedQueries = (statement: Select): ReadonlyArray<OperandSelect> => {
+	const out: Array<OperandSelect> = []
 	transformStatement(statement, {
 		...identityHooks,
 		select: (s) => {

@@ -34,8 +34,8 @@ import {
 	lit,
 	objectName,
 	param,
+	provedSelect,
 	qualifiedCall,
-	simpleSelect,
 	table,
 	tableCol,
 	targetAs,
@@ -300,7 +300,8 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
 		const name = ledgerName(schema)
 		const r1 = "r1"
 		const rows: Select = {
-			...simpleSelect(
+			...provedSelect(
+				"keyed",
 				ledgerColumns.map((c, i) =>
 					targetAs(
 						ledgerColumnTypes[c] === "integer" ? cast(col(r1, c), types.text) : col(r1, c),
@@ -312,7 +313,8 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
 			),
 			orderBy: [asc(col(r1, "folder")), asc(col(r1, "ordinal"))]
 		}
-		const enter = simpleSelect(
+		const enter = provedSelect(
+			"oneRow",
 			[
 				targetAs(guardCall(schema), "c1"),
 				targetAs(localSetting("role", 2), "c2"),
@@ -327,7 +329,7 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
 			rows: emitted(rows),
 			fence: emitted(ledgerLock(schema, "ACCESS SHARE", "nowait")),
 			exclusive: emitted(ledgerLock(schema, "ACCESS EXCLUSIVE", "wait")),
-			guard: emitted(simpleSelect([targetAs(guardCall(schema), "c1")], [], undefined)),
+			guard: emitted(provedSelect("oneRow", [targetAs(guardCall(schema), "c1")], [], undefined)),
 			enter: emitted(enter)
 		}
 	})

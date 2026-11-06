@@ -24,11 +24,13 @@ import type {
 	InsertTarget,
 	Merge,
 	MergeWhen,
+	OperandSelect,
 	OrderItem,
 	Select,
 	SelectBody,
 	SelectCore,
-	SetOperand,
+	SetArm,
+	SetCore,
 	SqlStatement,
 	Target,
 	TypeRef,
@@ -47,7 +49,6 @@ import {
 	col,
 	columnDefinition,
 	conjunction,
-	core,
 	countStar,
 	cteRefAs,
 	cUtf8Collation,
@@ -60,6 +61,7 @@ import {
 	lit,
 	param,
 	positionalValue,
+	provedCore,
 	select,
 	table,
 	tableCol,
@@ -85,7 +87,7 @@ export interface Holes {
 	readonly expr: (e: Expr) => ReadonlyArray<Expr>
 	readonly fromSource: (item: FromSource) => ReadonlyArray<FromSource>
 	readonly core: (c: SelectCore) => ReadonlyArray<SelectCore>
-	readonly select: (s: Select) => ReadonlyArray<Select>
+	readonly select: (s: OperandSelect) => ReadonlyArray<OperandSelect>
 }
 
 /** No variant at any site. */
@@ -111,7 +113,7 @@ interface Sites {
 	readonly expr: Array<ReadonlyArray<Expr>>
 	readonly fromSource: Array<ReadonlyArray<FromSource>>
 	readonly core: Array<ReadonlyArray<SelectCore>>
-	readonly select: Array<ReadonlyArray<Select>>
+	readonly select: Array<ReadonlyArray<OperandSelect>>
 }
 
 const sitesOf = (statement: SqlStatement, holes: Holes): Sites => {
@@ -375,7 +377,7 @@ const predicate =
 	}
 
 interface Arm {
-	readonly core: SelectCore
+	readonly core: SetCore
 	/** The type of each target, which a union's other arm must match. */
 	readonly types: ReadonlyArray<SqlColumnType>
 }
@@ -420,7 +422,7 @@ const queryArm = (
 		return {
 			core: Arr.isReadonlyArrayNonEmpty(targets)
 				? distinctCoreWhen(q.on("distinct"), targets, [from], where)
-				: core(targets, [from], where),
+				: provedCore("certified", targets, [from], where),
 			types: Arr.map(typed, (t) => t.type)
 		}
 	})
@@ -451,6 +453,7 @@ export const selectGen =
 			? {
 					kind: "setOp",
 					op: "UNION ALL",
+					rows: "certified",
 					arms: [left.core, source.draw(queryArm(q, catalog, left.types)).core]
 				}
 			: left.core
@@ -914,7 +917,8 @@ const countQuery = (d: Draw, env: Env): Select => {
 	const from = fromOf(d, env)
 	const inner: Env = { ...env, visible: [...from.rels, ...env.visible] }
 	return select(
-		core(
+		provedCore(
+			"oneRow",
 			[targetAs(countStar(), "c1")],
 			from.items,
 			d.keep("where") ? exprOf(d, inner, "boolean", 0) : undefined
@@ -1022,12 +1026,12 @@ const arraysEntry = (d: Draw): Entry => {
 const unitQuery = (d: Draw, env: Env): Select =>
 	d.span("unit query", () => {
 		if (d.keep("zero width")) {
-			return select(core([], [], undefined))
+			return select(provedCore("oneRow", [], [], undefined))
 		}
 		const from = fromOf(d, env)
 		const inner: Env = { ...env, visible: [...from.rels, ...env.visible] }
 		const where = d.keep("where") ? exprOf(d, inner, "boolean", 0) : undefined
-		return select(core([], from.items, where))
+		return select(provedCore("certified", [], from.items, where))
 	})
 
 /** A derived table of no column over a query of no target, `(SELECT ...) AS r`: no column list, nothing to read. */
@@ -1141,7 +1145,7 @@ const fromOf = (d: Draw, env: Env): From => {
 
 /** A core and what its enclosing query may do with it. */
 interface Core {
-	readonly core: SelectCore
+	readonly core: SetCore
 	readonly types: Arr.NonEmptyReadonlyArray<SqlColumnType>
 	/**
 	 * The outputs ORDER BY may name: every output but a constant, which PostgreSQL would read as a position, and one that
@@ -1299,7 +1303,7 @@ const repeatable = (e: Expr): boolean => {
 		return false
 	}
 	let bindsAlias = false
-	visitSelect(select(core([target(e)], [], undefined)), {
+	visitSelect(select(provedCore("oneRow", [target(e)], [], undefined)), {
 		...inertVisitor,
 		fromItem: () => {
 			bindsAlias = true
@@ -1312,7 +1316,7 @@ const repeatable = (e: Expr): boolean => {
  * `core` with each target replaced by `f`'s, under its own projection: each branch keeps that projection's targets, a
  * DISTINCT core's nonempty.
  */
-const mapTargets = (core: SelectCore, f: (t: Target, i: number) => Target): SelectCore =>
+const mapTargets = (core: SetCore, f: (t: Target, i: number) => Target): SetCore =>
 	core.distinct === false
 		? { ...core, targets: Arr.map(core.targets, f) }
 		: { ...core, targets: Arr.map(core.targets, f) }
@@ -1330,7 +1334,7 @@ const projected = (
 	targets: Arr.NonEmptyReadonlyArray<Target>,
 	from: ReadonlyArray<FromItem>,
 	where: Expr | undefined
-): SelectCore =>
+): SetCore =>
 	Arr.isReadonlyArrayNonEmpty(leading)
 		? distinctOnCore(leading, targets, from, where)
 		: distinctCoreWhen(d.keep("distinct"), targets, from, where)
@@ -1380,7 +1384,7 @@ const coreBody = (
 			filter: d.keep("count filter") ? exprOf(d, { ...env, visible: own }, "boolean", 1) : undefined
 		}
 		return {
-			core: core(aliased([count]), from.items, where),
+			core: provedCore("oneRow", aliased([count]), from.items, where),
 			types: ["bigint"],
 			orderable: repeatable(count) ? [count] : [],
 			leading: []
@@ -1453,8 +1457,8 @@ const orderOf = (
 	return [...Arr.map(leading, asc), ...extra]
 }
 
-interface SetArm {
-	readonly body: SetOperand
+interface DrawnArm {
+	readonly body: SetArm
 	readonly types: Arr.NonEmptyReadonlyArray<SqlColumnType>
 }
 
@@ -1467,9 +1471,9 @@ const armOf = (
 	env: Env,
 	outputs: Arr.NonEmptyReadonlyArray<SqlColumnType> | undefined,
 	named: boolean
-): SetArm => {
+): DrawnArm => {
 	const c = coreOf(d, env, outputs)
-	const body: SelectCore = named ? c.core : mapTargets(c.core, (t) => target(t.expr))
+	const body: SetCore = named ? c.core : mapTargets(c.core, (t) => target(t.expr))
 	const order = orderOf(d, c.orderable, c.leading)
 	if (order.length === 0 || !d.keep("parenthesized arm")) {
 		return { body, types: c.types }
@@ -1501,8 +1505,9 @@ const ctesOf = (d: Draw, env: Env, recursive: boolean): Scoped | undefined => {
 				kind: "setOp",
 				op: "UNION",
 				arms: [
-					core([targetAs(lit.int(1, types.bigint), "c1")], [], undefined),
-					core(
+					provedCore("oneRow", [targetAs(lit.int(1, types.bigint), "c1")], [], undefined),
+					provedCore(
+						"certified",
 						[targetAs(binary("+", counter, lit.int(1, types.bigint)), "c1")],
 						[cteRefAs(name, step)],
 						binary("<", counter, lit.int(d.count(1, 4), types.bigint))
@@ -1573,11 +1578,12 @@ const queryOf = (
 	if (inScope.depth < maxQueryDepth && d.keep("set operation")) {
 		const left = armOf(d, inScope, outputs, true)
 		const right = armOf(d, inScope, left.types, d.from([true, false]))
-		const body: SelectBody = {
-			kind: "setOp",
-			op: d.from(setOperators),
-			arms: [left.body, right.body]
-		}
+		const op = d.from(setOperators)
+		const arms = [left.body, right.body] as const
+		const body: SelectBody =
+			op === "UNION ALL"
+				? { kind: "setOp", op, rows: "certified", arms }
+				: { kind: "setOp", op, arms }
 		const names = Arr.map(generatedColumns(left.types), (c): Expr => tableCol(c.name))
 		const order = d.keep("order by") ? orderOf(d, names, []) : []
 		return { select: query(body, order), types: left.types }
@@ -1585,7 +1591,7 @@ const queryOf = (
 	const c = coreOf(d, inScope, outputs)
 	const start = d.count(0, publicNames.length - 1)
 	const names = [...publicNames.slice(start), ...publicNames.slice(0, start)]
-	const body: SelectCore =
+	const body: SetCore =
 		top && d.keep("public names")
 			? mapTargets(c.core, (t, i) => ({ ...t, alias: names[i] ?? `c${i + 1}` }))
 			: c.core

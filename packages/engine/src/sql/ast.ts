@@ -414,9 +414,14 @@ export type Expr =
 			readonly list: NonEmptyReadonlyArray<Expr>
 			readonly not: boolean
 	  }
-	| { readonly kind: "inQuery"; readonly expr: Expr; readonly query: Select; readonly not: boolean }
-	| { readonly kind: "exists"; readonly query: Select; readonly not: boolean }
-	| { readonly kind: "subquery"; readonly query: Select }
+	| {
+			readonly kind: "inQuery"
+			readonly expr: Expr
+			readonly query: OperandSelect
+			readonly not: boolean
+	  }
+	| { readonly kind: "exists"; readonly query: OperandSelect; readonly not: boolean }
+	| { readonly kind: "subquery"; readonly query: OperandSelect }
 	| { readonly kind: "array"; readonly query: Select }
 	| { readonly kind: "row"; readonly items: NonEmptyReadonlyArray<Expr> }
 	| {
@@ -516,7 +521,8 @@ export type FromSource =
 	| { readonly kind: "enclosing"; readonly name: string; readonly alias: string }
 	| {
 			readonly kind: "derived"
-			readonly query: Select
+			/** A query whose rows may repeat only under a core that is an operand or deduplicates (OperandCore). */
+			readonly query: OperandSelect
 			readonly alias: string
 			/** The column alias list; an empty one is none, as PostgreSQL spells a relation of no column. */
 			readonly columns: ReadonlyArray<string>
@@ -597,47 +603,156 @@ export interface ContextColumn {
 }
 
 /**
- * A SELECT core: its projection (CoreProjection) over its FROM. An empty FROM or GROUP BY is none, and an undefined
- * WHERE or HAVING is none.
+ * Why a plain core, one without DISTINCT, delivers no row twice: the proof a set core carries in place of a duplicate
+ * elimination, a claim its builder states and the SQL audit holds it to where the core's own shape shows it.
+ *
+ * - `oneRow`: at most one row: no FROM, aggregates and no GROUP BY, or the body of a query whose LIMIT is 1.
+ * - `grouped`: grouped, each GROUP BY expression among its targets, so each group is one row.
+ * - `keyed`: every source its FROM reads is a set, and its targets hold a key of their rows: a stored relation's or a
+ *   catalog's key, a set's whole heading, or a key its WHERE fixes.
+ * - `certified`: the physical analysis proved its plain form unique, which the plan's multiplicity certificate states.
+ * - `input`: it reads relation inputs' arrays, which the host codec made sets, through every column.
  */
-export type SelectCore = {
+export type RowsProof = "oneRow" | "grouped" | "keyed" | "certified" | "input"
+
+/** What every core holds besides its projection. An empty FROM or GROUP BY is none, an undefined WHERE or HAVING none. */
+interface CoreFrame {
 	readonly kind: "core"
 	readonly from: ReadonlyArray<FromItem>
 	readonly where: Expr | undefined
 	readonly groupBy: ReadonlyArray<Expr>
 	readonly having: Expr | undefined
-} & CoreProjection
+}
 
 /**
- * What a core delivers of each row it reads: `distinct` is false for none, true for DISTINCT, or DISTINCT ON its
- * expressions, at least one. DISTINCT reads at least one target, as PostgreSQL's grammar requires; a core of no target
- * reads one row of no column for each row of its FROM, the unit relation's rows.
+ * A core whose rows are a set (SELECT DISTINCT, DISTINCT ON, or a plain core carrying its RowsProof), which may stand
+ * anywhere a query stands.
  */
-export type CoreProjection =
-	| { readonly distinct: false; readonly targets: ReadonlyArray<Target> }
-	| {
-			readonly distinct: true | { readonly on: NonEmptyReadonlyArray<Expr> }
-			readonly targets: NonEmptyReadonlyArray<Target>
-	  }
+export type SetCore = CoreFrame & (ProvedProjection | DistinctProjection)
 
+/**
+ * A plain core with no proof: its rows may repeat, so it stands only as the operand of the operator that makes them a
+ * set: an arm of UNION, INTERSECT or EXCEPT, the query of EXISTS, IN or a scalar subquery, or a derived table under a
+ * core that is itself one or deduplicates (the SQL audit holds every operand there).
+ */
+export type OperandCore = CoreFrame & OperandProjection
+
+/** A SELECT core: its projection over its FROM, a set core or an operand. */
+export type SelectCore = SetCore | OperandCore
+
+/** A plain core's projection under its proof. */
+interface ProvedProjection {
+	readonly distinct: false
+	readonly rows: RowsProof
+	readonly targets: ReadonlyArray<Target>
+}
+
+/** A plain core's projection whose rows may repeat. */
+interface OperandProjection {
+	readonly distinct: false
+	readonly rows: "operand"
+	readonly targets: ReadonlyArray<Target>
+}
+
+/**
+ * DISTINCT, or DISTINCT ON its expressions, at least one, which reads at least one target, as PostgreSQL's grammar
+ * requires.
+ */
+interface DistinctProjection {
+	readonly distinct: true | { readonly on: NonEmptyReadonlyArray<Expr> }
+	readonly targets: NonEmptyReadonlyArray<Target>
+}
+
+/**
+ * What a core delivers of each row it reads: `distinct` is false for none, under its `rows` (a proof, or `operand`), true
+ * for DISTINCT, or DISTINCT ON its expressions. A core of no target reads one row of no column for each row of its
+ * FROM, the unit relation's rows.
+ */
+export type CoreProjection = ProvedProjection | OperandProjection | DistinctProjection
+
+/**
+ * The set operators. INTERSECT and EXCEPT have no ALL form here, and UNION ALL is set-making only over arms proved
+ * pairwise disjoint (UnionAll).
+ */
 export type SetOperator = "UNION" | "UNION ALL" | "INTERSECT" | "EXCEPT"
 
 /**
- * A set-operation arm: a core, or a parenthesized full query with its own clauses. A set operation nests only as the body
- * of such a query, so a chain of one operator is one node however many arms it has.
+ * A set-operation arm: a core, or a parenthesized full query with its own clauses. A set operation nests only as the
+ * body of such a query, so a chain of one operator is one node however many arms it has.
  */
-export type SetOperand = SelectCore | Select
+export type SetOperand = SelectCore | OperandSelect
+
+/** A set arm: a set core, or a parenthesized query whose rows are a set. */
+export type SetArm = SetCore | Select
+
+/**
+ * Why a UNION ALL repeats no row: its arms are sets told apart pairwise by a discriminant column whose values its
+ * builder fixes apart, a literal in each arm or a column of literals no other arm holds (`disjoint`); the physical
+ * analysis proved them unique and disjoint (`certified`, R17.unionAll); or it is the body of a query whose LIMIT is 1,
+ * at most one row of any arms (`oneRow`). Or `operand`, a UNION ALL that stands only as an operand, as an operand core
+ * does.
+ */
+export type UnionAllRows = "disjoint" | "certified" | "oneRow" | "operand"
 
 /** At least two arms combined by one operator, left to right: `a op b op c` is `(a op b) op c`. */
-export interface SetOperation {
-	readonly kind: "setOp"
-	readonly op: SetOperator
-	readonly arms: readonly [SetOperand, SetOperand, ...Array<SetOperand>]
+export type SetOperation =
+	| {
+			readonly kind: "setOp"
+			readonly op: "UNION" | "INTERSECT" | "EXCEPT"
+			readonly arms: readonly [SetOperand, SetOperand, ...Array<SetOperand>]
+	  }
+	| UnionAll
+
+/** A UNION ALL: over set arms under its proof, over any arms under its query's LIMIT 1, or over any arms as an operand. */
+export type UnionAll =
+	| {
+			readonly kind: "setOp"
+			readonly op: "UNION ALL"
+			readonly rows: "disjoint" | "certified"
+			readonly arms: readonly [SetArm, SetArm, ...Array<SetArm>]
+	  }
+	| {
+			readonly kind: "setOp"
+			readonly op: "UNION ALL"
+			readonly rows: "oneRow"
+			readonly arms: readonly [SetOperand, SetOperand, ...Array<SetOperand>]
+	  }
+	| {
+			readonly kind: "setOp"
+			readonly op: "UNION ALL"
+			readonly rows: "operand"
+			readonly arms: readonly [SetOperand, SetOperand, ...Array<SetOperand>]
+	  }
+
+/** A set operation whose rows are a set: every one but a UNION ALL that stands as an operand. */
+export type SetSetOperation = Exclude<SetOperation, { readonly rows: "operand" }>
+
+/** A query body whose rows are a set. */
+export type SelectBody = SetCore | SetSetOperation | Select
+
+/** Any query body: one whose rows may repeat stands only as an operand (OperandSelect). */
+export type OperandBody = SelectCore | SetOperation | OperandSelect
+
+/**
+ * Whether a body's rows are a set: a set core, a set operation but a UNION ALL that stands as an operand, or a query of
+ * a set body. A traversal that rebuilt a set query reads it back as one through this check.
+ */
+export const isSetBody = (body: OperandBody): body is SelectBody => {
+	switch (body.kind) {
+		case "core":
+			return body.distinct !== false || body.rows !== "operand"
+		case "setOp":
+			return body.op !== "UNION ALL" || body.rows !== "operand"
+		case "select":
+			return isSetQuery(body)
+	}
 }
 
-export type SelectBody = SelectCore | SetOperation | Select
+/** Whether a query's rows are a set: its body's are (isSetBody). */
+export const isSetQuery = (query: OperandSelect): query is Select => isSetBody(query.body)
 
-export type CteBody = Select | Insert | Update | Delete | Merge
+/** A query CTE's rows may repeat only where every reader of it is an operand or deduplicates, as a derived table's. */
+export type CteBody = OperandSelect | Insert | Update | Delete | Merge
 
 export interface Cte {
 	readonly name: string
@@ -658,13 +773,27 @@ export interface With {
 }
 
 /**
- * An undefined WITH, LIMIT or OFFSET is none, and so is an empty ORDER BY. No query locks a row: every transaction is
- * SERIALIZABLE, and SSI orders it (physical/ddl/isolation.ts).
+ * A full query whose rows are a set, its body a set body. An undefined WITH, LIMIT or OFFSET is none, and so is an
+ * empty ORDER BY. No query locks a row: every transaction is SERIALIZABLE, and SSI orders it
+ * (physical/ddl/isolation.ts).
  */
 export interface Select {
 	readonly kind: "select"
 	readonly with: With | undefined
 	readonly body: SelectBody
+	readonly orderBy: ReadonlyArray<OrderItem>
+	readonly limit: Expr | undefined
+	readonly offset: Expr | undefined
+}
+
+/**
+ * A full query whose rows may repeat: the operand of the operator that makes them a set, where an operand core stands
+ * (OperandCore). Every Select is one.
+ */
+export interface OperandSelect {
+	readonly kind: "select"
+	readonly with: With | undefined
+	readonly body: OperandBody
 	readonly orderBy: ReadonlyArray<OrderItem>
 	readonly limit: Expr | undefined
 	readonly offset: Expr | undefined

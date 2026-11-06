@@ -10,8 +10,24 @@ import type {
 	ConservativeProgram,
 	ConservativeStatement
 } from "#compiler/lower/conservative/types.ts"
-import type { Select, SelectBody, SelectCore, SetOperand, SetOperation } from "#compiler/sql/ast.ts"
-import { and, conjunction, exists, lit, simpleSelect, target, types } from "#compiler/sql/build.ts"
+import type {
+	CoreProjection,
+	OperandBody,
+	OperandSelect,
+	SelectCore,
+	SetOperand,
+	SetOperation
+} from "#compiler/sql/ast.ts"
+import {
+	and,
+	conjunction,
+	exists,
+	lit,
+	simpleSelect,
+	target,
+	types,
+	withArms
+} from "#compiler/sql/build.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { opMeaning } from "#test/support/oracle/gen/ops.ts"
 import {
@@ -98,12 +114,13 @@ const dropDistinct = (analysis: KeyAnalysis): StatementVisitor => {
 	})
 }
 
-const unionAll = (body: SelectBody): SelectBody => {
-	if (body.kind !== "setOp") {
-		return body
-	}
-	return { ...body, op: body.op === "UNION" ? "UNION ALL" : body.op }
-}
+/**
+ * A UNION made UNION ALL, an operand: its rows may repeat, and the derived table that holds it reads them as they come.
+ */
+const unionAll = (body: OperandBody): OperandBody =>
+	body.kind === "setOp" && body.op === "UNION"
+		? { kind: "setOp", op: "UNION ALL", rows: "operand", arms: body.arms }
+		: body
 
 const toUnionAll = (
 	dag: RelDag,
@@ -129,12 +146,12 @@ const toUnionAll = (
 }
 
 /** The recursive CTE's UNION of a Recursive node's lowering (recursive/index.ts). */
-const recursiveTerms = (query: Select): Select | undefined => {
+const recursiveTerms = (query: OperandSelect): OperandSelect | undefined => {
 	const cte = query.with?.recursive === true ? query.with.ctes[0] : undefined
 	return cte?.query.kind === "select" && cte.query.body.kind === "setOp" ? cte.query : undefined
 }
 
-const withRecursiveBody = (query: Select, body: Select): Select => {
+const withRecursiveBody = (query: OperandSelect, body: OperandSelect): OperandSelect => {
 	const w = query.with
 	if (w === undefined) {
 		return query
@@ -162,7 +179,7 @@ const plainTerm = (term: SetOperand): SetOperand | undefined => {
 const recursiveVisitor = (
 	dag: RelDag,
 	applies: (r: NodeOf<"Recursive">) => boolean,
-	rewrite: (terms: Select) => Select | undefined
+	rewrite: (terms: OperandSelect) => OperandSelect | undefined
 ): StatementVisitor => {
 	const nodeOf = labelled(dag)
 	return (count) => ({
@@ -317,11 +334,16 @@ const witnessVisitor = (analysis: KeyAnalysis): StatementVisitor => {
 					conjunction(moved)
 				)
 				count()
+				/** The occurrences left hold a key of the region's rows (witnessOf), so its rows stay a set. */
+				const projection: CoreProjection =
+					core.distinct === false ? core : { distinct: false, rows: "keyed", targets: core.targets }
 				return {
 					...query,
 					body: {
-						...core,
-						distinct: false,
+						kind: "core",
+						...projection,
+						groupBy: core.groupBy,
+						having: core.having,
 						from: others,
 						where: and(Arr.append(kept, exists(probe)))
 					}
@@ -339,7 +361,7 @@ const underExistsVisitor: StatementVisitor = (count) => ({
 			return core
 		}
 		count()
-		return { ...core, distinct: false }
+		return { ...core, distinct: false, rows: "operand" }
 	}
 })
 
@@ -441,7 +463,7 @@ export const mutants: Readonly<Record<MutantId, Mutant>> = {
 						if (Arr.every(arms, (arm, i) => arm === original[i])) {
 							return undefined
 						}
-						return { ...terms, body: { ...terms.body, arms } }
+						return { ...terms, body: withArms(terms.body, arms) }
 					}
 				)
 			)(program)
@@ -519,7 +541,10 @@ export const mutants: Readonly<Record<MutantId, Mutant>> = {
 					(r) => isAcyclicClosure(r),
 					(terms) =>
 						terms.body.kind === "setOp"
-							? { ...terms, body: { ...terms.body, op: "UNION ALL" } }
+							? {
+									...terms,
+									body: { kind: "setOp", op: "UNION ALL", rows: "operand", arms: terms.body.arms }
+								}
 							: undefined
 				)
 			)(program)

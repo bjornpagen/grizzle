@@ -90,6 +90,7 @@ export const packQuery = (
 			[derived(members, memberAlias, memberColumns, false)],
 			undefined
 		),
+		rows: ungrouped ? "oneRow" : "grouped",
 		groupBy: ungrouped ? memberPresentColumns.map((c) => col(memberAlias, c)) : carried
 	})
 	/** The group columns: one per carried column, and the coverage multirange. */

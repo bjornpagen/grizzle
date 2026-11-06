@@ -20,7 +20,7 @@ import type { AnySchema } from "#compiler/public/schema.ts"
 import { type Owned, type OwnedRole, own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { CreatePolicy, CreateView, RoleSetting } from "#compiler/sql/ast.ts"
-import { and, col, derived, lit, simpleSelect, target } from "#compiler/sql/build.ts"
+import { and, col, derived, lit, provedSelect, target } from "#compiler/sql/build.ts"
 import { printStatement, quoteIdent, quoteString, storedSettingValue } from "#compiler/sql/print.ts"
 import type { AmbientOwner } from "#test/support/ambient.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -497,7 +497,8 @@ const viewOf = (
 /** A view's definition replaced by one of the same rows that reads differently: its query under a WHERE true. */
 const redefinedView = (view: CreateView): Effect.Effect<string> => {
 	const alias = "executor_redefined"
-	const query = simpleSelect(
+	const query = provedSelect(
+		"keyed",
 		Arr.map(view.columns, (c) => target(col(alias, c))),
 		[derived(view.query, alias, view.columns, false)],
 		lit.bool(true)

@@ -18,6 +18,7 @@ import type {
 	Insert,
 	Merge,
 	ObjectName,
+	OperandSelect,
 	OrderItem,
 	PlStatement,
 	Select,
@@ -31,26 +32,34 @@ import type {
 	Update,
 	WindowSpec
 } from "#compiler/sql/ast.ts"
+import { isSetQuery } from "#compiler/sql/ast.ts"
 import {
 	and,
 	asc,
-	core,
 	cUtf8Collation,
 	eq,
 	exists,
 	lit,
 	numericType,
+	operandSelect,
 	param,
+	provedCore,
 	select,
 	tableCol,
 	target,
 	targetAs,
-	types
+	types,
+	withArms
 } from "#compiler/sql/build.ts"
 import { lex, type Token } from "#compiler/sql/lexer.ts"
 import { bodyPositionNames } from "#compiler/sql/naming.ts"
 import { printsQuoted, printType } from "#compiler/sql/print.ts"
-import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
+import {
+	identityHooks,
+	transformExpr,
+	transformOperand,
+	transformStatement
+} from "#compiler/sql/transform.ts"
 import type { Holes, WildOperator } from "#test/support/kernel/sqlgen.ts"
 import { noHoles } from "#test/support/kernel/sqlgen.ts"
 import { type auditStatementViolations, isUnitRead } from "#test/support/oracle/verify/sql.ts"
@@ -241,21 +250,6 @@ const tableAliases = (s: SqlStatement): ReadonlyArray<string> => {
 		}
 	})
 	return out
-}
-
-/** A stored table a statement reads or writes. */
-const someTable = (s: SqlStatement): ObjectName | undefined => {
-	const tables: Array<ObjectName> = []
-	transformStatement(s, {
-		...identityHooks,
-		fromSource: (item) => {
-			if (item.kind === "table" && typeof item.table !== "string") {
-				tables.push(item.table)
-			}
-			return item
-		}
-	})
-	return tables[0]
 }
 
 /**
@@ -771,13 +765,13 @@ const requiredBreakTable = breakTable([
 				return [
 					{
 						...q,
-						body: {
-							...q.body,
-							arms: withLastArm(q.body.arms, {
+						body: withArms(
+							q.body,
+							withLastArm(q.body.arms, {
 								...right,
 								targets: [{ ...first, alias: freshColumn }, ...rest]
 							})
-						}
+						)
 					}
 				]
 			}
@@ -1073,7 +1067,9 @@ const requiredBreakTable = breakTable([
 				if (!isDdl(s)) {
 					return []
 				}
-				const one = select(core([targetAs(lit.int(1, types.integer), "c1")], [], undefined))
+				const one = select(
+					provedCore("oneRow", [targetAs(lit.int(1, types.integer), "c1")], [], undefined)
+				)
 				const out = firstExpr(s, (e) => (e.kind === "binary" ? and([e, exists(one)]) : undefined))
 				return out === undefined ? [] : [out]
 			}
@@ -1085,7 +1081,7 @@ const requiredBreakTable = breakTable([
 		holes: {
 			...noHoles,
 			select: (q) => {
-				if (Arr.some(q.with?.ctes ?? [], (c) => c.query.kind !== "select")) {
+				if (!isSetQuery(q) || Arr.some(q.with?.ctes ?? [], (c) => c.query.kind !== "select")) {
 					return []
 				}
 				const out = firstExpr(q, (e) =>
@@ -1222,7 +1218,7 @@ const requiredBreakTable = breakTable([
 			...noHoles,
 			select: (q) =>
 				q.limit !== undefined && q.orderBy.length === 0 && q.body.kind === "core"
-					? [{ ...q, body: { ...select(q.body), limit: lit.int(5, types.bigint) } }]
+					? [{ ...q, body: { ...operandSelect(q.body), limit: lit.int(5, types.bigint) } }]
 					: []
 		}
 	},
@@ -1409,7 +1405,7 @@ const requiredBreakTable = breakTable([
 				}
 				const kept: NonEmptyReadonlyArray<Target> = [first, ...rest.slice(0, -1)]
 				return [
-					{ ...q, body: { ...q.body, arms: withLastArm(q.body.arms, { ...right, targets: kept }) } }
+					{ ...q, body: withArms(q.body, withLastArm(q.body.arms, { ...right, targets: kept })) }
 				]
 			}
 		}
@@ -1751,13 +1747,25 @@ export const mirroredBreaks: ReadonlyArray<{
 })
 
 /** The first stored table a query reads, the target of the DELETE a break plants. */
-const tableOf = (q: Select): ObjectName | undefined => someTable(q)
+const tableOf = (q: OperandSelect): ObjectName | undefined => {
+	const tables: Array<ObjectName> = []
+	transformOperand(q, {
+		...identityHooks,
+		fromSource: (item) => {
+			if (item.kind === "table" && typeof item.table !== "string") {
+				tables.push(item.table)
+			}
+			return item
+		}
+	})
+	return tables[0]
+}
 
 /**
  * A query with a data-modifying CTE added to its own WITH: DELETE FROM the table, returning a typed literal, which
  * names no column the table may lack, so PostgreSQL refuses the placement itself (0A000), not a missing column first.
  */
-const withDelete = (q: Select, table: ObjectName): Select => {
+const withDelete = (q: OperandSelect, table: ObjectName): OperandSelect => {
 	const del: Delete = {
 		kind: "delete",
 		table,

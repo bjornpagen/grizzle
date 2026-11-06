@@ -8,7 +8,7 @@ import type {
 	FromSource,
 	ObjectName,
 	Select,
-	SelectBody,
+	OperandBody,
 	TypeRef
 } from "#compiler/sql/ast.ts"
 import { sameTypeRef } from "#compiler/sql/build.ts"
@@ -89,7 +89,7 @@ class Delivered {
 	}
 
 	/** `active` names the CTE columns whose definitions are being followed around this one. */
-	body(body: SelectBody, p: number, active: ReadonlySet<string>): TypeRef | undefined {
+	body(body: OperandBody, p: number, active: ReadonlySet<string>): TypeRef | undefined {
 		switch (body.kind) {
 			case "core": {
 				const t = body.targets[p]

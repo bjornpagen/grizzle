@@ -5,7 +5,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { inputSetSource } from "#compiler/lower/conservative/input-set/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import { core, select } from "#compiler/sql/build.ts"
+import { provedCore, select } from "#compiler/sql/build.ts"
 
 /**
  * Relation parameters: one placeholder per array of the input, whatever its size.
@@ -41,5 +41,5 @@ export const inputSetLowerer =
 		if (facts.realization(node) === "distinct" && !facts.unique(node)) {
 			return distinctSelect(targets, [item], [])
 		}
-		return select(core(targets, [item], undefined))
+		return select(provedCore("input", targets, [item], undefined))
 	}

@@ -53,8 +53,8 @@ import {
 	type PlStatement,
 	type QualifiedFunctionRef,
 	type RoleSetting,
-	type Select,
-	type SelectBody,
+	type OperandBody,
+	type OperandSelect,
 	type SelectCore,
 	type SqlStatement,
 	type TableConstraint,
@@ -755,7 +755,7 @@ const coreClauses = (out: Lines, core: SelectCore, keyword: "SELECT" | "PERFORM"
 }
 
 /** The clauses that follow a query body, which a SELECT and a PERFORM both carry. */
-type Tail = Pick<Select, "orderBy" | "limit" | "offset">
+type Tail = Pick<OperandSelect, "orderBy" | "limit" | "offset">
 
 const tailClauses = (out: Lines, tail: Tail): void => {
 	if (tail.orderBy.length > 0) {
@@ -775,9 +775,9 @@ const tailClauses = (out: Lines, tail: Tail): void => {
  * lowerings build a query body with clauses at one of the two levels only, as the kernel's structural audit checks
  * (test/support/oracle/verify/sql.ts).
  */
-const nestedSelect = (select: Select): string => `(${printSelectInline(select)})`
+const nestedSelect = (select: OperandSelect): string => `(${printSelectInline(select)})`
 
-const bodyInline = (body: SelectBody): string => {
+const bodyInline = (body: OperandBody): string => {
 	switch (body.kind) {
 		case "core":
 			return inlineText((row) => coreClauses(row, body, "SELECT"))
@@ -788,7 +788,7 @@ const bodyInline = (body: SelectBody): string => {
 	}
 }
 
-const bodyBlock = (out: Lines, body: SelectBody): void => {
+const bodyBlock = (out: Lines, body: OperandBody): void => {
 	switch (body.kind) {
 		case "core":
 			return coreClauses(out, body, "SELECT")
@@ -840,7 +840,7 @@ const withBlock = (out: Lines, w: With): void => {
 	}
 }
 
-const printSelectInline = (select: Select): string =>
+const printSelectInline = (select: OperandSelect): string =>
 	inlineText((out) => {
 		if (select.with !== undefined) {
 			out.line(withInline(select.with))
@@ -849,7 +849,7 @@ const printSelectInline = (select: Select): string =>
 		tailClauses(out, select)
 	})
 
-const selectBlock = (out: Lines, select: Select): void => {
+const selectBlock = (out: Lines, select: OperandSelect): void => {
 	if (select.with !== undefined) {
 		withBlock(out, select.with)
 	}

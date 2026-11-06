@@ -28,6 +28,8 @@ import {
 	lit,
 	mapTargets,
 	objectName,
+	operandSelect,
+	provedCore,
 	select,
 	table,
 	targetAs,
@@ -183,7 +185,9 @@ const textCore = (relation: string, column: string, alias: string): SelectCore =
 const readingWrite = (write: Insert | Update | Delete | Merge): SqlStatement => {
 	const written: Cte = cte("r2", [], write)
 	return {
-		...select(core([targetAs(col("r3", "c1"), "c1")], [cteRefAs("r2", "r3")], undefined)),
+		...select(
+			provedCore("keyed", [targetAs(col("r3", "c1"), "c1")], [cteRefAs("r2", "r3")], undefined)
+		),
 		with: { recursive: false, ctes: [written] }
 	}
 }
@@ -202,6 +206,7 @@ const keptStatements: ReadonlyArray<Kept<SqlStatement, StatementFeature>> = (() 
 			sketch: select({
 				kind: "core",
 				distinct: false,
+				rows: "grouped",
 				targets: [
 					targetAs(col("r1", "select"), "c1"),
 					targetAs(call("sum", [col("r1", "amount")]), "c2"),
@@ -225,9 +230,10 @@ const keptStatements: ReadonlyArray<Kept<SqlStatement, StatementFeature>> = (() 
 						kind: "setOp",
 						op: "INTERSECT",
 						arms: [
-							select({
+							operandSelect({
 								kind: "setOp",
 								op: "UNION ALL",
+								rows: "operand",
 								arms: [textCore("tag", "label", "r1"), textCore("order", "select", "r2")]
 							}),
 							textCore("line item", 'say "hi"', "r3")

@@ -61,13 +61,16 @@ import {
 	lit,
 	notExists,
 	positionalValue,
+	provedCore,
+	provedSelect,
 	sameTypeRef,
 	select,
-	setOp,
+	setOperation,
 	simpleSelect,
 	table,
 	targetAs,
-	types
+	types,
+	unionAll
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
@@ -292,7 +295,8 @@ const returningSelect = (
 	returned: ReadonlyArray<Returned>
 ): SqlStatement => ({
 	...select(
-		core(
+		provedCore(
+			"keyed",
 			returned.map((r) => targetAs(resultText(col(name, r.column), r.type), r.column)),
 			[cteRef(name)],
 			undefined
@@ -472,7 +476,8 @@ export const rowStatement = (
 					columns: all.map((c) => installed(w, relation.name, c.column)),
 					source: {
 						kind: "query",
-						query: simpleSelect(
+						query: provedSelect(
+							"input",
 							all.map((_, i) =>
 								targetAs(input.value(i), supply.column(internal("inserted column")))
 							),
@@ -681,7 +686,8 @@ export const suffixReadSql = (
 	const h = supply.relation(internal("touched slots"))
 	const hm = supply.relation(internal("touched member"))
 	const hBody = select({
-		...core(
+		...provedCore(
+			"grouped",
 			[
 				...family.group.map((pair, i) =>
 					targetAs(mCol(hm, { kind: "field", field: pair.member }), g(i))
@@ -704,7 +710,7 @@ export const suffixReadSql = (
 	const to = supply.relation(internal("touched owner"))
 	const tx = supply.relation(internal("touched before"))
 	const tBody = select(
-		setOp("UNION", [
+		setOperation("UNION", [
 			core(
 				[
 					...family.group.map((_, i) => targetAs(col(th, g(i)), g(i))),
@@ -746,7 +752,8 @@ export const suffixReadSql = (
 		...family.group.map((pair) => resultText(oCol(o, pair.owner), pair.owner.type)),
 		...ownerColumns.map((f) => resultText(oCol(o, f), f.type))
 	]
-	const ownerArm = core(
+	const ownerArm = provedCore(
+		"keyed",
 		[
 			targetAs(lit.text("o", types.text), tag),
 			...ownerTexts.map((e, i) => targetAs(e, at(i))),
@@ -767,7 +774,8 @@ export const suffixReadSql = (
 		...layout.key.map((c) => resultText(mCol(m, c.column), c.type)),
 		...layout.columns.map((c) => resultText(mCol(m, c.column), c.type))
 	]
-	const memberArm = core(
+	const memberArm = provedCore(
+		"keyed",
 		[
 			targetAs(lit.text("m", types.text), tag),
 			...memberTexts.map((e, i) => targetAs(e, at(i))),
@@ -787,7 +795,7 @@ export const suffixReadSql = (
 		ge(mCol(m, family.index), binary("-", col(mt, slotName), lit.int(1, types.bigint)))
 	)
 	const ast: SqlStatement = {
-		...select(setOp("UNION ALL", [ownerArm, memberArm])),
+		...select(unionAll("disjoint", [ownerArm, memberArm])),
 		with: {
 			recursive: false,
 			ctes: [cte(h, [...groupNames, slotName], hBody), cte(t, [...groupNames, slotName], tBody)]

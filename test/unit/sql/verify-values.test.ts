@@ -9,7 +9,16 @@ import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { exactParts } from "#compiler/core/decimal.ts"
 import type { Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
-import { col, lit, simpleSelect, table, target, types } from "#compiler/sql/build.ts"
+import {
+	col,
+	distinctCore,
+	lit,
+	provedSelect,
+	select,
+	table,
+	target,
+	types
+} from "#compiler/sql/build.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
@@ -24,7 +33,7 @@ import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
  */
 const rules = (statement: SqlStatement): ReadonlyArray<string> =>
 	Arr.map(auditStatementViolations(statement), (v) => v.rule)
-const selecting = (e: Expr): SqlStatement => simpleSelect([target(e)], [], undefined)
+const selecting = (e: Expr): SqlStatement => provedSelect("oneRow", [target(e)], [], undefined)
 
 /** A numeric literal spelled `text` as drawn, built as the AST holds it: lit.decimal spells only a value's parts. */
 const decimalSpelled = (text: string): Expr => ({
@@ -105,7 +114,7 @@ describe("the audit's checks of values, generated", () => {
 							name.isWellFormed() &&
 							utf8(name) <= 63
 						const found = rules(
-							simpleSelect([target(col("r1", name))], [table("w", "t", "r1")], undefined)
+							select(distinctCore([target(col("r1", name))], [table("w", "t", "r1")], undefined))
 						).includes("identifier")
 						assert.equal(found, !valid, Formatter.format(name))
 					})

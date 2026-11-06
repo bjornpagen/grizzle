@@ -22,8 +22,8 @@ import type {
 	Collation,
 	Expr,
 	FromSource,
+	OperandBody,
 	Select,
-	SelectBody,
 	SelectCore,
 	SetOperand,
 	Target,
@@ -32,13 +32,14 @@ import type {
 import {
 	cast,
 	col,
-	core,
 	derived,
 	mapTargets,
+	provedCore,
 	sameTypeRef,
 	select,
 	target,
-	targetAs
+	targetAs,
+	withArms
 } from "#compiler/sql/build.ts"
 import { type NameMap, NameSupply } from "#compiler/sql/naming.ts"
 
@@ -155,13 +156,15 @@ const withColumnTypes = (
 	)
 	const generated = columns.map((c) => c.column)
 	return Result.ok({
-		query: select(core(targets, [derived(inner, alias, generated, false)], undefined)),
+		query: select(
+			provedCore("keyed", targets, [derived(inner, alias, generated, false)], undefined)
+		),
 		nameMap: [...nameMap, ...supply.map()]
 	})
 }
 
 /** A body's outputs left unaliased, every arm of a set operation's alike: a derived table's column list names them. */
-const unaliased = (body: SelectBody): SelectBody => {
+const unaliased = (body: OperandBody): OperandBody => {
 	switch (body.kind) {
 		case "core":
 			return mapTargets(body, (t) => target(t.expr))
@@ -173,7 +176,7 @@ const unaliased = (body: SelectBody): SelectBody => {
 					? mapTargets(arm, (t) => target(t.expr))
 					: { ...arm, body: unaliased(arm.body) }
 			const [first, second, ...rest] = body.arms
-			return { ...body, arms: [operand(first), operand(second), ...rest.map(operand)] }
+			return withArms(body, [operand(first), operand(second), ...rest.map(operand)])
 		}
 	}
 }

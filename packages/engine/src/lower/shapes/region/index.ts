@@ -19,14 +19,14 @@ import {
 import { collapseLimit } from "#compiler/lower/optimize/existence/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
-import type { Expr, FromItem, JoinStep, SelectBody } from "#compiler/sql/ast.ts"
-import { and, core, lit, select, target } from "#compiler/sql/build.ts"
+import type { Expr, FromItem, JoinStep, OperandBody } from "#compiler/sql/ast.ts"
+import { and, core, lit, operandSelect, target } from "#compiler/sql/build.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 
 /** The relation aliases a query fragment reads through column references, at any depth. */
-const aliasesRead = (body: SelectBody, within: ReadonlySet<string>): ReadonlySet<string> => {
+const aliasesRead = (body: OperandBody, within: ReadonlySet<string>): ReadonlySet<string> => {
 	const out = new Set<string>()
-	visitSelect(select(body), {
+	visitSelect(operandSelect(body), {
 		...inertVisitor,
 		expr: (e) => {
 			if (e.kind === "column" && e.table !== undefined && within.has(e.table)) {

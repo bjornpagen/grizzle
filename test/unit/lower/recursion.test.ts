@@ -22,7 +22,14 @@ import { pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import type { Cte, Expr, Select, SelectBody, SelectCore } from "#compiler/sql/ast.ts"
+import type {
+	Cte,
+	Expr,
+	OperandBody,
+	OperandSelect,
+	Select,
+	SelectCore
+} from "#compiler/sql/ast.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { lowerAligned } from "#test/support/compile.ts"
 import { ownedSchemaFixture } from "#test/support/evidence.ts"
@@ -77,9 +84,9 @@ const optimize = (q: LogicalQuery): OptimizedProgram =>
 	)
 
 /** Every query nested in a statement: the statement, its CTE bodies, derived tables and subquery expressions. */
-const queries = (s: Select): ReadonlyArray<Select> => {
-	const out: Array<Select> = []
-	const visitSelect = (q: Select): void => {
+const queries = (s: Select): ReadonlyArray<OperandSelect> => {
+	const out: Array<OperandSelect> = []
+	const visitSelect = (q: OperandSelect): void => {
 		out.push(q)
 		for (const cte of q.with?.ctes ?? []) {
 			if (cte.query.kind === "select") {
@@ -88,7 +95,7 @@ const queries = (s: Select): ReadonlyArray<Select> => {
 		}
 		visitBody(q.body)
 	}
-	const visitBody = (b: SelectBody): void => {
+	const visitBody = (b: OperandBody): void => {
 		if (b.kind === "select") {
 			visitSelect(b)
 			return

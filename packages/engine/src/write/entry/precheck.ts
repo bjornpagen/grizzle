@@ -14,6 +14,7 @@ import {
 	cteRef,
 	lit,
 	not,
+	provedSelect,
 	qualifiedCall,
 	simpleSelect,
 	targetAs,
@@ -201,7 +202,12 @@ export const buildEntryCheck = (
 			const output = supply.column({ kind: "internal", purpose: "outside-world refusal" })
 			return {
 				ast: {
-					...simpleSelect([targetAs(cast(refuse, types.text), output)], [from], undefined),
+					...provedSelect(
+						"oneRow",
+						[targetAs(cast(refuse, types.text), output)],
+						[from],
+						undefined
+					),
 					limit: lit.int(1, types.integer)
 				},
 				role: "probe",
@@ -267,7 +273,8 @@ export const buildEntryCheck = (
 		const output = supply.column(internal("checked"))
 		return {
 			ast: {
-				...simpleSelect(
+				...provedSelect(
+					"oneRow",
 					[targetAs(lit.text("true", types.text), output)],
 					[cteRef(rv)],
 					guarded.guard

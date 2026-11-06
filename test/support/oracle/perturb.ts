@@ -7,7 +7,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
-import { lit, qualifiedCall, simpleSelect, target, types } from "#compiler/sql/build.ts"
+import { lit, provedSelect, qualifiedCall, target, types } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { canonicallySpelled, type SpelledValue } from "#test/support/oracle/gen/domain.ts"
@@ -259,7 +259,8 @@ export const multiplyFacts = (schema: GenSchema, facts: GenFacts, multiplier: nu
  */
 const plannerSelect = (p: Perturbation): EmittedText => {
 	const emitted = emit(
-		simpleSelect(
+		provedSelect(
+			"oneRow",
 			Arr.map(p.settings, (setting) => {
 				const [name, ...value] = Str.split(setting, " = ")
 				return target(

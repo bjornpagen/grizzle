@@ -29,7 +29,19 @@ import type {
 	WindowSpec
 } from "#compiler/sql/ast.ts"
 
-import { asc, call, col, core, derived, desc, lit, select, target } from "#compiler/sql/build.ts"
+import {
+	asc,
+	call,
+	col,
+	core,
+	derived,
+	desc,
+	keyedRead,
+	lit,
+	operandSelect,
+	select,
+	target
+} from "#compiler/sql/build.ts"
 
 const frameBound = (b: FrameBound): SqlFrameBound => {
 	if (b === "unboundedPreceding") {
@@ -185,7 +197,7 @@ const lowerWindowNative: NodeLowerer<"Window"> = (node, cx, env) => {
 		...headingTargets(base.heading, source.map),
 		...chain.map((w) => target(windowCall(cx, w, source.map, scope)))
 	]
-	return select(core(targets, [source.item], undefined))
+	return operandSelect(keyedRead(targets, [source.item], undefined))
 }
 
 /** The OrderedSetAggregate plug-in. */
@@ -200,8 +212,8 @@ const lowerOrderedSetAggregateNative: NodeLowerer<"OrderedSetAggregate"> = (node
 		/** The constant private group key every input row carries. */
 		const origin = { kind: "node", node: node.id } as const
 		const names = inputNode.heading.map((c) => c.name)
-		const carried = select(
-			core(
+		const carried = operandSelect(
+			keyedRead(
 				[...headingTargets(inputNode.heading, input.map), target(lit.bool(true))],
 				[input.item],
 				undefined
@@ -238,6 +250,7 @@ const lowerOrderedSetAggregateNative: NodeLowerer<"OrderedSetAggregate"> = (node
 	const targets = [...keyExprs.map((e) => target(e)), ...aggregates().map((a) => target(a))]
 	return select({
 		...core(targets, [from], undefined),
+		rows: present === undefined ? "grouped" : "oneRow",
 		groupBy: present === undefined ? keyExprs : [present]
 	})
 }

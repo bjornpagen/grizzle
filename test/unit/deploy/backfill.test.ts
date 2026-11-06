@@ -53,8 +53,8 @@ import {
 	tree
 } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
-import type { FunctionCall, Select, SqlStatement } from "#compiler/sql/ast.ts"
-import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
+import type { FunctionCall, OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
+import { identityHooks, transformOperand } from "#compiler/sql/transform.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { type FoldMonoid, foldStoredOf } from "#test/support/families/fold.ts"
 import { type Node, numbered } from "#test/support/families/tree.ts"
@@ -777,9 +777,9 @@ const defaultColumns = (
 	)
 
 /** Every window function a query calls, its derived tables' included. */
-const windowCalls = (q: Select): ReadonlyArray<FunctionCall> => {
+const windowCalls = (q: OperandSelect): ReadonlyArray<FunctionCall> => {
 	const found: Array<FunctionCall> = []
-	transformSelect(q, {
+	transformOperand(q, {
 		...identityHooks,
 		expr: (e) => {
 			if (e.kind === "call" && e.over !== undefined) {

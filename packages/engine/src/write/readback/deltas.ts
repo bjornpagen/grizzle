@@ -10,6 +10,7 @@ import {
 	cteRef,
 	lit,
 	notExists,
+	provedSelect,
 	simpleSelect,
 	target,
 	targetAs,
@@ -277,7 +278,8 @@ export const withDeltaFills = <
 			columns: carrierColumns(into),
 			source: {
 				kind: "query",
-				query: simpleSelect(
+				query: provedSelect(
+					"keyed",
 					values.map((v) => target(v)),
 					[cteRef(returned.cte)],
 					conjunction(conditions)

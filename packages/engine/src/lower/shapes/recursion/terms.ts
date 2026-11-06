@@ -7,7 +7,7 @@ import {
 	type NamedColumn,
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
-import type { Expr, Select, SelectCore, Target, TypeRef } from "#compiler/sql/ast.ts"
+import type { Expr, OperandSelect, SelectCore, Target, TypeRef } from "#compiler/sql/ast.ts"
 import { cast, core, sameTypeRef, target } from "#compiler/sql/build.ts"
 
 /**
@@ -21,7 +21,7 @@ const castTo = (e: Expr, type: TypeRef): Expr =>
 type PlainCore = Extract<SelectCore, { readonly distinct: false }>
 
 /** The query's single plain core, when it has one: no DISTINCT, grouping, ordering, bound or WITH. */
-const plainCore = (query: Select): PlainCore | undefined => {
+const plainCore = (query: OperandSelect): PlainCore | undefined => {
 	if (
 		query.with !== undefined ||
 		query.orderBy.length > 0 ||
@@ -48,7 +48,7 @@ const castInPlace = (
 	cx: LowerContext,
 	rec: NodeOf<"Recursive">,
 	heading: Heading,
-	query: Select
+	query: OperandSelect
 ): PlainCore | undefined => {
 	const body = plainCore(query)
 	if (body === undefined || rec.heading.length === 0) {

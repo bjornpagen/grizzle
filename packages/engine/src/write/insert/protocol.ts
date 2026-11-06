@@ -11,7 +11,7 @@ import { fieldNames, type LawField, type RelationInfo, type SpanField } from "#c
 import type { SerialClass } from "#compiler/ir/write.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import { rowEq, rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
-import type { Cte, Expr, FromItem, Insert, Select, SelectCore, Target } from "#compiler/sql/ast.ts"
+import type { Cte, Expr, FromItem, Insert, Select, SetCore, Target } from "#compiler/sql/ast.ts"
 
 import {
 	and,
@@ -19,8 +19,7 @@ import {
 	binary,
 	col,
 	conjunction,
-	continued,
-	core,
+	continuedAll,
 	countStar,
 	cte,
 	cteRef,
@@ -33,11 +32,14 @@ import {
 	ne,
 	not,
 	notExists,
+	provedCore,
+	provedSelect,
 	select,
 	simpleSelect,
 	target,
 	targetAs,
-	types
+	types,
+	unionAll
 } from "#compiler/sql/build.ts"
 import { fieldColumns, flatMapNonEmpty } from "#compiler/write/defined.ts"
 import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compile.ts"
@@ -347,7 +349,8 @@ export const buildInsert = (
 			ctes.push(
 				cte(r4, keys.columns, {
 					...select({
-						...core(
+						...provedCore(
+							"grouped",
 							pk.map((f) => target(inCol(f))),
 							[cteRef(r1)],
 							undefined
@@ -435,7 +438,7 @@ export const buildInsert = (
 		/** r1 already holds each value cast into its column's type (`into`), so the INSERT selects it as is. */
 		const values = [...fields.map((f) => target(inCol(f))), ...starts.map((s) => target(s.value))]
 		const source: Select = {
-			...simpleSelect(values, [cteRef(r1)], conjunction(gates)),
+			...provedSelect("keyed", values, [cteRef(r1)], conjunction(gates)),
 			orderBy: variant === "generated" ? [] : pk.map((f) => asc(inCol(f)))
 		}
 		const insert: Insert = {
@@ -492,7 +495,8 @@ export const buildInsert = (
 				{ fields: payload.payload, typeOf, left: (f) => col(r2, retCol(f)), right: inCol },
 				w.names.vectorSchema
 			)
-			const left: SelectCore = core(
+			const left: SetCore = provedCore(
+				"keyed",
 				[
 					...factOf(r2, retCol),
 					targetAs(inserted, payload.column),
@@ -517,7 +521,8 @@ export const buildInsert = (
 				...(cU === undefined ? [] : [target(lit.int(0, types.integer))])
 			]
 			const r4Col = (f: LawField) => col(r4, keys.of(f))
-			const right: SelectCore = core(
+			const right: SetCore = provedCore(
+				"keyed",
 				[...outFields.map((f) => target(requested(f))), ...markers],
 				[
 					join(
@@ -528,20 +533,21 @@ export const buildInsert = (
 				],
 				undefined
 			)
-			return { kind: "setOp", op: "UNION ALL", arms: [left, right] }
+			return unionAll("disjoint", [left, right])
 		}
 		const verdicts: Select["body"] =
 			marker === undefined
-				? core([...factOf(r2, retCol), ...zero], [cteRef(r2)], undefined)
+				? provedCore("keyed", [...factOf(r2, retCol), ...zero], [cteRef(r2)], undefined)
 				: markedBody(marker)
 		/** The verdict rows, and the probe's refusal after them when it is one of them. */
-		const withRefusal = (refused: SelectCore): Select["body"] =>
-			continued("UNION ALL", verdicts, refused)
+		const withRefusal = (refused: SetCore): Select["body"] =>
+			continuedAll("disjoint", verdicts, refused)
 		const body: Select["body"] =
 			unique.kind !== "verdict"
 				? verdicts
 				: withRefusal(
-						core(
+						provedCore(
+							"keyed",
 							[
 								...outFields.map((f) => target(unique.probe.refusalValue(f))),
 								...(marker === undefined ? [] : [target(lit.bool(false))]),
@@ -632,7 +638,8 @@ export const buildInsert = (
 		}
 		return {
 			ast: {
-				...simpleSelect(
+				...provedSelect(
+					"keyed",
 					outFields.map((f) => targetAs(resultText(verdict(retCol(f)), rowType(f)), retCol(f))),
 					[cteRef(rv)],
 					guarded?.guard
@@ -800,11 +807,13 @@ export const buildSpanClassify = (
 		const result: SpanClassifyResult = { kind: "spanClassify", relation: relation.name }
 		return {
 			ast: {
-				...simpleSelect(
+				...provedSelect(
+					"oneRow",
 					keys.pairs.map((p) => targetAs(resultText(keyCol(p.field), rowType(p.field)), p.column)),
 					[cteRef(rv)],
 					guarded.guard
 				),
+				limit: lit.int(1, types.integer),
 				with: { ctes, recursive: false }
 			},
 			role: "member",

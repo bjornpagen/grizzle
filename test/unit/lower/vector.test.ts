@@ -27,8 +27,13 @@ import { queryInput } from "#compiler/program/compile.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import type { OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
+import {
+	type AstHooks,
+	identityHooks,
+	transformOperand,
+	transformStatement
+} from "#compiler/sql/transform.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { lowerAligned } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
@@ -91,9 +96,9 @@ const lowered = (
 	})
 
 /** The queries of a statement that rank by the cosine distance: one per approximate search the statement runs. */
-const searchesIn = (ast: SqlStatement): number => {
+const searchesIn = (ast: OperandSelect | SqlStatement): number => {
 	let searches = 0
-	transformStatement(ast, {
+	const hooks: AstHooks = {
 		...identityHooks,
 		select: (s) => {
 			if (Arr.some(s.orderBy, (item) => item.expr.kind === "binary" && item.expr.op === "<=>")) {
@@ -101,7 +106,12 @@ const searchesIn = (ast: SqlStatement): number => {
 			}
 			return s
 		}
-	})
+	}
+	if (ast.kind === "select") {
+		transformOperand(ast, hooks)
+	} else {
+		transformStatement(ast, hooks)
+	}
 	return searches
 }
 

@@ -9,8 +9,8 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
-import type { Expr, Select, SelectBody, SetOperand } from "#compiler/sql/ast.ts"
-import { exists, lit, mapTargets } from "#compiler/sql/build.ts"
+import type { Expr, OperandBody, OperandSelect, SetOperand } from "#compiler/sql/ast.ts"
+import { exists, lit, mapTargets, withArms } from "#compiler/sql/build.ts"
 
 export interface MembershipOptions {
 	/** The base the entry's role is over, checked: the filter query reads its relations. */
@@ -37,17 +37,18 @@ export const filterReadsOther = (entry: CheckedEntry): boolean =>
 	entry.filter.kind === "query" && entry.filter.readsOther
 
 /** `body` with no output column named: an EXISTS answers no column, so the names of the query it wraps are unobservable. */
-const unaliasedBody = (body: SelectBody): SelectBody => {
+const unaliasedBody = (body: OperandBody): OperandBody => {
 	switch (body.kind) {
 		case "core":
 		case "select":
 			return unaliasedOperand(body)
 		case "setOp": {
 			const [first, second, ...rest] = body.arms
-			return {
-				...body,
-				arms: [unaliasedOperand(first), unaliasedOperand(second), ...rest.map(unaliasedOperand)]
-			}
+			return withArms(body, [
+				unaliasedOperand(first),
+				unaliasedOperand(second),
+				...rest.map(unaliasedOperand)
+			])
 		}
 	}
 }
@@ -57,7 +58,10 @@ const unaliasedOperand = (operand: SetOperand): SetOperand =>
 		? mapTargets(operand, (t) => ({ ...t, alias: undefined }))
 		: unaliased(operand)
 
-const unaliased = (query: Select): Select => ({ ...query, body: unaliasedBody(query.body) })
+const unaliased = (query: OperandSelect): OperandSelect => ({
+	...query,
+	body: unaliasedBody(query.body)
+})
 
 /** The membership of the row `options.row` names in `entry` (see `renderMembership`).
  *

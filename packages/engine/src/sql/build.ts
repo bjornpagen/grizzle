@@ -1,4 +1,5 @@
 import { type DecimalParts, partsText } from "#compiler/core/decimal.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
 	ArraysSource,
@@ -21,19 +22,25 @@ import type {
 	IndexKey,
 	LiteralValue,
 	ObjectName,
+	OperandBody,
+	OperandCore,
+	OperandSelect,
 	OrderItem,
+	RowsProof,
 	Select,
 	SelectBody,
 	SelectCore,
+	SetArm,
+	SetCore,
 	SetOperand,
 	SetOperation,
-	SetOperator,
 	Target,
 	TypeRef,
 	TypeSchema,
 	ValuePlaceholder,
 	WindowSpec
 } from "#compiler/sql/ast.ts"
+import { isSetBody, isSetQuery } from "#compiler/sql/ast.ts"
 
 /**
  * Constructors for the SQL AST (ast.ts). Plain functions returning plain data, so a lowering reads as the SQL it
@@ -271,8 +278,8 @@ export const conjunction = (predicates: ReadonlyArray<Expr>): Expr | undefined =
 
 export const row = (items: NonEmptyReadonlyArray<Expr>): Expr => ({ kind: "row", items })
 
-export const exists = (query: Select): Expr => ({ kind: "exists", query, not: false })
-export const notExists = (query: Select): Expr => ({ kind: "exists", query, not: true })
+export const exists = (query: OperandSelect): Expr => ({ kind: "exists", query, not: false })
+export const notExists = (query: OperandSelect): Expr => ({ kind: "exists", query, not: true })
 
 /** A plain call of a function of its arguments: no DISTINCT, ORDER BY, WITHIN GROUP or OVER. */
 const plainCall = (fn: FunctionRef, args: ReadonlyArray<Expr>): Call => ({
@@ -430,7 +437,7 @@ export const cteRefAs = (name: string, alias: string): FromSource => ({ kind: "c
 
 /** A derived table, (SELECT ...) AS "alias"(columns), LATERAL or not. */
 export const derived = (
-	query: Select,
+	query: OperandSelect,
 	alias: string,
 	columns: ReadonlyArray<string>,
 	lateral: boolean
@@ -444,7 +451,7 @@ export const derived = (
 
 /** The unit relation's one row under `alias`: `(SELECT) AS alias`, one row of no column, which VALUES cannot spell. */
 export const unitRow = (alias: string): FromSource =>
-	derived(select(core([], [], undefined)), alias, [], false)
+	derived(select(provedCore("oneRow", [], [], undefined)), alias, [], false)
 
 /** `first JOIN source ON on`: a join chain of one step. */
 export const join = (first: FromSource, source: FromSource, on: Expr): FromItem => ({
@@ -464,16 +471,17 @@ export const arrays = (source: ArraysSource, alias: string): FromSource => ({
 })
 
 /**
- * SELECT <targets> [FROM <from>] [WHERE <where>]: no DISTINCT, GROUP BY or HAVING; an empty FROM and an undefined WHERE
- * are none.
+ * SELECT <targets> [FROM <from>] [WHERE <where>] whose rows may repeat: an operand (sql/ast.ts OperandCore), with no
+ * DISTINCT, GROUP BY or HAVING; an empty FROM and an undefined WHERE are none.
  */
 export const core = (
 	targets: ReadonlyArray<Target>,
 	from: ReadonlyArray<FromItem>,
 	where: Expr | undefined
-): SelectCore => ({
+): OperandCore => ({
 	kind: "core",
 	distinct: false,
+	rows: "operand",
 	targets,
 	from,
 	where,
@@ -482,10 +490,40 @@ export const core = (
 })
 
 /**
+ * SELECT <targets> [FROM <from>] [WHERE <where>] under the proof that no row repeats (sql/ast.ts RowsProof): a set
+ * core without DISTINCT.
+ */
+export const provedCore = (
+	rows: RowsProof,
+	targets: ReadonlyArray<Target>,
+	from: ReadonlyArray<FromItem>,
+	where: Expr | undefined
+): SetCore => ({
+	kind: "core",
+	distinct: false,
+	rows,
+	targets,
+	from,
+	where,
+	groupBy: [],
+	having: undefined
+})
+
+/** An operand core read as a set under its proof (sql/ast.ts RowsProof), every clause kept. */
+export const proved = (rows: RowsProof, c: OperandCore): SetCore => ({ ...c, rows })
+
+/** An operand core grouped by `groupBy`, each group one row: every GROUP BY expression is among its targets. */
+export const grouped = (c: OperandCore, groupBy: ReadonlyArray<Expr>): SetCore => ({
+	...c,
+	rows: "grouped",
+	groupBy
+})
+
+/**
  * The core with each target mapped by `f`, position by position, its projection kept: under DISTINCT still at least one
  * target.
  */
-export const mapTargets = (c: SelectCore, f: (t: Target, i: number) => Target): SelectCore =>
+export const mapTargets = <C extends SelectCore>(c: C, f: (t: Target, i: number) => Target): C =>
 	c.distinct === false
 		? { ...c, targets: c.targets.map(f) }
 		: { ...c, targets: mapNonEmpty(c.targets, f) }
@@ -498,7 +536,7 @@ export const distinctCore = (
 	targets: NonEmptyReadonlyArray<Target>,
 	from: ReadonlyArray<FromItem>,
 	where: Expr | undefined
-): SelectCore => ({
+): SetCore => ({
 	kind: "core",
 	distinct: true,
 	targets,
@@ -510,14 +548,15 @@ export const distinctCore = (
 
 /**
  * SELECT [DISTINCT] <targets> [FROM <from>] [WHERE <where>]: DISTINCT exactly when `distinct`, over at least one
- * target.
+ * target, and otherwise a plain core the physical analysis proved unique (`certified`), its caller's decision.
  */
 export const distinctCoreWhen = (
 	distinct: boolean,
 	targets: NonEmptyReadonlyArray<Target>,
 	from: ReadonlyArray<FromItem>,
 	where: Expr | undefined
-): SelectCore => (distinct ? distinctCore(targets, from, where) : core(targets, from, where))
+): SetCore =>
+	distinct ? distinctCore(targets, from, where) : provedCore("certified", targets, from, where)
 
 /** SELECT DISTINCT ON (<on>) <targets> [FROM <from>] [WHERE <where>]: at least one key and one target. */
 export const distinctOnCore = (
@@ -525,7 +564,7 @@ export const distinctOnCore = (
 	targets: NonEmptyReadonlyArray<Target>,
 	from: ReadonlyArray<FromItem>,
 	where: Expr | undefined
-): SelectCore => ({
+): SetCore => ({
 	kind: "core",
 	distinct: { on },
 	targets,
@@ -552,7 +591,7 @@ export const cte = (name: string, columns: ReadonlyArray<string>, query: CteBody
 	query
 })
 
-/** A full query of its body: no WITH, ORDER BY, LIMIT or OFFSET. */
+/** A full query of its set body: no WITH, ORDER BY, LIMIT or OFFSET. */
 export const select = (body: SelectBody): Select => ({
 	kind: "select",
 	with: undefined,
@@ -562,31 +601,215 @@ export const select = (body: SelectBody): Select => ({
 	offset: undefined
 })
 
-/** A body as a set operation's arm: a set operation nests parenthesized, as the body of a query of its own. */
-export const asOperand = (body: SelectBody): SetOperand =>
-	body.kind === "setOp" ? select(body) : body
+/**
+ * A full query of a body whose rows may repeat, an operand (sql/ast.ts OperandSelect): no WITH, ORDER BY, LIMIT or
+ * OFFSET.
+ */
+export const operandSelect = (body: OperandBody): OperandSelect => ({
+	kind: "select",
+	with: undefined,
+	body,
+	orderBy: [],
+	limit: undefined,
+	offset: undefined
+})
 
 /**
- * `body` then `arm`, combined by `op` left to right: a set operation of `op` continues with one more arm, and any other
- * body becomes the first arm.
+ * The set operation `like` over rebuilt `arms`, one per arm in order: a UNION ALL under its proof keeps it only over
+ * set arms, so a rebuilt arm that is no set is a defect of the rebuild.
  */
-export const continued = (op: SetOperator, body: SelectBody, arm: SetOperand): SetOperation => {
+export const withArms = (
+	like: SetOperation,
+	arms: readonly [SetOperand, SetOperand, ...Array<SetOperand>]
+): SetOperation => {
+	if (like.op !== "UNION ALL" || like.rows === "oneRow" || like.rows === "operand") {
+		return { ...like, arms }
+	}
+	const set = (arm: SetOperand): SetArm => {
+		if (arm.kind === "core") {
+			if (isSetBody(arm)) {
+				return arm
+			}
+		} else if (isSetQuery(arm)) {
+			return arm
+		}
+		throw defect("a rebuilt UNION ALL arm that is a set, as the UNION ALL's proof requires")
+	}
+	const [first, second, ...rest] = arms
+	return { ...like, arms: [set(first), set(second), ...rest.map(set)] }
+}
+
+/**
+ * A query rebuilt from a set query, a set still, as every rebuild that keeps its rows keeps it (a rename, a cast of
+ * targets); `what` names the rebuild, whose returning an operand is a defect of it.
+ */
+export const setQueryOf = (query: OperandSelect, what: string): Select => {
+	if (isSetQuery(query)) {
+		return query
+	}
+	throw defect(`${what}, which keeps a set query a set`)
+}
+
+/** A body rebuilt from a set body, a set still (setQueryOf). */
+export const setBodyOf = (body: OperandBody, what: string): SelectBody => {
+	if (isSetBody(body)) {
+		return body
+	}
+	throw defect(`${what}, which keeps a set body a set`)
+}
+
+/** A body as a set operation's arm: a set operation nests parenthesized, as the body of a query of its own. */
+export const asOperand = (body: OperandBody): SetOperand =>
+	body.kind === "setOp" ? operandSelect(body) : body
+
+/** A set body as a set arm: a set operation nests parenthesized, as the body of a query of its own. */
+export const asSetArm = (body: SelectBody): SetArm => (body.kind === "setOp" ? select(body) : body)
+
+/**
+ * `body` then `arm`, combined by the set-making `op` left to right: a set operation of `op` continues with one more
+ * arm, and any other body becomes the first arm. A set-making operator absorbs its arms' repeats, so its arms are
+ * operands.
+ */
+export const continued = (
+	op: "UNION" | "INTERSECT" | "EXCEPT",
+	body: OperandBody,
+	arm: SetOperand
+): SetOperation => {
 	if (body.kind === "setOp" && body.op === op) {
 		const [first, second, ...rest] = body.arms
-		return { ...body, arms: [first, second, ...rest.concat([arm])] }
+		return { kind: "setOp", op, arms: [first, second, ...rest.concat([arm])] }
 	}
 	return { kind: "setOp", op, arms: [asOperand(body), arm] }
 }
 
-/** The arms combined by `op`, left to right: the one arm itself, or one set operation of them all. */
-export const setOp = (op: SetOperator, arms: NonEmptyReadonlyArray<SetOperand>): SelectBody => {
+/** Whether a FROM source's rows are a set: a derived table's whose query is one, and every other source's. */
+const readsSet = (source: FromSource): boolean =>
+	source.kind !== "derived" || isSetQuery(source.query)
+
+/** Whether every source of FROM items reads a set, a join chain's each. */
+const fromReadsSets = (from: ReadonlyArray<FromItem>): boolean =>
+	from.every((item) =>
+		item.kind === "joins"
+			? readsSet(item.first) && item.steps.every((step) => readsSet(step.source))
+			: readsSet(item)
+	)
+
+/**
+ * A core reading every row of `from` through `targets`, which hold a key of them: a set, keyed, when every source it
+ * reads is a set, and otherwise an operand, whose rows repeat as its sources' do.
+ */
+export const keyedRead = (
+	targets: ReadonlyArray<Target>,
+	from: ReadonlyArray<FromItem>,
+	where: Expr | undefined
+): SelectCore =>
+	fromReadsSets(from) ? provedCore("keyed", targets, from, where) : core(targets, from, where)
+
+/**
+ * A keyed read (keyedRead) that stands where a set is required, `what`: a source of it that may repeat rows is a defect
+ * of the lowering that put it there.
+ */
+export const keyedSet = (
+	targets: ReadonlyArray<Target>,
+	from: ReadonlyArray<FromItem>,
+	where: Expr | undefined,
+	what: string
+): SetCore => {
+	if (!fromReadsSets(from)) {
+		throw defect(`${what}, which reads sets`)
+	}
+	return provedCore("keyed", targets, from, where)
+}
+
+/** A CTE a statement defines once and reads by name: its columns, and whether its rows are a set. */
+export interface DefinedCte {
+	readonly name: string
+	readonly columns: ReadonlyArray<string>
+	readonly set: boolean
+}
+
+/**
+ * Every column of the CTE `defined`, read under `alias`: a set, keyed by its whole heading, when the CTE's rows are one,
+ * and an operand when they may repeat.
+ */
+export const cteRead = (alias: string, defined: DefinedCte): OperandSelect => {
+	const targets = defined.columns.map((c) => target(col(alias, c)))
+	const from = [cteRefAs(defined.name, alias)]
+	return defined.set
+		? select(provedCore("keyed", targets, from, undefined))
+		: operandSelect(core(targets, from, undefined))
+}
+
+/** Two or more arms combined by the set-making `op`, left to right: a set whatever its arms repeat. */
+export const setOperation = (
+	op: "UNION" | "INTERSECT" | "EXCEPT",
+	arms: readonly [SetOperand, SetOperand, ...Array<SetOperand>]
+): SelectBody => ({ kind: "setOp", op, arms })
+
+/** The arms combined by the set-making `op`, left to right: the one arm itself, or one set operation of them all. */
+export const setOp = (
+	op: "UNION" | "INTERSECT" | "EXCEPT",
+	arms: NonEmptyReadonlyArray<SetOperand>
+): OperandBody => {
 	const [first, second, ...rest] = arms
 	return second === undefined ? first : { kind: "setOp", op, arms: [first, second, ...rest] }
 }
 
-/** SELECT <targets> [FROM <from>] [WHERE <where>] as a full query. */
+/**
+ * `body` then the set `arm`, combined by UNION ALL under the proof `rows` left to right: a UNION ALL under the same proof
+ * continues with one more arm, and any other set body becomes the first arm.
+ */
+export const continuedAll = (
+	rows: "disjoint" | "certified",
+	body: SelectBody,
+	arm: SetArm
+): SelectBody => {
+	if (body.kind === "setOp" && body.op === "UNION ALL") {
+		if (body.rows === "disjoint" || body.rows === "certified") {
+			if (body.rows === rows) {
+				const [first, second, ...rest] = body.arms
+				return {
+					kind: "setOp",
+					op: "UNION ALL",
+					rows,
+					arms: [first, second, ...rest.concat([arm])]
+				}
+			}
+		}
+	}
+	return { kind: "setOp", op: "UNION ALL", rows, arms: [asSetArm(body), arm] }
+}
+
+/** The set arms combined by UNION ALL under the proof that no two share a row, left to right, or the one arm itself. */
+export const unionAll = (
+	rows: "disjoint" | "certified",
+	arms: NonEmptyReadonlyArray<SetArm>
+): SelectBody => {
+	const [first, second, ...rest] = arms
+	return second === undefined
+		? first
+		: { kind: "setOp", op: "UNION ALL", rows, arms: [first, second, ...rest] }
+}
+
+/** Arms combined by UNION ALL whose rows may repeat, an operand, left to right, or the one arm itself. */
+export const operandUnionAll = (arms: NonEmptyReadonlyArray<SetOperand>): OperandBody => {
+	const [first, second, ...rest] = arms
+	return second === undefined
+		? first
+		: { kind: "setOp", op: "UNION ALL", rows: "operand", arms: [first, second, ...rest] }
+}
+
+/** SELECT <targets> [FROM <from>] [WHERE <where>] as a full query whose rows may repeat: an operand. */
 export const simpleSelect = (
 	targets: ReadonlyArray<Target>,
 	from: ReadonlyArray<FromItem>,
 	where: Expr | undefined
-): Select => select(core(targets, from, where))
+): OperandSelect => operandSelect(core(targets, from, where))
+
+/** SELECT <targets> [FROM <from>] [WHERE <where>] as a full query, under the proof that no row repeats. */
+export const provedSelect = (
+	rows: RowsProof,
+	targets: ReadonlyArray<Target>,
+	from: ReadonlyArray<FromItem>,
+	where: Expr | undefined
+): Select => select(provedCore(rows, targets, from, where))

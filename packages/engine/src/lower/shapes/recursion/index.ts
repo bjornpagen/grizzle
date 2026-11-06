@@ -12,8 +12,8 @@ import {
 import { requireAdmittedFeedback } from "#compiler/lower/conservative/recursive/index.ts"
 import { stateColumns, stateTerm } from "#compiler/lower/shapes/recursion/terms.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import type { Select, SelectCore } from "#compiler/sql/ast.ts"
-import { core, cteRefAs, select } from "#compiler/sql/build.ts"
+import type { Select, SetCore } from "#compiler/sql/ast.ts"
+import { cteRefAs, provedCore, select } from "#compiler/sql/build.ts"
 
 /** The recursive CTE of a recursion's state, its columns paired with the state columns. */
 interface StateCte {
@@ -22,9 +22,10 @@ interface StateCte {
 }
 
 /** A read of the CTE's state columns under a fresh alias, in heading order. */
-const readState = (cx: LowerContext, rec: NodeOf<"Recursive">, cte: StateCte): SelectCore => {
+const readState = (cx: LowerContext, rec: NodeOf<"Recursive">, cte: StateCte): SetCore => {
 	const alias = cx.relationAlias({ kind: "node", node: rec.id })
-	return core(
+	return provedCore(
+		"keyed",
 		headingTargets(rec.heading, namedMap(alias, cte.columns)),
 		[cteRefAs(cte.name, alias)],
 		undefined

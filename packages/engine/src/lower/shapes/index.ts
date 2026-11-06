@@ -90,8 +90,22 @@ import {
 import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
 import { groupRows, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { approximateLowerer } from "#compiler/lower/shapes/vector/index.ts"
-import type { Cte, OrderItem, Select } from "#compiler/sql/ast.ts"
-import { and, col, conjunction, core, cteRefAs, select, target } from "#compiler/sql/build.ts"
+import {
+	type Cte,
+	isSetQuery,
+	type OperandBody,
+	type OperandSelect,
+	type OrderItem,
+	type Select
+} from "#compiler/sql/ast.ts"
+import {
+	and,
+	conjunction,
+	cteRead,
+	type DefinedCte,
+	keyedSet,
+	select
+} from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { renameToPublicHeading } from "#compiler/sql/naming.ts"
 
@@ -244,7 +258,7 @@ export interface OptimizedDeliveryProgram<
 /** The CTEs one statement defined while it was lowered: its WITH entries, and each shared node's CTE by node. */
 interface CteLog {
 	readonly ctes: Set<Cte>
-	readonly defined: Map<RelNode, { readonly name: string; readonly columns: ReadonlyArray<string> }>
+	readonly defined: Map<RelNode, DefinedCte>
 }
 
 /** What one statement accumulated while it was lowered: its WITH entries and its per-execution choices. */
@@ -378,21 +392,30 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 
 /**
  * A query without its outermost set boundary: the plain realization of a conservative plug-in whose query is a SELECT
- * DISTINCT. A set operation, DISTINCT ON, or a query without DISTINCT is returned unchanged.
+ * DISTINCT, under the proof the physical analysis made of it (`certified`), or an operand where it made none and the
+ * node's consumers make its rows a set. A set operation, DISTINCT ON, or a query without DISTINCT is returned
+ * unchanged.
  */
-export const withoutBoundary = (query: Select): Select => {
+export const withoutBoundary = (
+	query: OperandSelect,
+	rows: "certified" | "operand"
+): OperandSelect => {
 	const body = query.body
 	if (body.kind !== "core" || body.distinct !== true) {
 		return query
 	}
-	return { ...query, body: { ...body, distinct: false } }
+	return {
+		...query,
+		body:
+			rows === "operand" ? { ...body, distinct: false, rows } : { ...body, distinct: false, rows }
+	}
 }
 
 /**
  * Whether a query's outermost form eliminates repeats exactly: SELECT DISTINCT, UNION, INTERSECT, EXCEPT, or a
  * recursive CTE under UNION.
  */
-const exactBody = (body: Select["body"]): boolean =>
+const exactBody = (body: OperandBody): boolean =>
 	(body.kind === "core" && body.distinct === true) ||
 	(body.kind === "setOp" && body.op !== "UNION ALL") ||
 	(body.kind === "select" && exactBody(body.body))
@@ -401,8 +424,8 @@ const exactBody = (body: Select["body"]): boolean =>
  * A query with an exact set boundary: unchanged when its outermost form already eliminates repeats, otherwise read as
  * a derived table under SELECT DISTINCT.
  */
-export const withBoundary = (cx: LowerContext, node: RelNode, query: Select): Select => {
-	if (exactBody(query.body) || query.with?.recursive === true) {
+export const withBoundary = (cx: LowerContext, node: RelNode, query: OperandSelect): Select => {
+	if ((exactBody(query.body) || query.with?.recursive === true) && isSetQuery(query)) {
 		return query
 	}
 	const source = cx.wrap(query, node.heading, { kind: "node", node: node.id })
@@ -415,7 +438,7 @@ const realized =
 	(node, cx, env) => {
 		const query = lower(node, cx, env)
 		return facts.realization(node) === "plain"
-			? withoutBoundary(query)
+			? withoutBoundary(query, facts.unique(node) ? "certified" : "operand")
 			: withBoundary(cx, node, query)
 	}
 
@@ -472,7 +495,14 @@ const wholeRelationTake = (
 			lowerExpr(cx, j.expr, env)
 		)
 	)
-	return select(core(headingTargets(node.heading, source.map), [source.item], conjunction(joins)))
+	return select(
+		keyedSet(
+			headingTargets(node.heading, source.map),
+			[source.item],
+			conjunction(joins),
+			"a decorrelated take's rows"
+		)
+	)
 }
 
 /** The R20 take: the fixed policy over the parent set, a per-execution choice lowered in the delivery's mode. */
@@ -572,7 +602,11 @@ const dispatchIn = <I extends ChoiceInput>(
 ): NodeDispatch => {
 	const table = optimizedLowerers(facts, state, attachment)
 	/** The table is a mapped type over the kinds, so its entry at a node's kind takes that kind's node. */
-	const plugIn = <K extends RelKind>(node: NodeOf<K>, cx: LowerContext, env: Env): Select => {
+	const plugIn = <K extends RelKind>(
+		node: NodeOf<K>,
+		cx: LowerContext,
+		env: Env
+	): OperandSelect => {
 		const lower: NodeLowerer<K> = table[node.kind]
 		return lower(node, cx, env)
 	}
@@ -590,18 +624,10 @@ const dispatchIn = <I extends ChoiceInput>(
 			const name = cx.relationAlias(origin)
 			const columns = cx.supply.columns(outputNames(node.heading).map(() => origin))
 			log.ctes.add({ name, columns, materialized, query })
-			defined = { name, columns }
+			defined = { name, columns, set: isSetQuery(query) }
 			log.defined.set(node, defined)
 		}
-		const alias = cx.relationAlias(origin)
-		const { columns } = defined
-		return select(
-			core(
-				columns.map((c) => target(col(alias, c))),
-				[cteRefAs(defined.name, alias)],
-				undefined
-			)
-		)
+		return cteRead(cx.relationAlias(origin), defined)
 	}
 }
 
@@ -672,7 +698,7 @@ interface RowsSpec<I extends ChoiceInput> {
 	 * The rows, lowered in the statement being lowered: the statement's own, or a later statement's computing them
 	 * again.
 	 */
-	readonly rel: () => Select
+	readonly rel: () => OperandSelect
 	readonly heading: Heading
 	/** The node whose rows the statement delivers, for the facts. */
 	readonly origin: RelNode
@@ -787,7 +813,7 @@ export class OptimizedDelivery<
 	 * do not prove the order total (take/order.ts).
 	 */
 	deliveredRows(
-		rel: Select,
+		rel: OperandSelect,
 		heading: Heading,
 		origin: RelNode,
 		order: CompletedOrder | undefined
@@ -802,7 +828,9 @@ export class OptimizedDelivery<
 						fixed: []
 					})
 		return {
-			...select(core(headingTargets(heading, source.map), [source.item], undefined)),
+			...select(
+				keyedSet(headingTargets(heading, source.map), [source.item], undefined, "a delivery")
+			),
 			orderBy
 		}
 	}
@@ -1016,10 +1044,11 @@ export class OptimizedDelivery<
 				})
 				const scope: Env = new Map(scopeNodes.map((n) => [n.id, input.map]))
 				rel = select(
-					core(
+					keyedSet(
 						headingTargets(group.heading, input.map),
 						[input.item],
-						and(mapNonEmpty(filters, (f) => lowerExpr(cx, f.pred, scope)))
+						and(mapNonEmpty(filters, (f) => lowerExpr(cx, f.pred, scope))),
+						"a heading group's filtered rows"
 					)
 				)
 			}
@@ -1031,7 +1060,14 @@ export class OptimizedDelivery<
 					fixed: []
 				})
 				rel = {
-					...select(core(headingTargets(group.heading, bounded.map), [bounded.item], undefined)),
+					...select(
+						keyedSet(
+							headingTargets(group.heading, bounded.map),
+							[bounded.item],
+							undefined,
+							"a heading group's bounded rows"
+						)
+					),
 					orderBy,
 					limit: cx.boundExpr(take.bound)
 				}

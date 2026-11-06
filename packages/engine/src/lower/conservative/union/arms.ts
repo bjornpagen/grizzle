@@ -8,8 +8,25 @@ import {
 	type LowerContext
 } from "#compiler/lower/conservative/context.ts"
 
-import type { Expr, Select, SelectCore, SetOperator, Target, TypeRef } from "#compiler/sql/ast.ts"
-import { cast, core, sameTypeRef, select, setOp, target, unitTargets } from "#compiler/sql/build.ts"
+import {
+	type Expr,
+	isSetQuery,
+	type Select,
+	type SelectCore,
+	type Target,
+	type TypeRef
+} from "#compiler/sql/ast.ts"
+import {
+	cast,
+	core,
+	provedCore,
+	sameTypeRef,
+	select,
+	setBodyOf,
+	setOp,
+	target,
+	unitTargets
+} from "#compiler/sql/build.ts"
 
 /**
  * An expression delivered at `type`: unchanged when it already carries that type explicitly (a typed literal, a typed
@@ -60,12 +77,21 @@ export const armColumns = (
 	}
 }
 
-/** One arm, projected onto `heading` in its order. */
+/**
+ * One arm, projected onto `heading` in its order: every column of the arm, so its rows are the arm's, a set keyed by
+ * its heading when the arm's query is one, and an operand of the set operation when the arm's rows may repeat.
+ */
 export const armCore = (cx: LowerContext, arm: RelNode, heading: Heading, env: Env): SelectCore => {
 	const source = cx.source(arm, env)
-	return core(armTargets(cx, heading, source.map), [source.item], undefined)
+	const targets = armTargets(cx, heading, source.map)
+	return source.item.kind !== "derived" || isSetQuery(source.item.query)
+		? provedCore("keyed", targets, [source.item], undefined)
+		: core(targets, [source.item], undefined)
 }
 
 /** arm1 <op> arm2 <op> ..., left-associated: one set operation of every arm. */
-export const setOperation = (op: SetOperator, arms: NonEmptyReadonlyArray<SelectCore>): Select =>
-	select(setOp(op, arms))
+export const setOperation = (
+	op: "UNION" | "INTERSECT" | "EXCEPT",
+	arms: NonEmptyReadonlyArray<SelectCore>
+): Select =>
+	select(setBodyOf(setOp(op, arms), "a set operation over at least two arms, or one set arm"))

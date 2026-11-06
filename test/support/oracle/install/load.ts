@@ -9,9 +9,9 @@ import {
 	builtinType,
 	call,
 	col,
-	table as fromTable,
 	lit,
-	simpleSelect,
+	provedSelect,
+	table as fromTable,
 	targetAs
 } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
@@ -37,7 +37,8 @@ const refuse = (location: string, capability: string): Result.Result<never, Comp
  * `max` and never backwards.
  */
 const advanceSequence = (sequence: ObjectName, max: bigint): Select =>
-	simpleSelect(
+	provedSelect(
+		"keyed",
 		[
 			targetAs(
 				call("setval", [

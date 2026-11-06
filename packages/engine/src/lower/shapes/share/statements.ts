@@ -22,8 +22,8 @@ import {
 	subtreeOf
 } from "#compiler/lower/optimize/demand/editor.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
-import type { Cte, Select } from "#compiler/sql/ast.ts"
-import { col, core, cteRefAs, select, target } from "#compiler/sql/build.ts"
+import { type Cte, isSetQuery, type OperandSelect } from "#compiler/sql/ast.ts"
+import { col, core, cteRead, type DefinedCte, operandSelect, target } from "#compiler/sql/build.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
@@ -328,7 +328,7 @@ type SharedSource =
 
 interface StatementScope {
 	readonly ctes: Set<Cte>
-	readonly defined: Map<string, { readonly name: string; readonly columns: ReadonlyArray<string> }>
+	readonly defined: Map<string, DefinedCte>
 	readonly materialize: ReadonlySet<string>
 }
 
@@ -398,13 +398,17 @@ export class StatementSharing {
 	}
 
 	/** A node read from the carrier that holds it, or undefined when none does. */
-	#readCarrier(node: RelNode, cx: LowerContext, filling: string | undefined): Select | undefined {
+	#readCarrier(
+		node: RelNode,
+		cx: LowerContext,
+		filling: string | undefined
+	): OperandSelect | undefined {
 		const carrier = this.#carrierIn(node, filling)
 		if (carrier === undefined) {
 			return undefined
 		}
 		const alias = cx.relationAlias({ kind: "node", node: node.id })
-		return select(
+		return operandSelect(
 			core(
 				carrier.columns.map((c) => target(col(alias, c))),
 				[
@@ -418,7 +422,7 @@ export class StatementSharing {
 	}
 
 	/** The root of a statement: its CTEs planned, and the node lowered in the statement's scope. */
-	#root(node: RelNode, cx: LowerContext, env: Env, filling: string | undefined): Select {
+	#root(node: RelNode, cx: LowerContext, env: Env, filling: string | undefined): OperandSelect {
 		const carried = this.#readCarrier(node, cx, filling)
 		if (carried !== undefined) {
 			return carried
@@ -444,7 +448,7 @@ export class StatementSharing {
 		}
 	}
 
-	#shared(node: RelNode, cx: LowerContext, env: Env, scope: StatementScope): Select {
+	#shared(node: RelNode, cx: LowerContext, env: Env, scope: StatementScope): OperandSelect {
 		const key = scope.materialize.size === 0 ? undefined : this.index.key(node)
 		if (key === undefined || !scope.materialize.has(key) || cx.readsFeedback(node)) {
 			return this.#inner(node, cx, env)
@@ -456,16 +460,9 @@ export class StatementSharing {
 			const name = cx.relationAlias(origin)
 			const columns = cx.supply.columns(outputNames(node.heading).map(() => origin))
 			scope.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
-			defined = { name, columns }
+			defined = { name, columns, set: isSetQuery(query) }
 			scope.defined.set(key, defined)
 		}
-		const alias = cx.relationAlias(origin)
-		return select(
-			core(
-				defined.columns.map((c) => target(col(alias, c))),
-				[cteRefAs(defined.name, alias)],
-				undefined
-			)
-		)
+		return cteRead(cx.relationAlias(origin), defined)
 	}
 }

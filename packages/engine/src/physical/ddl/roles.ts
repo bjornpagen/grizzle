@@ -93,6 +93,7 @@ import {
 	objectName,
 	or,
 	param,
+	provedSelect,
 	qualifiedCall,
 	simpleSelect,
 	table,
@@ -146,7 +147,8 @@ export const searchPolicySettings: NonEmptyReadonlyArray<TextSetting> = [
 /** The statement that loads the vector library in the migration session, so its `hnsw.*` parameters are known when the
  * login defaults store them: a call of one of its C functions on a vector it parses. */
 const vectorLibraryLoad = (vectorSchema: TypeSchema): Select =>
-	simpleSelect(
+	provedSelect(
+		"oneRow",
 		[
 			target(
 				qualifiedCall(vectorSchema, "vector_dims", [
@@ -559,7 +561,8 @@ const wholeView = (
 			columns: mapNonEmpty(columns, (c) => c.name),
 			/** Every row and column of what it reads: it hides nothing, so no barrier keeps a reader's quals out. */
 			barrier: false,
-			query: simpleSelect(
+			query: provedSelect(
+				"keyed",
 				columns.map((c) => target(c.value)),
 				[table(source.schema, source.name, "r1")],
 				undefined
@@ -609,7 +612,8 @@ const worldView = (
 			query:
 				reading === undefined || columns === undefined
 					? lowered.query
-					: simpleSelect(
+					: provedSelect(
+							"keyed",
 							columns.map((c) => target(c.value)),
 							[reading.from],
 							undefined

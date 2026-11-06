@@ -32,7 +32,9 @@ import {
 	lt,
 	ne,
 	not,
+	operandSelect,
 	or,
+	provedCore,
 	select,
 	target,
 	types
@@ -301,7 +303,7 @@ const isAtom = (e: Expr): boolean =>
  * the copies' own bindings again, so nesting would cost exponential planning time.
  */
 const operandRow = (operands: NonEmptyReadonlyArray<Expr>): Select => ({
-	...select(core(mapNonEmpty(operands, target), [], undefined)),
+	...select(provedCore("oneRow", mapNonEmpty(operands, target), [], undefined)),
 	offset: lit.int(0, types.bigint)
 })
 
@@ -327,7 +329,7 @@ const bindOperands = <F extends Expr | undefined>(
 	}
 	return {
 		kind: "subquery",
-		query: select(
+		query: operandSelect(
 			core(
 				[target(body)],
 				[

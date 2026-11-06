@@ -17,10 +17,10 @@ import {
 	arrays,
 	col,
 	columnDefinition,
-	core,
 	namedType,
 	numericType,
 	positionalValue,
+	provedCore,
 	select,
 	target,
 	types
@@ -73,7 +73,7 @@ describe("a relation input's arrays", () => {
 			"r1"
 		)
 		assert.equal(
-			printStatement(select(core([target(col("r1", "c1"))], [source], undefined))),
+			printStatement(select(provedCore("input", [target(col("r1", "c1"))], [source], undefined))),
 			'SELECT "r1"."c1"\n' +
 				'FROM (SELECT "pg_catalog"."unnest"($1::"pg_catalog"."uuid"[]) AS "c1", ' +
 				'"pg_catalog"."unnest"($2::"pg_catalog"."text"[] COLLATE "pg_catalog"."pg_c_utf8") AS "c2", ' +
@@ -86,7 +86,7 @@ describe("a relation input's arrays", () => {
 	it("print an input of no column as the generated series of its count", () => {
 		const source = arrays({ kind: "count", count: positionalValue(1) }, "r2")
 		assert.equal(
-			printStatement(select(core([target(col("r2", "r2"))], [source], undefined))),
+			printStatement(select(provedCore("input", [target(col("r2", "r2"))], [source], undefined))),
 			'SELECT "r2"."r2"\nFROM "pg_catalog"."generate_series"(1::bigint, $1::bigint) AS "r2"'
 		)
 	})

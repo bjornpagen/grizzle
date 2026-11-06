@@ -34,8 +34,8 @@ import {
 	type ObjectName,
 	type OrderItem,
 	type PlStatement,
-	type Select,
-	type SelectBody,
+	type OperandBody,
+	type OperandSelect,
 	type SelectCore,
 	type SqlFunction,
 	type SqlStatement,
@@ -330,7 +330,7 @@ const formatPath = (path: ReadonlyArray<string | number>): string => {
 }
 
 /** The output width of a query body, when it is known statically. */
-const bodyWidth = (body: SelectBody): number => {
+const bodyWidth = (body: OperandBody): number => {
 	switch (body.kind) {
 		case "core":
 			return body.targets.length
@@ -341,13 +341,13 @@ const bodyWidth = (body: SelectBody): number => {
 	}
 }
 
-const selectWidth = (select: Select): number => bodyWidth(select.body)
+const selectWidth = (select: OperandSelect): number => bodyWidth(select.body)
 
 /**
  * Whether a query reads the unit relation: one core of no target or of the unit marker alone (`true`), whose rows hold
  * no column a reader names, so a CTE over it lists none.
  */
-export const isUnitRead = (select: Select): boolean => {
+export const isUnitRead = (select: OperandSelect): boolean => {
 	const body = select.body
 	if (body.kind !== "core") {
 		return false
@@ -369,7 +369,7 @@ export const isUnitRead = (select: Select): boolean => {
  * The aliases a set operation's later arm writes, position by position (its own first core's); PostgreSQL ignores
  * them, which is why they must agree with the union's names when present.
  */
-const bodyAliases = (body: SelectBody): ReadonlyArray<string | undefined> => {
+const bodyAliases = (body: OperandBody): ReadonlyArray<string | undefined> => {
 	switch (body.kind) {
 		case "core":
 			return Arr.map(body.targets, (target) => target.alias)
@@ -1018,7 +1018,7 @@ class StatementAuditor {
 	}
 
 	/** A query nested in an expression: it sees the enclosing scope for correlation. */
-	subquery(query: Select, ctx: ExprContext): void {
+	subquery(query: OperandSelect, ctx: ExprContext): void {
 		if (ctx.mode === "pl") {
 			this.embedded(() => {
 				this.select(query, {
@@ -1147,7 +1147,7 @@ class StatementAuditor {
 	 * the check looks through it to the next level that has some. A lowering that needs both nests a derived table
 	 * or a CTE instead.
 	 */
-	select(select: Select, ctx: SelectContext): void {
+	select(select: OperandSelect, ctx: SelectContext): void {
 		if (hasClauses(select) && clausesBelow(select.body) !== undefined) {
 			this.report(
 				"context",
@@ -1204,7 +1204,7 @@ class StatementAuditor {
 	}
 
 	/** Returns the FROM scope of a core body, for ORDER BY. */
-	body(body: SelectBody, ctx: BodyContext): Scope | undefined {
+	body(body: OperandBody, ctx: BodyContext): Scope | undefined {
 		switch (body.kind) {
 			case "core":
 				return this.core(body, ctx)
@@ -2053,7 +2053,7 @@ class StatementAuditor {
 	 */
 	plStatement(statement: PlStatement, vars: ReadonlySet<string>): void {
 		const ctx = context("pl", undefined, undefined, vars)
-		const embeddedSelect = (query: Select): void => {
+		const embeddedSelect = (query: OperandSelect): void => {
 			this.embedded(() => {
 				this.select(query, {
 					scope: undefined,
@@ -2785,7 +2785,7 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
  * The first query below a chain of parenthesized bodies without clauses that carries a WITH or a tail clause:
  * PostgreSQL folds every one of those parentheses, so its clauses merge with those of the query above the chain.
  */
-const clausesBelow = (body: SelectBody): Select | undefined => {
+const clausesBelow = (body: OperandBody): OperandSelect | undefined => {
 	let current = body
 	while (current.kind === "select") {
 		if (hasClauses(current)) {
@@ -2797,7 +2797,7 @@ const clausesBelow = (body: SelectBody): Select | undefined => {
 }
 
 /** Whether a query carries a WITH or a tail clause. */
-const hasClauses = (select: Select): boolean =>
+const hasClauses = (select: OperandSelect): boolean =>
 	select.with !== undefined ||
 	select.orderBy.length > 0 ||
 	select.limit !== undefined ||

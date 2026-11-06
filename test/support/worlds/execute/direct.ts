@@ -16,8 +16,8 @@ import {
 	eq,
 	lit,
 	ne,
+	provedSelect,
 	qualifiedCall,
-	simpleSelect,
 	table,
 	tableCol,
 	target,
@@ -163,7 +163,8 @@ const viewSql = (
 						}
 					)
 		const sql = yield* emitted(
-			simpleSelect(
+			provedSelect(
+				"keyed",
 				Arr.map(view.fields, (f) => target(col("v", f.column))),
 				[table(view.schema, view.name, "v")],
 				where
@@ -198,7 +199,8 @@ const tableSql = (
 						}
 					)
 		const sql = yield* emitted(
-			simpleSelect(
+			provedSelect(
+				"keyed",
 				Arr.map(fields, (f) => target(col("r", f.column))),
 				[table(t.name.schema, t.name.name, "r")],
 				where
@@ -229,7 +231,7 @@ const namesSerial = (
 const factTarget = (columns: ReadonlyArray<string>, values: ReadonlyArray<Expr>): InsertTarget =>
 	Arr.isReadonlyArrayNonEmpty(columns)
 		? { columns, source: { kind: "values", rows: [values] } }
-		: { columns: [], source: { kind: "query", query: simpleSelect([], [], undefined) } }
+		: { columns: [], source: { kind: "query", query: provedSelect("oneRow", [], [], undefined) } }
 
 /** An INSERT that meets a conflicting primary key, resolved by ON CONFLICT: nothing, the existing row, or an update. */
 const onConflictSql = (
@@ -454,7 +456,8 @@ export const directSql = (
 				const setting = statement.setting
 				const text = setting.kind === "facts" ? claimsText(setting.facts) : setting.text
 				const sql = yield* emitted(
-					simpleSelect(
+					provedSelect(
+						"oneRow",
 						[
 							target(
 								qualifiedCall("pg_catalog", "set_config", [

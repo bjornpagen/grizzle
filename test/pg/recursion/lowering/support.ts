@@ -8,7 +8,8 @@ import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import { type ConservativeProgram, flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import type { Select, SelectBody } from "#compiler/sql/ast.ts"
+import type { OperandBody, OperandSelect } from "#compiler/sql/ast.ts"
+import { setQueryOf } from "#compiler/sql/build.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
 import { lowerAligned } from "#test/support/compile.ts"
@@ -156,16 +157,16 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 	)
 
 /** The I8 rewrite on the optimized output: each recursion's feedback union made UNION ALL. */
-const unionAll = (body: SelectBody, count: () => void): SelectBody => {
+const unionAll = (body: OperandBody, count: () => void): OperandBody => {
 	if (body.kind !== "setOp" || body.op !== "UNION") {
 		return body
 	}
 	count()
-	return { ...body, op: "UNION ALL" }
+	return { kind: "setOp", op: "UNION ALL", rows: "operand", arms: body.arms }
 }
 
 /** A recursive CTE's body with its feedback union made UNION ALL; any other query as it is. */
-const mutateFeedback = (query: Select, count: () => void): Select => {
+const mutateFeedback = (query: OperandSelect, count: () => void): OperandSelect => {
 	const w = query.with
 	if (w === undefined || !w.recursive) {
 		return query
@@ -191,14 +192,17 @@ export const feedbackUnionAll = (
 		sites++
 	}
 	const rewritten = rewriteProgram(program, (statement) =>
-		mutateFeedback(
-			rewriteSelect(
-				statement.ast,
-				aliasOrigins(statement),
-				{ ...identityVisitor, derived: (query) => mutateFeedback(query, count) },
-				topLevelContext
+		setQueryOf(
+			mutateFeedback(
+				rewriteSelect(
+					statement.ast,
+					aliasOrigins(statement),
+					{ ...identityVisitor, derived: (query) => mutateFeedback(query, count) },
+					topLevelContext
+				),
+				count
 			),
-			count
+			"the I8 rewrite, which rewrites only a recursive CTE"
 		)
 	)
 	return Result.map(rewritten, (p) => ({ program: p, sites }))

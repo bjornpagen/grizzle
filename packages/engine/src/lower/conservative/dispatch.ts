@@ -34,8 +34,8 @@ import { takeLowering } from "#compiler/lower/conservative/take/index.ts"
 import { unionLowering } from "#compiler/lower/conservative/union/index.ts"
 import { approximateNearestLowering } from "#compiler/lower/conservative/vector/index.ts"
 import { windowLowering } from "#compiler/lower/conservative/window/index.ts"
-import type { Cte, Select } from "#compiler/sql/ast.ts"
-import { col, core, cteRefAs, select, target } from "#compiler/sql/build.ts"
+import { type Cte, isSetQuery, type OperandSelect } from "#compiler/sql/ast.ts"
+import { cteRead } from "#compiler/sql/build.ts"
 
 /**
  * The kind table of the conservative lowering, written once.
@@ -81,13 +81,13 @@ const dispatchKind = <K extends RelKind>(
 	node: NodeOf<K>,
 	cx: LowerContext,
 	env: Env
-): Select => {
+): OperandSelect => {
 	const lowerer: NodeLowerer<K> = conservativeLowerers[kind]
 	return lowerer(node, cx, env)
 }
 
 /** The plug-in's query of a node. */
-const plugIn = (node: RelNode, cx: LowerContext, env: Env): Select =>
+const plugIn = (node: RelNode, cx: LowerContext, env: Env): OperandSelect =>
 	dispatchKind(node.kind, node, cx, env)
 
 /** The inputs a node's plug-in lowers, once per reference: an attachment lowers its parent, and its child is delivered. */
@@ -164,7 +164,7 @@ const sharedOf = (
 }
 
 /** `query` with `ctes` leading its WITH. */
-const leading = (query: Select, ctes: ReadonlyArray<Cte>): Select =>
+const leading = <Q extends OperandSelect>(query: Q, ctes: ReadonlyArray<Cte>): Q =>
 	isNonEmpty(ctes)
 		? {
 				...query,
@@ -185,7 +185,7 @@ const framed = (
 	cx: LowerContext,
 	env: Env,
 	outer: ShareFrame | undefined
-): Select => {
+): OperandSelect => {
 	const shared = sharedOf(cx, node, outer)
 	if (outer !== undefined && shared.size === 0) {
 		return plugIn(node, cx, env)
@@ -200,11 +200,11 @@ const framed = (
  * own, where a node it lowers more than once that reads only those values is shared, so the row they come from binds
  * its CTE once per row; any other node is its plug-in's query.
  */
-const owned = (node: RelNode, cx: LowerContext, env: Env, frame: ShareFrame): Select =>
+const owned = (node: RelNode, cx: LowerContext, env: Env, frame: ShareFrame): OperandSelect =>
 	cx.scopeOf(node).outer.size > 0 ? framed(node, cx, env, frame) : plugIn(node, cx, env)
 
 /** A read of the CTE `home` holds for `node`, defined at its first use, its body lowered where `home`'s root was. */
-const sharedRead = (node: RelNode, cx: LowerContext, home: ShareFrame): Select => {
+const sharedRead = (node: RelNode, cx: LowerContext, home: ShareFrame): OperandSelect => {
 	const origin = { kind: "node", node: node.id } as const
 	let cte = home.defined.get(node)
 	if (cte === undefined) {
@@ -212,17 +212,10 @@ const sharedRead = (node: RelNode, cx: LowerContext, home: ShareFrame): Select =
 		const name = cx.relationAlias(origin)
 		const columns = cx.supply.columns(outputNames(node.heading).map(() => origin))
 		home.ctes.push({ name, columns, materialized: "MATERIALIZED", query })
-		cte = { name, columns }
+		cte = { name, columns, set: isSetQuery(query) }
 		home.defined.set(node, cte)
 	}
-	const alias = cx.relationAlias(origin)
-	return select(
-		core(
-			cte.columns.map((c) => target(col(alias, c))),
-			[cteRefAs(cte.name, alias)],
-			undefined
-		)
-	)
+	return cteRead(cx.relationAlias(origin), cte)
 }
 
 /**
@@ -237,7 +230,7 @@ const sharedRead = (node: RelNode, cx: LowerContext, home: ShareFrame): Select =
  * row. A node reading feedback stays in its recursive term. So the text of a statement grows with the DAG it lowers,
  * never with the number of paths through it.
  */
-export const dispatchNode = (node: RelNode, cx: LowerContext, env: Env): Select => {
+export const dispatchNode = (node: RelNode, cx: LowerContext, env: Env): OperandSelect => {
 	const frame = cx.sharing
 	if (frame === undefined) {
 		return framed(node, cx, env, undefined)

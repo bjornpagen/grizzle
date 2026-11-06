@@ -12,10 +12,19 @@ import type {
 	EmittedSql,
 	Expr,
 	Select,
-	SelectCore,
+	SetCore,
 	ValuePlaceholder
 } from "#compiler/sql/ast.ts"
-import { col, core, cteRef, lit, select, setOp, target, types } from "#compiler/sql/build.ts"
+import {
+	col,
+	cteRef,
+	lit,
+	provedCore,
+	select,
+	target,
+	types,
+	unionAll
+} from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { type NameMap, NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
@@ -188,11 +197,12 @@ export const singleStatement = (
 		outs.map((o) => o.columns.length),
 		0
 	)
-	const arms = mapNonEmpty(outs, (o, tag): SelectCore => {
+	const arms = mapNonEmpty(outs, (o, tag): SetCore => {
 		const padding: ReadonlyArray<Expr> = Array.from({ length: width - o.columns.length }, () =>
 			lit.text("", types.text)
 		)
-		return core(
+		return provedCore(
+			"keyed",
 			[
 				target(lit.int(tag, types.integer)),
 				...o.columns.map((c) => target(col(o.name, c))),
@@ -202,6 +212,6 @@ export const singleStatement = (
 			undefined
 		)
 	})
-	const ast: Select = { ...select(setOp("UNION ALL", arms)), with: { recursive: false, ctes } }
+	const ast: Select = { ...select(unionAll("disjoint", arms)), with: { recursive: false, ctes } }
 	return { ast, sql: emitText(ast, nameMap), params, width }
 }

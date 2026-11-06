@@ -98,7 +98,7 @@ import {
 	ge,
 	lit,
 	objectName,
-	simpleSelect,
+	provedSelect,
 	table as tableFrom,
 	tableCol,
 	targetAs,
@@ -2873,7 +2873,8 @@ const advance = (
 	const argument =
 		type.kind === "builtin" && type.name === "bigint" ? value : cast(value, types.bigint)
 	return {
-		...simpleSelect(
+		...provedSelect(
+			"oneRow",
 			[
 				targetAs(
 					cast(call("setval", [{ kind: "regclass", relation: sequence }, argument]), types.text),

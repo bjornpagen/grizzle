@@ -31,7 +31,7 @@ import type {
 	Insert,
 	Merge,
 	Select,
-	SelectCore,
+	SetCore,
 	Target,
 	Update
 } from "#compiler/sql/ast.ts"
@@ -40,7 +40,6 @@ import {
 	and,
 	asc,
 	col,
-	core,
 	countStar,
 	cte,
 	cteRef,
@@ -50,11 +49,14 @@ import {
 	lit,
 	ne,
 	notExists,
+	provedCore,
+	provedSelect,
 	select,
 	simpleSelect,
 	target,
 	targetAs,
-	types
+	types,
+	unionAll
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
@@ -279,7 +281,8 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 		ctes.push(
 			cte(r4, keys.columns, {
 				...select({
-					...core(
+					...provedCore(
+						"grouped",
 						pk.map((f) => target(inCol(f))),
 						[cteRef(r1)],
 						undefined
@@ -343,10 +346,11 @@ const sameKeyArm = (
 	r4: string,
 	prefix: ReadonlyArray<Target>,
 	groups: ReadonlyArray<FieldColumns<string>>
-): SelectCore => {
+): SetCore => {
 	const r4Col = (f: LawField) => col(r4, head.keys.of(f))
 	const facts = groups.flatMap((group) => group.pairs.map((p) => target(head.requested(p.field))))
-	return core(
+	return provedCore(
+		"keyed",
 		[...prefix, ...facts, target(lit.bool(true))],
 		[
 			join(
@@ -378,7 +382,7 @@ const guardedPut = (
 	}
 	const guarded = refusalGuard({ supply, schema: w.names.schema, verdicts: rv, arms: arms(rv) })
 	return {
-		...simpleSelect(deliver(rv), [cteRef(rv)], guarded.guard),
+		...provedSelect("keyed", deliver(rv), [cteRef(rv)], guarded.guard),
 		with: { ctes: concatNonEmpty(ctes, [verdictCte, guarded.cte]), recursive: false }
 	}
 }
@@ -438,7 +442,8 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			source: {
 				kind: "query",
 				query: {
-					...simpleSelect(
+					...provedSelect(
+						"keyed",
 						written.map((f) => target(inCol(f))),
 						[cteRef(r1)],
 						probe?.gate
@@ -486,7 +491,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 		if (probe === undefined || cU === undefined) {
 			return {
 				ast: {
-					...select(core(text(r2), [cteRef(r2)], undefined)),
+					...select(provedCore("keyed", text(r2), [cteRef(r2)], undefined)),
 					with: { ctes, recursive: false }
 				},
 				result,
@@ -496,25 +501,23 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 		}
 		/** The verdict rows: every fact the upsert made present, then the probe's refusal, the requested fact and its
 		 * signed ordinal. */
-		const body: Select["body"] = {
-			kind: "setOp",
-			op: "UNION ALL",
-			arms: [
-				core(
-					[
-						...returned.columns.map((c) => targetAs(col(r2, c), c)),
-						targetAs(lit.int(0, types.integer), cU)
-					],
-					[cteRef(r2)],
-					undefined
-				),
-				core(
-					[...all.map((f) => target(probe.refusalValue(f))), target(probe.ordinal)],
-					[cteRef(probe.refusal)],
-					undefined
-				)
-			]
-		}
+		const body: Select["body"] = unionAll("disjoint", [
+			provedCore(
+				"keyed",
+				[
+					...returned.columns.map((c) => targetAs(col(r2, c), c)),
+					targetAs(lit.int(0, types.integer), cU)
+				],
+				[cteRef(r2)],
+				undefined
+			),
+			provedCore(
+				"keyed",
+				[...all.map((f) => target(probe.refusalValue(f))), target(probe.ordinal)],
+				[cteRef(probe.refusal)],
+				undefined
+			)
+		])
 		const ast = guardedPut(
 			w,
 			supply,
@@ -614,7 +617,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 		if (c9 === undefined || r4 === undefined) {
 			return {
 				ast: {
-					...select(core(text(r2), [cteRef(r2)], undefined)),
+					...select(provedCore("keyed", text(r2), [cteRef(r2)], undefined)),
 					with: { ctes, recursive: false }
 				},
 				result,
@@ -622,21 +625,18 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 			}
 		}
 		/** The verdict rows: every new fact with the old one it displaced, then the same-key pair. */
-		const body: Select["body"] = {
-			kind: "setOp",
-			op: "UNION ALL",
-			arms: [
-				core(
-					[
-						...[...fresh.columns, ...old.columns].map((c) => targetAs(col(r2, c), c)),
-						targetAs(lit.bool(false), c9)
-					],
-					[cteRef(r2)],
-					undefined
-				),
-				sameKeyArm(head, r4, [], [fresh, old])
-			]
-		}
+		const body: Select["body"] = unionAll("disjoint", [
+			provedCore(
+				"keyed",
+				[
+					...[...fresh.columns, ...old.columns].map((c) => targetAs(col(r2, c), c)),
+					targetAs(lit.bool(false), c9)
+				],
+				[cteRef(r2)],
+				undefined
+			),
+			sameKeyArm(head, r4, [], [fresh, old])
+		])
 		const ast = guardedPut(
 			w,
 			supply,
@@ -768,7 +768,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 		if (c9 === undefined || r4 === undefined) {
 			return {
 				ast: {
-					...select(core(text(r2), [cteRef(r2)], undefined)),
+					...select(provedCore("keyed", text(r2), [cteRef(r2)], undefined)),
 					with: { ctes, recursive: false }
 				},
 				result,
@@ -776,22 +776,19 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 			}
 		}
 		/** The verdict rows: every fact the MERGE changed with its action, then the same-key pair. */
-		const body: Select["body"] = {
-			kind: "setOp",
-			op: "UNION ALL",
-			arms: [
-				core(
-					[
-						targetAs(col(r2, actionCol), actionCol),
-						...returned.columns.map((c) => targetAs(col(r2, c), c)),
-						targetAs(lit.bool(false), c9)
-					],
-					[cteRef(r2)],
-					undefined
-				),
-				sameKeyArm(head, r4, [target(lit.text("INSERT", types.text))], [returned])
-			]
-		}
+		const body: Select["body"] = unionAll("disjoint", [
+			provedCore(
+				"keyed",
+				[
+					targetAs(col(r2, actionCol), actionCol),
+					...returned.columns.map((c) => targetAs(col(r2, c), c)),
+					targetAs(lit.bool(false), c9)
+				],
+				[cteRef(r2)],
+				undefined
+			),
+			sameKeyArm(head, r4, [target(lit.text("INSERT", types.text))], [returned])
+		])
 		const ast = guardedPut(
 			w,
 			supply,

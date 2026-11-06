@@ -7,7 +7,8 @@ import { rebuildDag, relNode, unchangedEdges } from "#compiler/ir/dag.ts"
 import type { NodeOver, RelNode, ValueRefs } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { type ConservativeProgram, conservativeInput } from "#compiler/lower/conservative/types.ts"
-import type { Select, SelectBody, SelectCore } from "#compiler/sql/ast.ts"
+import type { OperandBody, OperandSelect, SelectCore } from "#compiler/sql/ast.ts"
+import { setQueryOf } from "#compiler/sql/build.ts"
 import { canonicalRows, rawRowKey, repeatsOn, rowMultiset } from "#test/support/oracle/compare.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
@@ -21,6 +22,7 @@ import type { RawRow } from "#test/support/oracle/install/capture.ts"
 import {
 	aliasOrigins,
 	identityVisitor,
+	rewriteOperand,
 	rewriteProgram,
 	rewriteSelect,
 	topLevelContext
@@ -126,16 +128,19 @@ interface MutatedProgram {
 }
 
 const dropDistinct = (core: SelectCore): SelectCore =>
-	core.distinct === false ? core : { ...core, distinct: false }
+	core.distinct === false ? core : { ...core, distinct: false, rows: "operand" }
 
-const feedbackAll = (body: SelectBody): SelectBody =>
-	body.kind === "setOp" && body.op === "UNION" ? { ...body, op: "UNION ALL" } : body
+/** A UNION made UNION ALL, an operand: a recursive CTE's rows may repeat where its readers deduplicate them. */
+const feedbackAll = (body: OperandBody): OperandBody =>
+	body.kind === "setOp" && body.op === "UNION"
+		? { kind: "setOp", op: "UNION ALL", rows: "operand", arms: body.arms }
+		: body
 
 /**
  * A recursion's lowering (recursive/index.ts) with its feedback UNION made UNION ALL and, for `bag`, every DISTINCT
  * inside its recursive CTE removed; undefined when the query is not a recursion's lowering.
  */
-const mutateRecursion = (query: Select, bag: boolean, count: () => void): Select => {
+const mutateRecursion = (query: OperandSelect, bag: boolean, count: () => void): OperandSelect => {
 	const w = query.with
 	if (w?.recursive !== true) {
 		return query
@@ -145,7 +150,7 @@ const mutateRecursion = (query: Select, bag: boolean, count: () => void): Select
 			return cte
 		}
 		const inner = bag
-			? rewriteSelect(
+			? rewriteOperand(
 					cte.query,
 					new Map(),
 					{ ...identityVisitor, core: dropDistinct },
@@ -171,15 +176,18 @@ const recursionMutant = (
 		sites++
 	}
 	const rewritten = rewriteProgram(program, (statement) =>
-		mutateRecursion(
-			rewriteSelect(
-				statement.ast,
-				aliasOrigins(statement),
-				{ ...identityVisitor, derived: (query) => mutateRecursion(query, bag, count) },
-				topLevelContext
+		setQueryOf(
+			mutateRecursion(
+				rewriteSelect(
+					statement.ast,
+					aliasOrigins(statement),
+					{ ...identityVisitor, derived: (query) => mutateRecursion(query, bag, count) },
+					topLevelContext
+				),
+				bag,
+				count
 			),
-			bag,
-			count
+			"a recursion mutant, which rewrites only a recursive CTE"
 		)
 	)
 	return Result.map(rewritten, (p) => ({ program: p, sites }))

@@ -16,7 +16,18 @@ import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
 import type { Expr, OrderItem, Select, SelectCore, With } from "#compiler/sql/ast.ts"
-import { and, asc, cast, col, core, cteRefAs, eq, select, target } from "#compiler/sql/build.ts"
+import {
+	and,
+	asc,
+	cast,
+	col,
+	core,
+	cteRefAs,
+	eq,
+	provedCore,
+	select,
+	target
+} from "#compiler/sql/build.ts"
 
 /**
  * A parent key column of a seeded attachment, with the origin column of the state it is delivered from: the first the
@@ -224,7 +235,7 @@ export const seededAttachment = (
 						fixed: []
 					})
 				]
-	const scanned = core(targets, [cteRefAs(cte, scan)], undefined)
+	const scanned = provedCore("keyed", targets, [cteRefAs(cte, scan)], undefined)
 	const recursion: With = {
 		recursive: true,
 		ctes: [

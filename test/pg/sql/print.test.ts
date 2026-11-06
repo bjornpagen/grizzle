@@ -36,7 +36,7 @@ import {
 	lit,
 	namedType,
 	objectName,
-	simpleSelect,
+	provedSelect,
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
@@ -488,7 +488,8 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 										{ kind: "return", value: lit.bool(true) }
 									])
 								])
-								const invoke = simpleSelect(
+								const invoke = provedSelect(
+									"oneRow",
 									[
 										targetAs(
 											{

@@ -13,7 +13,7 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import type { Select, SelectCore } from "#compiler/sql/ast.ts"
-import { cast, core, cteRefAs, select, target } from "#compiler/sql/build.ts"
+import { cast, core, cteRefAs, provedSelect, select, target } from "#compiler/sql/build.ts"
 
 /**
  * What a node does to the feedback flowing through some of its inputs, when it is not monotone and distributive over
@@ -186,7 +186,7 @@ const lowerRecursive: NodeLowerer<"Recursive"> = (node, cx, env) => {
 	const alias = cx.relationAlias(origin)
 	const map = namedMap(alias, named)
 	return {
-		...select(core(headingTargets(node.heading, map), [cteRefAs(cte, alias)], undefined)),
+		...provedSelect("keyed", headingTargets(node.heading, map), [cteRefAs(cte, alias)], undefined),
 		with: {
 			recursive: true,
 			ctes: [

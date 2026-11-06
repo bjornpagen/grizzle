@@ -11,9 +11,10 @@ import {
 	asOperand,
 	col,
 	conjunction,
-	core,
 	cte,
 	cteRef,
+	operandSelect,
+	provedCore,
 	select,
 	setOp,
 	targetAs
@@ -106,7 +107,8 @@ const deletion = (
 		name: f.name,
 		type: rowType(f)
 	}))
-	const outer = core(
+	const outer = provedCore(
+		"keyed",
 		returned.pairs.map((p) => targetAs(resultText(col(r2, p.column), rowType(p.field)), p.column)),
 		[cteRef(r2)],
 		undefined
@@ -197,7 +199,7 @@ const buildDelete = (
 			mode.kind,
 			{ r2, r3, returned },
 			{
-				leading: [cte(r1, inputs.columns, select(body))],
+				leading: [cte(r1, inputs.columns, operandSelect(body))],
 				using: [cteRef(r1)],
 				where: [where]
 			},

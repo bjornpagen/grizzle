@@ -1,7 +1,7 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { CompletedOrder, Heading, HeadingGroup, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import {
 	type Env,
@@ -13,28 +13,85 @@ import {
 import { armColumns, armTargets } from "#compiler/lower/conservative/union/arms.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
-import type { Expr, Select, SelectBody, SetOperator } from "#compiler/sql/ast.ts"
-import { asOperand, core, distinctCoreWhen, select, setOp } from "#compiler/sql/build.ts"
+import {
+	isSetBody,
+	type Expr,
+	type OperandBody,
+	type OperandSelect,
+	type Select,
+	type SelectCore
+} from "#compiler/sql/ast.ts"
+import {
+	asOperand,
+	asSetArm,
+	core,
+	distinctCore,
+	distinctCoreWhen,
+	operandSelect,
+	operandUnionAll,
+	provedCore,
+	select,
+	setBodyOf,
+	setOp,
+	unionAll
+} from "#compiler/sql/build.ts"
 
 /**
  * One arm read as a derived table and projected onto `heading`, in its order, each refined column cast
  * to its base type so the arms agree on every column's PostgreSQL type (armTargets).
  */
-const armBody = (cx: LowerContext, arm: RelNode, heading: Heading, env: Env): SelectBody => {
+const armBody = (
+	cx: LowerContext,
+	arm: RelNode,
+	heading: Heading,
+	env: Env,
+	form: ArmForm
+): SelectCore => {
 	const source = cx.source(arm, env)
-	return core(armTargets(cx, heading, source.map), [source.item], undefined)
+	const targets = armTargets(cx, heading, source.map)
+	return form === "certified"
+		? provedCore("certified", targets, [source.item], undefined)
+		: core(targets, [source.item], undefined)
 }
 
-/** arm1 <op> arm2 <op> ..., left-associated: one set operation, each nested set operation a parenthesized arm. */
-const chain = (op: SetOperator, bodies: NonEmptyReadonlyArray<SelectBody>): SelectBody =>
-	setOp(op, mapNonEmpty(bodies, asOperand))
+/**
+ * How the arms of one heading group combine read inside a statement: UNION where the union's boundary is realized
+ * `distinct`; UNION ALL under the physical analysis's proof that its arms are unique and pairwise disjoint
+ * (`certified`, R17.unionAll); or UNION ALL as an operand, where no consumer observes its repeats.
+ */
+type ArmForm = "union" | "certified" | "operand"
+
+const armForm = (facts: ShapeFacts, union: NodeOf<"Union">): ArmForm =>
+	facts.realization(union) === "distinct" ? "union" : facts.unique(union) ? "certified" : "operand"
 
 /**
- * The operator combining the arms of one heading group read inside a statement: UNION where the union's boundary is
- * realized `distinct`, otherwise UNION ALL, its repeats being either proved absent or observed by no consumer.
+ * arm1 <op> arm2 <op> ..., left-associated, under `form`: one set operation, each nested set operation a parenthesized
+ * arm. A certified UNION ALL's arms are sets, as its proof states.
  */
-const armOperator = (facts: ShapeFacts, union: NodeOf<"Union">): SetOperator =>
-	facts.realization(union) === "distinct" ? "UNION" : "UNION ALL"
+const chain = (form: ArmForm, bodies: NonEmptyReadonlyArray<OperandBody>): OperandBody => {
+	switch (form) {
+		case "union":
+			return setOp("UNION", mapNonEmpty(bodies, asOperand))
+		case "certified":
+			return unionAll(
+				"certified",
+				mapNonEmpty(bodies, (b) => asSetArm(setBodyOf(b, "a certified UNION ALL arm")))
+			)
+		case "operand":
+			return operandUnionAll(mapNonEmpty(bodies, asOperand))
+	}
+}
+
+/**
+ * The heading groups of a union concatenated by UNION ALL, disjoint by their discriminant literals: under that proof
+ * when every group is a set, as an operand when one is.
+ */
+const groupsConcatenated = (groups: NonEmptyReadonlyArray<OperandBody>): OperandSelect => {
+	const sets = groups.filter(isSetBody)
+	return isNonEmpty(sets) && sets.length === groups.length
+		? select(unionAll("disjoint", mapNonEmpty(sets, asSetArm)))
+		: operandSelect(operandUnionAll(mapNonEmpty(groups, asOperand)))
+}
 
 /**
  * A union read inside a statement, on its heading: the common heading when it has several groups (valid DAG). Each
@@ -64,31 +121,30 @@ const armOperator = (facts: ShapeFacts, union: NodeOf<"Union">): SetOperator =>
 export const unionLowerer =
 	(facts: ShapeFacts): NodeLowerer<"Union"> =>
 	(node, cx, env) => {
-		const op = armOperator(facts, node)
-		const group = (arms: NonEmptyReadonlyArray<RelNode>): SelectBody => {
+		const form = armForm(facts, node)
+		const group = (arms: NonEmptyReadonlyArray<RelNode>): OperandBody => {
 			const [only, ...others] = arms
 			if (others.length > 0) {
 				return chain(
-					op,
-					mapNonEmpty(arms, (arm) => armBody(cx, arm, node.heading, env))
+					form,
+					mapNonEmpty(arms, (arm) => armBody(cx, arm, node.heading, env, form))
 				)
 			}
 			const source = cx.source(only, env)
-			return distinctCoreWhen(
-				op === "UNION",
+			const targets =
 				node.groups.length > 1
 					? armTargets(cx, node.heading, source.map)
-					: headingTargets(node.heading, source.map),
-				[source.item],
-				undefined
-			)
+					: headingTargets(node.heading, source.map)
+			switch (form) {
+				case "union":
+					return distinctCore(targets, [source.item], undefined)
+				case "certified":
+					return provedCore("certified", targets, [source.item], undefined)
+				case "operand":
+					return core(targets, [source.item], undefined)
+			}
 		}
-		return select(
-			chain(
-				"UNION ALL",
-				mapNonEmpty(node.groups, (g) => group(g.arms))
-			)
-		)
+		return groupsConcatenated(mapNonEmpty(node.groups, (g) => group(g.arms)))
 	}
 
 /**
@@ -114,8 +170,8 @@ export const armBoundedUnion = (
 	total: boolean,
 	limit: () => Expr,
 	env: Env
-): Select => {
-	const op = armOperator(facts, union)
+): OperandSelect => {
+	const form = armForm(facts, union)
 	const columns = union.heading.map((c) => c.name)
 	const arms = mapNonEmpty(union.groups, (g) =>
 		mapNonEmpty(g.arms, (node) => {
@@ -135,12 +191,7 @@ export const armBoundedUnion = (
 		orderBy: orderItemsOf(order, union.heading, arm.delivered, { leading: [], total, fixed: [] }),
 		limit: k
 	})
-	return select(
-		chain(
-			"UNION ALL",
-			mapNonEmpty(arms, (group) => chain(op, mapNonEmpty(group, bounded)))
-		)
-	)
+	return groupsConcatenated(mapNonEmpty(arms, (group) => chain(form, mapNonEmpty(group, bounded))))
 }
 
 /**
@@ -168,11 +219,15 @@ export const groupRows = (
 			)
 		)
 	}
-	const proved = facts.realization(union) === "plain" && facts.unique(union)
+	const form: ArmForm =
+		facts.realization(union) === "plain" && facts.unique(union) ? "certified" : "union"
 	return select(
-		chain(
-			proved ? "UNION ALL" : "UNION",
-			mapNonEmpty(g.arms, (arm) => armBody(cx, arm, g.heading, env))
+		setBodyOf(
+			chain(
+				form,
+				mapNonEmpty(g.arms, (arm) => armBody(cx, arm, g.heading, env, form))
+			),
+			"a heading group's set union"
 		)
 	)
 }

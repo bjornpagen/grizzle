@@ -35,13 +35,13 @@ import type {
 	OptimizedStatement,
 	RelationChoice
 } from "#compiler/lower/shapes/index.ts"
-import type { Expr, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
+import type { Expr, OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
 import {
 	cast,
 	col,
-	core,
 	derived,
 	mapTargets,
+	provedCore,
 	select,
 	target,
 	targetAs,
@@ -69,7 +69,7 @@ const outputColumns = (output: StatementOutput<FusedAttachment>): ReadonlyArray<
 ]
 
 /** The output targets of a query body: a core's own, and a set operation's its left arm's, as PostgreSQL takes them. */
-const outputTargets = (body: SelectBody): ReadonlyArray<Target> => {
+const outputTargets = (body: OperandBody): ReadonlyArray<Target> => {
 	switch (body.kind) {
 		case "core":
 			return body.targets
@@ -163,7 +163,8 @@ export const executableQuery = (statement: FusedStatement<ConservativeParamSlot>
 		inner === undefined ? ast : { ...ast, body: mapTargets(inner, (t) => target(t.expr)) }
 	return {
 		...select(
-			core(
+			provedCore(
+				"keyed",
 				outputs.map((o) =>
 					targetAs(textCast(col(alias, o.derived), o.column.casts), o.column.name)
 				),

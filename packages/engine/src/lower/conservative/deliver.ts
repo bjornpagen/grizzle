@@ -36,22 +36,31 @@ import {
 	statementOutput
 } from "#compiler/lower/conservative/types.ts"
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
-import type { CountStar, Cte, Expr, FromItem, OrderItem, Select } from "#compiler/sql/ast.ts"
+import type {
+	CountStar,
+	Cte,
+	Expr,
+	FromItem,
+	OperandSelect,
+	OrderItem,
+	Select
+} from "#compiler/sql/ast.ts"
 
 import {
 	and,
 	asc,
 	col,
 	conjunction,
-	core,
 	countStar,
 	cteRef,
 	derived,
 	distinctCore,
 	eq,
 	gt,
+	keyedSet,
 	lit,
 	notExists,
+	provedSelect,
 	select,
 	simpleSelect,
 	target,
@@ -202,7 +211,7 @@ export interface ParentRows {
 	 * The statement's rows lowered again inside the statement being lowered, without the delivery ORDER BY: the key
 	 * columns, then the delivered relation's (deliveredHeading).
 	 */
-	readonly recompute: () => Select
+	readonly recompute: () => OperandSelect
 }
 
 /** The parent columns a child reads itself: its outer references to a node of the delivered rows' spine. */
@@ -357,7 +366,8 @@ export const checkedAttachment = (
 	}
 	const raised = readBack.breach(cx.supply, delivered === "one" ? [many, none()] : [many])
 	return {
-		...simpleSelect(
+		...provedSelect(
+			"keyed",
 			columns.map((c) => target(col(rv, c.kept))),
 			[cteRef(rv)],
 			raised.guard
@@ -367,7 +377,7 @@ export const checkedAttachment = (
 }
 
 /** The parent rows of a rows statement delivering a relation of heading `heading`, recomputed by `recompute`. */
-export const statementRows = (heading: Heading, recompute: () => Select): ParentRows => ({
+export const statementRows = (heading: Heading, recompute: () => OperandSelect): ParentRows => ({
 	key: noColumns,
 	heading,
 	recompute
@@ -488,7 +498,7 @@ export class Delivery<Own extends PageParamSlot = never> {
 
 	/** SELECT <columns> FROM (<rel>) AS r(...) [ORDER BY ...]: a relation delivered as the statement's rows. */
 	delivered(
-		rel: Select,
+		rel: OperandSelect,
 		heading: Heading,
 		origin: RelNode,
 		order: CompletedOrder | undefined
@@ -499,7 +509,9 @@ export class Delivery<Own extends PageParamSlot = never> {
 				? []
 				: completedOrderItems(order, heading, source.map)
 		return {
-			...select(core(headingTargets(heading, source.map), [source.item], undefined)),
+			...select(
+				keyedSet(headingTargets(heading, source.map), [source.item], undefined, "a delivery")
+			),
 			orderBy
 		}
 	}
@@ -512,7 +524,7 @@ export class Delivery<Own extends PageParamSlot = never> {
 		const order = root.kind === "OrderedResult" ? root.order : undefined
 		const rows = root.kind === "OrderedResult" ? root.input : root
 		this.beginStatement()
-		const rel = (): Select => this.cx.lower(rows, emptyEnv)
+		const rel = (): OperandSelect => this.cx.lower(rows, emptyEnv)
 		const query = this.delivered(rel(), rows.heading, rows, order)
 		const statement = this.statement(query, rows.heading, {
 			role: { kind: "main" },

@@ -7,26 +7,32 @@ import type {
 	Expr,
 	FrameBound,
 	FunctionCall,
+	OperandBody,
+	OperandSelect,
 	OrderItem,
 	Select,
-	SelectBody,
+	SetOperand,
 	SetOperator,
 	WindowSpec
 } from "#compiler/sql/ast.ts"
 
 import {
 	asc,
+	asOperand,
 	binary,
 	call,
-	asOperand,
 	cast,
 	col,
 	continued,
 	core,
 	countStar,
 	cUtf8Collation,
+	derived,
 	desc,
+	distinctCore,
 	lit,
+	operandSelect,
+	provedCore,
 	select,
 	tableCol,
 	target,
@@ -547,11 +553,26 @@ const setRows = (tree: SetTree): ReadonlyArray<number> => {
  * operation reads the output c1, and a parenthesized level is a query ordering that body by it.
  */
 interface Built {
-	readonly body: SelectBody
+	readonly body: OperandBody
 	readonly key: Expr
 }
 
 const output: Expr = tableCol("c1")
+
+/**
+ * `body` then `arm` under `op`, left to right, as `continued` combines them; a UNION ALL is an operand, its rows those
+ * of its arms, repeats and all.
+ */
+const joined = (op: SetOperator, body: OperandBody, arm: SetOperand): OperandBody => {
+	if (op !== "UNION ALL") {
+		return continued(op, body, arm)
+	}
+	if (body.kind === "setOp" && body.op === "UNION ALL" && body.rows === "operand") {
+		const [first, second, ...rest] = body.arms
+		return { ...body, arms: [first, second, ...rest, arm] }
+	}
+	return { kind: "setOp", op, rows: "operand", arms: [asOperand(body), arm] }
+}
 
 const setBody = (tree: SetTree, alias: () => string): Built => {
 	switch (tree.kind) {
@@ -575,7 +596,7 @@ const setBody = (tree: SetTree, alias: () => string): Built => {
 		}
 		case "op":
 			return {
-				body: continued(
+				body: joined(
 					tree.op,
 					setBody(tree.left, alias).body,
 					asOperand(setBody(tree.right, alias).body)
@@ -586,7 +607,7 @@ const setBody = (tree: SetTree, alias: () => string): Built => {
 			const inner = setBody(tree.tree, alias)
 			return {
 				body: {
-					...select(inner.body),
+					...operandSelect(inner.body),
 					orderBy: [desc(inner.key)],
 					limit: lit.int(tree.k, types.bigint)
 				},
@@ -608,8 +629,17 @@ export const setCaseGen: Gen<SetCase> = (source) => {
 		n += 1
 		return `r${n}`
 	})
-	const statement: Select = body.kind === "select" ? (wrapped ? select(body) : body) : select(body)
-	return { statement, rows: Arr.sort([...setRows(tree)], Order.Number) }
+	/** The tree's rows may repeat, under UNION ALL or a VALUES leaf: the statement reads them as a set. */
+	const query: OperandSelect =
+		body.kind === "select" ? (wrapped ? operandSelect(body) : body) : operandSelect(body)
+	const statement: Select = select(
+		distinctCore(
+			[targetAs(col("r0", "c1"), "c1")],
+			[derived(query, "r0", ["c1"], false)],
+			undefined
+		)
+	)
+	return { statement, rows: Arr.sort([...distinct(setRows(tree))], Order.Number) }
 }
 
 export interface AggregateCase {
@@ -695,7 +725,8 @@ export const aggregateCaseGen: Gen<AggregateCase> = (source) => {
 	return {
 		statement: {
 			...select({
-				...core(
+				...provedCore(
+					"grouped",
 					[
 						targetAs(col("r1", "c1"), "c1"),
 						...Arr.map(specs, (spec, i) =>
@@ -885,7 +916,8 @@ export const relationalSketchGen: Gen<RelationalSketch> = (source) => {
 /** The statement a relational sketch prints, the rows PostgreSQL returns for it, and what it reached. */
 export const resolveRelational = (sketch: RelationalSketch): RelationalCase => {
 	const r1 = Arr.map(sketch.r1, (row, i) => ({ id: i + 1, value: row.value, group: row.group }))
-	const r2 = sketch.r2
+	/** r2 is a relation, a set: its values once each. */
+	const r2 = Arr.dedupe(sketch.r2)
 	const r1From = {
 		kind: "values" as const,
 		rows: Arr.map(r1, (r) => [
@@ -908,7 +940,8 @@ export const resolveRelational = (sketch: RelationalSketch): RelationalCase => {
 			return {
 				statement: {
 					...select(
-						core(
+						provedCore(
+							"keyed",
 							[targetAs(col("r1", "c1"), "c1"), targetAs(col("r2", "c1"), "c2")],
 							[
 								{ kind: "joins", first: r1From, steps: [{ kind: "cross", source: r2Values("r2") }] }
@@ -927,7 +960,7 @@ export const resolveRelational = (sketch: RelationalSketch): RelationalCase => {
 		case "not in": {
 			/** The subquery keeps the values above the floor, which may keep none. */
 			const kept = Arr.filter(r2, (x) => x > form.floor)
-			const subquery = select(
+			const subquery = operandSelect(
 				core(
 					[target(col("r2", "c1"))],
 					[r2Values("r2")],
@@ -938,7 +971,7 @@ export const resolveRelational = (sketch: RelationalSketch): RelationalCase => {
 			return {
 				statement: {
 					...select(
-						core([targetAs(col("r1", "c1"), "c1")], [r1From], {
+						provedCore("keyed", [targetAs(col("r1", "c1"), "c1")], [r1From], {
 							kind: "inQuery",
 							expr: col("r1", "c2"),
 							query: subquery,
@@ -988,7 +1021,8 @@ export const resolveRelational = (sketch: RelationalSketch): RelationalCase => {
 			return {
 				statement: {
 					...select(
-						core(
+						provedCore(
+							"keyed",
 							[
 								targetAs(col("r1", "c1"), "c1"),
 								targetAs(cast({ ...call("sum", [col("r1", "c2")]), over }, types.text), "c2"),

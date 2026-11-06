@@ -1,4 +1,5 @@
 import { maxOf } from "#compiler/core/array.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type {
 	AlterDomain,
@@ -53,7 +54,9 @@ import type {
 	RaiseOption,
 	RenameObject,
 	Select,
-	SelectBody,
+	OperandBody,
+	OperandSelect,
+	SetArm,
 	SelectCore,
 	SetOperand,
 	SetOperation,
@@ -67,7 +70,7 @@ import type {
 	WindowSpec,
 	With
 } from "#compiler/sql/ast.ts"
-import { isValuesTarget } from "#compiler/sql/ast.ts"
+import { isSetBody, isSetQuery, isValuesTarget } from "#compiler/sql/ast.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
@@ -121,7 +124,7 @@ export interface AstHooks {
 	readonly fromSource: (source: FromSource, original: FromSource) => FromSource
 	readonly joins: (chain: JoinChain, original: JoinChain) => JoinChain
 	readonly core: (core: SelectCore, original: SelectCore) => SelectCore
-	readonly select: (select: Select, original: Select) => Select
+	readonly select: (select: OperandSelect, original: OperandSelect) => OperandSelect
 	/** A FROM source's replacement before its children are rewritten, or undefined to rewrite it as usual. */
 	readonly replaceSource: (source: FromSource) => FromSource | undefined
 	readonly objectName: (name: ObjectName, namespace: NameSpace) => ObjectName
@@ -176,7 +179,7 @@ class Transform {
 	readonly #fromSource: (source: FromSource, original: FromSource) => FromSource
 	readonly #joins: (chain: JoinChain, original: JoinChain) => JoinChain
 	readonly #core: (core: SelectCore, original: SelectCore) => SelectCore
-	readonly #select: (select: Select, original: Select) => Select
+	readonly #select: (select: OperandSelect, original: OperandSelect) => OperandSelect
 	readonly #replaceSource: (source: FromSource) => FromSource | undefined
 	readonly #objectName: (name: ObjectName, namespace: NameSpace) => ObjectName
 	readonly #constraintName: (table: ObjectName, name: string) => string
@@ -306,9 +309,12 @@ class Transform {
 				return expr === e.expr && query === e.query ? e : { ...e, expr, query }
 			}
 			case "exists":
-			case "subquery":
-			case "array": {
+			case "subquery": {
 				const query = this.select(e.query)
+				return query === e.query ? e : { ...e, query }
+			}
+			case "array": {
+				const query = this.setQuery(e.query)
 				return query === e.query ? e : { ...e, query }
 			}
 			case "row": {
@@ -492,7 +498,9 @@ class Transform {
 	/** A core's projection as its children rebuilt it, distinct by distinct. */
 	#projection(c: CoreProjection): CoreProjection {
 		if (c.distinct === false) {
-			return { distinct: false, targets: this.targets(c.targets) }
+			return c.rows === "operand"
+				? { distinct: false, rows: c.rows, targets: this.targets(c.targets) }
+				: { distinct: false, rows: c.rows, targets: this.targets(c.targets) }
 		}
 		const d = c.distinct
 		if (d === true) {
@@ -506,20 +514,68 @@ class Transform {
 	}
 
 	setOp(s: SetOperation): SetOperation {
-		const [first, second, ...rest] = s.arms
-		const arms = kept<SetOperation["arms"]>(s.arms, [
+		if (s.op !== "UNION ALL") {
+			const arms = this.#operands(s.arms)
+			return arms === s.arms ? s : { ...s, arms }
+		}
+		switch (s.rows) {
+			case "disjoint":
+			case "certified": {
+				const [first, second, ...rest] = s.arms
+				const arms = kept(s.arms, [
+					this.setArm(first),
+					this.setArm(second),
+					...rest.map((a) => this.setArm(a))
+				])
+				return arms === s.arms ? s : { ...s, arms }
+			}
+			case "oneRow":
+			case "operand": {
+				const arms = this.#operands(s.arms)
+				return arms === s.arms ? s : { ...s, arms }
+			}
+		}
+	}
+
+	/** A set operation's arms rebuilt, the same array when every arm is kept. */
+	#operands(
+		arms: readonly [SetOperand, SetOperand, ...Array<SetOperand>]
+	): readonly [SetOperand, SetOperand, ...Array<SetOperand>] {
+		const [first, second, ...rest] = arms
+		return kept<readonly [SetOperand, SetOperand, ...Array<SetOperand>]>(arms, [
 			this.operand(first),
 			this.operand(second),
 			...rest.map((a) => this.operand(a))
 		])
-		return arms === s.arms ? s : { ...s, arms }
 	}
 
 	operand(o: SetOperand): SetOperand {
 		return o.kind === "core" ? this.core(o) : this.select(o)
 	}
 
-	body(b: SelectBody): SelectBody {
+	/** A set arm rebuilt, a set still: a rewrite keeps a set's rows a set. */
+	setArm(a: SetArm): SetArm {
+		const rebuilt = this.operand(a)
+		if (rebuilt.kind === "core") {
+			if (isSetBody(rebuilt)) {
+				return rebuilt
+			}
+		} else if (isSetQuery(rebuilt)) {
+			return rebuilt
+		}
+		throw defect("a rewrite that keeps a UNION ALL arm a set")
+	}
+
+	/** A set query rebuilt, a set still: a rewrite keeps a set's rows a set. */
+	setQuery(q: Select): Select {
+		const rebuilt = this.select(q)
+		if (!isSetQuery(rebuilt)) {
+			throw defect("a rewrite that keeps a set query a set")
+		}
+		return rebuilt
+	}
+
+	body(b: OperandBody): OperandBody {
 		switch (b.kind) {
 			case "core":
 				return this.core(b)
@@ -555,9 +611,9 @@ class Transform {
 		}
 	}
 
-	readonly select = (s: Select): Select => this.#select(this.selectChildren(s), s)
+	readonly select = (s: OperandSelect): OperandSelect => this.#select(this.selectChildren(s), s)
 
-	selectChildren(s: Select): Select {
+	selectChildren(s: OperandSelect): OperandSelect {
 		const w = s.with === undefined ? undefined : this.with(s.with)
 		const body = this.body(s.body)
 		const orderBy = this.orderItems(s.orderBy)
@@ -628,7 +684,7 @@ class Transform {
 			const rows = mapNonEmptyKept(t.source.rows, this.exprs)
 			return rows === t.source.rows ? t : { columns: t.columns, source: { ...t.source, rows } }
 		}
-		const query = this.select(t.source.query)
+		const query = this.setQuery(t.source.query)
 		return query === t.source.query ? t : { columns: t.columns, source: { ...t.source, query } }
 	}
 
@@ -751,7 +807,7 @@ class Transform {
 	dml(s: Dml): Dml {
 		switch (s.kind) {
 			case "select":
-				return this.select(s)
+				return this.setQuery(s)
 			case "insert":
 				return this.insert(s)
 			case "update":
@@ -1000,7 +1056,7 @@ class Transform {
 				return value === s.value ? s : { ...s, value }
 			}
 			case "forQuery": {
-				const query = this.select(s.query)
+				const query = this.setQuery(s.query)
 				const body = this.plStatements(s.body)
 				return query === s.query && body === s.body ? s : { ...s, query, body }
 			}
@@ -1129,7 +1185,7 @@ class Transform {
 			case "createMaterializedView":
 			case "createView": {
 				const name = this.name(s.name, "relation")
-				const query = this.select(s.query)
+				const query = this.setQuery(s.query)
 				return name === s.name && query === s.query ? s : { ...s, name, query }
 			}
 			case "createPolicy": {
@@ -1297,6 +1353,9 @@ class Transform {
 
 export const transformExpr = (e: Expr, hooks: AstHooks): Expr => new Transform(hooks).expr(e)
 export const transformSelect = (s: Select, hooks: AstHooks): Select =>
+	new Transform(hooks).setQuery(s)
+/** A query that may stand only as an operand, rebuilt by `hooks`. */
+export const transformOperand = (s: OperandSelect, hooks: AstHooks): OperandSelect =>
 	new Transform(hooks).select(s)
 
 export const transformCreateIndex = (s: CreateIndex, hooks: AstHooks): CreateIndex =>
@@ -1405,7 +1464,7 @@ class Visit {
 		this.#v = v
 	}
 
-	select(s: Select): undefined {
+	select(s: OperandSelect): undefined {
 		inKeyOrder(Object.keys(s), [
 			[
 				"with",
@@ -1488,7 +1547,7 @@ class Visit {
 		}
 	}
 
-	body(b: SelectBody): undefined {
+	body(b: OperandBody): undefined {
 		switch (b.kind) {
 			case "core": {
 				this.core(b)
@@ -2112,6 +2171,6 @@ class Visit {
 }
 
 /** Every expression, FROM item, WITH clause and set operation of a query, outermost first. */
-export const visitSelect = (query: Select, visitor: AstVisitor): undefined => {
+export const visitSelect = (query: OperandSelect, visitor: AstVisitor): undefined => {
 	new Visit(visitor).select(query)
 }

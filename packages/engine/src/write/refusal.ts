@@ -14,9 +14,9 @@ import type {
 	FromItem,
 	FunctionName,
 	FunctionParam,
+	OperandCore,
 	Revoke,
-	Select,
-	SelectCore
+	Select
 } from "#compiler/sql/ast.ts"
 
 import {
@@ -30,9 +30,9 @@ import {
 	cteRef,
 	lit,
 	notExists,
+	proved,
 	qualifiedCall,
 	select,
-	setOp,
 	simpleSelect,
 	tableCol,
 	target,
@@ -389,7 +389,7 @@ const sourcedGuard = (
 	const state = supply.column(internal("refusal SQLSTATE"))
 	const constraint = supply.column(internal("refusal constraint"))
 	const detail = supply.column(internal("refusal DETAIL"))
-	const arm = (a: SourcedArm): SelectCore => {
+	const arm = (a: SourcedArm): OperandCore => {
 		const r = raised(a.refusal)
 		return core(
 			[
@@ -404,15 +404,21 @@ const sourcedGuard = (
 	}
 	/** One arm sorts by its DETAIL, which holds the key, so the sort is never a constant one the planner drops; several
 	 * sort by rank, then DETAIL. */
+	const [second, ...others] = rest
 	const query: Select =
-		rest.length === 0
+		second === undefined
 			? {
-					...select(arm(first)),
+					...select(proved("oneRow", arm(first))),
 					orderBy: [asc(raised(first.refusal).detail)],
 					limit: lit.int(1, types.integer)
 				}
 			: {
-					...select(setOp("UNION ALL", [arm(first), ...rest.map(arm)])),
+					...select({
+						kind: "setOp",
+						op: "UNION ALL",
+						rows: "oneRow",
+						arms: [arm(first), arm(second), ...others.map(arm)]
+					}),
 					orderBy: [asc(tableCol(rank)), asc(tableCol(detail))],
 					limit: lit.int(1, types.integer)
 				}

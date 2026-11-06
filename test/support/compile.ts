@@ -44,7 +44,7 @@ import {
 	type WorkloadPlan
 } from "#compiler/program/workload/compile.ts"
 import { type Owned, own, ownRole, rostersOf } from "#compiler/schema/own.ts"
-import type { Select } from "#compiler/sql/ast.ts"
+import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import type { CompileWriteOptions } from "#compiler/write/program/compile.ts"
 import { checkedLowering, templateLowering } from "#test/support/oracle/verify/index.ts"
@@ -358,7 +358,11 @@ export const installationSql = (installation: Installation): ReadonlyArray<strin
 	Arr.map(installation.statements, (statement) => printStatement(statement))
 
 /** The catalog kind table's entry at a node's kind, which the table's mapped type gives that kind's node. */
-const catalogLowerer = <K extends RelKind>(node: NodeOf<K>, cx: LowerContext, env: Env): Select => {
+const catalogLowerer = <K extends RelKind>(
+	node: NodeOf<K>,
+	cx: LowerContext,
+	env: Env
+): OperandSelect => {
 	const lower: NodeLowerer<K> = catalogLowerers[node.kind]
 	return lower(node, cx, env)
 }
@@ -367,5 +371,5 @@ const catalogLowerer = <K extends RelKind>(node: NodeOf<K>, cx: LowerContext, en
  * The catalog lowering as one dispatch (lower/shapes/catalog/native.ts catalogLowerers): a node to its kind's plug-in
  * of the conservative table with the catalog's native targets in place of its refusals of the internal kinds.
  */
-export const catalogDispatch = (node: RelNode, cx: LowerContext, env: Env): Select =>
+export const catalogDispatch = (node: RelNode, cx: LowerContext, env: Env): OperandSelect =>
 	catalogLowerer(node, cx, env)

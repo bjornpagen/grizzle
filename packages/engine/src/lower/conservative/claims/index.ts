@@ -7,7 +7,7 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import type { ContextColumn, ContextSource } from "#compiler/sql/ast.ts"
-import { col, columnDefinition, core, select, target } from "#compiler/sql/build.ts"
+import { col, columnDefinition, provedCore, select, target } from "#compiler/sql/build.ts"
 
 /**
  * Context: a context's one fact, read from the session's claims through its context source (sql/ast.ts ContextSource).
@@ -42,7 +42,8 @@ const lowerContext: NodeLowerer<"Context"> = (node, cx) => {
 		alias: cx.relationAlias(origin)
 	}
 	return select(
-		core(
+		provedCore(
+			"oneRow",
 			columns.map((c) => target(col(source.alias, c.column.name))),
 			[source],
 			undefined

@@ -29,6 +29,7 @@ import { type Lexed, lex } from "#compiler/sql/lexer.ts"
 import { bodyPositionNames } from "#compiler/sql/naming.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
 import { problem, type VerificationProblem } from "#test/support/oracle/verify/problems.ts"
+import { rowsViolations } from "#test/support/oracle/verify/rows.ts"
 import {
 	auditStatementDetailed,
 	auditTextViolations,
@@ -79,6 +80,9 @@ const statementSql = (
 	const out: Array<VerificationProblem> = []
 	for (const v of audit.violations) {
 		out.push(problem("statementAudit", where, `${v.rule} at ${v.where}: ${v.detail}`))
+	}
+	for (const v of rowsViolations(s.ast)) {
+		out.push(problem("statementRows", where, v))
 	}
 	if (printStatement(s.ast) !== s.sql.text) {
 		out.push(problem("statementText", where, "the text the AST prints"))

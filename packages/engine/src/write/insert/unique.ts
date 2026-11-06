@@ -22,24 +22,25 @@ import {
 import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
-import type { Cte, Expr, OrderItem, Select, SelectCore } from "#compiler/sql/ast.ts"
+import type { Cte, Expr, OrderItem, Select, SetCore } from "#compiler/sql/ast.ts"
 import {
 	and,
 	asc,
 	binary,
 	col,
-	core,
 	cte,
 	cteRef,
 	cteRefAs,
 	exists,
 	lit,
 	notExists,
+	provedCore,
+	provedSelect,
 	select,
-	setOp,
 	simpleSelect,
 	target,
-	types
+	types,
+	unionAll
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
@@ -367,7 +368,7 @@ export const buildProbe = (
 			: mapNonEmpty(check.equal, (f) => same(f, a(f), b(f)))
 	const one = [target(lit.int(1, types.integer))]
 	const fact = (f: LawField) => inCol(input, f)
-	const branches: Array<SelectCore> = []
+	const branches: Array<SetCore> = []
 	for (const [i, { object: check, pairs }] of checks.entries()) {
 		const ordinal = i + 1
 		const own = predicate(check, fact)
@@ -376,7 +377,8 @@ export const buildProbe = (
 			const other = supply.relation(internal("other requested fact"))
 			const otherCol = (f: LawField) => inCol(other, f)
 			branches.push(
-				core(
+				provedCore(
+					"keyed",
 					[...fields.map((f) => target(fact(f))), target(lit.int(-ordinal, types.integer))],
 					[cteRef(input)],
 					and(
@@ -415,7 +417,8 @@ export const buildProbe = (
 			)
 		}
 		branches.push(
-			core(
+			provedCore(
+				"keyed",
 				[...fields.map((f) => target(fact(f))), target(lit.int(ordinal, types.integer))],
 				[cteRef(input)],
 				and(
@@ -465,10 +468,11 @@ export const buildProbe = (
 		const allCol = (f: LawField) => col(all, probed.of(f))
 		const allOrdinal = col(all, probedOrdinal)
 		ctes.push(
-			cte(all, [...probed.columns, probedOrdinal], select(setOp("UNION ALL", [first, ...rest])))
+			cte(all, [...probed.columns, probedOrdinal], select(unionAll("disjoint", [first, ...rest])))
 		)
 		query = {
-			...simpleSelect(
+			...provedSelect(
+				"keyed",
 				[...fields.map((f) => target(allCol(f))), target(allOrdinal)],
 				[cteRef(all)],
 				undefined

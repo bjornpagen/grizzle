@@ -11,15 +11,16 @@ import type {
 	FromItem,
 	FromSource,
 	ObjectName,
+	OperandBody,
+	OperandSelect,
 	Select,
-	SelectBody,
 	SelectCore,
 	SetOperand,
 	Target,
 	TypeRef,
 	With
 } from "#compiler/sql/ast.ts"
-import { cast, mapTargets, sameTypeRef } from "#compiler/sql/build.ts"
+import { cast, mapTargets, sameTypeRef, setBodyOf, withArms } from "#compiler/sql/build.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 
 type Verdict = "proved" | "unproved"
@@ -66,7 +67,7 @@ export const coreScope = (core: SelectCore, enclosing: Scope): Scope => {
 	return { items, ctes: enclosing.ctes, active: enclosing.active, outer: enclosing }
 }
 
-export const withScope = (select: Select, enclosing: Scope): Scope =>
+export const withScope = (select: OperandSelect, enclosing: Scope): Scope =>
 	select.with === undefined ? enclosing : { ...enclosing, ctes: [select.with, ...enclosing.ctes] }
 
 /** The key of an installed table's column: its schema, table and column, three identifiers, never one text. */
@@ -116,12 +117,17 @@ export class Tracer {
 	}
 
 	/** The verdicts of the values output position `position` of `select` delivers. */
-	select(select: Select, position: number, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
+	select(
+		select: OperandSelect,
+		position: number,
+		scope: Scope,
+		claim: Claim
+	): ReadonlyArray<Verdict> {
 		return this.body(select.body, position, withScope(select, scope), claim)
 	}
 
 	/** A core whose WHERE is false delivers no row, so it defines no value: an empty Closed source's placeholder rows. */
-	body(body: SelectBody, position: number, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
+	body(body: OperandBody, position: number, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
 		switch (body.kind) {
 			case "core": {
 				if (body.where !== undefined && isFalse(body.where)) {
@@ -330,21 +336,21 @@ export const domainOf = (cx: LowerContext, t: ScalarType): TypeRef | undefined =
 	return p.kind === "type" && p.ref.kind === "named" ? p.ref : undefined
 }
 
-/** The delivered targets with the domain casts at `casts` (position to domain), in every arm of a set operation. */
-export const castBody = (body: SelectBody, casts: ReadonlyMap<number, TypeRef>): SelectBody => {
+/**
+ * The delivered targets with the domain casts at `casts` (position to domain), in every arm of a set operation: a cast
+ * of targets keeps a set's rows a set.
+ */
+export const castBody = (body: OperandBody, casts: ReadonlyMap<number, TypeRef>): OperandBody => {
 	switch (body.kind) {
 		case "core":
 			return castOperand(body, casts)
 		case "setOp": {
 			const [first, second, ...rest] = body.arms
-			return {
-				...body,
-				arms: [
-					castOperand(first, casts),
-					castOperand(second, casts),
-					...rest.map((a) => castOperand(a, casts))
-				]
-			}
+			return withArms(body, [
+				castOperand(first, casts),
+				castOperand(second, casts),
+				...rest.map((a) => castOperand(a, casts))
+			])
 		}
 		case "select":
 			return castOperand(body, casts)
@@ -488,5 +494,5 @@ export const refineConservative = (
 		const now = renamed.get(o.expr)
 		return now === undefined ? o : { ...o, expr: now }
 	})
-	return { ...relabeled, body, orderBy }
+	return { ...relabeled, body: setBodyOf(body, "the refined outputs' casts"), orderBy }
 }

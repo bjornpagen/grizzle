@@ -9,8 +9,8 @@ import type { Heading, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
-import type { Select } from "#compiler/sql/ast.ts"
-import { cast, core, select, target, types } from "#compiler/sql/build.ts"
+import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
+import { cast, provedCore, select, target, types } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { renameToPublicHeading } from "#compiler/sql/naming.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -135,7 +135,7 @@ export const emitWith = (
 	names: PhysicalNames,
 	heading: Heading,
 	origin: RelNode,
-	build: (cx: LowerContext) => Select
+	build: (cx: LowerContext) => OperandSelect
 ): { readonly sql: string; readonly ast: Select } => {
 	const cx = new LowerContext(
 		dag,
@@ -153,7 +153,8 @@ export const emitWith = (
 	const query = built.value
 	const source = cx.wrap(query, heading, { kind: "node", node: origin.id })
 	const delivered = select(
-		core(
+		provedCore(
+			"keyed",
 			Arr.map(heading, (c) => {
 				const column = source.map.get(c.name)
 				if (column === undefined) {

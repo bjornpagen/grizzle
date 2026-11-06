@@ -195,7 +195,7 @@ const shapeDispatch = (facts: ShapeFacts): NodeDispatch => {
 					return query
 				}
 				return facts.realization(node) === "plain"
-					? withoutBoundary(query)
+					? withoutBoundary(query, "certified")
 					: withBoundary(cx, node, query)
 			}
 		}

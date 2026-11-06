@@ -2,11 +2,20 @@ import { nominal } from "#compiler/core/brand.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { FieldId, NodeId, OccurrenceId, ParamId, VarId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { derived } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { OrderItem, Select, SelectBody, SelectCore, SetOperand } from "#compiler/sql/ast.ts"
-import { mapTargets } from "#compiler/sql/build.ts"
+import {
+	isSetQuery,
+	type OperandBody,
+	type OperandSelect,
+	type OrderItem,
+	type Select,
+	type SelectCore,
+	type SetOperand
+} from "#compiler/sql/ast.ts"
+import { mapTargets, withArms } from "#compiler/sql/build.ts"
 
 /**
  * Single-assignment SQL names.
@@ -230,7 +239,7 @@ const renameCore = (
  * operation's names are its left arm's, as PostgreSQL takes them. The kernel's audit holds a set operation's ORDER BY
  * and its arms' names to these, so the rename below reads the same names.
  */
-export const bodyPositionNames = (body: SelectBody): ReadonlyArray<string | undefined> => {
+export const bodyPositionNames = (body: OperandBody): ReadonlyArray<string | undefined> => {
 	switch (body.kind) {
 		case "core":
 			return body.targets.map(
@@ -264,9 +273,9 @@ const renameOrderBy = (
 	})
 
 const renameSelect = (
-	select: Select,
+	select: OperandSelect,
 	heading: ReadonlyArray<string>
-): Result.Result<Select, CompileError> =>
+): Result.Result<OperandSelect, CompileError> =>
 	Result.map(renameBody(select.body, heading), (body) => {
 		if (select.orderBy.length === 0 || select.body.kind === "core") {
 			return { ...select, body }
@@ -283,9 +292,9 @@ const renameSelect = (
  * each arm reads on its own.
  */
 const renameBody = (
-	body: SelectBody,
+	body: OperandBody,
 	heading: ReadonlyArray<string>
-): Result.Result<SelectBody, CompileError> => {
+): Result.Result<OperandBody, CompileError> => {
 	switch (body.kind) {
 		case "core":
 		case "select":
@@ -295,7 +304,7 @@ const renameBody = (
 			return Result.flatMap(renameOperand(first, heading), (a) =>
 				Result.flatMap(
 					renameOperand(second, heading),
-					(b): Result.Result<SelectBody, CompileError> => {
+					(b): Result.Result<OperandBody, CompileError> => {
 						const more: Array<SetOperand> = []
 						for (const arm of rest) {
 							const renamed = renameOperand(arm, heading)
@@ -304,7 +313,7 @@ const renameBody = (
 							}
 							more.push(renamed.value)
 						}
-						return Result.ok({ ...body, arms: [a, b, ...more] })
+						return Result.ok(withArms(body, [a, b, ...more]))
 					}
 				)
 			)
@@ -325,4 +334,10 @@ const renameOperand = (
 export const renameToPublicHeading = (
 	select: Select,
 	heading: ReadonlyArray<string>
-): Result.Result<Select, CompileError> => renameSelect(select, heading)
+): Result.Result<Select, CompileError> =>
+	Result.map(renameSelect(select, heading), (renamed) => {
+		if (!isSetQuery(renamed)) {
+			throw defect("a rename that keeps a set query a set")
+		}
+		return renamed
+	})

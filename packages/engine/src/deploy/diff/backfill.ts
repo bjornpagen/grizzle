@@ -73,8 +73,9 @@ import {
 	lit,
 	not,
 	objectName,
+	provedCore,
 	select,
-	setOp,
+	setOperation,
 	tableCol,
 	targetAs,
 	types
@@ -248,7 +249,7 @@ const layered = (
 			...names.map((n) => targetAs(tableCol(n), n)),
 			...layer.columns.map((c) => targetAs(c.expr, c.name))
 		]
-		query = select(core(targets, [from], undefined))
+		query = select(provedCore("keyed", targets, [from], undefined))
 		for (const c of layer.columns) {
 			names.push(c.name)
 		}
@@ -563,7 +564,7 @@ const grouped = (
 	targets: ReadonlyArray<Target>,
 	from: ReadonlyArray<FromItem>,
 	groupBy: ReadonlyArray<Expr>
-): Select => select({ ...core(targets, from, undefined), groupBy })
+): Select => select({ ...provedCore("grouped", targets, from, undefined), groupBy })
 
 /** The names the tree's backfill gives what it computes, none a field's (no declared name starts with an underscore). */
 const ancestorName = (k: number): string => `__a_${k}`
@@ -622,7 +623,7 @@ const treeUpdate = (
 		closureName,
 		[...ancestors, ...descendants],
 		select(
-			setOp("UNION", [
+			setOperation("UNION", [
 				core(
 					[
 						...owner.map((c, k) => targetAs(col("t", c), ancestorName(k))),
@@ -685,7 +686,8 @@ const treeUpdate = (
 		rankedName,
 		[],
 		select(
-			core(
+			provedCore(
+				"keyed",
 				[
 					...carried.map((c) => targetAs(col("t", c), c)),
 					targetAs(rootOf("t"), "__root"),
@@ -773,7 +775,8 @@ const treeUpdate = (
 		steppedName,
 		[],
 		select(
-			core(
+			provedCore(
+				"keyed",
 				[
 					...rankedColumns.map((c) => targetAs(col("r", c), c)),
 					targetAs(
@@ -826,7 +829,8 @@ const treeUpdate = (
 		)
 	)
 	const drawn: Select = select(
-		core(
+		provedCore(
+			"keyed",
 			[
 				...key.map((k) => targetAs(col("st", k), k)),
 				targetAs(col("st", "__at"), "__at"),

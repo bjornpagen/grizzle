@@ -17,9 +17,9 @@ import type {
 	FromItem,
 	Insert,
 	Select,
-	SelectCore
+	SetCore
 } from "#compiler/sql/ast.ts"
-import { col, core, cUtf8Collation, select, simpleSelect, target } from "#compiler/sql/build.ts"
+import { col, cUtf8Collation, keyedSet, provedCore, select, target } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import {
 	carrierDigestHex,
@@ -263,9 +263,10 @@ type CarrierSource =
 	  }
 
 /** A relation's stored facts, its fields in heading order, read under `names`. */
-const storedBody = (w: WriteContext, relation: RelationInfo, names: PhysicalNames): SelectCore => {
+const storedBody = (w: WriteContext, relation: RelationInfo, names: PhysicalNames): SetCore => {
 	const alias = w.cx.supply.relation({ kind: "internal", purpose: "carrier operand" })
-	return core(
+	return provedCore(
+		"keyed",
 		relation.heading.map((f) => target(col(alias, names.column(relation.name, f.name)))),
 		[{ kind: "table", table: names.relation(relation.name), alias }],
 		undefined
@@ -273,9 +274,10 @@ const storedBody = (w: WriteContext, relation: RelationInfo, names: PhysicalName
 }
 
 /** A carrier's rows, its columns in heading order. */
-const carrierBody = (w: WriteContext, carrier: Carrier): SelectCore => {
+const carrierBody = (w: WriteContext, carrier: Carrier): SetCore => {
 	const alias = w.cx.supply.relation({ kind: "internal", purpose: "carrier operand" })
-	return core(
+	return provedCore(
+		"keyed",
 		carrier.heading.map((c) => target(col(alias, c.column))),
 		[carrierScan(carrier, alias)],
 		undefined
@@ -292,14 +294,17 @@ export const memberRows = (
 ): Select => {
 	const lowered = w.cx.lower(node, emptyEnv)
 	const wrapped = w.cx.wrap(lowered, node.heading, { kind: "node", node: node.id })
-	return simpleSelect(
-		heading.map((c) => {
-			const value = columnIn(wrapped.map, c.name)
-			const type = columnType(node.heading, c.name)
-			return target(writeValue(w, value, { type, sqlType: undefined }, c.type, at))
-		}),
-		[wrapped.item],
-		undefined
+	return select(
+		keyedSet(
+			heading.map((c) => {
+				const value = columnIn(wrapped.map, c.name)
+				const type = columnType(node.heading, c.name)
+				return target(writeValue(w, value, { type, sqlType: undefined }, c.type, at))
+			}),
+			[wrapped.item],
+			undefined,
+			"a described member's rows"
+		)
 	)
 }
 

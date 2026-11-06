@@ -25,7 +25,14 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { TestContext } from "vitest"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import type { Expr, Select, SelectBody, SelectCore, SetOperation } from "#compiler/sql/ast.ts"
+import type {
+	Expr,
+	OperandBody,
+	OperandSelect,
+	Select,
+	SelectCore,
+	SetOperation
+} from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { optimizedShrink, validRewriteRules } from "#test/pg/oracle/optimized/suite.ts"
 import {
@@ -62,13 +69,13 @@ type ValidId = "V1" | "V2" | "V3" | "V5" | "V6"
  */
 interface Parts {
 	readonly cores: ReadonlyArray<SelectCore>
-	readonly selects: ReadonlyArray<Select>
+	readonly selects: ReadonlyArray<OperandSelect>
 	readonly exprs: ReadonlyArray<Expr>
 }
 
 const partsOf = (statements: ReadonlyArray<{ readonly ast: Select }>): Parts => {
 	const cores: Array<SelectCore> = []
-	const selects: Array<Select> = []
+	const selects: Array<OperandSelect> = []
 	const exprs: Array<Expr> = []
 	for (const s of statements) {
 		transformStatement(s.ast, {
@@ -105,14 +112,15 @@ const plainCore = (core: SelectCore): boolean =>
 	)
 
 /** Whether a query's top core is a plain core. */
-const plainQuery = (query: Select): boolean => query.body.kind === "core" && plainCore(query.body)
+const plainQuery = (query: OperandSelect): boolean =>
+	query.body.kind === "core" && plainCore(query.body)
 
 /** Whether some statement has an EXISTS over a plain witness. */
 const plainExists = (statements: ReadonlyArray<{ readonly ast: Select }>): boolean =>
 	Arr.some(partsOf(statements).exprs, (e) => e.kind === "exists" && plainQuery(e.query))
 
 /** The set operation a query body is, if any; a parenthesized query arm is a query of its own. */
-const setOperations = (body: SelectBody): ReadonlyArray<SetOperation> =>
+const setOperations = (body: OperandBody): ReadonlyArray<SetOperation> =>
 	body.kind === "setOp" ? [body] : []
 
 const unionAll = (statements: ReadonlyArray<{ readonly ast: Select }>): boolean =>
@@ -121,7 +129,7 @@ const unionAll = (statements: ReadonlyArray<{ readonly ast: Select }>): boolean 
 	)
 
 /** The top-level cores of a set operation's arms. */
-const armCores = (body: SelectBody): ReadonlyArray<SelectCore> => {
+const armCores = (body: OperandBody): ReadonlyArray<SelectCore> => {
 	switch (body.kind) {
 		case "setOp":
 			return Arr.flatMap(body.arms, armCores)

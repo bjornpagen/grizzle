@@ -40,7 +40,7 @@ import {
 	eq,
 	lit,
 	objectName,
-	simpleSelect,
+	provedSelect,
 	table,
 	target,
 	types
@@ -190,7 +190,8 @@ const statementAt = (depth: number): Gen<PlStatement> =>
 					(s) => ({
 						kind: "forQuery",
 						variable: "r",
-						query: simpleSelect(
+						query: provedSelect(
+							"keyed",
 							[target(col("r1", "id"))],
 							[table("audit", "order", "r1")],
 							undefined
@@ -680,7 +681,7 @@ describe("identifiers, types and literals", () => {
 					},
 					(x, c) =>
 						Effect.sync(() => {
-							const s = simpleSelect([target(lit.float(x, types.double))], [], undefined)
+							const s = provedSelect("oneRow", [target(lit.float(x, types.double))], [], undefined)
 							const written = succeeded(
 								writeJsonText(s),
 								"the snapshot writer writes a float literal"

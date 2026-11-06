@@ -22,7 +22,7 @@ import type { FusedAttachment } from "#compiler/lower/shapes/attach/decode.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import { plainType } from "#compiler/scalar/compute/types.ts"
 import type { Expr, Select } from "#compiler/sql/ast.ts"
-import { binary, call, core, select, targetAs, types } from "#compiler/sql/build.ts"
+import { binary, call, provedCore, select, targetAs, types } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import { assert, contains, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -237,7 +237,8 @@ const fusedProgram = (conservative: ChannelProgram): ChannelProgram => {
 		throw new Error("expected an attachment of at least one column")
 	}
 	const element: Select = select(
-		core(
+		provedCore(
+			"keyed",
 			[
 				targetAs(
 					call("to_jsonb", [

@@ -13,13 +13,15 @@ import type {
 	FromItem,
 	FromSource,
 	JoinStep,
+	OperandBody,
+	OperandSelect,
 	Select,
-	SelectBody,
 	SelectCore,
 	SetOperand,
 	SetOperation,
 	Target
 } from "#compiler/sql/ast.ts"
+import { setQueryOf, withArms } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 
 /** The node each relation alias of a statement names. */
@@ -43,7 +45,11 @@ export const topLevelContext: VisitContext = { underExists: false }
 
 export interface Visitor {
 	/** The query of a derived FROM item, its own derived items already visited; `node` is what its alias names. */
-	readonly derived: (query: Select, node: NodeId | undefined, ctx: VisitContext) => Select
+	readonly derived: (
+		query: OperandSelect,
+		node: NodeId | undefined,
+		ctx: VisitContext
+	) => OperandSelect
 	/** Every core, after its FROM items and subqueries. */
 	readonly core: (core: SelectCore, ctx: VisitContext) => SelectCore
 }
@@ -76,7 +82,7 @@ class Rewriter {
 		this.visitor = visitor
 	}
 
-	select(s: Select, ctx: VisitContext): Select {
+	select(s: OperandSelect, ctx: VisitContext): OperandSelect {
 		const ctes = s.with?.ctes
 		const nextCtes =
 			ctes === undefined
@@ -92,13 +98,13 @@ class Rewriter {
 		if (body === s.body && nextCtes === ctes) {
 			return s
 		}
-		const out: Select = { ...s, body }
+		const out: OperandSelect = { ...s, body }
 		return s.with === undefined || nextCtes === undefined
 			? out
 			: { ...out, with: { ...s.with, ctes: nextCtes } }
 	}
 
-	body(b: SelectBody, ctx: VisitContext): SelectBody {
+	body(b: OperandBody, ctx: VisitContext): OperandBody {
 		switch (b.kind) {
 			case "core":
 				return this.core(b, ctx)
@@ -109,7 +115,7 @@ class Rewriter {
 					this.operand(second, ctx),
 					...Arr.map(rest, (arm) => this.operand(arm, ctx))
 				]
-				return sameArray(arms, b.arms) ? b : { ...b, arms }
+				return sameArray(arms, b.arms) ? b : withArms(b, arms)
 			}
 			case "select":
 				return this.select(b, ctx)
@@ -129,9 +135,11 @@ class Rewriter {
 			return e === t.expr ? t : { ...t, expr: e }
 		}
 		const projection: CoreProjection =
-			c.distinct === false
-				? { distinct: false, targets: mapArray(c.targets, target) }
-				: { distinct: c.distinct, targets: mapNonEmptyArray(c.targets, target) }
+			c.distinct !== false
+				? { distinct: c.distinct, targets: mapNonEmptyArray(c.targets, target) }
+				: c.rows === "operand"
+					? { distinct: false, rows: c.rows, targets: mapArray(c.targets, target) }
+					: { distinct: false, rows: c.rows, targets: mapArray(c.targets, target) }
 		let next: SelectCore = c
 		if (
 			from !== c.from ||
@@ -139,7 +147,7 @@ class Rewriter {
 			having !== c.having ||
 			projection.targets !== c.targets
 		) {
-			next = { ...c, ...projection, from, where, having }
+			next = { kind: "core", from, where, groupBy: c.groupBy, having, ...projection }
 		}
 		return this.visitor.core(next, ctx)
 	}
@@ -185,10 +193,15 @@ class Rewriter {
 				return q === e.query ? e : { ...e, query: q }
 			}
 			case "subquery":
-			case "array":
 			case "inQuery": {
 				const q = this.select(e.query, ctx)
 				return q === e.query ? e : { ...e, query: q }
+			}
+			case "array": {
+				const q = this.select(e.query, ctx)
+				return q === e.query
+					? e
+					: { ...e, query: setQueryOf(q, "a mutant's rewrite of an ARRAY query") }
 			}
 			case "binary": {
 				const left = this.expr(e.left, ctx)
@@ -243,20 +256,38 @@ class Rewriter {
 	}
 }
 
-/** A statement with `visitor` applied bottom-up; the same object when nothing changed. */
+/**
+ * A statement with `visitor` applied bottom-up; the same object when nothing changed. A statement's rows are a set, so a
+ * visitor that leaves them a plain operand is a defect of the visitor: a mutant claims a proof its rows lack instead.
+ */
 export const rewriteSelect = (
 	select: Select,
 	origins: ReadonlyMap<string, NodeId>,
 	visitor: Visitor,
 	ctx: VisitContext
-): Select => new Rewriter(origins, visitor).select(select, ctx)
+): Select =>
+	setQueryOf(
+		new Rewriter(origins, visitor).select(select, ctx),
+		"a mutant's rewrite of a statement"
+	)
 
-/** A query whose body is a DISTINCT core, with the DISTINCT removed; undefined when it has none to remove. */
-export const withoutDistinct = (query: Select): Select | undefined => {
+/** A query that stands as an operand, a CTE's or a derived table's, with `visitor` applied bottom-up (rewriteSelect). */
+export const rewriteOperand = (
+	select: OperandSelect,
+	origins: ReadonlyMap<string, NodeId>,
+	visitor: Visitor,
+	ctx: VisitContext
+): OperandSelect => new Rewriter(origins, visitor).select(select, ctx)
+
+/**
+ * A query whose body is a DISTINCT core, with the DISTINCT removed under a multiplicity certificate the analysis never
+ * issued, the claim a wrong certificate makes; undefined when it has no DISTINCT to remove.
+ */
+export const withoutDistinct = (query: OperandSelect): OperandSelect | undefined => {
 	if (query.body.kind !== "core" || query.body.distinct !== true) {
 		return undefined
 	}
-	return { ...query, body: { ...query.body, distinct: false } }
+	return { ...query, body: { ...query.body, distinct: false, rows: "certified" } }
 }
 
 /** The conjuncts of a WHERE: the operands of a top-level AND, or the condition itself. */
@@ -351,7 +382,7 @@ const fromReads = (f: FromItem, alias: string): boolean => {
 	}
 }
 
-const bodyReads = (b: SelectBody, alias: string): boolean => {
+const bodyReads = (b: OperandBody, alias: string): boolean => {
 	switch (b.kind) {
 		case "core":
 			return (
@@ -369,7 +400,7 @@ const bodyReads = (b: SelectBody, alias: string): boolean => {
 }
 
 /** Whether a query reads a column of `alias` anywhere: an outer reference when the alias is not its own. */
-const selectReads = (s: Select, alias: string): boolean =>
+const selectReads = (s: OperandSelect, alias: string): boolean =>
 	bodyReads(s.body, alias) ||
 	Arr.some(s.with?.ctes ?? [], (c) => c.query.kind === "select" && selectReads(c.query, alias)) ||
 	Arr.some(s.orderBy, (o) => readsAlias(o.expr, alias))
@@ -382,8 +413,7 @@ const selectReads = (s: Select, alias: string): boolean =>
  *
  * - every node is lowered to one query, and every consumer reads it as a derived table whose fresh alias the
  *   statement's name map attributes to the node (types.ts, sql/naming.ts): the query of a derived FROM item whose alias
- *   names node n is n's lowering. A Group's lowering contains one more derived table attributed to the Group, its
- *   contributions, which is a DISTINCT core without GROUP BY;
+ *   names node n is n's lowering;
  * - the AST is plain immutable data, so a rewrite rebuilds the spine it changes and keeps everything else by
  *   reference, and an unchanged statement is the same object.
  *

@@ -8,7 +8,7 @@ import { fullSwarm } from "@grizzle/testing/swarm"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { Expr, Select, SelectCore, SetOperand, SqlStatement } from "#compiler/sql/ast.ts"
-import { mapTargets, target } from "#compiler/sql/build.ts"
+import { mapTargets, setBodyOf, target, withArms } from "#compiler/sql/build.ts"
 import { bodyPositionNames, renameToPublicHeading } from "#compiler/sql/naming.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
@@ -88,7 +88,10 @@ const passthrough = (q: Select): Select | undefined => {
 	}
 	return {
 		...q,
-		body: { ...q.body, arms: [unaliased(left), bareRight] },
+		body: setBodyOf(
+			withArms(q.body, [unaliased(left), bareRight]),
+			"unaliasing a set operation's arms"
+		),
 		orderBy
 	}
 }

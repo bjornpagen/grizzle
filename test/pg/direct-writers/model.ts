@@ -13,7 +13,7 @@ import {
 import { indices } from "#compiler/core/array.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { Expr, Insert, SqlStatement } from "#compiler/sql/ast.ts"
-import { and, col, eq, lit, simpleSelect } from "#compiler/sql/build.ts"
+import { and, col, eq, lit, provedSelect } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { ALIAS_CODE } from "#test/support/closed/generate.ts"
@@ -736,7 +736,7 @@ const sqlOf = (t: WriteTarget, s: Statement): string => {
 					alias: undefined,
 					columns: [],
 					overriding: undefined,
-					source: { kind: "query", query: simpleSelect([], [], undefined) },
+					source: { kind: "query", query: provedSelect("oneRow", [], [], undefined) },
 					onConflict: undefined,
 					returning: []
 				}

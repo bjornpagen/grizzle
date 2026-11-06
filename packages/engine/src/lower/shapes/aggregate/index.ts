@@ -26,7 +26,9 @@ import {
 	core,
 	countStar,
 	derived,
+	keyedRead,
 	lit,
+	operandSelect,
 	sameTypeRef,
 	select,
 	target,
@@ -175,7 +177,7 @@ export const aggregateLowerer =
 				node.bound.columns.map((name) => target(columnIn(input.map, name))),
 				target(lit.bool(true))
 			)
-			const contributions = select(core(targets, [input.item], undefined))
+			const contributions = operandSelect(keyedRead(targets, [input.item], undefined))
 			const origin = { kind: "node", node: node.id } as const
 			const named = cx.freshColumns(node.bound.columns, origin)
 			const presentColumn = cx.supply.column(origin)
@@ -205,6 +207,7 @@ export const aggregateLowerer =
 		const groupBy = present !== undefined ? [present] : node.keys.map((k) => columnIn(bound, k))
 		return select({
 			...core(targets.length === 0 ? [target(lit.bool(true))] : targets, [from], undefined),
+			rows: present === undefined ? "grouped" : "oneRow",
 			groupBy
 		})
 	}

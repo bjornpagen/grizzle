@@ -14,6 +14,7 @@ const verificationRules = [
 	"missingCertificate",
 	"statementRoles",
 	"statementAudit",
+	"statementRows",
 	"statementText",
 	"placeholders",
 	"paramTypes",

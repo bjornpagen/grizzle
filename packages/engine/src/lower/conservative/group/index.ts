@@ -22,7 +22,18 @@ import {
 	type ExactCarrier
 } from "#compiler/scalar/aggregate.ts"
 import type { Call, CountStar, Expr, FromSource, WindowSpec } from "#compiler/sql/ast.ts"
-import { binary, call, core, countStar, derived, lit, select, target } from "#compiler/sql/build.ts"
+import {
+	binary,
+	call,
+	core,
+	countStar,
+	derived,
+	keyedRead,
+	lit,
+	operandSelect,
+	select,
+	target
+} from "#compiler/sql/build.ts"
 
 type Aggregate = NodeOf<"Group">["aggs"][number]
 
@@ -153,6 +164,7 @@ const lowerGroup: NodeLowerer<"Group"> = (node, cx, env) => {
 		read.present === undefined ? node.keys.map((k) => columnIn(read.bound, k)) : [read.present]
 	return select({
 		...core(targets.length === 0 ? [target(lit.bool(true))] : targets, [read.from], undefined),
+		rows: read.present === undefined ? "grouped" : "oneRow",
 		groupBy
 	})
 }
@@ -186,7 +198,7 @@ const groupRead = (
 	const alias = cx.relationAlias(origin)
 	return {
 		from: derived(
-			select(core(targets, [input.item], undefined)),
+			operandSelect(keyedRead(targets, [input.item], undefined)),
 			alias,
 			[...boundColumns.map((b) => b.column), presentColumn],
 			false

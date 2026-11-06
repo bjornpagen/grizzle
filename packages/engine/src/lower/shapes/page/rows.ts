@@ -15,23 +15,25 @@ import {
 	type Seek,
 	seekPredicate
 } from "#compiler/lower/shapes/page/seek.ts"
-import type { Expr, OrderItem, Select, SelectCore } from "#compiler/sql/ast.ts"
+import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
 import {
-	core,
 	countStar,
 	exists,
+	keyedSet,
 	lit,
 	lt,
+	provedCore,
 	select,
-	setOp,
+	simpleSelect,
 	target,
-	types
+	types,
+	unionAll
 } from "#compiler/sql/build.ts"
 import type { NameOrigin } from "#compiler/sql/naming.ts"
 
 interface PagedRowsSpec {
 	/** The distinct rows D, already deduplicated unless their uniqueness is proved. */
-	readonly rel: Select
+	readonly rel: OperandSelect
 	readonly heading: Heading
 	readonly origin: NameOrigin
 	/** Undefined for an anchorless request. */
@@ -75,14 +77,16 @@ export const pagedRows = (cx: LowerContext, spec: PagedRowsSpec): Select => {
 	const declared = spec.order(source.map)
 	const orderBy = spec.direction === "backward" ? reversedOrder(declared) : declared
 	return {
-		...select(core(headingTargets(spec.heading, source.map), [source.item], where)),
+		...select(
+			keyedSet(headingTargets(spec.heading, source.map), [source.item], where, "a page's rows")
+		),
 		orderBy,
 		limit: spec.limit
 	}
 }
 
 interface ProbeSpec {
-	readonly rel: Select
+	readonly rel: OperandSelect
 	readonly heading: Heading
 	readonly origin: NameOrigin
 	readonly seek: Seek
@@ -93,7 +97,7 @@ interface ProbeSpec {
 export const probeTest = (cx: LowerContext, spec: ProbeSpec): Expr => {
 	const source = cx.wrap(spec.rel, spec.heading, spec.origin)
 	const where = seekPredicate(spec.slots.seekKeys(source.map), spec.seek, cx.names.vectorSchema)
-	return exists(select(core([target(lit.int(1, types.integer))], [source.item], where)))
+	return exists(simpleSelect([target(lit.int(1, types.integer))], [source.item], where))
 }
 
 interface PagedGroup {
@@ -125,14 +129,19 @@ interface RetainedGroupSpec {
  */
 export const retainedGroupRows = (cx: LowerContext, spec: RetainedGroupSpec): Select => {
 	const kept = cx.wrap(spec.own.rows(), spec.own.heading, spec.origin)
-	const union = setOp(
-		"UNION ALL",
-		mapNonEmpty(spec.groups, (g): SelectCore => {
+	/**
+	 * Each group's first k read through its comparators, which its completed order makes a key of its rows, and the
+	 * discriminant among them tells the groups apart: set arms pairwise disjoint, which the count below counts.
+	 */
+	const union = unionAll(
+		"disjoint",
+		mapNonEmpty(spec.groups, (g) => {
 			const source = cx.wrap(g.rows(), g.heading, spec.origin)
-			return core(
+			return keyedSet(
 				spec.comparators.map((c) => target(comparatorColumn(source.map, c))),
 				[source.item],
-				undefined
+				undefined,
+				"a page group's first rows"
 			)
 		})
 	)
@@ -151,9 +160,14 @@ export const retainedGroupRows = (cx: LowerContext, spec: RetainedGroupSpec): Se
 	)
 	const predecessors: Expr = {
 		kind: "subquery",
-		query: select(core([target(countStar())], [all.item], precedes))
+		query: select(provedCore("oneRow", [target(countStar())], [all.item], precedes))
 	}
 	return select(
-		core(headingTargets(spec.own.heading, kept.map), [kept.item], lt(predecessors, spec.size))
+		provedCore(
+			"keyed",
+			headingTargets(spec.own.heading, kept.map),
+			[kept.item],
+			lt(predecessors, spec.size)
+		)
 	)
 }

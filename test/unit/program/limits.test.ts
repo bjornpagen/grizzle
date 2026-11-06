@@ -8,7 +8,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { eq, lit, or, param, simpleSelect, target, types } from "#compiler/sql/build.ts"
+import { eq, lit, or, param, provedSelect, target, types } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
@@ -53,7 +53,8 @@ const wideSchema = (columns: number) =>
 
 /** SELECT of `entries` integer literals. */
 const selectOf = (entries: number) =>
-	simpleSelect(
+	provedSelect(
+		"oneRow",
 		Arr.makeBy(entries, (i) => target(lit.int(i, types.integer))),
 		[],
 		undefined
@@ -61,7 +62,8 @@ const selectOf = (entries: number) =>
 
 /** SELECT 1 WHERE $1 = 0 OR ... OR $n = 0: a statement of `params` placeholders. */
 const placeholders = (params: number) =>
-	simpleSelect(
+	provedSelect(
+		"oneRow",
 		[target(lit.int(1, types.integer))],
 		[],
 		or(Arr.makeBy(params, (i): Expr => eq(param(i + 1, types.integer), lit.int(0, types.integer))))

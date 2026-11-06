@@ -33,17 +33,18 @@ import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { orderIsTotal, orderItemsOf } from "#compiler/lower/shapes/take/order.ts"
 import { armBoundedUnion } from "#compiler/lower/shapes/union/index.ts"
-import type { Expr, FromItem, OrderItem, Select } from "#compiler/sql/ast.ts"
+import type { Expr, FromItem, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
 import {
 	call,
 	col,
 	conjunction,
-	core,
 	derived,
 	distinctCore,
 	distinctCoreWhen,
 	distinctOnCore,
+	keyedSet,
 	le,
+	provedCore,
 	select,
 	target,
 	windowOf
@@ -690,7 +691,11 @@ const distinctOnPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupS
 	const where = conjunction(spec.filters)
 	return isNonEmpty(on)
 		? { ...select(distinctOnCore(on, targets, [input.item], where)), orderBy }
-		: { ...select(core(targets, [input.item], where)), orderBy, limit: cx.boundExpr(node.bound) }
+		: {
+				...select(provedCore("certified", targets, [input.item], where)),
+				orderBy,
+				limit: cx.boundExpr(node.bound)
+			}
 }
 
 /**
@@ -727,10 +732,11 @@ const rowNumberPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupSp
 		over: windowOf(partitionExprs(ranked), orderBy)
 	}
 	const inner = select(
-		core(
+		keyedSet(
 			[...headingTargets(node.heading, input.map), target(rank)],
 			[input.item],
-			conjunction(filters)
+			conjunction(filters),
+			"a take's ranked rows"
 		)
 	)
 	const named = cx.freshColumns(outputNames(node.heading), origin)
@@ -740,7 +746,9 @@ const rowNumberPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupSp
 	const map = namedMap(alias, named)
 	const position = col(alias, rankColumn)
 	const bound = cx.boundExpr(node.bound)
-	return select(core(headingTargets(node.heading, map), [item], le(position, bound)))
+	return select(
+		keyedSet(headingTargets(node.heading, map), [item], le(position, bound), "a take's first rows")
+	)
 }
 
 /**
@@ -780,7 +788,7 @@ export const lateralTake = (
 	cx: LowerContext,
 	env: Env,
 	facts: ShapeFacts
-): Select => {
+): OperandSelect => {
 	const query = takeLowerer(facts)(node, cx, env)
 	certify(facts, node, "lateral")
 	return query

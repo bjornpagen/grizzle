@@ -40,6 +40,7 @@ import type {
 	Expr,
 	FromItem,
 	FromSource,
+	OperandSelect,
 	Select,
 	Target,
 	TypeRef
@@ -48,6 +49,7 @@ import {
 	col,
 	columnDefinition,
 	conjunction,
+	type DefinedCte,
 	derived,
 	distinctCore,
 	lit,
@@ -342,10 +344,17 @@ interface Feedback {
 	reads: number
 }
 
-export type NodeDispatch = (node: RelNode, cx: LowerContext, env: Env) => Select
+export type NodeDispatch = (node: RelNode, cx: LowerContext, env: Env) => OperandSelect
 
-/** One kind's plug-in: its node to the query of its heading. */
-export type NodeLowerer<K extends RelKind> = (node: NodeOf<K>, cx: LowerContext, env: Env) => Select
+/**
+ * One kind's plug-in: its node to the query of its heading, a set (Select) or, realized plain where its consumer makes
+ * its rows a set, an operand (OperandSelect).
+ */
+export type NodeLowerer<K extends RelKind> = (
+	node: NodeOf<K>,
+	cx: LowerContext,
+	env: Env
+) => OperandSelect
 
 /**
  * The plug-ins of the kinds `K`, one per kind. Over every kind it is a kind table, so a kind the IR adds is a type
@@ -381,7 +390,7 @@ export interface ShareFrame {
 	readonly cx: LowerContext
 	readonly env: Env
 	/** Each shared node's CTE, defined at its first use. */
-	readonly defined: Map<RelNode, { readonly name: string; readonly columns: ReadonlyArray<string> }>
+	readonly defined: Map<RelNode, DefinedCte>
 	/** The WITH entries, in definition order: each after every entry its body reads. */
 	readonly ctes: Array<Cte>
 }
@@ -566,7 +575,7 @@ export class LowerContext {
 	}
 
 	/** The query of a node, output columns in heading order, as the scope's dispatch lowers it. */
-	lower(node: RelNode, env: Env): Select {
+	lower(node: RelNode, env: Env): OperandSelect {
 		return this.#scope.dispatch(node, this, env)
 	}
 
@@ -615,12 +624,17 @@ export class LowerContext {
 	}
 
 	/** A lowered query read as a derived table with a fresh alias and column list. `heading` names its outputs. */
-	wrap(query: Select, heading: Heading, origin: NameOrigin): InputSource {
+	wrap(query: OperandSelect, heading: Heading, origin: NameOrigin): InputSource {
 		return this.wrapAs(query, heading, origin, false)
 	}
 
 	/** wrap, a LATERAL derived table when `lateral`. */
-	wrapAs(query: Select, heading: Heading, origin: NameOrigin, lateral: boolean): InputSource {
+	wrapAs(
+		query: OperandSelect,
+		heading: Heading,
+		origin: NameOrigin,
+		lateral: boolean
+	): InputSource {
 		const named = this.freshColumns(outputNames(heading), origin)
 		const columns = named.map((n) => n.column)
 		const alias = this.supply.relation(origin)

@@ -46,7 +46,7 @@ import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 
 import { armBoundedUnion, mergeHeadingGroups } from "#compiler/lower/shapes/union/index.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import type { Select, SelectBody } from "#compiler/sql/ast.ts"
+import type { OperandBody, OperandSelect } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -84,9 +84,9 @@ const takeOf = (dag: RelDag): NodeOf<"Take"> =>
 	)
 
 /** The bounded arms of an arm-bounded union, in arm order. */
-const boundedArms = (query: Select): ReadonlyArray<Select> => {
-	const arms: Array<Select> = []
-	const visit = (body: SelectBody): void => {
+const boundedArms = (query: OperandSelect): ReadonlyArray<OperandSelect> => {
+	const arms: Array<OperandSelect> = []
+	const visit = (body: OperandBody): void => {
 		if (body.kind === "setOp") {
 			for (const arm of body.arms) {
 				visit(arm)

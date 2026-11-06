@@ -10,8 +10,10 @@ import {
 	type FunctionCall,
 	type ObjectName,
 	type PackConstant,
+	type OperandSelect,
 	type Select,
 	type SelectCore,
+	type SetOperand,
 	type SqlStatement,
 	type TableConstraint,
 	type TypeRef,
@@ -20,7 +22,12 @@ import {
 } from "#compiler/sql/ast.ts"
 import { namedType } from "#compiler/sql/build.ts"
 import { printObjectName, printType } from "#compiler/sql/print.ts"
-import { identityHooks, transformExpr, transformSelect } from "#compiler/sql/transform.ts"
+import {
+	identityHooks,
+	transformExpr,
+	transformOperand,
+	transformSelect
+} from "#compiler/sql/transform.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
@@ -919,7 +926,7 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
  * A live-codes constant's subquery: one target, string_agg(flag, '' ORDER BY t.i) cast to bit varying, over the rows of
  * generate_subscripts(N(), 1) AS t(i), each flag evaluated with t.i bound to its row's subscript, in subscript order.
  */
-const derivedFromNames = (query: Select, scope: Scope): SqlValue => {
+const derivedFromNames = (query: OperandSelect, scope: Scope): SqlValue => {
 	const core = query.body
 	if (
 		core.kind !== "core" ||
@@ -1103,9 +1110,9 @@ const distinctRows = (
 const recursionBound = 10_000
 
 /** Whether a query reads the CTE `name`. */
-const readsCte = (q: Select, name: string): boolean => {
+const readsCte = (q: OperandSelect, name: string): boolean => {
 	let reads = false
-	transformSelect(q, {
+	transformOperand(q, {
 		...identityHooks,
 		fromSource: (source: FromSource) => {
 			if (source.kind === "cte" && source.name === name) {
@@ -2377,7 +2384,7 @@ class Model {
 
 	/** The relation a query yields: its WITH's CTEs bound, then its body. An ordered or limited query is Unevaluable: a
 	 * data step reads relations, which are sets. */
-	#select(q: Select, ctes: Ctes): Relation {
+	#select(q: OperandSelect, ctes: Ctes): Relation {
 		if (q.orderBy.length > 0 || q.limit !== undefined || q.offset !== undefined) {
 			return unevaluable("an ordered or limited query")
 		}
@@ -2401,13 +2408,13 @@ class Model {
 	}
 
 	/** A set operation's arm as a relation. */
-	#operand(a: SelectCore | Select, ctes: Ctes): Relation {
+	#operand(a: SetOperand, ctes: Ctes): Relation {
 		return a.kind === "core" ? this.#core(a, ctes) : this.#select(a, ctes)
 	}
 
 	/** The CTEs of a WITH, each bound in turn over those before it; under WITH RECURSIVE, one that reads itself by its
 	 * recursion (recursive). */
-	#with(w: NonNullable<Select["with"]>, ctes: Ctes): Ctes {
+	#with(w: NonNullable<OperandSelect["with"]>, ctes: Ctes): Ctes {
 		const out = new Map(ctes)
 		for (const c of w.ctes) {
 			if (c.query.kind !== "select") {
@@ -2427,7 +2434,7 @@ class Model {
 	 * previous round added, the working table, until a round adds none; under UNION a row already held is no new row,
 	 * so a recursion over a finite set of rows ends. A recursion that runs past a bound the model sets is its defect.
 	 */
-	#recursive(name: string, columns: ReadonlyArray<string>, q: Select, ctes: Ctes): Relation {
+	#recursive(name: string, columns: ReadonlyArray<string>, q: OperandSelect, ctes: Ctes): Relation {
 		const body = q.body
 		if (
 			body.kind !== "setOp" ||

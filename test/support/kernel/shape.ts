@@ -6,7 +6,7 @@ import type {
 	Expr,
 	FromSource,
 	JoinChain,
-	Select,
+	OperandSelect,
 	SelectCore,
 	SetOperator,
 	SqlStatement
@@ -192,7 +192,7 @@ const fromFeature = (item: FromSource): ReadonlyArray<ShapeFeature> => {
 
 /** A set operation's operator once per arm it adds to the first; a parenthesized query arm is a select of its own and
  * counted where the traversal meets it. */
-const setOpFeatures = (body: Select["body"]): ReadonlyArray<ShapeFeature> => {
+const setOpFeatures = (body: OperandSelect["body"]): ReadonlyArray<ShapeFeature> => {
 	if (body.kind !== "setOp") {
 		return []
 	}
@@ -288,13 +288,13 @@ const cteFeatures = (cte: Cte): ReadonlyArray<ShapeFeature> => [
 ]
 
 /** Whether a write inserts a row of no column: an INSERT that lists none, or a MERGE's INSERT DEFAULT VALUES. */
-const insertsNoColumn = (statement: SqlStatement): boolean =>
+const insertsNoColumn = (statement: SqlStatement | CteBody): boolean =>
 	statement.kind === "insert"
 		? statement.columns.length === 0
 		: statement.kind === "merge" &&
 			Arr.some(statement.whens, (w) => w.action.kind === "insertDefault")
 
-const selectFeatures = (s: Select): ReadonlyArray<ShapeFeature> => [
+const selectFeatures = (s: OperandSelect): ReadonlyArray<ShapeFeature> => [
 	...(s.with === undefined
 		? []
 		: ([
