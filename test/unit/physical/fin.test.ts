@@ -34,7 +34,7 @@ import {
 	slotField
 } from "#compiler/schema/relation.ts"
 import { finBuilder, onBuilder, orderedBuilder } from "#compiler/schema/statements.ts"
-import type { PackConstant, SqlStatement } from "#compiler/sql/ast.ts"
+import type { PackConstant, PackRow, SqlStatement } from "#compiler/sql/ast.ts"
 import {
 	assert,
 	defined,
@@ -171,6 +171,10 @@ const schemaOf = (d: Declaration) => {
 	return schema("Fin", { Version, Kind, Position, Label, Model, Slotted }, [])
 }
 
+/** A pack's rows: a pack this small fits one statement, so it lists them. */
+const rowsOf = (p: PackConstant): ReadonlyArray<PackRow> =>
+	p.form.kind === "rows" ? p.form.rows : assert.fail("a pack this small lists its rows")
+
 /** The pack of the function named `name` among an installation's statements. */
 const packOf = (statements: ReadonlyArray<SqlStatement>, name: string): PackConstant =>
 	defined(
@@ -223,7 +227,7 @@ describe("a slotted closed relation's planned constants", () => {
 				Arr.map(points, (p, at) => [Arr.join(Arr.map(p, String), ","), at] as const)
 			)
 			assert.deepEqual(
-				Arr.map(cellsPack.rows, (r) => r.index),
+				Arr.map(rowsOf(cellsPack), (r) => r.index),
 				Arr.map(heldPoints(d), (p) =>
 					BigInt(defined(position.get(Arr.join(Arr.map(p, String), ","))))
 				),
@@ -232,7 +236,7 @@ describe("a slotted closed relation's planned constants", () => {
 			if (constant.key.kind === "dependent") {
 				const counts = packOf(installation.statements, constant.key.counts[0].function.name)
 				assert.deepEqual(
-					Arr.map(counts.rows, (r) => r.payload),
+					Arr.map(rowsOf(counts), (r) => r.payload),
 					Arr.map(d.held, (h) => BigInt(countOf(h))),
 					"each owner's count, every owner listed"
 				)
@@ -241,7 +245,7 @@ describe("a slotted closed relation's planned constants", () => {
 					Arr.reduce(radicesOf(d.shape, countOf(h)), 1, (a, b) => a * b)
 				)
 				assert.deepEqual(
-					Arr.map(bases.rows, (r) => r.payload),
+					Arr.map(rowsOf(bases), (r) => r.payload),
 					Arr.map(blocks, (_, owner) =>
 						BigInt(Arr.reduce(blocks.slice(0, owner), 0, (a, b) => a + b))
 					),
@@ -354,6 +358,7 @@ describe("an invalid slotted declaration", () => {
 			{ version: closedId(Version), parent: closedId(Kind), size: pgDescriptors.integer },
 			["version", "parent"],
 			[],
+			undefined,
 			[]
 		)
 		const Last = closedRelationBuilder(
@@ -361,6 +366,7 @@ describe("an invalid slotted declaration", () => {
 			{ ...prefix, at: slotField(closedId(Position), finBuilder(Counts, "size"), []) },
 			["version", "parent", "at"],
 			[],
+			undefined,
 			[]
 		)
 		refused(

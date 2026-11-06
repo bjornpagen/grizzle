@@ -133,7 +133,10 @@ breaking change may briefly break older application instances that are still run
   chain is free of the names it moves into); then the violation check of each rule over closed relations alone that
   is new or whose closed rows changed, a DO block raising 23000 with the rule's name, so rows that break it refuse the
   migration before it changes anything; then extensions, each new content-addressed constant, and new domains. A
-  closed relation's constant is packed by a DO block from its rows as codes, each row's handles named in a comment; a
+  closed relation's constant is packed by a DO block from its rows as codes, each row's handles named in a comment, or,
+  where the relation declares `{ pack: "hex" }` or that block would pass what one statement carries, stated as one hex
+  bit-string literal, its row count and content digest in a comment, which `grizzle check` decodes and holds to that
+  digest and to its function's name; never edit one by hand (a change of form is a migration of no file); a
   roster's names constant is its handles as `name[]` in code order, `""` at a hole; a set's `live` function is
   derived from it. The domains are a roster's smallint domain over its names constant, a set's `bit(n)` domain over
   `live`, and the contract and text domains, one per distinct definition.
@@ -294,6 +297,7 @@ every check, and refuses before connecting.
 | a migration file is named NN-<words>.sql, one per NN | fix the file: rename it to NN-<words>.sql with an NN of its own |
 | a migration file runs as one transaction, or each statement alone with -- grizzle: no-transaction, and never controls the transaction itself | fix the file: delete the transaction control; SAVEPOINT and ROLLBACK TO are allowed |
 | -- grizzle: no-transaction counts only as a file's first line | fix the file: move the marker to the first line, or delete it |
+| a closed constant's literal pack was edited after it was drafted: its literal, its comment and its function's name no longer agree | restore the file from git, or regenerate; never hand-edit a literal pack |
 | the migrations directory holds what grizzle generate never writes | fix the file: remove it, or move it out of the migrations directory |
 
 Applied files, which only `migrate` can check against the ledger:

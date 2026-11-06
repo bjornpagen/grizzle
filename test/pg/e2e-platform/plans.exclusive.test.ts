@@ -32,7 +32,8 @@ import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
  * entities and windows it reads (the busiest workspace, key, organization and grant, or another), runs every workload read
  * through the runtime with a counting executor, and EXPLAINs each statement the runtime sent with its parameters:
  *
- * - a read is one statement, its attachments fused into it, but for the attachments the fusion rule pipelines (below);
+ * - a read is one statement for its rows and one for each attachment it declares, at every depth: over exact parents
+ *   every attachment is a statement of its own in the read's flight (R36, lower/shapes/attach chooseAttachment);
  * - served: planned with sequential and index scans disabled, so that a bitmap scan, which reads only by an index
  *   condition, is the one scan left, every scan of a relation a statement restricts reads by an index condition on an
  *   index the installation planned (test/support/plans.ts);
@@ -57,7 +58,9 @@ import { parsePlanTree, planNodes } from "#bench/harness/explain.ts"
  */
 import { appendAll } from "#compiler/core/array.ts"
 import { trusted } from "#compiler/core/trusted.ts"
+import type { QueryDesc, QueryStageDesc, RuleDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
+import { queryInput } from "#compiler/program/compile.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { loadPlatform, type OpenedPlatform, openPlatform } from "#test/pg/e2e-platform/support.ts"
@@ -103,11 +106,48 @@ const volume = (events: number): VolumeSizes => ({
 const deduplicating: ReadonlyArray<string> = ["repricedInMonth"]
 
 /**
- * The statements each read is, by the fusion rule (lower/shapes/attach): one, its attachments fused into it, except an
- * attachment with attachments of its own, which is pipelined as a statement of its own, and so is each attachment
- * under it. invoicePreview's lines carry their usage and plan details: the read, its lines, and each detail.
+ * The attachments a query declares, at every depth: each attach stage's and each arm's own, with every attachment
+ * their children declare. Read off the query's Description, the caller's statement of it, never off the compiled
+ * program, whose count it checks.
  */
-const statementsOf = (name: string): number => (name === "invoicePreview" ? 4 : 1)
+const declaredAttachments = (q: QueryDesc): number => {
+	const ofArms = (arms: ReadonlyArray<RuleDesc>): number =>
+		Arr.reduce(arms, 0, (n, arm) =>
+			Arr.reduce(arm.attach, n, (m, a) => m + 1 + declaredAttachments(a.child))
+		)
+	const ofStage = (stage: QueryStageDesc): number => {
+		switch (stage.kind) {
+			case "rules":
+				return ofArms(stage.arms)
+			case "recursive":
+				return 0
+			case "union":
+				return ofStage(stage.input) + ofArms(stage.arms)
+			case "attach":
+				return ofStage(stage.input) + 1 + declaredAttachments(stage.attach.child)
+			case "named":
+			case "order":
+			case "take":
+			case "approx":
+				return ofStage(stage.input)
+		}
+	}
+	return ofStage(q.stage)
+}
+
+/**
+ * The statements a read is, by the R36 rule (lower/shapes/attach chooseAttachment): its rows' statement and one per
+ * attachment it declares, at every depth, since no platform read's parents are an approximate search, the one case
+ * an attachment fuses. invoicePreview is seven: the invoice, its lines, each line's usage and plan detail, its
+ * refunds, its payment and its dispute.
+ */
+const statementsOf = (query: unknown): number => {
+	const input = queryInput(query)
+	if (!input.ok) {
+		return assert.fail("a workload read's query value")
+	}
+	return 1 + declaredAttachments(input.value.desc)
+}
 
 const unit = (t: bigint) => ({ start: P.Instant(t), end: P.Instant(t + 1n) })
 
@@ -734,10 +774,9 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 								const before = counts.sent.length
 								yield* (yield* reader.execute(pr.query, pr.params)).collect
 								const sent = counts.sent.slice(before)
-								if (sent.length !== statementsOf(pr.name)) {
-									problems.push(
-										`${pr.name}: ${sent.length} statements, not ${statementsOf(pr.name)}`
-									)
+								const expected = statementsOf(pr.query)
+								if (sent.length !== expected) {
+									problems.push(`${pr.name}: ${sent.length} statements, not ${expected}`)
 								}
 								const judged = yield* sentProblems(s.admin, pr.name, sent, judge)
 								appendAll(problems, judged.problems)
@@ -748,7 +787,7 @@ const planSuite = (events: number, runs: number) => (ctx: TestContext) =>
 							assert.deepEqual(
 								problems,
 								[],
-								"every read is one statement planned through its indexes"
+								"every read is its rows' statement and its attachments', each planned through its indexes"
 							)
 						})
 					)

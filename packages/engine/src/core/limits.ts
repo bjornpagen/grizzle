@@ -386,6 +386,23 @@ export const maxAllocSize = published({
 })
 
 /**
+ * The most bytes one StringInfo, PostgreSQL's growable string buffer, holds: enlargeStringInfo refuses to grow a buffer
+ * past one byte short of MaxAllocSize, keeping a byte for its terminator. Every text PostgreSQL builds piecewise lives
+ * in one, string_agg's result and format's among them, so a closed relation's pack of rows, whose DO block builds its
+ * constant as text, one character per bit, and EXECUTEs the CREATE FUNCTION format builds around it, packs a constant
+ * only while that statement fits one buffer; past it the pack is stated as its literal (physical/ddl/constants.ts).
+ */
+export const stringBufferMaxBytes = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "bytes",
+	scope:
+		"one StringInfo's data: a text PostgreSQL builds piecewise, the statement a pack's DO block EXECUTEs among them",
+	from: [maxAllocSize],
+	derivation: `enlargeStringInfo refuses "if (((Size) needed) >= (MaxAllocSize - (Size) str->len))" (${postgresSource}/src/common/stringinfo.c#L357, verified 2026-11-05), so a buffer's length and the bytes it grows by are at most MaxAllocSize - 1`,
+	compute: ([alloc]) => alloc.value - 1
+})
+
+/**
  * The longest message a PostgreSQL backend reads from a client, as the message's Int32 length counts it, itself
  * included: a Query or Parse message holding a statement, or a Bind message carrying one execution's parameters, each
  * read under it by SocketBackend (src/backend/tcop/postgres.c). A longer one is "invalid message length"
@@ -401,6 +418,23 @@ export const messageMaxBytes = derived({
 	from: [maxAllocSize],
 	derivation: `a protocol constant, PQ_LARGE_MESSAGE_LIMIT, which libpq.h defines as one less than MaxAllocSize: "#define PQ_LARGE_MESSAGE_LIMIT\t(MaxAllocSize - 1)" (${postgresSource}/src/include/libpq/libpq.h#L34, verified 2026-11-05)`,
 	compute: ([alloc]) => alloc.value - 1
+})
+
+/**
+ * The longest statement that packs a closed relation's constant from its rows, a line per row (physical/ddl/constants.ts
+ * packFormOf): it is sent whole as one Query message's text, and drafted whole into one string of its migration file,
+ * which migrate reads back as one string, so it fits both. Past it, or past the statement its DO block EXECUTEs fitting
+ * one string buffer (stringBufferMaxBytes), the pack is stated as one bit-string literal, which `grizzle check` decodes
+ * back to the rows.
+ */
+export const rowsPackMaxBytes = derived({
+	owner: "PostgreSQL 19rc1's frontend/backend protocol and V8 14.6",
+	unit: "bytes",
+	scope: "one statement packing a closed relation's constant from its rows, in UTF-8 bytes",
+	from: [messageMaxBytes, maxStringLength],
+	derivation:
+		"the lesser of the two: a Query message carries at most messageMaxBytes, and one string holds at most maxStringLength UTF-16 code units, which a text's UTF-8 bytes never undercount (a code point of one unit is 1 to 3 bytes, a pair of units 4)",
+	compute: ([message, string]) => Math.min(message.value, string.value)
 })
 
 /**

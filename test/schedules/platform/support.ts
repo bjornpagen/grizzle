@@ -926,7 +926,14 @@ const directSql = (
 			),
 			" OR "
 		)}`
-	/** A put: the written fields at each key in place, a fact the key holds none of inserted with empty families. */
+	/**
+	 * A put: the written fields at each key in place, and a fact no row holds the key of inserted with its families
+	 * empty, each fact an UPDATE and an INSERT of one statement, which both read its starting state. Only a fact at no
+	 * stored key is proposed to the INSERT: a stored owner's proposed row would carry its families empty, and PostgreSQL
+	 * judges a proposed row by every CHECK before ON CONFLICT meets its key (19rc1 nodeModifyTable.c ExecInsert), so a
+	 * check over an end, an invoice's lines summing to its amount, would refuse it. Each literal takes its column's type
+	 * where it is assigned or compared, an INSERT's SELECT list included.
+	 */
 	const putSql = (relation: RelationName, facts: ReadonlyArray<PlatformRow>): string => {
 		const key = primaryKeyOf[relation]
 		const payload = Arr.filter(fieldsOf[relation], (f) => !key.includes(f))
@@ -934,27 +941,30 @@ const directSql = (
 			...Arr.map(fieldsOf[relation], (f) => column(relation, f)),
 			...ownerColumns(relation)
 		]
-		const rows = Arr.map(
-			facts,
-			(fact) =>
-				`(${Arr.join(
-					[
-						...Arr.map(fieldsOf[relation], (f) => literal(names, relation, f, fact[f])),
-						...ownerValues(relation, fact, true)
-					],
+		const parts = Arr.flatMap(facts, (fact, i) => {
+			const value = (f: string): string => literal(names, relation, f, fact[f])
+			const at = Arr.join(
+				Arr.map(key, (f) => `${column(relation, f)} = ${value(f)}`),
+				" AND "
+			)
+			const update = Arr.isArrayNonEmpty(payload)
+				? [
+						`${quoteIdent(`put_update_${i}`)} AS (UPDATE ${table(relation)} SET ${Arr.join(
+							Arr.map(payload, (f) => `${column(relation, f)} = ${value(f)}`),
+							", "
+						)} WHERE ${at})`
+					]
+				: []
+			const values = [...Arr.map(fieldsOf[relation], value), ...ownerValues(relation, fact, true)]
+			return [
+				...update,
+				`${quoteIdent(`put_insert_${i}`)} AS (INSERT INTO ${table(relation)} (${Arr.join(columns, ", ")}) SELECT ${Arr.join(
+					values,
 					", "
-				)})`
-		)
-		const conflict = Arr.isArrayNonEmpty(payload)
-			? `DO UPDATE SET ${Arr.join(
-					Arr.map(payload, (f) => `${column(relation, f)} = EXCLUDED.${column(relation, f)}`),
-					", "
-				)}`
-			: "DO NOTHING"
-		return `INSERT INTO ${table(relation)} (${Arr.join(columns, ", ")}) VALUES ${Arr.join(rows, ", ")} ON CONFLICT (${Arr.join(
-			Arr.map(key, (f) => column(relation, f)),
-			", "
-		)}) ${conflict}`
+				)} WHERE NOT EXISTS (SELECT 1 FROM ${table(relation)} WHERE ${at}))`
+			]
+		})
+		return `WITH ${Arr.join(parts, ", ")} SELECT 1`
 	}
 	return Arr.map(statements, (s) => {
 		switch (s.kind) {

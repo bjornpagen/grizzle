@@ -19,8 +19,8 @@
  *   the first begins;
  * - a refund of an open invoice (refundOnlyPaid); without it, the same refund of a paid one;
  * - a debit past what is left of a grant (grantWithinAmount); without it, a debit of exactly what is left;
- * - an allocation moved outside its subscription's priced segments (allocationCovered); without it, the allocation
- *   split in two inside them;
+ * - a plan change that cuts the priced segment an allocation lies in before the allocation ends (allocationCovered);
+ *   without it, the same change splitting the segment there, its second part priced alike;
  * - an invoice marked paid without its payment (invoiceSettlement's reverse law); without it, paid with its payment;
  * - a charge priced at an instant before every card of its model and kind (pricedByCard); without it, the charge priced
  *   at its event's start;
@@ -551,46 +551,49 @@ const plantRefundOnlyPaid = (p: Platform, margin: bigint): Option.Option<Planted
 		}
 	)
 
-/** Plants allocationCovered: an allocation moved `margin` before every segment of its subscription, or split in two. */
+/**
+ * Plants allocationCovered: a plan change that cuts the segment an allocation lies in `margin` seconds before the
+ * allocation ends, the segment's rest retired; without it, the same change splitting the segment there, its second part
+ * priced alike. The fault is planted on the segments, never on the allocation: an allocation is a member of its plan
+ * line's family, fixed when the line is inserted (InvoiceLine is immutable), since a month's close apportions each plan
+ * line once and allocationExact holds its allocations to the line's amount, which never changes.
+ */
 const plantAllocationCovered = (p: Platform, margin: bigint): Option.Option<Planted> =>
-	Option.map(
-		Arr.findFirst(p.facts.Allocation, (x) => x.during.end - x.during.start >= 2n),
-		(a) => {
-			const first = Arr.reduce(
-				Arr.filter(p.facts.Segment, (s) => s.subscription === a.subscription),
-				a.during.start,
-				(m, s) => (s.during.start < m ? s.during.start : m)
-			)
-			const middle = a.during.start + (a.during.end - a.during.start) / 2n
-			const half = a.amount / 2n
-			const moved: Fact<typeof P.Allocation> = {
-				...a,
-				during: {
-					start: P.Instant(first - margin - (a.during.end - a.during.start)),
-					end: P.Instant(first - margin)
+	firstSome(p.facts.Allocation, (a) =>
+		Option.flatMap(
+			Arr.findFirst(
+				p.facts.Segment,
+				(g) =>
+					g.subscription === a.subscription &&
+					g.during.start <= a.during.start &&
+					a.during.end <= g.during.end
+			),
+			(segment) => {
+				const cut = a.during.end - margin
+				if (cut <= segment.during.start) {
+					return Option.none()
 				}
-			}
-			const split: ReadonlyArray<Fact<typeof P.Allocation>> = [
-				{ ...a, during: { start: a.during.start, end: P.Instant(middle) }, amount: P.Micros(half) },
-				{
-					...a,
-					during: { start: P.Instant(middle), end: a.during.end },
-					amount: P.Micros(a.amount - half)
-				}
-			]
-			const replace = (by: ReadonlyArray<Fact<typeof P.Allocation>>): Attempt => ({
-				apply: (db) =>
-					Effect.map(
-						db.apply(
-							ChangeSet.empty(P.Platform).delete(P.Allocation, [a]).insert(P.Allocation, by),
-							{}
+				const part = (start: bigint, end: bigint): Fact<typeof P.Segment> => ({
+					...segment,
+					during: { start: P.Instant(start), end: P.Instant(end) }
+				})
+				const change = (by: ReadonlyArray<Fact<typeof P.Segment>>): Attempt => ({
+					apply: (db) =>
+						Effect.map(
+							db.apply(
+								ChangeSet.empty(P.Platform).delete(P.Segment, [segment]).insert(P.Segment, by),
+								{}
+							),
+							decided
 						),
-						decided
-					),
-				ops: [deleteOp("Allocation", [a]), insertOp("Allocation", by)]
-			})
-			return { faulty: replace([moved]), sound: replace(split) }
-		}
+					ops: [deleteOp("Segment", [segment]), insertOp("Segment", by)]
+				})
+				return Option.some({
+					faulty: change([part(segment.during.start, cut)]),
+					sound: change([part(segment.during.start, cut), part(cut, segment.during.end)])
+				})
+			}
+		)
 	)
 
 /** Plants paidWithoutPayment: an open invoice put paid without its payment, and paid with it. */
@@ -700,7 +703,8 @@ const plantCardRetiredUnderCharges = (p: Platform, margin: bigint): Option.Optio
  * exactly the debit, all on the input kind; pricedOutsideCards prices a usage record's first charge `margin` seconds
  * before every card of its model and kind; cardRetiredUnderCharges cuts the card that priced a stored charge `margin`
  * seconds before the charge's instant, and its sound change splits the card `margin` seconds after the instant
- * instead.
+ * instead; allocationCovered cuts the segment an allocation lies in `margin` seconds before the allocation ends, and
+ * its sound change splits the segment there.
  */
 const plant = (fault: Fault, p: Platform, margin: bigint): Option.Option<Planted> => {
 	switch (fault) {

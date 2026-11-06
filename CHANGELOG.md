@@ -113,6 +113,26 @@ How to upgrade:
   refused when the schema is compiled, with `ResourceBound` (`cellCodes`), where its reads used to fail at run time with
   22003.
   - Codemod: none; regenerate the migrations.
+- **A closed relation declares how its migration packs it: `closed.relation(name, fields, key, rows, { pack: "hex" })`.**
+  `pack: "rows"`, the default, lists its rows, a line each with the handles it holds, for a person to review;
+  `pack: "hex"`, for rows a machine builds, states each of its constants as one statement,
+  `CREATE FUNCTION f() RETURNS bit varying … RETURN X'…'::bit varying || B'…'::bit varying`, the binary part only for
+  the zero to three bits past the last hex digit, under a comment of its row count, cells, width and content digest. A
+  pack whose statement of rows would pass 536,870,888 bytes (`rowsPackMaxBytes`, the lesser of PostgreSQL's longest
+  message and V8's longest string, which the migration file is built as), or whose DO block would EXECUTE a statement
+  past 1,073,741,822 bytes (`stringBufferMaxBytes`, one PostgreSQL string buffer, past which the pack failed as it ran),
+  is hex whatever is declared. A constant two relations share is listed as rows where either declares rows, and a side a
+  containment reads is stated as its relation declares. The form is no part of a constant's identity: either form
+  installs the same string, so a change of form drafts a folder of no file that records it, and replaces no constant
+  and none of its readers. `grizzle check` decodes every literal pack and refuses one whose literal does not digest to
+  its comment's content and its function's name, or holds other than the rows its comment counts, naming the file, the
+  statement, the closed relation, and the first cell where it parts from the schema's rows with that cell's key
+  (`literalPack`). Follow over 1,217,966 rows drafts 507,520 bytes and installs in 35 ms as hex, 65,419,623 bytes and
+  7 s as rows. A closed relation's value states its `pack`; options of another property or form, or a sixth argument,
+  are refused (MalformedDescription), and by type.
+  - Format: a closed relation's description holds its `pack`, and a snapshot's pack its `form`, its rows or its
+    literal.
+  - Codemod: none; a relation without options lists its rows, as it did. Regenerate the migrations.
 - **A set of handles is `bits(R)`.** A `bit(n)` column, one bit per code, under a bits domain whose CHECK,
   `((VALUE & live()) = VALUE) IS TRUE`, admits only live handles, `live()` derived from the names constant. Its host
   value is `Bits<typeof R>`, a frozen `ReadonlySet` of handles that `Bits.of(R, handles)` makes. `Compute.union`,

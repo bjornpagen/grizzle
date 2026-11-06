@@ -61,6 +61,7 @@ import type {
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
 import { migrationChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { constantOfLiteral } from "#compiler/ir/cells.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -2589,17 +2590,34 @@ const dropObject = (
 	return { kind: "drop", object, name, ifExists: false }
 }
 
-/** What a constant installs: a created constant's statement, or a pack's function and cells, each row's cell and
- * payload code and not the names its comment spells them by. */
-const installedContent = (c: CreateConstant | PackConstant): unknown =>
-	c.kind === "createConstant"
-		? c
-		: {
-				function: c.function,
-				cells: c.cells,
-				width: c.width,
-				rows: c.rows.map((r) => ({ index: r.index, payload: r.payload }))
-			}
+/**
+ * What a constant installs: a created constant's statement, or a pack's function and the cells it fills, each held
+ * cell's index and payload code, whichever form states them (sql/ast.ts PackForm) and not the names or the count its
+ * comments spell them by: one constant stated as rows by one installation and as a literal by another installs one
+ * string.
+ */
+const installedContent = (c: CreateConstant | PackConstant): unknown => {
+	if (c.kind === "createConstant") {
+		return c
+	}
+	const entries =
+		c.form.kind === "rows"
+			? c.form.rows.map((r) => ({ index: r.index, payload: r.payload }))
+			: heldCells(c, c.form)
+	return { function: c.function, cells: c.cells, width: c.width, entries }
+}
+
+/** The cells a literal pack holds, each index and payload code: a snapshot's own pack, which reads as its layout. */
+const heldCells = (
+	c: PackConstant,
+	form: Extract<PackConstant["form"], { readonly kind: "literal" }>
+): ReadonlyArray<{ readonly index: bigint; readonly payload: bigint }> => {
+	const read = constantOfLiteral({ hex: form.hex, tail: form.tail }, c.cells, c.width)
+	if (!read.ok) {
+		throw defect(`the literal pack of ${c.function.name} holds its layout's bits`)
+	}
+	return read.value.entries
+}
 
 /** A constant's signature: its name and its parameters' types, none for a packed constant, which takes none. */
 const constantName = (c: CreateConstant | PackConstant): FunctionName =>

@@ -503,6 +503,7 @@ export const rowStatement = (
 					variant: "family",
 					serial: completeClass,
 					of: "insert",
+					proposes: "every",
 					columns: factColumns(relation),
 					fields: fieldNames(keyFirst(relation)),
 					key: relation.primaryKey

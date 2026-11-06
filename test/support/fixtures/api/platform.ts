@@ -215,7 +215,8 @@ export const Invoice = relation(
 
 /**
  * A line of an invoice. A plan line's allocations are a counted family (lineAllocations), `allocations` their drawn
- * count and `allocated` the sum of their amounts; a usage line has none.
+ * count and `allocated` the sum of their amounts; a usage line has none. A month's close apportions each plan line once,
+ * with the line, so the line is immutable: its allocations are fixed when it is inserted.
  */
 export const InvoiceLine = relation(
 	"InvoiceLine",

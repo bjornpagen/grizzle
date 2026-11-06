@@ -12,6 +12,7 @@ import type { SerialClass } from "#compiler/ir/write.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import { rowEq, rowNe, typedEq } from "#compiler/lower/conservative/vector/equality.ts"
 import type { Cte, Expr, FromItem, Insert, Select, SetCore, Target } from "#compiler/sql/ast.ts"
+import type { NameSupply } from "#compiler/sql/naming.ts"
 
 import {
 	and,
@@ -59,6 +60,7 @@ import {
 	type InsertOf,
 	type InsertResult,
 	type InsertVariant,
+	type Proposal,
 	keyFirst,
 	writtenFields,
 	type ModifyingStatement,
@@ -97,7 +99,8 @@ interface InsertSpec {
 	readonly serial: SerialClass
 	readonly input: WriteInput
 	/** The action the insert realizes. On a put's insert half a conflict witness is a concurrent commit at the key after
-	 * the put's deletion, which raises PutTargetConflict; a same-key pair still raises the key law. */
+	 * the put's first statement, its deletion or a family owner's UPDATE, which raises PutTargetConflict; a same-key pair
+	 * still raises the key law. */
 	readonly of: InsertOf
 }
 
@@ -143,6 +146,42 @@ const insertedFields = (relation: RelationInfo, serial: SerialClass): ReadonlyAr
 
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
+/** Which requested facts an insert proposes (statement.ts Proposal): only those at no stored key into a family owner,
+ * whose rows carry counts and ends, but for a generated addition, whose key its sequence draws at the insert so that no
+ * row stores it; every one into any other relation, whose proposed row is its requested fact. */
+const proposalOf = (relation: RelationInfo, serial: SerialClass): Proposal =>
+	serial.kind !== "generated" &&
+	relation.heading.some((f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated")
+		? "unstored"
+		: "every"
+
+/** No stored row of `relation` holds the requested fact's primary key, read at `requested`: NOT EXISTS (SELECT 1 FROM
+ * <relation> s WHERE s.<key> = <requested key>), each key field compared at its type. */
+const storedAbsent = (
+	w: WriteContext,
+	supply: NameSupply,
+	relation: WrittenRelation,
+	requested: (f: LawField) => Expr
+): Expr => {
+	const stored = supply.relation(internal(`stored ${relation.name}`))
+	return notExists(
+		simpleSelect(
+			[target(lit.int(1, types.integer))],
+			[{ kind: "table", table: w.names.relation(relation.name), alias: stored }],
+			and(
+				mapNonEmpty(relation.primaryFields, (f) =>
+					typedEq(
+						rowType(f),
+						col(stored, w.names.column(relation.name, f.name)),
+						requested(f),
+						w.names.vectorSchema
+					)
+				)
+			)
+		)
+	)
+}
+
 /** The same-key check reports the least key that occurs twice, so the witness never depends on the plan.
  *
  * The probe's refusal: the requested fact, every protocol marker false, and the signed ordinal.
@@ -176,6 +215,14 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  * columns to text. The variant is chosen by relation and member shape alone:
  *
  * - Relations with a payload: ON CONFLICT (the key) DO SELECT WHERE the payload differs, as above.
+ * - A family owner (statement.ts Proposal, `proposalOf`): the INSERT reads only the requested facts no stored row holds
+ *   the key of, `WHERE NOT EXISTS (SELECT 1 FROM <relation> s WHERE s.<key> = r1.<key>)`. A proposed row carries every
+ *   count and end its input does not carry at its start, and PostgreSQL judges it by every CHECK before the arbiter
+ *   meets its key, so a stored owner proposed again would meet a check over an end at that placeholder. For an
+ *   insertion, each stored owner at a requested key whose payload differs is a verdict row of its own, the stored row
+ *   unmarked, as DO SELECT would have returned it: the key law's conflict witness; an equal one is the exact repeat,
+ *   and no row. For a put, the row at a requested key is the one the put's UPDATE wrote. The arbiter stays for a
+ *   concurrent commit at the key.
  * - Pure sets, whose primary key is the whole heading: ON CONFLICT (every key column) DO NOTHING RETURNING the key; a
  *   returned key was inserted.
  * - Generated additions, which omit the serial fields their class draws: a plain INSERT ... RETURNING of the complete
@@ -271,6 +318,7 @@ export const buildInsert = (
 	const guarantees = inputGuarantees(input)
 	const sameKeyCheck = variant === "protocol" && !keyUniqueBy(guarantees.keyUnique)
 	const written = insertedFields(relation, serial)
+	const proposes = proposalOf(relation, serial)
 	/** The written fields the input carries, which the insert reads from it, and the rest, each written at its start: a
 	 * fresh owner's counts and ends, which a nesting's input carries and a plain insert's does not. */
 	const heading = inputHeading(input)
@@ -426,13 +474,16 @@ export const buildInsert = (
 			ctes.push(unique.guarded.cte)
 		}
 		const cU = unique.kind === "verdict" ? unique.marker : undefined
+		/** Into a family owner, only the requested facts no row stores (`proposalOf`). */
+		const unstored = proposes === "unstored" ? [storedAbsent(w, supply, relation, inCol)] : []
 		const gates = [
 			...(r4 === undefined
 				? []
 				: [notExists(simpleSelect([target(lit.int(1, types.integer))], [cteRef(r4)], undefined))]),
 			...(unique.kind === "none"
 				? []
-				: [unique.kind === "gate" ? unique.guarded.guard : unique.probe.gate])
+				: [unique.kind === "gate" ? unique.guarded.guard : unique.probe.gate]),
+			...unstored
 		]
 		/** r1 already holds each value cast into its column's type (`into`), so the INSERT selects it as is. */
 		const values = [...fields.map((f) => target(inCol(f))), ...starts.map((s) => target(s.value))]
@@ -487,8 +538,10 @@ export const buildInsert = (
 		const factOf = (alias: string, name: (f: LawField) => string): ReadonlyArray<Target> =>
 			outFields.map((f) => targetAs(col(alias, name(f)), retCol(f)))
 		const zero = cU === undefined ? [] : [targetAs(lit.int(0, types.integer), cU)]
-		/** The verdict rows of an insert with a payload marker: the rows r2 returned, marked, and the requests it did not
-		 * insert with their markers when a later probe classifies them. */
+		/** The verdict rows of an insert with a payload marker: the rows r2 returned, marked; for an insertion into a
+		 * family owner, each stored owner at a requested key whose payload differs, the row the arbiter's DO SELECT
+		 * would have returned had the statement proposed it (`proposalOf`), unmarked, the key law's conflict witness;
+		 * and the requests it did not insert with their markers when a later probe classifies them. */
 		const markedBody = (payload: NonNullable<typeof marker>): Select["body"] => {
 			const inserted = rowEq(
 				{ fields: payload.payload, typeOf, left: (f) => col(r2, retCol(f)), right: inCol },
@@ -511,8 +564,39 @@ export const buildInsert = (
 				],
 				undefined
 			)
+			const conflicts = (): SetCore => {
+				const s = supply.relation(internal(`conflicting stored ${relation.name}`))
+				const stored = (f: LawField): Expr => col(s, column(f))
+				return provedCore(
+					"keyed",
+					[
+						...outFields.map((f) => targetAs(stored(f), retCol(f))),
+						targetAs(lit.bool(false), payload.column),
+						...(c9 === undefined ? [] : [targetAs(lit.bool(false), c9)]),
+						...zero
+					],
+					[{ kind: "table", table: w.names.relation(relation.name), alias: s }],
+					exists(
+						simpleSelect(
+							[target(lit.int(1, types.integer))],
+							[cteRef(r1)],
+							and(
+								appendNonEmpty(
+									pk.map((f) => same(f, inCol(f), stored(f))),
+									rowNe(
+										{ fields: payload.payload, typeOf, left: stored, right: inCol },
+										w.names.vectorSchema
+									)
+								)
+							)
+						)
+					)
+				)
+			}
+			const marked: NonEmptyReadonlyArray<SetCore> =
+				spec.of === "insert" && proposes === "unstored" ? [left, conflicts()] : [left]
 			if (r4 === undefined || c9 === undefined) {
-				return left
+				return unionAll("disjoint", marked)
 			}
 			const markers = [
 				target(lit.bool(false)),
@@ -532,7 +616,7 @@ export const buildInsert = (
 				],
 				undefined
 			)
-			return unionAll("disjoint", [left, right])
+			return unionAll("disjoint", appendNonEmpty(marked, right))
 		}
 		const verdicts: Select["body"] =
 			marker === undefined
@@ -631,6 +715,7 @@ export const buildInsert = (
 			variant,
 			serial,
 			of: spec.of,
+			proposes,
 			columns,
 			fields: fieldNames(outFields),
 			key: fieldNames(pk)
@@ -730,7 +815,8 @@ export const buildSpanClassify = (
 			)
 		)
 		/** On a put's insert half, a stored fact at the requested key itself is no law: the put deleted the occupant at
-		 * that key, so one there now was committed after the deletion, a concurrent change that aborts the apply. */
+		 * that key, or an owner's put updated it to the requested fact, which the equal stored fact above accounts for, so
+		 * any other one there was committed after the put's own statement, a concurrent change that aborts the apply. */
 		const storedOverlap = simpleSelect(
 			one,
 			[table(occupant)],

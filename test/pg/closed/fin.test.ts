@@ -23,8 +23,11 @@
  * - **a containment into a projection:** a row of ProjProbe holding an owner and a slot code is accepted exactly where
  *   some row of Slotted holds both, the side (version, parent, last field) a dependent space of its own.
  *
- * No two distinct keys share a cell: an alias would read another key's presence, payload or completions. The box: 3
- * shapes and every assignment of no row, 1 or 2 slots to the 4 live owners, 243 installations.
+ * No two distinct keys share a cell: an alias would read another key's presence, payload or completions. Each case
+ * installs every closed constant, the owner functions' too, in one of its two forms: listed as rows, or stated as its
+ * hex literal (physical/ddl/constants.ts packFormOf past bounds of no bytes, test/support/closed/literal.ts), so every reader reads a literal pack as
+ * it reads the rows. The box: 3 shapes, every assignment of no row, 1 or 2 slots to the 4 live owners, and both forms,
+ * 486 installations.
  */
 import { layer } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
@@ -49,6 +52,7 @@ import {
 	type ModelSlot,
 	type RosterState
 } from "#test/support/closed/generate.ts"
+import { literalInstallation } from "#test/support/closed/literal.ts"
 import {
 	compileTemplate,
 	installationSql,
@@ -157,10 +161,13 @@ const owners = [
 
 type Held = "none" | 1 | 2
 type Shape = "follow" | "last" | "symbol"
+/** How a case's closed constants are installed: listed as rows, or each stated as its literal. */
+type Form = "rows" | "literal"
 
 interface FinCase {
 	readonly held: ReadonlyArray<Held>
 	readonly shape: Shape
+	readonly form: Form
 }
 
 /** A key: its owner's position among the live owners, and its block's codes in key order. */
@@ -503,11 +510,14 @@ type FinFeature =
 	| "two slots"
 	| "one slot"
 	| "a closed id before a slot"
+	| "packs listed as rows"
+	| "packs stated as literals"
 
-/** Every case of the box: each live owner holding no row or counting 1 or 2 slots, under each shape. */
+/** Every case of the box: each live owner holding no row or counting 1 or 2 slots, under each shape, in each form. */
 const cases: Gen<FinCase> = (s) => ({
 	held: Array.from({ length: owners.length }, () => s.draw(element<Held>(["none", 1, 2]))),
-	shape: s.draw(element<Shape>(["follow", "last", "symbol"]))
+	shape: s.draw(element<Shape>(["follow", "last", "symbol"])),
+	form: s.draw(element<Form>(["rows", "literal"]))
 })
 
 /**
@@ -547,10 +557,10 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 							kind: "second-implementation",
 							name: "Slotted's rows: the keys it holds, each key's payload and each prefix's completions"
 						},
-						box: "3 shapes, each of 4 live owners (a hole among Kind's codes) holding no row or counting 1 or 2 slots, every key of the live codes' product",
+						box: "3 shapes, each of 4 live owners (a hole among Kind's codes) holding no row or counting 1 or 2 slots, the packs as rows or as literals, every key of the live codes' product",
 						generator: cases,
 						literal: Formatter.format,
-						limit: 243,
+						limit: 486,
 						coverage: requiredInSpace<FinFeature>([
 							"an aliasing slot digit",
 							"an owner with no row",
@@ -558,7 +568,9 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 							"every live owner counting slots",
 							"two slots",
 							"one slot",
-							"a closed id before a slot"
+							"a closed id before a slot",
+							"packs listed as rows",
+							"packs stated as literals"
 						]),
 						caseHang
 					},
@@ -575,7 +587,10 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 									owner: s.owner.role
 								})
 							)
-							yield* transaction(s.admin, installationSql(compiled))
+							yield* transaction(
+								s.admin,
+								installationSql(c.form === "literal" ? literalInstallation(compiled) : compiled)
+							)
 							const names = compiled.names
 							const block = blockOf(c.shape)
 							const fields = ["id", "version", "kind", ...Arr.map(block, (b) => b.field)]
@@ -738,6 +753,7 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 										? "one slot"
 										: "a closed id before a slot"
 							)
+							notes.note(c.form === "literal" ? "packs stated as literals" : "packs listed as rows")
 						}).pipe(Effect.scoped)
 				)
 			)

@@ -549,7 +549,10 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
  * at the row's cell, written by the test oracle bitText.
  */
 const packedBits = (s: PackConstant): string => {
-	const entries = Arr.map(s.rows, (row) => ({ index: row.index, payload: row.payload }))
+	if (s.form.kind === "literal") {
+		return literalBits(s.form.hex, s.form.tail)
+	}
+	const entries = Arr.map(s.form.rows, (row) => ({ index: row.index, payload: row.payload }))
 	const text = bitText(
 		{
 			cells: s.cells,
@@ -566,6 +569,15 @@ const packedBits = (s: PackConstant): string => {
 	}
 	return text.value
 }
+
+/** A literal pack's bits as PostgreSQL reads `X'<hex>' || B'<tail>'`: each hex digit its four bits, then the tail. */
+const literalBits = (hex: string, tail: string): string =>
+	Arr.join(
+		Arr.map(Array.from(hex), (digit) =>
+			Str.padStart(4, "0")(Number.parseInt(digit, 16).toString(2))
+		),
+		""
+	) + tail
 
 /** A bit string cast to bit(n): padded with zeros on the right, or truncated, as PostgreSQL's bit(n) cast does. */
 const toLength = (bits: string, length: number): string =>

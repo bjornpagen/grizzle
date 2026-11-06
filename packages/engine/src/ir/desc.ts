@@ -693,6 +693,17 @@ export interface KeySlotDesc {
 	readonly fin: SlotsDesc
 }
 
+/**
+ * How a closed relation's migration states its constants, as its declaration says (closed.relation's `pack`): `rows`,
+ * a line per row with the handles it holds, for a person to review; or `hex`, one bit-string literal, for rows no person
+ * reviews, a machine's. A pack whose rows do not fit what one statement carries is hex whatever is declared
+ * (physical/ddl/constants.ts packFormOf). Either installs one string, so the form is no part of a constant's identity.
+ */
+export type ClosedPack = "rows" | "hex"
+
+/** Every way a closed relation's pack is stated. */
+export const closedPacks: NonEmptyReadonlyArray<ClosedPack> = ["rows", "hex"]
+
 /** An alternatives arm: a roster handle and its arm relation's key side. */
 export interface ArmDesc {
 	readonly handle: string
@@ -888,6 +899,8 @@ export type RelationDesc<L = Located> = L &
 				readonly slots: ReadonlyArray<KeySlotDesc>
 				/** Each row a value of every field, its key fields' values handles of their rosters. */
 				readonly rows: ReadonlyArray<Readonly<Record<string, LiteralDesc>>>
+				/** How its migration states its constants (ClosedPack). */
+				readonly pack: ClosedPack
 		  }
 		| {
 				readonly kind: "derived"
@@ -1810,7 +1823,8 @@ const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 						(slot) => slot.field,
 						"slot fields"
 					),
-					rows: S.array(S.recordShape(literalDescShape, name))
+					rows: S.array(S.recordShape(literalDescShape, name)),
+					pack: S.literalsShape(closedPacks)
 				},
 				loc
 			),

@@ -1668,10 +1668,11 @@ export type PlFunction = Extract<CreateFunction, { readonly language: "plpgsql" 
 export type SqlFunction = Extract<CreateFunction, { readonly language: "sql" }>
 
 /**
- * The migration's pack of a closed relation into its constant, printed as one DO block: the string of cells built
- * from rows of cell indexes and payload codes in one LEFT JOIN over the cells, then EXECUTE format('CREATE FUNCTION …
- * RETURN %L::bit varying', cells). Its outer join and its PL/pgSQL exist only inside this printed form: no Select and
- * no PlStatement can hold either.
+ * The migration's pack of a closed relation into its constant, `cells` cells of `width` bits, in one of two forms
+ * (PackForm): from its rows, a DO block that builds the string of cells from rows of cell indexes and payload codes in
+ * one LEFT JOIN over the cells, then EXECUTE format('CREATE FUNCTION … RETURN %L::bit varying', cells); or as its
+ * literal, a CREATE FUNCTION whose body is the string of cells itself. The DO block's outer join and its PL/pgSQL exist
+ * only inside its printed form: no Select and no PlStatement can hold either.
  */
 export interface PackConstant {
 	readonly kind: "packConstant"
@@ -1680,12 +1681,28 @@ export interface PackConstant {
 	readonly cells: bigint
 	/** w, a cell's bits: 1 for a set. */
 	readonly width: number
-	/**
-	 * The relation's tuples, its key checked before the pack: none for a relation that holds no fact, whose constant is
-	 * its cells' zero bits, which the printer builds with no VALUES list, since PostgreSQL has no empty one.
-	 */
-	readonly rows: ReadonlyArray<PackRow>
+	readonly form: PackForm
 }
+
+/**
+ * How a pack states its constant:
+ *
+ * - `rows`: the relation's tuples, its key checked before the pack, each line a row a person reads: none for a relation
+ *   that holds no fact, whose constant is its cells' zero bits, which the printer builds with no VALUES list, since
+ *   PostgreSQL has no empty one;
+ * - `literal`: the string of cells as one bit-string literal, its hex digits then the bits past the last whole digit,
+ *   with the count of rows it holds and its content's digest (ir/cells.ts constantDigestOf), which the printed comment
+ *   states and `grizzle check` holds the literal to.
+ */
+export type PackForm =
+	| { readonly kind: "rows"; readonly rows: ReadonlyArray<PackRow> }
+	| {
+			readonly kind: "literal"
+			readonly hex: string
+			readonly tail: string
+			readonly rows: number
+			readonly digest: string
+	  }
 
 /**
  * One tuple of a packed relation: its cell, the index the host's encoder gives its key's codes (ir/cells.ts keyIndex),

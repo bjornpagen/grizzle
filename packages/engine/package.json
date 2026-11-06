@@ -337,6 +337,11 @@
 			"types": "./dist/physical/ddl/ledger.d.ts",
 			"default": "./dist/physical/ddl/ledger.js"
 		},
+		"./internal/physical/ddl/literal.ts": {
+			"grizzle-source": "./src/physical/ddl/literal.ts",
+			"types": "./dist/physical/ddl/literal.d.ts",
+			"default": "./dist/physical/ddl/literal.js"
+		},
 		"./internal/physical/ddl/names.ts": {
 			"grizzle-source": "./src/physical/ddl/names.ts",
 			"types": "./dist/physical/ddl/names.d.ts",

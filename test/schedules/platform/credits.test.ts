@@ -13,7 +13,7 @@
  *
  * The swarm adds a second grant expiring later, requests whose windows cross the first grant's expiry, credit spent
  * before the race, the first grant expiring mid-race (a put shortening its validity, by grizzle or a direct writer's
- * INSERT ... ON CONFLICT DO UPDATE, its debits kept), and a request submitted twice.
+ * UPDATE in place, its debits kept), and a request submitted twice.
  */
 
 import { array, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"

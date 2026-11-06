@@ -51,6 +51,19 @@ export type InsertVariant = "protocol" | "pureSet" | "generated" | "spanKey" | "
  * under that tag (`AddedTag`). */
 export type InsertOf = "insert" | "put"
 
+/**
+ * Which requested facts an insert statement proposes to its INSERT:
+ * - `every`: each one, the arbiter settling a stored row at its key, an insertion's exact repeat or its conflict, a
+ *   put's commit after its deletion;
+ * - `unstored`: into a family owner, only those at no stored key (rows-first.md §3). A proposed owner carries every
+ *   count and end its input does not carry at its start, and PostgreSQL judges a proposed row by every CHECK before any
+ *   arbiter meets its key (19rc1 nodeModifyTable.c ExecInsert: ExecConstraints, then the speculative insertion), so a
+ *   stored owner proposed again would meet a check over an end, such as an invoice's lines summing to its amount, at
+ *   that placeholder. A stored owner at a requested key is instead an insertion's exact repeat or its conflict, read
+ *   from its row, or the row a put's UPDATE wrote, its families as they are.
+ */
+export type Proposal = "every" | "unstored"
+
 /** What an insert statement's rows mean: each is a fact the statement inserted. A refusal is never a row: the
  * statement raises it. */
 export interface InsertResult {
@@ -60,6 +73,7 @@ export interface InsertResult {
 	/** The serial class of the facts it inserts, the one its action's front end decided. */
 	readonly serial: SerialClass
 	readonly of: InsertOf
+	readonly proposes: Proposal
 	/** The outer SELECT's columns, position by position: the fact fields. */
 	readonly columns: ReadonlyArray<ResultColumn>
 	/** The complete fact's fields, key first. */

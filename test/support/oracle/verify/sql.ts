@@ -2561,8 +2561,25 @@ class StatementAuditor {
 				if (!Number.isSafeInteger(width) || width < 1) {
 					this.report("literal", "a pack's cells are one bit wide at least")
 				}
+				const form = statement.form
+				if (form.kind === "literal") {
+					this.at("form", () => {
+						if (
+							BigInt(form.hex.length * 4 + form.tail.length) !== cells * BigInt(width) ||
+							!Arr.every(Array.from(form.hex), (d) => Str.includes(d)("0123456789ABCDEF")) ||
+							!Arr.every(Array.from(form.tail), (d) => d === "0" || d === "1") ||
+							form.tail.length > 3
+						) {
+							this.report(
+								"literal",
+								"a literal pack's hex digits, then at most three binary ones, are exactly its cells' bits"
+							)
+						}
+					})
+					return
+				}
 				this.at("rows", () => {
-					for (const [i, row] of statement.rows.entries()) {
+					for (const [i, row] of form.rows.entries()) {
 						this.at(i, () => {
 							if (row.index < 0n || row.index >= cells) {
 								this.report("arity", "a packed row's cell is one of the pack's cells")
@@ -3222,7 +3239,9 @@ class TextAuditor {
 				}
 				break
 			case "string": {
-				if (t.prefix !== undefined) {
+				/** A bit-string constant, hex or binary, cast: a literal pack's parts (sql/print.ts writeLiteralPack). */
+				const bitString = (t.prefix === "X" || t.prefix === "B") && isPunct(next, "::")
+				if (t.prefix !== undefined && !bitString) {
 					this.report("untypedLiteral", t.start, `a ${t.prefix}'' string literal`)
 					break
 				}

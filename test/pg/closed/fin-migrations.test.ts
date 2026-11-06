@@ -18,6 +18,9 @@
  * - **v3, the slot roster grows:** Position appends p3 with no count changing. A dependent space reads its slots'
  *   counts, never its slot roster's size, so the CHECK on Step reads exactly v2's functions; the product twin's key
  *   space grows with the roster, so its constant is new.
+ * - **v4, a change of form:** Model, Last and LastProduct declare `pack: "hex"`, nothing else changing. Either form
+ *   installs one string, so both CHECKs read exactly v3's functions, the stored rows are kept, and the CHECK still
+ *   admits a slot below its count and refuses one past it.
  *
  * Oracle: the versions' declarations, the codes a rename keeps (D1) and the content addressing of constants (a
  * constant's name digests what it installs), against PostgreSQL's catalog and verdicts.
@@ -44,11 +47,26 @@ const columnOf = (field: string): string => identifierOf(identity.column(parsedN
 const Version = closed("Version", ["v0"])
 const Kind = closed("Kind", ["k0", "k1"])
 
-/** One version: Position's handles, Model's counts for (v0, k0) and (v0, k1), and Last's rows' slots. */
+/**
+ * One version: Position's handles, Model's counts for (v0, k0) and (v0, k1), Last's rows' slots, and how the closed
+ * relations' packs are declared.
+ */
 interface Stage {
 	readonly positions: readonly [string, ...Array<string>]
 	readonly counts: readonly [bigint, bigint]
 	readonly rows: ReadonlyArray<readonly ["k0" | "k1", string]>
+	readonly pack: "rows" | "hex"
+}
+
+const grown: Stage = {
+	positions: ["p0", "q1", "p2", "p3"],
+	counts: [2n, 2n],
+	rows: [
+		["k0", "p0"],
+		["k0", "q1"],
+		["k1", "q1"]
+	],
+	pack: "rows"
 }
 
 const stages: ReadonlyArray<Stage> = [
@@ -58,7 +76,8 @@ const stages: ReadonlyArray<Stage> = [
 		rows: [
 			["k0", "p0"],
 			["k1", "p1"]
-		]
+		],
+		pack: "rows"
 	},
 	{
 		positions: ["p0", "p1", "p2"],
@@ -67,7 +86,8 @@ const stages: ReadonlyArray<Stage> = [
 			["k0", "p0"],
 			["k0", "p1"],
 			["k1", "p1"]
-		]
+		],
+		pack: "rows"
 	},
 	{
 		positions: ["p0", "q1", "p2"],
@@ -76,17 +96,11 @@ const stages: ReadonlyArray<Stage> = [
 			["k0", "p0"],
 			["k0", "q1"],
 			["k1", "q1"]
-		]
+		],
+		pack: "rows"
 	},
-	{
-		positions: ["p0", "q1", "p2", "p3"],
-		counts: [2n, 2n],
-		rows: [
-			["k0", "p0"],
-			["k0", "q1"],
-			["k1", "q1"]
-		]
-	}
+	grown,
+	{ ...grown, pack: "hex" }
 ]
 
 /** The schema of a version under the declared name `name`. */
@@ -99,7 +113,8 @@ const schemaAt = (name: string, stage: Stage) => {
 		[
 			{ version: "v0", parent: "k0", positions: stage.counts[0] },
 			{ version: "v0", parent: "k1", positions: stage.counts[1] }
-		]
+		],
+		{ pack: stage.pack }
 	)
 	const owner = { version: closedId(Version), parent: closedId(Kind) }
 	const rows = Arr.map(stage.rows, ([parent, at]) => ({ version: "v0" as const, parent, at }))
@@ -107,13 +122,15 @@ const schemaAt = (name: string, stage: Stage) => {
 		"Last",
 		{ ...owner, at: slot(closedId(Position), fin(Model, "positions")) },
 		["version", "parent", "at"],
-		rows
+		rows,
+		{ pack: stage.pack }
 	)
 	const LastProduct = closed.relation(
 		"LastProduct",
 		{ ...owner, at: closedId(Position) },
 		["version", "parent", "at"],
-		rows
+		rows,
+		{ pack: stage.pack }
 	)
 	const probe = {
 		id: pg.int4,
@@ -143,7 +160,7 @@ const values = (session: RawSession, sql: string) => Effect.orDie(session.values
 
 layer(Substrate.layer)("dependent keys through grizzle's migrations on PostgreSQL 19rc1", (it) => {
 	it.effect(
-		"a changed count replaces every constant of its space, and a rename or a grown slot roster replaces none",
+		"a changed count replaces every constant of its space, and a rename, a grown slot roster or a change of form replaces none",
 		() =>
 			Effect.gen(function* () {
 				const observed: Array<Observed> = []
@@ -217,7 +234,12 @@ layer(Substrate.layer)("dependent keys through grizzle's migrations on PostgreSQ
 												[3, 0, 1],
 												[4, 0, 2]
 											]
-										: []
+										: v === 4
+											? [
+													[5, 0, 1],
+													[6, 0, 2]
+												]
+											: []
 							const verdict: Array<Option.Option<string>> = []
 							for (const [id, parent, at] of attempts) {
 								const one = yield* insert("Step", defined(id), defined(parent), defined(at))
@@ -239,6 +261,7 @@ layer(Substrate.layer)("dependent keys through grizzle's migrations on PostgreSQ
 				const v1 = defined(observed[1])
 				const v2 = defined(observed[2])
 				const v3 = defined(observed[3])
+				const v4 = defined(observed[4])
 				assert.deepEqual(verdicts[0], [Option.none(), Option.none()], "v0's rows are Last's keys")
 				assert.deepEqual(
 					verdicts[1],
@@ -271,6 +294,17 @@ layer(Substrate.layer)("dependent keys through grizzle's migrations on PostgreSQ
 					"the stored rows are kept, and the new slot's"
 				)
 				assert.deepEqual(v3.rows, v1.rows, "the rename and the growth keep every stored row")
+				assert.deepEqual(
+					[v4.step, v4.stepProduct],
+					[v3.step, v3.stepProduct],
+					"a change of form installs one string, so every constant stands"
+				)
+				assert.deepEqual(
+					verdicts[4],
+					[Option.none(), Option.some("23514")],
+					"after a change of form the CHECK admits a slot below its count and refuses one past it"
+				)
+				assert.deepEqual(v4.rows, [...v3.rows, "5:0:1"], "a change of form keeps every stored row")
 			})
 	)
 })

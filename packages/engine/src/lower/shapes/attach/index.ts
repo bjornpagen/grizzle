@@ -26,6 +26,7 @@ import {
 	parentRowsSource
 } from "#compiler/lower/conservative/deliver.ts"
 import type { DeliveredBreach } from "#compiler/lower/conservative/types.ts"
+import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import {
 	type FusedColumn,
 	type FusedLayout,
@@ -399,6 +400,17 @@ export interface PipelinedAttachment {
 	readonly query: Select
 }
 
+/** The child as a fold by every column the Attach correlates, a Group whose keys hold them; none for any other. */
+const foldedByCorrelation = (
+	child: RelNode,
+	attach: NodeOf<"Attach">
+): NodeOf<"Group"> | undefined =>
+	child.kind === "Group" &&
+	child.keys.length > 0 &&
+	attach.correlation.every((c) => child.keys.includes(c.child))
+		? child
+		: undefined
+
 /**
  * The pipelined attachment statement:
  *
@@ -408,6 +420,15 @@ export interface PipelinedAttachment {
  * The parent key columns `parentColumns` first (deliver.ts parentColumnsOf), then the child's heading. DISTINCT is
  * elided when the facts prove the child unique per parent binding and the parent columns key the delivered rows, so the
  * parent's rows hold each parent key once.
+ *
+ * A child that folds by every column the Attach correlates (a Group whose keys hold them) is the fold of its parent's
+ * keys alone, `LATERAL (SELECT k, sum(…) FROM (<input>) WHERE k = r1.c2 GROUP BY k)` (aggregate/index.ts keyedGroup),
+ * the correlation inside the grouping, where it restricts the fold's input rows and an index on the key reads them per
+ * parent row. A grouped derived table is never flattened, so a correlation beside it is a join condition PostgreSQL
+ * keeps above the aggregate, which then reads every row of the child's relation: a grant's debited total folded every
+ * debit of every grant. Wrapping the fold in a derived table that restricts it does not help: PostgreSQL flattens the
+ * wrapper (prepjointree.c pull_up_subqueries) and its condition is a join condition again. Any other child is
+ * correlated beside it, which PostgreSQL pushes into a child it flattens.
  */
 export const pipelinedAttachment = (
 	cx: LowerContext,
@@ -423,8 +444,26 @@ export const pipelinedAttachment = (
 	const keys = parentColumns.map((c) => ({ name: c.name, expr: parent.column(c.name) }))
 	const parentMap: ColumnMap = new Map(keys.map((k) => [k.name, k.expr]))
 	const env: Env = new Map<NodeId, ColumnMap>(spine.map((n) => [n.id, parentMap]))
-	const source = cx.sourceAs(child, env, true)
-	const where = correlationEqualities(cx, attach, child.heading, source.map, parentMap)
+	const folded = foldedByCorrelation(child, attach)
+	const source =
+		folded === undefined
+			? cx.sourceAs(child, env, true)
+			: cx.wrapAs(
+					keyedGroup(
+						facts,
+						folded,
+						cx,
+						env,
+						new Map(attach.correlation.map((c) => [c.child, columnIn(parentMap, c.parent)]))
+					),
+					child.heading,
+					{ kind: "node", node: child.id },
+					true
+				)
+	const where =
+		folded === undefined
+			? correlationEqualities(cx, attach, child.heading, source.map, parentMap)
+			: []
 	const distinct =
 		!facts.childUniquePerParent(attach) ||
 		!rowsKeyedBy(

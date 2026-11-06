@@ -1224,13 +1224,24 @@ const compile = (
 					}
 					continue
 				}
+				/** An owner of counted families' counts and ends, which its enumerated slot carries at their starts. */
+				const owned = families.some((f) => f.owner.name === relation.name)
+					? written.heading
+							.filter((c) => c.writing.kind === "drawn" || c.writing.kind === "accumulated")
+							.map(carriedColumn)
+					: []
 				switch (op) {
 					case "put": {
 						const act = { op }
+						/** An enumerated put of an owner carries its counts and ends in its slot, at their starts, as its
+						 * insertion does: the stratum's appends to an owner the put inserts replace them before its insert
+						 * half is sent (write/program/bind.ts), and a stored owner's are no field its UPDATE sets. A put
+						 * that also reads queries carries none, since their rows hold only written fields. */
+						const carried = isNonEmpty(queries) ? classes.complete : [...classes.complete, ...owned]
 						draft(
 							act,
-							classes.complete,
-							singleInput(act, classes.complete, classes.complete),
+							carried,
+							singleInput(act, carried, classes.complete),
 							queries.map((q) => q.root)
 						)
 						break
@@ -1287,11 +1298,6 @@ const compile = (
 							case "unclassed": {
 								/** An owner of counted families carries its counts and ends in its slot, at their starts,
 								 * which the stratum's appends to it replace before its insert is sent. */
-								const owned = families.some((f) => f.owner.name === relation.name)
-									? written.heading
-											.filter((c) => c.writing.kind === "drawn" || c.writing.kind === "accumulated")
-											.map(carriedColumn)
-									: []
 								const carried = [...classes.complete, ...owned]
 								draft(complete, carried, singleInput(complete, carried, classes.complete), [])
 								break

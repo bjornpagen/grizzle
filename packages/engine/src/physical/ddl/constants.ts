@@ -1,6 +1,6 @@
 import { compareText, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"
-import { constantDigest } from "#compiler/core/fingerprint.ts"
+import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
 	type Identity,
@@ -8,7 +8,13 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { cellMaxCodes, constantMaxBits } from "#compiler/core/limits.ts"
+import {
+	cellMaxCodes,
+	constantMaxBits,
+	maxStringLength,
+	rowsPackMaxBytes,
+	stringBufferMaxBytes
+} from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	extendNonEmpty,
@@ -30,12 +36,14 @@ import {
 	keyCells,
 	keyIndex,
 	type KeySpace,
+	literalOf,
 	rowMajorIndex,
 	type Split,
 	spaceSize,
 	type Tuple
 } from "#compiler/ir/cells.ts"
 import { type Codebook, codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
+import type { ClosedPack } from "#compiler/ir/desc.ts"
 import { identityValueOf, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type {
 	ClosedSlot,
@@ -86,6 +94,7 @@ import {
 	payloadCode,
 	payloadDigit
 } from "#compiler/sql/constants.ts"
+import { executedPackBytes, printObjectName, statementBytes } from "#compiler/sql/print.ts"
 
 /**
  * The installation's constants: the functions a closed fact is read from, each an IMMUTABLE SQL function of no argument
@@ -178,6 +187,8 @@ const payloadSpace = (
 interface PlannedCells {
 	readonly kind: "cells"
 	readonly named: Identity<"closedConstant">
+	/** The constant's content digest, which `named` mints from and a literal pack's comment states. */
+	readonly digest: ConstantDigest<"closed-constant">
 	readonly constant: Constant
 	readonly rows: ReadonlyArray<PackRow>
 }
@@ -246,9 +257,11 @@ const plannedCells = (
 			names
 		})
 	}
+	const digest = constantDigestOf(encoded.value)
 	return {
 		kind: "cells",
-		named: identity.closedConstant(constantDigestOf(encoded.value)),
+		named: identity.closedConstant(digest),
+		digest,
 		constant: encoded.value,
 		rows: [...packed].toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, row]) => row)
 	}
@@ -520,13 +533,17 @@ const nonEmptyFins = (fins: ReadonlyArray<PlannedCount>): NonEmptyReadonlyArray<
 	return fins
 }
 
-/** A closed relation's or side's constants as planned: its key, the string of cells, the key set, and the dictionaries. */
+/**
+ * A closed relation's or side's constants as planned: its key, the string of cells, the key set, the dictionaries, and
+ * how its migration states its packs, its closed relation's declaration (ClosedPack).
+ */
 interface PlannedRelation {
 	readonly key: PlannedKey
 	readonly cells: PlannedCells
 	readonly keys: PlannedCells
 	readonly payload: ReadonlyArray<CodeSpace>
 	readonly dictionaries: ReadonlyArray<PlannedDictionary>
+	readonly pack: ClosedPack
 }
 
 /**
@@ -568,7 +585,8 @@ const outsideFin = (
 
 /**
  * The constants of `rows`, a closed relation `relation`'s or its side's, over the key fields `key` and the payload fields
- * `payloadFields`, `what` naming them. A row whose slot code is past its owner's count is refused (outsideFin).
+ * `payloadFields`, `what` naming them, its packs stated as `pack` declares. A row whose slot code is past its owner's
+ * count is refused (outsideFin).
  */
 const plannedRelation = (
 	codes: Codebook,
@@ -576,6 +594,7 @@ const plannedRelation = (
 	key: NonEmptyReadonlyArray<LawField>,
 	payloadFields: ReadonlyArray<LawField>,
 	rows: ReadonlyArray<Split<TypedLiteral>>,
+	pack: ClosedPack,
 	what: string
 ): PlannedRelation => {
 	const planned = plannedKey(codes, relation, key, what)
@@ -618,7 +637,8 @@ const plannedRelation = (
 		payload,
 		dictionaries: payload.flatMap((space) =>
 			space.kind === "dictionary" ? [plannedDictionary(space)] : []
-		)
+		),
+		pack
 	}
 }
 
@@ -646,7 +666,8 @@ export const planClosed = (
 ): ClosedPlan => {
 	const out = new Map<string, PlannedRelation>()
 	for (const r of closed.toSorted((x, y) => compareText(x.name, y.name))) {
-		if (owned.relations[r.name]?.kind !== "closedRelation") {
+		const entry = owned.relations[r.name]
+		if (entry?.kind !== "closedRelation") {
 			continue
 		}
 		const key = r.primaryFields
@@ -655,7 +676,10 @@ export const planClosed = (
 			key: key.map((f) => defined(row[f.position], "a value per field")),
 			payload: payload.map((f) => defined(row[f.position], "a value per field"))
 		}))
-		out.set(r.name, plannedRelation(codes, r, key, payload, rows, `closed relation ${r.name}`))
+		out.set(
+			r.name,
+			plannedRelation(codes, r, key, payload, rows, entry.desc.pack, `closed relation ${r.name}`)
+		)
 	}
 	return { relations: out }
 }
@@ -737,14 +761,74 @@ const revokeFromPublic = (fn: ObjectName): SqlStatement => ({
 	from: [{ kind: "PUBLIC" }]
 })
 
-/** A string of cells' pack, under its function. */
-const packOf = (schema: string, planned: PlannedCells): PackConstant =>
-	pack(
-		functionOf(schema, planned.named),
-		planned.constant.cells,
-		planned.constant.width,
-		planned.rows
-	)
+/** What one statement of a pack carries: the bytes of the statement sent, and of the statement a pack of rows EXECUTEs. */
+export interface PackBounds {
+	readonly statementBytes: number
+	readonly executedBytes: number
+}
+
+/**
+ * What one statement carries: a pack of rows is one protocol message and one string of its file (rowsPackMaxBytes),
+ * and the statement it builds and EXECUTEs is one string buffer (stringBufferMaxBytes).
+ */
+const statementBounds: PackBounds = {
+	statementBytes: rowsPackMaxBytes.value,
+	executedBytes: stringBufferMaxBytes.value
+}
+
+/**
+ * A constant's pack under the function `fn`, in the form its relation declares, `declared`, within what one statement
+ * carries (sql/ast.ts PackForm): its rows, a line each for a person to read, where its relation declares rows and their
+ * DO block fits `bounds.statementBytes` and the statement it EXECUTEs, the constant's text one character per bit, fits
+ * `bounds.executedBytes`; where its relation declares hex, or past either bound, the literal of its cells, the host's
+ * encoding (ir/cells.ts literalOf), under a comment of its row count and its content's digest, `digest`, the one its
+ * function's name digests, which `grizzle check` decodes it back to. The form is a function of the pack's rows, their
+ * handles' spellings included, and the bounds, never of an option, and one constant in either form installs one
+ * string, so a rename that moves a pack across a bound changes no constant (deploy/diff/diff.ts installedContent). The
+ * installation packs under what one statement carries (statementBounds); a test states its own.
+ */
+export const packFormOf = (
+	fn: ObjectName,
+	planned: {
+		readonly constant: Constant
+		readonly rows: ReadonlyArray<PackRow>
+		readonly digest: ConstantDigest<"closed-constant">
+	},
+	declared: ClosedPack,
+	bounds: PackBounds
+): PackConstant => {
+	const { cells, width } = planned.constant
+	const rows = pack(fn, cells, width, { kind: "rows", rows: planned.rows })
+	if (
+		declared === "rows" &&
+		executedPackBytes(rows) <= bounds.executedBytes &&
+		statementBytes(rows) <= bounds.statementBytes
+	) {
+		return rows
+	}
+	const digits = (cells * BigInt(width)) / 4n
+	if (digits > BigInt(maxStringLength.value)) {
+		throw new Refusal(
+			resourceBound(SourceLoc(printObjectName(fn), []), {
+				kind: "stringLength",
+				limit: maxStringLength.value,
+				needed: Number(digits)
+			})
+		)
+	}
+	const literal = literalOf(planned.constant)
+	return pack(fn, cells, width, {
+		kind: "literal",
+		hex: literal.hex,
+		tail: literal.tail,
+		rows: planned.rows.length,
+		digest: planned.digest
+	})
+}
+
+/** A string of cells' pack, under its function, in the form `declared` states within what one statement carries (packFormOf). */
+const packOf = (schema: string, planned: PlannedCells, declared: ClosedPack): PackConstant =>
+	packFormOf(functionOf(schema, planned.named), planned, declared, statementBounds)
 
 /**
  * A dictionary's CREATE: its values as one array literal of their base type, each element the text its input function
@@ -767,12 +851,13 @@ const dictionaryOf = (b: InstallBuilder, planned: PlannedDictionary): CreateCons
 	}
 }
 
-/** One planned constant as an object of the installation, after the schema; equal constants are one object, which
- * holds every reason it is there for. */
+/** One planned constant as an object of the installation, after the schema, a pack in the form `declared` states; equal
+ * constants are one object, the first added, which holds every reason it is there for. */
 const addPlanned = (
 	b: InstallBuilder,
 	planned: PlannedConstant,
-	reasons: ReadonlyArray<PhysicalReason>
+	reasons: ReadonlyArray<PhysicalReason>,
+	declared: ClosedPack
 ): Node<"setup"> => {
 	b.name(planned.named)
 	const fn = functionOf(b.schema, planned.named)
@@ -780,7 +865,7 @@ const addPlanned = (
 		planned.named,
 		{
 			ddl: [
-				planned.kind === "cells" ? packOf(b.schema, planned) : dictionaryOf(b, planned),
+				planned.kind === "cells" ? packOf(b.schema, planned, declared) : dictionaryOf(b, planned),
 				revokeFromPublic(fn)
 			],
 			reasons
@@ -789,13 +874,28 @@ const addPlanned = (
 	)
 }
 
-/** Every closed relation's constants as objects of the installation, in relation name order: its cells, its key set
- * (the cells themselves for no payload), its dependent key's owner functions and each dictionary. */
+/** A planned relation's constants: its cells, its key set (the cells themselves for no payload), its dependent key's
+ * owner functions and each dictionary. */
+const constantsOf = (r: PlannedRelation): ReadonlyArray<PlannedConstant> => [
+	r.cells,
+	r.keys,
+	...layoutOf(r.key),
+	...r.dictionaries
+]
+
+/** Every closed relation's constants as objects of the installation, in relation name order (constantsOf), each pack
+ * in the form its relation declares. A constant two relations share is one pack, listed as rows where either declares
+ * rows: a person reviews it. */
 export const addClosedRelations = (b: InstallBuilder, plan: ClosedPlan): void => {
+	const listed = new Set(
+		[...plan.relations.values()].flatMap((r) =>
+			r.pack === "rows" ? constantsOf(r).map((planned) => planned.named.identifier) : []
+		)
+	)
 	for (const [name, r] of plan.relations) {
 		const why = [enforcement(`closed relation ${name}`)]
-		for (const planned of [r.cells, r.keys, ...layoutOf(r.key), ...r.dictionaries]) {
-			addPlanned(b, planned, why)
+		for (const planned of constantsOf(r)) {
+			addPlanned(b, planned, why, listed.has(planned.named.identifier) ? "rows" : r.pack)
 		}
 	}
 }
@@ -1110,17 +1210,19 @@ export const closedMembership = (
 ): { readonly predicate: Expr; readonly constants: ReadonlyArray<Node<"setup">> } => {
 	const side: CellSide<TypedLiteral> = check.side
 	const closed = check.target
+	const declared = b.owned.relations[closed.name]
 	const plan = plannedRelation(
 		b.names.codes,
 		closed,
 		mapNonEmpty(side.key, (f) => fieldNamed(closed, f)),
 		side.payload.map((f) => fieldNamed(closed, f)),
 		[...side.rows.values()],
+		declared?.kind === "closedRelation" ? declared.desc.pack : "rows",
 		`the side of ${closed.name} a containment from ${check.relation.name} reads`
 	)
 	const why = lawReasons(check.lawIds)
 	const constants = [plan.cells, ...layoutOf(plan.key), ...plan.dictionaries].map((planned) =>
-		addPlanned(b, planned, why)
+		addPlanned(b, planned, why, plan.pack)
 	)
 	const sourceOf = (field: string): Expr =>
 		column(

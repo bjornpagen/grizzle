@@ -1,10 +1,10 @@
 /**
  * The test oracles of a bit string's text: a closed relation's packed constant, and a set over a roster.
  *
- * PostgreSQL builds every installed constant itself, from the rows a `PackConstant` statement states, so the engine
- * writes no constant's text. These are the host's second implementations, written cell by cell and position by
- * position, that a suite compares PostgreSQL's packed value, or a bits value's wire text, against (testing doctrine,
- * rule 3).
+ * PostgreSQL builds an installed constant from the rows a `PackConstant` statement lists, or, past what one statement
+ * carries, reads it from the literal the host's encoder states (ir/cells.ts literalOf). These are the host's second
+ * implementations, written cell by cell and position by position, that a suite compares PostgreSQL's packed value, the
+ * encoder's literal, or a bits value's wire text, against (testing doctrine, rule 3).
  */
 import { Array as Arr, String as Str } from "effect"
 import type { CompileBound } from "#compiler/core/errors.ts"

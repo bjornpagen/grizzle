@@ -24,7 +24,9 @@ import {
 	splitStatements
 } from "#compiler/deploy/render/markers.ts"
 import { type DeploySnapshot, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
+import { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
 import { accessDrift, accessDriftText } from "#compiler/program/workload/compile.ts"
+import { looksLikeLiteralPack } from "#compiler/sql/print.ts"
 
 /** One finding: which refusal it is, where, what, and the fix. */
 interface CheckFinding {
@@ -63,7 +65,11 @@ interface CheckFinding {
  *   is compared;
  * - an ungenerated change: the schemas and their logins compile to another snapshot than snapshot.json, so `grizzle
  *   generate` has something to draft; and among them a name the snapshot holds that the schema drops, which the draft
- *   refuses until `--drop` or `--rename` declares it (UndeclaredDrop).
+ *   refuses until `--drop` or `--rename` declares it (UndeclaredDrop);
+ * - a literal pack edited: a closed relation's constant stated as one bit-string literal, whose literal does not
+ *   digest to the content its comment states and its function's name digests, decoded back to its cells and held to
+ *   them, each named with the first cell and key where it parts from the rows the schema declares
+ *   (physical/ddl/literal.ts literalPackFault).
  *
  * Whether a folder is applied, and whether an applied file was edited, only the database knows; `migrate` checks them.
  * check never reads the configuration's connection.
@@ -111,6 +117,11 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 
 	/** The chain, folder by folder, from the empty snapshot (committed.ts, the walk generate continues). */
 	const chain = committedChain(schema, tree)
+	const packs: Array<{
+		readonly where: string
+		readonly statement: string
+		readonly ordinal: number
+	}> = []
 	for (const folder of chain.folders) {
 		if (folder.place === "misnamed") {
 			at("folderName", path(folder.name), refusalText.folderName.problem)
@@ -145,6 +156,9 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 		for (const file of folder.files) {
 			const where = path(folder.name, file.name)
 			for (const [i, statement] of splitStatements(file.text).entries()) {
+				if (looksLikeLiteralPack(statement)) {
+					packs.push({ where, statement, ordinal: i + 1 })
+				}
 				const control = transactionControl(statement)
 				if (control !== undefined) {
 					at(
@@ -177,9 +191,24 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 		at("chainEnd", path(snapshotFileName), refusalText.chainEnd.problem)
 	}
 
-	if (Option.isSome(snapshot)) {
+	const draft = Option.isSome(snapshot)
+		? yield* Effect.result(draftSchema(schema, snapshot.value, [], noDeclarations))
+		: undefined
+	const installation =
+		draft !== undefined && Result.isSuccess(draft) ? draft.success.installation : undefined
+	for (const pack of packs) {
+		const fault = literalPackFault(installation, pack.statement)
+		if (fault !== undefined) {
+			at(
+				"literalPack",
+				pack.where,
+				`statement ${pack.ordinal}: ${packFaultText(fault)}: ${refusalText.literalPack.problem}`
+			)
+		}
+	}
+
+	if (Option.isSome(snapshot) && draft !== undefined) {
 		const committedWorkload = snapshot.value.workload
-		const draft = yield* Effect.result(draftSchema(schema, snapshot.value, [], noDeclarations))
 		if (Result.isFailure(draft)) {
 			const reason = draft.failure.reason
 			if (reason._tag === "RosterReordered") {
@@ -224,6 +253,28 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 		snapshot
 	}
 })
+
+/** What a literal pack's fault is, in words: its form, its layout, or its content, with the cell and key it parts at. */
+const packFaultText = (fault: PackFault): string => {
+	switch (fault.kind) {
+		case "form":
+			return "a statement that begins as a literal pack's comment departs from its printed form"
+		case "layout":
+			return fault.fault.kind === "digit"
+				? `the literal of ${fault.function} holds a character that is no digit at ${fault.fault.at}`
+				: `the literal of ${fault.function} holds ${fault.fault.bits} bits where its comment states ${fault.fault.expected}`
+		case "rows":
+			return `the comment of ${fault.function} states ${fault.stated} rows where its literal holds ${fault.held}`
+		case "content": {
+			const relation = fault.relation === undefined ? "" : ` (closed relation ${fault.relation})`
+			const differs =
+				fault.differs === undefined
+					? ""
+					: `, first at cell ${fault.differs.cell}${fault.differs.key === undefined ? "" : `, key (${Arr.join(fault.differs.key, ", ")})`}`
+			return `the literal of ${fault.function}${relation} differs from its declared rows${differs}`
+		}
+	}
+}
 
 /**
  * Every configured schema's findings, in configured order.

@@ -336,8 +336,9 @@ export const bindWrite = (
 	const ctx: FillContext = { codes: frontend.codes, evaluate: frontend.evaluate }
 	const factsAt = (slot: ParamId | undefined): ReadonlyArray<Fact> =>
 		slot === undefined ? [] : factsOf(slot).facts
-	/** The facts a stratum inserts of `relation`, by every insert slot of its but a generated addition's, whose key does
-	 * not exist yet, so no member names it. */
+	/** The facts a stratum may insert of `relation`, by every slot of its that inserts (`insertSlots`) but a generated
+	 * addition's, whose key does not exist yet, so no member names it. An owner among them is fresh only where the
+	 * read finds none stored at its key (write/family/edit.ts planEdits). */
 	const insertedOf = (stratum: number, relation: string): ReadonlyArray<Fact> =>
 		frontend.slots
 			.filter((g) => g.stratum === stratum && g.relation.name === relation)
@@ -457,14 +458,14 @@ export const bindWrite = (
 			}
 			return kept.size > 0 ? [{ family: write.family, recounts: kept, stored: write.stored }] : []
 		})
-	/** The insert slots of an owner relation in a stratum that carry its counts and ends: a plain insert's that starts
-	 * them (frontend/compile.ts EnumeratedInput "single"), and a nested insert's. */
+	/** The slots of an owner relation in a stratum that carry its counts and ends: a plain insert's or an enumerated
+	 * put's that starts them (frontend/compile.ts EnumeratedInput "single"), and a nested insert's. */
 	const ownerSlots = (stratum: number, relation: string): ReadonlyArray<ParamId> =>
 		frontend.slots
 			.filter((g) => g.stratum === stratum && g.relation.name === relation)
 			.flatMap((g) =>
 				g.inputs.flatMap((input) =>
-					(input.kind === "single" && input.act.op === "insert" && input.starts.length > 0) ||
+					(input.kind === "single" && input.act.op !== "delete" && input.starts.length > 0) ||
 					input.kind === "nested"
 						? [input.slot.slot]
 						: []
@@ -625,12 +626,12 @@ const readLiterals = (
 	return literals.value
 }
 
-/** The insert slots of an enumerated input whose facts carry their keys: an insert's, a nested insert's, and a classed
- * insert's complete one. */
+/** The slots of an enumerated input whose facts may insert their keys: an insert's, a put's (whose insert half inserts
+ * each fact no row holds the key of, rows-first.md §3), a nested insert's, and a classed insert's complete one. */
 const insertSlots = (input: EnumeratedInput): ReadonlyArray<ParamId> => {
 	switch (input.kind) {
 		case "single":
-			return input.act.op === "insert" ? [input.slot.slot] : []
+			return input.act.op === "delete" ? [] : [input.slot.slot]
 		case "nested":
 			return [input.slot.slot]
 		case "classed":

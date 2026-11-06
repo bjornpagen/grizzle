@@ -1,4 +1,5 @@
 import { Refusal } from "#compiler/core/canonical.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { appendNonEmpty } from "#compiler/core/nonempty.ts"
 import { makeCertificate } from "#compiler/ir/certificate.ts"
 import { integerLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
@@ -8,6 +9,7 @@ import { contractOf, type ScalarType, vectorTypmodOf } from "#compiler/ir/scalar
 import {
 	type ColumnMap,
 	columnIn,
+	columnType,
 	type Env,
 	extendEnv,
 	type LowerContext,
@@ -19,10 +21,11 @@ import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { aggregateExpr, groupAggregateOverload } from "#compiler/lower/conservative/group/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { AggregateOverload } from "#compiler/scalar/aggregate.ts"
-import type { Expr, FromItem, TypeRef } from "#compiler/sql/ast.ts"
+import type { Expr, FromItem, OperandSelect, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	cast,
 	col,
+	conjunction,
 	core,
 	countStar,
 	derived,
@@ -155,59 +158,88 @@ const certifyConditional = (facts: ShapeFacts, node: NodeOf<"Group">, agg: Aggre
  * `sum(CASE WHEN p THEN x ELSE 0 END)` with the zero of x's type, never `sum(x) FILTER (WHERE p)`, which is NULL for a
  * group where no binding satisfies p; over real, double precision or money the exact value is taken of the CASE, the
  * argument. The count's literals are integers by value, so sum(cond(p, 1.0, 0)) and typmod literals are counts too.
+ *
+ * `keys` restricts some of the group keys, each to a value, by key column: `WHERE <key> = <value> … GROUP BY …`.
+ * Restricting a fold's groups by their keys is restricting its input rows by them, since a group is the input rows of
+ * one key (Group(X)[k = v] = Group(X[k = v])), so the restriction stands below the aggregate, where an index on the
+ * key reads it. One over the grouped rows stands above it, and PostgreSQL pushes it down only as a restriction of the
+ * fold's own derived table, never as a join condition (lower/shapes/attach pipelinedAttachment). Every restricted
+ * column is a key of the fold; a plain fold restricts none (`aggregateLowerer`).
  */
+export const keyedGroup = (
+	facts: ShapeFacts,
+	node: NodeOf<"Group">,
+	cx: LowerContext,
+	env: Env,
+	keys: ReadonlyMap<string, Expr>
+): OperandSelect => {
+	const at = nodeLabel(node)
+	const input = cx.source(node.input, env)
+	const aggregateOnly = node.keys.length === 0
+	let from: FromItem
+	let bound: ColumnMap
+	let present: Expr | undefined
+	if (!aggregateOnly) {
+		from = input.item
+		bound = input.map
+	} else {
+		/**
+		 * SELECT <B>, true FROM (<input>): each input row once, B a key of it, carrying the constant group key after
+		 * the bound tuple, as a bound tuple of no field has none.
+		 */
+		const targets = appendNonEmpty(
+			node.bound.columns.map((name) => target(columnIn(input.map, name))),
+			target(lit.bool(true))
+		)
+		const contributions = operandSelect(keyedRead(targets, [input.item], undefined))
+		const origin = { kind: "node", node: node.id } as const
+		const named = cx.freshColumns(node.bound.columns, origin)
+		const presentColumn = cx.supply.column(origin)
+		const alias = cx.relationAlias(origin)
+		from = derived(contributions, alias, [...named.map((n) => n.column), presentColumn], false)
+		bound = namedMap(alias, named)
+		present = col(alias, presentColumn)
+	}
+	/** The aggregates read the bound tuple only (valid DAG), through the input's node id. */
+	const scope = extendEnv(env, [[node.input.id, bound]])
+	const aggOf = new Map(node.aggs.map((a) => [a.name, a]))
+	const targets = node.heading.map((c) => {
+		if (node.keys.includes(c.name)) {
+			return target(columnIn(bound, c.name))
+		}
+		const agg = columnIn(aggOf, c.name)
+		const shape = aggregateShape(agg)
+		if (shape.kind === "conditionalCount") {
+			certifyConditional(facts, node, agg)
+		}
+		const overload = groupAggregateOverload(agg, at)
+		const native = nativeResultType(cx, overload, shape)
+		return target(
+			castTo(aggregateCall(cx, agg, overload, shape, scope), native, cx.typeRef(c.type, at))
+		)
+	})
+	const groupBy = present !== undefined ? [present] : node.keys.map((k) => columnIn(bound, k))
+	const restricted = [...keys].map(([k, value]) => {
+		if (!node.keys.includes(k)) {
+			throw defect(`a restriction of ${k}, a key of the fold ${at}`)
+		}
+		return cx.equal(columnType(node.heading, k), columnIn(bound, k), value)
+	})
+	return select({
+		...core(
+			targets.length === 0 ? [target(lit.bool(true))] : targets,
+			[from],
+			conjunction(restricted)
+		),
+		rows: present === undefined ? "grouped" : "oneRow",
+		groupBy
+	})
+}
+
+const noRestriction: ReadonlyMap<string, Expr> = new Map()
+
+/** The fold of a Group node, its groups unrestricted (`keyedGroup`). */
 export const aggregateLowerer =
 	(facts: ShapeFacts): NodeLowerer<"Group"> =>
-	(node, cx, env) => {
-		const at = nodeLabel(node)
-		const input = cx.source(node.input, env)
-		const aggregateOnly = node.keys.length === 0
-		let from: FromItem
-		let bound: ColumnMap
-		let present: Expr | undefined
-		if (!aggregateOnly) {
-			from = input.item
-			bound = input.map
-		} else {
-			/**
-			 * SELECT <B>, true FROM (<input>): each input row once, B a key of it, carrying the constant group key after
-			 * the bound tuple, as a bound tuple of no field has none.
-			 */
-			const targets = appendNonEmpty(
-				node.bound.columns.map((name) => target(columnIn(input.map, name))),
-				target(lit.bool(true))
-			)
-			const contributions = operandSelect(keyedRead(targets, [input.item], undefined))
-			const origin = { kind: "node", node: node.id } as const
-			const named = cx.freshColumns(node.bound.columns, origin)
-			const presentColumn = cx.supply.column(origin)
-			const alias = cx.relationAlias(origin)
-			from = derived(contributions, alias, [...named.map((n) => n.column), presentColumn], false)
-			bound = namedMap(alias, named)
-			present = col(alias, presentColumn)
-		}
-		/** The aggregates read the bound tuple only (valid DAG), through the input's node id. */
-		const scope = extendEnv(env, [[node.input.id, bound]])
-		const aggOf = new Map(node.aggs.map((a) => [a.name, a]))
-		const targets = node.heading.map((c) => {
-			if (node.keys.includes(c.name)) {
-				return target(columnIn(bound, c.name))
-			}
-			const agg = columnIn(aggOf, c.name)
-			const shape = aggregateShape(agg)
-			if (shape.kind === "conditionalCount") {
-				certifyConditional(facts, node, agg)
-			}
-			const overload = groupAggregateOverload(agg, at)
-			const native = nativeResultType(cx, overload, shape)
-			return target(
-				castTo(aggregateCall(cx, agg, overload, shape, scope), native, cx.typeRef(c.type, at))
-			)
-		})
-		const groupBy = present !== undefined ? [present] : node.keys.map((k) => columnIn(bound, k))
-		return select({
-			...core(targets.length === 0 ? [target(lit.bool(true))] : targets, [from], undefined),
-			rows: present === undefined ? "grouped" : "oneRow",
-			groupBy
-		})
-	}
+	(node, cx, env) =>
+		keyedGroup(facts, node, cx, env, noRestriction)

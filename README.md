@@ -1395,6 +1395,16 @@ row whose slot is at or past its owner's count is refused when the installation 
 in a rule, a generated field or a query, finds nothing there, never another key's row. The key's reads are the ones
 above, unchanged: `Follow.row(version, parent, from)` is the set of `to` positions that follow, over `Position`.
 
+The migration lists a closed relation's rows, a line per row with the handles it holds, for a person to review. A
+relation whose rows a machine builds, and no person reviews, declares so:
+`closed.relation("Follow", fields, key, rows, { pack: "hex" })` states each of its constants as one bit-string
+literal, four bits a hex digit, under a comment of its row count and content digest, which `grizzle check` decodes and
+holds to that digest and to its function's name. Follow over 1,217,966 rows drafts a 507,520-byte pack and installs it
+in 35 ms, where its rows draft 65,419,623 bytes and install in 7 s. Either form installs one string, so a change of form
+replaces no constant: its migration installs nothing and records the form in `snapshot.json`. A constant two relations
+share is listed as rows where either declares rows, and the side a containment reads is stated as its relation
+declares.
+
 ## Rules
 
 Rules are declared beside the tables, in a schema's list. Here is a box office:
@@ -2451,9 +2461,15 @@ workflows, whose rules are worth declaring and whose users see different slices 
   ([Closed relations](#closed-relations)). A constant holds at most 2,147,483,640 bits, PostgreSQL's longest bit
   string, and a longer one is refused with `ResourceBound` when the schema is compiled, as is one whose payload fields'
   codes multiply past 2,147,483,647, the most a cell read as an integer holds.
-- **A closed relation's migration lists its rows.** Its constant is packed in the migration from one line per row, its
-  cell and payload code with the handles it holds as a comment, so a relation of a million rows drafts a file of tens of
-  megabytes whatever its key's space.
+- **A closed relation's migration lists its rows unless it declares `pack: "hex"`, or they cannot fit one statement.**
+  Its constant is packed in the migration from one line per row, its cell and payload code with the handles it holds as
+  a comment, so a relation of a million rows drafts a file of tens of megabytes whatever its key's space; declare
+  `{ pack: "hex" }` where no person reviews the rows ([Closed relations](#closed-relations)). A pack whose statement
+  would pass 536,870,888 bytes, the lesser of PostgreSQL's longest message and V8's longest string, which the migration
+  file is built as, or whose DO block would EXECUTE a statement past 1,073,741,822 bytes, one PostgreSQL string buffer,
+  is stated as its hex literal whatever its relation declares. `grizzle check` decodes every literal pack and refuses
+  one its comment or its function's name does not digest, naming the first cell where it parts from the declared rows
+  and that cell's key.
 - **No interactive transactions, and no retries.** A transaction is one call; you retry `TransientFailure` yourself.
 - **One statement's parameters are at most 1,073,741,822 bytes**, PostgreSQL's longest message
   (`PQ_LARGE_MESSAGE_LIMIT`), and one input column's array literal at most 536,870,888 UTF-16 code units, V8's

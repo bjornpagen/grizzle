@@ -5,12 +5,14 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties, isList } from "#compiler/core/record.ts"
+import { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	decodeDesc,
 	type ExprDesc,
 	type FieldDecl,
+	type ClosedPack,
+	closedPacks,
 	type FieldDesc,
 	fieldTypes,
 	type KeySlotDesc,
@@ -72,6 +74,7 @@ import type {
 	AnyRoster,
 	ClosedId,
 	ClosedRelation,
+	ClosedRelationOptions,
 	FactOfFields,
 	PayloadFieldOf,
 	Relation,
@@ -663,12 +666,32 @@ const closedRows = (
 	})
 }
 
+/**
+ * A closed relation's options as a JavaScript caller passed them: none, its pack listed as rows; or a record whose one
+ * property, `pack`, is a ClosedPack.
+ */
+const packOption = (options: unknown, label: string): ClosedPack => {
+	if (options === undefined) {
+		return "rows"
+	}
+	const pack = isRecord(options) ? options["pack"] : undefined
+	const named = closedPacks.find((p) => p === pack)
+	if (!isRecord(options) || Object.keys(options).some((k) => k !== "pack") || named === undefined) {
+		throw malformed(
+			label,
+			`options of one property, pack: ${closedPacks.map((p) => `"${p}"`).join(" or ")}`
+		)
+	}
+	return named
+}
+
 /** The admission core of closed.relation(...): a JavaScript caller's arguments checked and described. */
 export const admitClosedRelation = (
 	name: unknown,
 	fields: unknown,
 	key: unknown,
 	rows: unknown,
+	options: unknown,
 	extra: ReadonlyArray<unknown>
 ): {
 	readonly desc: ClosedRelationDesc
@@ -677,7 +700,10 @@ export const admitClosedRelation = (
 	const label = `closed.relation ${typeof name === "string" ? name : "?"}`
 	const relationName = requireName(name, label, "a closed relation name")
 	if (extra.length > 0) {
-		throw malformed(label, "closed.relation(name, fields, key, rows): four arguments")
+		throw malformed(
+			label,
+			"closed.relation(name, fields, key, rows, options): at most five arguments"
+		)
 	}
 	const descriptors = descriptorRecord(fields, label)
 	for (const [field, value] of Object.entries(descriptors)) {
@@ -698,6 +724,7 @@ export const admitClosedRelation = (
 			key,
 			slots: keySlots(descriptors, key, label),
 			rows: closedRows(rows, fieldDescs, descriptors, label),
+			pack: packOption(options, label),
 			loc: builderLoc(label, [relationName])
 		})
 	)
@@ -749,9 +776,9 @@ const closedReadTyping = (
 }
 
 /**
- * closed.relation(name, fields, key, rows): a closed relation. Its value holds frozen copies of its fields, key and
- * rows; its `fact` is the decoder of its rows' fields, and its heading its fields. `at` and `row` are its closed reads
- * (scalar/compute/closed.ts), typed by its own descriptors.
+ * closed.relation(name, fields, key, rows, options): a closed relation. Its value holds frozen copies of its fields, key
+ * and rows; its `fact` is the decoder of its rows' fields, and its heading its fields. `at` and `row` are its closed
+ * reads (scalar/compute/closed.ts), typed by its own descriptors. Its options state how its migration packs it.
  */
 export const closedRelation = <
 	const Name extends string,
@@ -762,10 +789,11 @@ export const closedRelation = <
 	fields: Fields,
 	key: Key,
 	rows: ReadonlyArray<FactOfFields<Fields>>,
+	options: ClosedRelationOptions | undefined,
 	extra: ReadonlyArray<unknown>
 ): ClosedRelation<Name, Fields, readonly [...Key]> => {
 	const label = `closed.relation ${name}`
-	const admitted = admitClosedRelation(name, fields, key, rows, extra)
+	const admitted = admitClosedRelation(name, fields, key, rows, options, extra)
 	const copied = frozenCopy(fields)
 	const typing = closedReadTyping(admitted.desc, admitted.described, copied, label)
 	return ownValue(
@@ -775,6 +803,7 @@ export const closedRelation = <
 			fields: copied,
 			key: frozenTuple<Key>(key),
 			rows: Object.freeze(rows.map((r) => frozenCopy(r))),
+			pack: admitted.desc.pack,
 			fact: record<[Fields]>(copied),
 			heading: copied,
 			at: <const P extends PayloadFieldOf<Fields, readonly [...Key]>>(
@@ -905,8 +934,15 @@ export const relationDescOf = (
 			return admitRoster(value["name"], value["handles"], [])
 		}
 		if (value["kind"] === "closedRelation") {
-			return admitClosedRelation(value["name"], value["fields"], value["key"], value["rows"], [])
-				.desc
+			const options = value["pack"] === undefined ? undefined : { pack: value["pack"] }
+			return admitClosedRelation(
+				value["name"],
+				value["fields"],
+				value["key"],
+				value["rows"],
+				options,
+				[]
+			).desc
 		}
 	}
 	throw malformed(

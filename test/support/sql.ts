@@ -278,11 +278,9 @@ export const derivedExpr = (constant: ObjectName, relation: HandClosed<string>):
  */
 export const packSql = (constant: ObjectName, relation: HandClosed<string>): string =>
 	printStatement(
-		pack(
-			constant,
-			BigInt(cellCount(relation)),
-			widthOf(relation),
-			nonEmpty(
+		pack(constant, BigInt(cellCount(relation)), widthOf(relation), {
+			kind: "rows",
+			rows: nonEmpty(
 				Arr.map(membersOf(relation), (m) => ({
 					index: BigInt(m.index),
 					payload: BigInt(m.code),
@@ -290,7 +288,7 @@ export const packSql = (constant: ObjectName, relation: HandClosed<string>): str
 				})),
 				`the members of ${relation.name}`
 			)
-		)
+		})
 	)
 
 /** The drop of a zero-argument constant's function, RESTRICT: it fails while a domain, CHECK or column still reads it. */

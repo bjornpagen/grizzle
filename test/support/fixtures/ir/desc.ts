@@ -282,7 +282,8 @@ export const closedRelation = (
 	fields,
 	key: nonEmptyList(key, "a closed relation's key"),
 	slots: [],
-	rows
+	rows,
+	pack: "rows"
 })
 
 /** ℕ's destructor over a natural field, one level deep: the term defined where the field is above zero. */

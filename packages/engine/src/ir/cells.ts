@@ -432,6 +432,113 @@ export const constantDigestOf = (constant: Constant): ConstantDigest<"closed-con
 		everyProperty
 	)
 
+/**
+ * A constant's bits as a bit-string literal: its hex digits, four bits each, most significant first, then the zero to
+ * three bits past its last whole digit in binary. Together they are exactly the constant's cells times its width bits.
+ */
+export interface BitLiteral {
+	readonly hex: string
+	readonly tail: string
+}
+
+/** Hexadecimal's sixteen digits, in their values' order. */
+const hexDigits = "0123456789ABCDEF"
+
+/** The bits a cell of value `value` sets, `width` of them most significant first, from bit `at` of `bytes`. */
+const writeCell = (bytes: Uint8Array, at: bigint, width: number, value: bigint): void => {
+	for (let bit = 0; bit < width; bit += 1) {
+		if (((value >> BigInt(width - 1 - bit)) & 1n) === 0n) {
+			continue
+		}
+		const position = Number(at) + bit
+		const byte = Math.floor(position / 8)
+		bytes[byte] = (bytes[byte] ?? 0) | (0x80 >> (position % 8))
+	}
+}
+
+/** Bit `position` of `bytes`, most significant first: 0 or 1. */
+const bitAt = (bytes: Uint8Array, position: number): number =>
+	((bytes[Math.floor(position / 8)] ?? 0) >> (7 - (position % 8))) & 1
+
+/**
+ * A constant as its bit-string literal: each entry's cell holds 1 + its payload code, every other cell 0, the string
+ * the pack of its rows builds. The constant's bits are at most what one string the host builds holds four to a digit;
+ * the caller bounds them before (the printer refuses a longer statement).
+ */
+export const literalOf = (constant: Constant): BitLiteral => {
+	const bits = Number(constant.cells * BigInt(constant.width))
+	const bytes = new Uint8Array(Math.ceil(bits / 8))
+	for (const entry of constant.entries) {
+		writeCell(bytes, entry.index * BigInt(constant.width), constant.width, 1n + entry.payload)
+	}
+	const whole = Math.floor(bits / 4)
+	const hex: Array<string> = []
+	for (let digit = 0; digit < whole; digit += 1) {
+		const byte = bytes[Math.floor(digit / 2)] ?? 0
+		hex.push(
+			defined(hexDigits[digit % 2 === 0 ? byte >> 4 : byte & 0x0f], "a nibble is a hex digit")
+		)
+	}
+	const tail: Array<string> = []
+	for (let position = whole * 4; position < bits; position += 1) {
+		tail.push(bitAt(bytes, position) === 1 ? "1" : "0")
+	}
+	return { hex: hex.join(""), tail: tail.join("") }
+}
+
+/** A bit-string literal that is no constant of its stated layout: a digit no hex or binary digit, or a wrong length. */
+export type LiteralFault =
+	| { readonly kind: "digit"; readonly at: number }
+	| { readonly kind: "length"; readonly bits: bigint; readonly expected: bigint }
+
+/**
+ * The constant a bit-string literal states, read as `cells` cells of `width` bits: each cell of value v > 0 an entry
+ * of payload code v - 1. Refused when a character is no digit of its part, hex or binary, or when the literal's bits are
+ * not exactly cells times width.
+ */
+export const constantOfLiteral = (
+	literal: BitLiteral,
+	cells: bigint,
+	width: number
+): Result.Result<Constant, LiteralFault> => {
+	const expected = cells * BigInt(width)
+	const bits = BigInt(literal.hex.length * 4 + literal.tail.length)
+	if (bits !== expected) {
+		return Result.err({ kind: "length", bits, expected })
+	}
+	const bytes = new Uint8Array(Math.ceil(Number(bits) / 8))
+	for (const [at, char] of Array.from(literal.hex).entries()) {
+		const value = hexDigits.indexOf(char.toUpperCase())
+		if (value < 0) {
+			return Result.err({ kind: "digit", at })
+		}
+		const byte = Math.floor(at / 2)
+		bytes[byte] = (bytes[byte] ?? 0) | (at % 2 === 0 ? value << 4 : value)
+	}
+	for (const [i, char] of Array.from(literal.tail).entries()) {
+		if (char !== "0" && char !== "1") {
+			return Result.err({ kind: "digit", at: literal.hex.length + i })
+		}
+		if (char === "1") {
+			const position = literal.hex.length * 4 + i
+			const byte = Math.floor(position / 8)
+			bytes[byte] = (bytes[byte] ?? 0) | (0x80 >> (position % 8))
+		}
+	}
+	const entries: Array<Entry> = []
+	for (let index = 0n; index < cells; index += 1n) {
+		let value = 0n
+		const start = Number(index) * width
+		for (let bit = 0; bit < width; bit += 1) {
+			value = (value << 1n) | BigInt(bitAt(bytes, start + bit))
+		}
+		if (value > 0n) {
+			entries.push({ index, payload: value - 1n })
+		}
+	}
+	return Result.ok({ cells, width, entries })
+}
+
 /** A relation's heading as a side reads it: its fields in declared order, and its declared keys. */
 export interface Heading {
 	readonly fields: NonEmptyReadonlyArray<string>

@@ -499,7 +499,9 @@ describe("closed", () => {
 		| "two rows at one key"
 		| "a key of an open field"
 		| "a field its sequence writes"
-		| "a fifth argument"
+		| "options of another property"
+		| "a pack of no form"
+		| "a sixth argument"
 	const closedDefects: Arr.NonEmptyReadonlyArray<ClosedDefect> = [
 		"none",
 		"an extra field in a row",
@@ -509,9 +511,11 @@ describe("closed", () => {
 		"two rows at one key",
 		"a key of an open field",
 		"a field its sequence writes",
-		"a fifth argument"
+		"options of another property",
+		"a pack of no form",
+		"a sixth argument"
 	]
-	type ClosedFeature = ClosedDefect | "no payload" | "payload" | "no rows"
+	type ClosedFeature = ClosedDefect | "no payload" | "payload" | "no rows" | "a declared pack"
 
 	const payloadFieldGen: Gen<{
 		readonly name: string
@@ -553,12 +557,14 @@ describe("closed", () => {
 									uniqueArray(payloadFieldGen, (f) => f.name, { min: 0, max: 3 }, 20)
 								),
 								defect: source.draw(element(Arr.append(closedDefects, "none" as const))),
-								target: source.draw(element(handles))
+								target: source.draw(element(handles)),
+								/** The pack its options declare, or no options. */
+								pack: source.draw(element(["no options", "rows", "hex"] as const))
 							}
 						}),
 						literal: Formatter.format,
 						coverage: required<ClosedFeature>(
-							[...closedDefects, "no payload", "payload", "no rows"],
+							[...closedDefects, "no payload", "payload", "no rows", "a declared pack"],
 							{ cases: 300, sense: notesOnly }
 						),
 						kept: [],
@@ -605,6 +611,7 @@ describe("closed", () => {
 							const firstRow = rows[0]
 							let key: ReadonlyArray<string> = ["id"]
 							let extra: ReadonlyArray<unknown> = []
+							let options: unknown = s.pack === "no options" ? undefined : { pack: s.pack }
 							c.note(s.defect)
 							switch (s.defect) {
 								case "none":
@@ -637,18 +644,32 @@ describe("closed", () => {
 										row["seq"] = 1n
 									}
 									break
-								case "a fifth argument":
+								case "options of another property":
+									options = { pack: "rows", order: "key" }
+									break
+								case "a pack of no form":
+									options = { pack: "binary" }
+									break
+								case "a sixth argument":
 									extra = [{}]
 									break
 							}
 							if (s.defect !== "none") {
 								throwsRefused(
-									() => admitClosedRelation(s.name, fields, key, rows, extra),
+									() => admitClosedRelation(s.name, fields, key, rows, options, extra),
 									"MalformedDescription"
 								)
 								return
 							}
-							const desc = admitClosedRelation(s.name, fields, key, rows, []).desc
+							const desc = admitClosedRelation(s.name, fields, key, rows, options, []).desc
+							assert.equal(
+								desc.pack,
+								s.pack === "hex" ? "hex" : "rows",
+								"its declared pack, rows by default"
+							)
+							if (s.pack !== "no options") {
+								c.note("a declared pack")
+							}
 							assert.deepEqual(desc.key, ["id"])
 							assert.deepEqual(desc.fields["id"], descOf(rawClosedId(Key)))
 							assert.equal(desc.rows.length, rows.length)
@@ -1063,6 +1084,7 @@ describe("literals take their field's value", () => {
 											{ id: rawClosedId(P), value: descriptor },
 											["id"],
 											[{ id: "H", value: host }],
+											undefined,
 											[]
 										)
 										return defined(desc.rows[0]?.["value"])

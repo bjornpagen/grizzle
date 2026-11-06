@@ -242,8 +242,9 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 	const payload = spec.inPlace.payload
 	const guarantees = inputGuarantees(input)
 	const all = keyFirst(relation)
-	/** The written fields its input carries: a put's facts carry the caller's and serial fields, never an owner's drawn
-	 * count or accumulated end, which its families keep (rows-first.md §3). */
+	/** The written fields its input carries: a put's facts carry the caller's and serial fields, and an enumerated put
+	 * of an owner its counts and ends, at their starts or as its stratum's appends drew them for an owner it inserts
+	 * (frontend/compile.ts), which no UPDATE sets: a stored owner's families keep them (rows-first.md §3). */
 	const heading = inputHeading(input)
 	const carried = writtenFields(relation).filter((f) => heading.some((c) => c.name === f.name))
 	if (!isNonEmpty(carried)) {

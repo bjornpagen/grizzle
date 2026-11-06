@@ -86,14 +86,16 @@ const mergeArm = (merge: Merge): Gen<CapSketch> =>
 	map(anyCapSketchGen, (k): CapSketch => ({ ...k, merge, ops: fullSwarm(opFeatures) }))
 
 /**
- * A race's sketch: any, or one in six a caps merge that keeps only the second month with every op on, so a request can
- * meet the month a merge removed, and one in six one that keeps both months, the race's month's cap changed under the
- * requests.
+ * A race's sketch: any, or one in six each a caps merge with every op on, one arm per merge (`merges`): both months,
+ * the race's month's cap changed under the requests; only the race's month, which removes the second month, nothing
+ * spent in it, under the requests; and only the second month, so a request can meet the month a merge removed. Each
+ * merge is an arm of its own, a sixth of the cases, so the label-fixed floor and steered streams reach every one: left
+ * to the any arm, which must also keep the merge op in its swarm, the race's month came to about one case in nine, and
+ * the floor's 10 cases and the steered phase's 40 missed it.
  */
 const capSketchGen: Gen<CapSketch> = weighted([
-	[4, anyCapSketchGen],
-	[1, mergeArm("the second month")],
-	[1, mergeArm("both months")]
+	[3, anyCapSketchGen],
+	...Arr.map(merges, (merge) => [1, mergeArm(merge)] as const)
 ])
 
 /** Request n's window: a minute apart, each half a minute long, inside the month. */

@@ -526,6 +526,7 @@ describe("closed relations", () => {
 									{ id: "Low", grade: "Automatic" },
 									{ id: "High", grade: "Manual" }
 								],
+								undefined,
 								[]
 							)
 							const Rated = relation("Rated", { id: uuid, grade }, ["id"], [])
@@ -538,6 +539,7 @@ describe("closed relations", () => {
 											gradedFields,
 											["id"],
 											[{ id: "Low", grade: s.handle }],
+											undefined,
 											[]
 										)
 									case "a built selection":

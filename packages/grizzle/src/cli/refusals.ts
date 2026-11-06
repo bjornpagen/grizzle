@@ -52,6 +52,11 @@ export const refusalText = {
 		problem: "unconfirmed group",
 		fix: "keep every statement below the marker as drafted, then delete the two marker lines"
 	},
+	literalPack: {
+		problem:
+			"a closed constant's literal pack was edited after it was drafted: its literal, its comment and its function's name no longer agree",
+		fix: "restore the file from git, or regenerate; never hand-edit a literal pack"
+	},
 	unresolvedLoss: {
 		problem:
 			"unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented",

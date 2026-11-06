@@ -38,6 +38,7 @@ import type {
 	AnyRoster,
 	ClosedIdFieldOf,
 	ClosedRelation,
+	ClosedRelationOptions,
 	DistinctFields,
 	DistinctHandles,
 	DistinctTerms,
@@ -199,9 +200,10 @@ const closedRoster = <
 ): Roster<Name, readonly [...Handles]> => closedBuilder<Name, Handles>(name, handles, extra)
 
 /**
- * closed.relation(name, fields, key, rows): a closed relation, its rows fixed when the schema compiles. The key is
- * required, a nonempty list of its closed-id fields, each once; a set lists every field. Its rows are facts of its
- * fields, no two of one key. `at` and `row` are its closed reads.
+ * closed.relation(name, fields, key, rows, options): a closed relation, its rows fixed when the schema compiles. The key
+ * is required, a nonempty list of its closed-id fields, each once; a set lists every field. Its rows are facts of its
+ * fields, no two of one key. `at` and `row` are its closed reads. `options.pack` states how its migration packs it
+ * (ClosedRelationOptions), its rows by default.
  */
 const closedRelation = <
 	const Name extends string,
@@ -213,9 +215,10 @@ const closedRelation = <
 	fields: Fields & ClosedFieldsCheck<Fields>,
 	key: KeyFields & DistinctFields<KeyFields>,
 	rows: Rows & DistinctRows<Name, Rows, KeyFields>,
+	options?: ClosedRelationOptions,
 	...extra: ReadonlyArray<never>
 ): ClosedRelation<Name, Fields, readonly [...KeyFields]> =>
-	closedRelationBuilder<Name, Fields, KeyFields>(name, fields, key, rows, extra)
+	closedRelationBuilder<Name, Fields, KeyFields>(name, fields, key, rows, options, extra)
 
 /**
  * A closed relation's rows are a set by identity: a row written twice is one row, and two written out with one key and

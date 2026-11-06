@@ -185,10 +185,6 @@ describe("an owner of counted families, rows first", () => {
 					Str.includes('("id", "cap", "n", "total")')(t),
 					"the insert writes the count and the end"
 				)
-				assert.ok(
-					Str.includes("0::bigint, 0::bigint")(t),
-					"a fresh owner's count is 0 and its end its start"
-				)
 			}
 			assert.ok(
 				Arr.every(all, (t) => !Str.includes("DELETE FROM")(t)),
@@ -199,6 +195,28 @@ describe("an owner of counted families, rows first", () => {
 				bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
 			)
 			assertVariant(bound, "kind", "bound", "the owner's facts bind")
+			assertVariant(
+				bound.flights,
+				"kind",
+				"write",
+				"a put that names no member reads nothing first"
+			)
+			/** The put's slot carries the owner's count and end, at their starts where no member draws them: the insert half
+			 * reads its columns key first, the count and the end last. */
+			const halves = Arr.filter(
+				program.artifacts.optimized.statements,
+				(s) => s.step.kind === "write" && s.step.result.kind === "insert"
+			)
+			assert.equal(halves.length, 1, "the put has one insert half")
+			for (const s of halves) {
+				for (const params of succeeded(bound.flights.chunks(s))) {
+					assert.deepEqual(
+						Arr.takeRight(params, 2),
+						['{"0"}', '{"0"}'],
+						"a fresh owner's count is 0 and its end its start"
+					)
+				}
+			}
 		})
 	)
 

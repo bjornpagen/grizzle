@@ -40,6 +40,7 @@ import type { WriteSlot } from "#compiler/ir/products.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import {
+	check,
 	counted,
 	fin,
 	fold,
@@ -52,7 +53,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { admittedText } from "#compiler/scalar/values/identity.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { columnKey, type ColumnKey, fieldKey } from "#compiler/write/family/fold.ts"
+import { columnKey, type ColumnKey, fieldKey, literalHost } from "#compiler/write/family/fold.ts"
 import { inForce, type Transport } from "#compiler/write/family/order.ts"
 import {
 	endColumns,
@@ -61,7 +62,7 @@ import {
 	rowLayout
 } from "#compiler/write/family/statements.ts"
 import { inputSlots } from "#compiler/write/frontend/compile.ts"
-import type { WriteNames } from "#compiler/write/insert/statement.ts"
+import type { InsertResult, WriteNames } from "#compiler/write/insert/statement.ts"
 import { bindWrite, type Chunks } from "#compiler/write/program/bind.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -87,6 +88,14 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * nothing; and that repeat with one new member, an append to O1, and to F the immutable owner's refusal (rows-first.md
  * §2: the owner's key is read, and an owner stored at it makes the group a stored one).
  *
+ * And G, a mutable owner whose row check reads its end against a written field, as an invoice's lines sum to its
+ * amount: its members E sum to its `total` (`t = total`). The commands: a G stated with its members, its total their
+ * sum, by an insertion or by a put of a G no row stores, whose row carries the count and end its members draw; that
+ * insertion's exact repeat, which changes nothing; a put of a stored G at its total, and at another, which the
+ * check refuses at the UPDATE; and a put of a G no row stores, at a total of 0, inserted with its family empty, and at
+ * another, which the check refuses at its starts (rows-first.md §3: a put of an owner updates a stored one and inserts
+ * only one that isn't stored).
+ *
  * The oracles:
  * - the specification of each law, as a checker over the host tables: after every statement every immediate law holds
  *   (each member's ‹i› below its ‹n›, its ‹n› its owner's count, each group's ‹i› distinct), and after the last every
@@ -96,7 +105,11 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  *   group's members in slot order, which every hidden accumulator and every owner's end must equal;
  * - the model's own state: each member's group, value and selection, each owner's fields;
  * - PostgreSQL's privileges, which a whole writer holds: an immutable owner's row is never updated, so no count
- *   statement names one.
+ *   statement names one;
+ * - PostgreSQL's order at an insert (19rc1 nodeModifyTable.c ExecInsert): every row an owner's insert statement
+ *   proposes, a field its input does not carry at its start, is judged by its relation's check before its arbiter
+ *   meets a stored row at its key. Which facts a statement proposes is its act's (write/insert/statement.ts InsertOf),
+ *   and that its SQL proposes exactly those is the pg suites' to prove (test/schedules/platform/refunds.test.ts).
  *
  * The read flight is answered with every stored row of each family it reads, a superset of the stored suffix
  * (statements.ts suffixReadSql, whose SQL the pg suites run): the planner must plan from any set of stored rows that
@@ -144,7 +157,15 @@ const fc3 = counted(on(C, "o3"), fin(O3, "nc"))
 const F = relation("F", { id: uuid, n: drawn(natural), t: accumulated(pg.bigint, 0n) }, ["id"])
 const D = relation("D", { id: uuid, f: uuid, x: pg.bigint }, ["id"])
 const fd = counted(on(D, "f"), fin(F, "n"))
-const Algebra = schema("Algebra", { O1, O2, O3, A, B, C, F, D }, [
+/** A mutable owner whose check reads its end: its members' values sum to its total. */
+const G = relation(
+	"G",
+	{ id: uuid, total: pg.bigint, n: drawn(natural), t: accumulated(pg.bigint, 0n) },
+	["id"]
+)
+const E = relation("E", { id: uuid, g: uuid, x: pg.bigint }, ["id"])
+const fe = counted(on(E, "g"), fin(G, "n"))
+const Algebra = schema("Algebra", { O1, O2, O3, A, B, C, F, D, G, E }, [
 	fa1,
 	fb1,
 	fb2,
@@ -152,8 +173,11 @@ const Algebra = schema("Algebra", { O1, O2, O3, A, B, C, F, D }, [
 	fc2,
 	fc3,
 	fd,
+	fe,
 	fold(fa1, Monoid.sum, on(A, "o1", "x"), on(O1, "id", "ta")),
 	fold(fd, Monoid.sum, on(D, "f", "x"), on(F, "id", "t")),
+	fold(fe, Monoid.sum, on(E, "g", "x"), on(G, "id", "t")),
+	check("GExact", G, (g) => g.eq(g.t, g.total)),
 	fold(fb1, Monoid.sum, on(B, "o1", "x"), on(O1, "id", "tb")),
 	fold(fc1, Monoid.sum, on(C, "o1", "x"), on(O1, "id", "tc")),
 	fold(
@@ -181,7 +205,8 @@ const Algebra = schema("Algebra", { O1, O2, O3, A, B, C, F, D }, [
 	mutable(O3),
 	mutable(A),
 	mutable(B),
-	mutable(C)
+	mutable(C),
+	mutable(G)
 ])
 
 type MemberName = "A" | "B" | "C"
@@ -228,13 +253,18 @@ interface Model {
 	/** The stored F owners, and their D members by id. */
 	readonly fixedOwners: ReadonlySet<number>
 	readonly fixedMembers: ReadonlyMap<number, FixedMember>
+	/** The stored G owners by id, each with its total, and their E members by id, each with its owner and value. */
+	readonly exactOwners: ReadonlyMap<number, number>
+	readonly exactMembers: ReadonlyMap<number, FixedMember>
 }
 
 const initial: Model = {
 	owners: { O1: new Map(), O2: new Map(), O3: new Map() },
 	members: { A: new Map(), B: new Map(), C: new Map() },
 	fixedOwners: new Set(),
-	fixedMembers: new Map()
+	fixedMembers: new Map(),
+	exactOwners: new Map(),
+	exactMembers: new Map()
 }
 
 interface Params {
@@ -275,6 +305,15 @@ interface Params {
 	readonly fixedRepeat: { readonly owner: number }
 	readonly mutableRepeatAppend: { readonly owner: number; readonly id: number; readonly x: number }
 	readonly fixedRepeatAppend: { readonly owner: number; readonly id: number; readonly x: number }
+	readonly gWithMembers: {
+		readonly owner: number
+		readonly members: Arr.NonEmptyReadonlyArray<{ readonly id: number; readonly x: number }>
+		/** How the ChangeSet states the owner: an insertion, or a put of a G no row stores. */
+		readonly by: "insert" | "put"
+	}
+	readonly gPut: { readonly owner: number; readonly total: number }
+	readonly gFreshPut: { readonly owner: number; readonly total: number }
+	readonly gRepeat: { readonly owner: number }
 }
 
 const ids = (n: number): ReadonlyArray<number> => Array.from({ length: n }, (_, i) => i)
@@ -328,8 +367,8 @@ const appendable = (m: Model): ReadonlyArray<MemberName> =>
 const stored = (m: Model): ReadonlyArray<MemberName> =>
 	Arr.filter(MEMBERS, (r) => m.members[r].size > 0)
 
-/** The verdicts a step's refusal states: a member's key law, or an immutable owner's fixed family. */
-type Refusal = "key" | "fixed"
+/** The verdicts a step's refusal states: a member's key law, an immutable owner's fixed family, or G's check. */
+type Refusal = "key" | "fixed" | "check"
 
 const freeFixedIds = (m: Model): ReadonlyArray<number> =>
 	Arr.filter(ids(MEMBER_IDS), (i) => !m.fixedMembers.has(i))
@@ -337,6 +376,13 @@ const freeFixedIds = (m: Model): ReadonlyArray<number> =>
 /** A fixed owner's stored members, by id. */
 const fixedMembersOf = (m: Model, owner: number): ReadonlyArray<readonly [number, FixedMember]> =>
 	Arr.filter([...m.fixedMembers], ([, member]) => member.owner === owner)
+
+const freeExactIds = (m: Model): ReadonlyArray<number> =>
+	Arr.filter(ids(MEMBER_IDS), (i) => !m.exactMembers.has(i))
+
+/** A G owner's stored E members, by id. */
+const exactMembersOf = (m: Model, owner: number): ReadonlyArray<readonly [number, FixedMember]> =>
+	Arr.filter([...m.exactMembers], ([, member]) => member.owner === owner)
 
 /** An O1 owner's stored A members, by id. */
 const aMembersOf = (m: Model, owner: number): ReadonlyArray<readonly [number, ModelMember]> =>
@@ -560,6 +606,70 @@ const machine: Machine<Model, Params, Refusal> = {
 				x: source.draw(int(0, 3))
 			}),
 			judge: () => refusedVerdict("fixed")
+		},
+		gWithMembers: {
+			weight: 2,
+			applies: (m) => m.exactOwners.size < OWNER_IDS && freeExactIds(m).length >= 2,
+			parameters: (m) => (source) => {
+				const [first, second] = freeExactIds(m)
+				const n = source.draw(int(1, 2))
+				const member = (id: number | undefined) => ({
+					id: defined(id, "a free E id"),
+					x: source.draw(int(1, 3))
+				})
+				return {
+					owner: source.draw(pick(Arr.filter(ids(OWNER_IDS), (i) => !m.exactOwners.has(i)))),
+					members: n === 1 ? [member(first)] : [member(first), member(second)],
+					by: source.draw(element(["insert", "put"] as const))
+				}
+			},
+			judge: (m, p) => {
+				const owners = new Map(m.exactOwners)
+				owners.set(
+					p.owner,
+					Arr.reduce(p.members, 0, (sum, d) => sum + d.x)
+				)
+				const members = new Map(m.exactMembers)
+				for (const d of p.members) {
+					members.set(d.id, { owner: p.owner, x: d.x })
+				}
+				return accepted({ ...m, exactOwners: owners, exactMembers: members })
+			}
+		},
+		gPut: {
+			weight: 2,
+			applies: (m) => m.exactOwners.size > 0,
+			parameters: (m) => (source) => {
+				const owner = source.draw(pick([...m.exactOwners.keys()]))
+				const total = defined(m.exactOwners.get(owner), "a stored G")
+				return { owner, total: source.draw(int(0, 2)) === 0 ? total + 1 : total }
+			},
+			/** The UPDATE writes the total and leaves the family, so the check holds exactly at the stored end. */
+			judge: (m, p) =>
+				p.total === m.exactOwners.get(p.owner) ? accepted(m) : refusedVerdict("check")
+		},
+		gFreshPut: {
+			weight: 1,
+			applies: (m) => m.exactOwners.size < OWNER_IDS,
+			parameters: (m) => (source) => ({
+				owner: source.draw(pick(Arr.filter(ids(OWNER_IDS), (i) => !m.exactOwners.has(i)))),
+				total: source.draw(int(0, 1))
+			}),
+			/** An owner the put inserts starts with its family empty, its end at 0. */
+			judge: (m, p) => {
+				if (p.total !== 0) {
+					return refusedVerdict("check")
+				}
+				const owners = new Map(m.exactOwners)
+				owners.set(p.owner, 0)
+				return accepted({ ...m, exactOwners: owners })
+			}
+		},
+		gRepeat: {
+			weight: 1,
+			applies: (m) => m.exactOwners.size > 0,
+			parameters: (m) => (source) => ({ owner: source.draw(pick([...m.exactOwners.keys()])) }),
+			judge: (m) => accepted(m)
 		}
 	}
 }
@@ -594,6 +704,39 @@ const dFact = (id: number, owner: number, x: number) => ({
 	f: fixedUuid(owner),
 	x: BigInt(x)
 })
+
+/** G's owners and E's members as uuids, apart from every other relation's. */
+const gUuid = (id: number): string => uuidOf(5000 + id)
+const eUuid = (id: number): string => uuidOf(50_000 + id)
+const eFact = (id: number, owner: number, x: number) => ({
+	id: eUuid(id),
+	g: gUuid(owner),
+	x: BigInt(x)
+})
+
+/** A G stated by an insertion or a put, with its E members, its total their sum. */
+const gWith = (
+	owner: number,
+	members: ReadonlyArray<readonly [number, FixedMember]>,
+	by: "insert" | "put"
+) => {
+	const g = [{ id: gUuid(owner), total: BigInt(Arr.reduce(members, 0, (sum, [, d]) => sum + d.x)) }]
+	const empty = ChangeSet.empty(Algebra)
+	return (by === "insert" ? empty.insert(G, g) : empty.put(G, g)).insert(
+		E,
+		Arr.map(members, ([id, d]) => eFact(id, owner, d.x))
+	)
+}
+
+/** A put of G's written fields, which sets its total in place when a G is stored at its key. */
+const gPutOf = (q: { readonly owner: number; readonly total: number }) =>
+	ChangeSet.empty(Algebra).put(G, [{ id: gUuid(q.owner), total: BigInt(q.total) }])
+
+const gPutOwn = (db: Db, q: { readonly owner: number; readonly total: number }): void => {
+	tableOf(db, "G")
+		.get(keyText([gUuid(q.owner)]))
+		?.set(fieldKey("total"), textOf(db, fieldOf("G", "total").type, BigInt(q.total)))
+}
 
 /** An O1 owner's exact repeat, with every A member stored under it. */
 const mutableRepeatOf = (owner: number, m: Model) =>
@@ -825,6 +968,27 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 		variant: noVariant,
 		change: (q, m) => fixedRepeatOf(q.owner, m).insert(D, [dFact(q.id, q.owner, q.x)]),
 		own: none
+	},
+	gWithMembers: {
+		inserted: none,
+		member: noMember,
+		variant: (q) => q.by,
+		change: (q) =>
+			gWith(
+				q.owner,
+				Arr.map(q.members, (d) => [d.id, { owner: q.owner, x: d.x }] as const),
+				q.by
+			),
+		own: none
+	},
+	gPut: { inserted: none, member: noMember, variant: noVariant, change: gPutOf, own: gPutOwn },
+	gFreshPut: { inserted: none, member: noMember, variant: noVariant, change: gPutOf, own: gPutOwn },
+	gRepeat: {
+		inserted: none,
+		member: noMember,
+		variant: noVariant,
+		change: (q, m) => gWith(q.owner, exactMembersOf(m, q.owner), "insert"),
+		own: none
 	}
 }
 
@@ -923,18 +1087,55 @@ const keyText = (texts: ReadonlyArray<string>): string => Arr.join(texts, "\u000
 const ownerKeyOf = (family: Family, row: ReadonlyMap<ColumnKey, string>): string =>
 	keyText(Arr.map(family.group, (g) => defined(row.get(fieldKey(g.member.name)), "a group field")))
 
+/** Each relation's row check, over a row's texts: G's end is its total. */
+const rowChecks: Readonly<Record<string, (row: ReadonlyMap<ColumnKey, string>) => boolean>> = {
+	G: (row) => num(row.get(fieldKey("t"))) === num(row.get(fieldKey("total")))
+}
+
+/** Whether a row holds its relation's check, as PostgreSQL judges an inserted or updated row. */
+const checkHolds = (relation: string, row: ReadonlyMap<ColumnKey, string>): boolean =>
+	rowChecks[relation]?.(row) ?? true
+
+/** The text a field is written at when its statement's input does not carry it (insert/statement.ts startOf): a
+ * drawn count at 0 and an accumulated end at its start; none for any other field. */
+const startText = (db: Db, field: LawField): string | undefined => {
+	switch (field.writing.kind) {
+		case "drawn":
+			return "0"
+		case "accumulated":
+			return textOf(
+				db,
+				field.type,
+				literalHost(carrierSpecOf(field.type, db.codes), field.writing.start)
+			)
+		case "caller":
+		case "serial":
+		case "generated":
+			return undefined
+	}
+}
+
 /**
- * An owner's insert statement's rows, as its encoded arrays carry them, inserted into the host table: each member
- * placeholder's array is its slot's column at its part, the slot carrying the owner's counts and ends, which its
- * stratum's appends drew (write/program/bind.ts), so the owner's row is judged as its insert writes it.
+ * An owner's insert statement run on the host table, as PostgreSQL runs it (19rc1 nodeModifyTable.c ExecInsert): its
+ * requested facts, as its encoded arrays carry them, each placeholder's array its slot's column at its part, a field
+ * the slot does not carry at its start. The statement proposes the facts its result says (write/insert/statement.ts
+ * Proposal), each judged by its relation's check before its arbiter meets a stored row at its key. A stored row at a
+ * requested key that agrees at every field its facts carry is an insertion's exact repeat, no change, and one that
+ * disagrees is the key law's refusal, whether the arbiter met it or the statement read it, unproposed; at a put's key it
+ * is the row the put's UPDATE wrote. An owner insert's slot carries the counts and ends its stratum's appends drew
+ * (write/program/bind.ts), so its row is judged as its insert writes it.
  */
 const insertEncoded = (
 	db: Db,
 	compiled: CompiledWrite,
 	slots: ReadonlyArray<WriteSlot>,
 	relation: string,
+	result: Pick<InsertResult, "of" | "proposes">,
 	executions: ReadonlyArray<ReadonlyArray<string>>
-): "key" | undefined => {
+): Refusal | undefined => {
+	const info = relationInfo(relation)
+	const table = tableOf(db, relation)
+	const requested: Array<readonly [string, Map<ColumnKey, string>]> = []
 	for (const params of executions) {
 		const columns = new Map<string, ReadonlyArray<string>>()
 		for (const [i, p] of slots.entries()) {
@@ -952,7 +1153,6 @@ const insertEncoded = (
 			).heading
 			/** The insert reads its input's columns key first, in its relation's field order (insert/statement.ts
 			 * writtenFields), and each placeholder's part is its column's position there. */
-			const info = relationInfo(relation)
 			const keyFirst = [
 				...info.primaryFields,
 				...Arr.filter(info.heading, (f) => !info.primaryFields.includes(f))
@@ -962,25 +1162,34 @@ const insertEncoded = (
 			columns.set(name, arrayItems(defined(params[i], "a placeholder's array")))
 		}
 		const ids = defined(columns.get("id"), "an owner's key column")
-		const carried = Arr.filter(
-			relationInfo(relation).fields,
-			(f) => f.writing.kind === "caller" && f.name !== "id"
-		)
 		for (const [at, id] of ids.entries()) {
 			const row = new Map<ColumnKey, string>()
 			for (const [name, texts] of columns) {
 				row.set(fieldKey(name), defined(texts[at], "a column's element"))
 			}
-			/** The insert protocol: a stored row at the key that agrees at every field its facts carry is the insert's
-			 * exact repeat, no change; one that disagrees is the key law's refusal. */
-			const stored = tableOf(db, relation).get(keyText([id]))
-			if (stored === undefined) {
-				tableOf(db, relation).set(keyText([id]), row)
-			} else if (
-				!Arr.every(carried, (f) => stored.get(fieldKey(f.name)) === row.get(fieldKey(f.name)))
-			) {
-				return "key"
+			for (const f of info.fields) {
+				const start = startText(db, f)
+				if (start !== undefined && !row.has(fieldKey(f.name))) {
+					row.set(fieldKey(f.name), start)
+				}
 			}
+			requested.push([keyText([id]), row])
+		}
+	}
+	const proposed = Arr.filter(requested, ([key]) => result.proposes === "every" || !table.has(key))
+	if (!Arr.every(proposed, ([, row]) => checkHolds(relation, row))) {
+		return "check"
+	}
+	const carried = Arr.filter(info.fields, (f) => f.writing.kind === "caller" && f.name !== "id")
+	for (const [key, row] of requested) {
+		const stored = table.get(key)
+		if (stored === undefined) {
+			table.set(key, row)
+		} else if (
+			result.of === "insert" &&
+			!Arr.every(carried, (f) => stored.get(fieldKey(f.name)) === row.get(fieldKey(f.name)))
+		) {
+			return "key"
 		}
 	}
 	return undefined
@@ -1148,6 +1357,27 @@ const commitHolds = (db: Db, model: Model): void => {
 			}
 		}
 	}
+	const gTable = tableOf(db, "G")
+	assert.deepEqual(
+		Arr.sort([...gTable.keys()], Order.String),
+		Arr.sort(
+			Arr.map([...model.exactOwners.keys()], (id) => keyText([gUuid(id)])),
+			Order.String
+		),
+		"the G owners are the model's"
+	)
+	for (const [id, total] of model.exactOwners) {
+		const row = defined(gTable.get(keyText([gUuid(id)])), "a modelled G is stored")
+		assert.equal(num(row.get(fieldKey("total"))), BigInt(total), "a G's total is the model's")
+		assert.ok(checkHolds("G", row), "a G's end is its total at commit")
+	}
+	const eTable = tableOf(db, "E")
+	assert.equal(eTable.size, model.exactMembers.size, "the G owners' members are the model's")
+	for (const [id, member] of model.exactMembers) {
+		const row = defined(eTable.get(keyText([eUuid(id)])), "a modelled E is stored")
+		assert.equal(row.get(fieldKey("g")), gUuid(member.owner), "an E's owner is the model's")
+		assert.equal(num(row.get(fieldKey("x"))), BigInt(member.x), "an E's value is the model's")
+	}
 	assert.deepEqual(
 		Arr.sort([...tableOf(db, "F").keys()], Order.String),
 		Arr.sort(
@@ -1246,22 +1476,42 @@ const runStep =
 				return answer
 			}
 			const chunks: Chunks = planned.value
+			/** A statement's refusal aborts the transaction: the tables are as before the step. */
+			const refuse = (verdict: Refusal): Answer<Refusal> => {
+				const restored = [...before_]
+				db.tables.clear()
+				for (const [name, table] of restored) {
+					db.tables.set(name, table)
+				}
+				return refusedVerdict(verdict)
+			}
+			/** Every row a statement wrote holds its relation's check, which PostgreSQL judges at the row. */
+			const checked = (): boolean =>
+				Arr.every(Rec.keys(rowChecks), (relation) =>
+					Arr.every([...tableOf(db, relation).values()], (row) => checkHolds(relation, row))
+				)
 			stated[command].own(db, p)
+			if (!checked()) {
+				return refuse("check")
+			}
 			for (const statement of compiled.artifacts.optimized.statements) {
 				const s = statement.step
 				if (
 					s.kind === "write" &&
 					s.result.kind === "insert" &&
-					(s.relation in ownerRelations || s.relation === "F")
+					(s.relation in ownerRelations || s.relation === "F" || s.relation === "G")
 				) {
 					const verdict = insertEncoded(
 						db,
 						compiled,
 						bound.form(statement).paramSlots,
 						s.relation,
+						s.result,
 						succeeded(chunks(statement))
 					)
-					assert.equal(verdict, undefined, "an owner's insert is new or its exact repeat")
+					if (verdict !== undefined) {
+						return refuse(verdict)
+					}
 				}
 			}
 			stated[command].inserted(db, p)
@@ -1286,14 +1536,10 @@ const runStep =
 				}
 				for (const chunk of succeeded(chunks(statement))) {
 					if (applyFamily(db, step, step.relation, family, rowsOfChunk(chunk)) === "key") {
-						/** The statement's refusal aborts the transaction: the tables are as before the step. */
-						const restored = [...before_]
-						db.tables.clear()
-						for (const [name, table] of restored) {
-							db.tables.set(name, table)
-						}
-						const answer: Answer<Refusal> = refusedVerdict("key")
-						return answer
+						return refuse("key")
+					}
+					if (!checked()) {
+						return refuse("check")
 					}
 					immediateHold(db, `after ${command}'s ${step.statement} of ${step.relation}`)
 				}
@@ -1332,7 +1578,11 @@ const caseGen: Gen<MachineCase> = (source) => ({
 				"mutableRepeat",
 				"fixedRepeat",
 				"mutableRepeatAppend",
-				"fixedRepeatAppend"
+				"fixedRepeatAppend",
+				"gWithMembers",
+				"gPut",
+				"gFreshPut",
+				"gRepeat"
 			])
 		)
 	),
@@ -1368,6 +1618,12 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 								"fixedRepeat accepted",
 								"mutableRepeatAppend accepted",
 								"fixedRepeatAppend refused fixed",
+								"gWithMembers accepted",
+								"gPut accepted",
+								"gPut refused check",
+								"gFreshPut accepted",
+								"gFreshPut refused check",
+								"gRepeat accepted",
 								"a statement per row"
 							],
 							{ cases: 300, sense: notesOnly }
@@ -1411,7 +1667,11 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 								mutableRepeat: step("mutableRepeat"),
 								fixedRepeat: step("fixedRepeat"),
 								mutableRepeatAppend: step("mutableRepeatAppend"),
-								fixedRepeatAppend: step("fixedRepeatAppend")
+								fixedRepeatAppend: step("fixedRepeatAppend"),
+								gWithMembers: step("gWithMembers"),
+								gPut: step("gPut"),
+								gFreshPut: step("gFreshPut"),
+								gRepeat: step("gRepeat")
 							}
 							const ran = yield* runProgram(machine, real, c.steps)
 							for (const verdict of ran.verdicts) {

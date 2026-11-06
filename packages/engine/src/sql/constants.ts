@@ -6,7 +6,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { Expr, ObjectName, PackConstant, PackRow, TypeRef } from "#compiler/sql/ast.ts"
+import type { Expr, ObjectName, PackConstant, PackForm, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -375,15 +375,16 @@ export const nameOf = (names: ObjectName, code: Expr): Expr =>
 	cast({ kind: "subscript", array: constantValue(names), index: plus(code, int(1)) }, types.text)
 
 /**
- * The migration's pack of a relation into its constant: `cells` cells of `width` bits, each row at its cell's index,
- * which the host's encoder gives its key (ir/cells.ts keyIndex), with its payload's code below 2^w - 1. No two rows
- * share a cell: the caller checks the relation's key before it packs (ir/cells.ts constantOf). PostgreSQL places each
- * row, and every reader computes the index from the key's codes in SQL (cellOfKey), so each read checks the host's
- * encoder against PostgreSQL's arithmetic.
+ * The migration's pack of a relation into its constant: `cells` cells of `width` bits, stated in `form` (sql/ast.ts
+ * PackForm). In rows, each row at its cell's index, which the host's encoder gives its key (ir/cells.ts keyIndex), with
+ * its payload's code below 2^w - 1, and no two rows at one cell: the caller checks the relation's key before it packs
+ * (ir/cells.ts constantOf). As a literal, the host's encoding of those cells (ir/cells.ts literalOf). Either way every
+ * reader computes the index from the key's codes in SQL (cellOfKey), so each read checks the host's encoder against
+ * PostgreSQL's arithmetic.
  */
 export const pack = (
 	fn: ObjectName,
 	cells: bigint,
 	width: number,
-	rows: ReadonlyArray<PackRow>
-): PackConstant => ({ kind: "packConstant", function: fn, cells, width, rows })
+	form: PackForm
+): PackConstant => ({ kind: "packConstant", function: fn, cells, width, form })

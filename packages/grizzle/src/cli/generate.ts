@@ -47,7 +47,7 @@ import { type DeploySnapshot, snapshotFileName } from "#compiler/deploy/snapshot
 import { draftCodebook } from "#compiler/ir/codes.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
 import { compileWorkload } from "#compiler/program/workload/compile.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -253,7 +253,8 @@ const draftInput = Effect.fn("draftInput")(function* (
 
 /**
  * The draft of a schema's change from `previous` under `declared`, its folder unnamed, as `grizzle check` compares it
- * with the committed snapshot (draftInput, then the pure generator's draftMigration). Nothing is written.
+ * with the committed snapshot (draftInput, then the pure generator's draftMigration), beside the installation it drafts
+ * against, whose constants check holds the migrations' literal packs to. Nothing is written.
  *
  * @internal
  */
@@ -262,12 +263,13 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
 	previous: DeploySnapshot,
 	abandoned: ReadonlyArray<AbandonedSchema>,
 	declared: Declarations
-): Effect.fn.Return<MigrationDraft, CliError> {
+): Effect.fn.Return<MigrationDraft & { readonly installation: Installation }, CliError> {
 	const input = yield* draftInput(schema, previous, abandoned, declared)
-	return yield* Effect.mapError(
+	const draft = yield* Effect.mapError(
 		fromEngine(draftMigration(input)),
 		draftRefused(schema.declared, "draft")
 	)
+	return { ...draft, installation: input.installation }
 })
 
 /**
