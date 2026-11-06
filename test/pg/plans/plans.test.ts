@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, type Gen, int, uniqueArray } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -63,29 +63,70 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * read by the tree's one EXPLAIN decoder (bench/harness/explain.ts). The properties are the contract; the plan's node
  * order, index names and costs are the planner's:
  *
- * - a take over a retained primary key, ordered by it, has no Unique node and no Sort and never scans Posting
- *   sequentially, while the same statement with the redundant DISTINCT the elision removed, and the conservative
- *   artifact, which deduplicates at every boundary, each have a Unique node (R17: removing it is the observable effect);
+ * - a drawn take over a retained primary key (Posting's, Item's or Account's), ordered by it either way, has no Unique
+ *   node and no Sort and never scans its relation sequentially, while the same statement with the redundant DISTINCT
+ *   the elision removed, and the conservative artifact, which deduplicates at every boundary, each have a Unique node
+ *   (R17: removing it is the observable effect);
  * - a take bound to the rows of a small relation parameter, over drawn parent sets, reads entries in proportion to the
  *   parents times k (at most k + 1 per parent) and never scans entry sequentially (R20);
- * - a pipelined attachment's take over parent rows the facts do not bound reads entry in one scan, once (R20);
+ * - a pipelined attachment's take of a drawn bound and direction over parent rows the facts do not bound reads entry in
+ *   one scan, once (R20);
  * - a relation parameter joined to a keyed relation, over drawn id sets with repeats and absent ids, reads Item only
  *   by index probes, never sequentially, as the arrays the template carries, whose estimate is the input's length
  *   (R22);
- * - the aggregate over (id, account, amount) folds the scan in one grouping step with no deduplication, while the
- *   aggregate over (account, amount) deduplicates its contributions first;
+ * - a sum or a count over (id, account, amount) folds the scan in one grouping step with no deduplication, while one
+ *   over the distinct (account, amount) values deduplicates its contributions first;
  * - a query whose discriminator stays a literal never scans its relation sequentially, under a generic and a custom
  *   prepared plan alike, over drawn parameters (R04: generic and custom plans are tested separately).
  */
 
-/** The first ten postings by id: a take over the retained primary key. */
-const firstPostings = query(Plans)
-	.rule((r) => {
-		const { id } = v(Posting, "posting")
-		return r.match(Posting, { id }).find({ id })
-	})
-	.orderBy(["id", "asc"])
-	.take(10)
+/** The relations keyed by one id the plan fixture fills past a page: a take over their key reads it in key order. */
+type Keyed = "Posting" | "Item" | "Account"
+
+type Direction = "asc" | "desc"
+
+/** The first `k` facts of a keyed relation by id, in `direction`: a take over the retained primary key. */
+const firstBy = (relation: Keyed, direction: Direction, k: number): unknown => {
+	switch (relation) {
+		case "Posting":
+			return query(Plans)
+				.rule((r) => {
+					const { id } = v(Posting, "posting")
+					return r.match(Posting, { id }).find({ id })
+				})
+				.orderBy(["id", direction])
+				.take(k)
+		case "Item":
+			return query(Plans)
+				.rule((r) => {
+					const { id } = v(Item, "item")
+					return r.match(Item, { id }).find({ id })
+				})
+				.orderBy(["id", direction])
+				.take(k)
+		case "Account":
+			return query(Plans)
+				.rule((r) => {
+					const { id } = v(Account, "account")
+					return r.match(Account, { id }).find({ id })
+				})
+				.orderBy(["id", direction])
+				.take(k)
+	}
+}
+
+/** A drawn take: its relation, its direction and its bound. */
+interface TakeCase {
+	readonly relation: Keyed
+	readonly direction: Direction
+	readonly k: number
+}
+
+const takeCaseGen: Gen<TakeCase> = (source) => ({
+	relation: source.draw(element<Keyed>(["Posting", "Item", "Account"])),
+	direction: source.draw(element<Direction>(["asc", "desc"])),
+	k: source.draw(int(1, 50))
+})
 
 /** An account's first two entries by seq, bound to each account of a relation parameter. */
 const firstEntries = query(Plans)
@@ -113,23 +154,54 @@ const itemsById = query(Plans).rule((r) => {
 	return r.match(wanted, { id }).match(Item, { id, amount }).find({ id, amount })
 })
 
-/**
- * The sum per account of its distinct amounts, a stage of the distinct (account, amount) values matched whole, and the
- * sum over every posting, bound by its key (id, account, amount).
- */
-const sumsOfAmounts = query(Plans).rule((r) => {
-	const amounts = r.interior((inner) => {
-		const { account, amount } = v(Posting, "posting")
-		return inner.match(Posting, { account, amount }).find({ account, amount })
-	})
-	const { account, amount } = v(amounts, "amounts")
-	return r.match(amounts, { account, amount }).find({ account, total: r.sum(amount) })
-})
+/** Whether an aggregate's match binds Posting's key, so its rows are distinct already, or its values only, staged. */
+type Bound = "the key" | "the values"
 
-const sumsOfPostings = query(Plans).rule((r) => {
-	const { id, account, amount } = v(Posting, "posting")
-	return r.match(Posting, { id, account, amount }).find({ account, total: r.sum(amount) })
-})
+/** What an aggregate folds per account: the amounts' sum, or the bindings' count. */
+type Fold = "sum" | "count"
+
+/**
+ * The fold per account over Posting: of every posting, its match binding the key (id, account, amount), or of the
+ * distinct (account, amount) values, a stage matched whole.
+ */
+const foldOf = (bound: Bound, fold: Fold): unknown => {
+	switch (`${fold} of ${bound}` as const) {
+		case "sum of the key":
+			return query(Plans).rule((r) => {
+				const { id, account, amount } = v(Posting, "posting")
+				return r.match(Posting, { id, account, amount }).find({ account, total: r.sum(amount) })
+			})
+		case "count of the key":
+			return query(Plans).rule((r) => {
+				const { id, account, amount } = v(Posting, "posting")
+				return r.match(Posting, { id, account, amount }).find({ account, total: r.count() })
+			})
+		case "sum of the values":
+			return query(Plans).rule((r) => {
+				const amounts = r.interior((inner) => {
+					const { account, amount } = v(Posting, "posting")
+					return inner.match(Posting, { account, amount }).find({ account, amount })
+				})
+				const { account, amount } = v(amounts, "amounts")
+				return r.match(amounts, { account, amount }).find({ account, total: r.sum(amount) })
+			})
+		case "count of the values":
+			return query(Plans).rule((r) => {
+				const amounts = r.interior((inner) => {
+					const { account, amount } = v(Posting, "posting")
+					return inner.match(Posting, { account, amount }).find({ account, amount })
+				})
+				const { account, amount } = v(amounts, "amounts")
+				return r.match(amounts, { account, amount }).find({ account, total: r.count() })
+			})
+	}
+}
+
+/** A drawn aggregate: what its match binds and what it folds. */
+interface FoldCase {
+	readonly bound: Bound
+	readonly fold: Fold
+}
 
 /**
  * The open note of a ticket, and the automatic task of an account: each selected by a literal the partial index's
@@ -150,28 +222,29 @@ const automaticTask = query(Plans).rule((r) => {
 })
 
 /**
- * Each account with its first two entries by seq attached. Its parents read no approximate search, so it is a
- * pipelined attachment over the delivered parent keys, whose take chooses its form per execution.
+ * Each account with its first `k` entries by seq in `direction` attached. Its parents read no approximate search, so it
+ * is a pipelined attachment over the delivered parent keys, whose take chooses its form per execution.
  */
-const accountsWithFirstEntries = query(Plans)
-	.rule((r) => {
-		const { id, name } = v(Account, "account")
-		return r.match(Account, { id, name }).find({ id, name })
-	})
-	.attach(
-		"first",
-		(parent) =>
-			query(Plans)
-				.rule((r) => {
-					const { seq, amount } = v(Entry, "entry")
-					return r
-						.match(Entry, { account: parent.id, seq, amount })
-						.find({ seq, amount, seqAgain: seq, amountAgain: amount, seqThird: seq })
-				})
-				.orderBy(["seq", "asc"])
-				.take(2),
-		"array"
-	)
+const accountsWithFirstEntries = (direction: Direction, k: number) =>
+	query(Plans)
+		.rule((r) => {
+			const { id, name } = v(Account, "account")
+			return r.match(Account, { id, name }).find({ id, name })
+		})
+		.attach(
+			"first",
+			(parent) =>
+				query(Plans)
+					.rule((r) => {
+						const { seq, amount } = v(Entry, "entry")
+						return r
+							.match(Entry, { account: parent.id, seq, amount })
+							.find({ seq, amount, seqAgain: seq, amountAgain: amount, seqThird: seq })
+					})
+					.orderBy(["seq", direction])
+					.take(k),
+			"array"
+		)
 
 const compiled = (q: unknown, schema: string): QueryTemplate => {
 	const r = compileTemplate(q, undefined, {
@@ -307,34 +380,74 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 
 	it.effect(
 		"a retained-PK ordered take deduplicates and sorts nothing, where the unelided forms deduplicate",
-		() =>
-			Effect.gen(function* () {
-				const { schema, relation } = yield* fixture
-				const template = compiled(firstPostings, schema)
-				const optimized = only(template.optimized, "optimized statement")
-				const plan = yield* estimate(
-					optimized.sql,
-					paramTexts(optimized, {}, declared(firstPostings, template))
-				)
-				assert.equal(nodeTypes(plan).includes("Unique"), false)
-				assert.equal(nodeTypes(plan).includes("Sort"), false)
-				assert.deepEqual(sequentialScans(plan, relation("Posting")), [])
-				const redundant = withDistinctBound(
-					only(flight(template.programs.optimized.roots), "program statement").ast
-				)
-				const kept = yield* estimate(printStatement(redundant), [])
-				assert.equal(nodeTypes(kept).includes("Unique"), true, "the elided DISTINCT deduplicates")
-				const conservative = only(template.conservative, "conservative statement")
-				const plain = yield* estimate(
-					conservative.sql,
-					paramTexts(conservative, {}, declared(firstPostings, template))
-				)
-				assert.equal(
-					nodeTypes(plain).includes("Unique"),
-					true,
-					"the conservative artifact deduplicates"
-				)
-			})
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const { schema, relation } = yield* fixture
+					return yield* explore(
+						{
+							suite: "pg/plans/retained-take",
+							draw: drawn(takeCaseGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "specification",
+								name: "R17: a take over a retained key needs no deduplication, which the unelided forms keep"
+							},
+							coverage: required<`${Keyed} ${Direction}`>(
+								[
+									"Posting asc",
+									"Posting desc",
+									"Item asc",
+									"Item desc",
+									"Account asc",
+									"Account desc"
+								],
+								{ cases: 24, sense: notesOnly }
+							),
+							kept: [],
+							runs: 12,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 8,
+							caseHang
+						},
+						(c, k) =>
+							Effect.gen(function* () {
+								const q = firstBy(c.relation, c.direction, c.k)
+								const template = compiled(q, schema)
+								const optimized = only(template.optimized, "optimized statement")
+								const plan = yield* estimate(
+									optimized.sql,
+									paramTexts(optimized, {}, declared(q, template))
+								)
+								assert.equal(nodeTypes(plan).includes("Unique"), false)
+								assert.equal(nodeTypes(plan).includes("Sort"), false)
+								assert.deepEqual(sequentialScans(plan, relation(c.relation)), [])
+								const redundant = withDistinctBound(
+									only(flight(template.programs.optimized.roots), "program statement").ast
+								)
+								const kept = yield* estimate(printStatement(redundant), [])
+								assert.equal(
+									nodeTypes(kept).includes("Unique"),
+									true,
+									"the elided DISTINCT deduplicates"
+								)
+								const conservative = only(template.conservative, "conservative statement")
+								const plain = yield* estimate(
+									conservative.sql,
+									paramTexts(conservative, {}, declared(q, template))
+								)
+								assert.equal(
+									nodeTypes(plain).includes("Unique"),
+									true,
+									"the conservative artifact deduplicates"
+								)
+								k.note(`${c.relation} ${c.direction}`)
+							})
+					)
+				})
+			)
 	)
 
 	it.effect(
@@ -390,27 +503,59 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 
 	it.effect(
 		"a pipelined attachment's take over parent rows the facts do not bound reads entry in one scan, once",
-		() =>
-			Effect.gen(function* () {
-				const { schema, relation } = yield* fixture
-				const template = compiled(accountsWithFirstEntries, schema)
-				const found = Arr.findFirst(template.optimized, (s) => s.role === "attachment")
-				if (Option.isNone(found)) {
-					return yield* Effect.die(new Error("the attachment statement"))
-				}
-				const statement = found.value
-				const plan = yield* analyze(
-					statement.sql,
-					paramTexts(statement, {}, declared(accountsWithFirstEntries, template))
-				)
-				const scans = scansOf(plan, relation("Entry"))
-				assert.equal(scans.length, 1, "one scan of entry")
-				assert.equal(
-					only(scans, "scan of entry").actualLoops,
-					1,
-					"entry scanned once, not once per parent"
-				)
-			})
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const { schema, relation } = yield* fixture
+					return yield* explore(
+						{
+							suite: "pg/plans/pipelined-take",
+							draw: drawn(
+								(source) =>
+									[
+										source.draw(element<Direction>(["asc", "desc"])),
+										source.draw(int(1, sizes.entriesPerAccount + 2))
+									] as const
+							),
+							literal: Formatter.format,
+							oracle: {
+								kind: "specification",
+								name: "R20: a take per delivered parent over unbounded parents is one scan of its relation"
+							},
+							coverage: required<Direction>(["asc", "desc"], { cases: 8, sense: notesOnly }),
+							kept: [],
+							runs: 6,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 4,
+							caseHang
+						},
+						([direction, k], cx) =>
+							Effect.gen(function* () {
+								const q = accountsWithFirstEntries(direction, k)
+								const template = compiled(q, schema)
+								const found = Arr.findFirst(template.optimized, (s) => s.role === "attachment")
+								if (Option.isNone(found)) {
+									return yield* Effect.die(new Error("the attachment statement"))
+								}
+								const statement = found.value
+								const plan = yield* analyze(
+									statement.sql,
+									paramTexts(statement, {}, declared(q, template))
+								)
+								const scans = scansOf(plan, relation("Entry"))
+								assert.equal(scans.length, 1, "one scan of entry")
+								assert.equal(
+									only(scans, "scan of entry").actualLoops,
+									1,
+									"entry scanned once, not once per parent"
+								)
+								cx.note(direction)
+							})
+					)
+				})
+			)
 	)
 
 	it.effect(
@@ -470,21 +615,55 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 	)
 
 	it.effect(
-		"the aggregate over a base key folds in one step, and the one over distinct (account, amount) values deduplicates first",
-		() =>
-			Effect.gen(function* () {
-				const { schema } = yield* fixture
-				const byAmount = only(compiled(sumsOfAmounts, schema).optimized, "optimized statement")
-				const byAmountPlan = yield* estimate(byAmount.sql, [])
-				assert.equal(groupingSteps(byAmountPlan).length, 2, "a deduplication, then the fold")
-				const byPosting = only(compiled(sumsOfPostings, schema).optimized, "optimized statement")
-				const byPostingPlan = yield* estimate(byPosting.sql, [])
-				assert.deepEqual(
-					groupingSteps(byPostingPlan),
-					["Aggregate"],
-					"one fold, nothing deduplicated"
-				)
-			})
+		"an aggregate over a base key folds in one step, and one over distinct (account, amount) values deduplicates first",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const { schema } = yield* fixture
+					return yield* exhaust(
+						{
+							suite: "pg/plans/folds",
+							generator: (source): FoldCase => ({
+								bound: source.draw(element<Bound>(["the key", "the values"])),
+								fold: source.draw(element<Fold>(["sum", "count"]))
+							}),
+							literal: Formatter.format,
+							limit: 4,
+							box: "a sum and a count per account, of a match binding Posting's key and of its distinct values",
+							oracle: {
+								kind: "specification",
+								name: "a fold over a base key's bindings reads distinct rows; one over values deduplicates them first"
+							},
+							coverage: requiredInSpace<`${Fold} of ${Bound}`>([
+								"sum of the key",
+								"sum of the values",
+								"count of the key",
+								"count of the values"
+							]),
+							caseHang
+						},
+						(c, k) =>
+							Effect.gen(function* () {
+								const statement = only(
+									compiled(foldOf(c.bound, c.fold), schema).optimized,
+									"optimized statement"
+								)
+								const plan = yield* estimate(statement.sql, [])
+								if (c.bound === "the key") {
+									assert.deepEqual(
+										groupingSteps(plan),
+										["Aggregate"],
+										"one fold, nothing deduplicated"
+									)
+								} else {
+									assert.equal(groupingSteps(plan).length, 2, "a deduplication, then the fold")
+								}
+								k.note(`${c.fold} of ${c.bound}`)
+							})
+					)
+				})
+			)
 	)
 
 	it.effect(

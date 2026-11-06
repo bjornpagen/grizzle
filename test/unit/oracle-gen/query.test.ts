@@ -22,10 +22,10 @@ import { caseHang } from "#test/support/limits.ts"
 import { Array as Arr, Effect, Formatter, Order, Record } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { decodeDesc } from "#compiler/ir/desc.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { assert, defined, lacks } from "#test/support/assert.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import {
@@ -81,8 +81,8 @@ describe("generated query cases", () => {
 					(c) =>
 						Effect.sync(() => {
 							holds(
-								decodeDesc("schema", schemaDesc(c.schema)).ok,
-								"the schema Description decodes",
+								admitSchemaDesc(schemaDesc(c.schema)).ok,
+								"the schema Description decodes and its closed relations are admitted",
 								c
 							)
 							/** An admissible schema: ownership accepts it, every key representable. */

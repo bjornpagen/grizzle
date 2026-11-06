@@ -33,7 +33,8 @@ import {
 	role,
 	type Schema,
 	schema,
-	select
+	select,
+	type StatementsByName
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
@@ -391,7 +392,7 @@ export const Payroll = schema(
 export type PayrollNamed<N extends string> = Schema<
 	N,
 	(typeof Payroll)["relations"],
-	(typeof Payroll)["statements"]
+	StatementsByName<(typeof Payroll)["statements"], (typeof Payroll)["relations"]>
 >
 
 /** RunTotal's definition over the Payroll it is given. */

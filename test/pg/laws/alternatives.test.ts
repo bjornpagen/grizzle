@@ -9,8 +9,9 @@
  *   arm row's parent exists with a kind the arm is armed for, and every parent of an armed kind has its arm's row; an
  *   unarmed handle needs no arm. A refusal must be 23503 by a foreign key of the relation whose write broke it, an arm's
  *   forward or the parent's reverse, reporting a law of the expansion.
- * - **A wide roster's columns counted:** a roster of 24 handles, each armed, installs on its parent at least one and at
- *   most two law columns per armed handle, linear in the roster, never one per pair.
+ *
+ * That an alternatives law's installed objects grow linearly in its roster's armed handles, never one column per pair,
+ * is test/unit/laws/scaling.test.ts's roster-handles dimension.
  *
  * The box (doctrine rule 9): roster {a, b, c}, a armed by relation A, b by B, c unarmed; at most two parents of any kind
  * and every subset of arm rows for them, written parents first, then the arm rows, in one transaction.
@@ -20,13 +21,11 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { alternatives, closed, relation, schema } from "#compiler/public/schema.ts"
 import { cleared, seatOf } from "#test/pg/fin/installed.ts"
-import { assert } from "#test/support/assert.ts"
-import * as D from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -41,9 +40,6 @@ const Alternatives = schema("fin_alternatives", { Kind, Item, A, B }, [
 ])
 
 const RELATIONS = ["Item", "A", "B"] as const
-
-/** A roster of 24 handles, each armed by an arm relation of its own: the wide roster whose columns are counted. */
-const WIDE = 24
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
@@ -80,11 +76,7 @@ const brokenOf = (s: Sketch): ReadonlyArray<Broken> => {
 	return [...(forward ? ["forward" as const] : []), ...(reverse ? ["reverse" as const] : [])]
 }
 
-type AlternativesFeature =
-	| "committed"
-	| "committed an unarmed parent"
-	| `refused ${Broken}`
-	| "a wide roster's columns counted"
+type AlternativesFeature = "committed" | "committed an unarmed parent" | `refused ${Broken}`
 
 layer(Substrate.layer)("alternatives through grizzle's lowering on PostgreSQL 19rc1", (it) => {
 	it.effect(
@@ -179,37 +171,5 @@ layer(Substrate.layer)("alternatives through grizzle's lowering on PostgreSQL 19
 					)
 				})
 			)
-	)
-
-	it.effect(
-		"install a wide roster's alternatives with law columns linear in its armed handles",
-		() =>
-			Effect.gen(function* () {
-				const handles = Arr.map(Arr.range(0, WIDE - 1), (i) => `h${i}`)
-				const roster = D.closed("Wide", handles)
-				const parent = D.relation("Parent", { id: D.f.integer, kind: D.f.closedId("Wide") }, ["id"])
-				const arms = Arr.map(handles, (h) =>
-					D.relation(`Arm_${h}`, { item: D.f.integer }, ["item"])
-				)
-				const wide: D.SchemaDesc = {
-					name: "fin_alternatives_wide",
-					extends: undefined,
-					relations: [roster, parent, ...arms],
-					statements: [
-						D.alternatives(
-							parent,
-							"kind",
-							roster,
-							Rec.fromEntries(Arr.map(handles, (h, i) => [h, Arr.getUnsafe(arms, i)] as const))
-						)
-					]
-				}
-				const seat = yield* seatOf(wide, ["Parent"], "alternatives wide")
-				const columns = Arr.filter(seat.roles("Parent"), Str.startsWith("‹"))
-				assert.ok(
-					columns.length >= WIDE && columns.length <= 2 * WIDE,
-					`the parent's law columns number ${columns.length}, not between one and two per armed handle (${WIDE})`
-				)
-			}).pipe(Effect.scoped)
 	)
 })

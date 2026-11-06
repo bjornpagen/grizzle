@@ -16,7 +16,7 @@ export type InstalledFunction =
 	| { readonly kind: "snapshotGuard" }
 	| { readonly kind: "isolationGuard" }
 	| { readonly kind: "names"; readonly domain: string }
-	| { readonly kind: "live"; readonly names: string; readonly domain: string }
+	| { readonly kind: "live"; readonly domain: string }
 	| {
 			/** A closed relation's constant, the relation's own when `declared`, read by the CHECKs and generated columns
 			 * of `tables`. */
@@ -645,9 +645,9 @@ const executorsOf = (j: Judging, name: string): ReadonlySet<string> =>
 
 /**
  * EXECUTE on a constant goes exactly to the world roles that call it as invokers (§3.12, "Role views"): a live
- * constant's to the holders of USAGE on its bits domain, whose CHECK calls it; a names constant's to the holders of
- * USAGE on its roster domain, the roles whose views decode a closed id through it, and the executors of the live
- * constant derived from it, whose body calls it; a declared closed relation's own constant's to every world role, since
+ * constant's, a hex literal that calls nothing, to the holders of USAGE on its bits domain, whose CHECK calls it; a names
+ * constant's to the holders of USAGE on its roster domain and the roles whose views decode a closed id through it; a
+ * declared closed relation's own constant's to every world role, since
  * a role holds every closed relation of its base but a roster (analysis/schema.ts CheckedSchema) and its queries' closed
  * reads call the relation's constants as the invoker; and any closed constant's to the roles whose views call it and
  * the roles that insert into or update a table whose CHECK or generated column calls it, a law's CHECK alone reading
@@ -668,13 +668,6 @@ const constantExecutorProblems = (
 		case "names":
 			for (const r of domainHolders(j, expected.domain, "USAGE")) {
 				required.add(r)
-			}
-			for (const [name, other] of j.expect.functions) {
-				if (other.kind === "live" && other.names === f.name) {
-					for (const r of executorsOf(j, name)) {
-						required.add(r)
-					}
-				}
 			}
 			break
 		case "closedConstant":

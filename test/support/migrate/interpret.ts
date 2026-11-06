@@ -28,7 +28,7 @@ import {
 	transformOperand,
 	transformSelect
 } from "#compiler/sql/transform.ts"
-import { bitText } from "#test/support/closed/bit-text.ts"
+import { textOfHex } from "#test/support/closed/bit-text.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 
@@ -73,9 +73,9 @@ import { testTypeSchema } from "#test/support/sql.ts"
  *   domain by its cast to bit(n′) is padded with zeros on the right, and every row must meet the new domain's CHECKs
  *   (23514); a column converted by an expression the model does not know needs the reviewer's value. A closed id is
  *   stored as its code, an int cell, and a set as its bit string, a text cell of 0s and 1s.
- * - Constants and domains. A constant (CREATE FUNCTION … IMMUTABLE RETURN, or the pack's DO block) holds a value the
- *   model computes: a names constant's name[], a live-codes constant derived from it, a pack's bit string (the test
- *   oracle bitText). A domain's CHECK added without NOT VALID, or VALIDATEd, is evaluated over every stored value of
+ * - Constants and domains. A constant (CREATE FUNCTION … IMMUTABLE RETURN) holds a value the model computes: a names
+ *   constant's name[], a live-codes constant's and a closed constant's bit string, each one hex literal's digits read
+ *   four bits a digit (the test oracle textOfHex). A domain's CHECK added without NOT VALID, or VALIDATEd, is evaluated over every stored value of
  *   the domain, as PostgreSQL validates it, and a value it does not admit is refused (23514) naming the table and the
  *   column; so a removed handle's code, or a set holding its bit, fails the VALIDATE of the re-pointed CHECK. A CHECK
  *   outside the fragment the model evaluates (a contract's predicate) is taken to hold, a limit of the model.
@@ -545,39 +545,10 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 }
 
 /**
- * The bit string a pack builds: its `cells` cells of `width` bits, each 0 but a row's, which holds 1 + its payload code
- * at the row's cell, written by the test oracle bitText.
+ * The bit string a closed constant's statement installs: its hex literal's digits, four bits each, its cells' bits then
+ * the 0s that pad them to whole digits (test/support/closed/bit-text.ts textOfHex).
  */
-const packedBits = (s: PackConstant): string => {
-	if (s.form.kind === "literal") {
-		return literalBits(s.form.hex, s.form.tail)
-	}
-	const entries = Arr.map(s.form.rows, (row) => ({ index: row.index, payload: row.payload }))
-	const text = bitText(
-		{
-			cells: s.cells,
-			width: s.width,
-			entries: Arr.sort(
-				entries,
-				Order.mapInput(Order.BigInt, (e: { readonly index: bigint }) => e.index)
-			)
-		},
-		Number.MAX_SAFE_INTEGER
-	)
-	if (!text.ok) {
-		throw new Error(`the pack of ${printObjectName(s.function)} is too long for the host to write`)
-	}
-	return text.value
-}
-
-/** A literal pack's bits as PostgreSQL reads `X'<hex>' || B'<tail>'`: each hex digit its four bits, then the tail. */
-const literalBits = (hex: string, tail: string): string =>
-	Arr.join(
-		Arr.map(Array.from(hex), (digit) =>
-			Str.padStart(4, "0")(Number.parseInt(digit, 16).toString(2))
-		),
-		""
-	) + tail
+const packedBits = (s: PackConstant): string => textOfHex(s.hex)
 
 /** A bit string cast to bit(n): padded with zeros on the right, or truncated, as PostgreSQL's bit(n) cast does. */
 const toLength = (bits: string, length: number): string =>
@@ -692,6 +663,9 @@ const castTo = (v: SqlValue, t: TypeRef, scope: Scope): SqlValue => {
 		if (t.name === "numeric" && v.kind === "int") {
 			return v
 		}
+		if (t.name === "integer" && v.kind === "bits" && v.value.length <= 32) {
+			return { kind: "int", value: v.value === "" ? 0n : BigInt(`0b${v.value}`) }
+		}
 	}
 	return unevaluable(`a cast of ${v.kind} to ${printType(t)}`)
 }
@@ -733,9 +707,8 @@ const intOf = (v: SqlValue, what: string): bigint | undefined =>
 
 /**
  * The value of `e`, evaluated as PostgreSQL would over the fragment a constant's body and a roster's or a set's domain
- * CHECK are written in: literals, casts, VALUE, + and -, = and <>, & and |, a subscript, a CASE, substring, a call of
- * the schema's constant, and the one subquery a live-codes constant derives from its names constant, string_agg over
- * generate_subscripts. Any other expression is Unevaluable.
+ * CHECK are written in: literals, a bit string's hex literal among them, casts, VALUE, + and -, = and <>, & and |, a
+ * subscript, a CASE, substring and a call of the schema's constant. Any other expression is Unevaluable.
  */
 const evaluate = (e: Expr, scope: Scope): SqlValue => {
 	switch (e.kind) {
@@ -753,6 +726,8 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 						? valueOf(e.value.value, e.type)
 						: castTo(valueOf(e.value.value, base), e.type, scope)
 				}
+				case "bits":
+					return castTo({ kind: "bits", value: textOfHex(e.value.hex) }, e.type, scope)
 				case "decimal":
 				case "float":
 				case "floatSpecial":
@@ -871,8 +846,6 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 			}
 			return unevaluable(`the function ${e.fn.name}`)
 		}
-		case "subquery":
-			return derivedFromNames(e.query, scope)
 		case "and": {
 			const truths = Arr.map(e.args, (a) => truthOf(evaluate(a, scope)))
 			return boolValue(
@@ -922,70 +895,10 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		case "regclass":
 		case "returning":
 		case "row":
+		case "subquery":
 		case "user":
 			return unevaluable(`an expression of kind ${e.kind}`)
 	}
-}
-
-/**
- * A live-codes constant's subquery: one target, string_agg(flag, '' ORDER BY t.i) cast to bit varying, over the rows of
- * generate_subscripts(N(), 1) AS t(i), each flag evaluated with t.i bound to its row's subscript, in subscript order.
- */
-const derivedFromNames = (query: OperandSelect, scope: Scope): SqlValue => {
-	const core = query.body
-	if (
-		core.kind !== "core" ||
-		core.from.length !== 1 ||
-		core.where !== undefined ||
-		core.targets.length !== 1
-	) {
-		return unevaluable("a subquery of another shape")
-	}
-	const [from] = core.from
-	const [only] = core.targets
-	const target = only.expr
-	if (
-		from?.kind !== "function" ||
-		from.call.fn.kind !== "builtin" ||
-		from.call.fn.name !== "generate_subscripts" ||
-		from.columns.length !== 1 ||
-		target.kind !== "cast"
-	) {
-		return unevaluable("a subquery of another shape")
-	}
-	const aggregate = target.expr
-	const [arrayExpr] = from.call.args
-	const [column] = from.columns
-	if (
-		aggregate.kind !== "call" ||
-		aggregate.star ||
-		aggregate.fn.kind !== "builtin" ||
-		aggregate.fn.name !== "string_agg" ||
-		arrayExpr === undefined ||
-		column === undefined
-	) {
-		return unevaluable("an aggregate other than string_agg")
-	}
-	const array = evaluate(arrayExpr, scope)
-	const [flag, separator] = aggregate.args
-	if (array?.kind !== "names" || flag === undefined || separator === undefined) {
-		return unevaluable("string_agg over no names")
-	}
-	const sep = evaluate(separator, scope)
-	const parts = Arr.map(array.value, (_, i) => {
-		const columns = new Map(scope.columns)
-		columns.set(`${from.alias}.${column}`, { kind: "int", value: BigInt(i + 1) })
-		const v = evaluate(flag, { ...scope, columns })
-		return v?.kind === "text" ? v.value : unevaluable("a flag of no text")
-	})
-	const text = Arr.join(parts, sep?.kind === "text" ? sep.value : "")
-	return evaluate(
-		{
-			...target,
-			expr: { kind: "literal", value: { kind: "text", value: text }, type: target.type }
-		},
-		scope
-	)
 }
 
 /** The aggregates a data step calls, each over a group's or a frame's non-NULL values. */

@@ -1,5 +1,6 @@
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
+import { bitInputText, hexOfBitText } from "#compiler/core/hex.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Codebook, codecOf as rosterCodecOf } from "#compiler/ir/codes.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
@@ -48,7 +49,7 @@ import {
  * | date | YYYY-MM-DD, 0001-01-01 to 9999-12-31 | date_out text under DateStyle ISO |
  * | text | the string | the same |
  * | code | the handle's code, decimal digits | int2out text, read as the handle the code names |
- * | bits | bit(n)'s text, n characters of 0 and 1, position i code i, a hole 0 | bit_out text, read as the set of handles |
+ * | bits | X then bit(n)'s whole hex digits, position i code i, a hole and the padding 0 | bit_out text, read as the set of handles |
  * | range4, range8 | [start,end) | range_out of a bounded half-open range |
  * | vector | [c1,...,cn], shortest binary32 texts, one zero | vector_out text, components read exactly as binary32, -0 as 0 |
  *
@@ -82,7 +83,8 @@ export interface ScalarCodec {
 	 * exactly when their values are equal. The cell itself for the carriers whose output is already one text per value;
 	 * numeric with trailing fractional zeros dropped, which is the value's canonical text; a float's "-0" as "0", and
 	 * otherwise float4out's or float8out's own shortest spelling; a vector's "-0" components as "0"; a boolean's "t"/"f"
-	 * as "true"/"false". Chosen once per column; no allocation where the cell is already the one text.
+	 * as "true"/"false"; a set's 0s and 1s as X and their hex digits. Chosen once per column; no allocation where the
+	 * cell is already the one text.
 	 */
 	readonly cellText: (cell: string) => string
 }
@@ -163,6 +165,9 @@ const vectorCellText = (cell: string): string => {
 	return copied === 0 ? cell : out + cell.slice(copied)
 }
 
+/** bit_out text of a set, whole hex digits long, as its one text, the text its encoder writes: X then its hex digits. */
+const bitsCellText = (cell: string): string => bitInputText(hexOfBitText(cell))
+
 /** boolout's t and f, or bool::text's true and false: one letter tells them apart. */
 const boolCellText = (cell: string): string => (cell.startsWith("t") ? "true" : "false")
 
@@ -180,7 +185,7 @@ const cellTextByCarrier: { readonly [C in Carrier]: (cell: string) => string } =
 	date: itself,
 	text: itself,
 	code: itself,
-	bits: itself,
+	bits: bitsCellText,
 	range4: itself,
 	range8: itself,
 	vector: vectorCellText,

@@ -7,38 +7,60 @@
  *   relation's pack holds exactly Σ over owners of its block, each row at the position the dependent sum's enumeration
  *   gives its key, and its owner functions hold each owner's base and count. Oracle: that enumeration, written out from
  *   the count relation's rows and the installation's codes, sharing nothing with the planner's index.
- * - **Each invalid declaration is refused by name:** a row whose slot is past its owner's count, a count past the slot
- *   roster's codes, a fin over an ordinary relation, a count that is not natural, an owner key that does not pair with
- *   the key's first fields, a slot inside the owner prefix, two owner prefixes, a slot in the payload or in an ordinary
- *   relation, a family over a closed relation's fin, and a count relation outside the schema.
- * - **A cell read as an integer:** a payload space of 2^31 - 1 codes is admitted and one of 2^31 refused, exactly at
- *   the bound (cellCodesBound), and a declared relation over 2^31 payload codes is refused where one of 2^31 - 2^16, the
- *   largest product of roster sizes below the bound, is planned.
+ * - **A fault planted in a valid declaration is refused where it is planted:** a drawn declaration of the box above
+ *   compiles, and the same declaration with one fault planted is refused as MalformedDescription at the relation and
+ *   field the fault breaks, by the builder that takes it or by the compiler: a row whose slot is past its owner's
+ *   count, a count past the slot roster's codes, a count that is not natural, an owner key that does not pair with the
+ *   key's first fields, a slot inside the owner prefix, two owner prefixes, a slot in the payload or in an ordinary
+ *   relation, a fin over an ordinary relation, a family over a closed relation's fin, and a count relation outside the
+ *   schema. Oracle: the planted fault, each with the site its rule names.
+ * - **A cell read as an integer:** a payload space of n codes is refused exactly when n is past 2^31 - 1, the greatest
+ *   integer a cell is read as (cellCodesBound), the refusal naming the constant, the bound and n; and a declared
+ *   relation over three drawn payload rosters is planned exactly when the product of their sizes is within it.
  */
 import { describe, it } from "@effect/vitest"
-import { type Case, exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { element, type Gen, int, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { bigint } from "@grizzle/testing/values"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { cellMaxCodes } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
+import { constantOfLiteral, type Entry } from "#compiler/ir/cells.ts"
 import { cellCodesBound } from "#compiler/physical/ddl/constants.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { closedId, drawn, natural, slot, uuid } from "#compiler/public/fields.ts"
-import { closed, fin, relation, schema } from "#compiler/public/schema.ts"
+import { closedId, drawn as drawnField, natural, slot, uuid } from "#compiler/public/fields.ts"
+import {
+	type AnyClosed,
+	type AnyRelation,
+	closed,
+	fin,
+	relation,
+	schema
+} from "#compiler/public/schema.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import {
 	closed as closedBuilder,
 	closedRelation as closedRelationBuilder,
 	slotField
 } from "#compiler/schema/relation.ts"
-import { finBuilder, onBuilder, orderedBuilder } from "#compiler/schema/statements.ts"
-import type { PackConstant, PackRow, SqlStatement } from "#compiler/sql/ast.ts"
+import {
+	countedBuilder,
+	finBuilder,
+	onBuilder,
+	orderedBuilder
+} from "#compiler/schema/statements.ts"
+import type { PackConstant, SqlStatement } from "#compiler/sql/ast.ts"
 import {
 	assert,
+	assertVariant,
 	defined,
 	nonEmpty,
+	refusalLoc,
 	refused,
 	succeeded,
 	throwsRefused
@@ -68,6 +90,12 @@ type Shape = "follow" | "last" | "symbol"
 interface Declaration {
 	readonly held: ReadonlyArray<Held>
 	readonly shape: Shape
+}
+
+/** Every count relation of the four owners, each holding no row or counting 0 to 2, under each shape: 768. */
+const declarations: Gen<Declaration> = (s) => {
+	const held = Array.from({ length: owners.length }, () => s.draw(element<Held>(["none", 0, 1, 2])))
+	return { held, shape: s.draw(element<Shape>(["follow", "last", "symbol"])) }
 }
 
 /** The count an owner's row gives its slots: 0 where it has no row. */
@@ -100,15 +128,19 @@ const pointsOf = (d: Declaration): ReadonlyArray<ReadonlyArray<number>> =>
 const heldPoints = (d: Declaration): ReadonlyArray<ReadonlyArray<number>> =>
 	Arr.filter(pointsOf(d), (p) => Arr.reduce(p, 0, (a, b) => a + b) % 2 === 0)
 
-/** The count relation of a declaration: one row per owner it holds a count for. */
-const modelOf = (held: ReadonlyArray<Held>) =>
+/** The count each owner's row holds, none where it holds no row. */
+const countsOf = (held: ReadonlyArray<Held>): ReadonlyArray<bigint | undefined> =>
+	Arr.map(held, (h) => (h === "none" ? undefined : BigInt(h)))
+
+/** The count relation Model: one row per owner it holds a count for. */
+const modelOf = (counts: ReadonlyArray<bigint | undefined>) =>
 	closed.relation(
 		"Model",
 		{ version: closedId(Version), parent: closedId(Kind), positions: natural },
 		["version", "parent"],
-		Arr.flatMap(held, (h, owner) => {
+		Arr.flatMap(counts, (positions, owner) => {
 			const [version, parent] = defined(owners[owner])
-			return h === "none" ? [] : [{ version, parent, positions: BigInt(h) }]
+			return positions === undefined ? [] : [{ version, parent, positions }]
 		})
 	)
 
@@ -126,54 +158,85 @@ const ownerOf = (point: ReadonlyArray<number>) => {
 	return { version, parent, block }
 }
 
-/** The schema of a declaration: its count relation Model and its slotted relation Slotted. */
-const schemaOf = (d: Declaration) => {
-	const Model = modelOf(d.held)
+/** A row of the slotted relation at an owner, each of its slots at `code`: past the owner's count when planted so. */
+interface PastRow {
+	readonly owner: number
+	readonly code: number
+}
+
+/**
+ * The slotted relation Slotted of a declaration over the count relation `Model`, holding the declaration's rows and
+ * `past`'s, if any, and its slot fields keyed, or its last one left in the payload when `payload` says so.
+ */
+const slottedOf = (
+	d: Declaration,
+	Model: ReturnType<typeof modelOf>,
+	past: PastRow | undefined,
+	payload: boolean
+) => {
 	const positionSlot = slot(closedId(Position), fin(Model, "positions"))
 	const prefix = { version: closedId(Version), parent: closedId(Kind) }
 	const points = Arr.map(heldPoints(d), ownerOf)
 	const code = (block: ReadonlyArray<number>, i: number): number => defined(block[i])
-	const Slotted =
-		d.shape === "follow"
-			? closed.relation(
-					"Slotted",
-					{ ...prefix, from: positionSlot, to: positionSlot },
-					["version", "parent", "from", "to"],
-					Arr.map(points, ({ version, parent, block }) => ({
+	const planted = past === undefined ? [] : [ownerOf([past.owner, past.code, past.code])]
+	switch (d.shape) {
+		case "follow":
+			return closed.relation(
+				"Slotted",
+				{ ...prefix, from: positionSlot, to: positionSlot },
+				payload ? ["version", "parent", "from"] : ["version", "parent", "from", "to"],
+				Arr.map([...points, ...planted], ({ version, parent, block }) => ({
+					version,
+					parent,
+					from: positionAt(code(block, 0)),
+					to: positionAt(code(block, 1))
+				}))
+			)
+		case "last":
+			return closed.relation(
+				"Slotted",
+				{ ...prefix, at: positionSlot },
+				payload ? ["version", "parent"] : ["version", "parent", "at"],
+				Arr.map([...points, ...planted], ({ version, parent, block }) => ({
+					version,
+					parent,
+					at: positionAt(code(block, 0))
+				}))
+			)
+		case "symbol":
+			return closed.relation(
+				"Slotted",
+				{ ...prefix, label: closedId(Label), position: positionSlot },
+				payload ? ["version", "parent", "label"] : ["version", "parent", "label", "position"],
+				Arr.map(
+					[...points, ...Arr.map(planted, (p) => ({ ...p, block: [0, defined(p.block[0])] }))],
+					({ version, parent, block }) => ({
 						version,
 						parent,
-						from: positionAt(code(block, 0)),
-						to: positionAt(code(block, 1))
-					}))
+						label: labelAt(code(block, 0)),
+						position: positionAt(code(block, 1))
+					})
 				)
-			: d.shape === "last"
-				? closed.relation(
-						"Slotted",
-						{ ...prefix, at: positionSlot },
-						["version", "parent", "at"],
-						Arr.map(points, ({ version, parent, block }) => ({
-							version,
-							parent,
-							at: positionAt(code(block, 0))
-						}))
-					)
-				: closed.relation(
-						"Slotted",
-						{ ...prefix, label: closedId(Label), position: positionSlot },
-						["version", "parent", "label", "position"],
-						Arr.map(points, ({ version, parent, block }) => ({
-							version,
-							parent,
-							label: labelAt(code(block, 0)),
-							position: positionAt(code(block, 1))
-						}))
-					)
+			)
+	}
+}
+
+/** The schema of a declaration: its count relation Model and its slotted relation Slotted. */
+const schemaOf = (d: Declaration) => {
+	const Model = modelOf(countsOf(d.held))
+	const Slotted = slottedOf(d, Model, undefined, false)
 	return schema("Fin", { Version, Kind, Position, Label, Model, Slotted }, [])
 }
 
-/** A pack's rows: a pack this small fits one statement, so it lists them. */
-const rowsOf = (p: PackConstant): ReadonlyArray<PackRow> =>
-	p.form.kind === "rows" ? p.form.rows : assert.fail("a pack this small lists its rows")
+/** A schema value's installation, its refusal on the way included. */
+const compiled = (value: unknown) =>
+	Result.flatMap(ownedInput(value), (owned) =>
+		compileInstallation(owned, installOptions(owned, "owner"))
+	)
+
+/** A pack's held cells, each its index and payload code, read back from its hex literal. */
+const rowsOf = (p: PackConstant): ReadonlyArray<Entry> =>
+	succeeded(constantOfLiteral(p.hex, p.cells, p.width)).entries
 
 /** The pack of the function named `name` among an installation's statements. */
 const packOf = (statements: ReadonlyArray<SqlStatement>, name: string): PackConstant =>
@@ -193,14 +256,6 @@ describe("a slotted closed relation's planned constants", () => {
 		| "a closed id before a slot"
 		| "two slots"
 
-	/** Every count relation of the four owners, each holding no row or counting 0 to 2, under each shape: 768. */
-	const declarations: Gen<Declaration> = (s) => {
-		const held = Array.from({ length: owners.length }, () =>
-			s.draw(element<Held>(["none", 0, 1, 2]))
-		)
-		return { held, shape: s.draw(element<Shape>(["follow", "last", "symbol"])) }
-	}
-
 	/**
 	 * The pack holds Σ over owners of its block, each held row at its point's position in the dependent sum, and the
 	 * owner functions hold 1 + each owner's base, its count of the blocks before it, and 1 + its count. Oracle: the
@@ -208,8 +263,7 @@ describe("a slotted closed relation's planned constants", () => {
 	 */
 	const planned = (d: Declaration, c: Case<Planned>) =>
 		Effect.sync(() => {
-			const owned = succeeded(ownedInput(schemaOf(d)))
-			const installation = succeeded(compileInstallation(owned, installOptions(owned, "owner")))
+			const installation = succeeded(compiled(schemaOf(d)))
 			const constant = installation.names.closed("Slotted")
 			const points = pointsOf(d)
 			assert.equal(
@@ -302,207 +356,476 @@ describe("a slotted closed relation's planned constants", () => {
 	)
 })
 
-describe("an invalid slotted declaration", () => {
-	const Model = modelOf([2, "none", 1, 0])
-	const positionSlot = slot(closedId(Position), fin(Model, "positions"))
-	const prefix = { version: closedId(Version), parent: closedId(Kind) }
-	const compiled = (base: unknown) =>
-		Result.flatMap(ownedInput(base), (owned) =>
-			compileInstallation(owned, installOptions(owned, "owner"))
-		)
+describe("a fault planted in a valid slotted declaration", () => {
+	/** The rule a planted fault breaks. */
+	type FaultKind =
+		| "a slot past its owner's count"
+		| "a count past the slot roster's codes"
+		| "a count that is not natural"
+		| "an owner key that does not pair"
+		| "a slot inside the owner prefix"
+		| "two owner prefixes"
+		| "a slot in the payload"
+		| "a slot in an ordinary relation"
+		| "a fin over an ordinary relation"
+		| "a family over a closed relation's fin"
+		| "a count relation the schema does not declare"
 
-	it("refuses a row whose slot is at or past its owner's count", () => {
-		const Last = closed.relation(
-			"Last",
-			{ ...prefix, at: positionSlot },
-			["version", "parent", "at"],
-			[{ version: "v0", parent: "k0", at: "p2" }]
-		)
-		refused(
-			compiled(schema("Fin", { Version, Kind, Position, Model, Last }, [])),
-			"MalformedDescription"
-		)
+	const faultKinds: Arr.NonEmptyReadonlyArray<FaultKind> = [
+		"a slot past its owner's count",
+		"a count past the slot roster's codes",
+		"a count that is not natural",
+		"an owner key that does not pair",
+		"a slot inside the owner prefix",
+		"two owner prefixes",
+		"a slot in the payload",
+		"a slot in an ordinary relation",
+		"a fin over an ordinary relation",
+		"a family over a closed relation's fin",
+		"a count relation the schema does not declare"
+	]
+
+	/** The carriers a count may be declared with that are not natural. */
+	type Counting = "integer" | "bigint" | "smallint"
+
+	/** How an owner key fails to pair with the count relation's: its fields in the other order, or their rosters swapped. */
+	type Unpaired = "reordered" | "rosters swapped"
+
+	/** A fault and what it is planted with. */
+	type Fault =
+		| { readonly kind: "a slot past its owner's count"; readonly past: PastRow }
+		| {
+				readonly kind: "a count past the slot roster's codes"
+				readonly owner: number
+				readonly count: bigint
+		  }
+		| { readonly kind: "a count that is not natural"; readonly carrier: Counting }
+		| { readonly kind: "an owner key that does not pair"; readonly how: Unpaired }
+		| { readonly kind: "a slot inside the owner prefix" }
+		| { readonly kind: "two owner prefixes" }
+		| { readonly kind: "a slot in the payload" }
+		| { readonly kind: "a slot in an ordinary relation" }
+		| { readonly kind: "a fin over an ordinary relation" }
+		| {
+				readonly kind: "a family over a closed relation's fin"
+				readonly family: "ordered" | "counted"
+		  }
+		| { readonly kind: "a count relation the schema does not declare" }
+
+	interface Faulted {
+		readonly declaration: Declaration
+		readonly fault: Fault
+	}
+
+	/** A fault of `kind` planted in `d`, its parameters drawn: an owner and a code past its count, a count past 3. */
+	const faultGen =
+		(d: Declaration, kind: FaultKind): Gen<Fault> =>
+		(s) => {
+			switch (kind) {
+				case "a slot past its owner's count": {
+					const owner = s.draw(int(0, owners.length - 1))
+					const code = s.draw(int(countOf(defined(d.held[owner])), 2))
+					return { kind, past: { owner, code } }
+				}
+				case "a count past the slot roster's codes":
+					return {
+						kind,
+						owner: s.draw(int(0, owners.length - 1)),
+						count: BigInt(s.draw(int(4, 6)))
+					}
+				case "a count that is not natural":
+					return { kind, carrier: s.draw(element<Counting>(["integer", "bigint", "smallint"])) }
+				case "an owner key that does not pair":
+					return { kind, how: s.draw(element<Unpaired>(["reordered", "rosters swapped"])) }
+				case "a family over a closed relation's fin":
+					return { kind, family: s.draw(element(["ordered", "counted"] as const)) }
+				case "a slot inside the owner prefix":
+				case "two owner prefixes":
+				case "a slot in the payload":
+				case "a slot in an ordinary relation":
+				case "a fin over an ordinary relation":
+				case "a count relation the schema does not declare":
+					return { kind }
+			}
+		}
+
+	const faultedGen: Gen<Faulted> = (s) => {
+		const declaration = s.draw(declarations)
+		const kind = s.draw(element(faultKinds))
+		return { declaration, fault: s.draw(faultGen(declaration, kind)) }
+	}
+
+	/** Where a refusal is reported: the path and label of its location, never its call site or prose. */
+	interface Site {
+		readonly path: ReadonlyArray<string | number>
+		readonly label: string
+	}
+
+	/**
+	 * A planted declaration, and where its rule refuses it: a builder that throws on the malformed call, at the call's
+	 * site, or the compiler, whose Result fails at the relation or slot the rule names.
+	 */
+	type Planted =
+		| { readonly stage: "builder"; readonly attempt: () => unknown; readonly at: Site }
+		| {
+				readonly stage: "compile"
+				readonly attempt: () => Result.Result<unknown, CompileError>
+				readonly at: Site
+		  }
+
+	/** The slot field a shape's key holds first. */
+	const firstSlot = (shape: Shape): string =>
+		shape === "follow" ? "from" : shape === "last" ? "at" : "position"
+
+	const atSlot = (field: string): Site => ({
+		path: ["Slotted", field],
+		label: `slot Slotted.${field}`
 	})
 
-	it("refuses a count past the codes of the slot's roster", () => {
-		const Wide = modelOf([2, "none", 1, 0])
-		const Over = closed.relation(
-			"Over",
-			{ version: closedId(Version), parent: closedId(Kind), positions: natural },
-			["version", "parent"],
-			[{ version: "v0", parent: "k0", positions: 4n }]
-		)
-		const Last = closed.relation(
-			"Last",
-			{ ...prefix, at: slot(closedId(Position), fin(Over, "positions")) },
-			["version", "parent", "at"],
-			[]
-		)
-		refused(
-			compiled(schema("Fin", { Version, Kind, Position, Model: Wide, Over, Last }, [])),
-			"MalformedDescription"
-		)
-	})
+	/** The declaration with its fault planted, and the site the fault's rule names. */
+	const plant = ({ declaration: d, fault }: Faulted): Planted => {
+		const counts = countsOf(d.held)
+		const Model = modelOf(counts)
+		const prefix = { version: closedId(Version), parent: closedId(Kind) }
+		const positionSlot = slot(closedId(Position), fin(Model, "positions"))
+		const atConstant: Site = { path: [], label: "closed relation Slotted" }
+		/** The schema of `relations` beside the rosters, as the compiler takes it. */
+		const declaring = (relations: Readonly<Record<string, AnyRelation | AnyClosed>>) => {
+			const declared: Record<string, AnyRelation | AnyClosed> = {
+				Version,
+				Kind,
+				Position,
+				Label,
+				...relations
+			}
+			return compiled(schema("Fin", declared, []))
+		}
+		switch (fault.kind) {
+			case "a slot past its owner's count":
+				return {
+					stage: "compile",
+					attempt: () => declaring({ Model, Slotted: slottedOf(d, Model, fault.past, false) }),
+					at: atConstant
+				}
+			case "a count past the slot roster's codes": {
+				const Wide = modelOf(
+					Arr.map(counts, (c, owner) => (owner === fault.owner ? fault.count : c))
+				)
+				return {
+					stage: "compile",
+					attempt: () => declaring({ Model: Wide, Slotted: slottedOf(d, Wide, undefined, false) }),
+					at: atConstant
+				}
+			}
+			case "a count that is not natural":
+				return {
+					stage: "compile",
+					attempt: () => {
+						const Counts = closedRelationBuilder(
+							"Counts",
+							{ ...prefix, positions: pgDescriptors[fault.carrier] },
+							["version", "parent"],
+							[],
+							[]
+						)
+						const Slotted = closedRelationBuilder(
+							"Slotted",
+							{
+								...prefix,
+								at: slotField(closedId(Position), finBuilder(Counts, "positions"), [])
+							},
+							["version", "parent", "at"],
+							[],
+							[]
+						)
+						return declaring({ Counts, Slotted })
+					},
+					at: atSlot("at")
+				}
+			case "an owner key that does not pair":
+				return {
+					stage: "compile",
+					attempt: () =>
+						declaring({
+							Model,
+							Slotted:
+								fault.how === "reordered"
+									? closed.relation(
+											"Slotted",
+											{ parent: closedId(Kind), version: closedId(Version), at: positionSlot },
+											["parent", "version", "at"],
+											[]
+										)
+									: closed.relation(
+											"Slotted",
+											{ version: closedId(Kind), parent: closedId(Version), at: positionSlot },
+											["version", "parent", "at"],
+											[]
+										)
+						}),
+					at: atSlot("at")
+				}
+			case "a slot inside the owner prefix":
+				return {
+					stage: "compile",
+					attempt: () =>
+						declaring({
+							Model,
+							Slotted: closed.relation(
+								"Slotted",
+								{
+									version: closedId(Version),
+									at: slot(closedId(Kind), fin(Model, "positions")),
+									parent: closedId(Kind)
+								},
+								["version", "at", "parent"],
+								[]
+							)
+						}),
+					at: atSlot("at")
+				}
+			case "two owner prefixes": {
+				const PerVersion = closed.relation(
+					"PerVersion",
+					{ version: closedId(Version), positions: natural },
+					["version"],
+					[]
+				)
+				return {
+					stage: "compile",
+					attempt: () =>
+						declaring({
+							Model,
+							PerVersion,
+							Slotted: closed.relation(
+								"Slotted",
+								{
+									...prefix,
+									at: positionSlot,
+									other: slot(closedId(Position), fin(PerVersion, "positions"))
+								},
+								["version", "parent", "at", "other"],
+								[]
+							)
+						}),
+					at: atSlot("other")
+				}
+			}
+			case "a slot in the payload":
+				return {
+					stage: "builder",
+					attempt: () =>
+						slottedOf({ ...d, held: Arr.map(d.held, (): Held => "none") }, Model, undefined, true),
+					at: { path: [], label: "closed.relation Slotted" }
+				}
+			case "a slot in an ordinary relation":
+				return {
+					stage: "builder",
+					attempt: () => relation("Slotted", { id: uuid, at: positionSlot }, ["id"]),
+					at: { path: [], label: "relation Slotted" }
+				}
+			case "a fin over an ordinary relation":
+				return {
+					stage: "builder",
+					attempt: () =>
+						slotField(
+							closedId(Position),
+							finBuilder(relation("Owner", { id: uuid, n: drawnField(natural) }, ["id"]), "n"),
+							[]
+						),
+					at: { path: [], label: "slot" }
+				}
+			case "a family over a closed relation's fin": {
+				const Member = relation("Member", { ...prefix, at: drawnField(natural) }, [
+					"version",
+					"parent",
+					"at"
+				])
+				const side = onBuilder(Member, ["version", "parent", "at"])
+				const slots = finBuilder(Model, "positions")
+				return {
+					stage: "builder",
+					attempt: () =>
+						fault.family === "ordered" ? orderedBuilder(side, slots) : countedBuilder(side, slots),
+					at: { path: [], label: `${fault.family} slots` }
+				}
+			}
+			case "a count relation the schema does not declare":
+				return {
+					stage: "compile",
+					attempt: () => declaring({ Slotted: slottedOf(d, Model, undefined, false) }),
+					at: atSlot(firstSlot(d.shape))
+				}
+		}
+	}
 
-	it("refuses a fin over an ordinary relation", () => {
-		const Owner = relation("Owner", { id: uuid, n: drawn(natural) }, ["id"])
-		throwsRefused(
-			() => slotField(closedId(Position), finBuilder(Owner, "n"), []),
-			"MalformedDescription"
-		)
-	})
-
-	it("refuses a count that is not natural", () => {
-		const Counts = closedRelationBuilder(
-			"Counts",
-			{ version: closedId(Version), parent: closedId(Kind), size: pgDescriptors.integer },
-			["version", "parent"],
-			[],
-			[]
-		)
-		const Last = closedRelationBuilder(
-			"Last",
-			{ ...prefix, at: slotField(closedId(Position), finBuilder(Counts, "size"), []) },
-			["version", "parent", "at"],
-			[],
-			[]
-		)
-		refused(
-			ownedInput(schema("Fin", { Version, Kind, Position, Counts, Last }, [])),
-			"MalformedDescription"
-		)
-	})
-
-	it("refuses an owner key that does not pair with the key's first fields, roster for roster", () => {
-		const Last = closed.relation(
-			"Last",
-			{ parent: closedId(Kind), version: closedId(Version), at: positionSlot },
-			["parent", "version", "at"],
-			[]
-		)
-		refused(
-			ownedInput(schema("Fin", { Version, Kind, Position, Model, Last }, [])),
-			"MalformedDescription"
-		)
-	})
-
-	it("refuses a slot inside the owner prefix, though its roster pairs with the owner key's", () => {
-		const Last = closed.relation(
-			"Last",
-			{
-				version: closedId(Version),
-				at: slot(closedId(Kind), fin(Model, "positions")),
-				parent: closedId(Kind)
-			},
-			["version", "at", "parent"],
-			[]
-		)
-		refused(
-			ownedInput(schema("Fin", { Version, Kind, Position, Model, Last }, [])),
-			"MalformedDescription"
-		)
-	})
-
-	it("refuses two owner prefixes in one key", () => {
-		const PerVersion = closed.relation(
-			"PerVersion",
-			{ version: closedId(Version), positions: natural },
-			["version"],
-			[]
-		)
-		const Both = closed.relation(
-			"Both",
-			{
-				...prefix,
-				at: positionSlot,
-				other: slot(closedId(Position), fin(PerVersion, "positions"))
-			},
-			["version", "parent", "at", "other"],
-			[]
-		)
-		refused(
-			ownedInput(schema("Fin", { Version, Kind, Position, Model, PerVersion, Both }, [])),
-			"MalformedDescription"
-		)
-	})
-
-	it("refuses a slot in the payload", () => {
-		throwsRefused(
-			() => closed.relation("Payload", { ...prefix, at: positionSlot }, ["version", "parent"], []),
-			"MalformedDescription"
-		)
-	})
-
-	it("refuses a slot in an ordinary relation", () => {
-		throwsRefused(
-			() => relation("Plain", { id: uuid, at: positionSlot }, ["id"]),
-			"MalformedDescription"
-		)
-	})
-
-	it("refuses a family over a closed relation's fin", () => {
-		const Member = relation(
-			"Member",
-			{ version: closedId(Version), parent: closedId(Kind), at: drawn(natural) },
-			["version", "parent", "at"]
-		)
-		throwsRefused(
-			() =>
-				orderedBuilder(
-					onBuilder(Member, ["version", "parent", "at"]),
-					finBuilder(Model, "positions")
-				),
-			"MalformedDescription"
-		)
-	})
-
-	it("refuses a count relation the schema does not declare", () => {
-		const Last = closed.relation(
-			"Last",
-			{ ...prefix, at: positionSlot },
-			["version", "parent", "at"],
-			[]
-		)
-		refused(
-			ownedInput(schema("Fin", { Version, Kind, Position, Last }, [])),
-			"MalformedDescription"
-		)
-	})
+	it.effect(
+		"admits a valid declaration and refuses it with any one fault planted, at the site the fault breaks",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/physical/fin-faults",
+						draw: drawn(faultedGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the planted fault: MalformedDescription at the relation and slot its rule names"
+						},
+						coverage: required<FaultKind>(faultKinds, { cases: 400, sense: notesOnly }),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							succeeded(compiled(schemaOf(c.declaration)), "the declaration without its fault")
+							const planted = plant(c)
+							const refusal =
+								planted.stage === "builder"
+									? throwsRefused(planted.attempt, "MalformedDescription", c.fault.kind)
+									: refused(planted.attempt(), "MalformedDescription", c.fault.kind)
+							const at = refusalLoc(refusal, c.fault.kind)
+							assert.deepEqual({ path: at.path, label: at.label }, planted.at, c.fault.kind)
+							k.note(c.fault.kind)
+						})
+				)
+			)
+	)
 })
 
 describe("a cell read as an integer", () => {
-	it("holds 2^31 - 1 payload codes and refuses 2^31, the greatest integer's bound", () => {
-		assert.equal<number>(cellMaxCodes.value, 2 ** 31 - 1)
-		assert.equal(cellCodesBound(2n ** 31n - 1n, "the boundary"), undefined)
-		const refusal = defined(cellCodesBound(2n ** 31n, "the boundary"))
-		assert.deepEqual(refusal.reason._tag === "ResourceBound" ? refusal.reason.bound : undefined, {
-			kind: "cellCodes",
-			constant: "the boundary",
-			limit: 2 ** 31 - 1,
-			needed: 2n ** 31n
-		})
-	})
+	/** The greatest integer a cell is read as: PostgreSQL's integer's greatest value. */
+	const greatest = 2n ** 31n - 1n
+
+	type Bounded = "at the bound" | "one past the bound" | "within the bound" | "past the bound"
+
+	/** A payload space's code count: the bound and its neighbours, or any count either side of it up to 2^40. */
+	const codesGen: Gen<bigint> = weighted([
+		[1, element([greatest - 1n, greatest, greatest + 1n, greatest + 2n])],
+		[3, bigint(0n, 2n ** 40n)]
+	])
+
+	it.effect(
+		"refuses a payload space exactly when its codes are past the greatest integer, naming the constant, the bound and the codes",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/physical/fin-cell-codes",
+						draw: drawn(codesGen),
+						literal: (n) => `${n}n`,
+						oracle: {
+							kind: "specification",
+							name: "a cell is read as an integer: at most 2^31 - 1 codes"
+						},
+						coverage: required<Bounded>(
+							["at the bound", "one past the bound", "within the bound", "past the bound"],
+							{ cases: 100, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(codes, k) =>
+						Effect.sync(() => {
+							assert.equal(BigInt(cellMaxCodes.value), greatest)
+							const refusal = cellCodesBound(codes, "the constant")
+							if (codes <= greatest) {
+								assert.equal(refusal, undefined, `${codes} codes fit a cell`)
+								k.note(codes === greatest ? "at the bound" : "within the bound")
+								return
+							}
+							const reason = defined(refusal, `${codes} codes are past a cell`).reason
+							assertVariant(reason, "_tag", "ResourceBound")
+							assert.deepEqual(reason.bound, {
+								kind: "cellCodes",
+								constant: "the constant",
+								limit: cellMaxCodes.value,
+								needed: codes
+							})
+							k.note(codes === greatest + 1n ? "one past the bound" : "past the bound")
+						})
+				)
+			)
+	)
 
 	/** A roster of `size` handles, h0 to h<size - 1>. */
 	const rosterOf = (name: string, size: number) =>
 		closedBuilder(name, nonEmpty(Array.from({ length: size }, (_, i) => `h${i}`)), [])
 
-	it("refuses a declared payload of 2^31 codes and plans one of 2^31 - 2^16", () => {
-		const Key = closed("Key", ["k"])
-		const A = rosterOf("A", 32_768)
-		const C = rosterOf("C", 2)
-		const declared = (b: ReturnType<typeof rosterOf>) => {
-			const Wide = closed.relation(
-				"Wide",
-				{ key: closedId(Key), a: closedId(A), b: closedId(b), c: closedId(C) },
-				["key"],
-				[{ key: "k", a: "h0", b: "h0", c: "h0" }]
+	/**
+	 * Three payload rosters whose sizes multiply to between 2^29 and 2^32, so a drawn declaration falls either side of
+	 * the bound.
+	 */
+	const sizesGen: Gen<readonly [number, number, number]> = (s) =>
+		[s.draw(int(1024, 2048)), s.draw(int(1024, 2048)), s.draw(int(512, 1024))] as const
+
+	type Declared = "a payload within the bound planned" | "a payload past the bound refused"
+
+	it.effect(
+		"plans a declared relation exactly when the product of its payload rosters' sizes fits a cell",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/physical/fin-cell-payload",
+						draw: drawn(sizesGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "a payload space holds the product of its rosters' sizes, at most 2^31 - 1"
+						},
+						coverage: required<Declared>(
+							["a payload within the bound planned", "a payload past the bound refused"],
+							{ cases: 16, sense: notesOnly }
+						),
+						kept: [],
+						runs: 12,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang
+					},
+					([a, b, c], k) =>
+						Effect.sync(() => {
+							const Key = closed("Key", ["k"])
+							const A = rosterOf("A", a)
+							const B = rosterOf("B", b)
+							const C = rosterOf("C", c)
+							const Wide = closed.relation(
+								"Wide",
+								{ key: closedId(Key), a: closedId(A), b: closedId(B), c: closedId(C) },
+								["key"],
+								[{ key: "k", a: "h0", b: "h0", c: "h0" }]
+							)
+							const installation = compiled(schema("Wide", { Key, A, B, C, Wide }, []))
+							const codes = BigInt(a) * BigInt(b) * BigInt(c)
+							if (codes <= greatest) {
+								succeeded(installation, `${a} × ${b} × ${c} payload codes`)
+								k.note("a payload within the bound planned")
+								return
+							}
+							const reason = refused(installation, "ResourceBound").reason
+							assertVariant(reason, "_tag", "ResourceBound")
+							assert.deepEqual(reason.bound, {
+								kind: "cellCodes",
+								constant: "closed relation Wide",
+								limit: cellMaxCodes.value,
+								needed: codes
+							})
+							k.note("a payload past the bound refused")
+						})
+				)
 			)
-			return Result.flatMap(ownedInput(schema("Wide", { Key, A, B: b, C, Wide }, [])), (owned) =>
-				compileInstallation(owned, installOptions(owned, "owner"))
-			)
-		}
-		refused(declared(rosterOf("B", 32_768)), "ResourceBound")
-		succeeded(declared(rosterOf("B", 32_767)))
-	})
+	)
 })

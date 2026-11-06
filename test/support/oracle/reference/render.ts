@@ -10,7 +10,7 @@ import { baseOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { cast, lit, namedType, numericType, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { setText } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import type { Run, StatementRows } from "#test/support/oracle/compare.ts"
 import {
 	type ColumnCasts,
@@ -34,8 +34,8 @@ import { testTypeSchema } from "#test/support/sql.ts"
 /**
  * The PostgreSQL type a value of `type` is spelled at: its base, with its numeric typmod, a closed id as its roster's
  * installed domain, an exact value as the lowering types it (bigint for an exact integer of at most 18 digits, numeric
- * otherwise). A set is spelled at bit(size), the roster's size in the installation's codes, which reads back the same
- * text its bits domain would.
+ * otherwise). A set is spelled at bit(n), the roster's size in the installation's codes rounded up to whole hex digits,
+ * which reads back the same text its bits domain would.
  */
 const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 	const b = baseOf(type)
@@ -73,7 +73,7 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 			return namedType(testTypeSchema(r.domain.schema), r.domain.name, [])
 		}
 		case "bits":
-			return types.bit(codecOf(plan.codes, b.roster).size)
+			return types.bit(wholeDigits(codecOf(plan.codes, b.roster).size))
 		case "range4":
 			return types.int4range
 		case "range8":
@@ -90,7 +90,7 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 /**
  * One typed SQL literal of a value of `scalar`, a closed id or a set under the installation's codes.
  *
- * A closed id as its handle's code, a set as its bit(size) text, position c code c.
+ * A closed id as its handle's code, a set as the hex literal of its bits domain's text, position c code c.
  *
  * Money from its exact amount, never a currency-formatted string.
  *
@@ -132,10 +132,12 @@ const valueExpr = (
 			return lit.int(codeOf(rosterCodec(scalar, codes), literal.handle), type)
 		case "handles": {
 			const codec = rosterCodec(scalar, codes)
-			return lit.text(
-				setText(
-					codec.size,
-					Arr.map(literal.handles, (h) => codeOf(codec, h))
+			return lit.bits(
+				hexOfText(
+					setText(
+						codec.size,
+						Arr.map(literal.handles, (h) => codeOf(codec, h))
+					)
 				),
 				type
 			)

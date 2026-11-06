@@ -1,217 +1,200 @@
 import { layer } from "@effect/vitest"
-import { Effect, Exit, Fiber, Layer, Option, Ref } from "effect"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { characterOf, type Gen, string, subarray, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Exit, Formatter, Layer, Order } from "effect"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { assert, matchesObject } from "#test/support/assert.ts"
-import { wild } from "#test/support/kernel/naming.ts"
-import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
-import type { Credentials } from "#test/support/substrate/session.ts"
+import { assert, nonEmpty } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { leftovers } from "#test/support/substrate/shared.ts"
-import { freshSchema, rolePsql, roleSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, type SubstrateShape } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * The native multi-session test substrate on the local cluster.
+ * What the native multi-session test substrate judges a test to leave behind in a shared database: every object a
+ * clean test database does not hold. Its sessions, psql writers and expectations are the substrate every other pg
+ * suite runs on, the lock barrier among them under every schedule (test/support/schedules/interleave.ts); psql's
+ * native errors are the direct-writer suites' (test/pg/direct-writers); the expectations' judgment is the unit tier's
+ * (test/unit/substrate).
  *
- * Besides its sessions, psql writers, lock barriers and expectations, the substrate judges what a test leaves behind: a
- * shared database left with anything in it fails its release, and no later claim is given it while it is dirty (the
- * sweep drops it once no file runs, which this file cannot observe). (A role's session that outlives the role holds
- * the role's release until the runner's hang guard reports the test hung, kernel/sanitize.ts; no verdict is timed, so
- * that rule has no test of its own here.)
+ * The property plants a drawn set of strays, each a kind of object a test may create in a shared database under a name
+ * of its own, and requires the leftover listing to name exactly those strays, and none once they are dropped. A drawn
+ * case leaves its strays to its claim's release instead, in a claim of its own: the release fails, and no later claim
+ * is given a dirty database (the sweep drops it once no file runs, which this file cannot observe).
  */
-const ident = quoteIdent
+type Stray =
+	| "a table"
+	| "a view"
+	| "a sequence"
+	| "a function"
+	| "a domain"
+	| "an enum"
+	| "a schema"
 
-/** The hand-made table's constraints, named by the test itself: its key and its row check. */
-const factKey = wild.constraint("fact_key")
-const factCheck = wild.constraint("fact_v_check")
+const strays: Arr.NonEmptyReadonlyArray<Stray> = [
+	"a table",
+	"a view",
+	"a sequence",
+	"a function",
+	"a domain",
+	"an enum",
+	"a schema"
+]
 
-/**
- * One owner-created table in `schema`, granted to `role` the way a world role writing it whole is: no UPDATE unless
- * the relation is mutable (immutable by default).
- */
-const createFact = (schema: string, role: Credentials, mutability: "immutable" | "mutable") =>
-	Effect.gen(function* () {
-		const { admin } = yield* Substrate
-		yield* admin.query(
-			`CREATE TABLE ${ident(schema)}."fact" ("k" int4 NOT NULL, "v" text COLLATE pg_catalog.pg_c_utf8 NOT NULL, CONSTRAINT ${ident(factKey)} PRIMARY KEY ("k"), CONSTRAINT ${ident(factCheck)} CHECK (("v" <> ''::text) IS TRUE))`,
-			[]
-		)
-		yield* admin.query(`GRANT USAGE ON SCHEMA ${ident(schema)} TO ${ident(role.role)}`, [])
-		const privileges =
-			mutability === "mutable" ? "SELECT, INSERT, DELETE, UPDATE" : "SELECT, INSERT, DELETE"
-		yield* admin.query(`GRANT ${privileges} ON ${ident(schema)}."fact" TO ${ident(role.role)}`, [])
-		return `${ident(schema)}."fact"`
-	})
+/** A stray's statements, its creation and its removal, and the line the leftover listing names it by. */
+const strayOf = (
+	kind: Stray,
+	name: string
+): { readonly create: string; readonly drop: string; readonly listed: string } => {
+	const inPublic = `public.${quoteIdent(name)}`
+	switch (kind) {
+		case "a table":
+			return {
+				create: `CREATE TABLE ${inPublic} ("k" int4)`,
+				drop: `DROP TABLE ${inPublic}`,
+				listed: `relation public.${name}`
+			}
+		case "a view":
+			return {
+				create: `CREATE VIEW ${inPublic} AS SELECT 1 AS "k"`,
+				drop: `DROP VIEW ${inPublic}`,
+				listed: `relation public.${name}`
+			}
+		case "a sequence":
+			return {
+				create: `CREATE SEQUENCE ${inPublic}`,
+				drop: `DROP SEQUENCE ${inPublic}`,
+				listed: `relation public.${name}`
+			}
+		case "a function":
+			return {
+				create: `CREATE FUNCTION ${inPublic}() RETURNS int4 LANGUAGE sql IMMUTABLE RETURN 1`,
+				drop: `DROP FUNCTION ${inPublic}()`,
+				listed: `routine public.${name}`
+			}
+		case "a domain":
+			return {
+				create: `CREATE DOMAIN ${inPublic} AS int4`,
+				drop: `DROP DOMAIN ${inPublic}`,
+				listed: `type public.${name}`
+			}
+		case "an enum":
+			return {
+				create: `CREATE TYPE ${inPublic} AS ENUM ('a')`,
+				drop: `DROP TYPE ${inPublic}`,
+				listed: `type public.${name}`
+			}
+		case "a schema":
+			return {
+				create: `CREATE SCHEMA ${quoteIdent(name)}`,
+				drop: `DROP SCHEMA ${quoteIdent(name)}`,
+				listed: `schema ${name}`
+			}
+	}
+}
+
+const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowercase letters")
+
+/** A case: the strays it plants, each named `stray_<kind's index>_<word>`, and whether its claim's release meets them. */
+interface Planting {
+	readonly strays: ReadonlyArray<Stray>
+	readonly word: string
+	readonly released: boolean
+}
+
+const plantingGen: Gen<Planting> = (source) => ({
+	strays: source.draw(subarray(strays)),
+	word: source.draw(string(characterOf(lowercase), { min: 1, max: 6 })),
+	released: source.draw(
+		weighted<boolean>([
+			[5, () => false],
+			[1, () => true]
+		])
+	)
+})
+
+const plantedOf = (p: Planting) =>
+	Arr.map(p.strays, (kind, i) => strayOf(kind, `stray_${i}_${p.word}`))
+
+type LeftoverFeature = Stray | "clean" | "a dirty release refused"
 
 layer(Substrate.layer)("native PG test substrate", (it) => {
 	it.effect(
-		"fails the release of a shared substrate that leaves anything behind, and gives no later claim a dirty database",
-		() =>
-			Effect.gen(function* () {
-				/**
-				 * Each claim is a substrate of its own, built fresh: the suite's substrate is memoized under the same layer,
-				 * and a claim that reused it would leave its strays to the file's own release.
-				 */
-				const exit = yield* Effect.exit(
-					Effect.gen(function* () {
-						const substrate = yield* Substrate
-						yield* substrate.admin.query('CREATE TABLE public."stray" ("k" int4)', [])
-						yield* substrate.admin.query('CREATE SCHEMA "stray_schema"', [])
-					}).pipe(withLayer(Layer.fresh(Substrate.layer)))
+		"lists exactly the strays a test leaves in a shared database, fails the release of a claim that leaves any, and gives no later claim a dirty database",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "substrate/leftovers",
+						draw: drawn(plantingGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the strays planted, each named by the line of its kind, and none once they are dropped"
+						},
+						coverage: required<LeftoverFeature>([...strays, "clean", "a dirty release refused"], {
+							cases: 60,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 16,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(p, c) =>
+						Effect.gen(function* () {
+							const planted = plantedOf(p)
+							const plant = (substrate: SubstrateShape) =>
+								Effect.forEach(planted, (s) => substrate.admin.query(s.create, []), {
+									discard: true
+								})
+							if (p.released && Arr.isReadonlyArrayNonEmpty(planted)) {
+								/** Each claim is a substrate of its own, built fresh: the suite's is memoized under the same layer. */
+								const exit = yield* Effect.exit(
+									Effect.flatMap(Substrate, plant).pipe(withLayer(Layer.fresh(Substrate.layer)))
+								)
+								assert.ok(
+									Exit.isFailure(exit),
+									"the release of a claim that left objects behind fails"
+								)
+								const after = yield* Effect.flatMap(Substrate, (substrate) =>
+									leftovers(substrate.admin)
+								).pipe(withLayer(Layer.fresh(Substrate.layer)))
+								assert.deepEqual(after, [])
+								c.note("a dirty release refused")
+								return
+							}
+							const s = yield* Substrate
+							yield* plant(s)
+							const listed = yield* leftovers(s.admin)
+							yield* Effect.forEach(
+								Arr.reverse(planted),
+								(stray) => s.admin.query(stray.drop, []),
+								{
+									discard: true
+								}
+							)
+							assert.deepEqual(
+								Arr.sort(listed, Order.String),
+								Arr.sort(
+									Arr.map(planted, (stray) => stray.listed),
+									Order.String
+								)
+							)
+							const cleared = yield* leftovers(s.admin)
+							assert.deepEqual(cleared, [])
+							c.noteAll(p.strays)
+							if (!Arr.isReadonlyArrayNonEmpty(planted)) {
+								c.note("clean")
+							}
+						})
 				)
-				assert.ok(Exit.isFailure(exit), "the release of a claim that left objects behind fails")
-				/**
-				 * A claim after the failed release: whichever database it is given, the stray objects' or another, it is
-				 * clean.
-				 */
-				const left = yield* Effect.flatMap(Substrate, (substrate) =>
-					leftovers(substrate.admin)
-				).pipe(withLayer(Layer.fresh(Substrate.layer)))
-				assert.deepEqual(left, [])
-			})
-	)
-
-	it.effect("sees PostgreSQL's native errors from a psql writer and keeps its session", () =>
-		Effect.gen(function* () {
-			const s = yield* Substrate
-			const schema = yield* s.schema(freshSchema)
-			const writer = yield* s.role(schema, "writer")
-			const fact = yield* createFact(schema, writer, "immutable")
-			const p = yield* s.psql({ ...rolePsql(writer) })
-			yield* p.run(`INSERT INTO ${fact} ("k", "v") VALUES (1, 'one')`)
-			/** An exact repeat raises 23505 for a direct writer (Direct SQL writers). */
-			const repeat = yield* expectConstraint(
-				p.run(`INSERT INTO ${fact} ("k", "v") VALUES (1, 'one')`),
-				factKey,
-				"23505"
 			)
-			matchesObject(repeat, {
-				schema: Option.some(schema),
-				table: Option.some("fact"),
-				detail: Option.some("Key (k)=(1) already exists.")
-			})
-			yield* expectConstraint(
-				p.run(`INSERT INTO ${fact} ("k", "v") VALUES (2, '')`),
-				factCheck,
-				"23514"
-			)
-			yield* expectSqlstate(p.run(`UPDATE ${fact} SET "v" = 'uno' WHERE "k" = 1`), "42501")
-			const counted = yield* p.run(`SELECT count(*) FROM ${fact}`)
-			assert.deepEqual(counted.rows, [["1"]])
-			yield* expectSqlstate(inTransaction(p, p.run("SELECT 1 / 0")), "22012")
-			yield* expectSqlstate(p.run("SELECT 1"), "25P02")
-			yield* p.rollback
-			const after = yield* p.run("SELECT 1")
-			assert.deepEqual(after.rows, [["1"]])
-		})
-	)
-
-	it.effect("detects blocked UPDATEs with the lock barrier, without sleeping", () =>
-		Effect.gen(function* () {
-			const s = yield* Substrate
-			const schema = yield* s.schema(freshSchema)
-			const writer = yield* s.role(schema, "writer")
-			const fact = yield* createFact(schema, writer, "mutable")
-			yield* s.admin.query(`INSERT INTO ${fact} ("k", "v") VALUES (1::int4, 'v0'::text)`, [])
-			const a = yield* s.session({ ...roleSession(writer), label: "a" })
-			const b = yield* s.session({ ...roleSession(writer), label: "b" })
-			const p = yield* s.psql({ ...rolePsql(writer), label: "p" })
-			const update = (next: string) =>
-				`UPDATE ${fact} SET "v" = '${next}'::text WHERE "k" = 1::int4`
-
-			const [aPid, bPid, pPid] = [yield* a.pid, yield* b.pid, yield* p.pid]
-
-			yield* a.begin
-			const updated = yield* a.query(update("a"), [])
-			assert.equal(updated.rowCount, 1)
-
-			yield* p.begin
-			const psqlUpdate = yield* Effect.forkChild(p.run(update("p")))
-			const psqlWait = yield* s.awaitLockWait(pPid, Option.some(aPid))
-			matchesObject(psqlWait, {
-				locktype: "transactionid",
-				mode: "ShareLock",
-				blockedBy: [aPid]
-			})
-			const blocked = yield* s.awaitBlockedBy(aPid, writer.role)
-			assert.equal(blocked.pid, pPid)
-			assert.equal(psqlUpdate.pollUnsafe(), undefined)
-
-			yield* b.begin
-			const rawUpdate = yield* Effect.forkChild(b.query(update("b"), []))
-			yield* s.awaitLockWait(bPid, Option.some(pPid))
-			assert.equal(rawUpdate.pollUnsafe(), undefined)
-
-			yield* a.rollback
-			const psqlUpdated = yield* Fiber.join(psqlUpdate)
-			assert.equal(psqlUpdated.rowCount, 1)
-			yield* s.awaitLockWait(bPid, Option.some(pPid))
-			assert.equal(rawUpdate.pollUnsafe(), undefined)
-
-			yield* p.commit
-			yield* expectSqlstate(Fiber.join(rawUpdate), "40001")
-			yield* b.rollback
-			const rows = yield* s.admin.queryValues(`SELECT "v" FROM ${fact}`, [])
-			assert.deepEqual(rows, [["p"]])
-		})
-	)
-
-	it.effect("expectSqlstate and expectConstraint refuse the wrong outcome", () =>
-		Effect.gen(function* () {
-			const s = yield* Substrate
-			const schema = yield* s.schema(freshSchema)
-			const writer = yield* s.role(schema, "writer")
-			const fact = yield* createFact(schema, writer, "immutable")
-			const a = yield* s.session({ ...roleSession(writer) })
-			yield* a.query(`INSERT INTO ${fact} ("k", "v") VALUES (1::int4, 'one'::text)`, [])
-			const duplicate = a.query(`INSERT INTO ${fact} ("k", "v") VALUES (1::int4, 'one'::text)`, [])
-			const fields = yield* expectConstraint(duplicate, factKey, "23505")
-			matchesObject(fields, {
-				code: "23505",
-				schema: Option.some(schema),
-				table: Option.some("fact")
-			})
-			const succeededInstead = yield* Effect.flip(
-				expectSqlstate(a.values("SELECT 1::int4", []), "23505")
-			)
-			assert.equal(succeededInstead._tag, "ExpectationFailed")
-			const otherSqlstate = yield* Effect.flip(expectSqlstate(duplicate, "23514"))
-			assert.equal(otherSqlstate._tag, "ExpectationFailed")
-			const otherConstraint = yield* Effect.flip(expectConstraint(duplicate, factCheck, "23505"))
-			assert.equal(otherConstraint._tag, "ExpectationFailed")
-			const otherCode = yield* Effect.flip(expectConstraint(duplicate, factKey, "23514"))
-			assert.equal(otherCode._tag, "ExpectationFailed")
-			const notSql = yield* Effect.flip(expectSqlstate(Effect.fail("plain"), "23505"))
-			assert.equal(notSql._tag, "ExpectationFailed")
-		})
-	)
-
-	it.effect(
-		"an expectation judges its one attempt: SERIALIZABLE's refusal fails it unless it is the SQLSTATE expected",
-		() =>
-			Effect.gen(function* () {
-				/** An attempt failing its n-th run with the SQLSTATE `codeOf` gives n, counting its runs. */
-				const scripted = (codeOf: (run: number) => string) =>
-					Effect.map(Ref.make(0), (runs) => ({
-						attempt: Effect.flatMap(
-							Ref.getAndUpdate(runs, (n) => n + 1),
-							(n) => Effect.fail({ code: codeOf(n), message: `run ${n}` })
-						),
-						runs: Ref.get(runs)
-					}))
-				const serialized = yield* scripted((n) => (n === 0 ? "40001" : "23505"))
-				const unexpected = yield* Effect.flip(expectSqlstate(serialized.attempt, "23505"))
-				assert.equal(unexpected._tag, "ExpectationFailed")
-				const serializedRuns = yield* serialized.runs
-				assert.equal(serializedRuns, 1)
-				const deadlocked = yield* scripted((n) => (n === 0 ? "40P01" : "23505"))
-				const deadlock = yield* Effect.flip(expectConstraint(deadlocked.attempt, factKey, "23505"))
-				assert.equal(deadlock._tag, "ExpectationFailed")
-				const deadlockedRuns = yield* deadlocked.runs
-				assert.equal(deadlockedRuns, 1)
-				const refusalExpected = yield* scripted((n) => (n === 0 ? "40001" : "23505"))
-				yield* expectSqlstate(refusalExpected.attempt, "40001")
-				const refusalExpectedRuns = yield* refusalExpected.runs
-				assert.equal(refusalExpectedRuns, 1)
-			})
 	)
 })

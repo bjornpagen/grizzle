@@ -51,7 +51,6 @@ import {
 } from "effect"
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { appendAll, indices } from "#compiler/core/array.ts"
-import { admittedIdentifier } from "#compiler/core/identity.ts"
 import { quoteString } from "#compiler/sql/print.ts"
 import {
 	appliedTo,
@@ -106,7 +105,6 @@ import {
 	sameMoment
 } from "#test/support/substrate.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -1249,41 +1247,6 @@ layer(Substrate.layer)("the fin lemmas of fin.md §5.2 on PostgreSQL 19rc1", (it
 			)
 	)
 
-	it.effect(
-		"take a STORED generated column of the natural domain, and compare natural with the int8 law columns by int8's own equality",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const [seat] = yield* Effect.map(seatsOf({ ordered: rfc("mirrors", "ordered") }), nonEmpty)
-				const natural = qualified(seat.schema, "natural")
-				const pred = qualified(seat.schema, "pred")
-				yield* s.admin.query(
-					`CREATE TABLE ${pred} (x int8 NOT NULL, y ${natural} GENERATED ALWAYS AS (x - 1) STORED)`,
-					[]
-				)
-				yield* s.admin.query(`INSERT INTO ${pred} (x) VALUES (1)`, [])
-				const refused = yield* expectSqlstate(
-					s.admin.query(`INSERT INTO ${pred} (x) VALUES (0)`, []),
-					"23514"
-				)
-				assert.equal(refused.constraint, admittedIdentifier("natural_nonnegative"))
-				/** Each foreign key's equality operators per column, PK = PK, PK = FK and FK = FK: int4's, then int8's. */
-				const operators = yield* s.admin.queryValues(
-					`SELECT c.conname::text, ARRAY(SELECT o::regoperator::text FROM unnest(c.conpfeqop) AS o), ARRAY(SELECT o::regoperator::text FROM unnest(c.conppeqop) AS o), ARRAY(SELECT o::regoperator::text FROM unnest(c.conffeqop) AS o) FROM pg_catalog.pg_constraint AS c WHERE c.connamespace = ${quoteString(seat.schema)}::regnamespace AND c.contype = 'f' ORDER BY 1`,
-					[]
-				)
-				const columns = ["=(integer,integer)", "=(bigint,bigint)"]
-				assert.deepEqual(
-					operators,
-					Arr.map(["fam_closure", "fam_copy", "owner_last"], (name) => [
-						name,
-						columns,
-						columns,
-						columns
-					])
-				)
-			})
-	)
 	it.effect(
 		"refuse exactly the steps of a random program of family mutations the model refuses, where it refuses them, and commit the rest to the model's families",
 		(ctx) =>

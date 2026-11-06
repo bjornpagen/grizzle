@@ -1,6 +1,9 @@
 import { layer } from "@effect/vitest"
+import { exhaust } from "@grizzle/testing/explore"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { int } from "@grizzle/testing/gen"
+import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Equivalence, Option, pipe, String as Str } from "effect"
-import { appendAll } from "#compiler/core/array.ts"
 import { describeOp } from "#compiler/ir/expr.ts"
 import {
 	type NativeOp,
@@ -9,7 +12,8 @@ import {
 	operandCarriers
 } from "#compiler/scalar/compute/registry.ts"
 import { textCell } from "#test/pg/compute/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
+import { caseHang } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -200,32 +204,57 @@ const entryProblems = (
 	}
 }
 
+/** The catalog object an entry names, by its kind. */
+type EntryKind = Catalog["kind"]
+
 layer(Substrate.layer)("the Compute registry against pg_operator, pg_proc and pg_cast", (it) => {
 	it.effect(
-		"names the catalog's operator, function or cast for every entry, with its result type and volatility",
-		() =>
-			Effect.gen(function* () {
-				const { session } = yield* Substrate
-				const db = yield* session(ownerSession())
-				const problems: Array<string> = []
-				for (const [i, op] of nativeOps.entries()) {
-					if (
-						op.fn !== "cast" &&
-						Arr.some(
-							Arr.take(nativeOps, i),
-							(o) => o.fn === op.fn && sameOperands(o.operands, op.operands)
-						)
-					) {
-						problems.push(
-							`${describeOp(op.id)}: a second ${op.fn} over ${Arr.join(operandCarriers(op.operands), ", ")}`
-						)
-					}
-				}
-				for (const op of nativeOps) {
-					const opProblems = yield* entryProblems(db, op)
-					appendAll(problems, opProblems)
-				}
-				assert.deepEqual(problems, [])
-			})
+		"names the catalog's operator, function or cast for every entry, with its result type and volatility, once per node and operands",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const { session } = yield* Substrate
+					const db = yield* session(ownerSession())
+					return yield* exhaust(
+						{
+							suite: "pg/compute/registry",
+							generator: int(0, nativeOps.length - 1),
+							literal: (i: number) => `${i}: ${describeOp(defined(nativeOps[i], "an entry").id)}`,
+							limit: nativeOps.length,
+							box: "every entry of the Compute registry",
+							oracle: {
+								kind: "postgresql",
+								name: "pg_operator, pg_proc, pg_cast and pg_type's entries for the object an entry names"
+							},
+							coverage: requiredInSpace<EntryKind>([
+								"operator",
+								"function",
+								"cast",
+								"input",
+								"construct"
+							]),
+							caseHang
+						},
+						(i, c) =>
+							Effect.gen(function* () {
+								const op = defined(nativeOps[i], `entry ${i}`)
+								const doubled =
+									op.fn !== "cast" &&
+									Arr.some(
+										Arr.take(nativeOps, i),
+										(o) => o.fn === op.fn && sameOperands(o.operands, op.operands)
+									)
+										? [
+												`${describeOp(op.id)}: a second ${op.fn} over ${Arr.join(operandCarriers(op.operands), ", ")}`
+											]
+										: []
+								const problems = yield* entryProblems(db, op)
+								assert.deepEqual([...doubled, ...problems], [])
+								c.note(op.catalog.kind)
+							})
+					)
+				})
+			)
 	)
 })

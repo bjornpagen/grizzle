@@ -63,8 +63,6 @@ export type {
 	AnyRelation,
 	AnyRoster,
 	ClosedRelation,
-	ClosedRelationOptionRecord,
-	ClosedRelationOptions,
 	Fact,
 	HeadingOf,
 	NameOf,
@@ -102,7 +100,10 @@ export type {
 	RelationOf,
 	RelationsOf,
 	Schema,
+	StatementsBelow,
+	StatementsByName,
 	StatementsOf,
+	StatementsReadBack,
 	StatementsWithin,
 	UnderOwnNames
 } from "#compiler/types/schema/schema.ts"

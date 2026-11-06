@@ -1,4 +1,3 @@
-import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
@@ -47,10 +46,4 @@ export const facts: Readonly<Record<string, ReadonlyArray<ReadonlyArray<string>>
 		["3", "0", "2.5", "1.50", "true"],
 		["4", "NaN", "2.50", "0.10", "true"]
 	]
-}
-
-/** A hand-built query over the ledger fixtures, by name. */
-export interface LoweringCase {
-	readonly name: string
-	readonly query: LogicalQuery
 }

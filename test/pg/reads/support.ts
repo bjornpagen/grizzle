@@ -7,6 +7,8 @@ import {
 	type AnyRelation,
 	type Schema,
 	type Statement,
+	type StatementsByName,
+	type StatementsReadBack,
 	type StatementsWithin,
 	type UnderOwnNames,
 	schema
@@ -154,22 +156,22 @@ export type FixtureInstall = Pick<RealInstallOptions, "label" | "extensions">
 
 /**
  * Installs `fixture` under a fresh schema, loads `facts`, and rebuilds the fixture under the installed name. The
- * fixture is a schema value whose relations sit under their own names and whose statements name only its relations,
- * as schema(...) checked when it was built.
+ * fixture is a schema value whose relations sit under their own names and whose statements name only its relations and
+ * read back from their names as themselves, as schema(...) checked when it was built.
  */
 export const installed = <
 	const N extends string,
 	R extends Record<string, AnyRelation | AnyClosed>,
 	const St extends ReadonlyArray<Statement>
 >(
-	fixture: Schema<N, R, St> & {
+	fixture: Schema<N, R, StatementsByName<St, R>> & {
 		readonly relations: UnderOwnNames<R>
-		readonly statements: StatementsWithin<St, R>
+		readonly statements: St & StatementsWithin<St, R> & StatementsReadBack<St, R>
 	},
 	facts: FactSet,
 	options: FixtureInstall
 ): Effect.Effect<
-	Opened<Schema<string, R, readonly [...St]>>,
+	Opened<Schema<string, R, StatementsByName<St, R>>>,
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>

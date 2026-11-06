@@ -25,7 +25,7 @@ import {
 import { contextsRead, headingOf } from "#test/support/worlds/generate/entries.ts"
 import { plantedInstall, plantedKinds } from "#test/support/worlds/generate/install.ts"
 import { applicable, namesOffered } from "#test/support/worlds/generate/offered.ts"
-import { entryKey } from "#test/support/worlds/generate/reads.ts"
+import { attachments, entryKey, reaches } from "#test/support/worlds/generate/reads.ts"
 import { actionKinds } from "#test/support/worlds/generate/weights.ts"
 import { enumeratePerturbations, worldFunctionsOf } from "#test/support/worlds/invalid/catalog.ts"
 import { opKinds, type FactWriter } from "#test/support/worlds/invalid/facts.ts"
@@ -67,6 +67,7 @@ import type {
 	ModelState,
 	Occurrence,
 	ActionOutcome,
+	PageFrom,
 	ReadVia,
 	RelationSpec,
 	RoleRef,
@@ -345,7 +346,9 @@ const tokenWildsFor = (contexts: ReadonlyArray<ContextSpec>): ReadonlyArray<Toke
 			: []),
 		"proto-key",
 		"huge-payload",
-		...(has((d) => d.kind === "text") ? (["pattern-edge"] as const) : []),
+		...(has((d) => d.kind === "text" || d.kind === "contract")
+			? (["refinement-edge"] as const)
+			: []),
 		"extra-fields",
 		"verify-throws",
 		"verify-not-object"
@@ -388,11 +391,13 @@ const wildText = (wild: TokenWild, contexts: ReadonlyArray<ContextSpec>, empty: 
 			return '{"__proto__":{}}'
 		case "huge-payload":
 			return `{"pad":"${Str.repeat(1_048_576)("x")}"}`
-		case "pattern-edge": {
+		case "refinement-edge": {
 			const domain = field?.domain
 			return domain?.kind === "text"
 				? at(jsonText({ kind: "string", value: patternEdges(domain)[0].value }))
-				: empty
+				: domain?.kind === "contract"
+					? at(String(domain.max + 1))
+					: empty
 		}
 		case "extra-fields":
 			return '{"extra":"x"}'
@@ -482,8 +487,9 @@ const firstEntryName = (state: ModelState): string =>
 
 /**
  * The reads of the box at a session: each relation of its role executed, then on its first relation every other path
- * once (compiled, a page of one row, `get` by a row's key, by a key no row holds and by a key of another shape, a page
- * of no row), and another role's relation; a session that is no Db reads the installation's first relation.
+ * once (compiled, `get` by a row's key, by a key no row holds and by a key of another shape, a page of no row), another
+ * role's relation, and each relation's page of one row from the first page and from the last, first attachment and
+ * first recursive read; a session that is no Db reads the installation's first relation.
  */
 const readActions = (state: ModelState, session: number): ReadonlyArray<Action> => {
 	const db = roleAt(state, session)
@@ -537,10 +543,37 @@ const readActions = (state: ModelState, session: number): ReadonlyArray<Action> 
 			]
 		}
 	})
+	/** A page of `size` rows ordered by its relation's first field alone, from the first page or from the last. */
+	const pageOf = (
+		heading: ReadonlyArray<FieldSpec>,
+		size: number,
+		from: PageFrom
+	): ReadonlyArray<ReadVia> =>
+		Arr.map(Arr.take(heading, 1), (f): ReadVia => ({
+			kind: "page",
+			size,
+			order: [{ field: f.name, direction: "asc" }],
+			from
+		}))
+	/**
+	 * Each relation's reads past its rows' own delivery: a page of one row from the first page and from the last, whose
+	 * ties the key it is completed by breaks, its first attachment and its first recursive read.
+	 */
+	const paths = Arr.flatMap(Rec.toEntries(role.entries), ([relation, entry]) => {
+		const heading = headingOf(state.install.base, entry)
+		return Arr.map(
+			[
+				...pageOf(heading, 1, "first"),
+				...pageOf(heading, 1, "last"),
+				...Arr.take(attachments(state.install.base, role, heading), 1),
+				...Arr.take(reaches(heading), 1)
+			],
+			(via): Action => ({ kind: "read", session, relation, via })
+		)
+	})
 	const vias: ReadonlyArray<ReadVia> = [
 		{ kind: "compile" },
-		{ kind: "page", size: 1 },
-		{ kind: "page", size: 0 },
+		...pageOf(spec === undefined ? [] : headingOf(state.install.base, spec), 0, "first"),
 		...(row === undefined ? [] : [{ kind: "get" as const, key: keyOf(row) }]),
 		...offKey
 	]
@@ -551,7 +584,8 @@ const readActions = (state: ModelState, session: number): ReadonlyArray<Action> 
 			relation,
 			via: { kind: "execute" }
 		})),
-		...Arr.map(vias, (via): Action => ({ kind: "read", session, relation: first, via }))
+		...Arr.map(vias, (via): Action => ({ kind: "read", session, relation: first, via })),
+		...paths
 	]
 }
 

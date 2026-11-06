@@ -32,6 +32,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
+	type AdmittedClosedRelation,
 	candidateKeyFields,
 	type CompareOp,
 	conjunctsOf,
@@ -48,6 +49,7 @@ import {
 	type RoleDesc,
 	type RoleEntryDesc,
 	type SchemaDesc,
+	type SchemaRelationDesc,
 	type SelectionDesc,
 	type SideDesc,
 	type SlotsDesc,
@@ -107,7 +109,7 @@ interface Owning<K extends RelationDesc["kind"]> {
 	readonly name: DeclaredName
 	readonly kind: K
 	readonly level: number
-	readonly desc: Extract<RelationDesc, { readonly kind: K }>
+	readonly desc: Extract<SchemaRelationDesc, { readonly kind: K }>
 	readonly loc: SourceLoc
 }
 
@@ -334,12 +336,12 @@ const pairSides = (
 }
 
 interface RelationEntry {
-	readonly desc: RelationDesc
+	readonly desc: SchemaRelationDesc
 	readonly level: number
 }
 
 /** A relation that stores facts: an ordinary or a closed relation, never a derived one. */
-type StoredRelationDesc = Exclude<RelationDesc, { readonly kind: "derived" }>
+type StoredRelationDesc = Exclude<SchemaRelationDesc, { readonly kind: "derived" }>
 
 /** A relation a law names, with its heading: a stored relation declared at the law's level or below. */
 interface LawRelationEntry {
@@ -388,21 +390,21 @@ const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
 /** A roster's Description. */
 type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
 
-/** A closed relation's Description. */
-type ClosedRelationOf = Extract<RelationDesc, { readonly kind: "closedRelation" }>
-
 /** An ordinary relation's Description. */
 type OrdinaryRelationOf = Extract<RelationDesc, { readonly kind: "relation" }>
 
 /** The text a closed relation's row is ordered by: its key fields' handles, in key order (ir/desc.ts holds them so). */
-const rowKeyText = (r: ClosedRelationOf, row: Readonly<Record<string, LiteralDesc>>): string =>
+const rowKeyText = (
+	r: AdmittedClosedRelation,
+	row: Readonly<Record<string, LiteralDesc>>
+): string =>
 	r.key
 		.map((f) => row[f])
 		.filter((v): v is string => typeof v === "string")
 		.join("\u0000")
 
 /** A closed relation with its rows in their key's text order, the one order a set of rows is held in. */
-const canonicalRows = (r: ClosedRelationOf): ClosedRelationOf => ({
+const canonicalRows = (r: AdmittedClosedRelation): AdmittedClosedRelation => ({
 	...r,
 	rows: r.rows
 		.map((row) => ({ row, text: rowKeyText(r, row) }))
@@ -415,7 +417,7 @@ const closedIdBase = (desc: FieldDesc): (FieldDesc & { readonly kind: "closedId"
 	desc.kind === "closedId" ? desc : desc.kind === "contract" ? closedIdBase(desc.base) : undefined
 
 /** The roster a closed relation's closed-id field `field` is over, through any depth of contracts. */
-const fieldRosterOf = (r: ClosedRelationOf, field: string): string | undefined => {
+const fieldRosterOf = (r: AdmittedClosedRelation, field: string): string | undefined => {
 	const desc = r.fields[field]
 	return desc === undefined ? undefined : closedIdBase(desc)?.roster
 }
@@ -891,7 +893,6 @@ class Owner {
 					this.#checkRoster(entry, entry.desc)
 					break
 				case "closedRelation":
-					this.#checkClosedRows(entry, entry.desc)
 					this.#checkKeySlots(entry, entry.desc)
 					break
 			}
@@ -904,7 +905,7 @@ class Owner {
 	 * those fields are the owner prefix, which every slot follows and every slot's O shares the length of. That an
 	 * owner's count bounds each row's slot code is a law of the codes, checked when the installation packs the relation.
 	 */
-	#checkKeySlots(entry: RelationEntry, r: ClosedRelationOf): void {
+	#checkKeySlots(entry: RelationEntry, r: AdmittedClosedRelation): void {
 		let prefix: number | undefined
 		for (const slot of r.slots) {
 			const loc = labeledChildLoc(entry.desc.loc, slot.field, `slot ${r.name}.${slot.field}`)
@@ -996,31 +997,6 @@ class Owner {
 					labeledChildLoc(entry.desc.loc, "handles", `roster of ${r.name}`),
 					`handles of at most ${handleMaxBytes.value} UTF-8 bytes, the most a name holds (NAMEDATALEN - 1); ${JSON.stringify(handle)} has ${utf8Length(handle)}`
 				)
-			}
-		}
-	}
-
-	/**
-	 * Each row value of a closed relation's closedId field, at any contract depth, is a handle of the roster it
-	 * references: the builders check a value only against a roster the descriptor carries, and a decoded description
-	 * carries none.
-	 */
-	#checkClosedRows(entry: RelationEntry, r: ClosedRelationOf): void {
-		for (const [field, desc] of Object.entries(r.fields)) {
-			const roster = this.#rosterOf(desc)
-			if (roster === undefined) {
-				continue
-			}
-			const handles: ReadonlySet<LiteralDesc> = new Set(roster.handles)
-			for (const [i, row] of r.rows.entries()) {
-				const value = row[field]
-				if (value !== undefined && !handles.has(value)) {
-					fail(
-						"MalformedDescription",
-						labeledChildLoc(entry.desc.loc, field, `row ${i} of ${r.name}, field ${field}`),
-						`a value of closedId(${roster.name}) field ${r.name}.${field} that is a handle of ${roster.name}; ${JSON.stringify(value)} is not one`
-					)
-				}
 			}
 		}
 	}

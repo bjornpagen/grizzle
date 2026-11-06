@@ -1,5 +1,11 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, pipe, String as Str } from "effect"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { type Gen, subset } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
@@ -11,7 +17,7 @@ import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { selectArtifact } from "#compiler/program/context.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
-import { assert, defined, lacks } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	installationSql,
@@ -20,6 +26,7 @@ import {
 	testCompile,
 	type TestCompileOptions
 } from "#test/support/compile.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 import type { Uuid } from "#compiler/public/fields.ts"
 import {
@@ -42,10 +49,11 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  *
  * The worked example's Work schema is installed by the fresh-install compiler under a fresh schema name. TaskNote
  * matched to Task on its deferred foreign key may drop the Task match in a snapshot template only (R03). Inside a write
- * transaction that has made the deferred key temporarily false, neither the transaction-context template nor the
- * artifact a snapshot template selects there delivers the orphan. Each artifact's statements run as the runtime runs
- * them: the executable texts, placeholders filled by the statement's own encoders, every result column cast to text by
- * the statement itself.
+ * transaction whose drawn writes make the deferred key temporarily false (an orphan note inserted, a note's task
+ * removed) beside notes removed and added, the transaction-context template and the artifact a snapshot template
+ * selects there deliver exactly the notes whose task the transaction holds. Each artifact's statements run as the
+ * runtime runs them: the executable texts, placeholders filled by the statement's own encoders, every result column cast
+ * to text by the statement itself.
  */
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -109,6 +117,73 @@ const facts = (names: InstallNames): ReadonlyArray<string> => [
 	),
 	insertInto(names, TaskNote.name, ["task", "note"], `('${t(1)}', 'first'), ('${t(3)}', 'third')`)
 ]
+
+/** The notes the fixture's facts hold, by task: t(1)'s and t(3)'s. */
+const committedNotes: ReadonlyArray<readonly [string, string]> = [
+	[t(1), "first"],
+	[t(3), "third"]
+]
+
+/** The fixture's tasks. */
+const committedTasks: ReadonlyArray<string> = [t(1), t(2), t(3), t(4), t(5)]
+
+/**
+ * A transaction's writes before it reads the notes: notes removed, tasks removed, and notes added, each to a task of
+ * the fixture with no note or to a task no fact holds, an orphan.
+ */
+interface TemplateCase {
+	readonly removedNotes: ReadonlyArray<string>
+	readonly removedTasks: ReadonlyArray<string>
+	readonly added: ReadonlyArray<string>
+}
+
+const templateCaseGen: Gen<TemplateCase> = (source) => ({
+	removedNotes: source.draw(subset([t(1), t(3)], { min: 0, max: 2 })),
+	removedTasks: source.draw(subset(committedTasks, { min: 0, max: 2 })),
+	added: source.draw(subset([t(2), t(4), t(5), t(9), t(10), t(11)], { min: 0, max: 3 }))
+})
+
+/** The text an added note holds, as a literal: its task's id after "note ", so every note's text is its own. */
+const noteOf = (task: string): string => `'note ${task}'`
+
+/**
+ * The cells the notes query delivers in the case's transaction, sorted: each note whose task the transaction holds,
+ * its task and its text.
+ */
+const expectedNotes = (c: TemplateCase): ReadonlyArray<string> => {
+	const tasks = new Set(Arr.filter(committedTasks, (x) => !c.removedTasks.includes(x)))
+	const held = [
+		...Arr.filter(committedNotes, ([x]) => !c.removedNotes.includes(x)),
+		...Arr.map(c.added, (x): readonly [string, string] => [x, `note ${x}`])
+	]
+	const kept = Arr.filter(held, ([x]) => tasks.has(x))
+	return Arr.sort(
+		Arr.flatMap(kept, (pair): ReadonlyArray<string> => [pair[0], pair[1]]),
+		Order.String
+	)
+}
+
+type TemplateFeature =
+	| "an orphan note inserted"
+	| "a note orphaned by its task's removal"
+	| "a note removed"
+	| "a note added to a task"
+
+const templateFeatures = (c: TemplateCase): ReadonlyArray<TemplateFeature> => {
+	const kept = Arr.filter(committedNotes, ([x]) => !c.removedNotes.includes(x))
+	return [
+		...(Arr.some(c.added, (x) => !committedTasks.includes(x))
+			? ["an orphan note inserted" as const]
+			: []),
+		...(Arr.some(kept, ([x]) => c.removedTasks.includes(x))
+			? ["a note orphaned by its task's removal" as const]
+			: []),
+		...(c.removedNotes.length > 0 ? ["a note removed" as const] : []),
+		...(Arr.some(c.added, (x) => committedTasks.includes(x) && !c.removedTasks.includes(x))
+			? ["a note added to a task" as const]
+			: [])
+	]
+}
 
 /** TaskNote matched to Task on its deferred foreign key: R03 in a snapshot only. */
 const notes = query(Work).rule((r) => {
@@ -174,33 +249,101 @@ layer(Substrate.layer)("compiled templates on PostgreSQL 19", (it) => {
 	})
 
 	it.effect(
-		"inside a write transaction neither the transaction template nor a snapshot template delivers an orphan",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const { schema, names } = yield* installed
-				const snapshot = compiled(notes, schema, "snapshot")
-				const tx = compiled(notes, schema, "transaction")
-				const selected = selectArtifact(snapshot, "transaction")
-				assert.equal(selected.artifact, "conservative")
-				const session = yield* s.session({ ...ownerSession(), label: "writer" })
-				yield* session.begin
-				yield* session.query(
-					insertInto(names, TaskNote.name, ["task", "note"], `('${t(9)}', 'orphan')`),
-					[]
-				)
-				/** The rows of an artifact's first statement, the one that delivers the notes. */
-				const delivered = (raws: ReadonlyArray<Raw>): Raw =>
-					defined(raws[0], "the delivering statement's rows")
-				const optimizedRuns = yield* runSpecs(tx.optimized, {}, session)
-				const kept = delivered(optimizedRuns)
-				lacks(kept.flat(), t(9))
-				assert.equal(kept.length, 2)
-				const selectedRuns = yield* runSpecs(selected.statements, {}, session)
-				const conservative = delivered(selectedRuns)
-				lacks(conservative.flat(), t(9))
-				assert.equal(conservative.length, 2)
-				yield* session.rollback
-			})
+		"inside a write transaction the transaction template and a snapshot template's selected artifact deliver exactly the notes whose task the transaction holds",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const { schema, names } = yield* installed
+					const snapshot = compiled(notes, schema, "snapshot")
+					const tx = compiled(notes, schema, "transaction")
+					const selected = selectArtifact(snapshot, "transaction")
+					assert.equal(selected.artifact, "conservative")
+					const session = yield* s.session({ ...ownerSession(), label: "writer" })
+					const task = (column: string) => quoteIdent(names.column(Task.name, column))
+					const note = (column: string) => quoteIdent(names.column(TaskNote.name, column))
+					const uuids = (ids: ReadonlyArray<string>) =>
+						`ARRAY[${Arr.join(
+							Arr.map(ids, (i) => `'${i}'`),
+							", "
+						)}]::uuid[]`
+					return yield* explore(
+						{
+							suite: "pg/program/templates",
+							draw: drawn(templateCaseGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "the notes whose task the transaction's own state holds, matched on the host"
+							},
+							coverage: required<TemplateFeature>(
+								[
+									"an orphan note inserted",
+									"a note orphaned by its task's removal",
+									"a note removed",
+									"a note added to a task"
+								],
+								{ cases: 24, sense: notesOnly }
+							),
+							kept: [],
+							runs: 16,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 8,
+							caseHang
+						},
+						(c, k) =>
+							Effect.ensuring(
+								Effect.gen(function* () {
+									yield* session.begin
+									if (Arr.isReadonlyArrayNonEmpty(c.removedNotes)) {
+										yield* session.query(
+											`DELETE FROM ${printObjectName(names.relation(TaskNote.name))} WHERE ${note("task")} = ANY (${uuids(c.removedNotes)})`,
+											[]
+										)
+									}
+									if (Arr.isReadonlyArrayNonEmpty(c.removedTasks)) {
+										yield* session.query(
+											`DELETE FROM ${printObjectName(names.relation(Task.name))} WHERE ${task("id")} = ANY (${uuids(c.removedTasks)})`,
+											[]
+										)
+									}
+									if (Arr.isReadonlyArrayNonEmpty(c.added)) {
+										yield* session.query(
+											insertInto(
+												names,
+												TaskNote.name,
+												["task", "note"],
+												Arr.join(
+													Arr.map(c.added, (added) => `('${added}', ${noteOf(added)})`),
+													", "
+												)
+											),
+											[]
+										)
+									}
+									const expected = expectedNotes(c)
+									/** The rows of an artifact's first statement, the one that delivers the notes. */
+									const delivered = (raws: ReadonlyArray<Raw>): ReadonlyArray<string> =>
+										Arr.sort(
+											Arr.flatten(defined(raws[0], "the delivering statement's rows")),
+											Order.String
+										)
+									const optimizedRuns = yield* runSpecs(tx.optimized, {}, session)
+									assert.deepEqual(delivered(optimizedRuns), expected, "the transaction template")
+									const selectedRuns = yield* runSpecs(selected.statements, {}, session)
+									assert.deepEqual(
+										delivered(selectedRuns),
+										expected,
+										"the snapshot template's artifact in a transaction"
+									)
+									k.noteAll(templateFeatures(c))
+								}),
+								Effect.orDie(session.rollback)
+							)
+					)
+				})
+			)
 	)
 })

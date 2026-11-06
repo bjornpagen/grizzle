@@ -12,7 +12,7 @@
  */
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
@@ -180,6 +180,12 @@ const argumentSql = (fn: GenAggregate, t: ScalarType, x: string): string => {
 	return lowering.kind === "exactSum" && lowering.exact === "money" ? `${x}::numeric` : x
 }
 
+/** What an aggregate over a generated type reached: typed where the generators emit it, else defined only where declined. */
+type AggregateFeature =
+	| "typed as PostgreSQL types it"
+	| "declined, and defined"
+	| "absent from PostgreSQL"
+
 /** The schemas an aggregate over a generated type can live in: PostgreSQL's own, and the vector extension's. */
 const aggregateSchemas: Arr.NonEmptyReadonlyArray<string> = [quoteIdent("pg_catalog"), vectorSchema]
 
@@ -233,52 +239,78 @@ const ddl = (schema: string, s: GenSchema): ReadonlyArray<string> => {
 }
 
 layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
-	it.effect("type every aggregate as PostgreSQL does, and emit none PostgreSQL lacks", () =>
-		Effect.gen(function* () {
-			const s = yield* Substrate
-			const schema = yield* s.schema(freshSchema)
-			yield* s.admin.query(rosterDomainSql(schema, "K0", 3), [])
-			/** Every aggregate over every generated type. */
-			const pairs = Arr.flatMap(generatedTypes, (type) =>
-				Arr.map(genAggregates, (aggregate) => [type, aggregate] as const)
-			)
-			for (const [t, fn] of pairs) {
-				const value = sqlLiteral(at(valueClasses(t, false), 0, "a value class"), t, schema)
-				const query = (home: string, arg: string) =>
-					`SELECT pg_typeof(${aggregateSql(fn, arg, home)})::regtype::text FROM (VALUES (${value})) AS v(x)`
-				if (aggregateApplies(fn, t)) {
-					const [row = []] = yield* s.admin.queryValues(
-						query(quoteIdent("pg_catalog"), argumentSql(fn, t, "v.x")),
-						[]
-					)
-					const expected = aggregateResult(fn, fn === "count" ? undefined : t)
-					/**
-					 * pg_typeof reports the type without its typmod; min and max keep the argument's descriptor.
-					 */
-					const [want = []] = yield* s.admin.queryValues(
-						`SELECT ${quoteString(resultSqlType(expected, schema))}::regtype::text`,
-						[]
-					)
-					assert.equal(row[0], want[0], `${fn}(${sqlType(t, schema)})`)
-				} else if (fn !== "count") {
-					/** Whether the aggregate resolves in a schema: it runs, or fails with 42883 where it does not exist. */
-					const resolves = (home: string) =>
-						s.admin.queryValues(query(home, "v.x"), []).pipe(
-							Effect.as(true),
-							Effect.catchIf(
-								(e) => pgErrorFields(e)?.code === "42883",
-								() => Effect.succeed(false)
+	it.effect("type every aggregate as PostgreSQL does, and emit none PostgreSQL lacks", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const schema = yield* s.schema(freshSchema)
+				yield* s.admin.query(rosterDomainSql(schema, "K0", 3), [])
+				return yield* exhaust(
+					{
+						suite: "pg/oracle-gen/aggregates",
+						generator: (source) =>
+							[source.draw(element(generatedTypes)), source.draw(element(genAggregates))] as const,
+						literal: ([t, fn]) => `${fn}(${sqlType(t, "s")})`,
+						limit: generatedTypes.length * genAggregates.length,
+						box: "every aggregate the generators know over every type they draw a column of",
+						oracle: {
+							kind: "postgresql",
+							name: "pg_typeof of the aggregate PostgreSQL resolves, qualified in pg_catalog or the vector extension's schema"
+						},
+						coverage: requiredInSpace<AggregateFeature>([
+							"typed as PostgreSQL types it",
+							"declined, and defined",
+							"absent from PostgreSQL"
+						]),
+						caseHang
+					},
+					([t, fn], c) =>
+						Effect.gen(function* () {
+							const value = sqlLiteral(at(valueClasses(t, false), 0, "a value class"), t, schema)
+							const query = (home: string, arg: string) =>
+								`SELECT pg_typeof(${aggregateSql(fn, arg, home)})::regtype::text FROM (VALUES (${value})) AS v(x)`
+							if (aggregateApplies(fn, t)) {
+								const [row = []] = yield* s.admin.queryValues(
+									query(quoteIdent("pg_catalog"), argumentSql(fn, t, "v.x")),
+									[]
+								)
+								const expected = aggregateResult(fn, fn === "count" ? undefined : t)
+								/**
+								 * pg_typeof reports the type without its typmod; min and max keep the argument's descriptor.
+								 */
+								const [want = []] = yield* s.admin.queryValues(
+									`SELECT ${quoteString(resultSqlType(expected, schema))}::regtype::text`,
+									[]
+								)
+								assert.equal(row[0], want[0], `${fn}(${sqlType(t, schema)})`)
+								c.note("typed as PostgreSQL types it")
+								return
+							}
+							if (fn === "count") {
+								return
+							}
+							/** Whether the aggregate resolves in a schema: it runs, or fails with 42883 where it does not exist. */
+							const resolves = (home: string) =>
+								s.admin.queryValues(query(home, "v.x"), []).pipe(
+									Effect.as(true),
+									Effect.catchIf(
+										(e) => pgErrorFields(e)?.code === "42883",
+										() => Effect.succeed(false)
+									)
+								)
+							const found = yield* Effect.forEach(aggregateSchemas, resolves)
+							const declined = declinedOver(t, fn)
+							assert.equal(
+								Arr.some(found, (f) => f),
+								declined,
+								`${fn}(${sqlType(t, schema)}): defined in ${Arr.join(aggregateSchemas, " or ")} exactly where the language states why it leaves it out`
 							)
-						)
-					const found = yield* Effect.forEach(aggregateSchemas, resolves)
-					assert.equal(
-						Arr.some(found, (f) => f),
-						declinedOver(t, fn),
-						`${fn}(${sqlType(t, schema)}): defined in ${Arr.join(aggregateSchemas, " or ")} exactly where the language states why it leaves it out`
-					)
-				}
-			}
-		})
+							c.note(declined ? "declined, and defined" : "absent from PostgreSQL")
+						})
+				)
+			})
+		)
 	)
 
 	it.effect("draw value classes that are PostgreSQL's equality classes", (ctx) =>

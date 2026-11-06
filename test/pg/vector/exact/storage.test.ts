@@ -1,9 +1,11 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { array, element, type Gen } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, pipe, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
 import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -68,6 +70,30 @@ const malformed: Arr.NonEmptyReadonlyArray<readonly [input: string, sqlstate: "2
 
 /** A vector refused, by its text. */
 type RefusedFeature = `refused ${string}`
+
+/**
+ * A key's components: both zeros, so a vector meets its twin spelling, and a few values, never both zero, which the
+ * cosine domain refuses.
+ */
+const pointGen: Gen<readonly [number, number]> = (source) => {
+	const x = source.draw(element([-0, 0, 1, -1, 0.5]))
+	const y = source.draw(element(x === 0 ? [1, -1, 0.5] : [-0, 0, 1, -1]))
+	return [x, y] as const
+}
+
+/** A vector's text with each component as drawn, -0 spelled with its sign. */
+const spelled = (xs: ReadonlyArray<number>): string =>
+	`[${Arr.join(
+		Arr.map(xs, (x) => (Object.is(x, -0) ? "-0" : String(x))),
+		","
+	)}]`
+
+/** Whether two vectors are one value: equal components, -0 equal to 0, as binary32 compares them. */
+const sameVector = (a: readonly [number, number], b: readonly [number, number]): boolean =>
+	a[0] === b[0] && a[1] === b[1]
+
+/** What a key's insert met: a vector stored, or one refused as an exact repeat or as another spelling of a stored one. */
+type KeyFeature = "a distinct vector stored" | "an exact repeat refused" | "a twin spelling refused"
 
 layer(Substrate.layer)("vector storage", (it) => {
 	it.effect(
@@ -202,34 +228,72 @@ layer(Substrate.layer)("vector storage", (it) => {
 	)
 
 	it.effect(
-		"a vector key holds one fact per value: [-0,1] and [0,1], one vector, collide on it",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const world = fullWorld(Points)
-				const store = yield* install(Points, {
-					ambient: ordinarySession,
-					label: "vkeys",
-					logins: [world.server],
-					extensions: []
-				})
-				const names = namesOf(store)
-				const writer = yield* s.session({
-					...worldSession(store.world(world.app)),
-					label: "writer"
-				})
-				const insert = (at: string, label: number) =>
-					writer.values(
-						`INSERT INTO ${names.table(Point)} ("at", "label") VALUES ($1::text::"vector_ext"."vector"(2), $2::text::int4)`,
-						[at, String(label)]
+		"a vector key holds one fact per value: two spellings of one vector collide on it, and distinct vectors do not",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const world = fullWorld(Points)
+					const store = yield* install(Points, {
+						ambient: ordinarySession,
+						label: "vkeys",
+						logins: [world.server],
+						extensions: []
+					})
+					const names = namesOf(store)
+					const table = names.table(Point)
+					const key = names.fieldConstraint(Point, "pk", ["at"])
+					const writer = yield* s.session({
+						...worldSession(store.world(world.app)),
+						label: "writer"
+					})
+					return yield* explore(
+						{
+							suite: "pg/vector/storage/key",
+							draw: drawn(array(pointGen, { min: 1, max: 6 })),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "a vector's value is its binary32 components, -0 equal to 0"
+							},
+							coverage: required<KeyFeature>(
+								["a distinct vector stored", "an exact repeat refused", "a twin spelling refused"],
+								{ cases: 24, sense: notesOnly }
+							),
+							kept: [],
+							runs: 24,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 8,
+							caseHang
+						},
+						(points, k) =>
+							Effect.gen(function* () {
+								yield* s.admin.query(`DELETE FROM ${table}`, [])
+								const stored: Array<readonly [number, number]> = []
+								for (const [label, at] of points.entries()) {
+									const insert = writer.values(
+										`INSERT INTO ${table} ("at", "label") VALUES ($1::text::"vector_ext"."vector"(2), $2::text::int4)`,
+										[spelled(at), String(label)]
+									)
+									const earlier = Arr.findFirst(stored, (other) => sameVector(other, at))
+									if (Option.isNone(earlier)) {
+										yield* insert
+										stored.push(at)
+										k.note("a distinct vector stored")
+										continue
+									}
+									yield* expectConstraint(insert, key, "23505")
+									k.note(
+										spelled(earlier.value) === spelled(at)
+											? "an exact repeat refused"
+											: "a twin spelling refused"
+									)
+								}
+							})
 					)
-				yield* insert("[-0,1]", 1)
-				const e = yield* expectConstraint(
-					insert("[0,1]", 2),
-					names.fieldConstraint(Point, "pk", ["at"]),
-					"23505"
-				)
-				assert.equal(e.code, "23505")
-			})
+				})
+			)
 	)
 })

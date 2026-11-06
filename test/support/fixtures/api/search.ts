@@ -8,7 +8,8 @@ import {
 	relation,
 	role,
 	type Schema,
-	schema
+	schema,
+	type StatementsByName
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
@@ -41,7 +42,7 @@ export const Search = schema("Search", { Document, DocumentCurrent, DocumentEmbe
 export type SearchNamed<N extends string> = Schema<
 	N,
 	(typeof Search)["relations"],
-	(typeof Search)["statements"]
+	StatementsByName<(typeof Search)["statements"], (typeof Search)["relations"]>
 >
 
 /**

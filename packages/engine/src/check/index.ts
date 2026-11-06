@@ -53,6 +53,7 @@ const decoded = (desc: unknown, options: StructureOptions) =>
  *   relation (DescribedHeadingMismatch).
  * - checkReadBack: a read-back query, which may read the delta sources of every ordinary relation; the ChangeSet's
  *   written relations supply theirs, and every other relation's is empty.
+ * - checkDefinition: a derived relation's or a role's query entry's definition, a relation whose rows are a set.
  *
  * The plug-in directories recursion/, approximate/ and refinement/ are dispatched from checker.ts at fixed paths
  * (context.ts). Every entry point returns a Result and never throws.
@@ -69,17 +70,19 @@ export const checkQuery = (
 	)
 
 /**
- * A role's query entry: its definition checked over its base's checked schema, as every query is. Its role's view
- * evaluates the definition's expressions on facts outside the world too, which raises nothing, since every operation is
- * total (scalar/compute/registry.ts Totality).
+ * A definition, a derived relation's or a role's query entry's, checked over its base's checked schema as every query
+ * is, read as rows, under `label`. A definition is a relation, so its rows are a set: a take it ends in bounds them and
+ * orders nothing (checker.ts rootOrder). A role's view evaluates its definition's expressions on facts outside the
+ * world too, which raises nothing, since every operation is total (scalar/compute/registry.ts Totality).
  */
-export const checkWorldDefinition = (
+export const checkDefinition = (
 	base: SchemaReading,
-	entry: { readonly name: string; readonly query: QueryDesc }
+	label: string,
+	query: QueryDesc
 ): Result.Result<LogicalQuery, CompileError> => {
-	const options: CheckOptions = { read: "rows", label: `world ${entry.name}` }
-	return Result.flatMap(decoded(entry.query, { read: "rows" }), (q) =>
-		catchRefusal(() => run(base, q, options, rootLoc(options.label), { kind: "rows" }))
+	const options: CheckOptions = { read: "rows", label }
+	return Result.flatMap(decoded(query, { read: "rows" }), (q) =>
+		catchRefusal(() => run(base, q, options, rootLoc(label), { kind: "definition" }))
 	)
 }
 

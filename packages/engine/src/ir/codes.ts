@@ -9,6 +9,7 @@
  */
 import { sameOrder } from "#compiler/core/array.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { bitInputText, hexText, setBit, wholeDigitBits, zeroDigits } from "#compiler/core/hex.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -29,14 +30,16 @@ const noHandleRenames: HandleRenames = new Map()
 
 /**
  * One roster's codes, read both ways, built only by rosterCodec. `codes` is what an installation records; `size`
- * counts every code minted, holes included, so it is n of a set's bit(n) and one past the greatest code the roster's
- * domain admits; `codeOf` is each live handle's code; `names` is each code's handle in code order, a hole the empty
- * name, which no handle is.
+ * counts every code minted, holes included, so it is one past the greatest code the roster's domain admits; `width` is
+ * n of a set's bit(n), `size` rounded up to whole hex digits (core/hex.ts), so a set's one spelling is whole digits and
+ * its bits past `size`, its padding, are 0; `codeOf` is each live handle's code; `names` is each code's handle in code
+ * order, a hole the empty name, which no handle is.
  */
 export interface RosterCodec {
 	readonly roster: DeclaredName
 	readonly codes: RosterCodes
 	readonly size: number
+	readonly width: number
 	readonly codeOf: ReadonlyMap<string, number>
 	readonly names: ReadonlyArray<string>
 }
@@ -71,6 +74,7 @@ export const rosterCodec = (roster: DeclaredName, codes: RosterCodes): RosterCod
 		roster,
 		codes: Object.freeze([...codes]),
 		size: codes.length,
+		width: wholeDigitBits(codes.length),
 		codeOf,
 		names: Object.freeze(names)
 	})
@@ -123,16 +127,37 @@ export const reorderRefusal = (r: RosterReordered): CompileError =>
 	)
 
 /**
- * The bit(n) text of a set of `codec`'s live handles: `size` characters of 0 and 1, the character at position c 1
- * exactly when the set holds the handle of code c, so a hole's is 0. A handle the roster does not hold live is a
- * defect: a set is admitted against the roster first.
+ * The hex digits of a set of `codec`'s live handles, bit(width)'s whole digits: bit c is 1 exactly when the set holds
+ * the handle of code c, so a hole's bit and every padding bit past `size` are 0. A handle the roster does not hold live
+ * is a defect: a set is admitted against the roster first.
  */
-export const handlesText = (codec: RosterCodec, handles: Iterable<string>): string => {
-	const bits = Array.from({ length: codec.size }, () => "0")
+export const handlesHex = (codec: RosterCodec, handles: Iterable<string>): string => {
+	const digits = zeroDigits(codec.width)
 	for (const handle of handles) {
-		bits[codeOf(codec, handle)] = "1"
+		setBit(digits, codeOf(codec, handle))
 	}
-	return bits.join("")
+	return hexText(digits)
+}
+
+/**
+ * A set's one text, the text bit's input function reads as its hex digits (core/hex.ts bitInputText, handlesHex): the
+ * parameter text, an array element's and the fact identity's part.
+ */
+export const handlesText = (codec: RosterCodec, handles: Iterable<string>): string =>
+	bitInputText(handlesHex(codec, handles))
+
+/**
+ * The hex digits of the roster's live codes, the set of every live handle: bit c is 1 exactly where code c names a
+ * handle, and every hole's and padding bit is 0. It is the mask the bits domain's CHECK holds a set within.
+ */
+export const liveHex = (codec: RosterCodec): string => {
+	const digits = zeroDigits(codec.width)
+	for (const [code, name] of codec.names.entries()) {
+		if (name !== "") {
+			setBit(digits, code)
+		}
+	}
+	return hexText(digits)
 }
 
 /**

@@ -14,6 +14,9 @@ import type { BudgetEntries } from "#test/types/query/budget/generate.ts"
  *   of it through a Db of the Reader;
  * - one ChangeSet of `members` inserts, round the relations;
  * - `contexts` contexts, each read by a query entry of one role, Ctx, and each entry's query run through a Db of Ctx.
+ *
+ * One dimension grows the schema with its rules and members, as an application grows: a call whose cost grows with the
+ * schema it is over, rather than with what it reads, makes that dimension quadratic.
  */
 type QueryShape = {
 	readonly relations: number
@@ -44,6 +47,11 @@ export const queryDimensions: ReadonlyArray<QueryDimension> = [
 		name: "contexts",
 		sizes: [8, 16, 32],
 		shape: (contexts) => ({ relations: 25, rules: 0, members: 0, contexts })
+	},
+	{
+		name: "relations with their rules and members",
+		sizes: [25, 50, 100],
+		shape: (size) => ({ relations: size, rules: size, members: size, contexts: 0 })
 	}
 ]
 

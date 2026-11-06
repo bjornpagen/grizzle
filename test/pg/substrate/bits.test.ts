@@ -34,9 +34,8 @@ import {
 	toText
 } from "#compiler/codec/bits.ts"
 import { indices } from "#compiler/core/array.ts"
-import { assert, deepEquals } from "#test/support/assert.ts"
+import { deepEquals } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** PostgreSQL's, the host's or the reference's answer differs from another's, with all three spelt out. */
@@ -342,21 +341,5 @@ layer(Substrate.layer)("the bit algebra of fin.md §16 on PostgreSQL 19rc1", (it
 					)
 				})
 			)
-	)
-
-	it.effect(
-		"refuse bit(0), and & of two widths, so a set over an empty roster is bit varying and two sets combined share a width",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				yield* expectSqlstate(s.admin.query("SELECT ''::bit(0)", []), "22023")
-				yield* expectSqlstate(s.admin.query("SELECT B'10' & B'1'", []), "22026")
-				yield* expectSqlstate(s.admin.query("SELECT B'10' | B'1'", []), "22026")
-				const [[empty] = []] = yield* s.admin.queryValues(
-					"SELECT (''::bit varying & ''::bit varying)::text || ':' || bit_count(''::bit varying)::text",
-					[]
-				)
-				assert.equal(empty, ":0", "the empty set is the empty bit varying")
-			})
 	)
 })

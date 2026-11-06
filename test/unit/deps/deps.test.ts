@@ -1,5 +1,11 @@
 import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { element } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -14,29 +20,38 @@ import {
 } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { assert, contains, containsText, like, matchers } from "#test/support/assert.ts"
+import { assert, like, matchers, nonEmpty } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { hardenedNode, run, runOptions, sourceCondition } from "#test/support/process.ts"
 import {
 	auditSource,
 	entriesOf,
-	erase,
 	type Finding,
 	modulesIn,
 	type PackageJson,
 	packageDirectories,
 	packageOf
 } from "#test/unit/deps/audit.ts"
-import { tokenize } from "#test/unit/deps/lexer.ts"
+import {
+	expectedOf,
+	moduleText,
+	type PlantedFeature,
+	plantedFeatures,
+	plantedModule
+} from "#test/unit/deps/planted.ts"
 
 /**
- * The planted modules are JavaScript source text, templates included.
- * The production dependency audit: no RegExp construction, .test or .exec, and no arkregex runtime import, under src/.
+ * The production dependency audit: no RegExp construction, .test or .exec, no arkregex runtime import, and no eval or
+ * Function constructor under src/.
  *
- * 1. The audit itself is checked first, on planted modules: it must find every planted violation and nothing in
- *    strings, comments, divisions or type-only imports, so an empty finding list below means a clean tree.
+ * 1. The audit itself is checked first, on generated planted modules (planted.ts): every RegExp construction, match
+ *    and code generation the generator plants, in every place an expression or a statement begins, is found on its
+ *    line, and nothing in strings, templates, comments, divisions, types or an effect module's match is; every import
+ *    is read as Node runs it, type-only ones erased. So an empty finding list below means a clean tree.
  * 2. Every module under src/, read as the JavaScript Node runs (audit.ts), has no RegExp construction, no regex
- *    matching member, no runtime import of arkregex or its @ark packages, and no eval or Function constructor.
+ *    matching member, no runtime import of arkregex or its @ark packages, and no eval or Function constructor: an
+ *    exhaustion of the real tree, module by module.
  * 3. At runtime, in a child Node process: no module but a test's or ark's own resolves an arkregex or @ark module
  *    while every entry point loads and the text pipeline runs over every family pattern of the regex differential
  *    tests, and src/ calls no RegExp.
@@ -83,166 +98,67 @@ const show = (findings: ReadonlyArray<Finding>): Array<string> =>
 	Arr.map(findings, (f) => `${f.file}:${f.line}: ${f.rule} ${Formatter.format(f.text)}`)
 
 describe("the audit finds what it must", () => {
-	it("tokenizes strings, templates, comments and divisions without inventing a regex", () => {
-		/** A `)` that closes no statement header and a `}` that closes no block end a value. */
-		const tokens = tokenize(
-			Arr.join(
-				[
-					'const a = "RegExp /x/.test" // new RegExp("b")',
-					`/* /c/.exec(d) */ const e = \`RegExp \${f / g} /h/\` / 2`,
-					"const i = (j) / k / l, m = [n] / o, p = q++ / r",
-					`const s = \`\${\`\${t}\`}\` + u`,
-					"const v = (w) / x, y = { z: 1 }.z / 2, aa = f(bb) / cc, dd = [{}][0] / 2, ee = ({}) / 3",
-					"if (ff) gg = (hh) / ii; else jj = kk(ll) / mm",
-					"for (const nn of oo) pp = { qq: 1 }.qq / rr(ss) / tt"
-				],
-				"\n"
+	it.effect(
+		"finds exactly what a generated module plants, on its line, and reads its imports as Node runs them",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/deps/planted",
+						draw: drawn(plantedModule),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the findings each planted piece states, line by line in the order the module states them"
+						},
+						coverage: required<PlantedFeature>(plantedFeatures, { cases: 2000, sense: notesOnly }),
+						kept: [],
+						runs: 600,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(pieces, c) =>
+						Effect.sync(() => {
+							const text = moduleText(pieces)
+							const expected = expectedOf(pieces)
+							const audit = auditSource("planted.ts", text)
+							const regexFound: ReadonlyArray<readonly [number, string]> = Arr.map(
+								audit.regex,
+								(f) => [f.line, f.rule] as const
+							)
+							const codeFound: ReadonlyArray<readonly [number, string]> = Arr.map(
+								audit.dynamicCode,
+								(f) => [f.line, f.rule] as const
+							)
+							const importsFound: ReadonlyArray<readonly [number, string, string]> = Arr.map(
+								audit.imports,
+								(i) => [i.line, i.kind, i.specifier] as const
+							)
+							const opaqueFound: ReadonlyArray<readonly [number, string]> = Arr.map(
+								audit.opaque,
+								(f) => [f.line, f.text] as const
+							)
+							assert.deepEqual(regexFound, expected.regex, text)
+							assert.deepEqual(codeFound, expected.code, text)
+							assert.deepEqual(importsFound, expected.imports, text)
+							assert.deepEqual(opaqueFound, expected.opaque, text)
+							for (const piece of pieces) {
+								c.noteAll(piece.features)
+							}
+						})
+				)
 			)
-		)
-		assert.deepEqual(
-			Arr.filter(tokens, (t) => t.kind === "regex"),
-			[]
-		)
-		assert.deepEqual(
-			Arr.filter(tokens, (t) => t.kind === "ident" && t.text === "RegExp"),
-			[]
-		)
-		assert.equal(Option.getOrThrow(Arr.findFirst(tokens, (t) => t.text === "u")).line, 4)
-		assert.equal(Option.getOrThrow(Arr.findFirst(tokens, (t) => t.text === "tt")).line, 7)
-	})
-
-	it("finds every planted RegExp construction and matching member", () => {
-		/**
-		 * After a statement header's `)` and after a block's `}` a statement begins, so `/` begins a regex; a
-		 * quote or backtick inside one must not open a string that swallows the code after it.
-		 */
-		const planted = Arr.join(
-			[
-				"export const a = new RegExp('x')",
-				"export const b = RegExp('y')",
-				"export const c = /z+/u",
-				"export const d = (s: string) => /^w$/.test(s)",
-				"export const e = (r: { exec(s: string): unknown }, s: string) => r.exec(s)",
-				"export const f = (s: string) => s.match('v')",
-				"export const g = (s: string) => s?.search('t')",
-				"export const h = (s: string) => [...s.matchAll(globalThis.RegExp('u', 'g'))]",
-				"export function k(s: string) { return /q/.source + s }",
-				"export const l = (s: string) => { if (s) return; /r/.lastIndex }",
-				"export const m = (s: string) => { if (s) /a/g.lastIndex = 0 }",
-				"export const n = () => { for (;;) {} /b/.source }",
-				"export function o(s: string) { while (s) s = s.slice(1) } /c'`/.source",
-				"export const p = () => { { } /d/.flags }",
-				"export const q = () => { try { } finally { } /e/.global }",
-				"export const r = (s: string) => { switch (s) { } /f/.sticky }",
-				"export const t = (s: string) => { while (s) /g\\//.test(s) }"
-			],
-			"\n"
-		)
-		const audit = auditSource("planted.ts", planted)
-		assert.deepEqual(
-			Arr.map(audit.regex, (f) => `${f.line}:${f.rule}`),
-			[
-				"1:RegExp reference",
-				"2:RegExp reference",
-				"3:regex literal",
-				"4:regex literal",
-				"4:.test member",
-				"5:.exec member",
-				"6:.match member",
-				"7:.search member",
-				"8:.matchAll member",
-				"8:RegExp reference",
-				"9:regex literal",
-				"10:regex literal",
-				"11:regex literal",
-				"12:regex literal",
-				"13:regex literal",
-				"14:regex literal",
-				"15:regex literal",
-				"16:regex literal",
-				"17:regex literal",
-				"17:.test member"
-			]
-		)
-	})
-
-	it("ignores RegExp in comments, strings, types, instanceof and division", () => {
-		const clean = Arr.join(
-			[
-				"// RegExp is never constructed; /a/.test is never called",
-				"export const a = 'a RegExp object or /x/.exec is refused'",
-				"export const b = (x: unknown): x is RegExp => x instanceof RegExp",
-				"export const c = (n: number, d: number): number => n / d / 2",
-				"export type D = { readonly test: RegExp }",
-				"export const e = { test: 1, exec: 2 }",
-				"export const f = (when: { match: string }) => when.match === 'NOT MATCHED' ? when.match : ''",
-				'import { Option, Result as R } from "effect"',
-				"export const g = (o: Option.Option<string>) => Option.match(o, { onNone: () => '', onSome: (s) => s })",
-				"export const h = (r: R.Result<string, string>) => R.match(r, { onSuccess: (s) => s, onFailure: (e) => e })"
-			],
-			"\n"
-		)
-		assert.deepEqual(auditSource("clean.ts", clean).regex, [])
-	})
-
-	it("reads runtime imports as Node runs them: type-only imports erased, `{ type X }` kept", () => {
-		const source = Arr.join(
-			[
-				'import type { regex } from "arkregex"',
-				'import { type Regex } from "arkregex"',
-				'import { Result } from "effect"',
-				'import * as text from "../text/index.ts"',
-				'import "./side-effect.ts"',
-				'export { a } from "./a.ts"',
-				'export * from "./b.ts"',
-				'export * as c from "./c.ts"',
-				'export type { T } from "./t.ts"',
-				'export const d = () => import("./d.ts")',
-				"export const e = import.meta.url",
-				"export const f = (m: string) => import(m)",
-				"export { Result, text }"
-			],
-			"\n"
-		)
-		const audit = auditSource("imports.ts", source)
-		assert.deepEqual(
-			Arr.map(audit.imports, (i) => `${i.line}:${i.kind}:${i.specifier}`),
-			[
-				"2:static:arkregex",
-				"3:static:effect",
-				"4:static:../text/index.ts",
-				"5:static:./side-effect.ts",
-				"6:reexport:./a.ts",
-				"7:reexport:./b.ts",
-				"8:reexport:./c.ts",
-				"10:dynamic:./d.ts"
-			]
-		)
-		assert.deepEqual(show(audit.opaque), [
-			'imports.ts:12: dynamic import of a computed specifier "import("'
-		])
-	})
-
-	it("finds eval and the Function constructor", () => {
-		const audit = auditSource(
-			"code.ts",
-			"export const a = eval('1')\nexport const b = new Function('return 1')\nexport const c = Function('x', 'x')\nexport const d = (o: { eval: number }) => o.eval"
-		)
-		assert.deepEqual(
-			Arr.map(audit.dynamicCode, (f) => `${f.line}:${f.rule}`),
-			["1:eval", "2:Function constructor", "3:Function constructor"]
-		)
-	})
-
-	it("keeps erased positions, so a finding's line is the source line", () => {
-		const source =
-			"import type { A } from 'a'\ninterface B {\n\treadonly c: RegExp\n}\nexport const d = /e/"
-		assert.equal(Str.split(erase(source), "\n").length, Str.split(source, "\n").length)
-		assert.deepEqual(show(auditSource("lines.ts", source).regex), [
-			'lines.ts:5: regex literal "/e/"'
-		])
-	})
+	)
 })
+
+/** A module under a package's src, by its path from the root, with its source text. */
+interface SourceModule {
+	readonly file: string
+	readonly source: string
+}
 
 /** Every module under both packages' src with its source text. */
 const sources = Effect.gen(function* () {
@@ -250,9 +166,8 @@ const sources = Effect.gen(function* () {
 	const modules = yield* Effect.forEach(["packages/engine/src", "packages/grizzle/src"], (dir) =>
 		modulesUnder(dir)
 	)
-	const files = Arr.flatten(modules)
-	return yield* Effect.forEach(files, (file) =>
-		Effect.map(fs.readFileString(`${root}${file}`), (source) => ({ file, source }))
+	return yield* Effect.forEach(Arr.flatten(modules), (file) =>
+		Effect.map(fs.readFileString(`${root}${file}`), (source): SourceModule => ({ file, source }))
 	)
 })
 
@@ -260,59 +175,50 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 	"src/ has no RegExp and no arkregex runtime",
 	(it) => {
 		it.effect(
-			"audits a complete src/ tree: no RegExp construction, no .test or .exec, no eval or Function constructor",
-			() =>
+			"audits every src/ module: no RegExp construction or match, no eval or Function constructor, no arkregex or @ark at runtime",
+			(ctx) =>
 				Effect.gen(function* () {
-					const files = yield* sources
-					assert.ok(files.length > 100)
-					contains(
-						Arr.map(files, (f) => f.file),
-						"packages/engine/src/text/field.ts"
+					const read = yield* sources
+					const files = nonEmpty(read, "the src/ modules")
+					return yield* searched(
+						ctx,
+						exhaust(
+							{
+								suite: "unit/deps/src",
+								generator: element(files),
+								literal: (f: SourceModule) => f.file,
+								limit: files.length,
+								coverage: noCoverage,
+								box: "every TypeScript module under packages/engine/src and packages/grizzle/src",
+								oracle: {
+									kind: "specification",
+									name: "the audit's rules, checked on planted modules above"
+								},
+								caseHang
+							},
+							({ file, source }: SourceModule) =>
+								Effect.sync(() => {
+									const audit = auditSource(file, source)
+									assert.deepEqual(show(audit.regex), [], file)
+									assert.deepEqual(show(audit.dynamicCode), [], file)
+									assert.deepEqual(show(audit.opaque), [], file)
+									assert.deepEqual(
+										Arr.map(
+											Arr.filter(audit.imports, (imp) => isArk(imp.specifier)),
+											(imp) => `${imp.line}: ${imp.kind} import of ${imp.specifier}`
+										),
+										[],
+										file
+									)
+								})
+						)
 					)
-					for (const { file, source } of files) {
-						const audit = auditSource(file, source)
-						assert.deepEqual(show(audit.regex), [], file)
-						assert.deepEqual(show(audit.dynamicCode), [], file)
-					}
 				})
-		)
-
-		it.effect("imports arkregex and @ark only as types, never at runtime", () =>
-			Effect.gen(function* () {
-				const runtime: Array<string> = []
-				let typeOnly = 0
-				for (const { file, source } of yield* sources) {
-					const audit = auditSource(file, source)
-					for (const imp of audit.imports) {
-						if (isArk(imp.specifier)) {
-							runtime.push(`${file}:${imp.line}: ${imp.kind} import of ${imp.specifier}`)
-						}
-					}
-					if (regex('from\\s+"arkregex"').test(source)) {
-						typeOnly += 1
-					}
-					assert.deepEqual(show(audit.opaque), [])
-				}
-				assert.deepEqual(runtime, [])
-				assert.ok(typeOnly >= 1)
-				const fs = yield* FileSystem.FileSystem
-				/** The type-level reading str.regex and Compute.matches share, ArkRegex's grammar check among it. */
-				const text = yield* fs.readFileString(`${root}packages/engine/src/types/fields/regex.ts`)
-				containsText(text, 'import type { regex } from "arkregex"')
-			})
 		)
 	}
 )
 
 layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
-	it("runs every test file under hardened Node", () => {
-		assert.equal(
-			Object.getOwnPropertyDescriptor(Object.prototype, "__proto__"),
-			undefined,
-			"this test process has Object.prototype.__proto__: the runner did not apply --disable-proto=delete"
-		)
-	})
-
 	/** The probe's one JSON line, which runtime-probe.ts, the test's own child process, prints. */
 	type ProbeOutput = {
 		readonly control: boolean
@@ -362,9 +268,14 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 		)
 
 	it.effect(
-		"loads every entry point and drives every text parser under hardened Node, with no arkregex module and no RegExp from src/",
+		"runs under hardened Node, and loads every entry point and drives every text parser so, with no arkregex module and no RegExp from src/",
 		() =>
 			Effect.gen(function* () {
+				assert.equal(
+					Object.getOwnPropertyDescriptor(Object.prototype, "__proto__"),
+					undefined,
+					"this test process has Object.prototype.__proto__: the runner did not apply --disable-proto=delete"
+				)
 				const entries = yield* entryPoints
 				const out = yield* probe([...entries, planted])
 				assert.equal(

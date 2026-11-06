@@ -198,7 +198,8 @@ const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArray<Plan
 	bucketDomain: [
 		{
 			operand: testPg.numeric,
-			faulty: (x) => Compute.widthBucket(x, x, x, 10),
+			faulty: (x) =>
+				Compute.when(Compute.isFinite(x), (y: ScalarTerm) => Compute.widthBucket(y, y, y, 10), 0),
 			mended: { kind: "beyond one guard" }
 		}
 	],
@@ -308,14 +309,14 @@ describe("a partial operation's refusal", () => {
 							assert.equal(reason.precondition, kind)
 							const carrier = plant.operand.scalar.carrier
 							assert.ok(
-								Arr.contains(writable(carrier), reason.guard.test.kind),
-								`a ${reason.guard.test.kind} guard is one Compute writes over a ${carrier}`
+								Arr.contains(writable(carrier), reason.guard.remedy.kind),
+								`a ${reason.guard.remedy.kind} guard is one Compute writes over a ${carrier}`
 							)
 							c.note(`refused for ${kind}`)
 							if (carrier === "text") {
 								c.note("a text operand's guard")
 							}
-							if (reason.guard.test.kind === "typed") {
+							if (reason.guard.remedy.kind === "typed") {
 								c.note("a guard no Compute test writes")
 							}
 							const mended = plant.mended
@@ -327,7 +328,7 @@ describe("a partial operation's refusal", () => {
 									return
 								}
 								case "typed": {
-									assert.equal(reason.guard.test.kind, "typed")
+									assert.equal(reason.guard.remedy.kind, "typed")
 									const admitted = lowered(mended.term(), plant.operand)
 									assert.ok(admitted.ok, `the ${kind} operation over a typed parameter is admitted`)
 									c.note("a named guard, written, admitted")

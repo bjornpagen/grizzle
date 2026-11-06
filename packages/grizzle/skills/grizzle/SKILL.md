@@ -133,13 +133,12 @@ breaking change may briefly break older application instances that are still run
   chain is free of the names it moves into); then the violation check of each rule over closed relations alone that
   is new or whose closed rows changed, a DO block raising 23000 with the rule's name, so rows that break it refuse the
   migration before it changes anything; then extensions, each new content-addressed constant, and new domains. A
-  closed relation's constant is packed by a DO block from its rows as codes, each row's handles named in a comment, or,
-  where the relation declares `{ pack: "hex" }` or that block would pass what one statement carries, stated as one hex
-  bit-string literal, its row count and content digest in a comment, which `grizzle check` decodes and holds to that
-  digest and to its function's name; never edit one by hand (a change of form is a migration of no file); a
-  roster's names constant is its handles as `name[]` in code order, `""` at a hole; a set's `live` function is
-  derived from it. The domains are a roster's smallint domain over its names constant, a set's `bit(n)` domain over
-  `live`, and the contract and text domains, one per distinct definition.
+  closed relation's constant is one hex literal, `X'…'`, its cells' bits padded with 0s to a whole digit, its row
+  count and content digest in a comment, which `grizzle check` decodes and holds to that digest and to its function's
+  name; never edit one by hand; a roster's names constant is its handles as `name[]` in code order, `""` at a hole; a
+  set's `live` constant is the hex literal of its live codes. The domains are a roster's smallint domain over its
+  names constant, a set's `bit(n)` domain over `live`, n its codes rounded up to whole hex digits, and the contract
+  and text domains, one per distinct definition.
 - **structure**: tables, columns, constraints (`NOT VALID` on a table that may hold rows), materialized views. Each term
   of a selected side, and each `pred` term, is a STORED generated column, `CASE WHEN φ THEN t END` (`__<field>_…`,
   `__pred_<field>_…`), and a rule's key over them is `UNIQUE NULLS DISTINCT` and its foreign key `MATCH SIMPLE`; a

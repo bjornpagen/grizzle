@@ -12,6 +12,8 @@ import {
 	type AnySchema,
 	type Schema,
 	type Statement,
+	type StatementsByName,
+	type StatementsReadBack,
 	type StatementsWithin,
 	type UnderOwnNames,
 	schema
@@ -38,12 +40,16 @@ import { Substrate, worldPsql } from "#test/support/substrate/substrate.ts"
 import { loginLayerIn, tokenOf } from "#test/support/worlds.ts"
 
 /**
- * A schema value whose relations sit under their own names and whose statements name only its relations, as
- * schema(...) checked when it was built.
+ * A schema value whose relations sit under their own names and whose statements name only its relations and read back
+ * from their names as themselves, as schema(...) checked when it was built.
  */
-type Checked<N extends string, R, St extends ReadonlyArray<Statement>> = Schema<N, R, St> & {
+type Checked<N extends string, R, St extends ReadonlyArray<Statement>> = Schema<
+	N,
+	R,
+	StatementsByName<St, R>
+> & {
 	readonly relations: UnderOwnNames<R>
-	readonly statements: StatementsWithin<St, R>
+	readonly statements: St & StatementsWithin<St, R> & StatementsReadBack<St, R>
 }
 
 export interface Fixture {
@@ -59,7 +65,7 @@ export interface Fixture {
 		const St extends ReadonlyArray<Statement>
 	>(
 		value: Checked<N, R, St>
-	) => Schema<string, R, readonly [...St]>
+	) => Schema<string, R, StatementsByName<St, R>>
 	/** The DbLayer of a login over the installation, aimed at the substrate's target. */
 	readonly layer: <L extends AnyLogin>(login: L) => Layer.Layer<DbLayerOf<L>, OpenError>
 	/** Owner statements in one transaction; `$S` is the quoted schema. */

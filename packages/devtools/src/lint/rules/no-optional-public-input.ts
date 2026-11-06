@@ -8,6 +8,7 @@ import {
 	type Type,
 	TypeFlags
 } from "typescript/sync"
+import { isOwnSourcePath } from "#lint/paths.ts"
 import type { Start } from "#lint/types.ts"
 import type { Report } from "#shared/finding.ts"
 
@@ -24,8 +25,7 @@ type Reached = Readonly<{ type: Type; direction: Direction; path: string }>
 type Found = Readonly<{ declaration: NodeHandle; name: string; path: string }>
 
 /** Whether a declaration lies in the program's own source rather than an installed package or a declaration file. */
-const isOwnSource = (handle: NodeHandle): boolean =>
-	!Str.includes("/node_modules/")(handle.path) && !Str.endsWith(".d.ts")(handle.path)
+const isOwnSource = (handle: NodeHandle): boolean => isOwnSourcePath(handle.path)
 
 const handleKey = (handle: NodeHandle): string => `${handle.path}#${String(handle.index)}`
 

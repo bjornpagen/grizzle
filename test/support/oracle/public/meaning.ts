@@ -82,6 +82,7 @@ import {
 	type Column,
 	type Comparison,
 	type ComputedTerm,
+	deliveredOrder,
 	storedFactValues,
 	type ProgramFact,
 	type HeadItem,
@@ -100,6 +101,7 @@ import {
 	type Source,
 	type Stored,
 	sourceFields,
+	takeOrder,
 	type Var
 } from "#test/support/oracle/public/program.ts"
 import { termDesc } from "#test/support/oracle/public/terms.ts"
@@ -1017,7 +1019,7 @@ class Translation {
 					meta: conservativeMeta,
 					kind: "Take",
 					input: current.node,
-					order: completed(q.bound.order),
+					order: completed(takeOrder(q.heading, q.bound)),
 					bound: { kind: "literal", k: BigInt(q.bound.k) },
 					correlation:
 						outer.kind === "own"
@@ -1150,12 +1152,12 @@ const paramsOf = (
 
 /**
  * The expected delivery assembled from the reference's statements: each row's head values, and for each attachment the
- * child rows whose parent key equals the row's by native equality.
+ * child rows whose parent key equals the row's by native equality, the root's rows in the order they arrive in
+ * (deliveredOrder).
  */
 const assemble = (
 	statements: ReadonlyMap<string, ExpectedStatement>,
-	root: Root,
-	inOrder: boolean
+	root: Root
 ): ReadonlyArray<Nested> => {
 	const nested = (label: string, q: Query<ParentColumn>, heading: Heading, row: Row): Nested => ({
 		values: Arr.map(q.heading, (c) => valueAt(row, columnIndex(heading, c.name, label))),
@@ -1179,10 +1181,10 @@ const assemble = (
 				),
 				(r) => r.slice(keyWidth)
 			)
-			/** A child that ends in a take is delivered in its order, which is total over the child's head. */
+			/** A child that ends in a take is delivered in the order it ranks by. */
 			const delivered =
 				a.child.bound.kind === "take"
-					? sortRows(childHeading, children, completed(a.child.bound.order))
+					? sortRows(childHeading, children, completed(takeOrder(a.child.heading, a.child.bound)))
 					: children
 			return Arr.map(delivered, (r) => nested(childLabel, a.child, childHeading, r))
 		})
@@ -1191,10 +1193,10 @@ const assemble = (
 	if (main === undefined) {
 		throw new Error("the reference delivered no main statement")
 	}
-	const rows =
-		inOrder && root.delivery.kind === "ordered"
-			? sortRows(main.heading, main.rows, completed(root.delivery.order))
-			: main.rows
+	const rows = Option.match(deliveredOrder(root), {
+		onNone: () => main.rows,
+		onSome: (order) => sortRows(main.heading, main.rows, completed(order))
+	})
 	return Arr.map(rows, (row) => nested("main", root, main.heading, row))
 }
 
@@ -1220,9 +1222,9 @@ const assemble = (
  *   reference shares src's Compute evaluator); a head with an aggregate is a group over every variable of the region,
  *   the distinct complete bindings, keyed by the head's variables, its Compute terms and, in a child, its correlation
  *   columns, so each parent folds its own children;
- * - arms of one heading are a union, `.orderBy(...).take(k)` a take over the total order, a name nothing, an attachment
- *   an Attach node whose correlation pairs each parent column the child binds with the child's correlation column, and
- *   the final orderBy an ordered result.
+ * - arms of one heading are a union, `.orderBy(...).take(k)` a take over the total order it ranks by (takeOrder), a
+ *   name nothing, an attachment an Attach node whose correlation pairs each parent column the child binds with the
+ *   child's correlation column, and the final orderBy an ordered result.
  *
  * The reference then delivers per parent: the root's rows, and for each attachment, every distinct parent key with the
  * children correlated with it (reference/deliver.ts). This module assembles that delivery into nested rows
@@ -1248,7 +1250,7 @@ export const expectedFrom = (
 	const statements = new Map(
 		Arr.map(expectedStatements(reference, ir.root), (s) => [s.label, s] as const)
 	)
-	return Result.succeed(assemble(statements, read.query, read.query.delivery.kind === "ordered"))
+	return Result.succeed(assemble(statements, read.query))
 }
 
 /** The reference's answer to a query read: its rows, ordered where the root is, its evaluation observed by `observer`. */

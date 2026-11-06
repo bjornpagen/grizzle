@@ -789,10 +789,26 @@ export const admitLiteral = (
 			capability: `a literal of ${typeLabel(type)}: ${typed.error}`
 		})
 	}
-	if (judgment.kind === "shape" || !isRefined(type)) {
-		return Result.ok(typed.value)
+	return judgment.kind === "shape"
+		? Result.ok(typed.value)
+		: refined(typed.value, type, judgment.regexMember)
+}
+
+/**
+ * A value of `type`'s base held to `type`'s refinements at every level, a contract's predicate and a pattern: the
+ * ContractLiteral judgment, which admitLiteral makes after the value's base, and which a closed relation's admitted cell
+ * meets alone, its base proved where it was admitted (ir/desc.ts AdmittedClosedRelation). A type with no refinement
+ * holds every value of its base.
+ */
+export const refined = (
+	carried: CarriedLiteral,
+	type: ScalarType,
+	regexMember: RegexMember
+): Result.Result<CarriedLiteral, LiteralRefusal> => {
+	if (!isRefined(type)) {
+		return Result.ok(carried)
 	}
-	const member = membership(typed.value.value, type, judgment.regexMember)
+	const member = membership(carried.value, type, regexMember)
 	if (!member.ok) {
 		return Result.err({
 			reason: "UnsupportedOperation",
@@ -805,7 +821,7 @@ export const admitLiteral = (
 			capability: `a literal of ${typeLabel(type)}: the literal violates its ${contractOf(type) === undefined ? "regex refinement" : "contract"}`
 		})
 	}
-	return Result.ok(typed.value)
+	return Result.ok(carried)
 }
 
 /** Whether a contract's predicate holds of `v`: a contract without one constrains nothing. */

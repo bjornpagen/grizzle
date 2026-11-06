@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -37,7 +37,6 @@ import {
 	sortedResult,
 	strictlyAfter,
 	strictlyBefore,
-	traverse,
 	untyped
 } from "#test/pg/page/support.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -65,12 +64,11 @@ import {
  *
  * The traversal property, that forward and backward pages at every size 1 through 7 concatenate to the complete sorted
  * distinct result D with exact flags and that each page's attachments read exactly its delivered parents' children, is
- * test/pg/page/generated.ts's, over generated ordered queries, minus the transaction and the handles. Here the Paging
- * fixture installs under a fresh schema and opens through Db.open and a DbLayer as its full world, exactly as an
- * application pages:
+ * test/pg/page/generated.ts's, over generated ordered queries, minus the transaction and the handles; that every page
+ * request is one round trip in one SERIALIZABLE READ ONLY transaction of its own that commits, is the round-trip
+ * suite's (test/pg/adapter/suites/round-trips.ts). Here the Paging fixture installs under a fresh schema and opens
+ * through Db.open and a DbLayer as its full world, exactly as an application pages:
  *
- * - Db pages are stateless: each opens and commits its own read-only transaction, and their cursors continue across
- *   requests;
  * - every request answers exactly by the D of the moment and its anchor's encoded values, through db.page or a
  *   compiled handle, whatever happened to D since the anchor's cursor was made: over drawn facts, a drawn query of
  *   the fixture and a walk of drawn requests, each anchored on an edge some earlier page delivered, through either
@@ -622,99 +620,6 @@ const nonString = (value: Extract<Tamper, { kind: "not a string" }>["value"]): u
 }
 
 layer(Substrate.layer)("the page runtime through the readers", (it) => {
-	it.effect(
-		"Db pages are stateless: each request commits its own transaction, and its cursors continue",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const opened = yield* installed(Paging, facts, { label: "real", extensions: [] })
-					return yield* Effect.gen(function* () {
-						const db = yield* Db.open(opened.server.roles.app, {})
-						const context = dbContext(db)
-						if (context === undefined) {
-							return yield* Effect.die(new Error("no context"))
-						}
-						const { executor, counts } = countingExecutor(poolExecutor(context))
-						const counted = untyped(makeReader(context, executor))
-						const params = { account: A }
-						const compiled = pageTemplate(db, priorityDescendingTasks)
-						const rows = yield* (yield* db.execute(priorityDescendingTasks, params)).collect
-						const full = sortedResult(compiled, rows)
-						/**
-						 * Every page size from one to past the account's 23 tasks: each traversal's pages are as many
-						 * transactions, and both directions deliver D.
-						 */
-						const sizes = yield* exhaust(
-							{
-								suite: "pg/page/stateless",
-								generator: int(1, 25),
-								literal: String,
-								limit: 25,
-								coverage: noCoverage,
-								caseHang
-							},
-							(size) =>
-								Effect.gen(function* () {
-									const before = counts.within
-									const forward = yield* traverse(
-										counted,
-										priorityDescendingTasks,
-										params,
-										"forward",
-										size,
-										{
-											kind: "end"
-										}
-									)
-									assert.deepEqual(forward.nodes, full, `forward ${size}`)
-									assert.equal(counts.within - before, forward.pages.length)
-									const backward = yield* traverse(
-										counted,
-										priorityDescendingTasks,
-										params,
-										"backward",
-										size,
-										{
-											kind: "end"
-										}
-									)
-									assert.deepEqual(backward.nodes, full, `backward ${size}`)
-								})
-						)
-						/**
-						 * The page's own transaction is over once it returned: its cursors are stateless, accepted by any later
-						 * page of the query.
-						 */
-						const page = yield* counted.page(priorityDescendingTasks, params, { first: 3 })
-						const end = Option.getOrThrow(page.pageInfo.endCursor)
-						const next = yield* untyped(dbReader(db)).page(priorityDescendingTasks, params, {
-							first: 3,
-							after: end
-						})
-						assert.deepEqual(
-							Arr.map(next.edges, (e) => canon(e.node)),
-							full.slice(3, 6)
-						)
-						/** A first page and an after page, its anchor's probe included, each take one round trip. */
-						const flown = counts.flights
-						yield* counted.page(priorityDescendingTasks, params, { first: 3 })
-						assert.equal(counts.flights - flown, 1)
-						yield* counted.page(priorityDescendingTasks, params, { first: 3, after: end })
-						assert.equal(counts.flights - flown, 2)
-						return sizes
-					}).pipe(
-						Effect.scoped,
-						(body) =>
-							Effect.flatMap(Layer.build(opened.layer), (context) =>
-								Effect.provideContext(body, context)
-							),
-						Effect.scoped
-					)
-				}).pipe(Effect.scoped)
-			)
-	)
-
 	it.effect(
 		"answers every request by the D of the moment and its anchor's encoded values, through either handle, whatever changed since its cursor was made",
 		(ctx) =>

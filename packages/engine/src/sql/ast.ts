@@ -182,7 +182,9 @@ declare const finiteFloatBrand: unique symbol
  *   quoted literal;
  * - floatSpecial: NaN, an infinity or -0, for real or double precision, printed as its quoted spelling, which the
  *   float input function reads as exactly that double;
- * - text: any value spelled by its type's input function: text, uuid, bit strings, ranges, money, vectors.
+ * - text: any value spelled by its type's input function: text, uuid, ranges, money, vectors;
+ * - bits: a bit string as its hex digits (core/hex.ts), whole digits in 0-9 and A-F, printed `X'<digits>'` and cast:
+ *   the one spelling of every bit string grizzle writes, a set's literal and a constant's alike.
  */
 export type LiteralValue =
 	| { readonly kind: "bool"; readonly value: boolean }
@@ -191,6 +193,7 @@ export type LiteralValue =
 	| { readonly kind: "float"; readonly value: FiniteFloat }
 	| { readonly kind: "floatSpecial"; readonly value: FloatSpecial }
 	| { readonly kind: "text"; readonly value: string }
+	| { readonly kind: "bits"; readonly hex: string }
 
 export const binaryOperators = [
 	"=",
@@ -1672,11 +1675,9 @@ export type PlFunction = Extract<CreateFunction, { readonly language: "plpgsql" 
 export type SqlFunction = Extract<CreateFunction, { readonly language: "sql" }>
 
 /**
- * The migration's pack of a closed relation into its constant, `cells` cells of `width` bits, in one of two forms
- * (PackForm): from its rows, a DO block that builds the string of cells from rows of cell indexes and payload codes in
- * one LEFT JOIN over the cells, then EXECUTE format('CREATE FUNCTION … RETURN %L::bit varying', cells); or as its
- * literal, a CREATE FUNCTION whose body is the string of cells itself. The DO block's outer join and its PL/pgSQL exist
- * only inside its printed form: no Select and no PlStatement can hold either.
+ * A closed relation's constant as the migration states it, `cells` cells of `width` bits: CREATE FUNCTION … RETURN
+ * X'<hex>'::bit varying, its body the string of cells itself as one hex literal, under a comment of its row count and
+ * its content's digest (ir/cells.ts constantDigestOf), which `grizzle check` decodes the literal and holds it to.
  */
 export interface PackConstant {
 	readonly kind: "packConstant"
@@ -1685,39 +1686,11 @@ export interface PackConstant {
 	readonly cells: bigint
 	/** w, a cell's bits: 1 for a set. */
 	readonly width: number
-	readonly form: PackForm
-}
-
-/**
- * How a pack states its constant:
- *
- * - `rows`: the relation's tuples, its key checked before the pack, each line a row a person reads: none for a relation
- *   that holds no fact, whose constant is its cells' zero bits, which the printer builds with no VALUES list, since
- *   PostgreSQL has no empty one;
- * - `literal`: the string of cells as one bit-string literal, its hex digits then the bits past the last whole digit,
- *   with the count of rows it holds and its content's digest (ir/cells.ts constantDigestOf), which the printed comment
- *   states and `grizzle check` holds the literal to.
- */
-export type PackForm =
-	| { readonly kind: "rows"; readonly rows: ReadonlyArray<PackRow> }
-	| {
-			readonly kind: "literal"
-			readonly hex: string
-			readonly tail: string
-			readonly rows: number
-			readonly digest: string
-	  }
-
-/**
- * One tuple of a packed relation: its cell, the index the host's encoder gives its key's codes (ir/cells.ts keyIndex),
- * its payload's code, and the names its key and payload stand for.
- */
-export interface PackRow {
-	readonly index: bigint
-	/** The payload's mixed-radix code, exact over any payload space. */
-	readonly payload: bigint
-	/** The handles and values the tuple holds, printed as the row's comment, each a JSON string. */
-	readonly names: NonEmptyReadonlyArray<string>
+	/** The cells' bits as whole hex digits, the bits past the last cell 0 (ir/cells.ts literalOf). */
+	readonly hex: string
+	/** The cells it holds, one per row of its relation or side. */
+	readonly rows: number
+	readonly digest: string
 }
 
 /**

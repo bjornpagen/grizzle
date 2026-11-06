@@ -12,7 +12,14 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, on, relation, type Schema, schema } from "#compiler/public/schema.ts"
+import {
+	contained,
+	on,
+	relation,
+	type Schema,
+	schema,
+	type StatementsByName
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, bareRecord, defined, failureOf, succeeded } from "#test/support/assert.ts"
@@ -62,7 +69,11 @@ const Notes = schema("Notes", { Account, Tag, Badge, Profile, Note }, [
 	contained(on(Note, "tag"), on(Tag, "id"))
 ])
 
-type NotesInstalled = Schema<string, (typeof Notes)["relations"], (typeof Notes)["statements"]>
+type NotesInstalled = Schema<
+	string,
+	(typeof Notes)["relations"],
+	StatementsByName<(typeof Notes)["statements"], (typeof Notes)["relations"]>
+>
 
 interface NoteFact {
 	readonly id: number

@@ -1,6 +1,7 @@
 import { compareText, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
+import { hexDigitsFor } from "#compiler/core/hex.ts"
 import {
 	type DeclaredName,
 	type Identity,
@@ -8,13 +9,7 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import {
-	cellMaxCodes,
-	constantMaxBits,
-	maxStringLength,
-	rowsPackMaxBytes,
-	stringBufferMaxBytes
-} from "#compiler/core/limits.ts"
+import { cellMaxCodes, constantMaxBits, maxStringLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	extendNonEmpty,
@@ -42,9 +37,8 @@ import {
 	spaceSize,
 	type Tuple
 } from "#compiler/ir/cells.ts"
-import { type Codebook, codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
-import type { ClosedPack } from "#compiler/ir/desc.ts"
-import { identityValueOf, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
+import { type Codebook, codeOf, liveHex, type RosterCodec } from "#compiler/ir/codes.ts"
+import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type {
 	ClosedSlot,
 	ClosedTheoryRelation,
@@ -66,22 +60,9 @@ import type {
 	Expr,
 	ObjectName,
 	PackConstant,
-	PackRow,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
-import {
-	and,
-	arrayOf,
-	binary,
-	call,
-	cast,
-	eq,
-	lit,
-	ne,
-	simpleSelect,
-	target,
-	types
-} from "#compiler/sql/build.ts"
+import { and, arrayOf, binary, eq, lit, ne, types } from "#compiler/sql/build.ts"
 import {
 	type ClosedConstant,
 	type ClosedKey,
@@ -94,7 +75,7 @@ import {
 	payloadCode,
 	payloadDigit
 } from "#compiler/sql/constants.ts"
-import { executedPackBytes, printObjectName, statementBytes } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 
 /**
  * The installation's constants: the functions a closed fact is read from, each an IMMUTABLE SQL function of no argument
@@ -104,8 +85,9 @@ import { executedPackBytes, printObjectName, statementBytes } from "#compiler/sq
  * - A roster installs its names constant, its handles in code order, a hole the empty name, as one name[], and the
  *   smallint domain over it, whose one CHECK admits exactly the codes whose name is not empty: every closed id column is
  *   typed by it, so it is the range proof every digit of a constant's index needs. A roster some set is typed over also
- *   installs its live-codes constant, derived from the names constant by its body so the roster's one fact is stated
- *   once, and the bits domain over bit(n), n every code it has minted, whose CHECK admits only live codes' bits.
+ *   installs its live-codes constant, the hex literal of its live codes' bits, and the bits domain over bit(n), n every
+ *   code it has minted rounded up to whole hex digits, whose CHECK admits only live codes' bits, so a hole's bit and
+ *   every padding bit are 0 in every stored set.
  * - A closed relation installs its string of cells, read at the index its key gives its key fields' codes, its key
  *   set, one bit per point of its key space, and a dictionary per open-typed payload field, the field's values in code
  *   order. A relation of no payload is its own key set, one function. A key is the mixed radix of its closed ids, or,
@@ -115,8 +97,9 @@ import { executedPackBytes, printObjectName, statementBytes } from "#compiler/sq
  * - A containment into a closed relation's side installs the side's string of cells, as a closed relation of its own,
  *   which the table CHECK that holds the containment reads (`closedMembership`).
  *
- * PostgreSQL packs every string of cells from rows of codes (sql/ast.ts PackConstant), so the host states the codes and
- * never the bits. A role is granted EXECUTE on every constant a statement it runs calls (physical/ddl/roles.ts).
+ * Every string of cells is stated as one hex literal (sql/ast.ts PackConstant), the host's encoding of its cells padded
+ * with 0 bits to whole digits, under a comment of its row count and content digest, which `grizzle check` decodes and
+ * holds to the digest. A role is granted EXECUTE on every constant a statement it runs calls (physical/ddl/roles.ts).
  */
 
 /** The code space of one payload coordinate of a closed relation's cells: a closed id's roster, or an open field's
@@ -183,14 +166,13 @@ const payloadSpace = (
 	}
 }
 
-/** A string of cells planned for its pack: its function's identity, its content and its pack's rows. */
+/** A string of cells planned: its function's identity and its content. */
 interface PlannedCells {
 	readonly kind: "cells"
 	readonly named: Identity<"closedConstant">
-	/** The constant's content digest, which `named` mints from and a literal pack's comment states. */
+	/** The constant's content digest, which `named` mints from and its literal's comment states. */
 	readonly digest: ConstantDigest<"closed-constant">
 	readonly constant: Constant
-	readonly rows: ReadonlyArray<PackRow>
 }
 
 /** A dictionary planned: its function's identity, its field, and its values in code order. */
@@ -203,15 +185,6 @@ interface PlannedDictionary {
 
 type PlannedConstant = PlannedCells | PlannedDictionary
 
-/** How a tuple's key and payload values are spelled in its pack row's comment: a handle, or a value's display. */
-const displayOf = (literal: TypedLiteral): string => identityValueOf(literal).display
-
-/** A tuple of codes and the names its pack row's comment spells it by. */
-interface Named {
-	readonly tuple: Tuple
-	readonly names: NonEmptyReadonlyArray<string>
-}
-
 /**
  * The string of cells of `tuples` over `layout`, refused as ResourceBound when its payload space holds more codes than
  * a cell read as an integer can, or it is longer than PostgreSQL's longest bit string, each measured before it is built
@@ -221,7 +194,7 @@ interface Named {
  */
 const plannedCells = (
 	layout: CellLayout,
-	tuples: ReadonlyArray<Named>,
+	tuples: ReadonlyArray<Tuple>,
 	what: string
 ): PlannedCells => {
 	const loc = SourceLoc(what, [])
@@ -241,30 +214,12 @@ const plannedCells = (
 			})
 		)
 	}
-	const encoded = constantOf(
-		layout,
-		tuples.map((t) => t.tuple)
-	)
+	const encoded = constantOf(layout, tuples)
 	if (!encoded.ok) {
 		throw defect(`the declared key of ${what} holds its rows apart`)
 	}
-	const packed = new Map<bigint, PackRow>()
-	for (const { tuple, names } of tuples) {
-		const index = defined(keyIndex(layout.key, tuple.key), "a tuple's key is a point of its space")
-		packed.set(index, {
-			index,
-			payload: defined(rowMajorIndex(layout.payload, tuple.payload), "a payload in its space"),
-			names
-		})
-	}
 	const digest = constantDigestOf(encoded.value)
-	return {
-		kind: "cells",
-		named: identity.closedConstant(digest),
-		digest,
-		constant: encoded.value,
-		rows: [...packed].toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, row]) => row)
-	}
+	return { kind: "cells", named: identity.closedConstant(digest), digest, constant: encoded.value }
 }
 
 /**
@@ -328,7 +283,7 @@ type PlannedKey =
 const keyFieldsOf = (key: PlannedKey): NonEmptyReadonlyArray<KeyField> =>
 	key.kind === "product" ? key.fields : extendNonEmpty(key.owner, key.block)
 
-/** The handle a code spells in a pack row's comment: a live handle, or a hole's empty name. */
+/** The handle a code spells in a refusal: a live handle, or a hole's empty name. */
 const codeName = (codec: RosterCodec, code: number): string => codec.names[code] ?? ""
 
 /** The digits of `index` in the mixed-radix space of `sizes`, the first most significant. */
@@ -371,17 +326,9 @@ const ownerFunction = (
 			})
 		)
 	}
-	const tuples: Array<Named> = []
+	const tuples: Array<Tuple> = []
 	for (let index = 0n; index < points; index += 1n) {
-		const digits = digitsOf(sizes, index)
-		const held = value(index)
-		tuples.push({
-			tuple: { key: digits, payload: [Number(held)] },
-			names: extendNonEmpty(
-				mapNonEmpty(owner, (f, i) => codeName(f.codec, defined(digits[i], "a digit per field"))),
-				[String(held)]
-			)
-		})
+		tuples.push({ key: digitsOf(sizes, index), payload: [Number(value(index))] })
 	}
 	return plannedCells({ key: { kind: "product", sizes }, payload: [Number(codes)] }, tuples, what)
 }
@@ -533,17 +480,13 @@ const nonEmptyFins = (fins: ReadonlyArray<PlannedCount>): NonEmptyReadonlyArray<
 	return fins
 }
 
-/**
- * A closed relation's or side's constants as planned: its key, the string of cells, the key set, the dictionaries, and
- * how its migration states its packs, its closed relation's declaration (ClosedPack).
- */
+/** A closed relation's or side's constants as planned: its key, the string of cells, the key set and the dictionaries. */
 interface PlannedRelation {
 	readonly key: PlannedKey
 	readonly cells: PlannedCells
 	readonly keys: PlannedCells
 	readonly payload: ReadonlyArray<CodeSpace>
 	readonly dictionaries: ReadonlyArray<PlannedDictionary>
-	readonly pack: ClosedPack
 }
 
 /**
@@ -585,8 +528,7 @@ const outsideFin = (
 
 /**
  * The constants of `rows`, a closed relation `relation`'s or its side's, over the key fields `key` and the payload fields
- * `payloadFields`, `what` naming them, its packs stated as `declared` says. A row whose slot code is past its owner's
- * count is refused (outsideFin).
+ * `payloadFields`, `what` naming them. A row whose slot code is past its owner's count is refused (outsideFin).
  */
 const plannedRelation = (
 	codes: Codebook,
@@ -594,7 +536,6 @@ const plannedRelation = (
 	key: NonEmptyReadonlyArray<LawField>,
 	payloadFields: ReadonlyArray<LawField>,
 	rows: ReadonlyArray<Split<TypedLiteral>>,
-	declared: ClosedPack,
 	what: string
 ): PlannedRelation => {
 	const planned = plannedKey(codes, relation, key, what)
@@ -606,7 +547,7 @@ const plannedRelation = (
 			rows.map((row) => defined(row.payload[i], "a payload value per payload field"))
 		)
 	)
-	const named = rows.map((row, r): Named => {
+	const tuples = rows.map((row, r): Tuple => {
 		const keyCodes = mapNonEmpty(fields, (f, i) =>
 			handleCode(f.codec, defined(row.key[i], "a key value per key field"))
 		)
@@ -614,31 +555,24 @@ const plannedRelation = (
 			outsideFin(planned, keyCodes, r, what)
 		}
 		return {
-			tuple: {
-				key: keyCodes,
-				payload: payload.map((space, i) =>
-					codeIn(space, defined(row.payload[i], "a payload value per payload field"))
-				)
-			},
-			names: extendNonEmpty(
-				mapNonEmpty(fields, (_, k) => displayOf(defined(row.key[k], "a key value per key field"))),
-				row.payload.map(displayOf)
+			key: keyCodes,
+			payload: payload.map((space, i) =>
+				codeIn(space, defined(row.payload[i], "a payload value per payload field"))
 			)
 		}
 	})
 	return {
 		key: planned,
-		cells: plannedCells({ key: planned.space, payload: payload.map(radixOf) }, named, what),
+		cells: plannedCells({ key: planned.space, payload: payload.map(radixOf) }, tuples, what),
 		keys: plannedCells(
 			{ key: planned.space, payload: [] },
-			named.map((n) => ({ tuple: { key: n.tuple.key, payload: [] }, names: n.names })),
+			tuples.map((t) => ({ key: t.key, payload: [] })),
 			`the key set of ${what}`
 		),
 		payload,
 		dictionaries: payload.flatMap((space) =>
 			space.kind === "dictionary" ? [plannedDictionary(space)] : []
-		),
-		pack: declared
+		)
 	}
 }
 
@@ -676,10 +610,7 @@ export const planClosed = (
 			key: key.map((f) => defined(row[f.position], "a value per field")),
 			payload: payload.map((f) => defined(row[f.position], "a value per field"))
 		}))
-		out.set(
-			r.name,
-			plannedRelation(codes, r, key, payload, rows, entry.desc.pack, `closed relation ${r.name}`)
-		)
+		out.set(r.name, plannedRelation(codes, r, key, payload, rows, `closed relation ${r.name}`))
 	}
 	return { relations: out }
 }
@@ -761,74 +692,31 @@ const revokeFromPublic = (fn: ObjectName): SqlStatement => ({
 	from: [{ kind: "PUBLIC" }]
 })
 
-/** What one statement of a pack carries: the bytes of the statement sent, and of the statement a pack of rows EXECUTEs. */
-export interface PackBounds {
-	readonly statementBytes: number
-	readonly executedBytes: number
-}
-
 /**
- * What one statement carries: a pack of rows is one protocol message and one string of its file (rowsPackMaxBytes),
- * and the statement it builds and EXECUTEs is one string buffer (stringBufferMaxBytes).
+ * A string of cells as the migration states it, under its function (sql/ast.ts PackConstant): its hex literal, the
+ * host's encoding (ir/cells.ts literalOf), with its row count and its content's digest, the one its function's name
+ * digests, which `grizzle check` decodes the literal back to. A literal of more digits than one string the host builds
+ * holds is refused as ResourceBound before it is built.
  */
-const statementBounds: PackBounds = {
-	statementBytes: rowsPackMaxBytes.value,
-	executedBytes: stringBufferMaxBytes.value
-}
-
-/**
- * A constant's pack under the function `fn`, in the form its relation declares, `declared`, within what one statement
- * carries (sql/ast.ts PackForm): its rows, a line each for a person to read, where its relation declares rows and their
- * DO block fits `bounds.statementBytes` and the statement it EXECUTEs, the constant's text one character per bit, fits
- * `bounds.executedBytes`; where its relation declares hex, or past either bound, the literal of its cells, the host's
- * encoding (ir/cells.ts literalOf), under a comment of its row count and its content's digest, `digest`, the one its
- * function's name digests, which `grizzle check` decodes it back to. The form is a function of the pack's rows, their
- * handles' spellings included, and the bounds, never of an option, and one constant in either form installs one
- * string, so a rename that moves a pack across a bound changes no constant (deploy/diff/diff.ts installedContent). The
- * installation packs under what one statement carries (statementBounds); a test states its own.
- */
-export const packFormOf = (
-	fn: ObjectName,
-	planned: {
-		readonly constant: Constant
-		readonly rows: ReadonlyArray<PackRow>
-		readonly digest: ConstantDigest<"closed-constant">
-	},
-	declared: ClosedPack,
-	bounds: PackBounds
-): PackConstant => {
+const packOf = (schema: string, planned: PlannedCells): PackConstant => {
+	const fn = functionOf(schema, planned.named)
 	const { cells, width } = planned.constant
-	const rows = pack(fn, cells, width, { kind: "rows", rows: planned.rows })
-	if (
-		declared === "rows" &&
-		executedPackBytes(rows) <= bounds.executedBytes &&
-		statementBytes(rows) <= bounds.statementBytes
-	) {
-		return rows
-	}
-	const digits = (cells * BigInt(width)) / 4n
-	if (digits > BigInt(maxStringLength.value)) {
+	const digits = hexDigitsFor(Number(cells * BigInt(width)))
+	if (digits > maxStringLength.value) {
 		throw new Refusal(
 			resourceBound(SourceLoc(printObjectName(fn), []), {
 				kind: "stringLength",
 				limit: maxStringLength.value,
-				needed: Number(digits)
+				needed: digits
 			})
 		)
 	}
-	const literal = literalOf(planned.constant)
 	return pack(fn, cells, width, {
-		kind: "literal",
-		hex: literal.hex,
-		tail: literal.tail,
-		rows: planned.rows.length,
+		hex: literalOf(planned.constant),
+		rows: planned.constant.entries.length,
 		digest: planned.digest
 	})
 }
-
-/** A string of cells' pack, under its function, in the form `declared` states within what one statement carries (packFormOf). */
-const packOf = (schema: string, planned: PlannedCells, declared: ClosedPack): PackConstant =>
-	packFormOf(functionOf(schema, planned.named), planned, declared, statementBounds)
 
 /**
  * A dictionary's CREATE: its values as one array literal of their base type, each element the text its input function
@@ -851,13 +739,12 @@ const dictionaryOf = (b: InstallBuilder, planned: PlannedDictionary): CreateCons
 	}
 }
 
-/** One planned constant as an object of the installation, after the schema, a pack in the form `declared` states; equal
- * constants are one object, the first added, which holds every reason it is there for. */
+/** One planned constant as an object of the installation, after the schema; equal constants are one object, the first
+ * added, which holds every reason it is there for. */
 const addPlanned = (
 	b: InstallBuilder,
 	planned: PlannedConstant,
-	reasons: ReadonlyArray<PhysicalReason>,
-	declared: ClosedPack
+	reasons: ReadonlyArray<PhysicalReason>
 ): Node<"setup"> => {
 	b.name(planned.named)
 	const fn = functionOf(b.schema, planned.named)
@@ -865,7 +752,7 @@ const addPlanned = (
 		planned.named,
 		{
 			ddl: [
-				planned.kind === "cells" ? packOf(b.schema, planned, declared) : dictionaryOf(b, planned),
+				planned.kind === "cells" ? packOf(b.schema, planned) : dictionaryOf(b, planned),
 				revokeFromPublic(fn)
 			],
 			reasons
@@ -883,19 +770,12 @@ const constantsOf = (r: PlannedRelation): ReadonlyArray<PlannedConstant> => [
 	...r.dictionaries
 ]
 
-/** Every closed relation's constants as objects of the installation, in relation name order (constantsOf), each pack
- * in the form its relation declares. A constant two relations share is one pack, listed as rows where either declares
- * rows: a person reviews it. */
+/** Every closed relation's constants as objects of the installation, in relation name order (constantsOf). */
 export const addClosedRelations = (b: InstallBuilder, plan: ClosedPlan): void => {
-	const listed = new Set(
-		[...plan.relations.values()].flatMap((r) =>
-			r.pack === "rows" ? constantsOf(r).map((planned) => planned.named.identifier) : []
-		)
-	)
 	for (const [name, r] of plan.relations) {
 		const why = [enforcement(`closed relation ${name}`)]
 		for (const planned of constantsOf(r)) {
-			addPlanned(b, planned, why, listed.has(planned.named.identifier) ? "rows" : r.pack)
+			addPlanned(b, planned, why)
 		}
 	}
 }
@@ -938,55 +818,6 @@ const holeName = lit.text("", types.name(false))
 
 /** An integer PostgreSQL types integer, which prints bare. */
 const int = (value: number): Expr => lit.int(value, types.integer)
-
-/**
- * The live-codes constant's body, derived from the names constant N so the roster's one fact is stated once: one bit per
- * code, 1 where its name is not the empty name, as bit varying,
- * `(SELECT string_agg(CASE WHEN (N())[r0.c0] <> '' THEN '1' ELSE '0' END, '' ORDER BY r0.c0)::bit varying FROM
- * generate_subscripts(N(), 1) AS r0(c0))`, under the audit's generated names. A roster numbers at least one code, so the aggregate reads a row and is never
- * NULL; holes alone would read zeros. PostgreSQL evaluates it at plan time, as every zero-argument IMMUTABLE function.
- */
-const liveBody = (names: ObjectName): Expr => {
-	const position = { kind: "column", table: "r0", column: "c0" } as const
-	const bit = (value: string): Expr => lit.text(value, types.text)
-	const flag: Expr = {
-		kind: "case",
-		operand: undefined,
-		whens: [
-			{
-				when: ne({ kind: "subscript", array: constantValue(names), index: position }, holeName),
-				result: bit("1")
-			}
-		],
-		else: bit("0")
-	}
-	return {
-		kind: "subquery",
-		query: simpleSelect(
-			[
-				target(
-					cast(
-						{
-							...call("string_agg", [flag, bit("")]),
-							orderBy: [{ expr: position, direction: "ASC" }]
-						},
-						types.varbit
-					)
-				)
-			],
-			[
-				{
-					kind: "function",
-					call: call("generate_subscripts", [constantValue(names), int(1)]),
-					alias: "r0",
-					columns: ["c0"],
-					lateral: false
-				}
-			],
-			undefined
-		)
-	}
-}
 
 /** The rosters some set is typed over: each a field of a stored relation holds a set of, or a persistent expression
  * the installation lowers holds a set of, so every bits domain a column, a literal or a cast names is installed. */
@@ -1051,12 +882,15 @@ const setRosters = (b: InstallBuilder): ReadonlySet<DeclaredName> => {
  *   at subscript c + 1 and a hole the empty name;
  * - its domain, `CREATE DOMAIN <roster> AS smallint CONSTRAINT check CHECK (((N())[VALUE + 1] <> ''::name) IS TRUE)`,
  *   which admits exactly the live codes: a code past either end reads NULL, and a hole the empty name;
- * - for a roster some set is typed over (`setRosters`), its live-codes constant (`liveBody`) and its bits domain,
- *   `CREATE DOMAIN <roster>__bits__<n> AS bit(n) CONSTRAINT check CHECK (((VALUE & L()) = VALUE) IS TRUE)`, n every
- *   code the roster has minted, which admits only the live codes' bits.
+ * - for a roster some set is typed over (`setRosters`), its live-codes constant,
+ *   `<roster>__live__<digest>() RETURNS bit varying RETURN X'<hex>'::bit varying`, the set of its live codes at the
+ *   width of a set over it (ir/codes.ts liveHex), and its bits domain, `CREATE DOMAIN <roster>__bits__<n> AS bit(n)
+ *   CONSTRAINT check CHECK (((VALUE & L()) = VALUE) IS TRUE)`, n every code the roster has minted rounded up to whole hex
+ *   digits (RosterCodec.width), which admits only the live codes' bits: a hole's bit and every padding bit are 0 in L, so
+ *   a set that sets one is refused.
  *
  * A changed roster is a new names constant (and live constant), and its domains' CHECKs re-point at them, keeping their
- * names; a grown one's bits domain is a new domain of the new size.
+ * names; a grown one whose width passes a whole hex digit has a bits domain of the new width.
  */
 export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 	const sets = setRosters(b)
@@ -1118,19 +952,20 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 				roster,
 				names: { name: names, node: namesNode },
 				domain: { name: domainName, node: domainNode },
-				bits: sets.has(roster) ? addBits(b, roster, codec, digest, names, namesNode) : undefined
+				bits: sets.has(roster) ? addBits(b, roster, codec, digest) : undefined
 			}
 		})
 }
 
-/** A roster's live-codes constant and its bits domain over it (`addRosters`). */
+/**
+ * A roster's live-codes constant and its bits domain over it (`addRosters`). The live constant's bits are a function of
+ * the roster's names, so it is named by the names constant's digest, and it reads no other object.
+ */
 const addBits = (
 	b: InstallBuilder,
 	roster: DeclaredName,
 	codec: RosterCodec,
-	digest: Parameters<typeof identity.rosterLive>[1],
-	names: ObjectName,
-	namesNode: Node<"setup">
+	digest: Parameters<typeof identity.rosterLive>[1]
 ): RosterObjects["bits"] => {
 	const why = [enforcement(`the live codes of roster ${roster}, which a set over it holds`)]
 	const liveNamed = identity.rosterLive(roster, digest)
@@ -1144,15 +979,15 @@ const addBits = (
 					name: live,
 					params: [],
 					returns: types.varbit,
-					body: liveBody(names)
+					body: lit.bits(liveHex(codec), types.varbit)
 				},
 				revokeFromPublic(live)
 			],
 			reasons: why
 		},
-		[b.schemaNode, namesNode]
+		[b.schemaNode]
 	)
-	const domainNamed = identity.bitsDomain(roster, codec.size)
+	const domainNamed = identity.bitsDomain(roster, codec.width)
 	const domain: ObjectName = {
 		schema: b.names.bitsDomain(roster).schema,
 		name: b.name(domainNamed)
@@ -1166,7 +1001,7 @@ const addBits = (
 				{
 					kind: "createDomain",
 					name: domain,
-					base: types.bit(codec.size),
+					base: types.bit(codec.width),
 					collation: undefined,
 					constraints: [
 						{
@@ -1194,7 +1029,7 @@ const addBits = (
  * literal is typed by its base and never cast to a domain, whose later tightening would refuse every later insert;
  * only a probe's query, which runs once per statement, lowers a guard through write/insert/unique.ts withinRow.
  *
- * A side of no payload is a set, `substring(S(), i + 1, 1) = '1'::bit(1)`. A side whose payload fields are closed ids
+ * A side of no payload is a set, `substring(S(), i + 1, 1)::integer = 1`. A side whose payload fields are closed ids
  * compares its one cell, `substring(S(), i · w + 1, w)::integer = 1 + p`, p the mixed-radix code of the row's payload
  * columns. A side with an open-typed payload field compares each payload coordinate on its own, a closed id's code
  * with its column and an open value through its dictionary, `(D())[c + 1] = column`. An absent key reads NULL, which
@@ -1210,19 +1045,17 @@ export const closedMembership = (
 ): { readonly predicate: Expr; readonly constants: ReadonlyArray<Node<"setup">> } => {
 	const side: CellSide<TypedLiteral> = check.side
 	const closed = check.target
-	const declared = b.owned.relations[closed.name]
 	const plan = plannedRelation(
 		b.names.codes,
 		closed,
 		mapNonEmpty(side.key, (f) => fieldNamed(closed, f)),
 		side.payload.map((f) => fieldNamed(closed, f)),
 		[...side.rows.values()],
-		declared?.kind === "closedRelation" ? declared.desc.pack : "rows",
 		`the side of ${closed.name} a containment from ${check.relation.name} reads`
 	)
 	const why = lawReasons(check.lawIds)
 	const constants = [plan.cells, ...layoutOf(plan.key), ...plan.dictionaries].map((planned) =>
-		addPlanned(b, planned, why, plan.pack)
+		addPlanned(b, planned, why)
 	)
 	const sourceOf = (field: string): Expr =>
 		column(

@@ -5,7 +5,7 @@ import {
 	oneColumnKeyRepresentable
 } from "#compiler/analysis/derived/keys.ts"
 import { inheritedKeys } from "#compiler/analysis/logical/derived.ts"
-import { checkQuery } from "#compiler/check/index.ts"
+import { checkDefinition } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
@@ -191,10 +191,7 @@ export const analyzeDerivedRelation = (
 ): Result.Result<DerivedRelationAnalysis, CompileError> => {
 	const { name, loc } = owned
 	const at = loc
-	const checkedResult = checkQuery(schema, owned.desc.query, {
-		read: "rows",
-		label: `derived ${name}`
-	})
+	const checkedResult = checkDefinition(schema, `derived ${name}`, owned.desc.query)
 	if (!checkedResult.ok) {
 		return checkedResult
 	}

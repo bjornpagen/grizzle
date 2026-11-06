@@ -442,6 +442,11 @@
 			"types": "./dist/scalar/values/vector.d.ts",
 			"default": "./dist/scalar/values/vector.js"
 		},
+		"./internal/schema/admit.ts": {
+			"grizzle-source": "./src/schema/admit.ts",
+			"types": "./dist/schema/admit.d.ts",
+			"default": "./dist/schema/admit.js"
+		},
 		"./internal/schema/entry.ts": {
 			"grizzle-source": "./src/schema/entry.ts",
 			"types": "./dist/schema/entry.d.ts",

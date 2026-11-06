@@ -15,6 +15,9 @@ const subject: FieldDomain = textDomain("^u_[a-z]{1,8}$", "u")
 const uuid: FieldDomain = { kind: "uuid" }
 const integer: FieldDomain = { kind: "integer", bits: 32 }
 
+/** An organization's plan: the contract Plan over a 32-bit integer, whose domain holds 0 to 9. */
+const planContract: FieldDomain = { kind: "contract", name: "Plan", bits: 32, min: 0, max: 9 }
+
 /**
  * The documents base: organizations, their documents, the shares of a document with a user, the notes on a document,
  * and visits, each nothing but its two identity numbers, a bigserial key and a serial, a relation whose every field is
@@ -39,7 +42,7 @@ export const docsBase: BaseSpec = {
 			name: "Org",
 			fields: [
 				{ name: "id", domain: uuid },
-				{ name: "plan", domain: { kind: "contract", name: "Plan", bits: 32, min: 0, max: 9 } }
+				{ name: "plan", domain: planContract }
 			],
 			key: ["id"],
 			mutability: "immutable"
@@ -140,8 +143,31 @@ const docsOneShareBase: BaseSpec = {
 	laws: [...docsBase.laws, { kind: "key", relation: "Share", fields: ["doc"] }]
 }
 
+/**
+ * The documents base with a context Level read from the token's `l` claim object, its one field `plan` of the contract
+ * Plan Org's plan holds: a claim of a contract, which the host decodes as an integer and PostgreSQL holds to the
+ * contract's bounds as Db.open's admission casts it, so a plan past nine refuses the token at stage token once
+ * admission passed, and an organization's plan meets the claim in a rule.
+ */
+const docsLevelBase: BaseSpec = {
+	...docsBase,
+	name: "DocsLevel",
+	contexts: [
+		...docsBase.contexts,
+		{
+			name: "Level",
+			claim: { kind: "object", key: "l" },
+			fields: [{ name: "plan", domain: planContract }]
+		}
+	]
+}
+
 /** Every documents base a generated installation is drawn over. */
-export const docsBases: Arr.NonEmptyReadonlyArray<BaseSpec> = [docsBase, docsOneShareBase]
+export const docsBases: Arr.NonEmptyReadonlyArray<BaseSpec> = [
+	docsBase,
+	docsOneShareBase,
+	docsLevelBase
+]
 
 const variable = (name: string): Term => ({ kind: "var", name })
 const claim = (context: string, field: string): Term => ({ kind: "context", context, field })
@@ -290,6 +316,29 @@ export const docsInstall: InstallSpec = {
  * shares through MyShare meets another user's share of a document, which MyShare hides, at the key on Share's `doc`.
  */
 export const docsOneShareInstall: InstallSpec = { ...docsInstall, base: docsOneShareBase }
+
+/**
+ * The documents base's README-shaped worlds over its Level variant (docsLevelBase), the member reading PlanOrgs beside
+ * its entries: the organizations on the plan its token's Level claim names, a rule matching Org's plan to a context
+ * field of a contract.
+ */
+export const docsLevelInstall: InstallSpec = {
+	base: docsLevelBase,
+	roles: Arr.map(docsInstall.roles, (r) =>
+		r.name === "member"
+			? {
+					...r,
+					entries: {
+						...r.entries,
+						PlanOrgs: query(
+							rule([of("Org", { id: org, plan: claim("Level", "plan") })], { org }, none)
+						)
+					}
+				}
+			: r
+	),
+	logins: docsInstall.logins
+}
 
 /**
  * The documents base's README-shaped worlds with an `editor` beside them in the login `ops`: every fact outside an

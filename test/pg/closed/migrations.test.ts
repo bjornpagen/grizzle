@@ -68,7 +68,7 @@ import {
 } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
-import { setText } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	codeAt,
 	type Declaration,
@@ -103,7 +103,8 @@ import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
  * it, and the rows of two closed relations under a closed-only law. Each step is one schema edit, drafted from the
  * snapshot before it as `grizzle generate` drafts it and applied by the real runner:
  *
- * - **grow, re-add:** the roster takes the next code; a set column widens to bit(n′) and keeps every stored set;
+ * - **grow, re-add:** the roster takes the next code; a set column widens to bit(n′) where its codes pass a whole hex
+ *   digit, and keeps every stored set;
  * - **remove:** the handle's code becomes a hole. Where a row or a set still holds it, the domain's VALIDATE fails with
  *   23514 naming the table and the column of each, unless the reviewer drafted the data step into the folder; after a
  *   refusal the data step runs and the migration applies. VALIDATE fails exactly when the model says a row holds the
@@ -672,7 +673,7 @@ const dataStepOf = (sys: System, after: Model, code: number, column: string): st
 	const n = storedNames(sys)
 	return column === sys.names.column("Held", "tier")
 		? `DELETE FROM ${n.held} WHERE ${n.tier} = ${code}::smallint;`
-		: `UPDATE ${n.sets} SET ${n.members} = ${n.members} & '${setText(sizeOf(after.tier), liveCodes(after.tier))}'::bit(${sizeOf(after.tier)});`
+		: `UPDATE ${n.sets} SET ${n.members} = ${n.members} & X'${hexOfText(setText(sizeOf(after.tier), liveCodes(after.tier)))}'::bit(${wholeDigits(sizeOf(after.tier))});`
 }
 
 /** A closed id's and a set's type over the roster's live handles: the columns' codecs' types. */
@@ -705,7 +706,7 @@ const namesConstantOf = (
 /**
  * The installation is the model's: each roster's constant holds the model's names and is renamed exactly when they
  * change; the schema holds one names constant per roster; Held's codes and Sets' sets are the model's, and decode to the
- * model's handles; Sets' column is a domain over bit(size).
+ * model's handles; Sets' column is a domain over bit(n), n its codes rounded up to whole hex digits.
  */
 const sameAsModel = (sys: System, after: Model) =>
 	Effect.gen(function* () {
@@ -774,8 +775,8 @@ const sameAsModel = (sys: System, after: Model) =>
 			)
 			assert.deepEqual(
 				Arr.map(type, (r) => [String(r[0]), String(r[1])]),
-				[["d", `bit(${sizeOf(after.tier)})`]],
-				"Sets' column is a domain over bit(size)"
+				[["d", `bit(${wholeDigits(sizeOf(after.tier))})`]],
+				"Sets' column is a domain over bit(n), its codes rounded up to whole hex digits"
 			)
 		}
 	})
@@ -1003,15 +1004,17 @@ const real = (
 			)
 			assert.equal(
 				text,
-				setText(
-					sizeOf(before.tier),
-					Arr.map(p.members, (h) => defined(codeAt(before.tier, h)))
-				),
-				"the host writes the model's positional text"
+				`X${hexOfText(
+					setText(
+						sizeOf(before.tier),
+						Arr.map(p.members, (h) => defined(codeAt(before.tier, h)))
+					)
+				)}`,
+				"the host writes X and the hex digits of the model's positional text"
 			)
 			yield* sys.writer.begin
 			yield* sys.writer.query(
-				`INSERT INTO ${n.sets} (${n.setsId}, ${n.members}) VALUES ($1::integer, $2::text::bit(${sizeOf(before.tier)}))`,
+				`INSERT INTO ${n.sets} (${n.setsId}, ${n.members}) VALUES ($1::integer, $2::text::bit(${wholeDigits(sizeOf(before.tier))}))`,
 				[sys.ids, text]
 			)
 			yield* sys.writer.commit

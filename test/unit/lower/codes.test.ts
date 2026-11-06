@@ -35,6 +35,7 @@ import type { Expr } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	codeAt,
 	codebookOfStates,
@@ -87,18 +88,24 @@ const reach = (c: Case<RosterFeature>, reached: Reached<RosterFeature>): void =>
 	}
 }
 
-/** The model's bit(n) text of a set: one character per code minted, 1 exactly at the codes of its handles. */
+/**
+ * The model's hex digits of a set: its bit(n) text, n the codes minted rounded up to whole hex digits, 1 exactly at the
+ * codes of its handles, as hex digits.
+ */
 const modelBits = (state: RosterState, handles: ReadonlyArray<string>): string =>
-	Arr.join(
-		Arr.makeBy(sizeOf(state), (code) =>
-			Arr.some(handles, (h) => codeAt(state, h) === code) ? "1" : "0"
-		),
-		""
+	hexOfText(
+		setText(
+			sizeOf(state),
+			Arr.flatMap(handles, (h) => {
+				const at = codeAt(state, h)
+				return at === undefined ? [] : [at]
+			})
+		)
 	)
 
 /**
  * Every live handle lowers to the model's code for it, every two compare as their declared positions do (D1), and a
- * drawn set lowers to the model's bit text at the roster's size.
+ * drawn set lowers to the model's hex literal at the roster's width.
  */
 const lowersByCodes = (history: RosterHistory, c: Case<RosterFeature>) =>
 	Effect.sync(() => {
@@ -132,10 +139,10 @@ const lowersByCodes = (history: RosterHistory, c: Case<RosterFeature>) =>
 			literal,
 			{
 				kind: "literal",
-				value: { kind: "text", value: modelBits(state, set) },
+				value: { kind: "bits", hex: modelBits(state, set) },
 				type: baseTypeRef(names, bits)
 			},
-			`the set {${Arr.join(set, ", ")}} is bit(${sizeOf(state)})'s text over its codes, typed as a set's base`
+			`the set {${Arr.join(set, ", ")}} is bit(${wholeDigits(sizeOf(state))})'s hex literal over its codes, typed as a set's base`
 		)
 	})
 

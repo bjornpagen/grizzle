@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
-import { drawn, explore } from "@grizzle/testing/explore"
-import { required } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { array, constant, element, type Gen, int, shuffled, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import type { Source } from "@grizzle/testing/source"
@@ -9,31 +9,33 @@ import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Effect,
+	Exit,
 	Formatter,
 	Option,
 	Order,
+	Record as Rec,
 	Result,
 	Stream,
 	String as Str
 } from "effect"
 import { missingExtension } from "#adapter/admission/expectation.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
-import { attachmentHeads } from "#adapter/reader/analysis.ts"
 import { hostParams } from "#adapter/reader/params.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
+import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import type { ParamDecl, RelationParamDecl } from "#compiler/ir/products.ts"
+import type { RelationParamDecl } from "#compiler/ir/products.ts"
 import { flight, type RelationColumn } from "#compiler/lower/conservative/types.ts"
 import { closedId, pg, uuid as uuidField } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { columnDefinition, types } from "#compiler/sql/build.ts"
+import type { ParamValue } from "#compiler/types/core/phantom.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	codebookFor,
 	compileTemplate,
@@ -41,17 +43,17 @@ import {
 	schemaInputOf,
 	testCompile
 } from "#test/support/compile.ts"
-import * as W from "#test/support/fixtures/api/work.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { largeStatements } from "#test/support/oracle/forms.ts"
 
 /**
- * The pure parts of the reader: Stream relation parameters collected on the host, each relation input's arrays, every
- * declared parameter admitted at the read boundary whatever the optimizer eliminated, the
- * capability check of a compiled template against the installed extensions, the key positions get reads through, and
- * the head keys an attachment delivers.
+ * The pure parts of the reader: a relation input from the caller's value to the arrays its statements bind, every
+ * declared parameter admitted at the read boundary whatever the optimizer eliminated, and the capability check of a
+ * compiled template against the installed extensions. Which head keys an attachment delivers is the public
+ * differential's (test/pg/oracle/public), whose programs nest attachments and correlate them on parent columns no head
+ * key delivers, and whose answers the reference evaluator judges column by column.
  *
  * A read's refusal as the contract states it: a codec's refusal at encode with the slot its EncodingFailure names, the
  * parameter or `parameter.field` (README "Errors and outcomes": as a write's names it), or any other refusal by its stage.
@@ -70,41 +72,6 @@ const refusalOf = (failure: ReadFailure): Refusal =>
 
 /** A uuid column's type, as the registry builds it. */
 const uuid = scalarOf(f.uuid, {})
-
-describe("Stream relation parameters collected on the host", () => {
-	const ids: RelationParamDecl = {
-		id: ParamId("p1"),
-		name: "ids",
-		kind: "relation",
-		heading: [{ name: "id", type: uuid }]
-	}
-	const account: ParamDecl = { id: ParamId("p2"), name: "account", kind: "scalar", type: uuid }
-
-	it.effect("passes arrays and scalars through and collects a Stream on the host", () =>
-		Effect.gen(function* () {
-			const given = { ids: [{ id: "a" }], account: "x" }
-			const passed = yield* hostParams([ids, account], given)
-			assert.deepEqual(passed, given)
-			const streamed = yield* hostParams([ids, account], {
-				ids: Stream.fromIterable([{ id: "a" }, { id: "b" }]),
-				account: "x"
-			})
-			assert.deepEqual(streamed, { ids: [{ id: "a" }, { id: "b" }], account: "x" })
-		})
-	)
-
-	it.effect(
-		"collects a Stream of 250,000 facts whole, with no row bound, and refuses a failing Stream as an encoding failure",
-		() =>
-			Effect.gen(function* () {
-				const many = Arr.makeBy(250_000, (i) => i)
-				const collected = yield* hostParams([ids], { ids: Stream.fromIterable(many) })
-				assert.deepEqual(collected, { ids: many })
-				const failing = yield* Effect.flip(hostParams([ids], { ids: Stream.fail("boom") }))
-				assert.deepEqual(refusalOf(failing), { kind: "codec", slot: "ids" })
-			})
-	)
-})
 
 /**
  * A read with a rule the optimizer proves empty: an interior pinned to one roster handle, matched at another. That rule
@@ -262,173 +229,489 @@ describe("every declared parameter admitted at the read boundary", () => {
 	)
 })
 
-const u = (n: number) => ({ id: `00000000-0000-4000-8000-00000000000${n}` })
+/**
+ * A read's relation input, from the caller's value to the arrays its statements bind (reader/params.ts hostParams, then
+ * reader/relations.ts executionInputs): an array, a Stream collected whole on the host, or an iterable that can be read
+ * only once, of any number of facts, more than the 65,535 parameters a statement binds among them, with no row bound; deduplicated; and written as one array per
+ * column in any column order a statement's slot reads, each order's arrays written once per execution. An array or an
+ * iterable passes the host step as it is. A codec's refusal is the EncodingFailure naming the parameter, or
+ * `parameter.field` for a fact's field, and a Stream that fails is the parameter's.
+ *
+ * The oracle is the input's set of facts: the arrays of each column order, read as PostgreSQL's array_in reads them and
+ * zipped into rows, are exactly the distinct facts projected onto those columns, no row twice; the arrays of another
+ * order are the declared order's, permuted, so every order aligns its rows alike; a slot's arrays read again are the
+ * very arrays written; and the scalar parameter beside the input is admitted. A planted fault names its slot.
+ */
+const columnNames = ["a", "b", "c"] as const
+type ColumnName = (typeof columnNames)[number]
 
-/** A statement slot's column `name` of type uuid, under the generated name `column`. */
+/** The `n`th uuid of the inputs: n in hexadecimal, its last group. */
+const uuidAt = (n: number): string =>
+	`00000000-0000-4000-8000-${Str.padStart(12, "0")(n.toString(16))}`
+
+/** A fact as the caller writes it: each column's value, a uuid, a text no uuid or a null. */
+type Fact = Readonly<Partial<Record<ColumnName, string | null>>>
+
+/** How the caller hands the facts over. */
+type Delivery = "an array" | "a Stream" | "an iterable read once" | "a Stream that fails"
+
+/** What stands in for the facts when no iterable does. */
+type NotFacts = "a text" | "a number" | "undefined" | "null" | "an object"
+
+/** A fault planted in the input, refused at encode naming its slot. */
+type Fault =
+	| { readonly kind: "none" }
+	| { readonly kind: "a field no uuid"; readonly at: number; readonly field: number }
+	| { readonly kind: "a null field"; readonly at: number; readonly field: number }
+	| { readonly kind: "a null fact"; readonly at: number }
+	| { readonly kind: "no iterable"; readonly value: NotFacts }
+
+/**
+ * The facts: a few, each field one of three uuids, so facts repeat; or many, the nth fact's every field the nth uuid,
+ * and the first written again at the end, now and then more than the 65,535 parameters a statement binds.
+ */
+type Facts =
+	| { readonly kind: "few"; readonly facts: ReadonlyArray<ReadonlyArray<number>> }
+	| { readonly kind: "many"; readonly count: number }
+
+interface InputCase {
+	readonly width: number
+	readonly facts: Facts
+	readonly delivery: Delivery
+	readonly fault: Fault
+	/** Another column order a statement's slot reads: the declared columns' positions, shuffled. */
+	readonly order: ReadonlyArray<number>
+	readonly account: number
+}
+
+const inputCaseGen: Gen<InputCase> = (source) => {
+	const width = source.draw(int(1, columnNames.length))
+	const positions = Arr.makeBy(width, (i) => i)
+	return {
+		width,
+		facts: source.draw(
+			weighted<Facts>([
+				[
+					40,
+					(inner) => ({
+						kind: "few",
+						facts: inner.draw(
+							array(array(int(0, 2), { min: width, max: width }), { min: 0, max: 8 })
+						)
+					})
+				],
+				[4, (inner) => ({ kind: "many", count: inner.draw(int(9, 400)) })],
+				[1, (inner) => ({ kind: "many", count: inner.draw(int(65_536, 80_000)) })]
+			])
+		),
+		delivery: source.draw(
+			element<Delivery>(["an array", "a Stream", "an iterable read once", "a Stream that fails"])
+		),
+		fault: source.draw(
+			weighted<Fault>([
+				[4, constant({ kind: "none" })],
+				[
+					1,
+					(inner) => ({
+						kind: "a field no uuid",
+						at: inner.draw(int(0, 0xffff)),
+						field: inner.draw(int(0, width - 1))
+					})
+				],
+				[
+					1,
+					(inner) => ({
+						kind: "a null field",
+						at: inner.draw(int(0, 0xffff)),
+						field: inner.draw(int(0, width - 1))
+					})
+				],
+				[1, (inner) => ({ kind: "a null fact", at: inner.draw(int(0, 0xffff)) })],
+				[
+					1,
+					(inner) => ({
+						kind: "no iterable",
+						value: inner.draw(
+							element<NotFacts>(["a text", "a number", "undefined", "null", "an object"])
+						)
+					})
+				]
+			])
+		),
+		order: source.draw(shuffled(positions, { min: width, max: width })),
+		account: source.draw(int(0, 0xffff))
+	}
+}
+
+/** The declared heading's columns, the first `width` of a, b and c. */
+const headingOf = (width: number): ReadonlyArray<ColumnName> => columnNames.slice(0, width)
+
+/** The facts a case draws, before any fault. */
+const factsOf = (c: InputCase): ReadonlyArray<Fact> => {
+	const heading = headingOf(c.width)
+	const fact = (values: (column: number) => number): Fact =>
+		Rec.fromEntries(Arr.map(heading, (name, i) => [name, uuidAt(values(i))] as const))
+	switch (c.facts.kind) {
+		case "few":
+			return Arr.map(c.facts.facts, (values) => fact((i) => defined(values[i], "a fact's value")))
+		case "many": {
+			const many = Arr.makeBy(c.facts.count, (n) => fact(() => n))
+			return [...many, fact(() => 0)]
+		}
+	}
+}
+
+/** The facts with the case's fault planted at its place, a new fact's field or a new fact of its own. */
+const plantedFacts = (c: InputCase, facts: ReadonlyArray<Fact>): ReadonlyArray<Fact | null> => {
+	const fault = c.fault
+	const heading = headingOf(c.width)
+	const planted = (pick: number, fact: Fact | null): ReadonlyArray<Fact | null> => {
+		const at = pick % (facts.length + 1)
+		return [...Arr.take(facts, at), fact, ...Arr.drop(facts, at)]
+	}
+	const valid: Fact = Rec.fromEntries(Arr.map(heading, (name) => [name, uuidAt(0)] as const))
+	const field = (pick: number): ColumnName => defined(heading[pick % heading.length], "a column")
+	switch (fault.kind) {
+		case "none":
+		case "no iterable":
+			return facts
+		case "a field no uuid":
+			return planted(fault.at, { ...valid, [field(fault.field)]: "not-a-uuid" })
+		case "a null field":
+			return planted(fault.at, { ...valid, [field(fault.field)]: null })
+		case "a null fact":
+			return planted(fault.at, null)
+	}
+}
+
+/**
+ * The value the caller passes for the input: one the typed boundary admits (ParamValue), which the host step reads, or
+ * one only a JavaScript caller passes, which reaches the relation codec as it is.
+ */
+type Passed =
+	| { readonly kind: "typed"; readonly value: ParamValue }
+	| { readonly kind: "untyped"; readonly value: unknown }
+
+const notFacts = (value: NotFacts): Passed => {
+	switch (value) {
+		case "a text":
+			return { kind: "typed", value: "not facts" }
+		case "a number":
+			return { kind: "typed", value: 7 }
+		case "undefined":
+			return { kind: "untyped", value: undefined }
+		case "null":
+			return { kind: "untyped", value: null }
+		case "an object":
+			return { kind: "untyped", value: { a: uuidAt(0) } }
+	}
+}
+
+const delivered = (c: InputCase, facts: ReadonlyArray<Fact | null>): Passed => {
+	if (c.fault.kind === "no iterable") {
+		return notFacts(c.fault.value)
+	}
+	switch (c.delivery) {
+		case "an array":
+			return { kind: "typed", value: facts }
+		case "a Stream":
+			return { kind: "typed", value: Stream.fromIterable(facts) }
+		case "an iterable read once":
+			return { kind: "untyped", value: facts.values() }
+		case "a Stream that fails":
+			return {
+				kind: "typed",
+				value: Stream.concat(Stream.fromIterable(facts), Stream.fail("the caller's failure"))
+			}
+	}
+}
+
+/** The slot the case's refusal names, or undefined for an input admitted. */
+const refusedSlot = (c: InputCase): string | undefined => {
+	const fault = c.fault
+	const heading = headingOf(c.width)
+	if (fault.kind === "no iterable") {
+		return "ids"
+	}
+	if (c.delivery === "a Stream that fails") {
+		return "ids"
+	}
+	switch (fault.kind) {
+		case "none":
+			return undefined
+		case "a null fact":
+			return "ids"
+		case "a field no uuid":
+		case "a null field":
+			return `ids.${defined(heading[fault.field % heading.length], "a column")}`
+	}
+}
+
+/** A statement slot's column `name`, of type uuid, under the generated name `column`. */
 const slotColumn = (name: string, column: string): RelationColumn => ({
 	name,
 	type: uuid,
 	definition: columnDefinition(column, types.uuid)
 })
 
-describe("relation inputs as arrays", () => {
-	const ids: RelationParamDecl = {
-		id: ParamId("p1"),
-		name: "ids",
-		kind: "relation",
-		heading: [{ name: "id", type: uuid }]
-	}
-	const account: ParamDecl = { id: ParamId("p2"), name: "account", kind: "scalar", type: uuid }
-	const idColumns: ReadonlyArray<RelationColumn> = [slotColumn("id", "c1")]
-	/** The input's arrays over its one column, each read back as array_in reads it, or the read's refusal. */
-	const arraysOf = (facts: unknown) => {
-		const prepared = executionInputs(paramCodecs([ids, account], emptyCodebook), {
-			ids: facts,
-			account: u(9).id
-		})
-		if (Result.isFailure(prepared)) {
-			return refusalOf(new ReadFailure({ reason: prepared.failure }))
-		}
-		const input = prepared.success.relations.get(ids.id)
-		if (input === undefined) {
-			throw new Error("the read admits ids")
-		}
-		return Result.map(input.arrays(idColumns), (arrays) => Arr.map(arrays, readArrayLiteral))
-	}
+type InputFeature =
+	| Delivery
+	| "no fact"
+	| "a repeated fact"
+	| "more facts than a statement binds parameters"
+	| "columns read in another order"
+	| `refused: ${Exclude<Fault["kind"], "none">}`
+	| "refused: a failing Stream"
 
-	/** Whether a refusal is at encode and names the parameter `ids`, alone or with one of its fields. */
-	const namesIds = (refusal: Refusal): boolean =>
-		refusal.kind === "codec" &&
-		(refusal.slot === "ids" || (refusal.slot !== undefined && Str.startsWith("ids.")(refusal.slot)))
-
-	it("admits an input of any number of facts, 250,000 among them, and refuses one the codec refuses at encode, naming it", () => {
-		assert.deepEqual(
-			arraysOf([u(1), u(2), u(3), u(4), u(5), u(1)]),
-			Result.succeed([[u(1).id, u(2).id, u(3).id, u(4).id, u(5).id]])
-		)
-		const many = Arr.makeBy(250_000, (i) => ({
-			id: `00000000-0000-4000-8000-${Str.padStart(12, "0")(i.toString(16))}`
-		}))
-		const all = arraysOf(many)
-		assert.ok(Result.isResult(all) && Result.isSuccess(all), "250,000 facts are admitted")
-		assert.equal(Result.getOrThrow(all)[0]?.length, 250_000)
-		assert.deepEqual(arraysOf([]), Result.succeed([[]]))
-		assert.deepEqual(arraysOf([{ id: "not-a-uuid" }]), { kind: "codec", slot: "ids.id" })
-		const refused = arraysOf([u(1), null])
-		assert.ok(!Result.isResult(refused) && namesIds(refused))
-		assert.deepEqual(arraysOf("not facts"), { kind: "codec", slot: "ids" })
-		assert.deepEqual(arraysOf(undefined), { kind: "codec", slot: "ids" })
-	})
-
-	it("gives each slot's arrays in its column order, written once per statement reading", () => {
-		const pair: RelationParamDecl = {
-			...ids,
-			heading: [
-				{ name: "a", type: uuid },
-				{ name: "b", type: uuid }
-			]
-		}
-		const prepared = succeeded(
-			executionInputs(paramCodecs([pair], emptyCodebook), { ids: [{ a: u(1).id, b: u(2).id }] })
-		)
-		const input = prepared.relations.get(pair.id)
-		if (input === undefined) {
-			throw new Error("the read admits ids")
-		}
-		const forward = [slotColumn("a", "c1"), slotColumn("b", "c2")]
-		const backward = [slotColumn("b", "c3"), slotColumn("a", "c4")]
-		const read = (columns: ReadonlyArray<RelationColumn>) =>
-			Result.map(input.arrays(columns), (arrays) => Arr.map(arrays, readArrayLiteral))
-		assert.deepEqual(read(forward), Result.succeed([[u(1).id], [u(2).id]]))
-		assert.deepEqual(read(backward), Result.succeed([[u(2).id], [u(1).id]]))
-		const first = Result.getOrThrow(input.arrays(forward))
-		const again = Result.getOrThrow(input.arrays(forward))
-		assert.ok(
-			first === again,
-			"one statement reading's placeholders share one writing of its arrays"
-		)
-	})
-
-	it("gives another column order's arrays for an input that can be iterated only once", () => {
-		const pair: RelationParamDecl = {
-			...ids,
-			heading: [
-				{ name: "a", type: uuid },
-				{ name: "b", type: uuid }
-			]
-		}
-		const once = (function* () {
-			yield { a: u(1).id, b: u(2).id }
-			yield { a: u(3).id, b: u(4).id }
-		})()
-		const prepared = succeeded(executionInputs(paramCodecs([pair], emptyCodebook), { ids: once }))
-		const input = prepared.relations.get(pair.id)
-		if (input === undefined) {
-			throw new Error("the read admits ids")
-		}
-		assert.deepEqual(
-			Result.map(input.arrays([slotColumn("b", "c1"), slotColumn("a", "c2")]), (arrays) =>
-				Arr.map(arrays, readArrayLiteral)
-			),
-			Result.succeed([
-				[u(2).id, u(4).id],
-				[u(1).id, u(3).id]
-			])
-		)
-	})
+describe("a read's relation input", () => {
+	it.effect(
+		"is its distinct facts, in arrays of every column order a slot reads, from any delivery and any number of facts; a codec's refusal names its slot",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/adapter/reader-inputs",
+						draw: drawn(inputCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the input's distinct facts, projected onto each column order a slot reads"
+						},
+						coverage: required<InputFeature>(
+							[
+								"an array",
+								"a Stream",
+								"an iterable read once",
+								"a Stream that fails",
+								"no fact",
+								"a repeated fact",
+								"more facts than a statement binds parameters",
+								"columns read in another order",
+								"refused: a field no uuid",
+								"refused: a null field",
+								"refused: a null fact",
+								"refused: no iterable",
+								"refused: a failing Stream"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
+						kept: [],
+						runs: 120,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.gen(function* () {
+							const heading = headingOf(c.width)
+							const ids: RelationParamDecl = {
+								id: ParamId("p1"),
+								name: "ids",
+								kind: "relation",
+								heading: Arr.map(heading, (name) => ({ name, type: uuid }))
+							}
+							const account = uuidAt(c.account)
+							const declared = [
+								ids,
+								{ id: ParamId("p2"), name: "account", kind: "scalar", type: uuid } as const
+							]
+							const facts = factsOf(c)
+							const value = delivered(c, plantedFacts(c, facts))
+							const slot = refusedSlot(c)
+							const host = yield* Effect.exit(
+								value.kind === "typed"
+									? hostParams(declared, { ids: value.value, account })
+									: Effect.succeed({ ids: value.value, account })
+							)
+							const prepared = Exit.isSuccess(host)
+								? executionInputs(paramCodecs(declared, emptyCodebook), host.value)
+								: undefined
+							if (c.fault.kind !== "no iterable") {
+								k.note(c.delivery)
+							}
+							if (slot !== undefined) {
+								const refusal: EncodingFailure | ReadFailure | undefined = Exit.isFailure(host)
+									? Option.getOrUndefined(Exit.findErrorOption(host))
+									: prepared !== undefined &&
+										  Result.isFailure(prepared) &&
+										  prepared.failure._tag === "EncodingFailure"
+										? prepared.failure
+										: undefined
+								const reason = refusal instanceof ReadFailure ? refusal.reason : refusal
+								assert.deepEqual(
+									reason?._tag === "EncodingFailure" ? reason.place : undefined,
+									{ _tag: "Slot", name: slot },
+									"the refusal names its slot"
+								)
+								k.note(
+									c.fault.kind === "none"
+										? "refused: a failing Stream"
+										: c.delivery === "a Stream that fails" && c.fault.kind !== "no iterable"
+											? "refused: a failing Stream"
+											: `refused: ${c.fault.kind}`
+								)
+								return
+							}
+							assert.ok(Exit.isSuccess(host), "the host step admits the input")
+							const passed = host.value["ids"]
+							assert.ok(
+								passed === value.value || c.delivery !== "an array",
+								"an array passes the host step as it is"
+							)
+							const inputs = succeeded(defined(prepared, "the inputs"))
+							assert.ok(inputs.scalars.has(ParamId("p2")), "the scalar parameter is admitted")
+							const input = defined(inputs.relations.get(ids.id), "the read admits ids")
+							const otherNames = Arr.map(c.order, (i) => defined(heading[i], "a column"))
+							const declaredColumns = Arr.map(heading, (name, i) => slotColumn(name, `c${i}`))
+							const otherColumns = Arr.map(otherNames, (name, i) => slotColumn(name, `d${i}`))
+							/** A row as one text: its values, uuids which hold no space, joined by spaces. */
+							const keyOf = (row: ReadonlyArray<unknown>): string =>
+								Arr.join(
+									Arr.map(row, (value) => String(value)),
+									" "
+								)
+							const projectedKeys = (names: ReadonlyArray<ColumnName>) =>
+								Arr.sort(
+									new Set(Arr.map(facts, (fact) => keyOf(Arr.map(names, (name) => fact[name])))),
+									Order.String
+								)
+							for (const [names, columns] of [
+								[heading, declaredColumns],
+								[otherNames, otherColumns]
+							] as const) {
+								const written = succeeded(input.arrays(columns))
+								assert.ok(
+									succeeded(input.arrays(columns)) === written,
+									"a slot's arrays are written once"
+								)
+								const literals = Arr.map(written, readArrayLiteral)
+								const rows = Arr.map(defined(literals[0], "a column's array"), (_, row) =>
+									keyOf(Arr.map(literals, (column) => column[row]))
+								)
+								assert.equal(new Set(rows).size, rows.length, "no row twice")
+								assert.deepEqual(
+									Arr.sort(rows, Order.String),
+									projectedKeys(names),
+									"the distinct facts over the slot's columns"
+								)
+							}
+							const distinct = projectedKeys(heading)
+							const declaredArrays = succeeded(input.arrays(declaredColumns))
+							assert.deepEqual(
+								succeeded(input.arrays(otherColumns)),
+								Arr.map(c.order, (i) => defined(declaredArrays[i], "a column's array")),
+								"another order's arrays are the declared order's, permuted"
+							)
+							if (distinct.length === 0) {
+								k.note("no fact")
+							}
+							if (distinct.length < facts.length) {
+								k.note("a repeated fact")
+							}
+							if (facts.length > 65_535) {
+								k.note("more facts than a statement binds parameters")
+							}
+							if (Arr.some(c.order, (position, i) => position !== i)) {
+								k.note("columns read in another order")
+							}
+						})
+				)
+			)
+	)
 })
+
+/**
+ * Whether a template's extensions are installed (admission/expectation.ts missingExtension), over the box of every
+ * requirement on two extensions, each needed or not and needed in a schema or anywhere, against every installation of
+ * them, each absent or installed in one of two schemas. The oracle is the rule: the first needed extension, in the
+ * requirement's order, not installed, or installed elsewhere than the schema it is needed in, is the capability the
+ * template lacks.
+ */
+type Need = "not needed" | "anywhere" | "in s1" | "in s2"
+type Installed = "absent" | "in s1" | "in s2"
+const extensionNames = ["vector", "other"] as const
+
+type CapabilityFeature =
+	| "every one installed"
+	| "one absent"
+	| "one in another schema"
+	| "one needed anywhere"
 
 describe("capabilities found after admission", () => {
-	it("refuses a template whose extension is not installed in its compiled schema, and admits one that is", () => {
-		const needs = { extensions: ["vector"], extensionSchemas: { vector: "vector_ext" } }
-		assert.equal(missingExtension(needs, new Map([["vector", "vector_ext"]])), undefined)
-		assert.notEqual(missingExtension(needs, new Map()), undefined)
-		assert.notEqual(missingExtension(needs, new Map([["vector", "public"]])), undefined)
-		assert.equal(missingExtension({ extensions: [], extensionSchemas: {} }, new Map()), undefined)
-	})
-})
-
-describe("attachment heads", () => {
-	const nested = query(W.Work)
-		.rule((r) => {
-			const { id, name } = v(W.Account, "account")
-			return r.match(W.Account, { id, name }).find({ id, name })
-		})
-		.attach(
-			"tasks",
-			(a) =>
-				query(W.Work)
-					.rule((r) => {
-						const { id, kind } = v(W.Task, "task")
-						return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
-					})
-					.attach(
-						"note",
-						(t) =>
-							query(W.Work).rule((r) => {
-								const { note } = v(W.TaskNote, "taskNote")
-								return r.match(W.TaskNote, { task: t.id, note }).find({ note })
-							}),
-						"option"
-					)
-					.orderBy(["id", "asc"]),
-			"array"
-		)
-
-	it("reads each delivered attachment's head keys by its path, nested ones included", () => {
-		const desc = queryValueDesc(nested)
-		if (desc === undefined) {
-			throw new Error("a query value")
-		}
-		const tasks = attachmentHeads(desc).under.get("tasks")
-		assert.deepEqual(Arr.sort([...(tasks?.heads ?? [])], Order.String), ["id", "kind"])
-		assert.deepEqual([...(tasks?.under.get("note")?.heads ?? [])], ["note"])
-		const cards = queryValueDesc(W.taskCards)
-		if (cards === undefined) {
-			throw new Error("a query value")
-		}
-		const cardHeads = attachmentHeads(cards).under
-		assert.deepEqual([...(cardHeads.get("note")?.heads ?? [])], ["note"])
-		assert.deepEqual([...(cardHeads.get("automatic")?.heads ?? [])], ["budget"])
-	})
+	it.effect(
+		"refuse a template needing an extension not installed in the schema its compiled names place it in",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/adapter/reader-capability",
+						generator: (source) =>
+							Arr.map(extensionNames, (name) => ({
+								name,
+								need: source.draw(element<Need>(["not needed", "anywhere", "in s1", "in s2"])),
+								installed: source.draw(element<Installed>(["absent", "in s1", "in s2"]))
+							})),
+						literal: Formatter.format,
+						limit: 144,
+						coverage: requiredInSpace<CapabilityFeature>([
+							"every one installed",
+							"one absent",
+							"one in another schema",
+							"one needed anywhere"
+						]),
+						box: "two extensions, each not needed, needed anywhere or in one of two schemas, and absent or installed in one of two schemas",
+						oracle: {
+							kind: "specification",
+							name: "the first needed extension not installed where it is needed"
+						},
+						caseHang
+					},
+					(extensions, c) =>
+						Effect.sync(() => {
+							const needed = Arr.filter(extensions, (e) => e.need !== "not needed")
+							const schemaOf = (where: "in s1" | "in s2"): string =>
+								where === "in s1" ? "s1" : "s2"
+							const requirements = {
+								extensions: Arr.map(needed, (e) => e.name),
+								extensionSchemas: Rec.fromEntries(
+									Arr.flatMap(needed, (e): ReadonlyArray<readonly [string, string]> =>
+										e.need === "in s1" || e.need === "in s2" ? [[e.name, schemaOf(e.need)]] : []
+									)
+								)
+							}
+							const installed = new Map(
+								Arr.flatMap(extensions, (e): ReadonlyArray<readonly [string, string]> =>
+									e.installed === "absent" ? [] : [[e.name, schemaOf(e.installed)]]
+								)
+							)
+							const lacking = Arr.findFirst(
+								needed,
+								(e) => e.installed === "absent" || (e.need !== "anywhere" && e.need !== e.installed)
+							)
+							assert.equal(
+								missingExtension(requirements, installed),
+								Option.match(lacking, {
+									onNone: () => undefined,
+									onSome: (e) =>
+										e.need === "anywhere"
+											? `extension ${e.name}`
+											: `extension ${e.name} in schema ${e.need === "in s1" ? "s1" : "s2"}`
+								})
+							)
+							c.note(
+								Option.match(lacking, {
+									onNone: () => "every one installed",
+									onSome: (e) => (e.installed === "absent" ? "one absent" : "one in another schema")
+								})
+							)
+							if (Arr.some(needed, (e) => e.need === "anywhere" && e.installed !== "absent")) {
+								c.note("one needed anywhere")
+							}
+						})
+				)
+			)
+	)
 })

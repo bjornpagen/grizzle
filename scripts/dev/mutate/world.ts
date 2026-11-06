@@ -11,10 +11,9 @@ import { regex } from "arkregex"
 /**
  * The operators of the `sql-world` family, each a compiler bug in the SQL that installs and enters a world:
  *
- * - world-conjunct: one argument of a SQL builder `and(...)` dropped, a conjunct of a policy's, a key probe's or a
- *   filter's predicate;
+ * - world-conjunct: one conjunct of a SQL builder `and([...])` dropped, or one list of them where the list is spread
+ *   into the conjunction (`and(appendNonEmpty([...], last))`), from a policy's, a key probe's or a filter's predicate;
  * - world-policy-true: a policy's USING or its WITH CHECK printed as `true`;
- * - world-policy-swap: a policy's USING and WITH CHECK expressions swapped, where they differ;
  * - world-barrier: security_barrier dropped from a view, in the printer and where a view's AST asks for it;
  * - world-definer: a function printed SECURITY INVOKER instead of its declared security;
  * - world-search-path: a function's search_path pin left out of its header;
@@ -24,7 +23,8 @@ import { regex } from "arkregex"
  *   UPDATE on an immutable relation, TRUNCATE;
  * - world-public-execute: EXECUTE granted to PUBLIC right after a function's REVOKE from PUBLIC;
  * - world-membership: a membership granted WITH INHERIT TRUE or SET FALSE, or a login created INHERIT;
- * - world-claims-session: a prologue `set_config` made for the session instead of the transaction;
+ * - world-claims-session: the ledger's `set_config` of a Db transaction's role and claims made for the session instead
+ *   of the transaction;
  * - world-context-field: a context source's claims read at the wrong key, each field read at its context's name;
  * - world-advance-max: an advance function's setval made unconditional, so it can move the sequence back;
  * - world-isolation-guard: the below-SERIALIZABLE refusal dropped from the isolation guard's body;
@@ -38,7 +38,6 @@ import { regex } from "arkregex"
 export const worldOperators = [
 	"world-conjunct",
 	"world-policy-true",
-	"world-policy-swap",
 	"world-barrier",
 	"world-definer",
 	"world-search-path",
@@ -61,11 +60,15 @@ const registryPath = "packages/engine/src/scalar/compute/registry.ts"
 /** The aggregate overloads, each declaring how it is lowered. */
 const aggregatePath = "packages/engine/src/scalar/aggregate.ts"
 
+/** The ledger's statements, among them the entry of every Db transaction, which sets its role and claims. */
+const ledgerPath = "packages/engine/src/deploy/ledger/ledger.ts"
+
 /**
  * The files whose code builds the emitted world SQL: the role, view, policy, function and grant DDL, the advance
- * function and the isolation guard, the membership rendering, the claims lowering, the
- * printer, and the adapter's transaction prologue; and the declarations every emitted reading and aggregate is
- * rendered by, the Compute catalogue and the aggregate overloads. Only their code takes a `sql-world` mutant.
+ * function and the isolation guard, the membership rendering, the claims lowering, the printer, and the ledger's
+ * statements, whose entry takes on a Db's role and claims for each transaction; and the declarations every emitted
+ * reading and aggregate is rendered by, the Compute catalogue and the aggregate overloads. Only their code takes a
+ * `sql-world` mutant.
  */
 const worldPaths: ReadonlyArray<string> = [
 	registryPath,
@@ -76,8 +79,7 @@ const worldPaths: ReadonlyArray<string> = [
 	"packages/engine/src/write/entry/",
 	"packages/engine/src/lower/conservative/claims/",
 	"packages/engine/src/sql/print.ts",
-	"packages/grizzle/src/adapter/wire/batch.ts",
-	"packages/grizzle/src/adapter/wire/session.ts"
+	ledgerPath
 ]
 
 const isWorldFile = (file: string): boolean =>
@@ -121,7 +123,7 @@ const substitutionAfter = (raw: string, prefix: string): Option.Option<Span> =>
 
 const policyClauses = ["USING (", "WITH CHECK ("] as const
 
-/** world-policy-true and world-policy-swap on one template literal and its siblings. */
+/** world-policy-true on one template literal. */
 const policyTemplate = (site: WorldSite, node: ts.TemplateExpression): void => {
 	const start = node.getStart(site.source)
 	const raw = textOf(site, node)
@@ -130,43 +132,6 @@ const policyTemplate = (site: WorldSite, node: ts.TemplateExpression): void => {
 			site.add("world-policy-true", start + sub.start, start + sub.end, "true")
 		}
 	}
-	const parent = node.parent
-	const using = substitutionAfter(raw, "USING (")
-	if (!ts.isArrayLiteralExpression(parent) || Option.isNone(using)) {
-		return
-	}
-	const checks = Arr.filterMap(parent.elements, (e) => {
-		const sub = ts.isTemplateExpression(e)
-			? substitutionAfter(textOf(site, e), "WITH CHECK (")
-			: Option.none()
-		return Option.isSome(sub) ? Result.succeed({ node: e, sub: sub.value }) : Result.failVoid
-	})
-	for (const check of checks) {
-		swapClauses(site, node, using.value, check)
-	}
-}
-
-/** world-policy-swap: the USING expression of `node` at `using` and a sibling's WITH CHECK expression swapped. */
-const swapClauses = (
-	site: WorldSite,
-	node: ts.TemplateExpression,
-	using: Span,
-	check: { readonly node: ts.Expression; readonly sub: Span }
-): void => {
-	const start = node.getStart(site.source)
-	const raw = textOf(site, node)
-	const checkRaw = textOf(site, check.node)
-	const withCheck = check.sub
-	const usingExpr = Str.slice(using.start, using.end)(raw)
-	const checkExpr = Str.slice(withCheck.start, withCheck.end)(checkRaw)
-	const checkStart = check.node.getStart(site.source)
-	const between = Str.slice(start + using.end, checkStart + withCheck.start)(site.text)
-	site.add(
-		"world-policy-swap",
-		start + using.start,
-		checkStart + withCheck.end,
-		`${checkExpr}${between}${usingExpr}`
-	)
 }
 
 /** world-definer, world-search-path and world-membership on the text of one template literal or string. */
@@ -196,7 +161,7 @@ const headerText = (site: WorldSite, node: ts.Node): void => {
 	}
 }
 
-/** world-barrier and world-claims-session on one plain string literal. */
+/** world-barrier on one plain string literal. */
 const plainString = (
 	site: WorldSite,
 	node: ts.StringLiteral | ts.NoSubstitutionTemplateLiteral
@@ -205,12 +170,6 @@ const plainString = (
 	const raw = textOf(site, node)
 	if (Str.includes("security_barrier")(raw)) {
 		site.add("world-barrier", start, node.end, '""')
-	}
-	for (const match of Str.matchAll(regex("set_config\\('[^']*', \\$\\d+, true\\)", "g"))(raw)) {
-		for (const index of Option.toArray(Option.fromUndefinedOr(match.index))) {
-			const at = start + index + match[0].length - "true)".length
-			site.add("world-claims-session", at, at + "true".length, "false")
-		}
 	}
 	headerText(site, node)
 }
@@ -251,25 +210,55 @@ const privilegeLists = (arg: ts.Expression): ReadonlyArray<ts.ArrayLiteralExpres
 const calleeName = (call: ts.CallExpression): string =>
 	ts.isIdentifier(call.expression) ? call.expression.text : ""
 
+/**
+ * The list of conjuncts an `and(...)` argument states, and how the argument is spelled with one of them dropped: a list
+ * literal keeps at least one conjunct, so it needs two; `appendNonEmpty([...], last)` always keeps `last`.
+ */
+const conjunctLists = (
+	site: WorldSite,
+	arg: ts.Expression
+): Option.Option<{
+	readonly list: ts.ArrayLiteralExpression
+	readonly spell: (kept: string) => string
+	readonly least: number
+}> => {
+	if (ts.isArrayLiteralExpression(arg)) {
+		return Option.some({ list: arg, spell: (kept) => kept, least: 2 })
+	}
+	const [list, last] = ts.isCallExpression(arg) ? arg.arguments : []
+	return ts.isCallExpression(arg) &&
+		calleeName(arg) === "appendNonEmpty" &&
+		list !== undefined &&
+		last !== undefined &&
+		ts.isArrayLiteralExpression(list)
+		? Option.some({
+				list,
+				spell: (kept) => `appendNonEmpty(${kept}, ${textOf(site, last)})`,
+				least: 1
+			})
+		: Option.none()
+}
+
 /** world-conjunct, world-grant and world-advance-max on one call. */
 const worldCall = (site: WorldSite, call: ts.CallExpression): void => {
 	const name = calleeName(call)
 	const args = call.arguments
-	if (name === "and" && args.length >= 2) {
-		for (const dropped of args.keys()) {
-			const kept = Arr.remove(args, dropped)
-			site.add(
-				"world-conjunct",
-				call.getStart(site.source),
-				call.end,
-				`and(${Arr.join(
-					Arr.map(kept, (a) => textOf(site, a)),
-					", "
-				)})`
-			)
+	const [first] = args
+	const conjuncts =
+		name === "and" && first !== undefined ? conjunctLists(site, first) : Option.none()
+	for (const { list, spell, least } of Option.toArray(conjuncts)) {
+		if (list.elements.length >= least) {
+			for (const dropped of list.elements.keys()) {
+				const kept = Arr.map(Arr.remove(list.elements, dropped), (e) => textOf(site, e))
+				site.add(
+					"world-conjunct",
+					call.getStart(site.source),
+					call.end,
+					`and(${spell(`[${Arr.join(kept, ", ")}]`)})`
+				)
+			}
 		}
 	}
-	const [first] = args
 	if (name === "grant" && first !== undefined) {
 		for (const list of privilegeLists(first)) {
 			privilegeList(site, list)
@@ -279,7 +268,7 @@ const worldCall = (site: WorldSite, call: ts.CallExpression): void => {
 	const advance = site.file === "packages/engine/src/physical/ddl/advance.ts"
 	if (
 		advance &&
-		name === "simpleSelect" &&
+		(name === "simpleSelect" || name === "core") &&
 		where !== undefined &&
 		ts.isCallExpression(where) &&
 		calleeName(where) === "gt"
@@ -463,11 +452,42 @@ const catalogBare = (site: WorldSite, call: ts.CallExpression): void => {
 	}
 }
 
+/**
+ * world-claims-session: in the ledger, a `call("set_config", [name, value, lit.bool(true)])`, a setting local to the
+ * transaction, made for the session: `lit.bool(false)`.
+ */
+const sessionSetting = (site: WorldSite, call: ts.CallExpression): void => {
+	const [fn, list] = call.arguments
+	if (
+		site.file !== ledgerPath ||
+		calleeName(call) !== "call" ||
+		fn === undefined ||
+		!ts.isStringLiteral(fn) ||
+		fn.text !== "set_config" ||
+		list === undefined ||
+		!ts.isArrayLiteralExpression(list)
+	) {
+		return
+	}
+	const local = list.elements[2]
+	const flag = local !== undefined && ts.isCallExpression(local) ? local.arguments[0] : undefined
+	if (
+		local !== undefined &&
+		ts.isCallExpression(local) &&
+		textOf(site, local.expression) === "lit.bool" &&
+		flag !== undefined &&
+		flag.kind === ts.SyntaxKind.TrueKeyword
+	) {
+		site.add("world-claims-session", flag.getStart(site.source), flag.end, "false")
+	}
+}
+
 /** Every `sql-world` mutant one node of a world file holds; the caller visits every node. */
 const visitWorld: (site: WorldSite, node: ts.Node) => void = (site, node) => {
 	if (ts.isCallExpression(node)) {
 		worldCall(site, node)
 		catalogBare(site, node)
+		sessionSetting(site, node)
 	}
 	if (ts.isTemplateExpression(node)) {
 		policyTemplate(site, node)
@@ -587,7 +607,7 @@ export const operators: ReadonlyArray<Operator> = [...OPERATORS, "set-semantics"
  * The classic family: comparison, conjunct, boolean-return and bound and guard from the library, and set-semantics,
  * grizzle's own.
  */
-export const classicOperators = [
+const classicOperators = [
 	"comparison",
 	"conjunct",
 	"boolean-return",

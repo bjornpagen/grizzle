@@ -557,6 +557,30 @@ const atSite = (
 		: Option.none()
 }
 
+/**
+ * The values at the edge of a claim field's refinement, which its encoder admits and PostgreSQL judges: a text's pattern
+ * edges (patterns.ts patternEdges), and a contract's bounds and the integers just past them; none for a field of no
+ * refinement.
+ */
+const refinementEdges = (domain: FieldDomain): ReadonlyArray<Json> => {
+	switch (domain.kind) {
+		case "text":
+			return Arr.map(patternEdges(domain), (edge) => jsonString(edge.value))
+		case "contract":
+			return Arr.map([domain.min - 1, domain.min, domain.max, domain.max + 1], (value): Json => ({
+				kind: "number",
+				value
+			}))
+		case "uuid":
+		case "integer":
+		case "serial":
+		case "boolean":
+		case "handle":
+		case "span":
+			return []
+	}
+}
+
 /** A wild maker over one claim object, the edit drawn; absent when the role reads none. */
 const atObject = (sites: ReadonlyArray<FieldSite>, json: Gen<Edit>): Option.Option<WildMaker> => {
 	const keys = [...new Set(Arr.flatMap(sites, (s) => (s.at.kind === "object" ? [s.at.key] : [])))]
@@ -682,17 +706,15 @@ const wildMakers = (
 			})
 		],
 		[
-			"pattern-edge",
+			"refinement-edge",
 			atSite(
 				sites,
-				(s) => s.domain.kind === "text",
+				(s) => Arr.isReadonlyArrayNonEmpty(refinementEdges(s.domain)),
 				(site) =>
-					site.domain.kind === "text"
-						? map(element(patternEdges(site.domain)), (edge): Edit => ({
-								kind: "set",
-								json: jsonString(edge.value)
-							}))
-						: constant({ kind: "drop" })
+					Arr.match(refinementEdges(site.domain), {
+						onEmpty: () => constant<Edit>({ kind: "drop" }),
+						onNonEmpty: (edges) => map(element(edges), (json): Edit => ({ kind: "set", json }))
+					})
 			)
 		],
 		[

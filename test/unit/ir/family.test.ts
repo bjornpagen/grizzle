@@ -13,11 +13,13 @@ import { searched } from "@grizzle/testing/vitest"
 import { Effect, Formatter } from "effect"
 import { identity, identifierOf, parseDeclaredName } from "#compiler/core/identity.ts"
 import { type Family, orderOf } from "#compiler/ir/family.ts"
-import type { LawField, LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { checking } from "#test/support/policy.ts"
 
 const int8: ScalarType = { carrier: "int8", caps: capabilitiesOf("int8"), contract: undefined }
 
@@ -30,14 +32,19 @@ const fieldOf = (name: string, position: number): LawField => ({
 	writing: { kind: "drawn" }
 })
 
-const relationOf = (
-	name: string,
-	fields: readonly [LawField, ...Array<LawField>]
-): LawRelation => ({
-	name,
-	fields,
-	keyNames: []
-})
+/** The ordinary relations a family's owner and member are, as the checker resolves them. */
+const checked = checking({
+	name: "Families",
+	relations: [
+		relation("Owner", { id: f.uuid, count: f.drawn }, ["id"]),
+		relation("Member", { id: f.uuid, owner: f.uuid, at: f.drawn }, ["id"])
+	],
+	statements: [],
+	extends: undefined
+} satisfies SchemaDesc)
+
+const relationOf = (name: string): RelationInfo =>
+	defined(checked.relations.get(name), `the checked relation ${name}`)
 
 const at = fieldOf("at", 1)
 const lawIndex = identifierOf(identity.lawColumn({ kind: "index", owner: "Owner", count: "count" }))
@@ -57,8 +64,8 @@ const shapes: Gen<Shape> = (s) => ({
 })
 
 const familyOf = (shape: Shape): Family => {
-	const owner = relationOf("Owner", [fieldOf("id", 0), fieldOf("count", 1)])
-	const member = relationOf("Member", [fieldOf("owner", 0), at])
+	const owner = relationOf("Owner")
+	const member = relationOf("Member")
 	const index: NativeColumn =
 		shape.index === "field" ? { kind: "field", field: at } : { kind: "law", column: lawIndex }
 	return {

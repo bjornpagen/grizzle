@@ -6,10 +6,13 @@ import { maxStringLength } from "#compiler/core/limits.ts"
 import * as EngineResult from "#compiler/core/result.ts"
 import {
 	cellWidth,
+	type Constant,
+	constantDigestOf,
 	constantOf,
 	type KeyCollision,
 	type CellLayout,
 	keyCells,
+	literalOf,
 	spaceSize
 } from "#compiler/ir/cells.ts"
 import type {
@@ -30,8 +33,7 @@ import {
 	printType,
 	quoteIdent
 } from "#compiler/sql/print.ts"
-import { nonEmpty } from "#test/support/assert.ts"
-import { bitText } from "#test/support/closed/bit-text.ts"
+import { hexOfText, installedText } from "#test/support/closed/bit-text.ts"
 
 /**
  * The tests' one door of SQL text to grizzle's wire: a statement a wire suite sends that neither the engine's AST nor
@@ -150,23 +152,27 @@ export const membersOf = (relation: HandClosed<string>): ReadonlyArray<Member> =
 	return Arr.sort(members, byRank)
 }
 
+/** A relation's constant as the host's encoder builds it from its members (ir/cells.ts constantOf). */
+const hostConstant = (relation: HandClosed<string>): EngineResult.Result<Constant, KeyCollision> =>
+	constantOf(
+		layoutOf(relation),
+		Arr.map(membersOf(relation), (m) => ({
+			key: m.key,
+			payload: Arr.map(relation.payload, (size, i) => digitOf(relation.payload, size, i, m.code))
+		}))
+	)
+
 /**
- * A relation's constant as the host builds it from its members, in PostgreSQL's bit-string text (ir/cells.ts
- * constantOf's entries, written by the test oracle bitText): what the constant PostgreSQL packs must equal. Its members lie at distinct
- * cells, so the key holds, and the text is far below the longest string V8 builds.
+ * A relation's constant as the host builds it from its members, in PostgreSQL's bit-string text once installed
+ * (ir/cells.ts constantOf's entries, written by the test oracle installedText, padded to whole hex digits): what the
+ * constant PostgreSQL holds must equal. Its members lie at distinct cells, so the key holds, and the text is far below
+ * the longest string V8 builds.
  */
 export const hostBits = (
 	relation: HandClosed<string>
 ): EngineResult.Result<string, KeyCollision | CompileBound> =>
-	EngineResult.flatMap(
-		constantOf(
-			layoutOf(relation),
-			Arr.map(membersOf(relation), (m) => ({
-				key: m.key,
-				payload: Arr.map(relation.payload, (size, i) => digitOf(relation.payload, size, i, m.code))
-			}))
-		),
-		(constant) => bitText(constant, maxStringLength.value)
+	EngineResult.flatMap(hostConstant(relation), (constant) =>
+		installedText(constant, maxStringLength.value)
 	)
 
 /** A member's columns in its relation's members table, beside its key: its rank and its payload code. */
@@ -274,23 +280,23 @@ export const derivedExpr = (constant: ObjectName, relation: HandClosed<string>):
 	applied(constant, rowIndex(relation), widthOf(relation))
 
 /**
- * The migration's pack of a relation's constant into the IMMUTABLE function `constant` (sql/constants.ts pack): its
- * members as VALUES rows at their cells, joined to the cells. A row's names are its key codes' texts.
+ * The migration's statement of a relation's constant as the IMMUTABLE function `constant` (sql/constants.ts pack): its
+ * hex literal, the host's encoding of its members (ir/cells.ts literalOf), under its row count and content digest. Its
+ * members lie at distinct cells, so the host's encoder never refuses them.
  */
-export const packSql = (constant: ObjectName, relation: HandClosed<string>): string =>
-	printStatement(
-		pack(constant, BigInt(cellCount(relation)), widthOf(relation), {
-			kind: "rows",
-			rows: nonEmpty(
-				Arr.map(membersOf(relation), (m) => ({
-					index: BigInt(m.index),
-					payload: BigInt(m.code),
-					names: Arr.map(m.key, (code) => String(code))
-				})),
-				`the members of ${relation.name}`
-			)
+export const packSql = (constant: ObjectName, relation: HandClosed<string>): string => {
+	const encoded = hostConstant(relation)
+	if (!encoded.ok) {
+		throw new Error(`the members of ${relation.name} lie at distinct cells`)
+	}
+	return printStatement(
+		pack(constant, encoded.value.cells, encoded.value.width, {
+			hex: literalOf(encoded.value),
+			rows: encoded.value.entries.length,
+			digest: constantDigestOf(encoded.value)
 		})
 	)
+}
 
 /** The drop of a zero-argument constant's function, RESTRICT: it fails while a domain, CHECK or column still reads it. */
 export const dropConstantSql = (constant: ObjectName): string =>
@@ -407,7 +413,8 @@ export const namesConstantSql = (fn: ObjectName, names: ReadonlyArray<string>): 
 	})
 
 /**
- * A roster's live-code constant, the engine's CreateConstant over bit varying: position c is 1 exactly when code c is
+ * A roster's live-code constant, the engine's CreateConstant over bit varying, its body the hex literal of `live`, a
+ * set's text whole hex digits long (test/support/closed/bit-text.ts setText): position c is 1 exactly when code c is
  * live (OPEN-2 (a), measured against (b)).
  */
 export const liveConstantSql = (fn: ObjectName, live: string): string =>
@@ -416,7 +423,7 @@ export const liveConstantSql = (fn: ObjectName, live: string): string =>
 		name: fn,
 		params: [],
 		returns: types.varbit,
-		body: lit.text(live, types.varbit)
+		body: lit.bits(hexOfText(live), types.varbit)
 	})
 
 /** VALUE + 1: a code's position in its names array, which counts from 1. */
@@ -425,7 +432,7 @@ const valuePosition: Expr = binary("+", { kind: "domainValue" }, lit.int(1, type
 /**
  * A roster domain over smallint, the engine's CreateDomain with its one CHECK, read off `check`: under OPEN-2 (b) a
  * code is live when its name is not the hole's, `((names())[VALUE + 1] <> ''::pg_catalog.name) IS TRUE`; under (a)
- * when its bit of the live constant is set, `(substring(live(), VALUE + 1, 1) = '1'::bit(1)) IS TRUE`.
+ * when its bit of the live constant is set, `(substring(live(), VALUE + 1, 1)::integer = 1) IS TRUE`.
  */
 export const rosterDomainSql = (
 	domain: ObjectName,

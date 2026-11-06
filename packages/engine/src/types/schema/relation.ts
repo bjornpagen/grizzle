@@ -358,19 +358,6 @@ type ClosedRead<D, Sql extends SqlTag, F extends Facts, L> = Term<
 	L
 >
 
-/**
- * How closed.relation's migration states its constants: `pack: "rows"`, the default, lists its rows, a line each with
- * the handles it holds, for a person to review; `pack: "hex"` states each constant as one bit-string literal, for rows
- * a machine builds and no person reviews. A pack whose rows do not fit one statement is hex whatever is declared, and a
- * change of form installs nothing: either form installs the same constant.
- */
-export interface ClosedRelationOptionRecord {
-	readonly pack?: "rows" | "hex"
-}
-
-/** closed.relation's trailing argument: none, its rows listed, or its options (ClosedRelationOptionRecord). */
-export type ClosedRelationOptions = readonly [] | readonly [options: ClosedRelationOptionRecord]
-
 export interface ClosedRelation<
 	Name extends string,
 	Fields extends Readonly<Record<string, FieldBase>>,
@@ -381,8 +368,6 @@ export interface ClosedRelation<
 	readonly fields: Fields
 	readonly key: Key
 	readonly rows: ReadonlyArray<FactOfFields<Fields>>
-	/** How its migration states its constants, as declared (ClosedRelationOptions), its rows by default. */
-	readonly pack: "rows" | "hex"
 	readonly fact: RowDecoder<FactOfFields<Fields>>
 	readonly heading: Fields
 	/**

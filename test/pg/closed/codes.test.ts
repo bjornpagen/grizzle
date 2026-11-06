@@ -1,7 +1,8 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { element, type Gen, subset } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
@@ -41,7 +42,7 @@ import { role } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { apply, kept, noFurther, openMigrator, reviewedSource } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { setText } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	ALIAS_CODE,
 	codeAt,
@@ -95,9 +96,10 @@ import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
  * 6. A role without EXECUTE on the names constant is refused with 42501, a writer at the domain's CHECK and a reader at
  *    its view's decoded column; with the installed grants both pass, and every role that writes or decodes a roster's
  *    codes holds EXECUTE on its constant.
- * 7. A set round-trips through its bit(n) column: the text the writer sends is the model's positional text (setText),
- *    PostgreSQL returns it, and the host decodes it to the set sent. After the roster grows, the column is a domain over
- *    bit(n′) and every stored set decodes unchanged; after a removal, VALIDATE names the column of every set that still
+ * 7. A set round-trips through its bit(n) column, n its codes rounded up to whole hex digits: the text the writer
+ *    sends is X then the hex digits of the model's positional text (setText), PostgreSQL stores the positional text,
+ *    and the host decodes it to the set sent. After the roster grows, the column is a domain over bit(n′), every stored
+ *    set padded with 0s to it, and decodes unchanged; after a removal, VALIDATE names the column of every set that still
  *    holds the removed handle, the data step clears its bit, and the domain then refuses a set holding it.
  * 8. The names constant is the model's names in code order, a hole the empty name: an IMMUTABLE function of no
  *    argument and no SET clause, returning a 1-based name[] of `size` elements, the one function its domain's CHECK
@@ -480,12 +482,16 @@ const subsetsOf = (state: RosterState): ReadonlyArray<ReadonlyArray<string>> => 
 	])
 }
 
-/** The model's text of a set: position c is 1 exactly when the set holds code c's handle. */
+/** The model's text of a set: position c is 1 exactly when the set holds code c's handle, every padding bit 0. */
 const modelText = (state: RosterState, members: ReadonlyArray<string>): string =>
 	setText(
 		sizeOf(state),
 		Arr.map(members, (h) => defined(codeAt(state, h), `${h} is live`))
 	)
+
+/** The model's wire text of a set: X, then the hex digits of its positional text. */
+const wireText = (state: RosterState, members: ReadonlyArray<string>): string =>
+	`X${hexOfText(modelText(state, members))}`
 
 /** The type of a column as the catalog holds it: its own type's kind, and its base type formatted with its typmod. */
 const columnTypeOf = (session: RawSession, table: string, column: string) =>
@@ -513,6 +519,46 @@ const domainCheckOf = (
 		assert.equal(rows.length, 1, `${domain.name} carries one CHECK`)
 		return trusted<ConstraintName>(String(defined(rows[0])[0]))
 	})
+
+/** A roster of a VALIDATE case: a hole pattern, and the codes of its installation its rows hold, in code order. */
+interface HeldRoster {
+	readonly state: RosterState
+	readonly held: ReadonlyArray<number>
+}
+
+/** One to four hole patterns, each with a subset of its five installed codes held by a row. */
+interface ValidateCase {
+	readonly rosters: ReadonlyArray<HeldRoster>
+}
+
+const validateCaseGen: Gen<ValidateCase> = (source) => ({
+	rosters: Arr.map(source.draw(subset(patterns, { min: 1, max: 4 })), (state) => ({
+		state,
+		held: source.draw(
+			subset(
+				Arr.makeBy(patternSize, (code) => code),
+				{ min: 0, max: patternSize }
+			)
+		)
+	}))
+})
+
+type ValidateFeature =
+	| "a table holding a removed code named"
+	| "a table of holes holding only live codes"
+	| "two tables named in turn"
+
+const validateFeatures = (c: ValidateCase, named: number): ReadonlyArray<ValidateFeature> => [
+	...(named > 0 ? ["a table holding a removed code named" as const] : []),
+	...(named > 1 ? ["two tables named in turn" as const] : []),
+	...(Arr.some(
+		c.rosters,
+		(r) =>
+			holesOf(r.state).length > 0 && Arr.every(r.held, (code) => !holesOf(r.state).includes(code))
+	)
+		? ["a table of holes holding only live codes" as const]
+		: [])
+]
 
 layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 	it.effect(
@@ -605,176 +651,238 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 
 	it.effect(
 		"the view decodes every stored code as the host does, and the names constant names each code, a hole the empty name, the one function its domain reads, which RESTRICT keeps",
-		() =>
-			Effect.scoped(
-				Effect.gen(function* () {
-					const histories = Arr.map(patterns, patternHistory)
-					const { m } = yield* installFirst("closed_codes_decode", (name) =>
-						probesOf(
-							name,
-							Arr.map(histories, (h) => h.installed)
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.scoped(
+					Effect.gen(function* () {
+						const histories = Arr.map(patterns, patternHistory)
+						const { m } = yield* installFirst("closed_codes_decode", (name) =>
+							probesOf(
+								name,
+								Arr.map(histories, (h) => h.installed)
+							)
 						)
-					)
-					const last = probesOf(
-						m.declared,
-						Arr.map(histories, (h) => h.state)
-					)
-					const next = yield* draftNext(m, m.snapshot, last.version, 2, holeDrops(patterns))
-					yield* applyNext(m, [next])
-					const codes = next.codes
-					const writer = yield* sessionOf(m, last.writer, "writer")
-					const reader = yield* sessionOf(m, last.reader, "reader")
-					const view = roleNamesOf(m, last.reader)
-					for (const state of patterns) {
-						const live = liveOf(state)
-						yield* writer.begin
-						for (const [i, handle] of live.entries()) {
-							yield* writer.query(insertCode(m, state), [i, defined(codeAt(state, handle))])
-						}
-						yield* writer.commit
-						const codec = scalarCodec(codeType(state), codes)
-						const rows = yield* reader.values(
-							`SELECT v.${view.column(probeOf(state), "code")}::text, v.${decodedColumn} FROM ${view.view(probeOf(state))} AS v ORDER BY v.${view.column(probeOf(state), "id")}`,
-							[]
+						const last = probesOf(
+							m.declared,
+							Arr.map(histories, (h) => h.state)
 						)
-						assert.deepEqual(
-							Arr.map(rows, ([code, decoded]) => ({
-								host: codec.convert(String(code)),
-								postgres: String(decoded)
-							})),
-							Arr.map(live, (handle) => ({ host: handle, postgres: handle })),
-							`every stored code of ${state.closed} decodes to its handle, on the host and in the view`
+						const next = yield* draftNext(m, m.snapshot, last.version, 2, holeDrops(patterns))
+						yield* applyNext(m, [next])
+						const codes = next.codes
+						const constants = yield* m.owner.values(
+							`SELECT count(*)::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.prorettype = 'pg_catalog.name[]'::regtype`,
+							[m.schema]
 						)
-						const columns = yield* m.owner.values(
-							`SELECT a.attname::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = $1::text::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`,
-							[view.view(probeOf(state))]
+						assert.equal(
+							Number(defined(constants[0])[0]),
+							patterns.length,
+							"the schema holds one names constant per roster, the migration having dropped every replaced one"
 						)
-						assert.deepEqual(
-							Arr.map(columns, (r) => String(r[0])),
-							[
-								m.names.column(probeOf(state), "id"),
-								m.names.column(probeOf(state), "code"),
-								identifierOf(identity.decodedColumn(parsedName("code")))
-							],
-							`the view of ${state.closed} decodes its code in the column after it`
+						const writer = yield* sessionOf(m, last.writer, "writer")
+						const reader = yield* sessionOf(m, last.reader, "reader")
+						const view = roleNamesOf(m, last.reader)
+						return yield* exhaust(
+							{
+								suite: "pg/closed/codes/decode",
+								generator: element(patterns),
+								literal: (state: RosterState) => state.closed,
+								limit: patterns.length,
+								box: "every hole pattern of a 5-code roster",
+								oracle: {
+									kind: "second-implementation",
+									name: "the host's decode of each stored code, and the history model's names in code order"
+								},
+								coverage: requiredInSpace<RosterFeature>(["holes 0", "holes 1", "holes 2+"]),
+								caseHang
+							},
+							(state, c) =>
+								Effect.gen(function* () {
+									c.note(holeFeature(state))
+									const live = liveOf(state)
+									yield* m.owner.query(`DELETE FROM ${probeTable(m, state).table}`, [])
+									yield* writer.begin
+									for (const [i, handle] of live.entries()) {
+										yield* writer.query(insertCode(m, state), [i, defined(codeAt(state, handle))])
+									}
+									yield* writer.commit
+									const codec = scalarCodec(codeType(state), codes)
+									const rows = yield* reader.values(
+										`SELECT v.${view.column(probeOf(state), "code")}::text, v.${decodedColumn} FROM ${view.view(probeOf(state))} AS v ORDER BY v.${view.column(probeOf(state), "id")}`,
+										[]
+									)
+									assert.deepEqual(
+										Arr.map(rows, ([code, decoded]) => ({
+											host: codec.convert(String(code)),
+											postgres: String(decoded)
+										})),
+										Arr.map(live, (handle) => ({ host: handle, postgres: handle })),
+										`every stored code of ${state.closed} decodes to its handle, on the host and in the view`
+									)
+									const columns = yield* m.owner.values(
+										`SELECT a.attname::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = $1::text::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`,
+										[view.view(probeOf(state))]
+									)
+									assert.deepEqual(
+										Arr.map(columns, (r) => String(r[0])),
+										[
+											m.names.column(probeOf(state), "id"),
+											m.names.column(probeOf(state), "code"),
+											identifierOf(identity.decodedColumn(parsedName("code")))
+										],
+										`the view of ${state.closed} decodes its code in the column after it`
+									)
+									const constant = yield* constantOf(m.owner, domainOf(m, state))
+									const held = yield* namesHeld(reader, constant.call)
+									assert.deepEqual(
+										held,
+										{ lower: "1", cardinality: sizeOf(state), names: [...modelNames(state)] },
+										`the names constant of ${state.closed}`
+									)
+									const refused = yield* expectSqlstate(
+										m.owner.query(`DROP FUNCTION ${constant.call} RESTRICT`, []),
+										"2BP01"
+									)
+									const detail = Option.getOrElse(refused.detail, () => "")
+									assert.ok(
+										Str.includes(checkOf(state))(detail) &&
+											Str.includes(domainOf(m, state).name)(detail),
+										`dropping the constant of ${state.closed} names its domain's CHECK: ${detail}`
+									)
+									const after = yield* namesHeld(reader, constant.call)
+									assert.deepEqual(after, held, `RESTRICT keeps the constant of ${state.closed}`)
+								})
 						)
-						const constant = yield* constantOf(m.owner, domainOf(m, state))
-						const held = yield* namesHeld(reader, constant.call)
-						assert.deepEqual(
-							held,
-							{ lower: "1", cardinality: sizeOf(state), names: [...modelNames(state)] },
-							`the names constant of ${state.closed}`
-						)
-						const refused = yield* expectSqlstate(
-							m.owner.query(`DROP FUNCTION ${constant.call} RESTRICT`, []),
-							"2BP01"
-						)
-						const detail = Option.getOrElse(refused.detail, () => "")
-						assert.ok(
-							Str.includes(checkOf(state))(detail) && Str.includes(domainOf(m, state).name)(detail),
-							`dropping the constant of ${state.closed} names its domain's CHECK: ${detail}`
-						)
-						const after = yield* namesHeld(reader, constant.call)
-						assert.deepEqual(after, held, `RESTRICT keeps the constant of ${state.closed}`)
-					}
-					const constants = yield* m.owner.values(
-						`SELECT count(*)::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.prorettype = 'pg_catalog.name[]'::regtype`,
-						[m.schema]
-					)
-					assert.equal(
-						Number(defined(constants[0])[0]),
-						patterns.length,
-						"the schema holds one names constant per roster, the migration having dropped every replaced one"
-					)
-				})
+					})
+				)
 			)
 	)
 
 	it.effect(
 		"VALIDATE refuses a removed code a row still holds, naming its table and column, and the migration applies after the data step",
-		() =>
-			Effect.scoped(
-				Effect.gen(function* () {
-					const histories = Arr.map(patterns, patternHistory)
-					const { m, first } = yield* installFirst("closed_codes_validate", (name) =>
-						probesOf(
-							name,
-							Arr.map(histories, (h) => h.installed)
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/closed/codes/validate",
+						draw: drawn(validateCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "second-implementation",
+							name: "the tables whose rows hold a code the history model removes"
+						},
+						coverage: required<ValidateFeature>(
+							[
+								"a table holding a removed code named",
+								"a table of holes holding only live codes",
+								"two tables named in turn"
+							],
+							{ cases: 12, sense: notesOnly }
+						),
+						kept: [],
+						runs: 4,
+						shrink: { kind: "bounded", candidates: 8 },
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang
+					},
+					(c, k) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const states = nonEmpty(
+									Arr.map(c.rosters, (r) => r.state),
+									"a case's rosters"
+								)
+								const histories = Arr.map(states, patternHistory)
+								const { m, first } = yield* installFirst("closed_codes_validate", (name) =>
+									probesOf(
+										name,
+										Arr.map(histories, (h) => h.installed)
+									)
+								)
+								const writer = yield* sessionOf(m, first.writer, "writer")
+								yield* writer.begin
+								for (const [r, h] of Arr.zip(c.rosters, histories)) {
+									for (const code of r.held) {
+										yield* writer.query(insertCode(m, h.installed), [code, code])
+									}
+								}
+								yield* writer.commit
+								const next = yield* draftNext(
+									m,
+									m.snapshot,
+									probesOf(
+										m.declared,
+										Arr.map(histories, (h) => h.state)
+									).version,
+									2,
+									holeDrops(states)
+								)
+								const holding = Arr.filter(c.rosters, (r) =>
+									Arr.some(r.held, (code) => holesOf(r.state).includes(code))
+								)
+								const expected = Arr.map(holding, (r) => ({
+									table: m.names.relation(probeOf(r.state)).name,
+									column: m.names.column(probeOf(r.state), "code")
+								}))
+								const named: Array<{ readonly table: string; readonly column: string }> = []
+								let applied = false
+								for (let attempt = 0; !applied && attempt <= expected.length; attempt += 1) {
+									const failure = yield* Effect.match(applyNext(m, [next]), {
+										onSuccess: () => undefined,
+										onFailure: (e) => e
+									})
+									if (failure === undefined) {
+										applied = true
+										continue
+									}
+									assert.equal(failure.stage, "statement", failure.message)
+									const server = serverOf(failure)
+									assert.equal(server.sqlstate, sqlstates.checkViolation, failure.message)
+									const at = {
+										table: defined(server.table, "VALIDATE names the table"),
+										column: defined(server.column, "VALIDATE names the column")
+									}
+									named.push(at)
+									const state = defined(
+										Arr.findFirst(
+											holding,
+											(r) => m.names.relation(probeOf(r.state)).name === at.table
+										).pipe(
+											Option.map((r) => r.state),
+											Option.getOrUndefined
+										),
+										`VALIDATE names a table holding a removed code: ${at.table}`
+									)
+									const p = probeTable(m, state)
+									yield* m.owner.query(
+										`DELETE FROM ${p.table} WHERE ${p.code} = ANY ($1::text::smallint[])`,
+										[`{${Arr.join(Arr.map(holesOf(state), String), ",")}}`]
+									)
+								}
+								assert.ok(applied, "the migration applies once no row holds a removed code")
+								unorderedEqual(
+									named,
+									expected,
+									"VALIDATE names every table holding a removed code, once each"
+								)
+								for (const r of c.rosters) {
+									const p = probeTable(m, r.state)
+									const stored = yield* m.owner.values(
+										`SELECT ${p.code}::text FROM ${p.table} ORDER BY ${p.code}`,
+										[]
+									)
+									assert.deepEqual(
+										Arr.map(stored, (row) => Number(row[0])),
+										Arr.filter(r.held, (code) => !holesOf(r.state).includes(code)),
+										`${r.state.closed} keeps exactly its live codes' rows`
+									)
+								}
+								k.noteAll(validateFeatures(c, named.length))
+							})
 						)
-					)
-					const writer = yield* sessionOf(m, first.writer, "writer")
-					yield* writer.begin
-					for (const h of histories) {
-						for (const code of Arr.makeBy(sizeOf(h.installed), (c) => c)) {
-							yield* writer.query(insertCode(m, h.installed), [code, code])
-						}
-					}
-					yield* writer.commit
-					const next = yield* draftNext(
-						m,
-						m.snapshot,
-						probesOf(
-							m.declared,
-							Arr.map(histories, (h) => h.state)
-						).version,
-						2,
-						holeDrops(patterns)
-					)
-					const holding = Arr.filter(patterns, (s) => holesOf(s).length > 0)
-					const expected = Arr.map(holding, (s) => ({
-						table: m.names.relation(probeOf(s)).name,
-						column: m.names.column(probeOf(s), "code")
-					}))
-					const named: Array<{ readonly table: string; readonly column: string }> = []
-					let applied = false
-					for (let attempt = 0; !applied && attempt <= expected.length; attempt += 1) {
-						const failure = yield* Effect.match(applyNext(m, [next]), {
-							onSuccess: () => undefined,
-							onFailure: (e) => e
-						})
-						if (failure === undefined) {
-							applied = true
-							continue
-						}
-						assert.equal(failure.stage, "statement", failure.message)
-						const server = serverOf(failure)
-						assert.equal(server.sqlstate, sqlstates.checkViolation, failure.message)
-						const at = {
-							table: defined(server.table, "VALIDATE names the table"),
-							column: defined(server.column, "VALIDATE names the column")
-						}
-						named.push(at)
-						const state = defined(
-							Arr.findFirst(holding, (s) => m.names.relation(probeOf(s)).name === at.table).pipe(
-								Option.getOrUndefined
-							),
-							`VALIDATE names a table holding a removed code: ${at.table}`
-						)
-						const p = probeTable(m, state)
-						yield* m.owner.query(
-							`DELETE FROM ${p.table} WHERE ${p.code} = ANY ($1::text::smallint[])`,
-							[`{${Arr.join(Arr.map(holesOf(state), String), ",")}}`]
-						)
-					}
-					assert.ok(applied, "the migration applies once no row holds a removed code")
-					unorderedEqual(
-						named,
-						expected,
-						"VALIDATE names every table holding a removed code, once each"
-					)
-					for (const state of patterns) {
-						const p = probeTable(m, state)
-						const stored = yield* m.owner.values(
-							`SELECT ${p.code}::text FROM ${p.table} ORDER BY ${p.code}`,
-							[]
-						)
-						assert.deepEqual(
-							Arr.map(stored, (r) => Number(r[0])),
-							Arr.flatMap(state.slots, (slot, code) => (slot.kind === "live" ? [code] : [])),
-							`${state.closed} keeps exactly its live codes' rows`
-						)
-					}
-				})
+				)
 			)
 	)
 
@@ -919,11 +1027,11 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 								const text = succeeded(codec.encode(new Set(set)), "a set of live handles")
 								assert.equal(
 									text,
-									modelText(state, set),
+									wireText(state, set),
 									`the wire text of ${Formatter.format(set)}`
 								)
 								yield* writer.query(
-									`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${sizeOf(state)}))`,
+									`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${wholeDigits(sizeOf(state))}))`,
 									[from + i, text]
 								)
 							}
@@ -965,13 +1073,13 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 					const grownType = yield* columnTypeOf(m.owner, table, m.names.column("Sets", "members"))
 					assert.deepEqual(
 						{ kind: grownType.kind, base: grownType.base },
-						{ kind: "d", base: `bit(${sizeOf(grown)})` },
+						{ kind: "d", base: `bit(${wholeDigits(sizeOf(grown))})` },
 						"after the roster grows, the column is a domain over bit(n′)"
 					)
 					const grownTexts = yield* storedTexts
 					assert.deepEqual(
 						grownTexts,
-						Arr.map(firstTexts, (t) => `${t}0`),
+						Arr.map(firstTexts, (t) => Str.padEnd(wholeDigits(sizeOf(grown)), "0")(t)),
 						"the widening pads every stored set with the new code absent"
 					)
 					assert.deepEqual(
@@ -1010,7 +1118,7 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 						"VALIDATE names the column of the sets that still hold the removed handle"
 					)
 					yield* m.owner.query(
-						`UPDATE ${table} SET ${members} = ${members} & $1::text::bit(${sizeOf(removed)})`,
+						`UPDATE ${table} SET ${members} = ${members} & $1::text::bit(${wholeDigits(sizeOf(removed))})`,
 						[
 							setText(
 								sizeOf(removed),
@@ -1033,7 +1141,7 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc1", (it) => {
 						inTransaction(
 							writer,
 							writer.query(
-								`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${sizeOf(removed)}))`,
+								`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${wholeDigits(sizeOf(removed))}))`,
 								[-1, setText(sizeOf(removed), [defined(codeAt(grown, "Done"))])]
 							)
 						),

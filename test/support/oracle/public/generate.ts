@@ -722,6 +722,14 @@ interface OrderSketch {
 	readonly size: number
 }
 
+/**
+ * A root's `.orderBy(...).take(k)`: its order, and whether the stated order leaves out its last column (its upper
+ * half), whose ties the take's completion breaks (program.ts takeOrder).
+ */
+interface TakeSketch extends OrderSketch {
+	readonly ties: number
+}
+
 interface ChildSketch {
 	readonly name: number
 	readonly link: number
@@ -771,7 +779,7 @@ interface PlantedSketch {
 
 interface ReadSketch {
 	readonly rule: RuleSketch
-	readonly take: OrderSketch
+	readonly take: TakeSketch
 	readonly literalHead: LiteralHeadSketch
 	/**
 	 * Whether a read below the last binds its first match's first key field to a parameter, so a later read may import
@@ -965,6 +973,11 @@ const orderGen: Gen<OrderSketch> = (decisions) => ({
 	size: decisions.draw(pickGen)
 })
 
+const takeGen: Gen<TakeSketch> = (decisions) => ({
+	...decisions.draw(orderGen),
+	ties: decisions.draw(pickGen)
+})
+
 const childGen: Gen<ChildSketch> = (decisions) => ({
 	name: decisions.draw(pickGen),
 	link: decisions.draw(pickGen),
@@ -983,7 +996,7 @@ const factGen: Gen<FactSketch> = (decisions) => ({ values: decisions.draw(fixed(
 
 const readGen: Gen<ReadSketch> = (decisions) => ({
 	rule: decisions.draw(ruleGen),
-	take: decisions.draw(orderGen),
+	take: decisions.draw(takeGen),
 	literalHead: {
 		name: decisions.draw(pickGen),
 		kind: decisions.draw(pickGen),
@@ -1082,8 +1095,9 @@ const populationSwarm = (population: DrawnPopulation): Gen<Swarm<SwarmFeature>> 
 /**
  * The names a planted case draws, one pick each: its relation and four fields, the root's head key of each field, its
  * two attachments and the signed child's nested one, and each child's head key; the import's and the mixed root's
- * head keys; the collapse's, the means' and the fused read's head keys and attachment; and the vector relation, its
- * fields, its read's head keys, attachment, nested attachment and their head keys.
+ * head keys; the collapse's, the means' and the fused read's head keys and attachment; the vector relation, its
+ * fields, its read's head keys, attachment, nested attachment and their head keys; and the ranked relation, its fields
+ * and its read's head keys.
  */
 const plantedNames = [
 	"relation",
@@ -1127,7 +1141,12 @@ const plantedNames = [
 	"vector attachment",
 	"vector child column",
 	"vector nested",
-	"vector nested column"
+	"vector nested column",
+	"ranked relation",
+	"ranked key field",
+	"rank field",
+	"ranked key column",
+	"rank column"
 ] as const
 type PlantedName = (typeof plantedNames)[number]
 
@@ -1174,7 +1193,9 @@ export const plantedNameCount = plantedNames.length
  * - A planted case (plantedCase). What the drawn populations reach too rarely to rely on, a case of the planted
  *   population reaches by construction: two parent rows whose key holds one value in two spellings, each with
  *   children, under a pipelined attachment, an arm read Some and None, a key get of a stored fact and of a key no fact
- *   holds, and a get of a roster handle.
+ *   holds, a get of a roster handle, and a root take whose rows its descending key orders apart and ties.
+ * - Ties in a root take. A root take's stated order may leave out one column of its heading, so the rows its stated
+ *   keys tie are ordered by the take's completion, by that column, ascending (program.ts takeOrder).
  *
  * The sketch is what a suite prints and keeps: plain picks, its population and its swarm. Resolving it (resolveCase)
  * draws from the case's decisions only where the swarm thins a feature (weight 1 or 2) or chooses among features, so a
@@ -2776,6 +2797,18 @@ const orderOf = (
 }
 
 /**
+ * A root take's stated order: orderOf's, less its last column where the sketch leaves it out and another stays, so the
+ * rows the stated keys tie are ordered by the take's completion (program.ts takeOrder).
+ */
+const statedTakeOrder = (
+	heading: Arr.NonEmptyReadonlyArray<Column>,
+	sketch: TakeSketch
+): Arr.NonEmptyReadonlyArray<OrderKey> => {
+	const [first, ...rest] = orderOf(heading, sketch)
+	return upper(sketch.ties) ? [first, ...Arr.dropRight(rest, 1)] : [first, ...rest]
+}
+
+/**
  * Whether equal values of a type print apart (gen/domain.ts twinSpellings), which a stitch by text misreads: a double
  * precision's 0 and -0, a vector's -0 components, a computed numeric's display scales; never a numeric(p, s)'s, which
  * stores every spelling of a value at its scale s.
@@ -3196,7 +3229,7 @@ const resolveRoot = (
 		columns !== undefined && scope.keep("take")
 			? {
 					kind: "take",
-					order: orderOf(columns, sketch.take),
+					order: statedTakeOrder(columns, sketch.take),
 					k: 1 + pickIndex(sketch.take.size, 3)
 				}
 			: { kind: "set" }
@@ -3399,7 +3432,8 @@ const varOf = <P>(field: ProgramField, v: Var): Binding<P> => ({
  * facts hold one value of v in two input spellings, which a numeric(p, s) stores alike, the zero of d as 0 and as -0,
  * which a double precision stores and prints apart, and differ in h, beside the facts the first relation sketch draws
  * at other keys; one relation V(k int4, u vector(3)) keyed by k, whose two facts hold one vector, the second with -0
- * components; and these reads, every padding pad(v) at the sketch's display scale:
+ * components; one relation T(k int4, g int4) keyed by k, whose facts (k, g) are (0, 0), (1, 0), (2, 1) and (3, 0); and
+ * these reads, every padding pad(v) at the sketch's display scale:
  *
  *   q0 = P{k, v, d, h} find {k, v, d, h}
  *     attach arm:    P{k: parent k, v: w, h: H} find {v: w}, stated as the arm of H over h
@@ -3414,6 +3448,7 @@ const varOf = <P>(field: ProgramField, v: Var): Binding<P> => ({
  *   q6 = V{k, u} find {k, u}
  *     attach twins: V{u: parent u, k: w} find {k: w}
  *       attach nested: V{k: parent k, u: w} find {u: w}
+ *   q7 = T{k, g} find {k, g}, orderBy([g, "desc"]).take(3)
  *
  * q3 collapses the two facts' v, one value, into one row, beside its padding and its readings at the display scale;
  * q4 means it, and its padding, over P's distinct values of v. q5's child of one field is pipelined, as every
@@ -3427,7 +3462,8 @@ const varOf = <P>(field: ProgramField, v: Var): Binding<P> => ({
  * (lower/shapes/attach/index.ts chooseAttachment): the stitch by key must use the type's equality, never the cell's
  * text. q1 imports an attached query, whose attachments deliver nothing to its rows. q2 is a heterogeneous union whose
  * third arm repeats the first's key set with another literal at its discriminant, which a decoder keying its layouts by
- * key set alone cannot tell apart.
+ * key set alone cannot tell apart. q7 is a root take of three rows, ordered apart by its descending key and tied by it,
+ * so its delivery is the take's order, the ties broken by k, the key its stated order leaves out.
  */
 const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	const planted = sketch.planted
@@ -3475,8 +3511,26 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		primaryKey: [vectorKey],
 		candidates: []
 	}
+	const rankedFieldNames = new Names(kinds)
+	const rankedKey: ProgramField = {
+		name: rankedFieldNames.draw(pick("ranked key field"), "field"),
+		kind: "int4",
+		type: typeOf("int4", roster)
+	}
+	const rank: ProgramField = {
+		name: rankedFieldNames.draw(pick("rank field"), "field"),
+		kind: "int4",
+		type: typeOf("int4", roster)
+	}
+	const rankedRelation: Stored = {
+		kind: "stored",
+		name: names.draw(pick("ranked relation"), "Rel2x"),
+		fields: [rankedKey, rank],
+		primaryKey: [rankedKey],
+		candidates: []
+	}
 	const schema: ProgramSchema = {
-		relations: [relation, vectorRelation],
+		relations: [relation, vectorRelation, rankedRelation],
 		roster,
 		nameKinds: kinds
 	}
@@ -3859,6 +3913,39 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		child: setQuery(twinRule, [vectorNested]),
 		delivery: { kind: "array" }
 	}
+	/**
+	 * The eighth read: T{k, g} find {k, g}, ordered by g descending, take 3, over T(k int4, g int4) keyed by k, whose
+	 * facts (k, g) are (0, 0), (1, 0), (2, 1) and (3, 0): g = 1 first, then three rows its stated key ties, which the
+	 * take's completion orders by k, so it keeps (0, 0) and (1, 0) in that order and leaves (3, 0).
+	 */
+	const rankedFacts: ReadonlyArray<StoredFact> = Arr.map(
+		[
+			[0n, 0n],
+			[1n, 0n],
+			[2n, 1n],
+			[3n, 0n]
+		] as const,
+		([k, g]) => [
+			canonicallySpelled({ kind: "int", value: k }),
+			canonicallySpelled({ kind: "int", value: g })
+		]
+	)
+	const rankedNames = new Names(kinds)
+	const [rankedId, rankValue] = [mint(rankedKey), mint(rank)]
+	const rankedRule = soleRule<never>(
+		rankedRelation,
+		[varOf(rankedKey, rankedId), varOf(rank, rankValue)],
+		[
+			headOf(rankedNames, "ranked key column", rankedId),
+			headOf(rankedNames, "rank column", rankValue)
+		]
+	)
+	const rankColumn = elementOf(headingOf(rankedRule.head), 1, "the ranked root's rank column")
+	const ranked: Root = {
+		...setQuery(rankedRule, []),
+		bound: { kind: "take", order: [{ column: rankColumn, dir: "desc" }], k: 3 },
+		delivery: { kind: "set" }
+	}
 	/** The key reads: the first planted fact's key, a key no fact holds, and the selected handle of the roster. */
 	const facts = [...plantedFacts, ...drawnFacts]
 	const keys = new Set(Arr.map(facts, keyAt))
@@ -3877,7 +3964,8 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 		schema,
 		facts: new Map<string, ReadonlyArray<StoredFact>>([
 			[relation.name, facts],
-			[vectorRelation.name, vectorFacts]
+			[vectorRelation.name, vectorFacts],
+			[rankedRelation.name, rankedFacts]
 		]),
 		perturbation: sketch.perturbation,
 		ambient: sketch.ambient,
@@ -3890,6 +3978,7 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 			query({ ...setQuery(meanRule, []), delivery: { kind: "set" } }),
 			query({ ...setQuery(fusedRule, [fused]), delivery: { kind: "set" } }),
 			query({ ...setQuery(vectorRule, [vectorAttachment]), delivery: { kind: "set" } }),
+			query(ranked),
 			keyRead({ kind: "int", value: 0n }),
 			keyRead({ kind: "int", value: absent }),
 			{ kind: "handle", handle: selected }

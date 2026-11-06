@@ -67,6 +67,7 @@ import {
 	seatOf
 } from "#test/pg/fin/installed.ts"
 import { deepEquals } from "#test/support/assert.ts"
+import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
 import {
 	type FoldFamily,
 	type FoldLowering,
@@ -393,12 +394,17 @@ const hundredths: Carrier = {
 	}
 }
 
-/** A set of codes 0 to 4 as its bit mask, written as the bit string whose position c is code c. */
+/**
+ * A set of codes 0 to 4 as its bit mask, written as the hex literal of the bit string whose position c is code c, its
+ * codes rounded up to whole hex digits (test/support/closed/bit-text.ts setText).
+ */
 const setOf = (size: number): Carrier => ({
 	write: (v) =>
-		`'${Arr.join(
-			Arr.map(Arr.range(0, size - 1), (c) => (((v >> BigInt(c)) & 1n) === 1n ? "1" : "0")),
-			""
+		`X'${hexOfText(
+			setText(
+				size,
+				Arr.filter(Arr.range(0, size - 1), (c) => ((v >> BigInt(c)) & 1n) === 1n)
+			)
 		)}'`,
 	read: (c) => `${c}::text`,
 	parse: (t) =>

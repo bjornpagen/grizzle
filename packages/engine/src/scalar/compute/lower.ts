@@ -64,7 +64,6 @@ import type {
 	Exact,
 	Fact,
 	NativeProof,
-	OperandIndex,
 	OperandPremise,
 	OperationProof,
 	Precondition,
@@ -771,19 +770,6 @@ const guardFacts = (
 }
 
 /**
- * A fact of an operand its bounds prove where its facts state none: the interval premise of its values when every one
- * of them has the fact (bounds.ts premiseHas), as the bounds of an integer's sign prove it finite.
- */
-const boundsPremise = (
-	operand: OperandIndex,
-	fact: Fact,
-	bounds: Bounds | undefined
-): IntervalPremise | undefined => {
-	const p = bounds === undefined ? undefined : intervalPremise(operand, bounds)
-	return p !== undefined && premiseHas(p, fact) ? p : undefined
-}
-
-/**
  * The values of sign over an operand of `carrier` and bounds `b`: -1, 0 and 1, and NaN where a numeric operand may be
  * NaN, whose sign is NaN; a float's NaN has sign 0.
  */
@@ -919,16 +905,19 @@ const withinGuards = (carrier: Carrier): boolean => {
  * The test a guard of `precondition` puts over an operand of type `operand`: a fact's own test, Compute.within for a
  * magnitude, Compute.matches for a text's language or lexical form. A contract proves its predicate of an operand by
  * its bounds, which Compute.within narrows over a number and no Compute test over a text, a boolean, a uuid or a date,
- * so over those only a value of the contract's type proves it.
+ * so over those only a value of the contract's type proves it. A fact an operand's contract implies without declaring
+ * it is remedied by the declaration (undeclaredBy), since a contract's facts are exactly the ones it declares.
  */
 const guardTest = (precondition: PreconditionKind, operand: ScalarType | undefined): GuardTest => {
 	switch (precondition) {
 		case "nonzero":
-			return { kind: "nonzero" }
 		case "nonnegative":
-			return { kind: "nonnegative" }
-		case "finite":
-			return { kind: "isFinite" }
+		case "finite": {
+			const contract = operand === undefined ? undefined : undeclaredBy(operand, precondition)
+			return contract === undefined
+				? factTests[precondition]
+				: { kind: "proves", contract: contract.name }
+		}
 		case "fits":
 		case "powerDomain":
 		case "bucketDomain":
@@ -944,35 +933,67 @@ const guardTest = (precondition: PreconditionKind, operand: ScalarType | undefin
 	}
 }
 
-/** The guard a refusal names: its test, and the Compute.when to write over `operand` around `operation`. */
-const guardOf = (test: GuardTest, operand: string, operation: string): Guard => {
+/** The Compute test that proves each fact of its subject. */
+const factTests: { readonly [F in Fact]: GuardTest } = {
+	nonzero: { kind: "nonzero" },
+	nonnegative: { kind: "nonnegative" },
+	finite: { kind: "isFinite" }
+}
+
+/**
+ * The outermost contract level of `t` whose predicate implies `fact` (unprovedFact), where `t` does not declare it: the
+ * contract whose `proves` the fact belongs in. Undefined where `t` declares the fact, an operation having dropped it,
+ * or where no level's predicate implies it.
+ */
+const undeclaredBy = (t: ScalarType, fact: Fact): ContractInfo | undefined =>
+	factsOfType(t)[fact] === undefined
+		? contractLevels(t).find(
+				(c) => c.predicate !== undefined && unprovedFact(c.base, c.predicate, [fact]) === undefined
+			)
+		: undefined
+
+/**
+ * The remedy a refusal of `precondition` names: its guard test, and the Compute.when to write over `operand` around
+ * `operation`, or the fact to add to a contract's `proves`.
+ */
+const guardOf = (
+	precondition: PreconditionKind,
+	remedy: GuardTest,
+	operand: string,
+	operation: string
+): Guard => {
 	const when = (check: string): string =>
 		`Compute.when(${check}, (${operand}) => ${operation}, <your value>)`
-	switch (test.kind) {
+	switch (remedy.kind) {
+		case "proves":
+			return {
+				remedy,
+				text: `contract ${remedy.contract}'s predicate implies it, and a contract's facts are the ones it declares: contract("${remedy.contract}", <base>, <predicate>, { proves: [..., "${precondition}"] })`
+			}
 		case "nonzero":
-			return { test, text: when(`Compute.nonzero(${operand})`) }
+			return { remedy, text: when(`Compute.nonzero(${operand})`) }
 		case "nonnegative":
-			return { test, text: when(`Compute.nonnegative(${operand})`) }
+			return { remedy, text: when(`Compute.nonnegative(${operand})`) }
 		case "isFinite":
-			return { test, text: when(`Compute.isFinite(${operand})`) }
+			return { remedy, text: when(`Compute.isFinite(${operand})`) }
 		case "within":
 			return {
-				test,
+				remedy,
 				text: `${when(`Compute.within(${operand}, <low>, <high>)`)}, its bounds within which the operation is defined`
 			}
 		case "matches":
-			return test.pattern === "target"
+			return remedy.pattern === "target"
 				? {
-						test,
+						remedy,
 						text: `a text whose type's pattern lies inside the target's, or ${when(`Compute.matches(${operand}, <the target's pattern>)`)}`
 					}
 				: {
-						test,
+						remedy,
 						text: `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>)) or a refinement of it, or ${when(`Compute.matches(${operand}, lexicalForm(<target>))`)}`
 					}
 		case "typed":
 			return {
-				test,
+				remedy,
 				text: `a value of the target's type, a parameter its binding checks or a literal its admission judges: no Compute test over ${operand}'s type proves the target's contract`
 			}
 	}
@@ -1017,8 +1038,16 @@ const numericOf = (bounds: Bounds | undefined): ScalarType =>
 				scale: bounds.scale
 			})
 
-/** How a cast converts: a registered cast, or the binary coercion that drops a refinement or widens a bound. */
-type CastHow = { readonly kind: "registered"; readonly op: CastOp } | { readonly kind: "coercion" }
+/**
+ * How a cast converts: a registered cast over a caller's term, whose preconditions its facts and bounds prove (prove);
+ * a registered cast the lowering writes over a value it computed itself, whose preconditions that value's own interval
+ * proves (intervalCastProof), since no caller's type states a fact of it; or the binary coercion that drops a
+ * refinement or widens a bound.
+ */
+type CastHow =
+	| { readonly kind: "registered"; readonly op: CastOp }
+	| { readonly kind: "computed"; readonly op: CastOp }
+	| { readonly kind: "coercion" }
 
 /**
  * A Compute.when guard the lowering stands in the branch of: its subject, and what it establishes of it there, the
@@ -1254,8 +1283,9 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * The proof of one precondition over `args`: a fact precondition by its operand's fact, a magnitude one by the
-	 * operand's bounds; or the PartialOperation refusal naming the guard to write.
+	 * The proof of one precondition over `args`: a fact precondition by its operand's fact alone, the facts its
+	 * TypeScript type states, so a contract proves only the facts it declares; a magnitude one by the operand's bounds;
+	 * or the PartialOperation refusal naming the guard to write.
 	 */
 	prove(
 		precondition: Precondition,
@@ -1274,7 +1304,12 @@ class Lowering<R extends Refs> {
 					operation,
 					precondition: precondition.kind,
 					operand: text,
-					guard: guardOf(guardTest(precondition.kind, named?.nominal), text, operation)
+					guard: guardOf(
+						precondition.kind,
+						guardTest(precondition.kind, named?.nominal),
+						text,
+						operation
+					)
 				})
 			)
 		}
@@ -1286,8 +1321,7 @@ class Lowering<R extends Refs> {
 				const p =
 					a === undefined
 						? undefined
-						: (factPremise(precondition.operand, precondition.kind, a.facts) ??
-							boundsPremise(precondition.operand, precondition.kind, a.bounds))
+						: factPremise(precondition.operand, precondition.kind, a.facts)
 				return p === undefined ? refuse(precondition.operand) : { precondition, premises: [p] }
 			}
 			case "fits": {
@@ -1408,13 +1442,16 @@ class Lowering<R extends Refs> {
 		if (this.env.mode === "build") {
 			return this.typedOnly(to, bounds)
 		}
-		const proof = this.proveAll(
-			op.totality.preconditions,
-			[arg],
-			to,
-			at,
-			`Compute.cast(${exprText(arg.expr)}, ${typeLabel(to)})`
-		)
+		const proof =
+			how.kind === "computed"
+				? computedCastProof(op.totality.preconditions, arg, to)
+				: this.proveAll(
+						op.totality.preconditions,
+						[arg],
+						to,
+						at,
+						`Compute.cast(${exprText(arg.expr)}, ${typeLabel(to)})`
+					)
 		return this.emitProved(
 			{
 				kind: "cast",
@@ -3185,7 +3222,7 @@ class Lowering<R extends Refs> {
 			"Compute.sign"
 		)
 		return {
-			...this.castNode(s, v, { kind: "registered", op: back }, at),
+			...this.castNode(s, v, { kind: "computed", op: back }, at),
 			nominal: valueType(a.nominal)
 		}
 	}
@@ -3956,6 +3993,25 @@ export const typeFitProof = (
 	const b = boundsOfType(from)
 	const interval = b === undefined ? undefined : intervalPremise(0, b)
 	return interval === undefined ? undefined : intervalCastProof(preconditions, interval, to)
+}
+
+/**
+ * The proof of a cast the lowering writes over a value it computed itself (CastHow computed), from that value's own
+ * interval: the lowering writes one only where the interval proves it, so a value it does not prove is a defect.
+ */
+const computedCastProof = (
+	preconditions: NonEmptyReadonlyArray<Precondition>,
+	arg: Lowered,
+	to: ScalarType
+): OperationProof => {
+	const interval = arg.bounds === undefined ? undefined : intervalPremise(0, arg.bounds)
+	const proof = interval === undefined ? undefined : intervalCastProof(preconditions, interval, to)
+	if (proof === undefined) {
+		throw defect(
+			`a cast the lowering writes into ${typeLabel(to)}, over a value whose own interval proves it`
+		)
+	}
+	return proof
 }
 
 /**

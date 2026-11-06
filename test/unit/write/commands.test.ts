@@ -41,6 +41,7 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import {
 	check,
+	contained,
 	counted,
 	fin,
 	fold,
@@ -48,6 +49,7 @@ import {
 	Monoid,
 	mutable,
 	on,
+	ordered,
 	relation,
 	schema,
 	select
@@ -181,9 +183,36 @@ const K = relation("K", { id: uuid, h: uuid, nl: drawn(natural) }, ["id"])
 const L = relation("L", { id: uuid, k: uuid }, ["id"])
 const fk = counted(on(K, "h"), fin(H, "nk"))
 const fl = counted(on(L, "k"), fin(K, "nl"))
-const Algebra = schema("Algebra", { O1, O2, O3, A, B, C, F, D, G, E, H, K, L }, [
+/** A mutable owner W whose counted members V copy its rate and the end of the sum fold over its ordered members U: a
+ * put of W and an edit of its U each change a column a V appended in the same ChangeSet copies. */
+const W = relation(
+	"W",
+	{
+		id: uuid,
+		rate: pg.bigint,
+		nu: drawn(natural),
+		tu: accumulated(pg.bigint, 0n),
+		nv: drawn(natural)
+	},
+	["id"]
+)
+const U = relation("U", { id: uuid, w: uuid, at: drawn(natural), x: pg.bigint }, ["id"])
+const V = relation(
+	"V",
+	{ id: uuid, w: uuid, r: accumulated(pg.bigint, 0n), t: accumulated(pg.bigint, 0n) },
+	["id"]
+)
+const fu = ordered(on(U, "w", "at"), fin(W, "nu"))
+const fv = counted(on(V, "w"), fin(W, "nv"))
+const Algebra = schema("Algebra", { O1, O2, O3, A, B, C, F, D, G, E, H, K, L, W, U, V }, [
 	fk,
 	fl,
+	fu,
+	fv,
+	fold(fu, Monoid.sum, on(U, "w", "x"), on(W, "id", "tu")),
+	contained(on(V, "w", "r"), on(W, "id", "rate")),
+	contained(on(V, "w", "t"), on(W, "id", "tu")),
+	mutable(W),
 	mutable(H),
 	mutable(K),
 	fa1,
@@ -281,6 +310,11 @@ interface Model {
 	readonly chainOwners: ReadonlySet<number>
 	readonly chainMembers: ReadonlyMap<number, number>
 	readonly chainLeaves: ReadonlyMap<number, number>
+	/** The stored W owners by id with their rates, their U members by id in slot order with their owners and values,
+	 * and their V members by id with their owners. */
+	readonly rated: ReadonlyMap<number, number>
+	readonly lines: ReadonlyMap<number, FixedMember>
+	readonly copies: ReadonlyMap<number, number>
 }
 
 const initial: Model = {
@@ -292,7 +326,10 @@ const initial: Model = {
 	exactMembers: new Map(),
 	chainOwners: new Set(),
 	chainMembers: new Map(),
-	chainLeaves: new Map()
+	chainLeaves: new Map(),
+	rated: new Map(),
+	lines: new Map(),
+	copies: new Map()
 }
 
 interface Params {
@@ -362,6 +399,22 @@ interface Params {
 	}
 	/** A put of an H and of a K under it, each stored or not. */
 	readonly chainPut: { readonly h: number; readonly k: number }
+	/** A W inserted with its U members nested in order. */
+	readonly wInsert: {
+		readonly owner: number
+		readonly rate: number
+		readonly lines: ReadonlyArray<{ readonly id: number; readonly x: number }>
+	}
+	/** A put of a stored W at a rate, and a V appended under it, in one ChangeSet. */
+	readonly wPutAppend: { readonly owner: number; readonly rate: number; readonly v: number }
+	/** A U appended to a stored W, or a stored U removed, and a V appended under that W, in one ChangeSet. */
+	readonly wEditAppend: {
+		readonly owner: number
+		readonly edit:
+			| { readonly kind: "append"; readonly id: number; readonly x: number }
+			| { readonly kind: "remove"; readonly id: number }
+		readonly v: number
+	}
 }
 
 const ids = (n: number): ReadonlyArray<number> => Array.from({ length: n }, (_, i) => i)
@@ -793,6 +846,73 @@ const machine: Machine<Model, Params, Refusal> = {
 					chainLeaves: new Map([...m.chainLeaves, [p.l, p.k]])
 				})
 		},
+		wInsert: {
+			weight: 1,
+			applies: (m) => m.rated.size < OWNER_IDS && freeChainIds(m.lines, MEMBER_IDS).length >= 2,
+			parameters: (m) => (source) => {
+				const free = freeChainIds(m.lines, MEMBER_IDS)
+				const n = source.draw(int(0, 2))
+				return {
+					owner: source.draw(pick(freeChainIds(m.rated, OWNER_IDS))),
+					rate: source.draw(int(0, 3)),
+					lines: Arr.map(Arr.take(free, n), (id) => ({ id, x: source.draw(int(0, 3)) }))
+				}
+			},
+			judge: (m, p) =>
+				accepted({
+					...m,
+					rated: new Map([...m.rated, [p.owner, p.rate]]),
+					lines: new Map([
+						...m.lines,
+						...Arr.map(p.lines, (l) => [l.id, { owner: p.owner, x: l.x }] as const)
+					])
+				})
+		},
+		wPutAppend: {
+			weight: 2,
+			applies: (m) => m.rated.size > 0 && freeChainIds(m.copies, MEMBER_IDS).length > 0,
+			parameters: (m) => (source) => ({
+				owner: source.draw(pick([...m.rated.keys()])),
+				rate: source.draw(int(0, 3)),
+				v: source.draw(pick(freeChainIds(m.copies, MEMBER_IDS)))
+			}),
+			judge: (m, p) =>
+				accepted({
+					...m,
+					rated: new Map([...m.rated, [p.owner, p.rate]]),
+					copies: new Map([...m.copies, [p.v, p.owner]])
+				})
+		},
+		wEditAppend: {
+			weight: 2,
+			applies: (m) =>
+				m.rated.size > 0 &&
+				freeChainIds(m.copies, MEMBER_IDS).length > 0 &&
+				(m.lines.size > 0 || freeChainIds(m.lines, MEMBER_IDS).length > 0),
+			parameters: (m) => (source) => {
+				const v = source.draw(pick(freeChainIds(m.copies, MEMBER_IDS)))
+				const free = freeChainIds(m.lines, MEMBER_IDS)
+				if (m.lines.size > 0 && (free.length === 0 || source.draw(int(0, 1)) === 1)) {
+					const id = source.draw(pick([...m.lines.keys()]))
+					const owner = defined(m.lines.get(id), "a stored U").owner
+					return { owner, edit: { kind: "remove", id }, v }
+				}
+				return {
+					owner: source.draw(pick([...m.rated.keys()])),
+					edit: { kind: "append", id: source.draw(pick(free)), x: source.draw(int(0, 3)) },
+					v
+				}
+			},
+			judge: (m, p) => {
+				const lines = new Map(m.lines)
+				if (p.edit.kind === "append") {
+					lines.set(p.edit.id, { owner: p.owner, x: p.edit.x })
+				} else {
+					lines.delete(p.edit.id)
+				}
+				return accepted({ ...m, lines, copies: new Map([...m.copies, [p.v, p.owner]]) })
+			}
+		},
 		chainPut: {
 			weight: 1,
 			applies: (m) =>
@@ -861,6 +981,14 @@ const eFact = (id: number, owner: number, x: number) => ({
 	g: gUuid(owner),
 	x: BigInt(x)
 })
+
+const wUuid = (id: number): string => uuidOf(7000 + id)
+const uUuid = (id: number): string => uuidOf(80_000 + id)
+const vUuid = (id: number): string => uuidOf(90_000 + id)
+
+/** A W's U members, by id, in slot order. */
+const linesOf = (m: Model, owner: number): ReadonlyArray<readonly [number, FixedMember]> =>
+	Arr.filter([...m.lines], ([, line]) => line.owner === owner)
 
 /** A G stated by an insertion or a put, with its E members, its total their sum. */
 const gWith = (
@@ -1190,6 +1318,59 @@ const stated: { readonly [K in keyof Params]: Stated<Params[K]> } = {
 				.put(H, [{ id: hUuid(q.h) }])
 				.put(K, [{ id: kUuid(q.k), h: hUuid(q.h) }]),
 		own: none
+	},
+	wInsert: {
+		inserted: none,
+		member: noMember,
+		variant: noVariant,
+		change: (q) =>
+			ChangeSet.empty(Algebra).insert(W, [
+				{
+					id: wUuid(q.owner),
+					rate: BigInt(q.rate),
+					nu: Arr.map(q.lines, (l) => ({ id: uUuid(l.id), x: BigInt(l.x) }))
+				}
+			]),
+		own: none
+	},
+	wPutAppend: {
+		inserted: none,
+		member: noMember,
+		variant: noVariant,
+		change: (q) =>
+			ChangeSet.empty(Algebra)
+				.put(W, [{ id: wUuid(q.owner), rate: BigInt(q.rate) }])
+				.insert(V, [{ id: vUuid(q.v), w: wUuid(q.owner) }]),
+		own: (db, q) => {
+			const key = keyText([wUuid(q.owner)])
+			defined(tableOf(db, "W").get(key), "a stored W").set(
+				fieldKey("rate"),
+				textOf(db, fieldOf("W", "rate").type, BigInt(q.rate))
+			)
+			cascade(db, "W", key)
+		}
+	},
+	wEditAppend: {
+		inserted: none,
+		member: noMember,
+		variant: (q) => q.edit.kind,
+		change: (q, m) => {
+			const edit = q.edit
+			const edited =
+				edit.kind === "append"
+					? ChangeSet.empty(Algebra).put(U, [
+							{ id: uUuid(edit.id), w: wUuid(q.owner), x: BigInt(edit.x) }
+						])
+					: ChangeSet.empty(Algebra).delete(U, [
+							{
+								id: uUuid(edit.id),
+								w: wUuid(q.owner),
+								x: BigInt(defined(m.lines.get(edit.id), "a stored U").x)
+							}
+						])
+			return edited.insert(V, [{ id: vUuid(q.v), w: wUuid(q.owner) }])
+		},
+		own: none
 	}
 }
 
@@ -1266,8 +1447,7 @@ const rowsOfChunk = (chunk: ReadonlyArray<string>): ReadonlyArray<ReadonlyArray<
 	)
 }
 
-const layoutOf = (relation: string): RowLayout =>
-	succeeded(rowLayout(relationInfo(relation), families))
+const layoutOf = (relation: string): RowLayout => rowLayout(relationInfo(relation), families)
 
 const tableOf = (db: Db, relation: string): Table => {
 	const known = db.tables.get(relation)
@@ -1413,6 +1593,38 @@ const readRows = (db: Db, family: Family): ReadonlyArray<ReadonlyArray<string>> 
 	return [...owners, ...members]
 }
 
+/**
+ * An owner row's change as its owner axes' ON UPDATE CASCADE carries it into its members: every member of each family
+ * of `relation`, a tree's aside, that names the row at `key` takes the owner's count as its ‹n› and each column the axis
+ * carries from it.
+ */
+const cascade = (db: Db, relation: string, key: string): void => {
+	const owner = defined(tableOf(db, relation).get(key), "a cascaded owner")
+	for (const f of families) {
+		if (f.owner.name !== relation || f.members.kind === "tree") {
+			continue
+		}
+		for (const member of tableOf(db, f.member.name).values()) {
+			if (ownerKeyOf(f, member) !== key) {
+				continue
+			}
+			member.set(`law:${f.copy}`, defined(owner.get(fieldKey(f.count.name)), "an owner's count"))
+			for (const pair of f.axes.owner) {
+				if (
+					pair.from.kind === "field" &&
+					pair.from.field.writing.kind === "accumulated" &&
+					pair.to.kind === "field"
+				) {
+					member.set(
+						columnKey(pair.from),
+						defined(owner.get(columnKey(pair.to)), "a column an owner axis carries")
+					)
+				}
+			}
+		}
+	}
+}
+
 /** A family statement's rows applied to the host tables, as PostgreSQL applies them. */
 const applyFamily = (
 	db: Db,
@@ -1437,13 +1649,7 @@ const applyFamily = (
 			for (const [i, end] of ends.entries()) {
 				owner.set(fieldKey(end.name), defined(row[f.group.length + 1 + i], "an end"))
 			}
-			/** Every member of the family, whose copy ‹n› the owner axis cascades the count into. */
-			const members = tableOf(db, f.member.name).values()
-			for (const member of members) {
-				if (ownerKeyOf(f, member) === key) {
-					member.set(`law:${f.copy}`, count)
-				}
-			}
+			cascade(db, f.owner.name, key)
 		}
 		return undefined
 	}
@@ -1498,6 +1704,19 @@ const immediateHold = (db: Db, at: string): void => {
 			const owner = defined(owners.get(key), `${at}: a member's owner is stored`)
 			assert.ok(i < n, `${at}: a member's ‹i› is below its ‹n› (${f.member.name})`)
 			assert.equal(n, num(owner.get(fieldKey(f.count.name))), `${at}: ‹n› is its owner's count`)
+			for (const pair of f.axes.owner) {
+				if (
+					pair.from.kind === "field" &&
+					pair.from.field.writing.kind === "accumulated" &&
+					pair.to.kind === "field"
+				) {
+					assert.equal(
+						row.get(columnKey(pair.from)),
+						owner.get(columnKey(pair.to)),
+						`${at}: ${f.member.name}.${pair.from.field.name} is its owner's ${pair.to.field.name}`
+					)
+				}
+			}
 			const slot = `${key}\u0000${i}`
 			assert.ok(!seen.has(slot), `${at}: each group's ‹i› is distinct`)
 			seen.add(slot)
@@ -1607,6 +1826,31 @@ const commitHolds = (db: Db, model: Model): void => {
 				"a chain member's owner is the model's"
 			)
 		}
+	}
+	const wTable = tableOf(db, "W")
+	assert.equal(wTable.size, model.rated.size, "the W owners are the model's")
+	for (const [id, rate] of model.rated) {
+		const row = defined(wTable.get(keyText([wUuid(id)])), "a modelled W is stored")
+		assert.equal(num(row.get(fieldKey("rate"))), BigInt(rate), "a W's rate is the model's")
+		assert.equal(
+			num(row.get(fieldKey("tu"))),
+			Arr.reduce(linesOf(model, id), 0n, (sum, [, line]) => sum + BigInt(line.x)),
+			"a W's end is its U members' sum"
+		)
+		for (const [slot, [lineId]] of linesOf(model, id).entries()) {
+			const line = defined(tableOf(db, "U").get(keyText([uUuid(lineId)])), "a modelled U is stored")
+			assert.equal(num(line.get(fieldKey("at"))), BigInt(slot), "a U keeps its order among its W's")
+		}
+	}
+	assert.equal(tableOf(db, "U").size, model.lines.size, "the W owners' U members are the model's")
+	const vTable = tableOf(db, "V")
+	assert.equal(vTable.size, model.copies.size, "the W owners' V members are the model's")
+	for (const [id, owner] of model.copies) {
+		const row = defined(vTable.get(keyText([vUuid(id)])), "a modelled V is stored")
+		const w = defined(wTable.get(keyText([wUuid(owner)])), "a V's W")
+		assert.equal(row.get(fieldKey("w")), wUuid(owner), "a V's owner is the model's")
+		assert.equal(row.get(fieldKey("r")), w.get(fieldKey("rate")), "a V's rate is its W's")
+		assert.equal(row.get(fieldKey("t")), w.get(fieldKey("tu")), "a V's end is its W's")
 	}
 	const dTable = tableOf(db, "D")
 	assert.equal(
@@ -1761,7 +2005,8 @@ const runStep =
 					(s.relation in ownerRelations ||
 						s.relation === "F" ||
 						s.relation === "G" ||
-						s.relation === "H")
+						s.relation === "H" ||
+						s.relation === "W")
 				) {
 					const verdict = insertEncoded(
 						db,
@@ -1849,7 +2094,10 @@ const caseGen: Gen<MachineCase> = (source) => ({
 				"gFreshPut",
 				"gRepeat",
 				"chainAppend",
-				"chainPut"
+				"chainPut",
+				"wInsert",
+				"wPutAppend",
+				"wEditAppend"
 			])
 		)
 	),
@@ -1896,6 +2144,9 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 								"gRepeat accepted",
 								"chainAppend accepted",
 								"chainPut accepted",
+								"wInsert accepted",
+								"wPutAppend accepted",
+								"wEditAppend accepted",
 								"a statement per row"
 							],
 							{ cases: 300, sense: notesOnly }
@@ -1948,7 +2199,10 @@ describe("the write algebra's commands (rows-first.md §8)", () => {
 								gFreshPut: step("gFreshPut"),
 								gRepeat: step("gRepeat"),
 								chainAppend: step("chainAppend"),
-								chainPut: step("chainPut")
+								chainPut: step("chainPut"),
+								wInsert: step("wInsert"),
+								wPutAppend: step("wPutAppend"),
+								wEditAppend: step("wEditAppend")
 							}
 							const ran = yield* runProgram(machine, real, c.steps)
 							for (const verdict of ran.verdicts) {

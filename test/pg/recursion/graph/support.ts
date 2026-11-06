@@ -278,7 +278,6 @@ export const inInstalledCase = <A, E>(
 					.pipe(Effect.mapError((e) => new HarnessFailure({ message: `${String(e)}\n${sql}` })))
 			yield* exec("BEGIN")
 			return yield* Effect.gen(function* () {
-				yield* exec("SET LOCAL statement_timeout = '60s'")
 				for (const sql of plan.sql) {
 					yield* exec(sql)
 				}

@@ -42,6 +42,7 @@ import {
 	type TermDesc,
 	type VarDesc as VarOf
 } from "#compiler/ir/desc.ts"
+import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 
@@ -73,11 +74,11 @@ const decodedOrThrow = <A>(result: Result.Result<A, CompileError>): A => {
 }
 
 /**
- * An authored schema, decoded as a JavaScript author's description is: every relation and statement it leaves
- * unlocated is located at its path in the description.
+ * An authored schema, decoded and admitted as a JavaScript author's description is (schema/admit.ts
+ * admitSchemaDesc): every relation and statement it leaves unlocated is located at its path in the description, and
+ * every closed relation's rows are admitted once, as a decoded schema's are.
  */
-export const decodedSchema = (desc: SchemaDesc): SchemaOf =>
-	decodedOrThrow(decodeDesc("schema", desc))
+export const decodedSchema = (desc: SchemaDesc): SchemaOf => decodedOrThrow(admitSchemaDesc(desc))
 
 /** The query of an authored stage, decoded as a JavaScript author's description is. */
 export const decodedQuery = (stage: QueryStageDesc): QueryOf =>
@@ -298,8 +299,7 @@ export const closedRelation = (
 	fields,
 	key: nonEmptyList(key, "a closed relation's key"),
 	slots: [],
-	rows,
-	pack: "rows"
+	rows
 })
 
 /** ℕ's destructor over a natural field, one level deep: the term defined where the field is above zero. */

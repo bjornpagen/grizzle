@@ -74,8 +74,8 @@ export interface Nested {
  * Decimal with no display scale, a float a double with one zero, a handle its name. The contract fixes exactly this
  * much of an answer:
  *
- * - a set holds each row once and is compared as a set, a repeated row on either side a difference; an ordered root
- *   is compared in order;
+ * - a set holds each row once and is compared as a set, a repeated row on either side a difference; a root delivered
+ *   in an order, its final orderBy's or its take's (program.ts deliveredOrder), is compared in order;
  * - a column's values are compared exactly: equal values are identical (1.0 and 1.00 are one Decimal, NaN is NaN, a
  *   float's zero is 0), so a delivered value that is equal but not identical, a -0 among them, is a difference;
  * - an attachment's children are a set per parent, compared as a set: a child missing from one parent, repeated, or
@@ -272,7 +272,7 @@ const result =
 	}
 
 /**
- * The equivalence of a read's answers: its rows as a set, or in order where the root is ordered, every column
+ * The equivalence of a read's answers: its rows as a set, or in order where the root delivers them in one, every column
  * exactly but those one answer declines and the other states (unstated), which no reference judges: there the sides
  * judge each other (pg/oracle/public/run.ts, against itself).
  */

@@ -22,7 +22,7 @@ type PlainCarrier = Exclude<Carrier, "numeric" | "code" | "bits" | "vector" | "r
 
 /**
  * What a carrier needs beyond its name to admit a value. A closed id and a set over a roster carry the roster's codes,
- * which the installation holds: a handle is written as its code, and a set as one bit per code.
+ * which the installation holds: a handle is written as its code, and a set as its hex digits, one bit per code.
  */
 export type CarrierSpec =
 	| { readonly carrier: PlainCarrier }

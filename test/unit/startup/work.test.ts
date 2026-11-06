@@ -59,6 +59,9 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  *   artifacts the programs read and the draft, and the layer once.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
  *   (openMigrationSession) without owning the schema, compiling its basis or a login's programs.
+ * - No closed cell is held to its field's base type again where the schema compiles: closed.relation() admitted each
+ *   once (ir/desc.ts AdmittedClosedRelation), so the compile's calls of the base check (ir/expr.ts literalProblem) are
+ *   as many at twice the closed rows as at the rows.
  * - Every count grows at most linearly in each dimension of the schema and its worlds: relations, closed rows, roles and
  *   workload programs, each compared at n and 2n, as the installation's sizes are (test/unit/laws/scaling.test.ts).
  *
@@ -71,11 +74,13 @@ const linear = 2.5
 /**
  * The functions whose calls the guard counts: each the one entry of a whole-schema pass, called a handful of times, so
  * no optimizing compiler folds one call into another. The canonical encoder's own calls are no such entry: an encoding
- * of a schema's content is levelContent's, a content read again from a description is contentOfDesc's, and a
- * description's identity text is descText's, which no builder over a built schema reads.
+ * of a schema's content is levelContent's, a content read again from a description is contentOfDesc's, a
+ * description's identity text is descText's, which no builder over a built schema reads, and a literal held to its
+ * type's base is literalProblem's, which no closed cell meets at compile.
  */
 const sites = {
 	descText: { file: "packages/engine/src/ir/desc.ts", name: "descText" },
+	literalProblem: { file: "packages/engine/src/ir/expr.ts", name: "literalProblem" },
 	levelContent: { file: "packages/engine/src/schema/levels.ts", name: "levelContent" },
 	contentOfDesc: { file: "packages/engine/src/schema/levels.ts", name: "contentOfDesc" },
 	own: { file: "packages/engine/src/schema/own.ts", name: "own" },
@@ -379,6 +384,15 @@ layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) =>
 									assert.ok(
 										large[step][site] <= linear * Math.max(small[step][site], 1),
 										`${at}: ${step}'s calls of ${site} grow from ${small[step][site]} to ${large[step][site]}`
+									)
+								}
+							}
+							if (point.dimension === "closed rows") {
+								for (const step of ["generate", "check", "layer"] as const) {
+									assert.equal(
+										large[step].literalProblem,
+										small[step].literalProblem,
+										`${at}: ${step} holds no closed cell to its base type again`
 									)
 								}
 							}

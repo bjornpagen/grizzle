@@ -1,42 +1,30 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { planIndexNames, planNodeTypes } from "#bench/harness/explain.ts"
 import { subtree } from "#compiler/check/approximate/trace.ts"
-import { identity } from "#compiler/core/identity.ts"
-import { NodeId } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { relNode, rooted } from "#compiler/ir/dag.ts"
-import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { RelDag } from "#compiler/ir/rel.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { compilePageOf, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
-import { queryInput } from "#compiler/program/compile.ts"
-import { uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
 import {
-	AnnSearch,
 	accountA,
 	accountB,
 	accountC,
 	anyRevision,
 	type Compiled,
 	candidates,
-	checked,
 	compile,
-	Document,
-	DocumentCurrent,
 	DocumentEmbedding,
 	duplicatePair,
 	type Fixture,
 	installFixture,
 	installLabelled,
 	repeated,
-	scoredDocuments,
 	shared,
 	sizes,
 	textRows,
@@ -46,17 +34,9 @@ import {
 	vectorParam,
 	vectorText
 } from "#test/pg/vector/ann/support.ts"
-import { assert, assertVariant, contains, defined, failed, lacks } from "#test/support/assert.ts"
-import {
-	compileTemplate,
-	lowerAligned,
-	paramTexts,
-	scalarsOnly,
-	testArtifacts,
-	testCompile
-} from "#test/support/compile.ts"
-import { installedCatalog } from "#test/support/evidence.ts"
-import { namesOf, parsedSchemaName, wild } from "#test/support/kernel/naming.ts"
+import { assert, contains, defined, lacks } from "#test/support/assert.ts"
+import { paramTexts, scalarsOnly } from "#test/support/compile.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -173,6 +153,65 @@ const probed =
 	): Gen<readonly [Account, number]> =>
 	(source) =>
 		[source.draw(element(among)), source.draw(element(probes))] as const
+
+/** The accounts whose probes the recall floor is measured over: the two with more eligible facts than a request. */
+const recalled: Arr.NonEmptyReadonlyArray<readonly [string, "A" | "B"]> = [
+	[accountA, "A"],
+	[accountB, "B"]
+]
+
+/** A case of the recall box: a probe of an account by its number, or account A's duplicate embedding. */
+type RecallProbe =
+	| { readonly kind: "duplicate" }
+	| {
+			readonly kind: "probe"
+			readonly account: readonly [string, "A" | "B"]
+			readonly seed: number
+	  }
+
+/** Each of `probes` probes, numbered from 10, of each recalled account, and the duplicate. */
+const recallProbeGen =
+	(probes: number): Gen<RecallProbe> =>
+	(source) =>
+		source.draw(element(["probe", "duplicate"] as const)) === "duplicate"
+			? { kind: "duplicate" }
+			: {
+					kind: "probe",
+					account: source.draw(element(recalled)),
+					seed: 10 + source.draw(int(0, probes - 1))
+				}
+
+type RecallFeature = "account A" | "account B" | "duplicate"
+
+/**
+ * A transaction's changes to account B's nearest candidates: how many of the nearest lose their current embedding, and
+ * how many after them get a new current revision, of the probe numbered `seed`.
+ */
+interface Superseding {
+	readonly seed: number
+	readonly removed: number
+	readonly superseded: number
+}
+
+const supersededGen: Gen<Superseding> = (source) => {
+	const kind = source.draw(element(["removed", "superseded", "both"] as const))
+	return {
+		seed: source.draw(int(30, 59)),
+		removed: kind === "superseded" ? 0 : source.draw(int(1, 12)),
+		superseded: kind === "removed" ? 0 : source.draw(int(1, 8))
+	}
+}
+
+type SupersededFeature =
+	| "nearest embeddings removed"
+	| "nearest revisions superseded"
+	| "both, in one transaction"
+
+const supersededFeatures = (c: Superseding): ReadonlyArray<SupersededFeature> => [
+	...(c.removed > 0 ? ["nearest embeddings removed" as const] : []),
+	...(c.superseded > 0 ? ["nearest revisions superseded" as const] : []),
+	...(c.removed > 0 && c.superseded > 0 ? ["both, in one transaction" as const] : [])
+]
 
 const searcher = (fx: Fixture) =>
 	Effect.flatMap(Substrate, (s) =>
@@ -419,57 +458,96 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 	it.effect(
 		"recall against the exact baseline holds its floor over a label-fixed population, ties and duplicates under different keys are distinct facts",
 		(ctx) =>
-			Effect.gen(function* () {
-				const fx = yield* installLabelled({ candidates }, "pg/vector/ann/recall")
-				const session = yield* searcher(fx)
-				const c = compile(candidates, fx.installed, "query")
-				const recalls: Array<string> = []
-				let hits = 0
-				let wanted = 0
-				const recalled: ReadonlyArray<Account> = [
-					[accountA, "A"],
-					[accountB, "B"]
-				]
-				for (const [[account, label], seed] of Arr.cartesian(recalled, Arr.range(10, 19))) {
-					const vector = fx.probe(seed)
-					const rows = yield* run(session, c, { account, vector: vectorParam(vector) })
-					const exact = (yield* exactScores(session, fx, account, vector)).slice(0, 20)
-					const got = new Set(Arr.map(rows, (r) => `${r[1]}/${r[2]}`))
-					const found = Arr.filter(exact, (r) => got.has(key(r))).length
-					hits += found
-					wanted += exact.length
-					recalls.push(`${label}${seed}=${found}/${exact.length}`)
-				}
-				const recall = hits / wanted
-				const pinned = Arr.join(
-					Arr.map(searchPolicySettings, (s) => `${s.parameter} ${s.value}`),
-					", "
-				)
-				const record = `recall@20 of approximateNearest against the exact baseline, HNSW at pgvector's build parameters and the cluster's search settings, ${pinned}, ${sizes.A + sizes.B + sizes.C} documents of 8 dimensions: ${recall.toFixed(4)} (${Arr.join(recalls, " ")})`
-				yield* Effect.promise(() => ctx.annotate(record))
-				yield* Effect.log(record)
-				assert.ok(recall > 0.8)
-
-				/** Two documents of account A share one embedding: probing with it finds both, two facts. */
-				const [d1, d2] = duplicatePair(fx.facts)
-				const duplicated = Option.flatMapNullishOr(
-					Arr.findFirst(fx.facts, (d) => d.id === d1),
-					(d) => d.embeddings[0]?.value
-				)
-				if (Option.isNone(duplicated)) {
-					return assert.fail("the duplicate pair has an embedding")
-				}
-				const rows = yield* run(session, c, {
-					account: accountA,
-					vector: vectorParam(duplicated.value)
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const fx = yield* installLabelled({ candidates }, "pg/vector/ann/recall")
+					const session = yield* searcher(fx)
+					const c = compile(candidates, fx.installed, "query")
+					const recalls: Array<string> = []
+					let hits = 0
+					let wanted = 0
+					const probes = 10
+					const exhausted = yield* exhaust(
+						{
+							suite: "vector/ann/recall",
+							generator: recallProbeGen(probes),
+							literal: Formatter.format,
+							limit: 1 + 2 * probes,
+							box: "the probes numbered 10 to 19 of accounts A and B, and account A's duplicate embedding",
+							oracle: {
+								kind: "second-implementation",
+								name: "the exact baseline: the eligible relation scored with cosine_distance"
+							},
+							coverage: requiredInSpace<RecallFeature>(["account A", "account B", "duplicate"]),
+							caseHang
+						},
+						(probe, k) =>
+							Effect.gen(function* () {
+								if (probe.kind === "duplicate") {
+									/** Two documents of account A share one embedding: probing with it finds both, two facts. */
+									const [d1, d2] = duplicatePair(fx.facts)
+									const duplicated = Option.flatMapNullishOr(
+										Arr.findFirst(fx.facts, (d) => d.id === d1),
+										(d) => d.embeddings[0]?.value
+									)
+									if (Option.isNone(duplicated)) {
+										return assert.fail("the duplicate pair has an embedding")
+									}
+									const rows = yield* run(session, c, {
+										account: accountA,
+										vector: vectorParam(duplicated.value)
+									})
+									const documents = Arr.map(rows, (r) => r[1])
+									contains(documents, d1)
+									contains(documents, d2)
+									const [first, second] = rows
+									assert.equal(first?.[0], second?.[0])
+									assert.deepEqual([first?.[1], second?.[1]], Arr.sort([d1, d2], Order.String))
+									k.note("duplicate")
+									return
+								}
+								const [account, label] = probe.account
+								const vector = fx.probe(probe.seed)
+								const rows = yield* run(session, c, { account, vector: vectorParam(vector) })
+								const scored = yield* exactScores(session, fx, account, vector)
+								const scores = new Map(Arr.map(scored, (r) => [key(r), r[2]]))
+								for (const row of rows) {
+									const [document, revision, distance] = asTriple(row)
+									assert.equal(
+										scores.get(`${document}/${revision}`),
+										distance,
+										`${label}${probe.seed} ${document}/${revision}`
+									)
+								}
+								const exact = scored.slice(0, 20)
+								const got = new Set(Arr.map(rows, (r) => `${r[1]}/${r[2]}`))
+								const found = Arr.filter(exact, (r) => got.has(key(r))).length
+								hits += found
+								wanted += exact.length
+								recalls.push(`${label}${probe.seed}=${found}/${exact.length}`)
+								k.note(`account ${label}`)
+							})
+					)
+					/**
+					 * Whether the whole box ran: the floor holds over it, and a replay runs one case of it, whose one
+					 * probe's recall is no statement about the floor.
+					 */
+					const wholeBox = exhausted.cases === exhausted.limit
+					if (wholeBox) {
+						const recall = hits / wanted
+						const pinned = Arr.join(
+							Arr.map(searchPolicySettings, (setting) => `${setting.parameter} ${setting.value}`),
+							", "
+						)
+						const record = `recall@20 of approximateNearest against the exact baseline, HNSW at pgvector's build parameters and the cluster's search settings, ${pinned}, ${sizes.A + sizes.B + sizes.C} documents of 8 dimensions: ${recall.toFixed(4)} (${Arr.join(recalls, " ")})`
+						yield* Effect.promise(() => ctx.annotate(record))
+						yield* Effect.log(record)
+						assert.ok(recall > 0.8, record)
+					}
+					return exhausted
 				})
-				const documents = Arr.map(rows, (r) => r[1])
-				contains(documents, d1)
-				contains(documents, d2)
-				const [first, second] = rows
-				assert.equal(first?.[0], second?.[0])
-				assert.deepEqual([first?.[1], second?.[1]], Arr.sort([d1, d2], Order.String))
-			})
+			)
 	)
 
 	it.effect(
@@ -533,217 +611,178 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 
 	it.effect(
 		"dead tuples and superseded revisions still in the HNSW graph never reach the candidates",
-		() =>
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const fx = yield* installFixture({ candidates })
+					const session = yield* searcher(fx)
+					const c = compile(candidates, fx.installed, "query")
+					return yield* explore(
+						{
+							suite: "vector/ann/superseded",
+							draw: drawn(supersededGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "the exact baseline over the facts the transaction sees"
+							},
+							coverage: required<SupersededFeature>(
+								[
+									"nearest embeddings removed",
+									"nearest revisions superseded",
+									"both, in one transaction"
+								],
+								{ cases: 12, sense: notesOnly }
+							),
+							kept: [],
+							runs: 8,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 4,
+							caseHang
+						},
+						(drawnCase, k) =>
+							Effect.ensuring(
+								Effect.gen(function* () {
+									const vector = fx.probe(drawnCase.seed)
+									const params = { account: accountB, vector: vectorParam(vector) }
+									yield* session.begin
+									const nearest = yield* run(session, c, params)
+									const before = Arr.map(nearest, asTriple)
+									assert.equal(before.length, 20)
+									/**
+									 * In one transaction the searcher's own role writes: the nearest lose their current
+									 * embedding, pending and so not eligible, their tuples left in the graph, invisible to
+									 * the transaction; the next get a new current revision far from the probe, the old one
+									 * stored and superseded.
+									 */
+									const removed = before.slice(0, drawnCase.removed)
+									for (const [document, revision] of removed) {
+										yield* session.query(
+											`DELETE FROM ${fx.table("DocumentEmbedding")} WHERE "document" = '${document}'::uuid AND "revision" = ${revision}::bigint`,
+											[]
+										)
+									}
+									const far = vectorText(Arr.map(vector, (x) => (x === 0 ? 0 : -x)))
+									const superseded = before.slice(
+										drawnCase.removed,
+										drawnCase.removed + drawnCase.superseded
+									)
+									for (const [document] of superseded) {
+										yield* session.query(
+											`INSERT INTO ${fx.table("DocumentEmbedding")} ("document", "revision", "value") VALUES ('${document}'::uuid, 3::bigint, '${far}'::vector_ext.vector)`,
+											[]
+										)
+										yield* session.query(
+											`DELETE FROM ${fx.table("DocumentCurrent")} WHERE "document" = '${document}'::uuid`,
+											[]
+										)
+										yield* session.query(
+											`INSERT INTO ${fx.table("DocumentCurrent")} ("document", "revision") VALUES ('${document}'::uuid, 3::bigint)`,
+											[]
+										)
+									}
+									const p = yield* plan(session, c, params)
+									assert.equal(readsHnsw(fx, p.indexes), true, Formatter.format(p))
+									const searchedAgain = yield* run(session, c, params)
+									const after = Arr.map(searchedAgain, asTriple)
+									const scored = yield* exactScores(session, fx, accountB, vector)
+									const exact = new Map(Arr.map(scored, (r) => [key(r), r[2]]))
+									const gone = new Set(Arr.map(removed, ([document]) => document))
+									const moved = new Set(Arr.map(superseded, ([document]) => document))
+									for (const [document, revision, distance] of after) {
+										assert.equal(
+											exact.get(`${document}/${revision}`),
+											distance,
+											`${document}/${revision} eligible`
+										)
+										assert.equal(gone.has(document), false, `${document} has no current embedding`)
+										if (moved.has(document)) {
+											assert.equal(revision, "3", `${document} only at its new revision`)
+										}
+									}
+									assert.equal(after.length, Math.min(20, exact.size))
+									k.noteAll(supersededFeatures(drawnCase))
+								}),
+								Effect.orDie(session.rollback)
+							)
+					)
+				})
+			)
+	)
+
+	it.effect("a shared search is computed once and composes with ordinary matching", (ctx) =>
+		searched(
+			ctx,
 			Effect.gen(function* () {
-				const fx = yield* installFixture({ candidates })
-				const s = yield* Substrate
+				const fx = yield* installFixture({ candidates, titles, shared })
 				const session = yield* searcher(fx)
-				const c = compile(candidates, fx.installed, "query")
-				const vector = fx.probe(31)
-				const params = { account: accountB, vector: vectorParam(vector) }
-				const nearest = yield* run(session, c, params)
-				const before = Arr.map(nearest, asTriple)
-				assert.equal(before.length, 20)
-				yield* Effect.forEach(["DocumentEmbedding", "DocumentCurrent"], (r) =>
-					s.admin.query(`ALTER TABLE ${fx.table(r)} SET (autovacuum_enabled = false)`, [])
+				const near = compile(candidates, fx.installed, "query")
+				const t = compile(titles, fx.installed, "query")
+				/** A search two rules read is one MATERIALIZED CTE, one evaluation per execution. */
+				const twice = compile(shared, fx.installed, "query")
+				assert.ok(has(shapeOf(flight(twice.program.roots)[0].ast), "cte materialized"))
+				const tagged = new Set(
+					Arr.map(
+						Arr.filter(fx.facts, (d) => d.tags.includes("gamma")),
+						(d) => d.id
+					)
 				)
-				/**
-				 * The ten nearest lose their current embedding: pending, so not eligible, and dead tuples in the graph.
-				 */
-				const removed = before.slice(0, 10)
-				for (const [document, revision] of removed) {
-					yield* s.admin.query(
-						`DELETE FROM ${fx.table("DocumentEmbedding")} WHERE "document" = '${document}'::uuid AND "revision" = ${revision}::bigint`,
-						[]
-					)
-				}
-				/** The next ten get a new current revision far from the probe; the old one stays stored, superseded. */
-				const far = vectorText(Arr.map(vector, (x) => (x === 0 ? 0 : -x)))
-				const superseded = before.slice(10)
-				for (const [document] of superseded) {
-					yield* s.admin.query(
-						`INSERT INTO ${fx.table("DocumentEmbedding")} ("document", "revision", "value") VALUES ('${document}'::uuid, 3::bigint, '${far}'::vector_ext.vector)`,
-						[]
-					)
-					yield* s.admin.query(
-						`DELETE FROM ${fx.table("DocumentCurrent")} WHERE "document" = '${document}'::uuid`,
-						[]
-					)
-					yield* s.admin.query(
-						`INSERT INTO ${fx.table("DocumentCurrent")} ("document", "revision") VALUES ('${document}'::uuid, 3::bigint)`,
-						[]
-					)
-				}
-				const p = yield* plan(session, c, params)
-				assert.equal(readsHnsw(fx, p.indexes), true, Formatter.format(p))
-				const searchedAgain = yield* run(session, c, params)
-				const after = Arr.map(searchedAgain, asTriple)
-				const scored = yield* exactScores(session, fx, accountB, vector)
-				const exact = new Map(Arr.map(scored, (r) => [key(r), r[2]]))
-				const gone = new Set(Arr.map(removed, ([document]) => document))
-				const moved = new Set(Arr.map(superseded, ([document]) => document))
-				for (const [document, revision, distance] of after) {
-					assert.equal(
-						exact.get(`${document}/${revision}`),
-						distance,
-						`${document}/${revision} eligible`
-					)
-					assert.equal(gone.has(document), false, `${document} has no current embedding`)
-					if (moved.has(document)) {
-						assert.equal(revision, "3", `${document} only at its new revision`)
-					}
-				}
-				assert.equal(after.length, 20)
-			})
-	)
-
-	it.effect("a shared search is computed once and composes with ordinary matching", () =>
-		Effect.gen(function* () {
-			const fx = yield* installFixture({ candidates, titles, shared })
-			const session = yield* searcher(fx)
-			const vector = vectorParam(fx.probe(3))
-			const near = yield* run(session, compile(candidates, fx.installed, "query"), {
-				account: accountB,
-				vector
-			})
-			const t = compile(titles, fx.installed, "query")
-			const titled = yield* run(session, t, { account: accountB, vector })
-			assert.deepEqual(
-				Arr.sort(
-					Arr.map(titled, (r) => `${r[1]}:${r[0]}`),
-					Order.String
-				),
-				Arr.sort(
-					Arr.map(near, (r) => `${r[1]}:${r[0]}`),
-					Order.String
-				)
-			)
-			/** A search two rules read is one MATERIALIZED CTE, one evaluation per execution. */
-			const twice = compile(shared, fx.installed, "query")
-			assert.ok(has(shapeOf(flight(twice.program.roots)[0].ast), "cte materialized"))
-			const both = yield* run(session, twice, { account: accountB, vector })
-			const tagged = new Set(
-				Arr.map(
-					Arr.filter(fx.facts, (d) => d.tags.includes("gamma")),
-					(d) => d.id
-				)
-			)
-			const kept = Arr.filter(
-				near,
-				(r) => Number(r[0]) < 1 || (r[1] !== undefined && tagged.has(r[1]))
-			)
-			const expected = Arr.flatMap(kept, (r) => (r[1] === undefined ? [] : [r[1]]))
-			assert.deepEqual(
-				Arr.sort(
-					Arr.flatMap(both, (r) => (r[0] === undefined ? [] : [r[0]])),
-					Order.String
-				),
-				Arr.sort(expected, Order.String)
-			)
-		})
-	)
-
-	it.effect("an approximate source is refused as page, recursion, law and derived evidence", () =>
-		Effect.gen(function* () {
-			const fx = yield* installFixture({ candidates })
-
-			/**
-			 * A page: the page compiler refuses a page over candidates in both artifacts, while the exact scoring
-			 * with the same order pages.
-			 */
-			const page = (q: unknown) => {
-				const template = compileTemplate(q, undefined, {
-					...testCompile,
-					installation: identity.schema(parsedSchemaName(fx.installed.declared))
-				})
-				if (!template.ok) {
-					throw new Error(template.error.message)
-				}
-				const input = queryInput(q)
-				if (!input.ok) {
-					throw new Error(input.error.message)
-				}
-				const stated = statedOrderOf(input.value.desc, SourceLoc("query", []))
-				if (!stated.ok) {
-					throw new Error(stated.error.message)
-				}
-				const artifacts = testArtifacts(AnnSearch, {
-					...testCompile,
-					installation: identity.schema(parsedSchemaName(fx.installed.declared))
-				})
-				if (!artifacts.ok) {
-					throw new Error(artifacts.error.message)
-				}
-				return compilePageOf(template.value.programs, {
-					stated: stated.value,
-					names: fx.installed.names
-				})
-			}
-			const paged = failed(page(titles.orderBy(["distance", "asc"])))
-			assert.equal(paged.reason._tag, "UnsupportedOperation")
-			assert.equal(page(scoredDocuments.orderBy(["distance", "asc"])).ok, true)
-
-			/** Recursive feedback: a recursion seeded from candidates is refused by the checker. */
-			const near = query(AnnSearch).recursive("Near", {
-				row: { document: uuid },
-				base: [
-					(r) => {
-						const source = candidates.bind({
-							account: r.param("account", Document.fields.account),
-							vector: r.param("vector", DocumentEmbedding.fields.value)
+				return yield* explore(
+					{
+						suite: "vector/ann/shared",
+						draw: drawn(
+							(source) => [source.draw(element(accountsABC)), source.draw(int(60, 99))] as const
+						),
+						literal: Formatter.format,
+						oracle: {
+							kind: "second-implementation",
+							name: "the search's own candidates, filtered on the host as each rule reads them"
+						},
+						coverage: required<SearchFeature>(["account A", "account B", "account C"], {
+							cases: 12,
+							sense: notesOnly
+						}),
+						kept: [],
+						runs: 8,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang
+					},
+					([[account, label], seed], k) =>
+						Effect.gen(function* () {
+							const vector = vectorParam(fx.probe(seed))
+							const candidatesOf = yield* run(session, near, { account, vector })
+							const titled = yield* run(session, t, { account, vector })
+							assert.deepEqual(
+								Arr.sort(
+									Arr.map(titled, (r) => `${r[1]}:${r[0]}`),
+									Order.String
+								),
+								Arr.sort(
+									Arr.map(candidatesOf, (r) => `${r[1]}:${r[0]}`),
+									Order.String
+								)
+							)
+							const both = yield* run(session, twice, { account, vector })
+							const kept = Arr.filter(
+								candidatesOf,
+								(r) => Number(r[0]) < 1 || (r[1] !== undefined && tagged.has(r[1]))
+							)
+							const expected = Arr.flatMap(kept, (r) => (r[1] === undefined ? [] : [r[1]]))
+							assert.deepEqual(
+								Arr.sort(
+									Arr.flatMap(both, (r) => (r[0] === undefined ? [] : [r[0]])),
+									Order.String
+								),
+								Arr.sort(expected, Order.String)
+							)
+							k.note(`account ${label}`)
 						})
-						const { document } = v(source, "source")
-						return r.match(source, { document }).find({ document })
-					}
-				],
-				rec: [
-					(r, self) => {
-						const { document } = v(self, "self")
-						const { revision } = v(DocumentCurrent, "documentCurrent")
-						return r
-							.match(self, { document })
-							.match(DocumentCurrent, { document, revision })
-							.find({ document })
-					}
-				]
+				)
 			})
-			const recursion = failed(checked(near))
-			assertVariant(recursion.reason, "_tag", "RecursionRefused")
-			assert.deepEqual(recursion.reason.cause, {
-				kind: "approximateSource",
-				recursion: "Near"
-			})
-
-			/**
-			 * A law: no law constructor reads a query, so a violation query over candidates exists only as IR; the
-			 * optimized lowering refuses a Forbid over them.
-			 */
-			const logical = checked(titles)
-			if (!logical.ok) {
-				throw new Error("titles checks")
-			}
-			const q = logical.value
-			const root = q.dag.roots[0]
-			const forbidNode = relNode(NodeId("nz"), {
-				kind: "Forbid",
-				lawId: wild.lawId("nearest_law"),
-				violation: root,
-				heading: root.heading,
-				meta: root.meta,
-				loc: undefined
-			})
-			const forbid: LogicalQuery = { ...q, dag: rooted([forbidNode]) }
-			const options = {
-				names: fx.installed.names,
-				context: "snapshot",
-				catalog: installedCatalog(fx.installed.installation)
-			} as const
-			const law = failed(lowerAligned(forbid, "query", options))
-			assert.equal(law.reason._tag, "UnsupportedOperation")
-
-			/** A derived relation's definition. */
-			const definition = failed(lowerAligned(q, "derivedDefinition", options))
-			assert.equal(definition.reason._tag, "UnsupportedOperation")
-		})
+		)
 	)
 })

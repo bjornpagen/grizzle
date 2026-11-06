@@ -42,9 +42,9 @@
  *    A scope's name keeps the declared-name rule in its type (DeclaredName), so a name the builder refuses never types.
  *
  * 3. The seven statement-tuple readers. `schema(name, relations, statements)` captures its statements as a const
- *    tuple, and statement values carry the types they name. That one type parameter is read seven times,
- *    each through a projection that is a property read, one Extract over the tuple's element union, or
- *    a lookup in an index built once per schema, never a recursion over the schema graph:
+ *    tuple, which the schema's type holds by name and reads back whole, and statement values carry the types they
+ *    name. That one tuple is read seven times, each through a projection that is a property read, one Extract over
+ *    the tuple's element union, or a lookup in an index built once per schema, never a recursion over the schema graph:
  *    - attach: DeliveryClaim checks the stated delivery against the child's evidence, which reads KeysOf through
  *      HeadKeys and ContainmentsOf through ContainmentProof;
  *    - get: QueryReader.get accepts a query whose evidence card is atMostOne or one;
@@ -87,12 +87,14 @@
  *    its query entries carry). The runtime reads the role's login off the value it was given and fails with OpenError
  *    at stage `role` when no provided layer serves it.
  *
- * Type cost. Readers of the statement tuple go through per-schema indexes (KeyIndexOf, RelationIndexOf) built once
- * per schema, so a match costs a property lookup, not a pass over every statement. One cost remains linear in the
- * schema per generic call: a call whose return type mentions S (QueryBuilder.rule, Rule.match, ChangeSet.insert)
- * instantiates that return type with a fresh mapper, and TypeScript walks every object-literal type inside S (the
- * relations record, each relation's fields) because such types may contain type variables. The harness in
- * test/types/skeleton records the resulting growth.
+ * Type cost. Readers of the statement tuple go through per-schema indexes (KeyIndexOf, ContainmentIndexOf) built once
+ * per schema, so a match costs a property lookup, not a pass over every statement. A call whose return type mentions S
+ * (QueryBuilder.rule, Rule.match, ChangeSet.insert) instantiates that return type with a fresh mapper, and TypeScript
+ * walks every type argument of S that may hold a type variable, which it assumes of every object-literal type, a
+ * relation's field record among them. S's type arguments hold its statements by name (types/schema/schema.ts
+ * StatementsByName), never a relation, so the walk reads S's relations record as one type and no statement: a call
+ * costs what it reads, not the size of its schema. The scaling suites in test/types/schema/budget and
+ * test/types/query/budget hold every dimension to linear growth.
  *
  * Approximations that may be sharpened later, each of which widens soundly today: key retention through find by origin,
  * and the attach proofs, which read the same shapes logical/attach.ts reads, so a delivery the type licenses an

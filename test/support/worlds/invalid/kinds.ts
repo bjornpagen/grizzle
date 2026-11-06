@@ -32,7 +32,7 @@ const boundaryOf: { readonly [K in InvalidKind]: Boundary } = {
 	"token:nul-character": "token",
 	"token:proto-key": "token",
 	"token:huge-payload": "token",
-	"token:pattern-edge": "token",
+	"token:refinement-edge": "token",
 	"token:extra-fields": "token",
 	"token:verify-throws": "token",
 	"token:verify-not-object": "token",

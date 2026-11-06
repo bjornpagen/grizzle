@@ -12,7 +12,8 @@ import {
 	relation,
 	role,
 	type Schema,
-	schema
+	schema,
+	type StatementsByName
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
@@ -110,7 +111,7 @@ export const Queue = schema(
 export type QueueNamed<N extends string> = Schema<
 	N,
 	(typeof Queue)["relations"],
-	(typeof Queue)["statements"]
+	StatementsByName<(typeof Queue)["statements"], (typeof Queue)["relations"]>
 >
 
 /**

@@ -724,8 +724,8 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  *   precision and every computed numeric carries the bound its making proved, a making past numericMaxIntegerDigits
  *   being ResourceBound where the value is made, so none reaches numeric's limit;
  * - a divisor (/, %, div, mod over numeric, the exact integers, the integers' %, money / money) is `nonzero`; numeric
- *   sqrt's radicand `nonnegative`; min_scale's operand `finite`; power its `powerDomain`; width_bucket its
- *   `bucketDomain`;
+ *   sqrt's radicand `nonnegative`; min_scale's operand `finite`; power its `powerDomain`; width_bucket its operand
+ *   and bounds `finite`, facts their types state as min_scale's operand's are, then its `bucketDomain`;
  * - money / money is double precision;
  * - comparisons: every carrier with equality has = and <>, every ordered carrier the four orderings;
  * - a set over a roster's union (bitor), intersection (bitand) and cardinality (bit_count(bit)), its difference, subset
@@ -856,7 +856,7 @@ const catalogOverloads = {
 		"width_bucket",
 		["numeric", "numeric", "numeric", "int4"],
 		"int4",
-		requires([{ kind: "bucketDomain" }]),
+		requires([finite(0), finite(1), finite(2), { kind: "bucketDomain" }]),
 		"value"
 	),
 	"min_scale(numeric)": fnCall(

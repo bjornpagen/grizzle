@@ -7,7 +7,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
-import { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
+import { hasProperties, isList } from "#compiler/core/record.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	type ContentDigest,
@@ -16,8 +16,6 @@ import {
 	type ExprDesc,
 	type FieldDecl,
 	type AdmittedClosedRelation,
-	type ClosedPack,
-	closedPacks,
 	type FieldDesc,
 	fieldTypes,
 	type KeySlotDesc,
@@ -43,6 +41,7 @@ import {
 	type ScalarEnv,
 	scalarTypeOf
 } from "#compiler/scalar/registry.ts"
+import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { literalFor } from "#compiler/schema/literal.ts"
 import {
 	builderLoc,
@@ -649,6 +648,10 @@ export const closed = <
 	return value
 }
 
+/** Whether a field descriptor is a closed id, through any depth of contracts. */
+const isClosedIdDesc = (desc: FieldDesc): boolean =>
+	desc.kind === "closedId" || (desc.kind === "contract" && isClosedIdDesc(desc.base))
+
 /**
  * A closed relation's rows as a JavaScript caller wrote them, checked and described, as the set of facts they state: a
  * row written twice is one row, its first, and two rows of one key but other payloads break the key law, refused naming
@@ -670,9 +673,20 @@ const closedRows = (
 		throw malformed(label, "rows: a list of the relation's facts")
 	}
 	const names = Object.keys(fields)
-	const typed = Object.entries(fields).map(
-		([field, desc]) => ({ field, desc, roster: rosterHandlesOf(descriptors[field]) }) as const
-	)
+	/** Each field with its roster's handles where it is a closed id, read once into a set each cell is found in. */
+	const typed = Object.entries(fields).map(([field, desc]) => {
+		if (!isClosedIdDesc(desc)) {
+			return { field, desc, handles: undefined }
+		}
+		const roster = rosterHandlesOf(descriptors[field])
+		if (roster === undefined) {
+			throw malformed(
+				label,
+				`a closed id ${field} built by closedId(roster), which carries its roster`
+			)
+		}
+		return { field, desc, handles: new Set<LiteralDesc>(roster) }
+	})
 	const keyFields =
 		isList(key) && key.every((k): k is string => typeof k === "string" && names.includes(k))
 			? key
@@ -695,8 +709,13 @@ const closedRows = (
 			throw malformed(label, `row ${i} with exactly the fields ${names.join(", ")}`)
 		}
 		const literals: Record<string, LiteralDesc> = {}
-		for (const { field, desc, roster } of typed) {
-			literals[field] = literalFor(desc, row[field], `${label} row ${i} field ${field}`, roster)
+		for (const { field, desc, handles } of typed) {
+			const at = `${label} row ${i} field ${field}`
+			const literal = literalFor(desc, row[field], at, undefined)
+			if (handles !== undefined && !handles.has(literal)) {
+				throw malformed(at, describeFault("codeHandle"))
+			}
+			literals[field] = literal
 		}
 		const handles = keyFields.map((f) => literals[f])
 		const keyText = handles.every((h): h is string => typeof h === "string")
@@ -720,56 +739,24 @@ const closedRows = (
 	return { rows: out, kept }
 }
 
-/**
- * A closed relation's trailing arguments as a JavaScript caller passed them: none, which lists its rows; or one record
- * whose one property, `pack`, is absent, which lists its rows too, or a ClosedPack. More arguments, or a record of
- * another property or form, are refused.
- */
-const packOption = (rest: ReadonlyArray<unknown>, label: string): ClosedPack => {
-	const forms = closedPacks.map((p) => `"${p}"`).join(" or ")
-	if (rest.length > 1) {
-		throw malformed(
-			label,
-			"closed.relation(name, fields, key, rows, options): at most five arguments"
-		)
-	}
-	const [options] = rest
-	if (rest.length === 0) {
-		return "rows"
-	}
-	if (!isRecord(options) || Object.keys(options).some((k) => k !== "pack")) {
-		throw malformed(label, `options of one property, pack: ${forms}`)
-	}
-	const pack = options["pack"]
-	if (pack === undefined) {
-		return "rows"
-	}
-	const named = closedPacks.find((p) => p === pack)
-	if (named === undefined) {
-		throw malformed(label, `a pack of ${forms}`)
-	}
-	return named
-}
-
-/** The AdmittedClosedRelation brand's one mint: a description admitClosedRelation proved, rows and all. */
-const admittedOf = nominal<ClosedRelationDesc, AdmittedClosedRelation>()
-
 /** The admission core of closed.relation(...): a JavaScript caller's arguments checked and described. */
 export const admitClosedRelation = (
 	name: unknown,
 	fields: unknown,
 	key: unknown,
 	rows: unknown,
-	options: ReadonlyArray<unknown>
+	extra: ReadonlyArray<unknown>
 ): {
-	readonly desc: ClosedRelationDesc
+	readonly desc: AdmittedClosedRelation
 	readonly described: Readonly<Record<string, Described>>
 	/** The index of each row of the set among those written (closedRows). */
 	readonly kept: ReadonlyArray<number>
 } => {
 	const label = `closed.relation ${typeof name === "string" ? name : "?"}`
 	const relationName = requireName(name, label, "a closed relation name")
-	const pack = packOption(options, label)
+	if (extra.length > 0) {
+		throw malformed(label, "closed.relation(name, fields, key, rows): four arguments")
+	}
 	const descriptors = descriptorRecord(fields, label)
 	for (const [field, value] of Object.entries(descriptors)) {
 		if (writingOf(value).kind !== "caller") {
@@ -795,14 +782,13 @@ export const admitClosedRelation = (
 			key,
 			slots: keySlots(descriptors, key, label),
 			rows: [],
-			pack,
 			loc: builderLoc(label, [relationName])
 		})
 	)
 	if (desc.kind !== "closedRelation") {
 		throw malformed(label, "a relation description of a closed relation")
 	}
-	const admitted = recordAdmitted(admittedOf({ ...desc, rows: facts.rows }))
+	const admitted = recordAdmitted({ ...desc, rows: facts.rows })
 	return { desc: admitted, described, kept: facts.kept }
 }
 
@@ -847,9 +833,9 @@ const closedReadTyping = (
 }
 
 /**
- * closed.relation(name, fields, key, rows, options): a closed relation. Its value holds frozen copies of its fields, key
- * and rows; its `fact` is the decoder of its rows' fields, and its heading its fields. `at` and `row` are its closed
- * reads (scalar/compute/closed.ts), typed by its own descriptors. Its options state how its migration packs it.
+ * closed.relation(name, fields, key, rows): a closed relation. Its value holds frozen copies of its fields, key and rows;
+ * its `fact` is the decoder of its rows' fields, and its heading its fields. `at` and `row` are its closed reads
+ * (scalar/compute/closed.ts), typed by its own descriptors.
  */
 export const closedRelation = <
 	const Name extends string,
@@ -860,10 +846,10 @@ export const closedRelation = <
 	fields: Fields,
 	key: Key,
 	rows: ReadonlyArray<FactOfFields<Fields>>,
-	options: ReadonlyArray<unknown>
+	extra: ReadonlyArray<unknown>
 ): ClosedRelation<Name, Fields, readonly [...Key]> => {
 	const label = `closed.relation ${name}`
-	const admitted = admitClosedRelation(name, fields, key, rows, options)
+	const admitted = admitClosedRelation(name, fields, key, rows, extra)
 	const copied = frozenCopy(fields)
 	const typing = closedReadTyping(admitted.desc, admitted.described, copied, label)
 	return ownValue(
@@ -873,7 +859,6 @@ export const closedRelation = <
 			fields: copied,
 			key: frozenTuple<Key>(key),
 			rows: Object.freeze(admitted.kept.map((i) => frozenCopy(defined(rows[i], "a kept row")))),
-			pack: admitted.desc.pack,
 			fact: record<[Fields]>(copied),
 			heading: copied,
 			at: <const P extends PayloadFieldOf<Fields, readonly [...Key]>>(
@@ -1006,14 +991,8 @@ export const relationDescOf = (
 			return admitRoster(value["name"], value["handles"], [])
 		}
 		if (value["kind"] === "closedRelation") {
-			const options = value["pack"] === undefined ? [] : [{ pack: value["pack"] }]
-			return admitClosedRelation(
-				value["name"],
-				value["fields"],
-				value["key"],
-				value["rows"],
-				options
-			).desc
+			return admitClosedRelation(value["name"], value["fields"], value["key"], value["rows"], [])
+				.desc
 		}
 	}
 	throw malformed(

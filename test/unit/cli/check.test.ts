@@ -1,279 +1,365 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { Array as Arr, DateTime, Effect, FileSystem, Option, pipe, String as Str } from "effect"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { boolean, constant, type Gen, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	DateTime,
+	Effect,
+	FileSystem,
+	Formatter,
+	Option,
+	Order,
+	String as Str
+} from "effect"
 import { decodeMeta } from "#adapter/boundary/meta.ts"
-import { refusalText } from "#cli/refusals.ts"
+import { check } from "#cli/check.ts"
+import type { refusalText } from "#cli/refusals.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
-import { metaFileName, orderFolderFiles, writeMeta } from "#compiler/deploy/render/folder.ts"
-import {
-	findMarkers,
-	noTransactionMarker,
-	placeholderMarker,
-	splitStatements
-} from "#compiler/deploy/render/markers.ts"
+import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
+import { noTransactionMarker, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
-import { placeholderToken } from "#compiler/sql/print.ts"
+import { defineConfig } from "#index.ts"
+import { shopV1 } from "#test/pg/cli/fixture.ts"
 import {
-	cli,
-	cliClock,
+	cliOver,
 	configName,
-	unconnected,
-	workspace,
-	writeConfig
+	offlineOwner,
+	resolvedConfig,
+	workspace
 } from "#test/pg/cli/support.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-
-/** The clock the in-process command lines of this file read. */
-const nextNow = cliClock()
+import { caseHang } from "#test/support/limits.ts"
 
 /**
- * `grizzle check` without a database: the offline gate an AI runs before
- * committing and CI runs on every push.
+ * `grizzle check` reports every finding at once, one per entry, never stopping at the first, generated: a committed
+ * directory of one schema (its first draft, `init`, and a custom folder after it, `seed`) with a drawn set of faults
+ * planted into it, and check's findings must be exactly the set the planted faults name, each at its entry.
  *
- * - Every finding is reported at once, one per line with its fix: an unresolved marker with its file and line, an
- *   unreadable snapshot.json or meta.json, a broken chain, a statement that controls the transaction, a misplaced
- *   no-transaction marker, an illegal file or folder name, a stray entry; a generated, resolved directory passes.
- * - A renamed schema's first migration is refused as an unresolved data loss until its CREATE SCHEMA is written in.
+ * - **The faults:** snapshot.json unreadable; a folder's meta.json unreadable, or off the chain (its source no previous
+ *   target); a statement that controls the transaction; a no-transaction marker below a file's first line; a file of no
+ *   `NN-<words>.sql` name; a folder of no `<YYYYMMDDHHMMSS>_<name>` name, whose meta.json is no meta; a placeholder
+ *   marker left; a stray entry beside the folders.
+ * - **The model:** each fault is its own finding at its own entry, but for what the documented chain walk implies: the
+ *   walk stops at the first folder whose meta.json is not the schema's link, so a later folder off the chain is no
+ *   finding of its own; and a stray entry leaves the directory unread, its one finding. check exits 1 exactly when
+ *   it finds anything; that a clean directory passes is the project suite's (project.test.ts).
  */
-const at = (s: number) =>
+type MetaFault = "sound" | "unreadable" | "off the chain"
+
+interface Planted {
+	readonly stray: boolean
+	readonly snapshot: boolean
+	readonly init: MetaFault
+	readonly seed: MetaFault
+	readonly transactionControl: boolean
+	readonly noTransaction: boolean
+	readonly fileName: boolean
+	readonly folderName: boolean
+	readonly placeholder: boolean
+}
+
+const metaFaultGen: Gen<MetaFault> = weighted([
+	[2, constant("sound")],
+	[1, constant("unreadable")],
+	[1, constant("off the chain")]
+])
+
+const plantedGen: Gen<Planted> = (source) => ({
+	stray: source.draw(
+		weighted([
+			[5, constant(false)],
+			[1, constant(true)]
+		])
+	),
+	snapshot: source.draw(boolean),
+	init: source.draw(metaFaultGen),
+	seed: source.draw(metaFaultGen),
+	transactionControl: source.draw(boolean),
+	noTransaction: source.draw(boolean),
+	fileName: source.draw(boolean),
+	folderName: source.draw(boolean),
+	placeholder: source.draw(boolean)
+})
+
+/** A finding as the model states it: its kind, and the entry it names, a line apart. */
+interface Finding {
+	readonly kind: keyof typeof refusalText
+	readonly entry: string
+}
+
+type CheckFeature =
+	| "a stray entry alone"
+	| "four findings at once"
+	| "a later folder off the chain the walk never reaches"
+	| Exclude<Finding["kind"], "strayEntry">
+	| "strayEntry"
+
+const shop = shopV1("ChkAll", "none")
+const ident = identifierOf(identity.schema(parsedSchemaName("ChkAll")))
+const schemaDir = `migrations/${ident}`
+const init = "20261012120000_init"
+const seed = "20261012120001_seed"
+
+/** The files of init the faults edit, by name, as its draft numbers them: its Setup, Structure and Publish files. */
+interface Layout {
+	readonly setup: string
+	readonly structure: string
+	readonly publish: string
+}
+
+/** The file of init's files whose name ends in `-<phase>.sql`. */
+const phaseFile = (files: ReadonlyArray<string>, phase: string): string =>
+	defined(
+		Arr.findFirst(files, (f) => Str.endsWith(`-${phase}.sql`)(f)).pipe(Option.getOrUndefined),
+		`init's ${phase} file`
+	)
+
+/** What check must find for a planted set, in no order. */
+const findingsOf = (p: Planted, layout: Layout): ReadonlyArray<Finding> => {
+	if (p.stray) {
+		return [{ kind: "strayEntry", entry: schemaDir }]
+	}
+	const metaFinding = (folder: string, fault: MetaFault): ReadonlyArray<Finding> => {
+		switch (fault) {
+			case "sound":
+				return []
+			case "unreadable":
+				return [{ kind: "unreadableMeta", entry: `${schemaDir}/${folder}/${metaFileName}` }]
+			case "off the chain":
+				return [{ kind: "brokenChain", entry: `${schemaDir}/${folder}/${metaFileName}` }]
+		}
+	}
+	return [
+		...(p.snapshot
+			? [{ kind: "unreadableSnapshot", entry: `${schemaDir}/${snapshotFileName}` } as const]
+			: []),
+		...metaFinding(init, p.init),
+		...(p.init === "sound" || p.seed === "unreadable" ? metaFinding(seed, p.seed) : []),
+		...(p.transactionControl
+			? [{ kind: "transactionControl", entry: `${schemaDir}/${init}/${layout.structure}` } as const]
+			: []),
+		...(p.noTransaction
+			? [
+					{
+						kind: "misplacedNoTransaction",
+						entry: `${schemaDir}/${init}/${layout.publish}`
+					} as const
+				]
+			: []),
+		...(p.placeholder
+			? [{ kind: "placeholder", entry: `${schemaDir}/${init}/${layout.setup}` } as const]
+			: []),
+		...(p.fileName ? [{ kind: "fileName", entry: `${schemaDir}/${seed}` } as const] : []),
+		...(p.folderName
+			? ([
+					{ kind: "folderName", entry: `${schemaDir}/draft` },
+					{ kind: "unreadableMeta", entry: `${schemaDir}/draft/${metaFileName}` }
+				] as const)
+			: [])
+	]
+}
+
+/** A fingerprint no folder reaches. */
+const stranger = SchemaFingerprint(Str.repeat(64)("0"))
+
+/** The text with `line` appended as its last line. */
+const appended = (text: string, line: string): string =>
+	`${Str.endsWith("\n")(text) ? text : `${text}\n`}${line}\n`
+
+/** Plants the faults into the committed directory of the workspace `ws`. */
+const plant = (ws: string, p: Planted, layout: Layout) =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const dir = `${ws}/${schemaDir}`
+		const edit = (path: string, f: (text: string) => string) =>
+			Effect.flatMap(fs.readFileString(path), (text) => fs.writeFileString(path, f(text)))
+		const metaOf = (folder: string, fault: MetaFault) => {
+			const path = `${dir}/${folder}/${metaFileName}`
+			switch (fault) {
+				case "sound":
+					return Effect.void
+				case "unreadable":
+					return fs.writeFileString(path, "{ not json\n")
+				case "off the chain":
+					return edit(path, (text) => {
+						const meta = succeeded(decodeMeta(text), "a committed meta.json")
+						return succeeded(
+							writeMeta(
+								meta.kind === "custom"
+									? { ...meta, source: stranger, target: stranger }
+									: { ...meta, source: stranger }
+							)
+						)
+					})
+			}
+		}
+		if (p.stray) {
+			yield* fs.writeFileString(`${dir}/notes.txt`, "review later\n")
+		}
+		if (p.snapshot) {
+			yield* fs.writeFileString(`${dir}/${snapshotFileName}`, "{ not json\n")
+		}
+		yield* metaOf(init, p.init)
+		yield* metaOf(seed, p.seed)
+		if (p.transactionControl) {
+			yield* edit(`${dir}/${init}/${layout.structure}`, (text) => appended(text, "COMMIT;"))
+		}
+		if (p.noTransaction) {
+			yield* edit(`${dir}/${init}/${layout.publish}`, (text) => appended(text, noTransactionMarker))
+		}
+		if (p.placeholder) {
+			yield* edit(`${dir}/${init}/${layout.setup}`, (text) =>
+				appended(text, `${placeholderMarker}: supply the value`)
+			)
+		}
+		if (p.fileName) {
+			yield* fs.writeFileString(`${dir}/${seed}/notes.sql`, "SELECT 1;\n")
+		}
+		if (p.folderName) {
+			yield* fs.makeDirectory(`${dir}/draft`)
+			yield* fs.writeFileString(`${dir}/draft/${metaFileName}`, "{}")
+		}
+	})
+
+/** A finding's line, after its entry's path. */
+const lineSuffix = regex(":[0-9]+$")
+
+/** The entry a finding's `where` names: its path, without a line. */
+const entryOf = (where: string): string => Str.replace(lineSuffix, "")(where)
+
+const config = defineConfig({
+	schemas: [shop.schema],
+	logins: [shop.server],
+	migrations: "migrations",
+	connection: offlineOwner
+})
+
+const at = (second: number) =>
 	DateTime.makeUnsafe({
 		year: 2026,
 		month: 10,
-		day: 14,
+		day: 12,
 		hour: 12,
 		minute: 0,
-		second: s,
+		second,
 		millisecond: 0
 	})
 
-/** The lines of an output, each `<where>: <problem>; <fix>` for a finding. */
-const lines = (text: string): ReadonlyArray<string> =>
-	Arr.filter(Str.split(text, "\n"), (l) => l.length > 0)
-
-const finding = (where: string, r: { readonly problem: string; readonly fix: string }) =>
-	`${where}: ${r.problem}; ${r.fix}`
-
-/** The path of `parts` joined by slashes. */
-const join = (...parts: Array<string>): string => Arr.join(parts, "/")
-
-/** The text of the file at `path`. */
-const read = (path: string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		return yield* fs.readFileString(path)
-	})
-
-/** Writes `text` to the file at `path`. */
-const write = (path: string, text: string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		yield* fs.writeFileString(path, text)
-	})
-
-/** The entries of the directory at `path`. */
-const list = (path: string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		return yield* fs.readDirectory(path)
-	})
+const notesOf = (p: Planted, found: ReadonlyArray<Finding>): ReadonlyArray<CheckFeature> => [
+	...Arr.dedupe(Arr.map(found, (f) => f.kind)),
+	...(p.stray ? (["a stray entry alone"] as const) : []),
+	...(Arr.dedupe(Arr.map(found, (f) => f.kind)).length >= 4
+		? (["four findings at once"] as const)
+		: []),
+	...(!p.stray && p.init !== "sound" && p.seed === "off the chain"
+		? (["a later folder off the chain the walk never reaches"] as const)
+		: [])
+]
 
 layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) => {
-	it.effect("reports an unresolved marker by file and line until the reviewer resolves it", () =>
-		Effect.gen(function* () {
-			const ws = yield* workspace("check-marker")
-			yield* writeConfig(ws, {
-				schemas: [{ name: "ChkMark", fixture: "shop", version: 1, workload: "none" }],
-				connection: unconnected
-			})
-			const first = yield* cli(ws, ["generate", configName, "--name", "init"], at(0))
-			assert.equal(first.code, 0)
-			yield* writeConfig(ws, {
-				schemas: [{ name: "ChkMark", fixture: "shop", version: 2, workload: "none" }],
-				connection: unconnected
-			})
-			const tier = yield* cli(ws, ["generate", configName, "--name", "tier"], at(1))
-			assert.equal(tier.code, 0)
-			const rel = `migrations/${identifierOf(identity.schema(parsedSchemaName("ChkMark")))}/20261014120001_tier`
-			const folder = join(ws, rel)
-			const folderFiles = yield* list(folder)
-			const files = yield* Effect.forEach(
-				succeeded(
-					orderFolderFiles(
-						Arr.map(
-							Arr.filter(folderFiles, (f) => f !== metaFileName),
-							(name) => ({ name })
-						)
-					)
-				),
-				({ file }) =>
-					Effect.map(read(join(folder, file.name)), (text) => ({ name: file.name, text }))
-			)
-			const markers = Arr.flatMap(files, (f) =>
-				Arr.map(findMarkers(f.text), (m) =>
-					finding(`${rel}/${f.name}:${m.line}`, refusalText[m.kind])
-				)
-			)
-			assert.ok(markers.length > 0)
-			const marked = yield* cli(ws, ["check", configName], nextNow())
-			assert.equal(marked.code, 1)
-			assert.deepEqual(lines(marked.stderr), markers)
-			for (const f of files) {
-				yield* write(
-					join(folder, f.name),
-					pipe(
-						Arr.join(
-							Arr.filter(Str.split(f.text, "\n"), (l) => !Str.startsWith(placeholderMarker)(l)),
-							"\n"
-						),
-						Str.replaceAll(placeholderToken, "3")
-					)
-				)
-			}
-			const resolved = yield* cli(ws, ["check", configName], nextNow())
-			assert.equal(resolved.code, 0, resolved.stderr)
-		})
-	)
-
 	it.effect(
-		"refuses a renamed schema's first migration until the reviewer writes its CREATE SCHEMA in",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("check-renamed")
-				yield* writeConfig(ws, {
-					schemas: [{ name: "ChkOld", fixture: "shop", version: 1, workload: "none" }],
-					connection: unconnected
-				})
-				const first = yield* cli(ws, ["generate", configName, "--name", "init"], at(0))
-				assert.equal(first.code, 0)
-				yield* writeConfig(ws, {
-					schemas: [{ name: "ChkNew", fixture: "shop", version: 1, workload: "none" }],
-					connection: unconnected
-				})
-				const generated = yield* cli(ws, ["generate", configName, "--name", "init"], at(1))
-				assert.equal(generated.code, 0, generated.stderr)
-				const old = identifierOf(identity.schema(parsedSchemaName("ChkOld")))
-				const rel = `migrations/${identifierOf(identity.schema(parsedSchemaName("ChkNew")))}/20261014120001_init`
-				const files = yield* list(join(ws, rel))
-				const setup = Option.getOrThrowWith(
-					Arr.findFirst(files, (f) => Str.endsWith("-setup.sql")(f)),
-					() => new Error("the first migration has a Prepare file")
-				)
-				const where = `${rel}/${setup}`
-				assert.ok(
-					Arr.some(
-						lines(generated.stdout),
-						(l) =>
-							Str.startsWith(`${where}: data loss: `)(l) &&
-							Str.includes(`"${old}"`)(l) &&
-							Str.endsWith(refusalText.unresolvedLoss.fix)(l)
-					),
-					`generate lists the loss:\n${generated.stdout}`
-				)
-				const refused = yield* cli(ws, ["check", configName], nextNow())
-				assert.equal(refused.code, 1)
-				const tail = `: ${refusalText.unresolvedLoss.problem}; ${refusalText.unresolvedLoss.fix}`
-				const [one, ...more] = Arr.filter(lines(refused.stderr), (l) =>
-					Str.startsWith(`${where}: `)(l)
-				)
-				assert.ok(
-					one !== undefined &&
-						more.length === 0 &&
-						Str.includes(`"${old}"`)(one) &&
-						Str.endsWith(tail)(one),
-					`check refuses the loss once, naming ${old}:\n${refused.stderr}`
-				)
-				const path = join(ws, where)
-				const text = yield* read(path)
-				yield* write(
-					path,
-					Arr.join(
-						Arr.map(Str.split(text, "\n"), (l) =>
-							Str.startsWith("-- CREATE SCHEMA ")(l) ? Str.slice("-- ".length)(l) : l
-						),
-						"\n"
+		"reports every planted fault at once, each at its entry, exactly as the chain walk implies, and exits 1 exactly when it finds one",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const fs = yield* FileSystem.FileSystem
+					const base = yield* workspace("check-base")
+					const drafted = yield* cliOver(
+						base,
+						config,
+						["generate", configName, "--name", "init"],
+						at(0)
 					)
-				)
-				const decided = yield* cli(ws, ["check", configName], nextNow())
-				assert.equal(decided.code, 0, decided.stderr)
-			})
-	)
-
-	it.effect(
-		"reports every tampering at once: snapshot.json, meta.json, the chain, illegal files and names",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("check-tamper")
-				yield* writeConfig(ws, {
-					schemas: [{ name: "ChkTamp", fixture: "shop", version: 1, workload: "none" }],
-					connection: unconnected
-				})
-				const first = yield* cli(ws, ["generate", configName, "--name", "init"], at(0))
-				assert.equal(first.code, 0)
-				const custom = yield* cli(ws, ["generate", configName, "--custom", "--name", "seed"], at(1))
-				assert.equal(custom.code, 0)
-				const rel = `migrations/${identifierOf(identity.schema(parsedSchemaName("ChkTamp")))}`
-				const dir = join(ws, rel)
-				const init = "20261014120000_init"
-				const seed = "20261014120001_seed"
-				const snapshot = join(dir, snapshotFileName)
-				yield* write(snapshot, "{ not json\n")
-				const seedMeta = join(dir, seed, metaFileName)
-				const metaText = yield* read(seedMeta)
-				const meta = succeeded(decodeMeta(metaText))
-				/** A custom folder whose one snapshot is no previous target: the chain breaks there. */
-				const elsewhere = SchemaFingerprint(Str.repeat(64)("0"))
-				yield* write(
-					seedMeta,
-					succeeded(writeMeta({ ...meta, source: elsewhere, target: elsewhere }))
-				)
-				const initFiles = yield* list(join(dir, init))
-				const structure = Option.getOrThrowWith(
-					Arr.findFirst(initFiles, (f) => Str.endsWith("-structure.sql")(f)),
-					() => new Error("the first migration has a Structure file")
-				)
-				const generatedStructure = yield* read(join(dir, init, structure))
-				yield* write(
-					join(dir, init, structure),
-					`${generatedStructure}\nCOMMIT;\n${noTransactionMarker}\n`
-				)
-				yield* write(join(dir, seed, "notes.sql"), "SELECT 1;\n")
-				const fs = yield* FileSystem.FileSystem
-				yield* fs.makeDirectory(join(dir, "draft"))
-				yield* write(join(dir, "draft", metaFileName), "{}")
-				const all = yield* cli(ws, ["check", configName], nextNow())
-				assert.equal(all.code, 1)
-				const reported = lines(all.stderr)
-				const structureText = yield* read(join(dir, init, structure))
-				const structureLines = Str.split(structureText, "\n")
-				const statements = splitStatements(Arr.join(structureLines, "\n")).length
-				const expected = [
-					finding(`${rel}/${snapshotFileName}`, refusalText.unreadableSnapshot),
-					finding(`${rel}/draft`, refusalText.folderName),
-					finding(`${rel}/draft/${metaFileName}`, refusalText.unreadableMeta),
-					finding(`${rel}/${seed}/${metaFileName}`, refusalText.brokenChain),
-					`${rel}/${init}/${structure}: statement ${statements} is COMMIT: ${refusalText.transactionControl.problem}; ${refusalText.transactionControl.fix}`,
-					finding(
-						`${rel}/${init}/${structure}:${structureLines.length - 1}`,
-						refusalText.misplacedNoTransaction
+					assert.equal(drafted.code, 0, drafted.stderr)
+					const custom = yield* cliOver(
+						base,
+						config,
+						["generate", configName, "--custom", "--name", "seed"],
+						at(1)
 					)
-				]
-				assert.deepEqual(
-					Arr.filter(expected, (e) => !Arr.contains(reported, e)),
-					[],
-					Arr.join(reported, "\n")
-				)
-				assert.ok(
-					Arr.some(
-						reported,
-						(l) =>
-							Str.startsWith(`${rel}/${seed}: `)(l) &&
-							Str.includes("notes.sql")(l) &&
-							Str.endsWith(refusalText.fileName.fix)(l)
-					),
-					Arr.join(reported, "\n")
-				)
-			})
+					assert.equal(custom.code, 0, custom.stderr)
+					const committed = yield* fs.readDirectory(`${base}/${schemaDir}`)
+					assert.deepEqual(Arr.sort(committed, Order.String), [init, seed, snapshotFileName])
+					const files = yield* fs.readDirectory(`${base}/${schemaDir}/${init}`)
+					const layout: Layout = {
+						setup: phaseFile(files, "setup"),
+						structure: phaseFile(files, "structure"),
+						publish: phaseFile(files, "publish")
+					}
+					return yield* explore(
+						{
+							suite: "unit/cli/check-at-once",
+							draw: drawn(plantedGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "specification",
+								name: "each planted fault's own finding at its own entry, as the documented chain walk reaches it"
+							},
+							coverage: required<CheckFeature>(
+								[
+									"a stray entry alone",
+									"four findings at once",
+									"a later folder off the chain the walk never reaches",
+									"strayEntry",
+									"unreadableSnapshot",
+									"unreadableMeta",
+									"brokenChain",
+									"transactionControl",
+									"misplacedNoTransaction",
+									"placeholder",
+									"fileName",
+									"folderName"
+								],
+								{ cases: 120, sense: notesOnly }
+							),
+							kept: [],
+							runs: 40,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						(p, c) =>
+							Effect.scoped(
+								Effect.gen(function* () {
+									const ws = yield* workspace("check-planted")
+									yield* fs.copy(base, ws, { overwrite: true })
+									yield* plant(ws, p, layout)
+									const expected = findingsOf(p, layout)
+									c.noteAll(notesOf(p, expected))
+									const ran = yield* cliOver(ws, config, ["check", configName], at(2))
+									assert.equal(ran.code, expected.length > 0 ? 1 : 0, ran.stderr)
+									const read = yield* resolvedConfig(config, `${ws}/${configName}`)
+									const resolved = succeeded(read)
+									const [checked] = yield* check(resolved, ws)
+									const byEntry = (findings: ReadonlyArray<Finding>) =>
+										Arr.sort(
+											Arr.map(findings, (f) => `${f.kind} ${f.entry}`),
+											Order.String
+										)
+									assert.deepEqual(
+										byEntry(
+											Arr.map(defined(checked, "the schema's check").findings, (f) => ({
+												kind: f.kind,
+												entry: entryOf(f.where)
+											}))
+										),
+										byEntry(expected),
+										Formatter.format(p)
+									)
+								})
+							)
+					)
+				})
+			)
 	)
 })

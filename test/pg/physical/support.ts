@@ -10,6 +10,7 @@ import {
 	installOptions
 } from "#compiler/physical/install/compile.ts"
 
+import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import {
 	fullRoleDesc,
 	type OwnedLogin,
@@ -34,7 +35,6 @@ import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import type { SubstrateWorld } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -58,7 +58,7 @@ const accepted = <A>(r: Result.Result<A, CompileError>): A => {
 
 export const fixtureWorlds = (desc: SchemaDesc): FixtureWorlds => {
 	const loc = SourceLoc(`the fixture login of ${desc.name}`, [])
-	const base = accepted(decodeDesc("schema", desc))
+	const base = accepted(admitSchemaDesc(desc))
 	const writer = accepted(fullRoleDesc(base, "writer", loc))
 	const reader = { ...writer, name: "reader", write: [], refresh: [] }
 	return {
@@ -93,28 +93,6 @@ export const installedRoleOf = (
 	}
 	throw new Error(`the installation holds no role ${role.name}`)
 }
-
-/**
- * The fixture's two roles as sessions take them on: their one login, given a password once in the scope (a second
- * password would void the first), and each one's theory role.
- */
-export const fixtureSessions = (
-	installation: Installation,
-	worlds: FixtureWorlds
-): Effect.Effect<
-	{ readonly writer: SubstrateWorld; readonly reader: SubstrateWorld },
-	SqlError,
-	Substrate | Scope.Scope
-> =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const writer = installedRoleOf(installation, worlds.writer)
-		const login = yield* substrate.login(writer.login)
-		return {
-			writer: { login, role: writer.role },
-			reader: { login, role: installedRoleOf(installation, worlds.reader).role }
-		}
-	})
 
 /**
  * Installing a compiled schema in the substrate's database for the physical tests: each installation gets a unique

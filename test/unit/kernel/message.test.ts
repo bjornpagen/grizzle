@@ -1,6 +1,6 @@
 /**
- * What a failure report says of the error a property ended with (test/support/message.ts): a CompileError, whose
- * message is empty, by its reason, location and capability; a tagged failure or defect by its tag and every field, down
+ * What a failure report says of the error a property ended with (test/support/message.ts): a CompileError by its
+ * reason, location and sentence, a collision's other location and an artifact's path, wherever it was found; a tagged failure or defect by its tag and every field, down
  * the chain of its causes and through its fields; and an end that is no Error, or an Error of no message, by what it
  * is.
  */
@@ -8,15 +8,23 @@
 import { describe, it } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { constant, element, type Gen, int, map, oneOf, option } from "@grizzle/testing/gen"
+import { array, constant, element, type Gen, int, map, oneOf, option } from "@grizzle/testing/gen"
 import { matching } from "@grizzle/testing/pattern"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { regex } from "arkregex"
-import { Data, Effect, Formatter, Option } from "effect"
-import { compileReasonText, malformedDescription } from "#compiler/core/errors.ts"
-import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
+import {
+	type Artifact,
+	CompileError,
+	compileReasonText,
+	malformedArtifact,
+	type ProseTag,
+	prose,
+	within
+} from "#compiler/core/errors.ts"
+import { formatLoc, formatPath, SourceLoc } from "#compiler/core/loc.ts"
 import { containsText, refusalLoc } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -120,15 +128,172 @@ const endGen: Gen<End> = oneOf<End>([
 	map(word, (code): End => ({ kind: "empty Error", code }))
 ])
 
+/** A path into a value: words and indices. */
+const pathGen: Gen<ReadonlyArray<string | number>> = array(
+	oneOf<string | number>([word, int(0, 9)]),
+	{
+		min: 0,
+		max: 3
+	}
+)
+
+/** A location: a word for its label and a path. */
+const locGen: Gen<SourceLoc> = (source) => SourceLoc(source.draw(word), source.draw(pathGen))
+
+/** The reasons whose one fact is a sentence: the located refusals a builder states in its own words. */
+const proseTags: Arr.NonEmptyReadonlyArray<ProseTag> = [
+	"MalformedDescription",
+	"UnsupportedOperation",
+	"UnsupportedLawFamily",
+	"MissingDiscriminant",
+	"AttachedParentUnbound",
+	"AttachedPage",
+	"DescribedHeadingMismatch",
+	"ContractLiteral"
+]
+
+const artifacts: Arr.NonEmptyReadonlyArray<Artifact> = [
+	"snapshot",
+	"manifest",
+	"folder",
+	"meta",
+	"ledger",
+	"cursor",
+	"canonical",
+	"fingerprint"
+]
+
+/**
+ * A CompileError as data: a located refusal stated as a sentence, a collision of two locations, or an artifact
+ * malformed at a path; and the path of a value it is found within, none when it is reported where it was made.
+ */
+type CompileErrorSketch = (
+	| {
+			readonly kind: "prose"
+			readonly tag: ProseTag
+			readonly at: SourceLoc
+			readonly text: string
+	  }
+	| {
+			readonly kind: "collision"
+			readonly at: SourceLoc
+			readonly other: SourceLoc
+			readonly identifier: string
+	  }
+	| {
+			readonly kind: "artifact"
+			readonly artifact: Artifact
+			readonly at: ReadonlyArray<string | number>
+			readonly text: string
+	  }
+) & { readonly within: ReadonlyArray<string | number> }
+
+const compileErrorGen: Gen<CompileErrorSketch> = (source) => {
+	const within = source.draw(pathGen)
+	switch (source.draw(element(["prose", "collision", "artifact"] as const))) {
+		case "prose":
+			return {
+				kind: "prose",
+				tag: source.draw(element(proseTags)),
+				at: source.draw(locGen),
+				text: source.draw(word),
+				within
+			}
+		case "collision":
+			return {
+				kind: "collision",
+				at: source.draw(locGen),
+				other: source.draw(locGen),
+				identifier: source.draw(word),
+				within
+			}
+		case "artifact":
+			return {
+				kind: "artifact",
+				artifact: source.draw(element(artifacts)),
+				at: source.draw(pathGen),
+				text: source.draw(word),
+				within
+			}
+	}
+}
+
+const compileErrorOf = (k: CompileErrorSketch): CompileError => {
+	switch (k.kind) {
+		case "prose":
+			return CompileError.make(prose(k.tag, k.at, k.text))
+		case "collision":
+			return CompileError.make({
+				_tag: "IdentifierCollision",
+				at: k.at,
+				other: k.other,
+				identifier: k.identifier,
+				what: "relation",
+				declaration: `relation ${k.identifier}`,
+				otherDeclaration: `relation ${Str.capitalize(k.identifier)}`
+			})
+		case "artifact":
+			return malformedArtifact(k.artifact, k.at, k.text)
+	}
+}
+
 describe("a failure's message", () => {
-	it("states a CompileError by its reason, location and capability", () => {
-		/** Fields no other part of the message spells. */
-		const planted = malformedDescription(SourceLoc("location L7", []), "capability C9")
-		const stated = messageOf(planted)
-		containsText(stated, planted.reason._tag, "the message states the reason")
-		containsText(stated, formatLoc(refusalLoc(planted)), "the message states the location")
-		containsText(stated, compileReasonText(planted.reason), "the message states the capability")
-	})
+	it.effect(
+		"states a CompileError by its reason, location and sentence, a collision's other location and an artifact's path",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/kernel/compile-error-message",
+						draw: drawn(compileErrorGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the reason's tag, its location formatted, its sentence (compileReasonText) and a collision's other location, each in the report"
+						},
+						coverage: required<CompileErrorSketch["kind"] | "found within a value">(
+							["prose", "collision", "artifact", "found within a value"],
+							{ cases: 80, sense: notesOnly }
+						),
+						kept: [],
+						runs: 80,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(k, c) =>
+						Effect.sync(() => {
+							c.note(k.kind)
+							const made = compileErrorOf(k)
+							const error = Arr.isReadonlyArrayNonEmpty(k.within) ? within(made, k.within) : made
+							if (Arr.isReadonlyArrayNonEmpty(k.within)) {
+								c.note("found within a value")
+							}
+							const stated = messageOf(error)
+							const reason = error.reason
+							containsText(stated, reason._tag, "the message states the reason")
+							containsText(stated, compileReasonText(reason), "the message states the sentence")
+							if (reason._tag === "MalformedArtifact") {
+								containsText(stated, reason.artifact, "the message states the artifact")
+								if (Arr.isReadonlyArrayNonEmpty(reason.at)) {
+									containsText(stated, formatPath(reason.at), "the message states the path")
+								}
+								return
+							}
+							containsText(stated, formatLoc(refusalLoc(error)), "the message states the location")
+							if (reason._tag === "IdentifierCollision") {
+								containsText(
+									stated,
+									formatLoc(reason.other),
+									"the message states the other location"
+								)
+							}
+						})
+				)
+			)
+	)
 
 	it.effect(
 		"states a tagged failure by its tag and every field, down the chain of its causes and through its fields",

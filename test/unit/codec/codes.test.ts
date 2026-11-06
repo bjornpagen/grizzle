@@ -3,10 +3,11 @@
  * codes, against a naive positional model.
  *
  * - The model: a roster of five codes, each live or a hole, a live code c held by the handle `h<c>`; a closed id is
- *   written as its code's decimal digits, and a set as five characters, the character at position c 1 exactly when the
- *   set holds code c's handle, so a hole's is 0.
- * - Universal oracles: convert ∘ encode is the identity on every value, a cell's one text is its own, and the order of
- *   two closed ids is their codes'.
+ *   written as its code's decimal digits, and a set is stored as eight characters, five codes rounded up to whole hex
+ *   digits, the character at position c 1 exactly when the set holds code c's handle, so a hole's and every padding
+ *   position's is 0, and written as X and the two hex digits of that text (test/support/closed/bit-text.ts).
+ * - Universal oracles: convert ∘ encode is the identity on every value, a cell's one text is the value's written text,
+ *   and the order of two closed ids is their codes'.
  * - Named invalid variants, each refused with its fault: a removed handle (a hole's), a handle of another roster, a
  *   value that is no Set, and a Set holding a member that is no string.
  *
@@ -29,6 +30,7 @@ import type { Roster, ScalarType } from "#compiler/ir/scalar.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { compareValues } from "#compiler/scalar/values/identity.ts"
 import { assert, faulted, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /** The codes a roster of the box has minted, holes included. */
@@ -112,12 +114,18 @@ const installed = (live: number) => {
 	return { roster, book, code, bits }
 }
 
-/** The model's text of a set: position c is 1 exactly when the set holds code c. */
-const modelText = (held: number): string =>
-	Arr.join(
-		Array.from({ length: size }, (_, code) => (isSet(held, code) ? "1" : "0")),
-		""
+/** The model's stored text of a set, as bit_out writes it: position c is 1 exactly when the set holds code c. */
+const storedText = (held: number): string =>
+	setText(
+		size,
+		Arr.filter(
+			Array.from({ length: size }, (_, code) => code),
+			(code) => isSet(held, code)
+		)
 	)
+
+/** The model's written text of a set: X, then the hex digits of its stored text. */
+const writtenText = (held: number): string => `X${hexOfText(storedText(held))}`
 
 /**
  * Every live handle encodes as its code's digits and converts back, the order of two is their codes', and a hole's
@@ -180,14 +188,18 @@ const roundTrips = ({ live, held, variant }: Pattern, c: Case<Variant | "a hole"
 			return
 		}
 		const text = succeeded(sets.encode(new Set(members)))
-		assert.equal(text, modelText(held), "a set is written one bit per code, position c code c")
-		assert.equal(text.length, size, "a set's text has a bit per code minted")
-		for (let k = 0; k < size; k += 1) {
-			if (!isSet(live, k)) {
-				assert.deepEqual(Str.charAt(k)(text), Option.some("0"), `the hole at ${k} is 0`)
-			}
-		}
-		const read = sets.convert(text)
+		assert.equal(
+			text,
+			writtenText(held),
+			"a set is written as X and the hex digits of one bit per code, position c code c, holes and padding 0"
+		)
+		assert.equal(
+			text.length,
+			1 + wholeDigits(size) / 4,
+			"a set's text has a hex digit per four codes, rounded up"
+		)
+		const stored = storedText(held)
+		const read = sets.convert(stored)
 		if (!(read instanceof Set)) {
 			return assert.fail("a set reads as a Set")
 		}
@@ -196,7 +208,7 @@ const roundTrips = ({ live, held, variant }: Pattern, c: Case<Variant | "a hole"
 			Arr.sort(members, Order.String),
 			"a set reads back as its handles"
 		)
-		assert.equal(sets.cellText(text), text, "a set's cell is its own one text")
+		assert.equal(sets.cellText(stored), text, "a set's stored cell's one text is its written text")
 	})
 
 describe("the closed-id and set codecs", () => {

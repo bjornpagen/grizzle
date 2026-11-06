@@ -279,7 +279,10 @@ const sideOf = (space: Space, side: SideSpec) =>
 				)
 	})
 
-/** The statement of one law spec. */
+/**
+ * The statement of one law spec. A coverage is a containment between two sides each ending in its span field, the
+ * spec's sides holding their scalars alone (README "Rules": `contained` between two `span` fields).
+ */
 const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefused> =>
 	Effect.gen(function* () {
 		switch (law.kind) {
@@ -315,13 +318,23 @@ const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefu
 					check(law.name, r, (row) => predicateOf(row, law.predicate, domains))
 				)
 			}
-			case "contained":
-			case "covered": {
+			case "contained": {
 				const source = yield* sideOf(space, law.source)
 				const target = yield* sideOf(space, law.target)
 				return yield* attempt(`containment of ${law.source.relation}`, () =>
 					contained(source, target)
 				)
+			}
+			case "covered": {
+				const source = yield* sideOf(space, {
+					...law.source,
+					fields: Arr.append(law.source.fields, law.span.source)
+				})
+				const target = yield* sideOf(space, {
+					...law.target,
+					fields: Arr.append(law.target.fields, law.span.target)
+				})
+				return yield* attempt(`coverage of ${law.source.relation}`, () => contained(source, target))
 			}
 			case "alternatives": {
 				const parent = yield* found(space.relations, law.relation, "relation")

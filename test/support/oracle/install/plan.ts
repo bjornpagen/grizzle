@@ -17,9 +17,10 @@ import * as Result from "#compiler/core/result.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { type CodeSlot, type RosterCodes } from "#compiler/ir/cells.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
-import { candidateKeyFields, decodeDesc, descText, type FieldDesc } from "#compiler/ir/desc.ts"
+import { candidateKeyFields, descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/scalar.ts"
+import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 
 import type {
 	ColumnDef,
@@ -327,7 +328,7 @@ const rosterCheck = (names: ObjectName): Expr =>
  * Keys first, so a containment may name a key declared after it.
  */
 const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): InstallPlan => {
-	const desc = unwrap(decodeDesc("schema", describedOf(input)))
+	const desc = unwrap(admitSchemaDesc(describedOf(input)))
 	const { unsupported, vectorSchema, extensionSchema, codes: numbering } = options
 	const schemaLocation = formatLoc(desc.loc)
 

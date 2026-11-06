@@ -57,6 +57,7 @@ import {
 	docsBases,
 	docsEditorInstall,
 	docsInstall,
+	docsLevelInstall,
 	docsOneShareEditorInstall,
 	docsOneShareInstall
 } from "#test/support/worlds/model/bases/docs.ts"
@@ -1398,8 +1399,9 @@ export interface ProgramSuite {
 }
 
 /**
- * A generated installation of a documents base (installGen): of the base itself, or of the base with at most one share
- * per document (docsOneShareBase), whose key on a share's document a write meets hidden facts at; half the time with
+ * A generated installation of a documents base (installGen): of the base itself, of the base with at most one share
+ * per document (docsOneShareBase), whose key on a share's document a write meets hidden facts at, or of the base with a
+ * context field of a contract (docsLevelBase), which a rule may equate an organization's plan to; half the time with
  * its objects and query entries named from the kernel dictionary or after PostgreSQL's types (generate/names.ts).
  */
 export const generatedDocsInstalls: Gen<InstallSpec> = dictionaryNamed((source) =>
@@ -1409,14 +1411,21 @@ export const generatedDocsInstalls: Gen<InstallSpec> = dictionaryNamed((source) 
 /**
  * The documents base's installations a suite draws: half the time its README-shaped worlds, whose roles hold every
  * shape the README names (writable query entries filled from a claim, a claim-fixed head field, a negation reading a
- * claim, refresh lists, two logins), over the base (docsInstall) or its one-share variant (docsOneShareInstall), where
- * the member's own shares meet a hidden share at that key, and either with an editor beside
- * (docsEditorInstall, docsOneShareEditorInstall), whose every fact outside an entry it writes is one it sees through a
- * relation it holds whole, or one hidden from it, under its claims or under none; and otherwise a generated one
- * (generatedDocsInstalls), which combines the shapes anew.
+ * claim, refresh lists, two logins), over the base (docsInstall), its one-share variant (docsOneShareInstall), where
+ * the member's own shares meet a hidden share at that key, or its Level variant (docsLevelInstall), where the member
+ * reads a context field of a contract, and the first two with an editor beside (docsEditorInstall,
+ * docsOneShareEditorInstall), whose every fact outside an entry it writes is one it sees through a relation it holds
+ * whole, or one hidden from it, under its claims or under none; and otherwise a generated one (generatedDocsInstalls),
+ * which combines the shapes anew.
  */
 export const docsInstalls: Gen<InstallSpec> = oneOf([
-	element([docsInstall, docsOneShareInstall, docsEditorInstall, docsOneShareEditorInstall]),
+	element([
+		docsInstall,
+		docsOneShareInstall,
+		docsLevelInstall,
+		docsEditorInstall,
+		docsOneShareEditorInstall
+	]),
 	generatedDocsInstalls
 ])
 

@@ -5,7 +5,8 @@
  * - The model: a set is a Set<number> of its codes in a roster of five codes, each live or a hole; union, intersection
  *   and difference are the Set operations, cardinality the count, subset and disjointness the membership tests.
  * - The codec as a second reader: each set the evaluator returns, written by the set codec under the installation's
- *   codes, is the model's set as one bit per code, so the host and the bit string PostgreSQL stores agree with holes.
+ *   codes, is the model's set as one bit per code in its one text, X then the hex digits of the bits domain's width,
+ *   holes and padding 0 (test/support/closed/bit-text.ts), so the host and the bit string PostgreSQL stores agree.
  * - The named invalid variant, refused at typing: a set operation over sets of two rosters, which are two universes
  *   whose codes name other handles.
  *
@@ -33,6 +34,7 @@ import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { closed } from "#compiler/schema/api.ts"
 import { assert, defined, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
+import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
 
 /** The codes a roster of the box has minted, holes included. */
@@ -157,10 +159,7 @@ const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 		}
 		const codec = scalarCodec(set, book)
 		const bitText = (members: ReadonlySet<number>): string =>
-			Arr.join(
-				Array.from({ length: size }, (_, k) => (members.has(k) ? "1" : "0")),
-				""
-			)
+			`X${hexOfText(setText(size, [...members]))}`
 		for (const [id, fn] of [
 			["bitor", "union"],
 			["bitand", "intersection"],
@@ -175,7 +174,11 @@ const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 				Arr.sort(Arr.map([...model[fn]], handleOf), Order.String),
 				fn
 			)
-			assert.equal(succeeded(codec.encode(result)), bitText(model[fn]), `${fn} as bit(${size})`)
+			assert.equal(
+				succeeded(codec.encode(result)),
+				bitText(model[fn]),
+				`${fn} as bit(${wholeDigits(size)})`
+			)
 		}
 		assert.equal(
 			evaluated(opNode("bit_count(bit)", [x], plain("int8"), "cardinality")),

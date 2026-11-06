@@ -770,7 +770,7 @@ const restatedKept: ReadonlyArray<Kept<[CaseSketch, Plant], RestatedFeature>> = 
 								}
 							}
 						},
-						take: { rotate: 0, dirs: [0, 0, 0], size: 0 },
+						take: { rotate: 0, dirs: [0, 0, 0], size: 0, ties: 0 },
 						literalHead: { name: 0, kind: 0, arms: 0, values: [0, 0, 0] },
 						importable: 0,
 						bindImport: 0,

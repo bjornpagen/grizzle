@@ -4,7 +4,7 @@ import {
 	spineObstacle
 } from "#compiler/analysis/derived/analyze.ts"
 import { type InheritedKey, inheritedKeys } from "#compiler/analysis/logical/derived.ts"
-import { checkWorldDefinition } from "#compiler/check/index.ts"
+import { checkDefinition } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
@@ -83,7 +83,7 @@ export const analyzeWorld = (
 	base: SchemaReading,
 	entry: WorldEntry
 ): Result.Result<WorldAnalysis, CompileError> => {
-	const checkedResult = checkWorldDefinition(base, entry)
+	const checkedResult = checkDefinition(base, `world ${entry.name}`, entry.query)
 	if (!checkedResult.ok) {
 		return checkedResult
 	}

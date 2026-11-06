@@ -263,24 +263,28 @@ const carried = {
 			["01", "integerSyntax"]
 		]
 	},
-	/** A set's text is bit(3), position c code c under kindCodes. */
+	/**
+	 * A set's text is bit(4), three codes rounded up to a whole hex digit, position c code c under kindCodes and the
+	 * padding position 3 always 0: a 1 there names no handle.
+	 */
 	bits: {
 		type: types.kinds,
 		live: map(array(boolean, { min: 3, max: 3 }), (held) => ({
 			value: new Set(Arr.filter(["Manual", "Automatic", "Ünïcode"], (_, c) => held[c] === true)),
-			text: Arr.join(
+			text: `${Arr.join(
 				Arr.map(held, (b) => (b ? "1" : "0")),
 				""
-			)
+			)}0`
 		})),
 		refusedValues: [
 			[new Set(["Other"]), "bitsMember"],
 			[["Manual"], "bitsType"]
 		],
 		refusedTexts: [
-			["10", "bitsSyntax"],
-			["1010", "bitsSyntax"],
-			["1x0", "bitsSyntax"]
+			["101", "bitsSyntax"],
+			["10100", "bitsSyntax"],
+			["1x00", "bitsSyntax"],
+			["1001", "bitsMember"]
 		]
 	},
 	int4range: {

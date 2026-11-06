@@ -499,9 +499,7 @@ describe("closed", () => {
 		| "two rows of one key, other payloads"
 		| "a key of an open field"
 		| "a field its sequence writes"
-		| "options of another property"
-		| "a pack of no form"
-		| "a sixth argument"
+		| "a fifth argument"
 	const closedDefects: Arr.NonEmptyReadonlyArray<ClosedDefect> = [
 		"none",
 		"an extra field in a row",
@@ -511,17 +509,9 @@ describe("closed", () => {
 		"two rows of one key, other payloads",
 		"a key of an open field",
 		"a field its sequence writes",
-		"options of another property",
-		"a pack of no form",
-		"a sixth argument"
+		"a fifth argument"
 	]
-	type ClosedFeature =
-		| ClosedDefect
-		| "no payload"
-		| "payload"
-		| "no rows"
-		| "a declared pack"
-		| "a row written twice"
+	type ClosedFeature = ClosedDefect | "no payload" | "payload" | "no rows" | "a row written twice"
 
 	const payloadFieldGen: Gen<{
 		readonly name: string
@@ -564,22 +554,13 @@ describe("closed", () => {
 								),
 								defect: source.draw(element(Arr.append(closedDefects, "none" as const))),
 								target: source.draw(element(handles)),
-								/** The pack its options declare, or no options. */
-								pack: source.draw(element(["no options", "rows", "hex"] as const)),
 								/** Whether a lawful declaration writes its first row twice, which states one fact. */
 								repeat: source.draw(boolean)
 							}
 						}),
 						literal: Formatter.format,
 						coverage: required<ClosedFeature>(
-							[
-								...closedDefects,
-								"no payload",
-								"payload",
-								"no rows",
-								"a declared pack",
-								"a row written twice"
-							],
+							[...closedDefects, "no payload", "payload", "no rows", "a row written twice"],
 							{ cases: 300, sense: notesOnly }
 						),
 						kept: [],
@@ -635,8 +616,7 @@ describe("closed", () => {
 							const [first] = drawnPayload
 							const firstRow = rows[0]
 							let key: ReadonlyArray<string> = ["id"]
-							let options: ReadonlyArray<unknown> =
-								s.pack === "no options" ? [] : [{ pack: s.pack }]
+							let extra: ReadonlyArray<unknown> = []
 							c.note(s.defect)
 							switch (s.defect) {
 								case "none":
@@ -676,33 +656,19 @@ describe("closed", () => {
 										row["seq"] = 1n
 									}
 									break
-								case "options of another property":
-									options = [{ pack: "rows", order: "key" }]
-									break
-								case "a pack of no form":
-									options = [{ pack: "binary" }]
-									break
-								case "a sixth argument":
-									options = [{ pack: "rows" }, {}]
+								case "a fifth argument":
+									extra = [{}]
 									break
 							}
 							if (s.defect !== "none") {
 								throwsRefused(
-									() => admitClosedRelation(s.name, fields, key, rows, options),
+									() => admitClosedRelation(s.name, fields, key, rows, extra),
 									"MalformedDescription"
 								)
 								return
 							}
-							const admitted = admitClosedRelation(s.name, fields, key, rows, options)
+							const admitted = admitClosedRelation(s.name, fields, key, rows, extra)
 							const desc = admitted.desc
-							assert.equal(
-								desc.pack,
-								s.pack === "hex" ? "hex" : "rows",
-								"its declared pack, rows by default"
-							)
-							if (s.pack !== "no options") {
-								c.note("a declared pack")
-							}
 							assert.deepEqual(desc.key, ["id"])
 							assert.deepEqual(desc.fields["id"], descOf(rawClosedId(Key)))
 							assert.equal(

@@ -3,7 +3,8 @@ import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Engine from "#compiler/core/result.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { decodeDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
+import type { SchemaDesc } from "#compiler/ir/desc.ts"
+import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { type Owned, own } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 
@@ -53,7 +54,7 @@ const fingerprintOf = (desc: SchemaDesc): Option.Option<string> => {
 /** The fingerprints of the levels of `schema` that `snapshot` serves (see `levels` above). */
 const servedLevels = (snapshot: DeploySnapshot, schema: unknown): ReadonlySet<string> => {
 	const built = schemaDescOf(schema)
-	const decoded = built === undefined ? decodeDesc("schema", schema) : Engine.ok(built)
+	const decoded = built === undefined ? admitSchemaDesc(schema) : Engine.ok(built)
 	const served = new Set<string>()
 	if (
 		!decoded.ok ||

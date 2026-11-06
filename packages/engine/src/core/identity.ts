@@ -706,8 +706,9 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
-	 * A roster's live codes as a bit string, one bit per code, set where its names constant names a handle: derived from
-	 * the names constant, so it is named by that constant's digest, and a removal is a new function.
+	 * A roster's live codes as a bit string at a set's width, one bit per code, set where its names constant names a
+	 * handle, its padding 0: a function of the names, so it is named by that constant's digest, and a removal is a new
+	 * function.
 	 */
 	rosterLive: (
 		roster: DeclaredName,
@@ -721,15 +722,16 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
-	 * The domain of a set over a roster, bit(size) with size every code the roster has minted, whose one CHECK admits
-	 * only its live codes' bits: one per roster and size, so a growth is a new domain and a column moves to it.
+	 * The domain of a set over a roster, bit(width) with width every code the roster has minted rounded up to whole hex
+	 * digits, whose one CHECK admits only its live codes' bits: one per roster and width, so a growth past a whole digit
+	 * is a new domain and a column moves to it.
 	 */
-	bitsDomain: (roster: DeclaredName, size: number): Identity<"bitsDomain"> =>
+	bitsDomain: (roster: DeclaredName, width: number): Identity<"bitsDomain"> =>
 		mint(
 			"bitsDomain",
-			[roster, `${size}`],
-			[roster, "bits", `${size}`],
-			`sets over roster ${roster} of ${size} codes`,
+			[roster, `${width}`],
+			[roster, "bits", `${width}`],
+			`sets over roster ${roster} of ${width} bits`,
 			hashed
 		),
 	/**

@@ -1,7 +1,9 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
+import { array, element, type Gen, subset } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
@@ -21,7 +23,7 @@ import { str } from "#compiler/public/text.ts"
 import { printObjectName, printType, quoteIdent } from "#compiler/sql/print.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined as present, lacks, succeeded } from "#test/support/assert.ts"
+import { assert, defined as present, succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import {
 	type Installed,
@@ -39,10 +41,13 @@ import * as K from "#test/unit/derived/kit.ts"
  * - the inferred descriptors hold: every view column's catalog type, typmod and collation is the one its inferred field
  *   descriptor names, for every aggregate overload, refinement, roster and contract, a closed id read from its roster's
  *   own facts, which the lowering delivers as a smallint literal, included;
- * - a view column of refined text has its pattern's domain, whether a stored field declares the pattern or not, a role
- *   reading the relation reads it through its world's view, and a role refreshing it refreshes the materialized view;
- * - a refresh inside an owner's transaction with a deferred containment temporarily false (transaction evidence)
- *   equals the definition evaluated by the conservative lowering on the same snapshot.
+ * - over drawn patterns, a view column of a refined-text literal has its pattern's domain, whether a stored field
+ *   declares the pattern or not, and plain text for the wildcard; a role refreshing the relation refreshes the
+ *   materialized view, plainly and concurrently, to the definition's rows, and a role reading it reads the literals
+ *   through its world's view;
+ * - a refresh inside an owner's transaction whose drawn writes leave a deferred containment false (tasks of absent
+ *   accounts added, accounts of tasks removed: transaction evidence) equals the definition evaluated by the conservative
+ *   lowering on the same snapshot, and the tasks whose account the transaction holds.
  *
  * That every refreshed view equals its definition, over drawn levels, take forms and aggregates, is the derived
  * oracle's; the installed catalog is the catalog spec checker's. */
@@ -137,6 +142,133 @@ const workFacts = {
 const typmodOf = (desc: InferredFieldDesc): number =>
 	desc.kind === "numeric" ? ((desc.precision << 16) | desc.scale) + 4 : -1
 
+/** The accounts the work facts hold, and those and two accounts no fact holds. */
+const heldAccounts: ReadonlyArray<string> = [id(1), id(2), id(3)]
+const everyAccount: Arr.NonEmptyReadonlyArray<string> = [id(1), id(2), id(3), id(7), id(8)]
+
+/**
+ * A transaction's writes before its refresh, under every constraint deferred: tasks added, each of a held account or
+ * of an absent one, and held accounts removed whatever tasks they own.
+ */
+interface DeferredCase {
+	readonly added: ReadonlyArray<string>
+	readonly removed: ReadonlyArray<string>
+}
+
+const deferredCaseGen: Gen<DeferredCase> = (source) => ({
+	added: source.draw(array(element(everyAccount), { min: 0, max: 2 })),
+	removed: source.draw(subset(heldAccounts, { min: 0, max: 2 }))
+})
+
+/** The tasks the definition holds in the transaction: every task, fact or added, whose account it still holds. */
+const ownedOf = (c: DeferredCase): ReadonlyArray<string> => {
+	const accounts = new Set<string>(Arr.filter(heldAccounts, (a) => !c.removed.includes(a)))
+	const tasks = [
+		...Arr.map(workFacts.Task, (t) => [t.id, t.account] as const),
+		...Arr.map(c.added, (account, i) => [id(16 + i), account] as const)
+	]
+	return Arr.sort(
+		Arr.flatMap(tasks, ([task, account]) => (accounts.has(account) ? [task] : [])),
+		Order.String
+	)
+}
+
+type DeferredFeature =
+	| "a task of an absent account added"
+	| "a task of a held account added"
+	| "an account of tasks removed"
+
+const deferredFeatures = (c: DeferredCase): ReadonlyArray<DeferredFeature> => [
+	...(Arr.some(c.added, (a) => !Arr.contains(heldAccounts, a) || c.removed.includes(a))
+		? ["a task of an absent account added" as const]
+		: []),
+	...(Arr.some(c.added, (a) => Arr.contains(heldAccounts, a) && !c.removed.includes(a))
+		? ["a task of a held account added" as const]
+		: []),
+	...(Arr.some(c.removed, (a) => Arr.some(workFacts.Task, (t) => t.account === a))
+		? ["an account of tasks removed" as const]
+		: [])
+]
+
+/** The patterns a case's field and literals are drawn from: three that a domain refines, and the wildcard. */
+const patterns = {
+	upper: { source: "^[A-Z]{3}$", flags: "u", members: ["ABC", "QRS"] },
+	lower: { source: "^[a-z]+$", flags: "u", members: ["abc", "z"] },
+	digits: { source: "^[0-9]{2}$", flags: "u", members: ["42", "07"] },
+	any: { source: "^.*$", flags: "su", members: ["x", "Q7"] }
+} as const
+
+type PatternKey = keyof typeof patterns
+
+const patternKeys: Arr.NonEmptyReadonlyArray<PatternKey> = ["upper", "lower", "digits", "any"]
+
+/** A pattern's refined text. */
+const refinedOf = (key: PatternKey) => {
+	switch (key) {
+		case "upper":
+			return str.regex("^[A-Z]{3}$")
+		case "lower":
+			return str.regex("^[a-z]+$")
+		case "digits":
+			return str.regex("^[0-9]{2}$")
+		case "any":
+			return str.regex("^.*$", "su")
+	}
+}
+
+/** The text a literal of a pattern holds: its first member. */
+const memberOf = (key: PatternKey): string => patterns[key].members[0]
+
+/** A literal of a pattern's refined text, holding its first member. */
+const literalOf = (key: PatternKey) => {
+	switch (key) {
+		case "upper":
+			return Compute.literal(str.regex("^[A-Z]{3}$"), "ABC")
+		case "lower":
+			return Compute.literal(str.regex("^[a-z]+$"), "abc")
+		case "digits":
+			return Compute.literal(str.regex("^[0-9]{2}$"), "42")
+		case "any":
+			return Compute.literal(str.regex("^.*$", "su"), "x")
+	}
+}
+
+/** A case: Coded's field's pattern, its rows' codes, and the patterns of the derived relation's two literals. */
+interface LiteralCase {
+	readonly declared: PatternKey
+	readonly codes: ReadonlyArray<string>
+	readonly first: PatternKey
+	readonly second: PatternKey
+}
+
+const literalCaseGen: Gen<LiteralCase> = (source) => {
+	const declared = source.draw(element(patternKeys))
+	return {
+		declared,
+		codes: source.draw(array(element(patterns[declared].members), { min: 0, max: 3 })),
+		first: source.draw(element(patternKeys)),
+		second: source.draw(element(patternKeys))
+	}
+}
+
+type LiteralFeature =
+	| "a literal of a pattern a field declares"
+	| "a literal of a pattern no field declares"
+	| "a literal of the wildcard"
+	| "rows refreshed"
+	| "no row refreshed"
+
+const literalFeatures = (c: LiteralCase): ReadonlyArray<LiteralFeature> => [
+	...Arr.map([c.first, c.second], (key): LiteralFeature =>
+		key === "any"
+			? "a literal of the wildcard"
+			: key === c.declared
+				? "a literal of a pattern a field declares"
+				: "a literal of a pattern no field declares"
+	),
+	c.codes.length > 0 ? "rows refreshed" : "no row refreshed"
+]
+
 layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 	it.effect(
 		"inferred descriptors hold for every aggregate overload, refinement, roster and contract",
@@ -194,147 +326,238 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 	)
 
 	it.effect(
-		"a refined-text literal column has its pattern's domain, declared by a field or not",
-		() =>
-			Effect.gen(function* () {
-				const substrate = yield* Substrate
-				const Code = str.regex("^[A-Z]{3}$")
-				const Coded = relation("Coded", { id: uuid, code: Code }, ["id"])
-				const C = schema("C", { Coded }, [])
-				const literals = query(C).rule((r) => {
-					const { id } = v(Coded, "coded")
-					return r.match(Coded, { id }).find({
-						id,
-						declared: Compute.literal(Code, "ABC"),
-						undeclared: Compute.literal(str.regex("^[a-z]+$"), "abc")
-					})
-				})
-				const Literals = derived("Literals", literals)
-				const Ext = schema.extend(C, { Literals }, [])
-				const viewer = role(Ext, "viewer", { Literals })
-				const refresher = role(Ext, "refresher", { Coded, Literals }, { refresh: ["Literals"] })
-				const installed = yield* install(Ext, {
-					ambient: ordinarySession,
-					extensions: [],
-					label: "derived",
-					logins: [login(Ext, "server", [viewer, refresher])]
-				})
-				const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
-				const { view } = viewOf(installed, "Literals")
-				/** Each pattern's domain as the installation names it, as regtype prints a plain identifier. */
-				const domainOf = (source: string): string => {
-					const info = textInfoOf(source, "u", succeeded(textLookup(source, "u")))
-					if (info.regex === "wildcard") {
-						return assert.fail(`${source} is no tautology`)
-					}
-					const domain = installed.names.textDomain(info.regex)
-					if (domain === undefined) {
-						return assert.fail(`the installation names no domain of ${source}`)
-					}
-					return `${domain.schema}.${domain.name}`
-				}
-				const rows = yield* owner.values(
-					`SELECT a.attname::text, a.atttypid::regtype::text, a.attcollation::regcollation::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = '${view}'::regclass AND a.attnum > 0 ORDER BY a.attnum`,
-					[]
+		"a refined-text literal column has its pattern's domain, declared by a field or not, and its refresher and reader see it",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "pg/derived/install/literals",
+						draw: drawn(literalCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "second-implementation",
+							name: "each literal's pattern's installed domain, and the definition's rows by the conservative lowering"
+						},
+						coverage: required<LiteralFeature>(
+							[
+								"a literal of a pattern a field declares",
+								"a literal of a pattern no field declares",
+								"a literal of the wildcard",
+								"rows refreshed",
+								"no row refreshed"
+							],
+							{ cases: 12, sense: notesOnly }
+						),
+						kept: [],
+						runs: 6,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 4,
+						caseHang
+					},
+					(c, k) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const substrate = yield* Substrate
+								const Coded = relation("Coded", { id: uuid, code: refinedOf(c.declared) }, ["id"])
+								const C = schema("C", { Coded }, [])
+								const literals = query(C).rule((r) => {
+									const { id } = v(Coded, "coded")
+									return r.match(Coded, { id }).find({
+										id,
+										first: literalOf(c.first),
+										second: literalOf(c.second)
+									})
+								})
+								const Literals = derived("Literals", literals)
+								const Ext = schema.extend(C, { Literals }, [])
+								const viewer = role(Ext, "viewer", { Literals })
+								const refresher = role(
+									Ext,
+									"refresher",
+									{ Coded, Literals },
+									{ refresh: ["Literals"] }
+								)
+								const installed = yield* install(Ext, {
+									ambient: ordinarySession,
+									extensions: [],
+									label: "derived",
+									logins: [login(Ext, "server", [viewer, refresher])]
+								})
+								const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
+								const { view } = viewOf(installed, "Literals")
+								/**
+								 * Each pattern's type as regtype prints it: the installation's domain of it, or text for the
+								 * wildcard, which no domain refines.
+								 */
+								const typeOf = (key: PatternKey): string => {
+									const pattern = patterns[key]
+									const info = textInfoOf(
+										pattern.source,
+										pattern.flags,
+										succeeded(textLookup(pattern.source, pattern.flags))
+									)
+									if (info.regex === "wildcard") {
+										return "text"
+									}
+									const domain = installed.names.textDomain(info.regex)
+									if (domain === undefined) {
+										return assert.fail(`the installation names no domain of ${pattern.source}`)
+									}
+									return `${domain.schema}.${domain.name}`
+								}
+								const rows = yield* owner.values(
+									`SELECT a.attname::text, a.atttypid::regtype::text, a.attcollation::regcollation::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = '${view}'::regclass AND a.attnum > 0 ORDER BY a.attnum`,
+									[]
+								)
+								assert.deepEqual(rows, [
+									["first", typeOf(c.first), "pg_c_utf8"],
+									["id", "uuid", "-"],
+									["second", typeOf(c.second), "pg_c_utf8"]
+								])
+								yield* load(installed, {
+									Coded: Arr.map(c.codes, (code, i) => ({ id: id(i + 1), code }))
+								})
+								const refreshing = yield* substrate.session({
+									...worldSession(installed.world(refresher)),
+									label: "refresher"
+								})
+								yield* refreshing.query(`REFRESH MATERIALIZED VIEW ${view}`, [])
+								yield* refreshing.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`, [])
+								const { stored, defined } = yield* viewAndDefinition(installed, "Literals")
+								assert.deepEqual(stored, defined)
+								/** The viewer reads the domain-typed columns through its world's view of Literals. */
+								const viewing = yield* substrate.session({
+									...worldSession(installed.world(viewer)),
+									label: "viewer"
+								})
+								const seen = `${quoteIdent(installed.role(viewer))}.${quoteIdent(installed.names.relation("Literals").name)}`
+								const viewingRows = yield* viewing.values(
+									`SELECT "id"::text, "first"::text, "second"::text FROM ${seen} ORDER BY 1`,
+									[]
+								)
+								assert.deepEqual(
+									viewingRows,
+									Arr.map(c.codes, (_, i) => [id(i + 1), memberOf(c.first), memberOf(c.second)])
+								)
+								k.noteAll(literalFeatures(c))
+							})
+						)
 				)
-				assert.deepEqual(rows, [
-					["declared", domainOf("^[A-Z]{3}$"), "pg_c_utf8"],
-					["id", "uuid", "-"],
-					["undeclared", domainOf("^[a-z]+$"), "pg_c_utf8"]
-				])
-				yield* load(installed, { Coded: [{ id: id(1), code: "QRS" }] })
-				const refreshing = yield* substrate.session({
-					...worldSession(installed.world(refresher)),
-					label: "refresher"
-				})
-				yield* refreshing.query(`REFRESH MATERIALIZED VIEW ${view}`, [])
-				yield* refreshing.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`, [])
-				const { stored, defined } = yield* viewAndDefinition(installed, "Literals")
-				assert.deepEqual(stored, defined)
-				assert.deepEqual(stored, [`(ABC,${id(1)},abc)`])
-				/** The viewer reads the domain-typed columns through its world's view of Literals. */
-				const viewing = yield* substrate.session({
-					...worldSession(installed.world(viewer)),
-					label: "viewer"
-				})
-				const seen = `${quoteIdent(installed.role(viewer))}.${quoteIdent(installed.names.relation("Literals").name)}`
-				const viewingRows = yield* viewing.values(
-					`SELECT "declared"::text, "undeclared"::text FROM ${seen}`,
-					[]
-				)
-				assert.deepEqual(viewingRows, [["ABC", "abc"]])
-			})
+			)
 	)
 
 	it.effect(
-		"a refresh inside an owner's transaction, a deferred containment false, equals the oracle",
-		() =>
-			Effect.gen(function* () {
-				const substrate = yield* Substrate
-				const ownedTasks = query(W.Work).rule((r) => {
-					const { id: t, account } = v(W.Task, "task")
-					return r
-						.match(W.Task, { id: t, account })
-						.match(W.Account, { id: account })
-						.find({ id: t })
-				})
-				const OwnedTasks = derived("OwnedTasks", ownedTasks)
-				/** Account's name lies outside the referenced key, which makes Task.account -> Account.id deferred. */
-				const Written = schema.extend(W.Work, { OwnedTasks }, [])
-				const installed = yield* install(Written, {
-					ambient: ordinarySession,
-					extensions: [],
-					label: "derived",
-					logins: []
-				})
-				const names = namesOf(installed)
-				const { view, columns } = viewOf(installed, "OwnedTasks")
-				const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
-				const constraint = yield* owner.values(
-					`SELECT condeferrable::text FROM pg_catalog.pg_constraint WHERE conrelid = '${names.table(W.Task)}'::regclass AND contype = 'f'`,
-					[]
-				)
-				const [[deferrable]] = trusted<Arr.NonEmptyReadonlyArray<readonly [string]>>(constraint)
-				assert.equal(deferrable, "true")
-				yield* load(installed, workFacts)
-				/** A handle of Kind as the code the installation's codebook gives it. */
-				const kindCode = (handle: string): number =>
-					codeOf(
+		"a refresh inside an owner's transaction whose writes leave a deferred containment false equals the definition there",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const substrate = yield* Substrate
+					const ownedTasks = query(W.Work).rule((r) => {
+						const { id: t, account } = v(W.Task, "task")
+						return r
+							.match(W.Task, { id: t, account })
+							.match(W.Account, { id: account })
+							.find({ id: t })
+					})
+					const OwnedTasks = derived("OwnedTasks", ownedTasks)
+					/** Account's name lies outside the referenced key, which makes Task.account -> Account.id deferred. */
+					const Written = schema.extend(W.Work, { OwnedTasks }, [])
+					const installed = yield* install(Written, {
+						ambient: ordinarySession,
+						extensions: [],
+						label: "derived",
+						logins: []
+					})
+					const names = namesOf(installed)
+					const { view, columns } = viewOf(installed, "OwnedTasks")
+					const owner = yield* substrate.session({ ...ownerSession(), label: "owner" })
+					const constraint = yield* owner.values(
+						`SELECT condeferrable::text FROM pg_catalog.pg_constraint WHERE conrelid = '${names.table(W.Task)}'::regclass AND contype = 'f'`,
+						[]
+					)
+					const [[deferrable]] = trusted<Arr.NonEmptyReadonlyArray<readonly [string]>>(constraint)
+					assert.equal(deferrable, "true")
+					yield* load(installed, workFacts)
+					/** A handle of Kind as the code the installation's codebook gives it. */
+					const manual = codeOf(
 						present(
 							installed.names.codes.rosters.get(parsedName(W.Kind.name)),
 							"the installation's codes of Kind"
 						),
-						handle
+						"Manual"
 					)
-				yield* owner.query(`REFRESH MATERIALIZED VIEW ${view}`, [])
-				yield* owner.begin
-				yield* owner.query("SET CONSTRAINTS ALL DEFERRED", [])
-				yield* owner.query(
-					`INSERT INTO ${names.table(W.Task)} (${names.column(W.Task, "id")}, ${names.column(W.Task, "account")}, ${names.column(W.Task, "kind")}) VALUES ('${id(16)}'::uuid, '${id(7)}'::uuid, ${kindCode("Manual")}::smallint)`,
-					[]
-				)
-				yield* owner.query(
-					`INSERT INTO ${names.table(W.ManualTask)} (${names.column(W.ManualTask, "task")}, ${names.column(W.ManualTask, "operator")}) VALUES ('${id(16)}'::uuid, 'ops')`,
-					[]
-				)
-				yield* owner.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`, [])
-				const stored = yield* owner.values(
-					`SELECT "r1"."${columns[0]}"::text FROM ${view} AS "r1"`,
-					[]
-				)
-				const defined = yield* owner.values(
-					`SELECT "r1"."id"::text FROM (${conservativeSql(installed, "OwnedTasks")}) AS "r1"`,
-					[]
-				)
-				yield* owner.rollback
-				const sorted = (rows: ReadonlyArray<ReadonlyArray<unknown>>) =>
-					Arr.sort(
-						Arr.map(rows, (r) => String(r[0])),
-						Order.String
+					yield* owner.query(`REFRESH MATERIALIZED VIEW ${view}`, [])
+					const sorted = (rows: ReadonlyArray<ReadonlyArray<unknown>>) =>
+						Arr.sort(
+							Arr.map(rows, (r) => String(r[0])),
+							Order.String
+						)
+					return yield* explore(
+						{
+							suite: "pg/derived/install/deferred-refresh",
+							draw: drawn(deferredCaseGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "the tasks whose account the transaction holds, on the host, and the definition's conservative lowering"
+							},
+							coverage: required<DeferredFeature>(
+								[
+									"a task of an absent account added",
+									"a task of a held account added",
+									"an account of tasks removed"
+								],
+								{ cases: 12, sense: notesOnly }
+							),
+							kept: [],
+							runs: 8,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 4,
+							caseHang
+						},
+						(c, k) =>
+							Effect.ensuring(
+								Effect.gen(function* () {
+									yield* owner.begin
+									yield* owner.query("SET CONSTRAINTS ALL DEFERRED", [])
+									for (const [i, account] of c.added.entries()) {
+										const task = id(16 + i)
+										yield* owner.query(
+											`INSERT INTO ${names.table(W.Task)} (${names.column(W.Task, "id")}, ${names.column(W.Task, "account")}, ${names.column(W.Task, "kind")}) VALUES ('${task}'::uuid, '${account}'::uuid, ${manual}::smallint)`,
+											[]
+										)
+										yield* owner.query(
+											`INSERT INTO ${names.table(W.ManualTask)} (${names.column(W.ManualTask, "task")}, ${names.column(W.ManualTask, "operator")}) VALUES ('${task}'::uuid, 'ops')`,
+											[]
+										)
+									}
+									for (const account of c.removed) {
+										yield* owner.query(
+											`DELETE FROM ${names.table(W.Account)} WHERE ${names.column(W.Account, "id")} = '${account}'::uuid`,
+											[]
+										)
+									}
+									yield* owner.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`, [])
+									const stored = yield* owner.values(
+										`SELECT "r1"."${columns[0]}"::text FROM ${view} AS "r1"`,
+										[]
+									)
+									const defined = yield* owner.values(
+										`SELECT "r1"."id"::text FROM (${conservativeSql(installed, "OwnedTasks")}) AS "r1"`,
+										[]
+									)
+									assert.deepEqual(sorted(stored), sorted(defined))
+									assert.deepEqual<ReadonlyArray<string>>(sorted(stored), ownedOf(c))
+									k.noteAll(deferredFeatures(c))
+								}),
+								Effect.orDie(owner.rollback)
+							)
 					)
-				assert.deepEqual(sorted(stored), sorted(defined))
-				lacks(sorted(stored), id(16))
-				assert.deepEqual(sorted(stored), [id(11), id(12), id(13), id(14)])
-			})
+				})
+			)
 	)
 })

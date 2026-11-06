@@ -6,7 +6,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { Expr, ObjectName, PackConstant, PackForm, TypeRef } from "#compiler/sql/ast.ts"
+import type { Expr, ObjectName, PackConstant, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -30,7 +30,7 @@ import {
  * owner's own counts.
  *
  * This module builds what reads and installs those strings: the expressions of a cell read, and the migration
- * statements that pack a relation, re-point a domain at a new constant and drop the old constant.
+ * statement that states a relation's constant as its hex literal.
  */
 
 /** A key coordinate a closed read addresses by a closed id's code: its field, and its radix, the size of its roster's
@@ -265,8 +265,9 @@ export type ClosedRead =
  *   so a key the relation holds no tuple at reads NULL, never a code; `field`'s coordinate of that code is a closed
  *   id's code, cast to `type`, or an open-typed value read through its dictionary at code + 1.
  * - C.row(k…): the completions of the prefix k… (completions), cast to `type`, the set over the last key field's
- *   roster, which pads a slot's run of its owner's count with zeros to the roster's codes.
- * - has(k…): the one bit of the relation's key set at k…'s index, equal to '1'::bit(1) exactly where the relation holds
+ *   roster, which pads the run, its roster's codes or a slot's owner's count, with 0s to the set's width, so its holes
+ *   and padding are 0.
+ * - has(k…): the one bit of the relation's key set at k…'s index, read as the integer 1 exactly where the relation holds
  *   a tuple there.
  *
  * The reads' arguments are counted against the key: a read of any other count is refused with what it needs.
@@ -316,8 +317,9 @@ const run = (constant: ObjectName, start: Expr, length: Expr): Expr =>
 
 /**
  * Cell `index` of the constant F, `width` bits: substring(F(), index * width + 1, width), positions counted from 1.
- * `index` is an integer: substring takes no bigint position. A range past either end is the empty string, which equals
- * no '1'::bit(1) and reads as the integer 0, so an index out of range reads as absent and no range check is needed.
+ * `index` is an integer: substring takes no bigint position. A range past the last cell reads the 0 bits that pad the
+ * string to whole hex digits, or past either end the empty string, each of which reads as the integer 0, so an index
+ * out of range reads as absent and no range check is needed.
  * With `width` the size of a prefix's completions, the same read is that prefix's set of completions.
  */
 const cellAt = (constant: ObjectName, index: Expr, width: number): Expr =>
@@ -327,12 +329,12 @@ const cellAt = (constant: ObjectName, index: Expr, width: number): Expr =>
 const cellCode = (constant: ObjectName, index: Expr, width: number): Expr =>
 	cast(cellAt(constant, index, width), types.integer)
 
-/** The bit string of one set bit, '1'::bit(1): a set's member's cell. */
-const member = lit.text("1", types.bit(1))
-
-/** A set's member, a cell of one bit equal to '1'::bit(1): a code is live, or a tuple is in a set. */
+/**
+ * A set's member, a cell of one bit that reads as the integer 1: a code is live, or a tuple is in a set. A cell past the
+ * last reads padding or nothing, 0 either way, so no range check is needed.
+ */
 export const inSet = (constant: ObjectName, index: Expr): Expr =>
-	eq(cellAt(constant, index, 1), member)
+	eq(cellCode(constant, index, 1), int(1))
 
 /** A key is present: its cell is not 0. */
 export const keyIn = (constant: ObjectName, index: Expr, width: number): Expr =>
@@ -375,16 +377,14 @@ export const nameOf = (names: ObjectName, code: Expr): Expr =>
 	cast({ kind: "subscript", array: constantValue(names), index: plus(code, int(1)) }, types.text)
 
 /**
- * The migration's pack of a relation into its constant: `cells` cells of `width` bits, stated in `form` (sql/ast.ts
- * PackForm). In rows, each row at its cell's index, which the host's encoder gives its key (ir/cells.ts keyIndex), with
- * its payload's code below 2^w - 1, and no two rows at one cell: the caller checks the relation's key before it packs
- * (ir/cells.ts constantOf). As a literal, the host's encoding of those cells (ir/cells.ts literalOf). Either way every
- * reader computes the index from the key's codes in SQL (cellOfKey), so each read checks the host's encoder against
- * PostgreSQL's arithmetic.
+ * A closed relation's constant as the migration states it: `cells` cells of `width` bits, its literal `hex`, the host's
+ * encoding of its cells (ir/cells.ts literalOf), with the count of rows it holds and its content's digest. The caller
+ * checks the relation's key before it encodes (ir/cells.ts constantOf), and every reader computes the index from the
+ * key's codes in SQL (cellOfKey), so each read checks the host's encoder against PostgreSQL's arithmetic.
  */
 export const pack = (
 	fn: ObjectName,
 	cells: bigint,
 	width: number,
-	form: PackForm
-): PackConstant => ({ kind: "packConstant", function: fn, cells, width, form })
+	literal: { readonly hex: string; readonly rows: number; readonly digest: string }
+): PackConstant => ({ kind: "packConstant", function: fn, cells, width, ...literal })

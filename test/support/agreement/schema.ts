@@ -1,6 +1,14 @@
 import { closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { closed, key, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	alternatives,
+	closed,
+	contained,
+	key,
+	on,
+	relation,
+	schema
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
 /**
@@ -10,8 +18,11 @@ import { str } from "#compiler/public/text.ts"
  * about: a single-field primary key (Item.id), a candidate key over two fields (Item's owner and n), a composite primary
  * key (Tag's item and label) and a one-to-one key over a reference (Note.item). Its uuid fields join one another and so
  * do its integer fields, so a drawn join may meet any key from any side; Item.tone is a roster's, which a handle or a
- * member's JavaScript value binds, fixes, heads and discriminates. Tones, a union of Item's facts of two tones whose
- * arms hold Tone's handles at tone, is the union source a drawn rule matches with a constant bound at tone.
+ * member's JavaScript value binds, fixes, heads and discriminates, and Item.cost a contract's, whose brand a variable,
+ * a parameter and min and max keep and sum and mean read through. Tones, a union of Item's facts of two tones whose
+ * arms hold Tone's handles at tone, is the union source a drawn rule matches with a constant bound at tone; Owned, the
+ * items of one owner, is the import a rule matches bound or, where a case plants the fault, unbound; Stray is a
+ * relation Agree does not hold, which a rule's match names where a case plants that fault.
  *
  * Cell holds one column per constant kind the admission matrix draws: a JavaScript value of every carrier, Tone's
  * handles, typed integer constants and a contract's, and a finite refined text's members (grade); Shade, a second
@@ -23,7 +34,7 @@ export const Cents = contract("Cents", pg.bigint, (x) => x.ge(0n))
 
 export const Item = relation(
 	"Item",
-	{ id: uuid, owner: uuid, n: pg.integer, m: pg.integer, tone: closedId(Tone) },
+	{ id: uuid, owner: uuid, n: pg.integer, m: pg.integer, tone: closedId(Tone), cost: Cents },
 	["id"]
 )
 
@@ -32,6 +43,7 @@ export const Tag = relation("Tag", { item: uuid, label: pg.integer, w: pg.intege
 	"label"
 ])
 export const Note = relation("Note", { item: uuid, k: pg.integer }, ["item"])
+export const Stray = relation("Stray", { id: uuid, n: pg.integer }, ["id"])
 
 export const Cell = relation(
 	"Cell",
@@ -66,3 +78,55 @@ export const Tones = query(Agree)
 		const { id } = v(Item, "item")
 		return r.match(Item, { id, tone: "mid" }).find({ id, tone: Tone.handle("mid") })
 	})
+
+export const Owned = query(Agree).rule((r) => {
+	const { id, n } = v(Item, "item")
+	return r.match(Item, { id, owner: r.param("owner", Item.fields.owner), n }).find({ id, n })
+})
+
+/**
+ * The schema the attachment agreement draws its parents and children over (test/support/agreement/attachments.ts): a
+ * containment from a field into an ordinary relation's key (Task.account into Account, TaskNote.task into Task), into a
+ * closed relation's (Account.plan into PlanBudget), and a composite one (TaskLabel's account and label into Label), each
+ * of which proves the one child; keys a child may be bound by, at most one child per parent; and the alternatives law
+ * over Task by its kind, whose arms are AutomaticTask and ManualTask.
+ */
+const Kind = closed("Kind", ["Automatic", "Manual"])
+const Plan = closed("Plan", ["Free", "Pro"])
+const PlanBudget = closed.relation(
+	"PlanBudget",
+	{ plan: closedId(Plan), budget: Cents },
+	["plan"],
+	[
+		{ plan: "Free", budget: Cents(1n) },
+		{ plan: "Pro", budget: Cents(2n) }
+	]
+)
+const Account = relation("Account", { id: uuid, rank: pg.integer, plan: closedId(Plan) }, ["id"])
+const Task = relation(
+	"Task",
+	{ id: uuid, account: uuid, kind: closedId(Kind), score: pg.integer },
+	["id"]
+)
+const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: Cents }, ["task"])
+const ManualTask = relation("ManualTask", { task: uuid, operator: pg.integer }, ["task"])
+const TaskNote = relation("TaskNote", { task: uuid, note: pg.integer }, ["task"])
+const Label = relation("Label", { account: uuid, label: pg.integer, color: pg.integer }, [
+	"account",
+	"label"
+])
+const TaskLabel = relation("TaskLabel", { task: uuid, account: uuid, label: pg.integer }, [
+	"task",
+	"label"
+])
+export const Deliver = schema(
+	"Deliver",
+	{ Kind, Plan, PlanBudget, Account, Task, AutomaticTask, ManualTask, TaskNote, Label, TaskLabel },
+	[
+		contained(on(Task, "account"), on(Account, "id")),
+		contained(on(Account, "plan"), on(PlanBudget, "plan")),
+		contained(on(TaskNote, "task"), on(Task, "id")),
+		contained(on(TaskLabel, "account", "label"), on(Label, "account", "label")),
+		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
+	]
+)

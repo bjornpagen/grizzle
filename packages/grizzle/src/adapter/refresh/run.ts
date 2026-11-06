@@ -87,7 +87,7 @@ export interface RefreshReport {
  * every other refusal the server's report. A refresh writes no unique object a statement probes, so no unique violation
  * of it is an abort.
  */
-export const classifyRefreshFailure = (failure: ServerError): TransientFailure | ExecutionFailure =>
+const classifyRefreshFailure = (failure: ServerError): TransientFailure | ExecutionFailure =>
 	serializationRefusal(failure) ?? new ExecutionFailure({ reason: failure })
 
 /**

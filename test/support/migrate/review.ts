@@ -17,7 +17,7 @@ import {
 	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { placeholderToken, printStatement } from "#compiler/sql/print.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
 
 /**
  * A drafted action that needs a value from the reviewer.
@@ -96,31 +96,6 @@ export const planStatements = (plan: MigrationPlan): ReadonlyArray<SqlStatement>
 /** The drafted files of a generated folder, in the folder's order: none when nothing changed. */
 export const draftFiles = (g: GenerateResult): ReadonlyArray<DraftFile> =>
 	g.change === "none" ? [] : planFiles(g.plan)
-
-/**
- * The one drafted file that runs a folder's validation statements, the refined constants' casts to their domains: the
- * file whose drafts hold every statement of the target snapshot's validation object, each as it prints.
- */
-export const validationFile = (g: GenerateResult): DraftFile => {
-	const [object, ...others] = Arr.filter(
-		g.snapshot.manifest.objects,
-		(o) => o.kind === "validation"
-	)
-	if (object === undefined || others.length > 0) {
-		throw new Error(`the snapshot of ${g.folder.name} holds one validation`)
-	}
-	const holding = Arr.filter(draftFiles(g), (f) => {
-		const printed = new Set(
-			Arr.flatMap(f.drafts, (d) => (d.kind === "statement" ? [printStatement(d.statement)] : []))
-		)
-		return Arr.every(object.ddl, (v) => printed.has(printStatement(v)))
-	})
-	const [only, ...more] = holding
-	if (only === undefined || more.length > 0) {
-		throw new Error(`${g.folder.name} drafts its validation in ${holding.length} files`)
-	}
-	return only
-}
 
 /** The plan of a generated folder reviewed as `losses` decides each loss, file by file. */
 const reviewPlan = (g: GenerateResult, losses: LossReview): ReadonlyArray<ReviewedFile> =>

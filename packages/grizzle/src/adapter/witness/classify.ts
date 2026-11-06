@@ -136,7 +136,7 @@ export const rosterDomainDefect = (
 	const admits =
 		carrier === "code"
 			? `a live handle's code (${liveCodesText(violation.roster)})`
-			: `a set of live handles' bits, bit(${codec.size}) with a 0 at every hole (${liveCodesText(violation.roster)})`
+			: `a set of live handles' bits, bit(${codec.width}) with a 0 at every hole and every padding bit past code ${codec.size - 1} (${liveCodesText(violation.roster)})`
 	return defect(
 		`grizzle writes only live handles, and ${carrier === "code" ? "the code" : "the bits"} domain ${violation.domain} of roster ${codec.roster} admits ${admits}, yet ${at} raised 23514 on it`
 	)

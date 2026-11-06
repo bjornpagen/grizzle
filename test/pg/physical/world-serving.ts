@@ -1160,9 +1160,8 @@ const callFeatures = (
 	}
 }
 
-/** The rows each relation holds in the drawn population's cases and in the fixed fixture. */
+/** The rows each relation holds in the drawn population's cases. */
 export const populationRows = 20_000
-export const fixtureRows = 1_000_000
 
 /**
  * Judges a case at `rows` facts per relation (see the header): installs it, loads it, and judges every call of every

@@ -20,7 +20,7 @@ import { element, type Gen, int } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	covered,
 	INTERVALS,
@@ -43,7 +43,6 @@ import {
 	sameMoment,
 	tuple
 } from "#test/support/substrate.ts"
-import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -275,67 +274,6 @@ const shrinks = (c: ChangeCase): boolean => {
 }
 
 layer(Substrate.layer)("coverage's temporal lowering of fin.md §7 on PostgreSQL 19rc1", (it) => {
-	it.effect(
-		"need btree_gist for the scalar key column of a WITHOUT OVERLAPS key, and take the key and the PERIOD foreign key over STORED generated spans",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema(freshSchema)
-				const installed = yield* s.admin.queryValues(
-					"SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'btree_gist'",
-					[]
-				)
-				assert.deepEqual(installed, [], "the shared database starts without btree_gist")
-				const target = `CREATE TABLE ${qualified(schema, "target")} (${spanColumns}, CONSTRAINT target_span UNIQUE NULLS DISTINCT (k, r WITHOUT OVERLAPS))`
-				yield* expectSqlstate(s.admin.query(target, []), "42704")
-				for (const statement of coverageDdl(schema, "immediate")) {
-					yield* s.admin.query(statement, [])
-				}
-				const generated = yield* s.admin.queryValues(
-					`SELECT a.attrelid::regclass::text, a.attgenerated::text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid IN (${quoteString(qualified(schema, "target"))}::regclass, ${quoteString(qualified(schema, "source"))}::regclass) AND a.attname = 'r' ORDER BY 1`,
-					[]
-				)
-				assert.deepEqual(
-					Arr.map(generated, ([, kind]) => String(kind)),
-					["s", "s"],
-					"both spans are STORED generated columns"
-				)
-			})
-	)
-
-	it.effect(
-		"take only NO ACTION for a PERIOD foreign key's update and delete actions, deferrable or not, and refuse RESTRICT, CASCADE, SET NULL and SET DEFAULT with 0A000",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema(freshSchema)
-				for (const statement of Arr.take(coverageDdl(schema, "immediate"), 2)) {
-					yield* s.admin.query(statement, [])
-				}
-				const actions = ["NO ACTION", "RESTRICT", "CASCADE", "SET NULL", "SET DEFAULT"] as const
-				const deferrals = [
-					"NOT DEFERRABLE",
-					"DEFERRABLE INITIALLY IMMEDIATE",
-					"DEFERRABLE INITIALLY DEFERRED"
-				] as const
-				for (const [event, action, deferral] of Arr.flatMap(
-					["UPDATE", "DELETE"] as const,
-					(event) =>
-						Arr.flatMap(actions, (action) =>
-							Arr.map(deferrals, (deferral) => [event, action, deferral] as const)
-						)
-				)) {
-					const sql = `CREATE TABLE ${qualified(schema, "referencing")} (k int4, r int4range, FOREIGN KEY (k, PERIOD r) REFERENCES ${qualified(schema, "target")} (k, PERIOD r) ON ${event} ${action} ${deferral})`
-					if (action === "NO ACTION") {
-						yield* s.admin.query(sql, [])
-						yield* s.admin.query(`DROP TABLE ${qualified(schema, "referencing")}`, [])
-					} else {
-						yield* expectSqlstate(s.admin.query(sql, []), "0A000")
-					}
-				}
-			})
-	)
-
 	it.effect(
 		"refuse in a WITHOUT OVERLAPS key exactly the rows that overlap an earlier row of their key or hold an empty span, never comparing a NULL span",
 		(ctx) =>

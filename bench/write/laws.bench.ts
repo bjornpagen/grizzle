@@ -63,7 +63,7 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
  *
  * Beside them, the roster's 363 codes as a column of a roster domain over smallint, written by the host, under the two
  * representations OPEN-2 weighed: (b) the domain's CHECK reads the names constant, `(names())[VALUE + 1] <> ''`, 64
- * bytes a code; (a) it reads a live-code constant of bit varying, `substring(live(), VALUE + 1, 1) = '1'::bit(1)`.
+ * bytes a code; (a) it reads a live-code constant of bit varying, `substring(live(), VALUE + 1, 1)::integer = 1`.
  *
  * Every statement that packs, reads, re-points or drops a constant, every CHECK, domain and generated column, the
  * members tables and the foreign key are the engine's print (test/support/sql.ts over sql/constants.ts and
@@ -77,10 +77,10 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
  * on the build it runs on, once such a run has measured it; until then its cost is recorded and gates nothing.
  *
  * The verdict holds that every constant PostgreSQL packs is the test oracle's string of its members
- * (test/support/closed/bit-text.ts bitText, R8), and the live-code constant the oracle's set of the live codes
+ * (test/support/closed/bit-text.ts installedText, R8), and the live-code constant the oracle's set of the live codes
  * (setText); that every law and both roster domains refuse the row one past their constant's end, which reads as
  * absent, with its SQLSTATE; and that every derived column reads its relation's payload code on every stored row and
- * NULL past the end. Recorded beside it: each constant's pack, the migration's DO block; the first INSERT through each
+ * NULL past the end. Recorded beside it: each constant's statement, the migration's CREATE FUNCTION of its hex literal; the first INSERT through each
  * roster domain in a fresh backend, beyond the plain column's; and a change of the set over `rows` rows, its CHECK
  * re-pointed at a grown set and VALIDATEd, its derived column rewritten by SET EXPRESSION, and a VALIDATE against a
  * constant that drops a stored member refused.
@@ -517,7 +517,7 @@ const allHold = (
 })
 
 const schemaState =
-	"a scratch schema: each constant packed by the engine's DO block or created by its CREATE FUNCTION, each CHECK, generated column and roster domain the engine's over its constant, the members tables and the foreign key the engine's, every table empty at the start of each round (TRUNCATE, then CHECKPOINT)"
+	"a scratch schema: each constant created by the engine's CREATE FUNCTION of its hex literal, each CHECK, generated column and roster domain the engine's over its constant, the members tables and the foreign key the engine's, every table empty at the start of each round (TRUNCATE, then CHECKPOINT)"
 
 const data = `the set's ${triples.members} members of ${cellCount(triples)} cells, scattered by the stride ${stride}, taken in rank order`
 
@@ -600,7 +600,7 @@ export default defineGate({
 					name: `the pack of ${sized(relation)}: ${cellCount(relation)} cells of ${widthOf(relation)} bits`,
 					gates: ["law-cost"],
 					conditions: conditions({
-						workload: `the engine's pack, one DO block: its ${relation.members} members as VALUES rows, the outer join of ${cellCount(relation)} cells against them, and CREATE FUNCTION with the cells as its body`,
+						workload: `the engine's CREATE FUNCTION of the constant's hex literal, its ${relation.members} members over ${cellCount(relation)} cells`,
 						parameters: { cells: cellCount(relation), members: relation.members },
 						semantics:
 							"the function returns the constant: its cells at their width, its members present",

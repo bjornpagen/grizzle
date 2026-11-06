@@ -60,7 +60,7 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  * The schema is generated at a scale and at twice it: `relations` ordinary relations, each keyed by one text pattern
  * (every id, parent and code is `^[a-z0-9_]{1,64}$`) in three keys, a primary one and two candidate ones, and each but
  * the first contained in the one before it; a relation whose rows a containment holds to the smaller of two closed
- * relations of `small` and `large` rows, each packed as hex; one full role, holding every relation and roster whole and
+ * relations of `small` and `large` rows; one full role, holding every relation and roster whole and
  * writing every relation; and one login over the role, owning a workload over the role whose programs are keyed lookups
  * of the first relations.
  *
@@ -130,7 +130,7 @@ const handles = (prefix: string, count: number): readonly [string, ...Array<stri
 ]
 
 /**
- * A closed relation of about `rows` rows packed as hex, keyed by two rosters whose sizes multiply to at least `rows`,
+ * A closed relation of about `rows` rows, keyed by two rosters whose sizes multiply to at least `rows`,
  * its rows the first `rows` keys in row-major order, each with a weight.
  */
 const closedOf = (name: string, rows: number) => {
@@ -147,8 +147,7 @@ const closedOf = (name: string, rows: number) => {
 		name,
 		{ a: closedId(A), b: closedId(B), w: pg.integer },
 		["a", "b"],
-		facts,
-		{ pack: "hex" }
+		facts
 	)
 	return { A, B, R }
 }

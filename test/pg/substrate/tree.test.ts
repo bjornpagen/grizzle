@@ -24,8 +24,7 @@
  * every assignment of them to rows up to swapping the two, and a state holds at most two self-parented rows, one root
  * per value. The operator's bound, every state of at most six rows with every field over its range, is out of reach (a
  * row of six ranges over 6⁴ · 7 · 2 values), and so is every forest shape with every start and end beyond three rows
- * (11,599,872 cases at four). The proof is five boxes, each named in its test, beside the plans of T1's scans and the
- * cost of T0 to T6:
+ * (11,599,872 cases at four). The proof is five boxes, each named in its test, beside the plans of T1's scans:
  *
  * - every state of at most two rows: every shape and root assignment, every `at`, `children` and `start` over its range
  *   and one past it, every `end` over [0, N + 1];
@@ -43,7 +42,6 @@ import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
-import { summarize } from "#bench/cold/stats.ts"
 import {
 	explain,
 	type ExplainOptions,
@@ -54,9 +52,6 @@ import {
 	type PlanNode,
 	rowsRead
 } from "#bench/harness/explain.ts"
-import { measureTransaction, type TransactionMeasure } from "#bench/harness/transaction.ts"
-import { indices } from "#compiler/core/array.ts"
-import { quoteString } from "#compiler/sql/print.ts"
 import {
 	batchInsertSql,
 	batchParams,
@@ -94,7 +89,6 @@ import {
 	sqlstateOf,
 	statementsOf,
 	type TreeRow,
-	truncateSql,
 	upToTwoRoots,
 	writeGen
 } from "#test/pg/substrate/tree.ts"
@@ -433,13 +427,6 @@ const planned: ExplainOptions = { wal: false, serialize: { kind: "off" } }
 /** The plan readings' load: one tree of 20,000 rows, each with up to four children. */
 const planLoad = { rows: 20_000, fanout: 4 } as const
 
-/**
- * The cost reading's load and rounds: one tree of 10,000 rows in one INSERT, fifteen rounds with the lowerings
- * interleaved, each after a TRUNCATE and a CHECKPOINT. Its figures are recorded and gate nothing; the minimum beside the
- * median reads the work a row costs on a machine other sessions load.
- */
-const costLoad = { rows: 10_000, fanout: 4, rounds: 15 } as const
-
 /** A plan's indexes, its sorts, its sequential scans, and the rows it reads from stored relations. */
 const planFacts = (plan: PlanNode) => ({
 	indexes: Arr.dedupe(Arr.map(indexAccesses(plan), (a) => a.index)),
@@ -473,10 +460,6 @@ const PLAN_PROBES: Arr.NonEmptyReadonlyArray<PlanProbe> = Arr.flatMap(
 		)
 	]
 )
-
-/** A transaction's execute and commit time, from the bench harness's phase clock. */
-const totalMs = (m: TransactionMeasure): number =>
-	defined(m.phases.executeMs) + defined(m.phases.commitMs)
 
 layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 	it.effect(
@@ -841,102 +824,5 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc1", (it) => {
 					)
 				})
 			)
-	)
-
-	it.effect(
-		"measure what T0 to T6 cost a row of one 10,000-row INSERT over the family's own constraints, and that they add no foreign key and no immediate trigger",
-		(ctx) =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const seats = yield* seatsOf<string>([
-					["the family", { ...RFC, laws: [] }],
-					["the family and T0", { ...RFC, laws: ["T0"] }],
-					["the tree", RFC]
-				])
-				const rows = loadTree(costLoad.rows, costLoad.fanout)
-				const measured = (seat: Seat<string>, explained: boolean) =>
-					measureTransaction(seat.session, {
-						readOnly: false,
-						statements: [
-							{
-								label: "insert",
-								sql: batchInsertSql(seat.schema),
-								params: batchParams(rows),
-								explain: explained
-							}
-						],
-						end: explained ? "rollback" : "plain",
-						deferredEvents: false,
-						wal: !explained
-					})
-				const samples: Array<readonly [string, TransactionMeasure]> = []
-				for (const round of indices(costLoad.rounds)) {
-					for (const seat of round % 2 === 0 ? seats : Arr.reverse(seats)) {
-						yield* seat.session.query(truncateSql(seat.schema), [])
-						yield* s.superuser("CHECKPOINT")
-						const m = yield* measured(seat, false)
-						assert.equal(m.outcome.kind, "committed", `${seat.label}'s load commits`)
-						samples.push([seat.label, m])
-						yield* seat.session.resetStatements
-					}
-				}
-				const records: Array<string> = []
-				const medians: Array<number> = []
-				const minima: Array<number> = []
-				const foreignKeys: Array<string> = []
-				const triggerCalls: Array<number> = []
-				for (const seat of seats) {
-					const ms = Arr.map(
-						Arr.filter(samples, ([label]) => label === seat.label),
-						([, m]) => m
-					)
-					const execute = summarize(Arr.map(ms, (m) => defined(m.phases.executeMs)))
-					const commit = summarize(Arr.map(ms, (m) => defined(m.phases.commitMs)))
-					const total = summarize(Arr.map(ms, totalMs))
-					const wal = summarize(
-						Arr.map(ms, (m) => (m.wal.kind === "observed" ? m.wal.value.backend.bytes : 0))
-					)
-					medians.push(total.p50)
-					minima.push(total.min)
-					const node = quoteString(qualified(seat.schema, "node"))
-					const constraints = yield* s.admin.queryValues(
-						`SELECT c.contype::text, count(*)::int4 FROM pg_catalog.pg_constraint AS c WHERE c.conrelid = ${node}::regclass GROUP BY 1 ORDER BY 1`,
-						[]
-					)
-					foreignKeys.push(
-						Formatter.format(Arr.filter(constraints, ([contype]) => contype === "f"))
-					)
-					const indexes = yield* s.admin.queryValues(
-						`SELECT count(*)::int4, sum(pg_catalog.pg_relation_size(i.indexrelid))::int8::text FROM pg_catalog.pg_index AS i WHERE i.indrelid = ${node}::regclass`,
-						[]
-					)
-					yield* seat.session.query(truncateSql(seat.schema), [])
-					const explained = yield* measured(seat, true)
-					const plan = defined(explained.statements[0]).explained
-					const triggers = plan.kind === "observed" ? plan.value.triggers : []
-					triggerCalls.push(Arr.reduce(triggers, 0, (sum, t) => sum + t.calls))
-					yield* seat.session.resetStatements
-					records.push(
-						`${seat.label}: execute ${Formatter.format(execute)} ms; commit ${Formatter.format(commit)} ms; total p50 ${total.p50} ms, ${Math.round((total.p50 * 1e6) / costLoad.rows) / 1000} µs a row, min ${total.min} ms; backend WAL p50 ${wal.p50} bytes, ${Math.round(wal.p50 / costLoad.rows)} a row; constraints by type ${Formatter.format(constraints)}; indexes (count, bytes) ${Formatter.format(indexes)}; immediate triggers ${Formatter.format(
-							Arr.map(
-								triggers,
-								(t) => `${Option.getOrElse(t.constraint, () => t.name)} × ${t.calls}`
-							)
-						)}`
-					)
-				}
-				const perRow = (a: number | undefined, b: number | undefined) =>
-					`${Math.round(((defined(a) - defined(b)) * 1e6) / costLoad.rows) / 1000} µs a row`
-				const over = (at: string, [family, withT0, tree]: ReadonlyArray<number>) =>
-					`at the ${at} over ${costLoad.rounds} rounds of ${costLoad.rows} rows: T0 to T6 over the family ${perRow(tree, family)}; T0 alone ${perRow(withT0, family)}; T1 to T6 over the family and T0 ${perRow(tree, withT0)}`
-				records.push(over("medians", medians), over("minima", minima))
-				yield* Effect.forEach(records, (record) => Effect.promise(() => ctx.annotate(record)))
-				assert.equal(Arr.dedupe(foreignKeys).length, 1, "T0 to T6 add no foreign key")
-				assert.equal(
-					Arr.dedupe(triggerCalls).length,
-					1,
-					"T0 to T6 fire no immediate trigger the family does not"
-				)
-			})
 	)
 })

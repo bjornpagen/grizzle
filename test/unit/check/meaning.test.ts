@@ -100,7 +100,7 @@ const read0 = (matches: ReadonlyArray<number>, pair: number): CaseSketch["reads"
 			head: head0
 		}
 	},
-	take: order0,
+	take: { ...order0, ties: 0 },
 	literalHead: { name: 0, kind: 0, arms: 0, values: [0, 0, 0] },
 	importable: 0,
 	bindImport: 0,

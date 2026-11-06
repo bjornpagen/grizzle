@@ -1,20 +1,36 @@
 import { inspect } from "node:util"
 import { describe, it } from "@effect/vitest"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { required, requiredInSpace } from "@grizzle/testing/features"
-import { array, boolean, constant, element, type Gen, map, oneOf } from "@grizzle/testing/gen"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	shuffled,
+	weighted
+} from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
-import { parseTarget, transactionControl } from "#adapter/migrate/input.ts"
+import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
+import type { MigrateError } from "#adapter/migrate/errors.ts"
+import { type ParsedTarget, parseTarget, transactionControl } from "#adapter/migrate/input.ts"
 import { planApply, runFiles } from "#adapter/migrate/plan.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { LedgerState, RecordedFolder } from "#compiler/deploy/ledger/ledger.ts"
 import { type MigrationFolder, writeMeta } from "#compiler/deploy/render/folder.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
+import { confirmMarker, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import { emptyFingerprint, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
+import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
+import { assert, defined, failed, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -77,6 +93,59 @@ const review = (file: FileText): string => {
 		"\n"
 	)
 }
+
+/** Three versions of the shop, drafted as a chain from the empty snapshot: a folder each, the second and third with
+ * placeholders, the second with a file that runs outside a transaction. */
+const shopChain = draftChain(
+	[
+		{
+			desc: shopV1,
+			options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+			declared: noDeclarations
+		},
+		{
+			desc: shopV2,
+			options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+			declared: noDeclarations
+		},
+		{
+			desc: shopV3,
+			options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
+			declared: shopV3Declared
+		}
+	],
+	fromEmpty
+)
+
+/**
+ * A schema's first migration started beside an abandoned one: every drop is declared, so starting it empty beside the
+ * schemas its directory still holds is the one loss a draft leaves undecided.
+ */
+const abandoning = succeeded(
+	generateMigration({
+		previous: emptySnapshot({ schemaName: "Shop", schema: shop }),
+		installation: compile(shopV1, {
+			schema: shopSchema,
+			owner: unowned,
+			extensions: [],
+			codes: firstCodes
+		}),
+		workload: noWorkload,
+		declared: noDeclarations,
+		abandoned: [{ schema: "Store", directory: "store" }],
+		naming: { kind: "named", name: parsedMigrationName("step_1") },
+		timestamp: draftedAt(1)
+	})
+)
+
+/** The shop's empty snapshot: no folder applied. */
+const emptyShop = emptySnapshot({ schemaName: "Shop", schema: shop })
+
+/** Whether a file holds a marker grizzle migrate refuses: a placeholder's or a confirm's line, or a placeholder token. */
+const marked = (text: string): boolean =>
+	Str.includes(placeholderMarker)(text) ||
+	Str.includes(confirmMarker)(text) ||
+	Str.includes(placeholderToken)(text)
 
 /**
  * A statement's text as parts. Each form of a statement that names a transaction is drawn as PostgreSQL's grammar
@@ -388,309 +457,671 @@ describe("transaction control in a migration file", () => {
 	)
 })
 
-describe("the input check before any connection", () => {
-	const [g1, g2] = draftChain(
-		[
-			{
-				desc: shopV1,
-				options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
-				declared: noDeclarations
-			},
-			{
-				desc: shopV2,
-				options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
-				declared: noDeclarations
-			}
-		],
-		fromEmpty
-	)
-	assert.ok(g1 !== undefined && g2 !== undefined)
+/**
+ * The input check before any connection (migrate/input.ts parseTarget): a target of a prefix of the shop's chain, its
+ * folders in a drawn order, each reviewed or not, is parsed into its folders in name order, each file at its ordinal
+ * with the transaction mode its draft wrote; the empty snapshot with no folder is one target. One fault planted at a
+ * drawn folder is refused at stage input with exactly that fault, at that folder: a name that is no folder name, a
+ * folder given twice, a meta.json grizzle did not write or of another schema, a file given twice, meta.json among the
+ * files, a file that is not `NN-<phase>.sql` or a second of one ordinal, and a statement controlling its transaction.
+ */
+type InputFaultKind =
+	| "folderName"
+	| "repeatedFolder"
+	| "malformedMeta"
+	| "foreignMeta"
+	| "repeatedFile"
+	| "metaAmongFiles"
+	| "fileNames"
+	| "transactionControl"
 
-	it("orders the folders by name and the files by ordinal, with each file's digest and mode", () => {
-		const parsed = succeeded(
-			parseTarget({
-				snapshot: g2.snapshot,
-				folders: [source(g2.folder, review), source(g1.folder, unedited)]
+type InputFault =
+	| { readonly kind: "none" }
+	| { readonly kind: "folderName"; readonly at: number; readonly name: string }
+	| { readonly kind: "repeatedFolder"; readonly at: number }
+	| { readonly kind: "malformedMeta"; readonly at: number; readonly text: string }
+	| { readonly kind: "foreignMeta"; readonly at: number }
+	| { readonly kind: "repeatedFile"; readonly at: number; readonly file: number }
+	| { readonly kind: "metaAmongFiles"; readonly at: number }
+	| {
+			readonly kind: "fileNames"
+			readonly at: number
+			readonly name: "notes.txt" | "a second of one ordinal"
+	  }
+	| {
+			readonly kind: "transactionControl"
+			readonly at: number
+			readonly file: number
+			readonly control: string
+	  }
+
+interface InputCase {
+	readonly versions: number
+	readonly order: ReadonlyArray<number>
+	readonly reviewed: ReadonlyArray<boolean>
+	readonly fault: InputFault
+}
+
+const faultGen: Gen<InputFault> = (source) => {
+	const at = source.draw(int(0, 0xffff))
+	return source.draw(
+		oneOf<InputFault>([
+			map(element(["init", "2026_x", "20261024000000", "", "20261024000000_Step"]), (name) => ({
+				kind: "folderName",
+				at,
+				name
+			})),
+			constant({ kind: "repeatedFolder", at }),
+			map(element(["", "{", "{}", "[]", "null"]), (text) => ({ kind: "malformedMeta", at, text })),
+			constant({ kind: "foreignMeta", at }),
+			map(int(0, 0xffff), (file) => ({ kind: "repeatedFile", at, file })),
+			constant({ kind: "metaAmongFiles", at }),
+			map(element(["notes.txt", "a second of one ordinal"] as const), (name) => ({
+				kind: "fileNames",
+				at,
+				name
+			})),
+			(inner) => ({
+				kind: "transactionControl",
+				at,
+				file: inner.draw(int(0, 0xffff)),
+				control: inner.draw(element(["COMMIT", "BEGIN", "ROLLBACK", "END", "START TRANSACTION"]))
 			})
-		)
-		assert.deepEqual(
-			Arr.map(parsed.folders, (f) => f.name),
-			[g1.folder.name, g2.folder.name]
-		)
-		/**
-		 * A file runs outside a transaction exactly when the drafter wrote it so (the renderer marks it from the drafted
-		 * file's mode), and the second version's index file is one.
-		 */
-		const drafted = new Map(
-			Arr.flatMap([g1, g2], (g) =>
-				Arr.map(draftFiles(g), (d) => [`${g.folder.name}/${d.name}`, d.transaction] as const)
+		])
+	)
+}
+
+const inputCaseGen: Gen<InputCase> = (source) => {
+	const versions = source.draw(int(0, shopChain.length))
+	return {
+		versions,
+		order: source.draw(shuffled(indices(versions), { min: versions, max: versions })),
+		reviewed: source.draw(array(boolean, { min: versions, max: versions })),
+		fault:
+			versions === 0
+				? { kind: "none" }
+				: source.draw(
+						weighted([
+							[1, constant<InputFault>({ kind: "none" })],
+							[4, faultGen]
+						])
+					)
+	}
+}
+
+/** A folder as the command line hands it over. */
+type FolderSource = ReturnType<typeof source>
+
+/** The folders of a case as handed over, the fault planted, and the refusal the fault is, at its folder. */
+const plantedFolders = (
+	folders: ReadonlyArray<FolderSource>,
+	fault: InputFault
+): {
+	readonly folders: ReadonlyArray<FolderSource>
+	readonly refusal: { readonly kind: InputFaultKind; readonly folder: string } | undefined
+} => {
+	if (fault.kind === "none") {
+		return { folders, refusal: undefined }
+	}
+	const at = fault.at % folders.length
+	const folder = defined(folders[at], "the faulted folder")
+	const replaced = (replacement: ReadonlyArray<FolderSource>): ReadonlyArray<FolderSource> => [
+		...Arr.take(folders, at),
+		...replacement,
+		...Arr.drop(folders, at + 1)
+	]
+	const fileAt = (pick: number) => pick % folder.files.length
+	const refused = (kind: InputFaultKind, name: string) => ({ kind, folder: name })
+	switch (fault.kind) {
+		case "folderName":
+			return {
+				folders: replaced([{ ...folder, name: fault.name }]),
+				refusal: refused("folderName", fault.name)
+			}
+		case "repeatedFolder":
+			return {
+				folders: replaced([folder, folder]),
+				refusal: refused("repeatedFolder", folder.name)
+			}
+		case "malformedMeta":
+			return {
+				folders: replaced([{ ...folder, metaText: fault.text }]),
+				refusal: refused("malformedMeta", folder.name)
+			}
+		case "foreignMeta": {
+			const meta = succeeded(
+				writeMeta({
+					...defined(
+						Arr.findFirst(shopChain, (g) => g.folder.name === folder.name).pipe(
+							Option.getOrUndefined
+						),
+						"the folder's draft"
+					).folder.meta,
+					schema: "other"
+				}),
+				"meta.json of another schema, sealed"
 			)
-		)
-		for (const folder of parsed.folders) {
-			for (const f of folder.files) {
-				assert.equal(
-					f.noTransaction,
-					!defined(
-						drafted.get(`${folder.name}/${f.name}`),
-						`the drafted file ${folder.name}/${f.name}`
-					),
-					f.name
-				)
+			return {
+				folders: replaced([{ ...folder, metaText: meta }]),
+				refusal: refused("foreignMeta", folder.name)
 			}
 		}
-		const second = defined(parsed.folders[1], "the second version's folder")
-		assert.ok(
-			Arr.some(second.files, (f) => f.noTransaction),
-			"the second version drafts a file outside a transaction"
-		)
-		assert.deepEqual(
-			Arr.map(second.files, (f) => f.ordinal),
-			Arr.range(1, g2.folder.files.length)
-		)
-	})
-
-	it("accepts the empty snapshot with no folders", () => {
-		const empty = emptySnapshot({ schemaName: "Shop", schema: shop })
-		assert.deepEqual(succeeded(parseTarget({ snapshot: empty, folders: [] })).folders, [])
-	})
-
-	/** A target the input check refuses: a folder name that is no folder name, a folder twice, meta.json of another
-	 * schema, a stray file, and a file that controls its transaction. */
-	type Malformed =
-		| "a malformed folder name"
-		| "a folder twice"
-		| "meta.json of another schema"
-		| "a stray file"
-		| "transaction control"
-	const malformedTarget = (malformed: Malformed) => {
-		switch (malformed) {
-			case "a malformed folder name":
-				return parseTarget({
-					snapshot: g1.snapshot,
-					folders: [{ ...source(g1.folder, unedited), name: "init" }]
-				})
-			case "a folder twice":
-				return parseTarget({
-					snapshot: g1.snapshot,
-					folders: [source(g1.folder, unedited), source(g1.folder, unedited)]
-				})
-			case "meta.json of another schema":
-				return parseTarget({
-					snapshot: g1.snapshot,
-					folders: [
-						{
-							...source(g1.folder, unedited),
-							metaText: succeeded(
-								writeMeta({ ...g1.folder.meta, schema: "other" }),
-								"meta.json of another schema, sealed"
-							)
-						}
-					]
-				})
-			case "a stray file":
-				return parseTarget({
-					snapshot: g1.snapshot,
-					folders: [{ ...source(g1.folder, unedited), files: [{ name: "notes.txt", text: "" }] }]
-				})
-			case "transaction control":
-				return parseTarget({
-					snapshot: g1.snapshot,
-					folders: [
-						source(g1.folder, (f) => (f.name === "01-setup.sql" ? `${f.text}\nCOMMIT;\n` : f.text))
-					]
-				})
+		case "repeatedFile": {
+			const file = defined(folder.files[fileAt(fault.file)], "a file")
+			return {
+				folders: replaced([{ ...folder, files: [...folder.files, file] }]),
+				refusal: refused("repeatedFile", folder.name)
+			}
+		}
+		case "metaAmongFiles":
+			return {
+				folders: replaced([
+					{ ...folder, files: [...folder.files, { name: "meta.json", text: folder.metaText }] }
+				]),
+				refusal: refused("metaAmongFiles", folder.name)
+			}
+		case "fileNames": {
+			const first = defined(folder.files[0], "a folder's first file")
+			const stray =
+				fault.name === "notes.txt"
+					? { name: "notes.txt", text: "" }
+					: { name: `${Str.slice(0, 2)(first.name)}-again.sql`, text: "SELECT 1;\n" }
+			return {
+				folders: replaced([{ ...folder, files: [...folder.files, stray] }]),
+				refusal: refused("fileNames", folder.name)
+			}
+		}
+		case "transactionControl": {
+			const target = fileAt(fault.file)
+			return {
+				folders: replaced([
+					{
+						...folder,
+						files: Arr.map(folder.files, (f, i) =>
+							i === target ? { ...f, text: `${f.text}\n${fault.control};\n` } : f
+						)
+					}
+				]),
+				refusal: refused("transactionControl", folder.name)
+			}
 		}
 	}
-	const malformations: Arr.NonEmptyReadonlyArray<Malformed> = [
-		"a malformed folder name",
-		"a folder twice",
-		"meta.json of another schema",
-		"a stray file",
-		"transaction control"
-	]
+}
 
+type InputFeature =
+	| "the empty snapshot with no folders"
+	| "folders handed over out of order"
+	| "a file outside a transaction"
+	| `refused ${InputFaultKind}`
+
+describe("the input check before any connection", () => {
 	it.effect(
-		"refuses a malformed folder, meta.json of another schema, a stray file and transaction control",
+		"orders the folders by name and the files by ordinal with each one's mode, and refuses each fault planted in them at stage input, naming it",
 		(ctx) =>
 			searched(
 				ctx,
-				exhaust(
+				explore(
 					{
-						suite: "unit/adapter/input-refusals",
-						generator: element(malformations),
+						suite: "unit/adapter/migrate-input",
+						draw: drawn(inputCaseGen),
 						literal: Formatter.format,
-						limit: malformations.length,
-						coverage: requiredInSpace<Malformed>(malformations),
+						oracle: {
+							kind: "specification",
+							name: "the chain's drafts in name order, each fault's refusal planted at its folder"
+						},
+						coverage: required<InputFeature>(
+							[
+								"the empty snapshot with no folders",
+								"folders handed over out of order",
+								"a file outside a transaction",
+								"refused folderName",
+								"refused repeatedFolder",
+								"refused malformedMeta",
+								"refused foreignMeta",
+								"refused repeatedFile",
+								"refused metaAmongFiles",
+								"refused fileNames",
+								"refused transactionControl"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
+						kept: [],
+						runs: 150,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
 						caseHang
 					},
-					(malformed, c) =>
+					(c, k) =>
 						Effect.sync(() => {
-							c.note(malformed)
-							assert.equal(failed(malformedTarget(malformed)).stage, "input")
+							const drafts = Arr.take(shopChain, c.versions)
+							const handed = Arr.map(c.order, (i) => {
+								const g = defined(drafts[i], "a version's draft")
+								return source(g.folder, c.reviewed[i] === true ? review : unedited)
+							})
+							const snapshot = Option.match(Arr.last(drafts), {
+								onNone: () => emptyShop,
+								onSome: (g) => g.snapshot
+							})
+							const planted = plantedFolders(handed, c.fault)
+							const parsed = parseTarget({ snapshot, folders: planted.folders })
+							if (planted.refusal !== undefined) {
+								const reason = failed(parsed).reason
+								assert.deepEqual(
+									{
+										stage: failed(parsed).stage,
+										fault: reason._tag === "InputRefused" ? reason.fault.kind : reason._tag,
+										folder:
+											reason._tag === "InputRefused" && reason.fault.kind !== "repeatedSchema"
+												? reason.fault.folder
+												: undefined
+									},
+									{ stage: "input", fault: planted.refusal.kind, folder: planted.refusal.folder }
+								)
+								k.note(`refused ${planted.refusal.kind}`)
+								return
+							}
+							const target = succeeded(parsed)
+							assert.deepEqual(
+								Arr.map(target.folders, (f) => ({
+									name: f.name,
+									files: Arr.map(
+										f.files,
+										(file) => [file.name, file.ordinal, file.noTransaction] as const
+									)
+								})),
+								Arr.map(drafts, (g) => ({
+									name: g.folder.name,
+									files: Arr.map(draftFiles(g), (d, i) => [d.name, i + 1, !d.transaction] as const)
+								}))
+							)
+							if (c.versions === 0) {
+								k.note("the empty snapshot with no folders")
+							}
+							if (Arr.some(c.order, (position, i) => position !== i)) {
+								k.note("folders handed over out of order")
+							}
+							if (
+								Arr.some(target.folders, (f) => Arr.some(f.files, (file) => file.noTransaction))
+							) {
+								k.note("a file outside a transaction")
+							}
 						})
 				)
 			)
 	)
 })
 
-describe("the plan: skip, resume, run, or refuse before any statement", () => {
-	const [g1, g2, g3] = draftChain(
-		[
-			{
-				desc: shopV1,
-				options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
-				declared: noDeclarations
-			},
-			{
-				desc: shopV2,
-				options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
-				declared: noDeclarations
-			},
-			{
-				desc: shopV3,
-				options: { schema: shopSchema, owner: unowned, extensions: [], codes: firstCodes },
-				declared: shopV3Declared
-			}
-		],
-		fromEmpty
+/**
+ * The plan (migrate/plan.ts planApply): which folders an apply runs, decided before any statement.
+ *
+ * Over drawn targets and ledgers: the shop's chain of three folders, or a schema's first migration beside an abandoned
+ * one; which of the chain's folders the target holds, each reviewed or not (markers left, or losses left undecided);
+ * the snapshot it knows, the empty one or a version's; a ledger whose first folders completed and whose next is partial,
+ * at any of its files; and a recorded file edited after it ran, or a file added to a folder that completed. The oracle
+ * is the planner's documented order, restated over the chain's positions: an applied file edited, missing or added
+ * stops it first; then each folder in name order is skipped when complete, resumed past its recorded files when
+ * partial, started when it continues the ledger's latest target, and refused otherwise; the latest target must then be
+ * the known snapshot's; then no file that runs may hold a marker, and no folder that runs a loss left undecided.
+ */
+type ChainName = "the shop" | "a first migration beside an abandoned schema"
+
+type Edit =
+	| { readonly kind: "none" }
+	| { readonly kind: "a recorded file edited"; readonly pick: number }
+	| { readonly kind: "a file added to a complete folder"; readonly pick: number }
+
+interface PlanCase {
+	readonly chain: ChainName
+	readonly held: ReadonlyArray<boolean>
+	readonly reviewed: ReadonlyArray<boolean>
+	/** The known snapshot: the empty one, -1, or a version's. */
+	readonly known: number
+	readonly complete: number
+	readonly partial:
+		| { readonly kind: "none" }
+		| { readonly kind: "partial"; readonly recorded: number }
+	readonly edit: Edit
+}
+
+const chainOf = (name: ChainName) => (name === "the shop" ? shopChain : [abandoning])
+
+const planCaseGen: Gen<PlanCase> = (source) => {
+	const chain = source.draw(
+		weighted<ChainName>([
+			[4, constant("the shop")],
+			[1, constant("a first migration beside an abandoned schema")]
+		])
 	)
-	assert.ok(g1 !== undefined && g2 !== undefined && g3 !== undefined)
-	const parsed = succeeded(
-		parseTarget({
-			snapshot: g3.snapshot,
-			folders: [source(g1.folder, unedited), source(g2.folder, review), source(g3.folder, review)]
-		})
-	)
-	const empty = { latest: emptyFingerprint(shop), complete: [], partial: undefined }
-	/** The ledger rows of a parsed folder's first `files` files, its folder row first. */
-	const recordedOf = (index: number, files: number) => {
-		const folder = defined(parsed.folders[index])
-		return [
-			{ ordinal: 0, file: "meta.json", digest: folder.metaDigest },
-			...Arr.map(folder.files.slice(0, files), (f) => ({
-				ordinal: f.ordinal,
-				file: f.name,
-				digest: f.digest
-			}))
-		]
+	const length = chainOf(chain).length
+	const complete = source.draw(int(0, length))
+	return {
+		chain,
+		held: source.draw(
+			weighted<ReadonlyArray<boolean>>([
+				[3, constant(Arr.makeBy(length, () => true))],
+				[1, array(boolean, { min: length, max: length })]
+			])
+		),
+		reviewed: source.draw(
+			weighted<ReadonlyArray<boolean>>([
+				[3, constant(Arr.makeBy(length, () => true))],
+				[1, array(boolean, { min: length, max: length })]
+			])
+		),
+		known: source.draw(
+			weighted([
+				[4, constant(length - 1)],
+				[1, int(-1, length - 1)]
+			])
+		),
+		complete,
+		partial:
+			complete === length
+				? { kind: "none" }
+				: source.draw(
+						oneOf<PlanCase["partial"]>([
+							constant({ kind: "none" }),
+							map(int(0, 0xffff), (recorded) => ({ kind: "partial", recorded }))
+						])
+					),
+		edit: source.draw(
+			weighted<Edit>([
+				[4, constant({ kind: "none" })],
+				[1, map(int(0, 0xffff), (pick) => ({ kind: "a recorded file edited", pick }))],
+				[1, map(int(0, 0xffff), (pick) => ({ kind: "a file added to a complete folder", pick }))]
+			])
+		)
 	}
+}
 
-	it("runs every folder from the empty snapshot, ending at the known snapshot", () => {
-		const plan = succeeded(planApply(parsed, empty))
-		assert.deepEqual(
-			Arr.map(plan.runs, (r) => [r.folder.name, runFiles(r).length, r.kind]),
-			[
-				[g1.folder.name, g1.folder.files.length, "start"],
-				[g2.folder.name, g2.folder.files.length, "start"],
-				[g3.folder.name, g3.folder.files.length, "start"]
-			]
-		)
-		assert.equal(plan.after, g3.snapshot.fingerprint)
-	})
+/** A folder of the chain as the case's reviewer leaves it. */
+const reviewedSource = (c: PlanCase, folder: MigrationFolder, i: number): FolderSource =>
+	source(
+		folder,
+		c.chain === "the shop"
+			? c.reviewed[i] === true
+				? review
+				: unedited
+			: c.reviewed[i] === true
+				? review
+				: leavingLosses
+	)
 
-	it("skips the applied folders and resumes the partial one at its first unrecorded file", () => {
-		const state = {
-			latest: g1.snapshot.fingerprint,
-			complete: [
-				{
-					folder: g1.folder.name,
-					source: g1.folder.meta.source,
-					target: g1.folder.meta.target,
-					files: g1.folder.files.length,
-					recorded: recordedOf(0, g1.folder.files.length)
-				}
-			],
-			partial: {
-				folder: g2.folder.name,
-				source: g2.folder.meta.source,
-				target: g2.folder.meta.target,
-				files: g2.folder.files.length,
-				recorded: recordedOf(1, 2)
-			}
-		}
-		const plan = succeeded(planApply(parsed, state))
-		assert.deepEqual(
-			Arr.map(plan.runs, (r) => [r.folder.name, Arr.map(runFiles(r), (f) => f.ordinal), r.kind]),
-			[
-				[g2.folder.name, Arr.map(indices(g2.folder.files.length - 2), (i) => i + 3), "resume"],
-				[g3.folder.name, Arr.map(indices(g3.folder.files.length), (i) => i + 1), "start"]
-			]
-		)
-	})
+/** The ledger rows of a parsed folder's first `files` files, its folder row first. */
+const recordedOf = (folder: ParsedTarget["folders"][number], files: number): RecordedFolder => ({
+	folder: folder.name,
+	source: folder.meta.source,
+	target: folder.meta.target,
+	files: folder.files.length,
+	recorded: [
+		{ ordinal: 0, file: "meta.json", digest: folder.metaDigest },
+		...Arr.map(Arr.take(folder.files, files), (f) => ({
+			ordinal: f.ordinal,
+			file: f.name,
+			digest: f.digest
+		}))
+	]
+})
 
-	it("refuses a gap in the chain, folders that end before the known snapshot, and unresolved markers", () => {
-		const gap = succeeded(
-			parseTarget({
-				snapshot: g3.snapshot,
-				folders: [source(g1.folder, unedited), source(g3.folder, review)]
-			})
-		)
-		assert.equal(failed(planApply(gap, empty)).stage, "order")
-		const short = succeeded(
-			parseTarget({
-				snapshot: g3.snapshot,
-				folders: [source(g1.folder, unedited), source(g2.folder, review)]
-			})
-		)
-		assert.equal(failed(planApply(short, empty)).stage, "order")
-		const marked = succeeded(
-			parseTarget({
-				snapshot: g2.snapshot,
-				folders: [source(g1.folder, unedited), source(g2.folder, unedited)]
-			})
-		)
-		const m = failed(planApply(marked, empty)).reason
-		assert.ok(m._tag === "MarkersUnresolved", "unresolved markers refuse the plan")
-		assert.ok(
-			Arr.every(m.markers, (mk) => mk.folder === g2.folder.name && mk.kind === "placeholder")
-		)
-	})
+/** What the planner decides, as the model states it. */
+type PlanVerdict =
+	| {
+			readonly kind: "plan"
+			readonly runs: ReadonlyArray<{
+				readonly folder: string
+				readonly kind: "start" | "resume"
+				readonly ordinals: ReadonlyArray<number>
+			}>
+			readonly after: string
+	  }
+	| {
+			readonly kind: "refused"
+			readonly reason:
+				| "AppliedEdited"
+				| "FolderRefused"
+				| "SnapshotUnreached"
+				| "MarkersUnresolved"
+				| "LossesUndecided"
+	  }
 
-	it("refuses an undecided loss of stored data, and plans it once its statement is written in", () => {
-		const abandoning = succeeded(
-			generateMigration({
-				previous: emptySnapshot({ schemaName: "Shop", schema: shop }),
-				installation: compile(shopV1, {
-					schema: shopSchema,
-					owner: unowned,
-					extensions: [],
-					codes: firstCodes
-				}),
-				workload: noWorkload,
-				declared: noDeclarations,
-				abandoned: [{ schema: "Store", directory: "store" }],
-				naming: { kind: "named", name: parsedMigrationName("step_1") },
-				timestamp: draftedAt(1)
-			})
-		)
-		const losses = Arr.map(
-			nonEmpty(
-				Arr.flatMap(abandoning.folder.meta.files, (f) =>
-					Arr.flatMap(f.steps, (s) => (s.kind === "loss" ? [f.name] : []))
-				),
-				"starting a schema beside an abandoned one drafts a loss: every drop is declared, so a schema's first migration starting it empty beside the schemas its directory still holds is the one loss a draft leaves undecided"
-			),
-			(file) => ({ folder: abandoning.folder.name, file })
-		)
-		const undecided = succeeded(
-			parseTarget({
-				snapshot: abandoning.snapshot,
-				folders: [source(abandoning.folder, leavingLosses)]
-			})
-		)
-		const refused = failed(planApply(undecided, empty))
-		const d = refused.reason
-		assert.ok(
-			d._tag === "LossesUndecided",
-			`an undecided loss refuses the plan, not ${refused.stage}`
-		)
-		assert.deepEqual(
-			Arr.map(d.losses, (l) => ({ folder: l.folder, file: l.file })),
-			losses
-		)
-		const decided = succeeded(
-			parseTarget({ snapshot: abandoning.snapshot, folders: [source(abandoning.folder, review)] })
-		)
-		assert.ok(Result.isSuccess(planApply(decided, empty)), "a loss written in plans")
-	})
+type PlanFeature =
+	| "every folder run from the empty snapshot"
+	| "the applied folders skipped"
+	| "a partial folder resumed"
+	| "a folder started after a resumed one"
+	| "nothing to run"
+	| `refused ${Extract<PlanVerdict, { readonly kind: "refused" }>["reason"]}`
+
+describe("the plan: skip, resume, run, or refuse before any statement", () => {
+	it.effect(
+		"runs exactly the folders the ledger has not applied, resuming the partial one, or refuses in the documented order",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/adapter/migrate-plan",
+						draw: drawn(planCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the planner's documented order, restated over the chain's positions"
+						},
+						coverage: required<PlanFeature>(
+							[
+								"every folder run from the empty snapshot",
+								"the applied folders skipped",
+								"a partial folder resumed",
+								"a folder started after a resumed one",
+								"nothing to run",
+								"refused AppliedEdited",
+								"refused FolderRefused",
+								"refused SnapshotUnreached",
+								"refused MarkersUnresolved",
+								"refused LossesUndecided"
+							],
+							{ cases: 400, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							const chain = chainOf(c.chain)
+							const sources = Arr.map(chain, (g, i) => reviewedSource(c, g.folder, i))
+							/** Every folder as it ran, which the ledger's digests record. */
+							const ran = succeeded(
+								parseTarget({
+									snapshot: defined(Arr.last(chain).pipe(Option.getOrUndefined), "a draft")
+										.snapshot,
+									folders: sources
+								})
+							).folders
+							const partial =
+								c.partial.kind === "partial"
+									? {
+											index: c.complete,
+											recorded:
+												c.partial.recorded %
+												defined(ran[c.complete], "the partial folder").files.length
+										}
+									: undefined
+							const recordedFolders = [
+								...Arr.map(Arr.take(ran, c.complete), (f) => ({
+									folder: f,
+									files: f.files.length
+								})),
+								...(partial === undefined
+									? []
+									: [{ folder: defined(ran[partial.index]), files: partial.recorded }])
+							]
+							const state: LedgerState = {
+								latest:
+									c.complete === 0
+										? emptyFingerprint(shop)
+										: defined(ran[c.complete - 1], "the latest complete folder").meta.target,
+								complete: Arr.map(Arr.take(ran, c.complete), (f) => recordedOf(f, f.files.length)),
+								partial:
+									partial === undefined
+										? undefined
+										: recordedOf(defined(ran[partial.index]), partial.recorded)
+							}
+							/** The edit, resolved: the recorded file it edits, or the complete folder a file is added to. */
+							const recordedFiles = Arr.flatMap(recordedFolders, ({ folder, files }) =>
+								Arr.map(Arr.take(folder.files, files), (f) => ({
+									folder: folder.name,
+									file: f.name
+								}))
+							)
+							const edit = c.edit
+							const edited =
+								edit.kind === "a recorded file edited" && recordedFiles.length > 0
+									? defined(recordedFiles[edit.pick % recordedFiles.length])
+									: undefined
+							const added =
+								edit.kind === "a file added to a complete folder" && c.complete > 0
+									? defined(ran[edit.pick % c.complete]).name
+									: undefined
+							const heldSources = Arr.filter(sources, (_, i) => c.held[i] === true)
+							const target = Arr.map(heldSources, (folder) => ({
+								...folder,
+								files: [
+									...Arr.map(folder.files, (f) =>
+										edited !== undefined && edited.folder === folder.name && edited.file === f.name
+											? { ...f, text: `${f.text}\n-- edited after it ran\n` }
+											: f
+									),
+									...(added === folder.name
+										? [
+												{
+													name: `${Str.padStart(2, "0")(String(folder.files.length + 1))}-added.sql`,
+													text: "SELECT 1;\n"
+												}
+											]
+										: [])
+								]
+							}))
+							const known: DeploySnapshot =
+								c.known < 0 ? emptyShop : defined(chain[c.known], "the known version").snapshot
+							const verdict = ((): PlanVerdict => {
+								const recordedIndices = [
+									...indices(c.complete),
+									...(partial === undefined ? [] : [partial.index])
+								]
+								if (
+									Arr.some(recordedIndices, (i) => c.held[i] !== true) ||
+									(edited !== undefined &&
+										Arr.some(
+											recordedIndices,
+											(i) => c.held[i] === true && defined(ran[i]).name === edited.folder
+										)) ||
+									(added !== undefined &&
+										Arr.some(
+											indices(c.complete),
+											(i) => c.held[i] === true && defined(ran[i]).name === added
+										))
+								) {
+									return { kind: "refused", reason: "AppliedEdited" }
+								}
+								const runs: Array<{
+									readonly index: number
+									readonly kind: "start" | "resume"
+									readonly ordinals: ReadonlyArray<number>
+								}> = []
+								let latest = c.complete - 1
+								for (const i of indices(chain.length)) {
+									if (c.held[i] !== true || i < c.complete) {
+										continue
+									}
+									const folder = defined(ran[i])
+									const ordinals = Arr.map(folder.files, (f) => f.ordinal)
+									if (partial?.index === i) {
+										runs.push({
+											index: i,
+											kind: "resume",
+											ordinals: Arr.drop(ordinals, partial.recorded)
+										})
+									} else if (i === latest + 1) {
+										runs.push({ index: i, kind: "start", ordinals })
+									} else {
+										return { kind: "refused", reason: "FolderRefused" }
+									}
+									latest = i
+								}
+								if (latest !== c.known) {
+									return { kind: "refused", reason: "SnapshotUnreached" }
+								}
+								const runText = (run: (typeof runs)[number]) =>
+									Arr.flatMap(defined(ran[run.index]).files, (f) =>
+										Arr.contains(run.ordinals, f.ordinal) ? [f.text] : []
+									)
+								if (Arr.some(runs, (run) => Arr.some(runText(run), marked))) {
+									return { kind: "refused", reason: "MarkersUnresolved" }
+								}
+								if (
+									c.chain === "a first migration beside an abandoned schema" &&
+									Arr.some(runs, (run) => c.reviewed[run.index] !== true)
+								) {
+									return { kind: "refused", reason: "LossesUndecided" }
+								}
+								return {
+									kind: "plan",
+									runs: Arr.map(runs, (run) => ({
+										folder: defined(ran[run.index]).name,
+										kind: run.kind,
+										ordinals: run.ordinals
+									})),
+									after: known.fingerprint
+								}
+							})()
+							const parsed = succeeded(parseTarget({ snapshot: known, folders: target }))
+							const planned = planApply(parsed, state)
+							if (verdict.kind === "refused") {
+								const refusal: MigrateError = failed(planned)
+								assert.equal(refusal.reason._tag, verdict.reason)
+								k.note(`refused ${verdict.reason}`)
+								return
+							}
+							const plan = succeeded(planned)
+							assert.deepEqual<PlanVerdict>(
+								{
+									kind: "plan" as const,
+									runs: Arr.map(plan.runs, (r) => ({
+										folder: r.folder.name,
+										kind: r.kind,
+										ordinals: Arr.map(runFiles(r), (f) => f.ordinal)
+									})),
+									after: plan.after
+								},
+								verdict
+							)
+							if (plan.runs.length === 0) {
+								k.note("nothing to run")
+							}
+							if (
+								c.complete === 0 &&
+								partial === undefined &&
+								plan.runs.length === chain.length &&
+								chain.length > 1
+							) {
+								k.note("every folder run from the empty snapshot")
+							}
+							if (c.complete > 0 && plan.runs.length > 0) {
+								k.note("the applied folders skipped")
+							}
+							if (Arr.some(plan.runs, (r) => r.kind === "resume")) {
+								k.note("a partial folder resumed")
+								if (Arr.some(plan.runs, (r) => r.kind === "start")) {
+									k.note("a folder started after a resumed one")
+								}
+							}
+						})
+				)
+			)
+	)
 })

@@ -1,9 +1,8 @@
 import { inspect } from "node:util"
 import { NodeServices } from "@effect/platform-node"
 import { describe, it, layer } from "@effect/vitest"
-import { assertNone } from "@effect/vitest/utils"
-import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { type Case, drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -27,143 +26,58 @@ import {
 	FileSystem,
 	Formatter,
 	Option,
-	Order,
-	pipe,
 	String as Str
 } from "effect"
-import { readMeta } from "#adapter/boundary/meta.ts"
-import { readSnapshot } from "#adapter/boundary/snapshot.ts"
+import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import { type CommandLine, type GenerateMode, parseArgs } from "#cli/args.ts"
 import { formatTimestamp, nextTimestamp, parseTimestamp } from "#cli/clock.ts"
-import type { ArgumentsRefused, MigrationNameRefused } from "#cli/errors.ts"
-import { identifierOf } from "#compiler/core/identity.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
+import type { ResolvedConfig } from "#cli/config.ts"
+import type { ArgumentsRefused, CliError, MigrationNameRefused } from "#cli/errors.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import {
 	type FolderNaming,
-	fileNameMaxBytes,
-	isFolderName,
 	type MigrationName,
-	maxMigrationNameLength,
-	metaFileName
+	maxMigrationNameLength
 } from "#compiler/deploy/render/folder.ts"
-import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
-import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { closedId, uuid } from "#compiler/public/fields.ts"
-import { closed, login, relation, role, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
-import { loginDescOf } from "#compiler/schema/world.ts"
+import { login, role } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
-import { ledger, shop } from "#test/pg/cli/fixture.ts"
+import { shop, type ShopWorkload } from "#test/pg/cli/fixture.ts"
 import {
 	bin,
-	cli,
-	cliClock,
-	cliOver,
 	configName,
 	offlineOwner,
 	offlinePassword,
 	resolvedConfig,
-	unconnected,
 	workspace,
-	writeConfig,
 	writeConfigText
 } from "#test/pg/cli/support.ts"
-import {
-	assert,
-	contains,
-	containsText,
-	defined,
-	lacksText,
-	refusedAt,
-	succeeded
-} from "#test/support/assert.ts"
-import { compileTestWorkload, firstCodes, testCompile } from "#test/support/compile.ts"
+import { assert, defined, lacksText, refusedAt, succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
-import { atDeclaredName } from "#test/support/kernel/naming.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import {
-	compile,
-	fromEmpty,
-	generate,
-	noDeclarations,
-	parsedMigrationName,
-	unowned
-} from "#test/support/migrate/kit.ts"
-import { validationFile } from "#test/support/migrate/review.ts"
-import { owning } from "#test/support/policy.ts"
-
-/** The clock the in-process command lines of this file read. */
-const nextNow = cliClock()
+import { noDeclarations, parsedMigrationName } from "#test/support/migrate/kit.ts"
 
 /**
- * The `grizzle` command line without a database: argument parsing, folder timestamps, the lean configuration file, and
- * `generate` writing the migrations directory.
+ * The `grizzle` command line without a database: argument parsing, folder timestamps and the lean configuration file.
+ * What its commands write is the project suite's (project.test.ts).
  *
  * - The grammar, generated: every line of it (the commands generate, check, migrate, drift and names, each over the
  *   configuration file its one argument names, and generate's flags --name, a folder's name, --custom, which needs
  *   --name, and --schema, in any order and as `--flag value` or `--flag=value`) is read as exactly what it says; one
  *   fault injected into a line, a --name of no folder name's shape among them, is a usage error naming that fault;
  *   --help or -h anywhere prints the usage.
- * - Folder names are `<YYYYMMDDHHMMSS>_<name>` in UTC and always sort after the schema's existing folders.
- * - The configuration is always defineConfig({ schemas, logins, migrations, connection }), every setting required; a
- *   plain object is refused with the fix, and anything malformed before any command runs: among them a login over a
- *   schema it does not list and a login named as a role of its schema. Its connection is checked only by migrate and
- *   drift; connection.test.ts generates its refusals.
- * - generate writes exactly what the pure generator drafts, byte for byte, in `migrations/<schema>/`, named by --name
- *   or after its change; a schema that did not change drafts nothing and prints `no changes`; a folder drafted in the
- *   same second sorts after the last; --custom writes an empty folder of the committed snapshot.
- * - A draft continues the committed chain, and nothing is written for any schema when one schema fails; every
- *   tampering with the committed directory is generated in tamper.test.ts. Hidden entries are ignored.
+ * - Folder timestamps, generated against day arithmetic of the proleptic Gregorian calendar: a timestamp is the UTC second as fourteen digits,
+ *   read back as the second it names and as nothing when its digits name none; a new folder's is the current second or
+ *   one second after the schema's newest folder, whichever is later, its digits counted on as a number when they name
+ *   no second.
+ * - The configuration, generated: defineConfig({ schemas, logins, migrations, connection }) over one to three
+ *   schemas and any of their logins resolves to exactly its schemas, each with its PostgreSQL schema, its directory and
+ *   its logins, the migrations directory against the configuration file's, and the connection kept unread; one fault
+ *   planted into it is refused at stage config by its own reason, and no refusal names the password.
+ * - The bin's loading of the configuration file, exhausted: a command naming no file is a usage error; a file that is
+ *   missing, throws, exports nothing by default or exports what defineConfig did not build is refused, writing
+ *   nothing; a valid one runs.
  */
-const at = (y: number, mo: number, d: number, h: number, mi: number, s: number) =>
-	DateTime.makeUnsafe({
-		year: y,
-		month: mo,
-		day: d,
-		hour: h,
-		minute: mi,
-		second: s,
-		millisecond: 0
-	})
-
-/** The entries of `dir` in name order, none when it does not exist. */
-const ls = (dir: string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		return (yield* fs.exists(dir))
-			? yield* Effect.map(fs.readDirectory(dir), (entries) => Arr.sort(entries, Order.String))
-			: []
-	})
-
-/** The text of the file at `path`. */
-const read = (path: string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		return yield* fs.readFileString(path)
-	})
-
-/** Writes `text` to the file at `path`. */
-const write = (path: string, text: string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		yield* fs.writeFileString(path, text)
-	})
-
-/** The path of `parts` joined by slashes. */
-const join = (...parts: Array<string>): string => Arr.join(parts, "/")
-
-/** The installation identifier of the shop fixture's schema declared `name`, as the naming door spells it. */
-const shopIdent = (name: string): string =>
-	owning(shop(name, 1, "none").schema).installation.identifier
-
-/** The migrations directory of the shop fixture's schema declared `name`, below a workspace. */
-const shopDirectory = (name: string): string => join("migrations", shopIdent(name))
-
 /** The commands that take no flag. */
 type PlainCommand = "check" | "migrate" | "drift" | "names"
 
@@ -617,711 +531,793 @@ describe("the command line, generated", () => {
 	)
 })
 
-describe("folder timestamps", () => {
-	it("are the UTC second as fourteen digits", () => {
-		assert.equal(formatTimestamp(at(2026, 10, 12, 9, 5, 7)), "20261012090507")
-		assert.deepEqual(
-			Option.map(parseTimestamp("20261012090507"), DateTime.toEpochMillis),
-			Option.some(DateTime.toEpochMillis(at(2026, 10, 12, 9, 5, 7)))
-		)
-		assertNone(parseTimestamp("20261332090507"))
-		assertNone(parseTimestamp("2026101209050"))
-	})
+/** A UTC second by its fields, as the calendar writes it. */
+interface Second {
+	readonly year: number
+	readonly month: number
+	readonly day: number
+	readonly hour: number
+	readonly minute: number
+	readonly second: number
+}
 
-	it("sort after every existing folder of the schema, whatever the clock says", () => {
-		const now = at(2026, 10, 12, 9, 5, 7)
-		assert.equal(nextTimestamp(now, []), "20261012090507")
-		assert.equal(nextTimestamp(now, ["20261012090506"]), "20261012090507")
-		assert.equal(nextTimestamp(now, ["20261012090507"]), "20261012090508")
-		assert.equal(nextTimestamp(now, ["20250101000000", "20261231235959"]), "20270101000000")
-		assert.equal(nextTimestamp(now, ["20269999999999"]), "20270000000000")
+/** Whether `year` is a leap year of the Gregorian calendar. */
+const leap = (year: number): boolean => (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+
+/** The days of each month of a common year. */
+const monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const
+
+/** The days of `month` in `year`. */
+const daysIn = (year: number, month: number): number =>
+	month === 2 && leap(year) ? 29 : defined(monthDays[month - 1], "a month of the year")
+
+const secondsPerDay = 86_400
+
+/** The days from 1970-01-01 to a date, by day arithmetic over the Gregorian calendar's 400-year eras. */
+const daysOf = (year: number, month: number, day: number): number => {
+	const y = month <= 2 ? year - 1 : year
+	const era = Math.floor(y / 400)
+	const yearOfEra = y - era * 400
+	const dayOfYear = Math.floor((153 * (month > 2 ? month - 3 : month + 9) + 2) / 5) + day - 1
+	const dayOfEra =
+		yearOfEra * 365 + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100) + dayOfYear
+	return era * 146_097 + dayOfEra - 719_468
+}
+
+/** A field drawn among its edges more often than its middle. */
+const edged = (lo: number, hi: number, edges: Arr.NonEmptyReadonlyArray<number>): Gen<number> =>
+	weighted([
+		[1, element(edges)],
+		[2, int(lo, hi)]
+	])
+
+/** A UTC second, its calendar's edges drawn often: year ends, month ends, leap days, centuries, 1970 and 9999. */
+const secondGen: Gen<Second> = (source) => {
+	const year = source.draw(edged(1970, 9999, [1970, 2000, 2024, 2026, 2100, 9999]))
+	const month = source.draw(edged(1, 12, [1, 2, 12]))
+	const last = daysIn(year, month)
+	return {
+		year,
+		month,
+		day: source.draw(edged(1, last, [1, last])),
+		hour: source.draw(edged(0, 23, [0, 23])),
+		minute: source.draw(edged(0, 59, [0, 59])),
+		second: source.draw(edged(0, 59, [0, 59]))
+	}
+}
+
+/** The epoch milliseconds of a second. */
+const millisOf = (s: Second): number =>
+	(daysOf(s.year, s.month, s.day) * secondsPerDay + s.hour * 3600 + s.minute * 60 + s.second) * 1000
+
+/** The fields of the second at `millis`, by day arithmetic over the Gregorian calendar's 400-year eras. */
+const secondAt = (millis: number): Second => {
+	const seconds = Math.floor(millis / 1000)
+	const days = Math.floor(seconds / secondsPerDay)
+	const time = seconds - days * secondsPerDay
+	const shifted = days + 719_468
+	const era = Math.floor(shifted / 146_097)
+	const dayOfEra = shifted - era * 146_097
+	const yearOfEra = Math.floor(
+		(dayOfEra -
+			Math.floor(dayOfEra / 1460) +
+			Math.floor(dayOfEra / 36_524) -
+			Math.floor(dayOfEra / 146_096)) /
+			365
+	)
+	const dayOfYear =
+		dayOfEra - (365 * yearOfEra + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100))
+	const shiftedMonth = Math.floor((5 * dayOfYear + 2) / 153)
+	const month = shiftedMonth < 10 ? shiftedMonth + 3 : shiftedMonth - 9
+	return {
+		year: yearOfEra + era * 400 + (month <= 2 ? 1 : 0),
+		month,
+		day: dayOfYear - Math.floor((153 * shiftedMonth + 2) / 5) + 1,
+		hour: Math.floor(time / 3600),
+		minute: Math.floor((time % 3600) / 60),
+		second: time % 60
+	}
+}
+
+const padded = (n: number, width: number): string => Str.padStart(width, "0")(String(n))
+
+/** The oracle's timestamp of a second: its fields' digits, the year in four or more. */
+const digitsOf = (s: Second): string =>
+	`${padded(s.year, 4)}${padded(s.month, 2)}${padded(s.day, 2)}${padded(s.hour, 2)}${padded(s.minute, 2)}${padded(s.second, 2)}`
+
+/** The oracle's reading of fourteen digits: the second they name, with a year of four digits, or none. */
+const secondOfDigits = (text: string): Option.Option<number> => {
+	const digits = Arr.every(Str.split(text, ""), (c) => c >= "0" && c <= "9")
+	if (text.length !== 14 || !digits || Str.startsWith("0")(text)) {
+		return Option.none()
+	}
+	const field = (from: number, width: number) => Number(Str.slice(from, from + width)(text))
+	const s: Second = {
+		year: field(0, 4),
+		month: field(4, 2),
+		day: field(6, 2),
+		hour: field(8, 2),
+		minute: field(10, 2),
+		second: field(12, 2)
+	}
+	const millis = millisOf(s)
+	return digitsOf(secondAt(millis)) === text ? Option.some(millis) : Option.none()
+}
+
+/** Fourteen digits that name no second: a month, day, hour, minute or second out of range, or a leading zero. */
+const nonsenseGen: Gen<string> = element([
+	"20261301120000",
+	"20261032120000",
+	"20260229120000",
+	"20261012240000",
+	"20261012126000",
+	"20261012120060",
+	"20269999999999",
+	"09991231235959",
+	"99999999999999"
+])
+
+/** The digits of the second at `millis`, or of `fallback` past year 9999, which no folder's fourteen digits name. */
+const fourteenAt = (millis: number, fallback: number): string => {
+	const s = secondAt(millis)
+	return digitsOf(s.year > 9999 ? secondAt(fallback) : s)
+}
+
+/** A folder's timestamp around the clock's: before it, at it, after it, a year's last second after it, or nonsense. */
+const existingGen = (now: number): Gen<string> =>
+	weighted([
+		[3, map(int(-3, 3), (offset) => fourteenAt(now + offset * 1000, now))],
+		[
+			1,
+			map(int(0, 2), (ahead) =>
+				digitsOf({
+					year: Math.min(secondAt(now).year + ahead, 9999),
+					month: 12,
+					day: 31,
+					hour: 23,
+					minute: 59,
+					second: 59
+				})
+			)
+		],
+		[1, nonsenseGen]
+	])
+
+interface Stamping {
+	readonly now: Second
+	readonly existing: ReadonlyArray<string>
+}
+
+const stampingGen: Gen<Stamping> = (source) => {
+	const now = source.draw(secondGen)
+	return { now, existing: source.draw(array(existingGen(millisOf(now)), { min: 0, max: 3 })) }
+}
+
+type StampFeature =
+	| "no folder"
+	| "the clock past the newest folder"
+	| "the clock at the newest folder's second"
+	| "the clock behind the newest folder"
+	| "a newest folder naming no second"
+	| "a day rolled over"
+	| "a year rolled over"
+	| "a timestamp past year 9999"
+	| "February 29"
+
+/** What a new folder's timestamp is by the oracle: the current second, or the second after the newest folder's. */
+const nextOf = (s: Stamping, c: Case<StampFeature>): string => {
+	const current = digitsOf(s.now)
+	const newest = Arr.reduce(s.existing, Option.none<string>(), (best, e) =>
+		Option.isSome(best) && best.value >= e ? best : Option.some(e)
+	)
+	if (Option.isNone(newest)) {
+		c.note("no folder")
+		return current
+	}
+	if (current > newest.value) {
+		c.note("the clock past the newest folder")
+		return current
+	}
+	c.note(
+		current === newest.value
+			? "the clock at the newest folder's second"
+			: "the clock behind the newest folder"
+	)
+	return Option.match(secondOfDigits(newest.value), {
+		onNone: () => {
+			c.note("a newest folder naming no second")
+			return Str.padStart(14, "0")(String(BigInt(newest.value) + 1n))
+		},
+		onSome: (millis) => {
+			const next = secondAt(millis + 1000)
+			const was = secondAt(millis)
+			if (next.day !== was.day) {
+				c.note("a day rolled over")
+			}
+			if (next.year !== was.year) {
+				c.note("a year rolled over")
+			}
+			if (next.year > 9999) {
+				c.note("a timestamp past year 9999")
+			}
+			return digitsOf(next)
+		}
 	})
+}
+
+describe("folder timestamps, generated", () => {
+	it.effect(
+		"are the UTC second as fourteen digits, read back as the second they name, and a new folder's sorts after every folder of its schema",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/cli/timestamps",
+						draw: drawn(stampingGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "second-implementation",
+							name: "day arithmetic of the Gregorian calendar, and the documented rule: the current second or one past the newest folder's"
+						},
+						coverage: required<StampFeature>(
+							[
+								"no folder",
+								"the clock past the newest folder",
+								"the clock at the newest folder's second",
+								"the clock behind the newest folder",
+								"a newest folder naming no second",
+								"a day rolled over",
+								"a year rolled over",
+								"a timestamp past year 9999",
+								"February 29"
+							],
+							{ cases: 600, sense: notesOnly }
+						),
+						kept: [],
+						runs: 400,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(s, c) =>
+						Effect.sync(() => {
+							const millis = millisOf(s.now)
+							const now = DateTime.makeUnsafe(millis)
+							if (s.now.month === 2 && s.now.day === 29) {
+								c.note("February 29")
+							}
+							const digits = digitsOf(s.now)
+							assert.equal(formatTimestamp(now), digits, "the UTC second's digits")
+							for (const text of [digits, ...s.existing]) {
+								assert.deepEqual(
+									Option.map(parseTimestamp(text), DateTime.toEpochMillis),
+									secondOfDigits(text),
+									`${text} reads as the second it names, or none`
+								)
+							}
+							assert.equal(nextTimestamp(now, s.existing), nextOf(s, c), Formatter.format(s))
+						})
+				)
+			)
+	)
 })
 
+/** The declared schemas a configuration draws from, each the shop fixture under its own name. */
+const schemaNames = ["CfgA", "CfgB", "CfgC"] as const
+type SchemaName = (typeof schemaNames)[number]
+
+/** One configured schema: the shop under a name, at a version, its login owning a workload. */
+interface SchemaEntry {
+	readonly name: SchemaName
+	readonly version: 1 | 2
+	readonly workload: ShopWorkload
+}
+
+/** How the migrations directory is given: relative to the configuration file's directory, or absolute. */
+type MigrationsForm = "db" | "./db/mig" | "nested/dir/" | "../up" | "absolute"
+
+/** What a configuration's value is that no configuration is. */
+type Nonobject = "undefined" | "a list" | "a text" | "a number"
+
+/** One fault planted into a configuration, by where it stands. */
+type ConfigFault =
+	| { readonly kind: "none" }
+	| { readonly kind: "not an object"; readonly value: Nonobject }
+	| { readonly kind: "a plain object" }
+	| { readonly kind: "an unknown setting"; readonly setting: "poolSize" | "migration" | "schema" }
+	| {
+			readonly kind: "a setting left out"
+			readonly setting: "schemas" | "logins" | "migrations" | "connection"
+	  }
+	| { readonly kind: "an empty migrations path" }
+	| { readonly kind: "no schema" }
+	| {
+			readonly kind: "a schema entry no schema value"
+			readonly at: number
+			readonly entry: "a relation" | "an object" | "a login"
+	  }
+	| { readonly kind: "a schema at a second version"; readonly of: number }
+	| { readonly kind: "a login over an unlisted schema"; readonly at: number }
+	| { readonly kind: "a login over another version"; readonly of: number; readonly at: number }
+	| { readonly kind: "a login named as a role"; readonly of: number }
+	| { readonly kind: "a login listed twice"; readonly of: number }
+	| { readonly kind: "a login entry no login value"; readonly at: number }
+
+type ConfigFaultKind = ConfigFault["kind"]
+
+interface ConfigSketch {
+	readonly schemas: ReadonlyArray<SchemaEntry>
+	/** The schemas whose login is listed, by index, in the order listed. */
+	readonly logins: ReadonlyArray<number>
+	readonly migrations: MigrationsForm
+	/** Whether the connection's port is out of range, which only migrate and drift read. */
+	readonly broken: boolean
+	readonly fault: ConfigFault
+}
+
+const entryGen: Gen<Omit<SchemaEntry, "name">> = (source) => ({
+	version: source.draw(element<1 | 2>([1, 2])),
+	workload: source.draw(element<ShopWorkload>(["full", "withoutByName", "none"]))
+})
+
+/** The faults that apply to a configuration of `schemas` schemas whose listed logins are `logins`. */
+const configFaultGen = (schemas: number, logins: ReadonlyArray<number>): Gen<ConfigFault> => {
+	const schemaAt = int(0, schemas - 1)
+	const loginAt = int(0, logins.length)
+	return weighted<ConfigFault>([
+		[6, constant({ kind: "none" })],
+		[
+			1,
+			map(element<Nonobject>(["undefined", "a list", "a text", "a number"]), (value) => ({
+				kind: "not an object",
+				value
+			}))
+		],
+		[1, constant({ kind: "a plain object" })],
+		[
+			1,
+			map(element(["poolSize", "migration", "schema"] as const), (setting) => ({
+				kind: "an unknown setting",
+				setting
+			}))
+		],
+		[
+			1,
+			map(element(["schemas", "logins", "migrations", "connection"] as const), (setting) => ({
+				kind: "a setting left out",
+				setting
+			}))
+		],
+		[1, constant({ kind: "an empty migrations path" })],
+		[1, constant({ kind: "no schema" })],
+		[
+			1,
+			(source) => ({
+				kind: "a schema entry no schema value",
+				at: source.draw(int(0, schemas)),
+				entry: source.draw(element(["a relation", "an object", "a login"] as const))
+			})
+		],
+		[1, map(schemaAt, (of) => ({ kind: "a schema at a second version", of }))],
+		[1, map(loginAt, (at) => ({ kind: "a login over an unlisted schema", at }))],
+		[
+			1,
+			(source) => ({
+				kind: "a login over another version",
+				of: source.draw(schemaAt),
+				at: source.draw(loginAt)
+			})
+		],
+		[1, map(schemaAt, (of) => ({ kind: "a login named as a role", of }))],
+		[1, map(schemaAt, (of) => ({ kind: "a login listed twice", of }))],
+		[1, map(loginAt, (at) => ({ kind: "a login entry no login value", at }))]
+	])
+}
+
+const sketchGen: Gen<ConfigSketch> = (source) => {
+	const names = source.draw(shuffled(schemaNames, { min: 1, max: schemaNames.length }))
+	const schemas = Arr.map(names, (name) => ({ name, ...source.draw(entryGen) }))
+	const logins = source.draw(
+		shuffled(Arr.range(0, schemas.length - 1), { min: 0, max: schemas.length })
+	)
+	return {
+		schemas,
+		logins,
+		migrations: source.draw(
+			element<MigrationsForm>(["db", "./db/mig", "nested/dir/", "../up", "absolute"])
+		),
+		broken: source.draw(boolean),
+		fault: source.draw(configFaultGen(schemas.length, logins))
+	}
+}
+
+/** The configuration file every case names, in a directory of the repository. */
+const configFile = `${repoRoot}app/grizzle.config.ts`
+
+/** The migrations directory a form names, from the configuration file's directory. */
+const migrationsOf = (
+	form: MigrationsForm
+): { readonly given: string; readonly resolved: string } => {
+	switch (form) {
+		case "db":
+			return { given: "db", resolved: `${repoRoot}app/db` }
+		case "./db/mig":
+			return { given: "./db/mig", resolved: `${repoRoot}app/db/mig` }
+		case "nested/dir/":
+			return { given: "nested/dir/", resolved: `${repoRoot}app/nested/dir` }
+		case "../up":
+			return { given: "../up", resolved: `${repoRoot}up` }
+		case "absolute":
+			return { given: `${repoRoot}elsewhere/db`, resolved: `${repoRoot}elsewhere/db` }
+	}
+}
+
+/** The schema and login values of a configured schema. */
+const built = (e: SchemaEntry) => shop(e.name, e.version, e.workload)
+
+/** `entry` inserted into `entries` at `at`, as a list a configuration file could hold. */
+const inserted = (
+	entries: ReadonlyArray<unknown>,
+	at: number,
+	entry: unknown
+): ReadonlyArray<unknown> => [...Arr.take(entries, at), entry, ...Arr.drop(entries, at)]
+
+/**
+ * A configuration's value as a sketch builds it, through defineConfig, its fault planted as JavaScript would plant it
+ * past defineConfig's type: a key set, deleted or replaced on the value it typed, or a value it never typed.
+ */
+const valueOf = (
+	s: ConfigSketch
+): { readonly value: unknown; readonly connection: MigrationConnectionConfig } => {
+	const values = Arr.map(s.schemas, built)
+	const at = (i: number) => defined(values[i], "a configured schema")
+	const connection: MigrationConnectionConfig = s.broken
+		? { ...offlineOwner, transport: { ...offlineOwner.transport, port: 70000 } }
+		: offlineOwner
+	const schemas = Arr.map(values, (v) => v.schema)
+	const logins = Arr.map(s.logins, (i) => at(i).server)
+	const config = defineConfig({
+		schemas: [at(0).schema, ...Arr.drop(schemas, 1)],
+		logins,
+		migrations: migrationsOf(s.migrations).given,
+		connection
+	})
+	const listed = (of: number): ReadonlyArray<unknown> =>
+		Arr.contains(s.logins, of) ? logins : [...logins, at(of).server]
+	const f = s.fault
+	switch (f.kind) {
+		case "none":
+			return { value: config, connection }
+		case "not an object":
+			return {
+				value: { undefined, "a list": [], "a text": "grizzle", "a number": 3 }[f.value],
+				connection
+			}
+		case "a plain object":
+			return { value: { ...config }, connection }
+		case "an unknown setting":
+			Reflect.set(config, f.setting, "db")
+			return { value: config, connection }
+		case "a setting left out":
+			Reflect.deleteProperty(config, f.setting)
+			return { value: config, connection }
+		case "an empty migrations path":
+			Reflect.set(config, "migrations", "")
+			return { value: config, connection }
+		case "no schema":
+			Reflect.set(config, "schemas", [])
+			return { value: config, connection }
+		case "a schema entry no schema value": {
+			const entry = { "a relation": at(0).Customer, "an object": {}, "a login": at(0).server }[
+				f.entry
+			]
+			Reflect.set(config, "schemas", inserted(schemas, f.at, entry))
+			return { value: config, connection }
+		}
+		case "a schema at a second version": {
+			const e = defined(s.schemas[f.of], "the schema at two versions")
+			Reflect.set(config, "schemas", [
+				...schemas,
+				built({ ...e, version: e.version === 1 ? 2 : 1 }).schema
+			])
+			return { value: config, connection }
+		}
+		case "a login over an unlisted schema":
+			Reflect.set(config, "logins", inserted(logins, f.at, shop("CfgZ", 1, "none").server))
+			return { value: config, connection }
+		case "a login over another version": {
+			const e = defined(s.schemas[f.of], "the schema of another version")
+			const other = built({ ...e, version: e.version === 1 ? 2 : 1 }).server
+			Reflect.set(config, "logins", inserted(logins, f.at, other))
+			return { value: config, connection }
+		}
+		case "a login named as a role": {
+			const v = at(f.of)
+			const named = login(v.schema, "Reader", [role(v.schema, "auditor", v.schema.relations)])
+			Reflect.set(config, "logins", [...listed(f.of), named])
+			return { value: config, connection }
+		}
+		case "a login listed twice":
+			Reflect.set(config, "logins", [...listed(f.of), at(f.of).server])
+			return { value: config, connection }
+		case "a login entry no login value":
+			Reflect.set(config, "logins", inserted(logins, f.at, at(0).reader))
+			return { value: config, connection }
+	}
+}
+
+/** Where a planted fault's login stands in the configuration's logins: the last, after its own schema's login. */
+const appendedAt = (s: ConfigSketch, of: number): number =>
+	s.logins.length + (Arr.contains(s.logins, of) ? 0 : 1)
+
+/** The refusal a planted fault must meet: its reason's tag, and the fault and index the reason names. */
+interface Expected {
+	readonly tag: CliError["reason"]["_tag"]
+	readonly fault: string
+	readonly index: number | undefined
+}
+
+const expectedOf = (
+	s: ConfigSketch,
+	f: Exclude<ConfigFault, { readonly kind: "none" }>
+): Expected => {
+	switch (f.kind) {
+		case "not an object":
+			return { tag: "ExportRefused", fault: "notAnObject", index: undefined }
+		case "a plain object":
+			return { tag: "ExportRefused", fault: "notDefined", index: undefined }
+		case "an unknown setting":
+			return { tag: "SettingRefused", fault: "unknown", index: undefined }
+		case "a setting left out":
+			return {
+				tag: "SettingRefused",
+				fault: f.setting === "connection" ? "unconnected" : "malformed",
+				index: undefined
+			}
+		case "an empty migrations path":
+		case "no schema":
+			return { tag: "SettingRefused", fault: "malformed", index: undefined }
+		case "a schema entry no schema value":
+			return { tag: "SchemaEntryRefused", fault: "notBuilt", index: f.at }
+		case "a schema at a second version":
+			return { tag: "SchemaEntryRefused", fault: "shared", index: s.schemas.length }
+		case "a login over an unlisted schema":
+			return { tag: "LoginEntryRefused", fault: "unlisted", index: f.at }
+		case "a login over another version":
+			return { tag: "LoginEntryRefused", fault: "otherVersion", index: f.at }
+		case "a login named as a role":
+		case "a login listed twice":
+			return { tag: "LoginEntryRefused", fault: "nameTaken", index: appendedAt(s, f.of) }
+		case "a login entry no login value":
+			return { tag: "LoginEntryRefused", fault: "notBuilt", index: f.at }
+	}
+}
+
+/** What a refusal's reason names: its tag, its fault's kind and the entry's index, where it names them. */
+const namedBy = (e: CliError): Expected => {
+	const reason = e.reason
+	if (reason._tag === "ExportRefused") {
+		return { tag: reason._tag, fault: reason.fault, index: undefined }
+	}
+	if (reason._tag === "SettingRefused") {
+		return { tag: reason._tag, fault: reason.fault.kind, index: undefined }
+	}
+	if (reason._tag === "SchemaEntryRefused" || reason._tag === "LoginEntryRefused") {
+		return { tag: reason._tag, fault: reason.fault.kind, index: reason.index }
+	}
+	return { tag: reason._tag, fault: "", index: undefined }
+}
+
+/** A resolved schema as the model states it: its declared name, PostgreSQL schema, directory and logins' indices. */
+const resolvedSchemas = (c: ResolvedConfig) =>
+	Arr.map(c.schemas, (x) => ({
+		index: x.index,
+		declared: x.declared,
+		ident: x.ident,
+		directory: x.directory,
+		logins: Arr.map(x.logins, (l) => l.index)
+	}))
+
+const modelSchemas = (s: ConfigSketch) => {
+	const migrations = migrationsOf(s.migrations).resolved
+	return Arr.map(s.schemas, (e, index) => {
+		const ident = identifierOf(identity.schema(parsedSchemaName(e.name)))
+		return {
+			index,
+			declared: e.name,
+			ident,
+			directory: `${migrations}/${ident}`,
+			logins: Arr.flatMap(s.logins, (listed, j) => (listed === index ? [j] : []))
+		}
+	})
+}
+
+type ConfigFeature =
+	| ConfigFaultKind
+	| "three schemas"
+	| "a schema with no login listed"
+	| "a broken connection kept"
+
+const configFaultKinds = [
+	"not an object",
+	"a plain object",
+	"an unknown setting",
+	"a setting left out",
+	"an empty migrations path",
+	"no schema",
+	"a schema entry no schema value",
+	"a schema at a second version",
+	"a login over an unlisted schema",
+	"a login over another version",
+	"a login named as a role",
+	"a login listed twice",
+	"a login entry no login value"
+] as const satisfies ReadonlyArray<ConfigFaultKind>
+
 layer(NodeServices.layer, { excludeTestServices: true })(
-	"the configuration file, the lean config",
+	"the configuration file, generated",
 	(it) => {
-		const s = shop("CfgShop", 1, "full")
-		const other = shop("CfgOther", 1, "none")
-		const file = `${repoRoot}app/grizzle.config.ts`
-
 		it.effect(
-			"resolves schemas, their logins' workloads and the migrations directory, and keeps the connection unread",
-			() =>
-				Effect.gen(function* () {
-					const config = yield* resolvedConfig(
-						defineConfig({
-							schemas: [s.schema, other.schema],
-							logins: [s.server, other.server],
-							migrations: "db",
-							connection: offlineOwner
-						}),
-						file
-					)
-					const c = succeeded(config)
-					assert.equal(c.migrations, `${repoRoot}app/db`)
-					const o = owning(s.schema)
-					const p = owning(other.schema)
-					assert.deepEqual(
-						Arr.map(c.schemas, (x) => [
-							x.declared,
-							x.ident,
-							x.directory,
-							Arr.some(x.logins, (l) => l.login.workload.length > 0)
-						]),
-						[
-							[
-								o.name,
-								identifierOf(o.installation),
-								`${repoRoot}app/db/${identifierOf(o.installation)}`,
-								true
-							],
-							[
-								p.name,
-								identifierOf(p.installation),
-								`${repoRoot}app/db/${identifierOf(p.installation)}`,
-								false
-							]
-						]
-					)
-					assert.ok(c.connection === offlineOwner, "the connection kept as given")
-					const absolute = yield* resolvedConfig(
-						defineConfig({
-							schemas: [s.schema],
-							logins: [],
-							migrations: `${repoRoot}elsewhere/db`,
-							connection: offlineOwner
-						}),
-						file
-					)
-					assert.equal(succeeded(absolute).migrations, `${repoRoot}elsewhere/db`)
-					/** A connection is kept as given: only migrate and drift check it, so generate and check run with a broken one. */
-					const broken = {
-						...offlineOwner,
-						transport: { ...offlineOwner.transport, port: 70000 }
-					}
-					const resolvedBroken = yield* resolvedConfig(
-						defineConfig({
-							schemas: [s.schema],
-							logins: [],
-							migrations: "db",
-							connection: broken
-						}),
-						file
-					)
-					assert.ok(
-						succeeded(resolvedBroken).connection === broken,
-						"the broken connection kept as given"
-					)
-				})
-		)
-
-		it.effect(
-			"refuses a plain object with the fix, a setting missing, and anything that is not a configuration, never naming a credential",
+			"resolves to exactly its schemas, logins and migrations directory, its connection unread, and refuses one planted fault by its own reason, never naming the password",
 			(ctx) =>
-				Effect.gen(function* () {
-					const config = yield* resolvedConfig(
-						{ schemas: [s.schema], logins: [], migrations: "db", connection: offlineOwner },
-						file
-					)
-					refusedAt(config, "stage", "config")
-					/** Refused at the configuration, no credential in its message or anywhere in the error. */
-					const named = (value: unknown) =>
-						Effect.map(resolvedConfig(value, file), (r) => {
-							const refusal = refusedAt(r, "stage", "config")
-							lacksText(`${refusal.message}\n${inspect(refusal, { depth: 12 })}`, offlinePassword)
-						})
-					const configured = (value: Parameters<typeof defineConfig>[0]) =>
-						named(defineConfig(value))
-					const requiredSettings = { migrations: "db", connection: offlineOwner } as const
-					yield* named(undefined)
-					/** A key the type does not know, given through a variable, as JavaScript would. */
-					const extra = {
-						schemas: [s.schema] as const,
-						logins: [],
-						...requiredSettings,
-						poolSize: 4
-					}
-					yield* named(defineConfig(extra))
-					/** The required settings left out, each alone, as JavaScript would: defineConfig typed the value whole. */
-					const leftOut = ["migrations", "connection"] as const satisfies ReadonlyArray<
-						keyof Parameters<typeof defineConfig>[0]
-					>
-					yield* searched(
-						ctx,
-						exhaust(
-							{
-								suite: "unit/cli/config-setting-left-out",
-								generator: element(leftOut),
-								literal: Formatter.format,
-								limit: leftOut.length,
-								coverage: noCoverage,
-								caseHang
+				searched(
+					ctx,
+					explore(
+						{
+							suite: "unit/cli/configuration",
+							draw: drawn(sketchGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "specification",
+								name: "the configuration's documented settings, resolved by hand, and the refusal each planted fault names"
 							},
-							(setting) => {
-								const lacking = defineConfig({
-									schemas: [s.schema],
-									logins: [],
-									...requiredSettings
-								})
-								Reflect.deleteProperty(lacking, setting)
-								return named(lacking)
-							}
-						)
+							coverage: required<ConfigFeature>(
+								[
+									...configFaultKinds,
+									"three schemas",
+									"a schema with no login listed",
+									"a broken connection kept"
+								],
+								{ cases: 400, sense: notesOnly }
+							),
+							kept: [],
+							runs: 200,
+							shrink: completeShrink,
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						(s, c) =>
+							Effect.gen(function* () {
+								const { value, connection } = valueOf(s)
+								const resolved = yield* resolvedConfig(value, configFile)
+								const f = s.fault
+								if (f.kind === "none") {
+									const config = succeeded(resolved)
+									assert.equal(config.migrations, migrationsOf(s.migrations).resolved)
+									assert.deepEqual(resolvedSchemas(config), modelSchemas(s))
+									assert.ok(config.connection === connection, "the connection kept as given")
+									c.noteAll([
+										...(s.schemas.length === 3 ? (["three schemas"] as const) : []),
+										...(s.logins.length < s.schemas.length
+											? (["a schema with no login listed"] as const)
+											: []),
+										...(s.broken ? (["a broken connection kept"] as const) : [])
+									])
+									return
+								}
+								c.note(f.kind)
+								const refusal = refusedAt(resolved, "stage", "config")
+								assert.deepEqual(namedBy(refusal), expectedOf(s, f))
+								lacksText(
+									`${refusal.message}\n${inspect(refusal, { depth: 12 })}`,
+									offlinePassword,
+									"no refusal names the password"
+								)
+							})
 					)
-					yield* configured({
-						schemas: [s.schema],
-						logins: [],
-						...requiredSettings,
-						migrations: ""
-					})
-					yield* configured({
-						schemas: [s.schema, shop("CfgShop", 2, "full").schema],
-						logins: [],
-						...requiredSettings
-					})
-					yield* configured({ schemas: [s.schema], logins: [other.server], ...requiredSettings })
-					/** A login named alike to a role of its schema: logins and roles of one schema have names that convert apart. */
-					const clashing = login(s.schema, "Reader", [
-						role(s.schema, "auditor", s.schema.relations)
-					])
-					yield* configured({
-						schemas: [s.schema],
-						logins: [s.server, clashing],
-						...requiredSettings
-					})
-				})
+				)
 		)
 	}
 )
 
 /**
- * The installation and draft the pure compiler gives for a schema and its login's workload, as generate composes them:
- * the shop's, or the ledger's, whose residual law and derived relation only the two installer extensions install. Its
- * login is the fixture's, as the configuration names it (test/pg/cli/support.ts configOf), which owns the workload.
+ * How the bin's loading of the configuration file a command line names fails, each with the exit status the bin ends
+ * with; a valid file's run through the bin is the network tier's (test/pg/cli/cli.test.ts).
  */
-const directDraft = (name: string, timestamp: string, fixture: "shop" | "ledger") => {
-	const built = fixture === "ledger" ? ledger(name) : shop(name, 1, "full")
-	const value = built.schema
-	const server = built.server
-	const plan = succeeded(
-		compileTestWorkload([{ login: server.name, workloads: server.workload }], value, testCompile)
-	)
-	const owned = owning(value)
-	const logins = [succeeded(ownLogin(defined(loginDescOf(server), "a login value")))]
-	const installation = succeeded(
-		compileInstallation(
-			owned,
-			completeInstallOptions(
-				owned,
-				owned.installation,
-				logins,
-				[workloadExtension(plan)],
-				firstCodebook(rostersOf(owned))
-			)
-		)
-	)
-	assert.deepEqual(installation.deferred, { derivedRelations: [] })
-	return succeeded(
-		generate({
-			installation,
-			name: "init",
-			timestamp,
-			workload: { access: plan.access, accessPaths: plan.requests },
-			previous: fromEmpty,
-			declared: noDeclarations
-		})
-	)
+type Loading =
+	| "no configuration file named"
+	| "a file that does not exist"
+	| "a file whose import throws"
+	| "a file with no default export"
+	| "a default export defineConfig did not build"
+	| "a default export defineConfig built malformed"
+
+const loadings = [
+	"no configuration file named",
+	"a file that does not exist",
+	"a file whose import throws",
+	"a file with no default export",
+	"a default export defineConfig did not build",
+	"a default export defineConfig built malformed"
+] as const satisfies ReadonlyArray<Loading>
+
+/** The exit status of each: a usage error, or a refusal. */
+const statusOf = (loading: Loading): 1 | 2 => {
+	switch (loading) {
+		case "no configuration file named":
+			return 2
+		case "a file that does not exist":
+		case "a file whose import throws":
+		case "a file with no default export":
+		case "a default export defineConfig did not build":
+		case "a default export defineConfig built malformed":
+			return 1
+	}
 }
 
-/** A schema whose closed relation carries a refined text payload: a slug. */
-const tierSchema = (name: string) => {
-	const Slug = str.regex("^[a-z][a-z0-9-]*$")
-	const Tier = closed("Tier", ["Free", "Pro"])
-	const TierLabel = closed.relation(
-		"TierLabel",
-		{ tier: closedId(Tier), label: Slug },
-		["tier"],
-		[
-			{ tier: "Free", label: "free" },
-			{ tier: "Pro", label: "pro-plan" }
-		]
-	)
-	const Article = relation("Article", { id: uuid, slug: Slug }, ["id"])
-	return schema(name, { Tier, TierLabel, Article }, [])
-}
+const defineImport = `import { defineConfig } from "@bjornpagen/grizzle"\n`
 
-layer(NodeServices.layer, { excludeTestServices: true })("grizzle generate", (it) => {
-	it.effect(
-		"writes exactly the generator's draft into migrations/<schema>/, then nothing when nothing changed",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("gen")
-				yield* writeConfig(ws, {
-					schemas: [{ name: "GenShop", fixture: "shop", version: 1, workload: "full" }],
-					connection: unconnected
-				})
-				const now = at(2026, 10, 12, 12, 0, 0)
-				const first = yield* cli(ws, ["generate", configName, "--name", "init"], now)
-				assert.equal(first.code, 0, first.stderr)
-				const expected = directDraft("GenShop", formatTimestamp(now), "shop")
-				const schemaDirectory = join(
-					"migrations",
-					owning(shop("GenShop", 1, "full").schema).installation.identifier
-				)
-				const dir = join(ws, schemaDirectory)
-				const dirEntries = yield* ls(dir)
-				assert.deepEqual(
-					dirEntries,
-					Arr.sort([expected.folder.name, snapshotFileName], Order.String)
-				)
-				const folder = join(dir, expected.folder.name)
-				const folderEntries = yield* ls(folder)
-				assert.deepEqual(
-					folderEntries,
-					Arr.sort([metaFileName, ...Arr.map(expected.folder.files, (f) => f.name)], Order.String)
-				)
-				const metaText = yield* read(join(folder, metaFileName))
-				assert.equal(metaText, expected.folder.metaText)
-				for (const f of expected.folder.files) {
-					const fileText = yield* read(join(folder, f.name))
-					assert.equal(fileText, f.text)
-				}
-				const snapshotText = yield* read(join(dir, snapshotFileName))
-				assert.equal(snapshotText, expected.snapshotText)
-
-				const again = yield* cli(ws, ["generate", configName], now)
-				assert.equal(again.code, 0, again.stderr)
-				const dirEntriesAfter = yield* ls(dir)
-				assert.deepEqual(
-					dirEntriesAfter,
-					Arr.sort([expected.folder.name, snapshotFileName], Order.String)
-				)
-				const snapshotTextAfter = yield* read(join(dir, snapshotFileName))
-				assert.equal(snapshotTextAfter, expected.snapshotText)
-			})
-	)
-
-	it.effect("names a folder after its change when no --name is given", () =>
-		Effect.gen(function* () {
-			const ws = yield* workspace("names")
-			const times = [
-				at(2026, 10, 12, 12, 0, 0),
-				at(2026, 10, 12, 12, 0, 1),
-				at(2026, 10, 12, 12, 0, 2),
-				at(2026, 10, 12, 12, 0, 3)
-			] as const
-			const [t0, t1, t2, t3] = times
-			yield* writeConfig(ws, {
-				schemas: [{ name: "NameShop", fixture: "shop", version: 1, workload: "full" }],
-				connection: unconnected
-			})
-			const first = yield* cli(ws, ["generate", configName], t0)
-			assert.equal(first.code, 0)
-			yield* writeConfig(ws, {
-				schemas: [{ name: "NameShop", fixture: "shop", version: 1, workload: "withoutByName" }],
-				connection: unconnected
-			})
-			const rewired = yield* cli(ws, ["generate", configName], t1)
-			assert.equal(rewired.code, 0)
-			yield* writeConfig(ws, {
-				schemas: [{ name: "NameShop", fixture: "shop", version: 2, workload: "withoutByName" }],
-				connection: unconnected
-			})
-			const widened = yield* cli(ws, ["generate", configName], t2)
-			assert.equal(widened.code, 0)
-			const custom = yield* cli(ws, ["generate", configName, "--custom", "--name", "backfill"], t3)
-			assert.equal(custom.code, 0)
-			const entries = yield* ls(join(ws, shopDirectory("NameShop")))
-			const folders = Arr.filter(entries, (n) => n !== snapshotFileName)
-			assert.equal(folders.length, times.length)
-			for (const [i, time] of times.entries()) {
-				const name = folders[i]
-				assert.ok(name !== undefined && isFolderName(name), Arr.join(folders, ", "))
-				assert.ok(pipe(name, Str.startsWith(formatTimestamp(time))), name)
-			}
-		})
-	)
-
-	it.effect("drafts a schema's residual laws and derived relations", () =>
-		Effect.gen(function* () {
-			const ws = yield* workspace("ledger")
-			yield* writeConfig(ws, {
-				schemas: [{ name: "GenLedger", fixture: "ledger" }],
-				connection: unconnected
-			})
-			const r = yield* cli(
+/** Writes the configuration file a loading names into `ws`, none where the file does not exist. */
+const loadingFile = (ws: string, loading: Loading) => {
+	switch (loading) {
+		case "no configuration file named":
+		case "a file that does not exist":
+			return Effect.void
+		case "a file whose import throws":
+			return writeConfigText(ws, `throw new Error("broken config")\n`)
+		case "a file with no default export":
+			return writeConfigText(ws, `${defineImport}export const config = defineConfig\n`)
+		case "a default export defineConfig did not build":
+			return writeConfigText(ws, `export default { schemas: [] }\n`)
+		case "a default export defineConfig built malformed":
+			return writeConfigText(
 				ws,
-				["generate", configName, "--name", "init"],
-				at(2026, 10, 12, 12, 0, 0)
+				`${defineImport}export default defineConfig({ schemas: [{ name: "Shop" }] })\n`
 			)
-			assert.equal(r.code, 0, r.stderr)
-			const expected = directDraft(
-				"GenLedger",
-				formatTimestamp(at(2026, 10, 12, 12, 0, 0)),
-				"ledger"
+	}
+}
+
+layer(NodeServices.layer, { excludeTestServices: true })("the bin's configuration file", (it) => {
+	it.effect(
+		"is named by the command line, loaded and checked before any command runs: every way loading fails is refused, writing nothing",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/cli/bin-loading",
+						generator: element(loadings),
+						literal: Formatter.format,
+						limit: loadings.length,
+						coverage: requiredInSpace<Loading>(loadings),
+						caseHang,
+						box: "every way the bin's loading of the configuration file fails: unnamed, missing, throwing, without a default export, not built by defineConfig, or built malformed",
+						oracle: {
+							kind: "specification",
+							name: "the exit statuses run.ts documents: 1 for a refusal, 2 for a usage error"
+						}
+					},
+					(loading, c) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								c.note(loading)
+								const ws = yield* workspace("loading")
+								yield* loadingFile(ws, loading)
+								const argv =
+									loading === "no configuration file named"
+										? ["generate"]
+										: ["generate", configName]
+								const ran = yield* bin(ws, argv, {})
+								assert.equal(ran.status, statusOf(loading), `${loading}: ${ran.stderr}`)
+								const fs = yield* FileSystem.FileSystem
+								const wrote = yield* fs.exists(`${ws}/migrations`)
+								assert.equal(wrote, false, "a refusal writes nothing")
+							})
+						)
+				)
 			)
-			const dir = join(ws, "migrations", expected.snapshot.schema)
-			const folder = join(dir, expected.folder.name)
-			const folderEntries = yield* ls(folder)
-			assert.deepEqual(
-				folderEntries,
-				Arr.sort([metaFileName, ...Arr.map(expected.folder.files, (f) => f.name)], Order.String)
-			)
-			for (const f of expected.folder.files) {
-				const fileText = yield* read(join(folder, f.name))
-				assert.equal(fileText, f.text)
-			}
-			const snapshotText = yield* read(join(dir, snapshotFileName))
-			assert.equal(snapshotText, expected.snapshotText)
-			/** The derived relation's view is drafted with the rest. */
-			const kinds = Arr.map(expected.snapshot.manifest.objects, (o) => o.kind)
-			contains(kinds, "materializedView")
-		})
-	)
-
-	it.effect(
-		"drafts the validation of a closed payload's refinement in Publish, the snapshot the schema alone determines",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("closed")
-				const r = yield* cliOver(
-					ws,
-					defineConfig({
-						schemas: [tierSchema("GenTier")],
-						logins: [],
-						migrations: "migrations",
-						connection: offlineOwner
-					}),
-					["generate", configName, "--name", "init"],
-					at(2026, 10, 12, 12, 0, 0)
-				)
-				assert.equal(r.code, 0, r.stderr)
-				const owned = owning(tierSchema("GenTier"))
-				const dir = join(ws, "migrations", owned.installation.identifier)
-				const folder = join(dir, "20261012120000_init")
-				const expected = succeeded(
-					generate({
-						installation: succeeded(compileInstallation(owned, installOptions(owned, undefined))),
-						name: "init",
-						timestamp: "20261012120000",
-						previous: fromEmpty,
-						workload: noWorkload,
-						declared: noDeclarations
-					})
-				)
-				const folderEntries = yield* ls(folder)
-				assert.deepEqual(
-					folderEntries,
-					Arr.sort([metaFileName, ...Arr.map(expected.folder.files, (f) => f.name)], Order.String)
-				)
-				for (const f of expected.folder.files) {
-					const fileText = yield* read(join(folder, f.name))
-					assert.equal(fileText, f.text)
-				}
-				assert.equal(
-					validationFile(expected).phase,
-					"publish",
-					"the draft validates the payload's refinement in Publish"
-				)
-				const snapshotText = yield* read(join(dir, "snapshot.json"))
-				const snapshot = succeeded(readSnapshot(snapshotText))
-				/** The first migration's target from the empty snapshot, drafted from the schema alone. */
-				const derived = succeeded(
-					generate({
-						installation: compile(tierSchema("GenTier"), {
-							schema: atDeclaredName,
-							owner: unowned,
-							extensions: [],
-							codes: firstCodes
-						}),
-						name: "admission",
-						timestamp: "20000101000000",
-						previous: fromEmpty,
-						workload: noWorkload,
-						declared: noDeclarations
-					})
-				)
-				assert.equal(derived.snapshot.fingerprint, snapshot.fingerprint)
-			})
-	)
-
-	it.effect(
-		"reports each marker with what to do, and a folder in the same second sorts after the last",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("marker")
-				yield* writeConfig(ws, {
-					schemas: [{ name: "MarkShop", fixture: "shop", version: 1, workload: "none" }],
-					connection: unconnected
-				})
-				const now = at(2026, 10, 12, 12, 0, 0)
-				const first = yield* cli(ws, ["generate", configName, "--name", "init"], now)
-				assert.equal(first.code, 0)
-				yield* writeConfig(ws, {
-					schemas: [{ name: "MarkShop", fixture: "shop", version: 2, workload: "none" }],
-					connection: unconnected
-				})
-				const tier = yield* cli(ws, ["generate", configName, "--name", "tier"], now)
-				assert.equal(tier.code, 0, tier.stderr)
-				const dir = join(ws, shopDirectory("MarkShop"))
-				const entries = yield* ls(dir)
-				const folders = Arr.filter(entries, (n) => n !== snapshotFileName)
-				const [init, second] = folders
-				assert.equal(folders.length, 2)
-				assert.ok(init !== undefined && second !== undefined, "two drafted folders")
-				assert.ok(isFolderName(init) && isFolderName(second), Arr.join(folders, ", "))
-				assert.ok(second > init, "the folder drafted in the same second sorts after the last")
-				const snapshotText = yield* read(join(dir, snapshotFileName))
-				const snapshot = succeeded(readSnapshot(snapshotText))
-				const metaText = yield* read(join(dir, second, metaFileName))
-				const meta = succeeded(readMeta(metaText))
-				assert.equal(meta.target, snapshot.fingerprint)
-				assert.equal(meta.kind, "drafted")
-			})
-	)
-
-	it.effect(
-		"--custom writes an empty folder of the committed snapshot and leaves snapshot.json alone",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("custom")
-				yield* writeConfig(ws, {
-					schemas: [{ name: "CustShop", fixture: "shop", version: 1, workload: "none" }],
-					connection: unconnected
-				})
-				const first = yield* cli(ws, ["generate", configName], at(2026, 10, 12, 12, 0, 1))
-				assert.equal(first.code, 0)
-				const dir = join(ws, shopDirectory("CustShop"))
-				const before = yield* read(join(dir, "snapshot.json"))
-				const custom = yield* cli(
-					ws,
-					["generate", configName, "--custom", "--name", "backfill"],
-					at(2026, 10, 12, 12, 0, 2)
-				)
-				assert.equal(custom.code, 0, custom.stderr)
-				const backfillEntries = yield* ls(join(dir, "20261012120002_backfill"))
-				assert.deepEqual(backfillEntries, [metaFileName])
-				const metaText = yield* read(join(dir, "20261012120002_backfill/meta.json"))
-				const meta = succeeded(readMeta(metaText))
-				const snapshot = succeeded(readSnapshot(before))
-				assert.deepEqual(
-					[meta.source, meta.target, meta.kind],
-					[snapshot.fingerprint, snapshot.fingerprint, "custom"]
-				)
-				const snapshotText = yield* read(join(dir, "snapshot.json"))
-				assert.equal(snapshotText, before)
-			})
-	)
-
-	it.effect(
-		"drafts every configured schema; --schema chooses one when there are several, and --custom needs it there",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("two")
-				yield* writeConfig(ws, {
-					schemas: [
-						{ name: "TwoA", fixture: "shop", version: 1, workload: "none" },
-						{ name: "TwoB", fixture: "shop", version: 1, workload: "none" }
-					],
-					connection: unconnected
-				})
-				const both = yield* cli(ws, ["generate", configName], nextNow())
-				assert.equal(both.code, 0, both.stderr)
-				const draftedA = yield* ls(join(ws, shopDirectory("TwoA")))
-				assert.equal(draftedA.length, 2)
-				const draftedB = yield* ls(join(ws, shopDirectory("TwoB")))
-				assert.equal(draftedB.length, 2)
-
-				const custom = yield* cli(
-					ws,
-					["generate", configName, "--custom", "--name", "data"],
-					nextNow()
-				)
-				assert.equal(custom.code, 2)
-				const unknown = yield* cli(ws, ["generate", configName, "--schema", "Nope"], nextNow())
-				assert.equal(unknown.code, 2)
-				const chosen = yield* cli(
-					ws,
-					["generate", configName, "--custom", "--schema", shopIdent("TwoB"), "--name", "data"],
-					nextNow()
-				)
-				assert.equal(chosen.code, 0, chosen.stderr)
-				const keptA = yield* ls(join(ws, shopDirectory("TwoA")))
-				assert.equal(keptA.length, 2)
-				const customB = yield* ls(join(ws, shopDirectory("TwoB")))
-				assert.equal(customB.length, 3)
-
-				yield* writeConfig(ws, {
-					schemas: [{ name: "TwoA", fixture: "shop", version: 1, workload: "none" }],
-					connection: unconnected
-				})
-				const single = yield* cli(
-					ws,
-					["generate", configName, "--schema", shopIdent("TwoA")],
-					nextNow()
-				)
-				assert.equal(single.code, 2)
-			})
-	)
-
-	it.effect(
-		"ignores hidden entries, an editor's or the system's, beside the migration folders",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("hidden")
-				yield* writeConfig(ws, {
-					schemas: [{ name: "HiddenShop", fixture: "shop", version: 1, workload: "none" }],
-					connection: unconnected
-				})
-				const first = yield* cli(ws, ["generate", configName], nextNow())
-				assert.equal(first.code, 0)
-				const dir = join(ws, shopDirectory("HiddenShop"))
-				yield* write(join(dir, ".DS_Store"), "")
-				yield* writeConfig(ws, {
-					schemas: [{ name: "HiddenShop", fixture: "shop", version: 2, workload: "none" }],
-					connection: unconnected
-				})
-				const beside = yield* cli(ws, ["generate", configName], nextNow())
-				assert.equal(beside.code, 0)
-			})
-	)
-
-	it.effect(
-		"drafts every schema before writing any: a refused schema leaves the others untouched",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("atomic")
-				yield* writeConfig(ws, {
-					schemas: [
-						{ name: "AtomA", fixture: "shop", version: 1, workload: "none" },
-						{ name: "AtomB", fixture: "shop", version: 1, workload: "none" }
-					],
-					connection: unconnected
-				})
-				const fs = yield* FileSystem.FileSystem
-				yield* fs.makeDirectory(join(ws, "migrations"))
-				yield* write(join(ws, shopDirectory("AtomB")), "not a directory\n")
-				const r = yield* cli(ws, ["generate", configName], nextNow())
-				assert.equal(r.code, 1)
-				const schemaFolders = yield* ls(join(ws, "migrations"))
-				assert.deepEqual(schemaFolders, [shopIdent("AtomB")])
-			})
-	)
-
-	it.effect(
-		"refuses another schema's snapshot, writing nothing; a role change needs no new snapshot",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("foreign")
-				yield* writeConfig(ws, {
-					schemas: [
-						{ name: "OwnA", fixture: "shop", version: 1, workload: "none" },
-						{ name: "OwnB", fixture: "shop", version: 1, workload: "none" }
-					],
-					connection: unconnected
-				})
-				const first = yield* cli(ws, ["generate", configName], nextNow())
-				assert.equal(first.code, 0)
-				const dirA = join(ws, shopDirectory("OwnA"))
-				const dirB = join(ws, shopDirectory("OwnB"))
-				const listing = Effect.all([ls(dirA), ls(dirB)])
-				const before = yield* listing
-				yield* writeConfig(ws, {
-					schemas: [
-						{ name: "OwnA", fixture: "shop", version: 2, workload: "none" },
-						{ name: "OwnB", fixture: "shop", version: 1, workload: "none" }
-					],
-					connection: unconnected
-				})
-				const ownSnapshot = yield* read(join(dirA, "snapshot.json"))
-				const snapshotB = yield* read(join(dirB, "snapshot.json"))
-				yield* write(join(dirA, "snapshot.json"), snapshotB)
-				const foreign = yield* cli(ws, ["generate", configName], nextNow())
-				assert.equal(foreign.code, 1)
-				const after = yield* listing
-				assert.deepEqual(after, before)
-				yield* write(join(dirA, "snapshot.json"), ownSnapshot)
-				const restored = yield* cli(ws, ["generate", configName], nextNow())
-				assert.equal(restored.code, 0)
-			})
-	)
-
-	it.effect(
-		"refuses a malformed name or configuration with the fix, never touching a connection, a refused connection before any check, and prints the usage",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("config")
-				const unnamed = yield* bin(ws, ["generate"], {})
-				assert.equal(unnamed.status, 2, "a command names its configuration file")
-				const missing = yield* bin(ws, ["generate", configName], {})
-				assert.equal(missing.status, 1, "a configuration file that does not exist")
-				const plain = yield* cliOver(ws, { schemas: [] }, ["check", configName], nextNow())
-				assert.equal(plain.code, 1)
-				const configured = (text: string) => writeConfigText(ws, text)
-				const define = `import { defineConfig } from "@bjornpagen/grizzle"\n`
-				yield* configured(`${define}export default defineConfig({ schemas: [] })\n`)
-				const empty = yield* bin(ws, ["migrate", configName], {})
-				assert.equal(empty.status, 1)
-				yield* configured(`${define}export default defineConfig({ schemas: [{ name: "Shop" }] })\n`)
-				const malformed = yield* bin(ws, ["generate", configName], {})
-				assert.equal(malformed.status, 1)
-				yield* configured(`throw new Error("broken config")\n`)
-				const broken = yield* bin(ws, ["generate", `./${configName}`], {})
-				assert.equal(broken.status, 1)
-
-				yield* writeConfig(ws, {
-					schemas: [{ name: "NameShop", fixture: "shop", version: 1, workload: "none" }],
-					connection: { ...unconnected, port: 70000 }
-				})
-				const generated = yield* cli(ws, ["generate", configName], nextNow())
-				assert.equal(generated.code, 0)
-				const checked = yield* cli(ws, ["check", configName], nextNow())
-				assert.equal(checked.code, 0)
-				yield* write(join(ws, shopDirectory("NameShop"), "stray.txt"), "")
-				const refused = yield* cli(ws, ["migrate", configName], nextNow())
-				assert.equal(refused.code, 1)
-				const refusal = refused.stderr
-				containsText(
-					refusal,
-					"refused at stage config: connection.transport.port",
-					"migrate refuses its connection first"
-				)
-				lacksText(refusal, "stray.txt", "before any check runs")
-
-				const bad = yield* cli(ws, ["generate", configName, "--name", "Add Tier"], nextNow())
-				assert.equal(bad.code, 2)
-				const help = yield* cli(ws, ["--help"], nextNow())
-				assert.equal(help.code, 0)
-				const unknown = yield* cli(ws, ["migrate", configName, "status"], nextNow())
-				assert.equal(unknown.code, 2)
-			})
-	)
-
-	it.effect(
-		"writes a folder whose name is the longest file name the file system takes, and refuses a name one byte longer",
-		() =>
-			Effect.gen(function* () {
-				const ws = yield* workspace("longest")
-				yield* writeConfig(ws, {
-					schemas: [{ name: "LongShop", fixture: "shop", version: 1, workload: "none" }],
-					connection: unconnected
-				})
-				const past = yield* cli(
-					ws,
-					["generate", configName, "--name", `${longestName}a`],
-					nextNow()
-				)
-				assert.equal(past.code, 2, past.stderr)
-				const fits = yield* cli(ws, ["generate", configName, "--name", longestName], nextNow())
-				assert.equal(fits.code, 0, fits.stderr)
-				const entries = yield* ls(join(ws, shopDirectory("LongShop")))
-				const folders = Arr.filter(entries, (n) => n !== snapshotFileName)
-				assert.deepEqual(
-					Arr.map(folders, (n) => [isFolderName(n), utf8Length(n)]),
-					[[true, fileNameMaxBytes.value]],
-					"one folder, named at the file name limit"
-				)
-			})
 	)
 })

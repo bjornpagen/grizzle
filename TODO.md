@@ -59,97 +59,13 @@ How the work runs:
 	- Planted bug: the rows form re-enabled for one relation.
 	- physical/ddl/constants.ts planClosed builds per-cell display names (a canonical encode per cell) that only the
 	  rows form's comments read, and DbLayer.make pays for them. They go with the rows form.
-- **Key text is bounded by bytes** (owner's ruling, relayed by the downstream session 2026-11-06; hard cutover, chosen
-  over digest keys). Lane K, goal 2.
-	- `Compute.octetLength(text)` lowers to `octet_length`, returns an integer, and stands in a contract's check as
-	  `charLength` does.
-	- textByteBound reads it as an exact byte bound: <=, <, =, between, in, their mirrors and conjunctions. With
-	  charLength too, the bound is the min of charLength × 4 and the octet bound.
-	- `UnrepresentableKey` names the byte bound it found.
-	- One public function in grizzle's terms gives the most bytes a text can hold beside given fields in one B-tree
-	  entry. No consumer re-spells PostgreSQL's page constants.
-	- Exact padding through a key's fixed-width prefix only if provably sound.
-	- Tests:
-		- the bound per predicate form, generated;
-		- on the cluster, an octet-bounded key at exactly N bytes inserts and N + 1 is refused by the domain CHECK;
-		- multibyte values at the boundary.
-	- Planted bugs: the octetLength reading dropped, and an off-by-one in the budget.
-	- Send the landing commit's full hash to the downstream session.
-- **A generic call re-instantiates the whole schema type.** Every generic call on a Rule, Query or ChangeSet walks S's
-  statement tuple, about 7 instantiations per statement, because S's object-literal field records hide that S has no
-  type variable. A query therefore costs time linear in the schema's statements, not in what it reads: the query
-  budget grows 3.77× per doubling of schema and programs together.
-	- Fix by representation: the schema type stops carrying the statement tuple as a type argument the checker walks.
-	  It keeps its statements by name, with literal relation names, and StatementsOf<S> rebuilds each one's full type.
-	- Owner's rule: no loss of public precision. `typeof S.statements` must stay as precise as it is. If no
-	  representation keeps it, record that and leave the tuple.
-	- Gate: the query budget's increment ratio under 3 in each dimension.
-- **Startup cost is a hard blocker:** lane PERF's cut is in the tree, and lane K's (one analysis per pattern) is coming.
-  At 150 relations with 20k + 200k closed rows, in CPU time:
-	- check 81.3 → 11.8 s;
-	- DbLayer.make 43.7 → 8.0 s;
-	- migrate before connecting 70.3 → 0.93 s, compiling nothing;
-	- workload() 12,980 → 30 ms.
-	- Each grows linearly at 2×.
-	- The guard is test/unit/startup/work.test.ts, exact call counts through test/support/kernel/calls.ts, and the bench
-	  is `pnpm bench compile`.
-	- Left: closed admission (next item), and planClosed's per-cell names (the hex item).
-- **A closed relation's cells are re-validated at every compile** (lane PERF, after lane K's ir/desc.ts edit is
-  committed): SchemaDesc's closedRelation arm is a plain RelationDesc, so analysis/schema.ts #closedInfo re-admits
-  every cell, a roster handle by a linear scan (cells × handles).
-	- Fix: every decoded SchemaDesc's closedRelation arm is an AdmittedClosedRelation, minted only by
-	  closed.relation() and one schema-level audit in decodeDesc. #closedInfo converts admitted rows without
-	  validating, own.ts #checkClosedRows goes, and the fixture builders mint through admission.
-- **A role lacks EXECUTE on functions a write reaches through a cast** (blocking every downstream write, proven on the
-  cluster, 2026-11-06).
-	- A role's insert fails with 42501 on a roster's `_live_` function: the roster's bits domain appears only as a
-	  cast inside a CHECK.
-	- physical/ddl/roles.ts roleExecutes gathers the calls of the column-typing domains, the written tables and the
-	  views, and context.ts callsOf collects only functionRef nodes, so a cast to a domain never pulls in that domain's
-	  CHECK.
-	- Fix: one reachability over the DDL graph through functions and domains (column domains; casts in CHECKs,
-	  generated columns and defaults; domain CHECKs and contract base chains; constant bodies), granting exactly that.
-	  USAGE is checked for the same hole.
-	- Test: generated schemas with roles and drawn write lists.
-		- Oracle 1: granted = reachable, computed independently.
-		- Oracle 2, on the cluster: each written table's first generated insert raises no 42501, and
-		  has_function_privilege agrees.
-	- Planted bug: the cast traversal dropped.
-- **Generate accepts what the first write refuses: the class** (blocking; owner's ruling 2026-11-06: deep fix, brutal
-  test). Every write refusal that depends on the schema alone is decided when the schema compiles. Known instances:
-	- the unfillable copy (below);
-	- a tree that owns an ordered family: write/family/nesting.ts nestingOf refuses the family met again through the
-	  tree's own recursion, though depth-first order is defined;
-	- a unique key over a generated field: write/frontend/compile.ts refuseGeneratedUnique refuses every addition, and
-	  generate accepts the schema.
-	- The class guard is lane W-fill's bidirectional property over a generator that includes all three shapes.
-- **A schema that generates but whose writes can never compile** (blocking, owner's ruling 2026-11-06: deep fix,
-  brutal test).
-	- The downstream schema passes generate, check and migrate, but every ChangeSet.insert of its role is refused:
-	  `UnsupportedOperation … BranchResolution.instanceEnd copies Instance's end along the owner axis of
-	  Instance.rules, a column its owner fills only after its members` (write/family/fold.ts `unfillable`).
-	- The member is a counted family over a tree's owner, copying the owner's `end`, a leaving column, through a
-	  containment.
-	- Fix: the law model refuses an unfillable copy when the schema compiles, a named refusal on the field and the law,
-	  so generate and check never accept a schema no write compiles. README "How a field is written" states the rule.
-	- Test:
-		- a schema generator over relations, trees, counted and ordered families, folds, and containments copying
-		  entering columns, leaving columns and fold ends along owner and predecessor axes;
-		- swarm weights per run, and each shape exhausted to a small scope;
-		- oracle: generate accepts ⇔ every write program of every login compiles, and on the cluster a generated
-		  instance's first insert succeeds.
-	- Planted bug: the compile-time check removed.
-- **Census items from the downstream session** (2026-11-06), still open:
-	- the containment UNIQUE escaping the entry bound (lane K, goal 3);
-	- README states the str.regex grammar (no lookaround, no \p), and that a generated NOT NULL column's 23502 fails
-	  the write as ExecutionFailure naming no law.
-- **A query ending in `orderBy(...).take(k)` is delivered in that order, root or attached** (decided here, one rule).
-  The attached case is done (StageOrder `delivered`). A root query ending in a take is still delivered as a set, while
-  README :138 pairs it with Drizzle's ordered `.orderBy(...).limit(10)`. Make the root follow the same rule, with a
-  generated differential arm and the planted bug of the root dropping the order.
-- **Bare statement-timeout guards in tests** remain in test/pg/oracle/optimized/support.ts, page/generated.ts,
-  payroll, recursion/graph and text/differential. No verdict rests on the clock (doctrine 6), and the case hang guard
-  stops a hung case, so delete them, as test/support/oracle/runner.ts's was.
+- **Changing an owner's column that a family's derived value reads through a copy** (a fold step, a predecessor or last
+  copy, a copy of a copy) fails at execution: the cascade updates the copy, but the per-row CHECK or NO ACTION key fires
+  before the derived value is refilled. Lane W-fill: a typed refusal when the ChangeSet compiles, only where the
+  ChangeSet changes such a column, plus a pg follow-up (owner puts and edits with appends, judged by the reference
+  writer) and the span-keyed owner put.
+- **README limits the downstream census found:** the str.regex grammar (no lookaround, no \p), and that a generated
+  NOT NULL column's 23502 fails the write as ExecutionFailure naming no law.
 - **To settle on 5433 at the gate** (W-gg's investigations):
 	- recursion/oracle/fixed-length's 57014: the hypothesis is a Gather on the inner side of a nested loop over the
 	  recursive term, under the perturbation's hash and merge joins off, relaunching workers per work-table row. Replay
@@ -178,10 +94,6 @@ What stays:
 - **3.2 Inventory** (main, 2026-11-06). Each test case was traced through the helpers it calls. Of 1,463 cases, 357 run
   no search, in 135 files. Hand case tables also run inside searches in 16 more files. Wave 2's lanes, at most four at
   a time, each own their files' conversion:
-	- **W-worlds** (W-write's remainder): in the worlds model (test/support/worlds), entries over a mutable relation
-	  with a span key and over a pure set, every law family meeting an entry write, drawn read-back versions
-	  classified against a host restatement, every law family's refusal raised by a partial role, and an owner keyed
-	  WITHOUT OVERLAPS put in place (the write commands machine can't parse spans yet).
 	- **W-adapter:**
 		- test/unit/adapter/** (reader 7, refresh 7, migrate 6, witness 5, transactions 3, bind, boundary);
 		- admission/target;
@@ -268,6 +180,9 @@ What stays:
 - **Versions** go to 1.0.0-beta.1 in packages/engine and packages/grizzle.
 - **CHANGELOG:** Unreleased becomes 1.0.0-beta.1 with its date and keeps its upgrade guide. It gains entries for #9 and
   for the empty-language refusal.
+- **CONTRIBUTING's oracle paragraphs** name the new suites: the worlds rules suite and leak-scan property, the fill-order
+  generator, the type/engine agreement populations, the startup call-count guard and `pnpm bench compile`, and the
+  test-case lint rule.
 - **README and SKILL.md match the release:**
 	- the pinned PostgreSQL and its patches;
 	- the limits the README doesn't state yet: a pattern whose language is empty is refused, a family's
@@ -311,6 +226,11 @@ What stays:
 - **A counted family member that is also a sequence member, a tree or a sequence owner:** README promised it, but the
   writer never supported it. From the beta on, the schema compile refuses it (UnwritableRelation countedAndSequence).
   Writing it means one fill order that interleaves the counted edit and the sequence walk.
+- **A sequence member copying the fold end of a sibling sequence of the same owner** is refused at compile
+  (UnfillableField). Writing it needs per-family stages in the walk.
+- **Refill a family when its owner's copied column changes,** so a ChangeSet that changes it writes rather than being
+  refused. This needs that axis's foreign key deferred (law-model planning). The same reading of ancestor keys would
+  let `CascadedCopyAppend` write instead of refusing.
 - **Typed terms:** a CheckedExpr brand with per-level constructors, at about 40 builder sites.
 - **Performance:**
 	- A guarded float form costs a SubPlan per row (lower/conservative/expr/total.ts bindOperands). Bind the operands

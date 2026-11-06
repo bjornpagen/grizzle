@@ -1,8 +1,12 @@
 /**
  * The law of erasure's templates (fin.md §17), proved against PostgreSQL 19rc1: the migration's pack, the table CHECK a
  * closed law is, over its digit columns, the roster domains that keep each digit in range, function application with absence as
- * NULL, a domain re-pointed at a new constant and VALIDATEd, the RESTRICT drop of the old constant, the typcache across
- * a swap, and the refusals that make a cell STORED. Every template is the RFC's, written by hand.
+ * NULL, a domain re-pointed at a new constant and VALIDATEd, the RESTRICT drop of the old constant, and every write
+ * after a domain's constraint changes judged by the new one, in a session that checked it before. Every template is the
+ * RFC's, written by hand. That PostgreSQL refuses a VIRTUAL generation where a cell is STORED is the installation's
+ * concern, which every closed law's suite installs; that a constant replaced in place stays folded in a session that
+ * read it is why erasure never replaces one, which test/pg/closed/codes.test.ts holds of grizzle's own migrations (a
+ * session open across a migration answers as a fresh one).
  *
  * Oracles, per proof:
  * - the pack: a second implementation, the host encoder (packages/engine/src/ir/cells.ts constantOf, and bitText, the
@@ -12,8 +16,8 @@
  *   a live code of its roster and the tuple is in the set, and a model of the template's own int8 arithmetic for the
  *   control table of bare int2 digits, which shows the alias the roster domains refuse;
  * - function application: the host reader (packages/engine/src/codec/bits.ts cell) over the host encoder's string;
- * - re-pointing, RESTRICT and the typcache: a model of the migration, which says which rows VALIDATE refuses, which
- *   dependents a drop names, and which codes a writer's session admits after the swap.
+ * - re-pointing, RESTRICT and the cached check: a model of the migration, which says which rows VALIDATE refuses,
+ *   which dependents a drop names, and which codes a writer's session admits after the swap or a first constraint.
  *
  * The boxes are stated where each proof draws them (doctrine rules 9, 10): every relation over a key space of at most
  * four cells and a payload space of at most four codes; every digit of three rosters of two or three codes, one below
@@ -38,10 +42,7 @@ import {
 import { assert, containsText, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
-import type { SqlError } from "#test/support/pg.ts"
 import { qualified, refusalOf, refusalText, tuple } from "#test/support/substrate.ts"
-import { expectSqlstate } from "#test/support/substrate/expect.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A product layout, the one these templates are written for: each key coordinate's and payload coordinate's codes. */
@@ -403,49 +404,34 @@ const restrictGen: Gen<RestrictCase> = (source) => {
 
 type RestrictFeature = "dropped" | `refused naming a missed ${Dependent}`
 
-/** An IMMUTABLE constant function of `bits`, created anew, or replaced in place as erasure never does. */
-const constantSql = (fn: string, bits: string, how: "create" | "replace"): string =>
-	`CREATE ${how === "replace" ? "OR REPLACE " : ""}FUNCTION ${fn}() RETURNS bit varying LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN B'${bits}'::bit varying`
+/** An IMMUTABLE constant function of `bits`, created anew: erasure never replaces one in place. */
+const constantSql = (fn: string, bits: string): string =>
+	`CREATE FUNCTION ${fn}() RETURNS bit varying LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN B'${bits}'::bit varying`
 
 /** A roster domain's check: VALUE is a live code of the constant `fn` returns. */
 const liveCheckSql = (fn: string): string =>
 	`CHECK ((substring(${fn}() FROM VALUE + 1 FOR 1) = B'1') IS TRUE)`
 
-/** Whether a session's insert of one code into a one-column table is admitted. */
-const admitsCode = (
-	session: RawSession,
-	table: string,
-	code: number
-): Effect.Effect<boolean, SqlError> =>
-	Effect.map(
-		refusalOf(session.query(`INSERT INTO ${table} (x) VALUES (${code})`, [])),
-		Option.isNone
-	)
+/** The constants of the cached-check box: the live codes before a swap and after it. */
+const BEFORE = "110"
+const AFTER = "1001"
 
-type GenerationFeature = "a domain-typed column" | "a user-defined function" | "a foreign key"
-
-/** The generated columns a VIRTUAL generation refuses and a STORED one admits: what makes a generated field STORED. */
-interface Generation {
-	readonly name: GenerationFeature
-	readonly columns: (name: (n: string) => string, kind: "VIRTUAL" | "STORED") => string
+/**
+ * A case of the cached-check box: a domain-typed column, written directly or as a STORED generation of a plain one; a
+ * writer that already wrote through the domain before its constraint changed, or a session opened after; the change,
+ * the domain's constraint swapped for a new constant's or a first constraint added; and the code written after it.
+ */
+interface CachedCheckCase {
+	readonly column: "plain" | "generated"
+	readonly session: "warm" | "fresh"
+	readonly change: "swapped" | "added"
+	readonly code: 0 | 1 | 3
 }
 
-const GENERATIONS: Arr.NonEmptyReadonlyArray<Generation> = [
-	{
-		name: "a domain-typed column",
-		columns: (name, kind) => `x int8, y ${name("cell")} GENERATED ALWAYS AS (x) ${kind}`
-	},
-	{
-		name: "a user-defined function",
-		columns: (name, kind) =>
-			`x int4, y int4 GENERATED ALWAYS AS (substring(${name("k")}() FROM x FOR 1)::int4) ${kind}`
-	},
-	{
-		name: "a foreign key",
-		columns: (name, kind) =>
-			`x int8, y int8 GENERATED ALWAYS AS (x) ${kind} REFERENCES ${name("target")} (y)`
-	}
-]
+type CachedCheckFeature =
+	| `${CachedCheckCase["column"]}, ${CachedCheckCase["session"]}, ${CachedCheckCase["change"]}`
+	| "admitted"
+	| "refused"
 
 layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on PostgreSQL 19rc1", (it) => {
 	it.effect(
@@ -563,10 +549,7 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 						ROSTER_NAMES,
 						(roster) =>
 							Effect.andThen(
-								s.admin.query(
-									constantSql(name(`${roster}_live`), rosterBits(ROSTERS[roster]), "create"),
-									[]
-								),
+								s.admin.query(constantSql(name(`${roster}_live`), rosterBits(ROSTERS[roster])), []),
 								s.admin.query(
 									`CREATE DOMAIN ${name(roster)} AS int2 CONSTRAINT ${roster}_live ${liveCheckSql(name(`${roster}_live`))}`,
 									[]
@@ -973,122 +956,92 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 	)
 
 	it.effect(
-		"see a new constant behind a swapped domain constraint in a session that already checked the domain",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema(freshSchema)
-				const name = (n: string) => qualified(schema, n)
-				const writer = yield* s.session({ ...ownerSession(), label: "writer" })
-				yield* s.admin.query(constantSql(name("v1"), "110", "create"), [])
-				yield* s.admin.query(
-					`CREATE DOMAIN ${name("swapped")} AS int2 CONSTRAINT v1 ${liveCheckSql(name("v1"))}`,
-					[]
-				)
-				yield* s.admin.query(
-					`CREATE TABLE ${name("plain")} (x ${name("swapped")} NOT NULL, y ${name("swapped")} GENERATED ALWAYS AS (x) STORED)`,
-					[]
-				)
-				const beforeSwap = yield* admitsCode(writer, name("plain"), 1)
-				assert.ok(beforeSwap, "code 1 is live before the swap")
-				yield* s.admin.query(constantSql(name("v2"), "1001", "create"), [])
-				yield* s.admin.query(`ALTER DOMAIN ${name("swapped")} DROP CONSTRAINT v1`, [])
-				yield* s.admin.query(
-					`ALTER DOMAIN ${name("swapped")} ADD CONSTRAINT v2 ${liveCheckSql(name("v2"))} NOT VALID`,
-					[]
-				)
-				const removed = yield* expectSqlstate(
-					writer.query(`INSERT INTO ${name("plain")} (x) VALUES (1)`, []),
-					"23514"
-				)
-				assert.ok(Option.isSome(removed.dataType), "the refusal is the domain's")
-				const appended = yield* admitsCode(writer, name("plain"), 3)
-				assert.ok(appended, "the appended code 3 is admitted after the swap")
-			})
-	)
-
-	it.effect(
-		"enforce a constraint added to a domain on a generated column a session wrote while the domain had none",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema(freshSchema)
-				const name = (n: string) => qualified(schema, n)
-				const writer = yield* s.session({ ...ownerSession(), label: "writer" })
-				yield* s.admin.query(`CREATE DOMAIN ${name("late")} AS int2`, [])
-				yield* s.admin.query(
-					`CREATE TABLE ${name("generated")} (x int2 NOT NULL, y ${name("late")} GENERATED ALWAYS AS (x) STORED)`,
-					[]
-				)
-				const unconstrained = yield* admitsCode(writer, name("generated"), 5)
-				assert.ok(unconstrained, "a domain with no constraint admits every value")
-				yield* s.admin.query(
-					`ALTER DOMAIN ${name("late")} ADD CONSTRAINT small CHECK (VALUE < 3) NOT VALID`,
-					[]
-				)
-				yield* expectSqlstate(
-					writer.query(`INSERT INTO ${name("generated")} (x) VALUES (5)`, []),
-					"23514"
-				)
-			})
-	)
-
-	it.effect(
-		"keep the constant a session folded into a domain when its function is replaced in place, which a new session does not, so a constant is never replaced",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema(freshSchema)
-				const name = (n: string) => qualified(schema, n)
-				const writer = yield* s.session({ ...ownerSession(), label: "writer" })
-				yield* s.admin.query(constantSql(name("v3"), "11", "create"), [])
-				yield* s.admin.query(
-					`CREATE DOMAIN ${name("replaced")} AS int2 CONSTRAINT v3 ${liveCheckSql(name("v3"))}`,
-					[]
-				)
-				yield* s.admin.query(`CREATE TABLE ${name("stale")} (x ${name("replaced")} NOT NULL)`, [])
-				const beforeReplace = yield* admitsCode(writer, name("stale"), 1)
-				assert.ok(beforeReplace, "code 1 is live before the replacement")
-				yield* s.admin.query(constantSql(name("v3"), "10", "replace"), [])
-				const fresh = yield* s.session({ ...ownerSession(), label: "fresh" })
-				const freshAdmits = yield* admitsCode(fresh, name("stale"), 1)
-				assert.ok(!freshAdmits, "a new session reads the replaced constant")
-				const stale = yield* admitsCode(writer, name("stale"), 1)
-				assert.ok(stale, "the session that folded the old constant still admits code 1")
-			})
-	)
-
-	it.effect(
-		"refuse a VIRTUAL generated column of a domain type, one calling a user-defined function, and a foreign key on one, each of which STORED admits",
+		"judge every write after a domain's constraint changes by the new constraint, a plain or a STORED generated column, in a session that already checked the domain or a new one",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const schema = yield* s.schema(freshSchema)
-					const name = (n: string) => qualified(schema, n)
-					yield* s.admin.query(`CREATE DOMAIN ${name("cell")} AS int8 CHECK (VALUE >= 0)`, [])
-					yield* s.admin.query(constantSql(name("k"), "1", "create"), [])
-					yield* s.admin.query(`CREATE TABLE ${name("target")} (y int8 PRIMARY KEY)`, [])
 					return yield* exhaust(
 						{
-							suite: "substrate/cells-virtual",
-							generator: element<Generation>(GENERATIONS),
-							literal: (g) => g.name,
-							limit: GENERATIONS.length,
-							coverage: requiredInSpace<GenerationFeature>(Arr.map(GENERATIONS, (g) => g.name)),
+							suite: "substrate/cells-cached-check",
+							generator: (source): CachedCheckCase => ({
+								column: source.draw(element(["plain", "generated"] as const)),
+								session: source.draw(element(["warm", "fresh"] as const)),
+								change: source.draw(element(["swapped", "added"] as const)),
+								code: source.draw(element([0, 1, 3] as const))
+							}),
+							literal: Formatter.format,
+							limit: 2 * 2 * 2 * 3,
+							coverage: requiredInSpace<CachedCheckFeature>([
+								"plain, warm, swapped",
+								"plain, warm, added",
+								"plain, fresh, swapped",
+								"plain, fresh, added",
+								"generated, warm, swapped",
+								"generated, warm, added",
+								"generated, fresh, swapped",
+								"generated, fresh, added",
+								"admitted",
+								"refused"
+							]),
+							box: "every column kind, session, change and a code live before, after, or in both",
+							oracle: {
+								kind: "specification",
+								name: "a write after the change is admitted exactly when the new constant holds its code live"
+							},
 							caseHang
 						},
-						(g, c) =>
-							Effect.gen(function* () {
-								yield* expectSqlstate(
-									s.admin.query(`CREATE TABLE ${name("v")} (${g.columns(name, "VIRTUAL")})`, []),
-									"0A000"
-								)
-								yield* s.admin.query(`CREATE TABLE ${name("v")} (${g.columns(name, "STORED")})`, [])
-								yield* s.admin.query(`DROP TABLE ${name("v")}`, [])
-								c.note(g.name)
-							})
+						(c, k) =>
+							Effect.scoped(
+								Effect.gen(function* () {
+									const schema = yield* s.schema(freshSchema)
+									const name = (n: string) => qualified(schema, n)
+									yield* s.admin.query(constantSql(name("before"), BEFORE), [])
+									yield* s.admin.query(
+										c.change === "swapped"
+											? `CREATE DOMAIN ${name("code")} AS int2 CONSTRAINT before ${liveCheckSql(name("before"))}`
+											: `CREATE DOMAIN ${name("code")} AS int2`,
+										[]
+									)
+									const target = name("t")
+									yield* s.admin.query(
+										c.column === "plain"
+											? `CREATE TABLE ${target} (x ${name("code")} NOT NULL)`
+											: `CREATE TABLE ${target} (x int2 NOT NULL, y ${name("code")} GENERATED ALWAYS AS (x) STORED)`,
+										[]
+									)
+									const insert = (code: number) => `INSERT INTO ${target} (x) VALUES (${code})`
+									const warm = yield* s.session({ ...ownerSession(), label: "warm" })
+									yield* warm.query(insert(0), [])
+									yield* s.admin.query(constantSql(name("after"), AFTER), [])
+									if (c.change === "swapped") {
+										yield* s.admin.query(`ALTER DOMAIN ${name("code")} DROP CONSTRAINT before`, [])
+									}
+									yield* s.admin.query(
+										`ALTER DOMAIN ${name("code")} ADD CONSTRAINT after ${liveCheckSql(name("after"))} NOT VALID`,
+										[]
+									)
+									const writer =
+										c.session === "warm"
+											? warm
+											: yield* s.session({ ...ownerSession(), label: "fresh" })
+									const refused = yield* refusalOf(writer.query(insert(c.code), []))
+									const admits = AFTER[c.code] === "1"
+									k.note(`${c.column}, ${c.session}, ${c.change}`)
+									k.note(admits ? "admitted" : "refused")
+									if (Option.isNone(refused) !== admits) {
+										return yield* new Disagreed({
+											message: `${Formatter.format(c)}: code ${c.code} is ${Option.match(refused, { onNone: () => "admitted", onSome: refusalText })} after the change`
+										})
+									}
+									for (const fields of Option.toArray(refused)) {
+										assert.equal(fields.code, "23514")
+										assert.ok(Option.isSome(fields.dataType), "the refusal is the domain's")
+									}
+									yield* writer.resetStatements
+								})
+							)
 					)
 				})
 			)

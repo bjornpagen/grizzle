@@ -14,12 +14,27 @@ import {
 	String as Str
 } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import {
+	compileInstallation,
+	type Installation,
+	installOptions
+} from "#compiler/physical/install/compile.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { probeTextDomains } from "#test/pg/physical/checks.ts"
-import { fixtureWorlds, worldsGrants } from "#test/pg/physical/support.ts"
-import { assert } from "#test/support/assert.ts"
-import { type ProjectedCatalog, projectCatalog } from "#test/support/catalog/expected.ts"
+import {
+	type FixtureWorlds,
+	fixtureWorlds,
+	worldsExpectation,
+	worldsGrants
+} from "#test/pg/physical/support.ts"
+import { assert, defined } from "#test/support/assert.ts"
+import {
+	expectedCatalog,
+	type ProjectedCatalog,
+	projectCatalog
+} from "#test/support/catalog/expected.ts"
 import { type Catalog, readCatalog } from "#test/support/catalog/read.ts"
+import { verifyErasure } from "#test/support/catalog/verify.ts"
 import { installationSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -73,6 +88,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * - the real installer adds the refusal function its write statements raise through (packages/engine/src/write/refusal.ts),
  *   which the oracle's installer predates, and an advance function per serial field (physical/ddl/advance.ts), each
  *   executable by the writer alone.
+ *
+ * Beside the comparison, the real installation's catalog holds what its own manifest promises (installedAsPromised):
+ * its projection equals the manifest's, the erasure shape holds for its worlds, and the column, domain, constraint,
+ * index, roster, grant and default-privilege rules hold.
  *
  * What a case reached of the differences the comparison allows, and of the extended types it compares.
  */
@@ -138,6 +157,7 @@ const installedCatalog = <A>(
 			}
 			const probed = yield* probes
 			return {
+				catalog: installed.catalog,
 				projected: projectCatalog(installed.catalog),
 				checks: checksOf(installed.catalog),
 				probed
@@ -145,6 +165,136 @@ const installedCatalog = <A>(
 		}),
 		Effect.orDie(pinned.query("ROLLBACK", []))
 	)
+
+/** The identity sequence of the installed column `column` of the installed table `table`, as `<schema>.<sequence>`. */
+const sequenceOf = (installation: Installation, table: string, column: string): string => {
+	for (const r of Rec.values(installation.owned.relations)) {
+		if (r.kind !== "relation" || r.ident !== table) {
+			continue
+		}
+		const field = Arr.findFirst(Rec.values(r.fields), (f) => f.column === column)
+		if (Option.isSome(field)) {
+			const s = installation.names.sequence(r.name, field.value.name)
+			return `${s.schema}.${s.name}`
+		}
+	}
+	throw new Error(`no owned field is installed as ${table}.${column}`)
+}
+
+/**
+ * The real installation's catalog holds what its manifest promises, the worlds included: every column NOT NULL but a
+ * law column generated under a guard, NULL outside its selection; text columns and those of a domain with a collation
+ * in pg_c_utf8; each identity over its named sequence; domains with no NOT NULL and every constraint validated, every
+ * index valid; no enum label, a closed id being a code under its roster's int2 domain, whose one CHECK calls its names
+ * constant; no grant to PUBLIC; and the owner's default privileges on functions and types reset for every schema, the
+ * global form, which PUBLIC's own defaults yield to (test/pg/sql/print.test.ts), so nothing the owner creates later is
+ * PUBLIC's. The erasure verifier finds no UPDATE on an immutable relation and no TRUNCATE
+ * (test/pg/physical/verify.test.ts shows it finds each drift).
+ */
+const installedAsPromised = (
+	desc: SchemaDesc,
+	worlds: FixtureWorlds,
+	installation: Installation,
+	catalog: Catalog
+): void => {
+	assert.deepEqual(projectCatalog(catalog), expectedCatalog(installation))
+	assert.deepEqual(verifyErasure(catalog, worldsExpectation(desc, installation, worlds)), [])
+	/** The law columns generated under a guard, each NULL outside its selection (ir/law.ts LawColumnValue), by their
+	 * installed table and column: every other column is NOT NULL. */
+	const guarded = new Set(
+		Arr.flatMap(installation.laws.natives, (n) =>
+			n.object.kind === "LawColumn" &&
+			n.object.value.kind === "generated" &&
+			n.object.value.guard.length > 0
+				? [`${installation.names.relation(n.object.relation.name).name}.${n.object.column}`]
+				: []
+		)
+	)
+	for (const t of catalog.tables) {
+		for (const c of t.columns) {
+			const nullable = guarded.has(`${t.name}.${c.name}`)
+			assert.equal(
+				c.notNull,
+				!nullable,
+				nullable
+					? `${t.name}.${c.name}, a guarded law column, is NULL outside its selection`
+					: `${t.name}.${c.name} is NOT NULL`
+			)
+			if (
+				c.type.name === "text" ||
+				Arr.some(catalog.domains, (d) => d.name === c.type.name && Option.isSome(d.collation))
+			) {
+				assert.deepEqual(c.collation, Option.some("pg_catalog.pg_c_utf8"), `${t.name}.${c.name}`)
+			}
+			if (c.generation.kind === "identity") {
+				assert.equal(c.generation.sequence, sequenceOf(installation, t.name, c.name))
+			}
+		}
+		for (const k of t.constraints) {
+			assert.equal(k.validated, true, `${t.name}.${k.name} is validated`)
+		}
+	}
+	for (const d of catalog.domains) {
+		assert.equal(d.notNull, false, `domain ${d.name} carries no NOT NULL`)
+		for (const k of d.constraints) {
+			assert.equal(k.validated, true, `${d.name}.${k.name} is validated`)
+		}
+	}
+	for (const x of catalog.indexes) {
+		assert.equal(x.valid, true, `index ${x.name} is valid`)
+	}
+	assert.equal(
+		catalog.enumLabels,
+		0,
+		"a closed id is a code under its roster's domain: no enum label"
+	)
+	for (const roster of rostersOf(installation.owned)) {
+		const name = installation.names.rosterDomain(roster.closed).name
+		const domain = defined(
+			Arr.findFirst(catalog.domains, (d) => d.name === name).pipe(Option.getOrUndefined),
+			`the domain of roster ${roster.closed}`
+		)
+		assert.deepEqual(
+			{ base: domain.base.name, calls: Arr.map(domain.constraints, (k) => k.calls.length) },
+			{ base: "int2", calls: [1] },
+			`roster ${roster.closed}'s domain`
+		)
+		for (const called of Arr.flatMap(domain.constraints, (k) => k.calls)) {
+			assert.ok(
+				Arr.some(catalog.functions, (f) => f.name === called),
+				`the names constant ${called} of roster ${roster.closed}`
+			)
+		}
+	}
+	const everything = [
+		...catalog.schemaGrants,
+		...Arr.flatMap(catalog.tables, (t) => t.grants),
+		...Arr.flatMap(catalog.sequences, (s) => s.grants),
+		...Arr.flatMap(catalog.domains, (d) => d.grants),
+		...Arr.flatMap(catalog.functions, (f) => f.grants)
+	]
+	assert.deepEqual(
+		Arr.filter(everything, (g) => g.grantee === "PUBLIC"),
+		[]
+	)
+	const global = Arr.filter(
+		catalog.defaultAcls,
+		(d) => d.role === catalog.owner && Option.isNone(d.schema)
+	)
+	assert.deepEqual(
+		Arr.sort(
+			Arr.map(global, (d) => d.objectType),
+			Order.String
+		),
+		["T", "f"],
+		"the owner's defaults on types and functions are reset in the global form"
+	)
+	assert.deepEqual(
+		Arr.flatMap(global, (d) => Arr.filter(d.grants, (g) => g.grantee === "PUBLIC")),
+		[],
+		"the owner's global defaults grant PUBLIC nothing"
+	)
+}
 
 layer(Substrate.layer)("oracle and real installer", (it) => {
 	it.effect("generated schemas, extended types included, install to equivalent catalogs", (ctx) =>
@@ -224,6 +374,7 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 									probeTextDomains(pinned, real.value, desc)
 								)
 								assert.deepEqual(actual.probed.problems, [])
+								installedAsPromised(desc, worlds, real.value, actual.catalog)
 								if (actual.probed.admitted && actual.probed.refused) {
 									c.note("text domain judged both ways")
 								}

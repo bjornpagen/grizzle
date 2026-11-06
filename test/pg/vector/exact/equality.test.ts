@@ -1,7 +1,9 @@
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { drawn, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { array, constant, element, type Gen, map, weighted } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
@@ -29,7 +31,7 @@ import { StatementShare, type WriteStatement } from "#compiler/write/insert/stat
 import type { PutStatement } from "#compiler/write/put/statement.ts"
 import { textRows } from "#test/pg/codec/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert, defined, lacksText, bareRecord, succeeded } from "#test/support/assert.ts"
+import { assert, defined, lacksText, nonEmpty, succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	installedCodes,
@@ -62,13 +64,6 @@ const Pairs = schema("VectorPairs", { A, B, Edge, Note }, [])
 const pairType = scalarOf({ kind: "vector", dimensions: 2 }, {})
 const pairCodec = codecOf(pairType, emptyCodebook)
 const vec = (x: number, y: number): Vector => Vector.make(Float32Array.of(x, y), 2)
-const text = (value: Vector): string => {
-	const t = pairCodec.encode(value)
-	if (!t.ok) {
-		throw new Error(`codec refused a fixture vector: ${t.error}`)
-	}
-	return t.value
-}
 
 /** A vector's binary32 components as JSON, for comparing what pgvector prints (shortest float32) with a host value. */
 const components = (value: Vector): string => jsonText(Array.from(value, (x) => (x === 0 ? 0 : x)))
@@ -117,12 +112,6 @@ const statements = (template: QueryTemplate): ReadonlyArray<StatementSpec> => {
 	assert.ok(all.length >= 2)
 	return all
 }
-
-const sortedIds = (rows: ReadonlyArray<unknown>): ReadonlyArray<string> =>
-	Arr.sort(
-		Arr.map(rows, (r) => Formatter.format(r)),
-		Order.String
-	)
 
 /**
  * The conservative write statements of a ChangeSet over Pairs as its full world writes them, over reality; every
@@ -277,7 +266,155 @@ const firstId = (f: unknown): Option.Option<string> => {
 	return Option.map(first, idOf)
 }
 
-const lit = (x: Vector) => `'${text(x)}'::"vector_ext"."vector"(2)`
+/** A vector of two components, as a case draws it: -0 apart from 0. */
+type Pair = readonly [number, number]
+
+/** A vector's components: both zeros, so a value meets its twin spelling, and a few values, never both zero. */
+const freshPair: Gen<Pair> = (source) => {
+	const x = source.draw(element([-0, 0, 1, 0.6, -0.5]))
+	const y = source.draw(element(x === 0 ? [1, 0.8, 0.5] : [-0, 0, 1, 0.8, 0.5]))
+	return [x, y] as const
+}
+
+/** A zero with its sign flipped; any other component as it is. */
+const flipped = (x: number): number => (x !== 0 ? x : Object.is(x, -0) ? 0 : -0)
+
+/** The vector's other spelling: each zero with its sign flipped. A vector with no zero is its own. */
+const twinOf = (p: Pair): Pair => [flipped(p[0]), flipped(p[1])] as const
+
+/** Whether two vectors are one value: equal binary32 components, -0 equal to 0. */
+const same = (p: Pair, q: Pair): boolean => p[0] === q[0] && p[1] === q[1]
+
+/** A vector's text in its drawn spelling, -0 with its sign, as a typed literal of the column's type. */
+const spelledLit = (p: Pair): string =>
+	`'[${Arr.join(
+		Arr.map(p, (x) => (Object.is(x, -0) ? "-0" : String(x))),
+		","
+	)}]'::"vector_ext"."vector"(2)`
+
+/** Whether two vectors are one value spelled apart. */
+const twinned = (p: Pair, q: Pair): boolean => same(p, q) && spelledLit(p) !== spelledLit(q)
+
+/** A case: A's and B's values, Edge's (from, to) pairs and the probe a binding reads. */
+interface PairsCase {
+	readonly a: Arr.NonEmptyReadonlyArray<Pair>
+	readonly b: ReadonlyArray<Pair>
+	readonly edges: Arr.NonEmptyReadonlyArray<readonly [Pair, Pair]>
+	readonly probe: Pair
+}
+
+/**
+ * A case whose B values, edges and probe are as often an A value or its twin as a fresh vector, so equal values meet
+ * in every spelling.
+ */
+const pairsCaseGen: Gen<PairsCase> = (source) => {
+	const a = nonEmpty(source.draw(array(freshPair, { min: 1, max: 5 })), "A's values")
+	const near: Gen<Pair> = weighted([
+		[2, freshPair],
+		[1, element(a)],
+		[1, map(element(a), twinOf)]
+	])
+	const edge: Gen<readonly [Pair, Pair]> = (inner) => {
+		const from = inner.draw(near)
+		const to = inner.draw(
+			weighted([
+				[2, freshPair],
+				[1, constant(from)],
+				[1, constant(twinOf(from))]
+			])
+		)
+		return [from, to] as const
+	}
+	return {
+		a,
+		b: source.draw(array(near, { min: 0, max: 4 })),
+		edges: nonEmpty(source.draw(array(edge, { min: 1, max: 3 })), "Edge's pairs"),
+		probe: source.draw(near)
+	}
+}
+
+/** The ids of A's, B's and Edge's i-th facts. */
+const aId = (i: number): Uuid => id(i + 1)
+const bId = (i: number): Uuid => id(i + 101)
+const edgeId = (i: number): Uuid => id(i + 201)
+
+/** What each query delivers, by the host's vector equality: ids sorted, a join's pairs as `a|b`. */
+interface Expected {
+	readonly byValue: ReadonlyArray<string>
+	readonly join: ReadonlyArray<string>
+	readonly loops: ReadonlyArray<string>
+	readonly unmatched: ReadonlyArray<string>
+	/** Each A fact's twins in B, by id. */
+	readonly twins: ReadonlyArray<ReadonlyArray<string>>
+}
+
+const expectedOf = (c: PairsCase): Expected => {
+	const sorted = (ids: ReadonlyArray<string>) => Arr.sort(ids, Order.String)
+	const twins = Arr.map(c.a, (x) =>
+		sorted(Arr.flatMap(c.b, (y, j) => (same(x, y) ? [bId(j)] : [])))
+	)
+	return {
+		byValue: sorted(Arr.flatMap(c.a, (x, i) => (same(x, c.probe) ? [aId(i)] : []))),
+		join: sorted(
+			Arr.flatMap(c.a, (x, i) =>
+				Arr.flatMap(c.b, (y, j) => (same(x, y) ? [`${aId(i)}|${bId(j)}`] : []))
+			)
+		),
+		loops: sorted(Arr.flatMap(c.edges, ([from, to], i) => (same(from, to) ? [edgeId(i)] : []))),
+		unmatched: sorted(Arr.flatMap(twins, (ids, i) => (ids.length === 0 ? [aId(i)] : []))),
+		twins
+	}
+}
+
+/** A delivered row's text field `name`. */
+const textField = (row: unknown, name: string): string => {
+	const value = hasProperties(row) ? row[name] : undefined
+	return typeof value === "string" ? value : assert.fail(`a row with the text field ${name}`)
+}
+
+/** The ids of delivered rows, sorted. */
+const idsOf = (rows: ReadonlyArray<unknown>): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.map(rows, (r) => textField(r, "id")),
+		Order.String
+	)
+
+/** The (a, b) pairs of a join's rows as `a|b`, sorted. */
+const pairsOf = (rows: ReadonlyArray<unknown>): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.map(rows, (r) => `${textField(r, "a")}|${textField(r, "b")}`),
+		Order.String
+	)
+
+/** What a case met of vector equality. */
+type EqualityFeature =
+	| "a probe matching a fact"
+	| "a probe matching none"
+	| "a twin spelling joined"
+	| "a loop over twin spellings"
+	| "an A fact no B holds"
+	| "an attachment of two twins"
+
+const equalityFeatures: Arr.NonEmptyReadonlyArray<EqualityFeature> = [
+	"a probe matching a fact",
+	"a probe matching none",
+	"a twin spelling joined",
+	"a loop over twin spellings",
+	"an A fact no B holds",
+	"an attachment of two twins"
+]
+
+const featuresOf = (c: PairsCase, e: Expected): ReadonlyArray<EqualityFeature> => [
+	e.byValue.length > 0 ? "a probe matching a fact" : "a probe matching none",
+	...(Arr.some(c.a, (x) => Arr.some(c.b, (y) => twinned(x, y)))
+		? ["a twin spelling joined" as const]
+		: []),
+	...(Arr.some(c.edges, ([from, to]) => twinned(from, to))
+		? ["a loop over twin spellings" as const]
+		: []),
+	...(e.unmatched.length > 0 ? ["an A fact no B holds" as const] : []),
+	...(Arr.some(e.twins, (ids) => ids.length > 1) ? ["an attachment of two twins" as const] : [])
+]
 
 /** Every row of a statement that did not raise is a fact it changed. */
 const markers = (o: Applied) => {
@@ -289,169 +426,198 @@ const markers = (o: Applied) => {
 
 layer(Substrate.layer)("vector equality as a world role", (it) => {
 	it.effect(
-		"a vector binding, a shared vector variable and an r.not on a vector run in both artifacts",
-		() =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const installed = yield* install(Pairs, {
-					ambient: ordinarySession,
-					label: "vpairs",
-					logins: [pairsWorld.server],
-					extensions: []
-				})
-				const writer = yield* s.session({
-					...worldSession(installed.world(pairsWorld.app)),
-					label: "writer"
-				})
-				const [searchPath] = yield* writer.values(
-					"SELECT pg_catalog.current_setting('search_path')",
-					[]
-				)
-				lacksText(String(searchPath?.[0]), "vector_ext")
-				const t = (name: string) => `"${installed.schema}"."${name}"`
-				const as = [vec(1, 0), vec(0, 1), vec(0.6, 0.8), vec(1, 0), vec(-0.5, 0.5)]
-				const bs = [vec(0, 1), vec(0.6, 0.8), vec(3, 4), vec(1, 0)]
-				yield* s.admin.query(
-					`INSERT INTO ${t("a")} ("id", "value") VALUES ${Arr.join(
-						Arr.map(as, (x, i) => `('${id(i + 1)}'::uuid, ${lit(x)})`),
-						", "
-					)}`,
-					[]
-				)
-				yield* s.admin.query(
-					`INSERT INTO ${t("b")} ("id", "value") VALUES ${Arr.join(
-						Arr.map(bs, (x, i) => `('${id(i + 101)}'::uuid, ${lit(x)})`),
-						", "
-					)}`,
-					[]
-				)
-				yield* s.admin.query(
-					`INSERT INTO ${t("edge")} ("id", "from", "to") VALUES ('${id(201)}'::uuid, '[-0,1]'::"vector_ext"."vector"(2), '[0,1]'::"vector_ext"."vector"(2)), ('${id(202)}'::uuid, ${lit(vec(1, 0))}, ${lit(vec(0, 1))})`,
-					[]
-				)
-
-				/** A parameter binding of a vector column (the finding's reproduction). */
-				const byValue = compiled(
-					query(Pairs).rule((r) => {
-						const { id: key } = v(A, "a")
-						return r
-							.match(A, { id: key, value: r.param("probe", A.fields.value) })
-							.find({ id: key })
-					}),
-					installed
-				)
-				for (const spec of statements(byValue)) {
-					const matched = yield* run(writer, spec, { probe: vec(1, 0) })
-					assert.deepEqual(sortedIds(matched), sortedIds([{ id: id(1) }, { id: id(4) }]))
-					const unmatched = yield* run(writer, spec, { probe: vec(2, 0) })
-					assert.deepEqual(unmatched, [])
-				}
-
-				/** A vector variable shared by two relations: a join on native equality. */
-				const join = compiled(
-					query(Pairs).rule((r) => {
-						const { id: a, value } = v(A, "a")
-						const { id: b } = v(B, "b")
-						return r.match(A, { id: a, value }).match(B, { id: b, value }).find({ a, b })
-					}),
-					installed
-				)
-				const expectedJoin = sortedIds([
-					{ a: id(1), b: id(104) },
-					{ a: id(4), b: id(104) },
-					{ a: id(2), b: id(101) },
-					{ a: id(3), b: id(102) }
-				])
-				for (const spec of statements(join)) {
-					const joined = yield* run(writer, spec, {})
-					assert.deepEqual(sortedIds(joined), expectedJoin)
-				}
-
-				/** One variable bound to two columns of one relation: the loops, -0 = +0 included. */
-				const loops = compiled(
-					query(Pairs).rule((r) => {
-						const { id: key, from } = v(Edge, "edge")
-						return r.match(Edge, { id: key, from, to: from }).find({ id: key })
-					}),
-					installed
-				)
-				for (const spec of statements(loops)) {
-					const found = yield* run(writer, spec, {})
-					assert.deepEqual(found, [bareRecord({ id: id(201) })])
-				}
-
-				/** An anti-join correlated on a vector: the A facts whose value no B fact has. */
-				const unmatched = compiled(
-					query(Pairs).rule((r) => {
-						const { id: key, value } = v(A, "a")
-						return r.match(A, { id: key, value }).where(r.not(B, { value })).find({ id: key })
-					}),
-					installed
-				)
-				for (const spec of statements(unmatched)) {
-					const found = yield* run(writer, spec, {})
-					assert.deepEqual(found, [bareRecord({ id: id(5) })])
-				}
-
-				/**
-				 * An attachment correlated on a parent's vector, its child a correlated take, read through the real reader:
-				 * as a read, and as the read-back of a ChangeSet that writes nothing, which runs inside the write
-				 * transaction and so reads the conservative artifact. The queries are built over the installed schema.
-				 */
-				const value = schema(installed.declared, Pairs.relations, Pairs.statements)
-				const world = fullWorld(value)
-				const twins = query(value)
-					.rule((r) => {
-						const { id: key, value: pair } = v(A, "a")
-						return r.match(A, { id: key, value: pair }).find({ id: key, value: pair })
+		"a vector binding, a shared vector variable, an r.not and attachments correlated on a vector agree with vector equality in both artifacts",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const s = yield* Substrate
+					const installed = yield* install(Pairs, {
+						ambient: ordinarySession,
+						label: "vpairs",
+						logins: [pairsWorld.server],
+						extensions: []
 					})
-					.attach(
-						"twins",
-						(a) =>
-							query(value).rule((r) => {
-								const { id: key } = v(B, "b")
-								return r.match(B, { id: key, value: a.value }).find({ id: key })
-							}),
-						"array"
+					const names = namesOf(installed)
+					const writer = yield* s.session({
+						...worldSession(installed.world(pairsWorld.app)),
+						label: "writer"
+					})
+					const [searchPath] = yield* writer.values(
+						"SELECT pg_catalog.current_setting('search_path')",
+						[]
 					)
-					.attach(
-						"first",
-						(a) =>
-							query(value)
-								.rule((r) => {
+					lacksText(String(searchPath?.[0]), "vector_ext")
+					/** A parameter binding of a vector column. */
+					const byValue = compiled(
+						query(Pairs).rule((r) => {
+							const { id: key } = v(A, "a")
+							return r
+								.match(A, { id: key, value: r.param("probe", A.fields.value) })
+								.find({ id: key })
+						}),
+						installed
+					)
+					/** A vector variable shared by two relations: a join on native equality. */
+					const join = compiled(
+						query(Pairs).rule((r) => {
+							const { id: a, value } = v(A, "a")
+							const { id: b } = v(B, "b")
+							return r.match(A, { id: a, value }).match(B, { id: b, value }).find({ a, b })
+						}),
+						installed
+					)
+					/** One variable bound to two columns of one relation: the loops. */
+					const loops = compiled(
+						query(Pairs).rule((r) => {
+							const { id: key, from } = v(Edge, "edge")
+							return r.match(Edge, { id: key, from, to: from }).find({ id: key })
+						}),
+						installed
+					)
+					/** An anti-join correlated on a vector: the A facts whose value no B fact has. */
+					const unmatched = compiled(
+						query(Pairs).rule((r) => {
+							const { id: key, value } = v(A, "a")
+							return r.match(A, { id: key, value }).where(r.not(B, { value })).find({ id: key })
+						}),
+						installed
+					)
+					/**
+					 * An attachment correlated on a parent's vector, its child a correlated take, read through the real
+					 * reader: as a read, and as the read-back of a ChangeSet that writes nothing, which runs inside the
+					 * write transaction and so reads the conservative artifact. The queries are built over the installed
+					 * schema.
+					 */
+					const value = schema(installed.declared, Pairs.relations, Pairs.statements)
+					const world = fullWorld(value)
+					const twins = query(value)
+						.rule((r) => {
+							const { id: key, value: pair } = v(A, "a")
+							return r.match(A, { id: key, value: pair }).find({ id: key, value: pair })
+						})
+						.attach(
+							"twins",
+							(a) =>
+								query(value).rule((r) => {
 									const { id: key } = v(B, "b")
 									return r.match(B, { id: key, value: a.value }).find({ id: key })
+								}),
+							"array"
+						)
+						.attach(
+							"first",
+							(a) =>
+								query(value)
+									.rule((r) => {
+										const { id: key } = v(B, "b")
+										return r.match(B, { id: key, value: a.value }).find({ id: key })
+									})
+									.orderBy(["id", "asc"])
+									.take(1),
+							"option"
+						)
+					/** Writes the case's facts in place of the last case's, each vector in its drawn spelling. */
+					const load = (c: PairsCase) =>
+						Effect.gen(function* () {
+							const values = (rows: ReadonlyArray<string>) => Arr.join(rows, ", ")
+							yield* s.admin.query(`DELETE FROM ${names.table(Edge)}`, [])
+							yield* s.admin.query(`DELETE FROM ${names.table(B)}`, [])
+							yield* s.admin.query(`DELETE FROM ${names.table(A)}`, [])
+							yield* s.admin.query(
+								`INSERT INTO ${names.table(A)} (${names.column(A, "id")}, ${names.column(A, "value")}) VALUES ${values(
+									Arr.map(c.a, (x, i) => `('${aId(i)}'::uuid, ${spelledLit(x)})`)
+								)}`,
+								[]
+							)
+							if (Arr.isReadonlyArrayNonEmpty(c.b)) {
+								yield* s.admin.query(
+									`INSERT INTO ${names.table(B)} (${names.column(B, "id")}, ${names.column(B, "value")}) VALUES ${values(
+										Arr.map(c.b, (x, i) => `('${bId(i)}'::uuid, ${spelledLit(x)})`)
+									)}`,
+									[]
+								)
+							}
+							yield* s.admin.query(
+								`INSERT INTO ${names.table(Edge)} (${names.column(Edge, "id")}, ${names.column(Edge, "from")}, ${names.column(Edge, "to")}) VALUES ${values(
+									Arr.map(
+										c.edges,
+										([from, to], i) =>
+											`('${edgeId(i)}'::uuid, ${spelledLit(from)}, ${spelledLit(to)})`
+									)
+								)}`,
+								[]
+							)
+						})
+					return yield* Effect.gen(function* () {
+						const db = yield* Db.open(world.server.roles.app, {})
+						return yield* explore(
+							{
+								suite: "pg/vector/equality",
+								draw: drawn(pairsCaseGen),
+								literal: Formatter.format,
+								oracle: {
+									kind: "second-implementation",
+									name: "the host's evaluation of each query under vector equality, binary32 components with -0 equal to 0"
+								},
+								coverage: required<EqualityFeature>(equalityFeatures, {
+									cases: 60,
+									sense: notesOnly
+								}),
+								kept: [],
+								runs: 30,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 8,
+								caseHang
+							},
+							(c, k) =>
+								Effect.gen(function* () {
+									yield* load(c)
+									const probe = vec(c.probe[0], c.probe[1])
+									const expected = expectedOf(c)
+									for (const spec of statements(byValue)) {
+										const matched = yield* run(writer, spec, { probe })
+										assert.deepEqual(idsOf(matched), expected.byValue, "the probe's facts")
+									}
+									for (const spec of statements(join)) {
+										const joined = yield* run(writer, spec, {})
+										assert.deepEqual(pairsOf(joined), expected.join, "the join")
+									}
+									for (const spec of statements(loops)) {
+										const found = yield* run(writer, spec, {})
+										assert.deepEqual(idsOf(found), expected.loops, "the loops")
+									}
+									for (const spec of statements(unmatched)) {
+										const found = yield* run(writer, spec, {})
+										assert.deepEqual(idsOf(found), expected.unmatched, "the unmatched")
+									}
+									const read: ReadonlyArray<unknown> = yield* (yield* db.execute(twins, {})).collect
+									const outcome = yield* db.apply(
+										PublicChangeSet.empty(value).read("readBack", () => twins),
+										{}
+									)
+									if (outcome.kind !== "accepted" && outcome.kind !== "no-change") {
+										return assert.fail(`the read-back's apply was ${outcome.kind}`)
+									}
+									const readBack = hasProperties(outcome.reads) ? outcome.reads.readBack : undefined
+									if (!isList(readBack)) {
+										return assert.fail("an outcome without its read-back")
+									}
+									for (const delivered of [read, readBack]) {
+										const byId = new Map(Arr.map(delivered, (f) => [idOf(f), f]))
+										for (const [i, twinsOf] of expected.twins.entries()) {
+											const fact = byId.get(aId(i))
+											assert.deepEqual(childIds(fact, "twins"), twinsOf, `${aId(i)}'s twins`)
+											assert.deepEqual(firstId(fact), Arr.head(twinsOf), `${aId(i)}'s first twin`)
+										}
+									}
+									k.noteAll(featuresOf(c, expected))
 								})
-								.orderBy(["id", "asc"])
-								.take(1),
-						"option"
-					)
-				const deliveries = yield* Effect.gen(function* () {
-					const db = yield* Db.open(world.server.roles.app, {})
-					const read: ReadonlyArray<unknown> = yield* (yield* db.execute(twins, {})).collect
-					const outcome = yield* db.apply(
-						PublicChangeSet.empty(value).read("readBack", () => twins),
-						{}
-					)
-					if (outcome.kind !== "accepted" && outcome.kind !== "no-change") {
-						return assert.fail(`the read-back's apply was ${outcome.kind}`)
-					}
-					const readBack = hasProperties(outcome.reads) ? outcome.reads.readBack : undefined
-					if (!isList(readBack)) {
-						return assert.fail("an outcome without its read-back")
-					}
-					return [read, readBack]
-				}).pipe(Effect.scoped, withLayer(loginLayer(installed, world.server)))
-				for (const delivered of deliveries) {
-					const byId = new Map(Arr.map(delivered, (f) => [idOf(f), f]))
-					assert.deepEqual(childIds(byId.get(id(1)), "twins"), [id(104)])
-					assert.deepEqual(childIds(byId.get(id(4)), "twins"), [id(104)])
-					assert.deepEqual(childIds(byId.get(id(2)), "twins"), [id(101)])
-					assert.deepEqual(childIds(byId.get(id(5)), "twins"), [])
-					assert.deepEqual(firstId(byId.get(id(3))), Option.some(id(102)))
-					assert.deepEqual(firstId(byId.get(id(5))), Option.none())
-				}
-			})
+						)
+					}).pipe(Effect.scoped, withLayer(loginLayer(installed, world.server)))
+				})
+			)
 	)
 
 	it.effect(

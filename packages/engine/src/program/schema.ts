@@ -12,7 +12,7 @@ import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { decodeDesc, type RoleDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
+import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
@@ -40,6 +40,7 @@ import {
 	installOptions
 } from "#compiler/physical/install/compile.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
+import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { contentOfDesc, isLevelOf, type SchemaContent } from "#compiler/schema/levels.ts"
 import { type Owned, type OwnedRole, own, ownedOf, ownRole } from "#compiler/schema/own.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
@@ -183,7 +184,7 @@ export const parseSchemaInput = (value: unknown): Result.Result<SchemaInput, Com
 	return Result.flatMap(
 		catchCompileError(() => hostArguments("schema", [value])),
 		() =>
-			Result.map(decodeDesc("schema", value), (desc) =>
+			Result.map(admitSchemaDesc(value), (desc) =>
 				parsed({ kind: "desc", desc, content: contentOfDesc(desc) })
 			)
 	)

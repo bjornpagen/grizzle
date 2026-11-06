@@ -4,27 +4,31 @@
  *
  * One schema of four relations, one per kind of table a writer meets: a law-bearing mutable relation (Team, the target
  * of a foreign key and the relation of a row check), a law-bearing immutable one (Member, the foreign key's source),
- * and a lawless immutable and mutable one (Note, Tag). Every law is native, so a table's guard is its one trigger. Every point of the box is a transaction: a level (SERIALIZABLE, READ
- * COMMITTED, REPEATABLE READ, READ UNCOMMITTED), an actor (the `writer`, a session in the schema's full world, granted
- * every write grizzle grants, or the schema's owner, who holds every privilege), a statement (an INSERT, an UPDATE, a DELETE of one
- * row, a DELETE of no row, a TRUNCATE ... CASCADE, a MERGE that inserts, a MERGE that deletes, a SELECT) and a table.
- * The model names its outcome from that point alone, in the order PostgreSQL meets each refusal:
+ * and a lawless immutable and mutable one (Note, Tag). Every law is native, so a table's guard is its one trigger.
+ *
+ * The planted premise: before the installation, the database names no default level, so a new session runs
+ * PostgreSQL's own, READ COMMITTED; the installation must set the database's default to SERIALIZABLE itself.
+ *
+ * Every point of the box is a transaction: a level (the database's default, which a transaction begun with no level
+ * takes, SERIALIZABLE, READ COMMITTED, REPEATABLE READ, READ UNCOMMITTED), an actor (the `writer`, a session in the
+ * schema's full world, granted every write grizzle grants, or the schema's owner, who holds every privilege), a
+ * statement (an INSERT, an UPDATE, a DELETE of one row, a DELETE of no row, a TRUNCATE ... CASCADE, a MERGE that
+ * inserts, a MERGE that deletes, a SELECT) and a table. The model names its outcome from that point alone, in the order
+ * PostgreSQL meets each refusal:
  *
  * - a SELECT is admitted at every level, and its transaction commits;
  * - the privilege check at executor start comes first: the writer's TRUNCATE (granted to no one) and its UPDATE of an
  *   immutable relation are 42501 at every level;
  * - then the table's guard, a BEFORE statement trigger that fires whatever rows the statement matches: below
  *   SERIALIZABLE every other write is 25000, its TABLE field naming the table, and the transaction commits nothing;
- * - at SERIALIZABLE every other write runs (each transaction then rolls back, so every point starts from one state).
+ * - at SERIALIZABLE, and at the database's default, which the installation set to it, every other write runs (each
+ *   transaction then rolls back, so every point starts from one state).
  *
- * The installation states the same promise in the catalog, read without the installer: the database default is
- * SERIALIZABLE (pg_db_role_setting, and SHOW in a new session of the writer), which the test first resets so the
- * installer must set it; and every table of the schema, the migrations ledger included, carries exactly one guard
- * trigger, BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE, FOR EACH STATEMENT, enabled.
+ * That every table, the migrations ledger included, carries exactly one guard, BEFORE every write, per statement and
+ * enabled, and that the database's settings name SERIALIZABLE, is the installed-catalog checker's, which every
+ * installation runs (test/support/catalog/installed.ts).
  *
  * The file resets a database setting, so it runs in a database of its own (Substrate.isolatedLayer).
- *
- * The planted premise: the database names no default level, so a new session runs PostgreSQL's own.
  */
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -41,7 +45,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
-import { isLedgerObject, parsedName } from "#test/support/kernel/naming.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
@@ -131,7 +135,13 @@ const tables: Arr.NonEmptyReadonlyArray<Table> = [
 	}
 ]
 
-const levels = ["serializable", "read committed", "repeatable read", "read uncommitted"] as const
+const levels = [
+	"the database's default",
+	"serializable",
+	"read committed",
+	"repeatable read",
+	"read uncommitted"
+] as const
 type Level = (typeof levels)[number]
 const actors = ["writer", "owner"] as const
 type Actor = (typeof actors)[number]
@@ -177,14 +187,19 @@ const predict = (level: Level, actor: Actor, statement: Statement, table: Table)
 	) {
 		return { kind: "refused by privilege" }
 	}
-	return level === "serializable" ? { kind: "admitted" } : { kind: "refused by the guard", table }
+	return level === "serializable" || level === "the database's default"
+		? { kind: "admitted" }
+		: { kind: "refused by the guard", table }
 }
 
 type TableKind = `${"law-bearing" | "lawless"} ${"mutable" | "immutable"}`
 const tableKind = (t: Table): TableKind =>
 	`${t.lawful ? "law-bearing" : "lawless"} ${t.mutable ? "mutable" : "immutable"}`
 
-type IsolationFeature = `${Statement}: ${Verdict["kind"]}` | `${TableKind}: refused by the guard`
+type IsolationFeature =
+	| `${Statement}: ${Verdict["kind"]}`
+	| `${TableKind}: refused by the guard`
+	| "a write at the database's default admitted"
 
 /** The statement's SQL over the installed schema `q`. */
 const sqlOf = (q: string, statement: Statement, table: Table): string => {
@@ -261,7 +276,14 @@ const runPoint = (
 	readOnly: boolean
 ): Effect.Effect<Met> =>
 	Effect.gen(function* () {
-		yield* Effect.orDie(session.query(`BEGIN ISOLATION LEVEL ${Str.toUpperCase(level)}`, []))
+		yield* Effect.orDie(
+			session.query(
+				level === "the database's default"
+					? "BEGIN"
+					: `BEGIN ISOLATION LEVEL ${Str.toUpperCase(level)}`,
+				[]
+			)
+		)
 		const ran = yield* Effect.result(session.query(sql, []))
 		if (Result.isFailure(ran)) {
 			const fields = defined(pgErrorFields(ran.failure), `${sql}: a server error`)
@@ -284,93 +306,22 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 	"every write to a grizzle table runs at SERIALIZABLE",
 	(it) => {
 		it.effect(
-			"the installation sets the database's default to SERIALIZABLE and guards every table with one statement trigger",
-			() =>
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					yield* s.admin.query(
-						`ALTER DATABASE ${quoteIdent(s.database)} RESET default_transaction_isolation`,
-						[]
-					)
-					const before = yield* Effect.scoped(
-						Effect.flatMap(s.session({ ...ownerSession(), label: "before" }), (o) =>
-							o.values("SHOW default_transaction_isolation", [])
-						)
-					)
-					assert.equal(before[0]?.[0], "read committed")
-					const installed = yield* install(Guarded, {
-						ambient: ordinarySession,
-						extensions: [],
-						logins: [world.server],
-						label: "guard"
-					})
-					const settings = yield* s.admin.queryValues(
-						`SELECT unnest(setconfig)::text FROM pg_catalog.pg_db_role_setting
-					WHERE setrole = 0 AND setdatabase = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())`,
-						[]
-					)
-					assert.ok(
-						Arr.some(settings, ([x]) => x === "default_transaction_isolation=serializable"),
-						`the database's settings: ${Arr.join(
-							Arr.map(settings, ([x]) => String(x)),
-							", "
-						)}`
-					)
-					const level = yield* Effect.scoped(
-						Effect.flatMap(
-							s.session({ ...worldSession(installed.world(world.app)), label: "writer" }),
-							(w) => w.values("SHOW transaction_isolation", [])
-						)
-					)
-					assert.equal(level[0]?.[0], "serializable", "a new session of the writer names no level")
-					/**
-					 * Each table of the schema, its guard triggers, and whether each is BEFORE INSERT OR UPDATE OR DELETE OR
-					 * TRUNCATE FOR EACH STATEMENT (tgtype 2 | 4 | 8 | 16 | 32, the row bit clear) and enabled.
-					 */
-					const guards = yield* s.admin.queryValues(
-						`SELECT c.relname::text,
-						count(t.oid) FILTER (WHERE t.tgname = $2::text)::int4,
-						coalesce(bool_and(t.tgtype = 62 AND t.tgenabled = 'O') FILTER (WHERE t.tgname = $2::text), false)
-					FROM pg_catalog.pg_class AS c
-					JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-					LEFT JOIN pg_catalog.pg_trigger AS t ON t.tgrelid = c.oid
-					WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p')
-					GROUP BY c.relname`,
-						[installed.schema, identifierOf(identity.isolationTrigger())]
-					)
-					const authored = Arr.filter(
-						guards,
-						([name]) => !isLedgerObject(installed.schema, String(name))
-					)
-					assert.deepEqual(
-						set(exact)(
-							Arr.map(authored, ([name]) => String(name)),
-							Arr.map(tables, (t) => identifierOf(identity.table(parsedName(t.relation))))
-						),
-						Option.none(),
-						`the schema's tables: ${Arr.join(
-							Arr.map(authored, ([name]) => String(name)),
-							", "
-						)}`
-					)
-					for (const [name, count, shaped] of guards) {
-						assert.equal(Number(count), 1, `${String(name)} carries one guard trigger`)
-						assert.equal(
-							shaped,
-							true,
-							`${String(name)}'s guard is BEFORE every write, per statement, enabled`
-						)
-					}
-				}).pipe(Effect.scoped)
-		)
-
-		it.effect(
-			"a write below SERIALIZABLE is refused with 25000 naming its table, after privilege; a read is admitted",
+			"a write below SERIALIZABLE is refused with 25000 naming its table, after privilege, the database's default being the SERIALIZABLE the installation set; a read is admitted",
 			(ctx) =>
 				searched(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
+						yield* s.admin.query(
+							`ALTER DATABASE ${quoteIdent(s.database)} RESET default_transaction_isolation`,
+							[]
+						)
+						const before = yield* Effect.scoped(
+							Effect.flatMap(s.session({ ...ownerSession(), label: "before" }), (o) =>
+								o.values("SHOW default_transaction_isolation", [])
+							)
+						)
+						assert.equal(before[0]?.[0], "read committed", "the planted premise")
 						const installed = yield* install(Guarded, {
 							ambient: ordinarySession,
 							extensions: [],
@@ -409,6 +360,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							]),
 							"update: refused by privilege",
 							"select: admitted",
+							"a write at the database's default admitted",
 							...Arr.map(tables, (t): IsolationFeature => `${tableKind(t)}: refused by the guard`)
 						]
 						return yield* exhaust(
@@ -455,6 +407,13 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 											break
 									}
 									c.note(`${statement}: ${verdict.kind}`)
+									if (
+										level === "the database's default" &&
+										statement !== "select" &&
+										verdict.kind === "admitted"
+									) {
+										c.note("a write at the database's default admitted")
+									}
 									/** Every point ends rolled back or refused, so the state is the starting one. */
 									const state = yield* Effect.orDie(readState)
 									for (const [i, t] of tables.entries()) {

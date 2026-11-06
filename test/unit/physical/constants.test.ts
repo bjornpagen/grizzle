@@ -5,14 +5,14 @@
  *
  * - **One domain per roster:** exactly one CREATE DOMAIN over smallint names each roster's domain, with exactly one
  *   CHECK, which calls exactly one function: the roster's names constant. A roster some set is typed over has its bits
- *   domain over bit(n), n every code minted, whose one CHECK calls its live-codes constant, whose body calls the names
- *   constant, and nothing else.
+ *   domain over bit(n), n every code minted rounded up to whole hex digits, whose one CHECK calls its live-codes
+ *   constant, whose body is one hex literal, the live codes' bits with every hole and padding bit 0, and calls nothing.
  * - **The range proof:** the roster domain's CHECK, evaluated on the host by an interpreter written here, admits exactly
  *   the live codes among -1 to one past every code minted, and never the mixed-radix alias 400.
  * - **The names constant is the codes:** its `'{…}'::name[]` literal, read back by an array-literal reader written
  *   here (PostgreSQL's array_in rules: double-quoted elements, backslash escapes), is the roster's names in code order,
  *   a hole the empty name, every awkward handle (`NULL`, a comma, a quote, a backslash, braces, spaces, 63 bytes)
- *   intact, and never empty, so live() aggregates at least one row and is never NULL.
+ *   intact, and never empty.
  * - **Names are content (metamorphic):** two installations whose codes are equal name every constant alike whatever
  *   else differs; a roster that loses a handle to a hole names its names constant anew.
  * - **The EXECUTE rule, as a checker over the installed AST:** every role is granted EXECUTE on every function a
@@ -50,6 +50,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { fullRoleDesc, type Owned, ownLogin } from "#compiler/schema/own.ts"
 import type { Expr, FunctionName, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	codebookOfStates,
 	codecFor,
@@ -154,7 +155,7 @@ const installationOf = (owned: Owned, codes: Codebook): Installation => {
 			loc
 		})
 	)
-	/** A role whose only use of a roster is a set: its EXECUTE on the names constant comes through live()'s body. */
+	/** A role whose only use of a roster is a set: it calls live() through the bits domain's CHECK, and no names constant. */
 	const tagger = succeeded(
 		decodeDesc("role", {
 			name: "tagger",
@@ -570,7 +571,7 @@ describe("roster and closed constants", () => {
 							const constants = constantsOf(i)
 
 							for (const [at, s] of states(w).entries()) {
-								const { names, namesFunction, admitted } = rosterObjects(i, s)
+								const { names, admitted } = rosterObjects(i, s)
 								assert.deepEqual(
 									admitted,
 									Arr.flatMap(s.slots, (slot, code) => (slot.kind === "live" ? [code] : [])),
@@ -597,16 +598,23 @@ describe("roster and closed constants", () => {
 									assert.ok(
 										d.base.kind === "builtin" &&
 											d.base.name === "bit" &&
-											d.base.length === s.slots.length,
-										"bit(n), n every code minted"
+											d.base.length === wholeDigits(s.slots.length),
+										"bit(n), n every code minted rounded up to whole hex digits"
 									)
 									const checks = [...callsIn(schema, d.constraints)]
 									assert.equal(checks.length, 1, "a bits domain's CHECK reads one constant, live()")
 									const live = defined(constants.get(defined(checks[0])), "live() is installed")
+									const liveCodes = Arr.flatMap(s.slots, (slot, code) =>
+										slot.kind === "live" ? [code] : []
+									)
 									assert.deepEqual(
-										live.kind === "createConstant" ? [...callsIn(schema, live.body)] : [],
-										[namesFunction],
-										"live() is created from the names constant and reads nothing else"
+										live.kind === "createConstant" &&
+											live.body.kind === "literal" &&
+											live.body.value.kind === "bits"
+											? live.body.value.hex
+											: undefined,
+										hexOfText(setText(s.slots.length, liveCodes)),
+										"live() is the hex literal of the live codes, every hole and padding bit 0"
 									)
 								}
 							}

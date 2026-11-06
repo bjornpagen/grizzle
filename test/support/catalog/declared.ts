@@ -2,13 +2,15 @@ import { Array as Arr, Record as Rec } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { decodeDesc, type RelationDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
+import type { RelationDesc, SchemaDesc } from "#compiler/ir/desc.ts"
+import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type {
 	ErasureExpectation,
 	InstalledFunction,
 	InstalledTrigger
 } from "#test/support/catalog/verify.ts"
+import { wholeDigits } from "#test/support/closed/bit-text.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 
 interface Declared {
@@ -26,7 +28,7 @@ const descOf = (schema: unknown): SchemaDesc => {
 	if (built !== undefined) {
 		return built
 	}
-	const decoded = decodeDesc("schema", schema)
+	const decoded = admitSchemaDesc(schema)
 	if (!decoded.ok) {
 		throw new Error(
 			`declared: neither a schema value nor a schema description: ${decoded.error.message}`
@@ -114,8 +116,7 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 									identifierOf(identity.rosterLive(roster, digest)),
 									{
 										kind: "live",
-										names,
-										domain: identifierOf(identity.bitsDomain(roster, r.handles.length))
+										domain: identifierOf(identity.bitsDomain(roster, wholeDigits(r.handles.length)))
 									}
 								] as const
 							]

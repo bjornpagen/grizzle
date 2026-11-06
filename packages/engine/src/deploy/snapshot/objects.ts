@@ -57,7 +57,7 @@ export const same = (a: unknown, b: unknown): boolean => canonicalTextOf(a) === 
  * this view, so every object's form is checked here, once, and no rule probes a statement list again. An object whose
  * statements are not its kind's form is a defect of the compiler that built the snapshot.
  * A domain carries at most one CHECK. A `constant` is a function named by its content's digest, created by a CREATE
- * FUNCTION ... RETURN or packed by its DO block, then its EXECUTE revoked from PUBLIC. A `worldFunction` is a writable
+ * FUNCTION ... RETURN, a closed relation's stated as its hex literal, then its EXECUTE revoked from PUBLIC. A `worldFunction` is a writable
  * entry's filter function. A `role` is a login's
  * or a theory role's CREATE ROLE, and a `membership` a theory role's membership in its login. A `roleSchema` is a
  * role's schema, a `view` a role relation's view in it, a `policy` a role's policy on a table it writes, and a
@@ -200,7 +200,7 @@ export const installed = (o: ManifestObject): Installed => {
 			return (s?.kind === "createConstant" || s?.kind === "packConstant") &&
 				o.ddl.slice(1).every((r) => r.kind === "revoke")
 				? { kind: o.kind, object: o, create: s }
-				: malformed("a constant's CREATE FUNCTION or pack, then its revokes")
+				: malformed("a constant's CREATE FUNCTION or hex literal, then its revokes")
 		case "domain": {
 			if (o.ddl.length !== 1 || s?.kind !== "createDomain") {
 				return malformed("exactly one CREATE DOMAIN")

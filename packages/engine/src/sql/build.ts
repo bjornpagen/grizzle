@@ -127,7 +127,7 @@ export const types = {
 	int4range: builtinType("int4range"),
 	int8range: builtinType("int8range"),
 	record: builtinType("record"),
-	/** bit(n): a set over a roster, one bit per code it has minted. */
+	/** bit(n): a set over a roster, one bit per code it has minted, padded to whole hex digits. */
 	bit: (length: number): TypeRef => ({
 		kind: "builtin",
 		name: "bit",
@@ -246,6 +246,12 @@ export const lit = {
 	text: (value: string, type: TypeRef): Expr => ({
 		kind: "literal",
 		value: { kind: "text", value },
+		type
+	}),
+	/** A bit string's literal, its hex digits (core/hex.ts) cast to `type`: X'<hex>'::type. */
+	bits: (hex: string, type: TypeRef): Expr => ({
+		kind: "literal",
+		value: { kind: "bits", hex },
 		type
 	})
 } as const

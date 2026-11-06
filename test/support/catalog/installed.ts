@@ -148,11 +148,11 @@ const closedClassifier = (installation: Installation): ((name: string) => Instal
 	})
 }
 
-/** Whether a constant's statement creates a names constant (it returns name[]) or a live-codes constant (bit varying
- * from a subquery over a names constant): a roster's, which no closed relation owns. */
+/** Whether a constant's statement creates a names constant (it returns name[]) or a live-codes constant (a hex literal
+ * of bit varying; a closed relation's constant is a pack): a roster's, which no closed relation owns. */
 const rosterConstant = (s: Extract<SqlStatement, { readonly kind: "createConstant" }>): boolean =>
 	(s.returns.kind === "builtin" && s.returns.name === "name" && s.returns.array) ||
-	(s.body.kind === "subquery" && callsOf(s.body).length > 0)
+	(s.body.kind === "literal" && s.body.value.kind === "bits")
 
 /** Every closed constant an installation's manifest creates, a pack or a dictionary, as `closedClassifier` judges it:
  * what a description-built expectation (catalog/declared.ts), which names no constant, holds of them. */
@@ -175,7 +175,7 @@ export const closedConstantsOf = (
 
 /**
  * The constants the manifest's constant objects create, each as what it is: a names constant (it returns name[]) and a
- * live-codes constant (it returns bit varying from a subquery over a names constant), each with the domain whose CHECK
+ * live-codes constant (it returns bit varying as one hex literal), each with the domain whose CHECK
  * calls it among the manifest's domains; every other, a pack or a dictionary, a closed constant (`closedClassifier`).
  */
 const constantsOf = (
@@ -210,9 +210,8 @@ const constantsOf = (
 					if (s.returns.kind === "builtin" && s.returns.name === "name" && s.returns.array) {
 						return [[name, { kind: "names", domain: checking(name) }]]
 					}
-					const [names] = callsOf(s.body)
-					return s.body.kind === "subquery" && names !== undefined
-						? [[name, { kind: "live", names, domain: checking(name) }]]
+					return s.body.kind === "literal" && s.body.value.kind === "bits"
+						? [[name, { kind: "live", domain: checking(name) }]]
 						: [[name, closedConstant(name)]]
 				})
 			: []

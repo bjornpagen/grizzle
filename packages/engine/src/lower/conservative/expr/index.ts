@@ -1,7 +1,7 @@
 import { exactParts } from "#compiler/core/decimal.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { moneyFractionDigits, moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
-import { codecOf, codeOf, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
+import { codecOf, codeOf, handlesHex, type RosterCodec } from "#compiler/ir/codes.ts"
 import { datePartSlices } from "#compiler/ir/date.ts"
 import { describeOp, type TypedLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
@@ -57,7 +57,8 @@ const literalCodec = (names: PhysicalNames, type: ScalarType): RosterCodec => {
  * The canonical payload is pgvector's input text, -0 already written as 0.
  *
  * A handle is its code under the installation's codebook, a smallint, never its position among the roster's live
- * handles: a removed handle leaves a hole, so the two differ after any removal. A set is bit(n)'s text.
+ * handles: a removed handle leaves a hole, so the two differ after any removal. A set is its hex literal at its
+ * roster's width (ir/codes.ts handlesHex), X'<digits>' cast to its domain.
  */
 export const lowerLiteral = (
 	names: PhysicalNames,
@@ -92,7 +93,7 @@ export const lowerLiteral = (
 		case "handle":
 			return lit.int(BigInt(codeOf(literalCodec(names, type), literal.handle)), sqlType)
 		case "handles":
-			return lit.text(handlesText(literalCodec(names, type), literal.handles), sqlType)
+			return lit.bits(handlesHex(literalCodec(names, type), literal.handles), sqlType)
 		case "span":
 			return lit.text(`[${literal.start.toString()},${literal.end.toString()})`, sqlType)
 		case "vector":

@@ -48,7 +48,7 @@ import {
 	statementOutput
 } from "#compiler/lower/conservative/types.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { setText } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -354,8 +354,8 @@ const rosterCodecOf = (type: ScalarType, codes: Codebook): RosterCodec => {
  *
  * A double as its shortest round-trip text; a literal holds the one zero.
  *
- * A closed id as its handle's code under the installation's codes, smallint's text, and a set as its bit(size) text,
- * position c code c.
+ * A closed id as its handle's code under the installation's codes, smallint's text, and a set as X and the hex digits
+ * of its bits domain's text, position c code c, every hole and padding bit 0.
  *
  * The canonical text of the components, [c1,...,cn], which is pgvector's input form.
  */
@@ -381,10 +381,12 @@ export const inputText = (literal: TypedLiteral, type: ScalarType, codes: Codebo
 			return String(codeOf(rosterCodecOf(type, codes), literal.handle))
 		case "handles": {
 			const codec = rosterCodecOf(type, codes)
-			return setText(
-				codec.size,
-				Arr.map(literal.handles, (handle) => codeOf(codec, handle))
-			)
+			return `X${hexOfText(
+				setText(
+					codec.size,
+					Arr.map(literal.handles, (handle) => codeOf(codec, handle))
+				)
+			)}`
 		}
 		case "span":
 			return `[${literal.start},${literal.end})`

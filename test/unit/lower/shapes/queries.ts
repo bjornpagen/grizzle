@@ -1,26 +1,12 @@
 import { OpId, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import {
-	type CompletedOrder,
-	conservativeMeta,
-	type RelNode,
-	type TakeBound
-} from "#compiler/ir/rel.ts"
+import { type CompletedOrder, conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import {
-	Account,
-	keyed,
-	Posting,
-	plainRegion,
-	Q,
-	T,
-	Task
-} from "#test/unit/lower/conservative/fixtures.ts"
-import type { LoweringCase } from "#test/unit/lower/conservative/queries.ts"
+import { keyed, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
  * IR queries for the shape tests, over the conservative lowering's ledger fixture (test/unit/lower/conservative),
@@ -185,112 +171,4 @@ export const conditional = (
 		meta: conservativeMeta
 	})
 	return { ...q.build(node), node }
-}
-
-/**
- * The queries below carry repeats at the boundaries the shapes elide: postings p1 and p2 are both (A, 100), so a
- * region binding (account, amount) of Posting realized plain holds that row twice.
- */
-const amountOrder: CompletedOrder = {
-	keys: [
-		{ column: "amount", dir: "desc" },
-		{ column: "account", dir: "asc" }
-	]
-}
-
-/**
- * The two largest (account, amount) pairs of Posting, delivered in order: (A, 100) and (B, 70). A bound that kept the
- * repeated (A, 100) would fill both places with it.
- */
-export const topAmounts = (): LoweringCase => {
-	const q = new Q()
-	const m = q.region([
-		{
-			source: q.base(Posting, conservativeMeta),
-			bind: { account: "account", amount: "amount" },
-			constants: {}
-		}
-	])
-	const top = q.take(m, amountOrder, { kind: "literal", k: 2n }, [], conservativeMeta)
-	return {
-		name: "topAmounts",
-		query: q.build(q.ordered(top, amountOrder))
-	}
-}
-
-/**
- * Per account, its top `bound` posting amounts as (acct, amount): the take of Posting's (account, amount) correlated
- * to the region's account. For k = 2, account A has the one pair (A, 100), which its two postings repeat.
- */
-export const amountsPerAccount = (bound: TakeBound): LogicalQuery => {
-	const q = new Q()
-	const amounts = q.region([
-		{
-			source: q.base(Posting, conservativeMeta),
-			bind: { account: "account", amount: "amount" },
-			constants: {}
-		}
-	])
-	const outer = q.b.reserve()
-	const accountRef: ScalarExpr = q.b.expr({
-		kind: "column",
-		column: { node: outer, name: "acct" },
-		args: [],
-		type: T.uuid,
-		nonNull: "storage"
-	})
-	const top = q.take(
-		amounts,
-		amountOrder,
-		bound,
-		[{ column: "account", expr: accountRef }],
-		conservativeMeta
-	)
-	const region = q.regionWith(
-		[
-			{ source: q.base(Account, conservativeMeta), bind: { id: "acct" }, constants: {} },
-			{ source: top, bind: { account: "acct", amount: "amount" }, constants: {} }
-		],
-		{ ...plainRegion, id: { kind: "reserved", id: outer } }
-	)
-	return q.build(region)
-}
-
-/**
- * Each account with the set of its posting amounts attached, largest first: A's children are the one pair (A, 100)
- * however many postings repeat it.
- */
-export const accountsWithAmounts = (): LoweringCase => {
-	const q = new Q()
-	const accounts = q.project(
-		q.region([
-			{ source: q.base(Account, conservativeMeta), bind: { id: "id", name: "name" }, constants: {} }
-		]),
-		[
-			["id", "id"],
-			["name", "name"]
-		],
-		conservativeMeta
-	)
-	const amounts = q.project(
-		q.region([
-			{
-				source: q.base(Posting, conservativeMeta),
-				bind: { account: "account", amount: "amount" },
-				constants: {}
-			}
-		]),
-		[
-			["account", "account"],
-			["amount", "amount"]
-		],
-		conservativeMeta
-	)
-	const a = q.attach(accounts, amounts, "amounts", [["id", "account"]], "array", {
-		keys: [{ column: "amount", dir: "desc" }]
-	})
-	return {
-		name: "accountsWithAmounts",
-		query: q.build(a)
-	}
 }

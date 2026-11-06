@@ -376,9 +376,57 @@ interface Placement {
 	readonly change: "insert" | "update" | "replace"
 }
 
-/** A group's edit as one family's fill takes it. */
+/**
+ * The owners of a family a stratum writes, each by its group key text, which a member's write reads over its stored row:
+ * - `stated`: each owner the stratum states a fact of, an insert's, a put's or a nested write's row, with its values;
+ * - `plain`: whether the stratum's own statements write those owners before every family statement, as they write an
+ *   owner no family has as a member; a member's owner otherwise is written by its own family's edit, after the members
+ *   deeper than it are updated;
+ * - `recounted`: each owner's counts and ends the stratum's edits of its other families draw, which its count
+ *   statements write before any member is inserted.
+ */
+export interface OwnerViews {
+	readonly stated: ReadonlyMap<string, Values>
+	readonly plain: boolean
+	readonly recounted: ReadonlyMap<string, Values>
+}
+
+/** The values of a row's fields its caller writes, a caller's and a serial one. */
+const callerFields = (relation: LawRelation, row: Values): Values =>
+	new Map(
+		relation.fields.flatMap((f) =>
+			(f.writing.kind === "caller" || f.writing.kind === "serial") && row.has(fieldKey(f.name))
+				? [[fieldKey(f.name), row.get(fieldKey(f.name))] as const]
+				: []
+		)
+	)
+
+/**
+ * A row's values with `over` written over them: every column `over` holds, and every generated field read again from
+ * the result, since PostgreSQL generates it from the row's written fields; the row unchanged when nothing is written.
+ */
+const overlaid = (
+	relation: LawRelation,
+	row: Values | undefined,
+	over: Values | undefined
+): Values | undefined => {
+	if (over === undefined) {
+		return row
+	}
+	const generated = new Set(
+		relation.fields.flatMap((f) => (f.writing.kind === "generated" ? [fieldKey(f.name)] : []))
+	)
+	const merged = [...(row ?? new Map<ColumnKey, unknown>()), ...over]
+	return new Map(merged.filter(([key]) => !generated.has(key)))
+}
+
+/**
+ * A group's edit as one family's fill takes it: its owner as a member's update in place reads it (`owner`), and as a
+ * member's insert reads it (`final`), the owner as its stratum leaves it; none for an owner neither stored nor written.
+ */
 interface GroupEdit {
 	readonly owner: Values | undefined
+	readonly final: Values | undefined
 	readonly stored: StoredGroup | undefined
 	readonly removals: ReadonlySet<string>
 	/** Kept members' new values, the stored ones with the put's caller fields over them. */
@@ -530,7 +578,7 @@ const fillGroup = (
 			(pair.from.kind === "field" ? pair.from.field.writing.kind === "accumulated" : true) &&
 			!(pair.from.kind === "law" && pair.from.column === family.copy)
 	)
-	if (owner === undefined && ownerCopies.length > 0 && n1 > 0) {
+	if (edit.final === undefined && ownerCopies.length > 0 && n1 > 0) {
 		return Result.err(encodeFailure("factShape", slotPlace(relation.name)))
 	}
 	const placed: Array<Placement> = []
@@ -549,10 +597,14 @@ const fillGroup = (
 		put(columnKey(family.index), BigInt(slot))
 		put(`law:${family.copy}`, BigInt(n1))
 		const prev = slot === 0 ? undefined : (filled.get(slot - 1) ?? memberAt(slot - 1)?.values)
+		/** A counted member kept or moved is updated in place, before its owner's own write and its count statement, which
+		 * the owner axis cascades into it; every other member is inserted after them, so it reads the owner as the stratum
+		 * leaves it. */
+		const seen = counted && at.get(slot)?.from !== "new" ? owner : edit.final
 		for (const pair of ownerCopies) {
 			put(
 				columnKey(pair.from),
-				owner === undefined ? undefined : valueAt(ctx, family.owner, owner, columnKey(pair.to))
+				seen === undefined ? undefined : valueAt(ctx, family.owner, seen, columnKey(pair.to))
 			)
 		}
 		for (const pair of family.axes.predecessor) {
@@ -695,14 +747,14 @@ export interface Edited {
  * A member relation's changes in one stratum planned against its families' reads: each family's touched groups
  * resolved into edits and filled, the placements merged per row (a row deleted, inserted whole, re-placed whole, or
  * updated in place, its every family's columns as filled or as stored), and each changed owner's count and ends.
- * `insertedOwners` gives each family's owners the changeset inserts, by group key text, with their values.
+ * `owners` gives each family's owners the stratum writes (`OwnerViews`).
  */
 export const planEdits = (
 	ctx: FillContext,
 	target: EditTarget,
 	changes: RelationChanges,
 	stored: ReadonlyMap<string, StoredFamily>,
-	insertedOwners: (family: Family) => ReadonlyMap<string, Values>
+	owners: (family: Family) => OwnerViews
 ): Result.Result<Edited, EncodingFailure | CompileError> => {
 	const relation = target.relation
 	/** Each row the changes name, once: a key named twice is refused, never a second member. */
@@ -753,16 +805,17 @@ export const planEdits = (
 		named.delete(text)
 	}
 	const placements = new Map<string, Array<Placement>>()
-	const owners: Array<OwnerWrite> = []
+	const writes: Array<OwnerWrite> = []
 	for (const { family, fixed } of target.families) {
 		const read = stored.get(familyKey(family.id))
-		const inserted = insertedOwners(family)
+		const views = owners(family)
 		const groups = new Map<
 			string,
 			{
 				readonly owner: Owner
 				readonly edit: {
 					readonly owner: Values | undefined
+					readonly final: Values | undefined
 					readonly stored: StoredGroup | undefined
 					readonly removals: Set<string>
 					readonly updates: Map<string, Values>
@@ -777,8 +830,22 @@ export const planEdits = (
 				return known.edit
 			}
 			const s = read?.groups.get(text)
+			const stated = views.stated.get(text)
+			/** A stored owner's write sets its caller's fields alone: its counts and ends are its families' to draw. */
+			const written = stated === undefined ? undefined : callerFields(family.owner, stated)
 			const edit = {
-				owner: s?.owner ?? inserted.get(text),
+				owner:
+					s === undefined
+						? stated
+						: overlaid(family.owner, s.owner, views.plain ? written : undefined),
+				final:
+					s === undefined
+						? overlaid(family.owner, stated, views.recounted.get(text))
+						: overlaid(
+								family.owner,
+								overlaid(family.owner, s.owner, written),
+								views.recounted.get(text)
+							),
 				stored: s,
 				removals: new Set<string>(),
 				updates: new Map<string, Values>(),
@@ -824,7 +891,7 @@ export const planEdits = (
 			 * insert at a stored key is its exact repeat or the key law's refusal; or absent, its owner neither stored nor
 			 * inserted. */
 			const storedGroup = edit.stored !== undefined
-			const fresh = inserted.has(text) && !storedGroup
+			const fresh = views.stated.has(text) && !storedGroup
 			const filled = fillGroup(
 				ctx,
 				relation,
@@ -854,7 +921,7 @@ export const planEdits = (
 			}
 		}
 		if (recounts.size > 0) {
-			owners.push({ family: family.id, recounts, stored: storedGroups })
+			writes.push({ family: family.id, recounts, stored: storedGroups })
 		}
 	}
 	const deletes = new Map<string, MemberKey>()
@@ -901,7 +968,7 @@ export const planEdits = (
 	}
 	return Result.ok({
 		rows: { relation: relation.name, deletes, trees: new Map(), updates, inserts },
-		owners
+		owners: writes
 	})
 }
 

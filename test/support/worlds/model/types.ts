@@ -309,7 +309,10 @@ export type StaleSource =
 	| "deleted-organization"
 	| "previous-request"
 
-/** Why a wild token payload is wild. */
+/**
+ * Why a wild token payload is wild. `refinement-edge`: a claim at the edge of its field's refinement, a text at its
+ * pattern's or a contract's integer at its bounds, on either side, which the host's encoder admits and PostgreSQL judges.
+ */
 export type TokenWild =
 	| "not-json"
 	| "claim-object-missing"
@@ -323,7 +326,7 @@ export type TokenWild =
 	| "nul-character"
 	| "proto-key"
 	| "huge-payload"
-	| "pattern-edge"
+	| "refinement-edge"
 	| "extra-fields"
 	| "verify-throws"
 	| "verify-not-object"
@@ -523,12 +526,39 @@ export type CatalogPerturbation =
 	| { readonly kind: "rewrite-rule"; readonly relation: string }
 	| { readonly kind: "trigger-disabled"; readonly trigger: TriggerRef }
 
-/** How a Db reads a role relation: a program executed, `get` by a key, every page in turn, or a compiled program. */
+/** One key of an order a read asks for: a field of the relation read, ascending or descending. */
+export interface OrderKey {
+	readonly field: string
+	readonly direction: "asc" | "desc"
+}
+
+/** Where a paged read starts: at the first page, then each after it, or at the last, then each before it. */
+export type PageFrom = "first" | "last"
+
+/**
+ * How a Db reads a role relation: a program executed, `get` by a key, every page in turn under an order its fields
+ * draw (which grizzle completes with a key of the relation, so a tie never splits or repeats a row across pages), a
+ * compiled program, the relation with another of the role's relations attached to each row as an array (the child's
+ * rows whose field `child` equals the row's `parent`, delivered without that field), or every pair of values of two
+ * fields of one domain the relation's rows chain, read by a recursive query over the relation.
+ */
 export type ReadVia =
 	| { readonly kind: "execute" }
 	| { readonly kind: "get"; readonly key: HostFact }
-	| { readonly kind: "page"; readonly size: number }
+	| {
+			readonly kind: "page"
+			readonly size: number
+			readonly order: Arr.NonEmptyReadonlyArray<OrderKey>
+			readonly from: PageFrom
+	  }
 	| { readonly kind: "compile" }
+	| {
+			readonly kind: "attach"
+			readonly relation: string
+			readonly parent: string
+			readonly child: string
+	  }
+	| { readonly kind: "reach"; readonly from: string; readonly to: string }
 
 /**
  * The snapshot the opening role's login layer is given (DbConfig): the installation's own, an older version's, an
@@ -940,7 +970,11 @@ export type ObjectKind =
  * what was shown of it, an invalid input drawn, an invariant checked, the ambient session the case's owner sessions
  * started under, a feature of a name the installation drew from the kernel dictionary, a base object or a role
  * entry named after a PostgreSQL type, and a generated addition through a query entry that stores a serial value it
- * supplies, one its filter reads or its fill fixes, which the driver holds to the model's committed state.
+ * supplies, one its filter reads or its fill fixes, which the driver holds to the model's committed state; how a read
+ * went (its path, the key a page's order is completed by and where it starts, an attachment that nested rows, a
+ * recursive read that chained past one step, a span read through a world, a context field of a domain decoded from
+ * the token and read); how each read-back stood to the change; the law family a refused write met, the path it took
+ * and what its witness showed; and the shape of relation an accepted write through a world changed.
  */
 export type WorldFeature =
 	| AmbientFeature
@@ -952,12 +986,64 @@ export type WorldFeature =
 	| `invariant:${InvariantName}`
 	| `deletion:${"base-gone" | "world-gone" | "derived-kept" | "derived-refreshed"}`
 	| `via:${ReadVia["kind"]}`
-	| `readback:${"empty-delta" | "projected-delta" | "refused-delta"}`
+	| `page:${PageKey}:${PageFrom}`
+	| "attach:nested"
+	| "reach:chained"
+	| "read:span"
+	| `claim:${ClaimDomain}`
+	| `readback:${ReadBackClass}`
+	| `law:${LawFamily}:${LawPath}:${Witness["kind"]}`
+	| `write:${WriteShape}:${RelationSpec["mutability"]}:${"entry" | "whole"}:${EntryOp["kind"]}`
 	| `strata:${"one" | "union" | "sequence" | "refused-order"}`
 	| AdditionFeature
 	| `migration:${MigrationKind}:${ActionOutcome["kind"]}`
 	| "addition:generated:entry:supplied-serial"
 	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-transient" | "after-interrupted" | "after-stale-snapshot"}`
+
+/**
+ * The key grizzle completes a page's order with, by the relation paged: a key it proves of a role's entry short of its
+ * whole heading (a table's primary key, through a whole entry or a query entry that keeps it); a key of a derived
+ * relation, which its stored query proves; or the whole heading, a set's own key.
+ */
+export type PageKey = "proven-key" | "derived-key" | "heading-key"
+
+/**
+ * How a read-back's delta stands to the change, by README "Writes"' rule (session/apply.ts deltaOf): `untouched`, the
+ * change writes nothing the relation's definition reads, so its delta is empty; `written`, the relation is written and
+ * the change writes nothing else its definition reads, so its delta is its target's; `beside`, a whole entry over a
+ * target the change writes through another entry, whose delta is the target's own; `undetermined`, any other, whose
+ * rows moving in or out depend on more than the change, which grizzle refuses when the ChangeSet compiles.
+ */
+export type ReadBackClass = "untouched" | "written" | "beside" | "undetermined"
+
+/**
+ * The family of the law a refusal names (README "Rules"): a key or a no-overlap key (a primary or a candidate one), a
+ * row check, a contract's or a pattern's domain CHECK, a containment, a coverage, or one of an alternatives law's
+ * containments.
+ */
+export type LawFamily =
+	| "key"
+	| "span-key"
+	| "check"
+	| "domain"
+	| "contained"
+	| "covered"
+	| "alternatives"
+
+/**
+ * How a refused write reached its law: a Db's ChangeSet writing through a query entry, a partial world, or through whole
+ * entries alone; or a direct writer's statement as the role it took on.
+ */
+export type LawPath = "entry" | "whole" | "direct"
+
+/**
+ * A shape of relation a write through a world meets: keyed WITHOUT OVERLAPS (a span in its primary key), or a pure set
+ * (every field in its primary key).
+ */
+export type WriteShape = "span-key" | "pure-set"
+
+/** The domain kinds a context field takes (README "Permissions"): never a serial or a span. */
+type ClaimDomain = Exclude<FieldDomain["kind"], "serial" | "span">
 
 /**
  * An applied insertion, by its facts' serial class (complete, or generated: leaving out every classed serial field),

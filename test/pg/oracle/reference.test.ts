@@ -7,47 +7,45 @@
  * - the I1 mutant (a DISTINCT dropped from a projection that keeps no key) is told apart from the reference by the
  *   floor stream's generated cases, which the suite's label fixes, and the failure shrinks to the printed case and the
  *   repeated row;
- * - the reference agrees with PostgreSQL's capture on a planted case of every hard spelling (1.00 in numeric(5,2), 1.0,
- *   NaN, -0, money and supplementary-plane text), the control of the structural checks below;
  * - the reference derives the delivered statements from the IR, so a lowering that drops an attachment statement,
- *   delivers one attachment under another's name, or reports a narrowed column type is a structural difference, never
- *   a reference built to match it.
+ *   delivers one under another name, or reports a narrowed column type is a structural difference, never a reference
+ *   built to match it: each fault is planted in the conservative program of a generated case, and the comparison must
+ *   report exactly the differences the plant makes, read off the program's statement labels (compare.ts
+ *   labeledStatements) before and after it.
  *
- * The mutant is the left side: the rows it repeats are rows the reference has fewer times.
+ * That the reference agrees with PostgreSQL's capture of every hard spelling is the conservative gate's
+ * (conservative.test.ts), whose generated facts store NaN, -0, display scales and supplementary-plane text.
  *
- * The swapping lowering is the left side, the reference the right; the order of the two is no contract.
+ * The mutant, and every planted lowering, is the left side, the reference the right; the order of the two is no
+ * contract.
  */
 import { layer } from "@effect/vitest"
-import { drawn, exhaust, Run } from "@grizzle/testing/explore"
-import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
+import { drawn, explore, Run } from "@grizzle/testing/explore"
+import { noCoverage, required } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { runOfTest } from "@grizzle/testing/vitest/run"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import * as Result from "#compiler/core/result.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	type AttachedTree,
 	type ConservativeProgram,
-	mapTree
+	type ConservativeStatement,
+	mapTree,
+	type StatementTree
 } from "#compiler/lower/conservative/types.ts"
-import { Money } from "#compiler/scalar/values/money.ts"
-import { assert, containsEqual, containsText } from "#test/support/assert.ts"
+import { assert, containsText, unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { repeatsOn, type StructuralDifference } from "#test/support/oracle/compare.ts"
-import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
 import {
-	canonicallySpelled,
-	float4,
-	float8,
-	int4,
-	numeric,
-	scalarOfSpec,
-	type SpelledValue
-} from "#test/support/oracle/gen/domain.ts"
+	labeledStatements,
+	repeatsOn,
+	type StructuralDifference
+} from "#test/support/oracle/compare.ts"
+import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
+import { float4 } from "#test/support/oracle/gen/domain.ts"
 import { projectRoot, rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
 import { mutantLowering } from "#test/support/oracle/mutants/index.ts"
 import { mutants } from "#test/support/oracle/mutants/mutants.ts"
@@ -55,115 +53,151 @@ import {
 	comparisonFailed,
 	conservative,
 	defaultRunOptions,
-	type LabelledCase,
 	type Lowering,
 	oracleKill,
 	printOracleCase,
 	reference,
-	runLabelledOracle,
 	runOracle
 } from "#test/support/oracle/runner.ts"
+import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import {
-	account,
-	dec,
-	facts,
-	flt,
-	int,
-	posting,
-	Q,
-	relation,
-	schema,
-	str,
-	text
-} from "#test/unit/oracle-runner/fixtures.ts"
 
-/** A lowering that post-processes the conservative program. */
-const rewriting = (name: string, f: (p: ConservativeProgram) => ConservativeProgram): Lowering => ({
-	name,
-	lower: (input) => Result.map(conservative.lower(input), f)
-})
+/** A fault a lowering may make in a program's structure, each planted in the conservative program. */
+type StructureFault = "an attachment dropped" | "an attachment renamed" | "a column's type narrowed"
 
-/** Accounts with two attachments of different headings: the postings' amounts (a1) and their ids (a2). */
-const attachCase = (): LabelledCase => {
-	const q = new Q()
-	const accounts = q.region([{ source: q.base(account), bind: { id: "id" } }])
-	const postings = q.region([
-		{ source: q.base(posting), bind: { id: "pid", account: "account", amount: "amt" } }
-	])
-	const a1 = q.attach(accounts, q.project(postings, ["account", "amt"]), [["id", "account"]], "a1")
-	return q.case(
-		q.attach(a1, q.project(postings, ["account", "pid"]), [["id", "account"]], "a2"),
-		facts,
-		schema,
-		"accounts with two attachments of different headings"
-	)
+const structureFaults: readonly [StructureFault, ...ReadonlyArray<StructureFault>] = [
+	"an attachment dropped",
+	"an attachment renamed",
+	"a column's type narrowed"
+]
+
+/** The name the planted lowering takes, the left side of every comparison. */
+const planted = "planted"
+
+/** The program with the attached tree labelled `target` replaced by `replace` of it: none drops it. */
+const editAttached = (
+	program: ConservativeProgram,
+	target: string,
+	replace: (
+		tree: AttachedTree<ConservativeStatement>
+	) => ReadonlyArray<AttachedTree<ConservativeStatement>>
+): ConservativeProgram => {
+	const labels = Arr.map(labeledStatements(program.roots), (l) => l.label)
+	let at = 0
+	const attached = (
+		tree: AttachedTree<ConservativeStatement>
+	): ReadonlyArray<AttachedTree<ConservativeStatement>> => {
+		const label = Arr.getUnsafe(labels, at++)
+		const edited: AttachedTree<ConservativeStatement> = {
+			...tree,
+			attachments: Arr.flatMap(tree.attachments, attached)
+		}
+		return label === target ? replace(edited) : [edited]
+	}
+	return {
+		...program,
+		roots: Arr.map(program.roots, (tree): StatementTree<ConservativeStatement> => {
+			at++
+			return { ...tree, attachments: Arr.flatMap(tree.attachments, attached) }
+		})
+	}
 }
 
-const spell = relation(
-	"Spell",
-	[
-		["k", int4],
-		["scaled", scalarOfSpec({ carrier: "numericTypmod", precision: 5, scale: 2 })],
-		["n", numeric],
-		["f", float8],
-		["m", scalarOfSpec({ carrier: "money" })],
-		["t", text]
-	],
-	["k"],
-	[]
-)
+/** A plant: the program the planted lowering delivers, and the structural differences the comparison must report. */
+interface Plant {
+	readonly program: ConservativeProgram
+	readonly expected: ReadonlyArray<StructuralDifference>
+}
 
-/** A value stored in a twin input spelling, which PostgreSQL reads as the value and stores differently. */
-const twin = (literal: TypedLiteral, text: string): SpelledValue => ({
-	literal,
-	spelling: { kind: "twin", text }
-})
-
-/** Every column of Spell, bound by name, the hard spellings among its stored values. */
-const spellCase = (): LabelledCase => {
-	const q = new Q()
-	const all = q.region([
-		{ source: q.base(spell), bind: { k: "k", scaled: "scaled", n: "n", f: "f", m: "m", t: "t" } }
-	])
-	return q.case(
-		all,
-		{
-			Spell: [
-				[
-					canonicallySpelled(int(1)),
-					canonicallySpelled(dec("1")),
-					twin(dec("1"), "1.0"),
-					twin(flt(0), "-0"),
-					canonicallySpelled({ kind: "money", value: Money.of(150n) }),
-					canonicallySpelled(str("\u{1F600}"))
-				],
-				[
-					canonicallySpelled(int(2)),
-					canonicallySpelled(dec("2.5")),
-					canonicallySpelled(dec("NaN")),
-					canonicallySpelled({ kind: "floatSpecial", value: "NaN" }),
-					canonicallySpelled({ kind: "money", value: Money.of(-25n) }),
-					canonicallySpelled(str("a\u{10FFFF}"))
+/**
+ * The plant of `fault` in `program`, its target picked by `pick` among those the program offers: an attachment for a
+ * drop or a rename, a double precision column of a delivered heading for a narrowing; none where the program offers no
+ * target.
+ */
+const plantIn = (
+	program: ConservativeProgram,
+	fault: StructureFault,
+	pick: number
+): Option.Option<Plant> => {
+	const labeled = labeledStatements(program.roots)
+	const subtree = (label: string): ReadonlyArray<string> =>
+		Arr.filter(
+			Arr.map(labeled, (l) => l.label),
+			(l) => l === label || Str.startsWith(`${label}/`)(l)
+		)
+	const attachments = Arr.filter(labeled, (l) => l.attach !== undefined)
+	switch (fault) {
+		case "an attachment dropped":
+		case "an attachment renamed": {
+			if (!Arr.isReadonlyArrayNonEmpty(attachments)) {
+				return Option.none()
+			}
+			const target = Arr.getUnsafe(attachments, pickIndex(pick, attachments.length))
+			const lost = Arr.map(subtree(target.label), (label): StructuralDifference => ({
+				kind: "missing",
+				side: planted,
+				label
+			}))
+			if (fault === "an attachment dropped") {
+				return Option.some({
+					program: editAttached(program, target.label, () => []),
+					expected: lost
+				})
+			}
+			const renamedLabel = `${target.label}_renamed`
+			if (Arr.some(labeled, (l) => l.label === renamedLabel)) {
+				return Option.none()
+			}
+			return Option.some({
+				program: editAttached(program, target.label, (tree) => [
+					{ ...tree, attach: { ...tree.attach, name: `${tree.attach.name}_renamed` } }
+				]),
+				expected: [
+					...lost,
+					...Arr.map(subtree(target.label), (label): StructuralDifference => ({
+						kind: "missing",
+						side: reference.name,
+						label: `${renamedLabel}${Str.slice(target.label.length)(label)}`
+					}))
 				]
-			]
-		},
-		{ ...schema, relations: [spell] },
-		"every spelling the raw text comparison observes"
-	)
-}
-
-/** The fixtures both lowerings must agree on, by name. */
-const fixtureNames = ["attach", "spell"] as const
-
-type FixtureName = (typeof fixtureNames)[number]
-
-const fixtureCase = (name: FixtureName): LabelledCase => {
-	switch (name) {
-		case "attach":
-			return attachCase()
-		case "spell":
-			return spellCase()
+			})
+		}
+		case "a column's type narrowed": {
+			const columns = Arr.flatMap(labeled, (l, position) =>
+				Arr.flatMap(l.statement.heading, (column: HeadingColumn) =>
+					column.type.carrier === "float8" ? [{ position, label: l.label, column }] : []
+				)
+			)
+			if (!Arr.isReadonlyArrayNonEmpty(columns)) {
+				return Option.none()
+			}
+			const target = Arr.getUnsafe(columns, pickIndex(pick, columns.length))
+			const narrowed = Arr.getUnsafe(labeled, target.position).statement
+			return Option.some({
+				program: {
+					...program,
+					roots: mapTree(program.roots, (s) =>
+						s === narrowed
+							? {
+									...s,
+									heading: Arr.map(s.heading, (h): HeadingColumn =>
+										h === target.column ? { ...h, type: float4 } : h
+									)
+								}
+							: s
+					)
+				},
+				expected: [
+					{
+						kind: "type",
+						label: target.label,
+						column: target.column.name,
+						left: float4,
+						right: target.column.type
+					}
+				]
+			})
+		}
 	}
 }
 
@@ -231,96 +265,64 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 			})
 	)
 
-	it.effect("reports a dropped attachment statement as structure", () =>
-		Effect.gen(function* () {
-			/** The main statement stays first; the attachment a1 after it is dropped. */
-			const dropping = rewriting("dropping", (p) => ({
-				...p,
-				roots: mapNonEmpty(p.roots, (tree) => ({
-					...tree,
-					attachments: Arr.filter(tree.attachments, (a) => a.attach.name !== "a1")
-				}))
-			}))
-			const outcome = yield* runLabelledOracle(attachCase(), dropping, reference, defaultRunOptions)
-			assert.deepEqual(outcome.comparison.structural, [
-				{ kind: "missing", side: "dropping", label: "main/a1" }
-			])
-		})
-	)
-
-	it.effect("reports an attachment delivered under another's name as structure", () =>
-		Effect.gen(function* () {
-			const swapped = <S>(a: AttachedTree<S>): AttachedTree<S> => ({
-				...a,
-				attach: { ...a.attach, name: a.attach.name === "a1" ? "a2" : "a1" },
-				attachments: Arr.map(a.attachments, swapped)
-			})
-			const swapping = rewriting("swapping", (p) => ({
-				...p,
-				roots: mapNonEmpty(p.roots, (tree) => ({
-					...tree,
-					attachments: Arr.map(tree.attachments, swapped)
-				}))
-			}))
-			const outcome = yield* runLabelledOracle(attachCase(), swapping, reference, defaultRunOptions)
-			assert.equal(outcome.comparison.equal, false)
-			assert.equal(outcome.comparison.structural.length, 2)
-			const a1: StructuralDifference = {
-				kind: "heading",
-				label: "main/a1",
-				left: ["id", "account", "pid"],
-				right: ["id", "account", "amt"]
-			}
-			const a2: StructuralDifference = {
-				kind: "heading",
-				label: "main/a2",
-				left: ["id", "account", "amt"],
-				right: ["id", "account", "pid"]
-			}
-			containsEqual(outcome.comparison.structural, a1)
-			containsEqual(outcome.comparison.structural, a2)
-		})
-	)
-
-	it.effect("reports a narrowed output type as structure, even where the text agrees", () =>
-		Effect.gen(function* () {
-			const narrowing = rewriting("narrowing", (p) => ({
-				...p,
-				roots: mapTree(p.roots, (s) => ({
-					...s,
-					heading: Arr.map(s.heading, (h): HeadingColumn =>
-						h.name === "f" && h.type.carrier === "float8" ? { ...h, type: float4 } : h
-					)
-				}))
-			}))
-			const outcome = yield* runLabelledOracle(spellCase(), narrowing, reference, defaultRunOptions)
-			assert.deepEqual(outcome.comparison.diffs, [])
-			assert.deepEqual(outcome.comparison.structural, [
-				{ kind: "type", label: "main", column: "f", left: float4, right: float8 }
-			])
-		})
-	)
-
-	it.effect("still agrees with the unmodified conservative lowering on both fixtures", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "oracle/reference-fixtures",
-					generator: element(fixtureNames),
-					literal: Formatter.format,
-					limit: fixtureNames.length,
-					coverage: requiredInSpace<FixtureName>(fixtureNames),
-					caseHang
-				},
-				(fixture, k) =>
-					Effect.gen(function* () {
-						const c = fixtureCase(fixture)
-						const outcome = yield* runLabelledOracle(c, conservative, reference, defaultRunOptions)
-						assert.equal(outcome.comparison.equal, true, printOracleCase(c))
-						k.note(fixture)
-					})
+	it.effect(
+		"reports exactly the structure a lowering drops, renames or narrows, planted in a generated case's program",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "oracle/reference-structure",
+						draw: drawn((source) => ({
+							case: source.draw(queryCaseGen(defaultGenConfig)),
+							fault: source.draw(element(structureFaults)),
+							pick: source.draw(pickGen)
+						})),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the structural differences a plant makes, read off the program's statement labels before and after it"
+						},
+						coverage: required<StructureFault>(structureFaults, { cases: 300, sense: notesOnly }),
+						kept: [],
+						runs: 40,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(drawnCase, c) =>
+						Effect.gen(function* () {
+							const plants: Array<Plant> = []
+							const lowering: Lowering = {
+								name: planted,
+								lower: (input) =>
+									Result.map(conservative.lower(input), (program) =>
+										Option.match(plantIn(program, drawnCase.fault, drawnCase.pick), {
+											onNone: () => program,
+											onSome: (plant) => {
+												plants.push(plant)
+												return plant.program
+											}
+										})
+									)
+							}
+							const outcome = yield* runOracle(
+								drawnCase.case,
+								lowering,
+								reference,
+								defaultRunOptions
+							)
+							const [plant] = plants
+							yield* c.assume(plant !== undefined)
+							if (plant === undefined) {
+								return
+							}
+							c.note(drawnCase.fault)
+							assert.equal(outcome.comparison.equal, false)
+							unorderedEqual(outcome.comparison.structural, plant.expected)
+						})
+				)
 			)
-		)
 	)
 })

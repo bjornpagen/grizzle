@@ -91,7 +91,7 @@ export interface RetryOptions {
  * The transient reason of a hand-written attempt's failed outcome, by grizzle's own classification, or undefined when
  * it is none. A unique violation is transient only at the statement that raised it, as in the runtime.
  */
-export const outcomeTransientReason = (
+const outcomeTransientReason = (
 	failed: FailedOutcome,
 	uniqueAborts: ReadonlyArray<UniqueAbort>
 ): TransientReason | undefined =>

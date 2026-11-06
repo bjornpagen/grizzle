@@ -1,8 +1,22 @@
-import { boolean, constant, element, type Gen, int, map, oneOf } from "@grizzle/testing/gen"
+import {
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	shuffled
+} from "@grizzle/testing/gen"
 import type { Source } from "@grizzle/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { projection } from "#test/support/laws/model.ts"
-import { inDomain, pooled } from "#test/support/worlds/generate/domain.ts"
+import {
+	inDomain,
+	knownNonEmpty,
+	pooled,
+	sameDomain
+} from "#test/support/worlds/generate/domain.ts"
 import { headingOf } from "#test/support/worlds/generate/entries.ts"
 import { type BoundaryArms, type Variant } from "#test/support/worlds/invalid/kinds.ts"
 import { classifyEntry, entryRows } from "#test/support/worlds/model/host.ts"
@@ -11,10 +25,12 @@ import { isPageSize } from "#test/support/worlds/model/step.ts"
 import type {
 	BaseSpec,
 	EntrySpec,
+	FieldDomain,
 	FieldSpec,
 	HostFact,
 	InvalidKind,
 	ModelState,
+	OrderKey,
 	ReadVia,
 	RoleSpec
 } from "#test/support/worlds/model/types.ts"
@@ -86,10 +102,83 @@ const rowsOf = (
 const poolOffset = int(0, 0xffff)
 
 /**
+ * Whether a read may equate two fields of a domain, as an attachment's child does with its parent: every domain but a
+ * span, whose values a read compares by their points.
+ */
+const attachable = (domain: FieldDomain): boolean => domain.kind !== "span"
+
+/**
+ * Whether a recursive read may chain two fields of a domain: a uuid, a text, an integer or a serial, whose type the
+ * recursive query's row states by its base type alone.
+ */
+const reachable = (domain: FieldDomain): boolean =>
+	domain.kind === "uuid" ||
+	domain.kind === "text" ||
+	domain.kind === "integer" ||
+	domain.kind === "serial"
+
+/** A page's order: one to every field of the heading, in a drawn order, each ascending or descending. */
+const orderGen =
+	(heading: Arr.NonEmptyReadonlyArray<FieldSpec>): Gen<Arr.NonEmptyReadonlyArray<OrderKey>> =>
+	(source) =>
+		knownNonEmpty(
+			Arr.map(source.draw(shuffled(heading, { min: 1, max: heading.length })), (f): OrderKey => ({
+				field: f.name,
+				direction: source.draw(element(["asc", "desc"] as const))
+			})),
+			"a page's order"
+		)
+
+/** The pages of a relation: pages of one to three rows under a drawn order, from the first page or from the last. */
+const pageGen =
+	(heading: Arr.NonEmptyReadonlyArray<FieldSpec>): Gen<ReadVia> =>
+	(source) => ({
+		kind: "page",
+		size: source.draw(int(1, 3)),
+		order: source.draw(orderGen(heading)),
+		from: source.draw(element(["first", "last"] as const))
+	})
+
+/**
+ * The attachments a role offers a read of a relation: each relation the role holds whose field shares a domain a read
+ * equates (attachable) with a field of the relation's heading, attached by those two fields, where the child holds a
+ * field besides, which its rows are delivered with.
+ */
+export const attachments = (
+	base: BaseSpec,
+	role: RoleSpec,
+	heading: ReadonlyArray<FieldSpec>
+): ReadonlyArray<ReadVia> =>
+	Arr.flatMap(Rec.toEntries(role.entries), ([child, spec]) => {
+		const fields = headingOf(base, spec)
+		return fields.length < 2
+			? []
+			: Arr.flatMap(heading, (parent) =>
+					Arr.flatMap(fields, (field): ReadonlyArray<ReadVia> =>
+						attachable(parent.domain) && sameDomain(parent.domain, field.domain)
+							? [{ kind: "attach", relation: child, parent: parent.name, child: field.name }]
+							: []
+					)
+				)
+	})
+
+/** The recursive reads a relation offers: each ordered pair of two of its heading's fields of one domain it chains. */
+export const reaches = (heading: ReadonlyArray<FieldSpec>): ReadonlyArray<ReadVia> =>
+	Arr.flatMap(heading, (from) =>
+		Arr.flatMap(heading, (to): ReadonlyArray<ReadVia> =>
+			from.name !== to.name && reachable(from.domain) && sameDomain(from.domain, to.domain)
+				? [{ kind: "reach", from: from.name, to: to.name }]
+				: []
+		)
+	)
+
+/**
  * How a Db reads a role relation, under validity weights: live, a program executed, compiled, paged in pages of one to
- * three rows, or `get` by the key of one of its rows (by a pool key when it has none); stale, `get` by a key no row of
- * it holds (a fact outside the world, or none at all); wild, `get` by a key missing a field or holding a value its
- * field refuses, or pages of no row, of a fraction, or of a negative count.
+ * three rows under an order of its fields, from the first page or the last, `get` by the key of one of its rows (by a
+ * pool key when it has none), with another of the role's relations attached by two fields of one domain, or every pair
+ * two of its fields of one domain chain; stale, `get` by a key no row of it holds (a fact outside the world, or none at
+ * all); wild, `get` by a key missing a field or holding a value its field refuses, or pages of no row, of a fraction,
+ * or of a negative count.
  */
 export const viaArms = (
 	state: ModelState,
@@ -97,8 +186,10 @@ export const viaArms = (
 	facts: Readonly<Record<string, HostFact>>,
 	relation: string
 ): BoundaryArms<ReadVia> => {
+	const base = state.install.base
 	const spec = Rec.has(role.entries, relation) ? role.entries[relation] : undefined
-	const key = spec === undefined ? [] : entryKey(state.install.base, spec)
+	const key = spec === undefined ? [] : entryKey(base, spec)
+	const heading = spec === undefined ? [] : headingOf(base, spec)
 	const rows = spec === undefined ? [] : rowsOf(state, role, relation, facts)
 	const poolKey = (n: number): HostFact =>
 		Rec.fromEntries(Arr.map(key, (f, i) => [f.name, pooled(f.domain, n + i)] as const))
@@ -107,11 +198,23 @@ export const viaArms = (
 		firstRow === undefined
 			? map(poolOffset, poolKey)
 			: map(element([firstRow, ...moreRows]), (row) => keyOfFact(row, key))
+	const chained: ReadonlyArray<Gen<ReadVia>> = Arr.flatMap(
+		[attachments(base, role, heading), reaches(heading)],
+		(offered) =>
+			Arr.match(offered, {
+				onEmpty: (): ReadonlyArray<Gen<ReadVia>> => [],
+				onNonEmpty: (all) => [element(all)]
+			})
+	)
+	const [firstHeading, ...moreHeading] = heading
+	const paged: ReadonlyArray<Gen<ReadVia>> =
+		firstHeading === undefined ? [] : [pageGen([firstHeading, ...moreHeading])]
 	const live: Gen<ReadVia> = oneOf([
 		constant<ReadVia>({ kind: "execute" }),
 		constant<ReadVia>({ kind: "compile" }),
-		map(int(1, 3), (size): ReadVia => ({ kind: "page", size })),
-		map(keyed, (k): ReadVia => ({ kind: "get", key: k }))
+		map(keyed, (k): ReadVia => ({ kind: "get", key: k })),
+		...paged,
+		...chained
 	])
 	const [firstField, ...moreFields] = key
 	const [firstAbsent, ...moreAbsent] =
@@ -134,13 +237,22 @@ export const viaArms = (
 					}
 				]
 	const wild: ReadonlyArray<Variant<ReadVia>> = [
-		{
-			invalid: "handle:wild-js-value",
-			gen: map(
-				element([0, -1, 1.5, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 2]),
-				(size): ReadVia => ({ kind: "page", size })
-			)
-		},
+		...(firstHeading === undefined
+			? []
+			: [
+					{
+						invalid: "handle:wild-js-value" as const,
+						gen: map(
+							element([0, -1, 1.5, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 2]),
+							(size): ReadVia => ({
+								kind: "page",
+								size,
+								order: [{ field: firstHeading.name, direction: "asc" }],
+								from: "first"
+							})
+						)
+					}
+				]),
 		...(firstField === undefined
 			? []
 			: [
@@ -163,7 +275,10 @@ export const viaArms = (
 	return { live, stale, wild }
 }
 
-/** The invalid kinds of a read's path: a page size no page has, a key of another shape, a key no row holds. */
+/**
+ * The invalid kinds of a read's path: a page size no page has, a key of another shape, a key no row holds; an
+ * attachment and a recursive read carry none.
+ */
 export const viaKinds = (
 	state: ModelState,
 	role: RoleSpec,
@@ -174,6 +289,8 @@ export const viaKinds = (
 	switch (via.kind) {
 		case "execute":
 		case "compile":
+		case "attach":
+		case "reach":
 			return []
 		case "page":
 			return isPageSize(via.size) ? [] : ["handle:wild-js-value"]

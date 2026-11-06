@@ -166,7 +166,7 @@ export const productionNames = (
 			if (codec === undefined) {
 				throw new Error(`the test's codebook holds no roster ${roster}, whose sets it names`)
 			}
-			return { schema: types, name: identifierOf(identity.bitsDomain(roster, codec.size)) }
+			return { schema: types, name: identifierOf(identity.bitsDomain(roster, codec.width)) }
 		},
 		contractDomain: (contract) => {
 			throw new Error(
@@ -1139,12 +1139,6 @@ const mint = (prefix: string): NameMint => ({
 	index: (text): IndexName => admittedIdentifier(`${prefix}${text}`),
 	domain: (text): DomainName => admittedIdentifier(`${prefix}${text}`)
 })
-
-/**
- * Spellings the naming rule specifies, for its specification tests only: each admitted as the snapshot reader admits a
- * name.
- */
-export const spelled: NameMint = mint("")
 
 /**
  * Names no production rule produces, for name-agnostic machinery (a classifier's lookup, a stand-in, an evidence

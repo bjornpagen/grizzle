@@ -36,7 +36,9 @@ import {
 	type StatementRoots,
 	type StatementTree
 } from "#compiler/lower/conservative/types.ts"
+import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { CompiledTemplate } from "#compiler/program/template.ts"
+import type { Select } from "#compiler/sql/ast.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import {
@@ -95,14 +97,17 @@ import { printCase } from "#test/support/oracle/public/print.ts"
 import {
 	type ArgTerm,
 	type ComputedTerm,
+	deliveredOrder,
 	hasFilter,
 	type HeadItem,
 	isAggregate,
+	type OrderKey,
 	type ProgramCase,
 	type ProgramField,
 	type ParentColumn,
 	type Query,
 	type ProgramRead,
+	type Root,
 	sourceFields,
 	type StoredFact,
 	type Var
@@ -114,10 +119,10 @@ import { loginLayer } from "#test/support/worlds.ts"
 
 /**
  * Which check of the case disagreed: a public answer with the reference's, a cell or a delivered field with its strict
- * reading, a refusal with the one the contract names, the case's setup (install, layer, open, store), or the
- * reference and the language's own proofs.
+ * reading, a refusal with the one the contract names, the case's setup (install, layer, open, store), the reference and
+ * the language's own proofs, or a root delivered in an order whose statements state none.
  */
-export type DisagreementCheck = "answer" | "cell" | "refusal" | "setup" | "reference"
+export type DisagreementCheck = "answer" | "cell" | "refusal" | "setup" | "reference" | "order"
 
 export class Disagreement extends Data.TaggedError("Disagreement")<{
 	readonly check: DisagreementCheck
@@ -252,6 +257,22 @@ const attachmentForms = (
 		under(tree, [])
 	}
 	return forms
+}
+
+/**
+ * The artifacts of a template whose delivered statements leave their rows unordered. PostgreSQL delivers rows in an
+ * order only under an ORDER BY, whatever plan it picks, so a root delivered in an order states one in every delivered
+ * statement of both artifacts: an order the rows arrive in only by the plan's grace is no delivery.
+ */
+const unorderedArtifacts = (
+	template: QueryTemplate
+): ReadonlyArray<"optimized" | "conservative"> => {
+	const ordered = (roots: StatementRoots<{ readonly ast: Select }>): boolean =>
+		Arr.every(roots, (tree) => tree.statement.ast.orderBy.length > 0)
+	return [
+		...(ordered(template.programs.optimized.roots) ? [] : (["optimized"] as const)),
+		...(ordered(template.programs.conservative.roots) ? [] : (["conservative"] as const))
+	]
 }
 
 /** The parent columns a child binds. */
@@ -709,6 +730,43 @@ const noteTakes = (q: Query<ParentColumn>, rows: ReadonlyArray<Nested>, note: No
 	}
 }
 
+/**
+ * Notes a root take whose order decides what its caller receives, by the expected delivery: two rows or more, two of
+ * them ordered apart by the take's first key, descending, and two its stated keys tie, which the take's completion
+ * orders (program.ts takeOrder).
+ */
+const noteRootTake = (q: Root, rows: ReadonlyArray<Nested>, note: Note): void => {
+	const bound = q.bound
+	if (bound.kind !== "take" || q.delivery.kind !== "set" || rows.length < 2) {
+		return
+	}
+	note("a root take of two rows or more")
+	/** A row's value at a key's column by its identity under native equality (valueKey). */
+	const identityAt = (row: Nested, key: OrderKey): string | undefined =>
+		Option.match(
+			Arr.findFirstIndex(q.heading, (c) => c.name === key.column.name),
+			{
+				onNone: () => undefined,
+				onSome: (i) => {
+					const v = row.values[i]
+					return v === undefined ? undefined : valueKey(v, key.column.type)
+				}
+			}
+		)
+	const tied = (a: Nested, b: Nested, key: OrderKey): boolean => {
+		const x = identityAt(a, key)
+		return x !== undefined && x === identityAt(b, key)
+	}
+	const [first] = bound.order
+	const adjacent = Arr.zip(rows, Arr.drop(rows, 1))
+	if (first.dir === "desc" && Arr.some(adjacent, ([a, b]) => !tied(a, b, first))) {
+		note("a root take descending")
+	}
+	if (Arr.some(adjacent, ([a, b]) => Arr.every(bound.order, (key) => tied(a, b, key)))) {
+		note("a root take with tied order keys")
+	}
+}
+
 /** The host values of a read's parameters: each scalar one's value, each relation parameter's rows as records. */
 const hostParams = (
 	read: Extract<ProgramRead, { readonly kind: "query" }>
@@ -903,7 +961,7 @@ const queryAgain = (
 			c,
 			`${label}, read again over its facts stored otherwise`,
 			shape,
-			answerEquivalence(shape, read.query.delivery.kind === "ordered"),
+			answerEquivalence(shape, Option.isSome(deliveredOrder(read.query))),
 			[
 				{ side: "db.execute", output: first },
 				{ side: "db.execute, read again", output: plain },
@@ -939,7 +997,7 @@ const queryRead = (
 		const q = buildRoot(built, value, read.query)
 		const params = hostParams(read)
 		const shape = shapeOf(read.query)
-		const inOrder = read.query.delivery.kind === "ordered"
+		const inOrder = Option.isSome(deliveredOrder(read.query))
 		const expected = yield* Effect.try({
 			try: () => expectedQuery(c, read, observing(note)),
 			catch: (e) =>
@@ -958,6 +1016,7 @@ const queryRead = (
 			}
 			noteArms(shape, expected.success, note)
 			noteTakes(read.query, expected.success, note)
+			noteRootTake(read.query, expected.success, note)
 		}
 		const probe = read.probe
 		switch (probe.kind) {
@@ -1013,6 +1072,15 @@ const queryRead = (
 			: Result.fail(ended(result.cause))
 		const again = Exit.isSuccess(result) ? yield* answered(result.value.collect, shape) : execute
 		const compiled = yield* sideExit(reader.compile(q))
+		const unordered = Exit.isSuccess(compiled)
+			? unorderedArtifacts(compiled.value.compiled.template)
+			: []
+		if (inOrder && Arr.isReadonlyArrayNonEmpty(unordered)) {
+			return yield* new Disagreement({
+				check: "order",
+				report: `${label}: delivered in an order, its ${Arr.join(unordered, " and ")} statements state no ORDER BY\n${printCase(c)}`
+			})
+		}
 		const executed = (handle: CompiledReadValue) =>
 			answered(
 				Effect.flatMap(handle.execute(params), (r) => r.collect),

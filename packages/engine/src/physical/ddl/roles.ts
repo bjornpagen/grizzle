@@ -234,7 +234,7 @@ const useType = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 		)
 		use.domains.set(name.name, {
 			name,
-			identity: identity.bitsDomain(t.roster.closed, codec.size),
+			identity: identity.bitsDomain(t.roster.closed, codec.width),
 			node: b.typeNamed(name)
 		})
 	}

@@ -1,7 +1,7 @@
 import { Compute } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import type { Schema } from "#compiler/public/schema.ts"
+import type { Schema, StatementsByName } from "#compiler/public/schema.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as Q from "#test/support/fixtures/api/queue.ts"
 
@@ -9,7 +9,7 @@ import * as Q from "#test/support/fixtures/api/queue.ts"
 export type QueueInstalled = Schema<
 	string,
 	(typeof Q.Queue)["relations"],
-	(typeof Q.Queue)["statements"]
+	StatementsByName<(typeof Q.Queue)["statements"], (typeof Q.Queue)["relations"]>
 >
 
 /**

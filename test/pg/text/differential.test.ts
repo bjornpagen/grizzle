@@ -330,11 +330,11 @@ layer(Substrate.layer)(
 		 * The compile-space measures (core/limits.ts regexMaxPositions, regexMaxClosurePairs, regexMaxAnchors,
 		 * regexMaxAnchorWeight) must keep every admitted pattern inside what
 		 * PostgreSQL 19 compiles: it refuses none of them as too complex. How long a compile takes is no part of the
-		 * property, since the machine's load sets it; the session's statement timeout guards against a hang alone.
+		 * property, since the machine's load sets it; a compile that never ends is a hang, which the case's hang guard
+		 * reports.
 		 */
 		const compileWithin = (db: RawSession, are: string) =>
 			db.query("SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text", [are])
-		const hangGuard = "SET statement_timeout = '60s'"
 
 		/** The planted worst case of each budget. */
 		const atBound: Arr.NonEmptyReadonlyArray<readonly [string, Flags]> = [
@@ -366,7 +366,6 @@ layer(Substrate.layer)(
 					Effect.gen(function* () {
 						const s = yield* Substrate
 						const db = yield* s.session(ownerSession())
-						yield* db.query(hangGuard, [])
 						return yield* exhaust(
 							{
 								suite: "text/differential/at-bound",
@@ -397,7 +396,6 @@ layer(Substrate.layer)(
 				Effect.gen(function* () {
 					const s = yield* Substrate
 					const db = yield* s.session(ownerSession())
-					yield* db.query(hangGuard, [])
 					return yield* explore(
 						{
 							suite: "text/differential/nested",

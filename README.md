@@ -1372,7 +1372,27 @@ Every field says who writes it, and an insert or a put takes exactly the fields 
   `start` its value where the axis begins.
 - **The identity:** a serial field, which an insert may leave out ([Writes](#writes)).
 
-A fact and a query's row hold every field. A primary key holds no set, generated or accumulated field.
+A fact and a query's row hold every field. A primary key holds no set, generated or accumulated field, and no key
+holds a generated field: no fact carries its value, so no write could check it, and such a schema is refused when it
+compiles (`UnwritableRelation`, `generatedKey`).
+
+grizzle fills every value it writes in an order the schema fixes, and a schema in which a field would be read before
+it is filled is refused when it compiles, never at its first write. An insert fills each row on entering it: its
+caller's and generated fields, its counts, its index, a tree's `start` and `end` (its subtree's size is known from the
+nesting), and every copy it takes from its owner or from the member before it. Then it fills the members of each
+ordered family and tree the row owns, nested under it, and on leaving the row what it reads off them: a fold's end and
+a copy along a last axis. A counted family fills its own members after that, from their owner's whole row, and then
+its own fold's end. So:
+
+- a copy along an ordered family's or a tree's owner axis reads a column its owner fills on entering it, never a
+  fold's end, a copy along a last axis, or a column read from one;
+- a copy along a counted family's owner axis reads any column of its owner but the end of a fold over that family;
+- a counted family's count and fold ends are read only by that family's own members and ends: no other family's copy,
+  fold step or selection reads them;
+- no row's columns read each other in a cycle, as copies along a tree's owner axis can at its root.
+
+A schema that breaks one of these is refused as `UnfillableField`, naming the field, the law that fills it, the column
+it reads, the axis it reads it along, and why that column is filled later.
 
 ### Closed relations
 
@@ -1540,8 +1560,13 @@ A family is a rule over rows the caller writes: each owner's members, counted by
   joined by it. The family's axes key each running text, so its pieces and accumulators are text of a bounded pattern
   ([Limits](#limits)).
 
-A relation is a member of at most one ordered family or tree, which orders it, and of any number of counted families,
-each with its own hidden columns and foreign keys; one count counts one family.
+A relation is a member of at most one ordered family or tree, which orders it, or of any number of counted families,
+each with its own hidden columns and foreign keys, never of both, and a counted family's member owns no ordered family
+or tree: a sequence's members are written nested under their owner and a counted family's are rows of their own, so
+no write would fill such a relation, and it is refused when the schema compiles (`UnwritableRelation`,
+`countedAndSequence`). Ordered families that nest each other in a cycle, an ordered family of a relation over itself
+among them, are refused the same way (`nestingCycle`), since no row of them could be written first. One count counts
+one family.
 
 grizzle owns every value a family holds: each count, index, interval, copy and accumulator is drawn on the host on
 every write and proved by PostgreSQL, never written by the caller. A fold's running `after` is no generated column: it
@@ -1728,9 +1753,9 @@ Six things work differently from SQL:
   through `find` whenever the chosen columns still determine the row. `db.get` takes only a query that returns at most
   one row, an `"option"` or `"one"` nested result needs the same proof, and a page is ordered by a key. A delivery the
   schema does not prove is a type error. `.orderBy(...).take(k)` is a set again to whatever composes with it, a match,
-  a further rule or a query's result, which only a final `orderBy` orders, and `take(1)` returns at most one row. Its
-  order is for delivery: a nested `"array"` that ends in a take arrives in the take's order, ties broken by the child
-  query's key.
+  a further rule, a derived relation or a role's query entry, and `take(1)` returns at most one row. Its order is for
+  delivery: a query or a nested `"array"` that ends in a take arrives in the take's order, ties broken by the query's
+  key, and a final `orderBy` after the take orders it anew.
 - **Variables belong to their columns.** In one rule, two variables made from the same column of a table the rule
   matches once are refused, and the error shows the rewrite: make the variable where it is bound, or match the table
   again.
@@ -2541,10 +2566,10 @@ workflows, whose rules are worth declaring and whose users see different slices 
   `str.regex` field's domain CHECK among them, and a query matches or collapses only a text whose pattern bounds it
   within.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
-- **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted
-  families. A tree is written whole, by inserting its root with the whole tree nested. A ChangeSet's write of a
-  relation that is both a family's member, outside a tree, and an owner of a family is refused: a member's edit does
-  not reach the families it owns, which only a nesting draws.
+- **A relation is a member of at most one ordered family or tree**, which orders it, or of any number of counted
+  families, never of both ([Families](#families)). A tree is written whole, by inserting its root with the whole tree
+  nested. A put or a delete of a family's member that owns an ordered family or a tree is refused: a member's edit does
+  not reach the rows nested under it, which only an insert of its owner writes.
 - **An insert or a put of an owner from a query cannot share its ChangeSet with an append to the owner's family.** An
   owner the ChangeSet inserts and appends members to holds its final count and ends in its own row, since PostgreSQL
   checks a row's CHECKs as it inserts the row, and grizzle draws them on the host from the facts the ChangeSet states;

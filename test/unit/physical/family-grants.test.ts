@@ -476,6 +476,7 @@ const literalOf = (e: Expr): string | undefined => {
 			return `num:${e.value.value}`
 		case "text":
 			return `text:${Str.toLowerCase(e.value.value)}`
+		case "bits":
 		case "float":
 		case "floatSpecial":
 			return undefined

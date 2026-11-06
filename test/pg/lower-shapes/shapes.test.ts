@@ -2,94 +2,53 @@ import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
 import { array, type Gen, int } from "@grizzle/testing/gen"
-import { exact, ordered, set } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, pipe, Record as Rec, String as Str } from "effect"
-import { resultTextCasts, type ScalarCodec, scalarCodec } from "#compiler/codec/scalar.ts"
+import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } from "effect"
+import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { type Codebook, codecOf, codeOf } from "#compiler/ir/codes.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
-import type { LogicalQuery } from "#compiler/ir/products.ts"
-import type {
-	CompletedOrder,
-	Heading,
-	HeadingColumn,
-	NodeOf,
-	RelDag,
-	RelNode,
-	ValidDag
-} from "#compiler/ir/rel.ts"
+import { codecOf, codeOf } from "#compiler/ir/codes.ts"
+import type { Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
-import { parentColumnsOf, statementRows } from "#compiler/lower/conservative/deliver.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
 	conservativeInput,
 	type ConservativeParamSlot,
 	type ConservativeProgram,
-	deliveredHeading,
 	flight,
 	statementOutput
 } from "#compiler/lower/conservative/types.ts"
-import { fusedTexts } from "#compiler/lower/shapes/attach/decode.ts"
-import {
-	fusedLayout,
-	pipelinedAttachment,
-	withFusedAttachments
-} from "#compiler/lower/shapes/attach/index.ts"
-import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import { decorrelatedTake } from "#compiler/lower/shapes/take/index.ts"
-import { groupRows } from "#compiler/lower/shapes/union/index.ts"
-import type { Select } from "#compiler/sql/ast.ts"
-import { emit } from "#compiler/sql/emit.ts"
-import { renameToPublicHeading } from "#compiler/sql/naming.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { defined, unorderedEqual } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { fixtureGroup, type ResetGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
-import { relations, T, Task, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
+import { relations, Task, uuidOf } from "#test/unit/lower/conservative/fixtures.ts"
 import * as Cases from "#test/unit/lower/conservative/queries.ts"
-import {
-	accountsWithAmounts,
-	amountsPerAccount,
-	type ConditionalForm,
-	conditional,
-	tasksByKind,
-	topAmounts
-} from "#test/unit/lower/shapes/queries.ts"
+import { type ConditionalForm, conditional } from "#test/unit/lower/shapes/queries.ts"
 
 import { jsonText } from "#compiler/core/trusted.ts"
 import { caseHang } from "#test/support/limits.ts"
-import {
-	context,
-	shapedFacts,
-	shapedProgram,
-	testOptions
-} from "#test/unit/lower/shapes/support.ts"
+import { shapedFacts, shapedProgram, testOptions } from "#test/unit/lower/shapes/support.ts"
 
 /**
  * The lowering shapes on PostgreSQL 19 (packages/engine/src/lower/shapes), where no generator reaches them yet.
  *
- * The ledger fixture installs under a fresh schema, and each shape is checked against the conservative lowering, the
- * oracle baseline that deduplicates at every set boundary, by raw text row sets and with no repeated row:
- *
- * - an unsound fact in each shape (uniqueness, contribution exactness, uniqueness per parent) reproduces a
- *   counterexample the sound facts do not;
- * - the conditional aggregate's count(*) FILTER and CASE sum (R24.conditionalCount) agree with the composition where no
- *   binding, some and every binding satisfies the predicate, the case a filtered sum gets wrong.
+ * The ledger fixture installs under a fresh schema, and the conditional aggregate's count(*) FILTER and CASE sum
+ * (R24.conditionalCount) are checked against the conservative lowering, the oracle baseline that deduplicates at every
+ * set boundary, by raw text row sets and with no repeated row, over generated groups where no binding, some and every
+ * binding satisfies the predicate, the case a filtered sum gets wrong.
  *
  * Every other shape is the generated suites': the per-group takes, heading groups and the VALUES transport the
  * optimized differential's (test/pg/oracle/optimized), and the fused and pipelined attachments, spellings and
  * array_out quoting the public-boundary differential's (test/pg/oracle/public), decoded as an application reads them.
+ * That the oracle tells a shape resting on an unsound fact from a sound one is the optimized differential's mutant
+ * populations (test/pg/oracle/optimized/counterexamples.ts): each invalid rewrite is killed on its population.
  */
 
 /** The fixture's physical names, its codebook among them: the names the lowerings under test emit. */
 const namesOf = (schema: string) => testOptions(schema).names
-
-/** The fixture's codes, which no schema name changes: what every delivered closed id decodes by. */
-const fixtureCodes = (): Codebook => namesOf("shapes").codes
 
 /** A roster's domain in the fixture's schema, quoted: what a closed id's column and literal are typed by. */
 const rosterDomainSql = (schema: string, roster: string): string => {
@@ -274,151 +233,6 @@ const runProgram = (program: ConservativeProgram, params: Params) =>
 		return ran
 	})
 
-/** One query delivered as a statement of the context: renamed, audited, printed, with its parameter values. */
-const statementOf = (
-	cx: ReturnType<typeof context>,
-	query: Select,
-	names: ReadonlyArray<string>,
-	params: Params
-): { readonly text: string; readonly values: ReadonlyArray<string> } => {
-	const renamed = succeeded(renameToPublicHeading(query, names))
-	const text = succeeded(emit(renamed, cx.supply.map())).text
-	return { text, values: Arr.map(cx.params.slots, (slot) => slotValue(params, slot)) }
-}
-
-/**
- * The problems of a shaped run against the conservative oracle's, statement by statement: a different row set (or
- * sequence, for an ordered statement) or a repeated row. Empty when they agree.
- */
-const disagreements = (
-	base: ReadonlyArray<Ran>,
-	shaped: ReadonlyArray<Ran>,
-	orderedStatements: ReadonlyArray<number>
-): ReadonlyArray<string> => {
-	const out: Array<string> = []
-	if (base.length !== shaped.length) {
-		out.push(`${shaped.length} statements, not ${base.length}`)
-	}
-	for (const [i, ran] of shaped.entries()) {
-		const want = base[i]?.text ?? []
-		const difference = (orderedStatements.includes(i) ? ordered(exact) : set(exact))(ran.text, want)
-		if (Option.isSome(difference)) {
-			out.push(`statement ${i}: ${Formatter.format(ran.text)} for ${Formatter.format(want)}`)
-		}
-		if (new Set(ran.text).size !== ran.text.length) {
-			out.push(`statement ${i} repeats a row`)
-		}
-	}
-	return out
-}
-
-/**
- * A query delivering a parent with attachments: the parent node, the attachments from the root down, the spine the
- * children correlate to, and the parent's delivery order when the root is an ordered result.
- */
-interface Attached {
-	readonly query: { readonly dag: ValidDag; readonly root: RelNode }
-	readonly parent: RelNode
-	readonly attaches: ReadonlyArray<NodeOf<"Attach">>
-	readonly spine: ReadonlyArray<RelNode>
-	readonly order: CompletedOrder | undefined
-}
-
-const attachedOf = (query: { readonly dag: ValidDag; readonly root: RelNode }): Attached => {
-	const top = query.root
-	const order = top.kind === "OrderedResult" ? top.order : undefined
-	let node = top.kind === "OrderedResult" ? top.input : top
-	const attaches: Array<NodeOf<"Attach">> = []
-	const spine: Array<RelNode> = []
-	while (node.kind === "Attach") {
-		attaches.push(node)
-		spine.push(node)
-		node = node.parent
-	}
-	spine.push(node)
-	return { query, parent: node, attaches, spine, order }
-}
-
-/**
- * Nested results: the parent rows in delivery order, each a record of column texts, and per attachment the child
- * rows (column texts joined by |) of each parent, keyed by the texts of the parent columns the child reads.
- */
-interface Nested {
-	readonly parents: ReadonlyArray<Readonly<Record<string, string>>>
-	readonly children: ReadonlyArray<{
-		readonly keys: ReadonlyArray<string>
-		readonly sets: ReadonlyMap<string, ReadonlyArray<string>>
-	}>
-}
-
-const recordOf = (heading: Heading, row: ReadonlyArray<string>): Readonly<Record<string, string>> =>
-	Rec.fromEntries(Arr.map(heading, (h, i) => [h.name, defined(row[i], "column")]))
-
-const keyOf = (row: Readonly<Record<string, string>>, keys: ReadonlyArray<string>): string =>
-	Arr.join(
-		Arr.map(keys, (k) => defined(row[k], `the key column ${k}`)),
-		"|"
-	)
-
-/**
- * A child value's text as the host delivers it: PostgreSQL's text converted by the column's codec and printed back, so
- * every form is compared on the values the library returns (a float's -0 is the host's one zero).
- */
-const delivered = (codec: ScalarCodec, text: string): string => codec.text(codec.convert(text))
-
-/** Child rows of a statement whose columns are the parent key columns, then the child's heading. */
-const childSets = (
-	rows: ReadonlyArray<ReadonlyArray<string>>,
-	keyCount: number,
-	child: Heading
-) => {
-	const codecs = Arr.map(child, (h) => scalarCodec(h.type, fixtureCodes()))
-	const sets = new Map<string, Array<string>>()
-	for (const row of rows) {
-		const key = Arr.join(row.slice(0, keyCount), "|")
-		const values = Arr.map(row.slice(keyCount), (text, j) =>
-			delivered(defined(codecs[j], "codec"), text)
-		)
-		sets.set(key, [...(sets.get(key) ?? []), Arr.join(values, "|")])
-	}
-	return sets
-}
-
-/**
- * The problems of one nested result against another: parents in order (or as a set) and each parent's children in
- * the attachment's order (or as a set, which fails on a repeated child).
- */
-const nestedDisagreements = (
-	want: Nested,
-	got: Nested,
-	attached: Attached
-): ReadonlyArray<string> => {
-	const out: Array<string> = []
-	const parentsAgree = attached.order === undefined ? set(exact) : ordered(exact)
-	if (Option.isSome(parentsAgree(want.parents, got.parents))) {
-		out.push(`parents ${Formatter.format(got.parents)} for ${Formatter.format(want.parents)}`)
-	}
-	for (const [i, attach] of attached.attaches.entries()) {
-		const a = want.children[i]
-		const b = got.children[i]
-		if (a === undefined || b === undefined) {
-			out.push(`no children for ${attach.name}`)
-			continue
-		}
-		for (const parent of want.parents) {
-			const x = a.sets.get(keyOf(parent, a.keys)) ?? []
-			const y = b.sets.get(keyOf(parent, b.keys)) ?? []
-			const childrenAgree = attach.order === undefined ? set(exact) : ordered(exact)
-			if (Option.isSome(childrenAgree(x, y))) {
-				out.push(
-					`${attach.name} of ${Formatter.format(parent)}: ${Formatter.format(y)} for ${Formatter.format(x)}`
-				)
-			}
-		}
-	}
-	return out
-}
-
 const conservative = (
 	query: { readonly dag: ValidDag; readonly root: RelNode },
 	schema: string
@@ -429,158 +243,6 @@ const conservative = (
 	}
 	return r.value
 }
-
-/**
- * The conservative program's nested result, the oracle: its parent statement, then one attachment statement per
- * attachment from the root down, each the parent key columns and then the child's heading, always deduplicated.
- */
-const oracleNested = (attached: Attached, schema: string) =>
-	Effect.gen(function* () {
-		const program = conservative(attached.query, schema)
-		const ran = yield* runProgram(program, {})
-		const main = flight(program.roots)[0]
-		return {
-			parents: Arr.map(defined(ran[0], "parent run").columns, (r) => recordOf(main.heading, r)),
-			children: Arr.map(attached.attaches, (attach, i) => {
-				const statement = flight(program.roots)[i + 1]
-				if (statement?.role.kind !== "attachment") {
-					throw new Error(`a statement for ${attach.name}`)
-				}
-				const key = statement.role.parentKey
-				return {
-					keys: Arr.map(key, (h) => h.name),
-					sets: childSets(
-						defined(ran[i + 1], "child run").columns,
-						key.length,
-						deliveredHeading(statement.heading)
-					)
-				}
-			})
-		} satisfies Nested
-	})
-
-/**
- * The pipelined form: the shaped parent statement, then this package's pipelinedAttachment per attachment, which
- * computes the parent's rows again in its own statement, stitched by parent key.
- */
-const pipelinedNested = (attached: Attached, facts: ShapeFacts, schema: string) =>
-	Effect.gen(function* () {
-		const options = testOptions(schema)
-		const main = flight(shapedProgram(attached.query, facts, options).roots)[0]
-		const parentRan = yield* runText(
-			main.sql.text,
-			statementOutput(main.role, main.heading, []).heading,
-			Arr.map(main.params, (slot) => slotValue({}, slot))
-		)
-		const children: Array<Nested["children"][number]> = []
-		for (const attach of attached.attaches) {
-			const cx = context(attached.query.dag, facts, options)
-			const parentKey = parentColumnsOf(cx, attach, attached.spine, attached.parent.heading)
-			const p = pipelinedAttachment(
-				cx,
-				attach,
-				attached.spine,
-				{
-					...statementRows(attached.parent.heading, () => cx.lower(attached.parent, new Map())),
-					identity: { kind: "node", node: attached.parent },
-					bound: { kind: "unbounded" },
-					searches: false
-				},
-				facts,
-				parentKey
-			)
-			const child = deliveredHeading(attach.child.heading)
-			const heading = [...parentKey, ...child]
-			const s = statementOf(
-				cx,
-				p.query,
-				Arr.map(heading, (h) => h.name),
-				{}
-			)
-			const rows = yield* runText(s.text, heading, s.values)
-			children.push({
-				keys: Arr.map(parentKey, (h) => h.name),
-				sets: childSets(rows.columns, parentKey.length, child)
-			})
-		}
-		return {
-			parents: Arr.map(parentRan.columns, (r) => recordOf(main.heading, r)),
-			children
-		} satisfies Nested
-	})
-
-/**
- * The fused form: one statement, each attachment an ARRAY(SELECT ...) column decoded with its layout's codec and each
- * child value printed back with its scalar codec, so a decoding that lost 1.0 against 1.00, NaN, a money scale or
- * a quoted text element shows as a difference from the pipelined texts PostgreSQL printed.
- */
-const fusedNested = (attached: Attached, facts: ShapeFacts, schema: string) =>
-	Effect.gen(function* () {
-		const { parent, query } = attached
-		const cx = context(query.dag, facts, testOptions(schema))
-		const fused = withFusedAttachments(
-			cx,
-			cx.lower(parent, new Map()),
-			() => cx.lower(parent, new Map()),
-			parent.heading,
-			parent,
-			attached.spine,
-			attached.attaches,
-			facts,
-			attached.order
-		)
-		const heading: Heading = [
-			...parent.heading,
-			...Arr.map(attached.attaches, (a) => ({ name: a.name, type: T.text }))
-		]
-		const s = statementOf(
-			cx,
-			fused.query,
-			Arr.map(heading, (h) => h.name),
-			{}
-		)
-		const ran = yield* runText(s.text, heading, s.values)
-		const width = parent.heading.length
-		const children = Arr.map(attached.attaches, (attach, i) => {
-			const child = attach.child
-			const texts = fusedTexts(fusedLayout(attach, child.heading, parent.heading), (column) => {
-				const p = Option.getOrThrowWith(
-					Arr.findFirstIndex(parent.heading, (h) => h.name === column),
-					() => new Error("a column the case's own heading holds")
-				)
-				return (row) => defined(row[p], `the parent column ${column}`)
-			})
-			const codecs = Arr.map(child.heading, (h) => scalarCodec(h.type, fixtureCodes()))
-			const keys = Arr.map(
-				Arr.filter(parent.heading, (h) => Arr.some(attach.correlation, (c) => c.parent === h.name)),
-				(h) => h.name
-			)
-			const sets = new Map<string, ReadonlyArray<string>>()
-			for (const row of ran.columns) {
-				const decoded = texts(defined(row[width + i], "attachment column"), row.slice(0, width))
-				sets.set(
-					keyOf(recordOf(parent.heading, row), keys),
-					Arr.map(decoded, (r) =>
-						Arr.join(
-							Arr.map(r, (text, j) => delivered(defined(codecs[j], "codec"), text)),
-							"|"
-						)
-					)
-				)
-			}
-			return { keys, sets }
-		})
-		return {
-			parents: Arr.map(ran.columns, (r) => recordOf(parent.heading, r.slice(0, width))),
-			children
-		} satisfies Nested
-	})
-
-const takeOf = (dag: RelDag): NodeOf<"Take"> =>
-	Option.getOrThrowWith(
-		Arr.findFirst(topoOrder(dag), (n): n is NodeOf<"Take"> => n.kind === "Take"),
-		() => new Error("a take")
-	)
 
 /**
  * The Task facts an R24 case installs, each a binding of one of three accounts with an amount from a small range, and
@@ -714,109 +376,5 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 					)
 				})
 			)
-	)
-
-	it.effect(
-		"an unsound fact in each shape reproduces a counterexample the sound facts do not",
-		() =>
-			Effect.gen(function* () {
-				const schema = yield* installed
-				const options = testOptions(schema)
-				/**
-				 * Each shape is driven by the facts of an analysis whose placement leaves the shape's own obligation to the
-				 * shape (`shapes`), so its input carries the repeats Posting's (A, 100) and the overlapping manual arms
-				 * give it; the mutant states the uniqueness or exactness the elision would need.
-				 */
-				const unique = { unique: () => true }
-				const perParent = { childUniquePerParent: () => true, keyedBy: () => true }
-				/** A query of no parameters, its statements compared in order where `ordered` lists them. */
-				const program = (
-					query: LogicalQuery,
-					ordered: ReadonlyArray<number>,
-					overrides: Partial<ShapeFacts>
-				) =>
-					Effect.gen(function* () {
-						const base = yield* runProgram(conservative(conservativeInput(query), schema), {})
-						const { facts } = shapedFacts(query.dag, overrides, "shapes")
-						const shaped = yield* runProgram(
-							shapedProgram(conservativeInput(query), facts, options),
-							{}
-						)
-						return disagreements(base, shaped, ordered)
-					})
-				const topAmountsFaults = yield* program(topAmounts().query, [0], {})
-				assert.deepEqual(topAmountsFaults, [])
-				const topAmountsUnsound = yield* program(topAmounts().query, [0], unique)
-				assert.ok(topAmountsUnsound.length > 0, "a unique fact the take does not have disagrees")
-				/** take, row_number and DISTINCT ON over every group: (A, 100) ranks first and second. */
-				const perGroup = (
-					shape: "distinctOn" | "rowNumber",
-					k: bigint,
-					overrides: Partial<ShapeFacts>
-				) =>
-					Effect.gen(function* () {
-						const built = amountsPerAccount({ kind: "literal", k })
-						const composed = yield* runProgram(conservative(conservativeInput(built), schema), {})
-						const base = defined(composed[0], "statement run")
-						const { facts } = shapedFacts(built.dag, overrides, "shapes")
-						const cx = context(built.dag, facts, options)
-						const d = decorrelatedTake(takeOf(built.dag), cx, new Map(), facts, shape)
-						const s = statementOf(cx, d.query, ["account", "amount"], {})
-						const taken = yield* runText(s.text, 2, s.values)
-						return disagreements([base], [taken], [])
-					})
-				const rowNumberFaults = yield* perGroup("rowNumber", 2n, {})
-				assert.deepEqual(rowNumberFaults, [])
-				const distinctOnFaults = yield* perGroup("distinctOn", 1n, {})
-				assert.deepEqual(distinctOnFaults, [])
-				const rowNumberUnsound = yield* perGroup("rowNumber", 2n, unique)
-				assert.ok(
-					rowNumberUnsound.length > 0,
-					"a unique fact the per-group take does not have disagrees"
-				)
-				/** union: the delivered manual group repeats t2 under UNION ALL. */
-				const group = (overrides: Partial<ShapeFacts>) =>
-					Effect.gen(function* () {
-						const built = tasksByKind({ kind: "every row" }, true)
-						const union = built.dag.roots[0]
-						if (union.kind !== "Union") {
-							throw new Error("a union")
-						}
-						const composed = yield* runProgram(conservative(conservativeInput(built), schema), {})
-						const base = defined(composed[1], "statement run")
-						const { facts } = shapedFacts(built.dag, overrides, "shapes")
-						const gx = context(built.dag, facts, options)
-						const s = statementOf(
-							gx,
-							groupRows(gx, union, defined(union.groups[1]), new Map(), facts),
-							["kind", "id"],
-							{}
-						)
-						const grouped = yield* runText(s.text, 2, s.values)
-						return disagreements([base], [grouped], [])
-					})
-				const groupFaults = yield* group({})
-				assert.deepEqual(groupFaults, [])
-				const groupUnsound = yield* group(unique)
-				assert.ok(
-					groupUnsound.length > 0,
-					"a unique fact the delivered group does not have disagrees"
-				)
-				/** attach, pipelined and fused: A's children hold (A, 100) twice. */
-				const attached = attachedOf(conservativeInput(accountsWithAmounts().query))
-				const oracle = yield* oracleNested(attached, schema)
-				const sound = shapedFacts(attached.query.dag, {}, "shapes").facts
-				const unsound = shapedFacts(attached.query.dag, perParent, "shapes").facts
-				const pipelinedSound = yield* pipelinedNested(attached, sound, schema)
-				assert.deepEqual(nestedDisagreements(oracle, pipelinedSound, attached), [])
-				const fusedSound = yield* fusedNested(attached, sound, schema)
-				assert.deepEqual(nestedDisagreements(oracle, fusedSound, attached), [])
-				const pipelinedUnsound = yield* pipelinedNested(attached, unsound, schema)
-				const pipelined = nestedDisagreements(oracle, pipelinedUnsound, attached)
-				assert.ok(pipelined.length > 0, "an unsound fact disagrees in the pipelined attachment")
-				const fusedUnsound = yield* fusedNested(attached, unsound, schema)
-				const fused = nestedDisagreements(oracle, fusedUnsound, attached)
-				assert.ok(fused.length > 0, "an unsound fact disagrees in the fused attachment")
-			})
 	)
 })

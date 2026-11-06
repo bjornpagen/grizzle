@@ -42,6 +42,7 @@ import {
 import { type WorkloadPhysical, workloadExtension } from "#compiler/physical/access/extension.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { statisticsKinds } from "#compiler/physical/statistics/statistics.ts"
+import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { own } from "#compiler/schema/own.ts"
 import type { ColumnDef } from "#compiler/sql/ast.ts"
 import { types as sqlTypes } from "#compiler/sql/build.ts"
@@ -916,7 +917,7 @@ const statisticsWorkload = (v: Version): WorkloadPhysical | undefined => {
 	if (requests.length === 0) {
 		return undefined
 	}
-	const owned = EngineResult.flatMap(decodeDesc("schema", v.desc), (desc) => own(desc))
+	const owned = EngineResult.flatMap(admitSchemaDesc(v.desc), (desc) => own(desc))
 	if (!owned.ok) {
 		throw new Error(owned.error.message)
 	}

@@ -1,10 +1,12 @@
 import { limitEvidence } from "#lint/rules/limit-evidence.ts"
+import { noCaseList } from "#lint/rules/no-case-list.ts"
 import { noEnvironment } from "#lint/rules/no-environment.ts"
 import { noModuleState } from "#lint/rules/no-module-state.ts"
 import { noOptionalPublicInput } from "#lint/rules/no-optional-public-input.ts"
 import { noSpreadArgument } from "#lint/rules/no-spread-argument.ts"
 import { noNullUndefinedUnion } from "#lint/rules/null-undefined-union.ts"
 import { sqlTextAssertion } from "#lint/rules/sql-text-assertion.ts"
+import { testCaseIsSearch } from "#lint/rules/test-case-is-search.ts"
 import { uncheckedVocabularyLiteral } from "#lint/rules/unchecked-vocabulary-literal.ts"
 import type { Start } from "#lint/types.ts"
 
@@ -27,6 +29,7 @@ export type Rule = Readonly<{ id: string; start: Start; scope: Scope; gate: Gate
  * guard in a repository is inert there. A rule that reads nothing but the file starts as its own Visit. */
 export const RULES: ReadonlyArray<Rule> = [
 	{ id: "limit-evidence", start: () => limitEvidence, scope: "every file", gate: "on" },
+	{ id: "no-case-list", start: noCaseList, scope: "every file", gate: "pending" },
 	{ id: "no-environment", start: () => noEnvironment, scope: "every file", gate: "on" },
 	{ id: "no-module-state", start: () => noModuleState, scope: "outside tests", gate: "on" },
 	{
@@ -43,6 +46,7 @@ export const RULES: ReadonlyArray<Rule> = [
 	},
 	{ id: "no-spread-argument", start: () => noSpreadArgument, scope: "every file", gate: "on" },
 	{ id: "sql-text-assertion", start: () => sqlTextAssertion, scope: "every file", gate: "on" },
+	{ id: "test-case-is-search", start: testCaseIsSearch, scope: "every file", gate: "pending" },
 	{
 		id: "unchecked-vocabulary-literal",
 		start: () => uncheckedVocabularyLiteral,

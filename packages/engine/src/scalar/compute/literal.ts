@@ -1,4 +1,5 @@
 import { taggedValueOf } from "#compiler/core/canonical.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { VectorText, vectorTag } from "#compiler/ir/carriers.ts"
@@ -129,7 +130,30 @@ const taggedMoney = (value: unknown): Money | undefined => {
 export const irLiteral = (
 	value: LiteralDesc,
 	t: ScalarType
-): Result.Result<CarriedLiteral, string> => {
+): Result.Result<CarriedLiteral, string> =>
+	Result.flatMap(carriedOf(value, t), (carried) => {
+		const problem = literalProblem(carried.literal, t)
+		return problem === undefined ? Result.ok(carried) : Result.err(problem)
+	})
+
+/**
+ * The typed IR literal of an admitted closed relation's cell at its field's type (ir/desc.ts AdmittedClosedRelation):
+ * its admission proved it a value of the type's base, of the host kind the type reads, so it is converted and never
+ * checked again. A cell no admission proved is no AdmittedClosedRelation's, so a refusal here is a defect.
+ */
+export const admittedLiteral = (value: LiteralDesc, t: ScalarType): CarriedLiteral => {
+	const carried = carriedOf(value, t)
+	if (!carried.ok) {
+		throw defect(`an admitted cell is a value of its field's type: ${carried.error}`)
+	}
+	return carried.value
+}
+
+/**
+ * The typed IR literal of `value` at `t` and its carrier value, as `value`'s host kind gives it, or why its host kind
+ * is none `t` reads: irLiteral's conversion, before it is held to `t`'s base (literalProblem).
+ */
+const carriedOf = (value: LiteralDesc, t: ScalarType): Result.Result<CarriedLiteral, string> => {
 	const base = baseOf(t)
 	/**
 	 * A decoded Description's span holds its two endpoints.
@@ -139,10 +163,7 @@ export const irLiteral = (
 	const finish = (
 		literal: TypedLiteral,
 		carrierValue: CarrierValue
-	): Result.Result<CarriedLiteral, string> => {
-		const problem = literalProblem(literal, t)
-		return problem === undefined ? Result.ok({ literal, value: carrierValue }) : Result.err(problem)
-	}
+	): Result.Result<CarriedLiteral, string> => Result.ok({ literal, value: carrierValue })
 	switch (base.carrier) {
 		case "int2":
 		case "int4": {

@@ -524,6 +524,45 @@ export const bindWrite = (
 			fact
 		}
 	}
+	/**
+	 * Each family's view of its owners' recounts by the stratum's planned edits: for every family, by its key, each owner's
+	 * counts and ends that the edits of its owner's other families draw, by group key text; none where no other family of
+	 * its owner recounts it.
+	 */
+	const recountsOf = (
+		plans: ReadonlyArray<EditedTarget>
+	): ReadonlyMap<string, ReadonlyMap<string, Values>> => {
+		const drawn = plans.flatMap(({ target, edited }) =>
+			edited.owners.map((write) => ({
+				family: defined(
+					target.families.find((f) => familyKey(f.family.id) === familyKey(write.family)),
+					"an edited relation's family"
+				).family,
+				recounts: write.recounts
+			}))
+		)
+		const out = new Map<string, Map<string, Values>>()
+		for (const family of frontend.laws.families) {
+			for (const other of drawn) {
+				if (
+					other.family.owner.name !== family.owner.name ||
+					familyKey(other.family.id) === familyKey(family.id)
+				) {
+					continue
+				}
+				const byGroup = out.get(familyKey(family.id)) ?? new Map<string, Values>()
+				for (const [text, recount] of other.recounts) {
+					const recounted = new Map(byGroup.get(text) ?? [])
+					for (const [name, value] of recountValues(ctx, other.family, recount)) {
+						recounted.set(fieldKey(name), value)
+					}
+					byGroup.set(text, recounted)
+				}
+				out.set(familyKey(family.id), byGroup)
+			}
+		}
+		return out
+	}
 	/** The slots of an owner relation in a stratum that carry its counts and ends: a plain insert's or an enumerated
 	 * put's that starts them (frontend/compile.ts EnumeratedInput "single"), and a nested insert's. */
 	const ownerSlots = (stratum: number, relation: string): ReadonlyArray<ParamId> =>
@@ -558,14 +597,16 @@ export const bindWrite = (
 			)
 			const editedPlans: Array<RelationPlanAt> = []
 			const counts: Array<Phase<"count">> = []
-			const editsPlanned: Array<EditedTarget> = []
+			const reading: Array<{
+				readonly bound: BoundEdit
+				readonly stored: ReadonlyMap<string, StoredFamily>
+			}> = []
 			for (const bound of edits.filter((e) => e.program.edit.stratum === stratum)) {
-				const { target } = bound.program
-				const stored = new Map<string, StoredFamily>()
+				const storedOf = new Map<string, StoredFamily>()
 				for (const read of bound.reads) {
 					const decoded = decodeRead(
 						ctx,
-						target,
+						bound.program.target,
 						read.family,
 						read.shape,
 						read.at.flatMap((i) => defined(rows[i], `the rows of read ${i}`))
@@ -573,14 +614,43 @@ export const bindWrite = (
 					if (!decoded.ok) {
 						return decoded
 					}
-					stored.set(familyKey(read.family.id), decoded.value)
+					storedOf.set(familyKey(read.family.id), decoded.value)
 				}
-				const edited = planEdits(ctx, target, bound.changes, stored, bound.owners)
-				if (!edited.ok) {
-					return edited
-				}
-				editsPlanned.push({ target, edited: edited.value })
+				reading.push({ bound, stored: storedOf })
 			}
+			/** The stratum's edits planned with each family's owners read over by `recounted`, every other family's
+			 * recounts of the stratum by owner relation and group (`recountsOf`). */
+			const planAll = (
+				recounted: ReadonlyMap<string, ReadonlyMap<string, Values>>
+			): Result.Result<ReadonlyArray<EditedTarget>, EncodingFailure | CompileError> => {
+				const plannedEdits: Array<EditedTarget> = []
+				for (const { bound, stored: storedOf } of reading) {
+					const target = bound.program.target
+					const edited = planEdits(ctx, target, bound.changes, storedOf, (family) => ({
+						stated: bound.owners(family),
+						plain: !frontend.laws.families.some((f) => f.member.name === family.owner.name),
+						recounted: recounted.get(familyKey(family.id)) ?? new Map<string, Values>()
+					}))
+					if (!edited.ok) {
+						return edited
+					}
+					plannedEdits.push({ target, edited: edited.value })
+				}
+				return Result.ok(plannedEdits)
+			}
+			/** The edits planned from the owners as the reads found them, then again from the owners with every other
+			 * family's recounts over them, which each family's count statement writes before any member is inserted: a
+			 * recount reads no column another family's recount writes, so the second plan's are final. */
+			const first = planAll(new Map())
+			if (!first.ok) {
+				return first
+			}
+			const recounted = recountsOf(first.value)
+			const second = recounted.size === 0 ? first : planAll(recounted)
+			if (!second.ok) {
+				return second
+			}
+			const editsPlanned = second.value
 			for (const [i, edited] of foldRecounts(ctx, editsPlanned).entries()) {
 				const { target } = defined(editsPlanned[i], "a planned edit")
 				const rowsPlan = planRelation(edited.rows, inputs.transport)

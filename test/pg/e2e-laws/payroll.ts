@@ -7,7 +7,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import type { AnyLoginRole, LevelsOf, Schema } from "#compiler/public/schema.ts"
+import type { AnyLoginRole, LevelsOf, Schema, StatementsByName } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { type Fixture, openFixture } from "#test/pg/e2e-laws/support.ts"
 import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
@@ -22,7 +22,7 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
 export type PayrollInstalled = Schema<
 	string,
 	(typeof P.Payroll)["relations"],
-	(typeof P.Payroll)["statements"]
+	StatementsByName<(typeof P.Payroll)["statements"], (typeof P.Payroll)["relations"]>
 >
 /** The fixture's worlds over the installed Payroll. */
 export type PayrollWorlds = ReturnType<typeof P.reportingWorlds>

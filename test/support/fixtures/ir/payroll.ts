@@ -15,7 +15,6 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
 import { asc, type BuiltQuery, Ir, keyed, SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import {
-	type SchemaDesc as AuthoredSchemaDesc,
 	type AuthoredStatementDesc,
 	alternatives,
 	betweenExpr,
@@ -434,58 +433,6 @@ const reportingModel = (): SchemaModel => {
 		}
 	})
 }
-
-/**
- * Declarations the compiler refuses, each as the Reporting schema with the offending declaration
- * added, the reason the harness asserts, and the pass that refuses it: ownership (packages/engine/src/schema/own.ts) checks
- * keys, levels and identities; law recognition refuses the families the first compiler does not admit, over
- * a schema ownership admits, since both declarations typecheck.
- */
-interface Refusal {
-	readonly name: string
-	readonly schema: AuthoredSchemaDesc
-	readonly reason:
-		| "UnrepresentableKey"
-		| "UnsupportedLawFamily"
-		| "LawOnDerived"
-		| "DuplicateIdentity"
-	readonly refusedBy: "ownership" | "law recognition"
-}
-
-const withStatement = (s: AuthoredStatementDesc): AuthoredSchemaDesc => ({
-	...ReportingDesc,
-	statements: [...ReportingDesc.statements, s]
-})
-
-export const refusals: ReadonlyArray<Refusal> = [
-	{
-		name: "an unbounded text key",
-		schema: {
-			...ReportingDesc,
-			relations: [...ReportingDesc.relations, relation("Note", { body: Memo }, ["body"])]
-		},
-		reason: "UnrepresentableKey",
-		refusedBy: "ownership"
-	},
-	{
-		name: "coverage into a target without a span key",
-		schema: withStatement(contained(on("Shift", ["during"]), on("PayRun", ["period"]))),
-		reason: "UnsupportedLawFamily",
-		refusedBy: "law recognition"
-	},
-	{
-		name: "a key on a derived relation",
-		schema: withStatement(key(on("RunTotal", ["run"]))),
-		reason: "LawOnDerived",
-		refusedBy: "ownership"
-	},
-	{
-		name: "mutable on a derived relation",
-		schema: withStatement(mutable("RunTotal")),
-		reason: "LawOnDerived",
-		refusedBy: "ownership"
-	}
-]
 
 /**
  * The line, its person as a bare fact by containment evidence, deposits as an ordered list, levies

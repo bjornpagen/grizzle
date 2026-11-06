@@ -11,7 +11,8 @@ import {
 	relation,
 	role,
 	type Schema,
-	schema
+	schema,
+	type StatementsByName
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Cents } from "#test/support/fixtures/api/contracts.ts"
@@ -54,7 +55,7 @@ export const Work = schema("Work", { Kind, Account, Task, AutomaticTask, ManualT
 export type WorkNamed<N extends string> = Schema<
 	N,
 	(typeof Work)["relations"],
-	(typeof Work)["statements"]
+	StatementsByName<(typeof Work)["statements"], (typeof Work)["relations"]>
 >
 
 /**
@@ -326,7 +327,7 @@ export const Plans = schema("Plans", { Tier, TierBudget, Subscription }, [
 export type PlansNamed<N extends string> = Schema<
 	N,
 	(typeof Plans)["relations"],
-	(typeof Plans)["statements"]
+	StatementsByName<(typeof Plans)["statements"], (typeof Plans)["relations"]>
 >
 
 /** Plans' world: a reader of its roster and its subscriptions, in its login; no role holds a closed relation. */

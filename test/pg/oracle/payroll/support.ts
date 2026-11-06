@@ -326,7 +326,6 @@ export const runPayrollCase = (
 						)
 				yield* exec("BEGIN", "setup")
 				return yield* Effect.gen(function* () {
-					yield* exec("SET LOCAL statement_timeout = '60s'", "setup")
 					for (const sql of statements.value) {
 						yield* exec(sql, "facts")
 					}

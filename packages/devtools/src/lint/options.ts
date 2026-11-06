@@ -64,6 +64,32 @@ const LimitScope = Schema.Struct({
 	inputs: Schema.Array(DeclaredAlias)
 })
 
+/** Values a repository module exports, by the module's repository-relative path and the values' names. */
+const DeclaredValues = Schema.Struct({ module: Schema.String, names: Names })
+
+/** Declarations of an installed package, by the package's name and the declarations' names. */
+const PackageDeclarations = Schema.Struct({ package: Schema.String, declarations: Names })
+
+/** Files a rule does not read, and the reason it leaves them, which the repository states beside them. */
+const Exemption = Schema.Struct({ files: Paths, reason: Schema.NonEmptyString })
+
+/** A search of a repository module, by its module and name, and the property of its spec that holds its space
+ * (`exhaust`'s `generator`, `explore`'s `draw`). */
+const SearchSpace = Schema.Struct({
+	module: Schema.String,
+	name: Schema.String,
+	space: Schema.String
+})
+
+/**
+ * What a generator draws, for no-case-list: the members of the list it is handed (`element`), the one value it is
+ * handed (`constant`), one value for each value of the generator it is handed (`map`, `span`, `filter`, `drawn`,
+ * `sketched`), or a value of one of the generators it is handed (`oneOf`, `weighted`, `proportional`).
+ */
+const Draws = Schema.Literals(["list", "value", "each", "union"])
+
+export type Draws = typeof Draws.Type
+
 /** What of a module's values a no-environment source reads: every one, or the named ones. */
 const EnvironmentReads = Schema.Union([
 	Schema.Struct({ kind: Schema.Literal("module") }),
@@ -129,6 +155,24 @@ export const SuperlintOptions = Schema.Struct({
 			})
 		),
 		entryReads: Names
+	}),
+	/** Where every test case runs a search: the files whose cases are read, the declarations of the installed packages
+	 * whose signatures register a test case (`it`, `it.effect`, `test`), the searches a case's body must reach, and the
+	 * files exempt, each set with its reason. */
+	testCaseIsSearch: Schema.Struct({
+		files: Paths,
+		registrars: Schema.Array(PackageDeclarations),
+		searches: Schema.Array(DeclaredValues),
+		exempt: Schema.Array(Exemption)
+	}),
+	/** Where a search's space is never a list of cases: the files read, where a list written is a list of cases; the
+	 * dictionaries among them, whose lists are the values the code branches on; the searches, with the property of
+	 * their spec that holds the space; and the generators, each with what it draws. */
+	noCaseList: Schema.Struct({
+		files: Paths,
+		dictionaries: Paths,
+		searches: Schema.Array(SearchSpace),
+		generators: Schema.Array(Schema.Struct({ module: Schema.String, names: Names, draws: Draws }))
 	})
 })
 
@@ -330,5 +374,48 @@ export const FIXTURE_OPTIONS: SuperlintOptions = {
 			{ package: "effect", module: "ConfigProvider", reads: { kind: "module" } }
 		],
 		entryReads: ["argv", "cwd"]
+	},
+	testCaseIsSearch: {
+		files: ["test-case-is-search/"],
+		registrars: [
+			{ package: "@effect/vitest", declarations: ["Test", "each", "prop"] },
+			{
+				package: "vitest",
+				declarations: ["TestCollectorCallable", "EachFunctionReturn", "TestForFunctionReturn"]
+			}
+		],
+		searches: [
+			{ module: "test-case-is-search/testing.ts", names: ["explore", "exhaust", "interleave"] }
+		],
+		exempt: [
+			{
+				files: ["test-case-is-search/exempt/clean.ts"],
+				reason:
+					"An exempt file's fixture: its cases stay as they are, for the reason its exemption states."
+			}
+		]
+	},
+	noCaseList: {
+		files: [
+			"no-case-list/violating.ts",
+			"no-case-list/clean.ts",
+			"no-case-list/cases.ts",
+			"no-case-list/dictionary.ts"
+		],
+		dictionaries: ["no-case-list/dictionary.ts"],
+		searches: [
+			{ module: "no-case-list/testing.ts", name: "exhaust", space: "generator" },
+			{ module: "no-case-list/testing.ts", name: "explore", space: "draw" }
+		],
+		generators: [
+			{ module: "no-case-list/testing.ts", names: ["element"], draws: "list" },
+			{ module: "no-case-list/testing.ts", names: ["constant"], draws: "value" },
+			{
+				module: "no-case-list/testing.ts",
+				names: ["map", "span", "filter", "drawn", "sketched"],
+				draws: "each"
+			},
+			{ module: "no-case-list/testing.ts", names: ["oneOf", "weighted"], draws: "union" }
+		]
 	}
 }

@@ -2,9 +2,8 @@
  * Every world function is index-served at volume: an existence test bound to its arguments, judged by PostgreSQL's
  * serving judge (world-serving.ts, serving.ts), over generated role schemas.
  *
- * The file runs with the cluster to itself (`.exclusive`, vitest.network.config.ts): the fixture's load at a million
- * facts per relation is one SERIALIZABLE transaction judged at COMMIT, and SSI retains every transaction that commits
- * meanwhile.
+ * The file runs with the cluster to itself (`.exclusive`, vitest.network.config.ts): each case's load is one
+ * SERIALIZABLE transaction judged at COMMIT, and SSI retains every transaction that commits meanwhile.
  *
  * A case draws a documents base, the roles the worlds model's generator draws over it (installGen), and one or two
  * witnesses, each a role writing a query entry over a relation T filtered by a link into another source (world-serving.ts
@@ -27,8 +26,9 @@
  *
  * The drawn population holds 20,000 facts per relation, where a scan of a relation reads its index's hundred pages and
  * more against a bound of a few: a lowering that deduplicates each relation a filter reads, which PostgreSQL cannot
- * pull into its join, fails here, the judge naming the scan. One fixed fixture holds a million facts per relation: the
- * documents base's README-shaped worlds over the one-share key, beside a witness of each arm.
+ * pull into its join, fails here, the judge naming the scan. The judge's bound is relative to what a probe needs, so the
+ * README-shaped worlds over the one-share key, which installGen draws among the documents bases' roles, are judged
+ * here at the population's volume.
  */
 import { layer } from "@effect/vitest"
 import { drawn, explore } from "@grizzle/testing/explore"
@@ -39,7 +39,6 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { TestContext } from "vitest"
 import {
-	fixtureRows,
 	joinedOf,
 	judgeCase,
 	linksOf,
@@ -55,7 +54,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
-import { docsBases, docsOneShareInstall } from "#test/support/worlds/model/bases/docs.ts"
+import { docsBases } from "#test/support/worlds/model/bases/docs.ts"
 import type { BaseSpec } from "#test/support/worlds/model/types.ts"
 
 /** What a witness's link reads: an ordinary relation, a derived one, an ordinary one from a relation a declared key
@@ -161,7 +160,7 @@ const caseGen: Gen<WorldCase> = (source) => {
 	return { install: source.draw(installGen(base)), witnesses: [first, ...more] }
 }
 
-/** The situations every run reaches (see the header), and the fixture alone. */
+/** The situations every run reaches (see the header). */
 const requiredSituations: Arr.NonEmptyReadonlyArray<WorldServingFeature> = [
 	"a filter function's probe that finds its fact",
 	"a filter function's probe that finds none",
@@ -205,74 +204,9 @@ const populationSuite = (runs: number) => (ctx: TestContext) =>
 		)
 	)
 
-/**
- * The fixture's witnesses, one of each arm: a note's document; a document no derived row holds under its own organization;
- * a share's user, the owner of a document of the tenant's organization; and a share whose user wrote a note on a
- * document id equal to its document's organization, so the note is probed by the share's user and the document's
- * organization at once.
- */
-const fixtureWitnesses: Arr.NonEmptyReadonlyArray<LinkWitness> = [
-	{
-		target: "Note",
-		source: "Doc",
-		link: { from: "doc", to: "id" },
-		second: { kind: "none" },
-		negated: false
-	},
-	{
-		target: "Doc",
-		source: "OrgDocs",
-		link: { from: "id", to: "doc" },
-		second: { kind: "field", pair: { from: "org", to: "org" } },
-		negated: true
-	},
-	{
-		target: "Share",
-		source: "Doc",
-		link: { from: "user", to: "owner" },
-		second: { kind: "claim", to: "org", context: "Tenant", field: "org" },
-		negated: false
-	},
-	{
-		target: "Share",
-		source: "Doc",
-		link: { from: "doc", to: "id" },
-		second: {
-			kind: "joined",
-			to: "org",
-			source: "Note",
-			link: { from: "user", to: "author" },
-			field: "doc"
-		},
-		negated: false
-	}
-]
-
 layer(Substrate.layer)("world functions, judged by PostgreSQL at volume", (it) => {
 	it.effect(
 		"every world function of generated roles reads by its indexes at 20,000 facts per relation",
 		populationSuite(24)
-	)
-	it.effect(
-		"the README's worlds and a witness of each arm read by their indexes at a million facts per relation",
-		() =>
-			Effect.scoped(
-				Effect.gen(function* () {
-					const reached = new Set<WorldServingFeature>()
-					const problems = yield* judgeCase(
-						{ install: docsOneShareInstall, witnesses: fixtureWitnesses },
-						fixtureRows,
-						(feature) => {
-							reached.add(feature)
-						}
-					)
-					assert.deepEqual(problems, [], "every world function call reads by its indexes")
-					assert.deepEqual(
-						Arr.filter(requiredSituations, (f) => !reached.has(f)),
-						[],
-						"the fixture reaches every situation"
-					)
-				})
-			)
 	)
 })

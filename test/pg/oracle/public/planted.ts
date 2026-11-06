@@ -24,6 +24,10 @@ import { valueKey } from "#test/support/oracle/reference/values.ts"
  * trusting boolean conversion that reads only `f` as true: the outermost SELECT writes a boolean as true or false, so
  * every true cell converts to false, and the suite must fail on the first case that delivers one.
  *
+ * Its third passes `takeReversed`, a delivery that drops a root take's order: the rows of a query that ends in
+ * `.orderBy(...).take(k)` in reverse, never the take's order once two arrive. The suite must fail on it, which shows that
+ * its population reaches a root take of two rows or more and that it compares a root take's rows in order.
+ *
  * A reading of the perturbed reader's delivered rows, with the rows as PostgreSQL sent them, row for row.
  */
 export type Stitch = (
@@ -115,6 +119,10 @@ const restitch = (
 
 /** A stitch by text as a test double: children stitched by the spelling their parent's key cell was sent in. */
 export const bySpelling: Stitch = (rows, query, sent) => restitch(query, rows, sent)
+
+/** A delivery that drops a root take's order, as a test double: a root take's rows in reverse, every other root's as is. */
+export const takeReversed: Stitch = (rows, query) =>
+	query.bound.kind === "take" && query.delivery.kind === "set" ? Arr.reverse(rows) : rows
 
 /**
  * The codes a column of `type` is read under in a public-oracle case: every case installs its schema fresh, from no

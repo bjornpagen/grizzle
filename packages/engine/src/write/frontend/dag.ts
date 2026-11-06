@@ -299,7 +299,7 @@ const writtenCast = (
 				precondition: "fits",
 				operand: "the written value",
 				guard: {
-					test: { kind: "within" },
+					remedy: { kind: "within" },
 					text: "Compute.when(Compute.within(x, <low>, <high>), (x) => Compute.cast(x, <the field>), <your value>) in the described head"
 				}
 			})

@@ -17,6 +17,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { columnType, domainBase } from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { fullRoleDesc, type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { installationSql } from "#test/support/compile.ts"
@@ -91,7 +92,7 @@ export interface RealInstallPlan extends InstallPlan {
  */
 export const oracleLogin = (desc: SchemaDesc): LoginDesc => {
 	const loc = SourceLoc(`the oracle login of ${desc.name}`, [])
-	const login = Result.flatMap(decodeDesc("schema", desc), (base) =>
+	const login = Result.flatMap(admitSchemaDesc(desc), (base) =>
 		Result.flatMap(fullRoleDesc(base, "app", loc), (app) =>
 			decodeDesc("login", { name: "server", base, roles: [app], loc })
 		)

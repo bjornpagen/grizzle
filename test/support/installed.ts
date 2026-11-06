@@ -29,6 +29,8 @@ import {
 	type AnySchema,
 	type Schema,
 	type Statement,
+	type StatementsByName,
+	type StatementsReadBack,
 	type StatementsWithin,
 	type UnderOwnNames,
 	schema
@@ -127,19 +129,19 @@ export const loginLayerOf = <L extends AnyLogin>(
 
 /**
  * Rebuilds `fixture` under `name` from its own relations and statements: a schema value whose statements name only its
- * relations, as schema(...) checked when it was built.
+ * relations and read back from their names as themselves, as schema(...) checked when it was built.
  */
 export const rebuild = <
 	const N extends string,
 	R extends Record<string, AnyRelation | AnyClosed>,
 	const St extends ReadonlyArray<Statement>
 >(
-	fixture: Schema<N, R, St> & {
+	fixture: Schema<N, R, StatementsByName<St, R>> & {
 		readonly relations: UnderOwnNames<R>
-		readonly statements: StatementsWithin<St, R>
+		readonly statements: St & StatementsWithin<St, R> & StatementsReadBack<St, R>
 	},
 	name: string
-): Schema<string, R, readonly [...St]> =>
+): Schema<string, R, StatementsByName<St, R>> =>
 	schema<string, R, St>(name, fixture.relations, fixture.statements)
 
 /**

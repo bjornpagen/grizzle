@@ -216,8 +216,9 @@ type ParamResolver =
 	  }
 
 /**
- * How the query a check's root reads is read: as rows, a page, a read-back or a membership, or as a ChangeSet member's
- * query, written into its relation.
+ * How the query a check's root reads is read: as rows, a page, a read-back or a membership, as a ChangeSet member's
+ * query, written into its relation, or as a definition, a derived relation's or a role's query entry's, which is a
+ * relation.
  */
 export type RootRole =
 	| { readonly kind: "rows" }
@@ -225,6 +226,7 @@ export type RootRole =
 	| { readonly kind: "readBack" }
 	| { readonly kind: "membership" }
 	| { readonly kind: "member"; readonly target: MemberTarget }
+	| { readonly kind: "definition" }
 
 /**
  * Where a scope's rules stand: the query's own root, read in its role; an attachment's child, correlated to its parent;
@@ -255,9 +257,9 @@ interface StageOut {
 
 /**
  * The order a stage's rows carry: none; an orderBy's, which a take or the query's result reads; or the one a take
- * ranked by, whose rows are a set to whatever composes with them and which an attachment delivers them in. A name or an
- * attachment keeps its input's rows, and so a take's delivery order; no stage but take reads an orderBy's
- * (ir/desc.ts QueryStageDesc).
+ * ranked by, whose rows are a set to whatever composes with them and which an attachment, and a root whose rows a
+ * caller reads, deliver them in (rootOrder). A name or an attachment keeps its input's rows, and so a take's delivery
+ * order; no stage but take reads an orderBy's (ir/desc.ts QueryStageDesc).
  */
 type StageOrder =
 	| { readonly kind: "none" }
@@ -269,6 +271,25 @@ const unordered: StageOrder = { kind: "none" }
 /** The order a stage that keeps its input's rows as they are carries: a take's delivery order, else none. */
 const keptOrder = (input: StageOrder): StageOrder =>
 	input.kind === "delivered" ? input : unordered
+
+/**
+ * The order a root's rows are delivered in: the one its last stage carries, an orderBy's or the take's it ends in,
+ * where its role hands its rows to a caller (rows, a page, a read-back), so a take reaches a caller in its order as it
+ * reaches an attachment's parent; and none where its rows are a set: a member's, written into its relation, a
+ * membership's, tested, and a definition's, a relation.
+ */
+const rootOrder = (order: StageOrder, role: RootRole): StatedOrderDesc | undefined => {
+	switch (role.kind) {
+		case "rows":
+		case "page":
+		case "readBack":
+			return order.kind === "none" ? undefined : order.stated
+		case "membership":
+		case "member":
+		case "definition":
+			return undefined
+	}
+}
 
 interface StatedOrderDesc {
 	readonly keys: ReadonlyArray<OrderDesc>
@@ -736,10 +757,10 @@ const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
  *   them all (refinement/). A match or negation of a query selects the arms its constants may meet, refusing
  *   constants no arm delivers, and narrows a union of several headings to them (RuleCheck #narrow). An arm whose rows
  *   carry an attachment, its own or under a take or a name, shares its heading with no other arm (Checker.union).
- * - orderBy is completed to a total order: an Ordered query delivers an OrderedResult, take a Take,
- *   an ordered attachment the order on its Attach. Each is built with the conservative completion, the remaining
- *   heading, and once the DAG is whole order.ts completes the stated order under the logical keys instead, so the
- *   completion stops as soon as the order is total (logical/order.ts).
+ * - orderBy is completed to a total order: an Ordered query, and a query ending in a take whose rows a caller reads,
+ *   delivers an OrderedResult, take a Take, an ordered attachment the order on its Attach. Each is built with the
+ *   conservative completion, the remaining heading, and once the DAG is whole order.ts completes the stated order
+ *   under the logical keys instead, so the completion stops as soon as the order is total (logical/order.ts).
  * - An attachment is an Attach whose child delivers its correlation columns beside its heading: each parent variable the
  *   child reads becomes a variable of the child's rules, bound where a match binds it and correlated to the parent row
  *   otherwise, delivered under one name by every arm and correlated by the Attach. A child that reads no
@@ -881,8 +902,8 @@ export class Checker {
 	}
 
 	/**
-	 * The query's DAG as a whole: its stages, then an OrderedResult when it is an Ordered. Its parameters are the
-	 * table's once the pass is final (check/index.ts).
+	 * The query's DAG as a whole: its stages, then an OrderedResult in the order its rows are delivered in, where its
+	 * role delivers them in one (rootOrder). Its parameters are the table's once the pass is final (check/index.ts).
 	 */
 	root(desc: ResolvedQuery, loc: SourceLoc, role: RootRole): LogicalQuery["dag"] {
 		if (this.options.read === "page" && desc.stage.kind !== "order") {
@@ -893,12 +914,12 @@ export class Checker {
 			)
 		}
 		const out = this.stage(desc.stage, this.ownScope(role))
-		const root =
-			out.order.kind === "ordered" ? this.#orderedResult(out.node, out.order.stated) : out.node
+		const order = rootOrder(out.order, role)
+		const root = order === undefined ? out.node : this.#orderedResult(out.node, order)
 		return unwrap(completeStatedOrders(this.b.build([root]), this.#stated))
 	}
 
-	/** An Ordered query's result: its rows under the order stated, which order.ts completes. */
+	/** A root's delivered rows: its rows under the order stated, which order.ts completes. */
 	#orderedResult(input: RelNode, stated: StatedOrderDesc): RelNode {
 		const heading = input.heading
 		const at = stated.at

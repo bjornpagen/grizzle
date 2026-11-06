@@ -24,14 +24,18 @@ import type { InvalidKind, WorldFeature } from "#test/support/worlds/model/types
 
 /**
  * Tenant and login isolation over the documents base, judged by the worlds model: every read a role makes, through a
- * Db (executed, by key, page by page, prepared; both artifacts must agree) or as a direct writer that took the role on
- * (its views and tables, with predicates that raise on one value, prepared and executed under other claims), answers
- * exactly its world under the claims it holds, whatever lies outside it; every write through an entry (in one stratum,
- * a union or a sequence, with its read-backs and their deltas; as a direct INSERT, ON CONFLICT or MERGE) lands inside
- * its world or is refused as the README says; nothing a role of
+ * Db (executed, by key, page by page under a drawn order, from the first page or the last, whose ties grizzle breaks by
+ * a key it proves of a table's entry or of a derived relation, or by the whole heading, so every row arrives exactly
+ * once; prepared; with another of its relations attached to each row; as the pairs a recursive query chains; both artifacts must agree) or as a direct writer that
+ * took the role on (its views and tables, with predicates that raise on one value, prepared and executed under other
+ * claims), answers exactly its world under the claims it holds, whatever lies outside it; every write through an entry
+ * (in one stratum, a union or a sequence, with its read-backs, each classified by the model's restatement of the
+ * read-back rule, untouched, written, beside its written entry or undetermined and refused; as a direct INSERT, ON
+ * CONFLICT or MERGE) lands inside its world or is refused as the README says; nothing a role of
  * another login holds is reachable from a session of this login (a SET ROLE to it, another role's filter and key-probe
  * functions, another tenant's claims set by hand); and a Db's contexts hold exactly the facts its verified token
- * decodes to. Realities hold facts outside every world (the owner loads them), so the model's answers over them are
+ * decodes to, a uuid's, a text's and a contract's read through a rule, a contract's claim at its bounds or past them
+ * judged by PostgreSQL (invalid:token:refinement-edge). Realities hold facts outside every world (the owner loads them), so the model's answers over them are
  * README "Security model"'s promise: a role reads exactly its own view, whatever lies outside it. Beside the model, one rule is held directly: a
  * direct writer's statement that reaches past its login (another login's role or views, another identity, another
  * role's filter or key probe) is refused (drive/acting.ts reachingPastRefused).
@@ -71,7 +75,17 @@ const readsRequired: Situations<WorldFeature> = [
 	"via:execute",
 	"via:get",
 	"via:page",
-	"via:compile"
+	"via:compile",
+	"via:attach",
+	"via:reach",
+	"page:proven-key:first",
+	"page:proven-key:last",
+	"page:derived-key:first",
+	"page:derived-key:last",
+	"page:heading-key:first",
+	"page:heading-key:last",
+	"attach:nested",
+	"reach:chained"
 ]
 
 /** What the writes suite must reach. */
@@ -100,9 +114,10 @@ const writesRequired: Situations<WorldFeature> = [
 	"strata:union",
 	"strata:sequence",
 	"strata:refused-order",
-	"readback:empty-delta",
-	"readback:projected-delta",
-	"readback:refused-delta",
+	"readback:untouched",
+	"readback:written",
+	"readback:beside",
+	"readback:undetermined",
 	...invalidFeatures([
 		"fact:outside-world",
 		"fact:hidden-key-collision",
@@ -132,7 +147,10 @@ const claimsRequired: Situations<WorldFeature> = [
 			(opIn({ kinds: ["open-db"], writers: ["db"], observations: ["opened", "open-refused"] })(f) ||
 				opIn({ kinds: ["read"], writers: ["db"], observations: ["rows"] })(f))
 	),
-	...invalidFeatures(ofKinds("token:"))
+	...invalidFeatures(ofKinds("token:")),
+	"claim:uuid",
+	"claim:text",
+	"claim:contract"
 ]
 
 layer(Substrate.layer, { excludeTestServices: true })("the worlds model: isolation", (it) => {

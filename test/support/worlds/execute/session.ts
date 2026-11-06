@@ -5,8 +5,10 @@ import type { ReaderValue } from "#adapter/reader/reader.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { type CompileError, type CursorError, isCompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { pg, uuid } from "#compiler/public/fields.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
+import { regexField } from "#compiler/text/field.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
@@ -19,6 +21,7 @@ import { carrierOf, factOfRow } from "#test/support/worlds/execute/host.ts"
 import { errorStory, errorTexts, type Found } from "#test/support/worlds/execute/leak.ts"
 import { applied, applyFailed, readFailed } from "#test/support/worlds/execute/observe.ts"
 import { attempt, type RealizeRefused } from "#test/support/worlds/execute/refused.ts"
+import { attachedField, flattened, reachFields } from "#test/support/worlds/model/reads.ts"
 import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import { textDomain } from "#test/support/worlds/model/text.ts"
 import type {
@@ -28,6 +31,7 @@ import type {
 	FieldDomain,
 	HostFact,
 	Observation,
+	PageFrom,
 	ReadBack,
 	ReadVia,
 	RoleSpec,
@@ -122,27 +126,46 @@ export const derivedFields = (
 		domain: Option.getOrElse(domain, () => literalDomain)
 	}))
 
-/** Every row of a paged read: the first page, then each page after the last one's end cursor, while there is a next. */
+/**
+ * Every row of a paged read, in the order its pages deliver them: from the first page, each page after the last one's
+ * end cursor while there is a next; from the last, each page before the first one's start cursor while there is a
+ * previous, its rows before those of the pages read after it. A backward page delivers its rows in the presentation
+ * order too.
+ */
 const allPages = (
 	reader: ReaderValue,
 	program: unknown,
-	size: number
+	size: number,
+	from: PageFrom
 ): Effect.Effect<ReadonlyArray<unknown>, ReadError | CursorError> =>
 	Effect.gen(function* () {
-		const rows: Array<unknown> = []
-		let page = yield* reader.page(program, {}, { first: size })
-		appendAll(
-			rows,
+		const nodes = (page: { readonly edges: ReadonlyArray<{ readonly node: unknown }> }) =>
 			Arr.map(page.edges, (e) => e.node)
-		)
-		while (page.pageInfo.hasNextPage && Option.isSome(page.pageInfo.endCursor)) {
-			page = yield* reader.page(program, {}, { first: size, after: page.pageInfo.endCursor.value })
-			appendAll(
-				rows,
-				Arr.map(page.edges, (e) => e.node)
-			)
+		if (from === "first") {
+			const rows: Array<unknown> = []
+			let page = yield* reader.page(program, {}, { first: size })
+			appendAll(rows, nodes(page))
+			while (page.pageInfo.hasNextPage && Option.isSome(page.pageInfo.endCursor)) {
+				page = yield* reader.page(
+					program,
+					{},
+					{ first: size, after: page.pageInfo.endCursor.value }
+				)
+				appendAll(rows, nodes(page))
+			}
+			return rows
 		}
-		return rows
+		let page = yield* reader.page(program, {}, { last: size })
+		const backward: Array<ReadonlyArray<unknown>> = [nodes(page)]
+		while (page.pageInfo.hasPreviousPage && Option.isSome(page.pageInfo.startCursor)) {
+			page = yield* reader.page(
+				program,
+				{},
+				{ last: size, before: page.pageInfo.startCursor.value }
+			)
+			backward.push(nodes(page))
+		}
+		return Arr.flatten(Arr.reverse(backward))
 	})
 
 /**
@@ -178,54 +201,225 @@ const readProgramOf = (
 	attempt(`the read of ${relation}`, () => relationRead(session, relation, itself, {}))
 
 /**
- * The rows of a read of a role relation through `reader`, by the path `via` names: the program reading it whole,
- * executed or prepared; ordered by every field of its heading, a complete order, and read page by page; or a keyed
- * query by get.
+ * A role relation read whole with another attached to each row as an array (README "Queries": nest): the child's rows
+ * whose field `child` equals the parent row's field `parent`, delivered without that field. The builder throws its
+ * refusal.
  */
-const rowsVia = (
+const attachedRead = (
+	session: WritingRole,
+	relation: string,
+	via: Extract<ReadVia, { readonly kind: "attach" }>,
+	attached: string
+): QueryValue => {
+	const value = relationValue(session, relation)
+	const child = relationValue(session, via.relation)
+	return queryOver(session.value)
+		.rule((r: RuleValue): FinishedValue => {
+			const vars = varsOver(value, "value")
+			return r.match(value, vars).find(vars)
+		})
+		.attach(
+			attached,
+			(parent: Readonly<Record<string, unknown>>) =>
+				queryOver(session.value).rule((r: RuleValue): FinishedValue => {
+					const vars = varsOver(child, "child")
+					return r
+						.match(child, { ...vars, [via.child]: parent[via.parent] })
+						.find(Rec.remove(vars, via.child))
+				}),
+			"array"
+		)
+}
+
+/**
+ * The field a recursive read's row states for a domain it chains (generate/reads.ts reachable): a uuid, a text of its
+ * pattern, or the integer type of an integer or a serial; none for another, which no recursive read is drawn over.
+ */
+const rowField = (domain: FieldDomain): Option.Option<unknown> => {
+	const integer = (bits: 16 | 32 | 64): unknown =>
+		bits === 16 ? pg.smallint : bits === 32 ? pg.integer : pg.bigint
+	switch (domain.kind) {
+		case "uuid":
+			return Option.some(uuid)
+		case "text":
+			return Option.some(regexField(domain.pattern, [domain.flags]))
+		case "integer":
+		case "serial":
+			return Option.some(integer(domain.bits))
+		case "boolean":
+		case "handle":
+		case "span":
+		case "contract":
+			return Option.none()
+	}
+}
+
+/**
+ * Every pair a role relation's rows chain from field `from` to field `to`, read by a recursive query over the role
+ * (README "Queries": recursion): its base each row's pair, its step a pair's origin with the value a row starting at
+ * its reached value reaches. `field` is the row's type of both. The builder throws its refusal.
+ */
+const reachRead = (
+	session: WritingRole,
+	relation: string,
+	via: Extract<ReadVia, { readonly kind: "reach" }>,
+	field: unknown
+): QueryValue => {
+	const value = relationValue(session, relation)
+	const reach = queryOver(session.value).recursive("Reach", {
+		row: { [reachFields.origin]: field, [reachFields.reached]: field },
+		base: [
+			(r: RuleValue): FinishedValue => {
+				const edge = varsOver(value, "edge")
+				return r
+					.match(value, edge)
+					.find({ [reachFields.origin]: edge[via.from], [reachFields.reached]: edge[via.to] })
+			}
+		],
+		rec: [
+			(r: RuleValue, self: unknown): FinishedValue => {
+				const at = varsOver(self, "at")
+				const edge = varsOver(value, "edge")
+				return r
+					.match(self, at)
+					.match(value, { ...edge, [via.from]: at[reachFields.reached] })
+					.find({
+						[reachFields.origin]: at[reachFields.origin],
+						[reachFields.reached]: edge[via.to]
+					})
+			}
+		]
+	})
+	return queryOver(session.value).rule((r: RuleValue): FinishedValue => {
+		const vars = varsOver(reach, "reach")
+		return r.match(reach, vars).find(vars)
+	})
+}
+
+/** A program the builder built, or its refusal as the read's CompileError. */
+const built = (what: string, build: () => QueryValue): Effect.Effect<QueryValue, CompileError> =>
+	Effect.mapError(attempt(what, build), (refused) => refused.refusal)
+
+/** Every row a read of a program delivers, executed. */
+const executed = (
+	reader: ReaderValue,
+	program: QueryValue
+): Effect.Effect<ReadonlyArray<unknown>, ReadError | CompileError> =>
+	Effect.flatMap(reader.execute(program, {}), (result) => result.collect)
+
+/** Rows a read delivered, each read as a fact of exactly `fields`. */
+const factsOfRows = (
+	rows: ReadonlyArray<unknown>,
+	fields: ReadonlyArray<string>,
+	what: string
+): Effect.Effect<ReadonlyArray<HostFact>> =>
+	Effect.forEach(rows, (row, i) => factOfRow(row, fields, `${what} row ${i}`))
+
+/**
+ * The facts of a read of a role relation through `reader`, by the path `via` names: the program reading it whole,
+ * executed or prepared; ordered by the drawn order, which grizzle completes with a key of the relation, and read page
+ * by page from the first page or the last; a keyed query by get; the relation with another attached, each row
+ * flattened with its children (model/reads.ts flattened); or the pairs a recursive query chains.
+ */
+const factsVia = (
 	reader: ReaderValue,
 	session: DbSession,
 	relation: string,
 	program: QueryValue,
 	fields: ReadonlyArray<{ readonly field: string; readonly domain: FieldDomain }>,
 	via: ReadVia
-): Effect.Effect<ReadonlyArray<unknown>, ReadError | CursorError | CompileError> => {
+): Effect.Effect<ReadonlyArray<HostFact>, ReadError | CursorError | CompileError> => {
+	const names = Arr.map(fields, (f) => f.field)
+	const asFacts = (rows: ReadonlyArray<unknown>) => factsOfRows(rows, names, relation)
 	switch (via.kind) {
 		case "execute":
-			return Effect.flatMap(reader.execute(program, {}), (result) => result.collect)
+			return Effect.flatMap(executed(reader, program), asFacts)
 		case "get":
 			return Effect.flatMap(
-				Effect.mapError(
-					attempt(`the get of ${relation}`, () =>
-						relationRead(session, relation, itself, carriersOf(fields, via.key))
-					),
-					(refused) => refused.refusal
+				built(`the get of ${relation}`, () =>
+					relationRead(session, relation, itself, carriersOf(fields, via.key))
 				),
 				(query) =>
-					Effect.map(reader.get(query, {}), (row) =>
-						Option.match(row, { onNone: () => [], onSome: (r) => [r] })
+					Effect.flatMap(reader.get(query, {}), (row) =>
+						asFacts(Option.match(row, { onNone: () => [], onSome: (r) => [r] }))
 					)
 			)
 		case "page":
 			return Effect.flatMap(
 				Effect.mapError(
 					attempt(`the page of ${relation}`, () =>
-						program.orderBy(...argumentsOf(Arr.map(fields, (f) => [f.field, "asc"] as const)))
+						program.orderBy(
+							...argumentsOf(Arr.map(via.order, (k) => [k.field, k.direction] as const))
+						)
 					),
 					(refused) => refused.refusal
 				),
-				(ordered) => allPages(reader, ordered, via.size)
+				(ordered) => Effect.flatMap(allPages(reader, ordered, via.size, via.from), asFacts)
 			)
 		case "compile":
 			return Effect.scoped(
 				Effect.flatMap(reader.compile(program), (compiled) =>
-					Effect.flatMap(compiled.execute({}), (result) => result.collect)
+					Effect.flatMap(
+						Effect.flatMap(compiled.execute({}), (result) => result.collect),
+						asFacts
+					)
 				)
 			)
+		case "attach": {
+			const attached = attachedField(names)
+			const childFields = Arr.filter(
+				Arr.map(
+					Option.getOrElse(entryFields(session.base, session.role, via.relation), () => []),
+					(f) => f.field
+				),
+				(f) => f !== via.child
+			)
+			return Effect.flatMap(
+				built(`the attachment of ${via.relation} to ${relation}`, () =>
+					attachedRead(session, relation, via, attached)
+				),
+				(query) =>
+					Effect.flatMap(executed(reader, query), (rows) =>
+						Effect.map(
+							Effect.forEach(rows, (row, i) =>
+								Effect.gen(function* () {
+									const what = `${relation} row ${i}`
+									const parent = yield* factOfRow(row, names, what)
+									const nested: unknown = Predicate.hasProperty(row, attached)
+										? row[attached]
+										: undefined
+									const children = Arr.isArray(nested)
+										? yield* factsOfRows(nested, childFields, `${what}.${attached}`)
+										: yield* Effect.die(new Error(`${what} delivers no array under ${attached}`))
+									return flattened(parent, children, attached)
+								})
+							),
+							Arr.flatten
+						)
+					)
+			)
+		}
+		case "reach": {
+			const domain = Arr.findFirst(fields, (f) => f.field === via.from)
+			const field = Option.flatMap(domain, (f) => rowField(f.domain))
+			return Option.isNone(field)
+				? Effect.die(
+						new Error(`a recursive read of ${relation} over ${via.from}, which it chains no way`)
+					)
+				: Effect.flatMap(
+						built(`the recursive read of ${relation}`, () =>
+							reachRead(session, relation, via, field.value)
+						),
+						(query) =>
+							Effect.flatMap(executed(reader, query), (rows) =>
+								factsOfRows(rows, [reachFields.origin, reachFields.reached], relation)
+							)
+					)
+		}
 	}
 }
 
-/** A read of a role relation whole, through a program over the role, by the path `via` names. */
+/** A read of a role relation, through a program over the role, by the path `via` names. */
 export const readSession = (
 	session: DbSession,
 	relation: string,
@@ -239,17 +433,9 @@ export const readSession = (
 			return refusedWith({ kind: "compile-refused" }, program.failure.refusal)
 		}
 		const runtime = yield* runtimeOf(session.db)
-		const factsVia = (reader: ReaderValue) =>
-			Effect.flatMap(rowsVia(reader, session, relation, program.success, fields, via), (rows) =>
-				Effect.forEach(rows, (row, i) =>
-					factOfRow(
-						row,
-						Arr.map(fields, (f) => f.field),
-						`${relation} row ${i}`
-					)
-				)
-			)
-		const facts = yield* Effect.result(factsVia(runtime.reader))
+		const read = (reader: ReaderValue) =>
+			factsVia(reader, session, relation, program.success, fields, via)
+		const facts = yield* Effect.result(read(runtime.reader))
 		if (Result.isFailure(facts)) {
 			const error = facts.failure
 			switch (error._tag) {
@@ -267,7 +453,7 @@ export const readSession = (
 				}
 			}
 		}
-		const agree = yield* artifactsAgree(session.db, factsVia)
+		const agree = yield* artifactsAgree(session.db, read)
 		return agree
 			? seen({ kind: "rows", rows: facts.success })
 			: seen({ kind: "artifacts-disagree" })

@@ -292,7 +292,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram 
 	)
 	const layoutOf = (name: string): RowLayout => {
 		const info = defined(frontend.schema.relations.get(name), `the family relation ${name}`)
-		return unwrap(rowLayout(info, all))
+		return rowLayout(info, all)
 	}
 	const edits = frontend.edits.map((edit): EditProgram => {
 		const layout = layoutOf(edit.relation.name)

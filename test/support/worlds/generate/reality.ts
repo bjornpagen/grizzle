@@ -1,12 +1,19 @@
 import { array, constant, element, type Gen, weighted } from "@grizzle/testing/gen"
 import { Array as Arr, Option, pipe, Record } from "effect"
-import { type HostLaw, lawRelations, projection, violations } from "#test/support/laws/model.ts"
+import {
+	type HostLaw,
+	lawRelations,
+	projection,
+	sameValue,
+	violations
+} from "#test/support/laws/model.ts"
 import { pool } from "#test/support/worlds/generate/domain.ts"
 import type {
 	BaseSpec,
 	HostFact,
 	HostSchema,
 	HostState,
+	HostValue,
 	RelationSpec
 } from "#test/support/worlds/model/types.ts"
 
@@ -97,16 +104,20 @@ export const lawfulOf = (host: HostSchema, drawn: HostState): HostState => {
 
 /**
  * Fields of one relation that take their values from another relation's facts: a containment's source fields, each the
- * value of its target field. The target is drawn first where the references allow, so a world reading one relation
- * through another meets facts on both sides instead of the repair's leftovers.
+ * value of its target field; a coverage's scalars and its span, the target's span itself, which covers it; and an
+ * alternatives arm's key, the key of a parent standing at the arm's handle. The target is drawn first where the
+ * references allow, so a world reading one relation through another meets facts on both sides instead of the repair's
+ * leftovers.
  */
 interface Reference {
 	readonly fields: Arr.NonEmptyReadonlyArray<string>
 	readonly target: string
 	readonly targetFields: Arr.NonEmptyReadonlyArray<string>
+	/** The values the target facts it follows hold: the selection of the side it refers to. */
+	readonly where: Readonly<Record<string, HostValue>>
 }
 
-/** The references of a base's laws: every unselected containment. */
+/** The references of a base's laws: every unselected containment and coverage, and every alternatives arm's. */
 const referencesOf = (base: BaseSpec): ReadonlyArray<readonly [string, Reference]> =>
 	Arr.flatMap(base.laws, (law): ReadonlyArray<readonly [string, Reference]> => {
 		switch (law.kind) {
@@ -118,16 +129,44 @@ const referencesOf = (base: BaseSpec): ReadonlyArray<readonly [string, Reference
 								{
 									fields: law.source.fields,
 									target: law.target.relation,
-									targetFields: law.target.fields
+									targetFields: law.target.fields,
+									where: {}
 								}
 							]
 						]
 					: []
+			case "covered":
+				return Record.isEmptyRecord(law.source.where) && Record.isEmptyRecord(law.target.where)
+					? [
+							[
+								law.source.relation,
+								{
+									fields: Arr.append(law.source.fields, law.span.source),
+									target: law.target.relation,
+									targetFields: Arr.append(law.target.fields, law.span.target),
+									where: {}
+								}
+							]
+						]
+					: []
+			case "alternatives": {
+				const keyOf = (name: string): ReadonlyArray<Arr.NonEmptyReadonlyArray<string>> =>
+					Arr.map(
+						Arr.filter(base.relations, (r) => r.name === name),
+						(r) => r.key
+					)
+				return Arr.flatMap(Record.toEntries(law.arms), ([handle, arm]) =>
+					Arr.flatMap(keyOf(arm), (fields) =>
+						Arr.map(keyOf(law.relation), (targetFields): readonly [string, Reference] => [
+							arm,
+							{ fields, target: law.relation, targetFields, where: { [law.tag]: handle } }
+						])
+					)
+				)
+			}
 			case "key":
 			case "spanKey":
 			case "check":
-			case "covered":
-			case "alternatives":
 				return []
 		}
 	})
@@ -169,7 +208,7 @@ const follows: Gen<boolean> = weighted([
 
 /**
  * A relation's fact: from the domain pools, each of its references followed seven times in eight to a fact drawn among
- * the target's facts drawn so far, or its own values kept.
+ * the target's facts drawn so far that hold the values its side selects, or its own values kept.
  */
 const draftGen =
 	(
@@ -180,7 +219,11 @@ const draftGen =
 	(source) =>
 		Arr.reduce(references, source.draw(factGen(relation)), (fact: HostFact, reference) => {
 			const following = source.draw(follows)
-			const [first, ...rest] = facts.get(reference.target) ?? []
+			const [first, ...rest] = Arr.filter(facts.get(reference.target) ?? [], (target) =>
+				Arr.every(Record.toEntries(reference.where), ([field, value]) =>
+					sameValue(target[field], value)
+				)
+			)
 			if (!following || first === undefined) {
 				return fact
 			}
@@ -199,8 +242,8 @@ const draftGen =
  * The lawful realities of a base: each ordinary relation the host schema holds draws up to a few facts from the domain
  * pools (few subjects, few organizations, small integers, uuids as distinct tokens, serials as distinct values with
  * gaps), seven times in eight taking each referenced field set from a fact of the relation it references (a
- * containment's target, drawn first where no cycle forbids it, with a fact at least), one fact per primary key, and
- * the whole repaired to lawful by the host law model. A
+ * containment's or a coverage's target, an alternatives arm's parent standing at its handle, drawn first where no cycle
+ * forbids it, with a fact at least), one fact per primary key, and the whole repaired to lawful by the host law model. A
  * relation of the host schema the base does not hold as an ordinary relation (a derived one) has no stored facts.
  */
 export const realityGen = (base: BaseSpec, host: HostSchema): Gen<HostState> => {

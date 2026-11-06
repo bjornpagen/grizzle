@@ -61,7 +61,6 @@ import type {
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
 import { migrationChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { constantOfLiteral } from "#compiler/ir/cells.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -1222,10 +1221,9 @@ class Differ {
 	/** A constant the target installs. Its name is its content's digest, so one the previous installation holds under
 	 * its name holds its content: it stands, and a changed content is a new constant, created in Setup before anything
 	 * reads it, the previous one dropped once nothing reads it (publish.removed). A function is never replaced in place,
-	 * because a domain's planned check keeps the constant it folded. What it installs is compared, never its pack's
-	 * comments (installedContent), which name each row's values and install nothing: rows of other values may pack to
-	 * the same cells, an open payload's codes being its values' positions. A constant of one name that installs other
-	 * content is a snapshot whose name does not digest its content. */
+	 * because a domain's planned check keeps the constant it folded. A constant of one name whose statement is another's,
+	 * its hex literal or its comment's count and digest, is a snapshot whose name does not digest its content: every
+	 * constant has one statement, so equal content prints alike. */
 	constantObject(
 		v: Installed & { readonly kind: "constant" },
 		before: ManifestObject | undefined
@@ -1237,7 +1235,7 @@ class Differ {
 		const was = installed(before)
 		if (
 			was.kind !== "constant" ||
-			!same(installedContent(was.create), installedContent(v.create)) ||
+			!same(was.create, v.create) ||
 			!same(before.ddl.slice(1), v.object.ddl.slice(1))
 		) {
 			refuse(before.ident, "a constant whose name digests what it installs")
@@ -2588,35 +2586,6 @@ const dropObject = (
 				? (["MATERIALIZED VIEW", v.create.name] as const)
 				: (["DOMAIN", v.create.name] as const)
 	return { kind: "drop", object, name, ifExists: false }
-}
-
-/**
- * What a constant installs: a created constant's statement, or a pack's function and the cells it fills, each held
- * cell's index and payload code, whichever form states them (sql/ast.ts PackForm) and not the names or the count its
- * comments spell them by: one constant stated as rows by one installation and as a literal by another installs one
- * string.
- */
-const installedContent = (c: CreateConstant | PackConstant): unknown => {
-	if (c.kind === "createConstant") {
-		return c
-	}
-	const entries =
-		c.form.kind === "rows"
-			? c.form.rows.map((r) => ({ index: r.index, payload: r.payload }))
-			: heldCells(c, c.form)
-	return { function: c.function, cells: c.cells, width: c.width, entries }
-}
-
-/** The cells a literal pack holds, each index and payload code: a snapshot's own pack, which reads as its layout. */
-const heldCells = (
-	c: PackConstant,
-	form: Extract<PackConstant["form"], { readonly kind: "literal" }>
-): ReadonlyArray<{ readonly index: bigint; readonly payload: bigint }> => {
-	const read = constantOfLiteral({ hex: form.hex, tail: form.tail }, c.cells, c.width)
-	if (!read.ok) {
-		throw defect(`the literal pack of ${c.function.name} holds its layout's bits`)
-	}
-	return read.value.entries
 }
 
 /** A constant's signature: its name and its parameters' types, none for a packed constant, which takes none. */

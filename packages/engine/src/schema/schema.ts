@@ -1,8 +1,9 @@
 import { builtMark } from "#compiler/core/phantom.ts"
-import { isList } from "#compiler/core/record.ts"
+import { hasProperties, isList } from "#compiler/core/record.ts"
 import {
 	contentDigest,
 	decodeDesc,
+	type FieldDesc,
 	type RelationDesc,
 	type SchemaDesc,
 	type StatementDesc
@@ -18,13 +19,20 @@ import {
 	ownedDesc,
 	ownedEntry,
 	ownValue,
-	requireName
+	requireName,
+	rosterHandlesOf
 } from "#compiler/schema/protocol.ts"
 import { derivedDraftOf, relationContentOf } from "#compiler/schema/relation.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
-import type { AnySchema, Schema } from "#compiler/types/schema/schema.ts"
+import type {
+	AnySchema,
+	Schema,
+	StatementsBelow,
+	StatementsByName,
+	StatementsReadBack
+} from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 
 export const schemaDescOf = (value: unknown): SchemaDesc | undefined => ownedDesc(value, "schema")
@@ -48,6 +56,51 @@ const underOwnName = (label: string, key: string, desc: RelationDesc): RelationD
 		)
 	}
 	return desc
+}
+
+/** A closed id's roster, through any depth of contracts; none for any other field. */
+const closedIdRoster = (desc: FieldDesc): string | undefined =>
+	desc.kind === "closedId"
+		? desc.roster
+		: desc.kind === "contract"
+			? closedIdRoster(desc.base)
+			: undefined
+
+/**
+ * Each closed relation of a level's record held to the schema's rosters, `rosters` the schema's relations by name, the
+ * level's own among them: closed.relation()
+ * admitted its rows against the rosters its closed-id fields were built over, so each of those rosters' handles must
+ * be one of the schema's roster of that name, and then each row's is. A field over a roster the schema does not
+ * declare is ownership's refusal.
+ */
+const heldToRosters = (
+	label: string,
+	record: Readonly<Record<string, unknown>>,
+	rosters: ReadonlyMap<string, RelationDesc>
+): void => {
+	for (const [key, value] of Object.entries(record)) {
+		const desc = rosters.get(key)
+		const fields = hasProperties(value) ? value["fields"] : undefined
+		if (desc?.kind !== "closedRelation" || !hasProperties(fields)) {
+			continue
+		}
+		for (const [field, type] of Object.entries(desc.fields)) {
+			const roster = closedIdRoster(type)
+			const declared = roster === undefined ? undefined : rosters.get(roster)
+			const carried = rosterHandlesOf(fields[field])
+			if (declared?.kind !== "closed" || carried === undefined) {
+				continue
+			}
+			const held = new Set(declared.handles)
+			const stray = carried.find((handle) => !held.has(handle))
+			if (stray !== undefined) {
+				throw malformed(
+					`${label} relation ${key}`,
+					`a closed relation over the schema's roster ${declared.name}; its field ${field} is over another roster of that name, which holds ${JSON.stringify(stray)}`
+				)
+			}
+		}
+	}
 }
 
 /** The list of statements a caller handed in. */
@@ -119,6 +172,7 @@ export const admitSchema = (
 		descs.push(underOwnName(label, key, relation.desc))
 		digests.push({ name: key, digest: relation.digest })
 	}
+	heldToRosters(label, relations, new Map(descs.map((d) => [d.name, d] as const)))
 	const stmts = statementList(statementValues(statements, label), label)
 	const desc = orThrow(
 		decodeDesc("schema", {
@@ -132,8 +186,8 @@ export const admitSchema = (
 }
 
 /**
- * schema(name, relations, statements). The relations are a frozen copy, and the statements a frozen copy, `readonly
- * [...Statements]`, which is Statements for every tuple a call writes.
+ * schema(name, relations, statements). The relations are a frozen copy, and the statements a frozen copy, held by name
+ * and read back whole (types/schema/schema.ts StatementsReadBack), which is Statements for every tuple a call writes.
  */
 const rootSchema = <
 	const Name extends string,
@@ -142,16 +196,17 @@ const rootSchema = <
 >(
 	name: Name,
 	relations: Relations,
-	statements: Statements,
+	statements: Statements & StatementsReadBack<Statements, Relations>,
 	extra: ReadonlyArray<unknown>
-): Schema<Name, Relations, readonly [...Statements]> => {
+): Schema<Name, Relations, StatementsByName<Statements, Relations>> => {
 	const admitted = admitSchema(name, relations, statements, extra)
+	const read: StatementsReadBack<Statements, Relations> = statements
 	return ownValue(
 		{
 			...builtMark,
 			name,
 			relations: frozenCopy(relations),
-			statements: frozenTuple<Statements>(statements),
+			statements: frozenTuple(read),
 			extends: undefined
 		},
 		"schema",
@@ -224,6 +279,7 @@ const admitExtend = (
 			})
 		)
 	}
+	heldToRosters(label, relations, new Map([...below, ...descs.map((d) => [d.name, d] as const)]))
 	const stmts = statementList(statementValues(statements, label), label)
 	const desc = orThrow(
 		decodeDesc("schema", {
@@ -246,27 +302,30 @@ const admitExtend = (
 
 /**
  * Adds relations, derived relations among them, and statements to `base`, under its name; the value holds the base's
- * relations and statements before its own, and the base it extends.
+ * relations and statements before its own, its own read back whole as the root's are, and the base it extends.
  */
 const extend = <
 	Base extends AnySchema,
 	const Relations extends Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>>,
 	const Statements extends ReadonlyArray<Statement>
 >(
-	base: Base,
+	base: Base & { readonly statements: StatementsBelow<Base> },
 	relations: Relations,
-	statements: Statements,
+	statements: Statements & StatementsReadBack<Statements, Base["relations"] & Relations>,
 	extra: ReadonlyArray<unknown>
 ): Schema<
 	Base["name"],
 	Base["relations"] & Relations,
-	readonly [...Base["statements"], ...Statements],
+	StatementsByName<Statements, Base["relations"] & Relations>,
 	Base
 > => {
 	const admitted = admitExtend(base, relations, statements, extra)
-	const below: Base["statements"] = base.statements
-	const added: Statements = statements
-	const all: readonly [...Base["statements"], ...Statements] = [...below, ...added]
+	const below: StatementsBelow<Base> = base.statements
+	const added: StatementsReadBack<Statements, Base["relations"] & Relations> = statements
+	const all: readonly [
+		...StatementsBelow<Base>,
+		...StatementsReadBack<Statements, Base["relations"] & Relations>
+	] = [...below, ...added]
 	Object.freeze(all)
 	return ownValue(
 		{

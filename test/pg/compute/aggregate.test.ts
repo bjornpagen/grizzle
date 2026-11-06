@@ -1,7 +1,7 @@
 import { layer } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
-import { element } from "@grizzle/testing/gen"
+import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -210,12 +210,33 @@ const aggregates = ["sum", "mean", "min", "max"] as const
 
 type Aggregate = (typeof aggregates)[number]
 
-/** An admitted aggregate over a sample whose checks all ran, by its name and the sample's label. */
-type AggregateFeature = `checked ${Aggregate}/${string}`
+/** A call the suite checks: count(*), or an aggregate over a sample. */
+type Call =
+	| { readonly kind: "count" }
+	| { readonly kind: "over"; readonly sample: Sample; readonly name: Aggregate }
+
+const callGen: Gen<Call> = (source) =>
+	source.draw(element(["count", "over"] as const)) === "count"
+		? { kind: "count" }
+		: {
+				kind: "over",
+				sample: source.draw(element(samples)),
+				name: source.draw(element(aggregates))
+			}
+
+/** An admitted aggregate over a sample whose checks all ran, by its name and the sample's label; count(*) checked. */
+type AggregateFeature = `checked ${Aggregate}/${string}` | "checked count(*)"
+
+/**
+ * The contract an aggregate's result keeps: an extreme is one of its arguments, so min and max keep the argument's
+ * contract; a sum or a mean is no argument, so it keeps none.
+ */
+const keptContract = (name: Aggregate, arg: ScalarType): string | undefined =>
+	name === "min" || name === "max" ? contractOf(arg)?.name : undefined
 
 layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 	it.effect(
-		"types every aggregate as pg_aggregate and pg_typeof do, and refuses what PostgreSQL lacks",
+		"types count(*) and every aggregate as pg_aggregate and pg_typeof do, keeps a contract exactly through an extreme, and refuses what PostgreSQL lacks",
 		(ctx) =>
 			searched(
 				ctx,
@@ -234,11 +255,17 @@ layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 					return yield* exhaust(
 						{
 							suite: "pg/compute/aggregate",
-							generator: (source) =>
-								[source.draw(element(samples)), source.draw(element(aggregates))] as const,
-							literal: ([sample, name]) => `${name}/${sample.label}`,
-							limit: samples.length * aggregates.length,
+							generator: callGen,
+							literal: (call) =>
+								call.kind === "count" ? "count(*)" : `${call.name}/${call.sample.label}`,
+							limit: 1 + samples.length * aggregates.length,
+							box: "count(*), and every aggregate over every sample",
+							oracle: {
+								kind: "postgresql",
+								name: "pg_aggregate's resolution and pg_typeof's result of each call"
+							},
 							coverage: requiredInSpace<AggregateFeature>([
+								"checked count(*)",
 								"checked min/code",
 								"checked sum/Cents",
 								"checked max/Cents",
@@ -246,10 +273,34 @@ layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 							]),
 							caseHang
 						},
-						([sample, name], c) =>
+						(call, c) =>
 							Effect.gen(function* () {
+								if (call.kind === "count") {
+									const count = succeeded(
+										aggregateOverload({ name: "count" }, SourceLoc("test", []))
+									)
+									const [row] = yield* db.values(
+										"SELECT pg_typeof(count(*))::text, to_regprocedure('count()')::regprocedure::text FROM (VALUES (1)) AS t(x)",
+										[]
+									)
+									assert.deepEqual(row, [concreteTypeName[count.result.carrier], count.op])
+									c.note("checked count(*)")
+									return
+								}
+								const { sample, name } = call
 								const outcome = yield* aggregateProblems(db, s, sample, name)
 								assert.deepEqual(outcome.problems, [])
+								const overload = aggregateOverload(
+									{ name, arg: sample.type },
+									SourceLoc("test", [])
+								)
+								if (overload.ok) {
+									assert.equal<string | undefined>(
+										contractOf(overload.value.result)?.name,
+										keptContract(name, sample.type),
+										`${name}/${sample.label}'s contract`
+									)
+								}
 								if (outcome.checked) {
 									c.note(`checked ${name}/${sample.label}`)
 								}
@@ -257,32 +308,5 @@ layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 					)
 				})
 			)
-	)
-
-	it.effect("types count(*) and keeps a contract through min but not through sum", () =>
-		Effect.gen(function* () {
-			const { session } = yield* Substrate
-			const db = yield* session(ownerSession())
-			const count = succeeded(aggregateOverload({ name: "count" }, SourceLoc("test", [])))
-			const [row] = yield* db.values(
-				"SELECT pg_typeof(count(*))::text, to_regprocedure('count()')::regprocedure::text FROM (VALUES (1)) AS t(x)",
-				[]
-			)
-			assert.deepEqual(row, [concreteTypeName[count.result.carrier], count.op])
-			assert.equal<string | undefined>(
-				contractOf(
-					succeeded(aggregateOverload({ name: "min", arg: Cents.scalar }, SourceLoc("test", [])))
-						.result
-				)?.name,
-				"Cents"
-			)
-			assert.equal(
-				contractOf(
-					succeeded(aggregateOverload({ name: "sum", arg: Cents.scalar }, SourceLoc("test", [])))
-						.result
-				),
-				undefined
-			)
-		})
 	)
 })

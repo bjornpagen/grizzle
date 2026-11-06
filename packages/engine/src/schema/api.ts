@@ -39,7 +39,6 @@ import type {
 	AnyRoster,
 	ClosedIdFieldOf,
 	ClosedRelation,
-	ClosedRelationOptions,
 	DistinctFields,
 	DistinctHandles,
 	DistinctTerms,
@@ -56,6 +55,9 @@ import type {
 	DerivedAt,
 	LevelsOf,
 	Schema,
+	StatementsBelow,
+	StatementsByName,
+	StatementsReadBack,
 	StatementsWithin,
 	UnderOwnNames
 } from "#compiler/types/schema/schema.ts"
@@ -209,10 +211,10 @@ const closedRoster = <
 ): Roster<Name, readonly [...Handles]> => closedBuilder<Name, Handles>(name, handles, extra)
 
 /**
- * closed.relation(name, fields, key, rows, options): a closed relation, its rows fixed when the schema compiles. The key
- * is required, a nonempty list of its closed-id fields, each once; a set lists every field. Its rows are facts of its
- * fields, no two of one key. `at` and `row` are its closed reads. `options.pack` states how its migration packs it
- * (ClosedRelationOptions), its rows by default.
+ * closed.relation(name, fields, key, rows): a closed relation, its rows fixed when the schema compiles. The key is
+ * required, a nonempty list of its closed-id fields, each once; a set lists every field. Its rows are facts of its
+ * fields, no two of one key. `at` and `row` are its closed reads. Its migration states each of its constants as one hex
+ * literal; no argument chooses another form.
  */
 const closedRelation = <
 	const Name extends string,
@@ -224,9 +226,9 @@ const closedRelation = <
 	fields: Fields & ClosedFieldsCheck<Fields>,
 	key: KeyFields & DistinctFields<KeyFields>,
 	rows: Rows & DistinctRows<Name, Rows, KeyFields>,
-	...options: ClosedRelationOptions
+	...extra: ReadonlyArray<never>
 ): ClosedRelation<Name, Fields, readonly [...KeyFields]> =>
-	closedRelationBuilder<Name, Fields, KeyFields>(name, fields, key, rows, options)
+	closedRelationBuilder<Name, Fields, KeyFields>(name, fields, key, rows, extra)
 
 /**
  * A closed relation's rows are a set by identity: a row written twice is one row, and two written out with one key and
@@ -240,8 +242,8 @@ export const closed: typeof closedRoster & { readonly relation: typeof closedRel
 
 /**
  * schema(name, relations, statements). Each relation sits under its own name, so the record is the schema's index by
- * name. The statements are a frozen copy, `readonly [...Statements]`, which is Statements for every tuple a call
- * writes.
+ * name. The statements are a frozen copy, held by name (StatementsByName) and read back whole, so `statements` is the
+ * tuple the call writes: every tuple of statements reads back as itself (StatementsReadBack).
  */
 const rootSchema = <
 	const Name extends string,
@@ -250,29 +252,34 @@ const rootSchema = <
 >(
 	name: Name,
 	relations: Relations & UnderOwnNames<Relations>,
-	statements: Statements & StatementsWithin<Statements, Relations>,
+	statements: Statements &
+		StatementsWithin<Statements, Relations> &
+		StatementsReadBack<Statements, Relations>,
 	...extra: ReadonlyArray<never>
-): Schema<Name, Relations, readonly [...Statements]> =>
+): Schema<Name, Relations, StatementsByName<Statements, Relations>> =>
 	schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
 
 /**
  * Adds relations, including derived relations over the base, and statements, under the same name, each relation
  * under its own name. A derived definition must be a query over the base or a lower level. Query is invariant in its
- * schema, so a query over this extension, which would read its own level, is no query over any level below it.
+ * schema, so a query over this extension, which would read its own level, is no query over any level below it. Its
+ * statements are the base's, then its own, held by name over the base's relations and its own.
  */
 const extend = <
 	Base extends AnySchema,
 	const Relations extends Record<string, AnyRelation | AnyClosed | DerivedAt<LevelsOf<Base>>>,
 	const Statements extends ReadonlyArray<Statement>
 >(
-	base: Base,
+	base: Base & { readonly statements: StatementsBelow<Base> },
 	relations: Relations & UnderOwnNames<Relations>,
-	statements: Statements & StatementsWithin<Statements, Base["relations"] & Relations>,
+	statements: Statements &
+		StatementsWithin<Statements, Base["relations"] & Relations> &
+		StatementsReadBack<Statements, Base["relations"] & Relations>,
 	...extra: ReadonlyArray<never>
 ): Schema<
 	Base["name"],
 	Base["relations"] & Relations,
-	readonly [...Base["statements"], ...Statements],
+	StatementsByName<Statements, Base["relations"] & Relations>,
 	Base
 > => schemaBuilder.extend<Base, Relations, Statements>(base, relations, statements, extra)
 

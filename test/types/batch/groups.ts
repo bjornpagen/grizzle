@@ -1,5 +1,9 @@
 import { Array as Arr, Record as Rec } from "effect"
+import { attachEntriesFrom, attachModule } from "#test/support/agreement/attachments.ts"
+import { changeSetEntriesFrom, changeSetModules } from "#test/support/agreement/changesets.ts"
+import { computeEntriesFrom, computeModules } from "#test/support/agreement/compute.ts"
 import { agreementEntriesFrom, agreementModules } from "#test/support/agreement/queries.ts"
+import { schemaEntriesFrom, schemaModules } from "#test/support/agreement/schemas.ts"
 import { checkUnit, type Group, type UnitSpec } from "#test/types/batch/batch.ts"
 import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
 import {
@@ -38,7 +42,16 @@ export const typeGroups: ReadonlyArray<Group> = [
 	{ owner: "test/types/api/api.test.ts", units: fixtureUnits("api", ["support.ts"]) },
 	{
 		owner: "test/types/changeset/changeset.test.ts",
-		units: fixtureUnits("changeset", ["support.ts"])
+		units: {
+			"changeset/agreement": {
+				kind: "program",
+				dir: "test/types/changeset",
+				prefix: ".agreement-",
+				disarm: true,
+				heavy: true,
+				source: (entry, seed) => changeSetModules(changeSetEntriesFrom(entry), seed)
+			}
+		}
 	},
 	{
 		owner: "test/types/changeset/nesting.test.ts",
@@ -55,7 +68,19 @@ export const typeGroups: ReadonlyArray<Group> = [
 			}
 		}
 	},
-	{ owner: "test/types/compute/compute.test.ts", units: fixtureUnits("compute", ["support.ts"]) },
+	{
+		owner: "test/types/compute/compute.test.ts",
+		units: {
+			"compute/agreement": {
+				kind: "program",
+				dir: "test/types/compute",
+				prefix: ".agreement-",
+				disarm: true,
+				heavy: false,
+				source: (entry, seed) => computeModules(computeEntriesFrom(entry), seed)
+			}
+		}
+	},
 	{ owner: "test/types/derived/derived.test.ts", units: fixtureUnits("derived", ["support.ts"]) },
 	{
 		owner: "test/types/evidence/evidence.test.ts",
@@ -71,6 +96,21 @@ export const typeGroups: ReadonlyArray<Group> = [
 				disarm: true,
 				heavy: false,
 				source: (entry, seed) => agreementModules(agreementEntriesFrom(entry), seed)
+			}
+		}
+	},
+	{
+		owner: "test/types/evidence/attachments.test.ts",
+		units: {
+			"evidence/attachments": {
+				kind: "program",
+				dir: "test/types/evidence",
+				prefix: ".attachments-",
+				disarm: true,
+				heavy: false,
+				source: (entry, seed) => [
+					{ file: "index.ts", source: attachModule(attachEntriesFrom(entry), seed) }
+				]
 			}
 		}
 	},
@@ -124,6 +164,19 @@ export const typeGroups: ReadonlyArray<Group> = [
 				}
 			])
 		)
+	},
+	{
+		owner: "test/types/schema/agreement.test.ts",
+		units: {
+			"schema/agreement": {
+				kind: "program",
+				dir: "test/types/schema",
+				prefix: ".agreement-",
+				disarm: true,
+				heavy: false,
+				source: (entry, seed) => schemaModules(schemaEntriesFrom(entry), seed)
+			}
+		}
 	},
 	{
 		owner: "test/types/schema/schema.test.ts",

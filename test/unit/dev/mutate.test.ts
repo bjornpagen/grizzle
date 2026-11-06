@@ -1,9 +1,12 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
+import { exhaust } from "@grizzle/testing/explore"
+import { requiredInSpace } from "@grizzle/testing/features"
+import { element } from "@grizzle/testing/gen"
 import { applied, type Mutant, mutantsOf } from "@grizzle/testing/mutants"
-import { Array as Arr, Effect, String as Str } from "effect"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, FileSystem, String as Str } from "effect"
 import {
-	classicOperators,
 	type Operator,
 	setSemantics,
 	sqlWorld,
@@ -11,218 +14,146 @@ import {
 	worldOperators
 } from "#scripts/dev/mutate/world.ts"
 import { withNativeSyntax } from "#scripts/dev/shared/native-syntax.ts"
-import { assert } from "#test/support/assert.ts"
-
-import { regex } from "arkregex"
-/** A source outside the world files, which gives every classic operator a mutant. */
-const classicProbe = Arr.join(
-	[
-		"export const within = (n: number, limit: number): boolean => n >= 0 && n < limit && limit !== 3",
-		"export function first(xs: ReadonlyArray<number>, k: number): number | undefined {",
-		"\tfor (const x of xs) {",
-		"\t\tif (x === k) continue",
-		"\t\tif (x > k + 1) return x",
-		"\t}",
-		"\treturn undefined",
-		"}",
-		'export const op = (unique: boolean) => (unique ? "UNION ALL" : "UNION")',
-		'export const sql = "SELECT DISTINCT a FROM t WHERE a IS DISTINCT FROM b"',
-		"export const flags = { distinct: true as const }",
-		'interface Shape { readonly op: "UNION ALL"; readonly n: 1 }',
-		"export type { Shape }"
-	],
-	"\n"
-)
-
-/** Synthetic world files, in the shapes the compiler builds its world SQL in, each at a path the family aims at. */
-const worldProbes: ReadonlyArray<{ readonly file: string; readonly text: string }> = [
-	{
-		file: "packages/engine/src/sql/print.ts",
-		text: Arr.join(
-			[
-				"export const policy = (s: { readonly using: string; readonly check: string }) => [",
-				"\t`CREATE POLICY p ON t AS PERMISSIVE FOR ALL TO r`,",
-				`\t\`  USING (\${print(s.using)})\`,`,
-				`\t\`  WITH CHECK (\${print(s.check)})\``,
-				"]",
-				`export const view = (barrier: boolean) => \`CREATE VIEW v\${barrier ? " WITH (security_barrier)" : ""} AS\``,
-				`export const header = (fn: Fn) => \`LANGUAGE sql STABLE SECURITY \${fn.security} SET search_path = \${list(fn.path)}\``,
-				`export const member = (role: string, to: string) => \`GRANT \${role} TO \${to} WITH INHERIT FALSE, SET TRUE\``,
-				`export const login = (name: string, on: boolean) => \`CREATE ROLE \${name} \${on ? "LOGIN NOINHERIT" : "NOLOGIN"}\``,
-				"export const printCatalogType = (name: CatalogTypeName): string => {",
-				"\tswitch (catalogSpelling[name]) {",
-				'\t\tcase "keyword":',
-				"\t\t\treturn name",
-				'\t\tcase "qualified":',
-				"\t\t\treturn inCatalog(name)",
-				"\t}",
-				"}",
-				'const printFunctionName = (fn: FunctionRef): string => fn.kind === "builtin" ? inCatalog(fn.name) : printObjectName(fn)'
-			],
-			"\n"
-		)
-	},
-	{
-		file: "packages/grizzle/src/adapter/wire/batch.ts",
-		text: "export const prologue = \"SELECT pg_catalog.set_config('role', $1, true), pg_catalog.set_config('grizzle.claims', $2, true)\""
-	},
-	{
-		file: "packages/engine/src/physical/ddl/roles.ts",
-		text: Arr.join(
-			[
-				"export const probe = (a: Expr, b: Expr, c: Expr) => and(a, b, c)",
-				'export const grants = (mutable: boolean) => [grant(mutable ? ["SELECT", "UPDATE"] : ["SELECT"], on)]',
-				'export const ddl = [fn, { kind: "revoke", privileges: ["ALL"], on: { kind: "FUNCTION", names: [n] }, from: [{ kind: "PUBLIC" }] }]',
-				'export const view = { kind: "createView", barrier: true }'
-			],
-			"\n"
-		)
-	},
-	{
-		file: "packages/engine/src/lower/conservative/claims/index.ts",
-		text: 'export const source = (context: string, columns: ReadonlyArray<{ readonly field: string }>) => ({ kind: "context", context, columns })'
-	},
-	{
-		file: "packages/engine/src/physical/ddl/advance.ts",
-		text: 'export const move = simpleSelect([target(call("setval", [seq, past]))], [table(s, n, "r1")], gt(row(past), row(last)))'
-	},
-	{
-		file: "packages/engine/src/physical/ddl/isolation.ts",
-		text: 'export const body = [refuseBelowSerializable, { kind: "return", value: next }]'
-	},
-	{
-		file: "packages/engine/src/scalar/compute/registry.ts",
-		text: Arr.join(
-			[
-				'export type OperandReading = "value" | "displayScale"',
-				"const divisor = requires([nonzero(1)])",
-				'export const div = infix("div", "/", "numeric", "numeric", divisor, "displayScale")',
-				'export const add = infix("add", "+", "int4", "int4", exactInteger, "value")',
-				'export const mul = infix("mul", "*", "float8", "float8", ieee("mul"), "value")'
-			],
-			"\n"
-		)
-	},
-	{
-		file: "packages/engine/src/scalar/aggregate.ts",
-		text: 'export const sums = { float8: { lowering: exactSum("float8") }, int4: { lowering: native } }'
-	}
-]
-
-/** Every mutant of some sources by the library's operators and grizzle's two families. */
-const mutantsOfProbes = (
-	sources: ReadonlyArray<{ readonly file: string; readonly text: string }>
-) => mutantsOf(sources, [setSemantics, sqlWorld])
-
-const isWorld = (m: Mutant<Operator>): m is Mutant<WorldOperator> =>
-	Arr.some(worldOperators, (o) => o === m.operator)
-
-const isClassic = (m: Mutant<Operator>): boolean =>
-	Arr.some(classicOperators, (o) => o === m.operator)
-
-/** Whether each text parses with no syntax error, by the native parser, for checking a mutant keeps its file valid. */
-const parses = (inputs: ReadonlyArray<{ readonly file: string; readonly text: string }>) =>
-	withNativeSyntax(inputs, (sources) =>
-		Arr.map(sources, (source) => ({ file: source.file, parses: source.diagnostics.length === 0 }))
-	)
+import { assert, nonEmpty } from "#test/support/assert.ts"
+import { repoRoot } from "#test/support/files.ts"
+import { caseHang } from "#test/support/limits.ts"
 
 /**
- * What each world operator's fault is, read off the mutated text: the defining change, so a mutant that passes is the
- * fault the operator names and not some other edit.
+ * grizzle's mutation operator families, audited over the real tree they mutate: every mutant of the `sql-world` and
+ * `set-semantics` families in the files `pnpm mutate` reads (packages/engine/src and packages/grizzle/src/adapter).
+ *
+ * - Every operator of both families plants at least one mutant in the real tree: an operator whose code moved away
+ *   from the shapes it reads mutates nothing, and the measurement would lose it silently.
+ * - Every mutant parses, so a run measures a fault and never a syntax error; changes its file, so no mutant is
+ *   equivalent by construction; and has an id no other mutant of the files has, so a triage verdict names one mutant.
+ * - Every mutant plants the fault its operator names, read off the text it replaces and the text it puts there.
  */
-const faults: Readonly<Record<WorldOperator, (mutated: string) => boolean>> = {
-	"world-conjunct": (t) => regex("and\\([abc], [abc]\\)").test(t),
-	"world-policy-true": (t) =>
-		Str.includes("USING (true)")(t) || Str.includes("WITH CHECK (true)")(t),
-	"world-policy-swap": (t) =>
-		Str.includes(`USING (\${print(s.check)})`)(t) &&
-		Str.includes(`WITH CHECK (\${print(s.using)})`)(t),
-	"world-barrier": (t) =>
-		!Str.includes('" WITH (security_barrier)"')(t) || Str.includes("barrier: false")(t),
-	"world-definer": (t) => Str.includes("SECURITY INVOKER")(t),
-	"world-search-path": (t) => !Str.includes("search_path")(t),
-	"world-catalog-bare": (t) =>
-		!Str.includes("return inCatalog(name)")(t) || !Str.includes("? inCatalog(fn.name)")(t),
-	"world-grant": (t) => regex('"(?:TRUNCATE|UPDATE|SELECT)"\\]').test(t),
-	"world-public-execute": (t) =>
-		Str.includes('{ kind: "grant", privileges: ["EXECUTE"]')(t) &&
-		Str.includes('to: [{ kind: "PUBLIC" }]')(t),
-	"world-membership": (t) =>
-		Str.includes("INHERIT TRUE")(t) ||
-		Str.includes("SET FALSE")(t) ||
-		Str.includes("LOGIN INHERIT")(t),
-	"world-claims-session": (t) => regex("set_config\\('[^']+', \\$\\d, false\\)").test(t),
-	"world-context-field": (t) =>
-		Str.includes("columns: columns.map((c) => ({ ...c, field: context }))")(t),
-	"world-advance-max": (t) => Str.endsWith(", undefined)")(t),
-	"world-isolation-guard": (t) => !Str.includes("refuseBelowSerializable")(t),
-	"world-reads-flip": (t) =>
-		Str.includes('divisor, "value")')(t) || Str.includes("float8: { lowering: native }")(t),
-	"world-precondition-drop": (t) =>
-		Str.includes("const divisor = total")(t) || Str.includes(', total, "')(t)
-}
+type FamilyOperator = WorldOperator | "set-semantics"
 
-layer(NodeServices.layer)("mutation operators", (it) => {
-	it.effect("keeps every mutant parseable, with distinct identities", () =>
-		Effect.gen(function* () {
-			const mutants = yield* mutantsOfProbes([
-				{ file: "src/probe.ts", text: classicProbe },
-				...worldProbes
-			])
-			const all = Arr.map(mutants, (mutant) => ({
-				file: `${mutant.file}:${mutant.line} ${mutant.operator}`,
-				text: applied(mutant)
-			}))
-			for (const { file, parses: valid } of parses(all)) {
-				assert.ok(valid, file)
-			}
-			assert.equal(new Set(Arr.map(mutants, (m) => m.id)).size, mutants.length)
-		})
-	)
+const familyOperators: Arr.NonEmptyReadonlyArray<FamilyOperator> = [
+	...worldOperators,
+	"set-semantics"
+]
 
-	it.effect(
-		"reaches every classic operator with its probe, and no world operator outside the world files",
-		() =>
-			Effect.gen(function* () {
-				const mutants = yield* mutantsOfProbes([{ file: "src/probe.ts", text: classicProbe }])
-				assert.deepEqual(
-					new Set(Arr.map(Arr.filter(mutants, isClassic), (m) => m.operator)),
-					new Set(classicOperators)
+const isFamily = (m: Mutant<Operator>): m is Mutant<FamilyOperator> =>
+	Arr.some(familyOperators, (o) => o === m.operator)
+
+/** The membership flips world-membership makes, each a text and its replacement. */
+const membershipFlips: ReadonlyArray<readonly [string, string]> = [
+	["WITH INHERIT FALSE", "WITH INHERIT TRUE"],
+	["INHERIT FALSE, SET TRUE", "INHERIT FALSE, SET FALSE"],
+	["LOGIN NOINHERIT", "LOGIN INHERIT"]
+]
+
+/** What each operator's fault is, read off the text a mutant replaces and its replacement. */
+const faults: Readonly<Record<FamilyOperator, (original: string, replacement: string) => boolean>> =
+	{
+		"world-conjunct": (o, r) =>
+			Str.startsWith("and(")(o) && Str.startsWith("and(")(r) && r.length < o.length,
+		"world-policy-true": (_, r) => r === "true",
+		"world-barrier": (o, r) =>
+			(r === '""' && Str.includes("security_barrier")(o)) || (o === "true" && r === "false"),
+		"world-definer": (_, r) => r === "INVOKER",
+		"world-search-path": (o, r) => r === "" && Str.startsWith(" SET search_path = ")(o),
+		"world-catalog-bare": (o, r) => Str.startsWith("inCatalog(")(o) && o === `inCatalog(${r})`,
+		"world-grant": (o, r) =>
+			Str.endsWith("]")(o) &&
+			Arr.some(["SELECT", "UPDATE", "TRUNCATE"], (p) => r === `${Str.slice(0, -1)(o)}, "${p}"]`),
+		"world-public-execute": (o, r) =>
+			o === "" &&
+			Str.includes('{ kind: "grant", privileges: ["EXECUTE"]')(r) &&
+			Str.includes('to: [{ kind: "PUBLIC" }]')(r),
+		"world-membership": (o, r) => Arr.some(membershipFlips, ([from, to]) => o === from && r === to),
+		"world-claims-session": (o, r) => o === "true" && r === "false",
+		"world-context-field": (o, r) =>
+			Str.startsWith("columns")(o) && Str.includes(".map((c) => ({ ...c, field: ")(r),
+		"world-advance-max": (o, r) => Str.startsWith("gt(")(o) && r === "undefined",
+		"world-isolation-guard": (o, r) =>
+			Str.includes("refuseBelowSerializable")(o) && !Str.includes("refuseBelowSerializable")(r),
+		"world-reads-flip": (o, r) =>
+			(o === '"displayScale"' && r === '"value"') ||
+			(r === "native" && (Str.startsWith("exactSum(")(o) || Str.startsWith("exactMean(")(o))),
+		"world-precondition-drop": (o, r) => r === "total" && o !== "total",
+		"set-semantics": (o, r) =>
+			(o === "UNION ALL" && r === "UNION") ||
+			(o === "UNION" && r === "UNION ALL") ||
+			(Str.startsWith("DISTINCT")(o) && r === "") ||
+			(o === "true" && r === "false") ||
+			(o === "false" && r === "true")
+	}
+
+/** The TypeScript modules `pnpm mutate` mutates, with their text. */
+const mutatedModules = Effect.gen(function* () {
+	const fs = yield* FileSystem.FileSystem
+	const listed = yield* Effect.forEach(
+		["packages/engine/src", "packages/grizzle/src/adapter"],
+		(dir) =>
+			Effect.map(fs.readDirectory(`${repoRoot}${dir}`, { recursive: true }), (entries) =>
+				Arr.map(
+					Arr.filter(entries, (e) => Str.endsWith(".ts")(e) && !Str.endsWith(".d.ts")(e)),
+					(e) => `${dir}/${e}`
 				)
-				assert.ok(!Arr.some(mutants, isWorld), "no world mutant outside the world files")
-			})
-	)
-
-	it.effect("reaches every world operator with the world probes", () =>
-		Effect.gen(function* () {
-			const mutants = yield* mutantsOfProbes(worldProbes)
-			assert.deepEqual(
-				new Set(Arr.map(Arr.filter(mutants, isWorld), (m) => m.operator)),
-				new Set(worldOperators)
 			)
-		})
 	)
+	return yield* Effect.forEach(
+		Arr.filter(Arr.flatten(listed), (file) => sqlWorld.applies(file)),
+		(file) => Effect.map(fs.readFileString(`${repoRoot}${file}`), (text) => ({ file, text }))
+	)
+})
 
-	it.effect("plants in each world mutant the fault its operator names", () =>
-		Effect.gen(function* () {
-			for (const mutant of yield* mutantsOfProbes(worldProbes)) {
-				if (isWorld(mutant)) {
-					assert.ok(
-						faults[mutant.operator](applied(mutant)),
-						`${mutant.operator} at ${mutant.file}: ${mutant.replacement}`
-					)
+layer(NodeServices.layer, { excludeTestServices: true })("mutation operators", (it) => {
+	it.effect(
+		"plant in the real tree, for every operator, mutants that parse, change their file, have ids of their own and plant the fault their operator names",
+		(ctx) =>
+			Effect.gen(function* () {
+				const modules = yield* mutatedModules
+				const all = yield* mutantsOf(modules, [setSemantics, sqlWorld])
+				const family = nonEmpty(Arr.filter(all, isFamily), "the families' mutants")
+				const parsed = withNativeSyntax(
+					Arr.map(family, (m) => ({ file: m.id, text: applied(m) })),
+					(sources) =>
+						new Set(
+							Arr.map(
+								Arr.filter(sources, (s) => s.diagnostics.length === 0),
+								(s) => s.file
+							)
+						)
+				)
+				const ids = new Map<string, number>()
+				for (const m of all) {
+					ids.set(m.id, (ids.get(m.id) ?? 0) + 1)
 				}
-			}
-		})
-	)
-
-	it.effect("swaps a policy's clauses only where they differ", () =>
-		Effect.gen(function* () {
-			const same = `export const p = (f: string) => [\`  USING (\${f})\`, \`  WITH CHECK (\${f})\`]`
-			const mutants = yield* mutantsOfProbes([
-				{ file: "packages/engine/src/sql/print.ts", text: same }
-			])
-			assert.ok(!Arr.some(mutants, (m) => m.operator === "world-policy-swap"))
-		})
+				return yield* searched(
+					ctx,
+					exhaust(
+						{
+							suite: "unit/dev/mutation-operators",
+							generator: element(family),
+							literal: (m: Mutant<FamilyOperator>) => `${m.file}:${m.line} ${m.operator} ${m.id}`,
+							limit: family.length,
+							coverage: requiredInSpace<FamilyOperator>(familyOperators),
+							box: "every sql-world and set-semantics mutant of the files pnpm mutate reads",
+							oracle: {
+								kind: "specification",
+								name: "each operator's fault, read off the text a mutant replaces and its replacement"
+							},
+							caseHang
+						},
+						(m: Mutant<FamilyOperator>, c) =>
+							Effect.sync(() => {
+								c.note(m.operator)
+								const label = `${m.file}:${m.line} ${m.operator}`
+								const original = Str.slice(m.start, m.end)(m.source)
+								assert.ok(parsed.has(m.id), `${label} parses`)
+								assert.notEqual(applied(m), m.source, `${label} changes its file`)
+								assert.equal(ids.get(m.id), 1, `${label} has an id of its own`)
+								assert.ok(
+									faults[m.operator](original, m.replacement),
+									`${label}: ${original} -> ${m.replacement}`
+								)
+							})
+					)
+				)
+			})
 	)
 })

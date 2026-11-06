@@ -18,7 +18,7 @@ import {
 	relationNormalizer
 } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
-import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
+import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { defect, defined, invariant } from "#compiler/core/invariant.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -117,7 +117,7 @@ export const nestingOf = (
 	fill: FillOrder,
 	codes: Codebook,
 	evaluate: HostEvaluator
-): Result.Result<Nesting, CompileError> => {
+): Nesting => {
 	const families = fill.families
 	const tree = families.find((f) => isTreeOf(f, relation.name))
 	const reached: Array<Reached> = []
@@ -143,11 +143,7 @@ export const nestingOf = (
 			reached.find((r) => r.family.member.name === name),
 			"a reached member"
 		).family.member
-		const layout = rowLayout(member, families)
-		if (!layout.ok) {
-			return layout
-		}
-		layouts.set(name, layout.value)
+		layouts.set(name, rowLayout(member, families))
 	}
 	const rootAt: LevelOf = tree === undefined ? { kind: "top" } : { kind: "root", family: tree }
 	const levels: Array<Level> = [
@@ -157,21 +153,19 @@ export const nestingOf = (
 			return { relation: family.member.name, at, heading: ownHeading(family.member, at) }
 		})
 	]
-	return Result.ok(
-		Object.freeze({
-			relation,
-			tree,
-			families,
-			reached: Object.freeze(reached.toSorted((a, b) => a.depth - b.depth)),
-			codes,
-			filler: built,
-			levels: Object.freeze(levels),
-			layouts,
-			top: relation.fields
-				.filter((f) => f.writing.kind !== "generated")
-				.map((f) => ({ name: f.name, type: f.type }))
-		})
-	)
+	return Object.freeze({
+		relation,
+		tree,
+		families,
+		reached: Object.freeze(reached.toSorted((a, b) => a.depth - b.depth)),
+		codes,
+		filler: built,
+		levels: Object.freeze(levels),
+		layouts,
+		top: relation.fields
+			.filter((f) => f.writing.kind !== "generated")
+			.map((f) => ({ name: f.name, type: f.type }))
+	})
 }
 
 /** A fact's host values by field name, as its codecs admitted them (scalar/values/identity.ts CarrierHost). */

@@ -10,7 +10,13 @@ import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { mutable, relation, type Schema, schema } from "#compiler/public/schema.ts"
+import {
+	mutable,
+	relation,
+	type Schema,
+	schema,
+	type StatementsByName
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
 import { installed } from "#test/pg/reads/support.ts"
@@ -50,7 +56,11 @@ const Room = relation("Room", { room: uuid, during: span(pg.bigint), guest: uuid
 const Hold = relation("Hold", { room: uuid, during: span(pg.bigint), note }, ["room", "during"])
 const Spans = schema("SpanKeys", { Room, Hold }, [mutable(Hold)])
 
-type SpansInstalled = Schema<string, (typeof Spans)["relations"], (typeof Spans)["statements"]>
+type SpansInstalled = Schema<
+	string,
+	(typeof Spans)["relations"],
+	StatementsByName<(typeof Spans)["statements"], (typeof Spans)["relations"]>
+>
 
 const rooms = [
 	"00000000-0000-4000-8000-000000000001",

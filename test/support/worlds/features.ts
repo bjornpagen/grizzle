@@ -1,15 +1,20 @@
 import type { Situations } from "@grizzle/testing/features"
 import { Array as Arr, Option, Record } from "effect"
-import { isSpan } from "#test/support/laws/model.ts"
+import { isSpan, sameValue } from "#test/support/laws/model.ts"
 import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
+import { headingOf } from "#test/support/worlds/generate/entries.ts"
+import { entryKey } from "#test/support/worlds/generate/reads.ts"
 import { invalidKinds } from "#test/support/worlds/invalid/kinds.ts"
 import {
 	classifyEntry,
+	entryRows,
 	equalValues,
 	evaluateRules,
 	factKey,
 	isMember
 } from "#test/support/worlds/model/host.ts"
+import { reachedPairs, steppedPairs } from "#test/support/worlds/model/reads.ts"
+import { compileRefused, readBackClasses } from "#test/support/worlds/model/session/apply.ts"
 import { reorderedRoster } from "#test/support/worlds/model/session/migrate.ts"
 import {
 	dbSessionAt,
@@ -43,21 +48,30 @@ import type {
 	EntryClass,
 	EntryOp,
 	EntrySpec,
+	FieldDomain,
 	HostFact,
 	InstallSpec,
 	InvariantName,
+	LawFamily,
+	LawIds,
+	LawPath,
+	LawSpec,
 	Membership,
 	MigrationKind,
 	ModelState,
 	ObjectKind,
 	Observation,
+	PageKey,
 	ActionOutcome,
+	RelationSpec,
 	RoleSpec,
 	Rule,
 	ModelSession,
+	Term,
 	Token,
 	HostValue,
 	WorldFeature,
+	WriteShape,
 	Writer
 } from "#test/support/worlds/model/types.ts"
 
@@ -1304,11 +1318,163 @@ const deletionsOf = (
 	}
 }
 
+/** The role of the open Db at a session, none for a session that is no open Db. */
+const dbRoleAt = (state: ModelState, id: number): Option.Option<RoleSpec> =>
+	Option.flatMap(dbSession(state, id), (session) => roleIn(state.install, session.role))
+
 /**
- * How a Db's read and write went: the read path a read took; how a ChangeSet's writes were stratified (one write, a
- * union of several in one stratum, a sequence of strata, or a stratum refused because a query entry's membership would
- * depend on the order of its writes); and what each read-back showed of the change's delta (none, some, or none at
- * all because the change was refused).
+ * The context fields a query entry's rules read, each by its context and field: a context term anywhere in a rule, and
+ * a field a context match binds.
+ */
+const contextFieldsRead = (
+	entry: EntrySpec
+): ReadonlyArray<{ readonly context: string; readonly field: string }> => {
+	if (entry.kind === "whole") {
+		return []
+	}
+	const ofTerm = (
+		term: Term
+	): ReadonlyArray<{ readonly context: string; readonly field: string }> =>
+		term.kind === "context" ? [{ context: term.context, field: term.field }] : []
+	return Arr.flatMap(entry.rules, (rule) => [
+		...Arr.flatMap([...rule.matches, ...Arr.flatten(rule.negations)], (o) => {
+			const source = o.source
+			return [
+				...(source.kind === "context"
+					? Arr.map(Record.keys(o.fields), (field) => ({ context: source.name, field }))
+					: []),
+				...Arr.flatMap(Record.values(o.fields), ofTerm)
+			]
+		}),
+		...Arr.flatMap(rule.comparisons, (c) => [...ofTerm(c.left), ...ofTerm(c.right)]),
+		...Arr.flatMap(Record.values(rule.head), ofTerm)
+	])
+}
+
+/**
+ * The key grizzle completes a page's order with (PageKey): a derived relation's, read whole; a key it proves of the
+ * entry short of its heading (generate/reads.ts entryKey); or the heading itself.
+ */
+const pageKeyOf = (base: BaseSpec, entry: EntrySpec): PageKey =>
+	entry.kind === "whole" && Arr.some(base.derived, (d) => d.name === entry.relation)
+		? "derived-key"
+		: entryKey(base, entry).length < headingOf(base, entry).length
+			? "proven-key"
+			: "heading-key"
+
+/**
+ * What a read that delivered rows shows of how it went: the key a page's order is completed by (pageKeyOf) and where
+ * it started; an attachment that nested a row under another; a
+ * recursive read that chained a pair past one step; a span read through the world; and each domain of a context
+ * field the relation's rules read under a fact its Db holds, decoded from the token.
+ */
+const readsOf = (
+	state: ModelState,
+	action: Extract<Action, { readonly kind: "read" }>,
+	observation: Observation
+): ReadonlyArray<WorldFeature> => {
+	if (observation.kind !== "rows") {
+		return []
+	}
+	const base = state.install.base
+	return Option.match(
+		Option.all([dbSession(state, action.session), dbRoleAt(state, action.session)]),
+		{
+			onNone: () => [],
+			onSome: ([session, role]): ReadonlyArray<WorldFeature> => {
+				const entry = roleEntryOf(role, action.relation)
+				if (entry === undefined) {
+					return []
+				}
+				const rowsOf = (relation: string): ReadonlyArray<HostFact> =>
+					roleEntryOf(role, relation) === undefined
+						? []
+						: entryRows(state, role.name, relation, session.facts)
+				const via = action.via
+				const path: ReadonlyArray<WorldFeature> =
+					via.kind === "page"
+						? [`page:${pageKeyOf(base, entry)}:${via.from}`]
+						: via.kind === "attach"
+							? Arr.some(rowsOf(action.relation), (row) =>
+									Arr.some(rowsOf(via.relation), (child) =>
+										sameValue(child[via.child], row[via.parent])
+									)
+								)
+								? ["attach:nested"]
+								: []
+							: via.kind === "reach" &&
+								  reachedPairs(rowsOf(action.relation), via.from, via.to).length >
+										steppedPairs(rowsOf(action.relation), via.from, via.to).length
+								? ["reach:chained"]
+								: []
+				const spans: ReadonlyArray<WorldFeature> = Arr.some(observation.rows, (row) =>
+					Arr.some(Record.values(row), isSpan)
+				)
+					? ["read:span"]
+					: []
+				const claims = Arr.flatMap(contextFieldsRead(entry), ({ context, field }) =>
+					Option.toArray(
+						Option.flatMap(Option.fromUndefinedOr(session.facts[context]?.[field]), () =>
+							Arr.findFirst(base.contexts, (c) => c.name === context).pipe(
+								Option.flatMap((c) => Arr.findFirst(c.fields, (f) => f.name === field)),
+								Option.flatMap((f) => claimFeature(f.domain))
+							)
+						)
+					)
+				)
+				return [...path, ...spans, ...claims]
+			}
+		}
+	)
+}
+
+/** The feature of a context field's domain decoded from a token; none for a domain no context field takes. */
+const claimFeature = (domain: FieldDomain): Option.Option<WorldFeature> => {
+	switch (domain.kind) {
+		case "uuid":
+		case "text":
+		case "integer":
+		case "boolean":
+		case "handle":
+		case "contract":
+			return Option.some<WorldFeature>(`claim:${domain.kind}`)
+		case "serial":
+		case "span":
+			return Option.none()
+	}
+}
+
+/**
+ * How each read-back of a ChangeSet through a Db stood to the change (ReadBackClass, by the model's restatement of
+ * README "Writes", session/apply.ts readBackClasses): of an applied ChangeSet, each read-back's class; of one refused
+ * when it compiled for a read-back alone, an undetermined one.
+ */
+const readBacksOf = (
+	state: ModelState,
+	action: Extract<Action, { readonly kind: "apply" }>,
+	observation: Observation
+): ReadonlyArray<WorldFeature> =>
+	Option.match(dbRoleAt(state, action.session), {
+		onNone: () => [],
+		onSome: (role): ReadonlyArray<WorldFeature> => {
+			const base = state.install.base
+			const classes = readBackClasses(base, role, action.strata, action.reads)
+			if (observation.kind === "applied") {
+				return Arr.map(classes, (c): WorldFeature => `readback:${c}`)
+			}
+			return observation.kind === "compile-refused" &&
+				!compileRefused(base, role, action.strata, []) &&
+				Arr.contains(classes, "undetermined")
+				? ["readback:undetermined"]
+				: []
+		}
+	})
+
+/**
+ * How a Db's read and write went: the read path a read took and what it showed (readsOf); how a ChangeSet's writes
+ * were stratified (one write, a union of several in one stratum, a sequence of strata, or a stratum refused because a
+ * query entry's membership would depend on the order of its writes); and how each read-back stood to the change
+ * (readBacksOf).
  */
 const pathsOf = (
 	state: ModelState,
@@ -1317,7 +1483,7 @@ const pathsOf = (
 ): ReadonlyArray<WorldFeature> => {
 	switch (action.kind) {
 		case "read":
-			return [`via:${action.via.kind}`]
+			return [`via:${action.via.kind}`, ...readsOf(state, action, observation)]
 		case "apply": {
 			const strata: WorldFeature =
 				observation.kind === "compile-refused" &&
@@ -1328,19 +1494,9 @@ const pathsOf = (
 						: action.strata[0].length > 1
 							? "strata:union"
 							: "strata:one"
-			const readbacks: ReadonlyArray<WorldFeature> =
-				observation.kind === "applied"
-					? Arr.map(observation.reads, (r): WorldFeature =>
-							r.delta.inserted.length === 0 && r.delta.deleted.length === 0
-								? "readback:empty-delta"
-								: "readback:projected-delta"
-						)
-					: action.reads.length > 0
-						? ["readback:refused-delta"]
-						: []
 			return [
 				strata,
-				...readbacks,
+				...readBacksOf(state, action, observation),
 				...additionsOf(state, action),
 				...(observation.kind === "applied" ? suppliedSerialsOf(state, action) : [])
 			]
@@ -1561,6 +1717,136 @@ const connectionsOf = (
 	})
 }
 
+/** The law family a declared law states (README "Rules"). */
+const familyOfSpec = (law: LawSpec): LawFamily => {
+	switch (law.kind) {
+		case "key":
+			return "key"
+		case "spanKey":
+			return "span-key"
+		case "check":
+			return "check"
+		case "contained":
+			return "contained"
+		case "covered":
+			return "covered"
+		case "alternatives":
+			return "alternatives"
+	}
+}
+
+/** Whether a declared law's identities hold `law`: its one, or one of an alternatives law's arms and reverses. */
+const holdsLaw = (ids: LawIds, law: string): boolean =>
+	ids.kind === "alternatives"
+		? Arr.some([...Record.values(ids.arms), ...Record.values(ids.reverse)], (id) => id === law)
+		: ids.law === law
+
+/** Whether a relation's primary key holds a span: a key WITHOUT OVERLAPS. */
+const spanKeyed = (relation: RelationSpec): boolean =>
+	Arr.some(relation.fields, (f) => relation.key.includes(f.name) && f.domain.kind === "span")
+
+/**
+ * The family of the law of an identity the installation names (LawFamily): a relation's primary key, a key or a span
+ * key; a contract's or a pattern's domain CHECK; or a declared law's family.
+ */
+const lawFamilyOf = (state: ModelState, law: string): Option.Option<LawFamily> => {
+	const base = state.install.base
+	const primary = Arr.findFirst(Record.toEntries(state.names.primaryKeys), ([, id]) => id === law)
+	if (Option.isSome(primary)) {
+		const [relation] = primary.value
+		return Option.some(
+			Option.exists(Option.fromUndefinedOr(relationSpecOf(base, relation)), spanKeyed)
+				? "span-key"
+				: "key"
+		)
+	}
+	if (Arr.some(Record.values(state.names.domains), (id) => id === law)) {
+		return Option.some("domain")
+	}
+	return Option.map(
+		Arr.findFirst(Arr.zip(base.laws, state.names.laws), ([, ids]) => holdsLaw(ids, law)),
+		([spec]) => familyOfSpec(spec)
+	)
+}
+
+/**
+ * The law a refused write met, by its family, the path it took (LawPath: a Db's ChangeSet through a query entry or
+ * through whole entries alone, or a direct writer's statement as the role it took on) and what its witness showed,
+ * which the model's restatement of README "Errors and outcomes" holds the real witness to.
+ */
+const lawsOf = (
+	state: ModelState,
+	action: Action,
+	actor: Actor,
+	observation: Observation
+): ReadonlyArray<WorldFeature> => {
+	if (
+		(observation.kind !== "invariant-rejected" && observation.kind !== "law-refused") ||
+		actor.kind !== "role"
+	) {
+		return []
+	}
+	const base = state.install.base
+	const path: Option.Option<LawPath> =
+		action.kind === "apply"
+			? Option.some(
+					Arr.some(
+						opsOf(action),
+						(op) => writtenNamed(base, actor.role, op.relation)?.kind === "query"
+					)
+						? "entry"
+						: "whole"
+				)
+			: action.kind === "direct" || action.kind === "direct-end"
+				? Option.some("direct")
+				: Option.none()
+	return Option.toArray(
+		Option.map(
+			Option.all([lawFamilyOf(state, observation.law), path]),
+			([family, through]): WorldFeature => `law:${family}:${through}:${observation.witness.kind}`
+		)
+	)
+}
+
+/**
+ * The shapes of relation an accepted ChangeSet through a Db wrote (WriteShape), each op by its relation's mutability,
+ * the path it took (a query entry or a whole one) and its kind: a relation keyed WITHOUT OVERLAPS, and a pure set.
+ */
+const writesOf = (
+	state: ModelState,
+	action: Action,
+	actor: Actor,
+	observation: Observation
+): ReadonlyArray<WorldFeature> => {
+	if (
+		action.kind !== "apply" ||
+		actor.kind !== "role" ||
+		observation.kind !== "applied" ||
+		observation.outcome !== "accepted"
+	) {
+		return []
+	}
+	const base = state.install.base
+	return Arr.flatMap(opsOf(action), (op): ReadonlyArray<WorldFeature> => {
+		const written = writtenNamed(base, actor.role, op.relation)
+		const relation = written === undefined ? undefined : relationSpecOf(base, written.target)
+		if (written === undefined || relation === undefined || op.facts.length === 0) {
+			return []
+		}
+		const shapes: ReadonlyArray<WriteShape> = [
+			...(spanKeyed(relation) ? (["span-key"] as const) : []),
+			...(Arr.every(relation.fields, (f) => relation.key.includes(f.name))
+				? (["pure-set"] as const)
+				: [])
+		]
+		const path = written.kind === "query" ? "entry" : "whole"
+		return Arr.map(
+			shapes,
+			(shape): WorldFeature => `write:${shape}:${relation.mutability}:${path}:${op.kind}`
+		)
+	})
+}
+
 /**
  * The features of one action in the state it ran in, with what was observed:
  * - `op:`: the action's kind, the membership of what it touched, the claims it ran under, who wrote, and the
@@ -1576,6 +1862,10 @@ const connectionsOf = (
  * - `invalid:`: every invalid input the action draws (generate's invalidKindsOf).
  * - `invariant:`: every invariant the action makes non-vacuous (invariantsOf).
  * - `deletion:` and `connection:`: what a deletion and a pooled connection show (deletionsOf, connectionsOf).
+ * - `via:`, `page:`, `attach:`, `reach:`, `read:`, `claim:`, `readback:`, `strata:` and `addition:`: how a Db's read
+ *   or write went (pathsOf).
+ * - `law:` and `write:`: the law family a refused write met with its path and witness (lawsOf), and the shapes of
+ *   relation an accepted write changed (writesOf).
  * A Defect (a leak, artifacts that disagree) is no feature: the run fails on it.
  */
 export const featuresOf = (
@@ -1604,6 +1894,8 @@ export const featuresOf = (
 		...deletionsOf(state, action, actor, observation),
 		...connectionsOf(state, action, observation),
 		...pathsOf(state, action, observation),
+		...lawsOf(state, action, actor, observation),
+		...writesOf(state, action, actor, observation),
 		...(action.kind === "migrate"
 			? [`migration:${migrationKindOf(state, action.to)}:${observation.kind}` as const]
 			: [])
@@ -1855,13 +2147,23 @@ const situations: ReadonlyArray<WorldFeature> = [
 	"via:get",
 	"via:page",
 	"via:compile",
+	"via:attach",
+	"via:reach",
+	"page:proven-key:first",
+	"page:proven-key:last",
+	"page:derived-key:first",
+	"page:derived-key:last",
+	"page:heading-key:first",
+	"page:heading-key:last",
+	"attach:nested",
 	"strata:one",
 	"strata:union",
 	"strata:sequence",
 	"strata:refused-order",
-	"readback:empty-delta",
-	"readback:projected-delta",
-	"readback:refused-delta",
+	"readback:untouched",
+	"readback:written",
+	"readback:beside",
+	"readback:undetermined",
 	"addition:complete:whole:carried",
 	"addition:complete:whole:unit",
 	"addition:complete:entry:carried",

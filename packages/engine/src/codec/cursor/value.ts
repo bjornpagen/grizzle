@@ -3,6 +3,13 @@
  * values here, so the readers are native string code with no per-character allocation.
  */
 import type { ScalarCodec } from "#compiler/codec/scalar.ts"
+import {
+	bitInputPrefix,
+	digitHolds,
+	digitValue,
+	hexDigitBits,
+	hexDigitsFor
+} from "#compiler/core/hex.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { RosterCodec } from "#compiler/ir/codes.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
@@ -87,24 +94,31 @@ const handleOf =
 		return name === undefined || name === "" ? undefined : name
 	}
 
-/** A set's `size` characters of 0 and 1, read as the Set of handles of its 1 bits; any other text reads none. */
+/**
+ * A set's text, `X` then the whole hex digits of its roster's width (ir/codes.ts handlesText), read as the Set of
+ * handles of its 1 bits; any other text, and one with a 1 at a hole or past the roster's codes, reads none.
+ */
 const handlesOf =
 	(roster: RosterCodec) =>
 	(text: string): unknown => {
-		if (text.length !== roster.size) {
+		if (text.length !== 1 + hexDigitsFor(roster.width) || !text.startsWith(bitInputPrefix)) {
 			return undefined
 		}
 		const handles = new Set<string>()
-		for (let code = 0; code < text.length; code++) {
-			const bit = text.charCodeAt(code)
-			if (bit === 0x31) {
-				const name = roster.names[code]
+		for (let at = 1; at < text.length; at++) {
+			const value = digitValue(text.charCodeAt(at))
+			if (value === undefined) {
+				return undefined
+			}
+			for (let bit = 0; bit < hexDigitBits; bit++) {
+				if (!digitHolds(value, bit)) {
+					continue
+				}
+				const name = roster.names[(at - 1) * hexDigitBits + bit]
 				if (name === undefined || name === "") {
 					return undefined
 				}
 				handles.add(name)
-			} else if (bit !== 0x30) {
-				return undefined
 			}
 		}
 		return handles

@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
-import { noCoverage } from "@grizzle/testing/features"
+import { noCoverage, requiredInSpace } from "@grizzle/testing/features"
 import { array, element, int } from "@grizzle/testing/gen"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
@@ -95,6 +95,16 @@ const claimedBy = (carrier: Carrier): ReadonlyArray<Capability> => nativeCapabil
 const unspanned: Partial<Record<Carrier, string>> = {
 	date: "daterange: grizzle declares no span carrier over a date yet"
 }
+
+/** What a precision of float(p) reached: PostgreSQL's refusal on either side, or the type it stores. */
+type FloatFeature = "refused below" | "real" | "double precision" | "refused above"
+
+/** What a carrier reached: an excluded native capability, and its span endpoints against the discrete ranges. */
+type CarrierFeature =
+	| "a native capability excluded"
+	| "a spannable carrier"
+	| "a discrete range named as a limit"
+	| "no discrete range"
 
 /** The text a probe stored for spelling i: every spelling has one. */
 const storedAt = (stored: ReadonlyArray<string>, i: number): string => {
@@ -281,28 +291,47 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 
 	it.effect(
 		"selects real or double precision for float(p) as PostgreSQL does, and refuses what it refuses",
-		() =>
-			Effect.gen(function* () {
-				const { session } = yield* Substrate
-				const db = yield* session(ownerSession())
-				yield* installProbe(db)
-				const ps = Arr.makeBy(64, (i) => i - 4)
-				const stored = yield* probe(
-					db,
-					Arr.map(ps, (p) => `float(${p})`)
-				)
-				for (const [i, p] of ps.entries()) {
-					const pgAccepts = !pipe(storedAt(stored, i), Str.startsWith("refused"))
-					assert.equal(
-						accepts(() => pgDescriptors.float(p)),
-						pgAccepts,
-						`float(${p})`
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const { session } = yield* Substrate
+					const db = yield* session(ownerSession())
+					yield* installProbe(db)
+					return yield* exhaust(
+						{
+							suite: "pg/scalar/registry/float-precisions",
+							generator: int(-4, 59),
+							literal: (p: number) => `float(${p})`,
+							limit: 64,
+							box: "every precision from -4 to 59, past both of float(p)'s edges",
+							oracle: { kind: "postgresql", name: "the type PostgreSQL stores float(p) as" },
+							coverage: requiredInSpace<FloatFeature>([
+								"refused below",
+								"real",
+								"double precision",
+								"refused above"
+							]),
+							caseHang
+						},
+						(p, c) =>
+							Effect.map(probe(db, [`float(${p})`]), (stored) => {
+								const pgAccepts = !pipe(storedAt(stored, 0), Str.startsWith("refused"))
+								assert.equal(
+									accepts(() => pgDescriptors.float(p)),
+									pgAccepts,
+									`float(${p})`
+								)
+								if (pgAccepts) {
+									assert.equal(storedAt(stored, 0), pgDescriptors.float(p).sql, `float(${p})`)
+									c.note(storedAt(stored, 0) === "real" ? "real" : "double precision")
+								} else {
+									c.note(p < 1 ? "refused below" : "refused above")
+								}
+							})
 					)
-					if (pgAccepts) {
-						assert.equal(storedAt(stored, i), pgDescriptors.float(p).sql, `float(${p})`)
-					}
-				}
-			})
+				})
+			)
 	)
 
 	it.effect("accepts exactly the numeric typmods numerictypmodin accepts", (ctx) =>
@@ -396,68 +425,82 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 		)
 	)
 
-	it.effect("claims only native capabilities, and leaves out only the documented exclusions", () =>
-		Effect.gen(function* () {
-			const { session } = yield* Substrate
-			const db = yield* session(ownerSession())
-			yield* db.query("CREATE EXTENSION IF NOT EXISTS btree_gist", [])
-			const vectorSchema = yield* vectorSchemaOf(db)
-			const types = carrierTypes(vectorSchema)
-			for (const carrier of carriers) {
-				const native = yield* nativeOf(db, types[carrier], polymorphic[carrier])
-				const claimed = Arr.filter(claimedBy(carrier), (c) => catalogNames.includes(c))
-				const excluded = exclusions[carrier] ?? []
-				assert.deepEqual(
-					claimed,
-					Arr.filter(native, (c) => !excluded.includes(c)),
-					carrier
-				)
-				for (const c of excluded) {
-					contains(native, c, `${carrier} excludes a native ${c}`)
-				}
-				if (claimedBy(carrier).includes("expressionIndex")) {
-					contains(native, "ordering", `${carrier} expression index`)
-				}
-			}
-		})
-	)
-
 	it.effect(
-		"has span endpoints only where a built-in discrete range exists over the carrier, and every such carrier spannable or a named limit",
-		() =>
-			Effect.gen(function* () {
-				const { session } = yield* Substrate
-				const db = yield* session(ownerSession())
-				const vectorSchema = yield* vectorSchemaOf(db)
-				const types = carrierTypes(vectorSchema)
-				/**
-				 * A carrier may be a span endpoint only where PostgreSQL has a built-in range over its type with a canonical
-				 * function, so that a span's text is canonical: a discrete range. Each carrier with one is a span endpoint
-				 * or is named in `unspanned` with its limit, never neither and never both, so a ranged carrier the registry
-				 * gains is refused here until it is declared spannable or its limit is stated.
-				 */
-				const discrete: Array<Carrier> = []
-				for (const carrier of carriers) {
-					const [row] = yield* db.values(
-						"SELECT EXISTS (SELECT FROM pg_catalog.pg_range r WHERE r.rngsubtype = $1::text::regtype AND r.rngcanonical <> 0)::text",
-						[types[carrier]]
+		"claims only native capabilities, leaves out only the documented exclusions, and has span endpoints exactly where a built-in discrete range exists or its limit is named",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const { session } = yield* Substrate
+					const db = yield* session(ownerSession())
+					yield* db.query("CREATE EXTENSION IF NOT EXISTS btree_gist", [])
+					const vectorSchema = yield* vectorSchemaOf(db)
+					const types = carrierTypes(vectorSchema)
+					return yield* exhaust(
+						{
+							suite: "pg/scalar/registry/carriers",
+							generator: element(carriers),
+							literal: Formatter.format,
+							limit: carriers.length,
+							box: "every carrier of the registry",
+							oracle: {
+								kind: "postgresql",
+								name: "the catalog's operators, operator classes, aggregates and discrete ranges over the carrier's type"
+							},
+							coverage: requiredInSpace<CarrierFeature>([
+								"a native capability excluded",
+								"a spannable carrier",
+								"a discrete range named as a limit",
+								"no discrete range"
+							]),
+							caseHang
+						},
+						(carrier, c) =>
+							Effect.gen(function* () {
+								const native = yield* nativeOf(db, types[carrier], polymorphic[carrier])
+								const claimed = Arr.filter(claimedBy(carrier), (cap) => catalogNames.includes(cap))
+								const excluded = exclusions[carrier] ?? []
+								assert.deepEqual(
+									claimed,
+									Arr.filter(native, (cap) => !excluded.includes(cap)),
+									carrier
+								)
+								for (const cap of excluded) {
+									contains(native, cap, `${carrier} excludes a native ${cap}`)
+									c.note("a native capability excluded")
+								}
+								if (claimedBy(carrier).includes("expressionIndex")) {
+									contains(native, "ordering", `${carrier} expression index`)
+								}
+								/**
+								 * A carrier may be a span endpoint only where PostgreSQL has a built-in range over its
+								 * type with a canonical function, so that a span's text is canonical: a discrete range.
+								 * Each carrier with one is a span endpoint or is named in `unspanned` with its limit,
+								 * never neither and never both, so a ranged carrier the registry gains is refused here
+								 * until it is declared spannable or its limit is stated.
+								 */
+								const [row] = yield* db.values(
+									"SELECT EXISTS (SELECT FROM pg_catalog.pg_range r WHERE r.rngsubtype = $1::text::regtype AND r.rngcanonical <> 0)::text",
+									[types[carrier]]
+								)
+								const discrete = defined(row, carrier)[0] === "true"
+								const spannable = claimedBy(carrier).includes("spanEndpoint")
+								const limited = unspanned[carrier] !== undefined
+								assert.deepEqual(
+									{ spannable, limited },
+									{ spannable: discrete && !limited, limited: discrete && !spannable },
+									`${carrier}: a discrete range is a span endpoint or a named limit, exactly one`
+								)
+								c.note(
+									spannable
+										? "a spannable carrier"
+										: limited
+											? "a discrete range named as a limit"
+											: "no discrete range"
+								)
+							})
 					)
-					if (defined(row, carrier)[0] === "true") {
-						discrete.push(carrier)
-					}
-				}
-				const spannable = Arr.filter(carriers, (c) => claimedBy(c).includes("spanEndpoint"))
-				assert.notDeepEqual(spannable, [], "a spannable carrier")
-				assert.deepEqual(
-					Arr.filter(carriers, (c) => spannable.includes(c) || unspanned[c] !== undefined),
-					discrete,
-					"the carriers with a discrete range: the spannable ones and the named limits"
-				)
-				assert.deepEqual(
-					Arr.filter(spannable, (c) => unspanned[c] !== undefined),
-					[],
-					"a spannable carrier named as a limit"
-				)
-			})
+				})
+			)
 	)
 })

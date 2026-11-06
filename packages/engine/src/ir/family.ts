@@ -12,16 +12,17 @@ import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
-import type { FamilyId, LawField, LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import type { FamilyId, LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /** One family: each owner's members indexed by exactly 0 … n − 1. */
 export interface Family {
 	readonly id: FamilyId
-	readonly owner: LawRelation
+	/** O: an ordinary relation of the schema, as its member is. */
+	readonly owner: RelationInfo
 	/** n: a drawn natural of the owner. */
 	readonly count: LawField
-	readonly member: LawRelation
+	readonly member: RelationInfo
 	/** g…: each member field with the owner primary-key field it pairs with, in key order. */
 	readonly group: NonEmptyReadonlyArray<{ readonly member: LawField; readonly owner: LawField }>
 	/** A field when ordered, a drawn law column (‹i›) when counted: deferral, delete plan and folds read this arm. */

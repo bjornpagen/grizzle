@@ -504,6 +504,120 @@
 				"argv",
 				"cwd"
 			]
+		},
+		"testCaseIsSearch": {
+			"files": [
+				"test/"
+			],
+			"registrars": [
+				{
+					"package": "@effect/vitest",
+					"declarations": [
+						"Test",
+						"each",
+						"prop"
+					]
+				},
+				{
+					"package": "vitest",
+					"declarations": [
+						"TestCollectorCallable",
+						"EachFunctionReturn",
+						"TestForFunctionReturn"
+					]
+				}
+			],
+			"searches": [
+				{
+					"module": "packages/testing/src/explore.ts",
+					"names": [
+						"explore",
+						"exhaust"
+					]
+				},
+				{
+					"module": "packages/testing/src/interleave.ts",
+					"names": [
+						"interleave"
+					]
+				}
+			],
+			"exempt": [
+				{
+					"files": [
+						"test/types/examples/blocks.test.ts"
+					],
+					"reason": "The README's and SKILL.md's mirror: it holds every documented block to the fixture the type batch compiles, so the documentation is checked code; its blocks are the documentation, never inputs a person chose to test."
+				},
+				{
+					"files": [
+						"test/pg/bench/"
+					],
+					"reason": "The performance gates: each measures a workload against its gate, a performance property, never a verdict a person wrote."
+				}
+			]
+		},
+		"noCaseList": {
+			"files": [
+				"test/"
+			],
+			"dictionaries": [
+				"test/support/kernel/dict.ts"
+			],
+			"searches": [
+				{
+					"module": "packages/testing/src/explore.ts",
+					"name": "exhaust",
+					"space": "generator"
+				},
+				{
+					"module": "packages/testing/src/explore.ts",
+					"name": "explore",
+					"space": "draw"
+				}
+			],
+			"generators": [
+				{
+					"module": "packages/testing/src/gen.ts",
+					"names": [
+						"element"
+					],
+					"draws": "list"
+				},
+				{
+					"module": "packages/testing/src/gen.ts",
+					"names": [
+						"constant"
+					],
+					"draws": "value"
+				},
+				{
+					"module": "packages/testing/src/gen.ts",
+					"names": [
+						"map",
+						"span",
+						"filter"
+					],
+					"draws": "each"
+				},
+				{
+					"module": "packages/testing/src/explore.ts",
+					"names": [
+						"drawn",
+						"sketched"
+					],
+					"draws": "each"
+				},
+				{
+					"module": "packages/testing/src/gen.ts",
+					"names": [
+						"oneOf",
+						"weighted",
+						"proportional"
+					],
+					"draws": "union"
+				}
+			]
 		}
 	}
 }

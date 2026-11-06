@@ -382,7 +382,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		}),
 		bitsDomain: (roster) => ({
 			schema: types,
-			name: identifierOf(identity.bitsDomain(roster, rosterCodec(input.codes, roster).size))
+			name: identifierOf(identity.bitsDomain(roster, rosterCodec(input.codes, roster).width))
 		}),
 		codes: input.codes,
 		closed: (relation) =>

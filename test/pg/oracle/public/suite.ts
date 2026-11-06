@@ -40,10 +40,14 @@ import type { DeclineReason } from "#test/support/oracle/reference/values.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The explorations of the public differential, each its own suite (its own floor seed): the real one, and the two
+ * The explorations of the public differential, each its own suite (its own floor seed): the real one, and the three
  * planted defects (planted.test.ts).
  */
-export type PublicSuite = "public" | "public/planted-stitch" | "public/planted-conversion"
+export type PublicSuite =
+	| "public"
+	| "public/planted-stitch"
+	| "public/planted-conversion"
+	| "public/planted-order"
 
 /**
  * The cases of the rotating stream; every case installs a schema through its migration, so the population is small and
@@ -83,6 +87,9 @@ const situations = [
 	"key get closed some",
 	"an attached take of two children or more",
 	"an attached take delivered descending",
+	"a root take of two rows or more",
+	"a root take descending",
+	"a root take with tied order keys",
 	...programForms,
 	...mixedForms
 ] as const
@@ -235,6 +242,9 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
  * - an ordered root paged forward and backward;
  * - an attached take whose order decides what a parent receives, two children or more, two of them ordered apart by
  *   a descending first key: its children arrive in the take's order (answer.ts), never the child key's;
+ * - a root take of two rows or more, two of them ordered apart by a descending first key and two its stated keys tie:
+ *   its rows arrive in the take's order, the ties broken by the column its stated order leaves out (program.ts
+ *   takeOrder), as an attachment's do;
  * - each refusal class a read can meet at the public boundary: a parameter of another host type (encode), a page size
  *   that is no safe integer of at least 1 (request), and a cursor its codec cannot read;
  * - every program form the generator draws (generate.ts programForms): imports bound to variables and to parameters,

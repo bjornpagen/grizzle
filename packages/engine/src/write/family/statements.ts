@@ -22,12 +22,11 @@ import { defined } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import { type Family, familyColumnType } from "#compiler/ir/family.ts"
+import type { Family } from "#compiler/ir/family.ts"
 import {
 	type FamilyId,
 	fieldNames,
 	type LawField,
-	type LawRelation,
 	type NativeColumn,
 	type RelationInfo
 } from "#compiler/ir/law.ts"
@@ -118,15 +117,12 @@ export const memberFamilies = (
 	families: ReadonlyArray<Family>
 ): ReadonlyArray<Family> => families.filter((f) => f.member.name === relation)
 
-/** The row layout of `relation` over the law model's `families` (`RowLayout`). */
-export const rowLayout = (
-	relation: LawRelation,
-	families: ReadonlyArray<Family>
-): Result.Result<RowLayout, CompileError> => {
-	const primary = relation.keyNames.find((k) => k.primary)
-	if (primary === undefined) {
-		return Result.err(unbuildable(relation.name, "a primary key"))
-	}
+/**
+ * The row layout of `relation` over the law model's `families` (`RowLayout`): its primary key's fields, its other
+ * written fields, and each law column its families draw on it, each of the type its family gives it: a counted index
+ * and ‹n› the count's, a tree's ‹ps› its start's, a hidden accumulator its plane's end's.
+ */
+export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family>): RowLayout => {
 	const mine = memberFamilies(relation.name, families)
 	const fixed = new Set<string>([
 		...mine.flatMap((f) => f.group.map((g) => `field:${g.member.name}`)),
@@ -136,41 +132,33 @@ export const rowLayout = (
 		const key = columnKey(column)
 		return { column, key, type, settable: !fixed.has(key) }
 	}
-	const keyNames = new Set(primary.fields.map((f) => f.name))
+	const keyNames = new Set(relation.primaryFields.map((f) => f.name))
 	const fields = relation.fields.flatMap((f) =>
 		f.writing.kind === "generated" || keyNames.has(f.name)
 			? []
 			: [of({ kind: "field", field: f }, f.type)]
 	)
-	const law: Array<RowColumn> = []
-	for (const f of mine) {
-		const drawn: Array<NativeColumn> = [
-			...(f.index.kind === "law" ? [f.index] : []),
-			{ kind: "law", column: f.copy },
-			...(f.members.kind === "tree"
-				? [{ kind: "law" as const, column: f.members.parentStart }]
-				: []),
-			...f.folds.flatMap((fold) =>
-				fold.planes.flatMap((plane) => [plane.before, plane.after].filter((c) => c.kind === "law"))
+	const law = mine.flatMap((f): ReadonlyArray<RowColumn> => [
+		...(f.index.kind === "law" ? [of(f.index, f.count.type)] : []),
+		of({ kind: "law", column: f.copy }, f.count.type),
+		...(f.members.kind === "tree"
+			? [of({ kind: "law", column: f.members.parentStart }, f.members.start.type)]
+			: []),
+		...f.folds.flatMap((fold) =>
+			fold.planes.flatMap((plane) =>
+				[plane.before, plane.after].flatMap((c) =>
+					c.kind === "law" ? [of(c, plane.end.type)] : []
+				)
 			)
-		]
-		for (const c of drawn) {
-			const type = familyColumnType(f, c)
-			if (type === undefined) {
-				return Result.err(unbuildable(relation.name, `a type for the law column ${columnKey(c)}`))
-			}
-			law.push(of(c, type))
-		}
-	}
-	const keyColumns = mapNonEmpty(primary.fields, (f) => ({
+		)
+	])
+	const keyColumns = mapNonEmpty(relation.primaryFields, (f) => ({
 		column: { kind: "field", field: f } as const,
 		key: columnKey({ kind: "field", field: f }),
 		type: f.type,
 		settable: false
 	}))
-	return Result.ok(
-		Object.freeze({ relation: relation.name, key: keyColumns, columns: [...fields, ...law] })
-	)
+	return Object.freeze({ relation: relation.name, key: keyColumns, columns: [...fields, ...law] })
 }
 
 /**

@@ -52,7 +52,7 @@ import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { apply, kept, noFurther, openMigrator, reviewedSource } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { setText } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	codeAt,
 	type Declaration,
@@ -987,7 +987,7 @@ const valueFor = (size: number, name: GeneratedName): string => {
 			return "0::bigint"
 		case "p":
 		case "s":
-			return `'${setText(size, [])}'::bit(${size})`
+			return `X'${hexOfText(setText(size, []))}'::bit(${wholeDigits(size)})`
 		case "w":
 			return "0::integer"
 	}
@@ -1014,7 +1014,7 @@ const real = (
 					`INSERT INTO ${tableOf(sys)} (${Arr.join(
 						Arr.map(callerFields, (f) => columnOf(sys, f)),
 						", "
-					)}) VALUES ($1::integer, $2::smallint, $3::text::bit(${n}), $4::text::bit(${n}))`,
+					)}) VALUES ($1::integer, $2::smallint, $3::text::bit(${wholeDigits(n)}), $4::text::bit(${wholeDigits(n)}))`,
 					[
 						before.rows.length,
 						code(p.tier),
@@ -1047,7 +1047,7 @@ const real = (
 	supply: (p, before) =>
 		Effect.gen(function* () {
 			const n = sizeOf(before.tier)
-			const empty = `'${setText(n, [])}'::bit(${n})`
+			const empty = `X'${hexOfText(setText(n, []))}'::bit(${wholeDigits(n)})`
 			const statement =
 				p.statement === "insert"
 					? `INSERT INTO ${tableOf(sys)} (${Arr.join(

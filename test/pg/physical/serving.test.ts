@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { array, boolean, element, type Gen, shuffled, weighted } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Equal, Formatter, Order, Result } from "effect"
+import { Array as Arr, Effect, Equal, Formatter, Order, Result, String as Str } from "effect"
 import type { TestContext } from "vitest"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -42,7 +42,11 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { installRealSchema, planRealInstall } from "#test/support/oracle/install/real.ts"
+import {
+	installRealSchema,
+	planRealInstall,
+	type RealInstallPlan
+} from "#test/support/oracle/install/real.ts"
 import { unperturbed } from "#test/support/oracle/perturb.ts"
 import { buildMixed, buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import {
@@ -148,7 +152,72 @@ const fieldSql = (
 	}
 }
 
-type WorkloadFeature = "a workload installed" | "a workload refused for an unrepresentable key"
+type WorkloadFeature =
+	| "a workload installed"
+	| "a workload refused for an unrepresentable key"
+	| "a workload's statistics installed as requested"
+
+/** The letter pg_statistic_ext.stxkind holds for each kind a statistics object states. */
+const kindLetter = { ndistinct: "d", dependencies: "f", mcv: "m" } as const
+
+/**
+ * The installation's extended statistics as the catalog holds them are those its manifest creates, each over its
+ * columns with every kind it states, and every index and statistics object the manifest creates stands on a law or
+ * the workload's access: whether each is planned is test/unit/workload's, that it is installed as planned is here.
+ */
+const statisticsAsPlanned = (
+	plan: RealInstallPlan,
+	note: (feature: ServingFeature | WorkloadFeature) => void
+) =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const created = Arr.filter(
+			plan.installation.manifest.objects,
+			(o) => o.kind === "index" || o.kind === "statistics"
+		)
+		for (const o of created) {
+			assert.ok(
+				Arr.some(o.reasons, (r) => r.kind === "law" || r.kind === "access"),
+				`${o.ident} stands on a law or the workload's access`
+			)
+		}
+		const sorted = (items: ReadonlyArray<string>) => Arr.join(Arr.sort(items, Order.String), ",")
+		const planned = Arr.flatMap(created, (o) =>
+			Arr.flatMap(o.ddl, (st) =>
+				st.kind === "createStatistics"
+					? [
+							[
+								st.name.name,
+								sorted(Arr.map(st.statistics, (k) => kindLetter[k])),
+								sorted(st.columns)
+							] as const
+						]
+					: []
+			)
+		)
+		/** Each statistics object: its name, its kinds and its columns' names, each list joined by U+0001. */
+		const installed = yield* substrate.admin.queryValues(
+			`SELECT s.stxname::text, pg_catalog.array_to_string(s.stxkind, chr(1)), (SELECT pg_catalog.string_agg(a.attname::text, chr(1)) FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = s.stxrelid AND a.attnum = ANY (s.stxkeys)) FROM pg_catalog.pg_statistic_ext AS s JOIN pg_catalog.pg_namespace AS n ON n.oid = s.stxnamespace WHERE n.nspname = $1::text`,
+			[plan.schema]
+		)
+		const listed = (cell: unknown): string => sorted(Str.split(String(cell), "\u0001"))
+		assert.deepEqual(
+			Arr.sort(
+				Arr.map(installed, (row) =>
+					Arr.join([String(row[0]), listed(row[1]), listed(row[2])], " ")
+				),
+				Order.String
+			),
+			Arr.sort(
+				Arr.map(planned, (row) => Arr.join(row, " ")),
+				Order.String
+			),
+			"the installed statistics are the planned ones, each over its columns with each of its kinds"
+		)
+		if (planned.length > 0) {
+			note("a workload's statistics installed as requested")
+		}
+	})
 
 /** The generated case's reads as a workload, installed, loaded and judged. */
 const workloadCase = (c: ProgramCase, note: (feature: ServingFeature | WorkloadFeature) => void) =>
@@ -193,6 +262,7 @@ const workloadCase = (c: ProgramCase, note: (feature: ServingFeature | WorkloadF
 		}
 		note("a workload installed")
 		const judged = installed.success.plan
+		yield* statisticsAsPlanned(judged, note)
 		const domain = rosterDomainSql(judged, c.schema.roster.name)
 		const codec = defined(
 			judged.installation.names.codes.rosters.get(parsedName(c.schema.roster.name)),
@@ -829,7 +899,7 @@ const read = (
 		head,
 		interior: { matches: [match(0, 0)], where: inner, negation, head }
 	},
-	take: { rotate: 0, dirs: zeros(3), size: 0 },
+	take: { rotate: 0, dirs: zeros(3), size: 0, ties: 0 },
 	literalHead: { name: 0, kind: 0, arms: 0, values: zeros(3) },
 	importable,
 	bindImport: 0,
@@ -1116,7 +1186,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 							}
 						}
 					},
-					take: { rotate: 64280, dirs: [21099, 7306, 55735], size: 33742 },
+					take: { rotate: 64280, dirs: [21099, 7306, 55735], size: 33742, ties: 0 },
 					literalHead: { name: 34989, kind: 28186, arms: 23674, values: [13935, 13243, 57989] },
 					importable: 59893,
 					bindImport: 10812,
@@ -1475,7 +1545,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 							}
 						}
 					},
-					take: { rotate: 16425, dirs: [26839, 3211, 21763], size: 59556 },
+					take: { rotate: 16425, dirs: [26839, 3211, 21763], size: 59556, ties: 0 },
 					literalHead: { name: 36244, kind: 28770, arms: 29530, values: [15279, 46997, 30820] },
 					importable: 38765,
 					bindImport: 65436,
@@ -1622,7 +1692,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 							}
 						}
 					},
-					take: { rotate: 27013, dirs: [6584, 52801, 60158], size: 0 },
+					take: { rotate: 27013, dirs: [6584, 52801, 60158], size: 0, ties: 0 },
 					literalHead: { name: 54763, kind: 65530, arms: 41614, values: [30595, 59321, 29634] },
 					importable: 34838,
 					bindImport: 26082,
@@ -1726,7 +1796,11 @@ const workloadSuite = (runs: number) => (ctx: TestContext) =>
 				draw: drawn(caseSketchGen),
 				literal: Formatter.format,
 				coverage: required<ServingFeature | WorkloadFeature>(
-					["a workload installed", "equality probe served"],
+					[
+						"a workload installed",
+						"equality probe served",
+						"a workload's statistics installed as requested"
+					],
 					{ cases: runs, sense: notesOnly }
 				),
 				kept: workloadKept,

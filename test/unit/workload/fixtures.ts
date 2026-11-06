@@ -6,7 +6,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
-import * as Se from "#test/support/fixtures/api/search.ts"
 import * as Sp from "#test/support/fixtures/api/spans.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 
@@ -17,7 +16,7 @@ import * as W from "#test/support/fixtures/api/work.ts"
  * and a bounded title, so its prefix search is representable.
  */
 
-export { Se, Sp, W }
+export { Sp, W }
 
 /** The worked example's described arm switch. */
 export const switchToManualDescribed = ChangeSet.empty(W.Work)

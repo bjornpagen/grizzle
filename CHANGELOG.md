@@ -42,6 +42,68 @@ How to upgrade:
   nesting, where it unfolded forever (TS2615) and refused the member. A field its nesting does not take is still
   refused at every depth. No codemod.
 
+#### Hex is the one spelling of bit data
+- **`closed.relation` takes four arguments; its `{ pack }` option is gone.** Every closed constant is drafted as one
+  hex literal under its row count and content digest, which `grizzle check` decodes and holds to the digest. The rows
+  form, a DO block packing 0/1 cells with string_agg, is deleted, and with it the statement-size bounds that chose
+  between the forms. Codemod: `closed.relation(name, fields, key, rows, { pack: … })` → `closed.relation(name, fields,
+  key, rows)`; drop imports of `ClosedRelationOptions` and `ClosedRelationOptionRecord`, and reads of a closed
+  relation value's `.pack`.
+- **A set is `bit(n)` with n its roster's codes rounded up to whole hex digits**, the bits past the last code held at 0
+  by the bits domain's CHECK. Every bit literal grizzle writes is one `X'…'` cast to its type, never a binary `B'…'`
+  and never two strings joined by `||`; a set's parameter text is `X` and its hex digits; a roster's live-codes
+  constant is its hex literal rather than a string_agg over its names constant, so a role that writes a set needs
+  EXECUTE on the live constant alone. A bits domain is named by its width, so a roster that grows within a hex digit
+  keeps its domain and re-points its CHECK. No codemod.
+- **`grizzle check` refuses a lowercase hex digit and a 1 in a literal's padding**, besides any digit that changes a
+  cell. No codemod.
+- Format: migration files, snapshot.json (a pack's `hex`, a set literal's `bits` kind) and bits domain names change;
+  regenerate migrations.
+
+#### A contract's facts are the ones it declares
+
+- **A precondition a fact discharges is proved by declared facts alone.** A contract's facts are exactly its
+  `proves`, which grizzle verifies against its predicate when the contract is built; a fact its predicate implies but
+  it does not declare no longer discharges a precondition, and the refusal names the `proves` entry to add
+  ("declare it:") rather than a guard. Codemod: add the fact to the contract's `proves`, as `contract("Rate",
+  pg.numeric(7, 6), (x) => x.between(0n, 1n), { proves: ["finite"] })`.
+- **`width_bucket` requires its operand and both bounds finite**, besides its domain. No codemod.
+
+#### A query's types no longer cost the size of its schema
+
+- **A schema's type holds its statements by name**: the third type argument of `Schema<Name, Relations, Named, Base>`
+  spells each relation the record holds under its name as that name, and `statements` reads every statement back
+  whole, so `typeof S.statements` is the tuple the call wrote, as before. Every generic call over a schema used to walk
+  every statement's relations again, so a program whose schema and queries grew together cost the square of its size:
+  139 million instantiations at 200 relations with their queries, 13.5 million now. Codemod: a hand-written
+  `Schema<N, R, St>` over a statement tuple becomes `Schema<N, R, StatementsByName<St, R>>`, the type `schema(...)`
+  returns; the old spelling describes the same value and is assignable both ways. A wrapper that passes a schema's
+  statements back to `schema(...)` states them as `St & StatementsWithin<St, R> & StatementsReadBack<St, R>`, and one
+  that passes a base to `schema.extend` states `Base & { readonly statements: StatementsBelow<Base> }`; all three types
+  are exported.
+
+#### A schema no write can fill is refused when it compiles
+
+- **A field grizzle fills that reads a column its source fills after it is `UnfillableField`** (new reason), at the
+  law that states it, naming the field, the law, the column it reads, the axis and why that column is later
+  (`afterMembers`, `countedFill`, `cycle`, `unreached`). `grizzle generate` used to accept such a schema, and every
+  nested insert then failed with `UnsupportedOperation at ChangeSet.insert`. No codemod: copy a column the owner fills
+  before its members.
+- **A relation no write fills is `UnwritableRelation`** (new reason): a counted family's member that is also a
+  sequence's member, a tree's relation or a sequence's owner (`countedAndSequence`); ordered families that nest each
+  other (`nestingCycle`); a key holding a generated field (`generatedKey`). Each used to compile, and its writes were
+  refused.
+- **Now written, where the first write used to be refused:** a counted family's copy of its owner's tree `end` or any
+  other column a nested insert fills; a copy of a tree node's `end` along any owner axis; an insert of a tree that owns
+  an ordered family; a predecessor or last copy of a generated field; appends to an immutable owner that is a tree
+  node or a sequence member inserted in the same ChangeSet.
+- A put or delete of a family's member that owns a sequence is still refused at the write.
+- **A ChangeSet that puts an owner, or edits one of its families, and appends members to another family whose copies
+  read that owner's columns writes the owner's new values into the new members**, where it used to fail at execution.
+  A copy that reads its owner's column through that owner's own copies is refused when the ChangeSet compiles
+  (`CascadedCopyAppend`) if the same stratum changes the relation further up: apply that change in an earlier
+  ChangeSet.
+
 #### A schema compiles once, a pattern is analyzed once, and key text is bounded by bytes
 
 - **A text pattern is analyzed once, where `str.regex` admits it**, and every later reader uses the language the
@@ -64,6 +126,10 @@ How to upgrade:
   schema. At 150 relations with 20,000- and 200,000-row closed relations, check takes 11.8 s of CPU where it took
   81.3 s, DbLayer.make 8.0 s where 43.7 s, and workload() 30 ms where 13 s. No codemod.
 - **Schema identity is a content digest taken at build**, used by every level check. Equal contents compare equal.
+- **A closed relation's cells are admitted once, where they enter**: by `closed.relation()`, or, for a schema
+  description from outside the builders, by one admission when it is decoded, so a cell outside its field's base type
+  or roster is refused there. No compile re-validates a cell. A closed relation built over another roster of the same
+  name as the schema's is refused by `schema(...)`. No codemod.
 - **Fix:** a role holding every relation of a base that has closed relations is full for ChangeSets.
 - **Generate:** a schema whose laws or closed constants don't compile is refused at step `schema` (it was `workload`
   when the schema had logins).
@@ -73,8 +139,10 @@ How to upgrade:
 - **`Compute.lcm` over numerics with fraction digits declares the integer digits it can reach**, `da + db + max(sa,
   sb)` where it was `da + db`: lcm(999.99, 999.98) is 99997000.02. A narrowing of such an lcm that compiled before may
   now be `PartialOperation` (fits). No codemod.
-- **An attachment that ends in `.orderBy(...).take(k)` arrives in that order**, ties broken by the child query's key;
-  before, its children came in the child key's order. A take is still a set to whatever composes with it. No codemod.
+- **A query that ends in `.orderBy(...).take(k)` arrives in the take's order**, ties broken by its key, at the root
+  (`db.query`, `db.compile`, a ChangeSet read-back) and as an attachment alike; before, a root take was delivered as a
+  set and an attachment's children came in the child key's order. A take is still a set to whatever composes with it,
+  and a derived relation or a role's query entry over a take is a set whose view is unchanged. No codemod.
 - **A role holds EXECUTE on every constant its writes evaluate**, including a roster's or a set's domain constant
   reached only through a cast in a CHECK or a generated column. Before, such a role's plain insert failed with 42501.
   Regenerate migrations.

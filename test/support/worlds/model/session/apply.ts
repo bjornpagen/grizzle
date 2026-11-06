@@ -45,6 +45,7 @@ import type {
 	ModelState,
 	ActionOutcome,
 	ReadBack,
+	ReadBackClass,
 	RoleSpec,
 	HostValue
 } from "#test/support/worlds/model/types.ts"
@@ -517,15 +518,18 @@ const definitionReads = (role: RoleSpec, relation: string): ReadonlySet<string> 
 			)
 }
 
-/** How a read-back's delta is known: empty, the written target's delta in the relation's terms, or not at all. */
+/**
+ * How a read-back's delta is known (ReadBackClass): empty; the written target's delta in the relation's terms, the
+ * relation itself written or a whole entry beside the entry that writes its relation; or not at all.
+ */
 type DeltaOf =
-	| { readonly kind: "empty" }
+	| { readonly kind: "untouched" }
 	| {
-			readonly kind: "projected"
+			readonly kind: "written" | "beside"
 			readonly target: string
 			readonly terms: Readonly<Record<string, string>>
 	  }
-	| { readonly kind: "unknown" }
+	| { readonly kind: "undetermined" }
 
 /**
  * A read-back's delta (README "Writes": `read` delivers a query over the post-change state and the change's own
@@ -549,16 +553,16 @@ const deltaOf = (
 		)
 	)
 	if (touched.size === 0) {
-		return { kind: "empty" }
+		return { kind: "untouched" }
 	}
 	const through = Option.getOrUndefined(Arr.findFirst(written, (w) => w.entry === relation))
 	if (through !== undefined && touched.size === 1 && touched.has(through.target)) {
-		return { kind: "projected", target: through.target, terms: termsOf(base, through) }
+		return { kind: "written", target: through.target, terms: termsOf(base, through) }
 	}
 	const entry = roleEntryOf(role, relation)
 	return entry?.kind === "whole" && touched.size === 1 && touched.has(entry.relation)
 		? {
-				kind: "projected",
+				kind: "beside",
 				target: entry.relation,
 				terms: Rec.fromEntries(
 					Arr.map(
@@ -567,7 +571,36 @@ const deltaOf = (
 					)
 				)
 			}
-		: { kind: "unknown" }
+		: { kind: "undetermined" }
+}
+
+/** The relations a ChangeSet's strata write through a role's write list, each where the role writes it. */
+const writtenThrough = (
+	base: BaseSpec,
+	role: RoleSpec,
+	strata: ReadonlyArray<ReadonlyArray<EntryOp>>
+): ReadonlyArray<Written> =>
+	Arr.flatMap(strata, (ops) =>
+		Arr.flatMap(ops, (op) => {
+			const written = writtenNamed(base, role, op.relation)
+			return written === undefined ? [] : [written]
+		})
+	)
+
+/**
+ * How each read-back a ChangeSet through a role asks for stands to the change (ReadBackClass, by deltaOf), of every
+ * read-back of a relation the role holds.
+ */
+export const readBackClasses = (
+	base: BaseSpec,
+	role: RoleSpec,
+	strata: ReadonlyArray<ReadonlyArray<EntryOp>>,
+	reads: ReadonlyArray<string>
+): ReadonlyArray<ReadBackClass> => {
+	const written = writtenThrough(base, role, strata)
+	return Arr.flatMap(reads, (relation) =>
+		roleEntryOf(role, relation) === undefined ? [] : [deltaOf(base, role, relation, written).kind]
+	)
 }
 
 /** The facts of `a` that `b` does not hold, each fact by every value. */
@@ -590,9 +623,7 @@ export const compileRefused = (
 	const layers = Arr.map(strata, (ops) =>
 		Arr.map(ops, (op) => ({ op, written: writtenNamed(base, role, op.relation) }))
 	)
-	const written = Arr.flatMap(layers, (ops) =>
-		Arr.flatMap(ops, (w) => (w.written === undefined ? [] : [w.written]))
-	)
+	const written = writtenThrough(base, role, strata)
 	/** Whether no query a stratum writes reads a relation the stratum writes. */
 	const disjoint = Arr.every(layers, (ops) => {
 		const targets = new Set(
@@ -608,7 +639,7 @@ export const compileRefused = (
 		Arr.some(layers, (ops) => Arr.some(ops, (w) => w.written === undefined)) ||
 		!disjoint ||
 		Arr.some(reads, (r) => roleEntryOf(role, r) === undefined) ||
-		Arr.some(reads, (relation) => deltaOf(base, role, relation, written).kind === "unknown")
+		Arr.some(reads, (relation) => deltaOf(base, role, relation, written).kind === "undetermined")
 	)
 }
 
@@ -757,7 +788,7 @@ export const applyCall = (
 		const next: ModelState = { ...state, reality: now }
 		const readBacks: ReadonlyArray<ReadBack> = Arr.map(deltas, ({ relation, delta }) => {
 			const rows = entryRows(next, role.name, relation, session.facts)
-			if (delta.kind !== "projected") {
+			if (delta.kind === "untouched" || delta.kind === "undetermined") {
 				return { relation, rows, delta: { inserted: [], deleted: [] } }
 			}
 			const before = factsIn(state.reality, delta.target)

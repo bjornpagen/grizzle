@@ -1,6 +1,6 @@
 import { layer } from "@effect/vitest"
-import { drawn, explore, sketched } from "@grizzle/testing/explore"
-import { noCoverage, required } from "@grizzle/testing/features"
+import { drawn, exhaust, explore, sketched } from "@grizzle/testing/explore"
+import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
 	array,
 	boolean,
@@ -65,8 +65,9 @@ import { freshSchema, roleSession, Substrate } from "#test/support/substrate/sub
  * ORDER BY and LIMIT, evaluate as SQL's set semantics say; generated aggregates keep their DISTINCT, their own ORDER BY
  * and count(*)'s FILTER; a generated RAISE, with any subset of its USING options, raises its SQLSTATE, message and
  * DETAIL; typed literals arrive exactly; and generated CROSS JOINs, IN and NOT IN over a subquery and windows over
- * drawn ROWS frames evaluate as the host computes them. The generators are test/pg/sql/evaluated.ts. Beside them, the
- * default-privilege resets leave new functions and types to no one.
+ * drawn ROWS frames evaluate as the host computes them. The generators are test/pg/sql/evaluated.ts. Beside them, a
+ * default-privilege reset in each scope and of each kind PostgreSQL grants PUBLIC by default: PUBLIC keeps its
+ * privilege on a new function or type under a reset in one schema, and loses it under the global form's.
  *
  * Every statement this file sends is one the audit accepts: the printer's output, never hand-edited.
  */
@@ -103,9 +104,17 @@ const booleanFunction = (
 	body: { declare: [], body }
 })
 
-/** The function whose EXECUTE privilege the default-privilege resets decide. */
-const probe = (schema: string, version: 1 | 2): PlFunction =>
-	booleanFunction(schema, `__probe_v${version}`, [{ kind: "return", value: lit.bool(true) }])
+/** Where a default-privilege reset applies: one schema, or the global form, every schema of the database. */
+const resetScopes = ["schema", "global"] as const
+
+/** The kinds of object PostgreSQL grants PUBLIC a privilege on by default: EXECUTE on a function, USAGE on a type. */
+const publicDefaults: Arr.NonEmptyReadonlyArray<AlterDefaultPrivileges["on"]> = [
+	"FUNCTIONS",
+	"TYPES"
+]
+
+/** What a reset left of PUBLIC's default privilege. */
+type PrivilegeFeature = "PUBLIC kept by a schema's reset" | "PUBLIC revoked by the global reset"
 
 /**
  * A RAISE with any subset of ERRCODE, DETAIL and HINT, and the SQLSTATE and DETAIL PostgreSQL reports for it: P0001
@@ -267,65 +276,91 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 			)
 	)
 
-	it.effect("resets PUBLIC's defaults on functions and types only in the global form", () =>
-		Effect.gen(function* () {
-			const s = yield* Substrate
-			const schema = yield* s.schema(freshSchema)
-			const q = quoteIdent(schema)
-			const maker = yield* s.role(schema, "maker")
-			yield* s.admin.query(`GRANT USAGE, CREATE ON SCHEMA ${q} TO ${quoteIdent(maker.role)}`, [])
-			const m = yield* s.session({ ...roleSession(maker) })
-			/** Default privileges reset in one schema, or in the global form. */
-			const reset = (
-				on: AlterDefaultPrivileges["on"],
-				scope: { readonly kind: "schema"; readonly name: string } | { readonly kind: "global" }
-			): AlterDefaultPrivileges => ({
-				kind: "alterDefaultPrivileges",
-				forRole: maker.role,
-				inSchema: scope.kind === "schema" ? scope.name : undefined,
-				privileges: ["ALL"],
-				on,
-				from: [{ kind: "PUBLIC" }]
-			})
-			const publicCan = (version: 1 | 2, type: string) =>
-				s.admin.queryValues(
-					"SELECT has_function_privilege('public'::name, $1::text, 'EXECUTE'::text), has_type_privilege('public'::name, $2::text, 'USAGE'::text)",
-					[`${q}."__probe_v${version}"()`, `${q}.${quoteIdent(type)}`]
+	it.effect("resets PUBLIC's defaults on functions and types only in the global form", (ctx) =>
+		searched(
+			ctx,
+			Effect.gen(function* () {
+				const s = yield* Substrate
+				const schema = yield* s.schema(freshSchema)
+				const q = quoteIdent(schema)
+				/** A role, a function and a type of each case's own, so no case meets another's defaults. */
+				let made = 0
+				return yield* exhaust(
+					{
+						suite: "pg/sql/default-privileges",
+						generator: (source) =>
+							[source.draw(element(resetScopes)), source.draw(element(publicDefaults))] as const,
+						literal: Formatter.format,
+						limit: resetScopes.length * publicDefaults.length,
+						box: "a reset in one schema and in the global form, of each kind PostgreSQL grants PUBLIC by default",
+						oracle: {
+							kind: "postgresql",
+							name: "PUBLIC's privilege on an object the role creates after the reset"
+						},
+						coverage: requiredInSpace<PrivilegeFeature>([
+							"PUBLIC kept by a schema's reset",
+							"PUBLIC revoked by the global reset"
+						]),
+						caseHang
+					},
+					([scope, on], c) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								made += 1
+								const maker = yield* s.role(schema, `maker_${made}`)
+								yield* s.admin.query(
+									`GRANT USAGE, CREATE ON SCHEMA ${q} TO ${quoteIdent(maker.role)}`,
+									[]
+								)
+								const m = yield* s.session({ ...roleSession(maker) })
+								yield* run([
+									{
+										kind: "alterDefaultPrivileges",
+										forRole: maker.role,
+										inSchema: scope === "schema" ? schema : undefined,
+										privileges: ["ALL"],
+										on,
+										from: [{ kind: "PUBLIC" }]
+									}
+								])
+								const created = `__made_${made}`
+								yield* m.query(
+									sql(
+										on === "FUNCTIONS"
+											? booleanFunction(schema, created, [
+													{ kind: "return", value: lit.bool(true) }
+												])
+											: {
+													kind: "createDomain",
+													name: objectName(schema, created),
+													base: types.smallint,
+													collation: undefined,
+													constraints: []
+												}
+									),
+									[]
+								)
+								const held = yield* s.admin.queryValues(
+									on === "FUNCTIONS"
+										? "SELECT has_function_privilege('public'::name, $1::text, 'EXECUTE'::text)"
+										: "SELECT has_type_privilege('public'::name, $1::text, 'USAGE'::text)",
+									[
+										on === "FUNCTIONS"
+											? `${q}.${quoteIdent(created)}()`
+											: `${q}.${quoteIdent(created)}`
+									]
+								)
+								assert.deepEqual(held, [[scope === "schema"]], `${scope} reset of ${on}`)
+								c.note(
+									scope === "schema"
+										? "PUBLIC kept by a schema's reset"
+										: "PUBLIC revoked by the global reset"
+								)
+							})
+						)
 				)
-
-			yield* run([
-				reset("FUNCTIONS", { kind: "schema", name: schema }),
-				reset("TYPES", { kind: "schema", name: schema })
-			])
-			yield* m.query(sql(probe(schema, 1)), [])
-			yield* m.query(
-				sql({
-					kind: "createDomain",
-					name: objectName(schema, "kind"),
-					base: types.smallint,
-					collation: undefined,
-					constraints: []
-				}),
-				[]
-			)
-			const kindGrants = yield* publicCan(1, "kind")
-			assert.deepEqual(kindGrants, [[true, true]])
-
-			yield* run([reset("FUNCTIONS", { kind: "global" }), reset("TYPES", { kind: "global" })])
-			yield* m.query(sql(probe(schema, 2)), [])
-			yield* m.query(
-				sql({
-					kind: "createDomain",
-					name: objectName(schema, "state"),
-					base: types.smallint,
-					collation: undefined,
-					constraints: []
-				}),
-				[]
-			)
-			const stateGrants = yield* publicCan(2, "state")
-			assert.deepEqual(stateGrants, [[false, false]])
-		})
+			})
+		)
 	)
 
 	it.effect(

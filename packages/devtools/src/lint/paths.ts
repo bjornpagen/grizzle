@@ -43,6 +43,15 @@ export const isPackageModule = (
 export const isRepositoryModule = (path: string, module: string): boolean =>
 	Str.endsWith(`/${Str.toLowerCase(module)}`)(Str.toLowerCase(path))
 
+/** Whether a declaration's file is any module of an installed package, under `node_modules/<package>/`, compared as
+ * isPackageModule compares. */
+export const isPackagePath = (path: string, target: string): boolean =>
+	Str.includes(`/node_modules/${Str.toLowerCase(target)}/`)(Str.toLowerCase(path))
+
+/** Whether a declaration lies in the program's own source: neither an installed package nor a declaration file. */
+export const isOwnSourcePath = (path: string): boolean =>
+	!Str.includes("/node_modules/")(path) && !Str.endsWith(".d.ts")(path)
+
 /** The directories above a file, nearest first; the root directory is the empty name. */
 export const directoriesAbove = (fileName: string): ReadonlyArray<string> => {
 	const segments = Str.split("/")(fileName)

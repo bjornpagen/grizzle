@@ -9,7 +9,14 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { Bits, bits, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { check, closed, relation, type Schema, schema } from "#compiler/public/schema.ts"
+import {
+	check,
+	closed,
+	relation,
+	type Schema,
+	schema,
+	type StatementsByName
+} from "#compiler/public/schema.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, containsEqual, deepEquals } from "#test/support/assert.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -37,7 +44,11 @@ const within = check("Within", R, (r) =>
 const Sets = schema("SetChecks", { Flag, R }, [apart, within])
 
 /** Sets as installed under its schema's own name. */
-type SetsInstalled = Schema<string, (typeof Sets)["relations"], (typeof Sets)["statements"]>
+type SetsInstalled = Schema<
+	string,
+	(typeof Sets)["relations"],
+	StatementsByName<(typeof Sets)["statements"], (typeof Sets)["relations"]>
+>
 
 /** R's rows read back: whether the flags miss b, and their union with {c}, each against a set value. */
 const readBack = (s: SetsInstalled) =>

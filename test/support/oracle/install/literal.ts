@@ -9,6 +9,7 @@ import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
 import type { Expr, LiteralValue } from "#compiler/sql/ast.ts"
 import { cast, lit, types } from "#compiler/sql/build.ts"
+import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
 import type { ColumnType } from "#test/support/oracle/install/model.ts"
 
 import { regex } from "arkregex"
@@ -276,12 +277,15 @@ export const literalFor = (
 			if (codes === undefined || !Arr.every(codes, (c) => c !== undefined)) {
 				return refuse(location, `a set of live handles of roster ${v.roster.roster}`, value)
 			}
-			const held = new Set(codes)
-			const text = Arr.join(
-				Arr.makeBy(v.roster.size, (c) => (held.has(c) ? "1" : "0")),
-				""
+			return Result.succeed(
+				literal(
+					{
+						kind: "bits",
+						hex: hexOfText(setText(v.roster.size, codes))
+					},
+					type
+				)
 			)
-			return Result.succeed(literal({ kind: "text", value: text }, type))
 		}
 		case "span": {
 			const endpoints = spanEndpoints(value)

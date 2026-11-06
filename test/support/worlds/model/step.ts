@@ -21,6 +21,12 @@ import {
 	hostSchemaOf,
 	isMember
 } from "#test/support/worlds/model/host.ts"
+import {
+	attachedField,
+	attachedRows,
+	headingNames,
+	reachedPairs
+} from "#test/support/worlds/model/reads.ts"
 import { applyCall } from "#test/support/worlds/model/session/apply.ts"
 import { claimsText } from "#test/support/worlds/model/session/claims.ts"
 import {
@@ -308,10 +314,12 @@ export const isPageSize = (size: number): boolean => Number.isSafeInteger(size) 
 
 /**
  * A read through a Db's role relation (README "Reading"): `execute`, `compile` and every page together deliver
- * its rows under the Db's facts; `get` the row at a key the relation proves, or none. Refused on the host when it
- * compiles: a relation the role does not hold, a get by a field set within which none of its keys lies (session/keys.ts)
- * or by a key holding a value of another type than its field's, which the builder refuses as a literal of that field,
- * and a page whose size is no page size (isPageSize).
+ * its rows under the Db's facts; `get` the row at a key the relation proves, or none; an attachment each row with the
+ * attached relation's rows whose field equals its own (model/reads.ts attachedRows); a recursive read every pair its
+ * rows chain (reachedPairs). Refused on the host when it compiles: a relation the role does not hold, a get by a field
+ * set within which none of its keys lies (session/keys.ts) or by a key holding a value of another type than its
+ * field's, which the builder refuses as a literal of that field, a page whose size is no page size (isPageSize), and an
+ * attachment or a recursive read naming a field its relation's heading lacks.
  */
 const readCall = (
 	state: ModelState,
@@ -324,26 +332,37 @@ const readCall = (
 	if (role === undefined || !Rec.has(role.entries, relation)) {
 		return refused
 	}
+	const rowsOf = (name: string): ReadonlyArray<HostFact> =>
+		entryRows(state, role.name, name, session.facts)
 	const delivers = (
 		delivered: (rows: ReadonlyArray<HostFact>) => ReadonlyArray<HostFact>
 	): Called => ({
 		kind: "sends",
 		sql: () => [
 			{
-				observation: {
-					kind: "rows",
-					rows: delivered(entryRows(state, role.name, relation, session.facts))
-				},
+				observation: { kind: "rows", rows: delivered(rowsOf(relation)) },
 				next: state
 			}
 		]
 	})
+	const heading = headingNames(state.install.base, role, relation)
 	switch (via.kind) {
 		case "execute":
 		case "compile":
 			return delivers((rows) => rows)
 		case "page":
-			return isPageSize(via.size) ? delivers((rows) => rows) : refused
+			return isPageSize(via.size) && Arr.every(via.order, (k) => heading.includes(k.field))
+				? delivers((rows) => rows)
+				: refused
+		case "attach":
+			return heading.includes(via.parent) &&
+				headingNames(state.install.base, role, via.relation).includes(via.child)
+				? delivers((rows) => attachedRows(rows, rowsOf(via.relation), via, attachedField(heading)))
+				: refused
+		case "reach":
+			return heading.includes(via.from) && heading.includes(via.to)
+				? delivers((rows) => reachedPairs(rows, via.from, via.to))
+				: refused
 		case "get": {
 			const entry = role.entries[relation]
 			if (entry === undefined) {

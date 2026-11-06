@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { array, element, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
@@ -15,11 +15,21 @@ import {
 	installOptions
 } from "#compiler/physical/install/compile.ts"
 import { closedId, contract, pg, span } from "#compiler/public/fields.ts"
-import { check, closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	check,
+	closed,
+	contained,
+	key,
+	on,
+	relation,
+	schema,
+	select
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
 import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { judged, probe, textProbes } from "#test/pg/physical/checks.ts"
+import { judged, probe, textProbes, type Verdict } from "#test/pg/physical/checks.ts"
 import { assert } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import {
@@ -43,14 +53,21 @@ import { regex } from "arkregex"
  * - a contract's predicate, `Level` between lo and hi, as the domain's CHECK on a plain column, and as the endpoint
  *   CHECK of a span over Level, the predicate over the lower and then the upper endpoint (physical/span/storage.ts);
  * - a text refinement, `^[ab]{1,2}$`, as its text domain's CHECK on a plain column, probed with checks.ts textProbes
- *   and judged by the declared pattern as the JavaScript engine reads it.
+ *   and judged by the declared pattern as the JavaScript engine reads it;
+ * - money constants: a contract `Fee` over money, at least a drawn amount, as its domain's CHECK, and a key over the
+ *   charges selected at a drawn tip, `key(on(select(Charge, tip = t), account))`, whose law column's expression holds
+ *   the constant. The installation runs under the session's own lc_monetary, and its charges are probed under a drawn
+ *   one: a C locale's, whose money has two fraction digits, or Japan's, which has none and where numeric::money and
+ *   bigint::money count whole units, so a constant cast per row, or folded under the writer's locale, moves. A STABLE
+ *   cast in the law column's expression is refused by the installation itself.
  *
  * The real installation runs in a transaction on a pinned session, and every probe row is inserted under a savepoint:
  * the server must admit a row exactly when the host meaning holds and refuse every other with 23514 naming that
- * declaration's CHECK. Beside the drawn probes, each case adds rows on both sides of every predicate, the span's upper
- * endpoint failing alone among them, so a run judges each class both ways. A second test drops each class's CHECK from
- * the installation in turn, that CHECK alone under its own table or domain, and requires the same judge to find the
- * defect: the property discriminates every class.
+ * declaration's CHECK, or 23505 naming the key's UNIQUE for a second charge of an account at the selected tip. Beside
+ * the drawn probes, each case adds rows on both sides of every predicate, the span's upper endpoint failing alone among
+ * them, so a run judges each class both ways. Each case then installs again without one drawn class's CHECK, that CHECK
+ * alone under its own table or domain, and requires the same judge to find the defect: the property discriminates every
+ * class.
  */
 interface Planted {
 	readonly k: number
@@ -61,7 +78,35 @@ interface Planted {
 	readonly mark: ReadonlyArray<{ readonly grade: 0 | 1 | 2; readonly score: number }>
 	readonly stay: ReadonlyArray<{ readonly lower: number; readonly width: number }>
 	readonly amount: ReadonlyArray<number>
+	/** Fee's least amount and the tip at most one charge per account holds, in minor units. */
+	readonly fee: number
+	readonly tip: number
+	/** The lc_monetary the probes run under, after the installation ran under the session's own. */
+	readonly monetary: Monetary
+	readonly charge: ReadonlyArray<Charged>
+	/** The class whose CHECK a second installation drops, which the judge must then find. */
+	readonly dropped: CheckClass
 }
+
+/** A charge probe: its account, its fee and its tip, in minor units. */
+interface Charged {
+	readonly account: 0 | 1
+	readonly fee: number
+	readonly tip: number
+}
+
+/**
+ * The lc_monetary settings a writer's session may run under, by the fraction digits a money value's minor unit has
+ * there: a C locale's two and Japan's none, where numeric::money and bigint::money count whole units.
+ */
+const monetaries = { "C.UTF-8": 2, "ja_JP.UTF-8": 0 } as const
+
+type Monetary = keyof typeof monetaries
+
+/** The classes of CHECK a case installs, each dropped in turn by some case. */
+const checkClasses = ["row", "closed", "endpoint", "domain", "text", "fee"] as const
+
+type CheckClass = (typeof checkClasses)[number]
 
 /**
  * Thresholds and probe values within a few steps of each other, so the drawn probes fall on both sides of every
@@ -83,7 +128,18 @@ const plantedGen: Gen<Planted> = (source) => ({
 	stay: source.draw(
 		probes((stay) => ({ lower: stay.draw(int(-6, 6)), width: stay.draw(int(1, 3)) }))
 	),
-	amount: source.draw(probes(int(-6, 6)))
+	amount: source.draw(probes(int(-6, 6))),
+	fee: source.draw(int(98, 102)),
+	tip: source.draw(int(98, 102)),
+	monetary: source.draw(element(["C.UTF-8", "ja_JP.UTF-8"] as const)),
+	charge: source.draw(
+		probes((charge) => ({
+			account: charge.draw(element([0, 1] as const)),
+			fee: charge.draw(int(96, 104)),
+			tip: charge.draw(int(98, 102))
+		}))
+	),
+	dropped: source.draw(element(checkClasses))
 })
 
 const handles = ["G0", "G1", "G2"] as const
@@ -116,13 +172,26 @@ const plantedSchema = (p: Planted) => {
 	const Tagged = relation("Tagged", { id: pg.integer, code: str.regex(codeSource, codeFlags) }, [
 		"id"
 	])
+	const Fee = contract("Fee", pg.money, (x) => x.ge(Money.of(BigInt(p.fee))))
+	const Charge = relation(
+		"Charge",
+		{ id: pg.integer, account: pg.integer, fee: Fee, tip: pg.money },
+		["id"]
+	)
 	const atLeast = check("AtLeast", Gauge, (x) => x.level.ge(p.k))
 	const graded = contained(on(Mark, "grade", "score"), on(GradeScore, "grade", "score"))
-	const value = schema("Checks", { Grade, GradeScore, Gauge, Mark, Stay, Amount, Tagged }, [
+	const tipOnce = key(
+		on(
+			select(Charge, (x) => x.eq(x.tip, Money.of(BigInt(p.tip)))),
+			"account"
+		)
+	)
+	const value = schema("Checks", { Grade, GradeScore, Gauge, Mark, Stay, Amount, Tagged, Charge }, [
 		atLeast,
-		graded
+		graded,
+		tipOnce
 	])
-	return { value, Gauge, Mark, Stay, Amount, Tagged, atLeast, graded, hi }
+	return { value, Gauge, Mark, Stay, Amount, Tagged, Charge, atLeast, graded, tipOnce, hi }
 }
 
 type Planting = ReturnType<typeof plantedSchema>
@@ -137,19 +206,17 @@ interface InstalledCheck {
 }
 
 /** The CHECK each class installs, as the naming door names it. */
-interface Checks {
-	readonly row: InstalledCheck
-	readonly closed: InstalledCheck
-	readonly endpoint: InstalledCheck
-	readonly domain: InstalledCheck
-	readonly text: InstalledCheck
-}
+type Checks = Readonly<Record<CheckClass, InstalledCheck>>
 
 const checksOf = (installation: Installation, s: Planting): Checks => {
 	const names = installationNamesOf(installation)
 	const level = names.contract("Level")
 	if (level.kind !== "checked") {
 		throw new Error("the Level contract installs no CHECK")
+	}
+	const fee = names.contract("Fee")
+	if (fee.kind !== "checked") {
+		throw new Error("the Fee contract installs no CHECK")
 	}
 	const text = names.textDomain(s.Tagged, "code")
 	const onTable = (of: NamedRelation, name: ConstraintName): InstalledCheck => ({
@@ -164,7 +231,8 @@ const checksOf = (installation: Installation, s: Planting): Checks => {
 			names.spanCheck(s.Stay, "during", { kind: "endpoint", contract: "Level" })
 		),
 		domain: { owner: { kind: "domain", name: level.domain }, name: level.constraint },
-		text: { owner: { kind: "domain", name: text.domain }, name: text.constraint }
+		text: { owner: { kind: "domain", name: text.domain }, name: text.constraint },
+		fee: { owner: { kind: "domain", name: fee.domain }, name: fee.constraint }
 	}
 }
 
@@ -181,6 +249,12 @@ type CheckFeature =
 	| "contract check refuses"
 	| "text check admits"
 	| "text check refuses"
+	| "money check admits"
+	| "money check refuses"
+	| "money key admits"
+	| "money key refuses"
+	| `probed under ${Monetary}`
+	| `dropped ${CheckClass} found`
 
 const situations = [
 	"row check admits",
@@ -193,12 +267,24 @@ const situations = [
 	"contract check admits",
 	"contract check refuses",
 	"text check admits",
-	"text check refuses"
+	"text check refuses",
+	"money check admits",
+	"money check refuses",
+	"money key admits",
+	"money key refuses",
+	"probed under C.UTF-8",
+	"probed under ja_JP.UTF-8",
+	"dropped row found",
+	"dropped closed found",
+	"dropped endpoint found",
+	"dropped domain found",
+	"dropped text found",
+	"dropped fee found"
 ] as const satisfies ReadonlyArray<CheckFeature>
 
 /**
  * The probes of a case: the drawn ones, then one on each side of every predicate (the span's upper endpoint past hi
- * while its lower one holds).
+ * while its lower one holds), and two charges of one account at the tip at most one of its charges holds.
  */
 const probesOf = (p: Planted, hi: number): Planted => ({
 	...p,
@@ -210,7 +296,13 @@ const probesOf = (p: Planted, hi: number): Planted => ({
 		{ lower: hi, width: 1 },
 		{ lower: p.lo, width: 1 }
 	],
-	amount: [...p.amount, p.lo - 1, p.lo]
+	amount: [...p.amount, p.lo - 1, p.lo],
+	charge: [
+		...p.charge,
+		{ account: 0, fee: p.fee - 1, tip: p.tip },
+		{ account: 1, fee: p.fee, tip: p.tip },
+		{ account: 1, fee: p.fee, tip: p.tip }
+	]
 })
 
 /**
@@ -309,8 +401,58 @@ const judgeCase = (
 			)
 			reached.add(holds ? "text check admits" : "text check refuses")
 		}
+		/**
+		 * A charge's amount, parameter `at`, sent as its minor units under the drawn lc_monetary: under two fraction digits
+		 * a numeric of hundredths, under none a bigint of whole units, each the same money. A fee below Fee's least is
+		 * refused by its domain's CHECK; a tip at the selected amount is refused by the key's UNIQUE when its account
+		 * already holds a charge at it; every other charge is stored.
+		 */
+		const money = (at: number) =>
+			monetaries[p.monetary] === 2 ? `($${at}::numeric / 100)::money` : `$${at}::bigint::money`
+		yield* pinned.query(`SET LOCAL lc_monetary = '${p.monetary}'`, [])
+		reached.add(`probed under ${p.monetary}`)
+		const tipKey = names.constraintOf(names.lawOf(s.tipOnce), "Unique")
+		const tipped = new Set<number>()
+		for (const charge of all.charge) {
+			const verdict = yield* run(
+				`INSERT INTO ${names.table(s.Charge)} (${names.column(s.Charge, "id")}, ${names.column(s.Charge, "account")}, ${names.column(s.Charge, "fee")}, ${names.column(s.Charge, "tip")}) VALUES ($1, $2, ${money(3)}, ${money(4)})`,
+				[charge.account, charge.fee, charge.tip]
+			)
+			const what = `Charge of account ${charge.account}, fee ${charge.fee} and tip ${charge.tip} under ${p.monetary}`
+			if (charge.fee < p.fee) {
+				appendAll(problems, judged(what, false, verdict, checks.fee.name))
+				reached.add("money check refuses")
+				continue
+			}
+			reached.add("money check admits")
+			if (charge.tip !== p.tip) {
+				appendAll(problems, judged(what, true, verdict, checks.fee.name))
+				continue
+			}
+			if (tipped.has(charge.account)) {
+				appendAll(problems, refusedBy(what, verdict, "23505", tipKey))
+				reached.add("money key refuses")
+				continue
+			}
+			appendAll(problems, judged(what, true, verdict, checks.fee.name))
+			tipped.add(charge.account)
+			reached.add("money key admits")
+		}
 		return { problems, reached }
 	})
+
+/** The problem a verdict poses against a refusal the host model expects with `code`, naming `constraint`. */
+const refusedBy = (
+	what: string,
+	verdict: Verdict,
+	code: string,
+	constraint: ConstraintName
+): ReadonlyArray<string> =>
+	verdict.kind === "refused" &&
+	verdict.code === code &&
+	Option.contains(verdict.constraint, constraint)
+		? []
+		: [`${what}: ${Formatter.format(verdict)}, where ${code} ${constraint} refuses it`]
 
 /**
  * The installation's script without `dropped` and every statement that names it: its declaration under its owner, inline
@@ -415,88 +557,67 @@ const installationOf = (s: Planting) =>
 	})
 
 layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
-	it.effect("admit exactly what each declaration means", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const substrate = yield* Substrate
-				return yield* explore(
-					{
-						suite: "physical/checks",
-						draw: drawn(plantedGen),
-						literal: Formatter.format,
-						coverage: required<CheckFeature>(situations, { cases: 40, sense: notesOnly }),
-						kept: [],
-						/**
-						 * The floor stream runs 10 and the rotating stream 40 cases; each class is judged both ways in
-						 * every case by construction (probesOf), so the drawn probes only widen the values.
-						 */
-						runs: 40,
-						shrink: { kind: "complete" },
-						concurrency: 1,
-						steerEvery: 16,
-						caseHang
-					},
-					(p, c) =>
-						Effect.scoped(
-							Effect.gen(function* () {
-								const s = plantedSchema(p)
-								const installation = yield* installationOf(s)
-								const pinned = yield* substrate.admin.pin
-								const { problems, reached } = yield* inInstallation(
-									pinned,
-									installationSql(installation),
-									judgeCase(pinned, installation, s, p)
-								)
-								c.noteAll(reached)
-								assert.deepEqual(problems, [])
-							})
-						)
-				)
-			})
-		)
-	)
-
-	it.effect("finds the CHECK of every class dropped from the installation", () =>
-		Effect.scoped(
-			Effect.gen(function* () {
-				const substrate = yield* Substrate
-				/**
-				 * One case whose every class is judged both ways (probesOf adds the rows): the thresholds 0, the scores
-				 * distinct, and Level 0..2, wide enough for an admitted span.
-				 */
-				const p: Planted = {
-					k: 0,
-					scores: [0, 1, 2],
-					lo: 0,
-					width: 2,
-					gauge: [],
-					mark: [],
-					stay: [],
-					amount: []
-				}
-				const s = plantedSchema(p)
-				const installation = yield* installationOf(s)
-				const pinned = yield* substrate.admin.pin
-				const checks = checksOf(installation, s)
-				const intact = yield* inInstallation(
-					pinned,
-					installationSql(installation),
-					judgeCase(pinned, installation, s, p)
-				)
-				assert.deepEqual(intact.problems, [])
-				for (const [label, dropped] of Rec.toEntries(checks)) {
-					const mutant = yield* inInstallation(
-						pinned,
-						withoutCheck(installation.statements, dropped),
-						judgeCase(pinned, installation, s, p)
+	it.effect(
+		"admit exactly what each declaration means under any lc_monetary, and the judge finds any one class's CHECK dropped",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const substrate = yield* Substrate
+					return yield* explore(
+						{
+							suite: "physical/checks",
+							draw: drawn(plantedGen),
+							literal: Formatter.format,
+							oracle: {
+								kind: "second-implementation",
+								name: "each declaration's meaning stated on the host, and the dropped CHECK's class planted"
+							},
+							coverage: required<CheckFeature>(situations, { cases: 40, sense: notesOnly }),
+							kept: [],
+							/**
+							 * The floor stream runs 10 and the rotating stream 40 cases; each class is judged both ways in
+							 * every case by construction (probesOf), so the drawn probes only widen the values; each case
+							 * drops one class's CHECK, and the steered phase runs until every class was dropped.
+							 */
+							runs: 40,
+							shrink: { kind: "complete" },
+							concurrency: 1,
+							steerEvery: 16,
+							caseHang
+						},
+						(p, c) =>
+							Effect.scoped(
+								Effect.gen(function* () {
+									const s = plantedSchema(p)
+									const installation = yield* installationOf(s)
+									const pinned = yield* substrate.admin.pin
+									const intact = yield* inInstallation(
+										pinned,
+										installationSql(installation),
+										judgeCase(pinned, installation, s, p)
+									)
+									c.noteAll(intact.reached)
+									assert.deepEqual(intact.problems, [])
+									/**
+									 * The same judge over the installation without one class's CHECK, that CHECK alone under
+									 * its own table or domain: it must find a probe the server now judges otherwise.
+									 */
+									const dropped = checksOf(installation, s)[p.dropped]
+									const mutant = yield* inInstallation(
+										pinned,
+										withoutCheck(installation.statements, dropped),
+										judgeCase(pinned, installation, s, p)
+									)
+									assert.ok(
+										mutant.problems.length > 0,
+										`the ${p.dropped} CHECK ${dropped.name} of ${dropped.owner.kind} ${dropped.owner.name} dropped went unnoticed`
+									)
+									c.note(`dropped ${p.dropped} found`)
+								})
+							)
 					)
-					assert.ok(
-						mutant.problems.length > 0,
-						`the ${label} CHECK ${dropped.name} of ${dropped.owner.kind} ${dropped.owner.name} dropped went unnoticed`
-					)
-				}
-			})
-		)
+				})
+			)
 	)
 })

@@ -67,7 +67,7 @@ import {
 	type WindowSpec,
 	type With
 } from "#compiler/sql/ast.ts"
-import { col, eq, lit, types } from "#compiler/sql/build.ts"
+import { types } from "#compiler/sql/build.ts"
 import {
 	type CatalogCall,
 	type CatalogCast,
@@ -323,8 +323,8 @@ const printed = (text: string, level: Level): Printed => ({ text, level })
 
 /**
  * How the printer spells a literal before its cast: a string, quoted, that the type's input function reads, or bare, a
- * boolean or numeric constant PostgreSQL types itself. A negative bare number is parenthesized, the unary minus of its
- * magnitude.
+ * boolean or numeric constant PostgreSQL types itself, or a bit string's hex constant, `X'<digits>'`. A negative bare
+ * number is parenthesized, the unary minus of its magnitude.
  */
 type Spelling =
 	| { readonly kind: "quoted"; readonly text: string }
@@ -356,8 +356,13 @@ const spellingOf = (value: LiteralValue): Spelling => {
 			return { kind: "quoted", text: value.value }
 		case "text":
 			return { kind: "quoted", text: value.value }
+		case "bits":
+			return { kind: "bare", text: hexConstant(value.hex) }
 	}
 }
+
+/** A bit string's hex constant, X'<digits>': its digits are 0-9 and A-F alone, so none needs quoting. */
+const hexConstant = (hex: string): string => `X'${hex}'`
 
 /** Whether the printer spells a literal quoted (spellingOf): text, every float and a special decimal. */
 export const printsQuoted = (value: LiteralValue): boolean => spellingOf(value).kind === "quoted"
@@ -1311,145 +1316,36 @@ const constantHead = (
 /** What every constant is: an SQL function PostgreSQL evaluates once and may run in parallel. */
 const constantClauses = "LANGUAGE sql IMMUTABLE PARALLEL SAFE"
 
-/** The pack's variable, which holds the cells' text. */
-const cellsVariable = quoteIdent("cells")
-
-/** The pack's series alias and its column, the cell index. */
-const cellIndex = col("g", "i")
-
-/** The pack's rows alias, its cell index column and its payload code column. */
-const rowsAlias = "r"
-const indexColumn = "i"
-const payloadColumn = "c"
-
-/**
- * A row's names as an SQL line comment, each a JSON string: a line break or quote in a name is escaped, so nothing a
- * name holds ends the comment.
- */
-const namesComment = (names: NonEmptyReadonlyArray<string>): string =>
-	`-- ${names.map((name) => JSON.stringify(name)).join(", ")}`
-
-/**
- * The text format() turns into the constant's CREATE FUNCTION, its value the literal %L quotes: every other % is
- * doubled, so a name holding one is read as itself.
- */
-const packedFunction = (fn: ObjectName): string =>
-	`${constantHead(fn, [], types.varbit).replaceAll("%", "%%")} ${constantClauses} RETURN %L::${printType(types.varbit)}`
-
-/**
- * The migration's pack of a relation into its constant (sql/ast.ts PackConstant), a DO block:
- *
- *   DO $$
- *   DECLARE
- *     "cells" text;
- *   BEGIN
- *     SELECT COALESCE(string_agg(COALESCE(1 + "r"."c", 0)::bit(w)::text, '' ORDER BY "g"."i"), '')
- *     INTO "cells"
- *     FROM generate_series(0, cells - 1) AS "g"("i")
- *     LEFT JOIN (VALUES
- *       (i, c), -- names
- *       …
- *     ) AS "r"("i", "c")
- *     ON "r"."i" = "g"."i";
- *     EXECUTE format('CREATE FUNCTION <function>() RETURNS bit varying LANGUAGE sql IMMUTABLE PARALLEL SAFE
- *       RETURN %L::bit varying', "cells");
- *   END
- *   $$
- *
- * PostgreSQL builds the string from the rows, each at the cell the host's encoder gave its key, in one hash join over
- * the cells, and the function's body is the string itself, every name and function qualified as the printer qualifies
- * them. A relation of no row has no VALUES list, which PostgreSQL has none of, and no join: each cell is 0. A space of
- * no cell, a dependent sum whose owners hold no slot, is the empty string, never NULL, so every read of it is absent.
- * Its outer join and its PL/pgSQL exist only in this printed form.
- */
-const writePack = (out: Lines, pack: PackConstant): void => {
-	if (pack.form.kind === "literal") {
-		writeLiteralPack(out, pack, pack.form)
-		return
-	}
-	const rowsForm = pack.form.rows
-	const body: Array<string> = []
-	const lines = new BlockLines(body, sqlUnit, "")
-	const text = printType(types.text)
-	lines.line("DECLARE")
-	lines.nested().line(`${cellsVariable} ${text};`)
-	lines.line("BEGIN")
-	const block = lines.nested()
-	const held = isNonEmpty(rowsForm)
-	const cell = held ? `COALESCE(1 + ${printExpr(col(rowsAlias, payloadColumn))}, 0)` : "0"
-	const empty = `${quoteString("")}::${text}`
-	block.line(
-		`SELECT COALESCE(${inCatalog("string_agg")}(${cell}::${printType(types.bit(pack.width))}::${text}, ${empty} ORDER BY ${printExpr(cellIndex)}), ${empty})`
-	)
-	block.line(`INTO ${cellsVariable}`)
-	const series = `FROM ${inCatalog("generate_series")}(0, ${printExpr(lit.int(pack.cells - 1n, types.integer))}) AS ${quoteIdent("g")}(${quoteIdent("i")})`
-	if (!held) {
-		block.line(`${series};`)
-	} else {
-		block.line(series)
-		block.line("LEFT JOIN (VALUES")
-		const rows = block.nested()
-		for (const [i, row] of rowsForm.entries()) {
-			const comma = i === rowsForm.length - 1 ? "" : ","
-			rows.line(`(${row.index}, ${row.payload})${comma} ${namesComment(row.names)}`)
-		}
-		block.line(`) AS ${quoteIdent(rowsAlias)}(${printIdentList([indexColumn, payloadColumn])})`)
-		block.line(`ON ${printExpr(eq(col(rowsAlias, indexColumn), cellIndex))};`)
-	}
-	block.line(
-		`EXECUTE ${inCatalog("format")}(${quoteString(packedFunction(pack.function))}::${text}, ${cellsVariable});`
-	)
-	lines.line("END")
-	const tag = dollarQuoteTag(body)
-	out.line(`DO ${tag}`)
-	for (const line of body) {
-		out.line(line)
-	}
-	out.line(tag)
-}
-
-/** The line a literal pack's comment begins with (writeLiteralPack), which `grizzle check` finds it by. */
+/** The line a literal pack's comment begins with (writePack), which `grizzle check` finds it by. */
 const literalPackComment = "-- closed constant: "
 
 /** What separates a literal pack's function from its body: the head every constant has after its name. */
 const literalPackBody = `() RETURNS ${printType(types.varbit)} ${constantClauses} RETURN `
 
-/** The cast that ends each part of a literal pack's body. */
-const literalPartEnd = `'::${printType(types.varbit)}`
-
-/** A bit-string literal's part as SQL: `X'…'` for hex digits, `B'…'` for binary ones, cast to bit varying. */
-const bitPart = (prefix: "X" | "B", digits: string): string =>
-	`${prefix}'${digits}${literalPartEnd}`
+/** The cast that ends a literal pack's body. */
+const literalPackEnd = `'::${printType(types.varbit)}`
 
 /**
- * A pack stated as its literal (sql/ast.ts PackForm), one statement whose body is the constant itself:
+ * A closed relation's constant (sql/ast.ts PackConstant), one statement whose body is the constant itself as one hex
+ * literal:
  *
  *   -- closed constant: <rows> rows in <cells> cells of <width> bits, content <digest>
  *   CREATE FUNCTION <function>() RETURNS bit varying LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN X'<hex>'::bit varying
- *     || B'<tail>'::bit varying
  *
- * the statement on one line, the binary tail only where the cells' bits are no whole number of hex digits, and B''
- * alone for a constant of no bit. The comment states what `grizzle check` holds the literal to (readLiteralPack): its
- * rows, its layout, and its content's digest, which the function's name digests in turn.
+ * the statement on one line, and X'' for a constant of no bit. The comment states what `grizzle check` holds the
+ * literal to (readLiteralPack): its rows, its layout, and its content's digest, which the function's name digests in
+ * turn.
  */
-const writeLiteralPack = (
-	out: Lines,
-	pack: PackConstant,
-	form: Extract<PackConstant["form"], { readonly kind: "literal" }>
-): void => {
-	const parts = [
-		...(form.hex === "" ? [] : [bitPart("X", form.hex)]),
-		...(form.tail === "" && form.hex !== "" ? [] : [bitPart("B", form.tail)])
-	]
+const writePack = (out: Lines, pack: PackConstant): void => {
 	out.line(
-		`${literalPackComment}${form.rows} rows in ${pack.cells} cells of ${pack.width} bits, content ${form.digest}`
+		`${literalPackComment}${pack.rows} rows in ${pack.cells} cells of ${pack.width} bits, content ${pack.digest}`
 	)
 	out.line(
-		`CREATE FUNCTION ${printObjectName(pack.function)}${literalPackBody}${parts.join(" || ")}`
+		`CREATE FUNCTION ${printObjectName(pack.function)}${literalPackBody}${hexConstant(pack.hex)}::${printType(types.varbit)}`
 	)
 }
 
-/** A literal pack as its printed statement states it (readLiteralPack): its function's printed name and its parts. */
+/** A literal pack as its printed statement states it (readLiteralPack): its function's printed name and its digits. */
 export interface LiteralPackText {
 	readonly function: string
 	readonly rows: bigint
@@ -1457,7 +1353,6 @@ export interface LiteralPackText {
 	readonly width: bigint
 	readonly digest: string
 	readonly hex: string
-	readonly tail: string
 }
 
 /** A text of decimal digits as the whole number it spells, none for any other text. */
@@ -1479,24 +1374,14 @@ const between = (
 		: { inner: text.slice(before.length, end), rest: text.slice(end + after.length) }
 }
 
-/** A literal pack's body, its hex part then its binary tail, or the binary part alone; none for any other text. */
-const literalParts = (
-	body: string
-): { readonly hex: string; readonly tail: string } | undefined => {
-	const hex = between(body, "X'", literalPartEnd)
-	if (hex === undefined) {
-		const alone = between(body, "B'", literalPartEnd)
-		return alone?.rest === "" ? { hex: "", tail: alone.inner } : undefined
-	}
-	if (hex.rest === "") {
-		return { hex: hex.inner, tail: "" }
-	}
-	const tail = between(hex.rest, " || B'", literalPartEnd)
-	return tail?.rest === "" ? { hex: hex.inner, tail: tail.inner } : undefined
+/** A literal pack's body, its one hex constant to the end of the statement; none for any other text. */
+const literalDigits = (body: string): string | undefined => {
+	const hex = between(body, "X'", literalPackEnd)
+	return hex?.rest === "" ? hex.inner : undefined
 }
 
 /**
- * A statement of a migration file read as a literal pack, writeLiteralPack's printed form, its leading comment
+ * A statement of a migration file read as a literal pack, writePack's printed form, its leading comment
  * included and its terminator not; none for any statement that does not begin with a literal pack's comment. A
  * statement that begins with one but departs from the form anywhere is none too, so a pack whose text was edited out of
  * its form is no pack a reader trusts, which `grizzle check` refuses as it refuses a changed one (cli/check.ts).
@@ -1510,7 +1395,7 @@ export const readLiteralPack = (statement: string): LiteralPackText | undefined 
 		comment === undefined
 			? undefined
 			: between(comment.rest.trim(), "CREATE FUNCTION ", literalPackBody)
-	const parts = head === undefined ? undefined : literalParts(head.rest)
+	const hex = head === undefined ? undefined : literalDigits(head.rest)
 	const counted = {
 		rows: rows === undefined ? undefined : wholeNumber(rows.inner),
 		cells: cells === undefined ? undefined : wholeNumber(cells.inner),
@@ -1519,7 +1404,7 @@ export const readLiteralPack = (statement: string): LiteralPackText | undefined 
 	if (
 		width === undefined ||
 		head === undefined ||
-		parts === undefined ||
+		hex === undefined ||
 		counted.rows === undefined ||
 		counted.cells === undefined ||
 		counted.width === undefined
@@ -1532,34 +1417,13 @@ export const readLiteralPack = (statement: string): LiteralPackText | undefined 
 		cells: counted.cells,
 		width: counted.width,
 		digest: width.rest,
-		hex: parts.hex,
-		tail: parts.tail
+		hex
 	}
 }
 
 /** Whether a statement of a migration file begins as a literal pack does: what `grizzle check` holds to the form. */
 export const looksLikeLiteralPack = (statement: string): boolean =>
 	statement.trimStart().startsWith(literalPackComment)
-
-/**
- * The UTF-8 bytes of a statement's text as statementText sends it, its lines joined by newlines, counted line by line
- * so a text longer than one string holds is counted, never built.
- */
-export const statementBytes = (statement: SqlStatement): number => {
-	const lines: Array<string> = []
-	writeStatement(new BlockLines(lines, sqlUnit, ""), statement)
-	return lines.reduce((bytes, line) => bytes + utf8Length(line), Math.max(0, lines.length - 1))
-}
-
-/**
- * The UTF-8 bytes of the statement a pack of rows EXECUTEs (writePack): its function's CREATE FUNCTION with the cells'
- * text, one character per bit, quoted, as its body.
- */
-export const executedPackBytes = (pack: PackConstant): number =>
-	utf8Length(
-		`${constantHead(pack.function, [], types.varbit)} ${constantClauses} RETURN ''::${printType(types.varbit)}`
-	) +
-	Number(pack.cells) * pack.width
 
 /** What a COMMENT names, as it prints after COMMENT ON, and as `grizzle names` lists it. */
 export const printCommentTarget = (on: CommentTarget): string => {

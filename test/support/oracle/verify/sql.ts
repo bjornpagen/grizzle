@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Result, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
@@ -90,22 +91,8 @@ interface SqlViolation {
 	readonly detail: string
 }
 
-/**
- * Rule packJoin: the one outer join grizzle emits, the migration's pack of a closed relation into its constant
- * (sql/print.ts writePack), inside its DO block: `FROM pg_catalog.generate_series(0, n) AS "g"("i") LEFT JOIN (VALUES
- * ...) AS "r"(...)`, every cell of the key space joined to the row of codes at its index, a missing one a 0 cell
- * (fin.md §17). Exactly that shape in a PL/pgSQL body: LEFT JOIN, then `(VALUES`, after `AS "g"("i")`.
- */
-const isPackJoin = (tokens: ReadonlyArray<Token>, i: number, pl: boolean): boolean =>
-	pl &&
-	isWord(tokens[i - 5], "AS") &&
-	isQuotedName(tokens[i - 4], "g") &&
-	isPunct(tokens[i - 3], "(") &&
-	isQuotedName(tokens[i - 2], "i") &&
-	isPunct(tokens[i - 1], ")") &&
-	isWord(tokens[i + 1], "JOIN") &&
-	isPunct(tokens[i + 2], "(") &&
-	isWord(tokens[i + 3], "VALUES")
+/** A bit-string literal's digits: hex alone, in 0-9 and A-F, the one spelling grizzle writes. */
+const hexDigits = regex("^[0-9A-F]*$")
 
 /** Rules whose violation is SQL the discipline forbids rather than a malformed statement. */
 const disciplineRules: ReadonlySet<AuditRule> = new Set<AuditRule>([
@@ -645,6 +632,21 @@ class StatementAuditor {
 					this.report("literal", "a text literal contains NUL")
 				} else if (!isWellFormed(value.value)) {
 					this.report("literal", "a text literal is not well-formed UTF-16")
+				}
+				return
+			case "bits":
+				if (!hexDigits.test(value.hex)) {
+					this.report("literal", "a bit-string literal of other than hex digits 0-9 and A-F")
+				}
+				if (builtin !== undefined && builtin !== "bit" && builtin !== "bit varying") {
+					this.report("literal", `a bit-string literal typed ${builtin}`)
+				}
+				if (
+					type.kind === "builtin" &&
+					type.name === "bit" &&
+					value.hex.length * 4 !== type.length
+				) {
+					this.report("literal", `${value.hex.length} hex digits typed bit(${type.length})`)
 				}
 				return
 		}
@@ -2561,36 +2563,15 @@ class StatementAuditor {
 				if (!Number.isSafeInteger(width) || width < 1) {
 					this.report("literal", "a pack's cells are one bit wide at least")
 				}
-				const form = statement.form
-				if (form.kind === "literal") {
-					this.at("form", () => {
-						if (
-							BigInt(form.hex.length * 4 + form.tail.length) !== cells * BigInt(width) ||
-							!Arr.every(Array.from(form.hex), (d) => Str.includes(d)("0123456789ABCDEF")) ||
-							!Arr.every(Array.from(form.tail), (d) => d === "0" || d === "1") ||
-							form.tail.length > 3
-						) {
-							this.report(
-								"literal",
-								"a literal pack's hex digits, then at most three binary ones, are exactly its cells' bits"
-							)
-						}
-					})
-					return
-				}
-				this.at("rows", () => {
-					for (const [i, row] of form.rows.entries()) {
-						this.at(i, () => {
-							if (row.index < 0n || row.index >= cells) {
-								this.report("arity", "a packed row's cell is one of the pack's cells")
-							}
-							if (row.payload < 0n || 1n + row.payload >= 2n ** BigInt(width)) {
-								this.report(
-									"literal",
-									"a packed row's payload code, plus one, fits its cell's width"
-								)
-							}
-						})
+				this.at("hex", () => {
+					if (
+						BigInt(statement.hex.length * 4) !== ((cells * BigInt(width) + 3n) / 4n) * 4n ||
+						!hexDigits.test(statement.hex)
+					) {
+						this.report(
+							"literal",
+							"a pack's hex digits are exactly the whole digits its cells' bits take, in 0-9 and A-F"
+						)
 					}
 				})
 				return
@@ -2940,9 +2921,6 @@ const isWord = (token: Token | undefined, upper: string): boolean =>
 const isPunct = (token: Token | undefined, text: string): boolean =>
 	token?.kind === "punct" && token.text === text
 
-const isQuotedName = (token: Token | undefined, name: string): boolean =>
-	token?.kind === "quotedIdent" && token.text === name
-
 /**
  * Whether the "(" at `open`, closed by the token after it, is a column list PostgreSQL writes empty only by leaving it
  * out: an alias's (`AS "r1"()`), a CTE's (`"r1"() AS (`) or an INSERT's (`INSERT INTO "s"."t"()`). A table's column
@@ -3239,9 +3217,9 @@ class TextAuditor {
 				}
 				break
 			case "string": {
-				/** A bit-string constant, hex or binary, is a literal pack's part (sql/print.ts writeLiteralPack), held to its cast
-				 * as any string; every other prefix is refused. */
-				const bitString = t.prefix === "X" || t.prefix === "B"
+				/** A bit-string constant is hex, the one spelling grizzle writes (sql/print.ts), held to its cast as any string;
+				 * every other prefix, a binary B'' among them, is refused. */
+				const bitString = t.prefix === "X"
 				if (t.prefix !== undefined && !bitString) {
 					this.report("untypedLiteral", t.start, `a ${t.prefix}'' string literal`)
 					break
@@ -3377,7 +3355,7 @@ class TextAuditor {
 			case "LEFT":
 			case "RIGHT":
 			case "FULL":
-				if ((isWord(next, "JOIN") || isWord(next, "OUTER")) && !isPackJoin(tokens, i, pl)) {
+				if (isWord(next, "JOIN") || isWord(next, "OUTER")) {
 					this.report("outerJoin", t.start, `a ${t.upper} JOIN`)
 				}
 				return cases

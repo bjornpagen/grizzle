@@ -805,7 +805,6 @@ const runDifferential = (
 						.pipe(Effect.mapError((e) => failure("execute", stage, `${sqlMessage(e)}\n${sql}`)))
 				yield* exec("BEGIN", "setup")
 				return yield* Effect.gen(function* () {
-					yield* exec("SET LOCAL statement_timeout = '30s'", "setup")
 					for (const sql of plan.sql) {
 						yield* exec(sql, "install")
 					}

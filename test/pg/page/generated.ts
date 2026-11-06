@@ -1286,7 +1286,6 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 					const session = yield* s.admin.pin
 					yield* session.query("BEGIN", [])
 					yield* Effect.addFinalizer(() => Effect.orDie(session.query("ROLLBACK", [])))
-					yield* session.query("SET LOCAL statement_timeout = '30s'", [])
 					for (const sql of plan.sql) {
 						yield* session.query(sql, [])
 					}

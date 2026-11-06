@@ -766,17 +766,14 @@ const compile = (
 	)
 	const nestings = new Map<string, Nesting>()
 	/** The nesting of an insert into `relation`, built once. */
-	const nestingFor = (relation: RelationInfo, loc: SourceLoc): Nesting => {
+	const nestingFor = (relation: RelationInfo): Nesting => {
 		const known = nestings.get(relation.name)
 		if (known !== undefined) {
 			return known
 		}
 		const built = nestingOf(relation, laws.theory.fill, codes, evaluate)
-		if (!built.ok) {
-			return refuse("UnsupportedOperation", loc, built.error.message)
-		}
-		nestings.set(relation.name, built.value)
-		return built.value
+		nestings.set(relation.name, built)
+		return built
 	}
 	/** The sequence `name` is a member of, a tree's aside: its members are written only under their owner. */
 	const sequenceOf = (name: string) =>
@@ -837,6 +834,90 @@ const compile = (
 				member: appended.member.name
 			})
 		)
+	}
+	/**
+	 * Refuses an append whose family's copy reads its owner's column through the owner's own copies along owner axes,
+	 * up to a relation the same stratum changes: by a put of it, or by an edit of the family whose count or end the
+	 * copies read there (CascadedCopyAppend). The family's rows are drawn from the owner as the read found it, with the
+	 * stratum's own writes of that owner over it, and a further owner's change reaches it by cascade only afterwards. A
+	 * tree's owner axis is no step: a tree is written whole.
+	 */
+	const refuseCascadedCopy = (
+		member: CheckedMember,
+		members: ReadonlyArray<CheckedMember>
+	): void => {
+		const op = member.op
+		if (op === "delete") {
+			return
+		}
+		const changedBy = (relation: string, column: string): "put" | "family" | undefined =>
+			members.some((m) => m.relation.name === relation && m.op === "put")
+				? "put"
+				: families.some(
+							(k) =>
+								k.owner.name === relation &&
+								(k.count.name === column ||
+									k.axes.last.some(
+										(p) => p.from.kind === "field" && p.from.field.name === column
+									)) &&
+								members.some((m) => m.relation.name === k.member.name)
+					  )
+					? "family"
+					: undefined
+		for (const f of families) {
+			if (f.member.name !== member.relation.name || isTreeOf(f, f.member.name)) {
+				continue
+			}
+			for (const pair of f.axes.owner) {
+				if (
+					pair.from.kind !== "field" ||
+					pair.from.field.writing.kind !== "accumulated" ||
+					pair.to.kind !== "field"
+				) {
+					continue
+				}
+				const seen = new Set<string>()
+				for (let step = { relation: f.owner.name, column: pair.to.field.name }; ;) {
+					const key = `${step.relation}\u0000${step.column}`
+					if (seen.has(key)) {
+						break
+					}
+					seen.add(key)
+					const up = families
+						.filter((h) => h.member.name === step.relation && !isTreeOf(h, h.member.name))
+						.flatMap((h) =>
+							h.axes.owner.flatMap((q) =>
+								q.from.kind === "field" &&
+								q.from.field.name === step.column &&
+								q.to.kind === "field"
+									? [{ relation: h.owner.name, column: q.to.field.name }]
+									: []
+							)
+						)[0]
+					if (up === undefined) {
+						break
+					}
+					const by = changedBy(up.relation, up.column)
+					if (by !== undefined) {
+						throw new Refusal(
+							CompileError.make({
+								_tag: "CascadedCopyAppend",
+								at: member.loc,
+								op,
+								member: member.relation.name,
+								family: { owner: f.id.owner, count: f.id.count },
+								copy: pair.from.field.name,
+								owner: f.owner.name,
+								through: pair.to.field.name,
+								changed: up.relation,
+								by
+							})
+						)
+					}
+					step = up
+				}
+			}
+		}
 	}
 	/** A relation written whole, its classes its own serial fields'. */
 	const wholeTarget = (name: string, loc: SourceLoc): CheckedTarget => {
@@ -987,7 +1068,7 @@ const compile = (
 				)
 			}
 			const classes: InsertClasses<Heading> = nested
-				? { kind: "unclassed", complete: nestingFor(relation, loc).top }
+				? { kind: "unclassed", complete: nestingFor(relation).top }
 				: target.classes
 			const written: MemberRelation = entry.kind === "entry" ? entry.member : relation
 			const source = member.member
@@ -1047,6 +1128,7 @@ const compile = (
 		const writtenNames = new Set(members.map((m) => m.relation.name))
 		for (const m of members) {
 			refuseMovedFilter(m, writtenNames)
+			refuseCascadedCopy(m, members)
 		}
 	}
 	const readBacks = desc.reads.map((r) => {
@@ -1328,7 +1410,7 @@ const compile = (
 					case "insert": {
 						const complete: SingleAct = { op, serial: completeClass }
 						if (nests(relation.name)) {
-							const nesting = nestingFor(relation, loc)
+							const nesting = nestingFor(relation)
 							if (isNonEmpty(enumerated)) {
 								const { slot, normalizer } = classSlot(complete, nesting.top, nesting.top)
 								groupInputs.push(

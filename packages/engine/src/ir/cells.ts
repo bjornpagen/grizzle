@@ -16,6 +16,14 @@
  */
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
+import {
+	bitAt,
+	hexDigitBits,
+	hexDigitsOf,
+	hexText,
+	setBit,
+	zeroDigits
+} from "#compiler/core/hex.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings } from "#compiler/core/order.ts"
@@ -29,7 +37,7 @@ export type CodeSlot =
 /**
  * A roster's codes, code c at position c. Codes are append-only, so the length counts every code the roster has ever
  * minted, and it is the roster's code space: a closed id indexes by it and a set over the roster has one bit per code,
- * holes included. A roster not yet installed has no codes.
+ * holes included, padded to whole hex digits (ir/codes.ts RosterCodec). A roster not yet installed has no codes.
  */
 export type RosterCodes = ReadonlyArray<CodeSlot>
 
@@ -362,8 +370,9 @@ export interface Entry {
 
 /**
  * A closed relation as its string of cells: `cells` cells of `width` bits, each 0 but the entries', which are ascending
- * by index and one per index. The string is exactly `cells · width` bits, so a read at an index past either end reads
- * outside it, which PostgreSQL's substring answers with the empty string, whose value is 0: absent.
+ * by index and one per index. Its installed string is those `cells · width` bits padded with 0s to whole hex digits
+ * (literalOf), so a read at an index past the last cell reads padding or nothing, which PostgreSQL's substring answers
+ * with 0 bits or the empty string, whose value is 0: absent.
  */
 export interface Constant {
 	readonly cells: bigint
@@ -433,96 +442,55 @@ export const constantDigestOf = (constant: Constant): ConstantDigest<"closed-con
 	)
 
 /**
- * A constant's bits as a bit-string literal: its hex digits, four bits each, most significant first, then the zero to
- * three bits past its last whole digit in binary. Together they are exactly the constant's cells times its width bits.
+ * A constant's bits as its hex literal: every cell's bits, from cell 0, then the zero bits that pad the string to whole
+ * digits (core/hex.ts), each entry's cell holding 1 + its payload code and every other cell 0. The constant's digits
+ * are at most what one string the host builds holds; the caller bounds them before.
  */
-export interface BitLiteral {
-	readonly hex: string
-	readonly tail: string
-}
-
-/** Hexadecimal's sixteen digits, in their values' order. */
-const hexDigits = "0123456789ABCDEF"
-
-/** The bits a cell of value `value` sets, `width` of them most significant first, from bit `at` of `bytes`. */
-const writeCell = (bytes: Uint8Array, at: bigint, width: number, value: bigint): void => {
-	for (let bit = 0; bit < width; bit += 1) {
-		if (((value >> BigInt(width - 1 - bit)) & 1n) === 0n) {
-			continue
+export const literalOf = (constant: Constant): string => {
+	const digits = zeroDigits(Number(constant.cells * BigInt(constant.width)))
+	for (const entry of constant.entries) {
+		const value = 1n + entry.payload
+		const at = Number(entry.index) * constant.width
+		for (let bit = 0; bit < constant.width; bit += 1) {
+			if (((value >> BigInt(constant.width - 1 - bit)) & 1n) === 1n) {
+				setBit(digits, at + bit)
+			}
 		}
-		const position = Number(at) + bit
-		const byte = Math.floor(position / 8)
-		bytes[byte] = (bytes[byte] ?? 0) | (0x80 >> (position % 8))
 	}
+	return hexText(digits)
 }
-
-/** Bit `position` of `bytes`, most significant first: 0 or 1. */
-const bitAt = (bytes: Uint8Array, position: number): number =>
-	((bytes[Math.floor(position / 8)] ?? 0) >> (7 - (position % 8))) & 1
 
 /**
- * A constant as its bit-string literal: each entry's cell holds 1 + its payload code, every other cell 0, the string
- * the pack of its rows builds. The constant's bits are at most what one string the host builds holds four to a digit;
- * the caller bounds them before (the printer refuses a longer statement).
+ * A hex literal that is no constant of its stated layout: a character no digit of 0-9 and A-F, a count of digits other
+ * than its cells' bits rounded up to whole digits, or a 1 among the bits that pad it past its last cell.
  */
-export const literalOf = (constant: Constant): BitLiteral => {
-	const bits = Number(constant.cells * BigInt(constant.width))
-	const bytes = new Uint8Array(Math.ceil(bits / 8))
-	for (const entry of constant.entries) {
-		writeCell(bytes, entry.index * BigInt(constant.width), constant.width, 1n + entry.payload)
-	}
-	const whole = Math.floor(bits / 4)
-	const hex: Array<string> = []
-	for (let digit = 0; digit < whole; digit += 1) {
-		const byte = bytes[Math.floor(digit / 2)] ?? 0
-		hex.push(
-			defined(hexDigits[digit % 2 === 0 ? byte >> 4 : byte & 0x0f], "a nibble is a hex digit")
-		)
-	}
-	const tail: Array<string> = []
-	for (let position = whole * 4; position < bits; position += 1) {
-		tail.push(bitAt(bytes, position) === 1 ? "1" : "0")
-	}
-	return { hex: hex.join(""), tail: tail.join("") }
-}
-
-/** A bit-string literal that is no constant of its stated layout: a digit no hex or binary digit, or a wrong length. */
 export type LiteralFault =
 	| { readonly kind: "digit"; readonly at: number }
-	| { readonly kind: "length"; readonly bits: bigint; readonly expected: bigint }
+	| { readonly kind: "length"; readonly digits: bigint; readonly expected: bigint }
+	| { readonly kind: "padding"; readonly at: number }
 
 /**
- * The constant a bit-string literal states, read as `cells` cells of `width` bits: each cell of value v > 0 an entry
- * of payload code v - 1. Refused when a character is no digit of its part, hex or binary, or when the literal's bits are
- * not exactly cells times width.
+ * The constant a hex literal states, read as `cells` cells of `width` bits: each cell of value v > 0 an entry of payload
+ * code v - 1. Refused when a character is no digit, when the literal is not exactly the digits that hold cells times
+ * width bits, or when a bit past the last cell is 1, so every literal is the one spelling of its constant.
  */
 export const constantOfLiteral = (
-	literal: BitLiteral,
+	hex: string,
 	cells: bigint,
 	width: number
 ): Result.Result<Constant, LiteralFault> => {
-	const expected = cells * BigInt(width)
-	const bits = BigInt(literal.hex.length * 4 + literal.tail.length)
-	if (bits !== expected) {
-		return Result.err({ kind: "length", bits, expected })
+	const bits = cells * BigInt(width)
+	const expected = (bits + BigInt(hexDigitBits) - 1n) / BigInt(hexDigitBits)
+	if (BigInt(hex.length) !== expected) {
+		return Result.err({ kind: "length", digits: BigInt(hex.length), expected })
 	}
-	const bytes = new Uint8Array(Math.ceil(Number(bits) / 8))
-	for (const [at, char] of Array.from(literal.hex).entries()) {
-		const value = hexDigits.indexOf(char.toUpperCase())
-		if (value < 0) {
-			return Result.err({ kind: "digit", at })
-		}
-		const byte = Math.floor(at / 2)
-		bytes[byte] = (bytes[byte] ?? 0) | (at % 2 === 0 ? value << 4 : value)
+	const digits = hexDigitsOf(hex)
+	if (!digits.ok) {
+		return Result.err({ kind: "digit", at: digits.error })
 	}
-	for (const [i, char] of Array.from(literal.tail).entries()) {
-		if (char !== "0" && char !== "1") {
-			return Result.err({ kind: "digit", at: literal.hex.length + i })
-		}
-		if (char === "1") {
-			const position = literal.hex.length * 4 + i
-			const byte = Math.floor(position / 8)
-			bytes[byte] = (bytes[byte] ?? 0) | (0x80 >> (position % 8))
+	for (let position = Number(bits); position < hex.length * hexDigitBits; position += 1) {
+		if (bitAt(digits.value, position) === 1) {
+			return Result.err({ kind: "padding", at: position })
 		}
 	}
 	const entries: Array<Entry> = []
@@ -530,7 +498,7 @@ export const constantOfLiteral = (
 		let value = 0n
 		const start = Number(index) * width
 		for (let bit = 0; bit < width; bit += 1) {
-			value = (value << 1n) | BigInt(bitAt(bytes, start + bit))
+			value = (value << 1n) | BigInt(bitAt(digits.value, start + bit))
 		}
 		if (value > 0n) {
 			entries.push({ index, payload: value - 1n })

@@ -75,10 +75,10 @@ interface CheckFinding {
  * - an ungenerated change: the schemas and their logins compile to another snapshot than snapshot.json, so `grizzle
  *   generate` has something to draft; and among them a name the snapshot holds that the schema drops, which the draft
  *   refuses until `--drop` or `--rename` declares it (UndeclaredDrop);
- * - a literal pack edited: a closed relation's constant stated as one bit-string literal, whose literal does not
- *   digest to the content its comment states and its function's name digests, decoded back to its cells and held to
- *   them, each named with the first cell and key where it parts from the rows the schema declares
- *   (physical/ddl/literal.ts literalPackFault).
+ * - a literal pack edited: a closed relation's constant, stated as one hex literal, whose literal does not decode to
+ *   the content its comment states and its function's name digests, decoded back to its cells and held to them, each
+ *   named with the first cell and key where it parts from the rows the schema declares (physical/ddl/literal.ts
+ *   literalPackFault).
  *
  * Whether a folder is applied, and whether an applied file was edited, only the database knows; `migrate` checks them.
  * check never reads the configuration's connection.
@@ -317,15 +317,28 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 	}
 })
 
+/** What a literal's layout fault is, in words: a character no hex digit, a count of digits, or a padding bit set. */
+const layoutFaultText = (
+	fn: string,
+	fault: Extract<PackFault, { readonly kind: "layout" }>["fault"]
+): string => {
+	switch (fault.kind) {
+		case "digit":
+			return `the literal of ${fn} holds a character that is no hex digit at ${fault.at}`
+		case "length":
+			return `the literal of ${fn} holds ${fault.digits} hex digits where the cells and width its comment states take ${fault.expected}`
+		case "padding":
+			return `the literal of ${fn} sets bit ${fault.at}, which pads it past its last cell`
+	}
+}
+
 /** What a literal pack's fault is, in words: its form, its layout, or its content, with the cell and key it parts at. */
 const packFaultText = (fault: PackFault): string => {
 	switch (fault.kind) {
 		case "form":
 			return "a statement that begins as a literal pack's comment departs from its printed form"
 		case "layout":
-			return fault.fault.kind === "digit"
-				? `the literal of ${fault.function} holds a character that is no digit at ${fault.fault.at}`
-				: `the literal of ${fault.function} holds ${fault.fault.bits} bits where its comment states ${fault.fault.expected}`
+			return layoutFaultText(fault.function, fault.fault)
 		case "rows":
 			return `the comment of ${fault.function} states ${fault.stated} rows where its literal holds ${fault.held}`
 		case "content": {

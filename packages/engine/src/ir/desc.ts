@@ -708,17 +708,6 @@ export interface KeySlotDesc {
 	readonly fin: SlotsDesc
 }
 
-/**
- * How a closed relation's migration states its constants, as its declaration says (closed.relation's `pack`): `rows`,
- * a line per row with the handles it holds, for a person to review; or `hex`, one bit-string literal, for rows no person
- * reviews, a machine's. A pack whose rows do not fit what one statement carries is hex whatever is declared
- * (physical/ddl/constants.ts packFormOf). Either installs one string, so the form is no part of a constant's identity.
- */
-export type ClosedPack = "rows" | "hex"
-
-/** Every way a closed relation's pack is stated. */
-export const closedPacks: NonEmptyReadonlyArray<ClosedPack> = ["rows", "hex"]
-
 /** An alternatives arm: a roster handle and its arm relation's key side. */
 export interface ArmDesc {
 	readonly handle: string
@@ -914,8 +903,6 @@ export type RelationDesc<L = Located> = L &
 				readonly slots: ReadonlyArray<KeySlotDesc>
 				/** Each row a value of every field, its key fields' values handles of their rosters. */
 				readonly rows: ReadonlyArray<Readonly<Record<string, LiteralDesc>>>
-				/** How its migration states its constants (ClosedPack). */
-				readonly pack: ClosedPack
 		  }
 		| {
 				readonly kind: "derived"
@@ -928,10 +915,32 @@ export type RelationDesc<L = Located> = L &
 
 export type SchemaDesc<L = Located> = L & {
 	readonly name: string
-	readonly relations: ReadonlyArray<RelationDesc<L>>
+	readonly relations: ReadonlyArray<SchemaRelationOf<L>>
 	readonly statements: ReadonlyArray<StatementDesc<L>>
 	/** schema.extend: the base schema, under the same name. */
 	readonly extends: SchemaDesc<L> | undefined
+}
+
+/**
+ * A relation of a decoded schema: every closed relation in one is admitted (AdmittedClosedRelation), its rows proved
+ * values of its fields' types once, so nothing that reads a schema proves them again. An authored description's
+ * relations are written as they are, and admitted where it is decoded (schema/admit.ts).
+ */
+export type SchemaRelationDesc =
+	| Exclude<RelationDesc, { readonly kind: "closedRelation" }>
+	| AdmittedClosedRelation
+
+type SchemaRelationOf<L> = [L] extends [Located] ? SchemaRelationDesc : RelationDesc<L>
+
+/**
+ * A schema description decoded before its closed relations are admitted: what a schema's admission reads
+ * (schema/admit.ts), each closed relation as it was written.
+ */
+export type UnadmittedSchemaDesc = Located & {
+	readonly name: string
+	readonly relations: ReadonlyArray<RelationDesc>
+	readonly statements: ReadonlyArray<StatementDesc>
+	readonly extends: UnadmittedSchemaDesc | undefined
 }
 
 /**
@@ -1808,8 +1817,11 @@ const rowKeyText = (
 declare const admittedBrand: unique symbol
 
 /**
- * A closed relation's description as its admission made it (schema/relation.ts admitClosedRelation), the brand's one
- * door: its rows proved there, one per key, each a value of exactly the relation's fields, and the rest decoded.
+ * A closed relation's description as its admission made it, the brand's doors being closed.relation()'s
+ * (schema/relation.ts admitClosedRelation) and a decoded schema's (schema/admit.ts): its rows proved there, one per
+ * key, each a value of exactly the relation's fields and of each field's base type, a closed id one of its roster's
+ * handles, and the rest decoded. A refinement a field's type carries (a contract's predicate, a pattern) is judged
+ * where the schema is checked, which alone reads a contract's predicate.
  */
 export type AdmittedClosedRelation = Extract<RelationDesc, { readonly kind: "closedRelation" }> & {
 	readonly [admittedBrand]: true
@@ -1817,20 +1829,35 @@ export type AdmittedClosedRelation = Extract<RelationDesc, { readonly kind: "clo
 
 /**
  * Each admitted closed relation's description, by its identity: a handle registry, which a decode of a schema reads to
- * pass it through unchanged rather than decode its rows again, the most of a large relation's cost. Only the brand's
- * door registers one, frozen, so a description a caller built or edited is decoded in full.
+ * pass it through unchanged, the one closed relation a decoded schema holds. Only the brand's doors register one,
+ * frozen, so a description a caller built or edited is no admitted one.
  */
 const admittedDescs = new WeakMap<object, AdmittedClosedRelation>()
 
-/** Registers an admitted description, frozen with its rows, and returns it. */
-export const recordAdmitted = (desc: AdmittedClosedRelation): AdmittedClosedRelation => {
+const mintAdmitted = nominal<
+	Extract<RelationDesc, { readonly kind: "closedRelation" }>,
+	AdmittedClosedRelation
+>()
+
+/**
+ * The brand's one mint: a closed relation's description its caller admitted (closed.relation()'s admission, or its
+ * schema's), registered and frozen with its rows.
+ */
+export const recordAdmitted = (
+	desc: Extract<RelationDesc, { readonly kind: "closedRelation" }>
+): AdmittedClosedRelation => {
 	for (const row of desc.rows) {
 		Object.freeze(row)
 	}
 	Object.freeze(desc.rows)
-	admittedDescs.set(Object.freeze(desc), desc)
-	return desc
+	const admitted = mintAdmitted(Object.freeze(desc))
+	admittedDescs.set(admitted, admitted)
+	return admitted
 }
+
+/** The admitted closed relation a description is, when an admission made it; none for any other value. */
+export const admittedRelation = (value: unknown): AdmittedClosedRelation | undefined =>
+	typeof value === "object" && value !== null ? admittedDescs.get(value) : undefined
 
 /** A relation description's shape, an admitted closed relation's description passed through as it stands. */
 const admittedOr = (shape: S.Shape<RelationDesc>): S.Shape<RelationDesc> =>
@@ -1843,6 +1870,7 @@ const admittedOr = (shape: S.Shape<RelationDesc>): S.Shape<RelationDesc> =>
 		}
 	})
 
+/** A relation description's shape, a closed relation's decoded as written, its rows not admitted. */
 const relationDescShape: S.Shape<RelationDesc> = admittedOr(
 	S.tagged("kind", {
 		relation: S.located(
@@ -1880,8 +1908,7 @@ const relationDescShape: S.Shape<RelationDesc> = admittedOr(
 							(slot) => slot.field,
 							"slot fields"
 						),
-						rows: S.array(S.recordShape(literalDescShape, name)),
-						pack: S.literalsShape(closedPacks)
+						rows: S.array(S.recordShape(literalDescShape, name))
 					},
 					loc
 				),
@@ -1917,12 +1944,35 @@ const relationDescShape: S.Shape<RelationDesc> = admittedOr(
 	})
 )
 
+/**
+ * A decoded schema's relation: an admitted closed relation as it stands, any other relation decoded, and a closed
+ * relation no admission made refused, since a schema holds only admitted ones (SchemaRelationDesc).
+ */
+const schemaRelationShape: S.Shape<SchemaRelationDesc> = S.plain({
+	expected: relationDescShape.expected,
+	parse: function* (value, path) {
+		const admitted =
+			typeof value === "object" && value !== null ? admittedDescs.get(value) : undefined
+		if (admitted !== undefined) {
+			return admitted
+		}
+		const decoded = yield* relationDescShape.parse(value, path)
+		if (decoded.kind === "closedRelation") {
+			return S.refuse(
+				path,
+				"a closed relation admitted by closed.relation(...) or by its schema's admission (schema/admit.ts)"
+			)
+		}
+		return decoded
+	}
+})
+
 const schemaDescShape: S.Shape<SchemaDesc> = S.lazy("a schema description", () =>
 	S.located(
 		S.structStated(
 			{
 				name,
-				relations: S.uniqueArray(relationDescShape, (r) => r.name, "relation names"),
+				relations: S.uniqueArray(schemaRelationShape, (r) => r.name, "relation names"),
 				statements: S.array(statementDescShape)
 			},
 			{ extends: schemaDescShape },
@@ -1930,6 +1980,29 @@ const schemaDescShape: S.Shape<SchemaDesc> = S.lazy("a schema description", () =
 		)
 	)
 )
+
+const unadmittedSchemaShape: S.Shape<UnadmittedSchemaDesc> = S.lazy("a schema description", () =>
+	S.located(
+		S.structStated(
+			{
+				name,
+				relations: S.uniqueArray(relationDescShape, (r) => r.name, "relation names"),
+				statements: S.array(statementDescShape)
+			},
+			{ extends: unadmittedSchemaShape },
+			loc
+		)
+	)
+)
+
+/**
+ * A schema description decoded with its closed relations as written, which its admission admits (schema/admit.ts)
+ * before the schema is decoded as one.
+ */
+export const decodeUnadmittedSchema = (
+	value: unknown
+): Result.Result<UnadmittedSchemaDesc, CompileError> =>
+	S.decodeWith(unadmittedSchemaShape, value, "schema description")
 
 const roleEntryDescShape: S.Shape<RoleEntryDesc> = S.tagged("kind", {
 	whole: S.located(S.structWith({ name }, loc)),

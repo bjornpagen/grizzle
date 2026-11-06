@@ -326,9 +326,6 @@ export const rowsOfRead = (rows: ReadonlyArray<ReadonlyArray<unknown>>): Readonl
  */
 export const clearSql = (schema: string): string => `DELETE FROM ${qualified(schema, "node")}`
 
-/** The removal of a load's rows and their dead tuples, so the next load is measured into an empty heap. */
-export const truncateSql = (schema: string): string => `TRUNCATE ${qualified(schema, "node")}`
-
 /** Rows in one canonical order, by id, for exact comparison. */
 export const canonical = (rows: ReadonlyArray<TreeRow>): ReadonlyArray<TreeRow> =>
 	Arr.sort(

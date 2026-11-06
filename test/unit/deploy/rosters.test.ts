@@ -36,6 +36,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
+import { wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	closed,
 	closedRelation,
@@ -61,9 +62,10 @@ import { owning } from "#test/support/policy.ts"
  * The oracle is a second implementation of a roster change's draft: the model keeps its own history of the roster's
  * codes (a handle keeps its code, a removed one leaves a hole, a new or re-added one takes the next code) and predicts,
  * slot by slot, every statement a step drafts for the roster: its new names constant (and a set's live constant) in
- * Setup, its domain's CHECK dropped and added NOT VALID in Structure and validated in Validate, a set's bits domain
- * re-pointed the same way when a handle is removed and replaced by a new one of the new size when the roster grows,
- * the set column converted by its cast to bit(n′), and the old functions and domain dropped in Publish. The names the
+ * Setup, its domain's CHECK dropped and added NOT VALID in Structure and validated in Validate, a set's bits domain,
+ * bit(n) with n the codes rounded up to whole hex digits, re-pointed the same way when its width stands and replaced
+ * by a new one of the new width when the roster grows past a whole digit, the set column converted by its cast to
+ * bit(n′), and the old functions and domain dropped in Publish. The names the
  * model predicts are minted through the naming door from its own codes. A reorder is refused before anything is
  * drafted, by D1's refusal; a regenerate drafts nothing and leaves the snapshot as it was; a change of the closed
  * relation's rows drafts its law's check first in Setup, and a change whose rows break the law is refused, which a
@@ -330,7 +332,7 @@ const rosterCodesOf = (codes: ReadonlyArray<Coded>): RosterCodes =>
 const rosterObjects = (codes: ReadonlyArray<Coded>) => {
 	const digest = constantDigest("roster-names", namesOf(codes), everyProperty)
 	const domain = identity.rosterDomain(roster)
-	const bits = identity.bitsDomain(roster, codes.length)
+	const bits = identity.bitsDomain(roster, wholeDigits(codes.length))
 	return {
 		names: identifierOf(identity.rosterConstant(roster, digest)),
 		live: identifierOf(identity.rosterLive(roster, digest)),
@@ -519,7 +521,7 @@ const predicted = (
 	const now = rosterObjects(after.codes)
 	const namesChanged =
 		canonicalTextOf(namesOf(before.codes)) !== canonicalTextOf(namesOf(after.codes))
-	const grew = after.codes.length > before.codes.length
+	const widened = wholeDigits(after.codes.length) > wholeDigits(before.codes.length)
 	if (namesChanged) {
 		out.push(["setup", `create function ${now.names}`], ["setup", `revoke function ${now.names}`])
 		out.push(
@@ -543,12 +545,12 @@ const predicted = (
 				["setup", `revoke function ${now.live}`],
 				["publish.removed", `drop function ${was.live}`]
 			)
-			if (grew) {
+			if (widened) {
 				out.push(
 					["setup", `create domain ${now.bits}`],
 					[
 						"structure",
-						`convert ${table}.${setColumn} to ${now.bits} by bit(${after.codes.length})`
+						`convert ${table}.${setColumn} to ${now.bits} by bit(${wholeDigits(after.codes.length)})`
 					],
 					["publish.removed", `drop domain ${was.bits}`]
 				)

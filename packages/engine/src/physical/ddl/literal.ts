@@ -16,12 +16,13 @@ import {
 } from "#compiler/sql/print.ts"
 
 /**
- * What `grizzle check` holds a migration's literal pack to (sql/print.ts writeLiteralPack), its one reader of them: a
- * literal pack is trusted only when its literal digests to the content its comment states and its function's name
+ * What `grizzle check` holds a migration's closed constant to (sql/print.ts writePack), its one reader of them: a
+ * constant's hex literal is trusted only when it decodes to the content its comment states and its function's name
  * digests, and holds the rows its comment counts.
  *
  * - `form`: a statement that begins as a literal pack's comment does but departs from the printed form;
- * - `layout`: a literal whose digits are no hex or binary ones, or whose bits are not its stated cells times width;
+ * - `layout`: a literal with a character no hex digit, of other than the whole digits its stated cells times width
+ *   take, or with a 1 among the bits that pad it past its last cell;
  * - `content`: a literal whose cells digest neither to the content its comment states nor to its function's name,
  *   edited after it was drafted, or a comment or name edited away from it: the function it creates, the closed
  *   relation whose constant it is where the schema declares one, and the first cell where it and the schema's declared
@@ -48,14 +49,7 @@ export type PackFault =
 
 /** The cells a pack fills: each held cell's index and payload code, in index order; none for a literal off its layout. */
 const heldCells = (pack: PackConstant): ReadonlyArray<Entry> | undefined => {
-	if (pack.form.kind === "rows") {
-		return pack.form.rows.map((r) => ({ index: r.index, payload: r.payload }))
-	}
-	const read = constantOfLiteral(
-		{ hex: pack.form.hex, tail: pack.form.tail },
-		pack.cells,
-		pack.width
-	)
+	const read = constantOfLiteral(pack.hex, pack.cells, pack.width)
 	return read.ok ? read.value.entries : undefined
 }
 
@@ -190,7 +184,7 @@ export const literalPackFault = (
 	if (pack === undefined) {
 		return { kind: "form" }
 	}
-	const read = constantOfLiteral({ hex: pack.hex, tail: pack.tail }, pack.cells, Number(pack.width))
+	const read = constantOfLiteral(pack.hex, pack.cells, Number(pack.width))
 	if (!read.ok) {
 		return { kind: "layout", function: pack.function, fault: read.error }
 	}

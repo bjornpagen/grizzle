@@ -1,4 +1,4 @@
-import { Array as Arr, Record as Rec } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import type { AllenMask } from "#compiler/allen/mask.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType, type StorageCarrier } from "#compiler/ir/scalar.ts"
@@ -463,7 +463,10 @@ export interface OrderKey {
 	readonly dir: "asc" | "desc"
 }
 
-/** A set, or the first k of a total order over every column of the heading: .orderBy(...).take(k). */
+/**
+ * A set, or the first k rows of a take's order: .orderBy(...).take(k), whose stated order names every column of the
+ * heading or every one but one (takeOrder).
+ */
 export type ProgramBound =
 	| { readonly kind: "set" }
 	| {
@@ -471,6 +474,22 @@ export type ProgramBound =
 			readonly order: Arr.NonEmptyReadonlyArray<OrderKey>
 			readonly k: number
 	  }
+
+/**
+ * The total order a take ranks its rows by and delivers them in: its stated keys, then each column of the heading they
+ * leave out, ascending, in heading order. A stated order leaves out at most one column, so whatever key of the rows
+ * grizzle completes it by (check/order.ts), the completion appends that column, ascending, or nothing where the stated
+ * keys already order the rows totally: the column left out breaks every tie the stated keys leave.
+ */
+export const takeOrder = (
+	heading: ReadonlyArray<Column>,
+	bound: Extract<ProgramBound, { readonly kind: "take" }>
+): Arr.NonEmptyReadonlyArray<OrderKey> => [
+	...bound.order,
+	...Arr.flatMap(heading, (column): ReadonlyArray<OrderKey> =>
+		Arr.some(bound.order, (k) => k.column.name === column.name) ? [] : [{ column, dir: "asc" }]
+	)
+]
 
 /** Arms of one heading, bounded, named or not (.named(name) after the bound), then attached to. */
 export interface Query<P> {
@@ -503,7 +522,10 @@ export interface Attachment {
 	readonly delivery: StatedDelivery
 }
 
-/** How the root is delivered: a set, or in a total order over its heading, and then also paged. */
+/**
+ * How the root is delivered past its bound: as its rows are, in its take's order or as a set where it takes none, or
+ * under a final orderBy, total over its heading, and then also paged.
+ */
 export type Delivery =
 	| { readonly kind: "set" }
 	| {
@@ -514,6 +536,19 @@ export type Delivery =
 
 export interface Root extends Query<never> {
 	readonly delivery: Delivery
+}
+
+/**
+ * The order a root's rows arrive in: its final orderBy's, else the order its take ranks by (takeOrder), as a query that
+ * ends in `.orderBy(...).take(k)` is delivered; none for a set.
+ */
+export const deliveredOrder = (root: Root): Option.Option<Arr.NonEmptyReadonlyArray<OrderKey>> => {
+	if (root.delivery.kind === "ordered") {
+		return Option.some(root.delivery.order)
+	}
+	return root.bound.kind === "take"
+		? Option.some(takeOrder(root.heading, root.bound))
+		: Option.none()
 }
 
 /**

@@ -1,8 +1,9 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
+import { bitInputText } from "#compiler/core/hex.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
-import { codecOf, codeOf, handlesText } from "#compiler/ir/codes.ts"
+import { codecOf, codeOf, handlesHex } from "#compiler/ir/codes.ts"
 import { datePartSlices } from "#compiler/ir/date.ts"
 import {
 	type ColumnRef,
@@ -77,7 +78,7 @@ export const persistentLiteral = (
 		case "handle":
 			return lit.int(codeOf(codecOf(names.codes, rosterAt(type)), literal.handle), sqlType)
 		case "handles":
-			return lit.text(handlesText(codecOf(names.codes, rosterAt(type)), literal.handles), sqlType)
+			return lit.bits(handlesHex(codecOf(names.codes, rosterAt(type)), literal.handles), sqlType)
 		case "span":
 			return lit.text(`[${literal.start.toString()},${literal.end.toString()})`, sqlType)
 		case "vector":
@@ -123,6 +124,8 @@ export const persistentText = (
 		case "floatSpecial":
 		case "text":
 			return v.value
+		case "bits":
+			return bitInputText(v.hex)
 	}
 }
 

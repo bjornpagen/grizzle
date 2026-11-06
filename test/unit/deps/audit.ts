@@ -46,7 +46,7 @@ const regexMembers: ReadonlySet<string> = new Set(["test", "exec"])
 const regexBuildingCalls: ReadonlySet<string> = new Set(["match", "matchAll", "search"])
 
 /** The erased JavaScript of a TypeScript module, as Node's type stripping (mode "strip") produces it. */
-export const erase = (source: string): string => stripTypeScriptTypes(source, { mode: "strip" })
+const erase = (source: string): string => stripTypeScriptTypes(source, { mode: "strip" })
 
 const isPunct = (t: Token | undefined, text: string): boolean =>
 	t?.kind === "punct" && t.text === text

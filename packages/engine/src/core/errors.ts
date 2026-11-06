@@ -187,6 +187,9 @@ export type PreconditionKind =
  * defined within; over a text, Compute.matches against the target's pattern or its lexical form; and, where no Compute
  * test proves the precondition of the operand's type (a contract's predicate over a text, a boolean, a uuid or a
  * date), none: a value of the target's own type, a parameter its binding checks or a literal its admission judges.
+ * Where a fact precondition's operand is of a contract whose predicate implies the fact but does not declare it, the
+ * remedy is no guard but the declaration: the fact added to that contract's `proves`, since a contract's facts are
+ * exactly the ones it declares.
  */
 export type GuardTest =
 	| { readonly kind: "nonzero" }
@@ -195,12 +198,20 @@ export type GuardTest =
 	| { readonly kind: "within" }
 	| { readonly kind: "matches"; readonly pattern: "target" | "lexicalForm" }
 	| { readonly kind: "typed" }
+	| { readonly kind: "proves"; readonly contract: string }
 
-/** The guard a PartialOperation names: its test over the operand, and the guard to write, spelled from that test. */
+/**
+ * The remedy a PartialOperation names: its remedy over the operand, and the sentence that states it, the guard to write
+ * or the declaration to add, spelled from that test.
+ */
 export interface Guard {
-	readonly test: GuardTest
+	readonly remedy: GuardTest
 	readonly text: string
 }
+
+/** A remedy's sentence: a declaration to add, or a guard to write. */
+const remedyText = (guard: Guard): string =>
+	guard.remedy.kind === "proves" ? `declare it: ${guard.text}` : `guard it: ${guard.text}`
 
 const preconditionText = (kind: PreconditionKind, operand: string): string => {
 	switch (kind) {
@@ -310,10 +321,11 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   temporary and an object standing while it runs or another temporary (TemporaryCensus); renaming a declaration
  *   either is built from gives it another.
  * - `ResourceBound`: a bound crossed (CompileBound).
- * - `PartialOperation`: an operation defined only where its precondition holds, which neither the operands' bounds nor
- *   a Compute.cond around it proves: `operation` names it, `operand` the operand the precondition reads, and `guard`
- *   the Compute.when to write, its test over the operand by the operand's type (GuardTest), whose other branch is the
- *   caller's value for the undefined case.
+ * - `PartialOperation`: an operation defined only where its precondition holds, which neither the operands' facts and
+ *   bounds nor a Compute.cond around it proves: `operation` names it, `operand` the operand the precondition reads, and
+ *   `guard` the remedy, its test over the operand by the operand's type (GuardTest): the Compute.when to write, whose
+ *   other branch is the caller's value for the undefined case, or the fact its contract's predicate implies and its
+ *   `proves` leaves out.
  * - `RecursionRefused`: recursion admission refused (check/recursion), for `cause`.
  * - `DerivedRefused`: derived analysis refused a derived relation (analysis/derived), for `cause`.
  * - `RoleRefused`, `LoginRefused`, `ContextRefused`: a role, a login or a context breaks the rule `rule`.
@@ -324,6 +336,9 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   `source` along the `axis` of `family`, which its row fills only after it, for `later` (FilledLater), so no write
  *   fills it.
  * - `UnwritableRelation`: no write fills `relation`'s rows, for `cause` (UnwritableCause).
+ * - `CascadedCopyAppend`: a write at `at` of `member`, an `op`, appends to `family`, whose copy `copy` reads `owner`'s
+ *   `through`, which `owner` copies from `changed`, a relation the same stratum also changes, by a put or by an edit of
+ *   one of its families (`by`): the change reaches `owner` by cascade only after the family's rows are drawn.
  * - `UndeclaredDrop`: a migration drops `dropped`, which the previous installation holds and the schema no longer
  *   declares, and no declaration of the draft (`--rename`, `--drop`) names it.
  */
@@ -460,6 +475,18 @@ export type CompileReason =
 			readonly relation: string
 			readonly cause: UnwritableCause
 	  }
+	| {
+			readonly _tag: "CascadedCopyAppend"
+			readonly at: SourceLoc
+			readonly op: "insert" | "put"
+			readonly member: string
+			readonly family: FamilyName
+			readonly copy: string
+			readonly owner: string
+			readonly through: string
+			readonly changed: string
+			readonly by: "put" | "family"
+	  }
 export type CompileReasonTag = CompileReason["_tag"]
 
 /** The reasons whose one fact is a sentence: built by prose (a check's or builder's refusal helper). */
@@ -580,7 +607,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "ResourceBound":
 			return boundText(reason.bound)
 		case "PartialOperation":
-			return `${reason.operation} is defined only where ${preconditionText(reason.precondition, reason.operand)}, which nothing here proves; guard it: ${reason.guard.text}`
+			return `${reason.operation} is defined only where ${preconditionText(reason.precondition, reason.operand)}, which nothing here proves; ${remedyText(reason.guard)}`
 		case "RecursionRefused":
 			return recursionRefusalText(reason.cause)
 		case "DerivedRefused":
@@ -599,6 +626,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return unfillableText(reason)
 		case "UnwritableRelation":
 			return unwritableRelationText(reason.relation, reason.cause)
+		case "CascadedCopyAppend":
+			return `${reason.op === "put" ? "a put of" : "an insert into"} ${reason.member} appends to the family ${reason.family.owner}.${reason.family.count}, whose copy ${reason.copy} reads ${reason.owner}'s ${reason.through}, which ${reason.owner} copies from ${reason.changed}; the same stratum ${reason.by === "put" ? "puts" : "edits a family of"} ${reason.changed}, whose change reaches ${reason.owner} by cascade only after the family's rows are drawn from ${reason.owner} as the read found it: change ${reason.changed} in a ChangeSet applied before this one`
 		case "UndeclaredDrop": {
 			const spelled = droppedText(reason.dropped)
 			return `${spelled} is dropped but not declared: declare it with --drop ${spelled}, or --rename it`

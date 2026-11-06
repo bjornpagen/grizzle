@@ -17,7 +17,7 @@ import { type CompileError, malformedDescription } from "#compiler/core/errors.t
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Family } from "#compiler/ir/family.ts"
-import type { LawField, LawRelation } from "#compiler/ir/law.ts"
+import type { LawField, LawRelation, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { admittedText, admitValue } from "#compiler/scalar/values/identity.ts"
@@ -130,7 +130,7 @@ export const familyRows = (
 	const { order, closed } = plan.fill
 	const families = order.families
 	const codes = plan.codes
-	const relations = new Map<string, LawRelation>()
+	const relations = new Map<string, RelationInfo>()
 	const memberOf = new Map<string, Family>()
 	for (const f of families) {
 		const at = formatLoc(SourceLoc(`family ${f.id.owner}.${f.id.count}`, [plan.declared]))
@@ -261,10 +261,7 @@ export const familyRows = (
 	const out = new Map<string, FilledRelation>()
 	for (const [name, relation] of relations) {
 		const layout = rowLayout(relation, families)
-		if (!layout.ok) {
-			return Result.err(layout.error)
-		}
-		const laid = [...layout.value.key, ...layout.value.columns]
+		const laid = [...layout.key, ...layout.columns]
 		const columns: Array<FilledColumn> = []
 		for (const c of laid) {
 			if (c.column.kind === "field") {

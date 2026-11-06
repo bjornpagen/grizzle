@@ -37,12 +37,10 @@ export const dimensions = 8
 const DocumentVector = pg.vector(dimensions)
 const Title = str.regex("^.+$", "su")
 const TagName = str.regex("^[a-z]{1,16}$")
-export const Document = relation("Document", { id: uuid, account: uuid, title: Title }, ["id"])
-export const DocumentCurrent = relation(
-	"DocumentCurrent",
-	{ document: uuid, revision: pg.bigint },
-	["document"]
-)
+const Document = relation("Document", { id: uuid, account: uuid, title: Title }, ["id"])
+const DocumentCurrent = relation("DocumentCurrent", { document: uuid, revision: pg.bigint }, [
+	"document"
+])
 
 export const DocumentEmbedding = relation(
 	"DocumentEmbedding",
@@ -74,7 +72,7 @@ const DocumentTag = relation("DocumentTag", { document: uuid, tag: TagName }, ["
  * lowering, so the exact baseline here is the complete scan written directly against the
  * installation: `cosine_distance` over every eligible row, which no HNSW index orders.
  */
-export const AnnSearch = schema(
+const AnnSearch = schema(
 	"AnnSearch",
 	{ Document, DocumentCurrent, DocumentEmbedding, DocumentTag },
 	[
@@ -85,7 +83,7 @@ export const AnnSearch = schema(
 )
 
 /** Exact scoring of the current revisions of an account's documents. */
-export const scoredDocuments = query(AnnSearch).rule((r) => {
+const scoredDocuments = query(AnnSearch).rule((r) => {
 	const { document, revision, value } = v(DocumentEmbedding, "documentEmbedding")
 	return r
 		.match(DocumentEmbedding, { document, revision, value })
@@ -380,7 +378,7 @@ const workloadRequests = (programs: Readonly<Record<string, unknown>>): InstallE
 	textDomainUses: noTextDomainUses
 })
 
-export const checked = (q: unknown) =>
+const checked = (q: unknown) =>
 	Result.flatMap(queryInput(q), (input) =>
 		checkQuery(checking(AnnSearch), input.desc, checkOptions("query"))
 	)

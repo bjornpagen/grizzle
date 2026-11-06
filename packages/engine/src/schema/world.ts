@@ -465,7 +465,7 @@ const noNames: readonly [] = Object.freeze([] as const)
  *
  * Each builder is the one implementation of its value: its admission core first, then the value, owned with its
  * Description (protocol.ts ownValue). Semantic checks that need the base's checked schema (a query entry's one heading,
- * its types, its operations all total) are the checker's (check/index.ts checkWorldDefinition), which every
+ * its types, its operations all total) are the checker's (check/index.ts checkDefinition), which every
  * compilation of the role runs.
  *
  * role(base, name, relations, options?). The value holds the base, the role relations (each query entry as its world

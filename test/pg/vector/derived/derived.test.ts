@@ -1,5 +1,11 @@
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Order, pipe, String as Str } from "effect"
+import { drawn, explore } from "@grizzle/testing/explore"
+import { required } from "@grizzle/testing/features"
+import { element, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { completeShrink } from "@grizzle/testing/shrink"
+import { searched } from "@grizzle/testing/vitest"
+import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -23,6 +29,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, refused } from "#test/support/assert.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -69,8 +76,7 @@ const build = (name: string) => {
 		viewer,
 		refresher,
 		server,
-		scored,
-		nearest: scored.approximateNearest({ by: "distance", take: 3 })
+		scored
 	}
 }
 
@@ -91,9 +97,6 @@ const documentsOf = (probe: Probe) =>
 		value: i === 15 || i === 23 ? undefined : probe(100 + i)
 	}))
 
-/** The parameters of every read: account A, probed with the vector numbered 7. */
-const paramsOf = (probe: Probe) => ({ account: accountA, vector: vectorParam(probe(7)) })
-
 const policySettings = Arr.map(searchPolicySettings, (s) => `${s.parameter}=${s.value}`)
 
 interface Opened {
@@ -102,7 +105,6 @@ interface Opened {
 	/** A relation's qualified, quoted name in the installation. */
 	readonly table: (relation: string) => string
 	readonly probe: Probe
-	readonly params: ReturnType<typeof paramsOf>
 }
 
 /**
@@ -147,99 +149,144 @@ const opened = Effect.gen(function* () {
 		const db = yield* Db.open(fixture.server.roles.refresher, {})
 		yield* db.refresh(fixture.Embeddings)
 	}).pipe(Effect.scoped, withLayer(loginLayer(installed, fixture.server)))
-	return { installed, fixture, table, probe, params: paramsOf(probe) } satisfies Opened
+	return { installed, fixture, table, probe } satisfies Opened
 })
+
+/** A case: the account the viewer scores, the probe it scores by, and the take of a search over the view. */
+interface ViewCase {
+	readonly account: "A" | "B"
+	readonly probe: number
+	readonly take: number
+}
+
+type ViewFeature = "account A scored" | "account B scored" | "a search over the view refused"
 
 layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 	it.effect(
-		"the viewer reaches the vector type only through the view, runs under the search policy, and reads its vectors",
-		() =>
-			Effect.gen(function* () {
-				const o = yield* opened
-				const s = yield* Substrate
-				const viewer = o.installed.role(o.fixture.viewer)
-				/** The viewer's own view is its one path to the vector type. */
-				const privileges = yield* s.admin.queryValues(
-					`SELECT pg_catalog.has_table_privilege($1::text, $2::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $3::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $4::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $5::text, 'SELECT')::text, pg_catalog.has_schema_privilege($1::text, 'vector_ext', 'USAGE')::text`,
-					[
-						viewer,
-						roleNamesOf(o.installed, o.fixture.viewer).view("Embeddings"),
-						o.table("Embeddings"),
-						o.table("Document"),
-						o.table("DocumentEmbedding")
-					]
-				)
-				assert.deepEqual(textRows(privileges), [["true", "false", "false", "false", "true"]])
-
-				/**
-				 * The first migration stored the policy for the viewer's login, and its session as the viewer shows it
-				 * before and after the vector library loads.
-				 */
-				const session = yield* s.session({
-					...worldSession(o.installed.world(o.fixture.viewer)),
-					label: "viewer"
+		"the viewer reaches the vector type only through the view, runs under the search policy, reads its vectors exactly, and is refused a search over it",
+		(ctx) =>
+			searched(
+				ctx,
+				Effect.gen(function* () {
+					const o = yield* opened
+					const s = yield* Substrate
+					const viewer = o.installed.role(o.fixture.viewer)
+					const session = yield* s.session({
+						...worldSession(o.installed.world(o.fixture.viewer)),
+						label: "viewer"
+					})
+					return yield* Effect.gen(function* () {
+						const db = yield* Db.open(o.fixture.server.roles.viewer, {})
+						return yield* explore(
+							{
+								suite: "pg/vector/derived",
+								draw: drawn((source): ViewCase => ({
+									account: source.draw(element(["A", "B"] as const)),
+									probe: source.draw(int(0, 99)),
+									take: source.draw(int(1, 20))
+								})),
+								literal: Formatter.format,
+								oracle: {
+									kind: "second-implementation",
+									name: "the owner's complete scan of the view, scored with pgvector's own operator"
+								},
+								coverage: required<ViewFeature>(
+									["account A scored", "account B scored", "a search over the view refused"],
+									{ cases: 12, sense: notesOnly }
+								),
+								kept: [],
+								runs: 8,
+								shrink: completeShrink,
+								concurrency: 1,
+								steerEvery: 4,
+								caseHang
+							},
+							(c, k) =>
+								Effect.gen(function* () {
+									/** The viewer's own view is its one path to the vector type. */
+									const privileges = yield* s.admin.queryValues(
+										`SELECT pg_catalog.has_table_privilege($1::text, $2::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $3::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $4::text, 'SELECT')::text, pg_catalog.has_table_privilege($1::text, $5::text, 'SELECT')::text, pg_catalog.has_schema_privilege($1::text, 'vector_ext', 'USAGE')::text`,
+										[
+											viewer,
+											roleNamesOf(o.installed, o.fixture.viewer).view("Embeddings"),
+											o.table("Embeddings"),
+											o.table("Document"),
+											o.table("DocumentEmbedding")
+										]
+									)
+									assert.deepEqual(textRows(privileges), [
+										["true", "false", "false", "false", "true"]
+									])
+									for (const p of searchPolicySettings) {
+										const rows = yield* session.values(`SHOW ${p.parameter}`, [])
+										assert.deepEqual(rows, [[p.value]], p.parameter)
+									}
+									yield* session.values(
+										`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`,
+										[]
+									)
+									for (const p of searchPolicySettings) {
+										const rows = yield* session.values(`SHOW ${p.parameter}`, [])
+										assert.deepEqual(rows, [[p.value]], p.parameter)
+									}
+									assert.deepEqual(
+										admittedPolicy(o.installed.snapshot, o.installed.as(o.fixture.server).role),
+										policySettings
+									)
+									const account = c.account === "A" ? accountA : accountB
+									const vector = o.probe(c.probe)
+									/**
+									 * A complete scan of the view, as the owner sees it: every embedded document of the
+									 * account with the native distance, the same C function `cosine_distance` calls.
+									 */
+									const oracle = yield* Effect.map(
+										s.admin.queryValues(
+											`SELECT "document"::text, ("value" OPERATOR(vector_ext.<=>) $1::vector_ext.vector)::text FROM ${o.table("Embeddings")} WHERE "account" = $2::uuid ORDER BY 1`,
+											[vectorText(vector), account]
+										),
+										textRows
+									)
+									assert.notDeepEqual(oracle, [], "the view holds the account's embedded documents")
+									const rows = yield* (yield* db.execute(o.fixture.scored, {
+										account,
+										vector: vectorParam(vector)
+									})).collect
+									const pairs: ReadonlyArray<ReadonlyArray<string | number>> = Arr.map(
+										rows,
+										(r) => [r.document, r.distance]
+									)
+									assert.deepEqual(
+										Arr.sortWith(pairs, (row) => String(row[0]), Order.String),
+										Arr.map(oracle, ([document, distance]) => [
+											defined(document, "a document"),
+											Number(distance)
+										])
+									)
+									k.note(c.account === "A" ? "account A scored" : "account B scored")
+									/** A ranked vector must be a stored relation's field: a search over the view is refused. */
+									const nearest = o.fixture.scored.approximateNearest({
+										by: "distance",
+										take: c.take
+									})
+									refused(
+										Result.flatMap(queryInput(nearest), (input) =>
+											checkQuery(checking(o.fixture.viewer), input.desc, checkOptions("query"))
+										),
+										"UnsupportedOperation",
+										"the checker refuses the search"
+									)
+									const read = yield* Effect.flip(
+										Effect.flatMap(
+											db.execute(nearest, { account, vector: vectorParam(vector) }),
+											(r) => r.collect
+										)
+									)
+									assert.ok(read instanceof ReadFailure && read.stage === "compile")
+									k.note("a search over the view refused")
+								})
+						)
+					}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.fixture.server)))
 				})
-				for (const p of searchPolicySettings) {
-					const rows = yield* session.values(`SHOW ${p.parameter}`, [])
-					assert.deepEqual(rows, [[p.value]], p.parameter)
-				}
-				yield* session.values(`SELECT vector_ext.vector_dims('[1]'::vector_ext.vector)`, [])
-				for (const p of searchPolicySettings) {
-					const rows = yield* session.values(`SHOW ${p.parameter}`, [])
-					assert.deepEqual(rows, [[p.value]], p.parameter)
-				}
-
-				/**
-				 * A complete scan of the view, as the owner sees it: every embedded document of the account with the
-				 * native distance, the same C function `cosine_distance` calls.
-				 */
-				const oracle = yield* Effect.map(
-					s.admin.queryValues(
-						`SELECT "document"::text, ("value" OPERATOR(vector_ext.<=>) $1::vector_ext.vector)::text FROM ${o.table("Embeddings")} WHERE "account" = $2::uuid ORDER BY 1`,
-						[vectorText(o.probe(7)), accountA]
-					),
-					textRows
-				)
-				assert.notDeepEqual(oracle, [], "the view holds A's embedded documents")
-
-				yield* Effect.gen(function* () {
-					const db = yield* Db.open(o.fixture.server.roles.viewer, {})
-					assert.deepEqual(
-						admittedPolicy(o.installed.snapshot, o.installed.as(o.fixture.server).role),
-						policySettings
-					)
-					const rows = yield* (yield* db.execute(o.fixture.scored, o.params)).collect
-					const pairs: ReadonlyArray<ReadonlyArray<string | number>> = Arr.map(rows, (r) => [
-						r.document,
-						r.distance
-					])
-					assert.deepEqual(
-						Arr.sortWith(pairs, (row) => String(row[0]), Order.String),
-						Arr.map(oracle, ([document, distance]) => [
-							defined(document, "a document"),
-							Number(distance)
-						])
-					)
-				}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.fixture.server)))
-			})
-	)
-
-	it.effect(
-		"approximateNearest over the view is refused: a ranked vector must be a stored relation's field",
-		() =>
-			Effect.gen(function* () {
-				const o = yield* opened
-				const search = Result.flatMap(queryInput(o.fixture.nearest), (input) =>
-					checkQuery(checking(o.fixture.viewer), input.desc, checkOptions("query"))
-				)
-				refused(search, "UnsupportedOperation", "the checker refuses the search")
-				yield* Effect.gen(function* () {
-					const db = yield* Db.open(o.fixture.server.roles.viewer, {})
-					const read = yield* Effect.flip(
-						Effect.flatMap(db.execute(o.fixture.nearest, o.params), (r) => r.collect)
-					)
-					assert.ok(read instanceof ReadFailure && read.stage === "compile")
-				}).pipe(Effect.scoped, withLayer(loginLayer(o.installed, o.fixture.server)))
-			})
+			)
 	)
 })
