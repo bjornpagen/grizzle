@@ -12,16 +12,24 @@
  *
  * The box (doctrine rule 9): owner 0 with every counted family of one to four members over the int4 sum seat's five
  * values (folds.ts), stored as the reference writes it; each member's delete, and each member's put to every other value.
+ *
+ * An owner keyed by an id and a span WITHOUT OVERLAPS is put in place: its row updated, never deleted and inserted
+ * again, which its members' foreign key and its drawn count and fold end would refuse. Drawn span-keyed owners
+ * (test/support/families/generate.ts `spanOwnersGen`), owners sharing an id over disjoint spans among them, are
+ * inserted with their counted members through db.apply, one is put with a new label, and PostgreSQL then holds every
+ * owner with its label, count and fold end, and every member, exactly as the families model states them.
  */
 import { layer } from "@effect/vitest"
-import { exhaust } from "@grizzle/testing/explore"
-import { requiredInSpace } from "@grizzle/testing/features"
-import { element, type Gen, int } from "@grizzle/testing/gen"
+import { drawn as drawnCase, exhaust, explore } from "@grizzle/testing/explore"
+import { required, requiredInSpace } from "@grizzle/testing/features"
+import { array, element, type Gen, int } from "@grizzle/testing/gen"
+import { notesOnly } from "@grizzle/testing/sense"
+import { boundedShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg, span } from "#compiler/public/fields.ts"
 import {
 	counted,
 	fin,
@@ -43,11 +51,13 @@ import {
 } from "#test/pg/fin/folds.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, deepEquals, defined, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
 import { stepPut, swapWithLast } from "#test/support/families/counted.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
+import { type SpanKeyedOwner, spanOwnersGen } from "#test/support/families/generate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { attempt } from "#test/support/substrate.ts"
+import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Owner = relation("Owner", { id: pg.int4, n: drawn(natural), end: accumulated(pg.int4, 0) }, [
@@ -104,6 +114,64 @@ const sketchGen: Gen<Sketch> = (source) => {
 }
 
 const sketchCases = Arr.reduce(Arr.range(1, 4), 0, (sum, n) => sum + 5 ** n * n * (1 + 4))
+
+const SpanOwner = relation(
+	"SpanOwner",
+	{
+		id: pg.int4,
+		during: span(pg.integer),
+		label: pg.int4,
+		n: drawn(natural),
+		end: accumulated(pg.int4, 0)
+	},
+	["id", "during"]
+)
+const SpanMember = relation(
+	"SpanMember",
+	{ member: pg.int4, g: pg.int4, gd: span(pg.integer), x: pg.int4 },
+	["member"]
+)
+const spanFamily = counted(on(SpanMember, "g", "gd"), fin(SpanOwner, "n"))
+
+/** The int4 sum over a counted family whose owner is keyed by an id and a span WITHOUT OVERLAPS, both mutable. */
+const SpanEdited = schema("fin_span_edits", { SpanOwner, SpanMember }, [
+	spanFamily,
+	fold(
+		spanFamily,
+		Monoid.sum,
+		on(SpanMember, "g", "gd", "x"),
+		on(SpanOwner, "id", "during", "end")
+	),
+	mutable(SpanOwner),
+	mutable(SpanMember)
+])
+
+/** Span-keyed owners with their families, each owner's label, each member's step value, and the put: one owner's
+ * new label, another than its own. */
+interface SpanSketch {
+	readonly owners: Arr.NonEmptyReadonlyArray<SpanKeyedOwner>
+	readonly labels: ReadonlyArray<number>
+	readonly xs: ReadonlyArray<number>
+	readonly put: { readonly at: number; readonly label: number }
+}
+
+const spanSketchGen: Gen<SpanSketch> = (source) => {
+	const owners = nonEmpty(
+		source.draw(spanOwnersGen({ owners: { min: 1, max: 3 }, long: { min: 3, max: 4 } }))
+	)
+	const labels = source.draw(array(int(0, 4), { min: owners.length, max: owners.length }))
+	const total = Arr.reduce(owners, 0, (sum, owner) => sum + owner.members.length)
+	const xs = source.draw(array(int(0, 4), { min: total, max: total }))
+	const at = source.draw(int(0, owners.length - 1))
+	const from = defined(labels[at], "the put owner's label")
+	const label = source.draw(element(nonEmpty(Arr.filter([0, 1, 2, 3, 4], (l) => l !== from))))
+	return { owners, labels, xs, put: { at, label } }
+}
+
+type SpanFeature =
+	| "a span-keyed owner put in place"
+	| "a span-keyed owner put in place over its family's members"
+	| "a span-keyed owner put in place beside an owner of its id over another span"
 
 type EditFeature =
 	| `${"delete" | "put"} of ${"the last slot" | "a slot before the last"} applied as the model states`
@@ -198,6 +266,119 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											sketch.values.length > 1
 										) {
 											c.note("a put of the first slot refilled every slot")
+										}
+									})
+							)
+						})
+						return yield* Effect.flatMap(Layer.build(o.layer), (context) =>
+							Effect.provideContext(body, context)
+						)
+					}).pipe(Effect.scoped)
+				)
+		)
+
+		it.effect(
+			"put a span-keyed owner in place, leaving every owner's label, count and fold end and every member as the families model states them",
+			(ctx) =>
+				searched(
+					ctx,
+					Effect.gen(function* () {
+						const o = yield* installed(SpanEdited, {}, { label: "span_edits", extensions: [] })
+						const seat = yield* seatOfInstalled(
+							o.installed,
+							["SpanOwner", "SpanMember"],
+							"span_edits"
+						)
+						const body = Effect.gen(function* () {
+							const db = yield* Db.open(o.server.roles.app, {})
+							return yield* explore(
+								{
+									suite: "fin/span-owner-put",
+									draw: drawnCase(spanSketchGen),
+									literal: Formatter.format,
+									coverage: required<SpanFeature>(
+										[
+											"a span-keyed owner put in place",
+											"a span-keyed owner put in place over its family's members",
+											"a span-keyed owner put in place beside an owner of its id over another span"
+										],
+										{ cases: 40, sense: notesOnly }
+									),
+									kept: [],
+									runs: 24,
+									shrink: boundedShrink(40),
+									concurrency: 1,
+									steerEvery: 8,
+									caseHang,
+									oracle: {
+										kind: "second-implementation",
+										name: "the families model of span-keyed owners (test/support/families/generate.ts spanOwnersGen) and each family's sum of its step values"
+									}
+								},
+								(sketch, c) =>
+									Effect.gen(function* () {
+										const xOf = (member: number): number =>
+											defined(sketch.xs[member], "a member's step value")
+										const labelOf = (i: number): number =>
+											defined(sketch.labels[i], "an owner's label")
+										const members = Arr.flatMap(sketch.owners, (owner) =>
+											Arr.map(owner.members, (member) => ({
+												member,
+												g: owner.id,
+												gd: owner.during,
+												x: xOf(member)
+											}))
+										)
+										const first = yield* db.apply(
+											ChangeSet.empty(o.schema)
+												.insert(
+													SpanOwner,
+													Arr.map(sketch.owners, (owner, i) => ({
+														id: owner.id,
+														during: owner.during,
+														label: labelOf(i)
+													}))
+												)
+												.insert(SpanMember, members),
+											{}
+										)
+										const target = defined(sketch.owners[sketch.put.at], "the put owner")
+										const outcome = yield* db.apply(
+											ChangeSet.empty(o.schema).put(SpanOwner, [
+												{ id: target.id, during: target.during, label: sketch.put.label }
+											]),
+											{}
+										)
+										const owners = yield* tableState(o.installed, SpanOwner)
+										const stored = yield* tableState(o.installed, SpanMember)
+										yield* cleared(seat, ["SpanOwner", "SpanMember"])
+										assert.equal(first.kind, "accepted", "the owners' and members' insert")
+										assert.equal(outcome.kind, "accepted", "the owner's put")
+										unorderedEqual(
+											owners,
+											Arr.map(sketch.owners, (owner, i) => ({
+												id: owner.id,
+												during: owner.during,
+												label: i === sketch.put.at ? sketch.put.label : labelOf(i),
+												n: BigInt(owner.members.length),
+												end: Arr.reduce(owner.members, 0, (sum, member) => sum + xOf(member))
+											})),
+											"every owner, the put one with its new label"
+										)
+										unorderedEqual(stored, members, "every member, as it was inserted")
+										c.note("a span-keyed owner put in place")
+										if (Arr.isReadonlyArrayNonEmpty(target.members)) {
+											c.note("a span-keyed owner put in place over its family's members")
+										}
+										if (
+											Arr.some(
+												sketch.owners,
+												(owner, i) => i !== sketch.put.at && owner.id === target.id
+											)
+										) {
+											c.note(
+												"a span-keyed owner put in place beside an owner of its id over another span"
+											)
 										}
 									})
 							)

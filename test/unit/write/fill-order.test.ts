@@ -24,19 +24,26 @@ import {
 	countedFilled,
 	type FamilyKind,
 	type FillSpec,
+	type FollowUp,
 	fillSpecGen,
+	followUpGen,
+	followUpMembers,
 	fullInstance,
 	type InstanceRow,
+	mutableOrDrawn,
 	insertedRelations,
 	instanceFacts,
 	instanceGen,
 	relationName,
 	type Source,
 	type SourceClass,
+	type SpecWrite,
 	sourceClassOf,
 	sourcesFor,
 	uuidOfRow,
 	verdictOf,
+	type WritesVerdict,
+	writesVerdict,
 	writtenRows
 } from "#test/support/families/fill.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -67,6 +74,13 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * - **The nested write fills what the reference writer fills** (fill.ts `writtenRows`): every field of every nested row
  *   the insert writes, a tree's to any depth, its interval, index, counts, fold ends and copies among them, but the
  *   counts and ends a counted family's own fill writes later.
+ * - **A later write compiles exactly where the reference finds it leaves no value stale** (fill.ts `writesVerdict`):
+ *   each relation's own insert, put and delete the rules admit, and a drawn follow-up over the stored instance (an
+ *   owner's put beside appends to its families), are refused with StaleDerivedRead naming a change and a value the
+ *   reference finds stale, or CascadedCopyAppend naming a write the reference finds appending through a cascade, and
+ *   compile otherwise. The stale box exhausts every path a change takes to a stale value: an owner's put through one
+ *   copy or two, and an edit of a family whose owner is a member, a tree node or the owner a copy reads, to each kind
+ *   of value drawn only when its row is written.
  *
  * The planted bug: a copy's source read with no regard to when its row fills it (analysis/theory/fill.ts `ownerLater`
  * and `readLater` admitting every source) admits schemas the model refuses, which the witnesses reach on every seed.
@@ -86,6 +100,14 @@ type FillSituation =
 	| "admitted: a copy along a counted family of a leaving column"
 	| "admitted: a copy of a tree's end"
 	| "admitted: a nesting three deep"
+	| "written: a follow-up over the stored instance"
+	| "refused: a write through a stale copy after a put"
+	| "refused: a write that edits a family of an owner a value reads"
+	| "refused: a write through a stale copy after an edit"
+	| "refused: a stale predecessor copy"
+	| "refused: a stale last copy"
+	| "refused: a stale tree copy"
+	| "refused: an append through a cascade"
 
 /** A compilation's refusal; none when it compiled. */
 const refusalOf = (
@@ -111,6 +133,58 @@ const insertAll = (
 	Arr.reduce(inserted, ChangeSet.empty(value), (cs, r) =>
 		cs.insert(relationOf(built, r), facts.get(r) ?? [])
 	)
+
+/**
+ * A compiled ChangeSet of `writes` judged against the reference's verdict (fill.ts `writesVerdict`): compiled where it
+ * is written, else refused with a stale value the reference finds or an append through a cascade it finds. It notes
+ * the refusal's path and its value's kind.
+ */
+const judged = (
+	refusal: CompileError | undefined,
+	verdict: WritesVerdict,
+	label: string,
+	note: (situation: FillSituation) => void
+): void => {
+	if (verdict.kind === "written") {
+		assert.equal(refusal?.reason, undefined, `${label} compiles`)
+		return
+	}
+	const reason = defined(refusal, `${label} is refused`).reason
+	if (reason._tag === "CascadedCopyAppend") {
+		assert.ok(
+			Arr.some(verdict.cascaded, (r) => relationName(r) === reason.member),
+			`an append the reference finds through a cascade, not ${reason.member}'s`
+		)
+		note("refused: an append through a cascade")
+		return
+	}
+	assert.equal(reason._tag, "StaleDerivedRead", label)
+	if (reason._tag !== "StaleDerivedRead") {
+		return
+	}
+	const found = { changed: reason.changed, reader: reason.reader }
+	assert.ok(
+		Arr.some(verdict.stale, (s) => deepEquals(s, found)),
+		`a stale value the reference finds, not ${Formatter.format(found)}: ${Formatter.format(verdict.stale)}`
+	)
+	note(
+		reason.changed.by === "put"
+			? "refused: a write through a stale copy after a put"
+			: Arr.isReadonlyArrayNonEmpty(reason.copies)
+				? "refused: a write through a stale copy after an edit"
+				: "refused: a write that edits a family of an owner a value reads"
+	)
+	switch (reason.reader.kind) {
+		case "predecessor":
+			return note("refused: a stale predecessor copy")
+		case "last":
+			return note("refused: a stale last copy")
+		case "tree":
+			return note("refused: a stale tree copy")
+		case "fold":
+			return
+	}
+}
 
 /** Whether the README's rules admit a write of relation `r` by `op`, which then must compile. */
 const ruleAdmits = (spec: FillSpec, r: number, op: "insert" | "put" | "delete"): boolean => {
@@ -142,6 +216,7 @@ const ruleAdmits = (spec: FillSpec, r: number, op: "insert" | "put" | "delete"):
 const property = (
 	spec: FillSpec,
 	rows: ReadonlyArray<InstanceRow>,
+	followUp: Option.Option<FollowUp>,
 	note: (situation: FillSituation) => void
 ): Effect.Effect<void> =>
 	Effect.gen(function* () {
@@ -294,14 +369,13 @@ const property = (
 			}
 		}
 		for (const [r] of spec.relations.entries()) {
-			const one = (cs: ChangeSetValue, op: string): void => {
-				const compiled = compileWrite(checked, descOf(cs), options)
-				assert.equal(
-					refusalOf(compiled)?.reason,
-					undefined,
-					`a ${op} of ${relationName(r)} the rules admit compiles`
+			const one = (cs: ChangeSetValue, op: SpecWrite["op"]): void =>
+				judged(
+					refusalOf(compileWrite(checked, descOf(cs), options)),
+					writesVerdict(spec, [{ relation: r, op }]),
+					`a ${op} of ${relationName(r)} the rules admit`,
+					note
 				)
-			}
 			const relation = relationOf(built, r)
 			const own = facts.get(r) ?? []
 			if (ruleAdmits(spec, r, "insert") && inserted.includes(r)) {
@@ -312,6 +386,27 @@ const property = (
 			}
 			if (ruleAdmits(spec, r, "delete")) {
 				one(ChangeSet.empty(value).delete(relation, []), "delete")
+			}
+		}
+		if (Option.isSome(followUp)) {
+			const followed = followUpMembers(rows, followUp.value)
+			const follow = Arr.reduce(followed, ChangeSet.empty(value), (cs, m) =>
+				m.op === "put"
+					? cs.put(relationOf(built, m.relation), m.facts)
+					: cs.insert(relationOf(built, m.relation), m.facts)
+			)
+			const written = writesVerdict(
+				spec,
+				Arr.map(followed, (m) => ({ relation: m.relation, op: m.op }))
+			)
+			judged(
+				refusalOf(compileWrite(checked, descOf(follow), options)),
+				written,
+				`the follow-up ${Formatter.format(followed)}`,
+				note
+			)
+			if (written.kind === "written") {
+				note("written: a follow-up over the stored instance")
 			}
 		}
 		const kindsOf = (r: number): ReadonlyArray<FamilyKind> =>
@@ -371,15 +466,22 @@ const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"admitted: a counted family of nested owners",
 	"admitted: a copy along a counted family of a leaving column",
 	"admitted: a copy of a tree's end",
-	"admitted: a nesting three deep"
+	"admitted: a nesting three deep",
+	"written: a follow-up over the stored instance"
 ]
 
-/** A drawn specification and an instance of it. */
-const caseGen: Gen<{ readonly spec: FillSpec; readonly rows: ReadonlyArray<InstanceRow> }> = (
-	source
-) => {
-	const spec = source.draw(fillSpecGen({ relations: 4, families: 4, copies: 3 }))
-	return { spec, rows: source.draw(instanceGen(spec)) }
+/**
+ * A drawn specification, its relations all made mutable or left as drawn, an instance of it, and a follow-up over the
+ * stored instance or none: a follow-up needs a mutable owner, which a relation is only now and then as drawn.
+ */
+const caseGen: Gen<{
+	readonly spec: FillSpec
+	readonly rows: ReadonlyArray<InstanceRow>
+	readonly followUp: Option.Option<FollowUp>
+}> = (source) => {
+	const spec = source.draw(mutableOrDrawn(fillSpecGen({ relations: 4, families: 4, copies: 3 })))
+	const rows = source.draw(instanceGen(spec))
+	return { spec, rows, followUp: source.draw(followUpGen(spec, rows)) }
 }
 
 /**
@@ -559,6 +661,159 @@ const boxSituations: Arr.NonEmptyReadonlyArray<BoxSituation> = [
 	"last copy along a sequence of counted end: refused"
 ]
 
+/**
+ * The stale box: every path a change takes to a value drawn only when its row is written, to every kind of such value.
+ * Each relation holds `g` and is mutable.
+ *
+ * - `put through a copy`: R0 owns an ordered family of R1, whose owner copy reads R0's `v` or `g`, and a value along
+ *   that family reads the copy; R0's put changes it.
+ * - `put through two copies`: R1 owns an ordered family of R2 too, which copies R1's copy along its owner axis, and a
+ *   value along it reads that copy.
+ * - `edit of a member owner`: R0 owns an ordered family of R1 and R1 one of R2, and a value along the first reads R1's
+ *   count of the second, its fold's end, or its last copy of R2's `v`; R2's put or delete edits it.
+ * - `edit of a tree node`: R0 is a tree's relation and owns an ordered family of R1, and a value along the tree reads a
+ *   node's count of that family, its fold's end or its last copy; R1's put or delete edits it.
+ * - `edit through a copy`: R0 owns ordered families of R1 and of R2, R2's owner copy reads R0's count of R1's, and a
+ *   value along R2's reads that copy; R1's put or delete edits it.
+ *
+ * The value is a predecessor copy, a last copy, or along a tree's owner axis a node's copy of its parent's.
+ */
+type StalePath =
+	| "put through a copy"
+	| "put through two copies"
+	| "edit of a member owner"
+	| "edit of a tree node"
+	| "edit through a copy"
+
+interface StaleShape {
+	readonly path: StalePath
+	readonly reader: Axis
+	readonly source: "caller" | "generated" | "count" | "fold" | "last copy"
+}
+
+const staleShapeGen: Gen<StaleShape> = (source) => ({
+	path: source.draw(
+		element([
+			"put through a copy",
+			"put through two copies",
+			"edit of a member owner",
+			"edit of a tree node",
+			"edit through a copy"
+		] as const)
+	),
+	reader: source.draw(element(["predecessor", "last", "owner"] as const)),
+	source: source.draw(element(["caller", "generated", "count", "fold", "last copy"] as const))
+})
+
+/** The specification of a stale shape, or none where the path reads no such column or the axis carries none. */
+const staleSpec = (shape: StaleShape): FillSpec | undefined => {
+	const put = shape.path === "put through a copy" || shape.path === "put through two copies"
+	if (put !== (shape.source === "caller" || shape.source === "generated")) {
+		return undefined
+	}
+	if (shape.reader === "owner" && shape.path !== "edit of a tree node") {
+		return undefined
+	}
+	const relation = { generated: true, mutable: true, key: false }
+	const relations: FillSpec["relations"] = [relation, relation, relation]
+	const ownerSource: Source =
+		shape.source === "generated" ? { kind: "generated" } : { kind: "caller" }
+	const fold = shape.source === "fold" ? "sum" : "none"
+	const lastCopy = shape.source === "last copy"
+	const edited = (family: number, copy: number): Source => {
+		switch (shape.source) {
+			case "fold":
+				return { kind: "fold", family }
+			case "last copy":
+				return { kind: "copy", copy }
+			case "caller":
+			case "generated":
+			case "count":
+				return { kind: "count", family }
+		}
+	}
+	const spec = ((): FillSpec | undefined => {
+		switch (shape.path) {
+			case "put through a copy":
+				return {
+					relations,
+					families: [{ kind: "ordered", owner: 0, member: 1, fold: "none" }],
+					copies: [
+						{ family: 0, axis: "owner", source: ownerSource },
+						{ family: 0, axis: shape.reader, source: { kind: "copy", copy: 0 } }
+					]
+				}
+			case "put through two copies":
+				return {
+					relations,
+					families: [
+						{ kind: "ordered", owner: 0, member: 1, fold: "none" },
+						{ kind: "ordered", owner: 1, member: 2, fold: "none" }
+					],
+					copies: [
+						{ family: 0, axis: "owner", source: ownerSource },
+						{ family: 1, axis: "owner", source: { kind: "copy", copy: 0 } },
+						{ family: 1, axis: shape.reader, source: { kind: "copy", copy: 1 } }
+					]
+				}
+			case "edit of a member owner":
+				return {
+					relations,
+					families: [
+						{ kind: "ordered", owner: 0, member: 1, fold: "none" },
+						{ kind: "ordered", owner: 1, member: 2, fold }
+					],
+					copies: [
+						...(lastCopy ? [{ family: 1, axis: "last", source: { kind: "caller" } } as const] : []),
+						{ family: 0, axis: shape.reader, source: edited(1, 0) }
+					]
+				}
+			case "edit of a tree node":
+				return {
+					relations,
+					families: [
+						{ kind: "tree", owner: 0, member: 0, fold: "none" },
+						{ kind: "ordered", owner: 0, member: 1, fold }
+					],
+					copies: [
+						...(lastCopy ? [{ family: 1, axis: "last", source: { kind: "caller" } } as const] : []),
+						{ family: 0, axis: shape.reader, source: edited(1, 0) }
+					]
+				}
+			case "edit through a copy":
+				return shape.source === "count"
+					? {
+							relations,
+							families: [
+								{ kind: "ordered", owner: 0, member: 1, fold: "none" },
+								{ kind: "ordered", owner: 0, member: 2, fold: "none" }
+							],
+							copies: [
+								{ family: 1, axis: "owner", source: { kind: "count", family: 0 } },
+								{ family: 1, axis: shape.reader, source: { kind: "copy", copy: 0 } }
+							]
+						}
+					: undefined
+		}
+	})()
+	return spec !== undefined &&
+		Arr.every(spec.copies, (c, j) =>
+			Arr.some(sourcesFor(spec, c.family, c.axis, j), (s) => deepEquals(s, c.source))
+		)
+		? spec
+		: undefined
+}
+
+/** The stale values the box requires: every path's refusal, and every kind of value refused. */
+const staleSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
+	"refused: a write through a stale copy after a put",
+	"refused: a write that edits a family of an owner a value reads",
+	"refused: a write through a stale copy after an edit",
+	"refused: a stale predecessor copy",
+	"refused: a stale last copy",
+	"refused: a stale tree copy"
+]
+
 describe("the fill order: a schema generate accepts is one every write of fills", () => {
 	it.effect(
 		"drawn schemas compile exactly where the reference model admits them, and then write",
@@ -582,7 +837,7 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 							name: "the reference model of the fill order and the reference writer (families/fill.ts)"
 						}
 					},
-					({ spec, rows }, c) => property(spec, rows, (s) => c.note(s))
+					({ spec, rows, followUp }, c) => property(spec, rows, followUp, (s) => c.note(s))
 				)
 			)
 	)
@@ -620,7 +875,38 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 							const counted = defined(spec.families[copy.family]).kind === "counted"
 							const situation: BoxSituation = `${copy.axis} copy along ${counted ? "a counted family" : "a sequence"} of ${sourceClassOf(spec, j)}: ${refused ? "refused" : "filled"}`
 							c.note(situation)
-							yield* property(spec, fullInstance(spec), () => undefined)
+							yield* property(spec, fullInstance(spec), Option.none(), () => undefined)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"every path a change takes to a value drawn only when its row is written is refused, and every other write compiles",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/write/fill-order-stale",
+						generator: staleShapeGen,
+						literal: Formatter.format,
+						limit: 75,
+						box: "an owner's put through one copy or two, and an edit of a family of a member owner, of a tree node or of the owner a copy reads, to a predecessor copy, a last copy or a tree's copy, over mutable relations holding g",
+						oracle: {
+							kind: "second-implementation",
+							name: "the reference's stale values and appends through a cascade (families/fill.ts writesVerdict)"
+						},
+						coverage: requiredInSpace<FillSituation>(staleSituations),
+						caseHang
+					},
+					(shape, c) =>
+						Effect.gen(function* () {
+							const spec = staleSpec(shape)
+							if (spec === undefined) {
+								return
+							}
+							yield* property(spec, fullInstance(spec), Option.none(), (s) => c.note(s))
 						})
 				)
 			)

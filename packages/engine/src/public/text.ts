@@ -35,12 +35,15 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
 	regexField<string, string, readonly []>(lexicalFormOf(type), [])
 
 /**
- * keyTextBytes(fields): the most UTF-8 bytes a text can hold beside `fields`, the other fields of a key, in the key's one
- * B-tree index entry, whatever the order of the key's fields: PostgreSQL's limit on one entry (BTMaxItemSize) less what
- * the fields take at their longest. A text field whose contract bounds it there,
- * `contract("KeyText", str.regex("^.*$", "su"), (v) => Compute.octetLength(v).le(keyTextBytes(fields)))`, sits in a key
- * beside those fields. It throws CompileError (UnrepresentableKey) for fields of no byte bound, such as an unbounded
- * text, and for fields that leave a text no byte.
+ * keyTextBytes(fields): the most UTF-8 bytes a text can hold beside `fields` in every index grizzle plans over them and
+ * the text, whatever their order and whichever of them is a hidden column that may hold NULL: PostgreSQL's limit on one
+ * B-tree entry (BTMaxItemSize) less its header, its null bitmap and what the fields take at their longest, each at its
+ * worst alignment padding. `fields` are every other column of the index: a key's other fields, declared or over a
+ * selection; for a family axis that carries the text, its group fields, its natural index, the other values it carries
+ * and a tree's `end`. A text field whose contract bounds it there,
+ * `contract("KeyText", str.regex("^.*$", "su"), (v) => Compute.octetLength(v).le(keyTextBytes(fields)))`, sits in any of
+ * them. It throws CompileError (UnrepresentableKey) for fields of no byte bound, such as an unbounded text, for more
+ * fields than an index holds beside a text, and for fields that leave a text no byte.
  */
 export const keyTextBytes = (fields: ReadonlyArray<FieldBase>): number => {
 	const loc = captureLoc("keyTextBytes", [])

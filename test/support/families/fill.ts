@@ -18,10 +18,17 @@
  * of an instance directly, by recursion over the instance: a count is its members, an index its slot, an interval a
  * pre-order numbering, a fold its members' sum or count, and a copy its target row's value, the axis's start at its
  * base. It never consults the engine.
+ *
+ * A follow-up (`followUpGen`) is a second ChangeSet over a stored instance: an owner's put, counted members inserted
+ * under it, and a member appended to one of its ordered families. The reference's verdict on a ChangeSet
+ * (`writesVerdict`) finds every value a write leaves stale (`staleReads`, a second implementation of
+ * write/family/redraw.ts over the specification's names) and every append through a cascade (`cascadedAppends`); the
+ * instance a follow-up leaves (`followUpRows`) is the reference writer's to fill.
  */
 import { boolean, type Gen, int } from "@grizzle/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice } from "@grizzle/testing/swarm"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
+import type { ChangedColumn, DerivedReader, FamilyName } from "#compiler/core/causes.ts"
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyFamily, check, type Statement, schema } from "#compiler/public/schema.ts"
 import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
@@ -1052,3 +1059,458 @@ export const countedFilled = (spec: FillSpec, relation: number, field: string): 
 			holderOf(spec, c) === relation &&
 			familyAt(spec, c.family).kind === "counted"
 	)
+
+/** A write of one relation of a specification, as one member of a ChangeSet states it. */
+export interface SpecWrite {
+	readonly relation: number
+	readonly op: "insert" | "put" | "delete"
+}
+
+/** A value the reference finds a write leaves stale: the column the write changes, and the value drawn from it. */
+export interface StaleSpec {
+	readonly changed: ChangedColumn
+	readonly reader: DerivedReader
+}
+
+/** Family `f` as a refusal names it. */
+const familyNamed = (spec: FillSpec, f: number): FamilyName => ({
+	owner: relationName(familyAt(spec, f).owner),
+	count: countName(f)
+})
+
+/**
+ * The values of relation `r`'s families that read its column `column` and are drawn only when their row is written: a
+ * fold summing `v`, and a copy along a predecessor axis, a last axis or a tree's owner axis.
+ */
+const derivedReaders = (
+	spec: FillSpec,
+	r: number,
+	column: string
+): ReadonlyArray<DerivedReader> => [
+	...Arr.flatMap(spec.families, (l, k): ReadonlyArray<DerivedReader> =>
+		l.member === r && l.fold === "sum" && column === "v"
+			? [
+					{
+						kind: "fold",
+						family: familyNamed(spec, k),
+						relation: relationName(l.owner),
+						column: foldName(k)
+					}
+				]
+			: []
+	),
+	...Arr.flatMap(spec.copies, (c, j): ReadonlyArray<DerivedReader> => {
+		const l = familyAt(spec, c.family)
+		if (l.member !== r || sourceField(c.source) !== column) {
+			return []
+		}
+		const family = familyNamed(spec, c.family)
+		switch (c.axis) {
+			case "predecessor":
+				return [{ kind: "predecessor", family, relation: relationName(r), column: copyName(j) }]
+			case "last":
+				return [{ kind: "last", family, relation: relationName(l.owner), column: copyName(j) }]
+			case "owner":
+				return l.kind === "tree"
+					? [{ kind: "tree", family, relation: relationName(r), column: copyName(j) }]
+					: []
+		}
+	})
+]
+
+/**
+ * The values a write leaves stale, by the reference: each value drawn from a column the write changes on rows already
+ * stored that nothing draws again, through every path the change takes.
+ *
+ * A put changes its row's `v` and `g`. A write of a family's member, a tree's aside, changes the owner's count, fold end
+ * and last copies, and draws its members' index and copies along the owner and predecessor axes again. A copy along a
+ * family's owner axis, a tree's aside, carries a change of what it reads into its member's copy, and `g` follows `v`.
+ * A change reaches the values of the families of the row it is on, drawn there only when their row is written (a fold
+ * summing `v`, and a predecessor copy, a last copy and a tree's copy of what changed): each is stale, but those of the
+ * families of the written relation's own row, a put's or a member's edit's, which the family planner draws again.
+ */
+const staleReads = (spec: FillSpec, write: SpecWrite): ReadonlyArray<StaleSpec> => {
+	const found: Array<StaleSpec> = []
+	const reach = (
+		changed: ChangedColumn,
+		at: number,
+		column: string,
+		drawnHere: boolean,
+		seen: ReadonlySet<string>
+	): void => {
+		const visit = `${at} ${column} ${drawnHere ? "drawn" : "planned"}`
+		if (seen.has(visit)) {
+			return
+		}
+		const next = new Set([...seen, visit])
+		if (drawnHere) {
+			for (const reader of derivedReaders(spec, at, column)) {
+				found.push({ changed, reader })
+			}
+		}
+		for (const [j, c] of spec.copies.entries()) {
+			const family = familyAt(spec, c.family)
+			if (
+				c.axis === "owner" &&
+				family.kind !== "tree" &&
+				family.owner === at &&
+				sourceField(c.source) === column
+			) {
+				reach(changed, family.member, copyName(j), true, next)
+			}
+		}
+		if (column === "v" && relationAt(spec, at).generated) {
+			reach(changed, at, "g", drawnHere, next)
+		}
+	}
+	const r = write.relation
+	const changes: ReadonlyArray<{
+		readonly at: number
+		readonly column: string
+		readonly by: ChangedColumn["by"]
+	}> = [
+		...(write.op === "put"
+			? Arr.map(["v", ...(relationAt(spec, r).generated ? ["g"] : [])], (column) => ({
+					at: r,
+					column,
+					by: "put" as const
+				}))
+			: []),
+		...Arr.flatMap(spec.families, (f, k) => {
+			if (f.kind === "tree" || f.member !== r) {
+				return []
+			}
+			const carried = (axis: Axis): ReadonlyArray<string> =>
+				Arr.flatMap(spec.copies, (c, j) => (c.family === k && c.axis === axis ? [copyName(j)] : []))
+			return [
+				...Arr.map(
+					[countName(k), ...(f.fold === "none" ? [] : [foldName(k)]), ...carried("last")],
+					(column) => ({ at: f.owner, column, by: "owner" as const })
+				),
+				...Arr.map(
+					[
+						...(f.kind === "ordered" ? [indexName(k)] : []),
+						...carried("owner"),
+						...carried("predecessor")
+					],
+					(column) => ({ at: r, column, by: "member" as const })
+				)
+			]
+		})
+	]
+	for (const change of changes) {
+		reach(
+			{ relation: relationName(change.at), column: change.column, by: change.by },
+			change.at,
+			change.column,
+			change.by === "owner",
+			new Set()
+		)
+	}
+	return found
+}
+
+/**
+ * The relations whose write in a ChangeSet of `writes` appends to a family whose copy reads its owner's column through
+ * the owner's own copies along owner axes, a tree's aside, up to a relation the ChangeSet changes: by a put of it, or
+ * by a write of the member of a family it owns whose count, fold end or last copy the copies read there
+ * (CascadedCopyAppend). A delete appends nothing.
+ */
+const cascadedAppends = (
+	spec: FillSpec,
+	writes: ReadonlyArray<SpecWrite>
+): ReadonlyArray<number> => {
+	const ownerCopyAt = (r: number, column: string) =>
+		Arr.findFirst(spec.copies, (c, j) => {
+			const family = familyAt(spec, c.family)
+			return (
+				c.axis === "owner" &&
+				family.kind !== "tree" &&
+				family.member === r &&
+				copyName(j) === column
+			)
+		})
+	const changes = (r: number, column: string): boolean =>
+		Arr.some(writes, (w) => w.relation === r && w.op === "put") ||
+		Arr.some(
+			spec.families,
+			(k, n) =>
+				k.owner === r &&
+				(column === countName(n) ||
+					(k.fold !== "none" && column === foldName(n)) ||
+					Arr.some(
+						spec.copies,
+						(c, j) => c.family === n && c.axis === "last" && copyName(j) === column
+					)) &&
+				Arr.some(writes, (w) => w.relation === k.member)
+		)
+	const reachesChange = (r: number, column: string, seen: ReadonlySet<string>): boolean => {
+		const visit = `${r} ${column}`
+		const up = ownerCopyAt(r, column)
+		if (seen.has(visit) || Option.isNone(up)) {
+			return false
+		}
+		const family = familyAt(spec, up.value.family)
+		const source = sourceField(up.value.source)
+		return (
+			changes(family.owner, source) ||
+			reachesChange(family.owner, source, new Set([...seen, visit]))
+		)
+	}
+	return Arr.dedupe(
+		Arr.flatMap(writes, (w) =>
+			w.op !== "delete" &&
+			Arr.some(spec.copies, (c) => {
+				const family = familyAt(spec, c.family)
+				return (
+					c.axis === "owner" &&
+					family.kind !== "tree" &&
+					family.member === w.relation &&
+					reachesChange(family.owner, sourceField(c.source), new Set())
+				)
+			})
+				? [w.relation]
+				: []
+		)
+	)
+}
+
+/**
+ * A drawn specification with every relation mutable, or as `specs` draws it: the fill order never reads a relation's
+ * mutability, and a follow-up needs a mutable owner.
+ */
+export const mutableOrDrawn =
+	(specs: Gen<FillSpec>): Gen<FillSpec> =>
+	(source) => {
+		const spec = source.draw(specs)
+		const [first, ...rest] = spec.relations
+		const mutable = (r: RelationSpec): RelationSpec => ({ ...r, mutable: true })
+		return source.draw(boolean)
+			? { ...spec, relations: [mutable(first), ...Arr.map(rest, mutable)] }
+			: spec
+	}
+
+/** The relations of a specification, by index. */
+const relationIndices = (spec: FillSpec): ReadonlyArray<number> =>
+	Arr.map(spec.relations, (_, r) => r)
+
+/** Whether relation `r` owns a sequence, an ordered family or a tree. */
+const ownsSequence = (spec: FillSpec, r: number): boolean =>
+	Arr.some(spec.families, (f) => f.owner === r && isSequence(f))
+
+/**
+ * A second ChangeSet over a stored instance, written after its first insert, around one row of `owner`: a mutable
+ * relation that is no tree's, owns no sequence while it is a member, and is a member only of mutable owners' families,
+ * so the rules admit its put in place. It puts the row with a new `v`, or leaves it; inserts counted members under it
+ * in one counted family it owns, each naming a row of the owner of every other counted family it is a member of, every
+ * such owner mutable; and puts a member at the end of one ordered family it owns, whose member owns no sequence and is
+ * mutable where it owns a family, or none. Each new row's id follows the instance's.
+ */
+export interface FollowUp {
+	readonly owner: number
+	readonly row: number
+	readonly put: Option.Option<bigint>
+	readonly inserted: ReadonlyArray<InstanceRow>
+	readonly appended: Option.Option<InstanceRow>
+}
+
+/** One member of a follow-up's ChangeSet: the relation it writes, by an insert or a put, and its facts. */
+export interface FollowUpMember {
+	readonly relation: number
+	readonly op: "insert" | "put"
+	readonly facts: ReadonlyArray<Fact>
+}
+
+/** A row's caller fields as a fact states them: its `v`, and the group field of every family it is a member of. */
+const memberFact = (row: InstanceRow, v: bigint): Fact =>
+	Rec.fromEntries([
+		["id", uuidOfRow(row.id)] as const,
+		["v", v] as const,
+		...Arr.map(row.memberOf, (m) => [groupName(m.family), uuidOfRow(m.owner)] as const)
+	])
+
+/**
+ * A follow-up drawn over an instance of an admitted specification, its owner among those whose families may take an
+ * append where any may; none where no row may take one, or it draws no change.
+ */
+export const followUpGen =
+	(spec: FillSpec, rows: ReadonlyArray<InstanceRow>): Gen<Option.Option<FollowUp>> =>
+	(source) => {
+		const rowsOf = (r: number): ReadonlyArray<InstanceRow> =>
+			Arr.filter(rows, (row) => row.relation === r)
+		const mutable = (r: number): boolean => relationAt(spec, r).mutable
+		const families = Arr.map(spec.families, (_, k) => k)
+		/** The counted families of `owner` a member may be inserted into: each owner it names mutable, with a row. */
+		const countedOf = (owner: number): ReadonlyArray<number> =>
+			Arr.filter(families, (k) => {
+				const f = familyAt(spec, k)
+				return (
+					f.kind === "counted" &&
+					f.owner === owner &&
+					Arr.every(
+						spec.families,
+						(o) =>
+							o.kind !== "counted" ||
+							o.member !== f.member ||
+							(mutable(o.owner) && Arr.isReadonlyArrayNonEmpty(rowsOf(o.owner)))
+					)
+				)
+			})
+		/** The ordered families of `owner` a member may be put at the end of: one that owns no sequence, mutable where
+		 * it owns a family. */
+		const orderedOf = (owner: number): ReadonlyArray<number> =>
+			Arr.filter(families, (k) => {
+				const f = familyAt(spec, k)
+				return (
+					f.kind === "ordered" &&
+					f.owner === owner &&
+					!ownsSequence(spec, f.member) &&
+					(mutable(f.member) || !Arr.some(spec.families, (o) => o.owner === f.member))
+				)
+			})
+		const owners = Arr.filter(
+			relationIndices(spec),
+			(r) =>
+				mutable(r) &&
+				treeOn(spec, r) === undefined &&
+				Arr.every(
+					spec.families,
+					(f) => f.member !== r || (mutable(f.owner) && !ownsSequence(spec, r))
+				) &&
+				Arr.isReadonlyArrayNonEmpty(rowsOf(r))
+		)
+		const appending = Arr.filter(
+			owners,
+			(r) => Arr.isReadonlyArrayNonEmpty(countedOf(r)) || Arr.isReadonlyArrayNonEmpty(orderedOf(r))
+		)
+		const chosen = Arr.isReadonlyArrayNonEmpty(appending) ? appending : owners
+		if (!Arr.isReadonlyArrayNonEmpty(chosen)) {
+			return Option.none()
+		}
+		const owner = defined(chosen[source.draw(int(0, chosen.length - 1))], "an owner")
+		const candidates = rowsOf(owner)
+		const row = defined(candidates[source.draw(int(0, candidates.length - 1))], "an owner's row")
+		const put = source.draw(boolean)
+			? Option.some(row.v + BigInt(source.draw(int(1, 3))) * (source.draw(boolean) ? 1n : -1n))
+			: Option.none()
+		const counted = countedOf(owner)
+		const inserted: ReadonlyArray<InstanceRow> = Arr.isReadonlyArrayNonEmpty(counted)
+			? (() => {
+					const k = defined(counted[source.draw(int(0, counted.length - 1))], "a counted family")
+					const member = familyAt(spec, k).member
+					const made: Array<InstanceRow> = []
+					for (let i = source.draw(int(0, 2)); i > 0; i -= 1) {
+						made.push({
+							relation: member,
+							id: rows.length + 1 + made.length,
+							v: BigInt(source.draw(int(-2, 3))),
+							memberOf: Arr.flatMap(spec.families, (o, n) => {
+								if (o.kind !== "counted" || o.member !== member) {
+									return []
+								}
+								const choices = rowsOf(o.owner)
+								const named =
+									n === k
+										? row
+										: defined(choices[source.draw(int(0, choices.length - 1))], "an owner")
+								return [{ family: n, owner: named.id, slot: 0 }]
+							})
+						})
+					}
+					return made
+				})()
+			: []
+		const ordered = orderedOf(owner)
+		const appended: Option.Option<InstanceRow> =
+			Arr.isReadonlyArrayNonEmpty(ordered) && source.draw(boolean)
+				? (() => {
+						const g = defined(ordered[source.draw(int(0, ordered.length - 1))], "an ordered family")
+						return Option.some({
+							relation: familyAt(spec, g).member,
+							id: rows.length + 1 + inserted.length,
+							v: BigInt(source.draw(int(-2, 3))),
+							memberOf: [
+								{
+									family: g,
+									owner: row.id,
+									slot: Arr.filter(rows, (r) => membershipIn(r, g)?.owner === row.id).length
+								}
+							]
+						})
+					})()
+				: Option.none()
+		return Option.isNone(put) && inserted.length === 0 && Option.isNone(appended)
+			? Option.none()
+			: Option.some({ owner, row: row.id, put, inserted, appended })
+	}
+
+/** The instance a follow-up leaves: its owner's row with its new `v`, then its new rows. */
+export const followUpRows = (
+	rows: ReadonlyArray<InstanceRow>,
+	followUp: FollowUp
+): ReadonlyArray<InstanceRow> => [
+	...Arr.map(rows, (row) =>
+		row.id === followUp.row
+			? Option.match(followUp.put, { onNone: () => row, onSome: (v) => ({ ...row, v }) })
+			: row
+	),
+	...followUp.inserted,
+	...Option.toArray(followUp.appended)
+]
+
+/** A follow-up's ChangeSet, member by member: the owner's put, the counted members' insert, the appended member's put. */
+export const followUpMembers = (
+	rows: ReadonlyArray<InstanceRow>,
+	followUp: FollowUp
+): ReadonlyArray<FollowUpMember> => {
+	const row = defined(
+		Arr.findFirst(rows, (r) => r.id === followUp.row).pipe(Option.getOrUndefined),
+		"the follow-up's row"
+	)
+	return [
+		...Option.match(followUp.put, {
+			onNone: (): ReadonlyArray<FollowUpMember> => [],
+			onSome: (v): ReadonlyArray<FollowUpMember> => [
+				{ relation: followUp.owner, op: "put", facts: [memberFact(row, v)] }
+			]
+		}),
+		...Arr.match(followUp.inserted, {
+			onEmpty: (): ReadonlyArray<FollowUpMember> => [],
+			onNonEmpty: (inserted): ReadonlyArray<FollowUpMember> => [
+				{
+					relation: inserted[0].relation,
+					op: "insert",
+					facts: Arr.map(inserted, (r) => memberFact(r, r.v))
+				}
+			]
+		}),
+		...Option.match(followUp.appended, {
+			onNone: (): ReadonlyArray<FollowUpMember> => [],
+			onSome: (a): ReadonlyArray<FollowUpMember> => [
+				{ relation: a.relation, op: "put", facts: [memberFact(a, a.v)] }
+			]
+		})
+	]
+}
+
+/**
+ * The reference's verdict on a ChangeSet of `writes` over a stored instance of an admitted specification: written, or
+ * refused by a value it leaves stale (StaleDerivedRead) or by an append through a cascade (CascadedCopyAppend), the
+ * compiler naming any of them.
+ */
+export type WritesVerdict =
+	| { readonly kind: "written" }
+	| {
+			readonly kind: "refused"
+			readonly stale: ReadonlyArray<StaleSpec>
+			readonly cascaded: ReadonlyArray<number>
+	  }
+
+/** The reference's verdict on a ChangeSet of `writes` (`WritesVerdict`). */
+export const writesVerdict = (spec: FillSpec, writes: ReadonlyArray<SpecWrite>): WritesVerdict => {
+	const stale = Arr.flatMap(writes, (w) => staleReads(spec, w))
+	const cascaded = cascadedAppends(spec, writes)
+	return stale.length === 0 && cascaded.length === 0
+		? { kind: "written" }
+		: { kind: "refused", stale, cascaded }
+}

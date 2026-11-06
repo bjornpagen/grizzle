@@ -32,9 +32,16 @@ import * as Result from "#compiler/core/result.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { fieldTypes } from "#compiler/ir/desc.ts"
-import { uuid } from "#compiler/public/fields.ts"
+import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { natural, uuid } from "#compiler/public/fields.ts"
 import { keyTextBytes } from "#compiler/public/text.ts"
-import { closed, relation, relationDescOf } from "#compiler/schema/relation.ts"
+import {
+	accumulatedField,
+	closed,
+	drawnField,
+	relation,
+	relationDescOf
+} from "#compiler/schema/relation.ts"
 import {
 	btreeEntryBytes,
 	btreeMaxItemSize,
@@ -47,7 +54,16 @@ import {
 	textByteBound
 } from "#compiler/schema/representability.ts"
 import { schema } from "#compiler/schema/schema.ts"
-import { keyBuilder, onBuilder } from "#compiler/schema/statements.ts"
+import {
+	finBuilder,
+	foldBuilder,
+	keyBuilder,
+	monoids,
+	onBuilder,
+	orderedBuilder,
+	selectBuilder,
+	treeBuilder
+} from "#compiler/schema/statements.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
@@ -64,6 +80,7 @@ import {
 	rawContract,
 	descOf,
 	octetLengthAtMost,
+	type Row,
 	rawPg,
 	rawSpan,
 	regex,
@@ -1250,7 +1267,7 @@ const companionGen: Gen<Companion> = weighted<Companion>([
 /**
  * The budget restated: BTMaxItemSize less the header and the null bitmap, MAXALIGNed to 16 bytes, every datum beside
  * the text at its worst padding, align - 1, and the text's own 4-byte header after its worst padding of 3, which bounds
- * the entry whatever the key's order and whichever of its columns may be NULL.
+ * the entry whatever the index's order and whichever of its columns may be NULL.
  */
 const budgetOf = (companions: ReadonlyArray<Companion>): number =>
 	postgresBtreeMaxItem -
@@ -1261,7 +1278,56 @@ const budgetOf = (companions: ReadonlyArray<Companion>): number =>
 	3 -
 	4
 
+/**
+ * The most bytes a B-tree tuple over `datums` reaches when its first column is a law column that may hold NULL: its
+ * data after the header and the null bitmap, MAXALIGNed to 16, the first datum at its alignment and, the NULL-able
+ * column ending the exact offsets, every later one after its worst padding, align - 1; the whole MAXALIGNed.
+ */
+const nullableTupleBytes = (datums: ReadonlyArray<Datum>): number => {
+	const start: Laid = { end: 16, exact: true }
+	return maxalign(
+		Arr.reduce(datums, start, ({ end, exact }, d): Laid => ({
+			end: exact ? Math.ceil(end / d.align) * d.align + d.bytes : end + d.align - 1 + d.bytes,
+			exact: false
+		})).end
+	)
+}
+
+/**
+ * The index a text of keyTextBytes(fields) bytes sits in beside those fields: a key declared over them; a key over a
+ * selection of their relation, whose columns are law columns that may hold NULL; or the UNIQUE of a family axis that
+ * carries the text as a concat fold's running value: an ordered family's, Line's (doc, at, after), fields all, beside
+ * a uuid and a natural; a tree's predecessor axis's, Node's parent, a law column that may hold NULL, its slot, its
+ * running text and its end, beside a uuid and two naturals.
+ */
+type KeyArm = "declared key" | "key over a selection"
+type BudgetArm = KeyArm | "ordered axis" | "tree axis"
+
+type BudgetCase =
+	| {
+			readonly arm: KeyArm
+			readonly companions: Arr.NonEmptyReadonlyArray<Companion>
+			readonly position: number
+	  }
+	| { readonly arm: "ordered axis" | "tree axis" }
+
+const budgetCaseGen: Gen<BudgetCase> = weighted<BudgetCase>([
+	[
+		4,
+		(source): BudgetCase => {
+			const companions = source.draw(nonEmpty(companionGen, 4))
+			return {
+				arm: source.draw(element<KeyArm>(["declared key", "key over a selection"])),
+				companions,
+				position: source.draw(int(0, companions.length))
+			}
+		}
+	],
+	[1, element<BudgetCase>([{ arm: "ordered axis" }, { arm: "tree axis" }])]
+])
+
 type BudgetFeature =
+	| BudgetArm
 	| "tight"
 	| "slack"
 	| "text first"
@@ -1269,25 +1335,230 @@ type BudgetFeature =
 	| "text between"
 	| "a text beside it"
 
+/** A text bounded at `bytes` by its octet_length, over the wildcard. */
+const keyText = (bytes: number): FieldBase =>
+	rawContract("KeyText", wildcard, octetLengthAtMost(bytes))
+
+/** The installation of a schema value: every index its law model plans, each entry proved or refused. */
+const installed = (value: unknown) =>
+	Result.flatMap(ownValue(value), (owned) =>
+		compileInstallation(owned, installOptions(owned, "owner"))
+	)
+
+/**
+ * Doc's lines in order and the concat fold of their pieces into Doc.text, each text bounded at `bytes`: the axis's
+ * UNIQUE is Line's (doc, at, after).
+ */
+const orderedAxis = (bytes: number) => {
+	const text = keyText(bytes)
+	const Doc = relation(
+		"Doc",
+		{ id: uuid, n: drawnField(natural, []), text: accumulatedField(text, "", []) },
+		["id"],
+		[]
+	)
+	const Line = relation(
+		"Line",
+		{
+			doc: uuid,
+			at: drawnField(natural, []),
+			piece: text,
+			before: accumulatedField(text, "", []),
+			after: accumulatedField(text, "", [])
+		},
+		["doc", "at"],
+		[]
+	)
+	const lines = orderedBuilder(onBuilder(Line, ["doc", "at"]), finBuilder(Doc, "n"))
+	const statements: ReadonlyArray<Statement> = [
+		lines,
+		foldBuilder(
+			lines,
+			monoids.concat,
+			onBuilder(Line, ["doc", "piece", "before", "after"]),
+			onBuilder(Doc, ["id", "text"])
+		)
+	]
+	return schema("Axis", { Doc, Line }, statements, [])
+}
+
+/**
+ * A tree of nodes and the concat fold of their pieces along it, each text bounded at `bytes`: its predecessor axis's
+ * UNIQUE holds the parent as a law column that may hold NULL, the slot, the running text and the node's end.
+ */
+const treeAxis = (bytes: number) => {
+	const text = keyText(bytes)
+	const Node = relation(
+		"Node",
+		{
+			id: uuid,
+			parent: uuid,
+			at: drawnField(natural, []),
+			children: drawnField(natural, []),
+			start: drawnField(natural, []),
+			end: drawnField(natural, []),
+			doc: uuid,
+			piece: text,
+			before: accumulatedField(text, "", []),
+			after: accumulatedField(text, "", []),
+			total: accumulatedField(text, "", [])
+		},
+		["id"],
+		[]
+	)
+	const nodes = treeBuilder(onBuilder(Node, ["parent", "at"]), finBuilder(Node, "children"), {
+		root: "doc"
+	})
+	const statements: ReadonlyArray<Statement> = [
+		nodes,
+		foldBuilder(
+			nodes,
+			monoids.concat,
+			onBuilder(Node, ["parent", "piece", "before", "after"]),
+			onBuilder(Node, ["id", "total"])
+		)
+	]
+	return schema("Tree", { Node }, statements, [])
+}
+
+const uuidCompanion: Companion = { kind: "fixed", type: "uuid" }
+const naturalCompanion: Companion = { kind: "fixed", type: "bigint" }
+
+/**
+ * What an arm reads of a case: the fields keyTextBytes is given, as descriptors and as the companions they lay out as;
+ * the arm's schema with its text bounded at so many bytes; and the most bytes its index's entry reaches with a text of
+ * so many bytes, restated.
+ */
+interface Arm {
+	readonly fields: ReadonlyArray<FieldBase>
+	readonly companions: ReadonlyArray<Companion>
+	readonly schemaAt: (bytes: number) => unknown
+	readonly entryAt: (bytes: number) => number
+}
+
+/** A key over the companions and the text at its position: declared, or over the selection of its relation's live rows. */
+const keyArm = (s: Extract<BudgetCase, { readonly arm: KeyArm }>): Arm => {
+	const descriptors = Arr.map(s.companions, companionDescriptor)
+	const selected = s.arm === "key over a selection"
+	return {
+		fields: descriptors,
+		companions: s.companions,
+		schemaAt: (bytes) => {
+			const named = Arr.map(descriptors, (d, i): readonly [string, FieldBase] => [`c${i}`, d])
+			const text: readonly [string, FieldBase] = ["t", keyText(bytes)]
+			const fields = [...Arr.take(named, s.position), text, ...Arr.drop(named, s.position)]
+			const names = Arr.map(fields, ([n]) => n)
+			if (!selected) {
+				return schema(
+					"Budget",
+					{ Kind, R: relation("R", Rec.fromEntries(fields), names, []) },
+					[],
+					[]
+				)
+			}
+			const R = relation(
+				"R",
+				{ id: uuid, live: rawPg.boolean, ...Rec.fromEntries(fields) },
+				["id"],
+				[]
+			)
+			const statements: ReadonlyArray<Statement> = [
+				keyBuilder(
+					onBuilder(
+						selectBuilder(R, (r: Row & { readonly live: Row["id"] }) => r.eq(r.live, true)),
+						names
+					)
+				)
+			]
+			return schema("Budget", { Kind, R }, statements, [])
+		},
+		entryAt: (bytes) => {
+			const before = Arr.map(Arr.take(s.companions, s.position), companionDatum)
+			const after = Arr.map(Arr.drop(s.companions, s.position), companionDatum)
+			const datums = [...before, varlena(bytes), ...after]
+			return selected ? nullableTupleBytes(datums) : btreeTupleBytes(datums)
+		}
+	}
+}
+
+const armOf = (s: BudgetCase): Arm => {
+	switch (s.arm) {
+		case "declared key":
+		case "key over a selection":
+			return keyArm(s)
+		case "ordered axis":
+			return {
+				fields: [uuid, natural],
+				companions: [uuidCompanion, naturalCompanion],
+				schemaAt: orderedAxis,
+				entryAt: (bytes) =>
+					btreeTupleBytes([
+						companionDatum(uuidCompanion),
+						companionDatum(naturalCompanion),
+						varlena(bytes)
+					])
+			}
+		case "tree axis":
+			return {
+				fields: [uuid, natural, natural],
+				companions: [uuidCompanion, naturalCompanion, naturalCompanion],
+				schemaAt: treeAxis,
+				entryAt: (bytes) =>
+					nullableTupleBytes([
+						companionDatum(uuidCompanion),
+						companionDatum(naturalCompanion),
+						varlena(bytes),
+						companionDatum(naturalCompanion)
+					])
+			}
+	}
+}
+
+/** Where a key case's text stands among its companions, and whether one of them is a text too. */
+const keyFeatures = (s: BudgetCase): ReadonlyArray<BudgetFeature> => {
+	switch (s.arm) {
+		case "ordered axis":
+		case "tree axis":
+			return []
+		case "declared key":
+		case "key over a selection": {
+			const position: BudgetFeature =
+				s.position === 0
+					? "text first"
+					: s.position === s.companions.length
+						? "text last"
+						: "text between"
+			return Arr.some(s.companions, (x) => x.kind === "octets")
+				? [position, "a text beside it"]
+				: [position]
+		}
+	}
+}
+
 describe("keyTextBytes", () => {
 	it.effect(
-		"is the most bytes a text holds beside its companions in any key order, and a key one byte past it is refused where the order meets the bound",
+		"is the most bytes a text holds beside its fields in every index grizzle plans over them, and one byte more is refused where an index's layout meets the bound",
 		(ctx) =>
 			searched(
 				ctx,
 				explore(
 					{
 						suite: "unit/schema/key-text-bytes",
-						draw: drawn((source) => {
-							const companions = source.draw(nonEmpty(companionGen, 4))
-							return {
-								companions,
-								position: source.draw(int(0, companions.length))
-							}
-						}),
+						draw: drawn(budgetCaseGen),
 						literal: Formatter.format,
 						coverage: required<BudgetFeature>(
-							["slack", "text first", "text last", "text between", "a text beside it"],
+							[
+								"declared key",
+								"key over a selection",
+								"ordered axis",
+								"tree axis",
+								"tight",
+								"slack",
+								"text first",
+								"text last",
+								"text between",
+								"a text beside it"
+							],
 							{ cases: 200, sense: notesOnly }
 						),
 						kept: [],
@@ -1299,54 +1570,22 @@ describe("keyTextBytes", () => {
 					},
 					(s, c) =>
 						Effect.sync(() => {
-							const descriptors = Arr.map(s.companions, companionDescriptor)
-							const budget = keyTextBytes(descriptors)
-							assert.equal(budget, budgetOf(s.companions), "the budget")
-							c.note(
-								s.position === 0
-									? "text first"
-									: s.position === s.companions.length
-										? "text last"
-										: "text between"
+							const arm = armOf(s)
+							const budget = keyTextBytes(arm.fields)
+							assert.equal(budget, budgetOf(arm.companions), "the budget")
+							succeeded(
+								installed(arm.schemaAt(budget)),
+								`the ${s.arm} with a text of ${budget} bytes`
 							)
-							if (Arr.some(s.companions, (x) => x.kind === "octets")) {
-								c.note("a text beside it")
-							}
-							/** The key at a text bound of `bytes`, the text at its drawn position among the companions. */
-							const keyAt = (bytes: number) => {
-								const named = Arr.map(descriptors, (d, i): readonly [string, FieldBase] => [
-									`c${i}`,
-									d
-								])
-								const text: readonly [string, FieldBase] = [
-									"t",
-									rawContract("KeyText", wildcard, octetLengthAtMost(bytes))
-								]
-								const fields = [
-									...Arr.take(named, s.position),
-									text,
-									...Arr.drop(named, s.position)
-								]
-								const R = relation(
-									"R",
-									Rec.fromEntries(fields),
-									Arr.map(fields, ([n]) => n),
-									[]
-								)
-								return ownValue(schema("Budget", { Kind, R }, [], []))
-							}
-							succeeded(keyAt(budget), `a text of ${budget} bytes beside its companions`)
-							const datums = [
-								...Arr.map(Arr.take(s.companions, s.position), companionDatum),
-								varlena(budget + 1),
-								...Arr.map(Arr.drop(s.companions, s.position), companionDatum)
-							]
-							const past = btreeTupleBytes(datums) > postgresBtreeMaxItem
-							c.note(past ? "tight" : "slack")
+							const past = arm.entryAt(budget + 1) > postgresBtreeMaxItem
+							c.noteAll([s.arm, past ? "tight" : "slack", ...keyFeatures(s)])
 							if (past) {
-								refused(keyAt(budget + 1), "UnrepresentableKey")
+								refused(installed(arm.schemaAt(budget + 1)), "UnrepresentableKey")
 							} else {
-								succeeded(keyAt(budget + 1), "an order with room past the budget")
+								succeeded(
+									installed(arm.schemaAt(budget + 1)),
+									`the ${s.arm}, whose layout leaves room past the budget`
+								)
 							}
 						})
 				)
