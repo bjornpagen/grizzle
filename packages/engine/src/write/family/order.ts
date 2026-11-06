@@ -71,6 +71,12 @@ export interface RelationWrite {
 export interface OwnerWrite {
 	readonly family: FamilyId
 	readonly recounts: ReadonlyMap<string, Recount>
+	/**
+	 * The recounts' groups the read found stored, by key text: each one's count is a statement of its own, never carried
+	 * by an insert row of its owner, which at a stored key is the owner's exact repeat or the key law's refusal. Every
+	 * other group is fresh, its owner inserted by the stratum, whose insert row may carry its count and ends.
+	 */
+	readonly stored: ReadonlySet<string>
 }
 
 /**

@@ -311,7 +311,7 @@ describe("an owner of counted families, rows first", () => {
 	})
 
 	it.effect(
-		"refuses an append to an immutable owner the stratum does not insert, statically and at bind, by one sentence",
+		"refuses an append to an immutable owner the stratum does not insert, statically and once its read finds no owner, by one sentence",
 		() =>
 			Effect.gen(function* () {
 				const statically = ChangeSet.empty(S4).insert(FixedM, [
@@ -327,10 +327,21 @@ describe("an owner of counted families, rows first", () => {
 					.insert(FixedM, [{ o: uuidOf(1), id: uuidOf(2), x: 1n }])
 				const program = compiledFor(S4, "s4")(atBind)
 				const members = yield* collectInputs(program.frontend, parsedOf(atBind).inputs)
+				const bound = succeeded(
+					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+				)
+				assertVariant(bound, "kind", "bound", "the facts bind")
+				assertVariant(
+					bound.flights,
+					"kind",
+					"read",
+					"the owner the member names is read first: an insert at a stored member is no change"
+				)
+				/** The read finds neither the owner the member names nor the one the stratum inserts stored. */
 				const atRun = refused(
-					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) }),
+					bound.flights.writes(Arr.map(bound.flights.reads, () => [])),
 					"UnsupportedOperation",
-					"an append to an owner the stratum does not insert is refused before any SQL"
+					"an append to an owner the stratum does not insert is refused before any write"
 				)
 				const rule =
 					"an immutable owner's family is fixed when its owner is inserted; declare mutable(Fixed) to change it"

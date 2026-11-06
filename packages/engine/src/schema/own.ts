@@ -413,6 +413,12 @@ const canonicalRows = (r: ClosedRelationOf): ClosedRelationOf => ({
 const closedIdBase = (desc: FieldDesc): (FieldDesc & { readonly kind: "closedId" }) | undefined =>
 	desc.kind === "closedId" ? desc : desc.kind === "contract" ? closedIdBase(desc.base) : undefined
 
+/** The roster a closed relation's closed-id field `field` is over, through any depth of contracts. */
+const fieldRosterOf = (r: ClosedRelationOf, field: string): string | undefined => {
+	const desc = r.fields[field]
+	return desc === undefined ? undefined : closedIdBase(desc)?.roster
+}
+
 const isHandle = (roster: StoredRelationDesc, value: LiteralDesc): boolean =>
 	roster.kind === "closed" && isRosterHandle(roster, value)
 
@@ -826,8 +832,67 @@ class Owner {
 					break
 				case "closedRelation":
 					this.#checkClosedRows(entry, entry.desc)
+					this.#checkKeySlots(entry, entry.desc)
 					break
 			}
+		}
+	}
+
+	/**
+	 * Each slot of a closed relation's key names fin(O, n) over a closed relation O of its level or below and a natural
+	 * field n of O beside O's key, and O's key pairs with the relation's first key fields, roster for roster in order:
+	 * those fields are the owner prefix, which every slot follows and every slot's O shares the length of. That an
+	 * owner's count bounds each row's slot code is a law of the codes, checked when the installation packs the relation.
+	 */
+	#checkKeySlots(entry: RelationEntry, r: ClosedRelationOf): void {
+		let prefix: number | undefined
+		for (const slot of r.slots) {
+			const loc = labeledChildLoc(entry.desc.loc, slot.field, `slot ${r.name}.${slot.field}`)
+			const fin = `fin(${slot.fin.owner}, ${JSON.stringify(slot.fin.count)})`
+			const declared = this.#relations.get(slot.fin.owner)
+			if (declared?.desc.kind !== "closedRelation") {
+				return fail(
+					"MalformedDescription",
+					loc,
+					`${fin} over a closed relation the schema declares; ${slot.fin.owner} is not one`
+				)
+			}
+			if (declared.level > entry.level) {
+				return fail(
+					"MalformedDescription",
+					loc,
+					`${fin} over a closed relation of this level or below; ${slot.fin.owner} is declared above`
+				)
+			}
+			const owner = declared.desc
+			const count = owner.fields[slot.fin.count]
+			if (count === undefined || owner.key.includes(slot.fin.count) || !isNaturalDesc(count)) {
+				return fail(
+					"MalformedDescription",
+					loc,
+					`${fin} counted by a natural field of ${owner.name} beside its key; ${slot.fin.count} is not one`
+				)
+			}
+			const paired = owner.key.every((field, i) => {
+				const own = r.key[i]
+				const roster = own === undefined ? undefined : fieldRosterOf(r, own)
+				return roster !== undefined && roster === fieldRosterOf(owner, field)
+			})
+			if (!paired || r.key.indexOf(slot.field) < owner.key.length) {
+				return fail(
+					"MalformedDescription",
+					loc,
+					`${fin} whose key, ${owner.key.join(", ")}, pairs with ${r.name}'s first key fields in order, roster for roster, the slot after them`
+				)
+			}
+			if (prefix !== undefined && prefix !== owner.key.length) {
+				return fail(
+					"MalformedDescription",
+					loc,
+					`slots counted over one owner prefix of ${r.name}'s key; ${fin}'s key has ${owner.key.length} fields where another slot's has ${prefix}`
+				)
+			}
+			prefix = owner.key.length
 		}
 	}
 

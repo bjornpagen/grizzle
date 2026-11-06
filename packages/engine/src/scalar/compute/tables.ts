@@ -1,4 +1,5 @@
 import { type Column, convertColumn, textColumn } from "#compiler/core/decoder.ts"
+import type { CalendarDate } from "#compiler/ir/date.ts"
 import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
@@ -15,6 +16,7 @@ export interface PlainHost {
 	readonly money: Money
 	readonly boolean: boolean
 	readonly uuid: Uuid
+	readonly date: CalendarDate
 	readonly text: string
 	readonly "exact integer": bigint
 	readonly "exact money": Money
@@ -47,6 +49,7 @@ export const plainColumns: { readonly [S in PlainSql]: Column<PlainHost[S]> } = 
 	money: convertColumn(convertByCarrier.money({ carrier: "money" })),
 	boolean: convertColumn(convertByCarrier.bool({ carrier: "bool" })),
 	uuid: textColumn<Uuid>(),
+	date: convertColumn(convertByCarrier.date({ carrier: "date" })),
 	text: convertColumn(convertByCarrier.text({ carrier: "text" })),
 	"exact integer": convertColumn(convertByCarrier.exactInteger({ carrier: "exactInteger" })),
 	"exact money": convertColumn(convertByCarrier.exactMoney({ carrier: "exactMoney" }))

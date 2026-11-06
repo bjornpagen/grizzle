@@ -136,6 +136,8 @@ const relabelingOf = (type: ScalarType): Relabeling | undefined => {
 			return !("serial" in type) && contractOf(type) === undefined ? "int" : undefined
 		case "uuid":
 			return contractOf(type) === undefined ? "uuid" : undefined
+		case "date":
+			return undefined
 		case "numeric":
 		case "float4":
 		case "float8":

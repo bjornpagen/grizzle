@@ -15,6 +15,7 @@ import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
 import { catchRefusal, compareText } from "#compiler/core/canonical.ts"
 import type { GeneratedRule, KeyFault } from "#compiler/core/causes.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { childLoc, labeledChildLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	isNonEmpty,
@@ -24,9 +25,16 @@ import {
 } from "#compiler/core/nonempty.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
-import { descText, type ExprDesc, type FieldDesc, type LiteralDesc } from "#compiler/ir/desc.ts"
+import {
+	descText,
+	type ExprDesc,
+	type FieldDesc,
+	type KeySlotDesc,
+	type LiteralDesc
+} from "#compiler/ir/desc.ts"
 import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
 import {
+	type ClosedSlot,
 	type ClosedTheoryRelation,
 	type FieldWriting,
 	headingColumns,
@@ -706,7 +714,9 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			mutable: false,
 			level: r.level,
 			loc,
-			rows
+			rows,
+			slots:
+				desc.kind === "closed" ? [] : desc.slots.map((slot) => this.#slot(slot, primaryFields, loc))
 		}
 		return {
 			kind: "closed",
@@ -715,6 +725,47 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			heading: headingColumns(heading),
 			rows: rows.map((row) => heading.map((f) => closedCell(row, f.position))),
 			loc
+		}
+	}
+
+	/**
+	 * A closed relation's slot, fin(O, n), with each owner O holds a row for and its count: O's key pairs with the
+	 * relation's first key fields (schema/own.ts), so each owner's key values are literals of those fields' types, and its
+	 * count is O's natural n.
+	 */
+	#slot(slot: KeySlotDesc, key: NonEmptyReadonlyArray<LawField>, loc: SourceLoc): ClosedSlot {
+		const declared = this.owned.relations[slot.fin.owner]
+		if (declared?.kind !== "closedRelation" || declared.desc.kind !== "closedRelation") {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`a closed relation ${slot.fin.owner}, whose count numbers slots`
+			)
+		}
+		const owner = declared.desc
+		const fields = mapNonEmpty(owner.key, (field, i) => ({
+			field,
+			own: defined(key[i], "an owner's key pairs with the relation's first key fields")
+		}))
+		const countType = defined(
+			this.#lawFields(declared, () => callerWriting).find((f) => f.name === slot.fin.count),
+			"a slot's count is a field of its owner"
+		).type
+		return {
+			field: slot.field,
+			fin: { relation: owner.name, count: slot.fin.count },
+			owner: mapNonEmpty(fields, (f) => f.own.name),
+			counts: owner.rows.map((row, i) => {
+				const at = childLoc(owner.loc, "rows", i, slot.fin.count)
+				const count = this.literal(defined(row[slot.fin.count], "a row's count"), countType, at)
+				return {
+					owner: mapNonEmpty(fields, (f) =>
+						this.literal(defined(row[f.field], "a row's key value"), f.own.type, at)
+					),
+					count:
+						count.kind === "int" ? count.value : fail("MalformedDescription", at, "a natural count")
+				}
+			})
 		}
 	}
 

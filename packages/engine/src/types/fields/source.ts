@@ -619,7 +619,7 @@ type InClass<
  *   (quantify.d.ts tryFastPath tests `${number} extends pattern`): `^[\d_]{1,3}$` admits "_1", `^(?:\d?){2}$` admits
  *   "", yet both infer `${number}`;
  * - it writes adjacent placeholders, the first of which TypeScript makes match exactly one code point: `^a+` infers
- *   `a${string}${string}` yet admits "a". RegexInfer (text/field.ts) writes every run of them as one, so the scan
+ *   `a${string}${string}` yet admits "a". RegexInfer (types/fields/regex.ts) writes every run of them as one, so the scan
  *   leaves them be.
  *
  * `RewriteSource` scans the source once, tail-recursively, and rewrites it into a pattern ArkRegex reads as the same

@@ -61,6 +61,7 @@ import type { DefinitionQuery, Derived } from "#compiler/types/derived/derived.t
 import type {
 	AccumulatedField,
 	Bits,
+	ClosedIdField,
 	DrawnField,
 	FieldBase,
 	GeneratedField,
@@ -76,7 +77,7 @@ import type {
 	Relation,
 	Roster
 } from "#compiler/types/schema/relation.ts"
-import type { Slot } from "#compiler/types/schema/statements.ts"
+import type { SlotField } from "#compiler/types/schema/statements.ts"
 
 export type OrdinaryRelationDesc = Extract<RelationDesc, { readonly kind: "relation" }>
 export type RosterDesc = Extract<RelationDesc, { readonly kind: "closed" }>
@@ -114,6 +115,20 @@ const describedFields = (
 	}
 	return Object.freeze(out)
 }
+
+/**
+ * What slot(type, fin) recorded for the field value it made: the descriptor of its declared type, a closed id, and the
+ * fin whose slots its codes are. A WeakMap holds nothing alive and is never enumerated, so it is no cache.
+ */
+interface Slotted {
+	readonly type: unknown
+	readonly slots: SlotsDesc
+}
+
+const slotted = new WeakMap<object, Slotted>()
+
+const slottedOf = (value: unknown): Slotted | undefined =>
+	typeof value === "object" && value !== null ? slotted.get(value) : undefined
 
 /**
  * What drawn(type) and accumulated(type, start) recorded for the field value each made: the descriptor of its declared
@@ -203,6 +218,64 @@ export const accumulatedField = <F extends FieldBase>(
 	return value
 }
 
+/**
+ * slot(type, fin(O, n)): a closed relation's key field of `type`, a closed id, whose codes are fin(O, n)'s slots, O a
+ * closed relation whose key pairs with the key's first fields and n a natural field of it. The value carries the closed
+ * id's column, SQL type and roster, so it is read as `type` is; its fin is `slots`.
+ */
+export const slotField = <F extends ClosedIdField<AnyRoster>, Fi>(
+	type: F,
+	slots: Fi,
+	extra: ReadonlyArray<unknown>
+): SlotField<F, Fi> => {
+	if (extra.length > 0) {
+		throw malformed("slot", "slot(type, fin(owner, count)): two arguments")
+	}
+	const described = describedField(type, "slot type")
+	if (
+		described.desc.kind !== "closedId" ||
+		writtenByOf(type) !== undefined ||
+		slottedOf(type) !== undefined
+	) {
+		throw malformed("slot", "a closed id, closedId(roster), whose codes number the slots")
+	}
+	const fin = finOf(slots, "slot")
+	if (fin.owner.kind !== "closedRelation") {
+		throw malformed(
+			"slot",
+			`a closed relation's count; ${fin.owner.name} is an ordinary relation, whose count a family draws`
+		)
+	}
+	const value: SlotField<F, Fi> = Object.freeze({ ...type, slots })
+	slotted.set(value, { type, slots: fin.slots })
+	return value
+}
+
+/**
+ * The slots of a closed relation's key: each key field whose descriptor slot(type, fin) made, with its fin, in key
+ * order. A slot that is no key field is refused: its codes number slots only where the key reads them. A key that is
+ * no list leaves its refusal to the Description's shape.
+ */
+const keySlots = (
+	descriptors: Readonly<Record<string, unknown>>,
+	key: unknown,
+	label: string
+): ReadonlyArray<KeySlotDesc> => {
+	const keyFields = isList(key) ? key : []
+	for (const [field, descriptor] of Object.entries(descriptors)) {
+		if (slottedOf(descriptor) !== undefined && !keyFields.includes(field)) {
+			throw malformed(label, `a slot that is a key field; ${field} is in the payload`)
+		}
+	}
+	return keyFields.flatMap((field) => {
+		const slot =
+			typeof field === "string" && Object.hasOwn(descriptors, field)
+				? slottedOf(descriptors[field])
+				: undefined
+		return slot === undefined || typeof field !== "string" ? [] : [{ field, fin: slot.slots }]
+	})
+}
+
 const fieldMap = (
 	described: Readonly<Record<string, Described>>
 ): Readonly<Record<string, FieldDesc>> => {
@@ -213,13 +286,23 @@ const fieldMap = (
 	return out
 }
 
-/** Each field of a record of field values, declared with its type and how it is written (writingOf). */
+/**
+ * Each field of a record of field values, declared with its type and how it is written (writingOf). A slot is a closed
+ * relation's key field, so an ordinary relation's is refused.
+ */
 const writtenDecls = (
 	values: Readonly<Record<string, unknown>>,
-	described: Readonly<Record<string, Described>>
+	described: Readonly<Record<string, Described>>,
+	label: string
 ): Readonly<Record<string, FieldDecl>> => {
 	const out: Record<string, FieldDecl> = {}
 	for (const [name, field] of Object.entries(described)) {
+		if (slottedOf(values[name]) !== undefined) {
+			throw malformed(
+				label,
+				`fields of an ordinary relation; ${name} is a slot, which only a closed relation's key holds`
+			)
+		}
 		out[name] = { type: field.desc, writing: writingOf(values[name]) }
 	}
 	return out
@@ -269,7 +352,7 @@ export const admitRelation = (
 	}
 	const values = descriptorRecord(fields, label)
 	const described = describedFields(values, label)
-	return ordinaryDesc(label, relationName, writtenDecls(values, described), primaryKey)
+	return ordinaryDesc(label, relationName, writtenDecls(values, described, label), primaryKey)
 }
 
 /**
@@ -373,7 +456,7 @@ const admitGenerated = <G>(
 	if (!isPlainRecord(generated)) {
 		throw malformed(label, "a record of generated fields, each generated(type, term)")
 	}
-	const fields: Record<string, FieldDecl> = { ...writtenDecls(descriptors, described) }
+	const fields: Record<string, FieldDecl> = { ...writtenDecls(descriptors, described, label) }
 	for (const [field, value] of Object.entries(generated)) {
 		if (Object.hasOwn(fields, field)) {
 			throw malformed(
@@ -582,32 +665,6 @@ const closedRows = (
 	})
 }
 
-/**
- * A closed relation's key as its declaration lists it: each entry a closed-id field's name, or slot(field, fin(O, n)),
- * a field holding fin(O, n)'s slots. The fields in key order, and the slot fields, each with its fin, in key order. A
- * list that is no list leaves its decoding to the Description's shape, which refuses it.
- */
-const keyEntries = (
-	key: unknown,
-	label: string
-): { readonly fields: unknown; readonly slots: ReadonlyArray<KeySlotDesc> } => {
-	if (!isList(key)) {
-		return { fields: key, slots: [] }
-	}
-	const fields: Array<unknown> = []
-	const slots: Array<KeySlotDesc> = []
-	for (const entry of key) {
-		if (hasProperties(entry) && entry["kind"] === "slot") {
-			const slot = slotOf(entry, `${label} key`)
-			fields.push(slot.field)
-			slots.push(slot)
-		} else {
-			fields.push(entry)
-		}
-	}
-	return { fields, slots }
-}
-
 /** The admission core of closed.relation(...): a JavaScript caller's arguments checked and described. */
 export const admitClosedRelation = (
 	name: unknown,
@@ -635,14 +692,13 @@ export const admitClosedRelation = (
 	}
 	const described = describedFields(descriptors, label)
 	const fieldDescs = fieldMap(described)
-	const entries = keyEntries(key, label)
 	const desc = orThrow(
 		decodeDesc("relation", {
 			kind: "closedRelation",
 			name: relationName,
 			fields: fieldDescs,
-			key: entries.fields,
-			slots: entries.slots,
+			key,
+			slots: keySlots(descriptors, key, label),
 			rows: closedRows(rows, fieldDescs, descriptors, label),
 			loc: builderLoc(label, [relationName])
 		})
@@ -890,32 +946,6 @@ export const finOf = (
 	return { owner, slots: { owner: owner.name, count } }
 }
 
-/** A slot value's field and fin, its fin's owner a closed relation: the slots of a closed relation's key field. */
-const slotOf = (value: unknown, label: string): KeySlotDesc => {
-	if (!hasProperties(value) || value["kind"] !== "slot") {
-		throw malformed(label, "a key field holding a fin's slots, built by slot(field, fin(owner, count))")
-	}
-	const field = requireName(value["field"], label, "the key field that holds the slots")
-	const fin = finOf(value["slots"], `${label} slot ${field}`)
-	if (fin.owner.kind !== "closedRelation") {
-		throw malformed(
-			`${label} slot ${field}`,
-			`a closed relation's count; ${fin.owner.name} is an ordinary relation, whose count a family draws`
-		)
-	}
-	return { field, fin: fin.slots }
-}
-
-/**
- * slot(field, fin(O, n)): a closed relation's key entry, the field `field` holding fin(O, n)'s slots, O a closed
- * relation. The value holds its two inputs.
- */
-export const slotBuilder = <const F extends string, Fi>(field: F, slots: Fi): Slot<F, Fi> => {
-	const value: Slot<F, Fi> = Object.freeze({ kind: "slot", field, slots })
-	slotOf(value, "slot")
-	return value
-}
-
 export const derivedDraftOf = (value: unknown): DerivedDraft | undefined =>
 	ownedDesc(value, "derived")
 
@@ -961,9 +991,10 @@ export const fieldRoster = (
 ): ReadonlyArray<string> | undefined =>
 	rel.kind === "closed" && field === "id" ? rel.roster : rosterHandlesOf(rel.descriptors[field])
 
-/** The descriptor a field value was built from: its own, or a generated field's declared type's. */
+/** The descriptor a field value was built from: its own, or a drawn, accumulated, slot or generated field's declared
+ * type's. */
 const descriptorOf = (value: unknown): unknown => {
-	const recorded = writtenByOf(value)
+	const recorded = writtenByOf(value) ?? slottedOf(value)
 	if (recorded !== undefined) {
 		return recorded.type
 	}

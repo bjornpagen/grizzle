@@ -29,13 +29,15 @@ import {
 } from "#compiler/scalar/compute/lower.ts"
 import { nativeHolds } from "#compiler/scalar/compute/native.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { formIncludes, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 
 /**
  * Whether a proof's premises establish its precondition: the proof kernel, which re-checks the kept proofs a lowering
  * builds (ir/proof.ts PreconditionProof). A fact precondition holds by a premise of that fact on its operand, or by an
  * interval premise on it whose every value has the fact (bounds.ts premiseHas); fits, contract, powerDomain and
  * bucketDomain hold by interval premises the caller's `judge` reads, with the arithmetic scalar/compute/lower.ts writes
- * once for each, fits over the values but NaN and the others over intervals that hold no NaN. A proof no premise of the
+ * once for each, fits over the values but NaN and the others over intervals that hold no NaN; lexical by a language
+ * premise whose language the judge finds inside the target's form again, or a literal it parses. A proof no premise of the
  * needed kind supports is no proof.
  */
 const checkProof = (
@@ -58,6 +60,7 @@ const checkProof = (
 		case "contract":
 		case "powerDomain":
 		case "bucketDomain":
+		case "lexical":
 			return judge(p, proof.premises)
 	}
 }
@@ -142,6 +145,20 @@ const proofHolds = (
 					hi !== undefined &&
 					c !== undefined &&
 					bucketInRange(lo.low, lo.high, hi.low, hi.high, c.low, c.high)
+				)
+			}
+			case "lexical": {
+				const form = lexicalTargetOf(node.type)
+				return (
+					form !== undefined &&
+					Arr.some(
+						premises,
+						(p) =>
+							p.operand === 0 &&
+							((p.kind === "checked" && p.by === "literal") ||
+								(p.kind === "language" &&
+									formIncludes({ source: p.pattern, flags: p.flags }, form).kind === "included"))
+					)
 				)
 			}
 			case "nonzero":

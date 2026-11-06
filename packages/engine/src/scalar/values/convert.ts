@@ -1,6 +1,6 @@
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
-import type { Carrier } from "#compiler/ir/scalar.ts"
 import { convertDate } from "#compiler/ir/date.ts"
+import type { Carrier } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
 import type { CarrierHost, SpecOf } from "#compiler/scalar/values/identity.ts"

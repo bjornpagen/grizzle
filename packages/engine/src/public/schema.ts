@@ -52,6 +52,7 @@ export type {
 	RowScalars,
 	Selection,
 	Side,
+	SlotField,
 	Statement,
 	Tree
 } from "#compiler/types/schema/statements.ts"

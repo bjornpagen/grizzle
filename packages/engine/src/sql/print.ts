@@ -8,7 +8,7 @@ import {
 } from "#compiler/core/limits.ts"
 import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import {
 	type AlterDomainAction,
@@ -67,7 +67,7 @@ import {
 	type WindowSpec,
 	type With
 } from "#compiler/sql/ast.ts"
-import { binary, col, eq, lit, types } from "#compiler/sql/build.ts"
+import { col, eq, lit, types } from "#compiler/sql/build.ts"
 import {
 	type CatalogCall,
 	type CatalogCast,
@@ -80,12 +80,9 @@ import {
 	type DoStatement,
 	databaseDefaultBlock
 } from "#compiler/sql/catalog.ts"
-import { mixedRadix } from "#compiler/sql/constants.ts"
 import { statementParams } from "#compiler/sql/transform.ts"
 
 /** An integer literal of PostgreSQL's integer type, which prints bare. */
-const int4 = (value: number): Expr => lit.int(value, types.integer)
-
 const sqlUnit = "  "
 
 /** Where a statement's text is refused: as ResourceBound, for a bound PostgreSQL or V8 sets on it. */
@@ -1320,10 +1317,10 @@ const cellsVariable = quoteIdent("cells")
 /** The pack's series alias and its column, the cell index. */
 const cellIndex = col("g", "i")
 
-/** The pack's rows alias, and its payload code column; the key's codes are k1, k2, …. */
+/** The pack's rows alias, its cell index column and its payload code column. */
 const rowsAlias = "r"
+const indexColumn = "i"
 const payloadColumn = "c"
-const keyColumn = (i: number): string => `k${i + 1}`
 
 /**
  * A row's names as an SQL line comment, each a JSON string: a line break or quote in a name is escaped, so nothing a
@@ -1346,47 +1343,41 @@ const packedFunction = (fn: ObjectName): string =>
  *   DECLARE
  *     "cells" text;
  *   BEGIN
- *     SELECT string_agg(COALESCE(1 + "r"."c", 0)::bit(w)::text, '' ORDER BY "g"."i")
+ *     SELECT COALESCE(string_agg(COALESCE(1 + "r"."c", 0)::bit(w)::text, '' ORDER BY "g"."i"), '')
  *     INTO "cells"
- *     FROM generate_series(0, r1 * r2 * … - 1) AS "g"("i")
+ *     FROM generate_series(0, cells - 1) AS "g"("i")
  *     LEFT JOIN (VALUES
- *       (k1, k2, …, c), -- names
+ *       (i, c), -- names
  *       …
- *     ) AS "r"("k1", "k2", …, "c")
- *     ON <the mixed-radix index of k1, k2, …> = "g"."i";
+ *     ) AS "r"("i", "c")
+ *     ON "r"."i" = "g"."i";
  *     EXECUTE format('CREATE FUNCTION <function>() RETURNS bit varying LANGUAGE sql IMMUTABLE PARALLEL SAFE
  *       RETURN %L::bit varying', "cells");
  *   END
  *   $$
  *
- * PostgreSQL builds the string from the rows of codes in one hash join over the key space, and the function's body is
- * the string itself, every name and function qualified as the printer qualifies them. A relation of no row has no
- * VALUES list, which PostgreSQL has none of, and no join: each cell is 0. Its outer join and its PL/pgSQL exist only in
- * this printed form.
+ * PostgreSQL builds the string from the rows, each at the cell the host's encoder gave its key, in one hash join over
+ * the cells, and the function's body is the string itself, every name and function qualified as the printer qualifies
+ * them. A relation of no row has no VALUES list, which PostgreSQL has none of, and no join: each cell is 0. A space of
+ * no cell, a dependent sum whose owners hold no slot, is the empty string, never NULL, so every read of it is absent.
+ * Its outer join and its PL/pgSQL exist only in this printed form.
  */
 const writePack = (out: Lines, pack: PackConstant): void => {
 	const body: Array<string> = []
 	const lines = new BlockLines(body, sqlUnit, "")
 	const text = printType(types.text)
-	const count = pack.radices
-		.slice(1)
-		.reduce<Expr>((product, radix) => binary("*", product, int4(radix)), int4(pack.radices[0]))
-	const keys = mapNonEmpty(pack.radices, (radix, i) => ({ name: keyColumn(i), radix }))
-	const index = mixedRadix(
-		mapNonEmpty(keys, (key) => ({ digit: col(rowsAlias, key.name), radix: key.radix }))
-	)
-	const columns = [...keys.map((key) => key.name), payloadColumn]
 	lines.line("DECLARE")
 	lines.nested().line(`${cellsVariable} ${text};`)
 	lines.line("BEGIN")
 	const block = lines.nested()
 	const held = isNonEmpty(pack.rows)
 	const cell = held ? `COALESCE(1 + ${printExpr(col(rowsAlias, payloadColumn))}, 0)` : "0"
+	const empty = `${quoteString("")}::${text}`
 	block.line(
-		`SELECT ${inCatalog("string_agg")}(${cell}::${printType(types.bit(pack.width))}::${text}, ${quoteString("")}::${text} ORDER BY ${printExpr(cellIndex)})`
+		`SELECT COALESCE(${inCatalog("string_agg")}(${cell}::${printType(types.bit(pack.width))}::${text}, ${empty} ORDER BY ${printExpr(cellIndex)}), ${empty})`
 	)
 	block.line(`INTO ${cellsVariable}`)
-	const series = `FROM ${inCatalog("generate_series")}(0, ${printExpr(binary("-", count, int4(1)))}) AS ${quoteIdent("g")}(${quoteIdent("i")})`
+	const series = `FROM ${inCatalog("generate_series")}(0, ${printExpr(lit.int(pack.cells - 1n, types.integer))}) AS ${quoteIdent("g")}(${quoteIdent("i")})`
 	if (!held) {
 		block.line(`${series};`)
 	} else {
@@ -1395,10 +1386,10 @@ const writePack = (out: Lines, pack: PackConstant): void => {
 		const rows = block.nested()
 		for (const [i, row] of pack.rows.entries()) {
 			const comma = i === pack.rows.length - 1 ? "" : ","
-			rows.line(`(${[...row.key, row.payload].join(", ")})${comma} ${namesComment(row.names)}`)
+			rows.line(`(${row.index}, ${row.payload})${comma} ${namesComment(row.names)}`)
 		}
-		block.line(`) AS ${quoteIdent(rowsAlias)}(${printIdentList(columns)})`)
-		block.line(`ON ${printExpr(eq(index, cellIndex))};`)
+		block.line(`) AS ${quoteIdent(rowsAlias)}(${printIdentList([indexColumn, payloadColumn])})`)
+		block.line(`ON ${printExpr(eq(col(rowsAlias, indexColumn), cellIndex))};`)
 	}
 	block.line(
 		`EXECUTE ${inCatalog("format")}(${quoteString(packedFunction(pack.function))}::${text}, ${cellsVariable});`

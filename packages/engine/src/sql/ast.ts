@@ -289,7 +289,8 @@ export const builtinFunctionNames = [
 	"bit_count",
 	"bit_or",
 	"string_agg",
-	"generate_subscripts"
+	"generate_subscripts",
+	"make_date"
 ] as const
 export type BuiltinFunctionName = (typeof builtinFunctionNames)[number]
 
@@ -1358,14 +1359,16 @@ export interface AlterDatabaseDefault {
 
 /**
  * The role-level settings of one text value Publish stores for a login, each one a grizzle guarantee rests on:
- * extra_float_digits, under which float text is shortest round-trip; lc_monetary, lc_numeric and lc_time, the locale
- * categories a value's text can depend on, money's two fractional digits among them; and pgvector's strict-order
+ * extra_float_digits, under which float text is shortest round-trip; DateStyle, under which date_out writes ISO 8601's
+ * YYYY-MM-DD, a date's host text; lc_monetary, lc_numeric and lc_time, the locale categories a value's text can depend
+ * on, money's two fractional digits among them; and pgvector's strict-order
  * iterative scan, on which an approximate read's order and its cursors rest (check/approximate/policy.ts). An
  * `hnsw.*` name is a placeholder until the vector library is loaded in the session that stores it. Every other
  * setting is the database owner's.
  */
 export const textParameters = [
 	"extra_float_digits",
+	"DateStyle",
 	"lc_monetary",
 	"lc_numeric",
 	"lc_time",
@@ -1666,15 +1669,15 @@ export type SqlFunction = Extract<CreateFunction, { readonly language: "sql" }>
 
 /**
  * The migration's pack of a closed relation into its constant, printed as one DO block: the string of cells built
- * from rows of codes in one LEFT JOIN over the key space, then EXECUTE format('CREATE FUNCTION … RETURN %L::bit
- * varying', cells). Its outer join and its PL/pgSQL exist only inside this printed form: no Select and no PlStatement
- * can hold either.
+ * from rows of cell indexes and payload codes in one LEFT JOIN over the cells, then EXECUTE format('CREATE FUNCTION …
+ * RETURN %L::bit varying', cells). Its outer join and its PL/pgSQL exist only inside this printed form: no Select and
+ * no PlStatement can hold either.
  */
 export interface PackConstant {
 	readonly kind: "packConstant"
 	readonly function: ObjectName
-	/** Each key field's code space, holes included, in key order; their product is the count of cells. */
-	readonly radices: NonEmptyReadonlyArray<number>
+	/** The count of cells: the points of the key's space, a product's or a dependent sum's (ir/cells.ts keyCells). */
+	readonly cells: bigint
 	/** w, a cell's bits: 1 for a set. */
 	readonly width: number
 	/**
@@ -1684,12 +1687,15 @@ export interface PackConstant {
 	readonly rows: ReadonlyArray<PackRow>
 }
 
-/** One tuple of a packed relation: its key's codes in key order, its payload's code, and the names they stand for. */
+/**
+ * One tuple of a packed relation: its cell, the index the host's encoder gives its key's codes (ir/cells.ts keyIndex),
+ * its payload's code, and the names its key and payload stand for.
+ */
 export interface PackRow {
-	readonly key: NonEmptyReadonlyArray<number>
+	readonly index: bigint
 	/** The payload's mixed-radix code, exact over any payload space. */
 	readonly payload: bigint
-	/** The handles the codes stand for, printed as the row's comment, each a JSON string. */
+	/** The handles and values the tuple holds, printed as the row's comment, each a JSON string. */
 	readonly names: NonEmptyReadonlyArray<string>
 }
 

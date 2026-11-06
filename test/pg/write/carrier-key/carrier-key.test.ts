@@ -98,7 +98,9 @@ const keyedCarriers = (artifact: WriteArtifact): Arr.NonEmptyReadonlyArray<Keyed
 					Arr.findFirst(
 						artifact.statements,
 						(s) =>
-							s.step.kind === "carrier" && s.step.step === "create" && s.step.carrier === carrier.name
+							s.step.kind === "carrier" &&
+							s.step.step === "create" &&
+							s.step.carrier === carrier.name
 					)
 				),
 				`the creation of ${carrier.name}`
@@ -167,7 +169,10 @@ type KeyFeature =
 
 const factText = (f: { readonly id: number; readonly v: number }): string => `(${f.id}, ${f.v})`
 
-const insertSql = (k: KeyedCarrier, facts: ReadonlyArray<{ readonly id: number; readonly v: number }>) =>
+const insertSql = (
+	k: KeyedCarrier,
+	facts: ReadonlyArray<{ readonly id: number; readonly v: number }>
+) =>
 	`INSERT INTO ${printTableName(k.carrier.name)} (${quoteIdent(k.id)}, ${quoteIdent(k.v)}) VALUES ${Arr.join(Arr.map(facts, factText), ", ")}`
 
 /** The carrier's rows, as texts, in any order. */
@@ -256,7 +261,11 @@ const runOn = (session: RawSession, k: KeyedCarrier, box: KeyCase, notes: Set<Ke
 				}
 				yield* session.query(statement, [])
 				const after = yield* rowsOf(session, k)
-				unorderedEqual(after, expectedRows([replacement]), "the carrier holds the replacement alone")
+				unorderedEqual(
+					after,
+					expectedRows([replacement]),
+					"the carrier holds the replacement alone"
+				)
 				yield* session.rollback
 				notes.add(
 					box.deletionFirst

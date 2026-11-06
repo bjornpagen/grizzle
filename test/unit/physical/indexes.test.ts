@@ -274,6 +274,8 @@ const sameLiteral = (a: TypedLiteral, b: TypedLiteral): boolean => {
 			return b.kind === "text" && a.value === b.value
 		case "uuid":
 			return b.kind === "uuid" && a.value === b.value
+		case "date":
+			return b.kind === "date" && a.value === b.value
 		case "handle":
 			return b.kind === "handle" && a.handle === b.handle
 		case "handles":

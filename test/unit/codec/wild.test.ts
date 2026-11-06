@@ -120,6 +120,14 @@ const spans = <E extends number | bigint>(endpoint: Gen<E>): Gen<unknown> =>
 		([a, b]) => (a < b ? { start: a, end: b } : { start: b, end: a })
 	)
 
+/** A calendar date's ISO 8601 text: a day from 0001-01-01 to 9999-12-31, as ECMAScript's Date counts them. */
+const calendarDates: Gen<unknown> = (source) => {
+	const d = new Date(0)
+	d.setUTCFullYear(1, 0, 1 + source.draw(int(0, 3_652_058)))
+	const two = (n: number): string => String(n).padStart(2, "0")
+	return `${String(d.getUTCFullYear()).padStart(4, "0")}-${two(d.getUTCMonth() + 1)}-${two(d.getUTCDate())}`
+}
+
 const handles = ["Manual", "Automatic", "Ünïcode"] as const
 
 /** The largest finite float32. */
@@ -193,6 +201,7 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 	],
 	bool: [{ label: "bool", type: { carrier: "bool", caps }, live: boolean }],
 	uuid: [{ label: "uuid", type: { carrier: "uuid", caps }, live: uuid(4) }],
+	date: [{ label: "date", type: { carrier: "date", caps }, live: calendarDates }],
 	text: [
 		{
 			label: "text",

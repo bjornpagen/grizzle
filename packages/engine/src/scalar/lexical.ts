@@ -1,12 +1,14 @@
+import { unsupported } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { derived, type Limit, regexMaxRepeat } from "#compiler/core/limits.ts"
-import * as Result from "#compiler/core/result.ts"
+import { captureLoc } from "#compiler/core/loc.ts"
 import { binary64DecimalDigits, binary64Digits, integerRanges } from "#compiler/ir/carriers.ts"
-import { contractOf, type NumericTypmod, type ScalarType } from "#compiler/ir/scalar.ts"
+import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
+import { baseOf, contractOf, type NumericTypmod, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type Inclusion, inclusion } from "#compiler/scalar/regex/inclusion.ts"
 import { buildNfa, type Nfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
+import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 
 /**
@@ -57,7 +59,9 @@ export const lexicalTargetOf = (type: ScalarType): LexicalTarget | undefined => 
 			return { kind: "integer", carrier: type.carrier }
 		case "numeric": {
 			const typmod = type.typmod
-			return typmod !== undefined && decimalWritable(typmod) ? { kind: "decimal", typmod } : undefined
+			return typmod !== undefined && decimalWritable(typmod)
+				? { kind: "decimal", typmod }
+				: undefined
 		}
 		case "float8":
 			return { kind: "double" }
@@ -105,11 +109,13 @@ export const numeralAtMost = (n: bigint): string => {
 	const digits = n.toString()
 	const width = digits.length
 	const shorter = width > 1 ? [`[1-9]${repeat("[0-9]", 0, width - 2)}`] : []
-	const below = [...digits].flatMap((d, i): ReadonlyArray<string> => {
+	const below = digits.split("").flatMap((d, i): ReadonlyArray<string> => {
 		const least = i === 0 ? 1 : 0
 		const v = Number(d)
 		return v > least
-			? [`${digits.slice(0, i)}${digitClass(least, v - 1)}${repeat("[0-9]", width - 1 - i, width - 1 - i)}`]
+			? [
+					`${digits.slice(0, i)}${digitClass(least, v - 1)}${repeat("[0-9]", width - 1 - i, width - 1 - i)}`
+				]
 			: []
 	})
 	return `(?:${["0", ...shorter, ...below, ...(n > 0n ? [digits] : [])].join("|")})`
@@ -136,9 +142,11 @@ const fractionDigits = (s: number, least: 0 | 1): string =>
 const doubleMantissaDigits: Limit = derived({
 	owner: "grizzle's lexical forms",
 	unit: "decimal digits",
-	scope: "the significant digits of a double precision lexical form's mantissa, before its point and after it",
+	scope:
+		"the significant digits of a double precision lexical form's mantissa, before its point and after it",
 	from: [binary64DecimalDigits],
-	derivation: "DBL_DIG: every decimal of that many significant digits rounds to a binary64 value and back unchanged",
+	derivation:
+		"DBL_DIG: every decimal of that many significant digits rounds to a binary64 value and back unchanged",
 	compute: ([digits]) => digits.value
 })
 
@@ -202,7 +210,7 @@ const dateForm = (): string => {
  * both ends: what `str.regex` types a lexical field by, what Compute.matches guards a parse with, and what the parse's
  * totality is proved against.
  */
-export const lexicalForm = (target: LexicalTarget): string => {
+export const formSource = (target: LexicalTarget): string => {
 	const body = ((): string => {
 		switch (target.kind) {
 			case "integer":
@@ -236,74 +244,182 @@ const nfaOf = (source: string, flags: "u" | "su"): Nfa => {
 export const formIncludes = (
 	pattern: { readonly source: string; readonly flags: "u" | "su" },
 	target: LexicalTarget
-): Inclusion => inclusion(nfaOf(pattern.source, pattern.flags), nfaOf(lexicalForm(target), "u"))
+): Inclusion => inclusion(nfaOf(pattern.source, pattern.flags), nfaOf(formSource(target), "u"))
 
-/** A member's sign and the digits on each side of its point, which the form makes a decimal numeral. */
-const numeral = (
-	text: string
-): { readonly negative: boolean; readonly integer: string; readonly fraction: string } => {
-	const negative = text.startsWith("-")
-	const unsigned = text.startsWith("-") || text.startsWith("+") ? text.slice(1) : text
-	const point = unsigned.indexOf(".")
-	return point < 0
-		? { negative, integer: unsigned, fraction: "" }
-		: { negative, integer: unsigned.slice(0, point), fraction: unsigned.slice(point + 1) }
+/** A decimal numeral's sign and the digits on each side of its point, at least one digit in all. */
+interface Numeral {
+	readonly negative: boolean
+	readonly integer: string
+	readonly fraction: string
 }
 
-/** The units and scale of a numeral: its digits as one integer, and its fraction digits' count. */
-const unitsOf = (n: ReturnType<typeof numeral>): { readonly units: bigint; readonly scale: number } => {
-	const digits = `${n.integer}${n.fraction}`
-	const magnitude = digits === "" ? 0n : BigInt(digits)
+/** Whether a code unit is an ASCII digit. */
+const isDigit = (code: number): boolean => code >= 0x30 && code <= 0x39
+
+/**
+ * The numeral a text is, `[+-]?digits(.digits)?` with at least one digit on one side of the point, or undefined: the
+ * mantissa of xs:decimal's and xs:double's lexical spaces, and xs:integer's with no point.
+ */
+const numeralOf = (text: string): Numeral | undefined => {
+	const signed = text.startsWith("-") || text.startsWith("+")
+	const start = signed ? 1 : 0
+	let point = -1
+	for (let i = start; i < text.length; i++) {
+		const code = text.charCodeAt(i)
+		if (code === 0x2e && point < 0) {
+			point = i
+		} else if (!isDigit(code)) {
+			return undefined
+		}
+	}
+	const integer = point < 0 ? text.slice(start) : text.slice(start, point)
+	const fraction = point < 0 ? "" : text.slice(point + 1)
+	return integer.length + fraction.length === 0
+		? undefined
+		: { negative: text.startsWith("-"), integer, fraction }
+}
+
+/** The digits of a numeral's integer part past its leading zeros. */
+const significantInteger = (digits: string): number => {
+	let i = 0
+	while (i < digits.length && digits.charCodeAt(i) === 0x30) {
+		i++
+	}
+	return digits.length - i
+}
+
+/** The digits of a numeral's fraction before its trailing zeros. */
+const significantFraction = (digits: string): number => {
+	let end = digits.length
+	while (end > 0 && digits.charCodeAt(end - 1) === 0x30) {
+		end--
+	}
+	return end
+}
+
+/** The units and scale of a numeral: its digits as one integer, signed, and its fraction digits' count. */
+const unitsOf = (n: Numeral): { readonly units: bigint; readonly scale: number } => {
+	const magnitude = BigInt(`${n.integer}${n.fraction}`)
 	return { units: n.negative ? -magnitude : magnitude, scale: n.fraction.length }
 }
 
-/** The rational a double precision member names, `mantissa * 10^exponent`, as its sign, numerator and denominator. */
-const doubleRational = (
-	text: string
-): { readonly negative: boolean; readonly num: bigint; readonly den: bigint } => {
-	const e = Math.max(text.indexOf("e"), text.indexOf("E"))
-	const mantissa = e < 0 ? text : text.slice(0, e)
-	const exponent = e < 0 ? 0 : Number(text.slice(e + 1))
-	const n = numeral(mantissa)
-	const { units, scale } = unitsOf({ ...n, negative: false })
-	const shift = exponent - scale
-	return shift >= 0
-		? { negative: n.negative, num: units * 10n ** BigInt(shift), den: 1n }
-		: { negative: n.negative, num: units, den: 10n ** BigInt(-shift) }
+/** An integer a member names, within the carrier's range. */
+const integerValue = (text: string, carrier: "int2" | "int4" | "int8"): bigint | undefined => {
+	const n = numeralOf(text)
+	if (n === undefined || n.fraction.length > 0 || n.integer.length === 0 || text.includes(".")) {
+		return undefined
+	}
+	const value = BigInt(text)
+	const [lo, hi] = integerRanges[carrier]
+	return value < lo || value > hi ? undefined : value
+}
+
+/** A decimal a member names, with no more significant digits on either side of its point than the typmod holds. */
+const decimalValue = (text: string, { precision, scale }: NumericTypmod): Decimal | undefined => {
+	const n = numeralOf(text)
+	if (
+		n === undefined ||
+		significantInteger(n.integer) > precision - scale ||
+		significantFraction(n.fraction) > scale
+	) {
+		return undefined
+	}
+	const { units, scale: digits } = unitsOf(n)
+	const made = Decimal.fromParts(units < 0n, units < 0n ? -units : units, digits)
+	return made.ok ? made.value : undefined
+}
+
+/** The exponent of a double precision member, `[+-]?digits`, within the form's bound. */
+const exponentValue = (text: string): number | undefined => {
+	const n = numeralOf(text)
+	if (n === undefined || n.fraction.length > 0 || n.integer.length === 0 || text.includes(".")) {
+		return undefined
+	}
+	const value = Number(BigInt(text))
+	return Math.abs(value) > doubleExponentMax.value ? undefined : value
 }
 
 /**
- * The value a member of a target's lexical form names, as XML Schema's lexical mapping gives it and PostgreSQL's input
- * function reads it: an integer exactly; a decimal exactly, at the typmod's scale, which the form leaves unrounded; a
- * double rounded once, half to even, from its exact rational value by `round`; a boolean by its literal; a date as its
- * own text. A text that is no member is a defect: a parse stands only where its form is proved.
+ * A double precision member: `NaN`, `INF`, `-INF`, or a mantissa of at most doubleMantissaDigits significant digits on
+ * either side of its point with an optional exponent of magnitude at most doubleExponentMax, as the value its exact
+ * rational `mantissa * 10^exponent` rounds to by `round`.
+ */
+const doubleValue = (
+	text: string,
+	round: (negative: boolean, num: bigint, den: bigint) => number
+): number | undefined => {
+	if (text === "NaN") {
+		return Number.NaN
+	}
+	if (text === "INF" || text === "-INF") {
+		return text === "INF" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY
+	}
+	const e = Math.max(text.indexOf("e"), text.indexOf("E"))
+	const n = numeralOf(e < 0 ? text : text.slice(0, e))
+	const exponent = e < 0 ? 0 : exponentValue(text.slice(e + 1))
+	const m = doubleMantissaDigits.value
+	if (
+		n === undefined ||
+		exponent === undefined ||
+		significantInteger(n.integer) > m ||
+		significantFraction(n.fraction) > m
+	) {
+		return undefined
+	}
+	const { units, scale } = unitsOf({ ...n, negative: false })
+	const shift = exponent - scale
+	return shift >= 0
+		? round(n.negative, units * 10n ** BigInt(shift), 1n)
+		: round(n.negative, units, 10n ** BigInt(-shift))
+}
+
+/**
+ * The value a text names under a target's lexical form, or undefined when it is no member of the form: the form
+ * decided again by a scan of the text, never by its pattern, so the two definitions of each form are held to agree
+ * (test/unit/scalar/lexical.test.ts). The value is the one XML Schema's lexical mapping gives the member and
+ * PostgreSQL's input function reads from it: an integer exactly; a decimal exactly, which the form leaves unrounded at
+ * the typmod; a double rounded once, half to even, from its exact rational value by `round`; a boolean by its literal;
+ * a date as its own text.
  */
 export const lexicalValue = (
 	target: LexicalTarget,
 	text: string,
 	round: (negative: boolean, num: bigint, den: bigint) => number
-): Result.Result<LexicalValue, "lexical"> => {
+): LexicalValue | undefined => {
 	switch (target.kind) {
 		case "integer":
-			return Result.ok(BigInt(text))
-		case "decimal": {
-			const { units, scale } = unitsOf(numeral(text))
-			const made = Decimal.fromParts(units < 0n, units < 0n ? -units : units, scale)
-			return made.ok ? Result.ok(made.value) : Result.err("lexical")
-		}
-		case "double": {
-			if (text === "NaN") {
-				return Result.ok(Number.NaN)
-			}
-			if (text === "INF" || text === "-INF") {
-				return Result.ok(text === "INF" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY)
-			}
-			const { negative, num, den } = doubleRational(text)
-			return Result.ok(round(negative, num, den))
-		}
+			return integerValue(text, target.carrier)
+		case "decimal":
+			return decimalValue(text, target.typmod)
+		case "double":
+			return doubleValue(text, round)
 		case "boolean":
-			return Result.ok(text === "true" || text === "1")
-		case "date":
-			return Result.mapError(toCalendarDate(text), () => "lexical" as const)
+			return text === "true" || text === "1"
+				? true
+				: text === "false" || text === "0"
+					? false
+					: undefined
+		case "date": {
+			const date = toCalendarDate(text)
+			return date.ok ? date.value : undefined
+		}
 	}
+}
+
+/**
+ * lexicalForm(T): the lexical form of a field descriptor's type, a pattern under flags "u" for `str.regex` to type a
+ * lexical field by and for Compute.matches to guard a parse with, so a text of the form casts into T total
+ * (Compute.cast). A contract's form is its base's, which a cast into the contract parses, then enters the contract by
+ * its predicate's proof: date's, whose range is the form's own. A type with no form is refused, UnsupportedOperation.
+ */
+export const lexicalFormOf = (type: unknown): string => {
+	const loc = captureLoc("lexicalForm", [])
+	const target = lexicalTargetOf(baseOf(describeFieldOrThrow(type, loc).scalar))
+	if (target === undefined) {
+		throw unsupported(
+			loc,
+			"lexicalForm of a type with a lexical form: an integer type, numeric(p, s) with 0 <= s <= p, double precision, boolean or date"
+		)
+	}
+	return formSource(target)
 }

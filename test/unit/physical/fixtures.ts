@@ -159,6 +159,7 @@ export const Ledger: SchemaDesc = {
 				minor: Cents
 			},
 			key: ["currency", "purpose"],
+			slots: [],
 			rows: [
 				{ currency: "Usd", purpose: "Payroll", code: "USD", minor: 100n },
 				{ currency: "Eur", purpose: "Refund", code: "EUR", minor: 100n }

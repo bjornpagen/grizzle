@@ -32,6 +32,7 @@ const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, string>> =
 	money: "money",
 	bool: "bool",
 	uuid: "uuid",
+	date: "date",
 	text: "text",
 	code: "int2",
 	bits: "bit",

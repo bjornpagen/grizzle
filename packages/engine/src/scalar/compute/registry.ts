@@ -19,7 +19,8 @@ import {
 	type IntCarrier,
 	integerCast,
 	moneyCast,
-	numericCast
+	numericCast,
+	textCast
 } from "#compiler/scalar/compute/cast.ts"
 import type { ResultCarrier } from "#compiler/scalar/compute/types.ts"
 
@@ -66,6 +67,7 @@ const requires = (preconditions: NonEmptyReadonlyArray<Precondition>): Totality 
 const nonzero = (operand: OperandIndex): Precondition => Object.freeze({ kind: "nonzero", operand })
 const finite = (operand: OperandIndex): Precondition => Object.freeze({ kind: "finite", operand })
 const fits: Precondition = Object.freeze({ kind: "fits" })
+const lexical: Precondition = Object.freeze({ kind: "lexical" })
 const divisor: Totality = requires([nonzero(1)])
 const narrowing: Totality = requires([fits])
 const finiteNarrowing: Totality = requires([finite(0), fits])
@@ -356,7 +358,6 @@ const variadic = (element: Carrier): VariadicOperands => {
 
 /** An overload, frozen. */
 const frozen = <O extends Overload>(overload: O): O => Object.freeze(overload)
-
 
 /** A pg_catalog infix operator over two operands of one carrier. */
 const infix = (
@@ -700,7 +701,8 @@ const endpoint = (fn: "lower" | "upper", range: SpanCarrier, point: IntCarrier):
  *   composed), each for checks only; and the regex match (textregexeq), whose pattern operand's every value was
  *   admitted inside PostgreSQL's regex compile space where the node was typed (compute/lower.ts), everywhere. textcat
  *   allocates its result, which past PostgreSQL's MaxAllocSize raises "invalid memory alloc request size": no query
- *   holds it, and a check or generated column holding it fails a write whose texts would pass 1 GB;
+ *   holds it, an equation with a concatenation lowering without it (compute/lower.ts concatEquation), and a check or
+ *   generated column holding it fails a write whose texts would pass 1 GB;
  * - pgvector's cosine distance, the one score an approximate search ranks by, never the <=> operator;
  * - readings: numeric_div, power(numeric,numeric) and sqrt(numeric) take their result scale from their operands'
  *   display scales (numeric.c select_div_scale, sqrt's and power_var's rscale, the exponent's included), so they are
@@ -1117,12 +1119,12 @@ const spanOverloads: {
 /** A registered cast: its node, and the host conversion the evaluator runs for it. */
 export type CastOp = FixedOp & {
 	readonly fn: "cast"
-	readonly operands: PositionalOperands<readonly [ResultCarrier]>
+	readonly operands: PositionalOperands<readonly [ResultCarrier | "text"]>
 	readonly host: HostCast
 }
 
 /** A registered cast from `S` to `T`. */
-type CastOpOf<S extends ResultCarrier, T extends ResultCarrier> = CastOp & {
+type CastOpOf<S extends ResultCarrier | "text", T extends ResultCarrier> = CastOp & {
 	readonly operands: PositionalOperands<readonly [S]>
 	readonly result: T
 }
@@ -1132,7 +1134,7 @@ type CastOpOf<S extends ResultCarrier, T extends ResultCarrier> = CastOp & {
  * and numeric share PostgreSQL's type name, and their casts differ in what they need (numeric into numeric is a
  * typmod's narrowing, an exact integer into numeric total), so only the carriers name one cast.
  */
-const castOp = <S extends ResultCarrier, T extends ResultCarrier>(
+const castOp = <S extends ResultCarrier | "text", T extends ResultCarrier>(
 	source: S,
 	target: T,
 	totality: Totality,
@@ -1186,6 +1188,18 @@ const fromMoney = <S extends "money" | "exactMoney", T extends "numeric" | "mone
 	totality: Totality,
 	volatility: Volatility
 ): CastOpOf<S, T> => castOp(source, target, totality, volatility, moneyCast(target))
+
+/**
+ * A parse, the cast from text into a type with a lexical form (scalar/lexical.ts): PostgreSQL's input function of the
+ * target over the text, an I/O conversion whose volatility is its input function's and textout's (nodeFuncs.c
+ * check_functions_in_node, CoerceViaIO), IMMUTABLE for int2in, int4in, int8in, numeric_in, float8in and boolin, and
+ * for a date make_date over the text's year, month and day, since date_in is STABLE (sql/lexical.ts). It is defined
+ * where the text is a member of the target's lexical form ("lexical"), which the lowering proves by language
+ * inclusion.
+ */
+const fromText = <T extends "int2" | "int4" | "int8" | "numeric" | "float8" | "bool" | "date">(
+	target: T
+): CastOpOf<"text", T> => castOp("text", target, requires([lexical]), "immutable", textCast)
 
 /**
  * Each cast by its source and target carriers, which its OpId "cast:<source>-><target>" spells, so no two casts share
@@ -1263,10 +1277,25 @@ const castOverloads = {
 	exactMoney: {
 		money: fromMoney("exactMoney", "money", narrowing, "stable"),
 		numeric: fromMoney("exactMoney", "numeric", total, "immutable")
+	},
+	text: {
+		int2: fromText("int2"),
+		int4: fromText("int4"),
+		int8: fromText("int8"),
+		numeric: fromText("numeric"),
+		float8: fromText("float8"),
+		bool: fromText("bool"),
+		date: fromText("date")
 	}
 } as const satisfies {
-	readonly [S in ResultCarrier]?: { readonly [T in ResultCarrier]?: CastOpOf<S, T> }
+	readonly [S in ResultCarrier | "text"]?: { readonly [T in ResultCarrier]?: CastOpOf<S, T> }
 }
+
+/**
+ * Whether a cast node is the parse of a date text, which SQL spells as make_date over the text's parts, never as its
+ * catalog cast `text::date`, whose input function is STABLE (sql/lexical.ts dateOfText).
+ */
+export const isDateParse = (cast: OpId): boolean => cast === castOverloads.text.date.id
 
 /** Every cast by its source and target carriers, for a lookup by any pair. */
 const castTable: { readonly [S in Carrier]?: { readonly [T in Carrier]?: CastOp } } = castOverloads

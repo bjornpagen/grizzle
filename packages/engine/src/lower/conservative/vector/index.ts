@@ -151,6 +151,7 @@ export const lowerVectorOp = (
 		case "difference":
 		case "subset":
 		case "disjoint":
+		case "endsWith":
 			return refuseAt("UnsupportedOperation", at, `the vector operation ${describeOp(expr.op)}`)
 	}
 }

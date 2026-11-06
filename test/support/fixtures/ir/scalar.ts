@@ -113,6 +113,7 @@ const exactWidening = (
 		case "range8":
 		case "text":
 		case "uuid":
+		case "date":
 		case "vector":
 			return undefined
 	}

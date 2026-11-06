@@ -37,6 +37,7 @@ const fixedWidth = (bound: DatumBound): boolean => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "code":
 			return true
 		case "bit":

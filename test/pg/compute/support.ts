@@ -165,6 +165,7 @@ const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean
 		case "range8":
 		case "text":
 		case "uuid":
+		case "date":
 		case "vector":
 			return typeof value === "string" && value === text
 	}

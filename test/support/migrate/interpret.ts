@@ -544,22 +544,14 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 }
 
 /**
- * The bit string a pack builds: `radices`' product cells of `width` bits, each 0 but a row's, which holds 1 + its
- * payload code at its key's row-major index (Horner's rule over the key's codes in order), written by the test oracle
- * bitText.
+ * The bit string a pack builds: its `cells` cells of `width` bits, each 0 but a row's, which holds 1 + its payload code
+ * at the row's cell, written by the test oracle bitText.
  */
 const packedBits = (s: PackConstant): string => {
-	const entries = Arr.map(s.rows, (row) => ({
-		index: Arr.reduce(
-			Arr.zip(row.key, s.radices),
-			0n,
-			(index, [code, radix]) => index * BigInt(radix) + BigInt(code)
-		),
-		payload: row.payload
-	}))
+	const entries = Arr.map(s.rows, (row) => ({ index: row.index, payload: row.payload }))
 	const text = bitText(
 		{
-			cells: Arr.reduce(s.radices, 1n, (cells, radix) => cells * BigInt(radix)),
+			cells: s.cells,
 			width: s.width,
 			entries: Arr.sort(
 				entries,

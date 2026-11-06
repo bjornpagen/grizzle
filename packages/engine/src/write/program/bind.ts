@@ -21,16 +21,13 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { isIterable } from "#compiler/write/defined.ts"
 import { compose, type RelationPlanAt, relationDepths } from "#compiler/write/family/compose.ts"
-import { textsKey } from "#compiler/write/family/draw.ts"
 import {
 	decodeRead,
 	type EditedTarget,
 	type EditTarget,
 	type Fact,
 	type FillContext,
-	fixedRefusal,
 	foldRecounts,
-	groupKey,
 	ownerText,
 	recountValues,
 	ownersOf,
@@ -115,8 +112,8 @@ export interface BoundWrite {
  * statement but a family step's; a family step's, one per statement of its kind in its family's plan (write/family/
  * order.ts plan), each its rows' arrays, none when the application writes no row of that kind. Every execution sends
  * the statement's one text, and its rows are every execution's, in order. A row no statement carries even alone is its
- * family's FamilyRowBound, and a change an immutable owner's family refuses its CompileError (write/family/edit.ts
- * fixedRefusal), before any write statement is sent.
+ * family's FamilyRowBound, and a change an immutable owner's stored family refuses its CompileError (write/family/
+ * edit.ts planEdits), before any write statement is sent: the read flight has found the stored groups.
  */
 export type Chunks = (
 	statement: ArtifactStatement
@@ -380,34 +377,9 @@ export const bindWrite = (
 			known.set(id, found)
 			return found
 		}
-		/** The families whose owner is immutable: an insert appends to its group's owner, which such an owner takes only
-		 * when this stratum inserts it. The group key is a value, so the host refuses it here, before any SQL. */
-		const fixedFamilies = target.families.filter((f) => f.fixed)
-		for (const { family } of fixedFamilies) {
-			const inserted = owners(family)
-			for (const fact of changes.inserts) {
-				const group = groupKey(ctx, family, fact)
-				if (!inserted.has(textsKey(group))) {
-					return Result.err(
-						fixedRefusal(
-							target.relation.name,
-							`an insert into ${target.relation.name}`,
-							family,
-							`appending to the owner ${family.owner.name} with key (${group.join(", ")}), which this stratum does not insert`
-						)
-					)
-				}
-			}
-		}
 		const familyReads: Array<BoundEdit["reads"][number]> = []
 		for (const read of editProgram.reads) {
-			const touched = readKeys(
-				ctx,
-				target,
-				read.family,
-				changes,
-				new Set(owners(read.family).keys())
-			)
+			const touched = readKeys(ctx, target, read.family, changes)
 			const at: Array<number> = []
 			if (touched !== undefined) {
 				const parts = planRead(
@@ -466,7 +438,7 @@ export const bindWrite = (
 				const current = refilled.get(slot) ?? factsOf(slot)
 				const byGroup = new Map<string, ReadonlyMap<string, unknown>>()
 				for (const [text, recount] of write.recounts) {
-					if (ownersOf(ctx, family, current.facts).has(text)) {
+					if (!write.stored.has(text) && ownersOf(ctx, family, current.facts).has(text)) {
 						byGroup.set(text, recountValues(ctx, family, recount))
 						kept.delete(text)
 					}
@@ -483,7 +455,7 @@ export const bindWrite = (
 					)
 				}
 			}
-			return kept.size > 0 ? [{ family: write.family, recounts: kept }] : []
+			return kept.size > 0 ? [{ family: write.family, recounts: kept, stored: write.stored }] : []
 		})
 	/** The insert slots of an owner relation in a stratum that carry its counts and ends: a plain insert's that starts
 	 * them (frontend/compile.ts EnumeratedInput "single"), and a nested insert's. */

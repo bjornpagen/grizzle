@@ -127,6 +127,40 @@ export const dateParts = (
  */
 export const datePartSlices = {
 	year: { start: 1, length: dateLayout.monthHyphen },
-	month: { start: dateLayout.monthHyphen + 2, length: dateLayout.dayHyphen - dateLayout.monthHyphen - 1 },
+	month: {
+		start: dateLayout.monthHyphen + 2,
+		length: dateLayout.dayHyphen - dateLayout.monthHyphen - 1
+	},
 	day: { start: dateLayout.dayHyphen + 2, length: dateTextLength - dateLayout.dayHyphen - 1 }
 } as const
+
+/**
+ * The days of a common year.
+ *
+ * @formatConstant the Gregorian calendar's common year
+ */
+const commonYearDays = 365
+
+/** The days of the proleptic Gregorian calendar before January 1 of `year`, counted from 0001-01-01. */
+const daysBeforeYear = (year: number): number => {
+	const y = year - 1
+	return (
+		commonYearDays * y +
+		Math.floor(y / leapCycle.year) -
+		Math.floor(y / leapCycle.century) +
+		Math.floor(y / leapCycle.era)
+	)
+}
+
+/**
+ * A calendar date's day number, its days after 0001-01-01: the order of dates is the order of their day numbers, so
+ * an interval of dates is an interval of day numbers, the bound domain a date's comparisons are judged in.
+ */
+export const dayNumber = (date: CalendarDate): number => {
+	const { year, month, day } = dateParts(date)
+	let days = daysBeforeYear(year)
+	for (let m = 1; m < month; m++) {
+		days += daysInMonth(year, m) ?? 0
+	}
+	return days + day - 1
+}

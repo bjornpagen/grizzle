@@ -1,4 +1,5 @@
 import { describe, it } from "@effect/vitest"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import { drawn, exhaust, explore } from "@grizzle/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@grizzle/testing/features"
 import {
@@ -462,6 +463,8 @@ describe("literals", () => {
 						literal.value
 					)
 				)
+			case "date":
+				return c === "date" && toCalendarDate(literal.value).ok
 			case "handle":
 				return c === "code" && type.roster.handles.includes(literal.handle)
 			case "handles": {

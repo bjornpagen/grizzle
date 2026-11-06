@@ -18,7 +18,7 @@ import {
  * The language is wider than the uuids: TypeScript writes a hexadecimal group as `${string}`, since a template of exact
  * groups would be a union of 16^32 members, so any text with four hyphens is in it ("a-b-c-d-e") and is refused at the
  * boundary instead: toUuid when a parameter or a fact encodes, and the checker for a literal in a description.
- * RegexInfer (text/field.ts), the guarded path for an author's pattern, would widen this one to string twice over: its
+ * RegexInfer (types/fields/regex.ts), the guarded path for an author's pattern, would widen this one to string twice over: its
  * scan stops at 40 code units, and a class holding a digit range beside letters could be a union holding `${number}`.
  * Neither applies to the inference itself: ArkRegex writes the hexadecimal class as `${string}`, never `${number}`, and
  * the pattern has no escape and anchors only at the two ends of its one alternative. So ArkRegex's own inference is

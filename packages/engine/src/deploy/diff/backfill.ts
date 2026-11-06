@@ -214,7 +214,7 @@ const window = (
 
 /** A window function's call over `over`. */
 const over = (
-	fn: "row_number" | "sum" | "max" | "bit_or" | "lag",
+	fn: "row_number" | "sum" | "max" | "bit_or" | "string_agg" | "lag",
 	args: ReadonlyArray<Expr>,
 	spec: WindowSpec
 ): Expr => ({
@@ -271,17 +271,26 @@ const afterName = (f: number, p: number): string => `__after_${f}_${p}`
 const beforeName = (f: number, p: number): string => `__before_${f}_${p}`
 
 /** The running aggregate of a monoid's first plane over its masked steps (count's and sum's a sum of the steps, each 0
- * where its selection fails, max's a max, each the least value there, or's a union, each the empty set there). */
-const runningOf = (fold: FamilyFold): "sum" | "max" | "bit_or" => {
+ * where its selection fails, max's a max, each the least value there, or's a union, each the empty set there, and
+ * concat's the steps' concatenation in the family's order, each the empty text there), with the arguments it takes
+ * beside the step: string_agg's empty delimiter. */
+const runningOf = (
+	fold: FamilyFold
+): {
+	readonly fn: "sum" | "max" | "bit_or" | "string_agg"
+	readonly after: ReadonlyArray<Expr>
+} => {
 	switch (fold.monoid) {
 		case "count":
 		case "sum":
-			return "sum"
+			return { fn: "sum", after: [] }
 		case "max":
-			return "max"
+			return { fn: "max", after: [] }
 		case "or":
 		case "twos":
-			return "bit_or"
+			return { fn: "bit_or", after: [] }
+		case "concat":
+			return { fn: "string_agg", after: [lit.text("", types.text)] }
 	}
 }
 
@@ -395,7 +404,11 @@ const planeLayers = (
 			return {
 				name: afterName(f, 0),
 				expr: cast(
-					over(runningOf(fold), [tableCol(stepName(f))], window(partition, inOrder, true)),
+					over(
+						runningOf(fold).fn,
+						[tableCol(stepName(f)), ...runningOf(fold).after],
+						window(partition, inOrder, true)
+					),
 					base
 				)
 			}

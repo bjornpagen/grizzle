@@ -85,6 +85,8 @@ export const wireSql = (type: ScalarType, names: SqlNames): string => {
 			return "bool"
 		case "uuid":
 			return "uuid"
+		case "date":
+			return "date"
 		case "text":
 			return "text"
 		case "range4":

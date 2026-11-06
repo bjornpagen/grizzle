@@ -53,6 +53,7 @@ import type {
 } from "#compiler/types/core/phantom.ts"
 import type { EqualityStates, StatesOf, Stating } from "#compiler/types/evidence/evidence.ts"
 import type { Field, LiteralOf, NotRoster } from "#compiler/types/fields/field.ts"
+import type { PatternValidate } from "#compiler/types/fields/regex.ts"
 
 /** A divisor's requirement: proved nonzero, except a float's, whose quotient by zero IEEE 754 defines. */
 type Divisor<S extends SqlTag, B> = [S] extends ["real" | "double precision"]
@@ -680,6 +681,49 @@ export interface ComputeApi {
 	charLength<A extends TermBase | FirstValue, X, PA, OA>(
 		s: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
 	): Scalar<number, PA, ComputedOrigin<OA>, "integer">
+	/**
+	 * a || b, PostgreSQL's textcat: text of no pattern. The second operand is a text term the first meets, a parameter
+	 * among them, or a string. Admitted in contract predicates, row checks, generated fields and folds; in a query only
+	 * as a side of Compute.eq or Compute.ne, which is decided without building the concatenation, since it allocates its
+	 * result, which PostgreSQL refuses past 1 GB, and a read never fails on a value.
+	 */
+	concat<A extends TermBase | FirstValue, X, PA, OA, const B extends Meets<X, "text"> | string>(
+		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">,
+		b: B
+	): Term<string, PA & P<B>, ComputedOrigin<OA | O<B>>, "text">
+	/** Whether a begins with b, PostgreSQL's starts_with: by code points, as text compares. */
+	startsWith<A extends TermBase | FirstValue, X, PA, OA, const B extends Meets<X, "text"> | string>(
+		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">,
+		b: B
+	): Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
+	/** Whether a ends with b: `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with. */
+	endsWith<A extends TermBase | FirstValue, X, PA, OA, const B extends Meets<X, "text"> | string>(
+		a: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">,
+		b: B
+	): Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
+	/**
+	 * Whether the text holds a match of the pattern, PostgreSQL's `~` (textregexeq), as a str.regex refinement holds
+	 * one: the pattern is in grizzle's grammar under the flags "u", and `^` and `$` anchor it. The pattern is a string,
+	 * which the grammar check reads at the type level as str.regex's does, or a text term whose every value the schema
+	 * holds: a closed relation's text payload, `C.at(field, …)`, or a Compute.cond of such terms; every value is
+	 * admitted inside PostgreSQL's regex compile space when the term is compiled, and any other term, which can be any
+	 * text, is refused. A match is also a guard: Compute.when's branch receives its subject, which compilation reads as
+	 * text of the pattern's language where the pattern is a string, and as it is where it is a term, whose values hold
+	 * no one language, so the when is then a conditional over the match.
+	 */
+	matches<
+		A extends TermBase | FirstValue,
+		X,
+		PA,
+		OA,
+		V,
+		FA extends Facts,
+		L,
+		const B extends Meets<string, "text"> | string
+	>(
+		subject: A & FirstTerm<A> & Term<X, PA, OA, "text", V, FA, L>,
+		pattern: B & (B extends string ? PatternValidate<B> : unknown)
+	): Guard<Term<X, PA, OA, "text", V, FA, L>, PA & P<B>, ComputedOrigin<OA | O<B>>>
 
 	/**
 	 * double precision in [0, 2]; schema-qualified cosine_distance(a, b), never the <=> operator. The second operand is

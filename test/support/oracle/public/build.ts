@@ -2,7 +2,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { closedId, contract, pg, span, uuid, Vector } from "#compiler/public/fields.ts"
+import { date, closedId, contract, pg, span, uuid, Vector } from "#compiler/public/fields.ts"
 import {
 	closed,
 	key,
@@ -153,6 +153,8 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 			return prose
 		case "uuid":
 			return uuid
+		case "date":
+			return date
 		case "code":
 			return closedId(roster)
 		case "bits":
@@ -309,6 +311,7 @@ export const hostValue = (literal: TypedLiteral, type: ScalarType): unknown => {
 		case "bool":
 		case "text":
 		case "uuid":
+		case "date":
 			return literal.value
 		case "handle":
 			return literal.handle

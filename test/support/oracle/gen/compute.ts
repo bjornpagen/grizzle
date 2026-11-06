@@ -398,6 +398,7 @@ const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
 		case "float8":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":

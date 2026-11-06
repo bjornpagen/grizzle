@@ -8,7 +8,6 @@ import { rowEq, rowNe, typedEq } from "#compiler/lower/conservative/vector/equal
 import type { Cte, Delete, Expr, FromItem } from "#compiler/sql/ast.ts"
 import {
 	and,
-	asOperand,
 	col,
 	conjunction,
 	cte,
@@ -24,7 +23,7 @@ import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import type { DeleteAnchor } from "#compiler/write/delete/anchor.ts"
 import {
 	inputSharing,
-	readInput,
+	readOperand,
 	skipWhenEmptyOf,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
@@ -164,18 +163,16 @@ const buildDelete = (
 		 * identity, the displacing key and payload comparisons and EXCEPT compare written facts. The cast
 		 * is into each column's base type with its typmod: a value outside a domain matches no stored fact. */
 		const into = { as: "compare" } as const
-		const read = readInput(
+		const read = readOperand(
 			w,
 			input,
-			{ kind: "input", fields: compared, distinct: false, alias: scan, keys: inputs, into },
+			{ kind: "input", fields: compared, alias: scan, keys: inputs, into },
 			at
 		)
 		const body = setOp("EXCEPT", [
-			asOperand(read.select.body),
-			...except.map((addition) =>
-				asOperand(
-					readInput(w, addition, { kind: "except", fields: compared, into }, at).select.body
-				)
+			read.body,
+			...except.map(
+				(addition) => readOperand(w, addition, { kind: "except", fields: compared, into }, at).body
 			)
 		])
 		const inCol = (f: LawField): Expr => col(r1, inputs.of(f))

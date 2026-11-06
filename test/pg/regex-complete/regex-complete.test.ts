@@ -3,19 +3,11 @@ import { exhaust } from "@grizzle/testing/explore"
 import { noCoverage } from "@grizzle/testing/features"
 import { element, type Gen } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import {
-	Array as Arr,
-	Effect,
-	Exit,
-	Formatter,
-	Option,
-	Order,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Exit, Formatter, Option, Order, String as Str } from "effect"
 import { executionInputs, type InputRefusal, paramCodecs } from "#adapter/reader/relations.ts"
-import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
+import { arraysEncoder, positionalColumns } from "#compiler/codec/recordset.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"

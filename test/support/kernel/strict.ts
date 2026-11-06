@@ -1,4 +1,5 @@
 import { Array as Arr, Option, Result, String as Str } from "effect"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import { toResult } from "#adapter/engine.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
@@ -468,6 +469,7 @@ const readers: {
 	money: () => readMoney,
 	bool: () => readBool,
 	uuid: () => (text) => toResult(toUuid(text)),
+	date: () => (text) => toResult(toCalendarDate(text)),
 	text: () => (text) => toResult(validateText(text)),
 	code: (spec) => readCode(spec.roster),
 	bits: (spec) => readBits(spec.roster),

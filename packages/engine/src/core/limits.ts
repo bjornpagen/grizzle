@@ -575,6 +575,22 @@ export const constantMaxBits = derived({
 })
 
 /**
+ * The most payload codes one cell of a closed relation's constant holds, its cells read as integers: a cell holds 0 for
+ * absent and 1 + c for payload code c, and a read casts its bits to integer, which reads them as an unsigned 32-bit
+ * number returned as a signed int4, so a value past the greatest integer reads negative and a cell of more than 32 bits
+ * is "integer out of range". A payload space of more codes is refused when its constant is planned.
+ */
+export const cellMaxCodes = derived({
+	owner: "PostgreSQL 19rc1",
+	unit: "codes",
+	scope:
+		"the payload space of one closed relation or side: the codes 1 + c its cells hold, each read as an integer",
+	from: [int4Max],
+	derivation: `bittoint4 reads a cell's bits as uint32 and returns it as int32, refusing more than 32 bits: "if (VARBITLEN(arg) > sizeof(result) * BITS_PER_BYTE)" and "PG_RETURN_INT32(result)" (${postgresSource}/src/backend/utils/adt/varbit.c#L1593, verified 2026-11-05); the greatest cell, 1 + (codes - 1), is at most the greatest integer`,
+	compute: ([max]) => max.value
+})
+
+/**
  * MaxAttrSize, the longest declared size of a data field of char(n) and similar types: for bit(n) and bit varying(n),
  * the bytes their declared length comes to at most.
  */

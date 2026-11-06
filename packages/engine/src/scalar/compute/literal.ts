@@ -2,6 +2,7 @@ import { taggedValueOf } from "#compiler/core/canonical.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { VectorText, vectorTag } from "#compiler/ir/carriers.ts"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
@@ -228,6 +229,12 @@ export const irLiteral = (
 			return uuid.ok
 				? finish({ kind: "uuid", value: uuid.value }, uuid.value)
 				: Result.err("a uuid in the hyphenated 8-4-4-4-12 form")
+		}
+		case "date": {
+			const date = toCalendarDate(value)
+			return date.ok
+				? finish({ kind: "date", value: date.value }, date.value)
+				: Result.err("a calendar date written YYYY-MM-DD, from 0001-01-01 to 9999-12-31")
 		}
 		case "text":
 			return typeof value === "string"

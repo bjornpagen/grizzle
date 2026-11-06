@@ -138,6 +138,8 @@ const valueKind = (t: ScalarType, codes: Codebook): ValueKind => {
 			return { kind: "bool" }
 		case "uuid":
 			return { kind: "uuid" }
+		case "date":
+			return { kind: "date" }
 		case "text":
 			return { kind: "text" }
 		case "code":

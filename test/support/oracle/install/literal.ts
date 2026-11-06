@@ -1,4 +1,5 @@
 import { Array as Arr, Option, pipe, Predicate, Record as Rec, Result, String as Str } from "effect"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import { taggedValueOf } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -152,6 +153,7 @@ const spelledLiteral = (
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -248,6 +250,11 @@ export const literalFor = (
 		case "uuid":
 			if (typeof value !== "string" || !uuidText.test(value)) {
 				return refuse(location, "uuid (hyphenated hex text)", value)
+			}
+			return Result.succeed(literal({ kind: "text", value }, type))
+		case "date":
+			if (typeof value !== "string" || !toCalendarDate(value).ok) {
+				return refuse(location, "date (YYYY-MM-DD, 0001-01-01 to 9999-12-31)", value)
 			}
 			return Result.succeed(literal({ kind: "text", value }, type))
 		case "text":

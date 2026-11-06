@@ -16,8 +16,8 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
  *   of its predecessor's after, the plane's identity at the first slot; its after `combine(before, x)` where the step
  *   side's selection holds and its before elsewhere; its end a last-axis copy of the last member's after, the identity
  *   for an empty family. Folds combine exactly, in the monoid's own arithmetic (bigint for count and sum's integers,
- *   Decimal and Money for sum, sets of handles for or and twos, the carrier's order for max), and an after outside its
- *   carrier is refused before any statement is sent: PostgreSQL would refuse its row (22003), since
+ *   Decimal and Money for sum, sets of handles for or and twos, the carrier's order for max, text for concat), and an
+ *   after outside its carrier is refused before any statement is sent: PostgreSQL would refuse its row (22003), since
  *   `after = combine(before, x)` is proved in exact arithmetic.
  *
  * Generated fields a copy, a step or a selection reads are evaluated on the host (`HostEvaluator`), by the expressions
@@ -32,6 +32,7 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
  */
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
+import { maxStringLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -704,8 +705,19 @@ export const combineHost = (
 				? new Set([...ones, ...x])
 				: new Set([...twos, ...[...ones].filter((h) => x.has(h))])
 		}
+		case "concat":
+			return concatHost(before, x)
 	}
 }
+
+/**
+ * Text's concatenation, of two storable texts a storable text; undefined past V8's longest string, which no host text
+ * holds, so the write is refused before any statement, as PostgreSQL would refuse its row past 1 GB.
+ */
+const concatHost = (a: unknown, b: unknown): unknown =>
+	typeof a === "string" && typeof b === "string" && a.length + b.length <= maxStringLength.value
+		? a + b
+		: undefined
 
 const isSetOf = (v: unknown): v is ReadonlySet<string> => v instanceof Set
 

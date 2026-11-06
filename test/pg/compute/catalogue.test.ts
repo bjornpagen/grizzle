@@ -642,6 +642,7 @@ const justified = (precondition: PreconditionKind, read: ReadonlyArray<Operand>)
 		case "contract":
 		case "powerDomain":
 		case "bucketDomain":
+		case "lexical":
 			return true
 	}
 }

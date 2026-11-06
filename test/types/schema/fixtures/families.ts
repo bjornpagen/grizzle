@@ -312,14 +312,14 @@ export const countedPair = fold(
 export const floatSum = fold(
 	lines,
 	Monoid.sum,
-	// @ts-expect-error -- TS2345 refusal: the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one
+	// @ts-expect-error -- TS2345 refusal: the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text
 	on(Line, "order", "price"),
 	on(Order, "id", "ratio")
 )
 export const orOfNumbers = fold(
 	lines,
 	Monoid.or,
-	// @ts-expect-error -- TS2345 refusal: the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one
+	// @ts-expect-error -- TS2345 refusal: the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text
 	on(Line, "order", "qty"),
 	on(Order, "id", "total")
 )

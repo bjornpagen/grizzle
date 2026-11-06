@@ -72,6 +72,7 @@ import {
 	type VectorTypmod,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
+import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import * as S from "#compiler/ir/shape.ts"
 
 /**
@@ -430,6 +431,17 @@ const narrow = (t: WireScalarType): ScalarType | string => {
 export const decodeScalarType = (value: unknown): Result.Result<ScalarType, CompileError> =>
 	S.decodeWith(scalarTypeShape, value, "scalar type")
 
+/** A calendar date's text, its one form (ir/date.ts), decoded by the admission every date is. */
+const calendarDateShape: S.Shape<CalendarDate> = S.plain({
+	expected: "a calendar date written YYYY-MM-DD, from 0001-01-01 to 9999-12-31",
+	parse: function* (value, path) {
+		const date = toCalendarDate(yield* S.string.parse(value, path))
+		return date.ok
+			? date.value
+			: S.refuse(path, "a calendar date written YYYY-MM-DD, from 0001-01-01 to 9999-12-31")
+	}
+})
+
 export const literalShape: S.Shape<TypedLiteral> = S.tagged("kind", {
 	int: S.struct({ value: S.bigint }),
 	numeric: S.struct({
@@ -451,6 +463,7 @@ export const literalShape: S.Shape<TypedLiteral> = S.tagged("kind", {
 	bool: S.struct({ value: S.boolean }),
 	text: S.struct({ value: S.string }),
 	uuid: S.struct({ value: S.string }),
+	date: S.struct({ value: calendarDateShape }),
 	handle: S.struct({ handle: S.nonEmptyString }),
 	handles: S.struct({ handles: S.array(S.nonEmptyString) }),
 	span: S.struct({ start: S.bigint, end: S.bigint }),

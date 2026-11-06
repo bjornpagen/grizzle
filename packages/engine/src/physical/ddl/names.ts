@@ -18,7 +18,6 @@ import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
 import type { DomainCheck } from "#compiler/ir/law.ts"
 import {
 	baseTypeRef,
-	type ClosedConstant,
 	type PhysicalNames,
 	qualifiedType,
 	type SelectionKey
@@ -28,6 +27,7 @@ import type { NamedNative } from "#compiler/laws/model/model.ts"
 import type { Owned, OwnedEntry, OwnedRole } from "#compiler/schema/own.ts"
 import type { Collation, FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import { cUtf8Collation } from "#compiler/sql/build.ts"
+import type { ClosedConstant } from "#compiler/sql/constants.ts"
 import { type OutsideProbe, probeIdentity } from "#compiler/write/insert/unique.ts"
 
 /** A name the owned schema cannot supply is a defect of the caller's input, refused as MalformedDescription.

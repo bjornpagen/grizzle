@@ -331,7 +331,6 @@ export const buildInsert = (
 			{
 				kind: "input",
 				fields,
-				distinct: !guarantees.distinct,
 				alias: scan,
 				keys: inputs,
 				into: { as: "write" }
@@ -675,7 +674,6 @@ export const buildSpanClassify = (
 	const all = carried
 	const pk = relation.primaryFields
 	const scalars = pk.filter((f) => f !== span)
-	const guarantees = inputGuarantees(input)
 	const vectorSchema = w.names.vectorSchema
 	const typeOf = rowType
 	const sharing = inputSharing(
@@ -699,7 +697,6 @@ export const buildSpanClassify = (
 			{
 				kind: "input",
 				fields: all,
-				distinct: !guarantees.distinct,
 				alias: scan,
 				keys: inputs,
 				into: { as: "write" }

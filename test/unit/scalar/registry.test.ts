@@ -617,7 +617,8 @@ const pgCarrier = {
 	real: "float4",
 	"double precision": "float8",
 	money: "money",
-	boolean: "bool"
+	boolean: "bool",
+	date: "date"
 } as const satisfies Readonly<Record<PgScalarName, Carrier>>
 
 /** Asserts that `t` is a plain value type of `carrier`: its capabilities, and no typmod, refinement or contract. */

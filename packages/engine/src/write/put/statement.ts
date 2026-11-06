@@ -268,7 +268,6 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 		{
 			kind: "input",
 			fields: written,
-			distinct: !guarantees.distinct,
 			alias: scan,
 			keys: inputs,
 			into: { as: "write" }

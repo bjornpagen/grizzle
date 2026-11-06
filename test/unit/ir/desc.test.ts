@@ -473,6 +473,7 @@ const plan: RelationDesc = {
 		price: { kind: "numeric", precision: 10, scale: 2 }
 	},
 	key: ["tier"],
+	slots: [],
 	rows: [
 		{ tier: "Free", seats: 1, price: dec("0") },
 		{ tier: "Pro", seats: 10, price: dec("49") }
@@ -489,6 +490,7 @@ const relations: ReadonlyArray<RelationDesc> = [
 		name: "Fee",
 		fields: { tier: { kind: "closedId", roster: "Tier" }, amount: { kind: "pg", type: "money" } },
 		key: ["tier"],
+		slots: [],
 		rows: [{ tier: "Pro", amount: defined(MoneyText.parse("1999")) }]
 	},
 	{

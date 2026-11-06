@@ -13,7 +13,6 @@ import {
 	decodeDesc,
 	type ExprDesc,
 	type FieldDesc,
-	type GuardDesc,
 	type LiteralDesc,
 	type ScaledComputeFn
 } from "#compiler/ir/desc.ts"
@@ -48,8 +47,8 @@ import {
 } from "#compiler/scalar/compute/tables.ts"
 
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
-import { matchPattern } from "#compiler/scalar/regex/admit.ts"
 import {
+	type GuardTest,
 	type GuardValue,
 	guarded,
 	guardOf,
@@ -66,6 +65,7 @@ import {
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
 import { compatible, plainType } from "#compiler/scalar/compute/types.ts"
+import { matchPattern } from "#compiler/scalar/regex/admit.ts"
 import {
 	carrierSql,
 	describeField,
@@ -640,9 +640,8 @@ const guardNames = {
  * type and carrier, from which the term its branch receives is made.
  */
 interface GuardParts {
-	readonly kind: "guard"
 	readonly expr: OpenExpr
-	readonly guard: GuardDesc
+	readonly test: GuardTest
 	readonly subject: object
 	readonly real: OpenExpr
 	readonly type: ScalarType
@@ -698,9 +697,8 @@ const factGuard =
 		const phTest = connectiveExpr("and", ph)
 		call.finishPredicate(realTest, phTest)
 		return {
-			kind: "guard",
 			expr: realTest,
-			guard: { kind },
+			test: { kind: "refines", guard: { kind } },
 			subject,
 			real: s.real,
 			type: s.type,
@@ -723,9 +721,8 @@ const within = (subject: unknown, low: unknown, high: unknown): GuardParts => {
 	const ph: ExprDesc = { kind: "between", arg: s.ph, low: lowLit, high: highLit }
 	call.finishPredicate(real, ph)
 	return {
-		kind: "guard",
 		expr: real,
-		guard: { kind: "within", low: lo, high: hi },
+		test: { kind: "refines", guard: { kind: "within", low: lo, high: hi } },
 		subject,
 		real: s.real,
 		type: s.type,
@@ -735,15 +732,13 @@ const within = (subject: unknown, low: unknown, high: unknown): GuardParts => {
 
 /**
  * Compute.matches(subject, pattern): whether the text subject holds a match of the pattern, a text term or a literal
- * source in grizzle's pattern grammar under the flags "u". A literal is admitted here (scalar/regex/admit.ts
- * matchPattern), so a pattern outside the grammar or PostgreSQL's regex compile space is refused where the call is
- * written, and the match is then also a guard: inside Compute.when's branch its subject is text of the pattern's
- * language. A term's every value is admitted where the term is compiled (compute/lower.ts patternSources).
+ * source in grizzle's pattern grammar under the flags "u", a predicate and a guard. A literal is admitted here
+ * (scalar/regex/admit.ts matchPattern), so a pattern outside the grammar or PostgreSQL's regex compile space is refused
+ * where the call is written, and inside Compute.when's branch its subject is text of the pattern's language. A term's
+ * every value is admitted where the term is compiled (compute/lower.ts patternSources), and its values hold no one
+ * language, so its branch knows nothing more of the subject.
  */
-const matches = (
-	subject: unknown,
-	pattern: unknown
-): { readonly kind: "predicate"; readonly value: PredicateValue } | GuardParts => {
+const matches = (subject: unknown, pattern: unknown): GuardParts => {
 	const call = new Call("Compute.matches")
 	const s = call.term(subject, "matches's subject")
 	if (!hasProperties(subject)) {
@@ -751,22 +746,19 @@ const matches = (
 	}
 	const p = call.operand(pattern, s.type, "literal")
 	const real: OpenExpr = { kind: "compute", fn: "matches", args: [s.real, p.real] }
-	const value = call.finishPredicate(real, {
-		kind: "compute",
-		fn: "matches",
-		args: [s.ph, p.ph]
-	})
-	if (typeof pattern !== "string") {
-		return { kind: "predicate", value }
-	}
-	const admitted = matchPattern(pattern, childLoc(call.loc, "pattern"))
-	if (!admitted.ok) {
-		throw admitted.error
+	call.finishPredicate(real, { kind: "compute", fn: "matches", args: [s.ph, p.ph] })
+	if (typeof pattern === "string") {
+		const admitted = matchPattern(pattern, childLoc(call.loc, "pattern"))
+		if (!admitted.ok) {
+			throw admitted.error
+		}
 	}
 	return {
-		kind: "guard",
 		expr: real,
-		guard: { kind: "matches", pattern },
+		test:
+			typeof pattern === "string"
+				? { kind: "refines", guard: { kind: "matches", pattern } }
+				: { kind: "tests" },
 		subject,
 		real: s.real,
 		type: s.type,
@@ -790,7 +782,7 @@ const guardValue = <T, S extends SqlTag>(
 			[guarded]: scalarTerm(parts.real, parts.type, carrier)
 		}),
 		parts.expr,
-		parts.guard,
+		parts.test,
 		parts.subject
 	)
 
@@ -808,12 +800,15 @@ const when = (guard: unknown, branch: unknown, otherwise: unknown): CarriedCheck
 	if (g === undefined) {
 		return malformed(call.loc, guardRequired)
 	}
+	if (g.test.kind === "tests") {
+		return cond(guard, branch, otherwise)
+	}
 	const s = call.term(g.subject, "when's subject")
 	const t = call.term(branch, "when's branch, which types the conditional")
 	const e = call.operand(otherwise, t.type, "literal")
 	const checked = call.finish(
-		{ kind: "when", guard: g.guard, subject: s.real, proved: t.real, otherwise: e.real },
-		{ kind: "when", guard: g.guard, subject: s.ph, proved: t.ph, otherwise: e.ph }
+		{ kind: "when", guard: g.test.guard, subject: s.real, proved: t.real, otherwise: e.real },
+		{ kind: "when", guard: g.test.guard, subject: s.ph, proved: t.ph, otherwise: e.ph }
 	)
 	return { ...checked, carrier: t.carrier }
 }
@@ -1101,14 +1096,8 @@ export const compute = Object.freeze({
 	concat: (a: unknown, b: unknown) => plain(checks.concat(a, b), "text"),
 	startsWith: (a: unknown, b: unknown) => plain(checks.startsWith(a, b), "boolean"),
 	endsWith: (a: unknown, b: unknown) => plain(checks.endsWith(a, b), "boolean"),
-	/** A literal pattern's match is a guard too; a term pattern's a predicate. */
-	matches: <T, S extends SqlTag>(
-		subject: TermCarrier<T, S>,
-		pattern: unknown
-	): PredicateValue | GuardValue<ScalarTerm<T, S>> => {
-		const checked = checks.matches(subject, pattern)
-		return checked.kind === "predicate" ? checked.value : guardValue(checked, subject)
-	},
+	matches: <T, S extends SqlTag>(subject: TermCarrier<T, S>, pattern: unknown) =>
+		guardValue(checks.matches(subject, pattern), subject),
 	cosineDistance: (a: unknown, b: unknown) =>
 		plain(checks.cosineDistance(a, b), "double precision"),
 	union: <T, S extends SqlTag>(a: TermCarrier<T, S>, b: unknown): ScalarTerm<T, S> =>
@@ -1223,10 +1212,7 @@ export const computeCore = Object.freeze({
 	concat: (a: unknown, b: unknown) => plainBy(checks.concat(a, b)),
 	startsWith: (a: unknown, b: unknown) => plainBy(checks.startsWith(a, b)),
 	endsWith: (a: unknown, b: unknown) => plainBy(checks.endsWith(a, b)),
-	matches: (subject: unknown, pattern: unknown): PredicateValue | GuardValue<ScalarTerm> => {
-		const checked = checks.matches(subject, pattern)
-		return checked.kind === "predicate" ? checked.value : guardBy(checked)
-	},
+	matches: (subject: unknown, pattern: unknown) => guardBy(checks.matches(subject, pattern)),
 	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b)),
 	union: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
 		const checked = checks.union(a, b, extra)

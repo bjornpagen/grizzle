@@ -33,6 +33,7 @@ import type {
 } from "#compiler/types/fields/field.ts"
 import type {
 	AnyClosed,
+	AnyClosedRelation,
 	AnyRelation,
 	AnyRoster,
 	ClosedIdFieldOf,
@@ -72,8 +73,8 @@ import type {
 	Containment,
 	Counted,
 	CountedMember,
+	CountFieldOf,
 	DiscriminatorsOf,
-	DrawnFieldOf,
 	Fin,
 	Fold,
 	FoldEnd,
@@ -344,8 +345,11 @@ export const alternatives = <
 ): Alternatives<PK, D, C, Arms> =>
 	alternativesBuilder<PK, D, C, Arms>(parent, discriminator, roster, arms)
 
-/** fin(O, n): the slots of O's drawn count n, a family's second argument. Never a side, never a schema member. */
-export const fin = <O extends AnyRelation, const N extends DrawnFieldOf<O>>(
+/**
+ * fin(O, n): the slots of O's count n: over an ordinary O, its drawn count, a family's second argument; over a closed O,
+ * its natural field, which a closed relation's slot field reads (slot). Never a side, never a schema member.
+ */
+export const fin = <O extends AnyRelation | AnyClosedRelation, const N extends CountFieldOf<O>>(
 	owner: O,
 	count: N
 ): Fin<O, N> => finBuilder<O, N>(owner, count)

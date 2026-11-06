@@ -97,7 +97,7 @@ type Registered =
 	| {
 			readonly kind: "guard"
 			readonly expr: OpenExpr
-			readonly guard: GuardDesc
+			readonly test: GuardTest
 			readonly subject: object
 	  }
 	| { readonly kind: "head"; readonly desc: OpenHead; readonly typing: Typing }
@@ -176,25 +176,34 @@ export const registerPredicate = <V extends Built>(value: V, expr: OpenExpr): V 
 }
 
 /**
+ * What a guard's branch knows of its subject: what its builder's test establishes there (GuardDesc), or nothing, the
+ * test of a match against a pattern term, whose values hold no one language. Compute.when over the second is a
+ * conditional over its test.
+ */
+export type GuardTest =
+	| { readonly kind: "refines"; readonly guard: GuardDesc }
+	| { readonly kind: "tests" }
+
+/**
  * A guard a Compute guard builder made (Compute.nonzero and its kin): a predicate, `expr`, that Compute.when also reads
  * as its guard over `subject`, the term it refines.
  */
 export const registerGuard = <V extends Built>(
 	value: V,
 	expr: OpenExpr,
-	guard: GuardDesc,
+	test: GuardTest,
 	subject: object
 ): V => {
-	registered.set(value, { kind: "guard", expr, guard, subject })
+	registered.set(value, { kind: "guard", expr, test, subject })
 	return value
 }
 
 /** A guard's test and its subject, where `value` is a guard a builder made. */
 export const guardOf = (
 	value: unknown
-): { readonly guard: GuardDesc; readonly subject: object } | undefined => {
+): { readonly test: GuardTest; readonly subject: object } | undefined => {
 	const entry = registeredOf(value)
-	return entry?.kind === "guard" ? { guard: entry.guard, subject: entry.subject } : undefined
+	return entry?.kind === "guard" ? { test: entry.test, subject: entry.subject } : undefined
 }
 
 /**

@@ -130,6 +130,8 @@ const sqlLiteral = (literal: TypedLiteral, type: ScalarType, schema: string): st
 			return `${quoteString(literal.value)}::text`
 		case "uuid":
 			return `${quoteString(literal.value)}::uuid`
+		case "date":
+			return `${quoteString(literal.value)}::date`
 		case "handle":
 			return `${codeIn(type, literal.handle)}::smallint::${t}`
 		case "handles":

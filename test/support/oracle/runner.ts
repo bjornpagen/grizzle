@@ -378,6 +378,7 @@ export const inputText = (literal: TypedLiteral, type: ScalarType, codes: Codebo
 			return literal.value ? "true" : "false"
 		case "text":
 		case "uuid":
+		case "date":
 			return literal.value
 		case "handle":
 			return String(codeOf(rosterCodecOf(type, codes), literal.handle))

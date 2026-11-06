@@ -261,10 +261,21 @@ export type IsSpan<A> =
  * domain D and SQL type F: smallint, integer, bigint, numeric, real and double precision convert among themselves in every
  * direction; money is a target only from integer, bigint, numeric and an exact integer (PostgreSQL has no smallint,
  * real or double precision cast to money), and a source only to numeric; an exact integer narrows into the numeric
- * family and money, exact money into money and numeric; and any other base casts only into a contract or refinement
- * over its own SQL type.
+ * family and money, exact money into money and numeric; a text parses into a type with a lexical form (ParseSql), a
+ * contract over one included; and any other base casts only into a contract or refinement over its own SQL type.
+ * Whether the text's refinement proves the form is compilation's (scalar/compute/lower.ts parse), since no type here
+ * holds a pattern's language.
  */
 type NumericFamilySql = "smallint" | "integer" | "bigint" | "numeric" | "real" | "double precision"
+/** The SQL types a text parses into: those with a lexical form (scalar/lexical.ts). */
+type ParseSql =
+	| "smallint"
+	| "integer"
+	| "bigint"
+	| "numeric"
+	| "double precision"
+	| "boolean"
+	| "date"
 export type CastAdmitted<X, S extends SqlTag, D, F extends SqlTag> = [S] extends [NumericFamilySql]
 	? [F] extends [NumericFamilySql]
 		? true
@@ -281,8 +292,16 @@ export type CastAdmitted<X, S extends SqlTag, D, F extends SqlTag> = [S] extends
 			? [F] extends ["numeric" | "money"]
 				? true
 				: false
-			: [BaseOf<X>] extends [BaseOf<D>]
-				? [F] extends [S]
+			: [S] extends ["text"]
+				? [F] extends [ParseSql]
 					? true
+					: [BaseOf<X>] extends [BaseOf<D>]
+						? [F] extends [S]
+							? true
+							: false
+						: false
+				: [BaseOf<X>] extends [BaseOf<D>]
+					? [F] extends [S]
+						? true
+						: false
 					: false
-				: false

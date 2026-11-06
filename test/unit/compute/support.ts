@@ -535,6 +535,7 @@ const literalExpr = (literal: TypedLiteral, t: ScalarType, options: RenderOption
 			return { kind: "literal", value: { kind: "bool", value: literal.value }, type }
 		case "text":
 		case "uuid":
+		case "date":
 			return { kind: "literal", value: { kind: "text", value: literal.value }, type }
 		case "handle": {
 			const roster = rosterOf(t)

@@ -30,7 +30,7 @@ import { indices } from "#compiler/core/array.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import {
 	cellWidth,
-	constantOf,
+	constantOf as encodedOf,
 	type CellLayout,
 	spaceSize,
 	type Tuple
@@ -43,6 +43,16 @@ import { qualified, refusalOf, refusalText, tuple } from "#test/support/substrat
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+
+/** A product layout, the one these templates are written for: each key coordinate's and payload coordinate's codes. */
+interface Product {
+	readonly key: Arr.NonEmptyReadonlyArray<number>
+	readonly payload: ReadonlyArray<number>
+}
+
+/** The host encoder's constant of a product layout's tuples (ir/cells.ts constantOf over the product key space). */
+const constantOf = (layout: Product, tuples: ReadonlyArray<Tuple>) =>
+	encodedOf({ key: { kind: "product", sizes: layout.key }, payload: layout.payload } satisfies CellLayout, tuples)
 
 /** PostgreSQL's disagreement with the host encoder or a model, with both sides spelt out. */
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
@@ -74,7 +84,7 @@ const radixSql = (
  * A relation's rows as a row source of codes, its key columns `k0 …` and payload columns `p0 …`: a VALUES list, or a
  * typed empty select where it has no row, since VALUES cannot be empty.
  */
-const rowsSql = (layout: CellLayout, rows: ReadonlyArray<ReadonlyArray<number>>): string => {
+const rowsSql = (layout: Product, rows: ReadonlyArray<ReadonlyArray<number>>): string => {
 	const columns = [
 		...Arr.map(layout.key, (_, i) => `k${i}`),
 		...Arr.map(layout.payload, (_, i) => `p${i}`)
@@ -95,7 +105,7 @@ const rowsSql = (layout: CellLayout, rows: ReadonlyArray<ReadonlyArray<number>>)
  */
 const packSql = (
 	fn: string,
-	layout: CellLayout,
+	layout: Product,
 	rows: ReadonlyArray<ReadonlyArray<number>>
 ): string => {
 	const keys = Arr.map(layout.key, (_, i) => `k${i}`)
@@ -131,12 +141,12 @@ const PAYLOADS: Arr.NonEmptyReadonlyArray<ReadonlyArray<number>> = [[], [2], [3]
 
 /** A relation of the pack's box: its layout, and each key cell absent or holding one payload code. */
 interface PackCase {
-	readonly layout: CellLayout
+	readonly layout: Product
 	readonly cells: ReadonlyArray<Option.Option<number>>
 }
 
 const packGen: Gen<PackCase> = (source) => {
-	const layout: CellLayout = {
+	const layout: Product = {
 		key: source.draw(element(KEYS)),
 		payload: source.draw(element(PAYLOADS))
 	}
@@ -174,11 +184,11 @@ type PackFeature = "a set" | "a function" | "empty" | "full" | "a two-coordinate
 
 /** A relation whose key law fails or holds: each key cell absent, one payload code, or two different ones. */
 interface KeyLawCase {
-	readonly layout: CellLayout
+	readonly layout: Product
 	readonly cells: ReadonlyArray<ReadonlyArray<number>>
 }
 
-const KEY_LAW_LAYOUTS: Arr.NonEmptyReadonlyArray<CellLayout> = [
+const KEY_LAW_LAYOUTS: Arr.NonEmptyReadonlyArray<Product> = [
 	{ key: [1], payload: [2] },
 	{ key: [2], payload: [2] },
 	{ key: [2], payload: [3] },

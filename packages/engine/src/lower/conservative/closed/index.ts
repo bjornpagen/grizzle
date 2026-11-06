@@ -1,6 +1,7 @@
 import { exactParts } from "#compiler/core/decimal.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
+import { firstCalendarDate } from "#compiler/ir/date.ts"
 import { closedRows } from "#compiler/ir/rel.ts"
 import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -13,7 +14,6 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type { Expr, FromItem } from "#compiler/sql/ast.ts"
-import { firstCalendarDate } from "#compiler/ir/date.ts"
 import { lit } from "#compiler/sql/build.ts"
 
 /** A value of every admitted type, for the one row an empty VALUES source stands on; WHERE false discards it. */

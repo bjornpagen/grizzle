@@ -103,11 +103,12 @@ const vectorProbe = query(W.Work).rule((r) => {
 
 /**
  * A value admission must refuse for each role default Publish stores, as ALTER ROLE ... SET spells it: PostgreSQL's own
- * search path, no extra float digits, the C locale.
+ * search path, no extra float digits, PostgreSQL's own date style, the C locale.
  */
 const wrongRoleDefault: { readonly [P in RoleDefaultParameter]: string } = {
 	search_path: `${quoteIdent("$user")}, ${quoteIdent("public")}`,
 	extra_float_digits: quoteString("0"),
+	DateStyle: quoteString("Postgres, MDY"),
 	lc_monetary: quoteString("C"),
 	lc_numeric: quoteString("C"),
 	lc_time: quoteString("C")

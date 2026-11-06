@@ -123,15 +123,11 @@ export interface Fin<O, N extends string> {
 export type AnyFin = Fin<unknown, string>
 
 /**
- * slot(field, fin(O, n)): a closed relation's key field holding one of fin(O, n)'s slots, O a closed relation whose key
- * pairs with the key's first fields: an entry of closed.relation's key, which reads the field's codes as slots, each
- * owner's from 0 below its count.
+ * slot(type, fin(O, n)): a closed relation's key field of `type`, a closed id, holding one of fin(O, n)'s slots, O a
+ * closed relation whose key pairs with the key's first fields. It is the field `type` is, read as `type` reads, and its
+ * codes are slots, each owner's from 0 below its count.
  */
-export interface Slot<F extends string, Fi> {
-	readonly kind: "slot"
-	readonly field: F
-	readonly slots: Fi
-}
+export type SlotField<F, Fi> = F & { readonly slots: Fi }
 
 /** ordered(on(F, g…, i), fin(O, n)): each owner's members indexed by their drawn index i, exactly 0 … n − 1. */
 export interface Ordered<F, Fi> {
@@ -319,6 +315,7 @@ type MonoidSql = {
 	readonly or: "bits"
 	readonly twos: "bits"
 	readonly max: "smallint" | "integer" | "bigint" | "code" | "money"
+	readonly concat: "text"
 }
 
 type NameOfMonoid<M> = M extends Monoid<infer N> ? N : never
@@ -382,8 +379,9 @@ type StepRest<Mb extends MemberShape, N extends MonoidName, M, Rest> = N extends
 					Mb,
 					Accumulators<Mb["relation"], Pairs, FieldTypeOf<Mb["relation"], X>, PlanesOf<M>>,
 					Pairs
-				>
-			: Refusal<"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one">
+				> &
+					InOrder<Mb, N, Pairs>
+			: Refusal<"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text">
 		: Refusal<"a fold's step is its family's member: its group, its value, then an accumulated pair per plane">
 
 type MemberShape = {
@@ -394,6 +392,18 @@ type MemberShape = {
 }
 
 type PlanesOf<M> = M extends Monoid<infer N> ? (N extends "twos" ? 2 : 1) : never
+
+/**
+ * concat, text's free monoid, depends on its members' order: a counted family, whose order is hidden, is refused it,
+ * and a sequence names its (before, after) pair, through which its law reads each member's running value.
+ */
+type InOrder<Mb extends MemberShape, N extends MonoidName, Pairs> = N extends "concat"
+	? Mb["hidden"] extends true
+		? Refusal<"a fold over a counted family combines in a commutative monoid: concat folds an ordered family or a tree">
+		: Pairs extends readonly []
+			? Refusal<"a concat fold names its (before, after) pair after its value: its law reads each member's running value">
+			: unknown
+	: unknown
 
 type PairsAllowed<Mb extends MemberShape, Holds, Pairs> = Holds extends true
 	? Mb["hidden"] extends true

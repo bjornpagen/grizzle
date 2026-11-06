@@ -19,10 +19,14 @@ export type OperandIndex = 0 | 1 | 2 | 3
  *   rounds it; NaN passes a typmod, and a cast that NaN would fail into an integer or money also requires `finite`;
  * - `contract`: the value satisfies the contract or regex refinement a domain cast enters;
  * - `powerDomain`: power's result stays inside its carrier's range;
- * - `bucketDomain`: width_bucket's bounds differ and its count lies in 1..2147483646.
+ * - `bucketDomain`: width_bucket's bounds differ and its count lies in 1..2147483646;
+ * - `lexical`: a text a parse reads is a member of its target's lexical form (scalar/lexical.ts), so the target's input
+ *   function reads it without raising, to the value XML Schema's lexical mapping gives it.
  *
- * nonzero, nonnegative and finite are facts a term's TypeScript type states (Facts), exactly; the other four rest on
- * numeric bounds no TypeScript type can state, which the lowering's bound domain proves (scalar/compute/bounds.ts).
+ * nonzero, nonnegative and finite are facts a term's TypeScript type states (Facts), exactly; fits, contract,
+ * powerDomain and bucketDomain rest on numeric bounds no TypeScript type can state, which the lowering's bound domain
+ * proves (scalar/compute/bounds.ts); lexical rests on the operand's text refinement, whose language the lowering
+ * proves included in the form (scalar/regex/inclusion.ts).
  */
 export type Precondition =
 	| { readonly kind: "nonzero"; readonly operand: OperandIndex }
@@ -32,6 +36,7 @@ export type Precondition =
 	| { readonly kind: "contract" }
 	| { readonly kind: "powerDomain" }
 	| { readonly kind: "bucketDomain" }
+	| { readonly kind: "lexical" }
 
 /** A fact about every value of a term that its type states: never zero, never below zero, never NaN or an infinity. */
 export type Fact = "nonzero" | "nonnegative" | "finite"
@@ -80,6 +85,17 @@ export type OperandPremise =
 			readonly kind: "checked"
 			readonly operand: OperandIndex
 			readonly by: "literal" | "parameter" | "write"
+	  }
+	| {
+			/**
+			 * An operand whose every value is a member of a regex refinement's language, the language of `pattern` under
+			 * `flags`: its type's, or the refinement a Compute.matches guard gives it inside its branch. A parse's lexical
+			 * precondition rests on it, the language included in the form, which the tests' proof kernel decides again.
+			 */
+			readonly kind: "language"
+			readonly operand: OperandIndex
+			readonly pattern: string
+			readonly flags: "u" | "su"
 	  }
 
 /** The proof of one precondition: the precondition and the premises it rests on. */

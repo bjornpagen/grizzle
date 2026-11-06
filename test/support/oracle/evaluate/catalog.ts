@@ -31,6 +31,9 @@ import {
 	nativeOp,
 	nativeOps
 } from "#compiler/scalar/compute/registry.ts"
+import { matchFlags } from "#compiler/scalar/regex/admit.ts"
+import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -61,6 +64,9 @@ import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
  *
  * A set's algebra over a roster's handles (union, intersection, difference, cardinality, subset, disjoint) is exact: a
  * bits value is the set of its handles, and bit(n)'s &, | and bit_count compute exactly the Set operations over them.
+ * A text's concatenation, prefix and suffix tests are exact over its code points, and its regex match is grizzle's own
+ * automaton over the pattern's parse (src's scalar/regex/nfa.ts), which PostgreSQL's `~` over the pattern's ARE agrees
+ * with (test/pg/compute/text.test.ts).
  * There is no complement (OPEN-4), which PostgreSQL alone would compute over the roster's live codes.
  */
 export type Evaluation = "exact" | "estimated" | "database"
@@ -103,6 +109,11 @@ export const evaluationOf = (op: NativeOp): Evaluation => {
 		case "lower":
 		case "upper":
 		case "charLength":
+		case "concat":
+		case "startsWith":
+		case "endsWith":
+		case "right":
+		case "matches":
 		case "eq":
 		case "ne":
 		case "lt":
@@ -232,6 +243,34 @@ const setAlgebra = (fn: SetFn, op: NativeOp, args: ReadonlyArray<CarrierValue>):
 		case "disjoint":
 			return Result.succeed(!Arr.some([...a], (h) => other.has(h)))
 	}
+}
+
+/** A text's code points, its characters as PostgreSQL counts them. */
+const characters = (text: string): ReadonlyArray<string> => Array.from(text)
+
+/** A text with its characters in reverse order. */
+const reversed = (text: string): string => Arr.join(Arr.reverse(characters(text)), "")
+
+/** Whether `prefix`'s characters begin `text`'s, one by one: starts_with's code point prefix. */
+const codePrefix = (prefix: string, text: string): boolean => {
+	const p = characters(prefix)
+	const t = characters(text)
+	return p.length <= t.length && Arr.every(p, (c, i) => t[i] === c)
+}
+
+/** PostgreSQL's right(text, n): the last n characters, all of them past the text's length, all but -n for n < 0. */
+const lastCharacters = (text: string, n: bigint): string => {
+	const cs = characters(text)
+	const drop = n >= 0n ? Math.max(cs.length - Number(n), 0) : Number(-n)
+	return Arr.join(cs.slice(drop), "")
+}
+
+/** A text's match of a pattern, read under the flags of every Compute.matches pattern, by its parse's automaton. */
+const patternMatch = (text: string, source: string): CatalogResult => {
+	const parsed = parsePattern(source, matchFlags)
+	return parsed.ok
+		? Result.succeed(matches(buildNfa(parsed.value), text))
+		: unsupported(`the pattern /${source}/${matchFlags}, outside the grammar`)
 }
 
 /** An operand of a kind the IR's typing rules out. */
@@ -500,6 +539,18 @@ const catalogApply = (
 			return isSpanValue(a) ? Result.succeed(a.end) : mismatch(op)
 		case "charLength":
 			return isString(a) ? Result.succeed(BigInt(Array.from(a).length)) : mismatch(op)
+		case "concat":
+			return isString(a) && isString(b) ? Result.succeed(`${a}${b}`) : mismatch(op)
+		case "startsWith":
+			return isString(a) && isString(b) ? Result.succeed(codePrefix(b, a)) : mismatch(op)
+		case "endsWith":
+			return isString(a) && isString(b)
+				? Result.succeed(codePrefix(reversed(b), reversed(a)))
+				: mismatch(op)
+		case "right":
+			return isString(a) && isBigint(b) ? Result.succeed(lastCharacters(a, b)) : mismatch(op)
+		case "matches":
+			return isString(a) && isString(b) ? patternMatch(a, b) : mismatch(op)
 		case "eq":
 			return compared(op, a, b, t, (cmp) => cmp === 0)
 		case "ne":
@@ -559,7 +610,12 @@ const converted = (r: Engine.Result<CastValue, string>): CatalogResult =>
  * A registered cast's host conversion of `v`, a value of the cast's source family; a value of another kind is
  * unsupported.
  */
-const hostCast = (host: HostCast, v: CarrierValue, source: Carrier): CatalogResult => {
+const hostCast = (
+	host: HostCast,
+	v: CarrierValue,
+	source: Carrier,
+	to: ScalarType
+): CatalogResult => {
 	switch (host.from) {
 		case "integer":
 			return isBigint(v) ? converted(host.convert(v)) : unsupported(`a cast from ${source}`)
@@ -569,6 +625,10 @@ const hostCast = (host: HostCast, v: CarrierValue, source: Carrier): CatalogResu
 			return isNumber(v) ? converted(host.convert(v)) : unsupported(`a cast from ${source}`)
 		case "money":
 			return isMoney(v) ? converted(host.convert(v)) : unsupported(`a cast from ${source}`)
+		case "text":
+			return typeof v === "string"
+				? converted(host.convert(v, baseOf(to)))
+				: unsupported(`a cast from ${source}`)
 	}
 }
 
@@ -582,7 +642,7 @@ const castTo = (v: CarrierValue, from: ScalarType, to: ScalarType): CatalogResul
 		if (native === undefined) {
 			return unsupported(`a cast from ${source} to ${target}`)
 		}
-		const cast = hostCast(native.host, v, source)
+		const cast = hostCast(native.host, v, source, to)
 		if (Result.isFailure(cast)) {
 			return cast
 		}

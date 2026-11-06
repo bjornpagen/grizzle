@@ -7,13 +7,15 @@ import {
 	unsupported
 } from "#compiler/core/errors.ts"
 import { ExprId } from "#compiler/core/ids.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import {
 	derived,
 	int4Max,
 	int8Max,
 	int8Min,
 	type Limit,
-	maxAllocSize
+	maxAllocSize,
+	regexMaxRepeat
 } from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -31,6 +33,7 @@ import {
 	moneyDigits,
 	moneyFractionDigits
 } from "#compiler/ir/carriers.ts"
+import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import type {
 	ExprDesc,
 	FieldDesc,
@@ -114,7 +117,7 @@ import {
 	subBounds,
 	tenTo
 } from "#compiler/scalar/compute/bounds.ts"
-import { floatNumericDigits } from "#compiler/scalar/compute/cast.ts"
+import { floatNumericDigits, parseText } from "#compiler/scalar/compute/cast.ts"
 import {
 	admitLiteral,
 	literalMember,
@@ -159,6 +162,7 @@ import {
 	wildcardText,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
+import { formIncludes, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { matchFlags, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { capabilitiesOf, numericValue } from "#compiler/scalar/registry.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
@@ -416,9 +420,10 @@ const carrierBounds = (t: ScalarType): Bounds | undefined => {
 			return ofDigits(t.digits, 0, { infinite: false, nan: false })
 		case "exactMoney":
 			return ofDigits(t.digits, moneyFractionDigits.value, { infinite: false, nan: false })
+		case "date":
+			return dateBounds
 		case "bool":
 		case "uuid":
-		case "date":
 		case "text":
 		case "code":
 		case "bits":
@@ -495,6 +500,17 @@ const factsOfValue = (value: Exact | "nan" | "infinity" | "-infinity"): FactSet 
 	}
 }
 
+/** A date literal's value in the bound domain: its day number (ir/date.ts dayNumber); undefined for any other. */
+const dateExact = (literal: TypedLiteral): Exact | undefined =>
+	literal.kind === "date" ? exactOf(BigInt(dayNumber(literal.value)), 0) : undefined
+
+/** The day numbers of every date, the first's to the last's. */
+const dateBounds: Bounds = ofRange(
+	BigInt(dayNumber(firstCalendarDate)),
+	BigInt(dayNumber(lastCalendarDate)),
+	String(dayNumber(lastCalendarDate)).length
+)
+
 /** A carried literal's value in the bound domain: exact, a special, or no number at all. */
 const literalNumber = (
 	value: CarrierValue
@@ -524,7 +540,8 @@ const literalNumber = (
 /** A stored literal entry's value in the bound domain. */
 const tableNumber = (
 	e: TableExpr & { readonly kind: "literal" }
-): Exact | "nan" | "infinity" | "-infinity" | undefined => literalNumber(literalValue(e.value))
+): Exact | "nan" | "infinity" | "-infinity" | undefined =>
+	dateExact(e.value) ?? literalNumber(literalValue(e.value))
 
 const zero: Exact = exactOf(0n, 0)
 const oneExact: Exact = exactOf(1n, 0)
@@ -668,6 +685,14 @@ const predicateAtoms = (table: ExprTable): ReadonlyArray<Refinement> => {
 	return atoms
 }
 
+/** Argument `i` of a compute description, or its refusal: an arity its kind's decoder fixed. */
+const argOf = <R extends Refs>(
+	desc: Extract<ExprDesc<Located, R>, { readonly kind: "compute" }>,
+	i: number,
+	at: SourceLoc
+): ExprDesc<Located, R> =>
+	desc.args[i] ?? stop("MalformedDescription", at, `argument ${i + 1} for ${desc.fn}`)
+
 /** A guard that states facts of a numeric subject: every guard but a match, which states a language. */
 type FactGuard = Exclude<GuardDesc, { readonly kind: "matches" }>
 
@@ -752,6 +777,30 @@ const signBoundsOver = (
 		: signs
 }
 
+/**
+ * What proves a parse's operand a member of its target's lexical form: a text literal by its own value, checked as
+ * the host parses it; any other text by its refinement, its type's or a Compute.matches guard's (the nominal type),
+ * whose language is included in the form (scalar/lexical.ts formIncludes). Undefined where neither proves it: a text of
+ * no refinement, or one whose language holds a value the form does not.
+ */
+const lexicalPremise = (a: Lowered, target: ScalarType): OperandPremise | undefined => {
+	const form = lexicalTargetOf(target)
+	if (form === undefined) {
+		return undefined
+	}
+	if (a.expr.kind === "literal" && a.expr.value.kind === "text") {
+		return parseText(a.expr.value.value, target).ok
+			? { kind: "checked", operand: 0, by: "literal" }
+			: undefined
+	}
+	const regex = textOf(a.nominal)?.regex
+	return regex === undefined ||
+		regex === "wildcard" ||
+		formIncludes(regex, form).kind !== "included"
+		? undefined
+		: { kind: "language", operand: 0, pattern: regex.source, flags: regex.flags }
+}
+
 /** The guard a refusal names, for the precondition it lacks. */
 const guardText = (precondition: PreconditionKind, operand: string, operation: string): string => {
 	switch (precondition) {
@@ -766,6 +815,8 @@ const guardText = (precondition: PreconditionKind, operand: string, operation: s
 		case "powerDomain":
 		case "bucketDomain":
 			return `Compute.when(Compute.within(${operand}, <low>, <high>), (${operand}) => ${operation}, <your value>), its bounds within which the operation is defined`
+		case "lexical":
+			return `a text whose type proves the target's lexical form, str.regex(lexicalForm(<target>)) or a refinement of it, or Compute.when(Compute.matches(${operand}, lexicalForm(<target>)), (${operand}) => ${operation}, <your value>)`
 	}
 }
 
@@ -1122,6 +1173,11 @@ class Lowering<R extends Refs> {
 						: bucketPremises(low, high, count)
 				return premises === undefined ? refuse(1) : { precondition, premises }
 			}
+			case "lexical": {
+				const a = args[0]
+				const premise = a === undefined ? undefined : lexicalPremise(a, target)
+				return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
+			}
 		}
 	}
 
@@ -1273,7 +1329,8 @@ class Lowering<R extends Refs> {
 	 * the bounds and facts of that value.
 	 */
 	literalNode(typed: CarriedLiteral, type: ScalarType): Lowered {
-		const n = literalNumber(typed.value)
+		const date = dateExact(typed.literal)
+		const n = date ?? literalNumber(typed.value)
 		const point = n === undefined ? undefined : typeof n === "object" ? ofPoint(n) : ofSpecial(n)
 		const at = isComputedNumeric(type) ? numericOf(point) : type
 		const entry = this.env.emit({
@@ -1288,7 +1345,10 @@ class Lowering<R extends Refs> {
 		}
 		return this.settle(entry, at, {
 			bounds: point,
-			facts: Object.freeze({ ...factsOfType(at), ...factsOfValue(n) })
+			facts:
+				date === undefined
+					? Object.freeze({ ...factsOfType(at), ...factsOfValue(n) })
+					: factsOfType(at)
 		})
 	}
 
@@ -1471,6 +1531,10 @@ class Lowering<R extends Refs> {
 			case "when":
 				return this.when(desc, at)
 			case "compare": {
+				const equation = this.concatEquation(desc, at)
+				if (equation !== undefined) {
+					return equation
+				}
 				const left = this.term(desc.left, childLoc(at, desc.op, "left"))
 				const right = this.operand(desc.right, left, "compare", childLoc(at, desc.op, "right"))
 				return this.comparison(desc.op, [left, right], at)
@@ -1542,9 +1606,73 @@ class Lowering<R extends Refs> {
 		}
 		const b = this.operand(second, a, "operand", childLoc(at, 1))
 		if (baseOf(b.actual).carrier !== "text") {
-			return stop("MalformedDescription", at, `a text operand for ${fn}, not ${typeLabel(b.nominal)}`)
+			return stop(
+				"MalformedDescription",
+				at,
+				`a text operand for ${fn}, not ${typeLabel(b.nominal)}`
+			)
 		}
 		return b
+	}
+
+	/**
+	 * An equation of a text with a concatenation, `t = p || q` or its negation, decided without building the
+	 * concatenation: `char_length(t) = char_length(p) + char_length(q) AND starts_with(t, p) AND right(t,
+	 * char_length(q)) = q`, which holds exactly where t is p then q, since its first characters are p's and the rest,
+	 * of q's length, are q's. No operand is longer than a value PostgreSQL already holds, so nothing allocates past
+	 * MaxAllocSize, in any mode: a fold's combine over concat (ir/monoid.ts) is such an equation, and so stands in a
+	 * law's violation query and its CHECK. Undefined for any other comparison.
+	 */
+	concatEquation(
+		desc: Extract<ExprDesc<Located, R>, { readonly kind: "compare" }>,
+		at: SourceLoc
+	): Lowered | undefined {
+		if (desc.op !== "eq" && desc.op !== "ne") {
+			return undefined
+		}
+		const sides =
+			desc.right.kind === "compute" && desc.right.fn === "concat"
+				? { whole: desc.left, cat: desc.right }
+				: desc.left.kind === "compute" && desc.left.fn === "concat"
+					? { whole: desc.right, cat: desc.left }
+					: undefined
+		if (sides === undefined) {
+			return undefined
+		}
+		const { whole, cat } = sides
+		const here = childLoc(at, desc.op, "concat")
+		const [p, q] = this.texts("concat", argOf(cat, 0, here), argOf(cat, 1, here), here)
+		const t =
+			whole.kind === "literal" && whole.type === undefined
+				? this.literal(whole.value, wildcardText, here)
+				: this.textOperand("an equation with a concatenation", p, whole, here)
+		const lengthOf = (x: Lowered): Lowered =>
+			this.native(
+				this.overload("charLength", [x.actual], here),
+				[x],
+				plainType("int4"),
+				ofRange(0n, BigInt(maxAllocSize.value), String(maxAllocSize.value).length),
+				here,
+				"char_length"
+			)
+		const [lp, lq] = this.exactPair(lengthOf(p), lengthOf(q), here)
+		const add = this.overload("add", [valueType(lp.nominal), valueType(lq.nominal)], here)
+		const bounds = arithmeticBounds("add", lp.bounds, lq.bounds)
+		const sum = this.native(add, [lp, lq], this.resultType(add, bounds), bounds, here, "length")
+		const bool = plainType("bool")
+		const test = (fn: "startsWith" | "endsWith", b: Lowered): Lowered =>
+			this.native(this.overload(fn, [t.actual, b.actual], here), [t, b], bool, undefined, here, fn)
+		const holds = this.native(
+			this.overload("and", [bool], here),
+			[this.comparison("eq", [lengthOf(t), sum], here), test("startsWith", p), test("endsWith", q)],
+			bool,
+			undefined,
+			here,
+			"and"
+		)
+		return desc.op === "eq"
+			? holds
+			: this.native(this.overload("not", [bool], here), [holds], bool, undefined, here, "not")
 	}
 
 	/**
@@ -2115,6 +2243,9 @@ class Lowering<R extends Refs> {
 	castTo(arg: Lowered, to: ScalarType, at: SourceLoc): Lowered {
 		const target = baseOf(to)
 		const from = valueType(arg.actual)
+		if (from.carrier === "text" && target.carrier !== "text") {
+			return this.parse(arg, to, at)
+		}
 		let value = arg
 		if (from.carrier !== target.carrier) {
 			const op = castOf(from.carrier, target.carrier)
@@ -2150,6 +2281,53 @@ class Lowering<R extends Refs> {
 				? this.castNode(value, to, { kind: "coercion" }, at)
 				: value
 		return { ...shaped, nominal: to, actual: plain ? to : shaped.actual }
+	}
+
+	/**
+	 * A parse, Compute.cast of a text into a type with a lexical form (scalar/lexical.ts): one cast node at the target's
+	 * base, its numeric typmod included, since the form is the typmod's, defined where the text is a member of the form
+	 * (the lexical precondition, proved by `prove`); then a domain cast into a contract over the base, which the
+	 * parsed value's bounds, the base's own, prove or refuse. A base with no lexical form has no parse.
+	 */
+	parse(arg: Lowered, to: ScalarType, at: SourceLoc): Lowered {
+		const target = baseOf(to)
+		const op = castOf("text", target.carrier)
+		if (op === undefined || lexicalTargetOf(target) === undefined) {
+			return stop(
+				"UnsupportedOperation",
+				at,
+				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat.value} digits on either side of its point, double precision's, boolean's and date's`
+			)
+		}
+		if (!op.partial) {
+			throw defect(
+				`a parse, defined where its text is a member of its lexical form: ${typeLabel(target)}`
+			)
+		}
+		const bounds = boundsOfType(target)
+		const value =
+			this.env.mode === "build"
+				? this.typedOnly(target, bounds)
+				: this.emitProved(
+						{
+							kind: "cast",
+							cast: op.id,
+							args: [arg.expr],
+							type: target,
+							nonNull: "strict",
+							volatility: op.volatility,
+							proof: this.proveAll(
+								op.totality.preconditions,
+								[arg],
+								target,
+								at,
+								`Compute.cast(${exprText(arg.expr)}, ${typeLabel(target)})`
+							)
+						},
+						bounds,
+						factsOfType(target)
+					)
+		return isRefined(to) ? this.domainCast(value, to, undefined, at) : { ...value, nominal: to }
 	}
 
 	/**
@@ -2485,7 +2663,7 @@ class Lowering<R extends Refs> {
 					return stop(
 						"UnsupportedOperation",
 						here,
-						"concat in a query: it exists only in contract predicates, row checks, generated fields and folds, because a concatenation allocates its result, and a read never fails on a value"
+						"concat in a query beside an equation: a concatenation allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; a query compares a text with a concatenation, which is decided without building it, and every other concatenation stands in contract predicates, row checks, generated fields and folds"
 					)
 				}
 				const [a, b] = this.texts("concat", arg(0), arg(1), here)
@@ -3481,6 +3659,7 @@ export const intervalCastProof = (
 			case "contract":
 			case "powerDomain":
 			case "bucketDomain":
+			case "lexical":
 				return undefined
 		}
 	}

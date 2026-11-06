@@ -3,15 +3,23 @@ import { nominal } from "#compiler/core/brand.ts"
 import { bitsColumn, brandColumn, type Columned, codeColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { CalendarDate } from "#compiler/ir/date.ts"
 import { closedIdParts } from "#compiler/scalar/closed-id.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
+import { dateDescriptor } from "#compiler/scalar/date.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { bareEnv, carrierSql, defineField } from "#compiler/scalar/registry.ts"
 import { spanColumn, spanParts } from "#compiler/scalar/span.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
-import { accumulatedField, bitsOf, drawnField, generatedField } from "#compiler/schema/relation.ts"
+import {
+	accumulatedField,
+	bitsOf,
+	drawnField,
+	generatedField,
+	slotField
+} from "#compiler/schema/relation.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
 	BaseOf,
@@ -52,10 +60,16 @@ import type {
 	NotSerial,
 	SpanField
 } from "#compiler/types/fields/field.ts"
-import type { AnyRoster, DistinctMembers } from "#compiler/types/schema/relation.ts"
+import type {
+	AnyClosedRelation,
+	AnyRoster,
+	DistinctMembers
+} from "#compiler/types/schema/relation.ts"
+import type { Fin, NaturalFieldOf, SlotField } from "#compiler/types/schema/statements.ts"
 
 export { Decimal } from "#compiler/scalar/values/decimal.ts"
 export { Money } from "#compiler/scalar/values/money.ts"
+export type { CalendarDate } from "#compiler/ir/date.ts"
 export type { Span } from "#compiler/scalar/values/span.ts"
 /** The uuid host value, uuid_out's spelling as ArkRegex infers it, and its parse from a plain string. */
 export { Uuid } from "#compiler/scalar/values/uuid.ts"
@@ -101,6 +115,9 @@ export const uuid: Field<Uuid, "uuid"> = uuidDescriptor
 
 /** natural: a bigint never below zero, the builtin contract over pg.bigint that pred reads (scalar/natural.ts). */
 export const natural: NaturalField = naturalDescriptor
+
+/** date: a calendar day, 0001-01-01 to 9999-12-31, its host value its ISO 8601 text (scalar/date.ts). */
+export const date: Field<CalendarDate, "date"> = dateDescriptor
 
 export const pg: Pg = pgDescriptors
 
@@ -211,6 +228,22 @@ export const drawn: DrawnConstructor = (
 	type: NaturalField,
 	...extra: ReadonlyArray<never>
 ): DrawnField => drawnField(type, extra)
+
+/**
+ * slot(type, fin(O, n)): a closed relation's key field of `type`, a closed id, whose codes are fin(O, n)'s slots, O a
+ * closed relation whose key pairs with the key's first fields: each owner's slots are the codes 0 to its count n - 1,
+ * so the relation's constant holds each owner's block after the blocks before it instead of the key's full product
+ * (schema/relation.ts slotField).
+ */
+export const slot = <
+	F extends ClosedIdField<AnyRoster>,
+	O extends AnyClosedRelation,
+	const N extends NaturalFieldOf<O>
+>(
+	type: F,
+	slots: Fin<O, N>,
+	...extra: ReadonlyArray<never>
+): SlotField<F, Fin<O, N>> => slotField(type, slots, extra)
 
 /**
  * accumulated(type, start): a field grizzle fills on the host, `start` at its axis's base (schema/relation.ts

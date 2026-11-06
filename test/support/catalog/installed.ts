@@ -127,7 +127,8 @@ const tableCallers = (
 
 /**
  * Each closed constant of an installation as the verifier judges its executors: a declared closed relation's own
- * (`declared`: its cells, its key set or a dictionary, which every world role's queries' closed reads call), or one a
+ * (`declared`: its cells, its key set, a dependent key's owner functions or a dictionary, every function its readers
+ * call (ClosedConstant functions), which every world role's queries' closed reads call), or one a
  * law's CHECK alone reads; either with the tables whose CHECKs and generated columns call it.
  */
 const closedClassifier = (installation: Installation): ((name: string) => InstalledFunction) => {
@@ -136,12 +137,7 @@ const closedClassifier = (installation: Installation): ((name: string) => Instal
 			if (r.kind !== "closedRelation") {
 				return []
 			}
-			const c = installation.names.closed(r.name)
-			return [
-				c.function.name,
-				c.keys.name,
-				...Arr.flatMap(c.payload, (p) => (p.dictionary === undefined ? [] : [p.dictionary.name]))
-			]
+			return Arr.map(installation.names.closed(r.name).functions, (f) => f.name)
 		})
 	)
 	const callers = tableCallers(installation.manifest)
@@ -463,12 +459,14 @@ const vectorSchemaOf = (catalog: Catalog, type: NamedType): Option.Option<string
 }
 
 /**
- * Each login's fixed defaults, `name=value` as pg_db_role_setting stores them: float text in shortest round-trip form
- * (only when extra_float_digits is positive), lc_monetary, lc_numeric and lc_time at C.UTF-8, and the search path of
+ * Each login's fixed defaults, `name=value` as pg_db_role_setting stores them: dates written in ISO 8601's YYYY-MM-DD,
+ * float text in shortest round-trip form (only when extra_float_digits is positive), lc_monetary, lc_numeric and
+ * lc_time at C.UTF-8, and the search path of
  * pg_catalog and the session's temporary schema alone, a list PostgreSQL stores with its schemas bare. Nothing else:
  * jit and lc_messages are the database owner's.
  */
 export const fixedDefaults: ReadonlyArray<string> = [
+	"DateStyle=ISO, YMD",
 	"extra_float_digits=1",
 	"lc_monetary=C.UTF-8",
 	"lc_numeric=C.UTF-8",

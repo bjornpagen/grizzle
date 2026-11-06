@@ -637,6 +637,7 @@ const boundsOf = (type: ScalarType): readonly [LiteralDesc, LiteralDesc] | undef
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "bits":

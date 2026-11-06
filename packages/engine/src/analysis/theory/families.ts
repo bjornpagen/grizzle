@@ -22,7 +22,7 @@ import type {
 	RelationInfo,
 	TheoryRelation
 } from "#compiler/ir/law.ts"
-import { type MonoidSpec, monoids } from "#compiler/ir/monoid.ts"
+import { monoids } from "#compiler/ir/monoid.ts"
 
 /**
  * Families and their axes, as the theory resolves them (fin.md §4, w4-w7 §2.1 to §2.3, trees.md).
@@ -660,25 +660,18 @@ const endFields = (f: FamilyShape, end: SideDesc, loc: SourceLoc): ReadonlyArray
 }
 
 /**
- * A monoid a counted family's fold combines in: a commutative one, since the order it combines in is hidden (fin.md
- * §4.2). Every MonoidSpec is commutative by its type (`commutative: true`), so the rule holds by typing: a monoid that
- * widened it would no longer compile here, and the refusal would have to be written.
- */
-const commutative = (m: MonoidSpec): MonoidSpec & { readonly commutative: true } => m
-
-/**
  * A fold statement over its family, resolved as the fold whose law is `law`: its step value, its accumulator pairs (the
  * fields the step side names, or hidden drawn law columns named by its law), its ends and each plane's identity. The
- * fold's typing is check/fold.ts foldRule's, refused here at the fold's statement: the step value, no accumulator pair
- * over a counted family, the pair and end counts, the accumulators' types and writings and their starts at the
- * identity; a counted family's monoid is commutative by typing (`commutative`). A fold steps over its family's member
- * rows, each distinct by the member's primary key and by its (group, index) slot, never over a projection of its step
- * side, which names what each member contributes and not the set it ranges over (rows-first §0): two members of one
- * step value are two steps.
+ * fold's typing is check/fold.ts foldRule's, refused here at the fold's statement: the step value, a commutative
+ * monoid over a counted family, whose order is hidden (fin.md §4.2), no accumulator pair over a counted family, the pair
+ * and end counts, the accumulators' types and writings and their starts at the identity. A fold steps over its
+ * family's member rows, each distinct by the member's primary key and by its (group, index) slot, never over a
+ * projection of its step side, which names what each member contributes and not the set it ranges over (rows-first
+ * §0): two members of one step value are two steps.
  */
 export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law">): FoldEntry => {
 	const loc = s.loc
-	const monoid = f.index.kind === "law" ? commutative(monoids[s.monoid]) : monoids[s.monoid]
+	const monoid = monoids[s.monoid]
 	const rest = afterGroup(f, s.step, loc)
 	const valueTerm = monoid.step === "value" ? rest[0] : undefined
 	const accumulators = monoid.step === "value" ? rest.slice(1) : rest

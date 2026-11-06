@@ -9,6 +9,7 @@ import {
 	constantOf,
 	type KeyCollision,
 	type CellLayout,
+	keyCells,
 	spaceSize
 } from "#compiler/ir/cells.ts"
 import type {
@@ -21,7 +22,7 @@ import type {
 	TypeSchema
 } from "#compiler/sql/ast.ts"
 import { binary, col, lit, ne, tableCol, types } from "#compiler/sql/build.ts"
-import { applied, constantValue, inSet, keyIn, mixedRadix, pack } from "#compiler/sql/constants.ts"
+import { applied, constantValue, inSet, keyIn, keyIndex, pack } from "#compiler/sql/constants.ts"
 import {
 	printExpr,
 	printObjectName,
@@ -81,15 +82,19 @@ export interface HandClosed<C extends string> {
 	readonly stride: number
 }
 
-/** A relation's coordinates, as the cells encoder reads them. */
+/** The code spaces of a relation's key coordinates, in key order. */
+const keySizes = (relation: HandClosed<string>): Arr.NonEmptyReadonlyArray<number> =>
+	Arr.map(relation.key, (k) => k.codes)
+
+/** A relation's coordinates, as the cells encoder reads them: a product of its key's codes. */
 const layoutOf = (relation: HandClosed<string>): CellLayout => ({
-	key: Arr.map(relation.key, (k) => k.codes),
+	key: { kind: "product", sizes: keySizes(relation) },
 	payload: relation.payload
 })
 
 /** The cells of a relation's constant: the points of its key's space. */
 export const cellCount = (relation: HandClosed<string>): number =>
-	Number(spaceSize(layoutOf(relation).key))
+	Number(keyCells(layoutOf(relation).key))
 
 /** The bits of one of a relation's cells, as the cells encoder sizes it. */
 export const widthOf = (relation: HandClosed<string>): number =>
@@ -117,12 +122,13 @@ export const digitsAt = (
 	relation: HandClosed<string>,
 	index: number
 ): Arr.NonEmptyReadonlyArray<number> => {
-	const sizes = layoutOf(relation).key
+	const sizes = keySizes(relation)
 	return Arr.map(sizes, (size, i) => digitOf(sizes, size, i, index))
 }
 
-/** A member of a relation: its key's codes in key order, its rank, and its payload code, 0 for a set's. */
+/** A member of a relation: its cell, its key's codes in key order, its rank, and its payload code, 0 for a set's. */
 interface Member {
+	readonly index: number
 	readonly key: Arr.NonEmptyReadonlyArray<number>
 	readonly rank: number
 	readonly code: number
@@ -138,7 +144,7 @@ export const membersOf = (relation: HandClosed<string>): ReadonlyArray<Member> =
 	for (let index = 0; index < cells; index++) {
 		const rank = (index * relation.stride) % cells
 		if (rank < relation.members) {
-			members.push({ key: digitsAt(relation, index), rank, code: rank % codes })
+			members.push({ index, key: digitsAt(relation, index), rank, code: rank % codes })
 		}
 	}
 	return Arr.sort(members, byRank)
@@ -234,9 +240,15 @@ export const membersTableSql = (
 	]
 }
 
-/** A cell's index over the codes `digit` reads, row-major in key order (sql/constants.ts mixedRadix). */
+/** A cell's index over the codes `digit` reads, row-major in key order (sql/constants.ts keyIndex over a product). */
 const indexOver = (relation: HandClosed<string>, digit: (key: CodeColumn<string>) => Expr): Expr =>
-	mixedRadix(Arr.map(relation.key, (k) => ({ digit: digit(k), radix: k.codes })))
+	keyIndex(
+		{
+			kind: "product",
+			coordinates: Arr.map(relation.key, (k) => ({ field: k.column, radix: k.codes }))
+		},
+		Arr.map(relation.key, digit)
+	)
 
 /** A cell's index from the codes of a row's key columns, inside a table's DDL. */
 const rowIndex = (relation: HandClosed<string>): Expr =>
@@ -262,17 +274,17 @@ export const derivedExpr = (constant: ObjectName, relation: HandClosed<string>):
 
 /**
  * The migration's pack of a relation's constant into the IMMUTABLE function `constant` (sql/constants.ts pack): its
- * members as VALUES rows, joined to the cells' index space. A row's names are its key codes' texts.
+ * members as VALUES rows at their cells, joined to the cells. A row's names are its key codes' texts.
  */
 export const packSql = (constant: ObjectName, relation: HandClosed<string>): string =>
 	printStatement(
 		pack(
 			constant,
-			layoutOf(relation).key,
+			BigInt(cellCount(relation)),
 			widthOf(relation),
 			nonEmpty(
 				Arr.map(membersOf(relation), (m) => ({
-					key: m.key,
+					index: BigInt(m.index),
 					payload: BigInt(m.code),
 					names: Arr.map(m.key, (code) => String(code))
 				})),

@@ -90,7 +90,9 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  *   (ir/scalar.ts numericMaxIntegerDigits), where PostgreSQL's numeric arithmetic would raise;
  * - `constantBits`: the constant of the closed relation or side `constant`, whose cells times their width come to
  *   `needed` bits, past PostgreSQL's longest bit string, `limit` (core/limits.ts constantMaxBits), refused before it is
- *   packed.
+ *   packed;
+ * - `cellCodes`: the constant of the closed relation or side `constant`, whose payload space holds `needed` codes, past
+ *   the `limit` a cell read as an integer holds (core/limits.ts cellMaxCodes), refused before it is packed.
  */
 export type CompileBound =
 	| {
@@ -115,6 +117,12 @@ export type CompileBound =
 			readonly limit: number
 			readonly needed: bigint
 	  }
+	| {
+			readonly kind: "cellCodes"
+			readonly constant: string
+			readonly limit: number
+			readonly needed: bigint
+	  }
 
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
@@ -134,13 +142,15 @@ const boundText = (bound: CompileBound): string => {
 			return `a numeric value of at most ${bound.limit} integer digits, numeric's limit (this expression's may need ${bound.needed})`
 		case "constantBits":
 			return `the constant of ${bound.constant} in at most ${bound.limit} bits, PostgreSQL's longest bit string, VARBITMAXLEN (needed ${bound.needed})`
+		case "cellCodes":
+			return `the payload of ${bound.constant} in at most ${bound.limit} codes, what one cell read as an integer holds (needed ${bound.needed}); split its payload fields into closed relations of their own`
 	}
 }
 
 /**
  * What a partial operation needs of its operands beyond their types (scalar/compute/registry.ts Precondition, by
  * kind): a nonzero divisor, a nonnegative radicand, a finite operand, a value that fits its target, a contract that
- * holds, power's domain, width_bucket's domain.
+ * holds, power's domain, width_bucket's domain, a parse's lexical form.
  */
 export type PreconditionKind =
 	| "nonzero"
@@ -150,6 +160,7 @@ export type PreconditionKind =
 	| "contract"
 	| "powerDomain"
 	| "bucketDomain"
+	| "lexical"
 
 const preconditionText = (kind: PreconditionKind, operand: string): string => {
 	switch (kind) {
@@ -167,6 +178,8 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 			return `${operand} lies where power is defined and in range`
 		case "bucketDomain":
 			return `${operand} lies where width_bucket is defined`
+		case "lexical":
+			return `${operand} is a member of its target's lexical form`
 	}
 }
 

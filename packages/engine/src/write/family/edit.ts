@@ -6,8 +6,9 @@
  *
  * 1. the stored suffix: the group's members from the least slot the edit touches to the end, the member before it
  *    included, and the owner's count, ends and copied columns, read in one batched SELECT per family before any write
- *    (statements.ts suffixReadSql); an owner the same changeset inserts has an empty family, count 0 and every end at
- *    its start, and is no stored group;
+ *    (statements.ts suffixReadSql). An owner the same changeset inserts has its key read in that SELECT too: its group
+ *    is fresh, an empty family, count 0 and every end at its start, only when no owner is stored at its key; an owner
+ *    stored there is the insert's exact repeat, and its members are planned against its stored group;
  * 2. the host fill (`fillGroup`): the new suffix from the stored one and the edit, each slot's index, copies and
  *    accumulators, and the owner's new count and ends;
  * 3. the statements (order.ts): the rows each family's edits delete, update and insert, merged per row across the
@@ -99,12 +100,7 @@ export const fixedSentence = (head: string, family: Family, effect: string | und
 	`${head}, a member of the family ${family.id.owner}.${family.id.count} of the immutable ${family.owner.name}${effect === undefined ? "" : `, ${effect}`}: ${fixedRule(family.owner.name)}`
 
 /** The run time's refusal of a write of `member` that changes an immutable owner's family (`fixedSentence`). */
-export const fixedRefusal = (
-	member: string,
-	head: string,
-	family: Family,
-	effect: string
-): CompileError =>
+const fixedRefusal = (member: string, head: string, family: Family, effect: string): CompileError =>
 	unsupported(SourceLoc("ChangeSet", [member]), fixedSentence(head, family, effect))
 
 /** A stored member as a read returns it: its slot in the read's family, its group's key text, and its values. */
@@ -155,49 +151,42 @@ const groupOf = (ctx: FillContext, family: Family, values: Values): Owner =>
 
 /**
  * What one family's read reads (statements.ts suffixReadSql): the touched members' keys, each once, and the touched
- * groups' keys, each once, which its placeholders carry as arrays, the keys' first; undefined when nothing it touches
- * can be stored, no key named and every group an owner's the changeset inserts.
+ * groups' keys, each once, which its placeholders carry as arrays, the keys' first; undefined when the changes name no
+ * member of the family.
  */
 export interface ReadKeys {
 	readonly keys: ReadonlyArray<MemberKey>
 	readonly groups: ReadonlyArray<Owner>
 }
 
-/** One family's read's keys (`ReadKeys`): `inserted` holds the group key texts of the owners the changeset inserts. */
+/**
+ * One family's read's keys (`ReadKeys`): every member key the changes name, and every group an insert or a put names.
+ * A stored row at an insert's key is its exact repeat, no change, or the key law's refusal; a stored owner at a group's
+ * key is a stored group, whatever the changeset inserts there, since an owner the changeset inserts may be the exact
+ * repeat of a stored one, its members stored with it. The owners the changeset inserts are read in the same SELECT as
+ * every other group, so their keys cost no flight of their own.
+ */
 export const readKeys = (
 	ctx: FillContext,
 	target: EditTarget,
 	family: Family,
-	changes: RelationChanges,
-	inserted: ReadonlySet<string>
+	changes: RelationChanges
 ): ReadKeys | undefined => {
-	/** Every key the changes name, an insert's into a stored group too: a stored row at its key is its exact repeat, no
-	 * change, or the key law's refusal. An insert into a group whose owner the changeset inserts reads nothing: no
-	 * stored row can equal it, and one at its key in another group is the key law's refusal at the insert. */
 	const keys = new Map<string, MemberKey>()
-	const intoStored = changes.inserts.filter(
-		(fact) => !inserted.has(textsKey(groupOf(ctx, family, valuesOfFact(fact))))
-	)
-	for (const fact of [...changes.deletes, ...changes.puts, ...intoStored]) {
+	for (const fact of [...changes.deletes, ...changes.puts, ...changes.inserts]) {
 		const key = keyOf(ctx, target.layout, valuesOfFact(fact))
 		keys.set(textsKey(key), key)
 	}
 	const groups = new Map<string, Owner>()
 	for (const fact of [...changes.inserts, ...changes.puts]) {
 		const group = groupOf(ctx, family, valuesOfFact(fact))
-		if (!inserted.has(textsKey(group))) {
-			groups.set(textsKey(group), group)
-		}
+		groups.set(textsKey(group), group)
 	}
 	if (keys.size === 0 && groups.size === 0) {
 		return undefined
 	}
 	return { keys: [...keys.values()], groups: [...groups.values()] }
 }
-
-/** A member fact's group key texts in `family`, its group fields' in the family's order. */
-export const groupKey = (ctx: FillContext, family: Family, fact: Fact): Owner =>
-	groupOf(ctx, family, valuesOfFact(fact))
 
 /** An owner fact's group key text in `family`, its key fields paired with the family's group in order. */
 export const ownerText = (ctx: FillContext, family: Family, fact: Fact): string =>
@@ -396,7 +385,21 @@ interface GroupEdit {
 	readonly removals: ReadonlySet<string>
 	/** Kept members' new values, the stored ones with the put's caller fields over them. */
 	readonly updates: ReadonlyMap<string, Values>
-	readonly appends: ReadonlyArray<{ readonly key: string; readonly values: Values }>
+	/** Each new member, with the write that adds it: an insert, or a put of a key no stored row holds or that moves it. */
+	readonly appends: ReadonlyArray<{
+		readonly key: string
+		readonly values: Values
+		readonly by: "insert" | "put"
+	}>
+}
+
+/**
+ * Why a group's family is fixed, an immutable owner's: its owner is stored, so its family is as that owner's insert
+ * left it; or nothing stores or inserts its owner, so no family of it can be written.
+ */
+interface FixedGroup {
+	readonly owner: Owner
+	readonly standing: "stored" | "absent"
 }
 
 /** What a group's fill writes: its placements, and its owner's new values when its count or ends change. */
@@ -417,7 +420,7 @@ const fillGroup = (
 	relation: LawRelation,
 	family: Family,
 	edit: GroupEdit,
-	fixed: Owner | undefined
+	fixed: FixedGroup | undefined
 ): Result.Result<GroupFilled, EncodingFailure | CompileError> => {
 	const failure = encodeFailure("integerRange", slotPlace(relation.name))
 	const n0 = edit.stored?.count ?? 0
@@ -433,25 +436,34 @@ const fillGroup = (
 			)
 		})
 	const removedSlots = stored.filter((m) => edit.removals.has(m.key)).map((m) => m.slot)
-	/** A stored group of an immutable owner takes no append, no removal and no change of what its family values read:
+	/** A fixed group of an immutable owner takes no append, no removal and no change of what its family values read:
 	 * every one would change a value fixed when the owner was inserted. An update of anything else is in place. */
-	const storedFixed = fixed
-	if (storedFixed !== undefined) {
-		const at = `the owner ${family.owner.name} with key (${storedFixed.join(", ")}), which is already stored`
+	if (fixed !== undefined) {
+		const at = `the owner ${family.owner.name} with key (${fixed.owner.join(", ")}), ${fixed.standing === "stored" ? "which is already stored" : "which this stratum does not insert"}`
 		const changed = [...edit.updates].some(([key, values]) => {
 			const m = stored.find((x) => x.key === key)
 			return m !== undefined && changesInput(m.values, values)
 		})
-		const effect =
-			edit.appends.length > 0
-				? `appending to ${at}`
+		const [append] = edit.appends
+		const refusal =
+			append !== undefined
+				? {
+						head:
+							append.by === "insert"
+								? `an insert into ${relation.name}`
+								: `a put of ${relation.name}`,
+						effect: `appending to ${at}`
+					}
 				: removedSlots.length > 0
-					? `moving a member out of ${at}`
+					? { head: `a put of ${relation.name}`, effect: `moving a member out of ${at}` }
 					: changed
-						? `changing a value its family reads of a member of ${at}`
+						? {
+								head: `a put of ${relation.name}`,
+								effect: `changing a value its family reads of a member of ${at}`
+							}
 						: undefined
-		if (effect !== undefined) {
-			return Result.err(fixedRefusal(relation.name, `a put of ${relation.name}`, family, effect))
+		if (refusal !== undefined) {
+			return Result.err(fixedRefusal(relation.name, refusal.head, family, refusal.effect))
 		}
 	}
 	const kept = n0 - removedSlots.length
@@ -756,7 +768,7 @@ export const planEdits = (
 					readonly stored: StoredGroup | undefined
 					readonly removals: Set<string>
 					readonly updates: Map<string, Values>
-					readonly appends: Array<{ readonly key: string; readonly values: Values }>
+					readonly appends: Array<GroupEdit["appends"][number]>
 				}
 			}
 		>()
@@ -772,7 +784,7 @@ export const planEdits = (
 				stored: s,
 				removals: new Set<string>(),
 				updates: new Map<string, Values>(),
-				appends: new Array<{ readonly key: string; readonly values: Values }>()
+				appends: new Array<GroupEdit["appends"][number]>()
 			}
 			groups.set(text, { owner, edit })
 			return edit
@@ -787,12 +799,12 @@ export const planEdits = (
 					}
 					break
 				case "insert":
-					groupEdit(groupOf(ctx, family, values)).appends.push({ key, values })
+					groupEdit(groupOf(ctx, family, values)).appends.push({ key, values, by: "insert" })
 					break
 				case "put": {
 					const group = groupOf(ctx, family, values)
 					if (was === undefined) {
-						groupEdit(group).appends.push({ key, values })
+						groupEdit(group).appends.push({ key, values, by: "put" })
 						break
 					}
 					const merged = new Map([...was.values, ...values])
@@ -800,20 +812,27 @@ export const planEdits = (
 						groupEdit(group).updates.set(key, merged)
 					} else {
 						groupEdit(storedGroupOf(was)).removals.add(key)
-						groupEdit(group).appends.push({ key, values: merged })
+						groupEdit(group).appends.push({ key, values: merged, by: "put" })
 					}
 					break
 				}
 			}
 		}
 		const recounts = new Map<string, Recount>()
+		const storedGroups = new Set<string>()
 		for (const [text, { owner, edit }] of groups) {
+			/** A group is fresh when the stratum inserts its owner and the read found none stored at its key. Any other group
+			 * of an immutable owner is fixed: stored, whether or not the changeset inserts its owner again, since an owner
+			 * insert at a stored key is its exact repeat or the key law's refusal; or absent, its owner neither stored nor
+			 * inserted. */
+			const storedGroup = edit.stored !== undefined
+			const fresh = inserted.has(text) && !storedGroup
 			const filled = fillGroup(
 				ctx,
 				relation,
 				family,
 				edit,
-				fixed && !inserted.has(text) ? owner : undefined
+				fixed && !fresh ? { owner, standing: storedGroup ? "stored" : "absent" } : undefined
 			)
 			if (!filled.ok) {
 				return filled
@@ -831,10 +850,13 @@ export const planEdits = (
 					count: edit.appends.length + (edit.stored?.count ?? 0) - edit.removals.size,
 					ends: endColumns(family).map((f) => textOf(ctx, f.type, after.get(fieldKey(f.name))))
 				})
+				if (storedGroup) {
+					storedGroups.add(text)
+				}
 			}
 		}
 		if (recounts.size > 0) {
-			owners.push({ family: family.id, recounts })
+			owners.push({ family: family.id, recounts, stored: storedGroups })
 		}
 	}
 	const deletes = new Map<string, MemberKey>()
@@ -927,7 +949,7 @@ export const foldRecounts = (
 				})
 				const at = textsKey(key)
 				const row = rows.get(at)
-				if (row === undefined) {
+				if (row === undefined || write.stored.has(text)) {
 					kept.set(text, recount)
 					continue
 				}
@@ -945,7 +967,7 @@ export const foldRecounts = (
 					)
 				})
 			}
-			return kept.size > 0 ? [{ family: write.family, recounts: kept }] : []
+			return kept.size > 0 ? [{ family: write.family, recounts: kept, stored: write.stored }] : []
 		})
 	)
 	return planned.map((p, i) => ({

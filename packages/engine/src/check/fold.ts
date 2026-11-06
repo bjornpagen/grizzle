@@ -35,6 +35,9 @@ export interface FoldTyping {
  * Why a fold's fields are not its monoid's, as the refusal's sentence, or undefined when they are. In order:
  *
  * - its step value: present exactly when the monoid reads one (count reads none), of a carrier the monoid admits;
+ * - its monoid: a commutative one over a counted family, whose order is hidden, so concat folds only a sequence, and
+ *   names its accumulators there, since its law reads each member's running value, which no aggregate over the
+ *   family's set of members states;
  * - its accumulators: none over a counted family, whose per-member accumulator would show the hidden order; otherwise
  *   none, or one (before, after) pair per plane;
  * - its ends: one per plane;
@@ -51,6 +54,12 @@ export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): string | undefin
 	}
 	if (x !== undefined && !monoid.admits(x.type)) {
 		return `a step value of a carrier ${monoid.name} admits; ${x.name} is ${typeLabel(x.type)}`
+	}
+	if (fold.order === "counted" && !monoid.commutative) {
+		return `a fold over a counted family combines in a commutative monoid, since the family's order is hidden; ${monoid.name} is not: fold an ordered family or a tree by it`
+	}
+	if (!monoid.commutative && fold.pairs.length === 0) {
+		return `a ${monoid.name} fold names its (before, after) pair after its value: its combine depends on the members' order, which its law reads through each member's running value`
 	}
 	if (fold.order === "counted" && fold.pairs.length > 0) {
 		return "a fold over a counted family hides its accumulators: name the step's value alone"

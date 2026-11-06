@@ -2,15 +2,18 @@
  * The closed monoids (ir/monoid.ts): each one's combine and identity against the monoid laws, and its carriers.
  *
  * - The laws, universal: from the identity, one step is the step's value alone; two steps commute, so a fold over a
- *   counted family, whose order is hidden, has one value; or's step is idempotent; and twos holds, after two steps, the
- *   codes both of them set (the two-plane model), so a set stepped twice is twice.
+ *   counted family, whose order is hidden, has one value, for every monoid that says it is commutative; concat's two
+ *   steps are one step of their concatenation, its associativity, and the box holds two steps it does not commute,
+ *   so its flag is no lie; or's step is idempotent; and twos holds, after two steps, the codes both of them set (the
+ *   two-plane model), so a set stepped twice is twice.
  * - The combine is evaluated over host values: bigints for count, sum and max over natural, Sets of handles for or and
- *   twos, and handles in roster order for max over a closed id.
+ *   twos, handles in roster order for max over a closed id, and strings for concat.
  * - `admits`, by the specification: sum refuses the floats, or and twos refuse every carrier but a set, and max refuses
  *   every carrier with no least value.
  *
  * The box, exhausted: accumulators and steps over naturals 0 to 4, over every subset of a five-code roster with a
- * hole (a twos state's twos plane within its ones plane, as every fold's is), and over its live codes.
+ * hole (a twos state's twos plane within its ones plane, as every fold's is), over its live codes, and over five texts:
+ * the empty text, two letters, their concatenation and a supplementary-plane character.
  */
 import { describe, it } from "@effect/vitest"
 import { type Case, exhaust } from "@grizzle/testing/explore"
@@ -49,7 +52,7 @@ const code: ScalarType = {
 	roster
 }
 
-/** A host value of the box: a bigint, a Set of handles, or a handle. */
+/** A host value of the box: a bigint, a Set of handles, or a handle or a text. */
 type Value = bigint | ReadonlySet<string> | string
 
 const rank = (handle: string): number => roster.handles.indexOf(handle)
@@ -80,6 +83,10 @@ const host: CombineBuild<Value> = {
 						? left
 						: right
 					: assert.fail(fn)
+			case "concat":
+				return typeof left === "string" && typeof right === "string"
+					? `${left}${right}`
+					: assert.fail(fn)
 		}
 	}
 }
@@ -93,13 +100,15 @@ const hostOf = (literal: TypedLiteral): Value => {
 			return new Set(literal.handles)
 		case "handle":
 			return literal.handle
+		case "text":
+			return literal.value
 		case "numeric":
 		case "float":
 		case "floatSpecial":
 		case "money":
 		case "bool":
-		case "text":
 		case "uuid":
+		case "date":
 		case "span":
 		case "vector":
 			return assert.fail(`no host value of the box for ${literal.kind}`)
@@ -114,20 +123,23 @@ const spellAll = (vs: ReadonlyArray<Value>): string => Arr.join(Arr.map(vs, spel
 
 /** One case: a monoid over one carrier, its accumulator planes, and two steps. */
 interface Pattern {
-	readonly monoid: "count" | "sum" | "or" | "twos" | "maxNatural" | "maxCode"
+	readonly monoid: "count" | "sum" | "or" | "twos" | "maxNatural" | "maxCode" | "concat"
 	readonly before: ReadonlyArray<Value>
 	readonly x: Value
 	readonly y: Value
 }
 
 const naturals: ReadonlyArray<bigint> = [0n, 1n, 2n, 3n, 4n]
+const texts: ReadonlyArray<string> = ["", "a", "b", "ab", "\u{1F600}"]
 const subsets: ReadonlyArray<ReadonlySet<string>> = Array.from(
 	{ length: 2 ** roster.handles.length },
 	(_, mask) => new Set(Arr.filter(roster.handles, (_, i) => ((mask >> i) & 1) === 1))
 )
 
 const patterns: Gen<Pattern> = (s) => {
-	const monoid = s.draw(element(["count", "sum", "or", "twos", "maxNatural", "maxCode"] as const))
+	const monoid = s.draw(
+		element(["count", "sum", "or", "twos", "maxNatural", "maxCode", "concat"] as const)
+	)
 	const pick = <A>(values: ReadonlyArray<A>): A =>
 		values[s.draw(int(0, values.length - 1))] ?? assert.fail("a value")
 	switch (monoid) {
@@ -150,6 +162,8 @@ const patterns: Gen<Pattern> = (s) => {
 				x: pick(roster.handles),
 				y: pick(roster.handles)
 			}
+		case "concat":
+			return { monoid, before: [pick(texts)], x: pick(texts), y: pick(texts) }
 	}
 }
 
@@ -169,11 +183,19 @@ const specOf = (
 			return { spec: monoids.max, carrier: natural }
 		case "maxCode":
 			return { spec: monoids.max, carrier: code }
+		case "concat":
+			return { spec: monoids.concat, carrier: text }
 	}
 }
 
-/** The monoid laws at one case: the identity's first step, two steps' commutativity, and the set monoids' models. */
-const laws = ({ monoid, before, x, y }: Pattern, c: Case<Pattern["monoid"]>) =>
+/**
+ * The monoid laws at one case: the identity's first step, two steps' commutativity where the monoid states it and
+ * concat's associativity, and the set monoids' models.
+ */
+const laws = (
+	{ monoid, before, x, y }: Pattern,
+	c: Case<Pattern["monoid"] | "concat noncommuting">
+) =>
 	Effect.sync(() => {
 		const { spec, carrier } = specOf(monoid)
 		assert.ok(spec.admits(carrier), `${spec.name} admits its carrier`)
@@ -187,11 +209,22 @@ const laws = ({ monoid, before, x, y }: Pattern, c: Case<Pattern["monoid"]>) =>
 		const alone: ReadonlyArray<Value> =
 			monoid === "count" ? [1n] : monoid === "twos" ? [x, new Set<string>()] : [x]
 		assert.equal(spellAll(first), spellAll(alone), "from the identity, one step is the step alone")
-		assert.equal(
-			spellAll(run(run(before, x), y)),
-			spellAll(run(run(before, y), x)),
-			"two steps commute"
-		)
+		if (spec.commutative) {
+			assert.equal(
+				spellAll(run(run(before, x), y)),
+				spellAll(run(run(before, y), x)),
+				"two steps commute"
+			)
+		} else {
+			assert.equal(
+				spellAll(run(run(before, x), y)),
+				spellAll(run(before, host.apply("concat", x, y))),
+				"two steps are one step of their concatenation"
+			)
+			if (spellAll(run(run(before, x), y)) !== spellAll(run(run(before, y), x))) {
+				c.note("concat noncommuting")
+			}
+		}
 		if (monoid === "or") {
 			assert.equal(
 				spellAll(run(run(before, x), x)),
@@ -250,7 +283,7 @@ const carriers: readonly [Admission, ...Array<Admission>] = [
 	{ name: "bigint", type: int8, admitted: ["sum", "max"] },
 	{ name: "numeric(10,2)", type: numeric, admitted: ["sum"] },
 	{ name: "double precision", type: float8, admitted: [] },
-	{ name: "text", type: text, admitted: [] },
+	{ name: "text", type: text, admitted: ["concat"] },
 	{ name: "a set", type: set, admitted: ["or", "twos"] },
 	{ name: "a closed id", type: code, admitted: ["max"] }
 ]
@@ -264,17 +297,19 @@ describe("the closed monoids", () => {
 					suite: "unit/ir/monoid",
 					generator: patterns,
 					literal: Formatter.format,
-					limit: 5 + 125 + 125 + 4096 + 81 * 256 + 64,
-					coverage: requiredInSpace<Pattern["monoid"]>([
+					limit: 5 + 125 + 125 + 4096 + 81 * 256 + 64 + 125,
+					coverage: requiredInSpace<Pattern["monoid"] | "concat noncommuting">([
 						"count",
 						"sum",
 						"or",
 						"twos",
 						"maxNatural",
-						"maxCode"
+						"maxCode",
+						"concat",
+						"concat noncommuting"
 					]),
 					caseHang,
-					box: "naturals 0 to 4, every subset of a five-code roster with a hole, its live codes",
+					box: "naturals 0 to 4, every subset of a five-code roster with a hole, its live codes, five texts",
 					oracle: { kind: "universal", name: "the monoid laws and the two-plane model" }
 				},
 				laws
@@ -311,7 +346,8 @@ describe("the closed monoids", () => {
 							monoids.sum,
 							monoids.or,
 							monoids.twos,
-							monoids.max
+							monoids.max,
+							monoids.concat
 						]) {
 							assert.equal(
 								spec.admits(carrier.type),

@@ -28,9 +28,6 @@ import {
 	type CarriedLiteral
 } from "#compiler/scalar/compute/literal.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
-import { matchFlags } from "#compiler/scalar/regex/admit.ts"
-import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
-import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import {
 	castOf,
 	firstOperand,
@@ -38,6 +35,9 @@ import {
 	nativeOp,
 	type Undefined
 } from "#compiler/scalar/compute/registry.ts"
+import { matchFlags } from "#compiler/scalar/regex/admit.ts"
+import { buildNfa, matches } from "#compiler/scalar/regex/nfa.ts"
+import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { compareDecimal, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero, compareFloat } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -114,6 +114,7 @@ export const literalValue = (literal: TypedLiteral): CarrierValue => {
 			return literal.value
 		case "text":
 		case "uuid":
+		case "date":
 			return literal.value
 		case "handle":
 			return literal.handle
@@ -190,6 +191,11 @@ export const compareValues = (
 			}
 			return a === b ? 0 : a ? 1 : -1
 		case "uuid":
+			if (!isString(a) || !isString(b)) {
+				return undefined
+			}
+			return a === b ? 0 : a < b ? -1 : 1
+		case "date":
 			if (!isString(a) || !isString(b)) {
 				return undefined
 			}
@@ -664,7 +670,7 @@ export const evaluateTable = (
 const converted = (r: Result.Result<CastValue, Undefined>): EvalResult =>
 	!r.ok ? undefinedAt(r.error) : Result.ok(r.value)
 
-const hostCast = (host: HostCast, v: CarrierValue, source: Carrier): EvalResult => {
+const hostCast = (host: HostCast, v: CarrierValue, source: Carrier, to: ScalarType): EvalResult => {
 	switch (host.from) {
 		case "integer":
 			return isBigint(v) ? converted(host.convert(v)) : unsupported(`a cast from ${source}`)
@@ -674,6 +680,10 @@ const hostCast = (host: HostCast, v: CarrierValue, source: Carrier): EvalResult 
 			return isNumber(v) ? converted(host.convert(v)) : unsupported(`a cast from ${source}`)
 		case "money":
 			return isMoney(v) ? converted(host.convert(v)) : unsupported(`a cast from ${source}`)
+		case "text":
+			return isString(v)
+				? converted(host.convert(v, baseOf(to)))
+				: unsupported(`a cast from ${source}`)
 	}
 }
 
@@ -687,7 +697,7 @@ const castTo = (v: CarrierValue, from: ScalarType, to: ScalarType): EvalResult =
 		if (native === undefined) {
 			return unsupported(`a cast from ${source} to ${target}`)
 		}
-		const cast = hostCast(native.host, v, source)
+		const cast = hostCast(native.host, v, source, to)
 		if (!cast.ok) {
 			return cast
 		}

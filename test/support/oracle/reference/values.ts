@@ -1,6 +1,7 @@
 import { Array as Arr, Data, Formatter, Result } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { VectorText } from "#compiler/ir/carriers.ts"
+import { convertDate } from "#compiler/ir/date.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -216,6 +217,7 @@ export const valueKey = (v: Value, type: ScalarType): string => {
 		case "bool":
 			return v === true ? "t" : "f"
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 			return `x${asString(v)}`
@@ -263,6 +265,7 @@ export const indexKey = (v: Value, type: ScalarType): string | undefined => {
 		case "bool":
 			return typeof v === "boolean" ? valueKey(v, type) : undefined
 		case "uuid":
+		case "date":
 		case "text":
 			return typeof v === "string" ? valueKey(v, type) : undefined
 		case "code":
@@ -435,6 +438,8 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 			return { kind: "text", value: asString(v) }
 		case "uuid":
 			return { kind: "uuid", value: asString(v) }
+		case "date":
+			return { kind: "date", value: convertDate(asString(v)) }
 		case "code":
 			return { kind: "handle", handle: asString(v) }
 		case "bits":

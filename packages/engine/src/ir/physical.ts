@@ -5,33 +5,9 @@ import { int8ExactDigits } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
-import type {
-	ObjectName,
-	QualifiedFunctionRef,
-	TypeName,
-	TypeRef,
-	TypeSchema
-} from "#compiler/sql/ast.ts"
+import type { QualifiedFunctionRef, TypeName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import { namedType, numericType, types } from "#compiler/sql/build.ts"
-
-/**
- * A closed relation as its installed constants hold it, what a closed law's CHECK and a closed read read: its string of
- * cells' function, read `width` bits a cell at the mixed-radix index of its key fields' codes, each key field with its
- * radix, its code space holes included, in key order; its payload fields in declared order, each with its radix and,
- * for an open-typed field, the function of its dictionary, the field's values in code order, none for a closed id; and
- * the function of its key set, one bit per point of the key space, set where the relation holds a tuple.
- */
-export interface ClosedConstant {
-	readonly function: ObjectName
-	readonly key: NonEmptyReadonlyArray<{ readonly field: string; readonly radix: number }>
-	readonly width: number
-	readonly payload: ReadonlyArray<{
-		readonly field: string
-		readonly radix: number
-		readonly dictionary: ObjectName | undefined
-	}>
-	readonly keys: ObjectName
-}
+import type { ClosedConstant } from "#compiler/sql/constants.ts"
 
 /**
  * A selection key's law column: a key over a selected side, `key(on(select(R, φ), f))`, installs the generated column

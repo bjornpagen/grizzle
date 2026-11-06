@@ -37,7 +37,7 @@ import {
 	type SpanField,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
-import { monoids } from "#compiler/ir/monoid.ts"
+import { type CombineFn, monoids } from "#compiler/ir/monoid.ts"
 
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
@@ -1210,11 +1210,7 @@ const conditionsOf = (planned: FamilyPlan, law: LawId): ReadonlyArray<NativePlan
 /** The literal one a count's combine adds, and the application of a combine's operation, as a description. */
 const combineBuild = {
 	one: naturalLiteral(1n),
-	apply: (
-		fn: "add" | "union" | "intersection" | "greatest",
-		left: ExprDesc,
-		right: ExprDesc
-	): ExprDesc => ({
+	apply: (fn: CombineFn, left: ExprDesc, right: ExprDesc): ExprDesc => ({
 		kind: "compute",
 		fn,
 		args: [left, right]

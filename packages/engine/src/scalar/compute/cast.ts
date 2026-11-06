@@ -11,8 +11,10 @@ import {
 	integerRanges,
 	moneyFractionDigits
 } from "#compiler/ir/carriers.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { fromUnits, toInteger } from "#compiler/scalar/compute/numeric.ts"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
+import { type LexicalValue, lexicalTargetOf, lexicalValue } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { fround } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -92,7 +94,7 @@ const roundRational = (num: bigint, den: bigint, width: "float4" | "float8"): nu
  * An exact signed rational as a float of `width`, rounded once as IEEE 754 rounds: ±Infinity past the largest finite
  * value, the correctly rounded subnormal, and the one zero below half the least subnormal.
  */
-const toFloat = (
+export const toFloat = (
 	negative: boolean,
 	num: bigint,
 	den: bigint,
@@ -162,9 +164,9 @@ const gDecimal = (x: number, digits: number): Result.Result<Decimal, Undefined> 
 
 /**
  * A host value for a cast's operand and result: integers as bigint, numeric as Decimal, floats as number, money as
- * Money.
+ * Money, and a parse's booleans and dates as boolean and CalendarDate.
  */
-export type CastValue = bigint | Decimal | number | Money
+export type CastValue = bigint | Decimal | number | Money | LexicalValue
 
 type CastResult = Result.Result<CastValue, Undefined>
 
@@ -195,7 +197,10 @@ export const floatNumericDigits: { readonly [C in FloatCarrier]: number } = {
  *   digits: numeric to money rounds amount * 10^moneyFractionDigits half away from zero, money to numeric is the
  *   amount exactly, and an exact
  *   integer or an exact amount into money is defined where it fits the count;
- * - an integer into an exact integer, and money into exact money, is the value itself.
+ * - an integer into an exact integer, and money into exact money, is the value itself;
+ * - a text into a type with a lexical form is a parse, defined where the text is a member of the form ("lexical"),
+ *   whose value is XML Schema's lexical mapping of it (scalar/lexical.ts lexicalValue), read at the cast's own target,
+ *   a numeric's typmod included, since the form depends on it.
  *
  * A cast's host conversion, over the host value of its source's family (literal.ts CarrierValue): each registered
  * cast carries its own (registry.ts castOverloads), and the evaluator calls it on the operand's value of that family.
@@ -205,6 +210,7 @@ export type HostCast =
 	| { readonly from: "numeric"; readonly convert: (d: Decimal) => CastResult }
 	| { readonly from: "float"; readonly convert: (x: number) => CastResult }
 	| { readonly from: "money"; readonly convert: (m: Money) => CastResult }
+	| { readonly from: "text"; readonly convert: (text: string, to: ScalarType) => CastResult }
 
 /** rint: round half to even, to the nearer of the integers around x, the even one at a tie. */
 const rint = (x: number): number => {
@@ -359,3 +365,20 @@ export const moneyCast = (target: "numeric" | "money" | "exactMoney"): HostCast 
 			return { from: "money", convert: (m) => storedMoney(m.minorUnits) }
 	}
 }
+
+/** A double precision value rounded once, half to even, from an exact rational: a parse's xs:double. */
+const roundDouble = (negative: boolean, num: bigint, den: bigint): number =>
+	toFloat(negative, num, den, "float8")
+
+/**
+ * A text's parse into `to`: defined where the text is a member of `to`'s lexical form, its value the one the form's
+ * lexical mapping gives it (scalar/lexical.ts); a target with no form has no parse.
+ */
+export const parseText = (text: string, to: ScalarType): CastResult => {
+	const target = lexicalTargetOf(to)
+	const value = target === undefined ? undefined : lexicalValue(target, text, roundDouble)
+	return value === undefined ? Result.err("lexical") : Result.ok(value)
+}
+
+/** The parse as a registered cast's host conversion. */
+export const textCast: HostCast = { from: "text", convert: parseText }

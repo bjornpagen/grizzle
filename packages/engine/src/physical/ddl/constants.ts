@@ -1,5 +1,5 @@
 import { compareText, everyProperty, Refusal } from "#compiler/core/canonical.ts"
-import { resourceBound } from "#compiler/core/errors.ts"
+import { malformedDescription, resourceBound } from "#compiler/core/errors.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
@@ -8,7 +8,7 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { constantMaxBits } from "#compiler/core/limits.ts"
+import { cellMaxCodes, constantMaxBits } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	extendNonEmpty,
@@ -17,19 +17,34 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import {
+	type BlockCoordinate,
+	blockRadices,
+	type CellLayout,
+	type CellSide,
+	cellWidth,
 	type Constant,
 	constantDigestOf,
 	constantOf,
-	type CellLayout,
+	type DependentSpace,
+	dependentSpace,
+	keyCells,
+	keyIndex,
+	type KeySpace,
 	rowMajorIndex,
-	type CellSide,
 	type Split,
+	spaceSize,
 	type Tuple
 } from "#compiler/ir/cells.ts"
 import { type Codebook, codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
 import { identityValueOf, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
-import type { ClosedTheoryRelation, LawField, NativeColumn, NativeOf } from "#compiler/ir/law.ts"
-import { baseTypeRef, type ClosedConstant } from "#compiler/ir/physical.ts"
+import type {
+	ClosedSlot,
+	ClosedTheoryRelation,
+	LawField,
+	NativeColumn,
+	NativeOf
+} from "#compiler/ir/law.ts"
+import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { baseOf, rosterOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { literalKey } from "#compiler/laws/model/names.ts"
@@ -60,11 +75,15 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import {
+	type ClosedConstant,
+	type ClosedKey,
 	constantValue,
 	inSet,
-	mixedRadix,
+	keyIndex as indexOf,
+	type OwnerFunction,
 	pack,
 	pairIn,
+	payloadCode,
 	payloadDigit
 } from "#compiler/sql/constants.ts"
 
@@ -78,9 +97,12 @@ import {
  *   typed by it, so it is the range proof every digit of a constant's index needs. A roster some set is typed over also
  *   installs its live-codes constant, derived from the names constant by its body so the roster's one fact is stated
  *   once, and the bits domain over bit(n), n every code it has minted, whose CHECK admits only live codes' bits.
- * - A closed relation installs its string of cells, read at the mixed-radix index of its key fields' codes, its key
+ * - A closed relation installs its string of cells, read at the index its key gives its key fields' codes, its key
  *   set, one bit per point of its key space, and a dictionary per open-typed payload field, the field's values in code
- *   order. A relation of no payload is its own key set, one function.
+ *   order. A relation of no payload is its own key set, one function. A key is the mixed radix of its closed ids, or,
+ *   where its slots count over an owner prefix, a dependent sum, each owner's block after the blocks before it: such a
+ *   key also installs two kinds of owner function over the prefix, each owner's block's first cell and each count its
+ *   slots read, which its readers index by (sql/constants.ts keyIndex).
  * - A containment into a closed relation's side installs the side's string of cells, as a closed relation of its own,
  *   which the table CHECK that holds the containment reads (`closedMembership`).
  *
@@ -88,7 +110,8 @@ import {
  * never the bits. A role is granted EXECUTE on every constant a statement it runs calls (physical/ddl/roles.ts).
  */
 
-/** The code space of one coordinate of a closed relation's cells: a closed id's roster, or an open field's values. */
+/** The code space of one payload coordinate of a closed relation's cells: a closed id's roster, or an open field's
+ * values. */
 type CodeSpace =
 	| { readonly kind: "roster"; readonly field: LawField; readonly codec: RosterCodec }
 	| {
@@ -110,25 +133,26 @@ const radixOf = (space: CodeSpace): number =>
 /** A literal's code in its coordinate's space: a live handle's code, or a value's position in its dictionary. */
 const codeIn = (space: CodeSpace, literal: TypedLiteral): number => {
 	if (space.kind === "roster") {
-		if (literal.kind !== "handle") {
-			throw defect("a closed id's value is a handle of its roster")
-		}
-		return codeOf(space.codec, literal.handle)
+		return handleCode(space.codec, literal)
 	}
 	return defined(space.codes.get(literalKey(literal)), "a value is in its field's dictionary")
 }
 
-/** The roster codes of a closed id field, which every key field of a closed relation is. */
-const rosterSpace = (codes: Codebook, field: LawField): CodeSpace => {
+/** A closed id's code: its handle's in the roster's codes. */
+const handleCode = (codec: RosterCodec, literal: TypedLiteral): number => {
+	if (literal.kind !== "handle") {
+		throw defect("a closed id's value is a handle of its roster")
+	}
+	return codeOf(codec, literal.handle)
+}
+
+/** A closed id field's roster codes, which every key field of a closed relation is typed by. */
+const codecOfField = (codes: Codebook, field: LawField): RosterCodec => {
 	const roster = rosterOf(baseOf(field.type))
 	if (roster === undefined || baseOf(field.type).carrier !== "code") {
 		throw defect(`the closed id ${field.name} is typed by its roster`)
 	}
-	return {
-		kind: "roster",
-		field,
-		codec: defined(codes.rosters.get(roster.closed), "the codebook holds every roster")
-	}
+	return defined(codes.rosters.get(roster.closed), "the codebook holds every roster")
 }
 
 /** The code space of a payload field over `values`, the field's values in its relation's rows. */
@@ -138,7 +162,7 @@ const payloadSpace = (
 	values: ReadonlyArray<TypedLiteral>
 ): CodeSpace => {
 	if (baseOf(field.type).carrier === "code") {
-		return rosterSpace(codes, field)
+		return { kind: "roster", field, codec: codecOfField(codes, field) }
 	}
 	const distinct = new Map(values.map((v) => [literalKey(v), v] as const))
 	const ordered = [...distinct].toSorted(([a], [b]) => compareText(a, b))
@@ -150,12 +174,11 @@ const payloadSpace = (
 	}
 }
 
-/** A string of cells planned for its pack: its function's identity, its content, its key radices and its pack's rows. */
+/** A string of cells planned for its pack: its function's identity, its content and its pack's rows. */
 interface PlannedCells {
 	readonly kind: "cells"
 	readonly named: Identity<"closedConstant">
 	readonly constant: Constant
-	readonly radices: NonEmptyReadonlyArray<number>
 	readonly rows: ReadonlyArray<PackRow>
 }
 
@@ -172,33 +195,40 @@ type PlannedConstant = PlannedCells | PlannedDictionary
 /** How a tuple's key and payload values are spelled in its pack row's comment: a handle, or a value's display. */
 const displayOf = (literal: TypedLiteral): string => identityValueOf(literal).display
 
+/** A tuple of codes and the names its pack row's comment spells it by. */
+interface Named {
+	readonly tuple: Tuple
+	readonly names: NonEmptyReadonlyArray<string>
+}
+
 /**
- * The string of cells of `rows` over the coordinates `key` and `payload`, refused as ResourceBound when it is longer
- * than PostgreSQL's longest bit string, measured before it is built (`what` names it). Rows that repeat a tuple are one
- * cell; two at one key with different payloads are a key the declaration held, so their meeting is a defect.
+ * The string of cells of `tuples` over `layout`, refused as ResourceBound when its payload space holds more codes than
+ * a cell read as an integer can, or it is longer than PostgreSQL's longest bit string, each measured before it is built
+ * (`what` names it). Tuples that repeat are one cell; two at one key with different payloads are a key the declaration
+ * held, so their meeting is a defect. Every tuple's key is a point of the layout's key space: the caller refuses one
+ * that is not.
  */
 const plannedCells = (
-	key: NonEmptyReadonlyArray<CodeSpace>,
-	payload: ReadonlyArray<CodeSpace>,
-	rows: ReadonlyArray<Split<TypedLiteral>>,
+	layout: CellLayout,
+	tuples: ReadonlyArray<Named>,
 	what: string
 ): PlannedCells => {
-	const layout: CellLayout = { key: mapNonEmpty(key, radixOf), payload: payload.map(radixOf) }
-	const tuples = rows.map((row): Tuple => ({
-		key: key.map((space, i) => codeIn(space, defined(row.key[i], "a key value per key field"))),
-		payload: payload.map((space, i) =>
-			codeIn(space, defined(row.payload[i], "a payload value per payload field"))
+	const loc = SourceLoc(what, [])
+	const codes = spaceSize(layout.payload)
+	if (codes > BigInt(cellMaxCodes.value)) {
+		throw new Refusal(
+			resourceBound(loc, {
+				kind: "cellCodes",
+				constant: what,
+				limit: cellMaxCodes.value,
+				needed: codes
+			})
 		)
-	}))
-	const encoded = constantOf(layout, tuples)
-	if (!encoded.ok) {
-		throw defect(`the declared key of ${what} holds its rows apart`)
 	}
-	const constant = encoded.value
-	const bits = constant.cells * BigInt(constant.width)
+	const bits = keyCells(layout.key) * BigInt(cellWidth(codes))
 	if (bits > BigInt(constantMaxBits.value)) {
 		throw new Refusal(
-			resourceBound(SourceLoc(what, []), {
+			resourceBound(loc, {
 				kind: "constantBits",
 				constant: what,
 				limit: constantMaxBits.value,
@@ -206,26 +236,26 @@ const plannedCells = (
 			})
 		)
 	}
+	const encoded = constantOf(
+		layout,
+		tuples.map((t) => t.tuple)
+	)
+	if (!encoded.ok) {
+		throw defect(`the declared key of ${what} holds its rows apart`)
+	}
 	const packed = new Map<bigint, PackRow>()
-	for (const [i, tuple] of tuples.entries()) {
-		const index = defined(rowMajorIndex(layout.key, tuple.key), "a tuple's key is in its space")
-		const row = defined(rows[i], "a tuple per row")
+	for (const { tuple, names } of tuples) {
+		const index = defined(keyIndex(layout.key, tuple.key), "a tuple's key is a point of its space")
 		packed.set(index, {
-			key: mapNonEmpty(layout.key, (_, k) => defined(tuple.key[k], "a code per key field")),
+			index,
 			payload: defined(rowMajorIndex(layout.payload, tuple.payload), "a payload in its space"),
-			names: extendNonEmpty(
-				mapNonEmpty(layout.key, (_, k) =>
-					displayOf(defined(row.key[k], "a key value per key field"))
-				),
-				row.payload.map(displayOf)
-			)
+			names
 		})
 	}
 	return {
 		kind: "cells",
-		named: identity.closedConstant(constantDigestOf(constant)),
-		constant,
-		radices: layout.key,
+		named: identity.closedConstant(constantDigestOf(encoded.value)),
+		constant: encoded.value,
 		rows: [...packed].toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, row]) => row)
 	}
 }
@@ -246,24 +276,302 @@ const plannedDictionary = (
 	values: space.values
 })
 
-/** A closed relation's or side's constants as planned: the string of cells, the key set, and the dictionaries. */
+/** A key field and its roster's codes, which its coordinate indexes by. */
+interface KeyField {
+	readonly field: LawField
+	readonly codec: RosterCodec
+}
+
+/**
+ * A key as planned: a product of its fields' codes, or a dependent sum over an owner prefix, its block's coordinates
+ * each a closed id's codes or a slot of one of its counts (`slot`, the count's position among `counts`), with the
+ * functions that give each owner its block's first cell and each of its counts, planned as closed relations over the
+ * owner prefix.
+ */
+type PlannedKey =
+	| {
+			readonly kind: "product"
+			readonly space: KeySpace
+			readonly fields: NonEmptyReadonlyArray<KeyField>
+	  }
+	| {
+			readonly kind: "dependent"
+			readonly space: DependentSpace
+			readonly owner: NonEmptyReadonlyArray<KeyField>
+			readonly block: NonEmptyReadonlyArray<KeyField & { readonly slot: number | undefined }>
+			readonly bases: PlannedCells
+			readonly counts: NonEmptyReadonlyArray<PlannedCells>
+	  }
+
+/** The fields a planned key reads, one digit each, in key order. */
+const keyFieldsOf = (key: PlannedKey): NonEmptyReadonlyArray<KeyField> =>
+	key.kind === "product" ? key.fields : extendNonEmpty(key.owner, key.block)
+
+/** The handle a code spells in a pack row's comment: a live handle, or a hole's empty name. */
+const codeName = (codec: RosterCodec, code: number): string => codec.names[code] ?? ""
+
+/** The digits of `index` in the mixed-radix space of `sizes`, the first most significant. */
+const digitsOf = (
+	sizes: NonEmptyReadonlyArray<number>,
+	index: bigint
+): NonEmptyReadonlyArray<number> => {
+	let rest = index
+	const out: Array<number> = []
+	for (const size of sizes.toReversed()) {
+		out.unshift(Number(rest % BigInt(size)))
+		rest /= BigInt(size)
+	}
+	return mapNonEmpty(sizes, (_, i) => defined(out[i], "a digit per coordinate"))
+}
+
+/**
+ * A function of every owner of `owner`'s prefix, `value(o)` at the owner of index o, planned as a closed relation over
+ * the prefix whose payload holds `codes` values: each owner a row, holes included, so a read at any code the prefix's
+ * domains admit finds its value. `value` is called once per owner, in index order, so a running sum may be its value.
+ * Refused as ResourceBound before its rows are built when the prefix's product is longer than PostgreSQL's longest bit
+ * string can hold one cell of each.
+ */
+const ownerFunction = (
+	owner: NonEmptyReadonlyArray<KeyField>,
+	codes: bigint,
+	value: (index: bigint) => bigint,
+	what: string
+): PlannedCells => {
+	const sizes = mapNonEmpty(owner, (f) => f.codec.size)
+	const points = spaceSize(sizes)
+	const bits = points * BigInt(cellWidth(codes))
+	if (bits > BigInt(constantMaxBits.value)) {
+		throw new Refusal(
+			resourceBound(SourceLoc(what, []), {
+				kind: "constantBits",
+				constant: what,
+				limit: constantMaxBits.value,
+				needed: bits
+			})
+		)
+	}
+	const tuples: Array<Named> = []
+	for (let index = 0n; index < points; index += 1n) {
+		const digits = digitsOf(sizes, index)
+		const held = value(index)
+		tuples.push({
+			tuple: { key: digits, payload: [Number(held)] },
+			names: extendNonEmpty(
+				mapNonEmpty(owner, (f, i) => codeName(f.codec, defined(digits[i], "a digit per field"))),
+				[String(held)]
+			)
+		})
+	}
+	return plannedCells({ key: { kind: "product", sizes }, payload: [Number(codes)] }, tuples, what)
+}
+
+/** One of a dependent key's counts: the fin it reads, and each owner's count by the owner's index. */
+interface PlannedCount {
+	readonly fin: ClosedSlot["fin"]
+	readonly counts: ReadonlyMap<bigint, number>
+}
+
+/**
+ * The key `fields` of a closed relation `relation` reads, in key order, as planned. It is a dependent sum when it begins
+ * with the owner prefix its slots count over and holds a slot after it; otherwise, a side that leaves the prefix or
+ * every slot out among them, it is the product of its fields' codes. Each owner's count is its count relation's row,
+ * 0 for an owner that relation holds no row for; a count past the codes of a slot field it numbers is refused, since
+ * no code would name its last slots.
+ */
+const plannedKey = (
+	codes: Codebook,
+	relation: ClosedTheoryRelation,
+	fields: NonEmptyReadonlyArray<LawField>,
+	what: string
+): PlannedKey => {
+	const keyed = mapNonEmpty(fields, (field): KeyField => ({
+		field,
+		codec: codecOfField(codes, field)
+	}))
+	const product: PlannedKey = {
+		kind: "product",
+		space: { kind: "product", sizes: mapNonEmpty(keyed, (f) => f.codec.size) },
+		fields: keyed
+	}
+	const [first] = relation.slots
+	if (first === undefined) {
+		return product
+	}
+	const prefix = first.owner
+	const owner = keyed.slice(0, prefix.length)
+	const rest = keyed.slice(prefix.length)
+	const slotOf = (name: string): ClosedSlot | undefined =>
+		relation.slots.find((s) => s.field === name)
+	if (
+		!isNonEmpty(owner) ||
+		!isNonEmpty(rest) ||
+		!prefix.every((name, i) => owner[i]?.field.name === name) ||
+		!rest.some((f) => slotOf(f.field.name) !== undefined)
+	) {
+		return product
+	}
+	const ownerSizes = mapNonEmpty(owner, (f) => f.codec.size)
+	const fins: Array<PlannedCount> = []
+	const countOf = (slot: ClosedSlot): number => {
+		const at = fins.findIndex(
+			(f) => f.fin.relation === slot.fin.relation && f.fin.count === slot.fin.count
+		)
+		if (at >= 0) {
+			return at
+		}
+		const counts = new Map<bigint, number>()
+		for (const row of slot.counts) {
+			const index = defined(
+				rowMajorIndex(
+					ownerSizes,
+					row.owner.map((literal, i) =>
+						handleCode(defined(owner[i], "an owner field per owner value").codec, literal)
+					)
+				),
+				"an owner's codes name a point of the owner prefix"
+			)
+			counts.set(index, Number(row.count))
+		}
+		fins.push({ fin: slot.fin, counts })
+		return fins.length - 1
+	}
+	const block = mapNonEmpty(rest, (f) => {
+		const slot = slotOf(f.field.name)
+		return { ...f, slot: slot === undefined ? undefined : countOf(slot) }
+	})
+	for (const b of block) {
+		const fin = b.slot === undefined ? undefined : defined(fins[b.slot], "a slot's count")
+		if (fin !== undefined && mostOf(fin) > b.codec.size) {
+			throw new Refusal(
+				malformedDescription(
+					SourceLoc(what, []),
+					`slots of ${finText(fin.fin)}, each a code of ${b.field.name}'s roster ${b.codec.roster}; an owner counts ${mostOf(fin)} slots where the roster has ${b.codec.size} codes`
+				)
+			)
+		}
+	}
+	const counts = new Map<bigint, NonEmptyReadonlyArray<number>>()
+	for (const fin of fins) {
+		for (const index of fin.counts.keys()) {
+			counts.set(
+				index,
+				mapNonEmpty(nonEmptyFins(fins), (f) => f.counts.get(index) ?? 0)
+			)
+		}
+	}
+	const coordinates = mapNonEmpty(block, (b): BlockCoordinate =>
+		b.slot === undefined ? { kind: "codes", size: b.codec.size } : { kind: "slots", count: b.slot }
+	)
+	const space = dependentSpace(ownerSizes, coordinates, counts)
+	const cells = keyCells(space)
+	let next = 0n
+	return {
+		kind: "dependent",
+		space,
+		owner,
+		block,
+		bases: ownerFunction(
+			owner,
+			cells + 1n,
+			(index) => {
+				const base = next
+				next += spaceSize(blockRadices(coordinates, counts, index))
+				return base
+			},
+			`the block bases of ${what}`
+		),
+		counts: mapNonEmpty(nonEmptyFins(fins), (fin) =>
+			ownerFunction(
+				owner,
+				BigInt(mostOf(fin) + 1),
+				(index) => BigInt(fin.counts.get(index) ?? 0),
+				`the counts of ${finText(fin.fin)} over ${what}`
+			)
+		)
+	}
+}
+
+/** The greatest count a fin gives an owner, 0 for one that gives none. */
+const mostOf = (fin: PlannedCount): number => {
+	let most = 0
+	for (const count of fin.counts.values()) {
+		most = Math.max(most, count)
+	}
+	return most
+}
+
+/** A fin as its declaration spells it, fin(O, "n"). */
+const finText = (fin: ClosedSlot["fin"]): string =>
+	`fin(${fin.relation}, ${JSON.stringify(fin.count)})`
+
+/** A dependent key's counts, which its slots make at least one of. */
+const nonEmptyFins = (fins: ReadonlyArray<PlannedCount>): NonEmptyReadonlyArray<PlannedCount> => {
+	if (!isNonEmpty(fins)) {
+		throw defect("a dependent key holds a slot")
+	}
+	return fins
+}
+
+/** A closed relation's or side's constants as planned: its key, the string of cells, the key set, and the dictionaries. */
 interface PlannedRelation {
+	readonly key: PlannedKey
 	readonly cells: PlannedCells
 	readonly keys: PlannedCells
-	readonly key: NonEmptyReadonlyArray<CodeSpace>
 	readonly payload: ReadonlyArray<CodeSpace>
 	readonly dictionaries: ReadonlyArray<PlannedDictionary>
 }
 
-/** The constants of `rows` over their key fields `key` and payload fields `payload`, `what` naming them. */
+/**
+ * A row's key codes outside its key's space, refused: a slot code at or past its owner's count, which the relation's
+ * fin says the owner does not hold. Every other code is its roster's, so this is the one way a declared row misses.
+ */
+const outsideFin = (
+	key: PlannedKey,
+	codes: NonEmptyReadonlyArray<number>,
+	row: number,
+	what: string
+): never => {
+	if (key.kind === "product") {
+		throw defect("a closed id's code is a point of its roster's codes")
+	}
+	const owner = codes.slice(0, key.owner.length)
+	const names = key.owner.map((f, i) => codeName(f.codec, defined(owner[i], "an owner code")))
+	const index = defined(
+		rowMajorIndex(key.space.owner, owner),
+		"a row's owner codes name a point of the owner prefix"
+	)
+	const radices = blockRadices(key.space.block, key.space.counts, index)
+	const past = key.block.flatMap((b, i) => {
+		const code = defined(codes[key.owner.length + i], "a code per block field")
+		const count = defined(radices[i], "a radix per block field")
+		return b.slot !== undefined && code >= count ? [{ field: b.field.name, code, count }] : []
+	})
+	const [slot] = past
+	if (slot === undefined) {
+		throw defect("a row outside its key's space has a slot code past its owner's count")
+	}
+	throw new Refusal(
+		malformedDescription(
+			SourceLoc(what, []),
+			`row ${row}'s slot ${slot.field} below the ${slot.count} slots its owner (${names.join(", ")}) counts; its code is ${slot.code}`
+		)
+	)
+}
+
+/**
+ * The constants of `rows`, a closed relation `relation`'s or its side's, over the key fields `key` and the payload fields
+ * `payloadFields`, `what` naming them. A row whose slot code is past its owner's count is refused (outsideFin).
+ */
 const plannedRelation = (
 	codes: Codebook,
+	relation: ClosedTheoryRelation,
 	key: NonEmptyReadonlyArray<LawField>,
 	payloadFields: ReadonlyArray<LawField>,
 	rows: ReadonlyArray<Split<TypedLiteral>>,
 	what: string
 ): PlannedRelation => {
-	const keySpaces = mapNonEmpty(key, (f) => rosterSpace(codes, f))
+	const planned = plannedKey(codes, relation, key, what)
+	const fields = keyFieldsOf(planned)
 	const payload = payloadFields.map((f, i) =>
 		payloadSpace(
 			codes,
@@ -271,15 +579,34 @@ const plannedRelation = (
 			rows.map((row) => defined(row.payload[i], "a payload value per payload field"))
 		)
 	)
+	const named = rows.map((row, r): Named => {
+		const keyCodes = mapNonEmpty(fields, (f, i) =>
+			handleCode(f.codec, defined(row.key[i], "a key value per key field"))
+		)
+		if (keyIndex(planned.space, keyCodes) === undefined) {
+			outsideFin(planned, keyCodes, r, what)
+		}
+		return {
+			tuple: {
+				key: keyCodes,
+				payload: payload.map((space, i) =>
+					codeIn(space, defined(row.payload[i], "a payload value per payload field"))
+				)
+			},
+			names: extendNonEmpty(
+				mapNonEmpty(fields, (_, k) => displayOf(defined(row.key[k], "a key value per key field"))),
+				row.payload.map(displayOf)
+			)
+		}
+	})
 	return {
-		cells: plannedCells(keySpaces, payload, rows, what),
+		key: planned,
+		cells: plannedCells({ key: planned.space, payload: payload.map(radixOf) }, named, what),
 		keys: plannedCells(
-			keySpaces,
-			[],
-			rows.map((row) => ({ key: row.key, payload: [] })),
+			{ key: planned.space, payload: [] },
+			named.map((n) => ({ tuple: { key: n.tuple.key, payload: [] }, names: n.names })),
 			`the key set of ${what}`
 		),
-		key: keySpaces,
 		payload,
 		dictionaries: payload.flatMap((space) =>
 			space.kind === "dictionary" ? [plannedDictionary(space)] : []
@@ -320,7 +647,7 @@ export const planClosed = (
 			key: key.map((f) => defined(row[f.position], "a value per field")),
 			payload: payload.map((f) => defined(row[f.position], "a value per field"))
 		}))
-		out.set(r.name, plannedRelation(codes, key, payload, rows, `closed relation ${r.name}`))
+		out.set(r.name, plannedRelation(codes, r, key, payload, rows, `closed relation ${r.name}`))
 	}
 	return { relations: out }
 }
@@ -331,12 +658,48 @@ const functionOf = (schema: string, named: Identity<"closedConstant">): ObjectNa
 	name: identifierOf(named)
 })
 
+/** How readers address a planned key (ClosedKey), under the installed schema. */
+const closedKeyOf = (schema: string, key: PlannedKey): ClosedKey =>
+	key.kind === "product"
+		? {
+				kind: "product",
+				coordinates: mapNonEmpty(key.fields, (f) => ({ field: f.field.name, radix: f.codec.size }))
+			}
+		: {
+				kind: "dependent",
+				owner: mapNonEmpty(key.owner, (f) => ({ field: f.field.name, radix: f.codec.size })),
+				block: mapNonEmpty(key.block, (b) =>
+					b.slot === undefined
+						? { kind: "codes", field: b.field.name, radix: b.codec.size }
+						: { kind: "slots", field: b.field.name, count: b.slot }
+				),
+				bases: ownerFunctionOf(schema, key.bases),
+				counts: mapNonEmpty(key.counts, (c) => ownerFunctionOf(schema, c)),
+				cells: Number(keyCells(key.space))
+			}
+
+/** An owner function as its readers address it: its function and its cells' width. */
+const ownerFunctionOf = (schema: string, planned: PlannedCells): OwnerFunction => ({
+	function: functionOf(schema, planned.named),
+	width: planned.constant.width
+})
+
+/** The owner functions a planned key reads: none for a product, a dependent sum's bases and counts. */
+const layoutOf = (key: PlannedKey): ReadonlyArray<PlannedCells> =>
+	key.kind === "product" ? [] : [key.bases, ...key.counts]
+
 /** How readers address a planned relation's constants (PhysicalNames.closed), under the installed schema. */
 const closedConstantOf = (schema: string, plan: PlannedRelation): ClosedConstant => {
 	const dictionaries = new Map(plan.dictionaries.map((d) => [d.field.name, d] as const))
+	const cells = functionOf(schema, plan.cells.named)
+	const others = [plan.keys, ...layoutOf(plan.key), ...plan.dictionaries]
+		.map((planned) => functionOf(schema, planned.named))
+		.filter(
+			(fn, i, all) => fn.name !== cells.name && all.findIndex((f) => f.name === fn.name) === i
+		)
 	return {
 		function: functionOf(schema, plan.cells.named),
-		key: mapNonEmpty(plan.key, (space) => ({ field: space.field.name, radix: radixOf(space) })),
+		key: closedKeyOf(schema, plan.key),
 		width: plan.cells.constant.width,
 		payload: plan.payload.map((space) => {
 			const dictionary = dictionaries.get(space.field.name)
@@ -346,7 +709,8 @@ const closedConstantOf = (schema: string, plan: PlannedRelation): ClosedConstant
 				dictionary: dictionary === undefined ? undefined : functionOf(schema, dictionary.named)
 			}
 		}),
-		keys: functionOf(schema, plan.keys.named)
+		keys: functionOf(schema, plan.keys.named),
+		functions: [cells, ...others]
 	}
 }
 
@@ -367,7 +731,12 @@ const revokeFromPublic = (fn: ObjectName): SqlStatement => ({
 
 /** A string of cells' pack, under its function. */
 const packOf = (schema: string, planned: PlannedCells): PackConstant =>
-	pack(functionOf(schema, planned.named), planned.radices, planned.constant.width, planned.rows)
+	pack(
+		functionOf(schema, planned.named),
+		planned.constant.cells,
+		planned.constant.width,
+		planned.rows
+	)
 
 /**
  * A dictionary's CREATE: its values as one array literal of their base type, each element the text its input function
@@ -413,11 +782,11 @@ const addPlanned = (
 }
 
 /** Every closed relation's constants as objects of the installation, in relation name order: its cells, its key set
- * (the cells themselves for no payload) and each dictionary. */
+ * (the cells themselves for no payload), its dependent key's owner functions and each dictionary. */
 export const addClosedRelations = (b: InstallBuilder, plan: ClosedPlan): void => {
 	for (const [name, r] of plan.relations) {
 		const why = [enforcement(`closed relation ${name}`)]
-		for (const planned of [r.cells, r.keys, ...r.dictionaries]) {
+		for (const planned of [r.cells, r.keys, ...layoutOf(r.key), ...r.dictionaries]) {
 			addPlanned(b, planned, why)
 		}
 	}
@@ -708,8 +1077,9 @@ const addBits = (
 
 /**
  * A containment into a closed relation's side as the table CHECK that holds it, after its constants, which it adds:
- * the side's string of cells as a closed relation of its own, read at the mixed-radix index of the row's key columns,
- * `NOT guard OR member`, the guard the source side's selection, each conjunct lowered over the row by `lower`.
+ * the side's string of cells as a closed relation of its own, with its key's owner functions where its key is a
+ * dependent sum, read at the index its key gives the row's key columns (sql/constants.ts keyIndex), `NOT guard OR
+ * member`, the guard the source side's selection, each conjunct lowered over the row by `lower`.
  *
  * The guard is C2's RowGuard, the one representation of a selection over a row. An installed CHECK lowers it by the
  * persistent lowering (physical/ddl/expr.ts lowerPersistent), as every row CHECK and law column's guard is, so a
@@ -721,7 +1091,8 @@ const addBits = (
  * columns. A side with an open-typed payload field compares each payload coordinate on its own, a closed id's code
  * with its column and an open value through its dictionary, `(D())[c + 1] = column`. An absent key reads NULL, which
  * the CHECK's IS TRUE refuses. Every key column is typed by its key field's roster domain (ir/law.ts ClosedCheck), so
- * every digit is below its radix and no index aliases a neighbour's.
+ * every digit is below its roster's size, and a slot's below its owner's count reads its own cell while one at or past
+ * it reads absent: no index aliases a neighbour's.
  */
 export const closedMembership = (
 	b: InstallBuilder,
@@ -733,13 +1104,16 @@ export const closedMembership = (
 	const closed = check.target
 	const plan = plannedRelation(
 		b.names.codes,
+		closed,
 		mapNonEmpty(side.key, (f) => fieldNamed(closed, f)),
 		side.payload.map((f) => fieldNamed(closed, f)),
 		[...side.rows.values()],
 		`the side of ${closed.name} a containment from ${check.relation.name} reads`
 	)
 	const why = lawReasons(check.lawIds)
-	const constants = [plan.cells, ...plan.dictionaries].map((planned) => addPlanned(b, planned, why))
+	const constants = [plan.cells, ...layoutOf(plan.key), ...plan.dictionaries].map((planned) =>
+		addPlanned(b, planned, why)
+	)
 	const sourceOf = (field: string): Expr =>
 		column(
 			defined(
@@ -747,8 +1121,9 @@ export const closedMembership = (
 				`a source column for the side's field ${field}`
 			).source
 		)
-	const index = mixedRadix(
-		mapNonEmpty(plan.key, (space) => ({ digit: sourceOf(space.field.name), radix: radixOf(space) }))
+	const index = indexOf(
+		closedKeyOf(b.schema, plan.key),
+		mapNonEmpty(keyFieldsOf(plan.key), (f) => sourceOf(f.field.name))
 	)
 	const cells = functionOf(b.schema, plan.cells.named)
 	const width = plan.cells.constant.width
@@ -760,7 +1135,7 @@ export const closedMembership = (
 					cells,
 					index,
 					width,
-					mixedRadix(
+					payloadCode(
 						mapNonEmpty(plan.payload, (space) => ({
 							digit: sourceOf(space.field.name),
 							radix: radixOf(space)

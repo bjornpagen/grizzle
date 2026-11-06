@@ -101,6 +101,8 @@ const sqlType = (schema: string, c: HeadingColumn): string => {
 	switch (c.type.carrier) {
 		case "uuid":
 			return "uuid"
+		case "date":
+			return "date"
 		case "int4":
 			return "integer"
 		case "int8":

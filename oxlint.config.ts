@@ -340,7 +340,7 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["packages/engine/src/text/field.ts"],
+				files: ["packages/engine/src/types/fields/regex.ts"],
 				rules: active({
 					/** Record<never, never> stands in a conditional type's check position as a type-level probe of whether a key is a literal, a type no value holds. */
 					"typescript/no-generated-empty-object-type": "off"

@@ -37,8 +37,8 @@ import {
 	uuidTextLength
 } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { IntegerCarrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { dateTextLength } from "#compiler/ir/date.ts"
+import type { IntegerCarrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { type CarrierHost, isHostValue } from "#compiler/scalar/values/identity.ts"
 
 /** The host value of one comparator's type. */

@@ -603,7 +603,8 @@ export const monoids: { readonly [M in MonoidName]: Monoid<M> } = Object.freeze(
 	sum: Object.freeze({ kind: "monoid", name: "sum", planes: 1 }),
 	or: Object.freeze({ kind: "monoid", name: "or", planes: 1 }),
 	twos: Object.freeze({ kind: "monoid", name: "twos", planes: 2 }),
-	max: Object.freeze({ kind: "monoid", name: "max", planes: 1 })
+	max: Object.freeze({ kind: "monoid", name: "max", planes: 1 }),
+	concat: Object.freeze({ kind: "monoid", name: "concat", planes: 1 })
 })
 
 /** The monoid a fold names: one of the closed set's values. */

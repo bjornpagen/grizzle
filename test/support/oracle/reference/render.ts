@@ -60,6 +60,8 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 			return types.boolean
 		case "uuid":
 			return types.uuid
+		case "date":
+			return types.date
 		case "text":
 			return types.text
 		case "code": {
@@ -124,6 +126,7 @@ const valueExpr = (
 			return literal.value ? lit.bool(true) : lit.bool(false)
 		case "text":
 		case "uuid":
+		case "date":
 			return lit.text(literal.value, type)
 		case "handle":
 			return lit.int(codeOf(rosterCodec(scalar, codes), literal.handle), type)

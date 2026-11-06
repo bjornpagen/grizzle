@@ -1805,6 +1805,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 					case "money":
 					case "span":
 					case "uuid":
+					case "date":
 					case "vector":
 						return []
 				}

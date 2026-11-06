@@ -268,8 +268,8 @@ export const closed = (
 })
 
 /**
- * A closed relation: its fields, its key of closed-id fields in the order its mixed radix reads them, and its rows, each
- * a value of every field.
+ * A closed relation: its fields, its key of closed-id fields in the order its mixed radix reads them, a product with no
+ * slot, and its rows, each a value of every field.
  */
 export const closedRelation = (
 	name: string,
@@ -281,6 +281,7 @@ export const closedRelation = (
 	name,
 	fields,
 	key: nonEmptyList(key, "a closed relation's key"),
+	slots: [],
 	rows
 })
 

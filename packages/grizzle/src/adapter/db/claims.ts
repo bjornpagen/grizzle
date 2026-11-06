@@ -116,6 +116,7 @@ const claimHost = (type: ScalarType, value: unknown): Option.Option<unknown> => 
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "text":
 		case "code":
 		case "range4":

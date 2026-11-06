@@ -14,6 +14,7 @@ export type ValueKind =
 	| { readonly kind: "money" }
 	| { readonly kind: "bool" }
 	| { readonly kind: "uuid" }
+	| { readonly kind: "date" }
 	| { readonly kind: "text" }
 	| { readonly kind: "code"; readonly roster: RosterCodec }
 	| { readonly kind: "bits"; readonly roster: RosterCodec }

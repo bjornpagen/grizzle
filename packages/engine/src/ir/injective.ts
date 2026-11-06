@@ -65,6 +65,7 @@ export const castInjective = (from: ScalarType, to: ScalarType): boolean => {
 			case "money":
 			case "bool":
 			case "uuid":
+			case "date":
 			case "text":
 			case "range4":
 			case "range8":

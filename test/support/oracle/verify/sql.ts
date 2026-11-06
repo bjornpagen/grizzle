@@ -2554,9 +2554,9 @@ class StatementAuditor {
 				return
 			case "packConstant": {
 				this.objectName(statement.function, "function", "function")
-				const { radices, width } = statement
-				if (!Arr.every(radices, (r) => Number.isSafeInteger(r) && r >= 1)) {
-					this.report("literal", "a pack's radices are whole numbers of at least one code")
+				const { cells, width } = statement
+				if (cells < 0n) {
+					this.report("literal", "a pack's cells are a count, never below zero")
 				}
 				if (!Number.isSafeInteger(width) || width < 1) {
 					this.report("literal", "a pack's cells are one bit wide at least")
@@ -2564,17 +2564,8 @@ class StatementAuditor {
 				this.at("rows", () => {
 					for (const [i, row] of statement.rows.entries()) {
 						this.at(i, () => {
-							if (
-								row.key.length !== radices.length ||
-								!Arr.every(
-									row.key,
-									(code, k) => Number.isSafeInteger(code) && code >= 0 && code < (radices[k] ?? 0)
-								)
-							) {
-								this.report(
-									"arity",
-									"a packed row's key holds one code per radix, each below its radix"
-								)
+							if (row.index < 0n || row.index >= cells) {
+								this.report("arity", "a packed row's cell is one of the pack's cells")
 							}
 							if (row.payload < 0n || 1n + row.payload >= 2n ** BigInt(width)) {
 								this.report(

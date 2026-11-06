@@ -1,5 +1,5 @@
 import type { ParamId } from "#compiler/core/ids.ts"
-import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import { type KeyProof, keyIn } from "#compiler/ir/keys.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
@@ -14,14 +14,16 @@ import {
 	relationColumns
 } from "#compiler/lower/conservative/context.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import type { Expr, FromItem, Select } from "#compiler/sql/ast.ts"
+import type { Expr, FromItem, OperandCore, Select, SetCore, Target } from "#compiler/sql/ast.ts"
 import {
 	arrays,
 	cast,
 	col,
 	columnDefinition,
+	core,
 	derived,
-	distinctCoreWhen,
+	distinctCore,
+	provedCore,
 	sameTypeRef,
 	select,
 	target,
@@ -139,10 +141,15 @@ export const inputHeading = (input: WriteInput): Heading => {
 	}
 }
 
-/** One input read for a statement: the query that projects `fields`, and each projected column's type. */
+/** One input read for a statement as a set: the query that projects `fields`, and each projected column's type. */
 interface InputRead {
 	readonly select: Select
 	readonly types: ReadonlyArray<InputColumnType>
+}
+
+/** One input read as an operand of the set operation that deduplicates it: its rows as they come. */
+interface OperandRead {
+	readonly body: OperandCore
 }
 
 /** How a statement reads its input as a query (readInput), each column cast into its field's type inside the read as
@@ -161,7 +168,6 @@ type ReadOptions =
 	| {
 			readonly kind: "input"
 			readonly fields: ReadonlyArray<LawField>
-			readonly distinct: boolean
 			readonly alias: string
 			readonly keys: FieldColumns<string>
 			readonly into: CastInto
@@ -336,9 +342,36 @@ const inputColumns = (
 export const readInput = (
 	w: WriteContext,
 	input: WriteInput,
-	options: ReadOptions,
+	options: Extract<ReadOptions, { readonly kind: "input" }>,
 	at: string
 ): InputRead => {
+	const { from, targets, types } = readTargets(w, input, options, at)
+	return { select: select(inputSet(input, targets, from)), types }
+}
+
+/** Reads an input as an operand of the set operation that deduplicates it, an exact deletion's EXCEPT: no DISTINCT and
+ * no claim, its rows as they come. */
+export const readOperand = (
+	w: WriteContext,
+	input: WriteInput,
+	options: ReadOptions,
+	at: string
+): OperandRead => {
+	const { from, targets } = readTargets(w, input, options, at)
+	return { body: core(targets, [from], undefined) }
+}
+
+/** An input's columns read for `options`, each cast into its field's type as `options.into` says. */
+const readTargets = (
+	w: WriteContext,
+	input: WriteInput,
+	options: ReadOptions,
+	at: string
+): {
+	readonly from: FromItem
+	readonly targets: NonEmptyReadonlyArray<Target>
+	readonly types: ReadonlyArray<InputColumnType>
+} => {
 	const { from, read: readField } = inputColumns(
 		w,
 		input,
@@ -353,11 +386,29 @@ export const readInput = (
 		return castInto(w, r.value, r.type, rowType(field), into.as, at)
 	})
 	const targets = isNonEmpty(read) ? mapNonEmpty(read, (r) => target(r.value)) : unitTargets
-	return {
-		select: select(
-			distinctCoreWhen(options.kind === "input" && options.distinct, targets, [from], undefined)
-		),
-		types: read.map((r) => r.type)
+	return { from, targets, types: read.map((r) => r.type) }
+}
+
+/**
+ * An input's read as a set: under the guarantee the input carries that no row repeats, or under DISTINCT when it carries
+ * none. A relation input's facts are KeyNormalized: the host codec made them a set by identity and refused two at one
+ * key, and the read takes every column of its arrays, so its rows repeat nothing (`input`). A carrier's or a described
+ * member's rows are a set only when the physical analysis of the member proved them distinct (`certified`,
+ * distinctByEvidence); nobody normalized them otherwise.
+ */
+const inputSet = (
+	input: WriteInput,
+	targets: NonEmptyReadonlyArray<Target>,
+	from: FromItem
+): SetCore => {
+	switch (input.kind) {
+		case "relation":
+			return provedCore("input", targets, [from], undefined)
+		case "carrier":
+		case "described":
+			return input.proof.distinct
+				? provedCore("certified", targets, [from], undefined)
+				: distinctCore(targets, [from], undefined)
 	}
 }
 

@@ -124,6 +124,7 @@ import { refusalFunction } from "#compiler/write/refusal.ts"
 export const roleDefaultSettings = [
 	{ parameter: "search_path" },
 	{ parameter: "extra_float_digits", value: "1" },
+	{ parameter: "DateStyle", value: "ISO, YMD" },
 	{ parameter: "lc_monetary", value: "C.UTF-8" },
 	{ parameter: "lc_numeric", value: "C.UTF-8" },
 	{ parameter: "lc_time", value: "C.UTF-8" }
@@ -1173,12 +1174,7 @@ const roleExecutes = (
 		if (r.kind !== "closedRelation") {
 			return []
 		}
-		const c = b.names.closed(r.name)
-		return [
-			c.function.name,
-			c.keys.name,
-			...c.payload.flatMap((p) => (p.dictionary === undefined ? [] : [p.dictionary.name]))
-		]
+		return b.names.closed(r.name).functions.map((f) => f.name)
 	})
 	return b.reached([...b.callsOf(statements), ...closed])
 }
@@ -1554,7 +1550,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   SET ROLE, over any default of the database's or the cluster's, and which every session of a login's pool sets
  *   again in its startup options (`loginStartupOptions`): `search_path = pg_catalog, pg_temp` (closedSearchPath), so
  *   no name a login's statement holds resolves through a path anyone else chose, `extra_float_digits = 1` (float text
- *   is shortest round-trip only when it is positive) and lc_monetary, lc_numeric and lc_time at C.UTF-8. For a login
+ *   is shortest round-trip only when it is positive), `DateStyle = 'ISO, YMD'` (date_out writes YYYY-MM-DD, a date's
+ *   host text) and lc_monetary, lc_numeric and lc_time at C.UTF-8. For a login
  *   one of whose roles can name the vector type, the strict-order iterative scan too (`searchPolicySettings`): an
  *   `hnsw.*` parameter is a placeholder until the vector library is loaded in the session, and the migration
  *   identity, which is no superuser, may store one only after that (42501 before), so the defaults list a statement

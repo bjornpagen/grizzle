@@ -2,6 +2,7 @@ import { exactParts } from "#compiler/core/decimal.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { moneyFractionDigits, moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { codecOf, codeOf, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
+import { datePartSlices } from "#compiler/ir/date.ts"
 import { describeOp, type TypedLiteral, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, rosterOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
@@ -15,16 +16,11 @@ import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
+import { isDateParse } from "#compiler/scalar/compute/registry.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { binary, cast, lit, types } from "#compiler/sql/build.ts"
-import {
-	cellAt,
-	constantValue,
-	type Coordinate,
-	inSet,
-	mixedRadix,
-	payloadDigit
-} from "#compiler/sql/constants.ts"
+import { cast, lit } from "#compiler/sql/build.ts"
+import { type ClosedRead, closedRead as closedReadOf } from "#compiler/sql/constants.ts"
+import { dateOfText } from "#compiler/sql/lexical.ts"
 
 /**
  * Minor units as the exact decimal text of the amount, two fractional digits under the fixed C.UTF-8 monetary
@@ -147,6 +143,9 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 			return lowerLiteral(cx.names, expr.value, expr.type)
 		case "cast": {
 			const inner = lower(expr.args[0])
+			if (isDateParse(expr.cast)) {
+				return dateOfText(inner, datePartSlices)
+			}
 			const ieee = ieeeForm(expr, [inner])
 			if (ieee?.kind === "guarded") {
 				return (
@@ -198,85 +197,29 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 }
 
 /**
- * A closed read as its relation's installed constants answer it (ir/physical.ts ClosedConstant, sql/constants.ts), its
- * arguments the codes of the key fields it fixes, in key order, as SQL.
- *
- * - C.at(field, k…): the cell at the mixed-radix index of k… in the relation's string of cells; its payload code is
- *   NULLIF(cell, 0) - 1, so a key the relation holds no tuple at reads NULL, never a code; `field`'s coordinate of that
- *   code is a closed id's code, typed as its smallint, or an open-typed value read through its dictionary at code + 1.
- * - C.row(k…): the completions of the prefix k… of the last key field, `radix` bits of the relation's key set (one bit
- *   per point of the key space) from the prefix's index times that radix, bit(radix): the set over the last key
- *   field's roster, position i code i, a hole 0. A prefix of no field reads the key set's first `radix` bits.
- * - has(k…), the closed rewrite's membership test (lower/optimize/closed): the one bit of the relation's key set at the
- *   mixed-radix index of the full key k…, equal to '1'::bit(1) exactly where the relation holds a tuple there.
- *
- * Every argument is a code its column's roster domain proves below its radix, so no digit carries into its neighbour
- * (fin.md §17 "Totality"), and an index past the string reads the empty string, which is absent.
+ * A closed read as its relation's installed constants answer it (sql/constants.ts closedRead), its arguments the codes
+ * of the key fields it fixes, in key order, as SQL: C.at's payload field, C.row's completions, or has(k…), the closed
+ * rewrite's membership test (lower/optimize/closed). Every argument is a code its column's roster domain proves below
+ * its roster's size, and a slot code past its owner's count reads the first cell past the string, so no index aliases
+ * a neighbour's and an index past the string reads absent.
  */
 const closedRead = (
 	cx: LowerContext,
 	expr: ScalarExpr & { readonly kind: "closedAt" | "closedRow" | "closedHas" },
 	args: ReadonlyArray<Expr>
 ): Expr => {
-	const at = exprLabel(expr)
-	const constant = cx.names.closed(expr.relation)
-	const coordinates = args.map((digit, i): Coordinate => {
-		const key = constant.key[i]
-		if (key === undefined) {
-			return refuse(
-				"MalformedDescription",
-				at,
-				`a read of ${expr.relation} by at most its ${constant.key.length} key field(s)`
-			)
-		}
-		return { digit, radix: key.radix }
-	})
-	if (expr.kind === "closedRow") {
-		const open = constant.key[args.length]
-		if (open === undefined || args.length !== constant.key.length - 1) {
-			return refuse(
-				"MalformedDescription",
-				at,
-				`${expr.relation}.row over every key field of ${expr.relation} but its last`
-			)
-		}
-		const [first, ...rest] = coordinates
-		const prefix = first === undefined ? lit.int(0n, types.integer) : mixedRadix([first, ...rest])
-		return cast(cellAt(constant.keys, prefix, open.radix), cx.baseTypeRef(expr.type))
-	}
-	const [first, ...rest] = coordinates
-	if (first === undefined || args.length !== constant.key.length) {
-		return refuse(
-			"MalformedDescription",
-			at,
-			`${expr.relation}.${expr.kind === "closedAt" ? "at" : "has"} over every key field of ${expr.relation}, in key order`
-		)
-	}
-	const index = mixedRadix([first, ...rest])
-	if (expr.kind === "closedHas") {
-		return inSet(constant.keys, index)
-	}
-	const position = constant.payload.findIndex((p) => p.field === expr.field)
-	const payload = constant.payload[position]
-	if (payload === undefined) {
-		return refuse(
-			"MalformedDescription",
-			at,
-			`${expr.relation}.at of a payload field of ${expr.relation}; ${expr.field} is none`
-		)
-	}
-	const digit = payloadDigit(
-		constant.function,
-		index,
-		constant.width,
-		constant.payload.map((p) => p.radix),
-		position
+	const read: ClosedRead =
+		expr.kind === "closedAt"
+			? { kind: "at", field: expr.field }
+			: expr.kind === "closedRow"
+				? { kind: "row" }
+				: { kind: "has" }
+	const lowered = closedReadOf(
+		cx.names.closed(expr.relation),
+		expr.relation,
+		read,
+		args,
+		cx.baseTypeRef(expr.type)
 	)
-	return payload.dictionary === undefined
-		? cast(digit, cx.baseTypeRef(expr.type))
-		: {
-				kind: "subscript",
-				array: constantValue(payload.dictionary),
-				index: binary("+", digit, lit.int(1n, types.integer))
-			}
+	return lowered.ok ? lowered.value : refuse("MalformedDescription", exprLabel(expr), lowered.error)
 }

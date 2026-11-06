@@ -1300,6 +1300,7 @@ const cellText = (v: Value, type: ScalarType): string => {
 			return asDecimal(value).toString()
 		case "text":
 		case "uuid":
+		case "date":
 			if (typeof value !== "string") {
 				throw new Error(`a ${carrier} value that is no string`)
 			}

@@ -1123,7 +1123,7 @@ const pathOf = (at: PathStep | undefined): ReadonlyArray<string | number> => {
 	for (let p = at; p !== undefined; p = p.parent) {
 		steps.push(p.step)
 	}
-	return steps.reverse()
+	return steps.toReversed()
 }
 
 /** What splitting a fact of one relation reads off `families`: the families it owns, their count fields, and the
@@ -1141,9 +1141,7 @@ const relationSplit = (relation: string, families: ReadonlyArray<Family>): Relat
 			.filter((r) => r.name === relation)
 			.flatMap((r) =>
 				r.fields.flatMap((field) =>
-					field.writing.kind === "drawn" || field.writing.kind === "accumulated"
-						? [field.name]
-						: []
+					field.writing.kind === "drawn" || field.writing.kind === "accumulated" ? [field.name] : []
 				)
 			)
 	)

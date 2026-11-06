@@ -1,7 +1,7 @@
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import { toCalendarDate } from "#compiler/ir/date.ts"
 import { validateText } from "#compiler/core/text.ts"
+import { toCalendarDate } from "#compiler/ir/date.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"

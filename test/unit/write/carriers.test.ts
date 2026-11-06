@@ -135,7 +135,9 @@ describe("a program's carriers", () => {
 					(h) =>
 						Effect.sync(() => {
 							const supply = new CarrierSupply(typesDigest)
-							const names = new Set(Arr.map(Arr.range(1, 70_000), () => supply.next(h, undefined).name))
+							const names = new Set(
+								Arr.map(Arr.range(1, 70_000), () => supply.next(h, undefined).name)
+							)
 							assert.equal(names.size, 70_000)
 							for (const name of names) {
 								assert.ok(isCarrierName(name), name)

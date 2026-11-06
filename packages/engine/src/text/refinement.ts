@@ -12,14 +12,6 @@ import { RegexKey, type RegexRef, type TextInfo } from "#compiler/ir/scalar.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import { toAre } from "#compiler/scalar/regex/are.ts"
 import { utf8Width } from "#compiler/scalar/regex/charset.ts"
-import { canonicalText, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
-import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
-import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
-import type { TextLookup } from "#compiler/scalar/registry.ts"
-import type { CreateDomain, Expr } from "#compiler/sql/ast.ts"
-import { binary, cUtf8Collation, lit, types } from "#compiler/sql/build.ts"
-import { printExpr } from "#compiler/sql/print.ts"
-import { structuralBounds } from "#compiler/text/bounds.ts"
 import {
 	type CanonicalDfa,
 	type DfaLimits,
@@ -30,6 +22,14 @@ import {
 	membersWithin,
 	minimalDfa
 } from "#compiler/scalar/regex/dfa.ts"
+import { canonicalText, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
+import type { Nfa } from "#compiler/scalar/regex/nfa.ts"
+import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
+import type { TextLookup } from "#compiler/scalar/registry.ts"
+import type { CreateDomain, Expr } from "#compiler/sql/ast.ts"
+import { binary, cUtf8Collation, lit, types } from "#compiler/sql/build.ts"
+import { printExpr } from "#compiler/sql/print.ts"
+import { structuralBounds } from "#compiler/text/bounds.ts"
 
 /**
  * The host's bounds on a pattern's subset construction (core/limits.ts regexDfaMaxStates, regexDfaMaxWork): past

@@ -48,6 +48,7 @@ const literal = (l: TypedLiteral): string => {
 			return `${l.value}`
 		case "text":
 		case "uuid":
+		case "date":
 			return Formatter.format(l.value)
 		case "handle":
 			return l.handle

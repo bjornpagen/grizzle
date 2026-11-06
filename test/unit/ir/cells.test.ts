@@ -32,18 +32,24 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { maxStringLength } from "#compiler/core/limits.ts"
 import { compareNumbers } from "#compiler/core/order.ts"
 import {
+	type BlockCoordinate,
 	cellWidth,
 	type CodeSlot,
 	type Constant,
 	constantDigestOf,
-	constantOf,
+	constantOf as encodedOf,
+	dependentSpace,
 	dictionaryOf,
 	finDigit,
 	finSize,
 	finSpace,
 	type CellLayout,
+	keyCells,
+	keyIndex,
+	type KeyCollision,
 	rosterCodes,
 	type RosterCodes,
 	rowMajorIndex,
@@ -51,9 +57,26 @@ import {
 	spaceSize,
 	type Tuple
 } from "#compiler/ir/cells.ts"
+import type * as EngineResult from "#compiler/core/result.ts"
 import { assert, defined, failed, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 import { caseHang } from "#test/support/limits.ts"
+
+/** A product layout, which most of these rules are stated over: each key coordinate's and payload coordinate's codes. */
+interface Product {
+	readonly key: NonEmptyReadonlyArray<number>
+	readonly payload: ReadonlyArray<number>
+}
+
+/** The host encoder's constant of a product layout's tuples (ir/cells.ts constantOf over the product key space). */
+const constantOf = (
+	layout: Product,
+	tuples: ReadonlyArray<Tuple>
+): EngineResult.Result<Constant, KeyCollision> =>
+	encodedOf(
+		{ key: { kind: "product", sizes: layout.key }, payload: layout.payload } satisfies CellLayout,
+		tuples
+	)
 
 /** Every point of the space whose coordinates hold `sizes` codes each, first coordinate most significant: an odometer. */
 const odometer = (sizes: ReadonlyArray<number>): ReadonlyArray<ReadonlyArray<number>> => {
@@ -100,7 +123,7 @@ const readCell = (bits: string, width: number, index: number): bigint => {
  * to its key by the odometer of the key space and its value 1 + c to the payload at position c of the payload space's
  * odometer. Its tuples come in index order.
  */
-const decoded = (layout: CellLayout, text: string, width: number): ReadonlyArray<Tuple> => {
+const decoded = (layout: Product, text: string, width: number): ReadonlyArray<Tuple> => {
 	const payloads = odometer(layout.payload)
 	return Arr.flatMap(odometer(layout.key), (key, index): ReadonlyArray<Tuple> => {
 		const cell = readCell(text, width, index)
@@ -138,7 +161,7 @@ const keySizes =
 
 /** A closed relation of a box: its layout, and its tuples in the index order of its key space. */
 interface Boxed {
-	readonly layout: CellLayout
+	readonly layout: Product
 	readonly rows: ReadonlyArray<Tuple>
 }
 
@@ -248,22 +271,28 @@ describe("a fin coordinate", () => {
 	/**
 	 * The prefix offsets are dense: slot `at` of owner o is the position of (o, at) in the list of every owner's slots,
 	 * owner by owner, so the codes are exactly 0 to the coordinate's size - 1, each once; no code names a slot an owner
-	 * lacks. Oracle: that list.
+	 * lacks, at or past its count, the next owner's. Oracle: that list.
 	 */
 	const dense = (counts: ReadonlyArray<number>, c: Case<Owners>) =>
 		Effect.sync(() => {
 			const slots = Arr.flatMap(counts, (count, owner) =>
 				Array.from({ length: count }, (_, at) => [owner, at] as const)
 			)
-			const space = finSpace(counts)
-			assert.equal(finSize(space), slots.length)
+			const space = finSpace(
+				new Map(Arr.map(counts, (count, owner) => [BigInt(owner), BigInt(count)] as const))
+			)
+			assert.equal(finSize(space), BigInt(slots.length))
 			for (const [code, [owner, at]] of slots.entries()) {
-				assert.equal(finDigit(space, owner, at), code, `slot ${at} of owner ${owner}`)
+				assert.equal(finDigit(space, BigInt(owner), BigInt(at)), BigInt(code), `slot ${at} of owner ${owner}`)
 			}
 			for (let owner = -1; owner <= counts.length; owner += 1) {
 				const count = counts[owner] ?? 0
-				for (const at of [-1, count, count + 1, 0.5]) {
-					assert.equal(finDigit(space, owner, at), undefined, `slot ${at} of owner ${owner}`)
+				for (const at of [-1, count, count + 1]) {
+					assert.equal(
+						finDigit(space, BigInt(owner), BigInt(at)),
+						undefined,
+						`slot ${at} of owner ${owner}`
+					)
 				}
 			}
 			if (counts.length === 0) {
@@ -285,6 +314,11 @@ describe("a fin coordinate", () => {
 				exhaust(
 					{
 						suite: "unit/ir/cells-fin",
+						oracle: {
+							kind: "second-implementation",
+							name: "every owner's slots listed owner by owner"
+						},
+						box: "every owner roster of 0 to 4 owners, each holding 0 to 3 slots",
 						generator: owners,
 						literal: Formatter.format,
 						limit: 341,
@@ -296,6 +330,189 @@ describe("a fin coordinate", () => {
 						caseHang
 					},
 					dense
+				)
+			)
+	)
+})
+
+describe("a dependent key space", () => {
+	type Dependent =
+		| "an owner with no slot"
+		| "a block of two slots"
+		| "a closed id after a slot"
+		| "a closed id before a slot"
+		| "two counts"
+		| "an empty space"
+		| "an aliasing slot digit"
+
+	interface Space {
+		readonly owners: number
+		readonly block: NonEmptyReadonlyArray<BlockCoordinate>
+		readonly counts: ReadonlyMap<bigint, NonEmptyReadonlyArray<number>>
+	}
+
+	/** A block coordinate: a closed id of 2 codes, or a slot of count 0 or of count 1. */
+	const coordinates: NonEmptyReadonlyArray<BlockCoordinate> = [
+		{ kind: "codes", size: 2 },
+		{ kind: "slots", count: 0 },
+		{ kind: "slots", count: 1 }
+	]
+
+	/** A slot coordinate, of count 0 or of count 1. */
+	const slotted: NonEmptyReadonlyArray<BlockCoordinate> = [
+		{ kind: "slots", count: 0 },
+		{ kind: "slots", count: 1 }
+	]
+
+	/**
+	 * Every dependent space of an owner prefix of one closed id of 1 to 3 codes and a block of one or two coordinates,
+	 * each a closed id of 2 codes or a slot of count 0 or 1, at least one a slot (a block of closed ids alone is a
+	 * product), every owner holding each count its slots read 0 to 2, an owner whose counts are all 0 absent from the
+	 * counts as its count relation holding no row for it: 1,950 spaces.
+	 */
+	const spaces: Gen<Space> = (s) => {
+		const owners = s.draw(int(1, 3))
+		const arity = s.draw(int(1, 2))
+		const first = s.draw(element(arity === 1 ? slotted : coordinates))
+		const block: NonEmptyReadonlyArray<BlockCoordinate> =
+			arity === 1
+				? [first]
+				: [first, s.draw(element(first.kind === "codes" ? slotted : coordinates))]
+		const read = new Set(Arr.flatMap(block, (c) => (c.kind === "slots" ? [c.count] : [])))
+		const counts = new Map<bigint, NonEmptyReadonlyArray<number>>()
+		for (let owner = 0; owner < owners; owner += 1) {
+			const held: [number, number] = [0, 0]
+			for (const count of [0, 1] as const) {
+				if (read.has(count)) {
+					held[count] = s.draw(int(0, 2))
+				}
+			}
+			if (held[0] > 0 || held[1] > 0) {
+				counts.set(BigInt(owner), held)
+			}
+		}
+		return { owners, block, counts }
+	}
+
+	/** The radices owner `owner`'s block takes: a closed id's size, a slot's count there, 0 where it holds none. */
+	const radicesAt = (space: Space, owner: number): NonEmptyReadonlyArray<number> =>
+		Arr.map(space.block, (c) =>
+			c.kind === "codes" ? c.size : (space.counts.get(BigInt(owner))?.[c.count] ?? 0)
+		)
+
+	/**
+	 * The dependent sum's points in order, every owner's block after every earlier owner's, each block in its own
+	 * odometer's order at its owner's radices: the list the index must number. Oracle: Σ o. Π radices(o), written out.
+	 */
+	const pointsOf = (space: Space): ReadonlyArray<ReadonlyArray<number>> =>
+		Arr.flatMap(Array.from({ length: space.owners }, (_, owner) => owner), (owner) =>
+			Arr.map(odometer(radicesAt(space, owner)), (local) => [owner, ...local])
+		)
+
+	/**
+	 * The index numbers the dependent sum's points bijectively in owner order, and names no point for any other digits:
+	 * a slot code at or past its owner's count, an owner past the prefix, too few or too many digits. Every slot digit of
+	 * the box (0 to 3, past every count) is tried, and where Horner's rule at the owner's radices, run without the range
+	 * check, would land on another point's cell, the case notes the alias the check refuses. Oracles: the point list,
+	 * and a string of cells encoded over the space decodes back to its tuples.
+	 */
+	const theorem = (space: Space, c: Case<Dependent>) =>
+		Effect.sync(() => {
+			const keySpace = dependentSpace([space.owners], space.block, space.counts)
+			const points = pointsOf(space)
+			assert.equal(keyCells(keySpace), BigInt(points.length), "the space holds every owner's block")
+			const positions = new Map(Arr.map(points, (p, at) => [pointKey(p), at] as const))
+			const bases = Array.from({ length: space.owners }, (_, owner) =>
+				Arr.filter(points, (p) => (p[0] ?? 0) < owner).length
+			)
+			const box = odometer([space.owners, ...Arr.map(space.block, (b) => (b.kind === "codes" ? b.size : 4))])
+			for (const digits of box) {
+				const at = positions.get(pointKey(digits))
+				if (at !== undefined) {
+					assert.equal(keyIndex(keySpace, digits), BigInt(at), `the point ${pointKey(digits)}`)
+					continue
+				}
+				assert.equal(keyIndex(keySpace, digits), undefined, `the digits ${pointKey(digits)}`)
+				const owner = defined(digits[0])
+				const unchecked = Arr.reduce(
+					Arr.zip(digits.slice(1), radicesAt(space, owner)),
+					0,
+					(local, [digit, radix]) => local * radix + digit
+				)
+				const landing = defined(bases[owner]) + unchecked
+				if (landing < points.length) {
+					c.note("an aliasing slot digit")
+				}
+			}
+			const arity = 1 + space.block.length
+			const zeros = Array.from({ length: arity }, () => 0)
+			assert.equal(keyIndex(keySpace, [space.owners, ...zeros.slice(1)]), undefined, "an owner past the prefix")
+			assert.equal(keyIndex(keySpace, [-1, ...zeros.slice(1)]), undefined, "a negative owner")
+			assert.equal(keyIndex(keySpace, zeros.slice(1)), undefined, "one digit too few")
+			assert.equal(keyIndex(keySpace, [...zeros, 0]), undefined, "one digit too many")
+			const rows = Arr.map(points, (key, at): Tuple => ({ key, payload: [at] }))
+			const encoded = succeeded(
+				encodedOf({ key: keySpace, payload: [Math.max(1, points.length)] }, rows)
+			)
+			const text = succeeded(bitText(encoded, maxStringLength.value))
+			const read = Arr.flatMap(
+				Array.from({ length: points.length }, (_, at) => at),
+				(at): ReadonlyArray<Tuple> => {
+					const cell = readCell(text, encoded.width, at)
+					return cell === 0n ? [] : [{ key: defined(points[at]), payload: [Number(cell) - 1] }]
+				}
+			)
+			assert.deepEqual(read, rows, "decode ∘ encode = id over the dependent space")
+			const read0 = new Set(Arr.flatMap(space.block, (b) => (b.kind === "slots" ? [b.count] : [])))
+			if (points.length === 0) {
+				c.note("an empty space")
+			}
+			if (space.counts.size < space.owners && read0.size > 0) {
+				c.note("an owner with no slot")
+			}
+			if (Arr.filter(space.block, (b) => b.kind === "slots").length === 2) {
+				c.note("a block of two slots")
+			}
+			if (read0.size === 2) {
+				c.note("two counts")
+			}
+			const [first, second] = space.block
+			if (first?.kind === "slots" && second?.kind === "codes") {
+				c.note("a closed id after a slot")
+			}
+			if (first?.kind === "codes" && second?.kind === "slots") {
+				c.note("a closed id before a slot")
+			}
+		})
+
+	it.effect(
+		"numbers the dependent sum bijectively in owner order, and aliases no slot digit at or past its count",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/ir/cells-dependent",
+						oracle: {
+							kind: "second-implementation",
+							name: "the dependent sum's points listed owner by owner, each block in its odometer's order, and the naive decoder of the encoded string"
+						},
+						box: "every dependent space of 1 to 3 owners, a block of 1 or 2 coordinates with a slot, each count 0 to 2, every slot digit 0 to 3",
+						generator: spaces,
+						literal: Formatter.format,
+						limit: 1950,
+						coverage: requiredInSpace<Dependent>([
+							"an owner with no slot",
+							"a block of two slots",
+							"a closed id after a slot",
+							"a closed id before a slot",
+							"two counts",
+							"an empty space",
+							"an aliasing slot digit"
+						]),
+						caseHang
+					},
+					theorem
 				)
 			)
 	)
@@ -398,7 +615,7 @@ describe("a relation's string of cells", () => {
 
 	/** A relation's rows as a caller states them: in any order, some repeated, and in a named invalid variant a key collision. */
 	interface Statement {
-		readonly layout: CellLayout
+		readonly layout: Product
 		readonly relation: ReadonlyArray<Tuple>
 		readonly stated: ReadonlyArray<Tuple>
 	}
@@ -1109,7 +1326,7 @@ describe("a constant's digest", () => {
 	const small = relationIn(3, [[], [2], [3]])
 
 	/** The constant of `rows` over `layout`, which holds the key. */
-	const encode = (layout: CellLayout, rows: ReadonlyArray<Tuple>): Constant =>
+	const encode = (layout: Product, rows: ReadonlyArray<Tuple>): Constant =>
 		succeeded(constantOf(layout, rows))
 
 	const digestOf = (c: Constant): string => constantDigestOf(c)
@@ -1183,7 +1400,7 @@ describe("a constant's digest", () => {
 					}
 				}
 			}
-			const grown: CellLayout = {
+			const grown: Product = {
 				key: nonEmpty([...layout.key.slice(0, -1), defined(layout.key.at(-1)) + 1]),
 				payload: layout.payload
 			}
@@ -1196,7 +1413,7 @@ describe("a constant's digest", () => {
 				bitsToHold(BigInt(defined(layout.payload[0]) + 1)) === original.width
 			) {
 				c.note("another layout, the same constant")
-				const wider: CellLayout = { key: layout.key, payload: [defined(layout.payload[0]) + 1] }
+				const wider: Product = { key: layout.key, payload: [defined(layout.payload[0]) + 1] }
 				assert.equal(
 					digestOf(encode(wider, rows)),
 					digest,

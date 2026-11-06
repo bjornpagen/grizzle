@@ -2589,16 +2589,16 @@ const dropObject = (
 	return { kind: "drop", object, name, ifExists: false }
 }
 
-/** What a constant installs: a created constant's statement, or a pack's function and cells, each row's codes and not
- * the names its comment spells them by. */
+/** What a constant installs: a created constant's statement, or a pack's function and cells, each row's cell and
+ * payload code and not the names its comment spells them by. */
 const installedContent = (c: CreateConstant | PackConstant): unknown =>
 	c.kind === "createConstant"
 		? c
 		: {
 				function: c.function,
-				radices: c.radices,
+				cells: c.cells,
 				width: c.width,
-				rows: c.rows.map((r) => ({ key: r.key, payload: r.payload }))
+				rows: c.rows.map((r) => ({ index: r.index, payload: r.payload }))
 			}
 
 /** A constant's signature: its name and its parameters' types, none for a packed constant, which takes none. */

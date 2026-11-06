@@ -16,7 +16,7 @@
  */
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
-import { defined } from "#compiler/core/invariant.ts"
+import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type Comparator, compareStrings } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -265,6 +265,9 @@ export type KeySpace =
 			readonly fin: FinSpace
 	  }
 
+/** A dependent key space: an owner prefix, its block, each owner's counts, and the blocks' fin coordinate. */
+export type DependentSpace = Extract<KeySpace, { readonly kind: "dependent" }>
+
 /**
  * The radices of the block `block` at the owner of index `owner`: each slot coordinate's count there, 0 for an owner
  * `counts` holds none for, and each closed id's size.
@@ -280,21 +283,29 @@ export const blockRadices = (
 
 /**
  * The dependent key space of the owner prefix `owner`, the block `block`, and each owner's counts by its index, the
- * counts its slot coordinates read; an owner absent from `counts` holds no slot.
+ * counts its slot coordinates read. The block holds a slot, so an owner absent from `counts`, every count 0, holds an
+ * empty block; a block of closed ids alone is a product, which is no dependent space.
  */
 export const dependentSpace = (
 	owner: NonEmptyReadonlyArray<number>,
 	block: NonEmptyReadonlyArray<BlockCoordinate>,
 	counts: ReadonlyMap<bigint, NonEmptyReadonlyArray<number>>
-): KeySpace => ({
-	kind: "dependent",
-	owner,
-	block,
-	counts,
-	fin: finSpace(
-		new Map(Array.from(counts.keys(), (o) => [o, spaceSize(blockRadices(block, counts, o))] as const))
-	)
-})
+): DependentSpace => {
+	if (!block.some((c) => c.kind === "slots")) {
+		throw defect("a dependent space's block holds a slot")
+	}
+	return {
+		kind: "dependent",
+		owner,
+		block,
+		counts,
+		fin: finSpace(
+			new Map(
+				Array.from(counts.keys(), (o) => [o, spaceSize(blockRadices(block, counts, o))] as const)
+			)
+		)
+	}
+}
 
 /** The cells a key space holds: every point of a product, every owner's block of a dependent sum. */
 export const keyCells = (space: KeySpace): bigint =>

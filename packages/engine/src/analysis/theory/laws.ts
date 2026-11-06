@@ -1380,6 +1380,8 @@ export class Normalizer {
 					}))
 				}
 			}
+			case "concat":
+				throw defect("foldRule admits a concat fold only with its (before, after) pair named")
 		}
 	}
 

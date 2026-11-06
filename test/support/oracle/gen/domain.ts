@@ -304,6 +304,11 @@ const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
 	range8: only({ carrier: "range8" }),
 	vector: only({ carrier: "vector" }),
 	code: { kind: "rosters" },
+	date: {
+		kind: "undrawn",
+		reason:
+			"a date's comparisons, codec and text are judged by its parse's differential over every boundary of the date form, on its own installation"
+	},
 	bits: {
 		kind: "undrawn",
 		reason:
@@ -433,6 +438,7 @@ export const typedLiteralDesc = (literal: TypedLiteral, type: ScalarType): Liter
 			return literal.value
 		case "text":
 		case "uuid":
+		case "date":
 			return literal.value
 		case "handle":
 			return literal.handle
@@ -756,6 +762,7 @@ export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 	money: canonicalOnly,
 	bool: canonicalOnly,
 	uuid: canonicalOnly,
+	date: canonicalOnly,
 	text: canonicalOnly,
 	code: canonicalOnly,
 	bits: canonicalOnly,

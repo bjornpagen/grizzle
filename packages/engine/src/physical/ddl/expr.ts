@@ -1,16 +1,16 @@
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { moneyMinorUnits, vectorPayload } from "#compiler/ir/carriers.ts"
 import { codecOf, codeOf, handlesText } from "#compiler/ir/codes.ts"
+import { datePartSlices } from "#compiler/ir/date.ts"
 import {
 	type ColumnRef,
 	describeOp,
 	type TypedLiteral,
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
-import { baseTypeRef, type ClosedConstant, type PhysicalNames } from "#compiler/ir/physical.ts"
+import { baseTypeRef, type PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	baseOf,
 	type Roster,
@@ -23,16 +23,11 @@ import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
+import { isDateParse } from "#compiler/scalar/compute/registry.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { binary, cast, lit, tableCol, types } from "#compiler/sql/build.ts"
-import {
-	cellAt,
-	constantValue,
-	type Coordinate,
-	inSet,
-	mixedRadix,
-	payloadDigit
-} from "#compiler/sql/constants.ts"
+import { cast, lit, tableCol } from "#compiler/sql/build.ts"
+import { type ClosedRead, closedRead } from "#compiler/sql/constants.ts"
+import { dateOfText } from "#compiler/sql/lexical.ts"
 
 const refusePersistent = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, loc, capability)))
@@ -191,6 +186,9 @@ export const lowerPersistent = (
 		case "literal":
 			return persistentLiteral(names, expr.value, expr.type)
 		case "cast":
+			return isDateParse(expr.cast)
+				? dateOfText(lower(expr.args[0]), datePartSlices)
+				: cast(lower(expr.args[0]), columnType(names, expr.type).type)
 		case "domainCast":
 			return cast(lower(expr.args[0]), columnType(names, expr.type).type)
 		case "cond": {
@@ -203,11 +201,18 @@ export const lowerPersistent = (
 			}
 		}
 		case "closedAt":
-			return closedAt(names, expr, mapNonEmpty(expr.args, lower), at)
+			return closedReadOf(
+				names,
+				expr,
+				expr.relation,
+				{ kind: "at", field: expr.field },
+				expr.args.map(lower),
+				at
+			)
 		case "closedRow":
-			return closedRow(names, expr, expr.args.map(lower), at)
+			return closedReadOf(names, expr, expr.relation, { kind: "row" }, expr.args.map(lower), at)
 		case "closedHas":
-			return closedHas(names, expr, mapNonEmpty(expr.args, lower), at)
+			return closedReadOf(names, expr, expr.relation, { kind: "has" }, expr.args.map(lower), at)
 		case "op": {
 			const args = expr.args.map(lower)
 			const all = [expr.type, ...expr.args.map((a) => a.type)]
@@ -230,106 +235,25 @@ export const lowerPersistent = (
 	}
 }
 
-/** The digits of a closed read's key arguments, each with its key coordinate's radix, in key order. */
-const keyCoordinates = (
-	constant: ClosedConstant,
+/**
+ * A closed read over its relation's installed constants (sql/constants.ts closedRead): C.at's payload field, C.row's
+ * completions or a membership test at the key its arguments name, cast to its type's domain. An absent key reads NULL
+ * for C.at, which a CHECK's IS TRUE and a generated column's NOT NULL refuse, and the empty set for C.row.
+ */
+const closedReadOf = (
+	names: PhysicalNames,
+	expr: ScalarExpr,
+	relation: string,
+	read: ClosedRead,
 	args: ReadonlyArray<Expr>,
 	at: SourceLoc
-): ReadonlyArray<Coordinate> =>
-	args.map((digit, position) => ({
-		digit,
-		radix:
-			constant.key[position]?.radix ??
-			refusePersistent(
-				"MalformedDescription",
-				at,
-				"a closed read's argument per key field it reads"
-			)
-	}))
-
-/**
- * C.at(field, t…) over the closed relation's installed constant: the payload code of `field` at the cell of the key
- * the arguments name, read as a code of its roster, cast to smallint, or, for an open-typed field, through its
- * dictionary. An absent key reads NULL, never a value, which a CHECK's IS TRUE and a generated column's NOT NULL refuse.
- */
-const closedAt = (
-	names: PhysicalNames,
-	expr: Extract<ScalarExpr, { readonly kind: "closedAt" }>,
-	args: NonEmptyReadonlyArray<Expr>,
-	at: SourceLoc
 ): Expr => {
-	const constant = names.closed(expr.relation)
-	const coordinates = keyCoordinates(constant, args, at)
-	if (!isNonEmpty(coordinates) || coordinates.length !== constant.key.length) {
-		return refusePersistent("MalformedDescription", at, "a closed read's argument per key field")
-	}
-	const position = constant.payload.findIndex((p) => p.field === expr.field)
-	const payload = constant.payload[position]
-	if (payload === undefined) {
-		return refusePersistent(
-			"MalformedDescription",
-			at,
-			`a payload field ${expr.field} of the closed relation ${expr.relation}`
-		)
-	}
-	const code = payloadDigit(
-		constant.function,
-		mixedRadix(coordinates),
-		constant.width,
-		constant.payload.map((p) => p.radix),
-		position
+	const lowered = closedRead(
+		names.closed(relation),
+		relation,
+		read,
+		args,
+		baseTypeRef(names, expr.type)
 	)
-	return payload.dictionary === undefined
-		? cast(code, baseTypeRef(names, expr.type))
-		: { kind: "subscript", array: constantValue(payload.dictionary), index: plusOne(code) }
+	return lowered.ok ? lowered.value : refusePersistent("MalformedDescription", at, lowered.error)
 }
-
-/**
- * C.row(t…) over the closed relation's installed key set: the completions of the key prefix the arguments name, the
- * last key coordinate's code space of bits at the prefix's index, cast to the set's type. A relation of one key field
- * reads its whole key set.
- */
-const closedRow = (
-	names: PhysicalNames,
-	expr: Extract<ScalarExpr, { readonly kind: "closedRow" }>,
-	args: ReadonlyArray<Expr>,
-	at: SourceLoc
-): Expr => {
-	const constant = names.closed(expr.relation)
-	const coordinates = keyCoordinates(constant, args, at)
-	const open = constant.key[coordinates.length]
-	if (open === undefined || coordinates.length !== constant.key.length - 1) {
-		return refusePersistent(
-			"MalformedDescription",
-			at,
-			"a closed row's argument per key field but its last"
-		)
-	}
-	const prefix = isNonEmpty(coordinates) ? mixedRadix(coordinates) : lit.int(0, types.integer)
-	return cast(cellAt(constant.keys, prefix, open.radix), baseTypeRef(names, expr.type))
-}
-
-/**
- * A closed relation's membership test at a key, its bit of the relation's installed key set at the mixed-radix index of
- * the arguments' codes, one per key field: `substring(K(), i + 1, 1) = '1'::bit(1)`.
- */
-const closedHas = (
-	names: PhysicalNames,
-	expr: Extract<ScalarExpr, { readonly kind: "closedHas" }>,
-	args: NonEmptyReadonlyArray<Expr>,
-	at: SourceLoc
-): Expr => {
-	const constant = names.closed(expr.relation)
-	const coordinates = keyCoordinates(constant, args, at)
-	if (!isNonEmpty(coordinates) || coordinates.length !== constant.key.length) {
-		return refusePersistent(
-			"MalformedDescription",
-			at,
-			"a closed membership's argument per key field"
-		)
-	}
-	return inSet(constant.keys, mixedRadix(coordinates))
-}
-
-/** `code + 1`: a dictionary's subscript, which counts from 1. */
-const plusOne = (code: Expr): Expr => binary("+", code, lit.int(1, types.integer))

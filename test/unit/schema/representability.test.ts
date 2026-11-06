@@ -1074,6 +1074,7 @@ type FixedGistFamily =
 	| "money"
 	| "bool"
 	| "uuid"
+	| "date"
 	| "code"
 /** A set over a roster is bit(n), a varlena, which btree_gist keys as it keys text (btree_bit.c over gbt_var). */
 type GistFamily = FixedGistFamily | "numeric" | "text" | "bit" | "range" | "vector"
@@ -1088,6 +1089,7 @@ const fixedTyplens: { readonly [F in FixedGistFamily]: number } = {
 	money: typlens.money.value,
 	bool: typlens.bool.value,
 	uuid: typlens.uuid.value,
+	date: typlens.date.value,
 	code: typlens.int2.value
 }
 
@@ -1101,6 +1103,7 @@ const isFixedGistFamily = (family: GistFamily): family is FixedGistFamily => {
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 		case "code":
 			return true
 		case "numeric":
@@ -1123,6 +1126,7 @@ const gistKeyBytes = (family: Exclude<GistFamily, "vector">, bytes: number): num
 		case "money":
 		case "bool":
 		case "uuid":
+		case "date":
 			return 2 * bytes
 		case "numeric":
 		case "text":

@@ -236,7 +236,8 @@ const pgValues: {
 	real: { kind: "float", carrier: "float4" },
 	"double precision": { kind: "float", carrier: "float8" },
 	money: { kind: "money" },
-	boolean: { kind: "bool" }
+	boolean: { kind: "bool" },
+	date: { kind: "date" }
 }
 
 /**
