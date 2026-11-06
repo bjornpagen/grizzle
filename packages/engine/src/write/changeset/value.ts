@@ -1126,26 +1126,17 @@ const pathOf = (at: PathStep | undefined): ReadonlyArray<string | number> => {
 	return steps.toReversed()
 }
 
-/** What splitting a fact of one relation reads off `families`: the families it owns, their count fields, and the
- * fields grizzle draws or accumulates, which the fact's own fields leave out. */
+/** What splitting a fact of one relation reads off `families`: the families it owns, and their count fields, which
+ * hold its members' arrays. */
 interface RelationSplit {
 	readonly owned: ReadonlyArray<Family>
-	readonly omitted: ReadonlySet<string>
+	readonly counts: ReadonlySet<string>
 }
 
 /** How a fact of `relation` splits along `families`. */
 const relationSplit = (relation: string, families: ReadonlyArray<Family>): RelationSplit => {
 	const owned = families.filter((f) => f.owner.name === relation)
-	const unwritten = families.flatMap((f) =>
-		[f.owner, f.member]
-			.filter((r) => r.name === relation)
-			.flatMap((r) =>
-				r.fields.flatMap((field) =>
-					field.writing.kind === "drawn" || field.writing.kind === "accumulated" ? [field.name] : []
-				)
-			)
-	)
-	return { owned, omitted: new Set([...owned.map((f) => f.count.name), ...unwritten]) }
+	return { owned, counts: new Set(owned.map((f) => f.count.name)) }
 }
 
 /** A caller's fact read once as a plain record, or factShape for anything else, a throwing getter among them. */
@@ -1162,7 +1153,9 @@ const factRecord = (
  * a tree's nodes nest to any depth. The walk is iterative, with no limit on the depth, and linear in the facts it
  * reads: each fact is read once, its position is one cell over its owner's, and each relation's split is computed once.
  * A fact that is no plain record, or a count field that holds no array, is refused as factShape at its path. Each fact
- * keeps its own fields, less its count fields and the fields grizzle draws or accumulates; encoding them is the
+ * keeps every field it states but its count fields, so one it states beyond the fields its caller writes, a field
+ * grizzle draws or accumulates among them, reaches its level's normalizer, which admits exactly those and refuses it as
+ * factShape, as a deletion's fact stating one is: dropped here, its value would be lost unsaid. Encoding them is the
  * program's, with the installation's codes.
  */
 export const encodeAddition = (
@@ -1192,9 +1185,9 @@ export const encodeAddition = (
 		if (!read.ok) {
 			return Result.err({ fault: read.error, path: pathOf(next.at) })
 		}
-		const { owned, omitted } = splitOf(next.relation)
+		const { owned, counts } = splitOf(next.relation)
 		const own = Object.freeze(
-			Object.fromEntries(Object.entries(read.value).filter(([name]) => !omitted.has(name)))
+			Object.fromEntries(Object.entries(read.value).filter(([name]) => !counts.has(name)))
 		)
 		const groups: Array<{ readonly family: FamilyId; readonly members: ReadonlyArray<number> }> = []
 		for (const family of owned) {

@@ -1353,9 +1353,11 @@ Every field says who writes it, and an insert or a put takes exactly the fields 
 
 - **The caller**, the default: a field declared by its type alone, `title: Title`.
 - **PostgreSQL**, as a STORED generated column:
-  `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`. `r` holds the written fields alone, since PostgreSQL's generation expression reads no
-  generated column, and the term is of the declared type exactly, with no implicit cast. It may read closed
-  relations ([Closed relations](#closed-relations)).
+  `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`. `r` holds the fields its
+  caller writes alone: no generated column, which PostgreSQL's generation expression never reads, and no drawn or
+  accumulated field, which grizzle writes on the host, by type and, for a JavaScript caller, by `GeneratedRefused`
+  (`readsUnwritten`) when the schema is compiled. The term is of the declared type exactly, with no implicit cast. It
+  may read closed relations ([Closed relations](#closed-relations)).
 - **grizzle, drawn:** `drawn(natural)`, a family's count or index, and a tree's `start` and `end`
   ([Families](#families)).
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
@@ -1541,7 +1543,9 @@ never narrowed into its column's type unproved.
 - **A sequence is nested.** The members of an ordered family or a tree are written under their owner, in order, at
   its count field, each without its group and drawn fields: `insert(Order, [{ id, n: [{ qty }, { qty }] }])`. No
   row of a tree names its `parent`, and only the root names the root field:
-  `{ id, doc, children: [{ id, children: [] }] }`. An insert of an ordered member alone is a type error, since its
+  `{ id, doc, children: [{ id, children: [] }] }`. A nested member, at any depth, states no other field: one its
+  nesting supplies, one grizzle draws or accumulates, or one its relation lacks is a type error, and from JavaScript an
+  `EncodingFailure` (`factShape`) before any SQL. An insert of an ordered member alone is a type error, since its
   order is the nesting's. A tree is written whole: a put or a delete of one of its rows is refused, because a row
   inserted or removed in the middle shifts every later interval.
 - **A counted member is a row.** It is never nested: its group key names its owner, and it is inserted, put and

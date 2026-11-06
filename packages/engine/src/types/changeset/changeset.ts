@@ -131,10 +131,27 @@ type UnfitArms<H, F> = H extends unknown ? ([FitsAnArm<H, F>] extends [never] ? 
 type FitsAnArm<Ha, F> = F extends unknown
 	? [Ha] extends [F]
 		? [Exclude<SuppliedKeys<Ha>, keyof F>] extends [never]
-			? true
+			? [NestedUnfit<Ha, F>] extends [never]
+				? true
+				: never
 			: never
 		: never
 	: never
+
+/**
+ * The nested members of an arm that fit no arm of their nesting: at each key where F nests its members, an array of
+ * facts (AdditionIn), each member of Ha's array is held to the nesting's arms as a member fact is (UnfitArms), so a
+ * member nested at any depth supplies no field beyond its relation's own written ones, such as one its nesting supplies
+ * (a tree member's root field or parent, an ordered member's group) or one grizzle draws. Assignability alone checks no
+ * excess field of a nested object. An array of values, a vector's, nests no fact and is no nesting.
+ */
+type NestedUnfit<Ha, F> = {
+	[K in keyof Ha & keyof F]-?: F[K] extends ReadonlyArray<infer Fe extends object>
+		? Ha[K] extends ReadonlyArray<infer He>
+			? UnfitArms<He, Fe>
+			: never
+		: never
+}[keyof Ha & keyof F]
 
 /**
  * The fields an arm supplies. An array literal of differently shaped objects is inferred as a union whose arms carry

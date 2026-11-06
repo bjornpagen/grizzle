@@ -260,6 +260,47 @@ export const nestedWrites = ChangeSet.empty(Families)
 		}
 	])
 
+/**
+ * A nested member is a fact of its relation as the nesting takes it, at every depth: it supplies no field its nesting
+ * supplies, a tree node's root field, and none beyond its relation's own, as a top-level fact does not.
+ */
+export const nestedRootField = ChangeSet.empty(Families).insert(
+	Node,
+	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
+	[
+		{
+			id: someId,
+			doc: someId,
+			label: 0,
+			children: [{ id: someId, doc: someId, label: 1, children: [] }]
+		}
+	]
+)
+export const deepRootField = ChangeSet.empty(Families).insert(
+	Node,
+	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
+	[
+		{
+			id: someId,
+			doc: someId,
+			label: 0,
+			children: [
+				{ id: someId, label: 1, children: [{ id: someId, doc: someId, label: 2, children: [] }] }
+			]
+		}
+	]
+)
+export const nestedExcess = ChangeSet.empty(Families).insert(
+	Order,
+	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
+	[{ id: someId, n: [{ qty: 1n, price: 0.5, flags: Bits.of(Flag, []), kind: "low", note: 1 }] }]
+)
+export const nestedDrawn = ChangeSet.empty(Families).insert(
+	Order,
+	// @ts-expect-error -- TS2345 refusal: a member fact is not a fact of the relation
+	[{ id: someId, n: [{ qty: 1n, price: 0.5, flags: Bits.of(Flag, []), kind: "low", at: 0n }] }]
+)
+
 /** An ordered member is written under its owner, never alone: its order is the nesting's. */
 export const memberInsert = ChangeSet.empty(Families).insert(
 	// @ts-expect-error -- TS2345 refusal: a sequence's member is written under its owner: nest it in order at the owner's count field

@@ -199,7 +199,9 @@ How to upgrade:
   that takes the first operand's type, so its bits are its handles' codes. A key holds no set. A roster that grows
   converts its set columns to the wider domain in place, the new handles absent. No codemod.
 - **Every field says how it is written.** `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type,
-  term) }))` declares STORED generated fields, `r` holding the written fields alone; `drawn(natural)` is a count, an
+  term) }))` declares STORED generated fields, `r` holding the fields its caller writes alone, no generated, drawn or
+  accumulated one, by type and, for a JavaScript caller, by `GeneratedRefused` (`readsUnwritten`) when the schema is
+  compiled, where reading one failed in the builder as a literal standing first; `drawn(natural)` is a count, an
   index or a tree's interval that grizzle draws; `accumulated(type, start)` is a fold's end or accumulator, or a copy
   along a family's axis. An insert and a put take `Written<R>`, the fields the caller writes, never a generated, drawn
   or accumulated one; a fact and a query's row hold every field. A primary key holds no set, generated or accumulated
@@ -233,12 +235,15 @@ How to upgrade:
   pre-order interval. A tree in order is one index scan by `start`, and a row's descendants are a range of `start`,
   with no recursion. No codemod: a rank (`depth` and its `pred(depth)` containment) proves nothing the intervals don't.
 - **Rows first: a family is never a write shape.** A sequence's members (an ordered family's or a tree's) are nested
-  under their owner, in order, at its count field, each without its group and drawn fields; an insert of an ordered
-  member alone is a type error. A counted member is a row whose group key names its owner, inserted, put and deleted
-  like any row. A family's member is written from an array or a Stream, never a query or a query entry. A tree is
-  written whole, by inserting its root with the tree nested; a put or delete of a tree's row is refused. An immutable
-  owner's family is fixed when the owner is inserted: a delete of its member is refused before any SQL. Every change
-  to one owner's family is one edit, which grizzle refills from the first slot it touches, and an edit of a stored
+  under their owner, in order, at its count field, each without its group and drawn fields, which a nested member at
+  any depth may not state, nor a field its relation lacks: a type error, checked through every nesting, and from
+  JavaScript an `EncodingFailure` (`factShape`) before any SQL, where a stated drawn or accumulated value used to be
+  dropped unsaid; an insert of an ordered member alone is a type error. A counted member is a row whose group key
+  names its owner, inserted, put and deleted like any row. A family's member is written from an array or a Stream,
+  never a query or a query entry. A tree is written whole, by inserting its root with the tree nested; a put or delete
+  of a tree's row is refused. An immutable owner's family is fixed when the owner is inserted: a delete of its
+  member is refused before any SQL. Every change to one owner's family is one edit, which grizzle refills from the
+  first slot it touches, and an edit of a stored
   group reads its stored values first: the apply sends two flights in its one transaction, the reads and then the
   writes, and a 40001 at either is a `TransientFailure` grizzle never retries. A role that writes a family's member
   holds column SELECT on what the read reads of the owner and, when the owner is mutable, column UPDATE on that

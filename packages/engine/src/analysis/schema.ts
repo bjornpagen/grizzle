@@ -506,9 +506,16 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			Object.values(r.fields).flatMap((f) => (f.writing.kind === "generated" ? [f.name] : []))
 		)
 		const isGenerated = (f: string): boolean => generated.has(f)
+		/** A field grizzle writes on the host, which no generation expression reads. */
+		const unwritten = (f: string): "drawn" | "accumulated" | undefined => {
+			const writing = r.fields[f]?.writing.kind
+			return writing === "drawn" || writing === "accumulated" ? writing : undefined
+		}
 		for (const f of Object.values(r.fields).toSorted(mapInput(compareStrings, (x) => x.name))) {
 			const broken =
-				f.writing.kind === "generated" ? generatedRule(f.writing.expr, isGenerated) : undefined
+				f.writing.kind === "generated"
+					? generatedRule(f.writing.expr, isGenerated, unwritten)
+					: undefined
 			if (broken !== undefined) {
 				generatedRefused(r, f.name, broken)
 			}

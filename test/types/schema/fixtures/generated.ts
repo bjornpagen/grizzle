@@ -1,6 +1,7 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import {
+	accumulated,
 	Bits,
 	bits,
 	closedId,
@@ -53,6 +54,35 @@ export const readsGenerated = relation.generated(
 		next: generated(pg.integer, Compute.cast(Compute.add(r.depth, 1), pg.integer)),
 		// @ts-expect-error -- TS2339: the row holds the written fields only, so no generated field reads another
 		twice: generated(pg.integer, Compute.add(r.next, 1))
+	})
+)
+
+/**
+ * The row holds the fields its caller writes: a drawn or an accumulated field, which grizzle writes on the host, is no
+ * generation expression's to read, and the caller's own fields beside it are.
+ */
+export const readsCallerFields = relation.generated(
+	"ReadsCaller",
+	{ id: uuid, acc: accumulated(bits(Flag), Bits.of(Flag, [])), w: bits(Flag) },
+	["id"],
+	(r) => ({ g: generated(bits(Flag), Compute.union(r.w, r.w)) })
+)
+export const readsAccumulated = relation.generated(
+	"ReadsAccumulated",
+	{ id: uuid, acc: accumulated(bits(Flag), Bits.of(Flag, [])), w: bits(Flag) },
+	["id"],
+	(r) => ({
+		// @ts-expect-error -- TS2339: the row holds the fields its caller writes, never one grizzle accumulates
+		g: generated(bits(Flag), r.acc)
+	})
+)
+export const readsDrawn = relation.generated(
+	"ReadsDrawn",
+	{ id: uuid, n: drawn(natural), w: pg.bigint },
+	["id"],
+	(r) => ({
+		// @ts-expect-error -- TS2339: the row holds the fields its caller writes, never one grizzle draws
+		m: generated(pg.bigint, Compute.add(r.n, r.w))
 	})
 )
 

@@ -24,6 +24,7 @@ import {
 	treeBuilder
 } from "#compiler/schema/statements.ts"
 import { context as contextBuilder, role as roleBuilder } from "#compiler/schema/world.ts"
+import type { UnwrittenFieldsOf } from "#compiler/types/changeset/changeset.ts"
 import type { Parameterless, Predicate, Refusal, Simplify } from "#compiler/types/core/phantom.ts"
 import type {
 	FieldBase,
@@ -149,10 +150,18 @@ type GeneratedApart<Written, G> = [keyof Written & keyof G] extends [never]
 	: Refusal<"a generated field is named apart from the relation's written fields">
 
 /**
+ * The row a generation expression reads: its relation's fields as a row check reads them, less every field its caller
+ * never writes (UnwrittenFieldsOf), a drawn or an accumulated one, which grizzle writes on the host: PostgreSQL
+ * generates a column from the caller's fields alone.
+ */
+type GenerationRow<R> = Omit<RowScalars<R>, UnwrittenFieldsOf<R>>
+
+/**
  * relation.generated(name, written, primaryKey, (row) => ({ f: generated(type, term), ... })): a relation whose
  * written fields its caller writes and whose generated fields PostgreSQL writes, each a STORED generated column whose
- * term reads `row`, the row of the written fields alone: a generation expression reads no generated column. The
- * primary key is over written fields. Its fields are both, and its facts hold both; its additions hold only the written.
+ * term reads `row`, the row of the fields its caller writes alone (GenerationRow): a generation expression reads no
+ * generated column, and no drawn or accumulated field. The primary key is over written fields. Its fields are both, and
+ * its facts hold both; its additions hold only the written.
  */
 const generated = <
 	const Name extends string,
@@ -164,7 +173,7 @@ const generated = <
 	written: Written,
 	primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
 	generate: (
-		row: RowScalars<Relation<Name, Written, readonly [...PrimaryKey]>>
+		row: GenerationRow<Relation<Name, Written, readonly [...PrimaryKey]>>
 	) => G & GeneratedApart<Written, G>,
 	...extra: ReadonlyArray<never>
 ): Relation<Name, Simplify<Written & G>, readonly [...PrimaryKey]> =>

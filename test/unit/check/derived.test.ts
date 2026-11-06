@@ -481,6 +481,7 @@ const inputFeatures = (fields: ReadonlyArray<InputField>): ReadonlyArray<InputFe
 			)
 				? ["a read refused before a greater field's input"]
 				: []
+		case "readsUnwritten":
 		case "type":
 			return []
 	}
