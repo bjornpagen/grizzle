@@ -67,14 +67,21 @@ import {
 type Carrier = "int2" | "int4" | "int8" | "natural" | "numeric" | "money" | "set" | "code"
 type Accumulators = "named" | "hidden"
 interface Shape {
-	readonly monoid: MonoidName
+	readonly monoid: NumericMonoid
 	readonly carrier: Carrier
 	readonly order: "ordered" | "counted"
 	readonly accumulators: Accumulators
 	readonly selected: boolean
 }
 
-const carriersOf: { readonly [M in MonoidName]: Arr.NonEmptyReadonlyArray<Carrier> } = {
+/**
+ * The monoids the reference fold combines in exact integers (test/support/families/fold.ts): every monoid but concat,
+ * which folds text, and whose natives test/unit/analysis/theory/concat.test.ts and test/unit/write/concat-fill.test.ts
+ * judge.
+ */
+type NumericMonoid = Exclude<MonoidName, "concat">
+
+const carriersOf: { readonly [M in NumericMonoid]: Arr.NonEmptyReadonlyArray<Carrier> } = {
 	count: ["natural"],
 	sum: ["int2", "int4", "int8", "natural", "numeric", "money"],
 	or: ["set"],

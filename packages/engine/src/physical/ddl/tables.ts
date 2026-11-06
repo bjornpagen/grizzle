@@ -795,17 +795,48 @@ const lowerRow = (
 	})
 }
 
+/**
+ * A row expression of `relation` lowered as `lowerRow` lowers it, with each generated field it reads replaced by that
+ * field's own generation, which reads the row's written fields alone: what a generated column reads, since PostgreSQL
+ * refuses a generation expression that reads another generated column (42P17, "cannot use generated column in column
+ * generation expression"). The stored field holds the same value on every row, so the column computes what the law
+ * reads.
+ */
+const lowerWrittenRow = (
+	b: InstallBuilder,
+	relation: TableRelation,
+	expr: ScalarExpr,
+	label: string
+): Expr =>
+	transformExpr(lowerRow(b, relation, expr, label), {
+		...identityHooks,
+		expr: (e) => {
+			const field =
+				e.kind === "column" && e.table === undefined
+					? relation.fields.find((f) => f.column === e.column)
+					: undefined
+			return field?.writing.kind === "generated"
+				? lowerRow(
+						b,
+						relation,
+						field.writing.expr,
+						`generated field ${relation.name}.${field.name}`
+					)
+				: e
+		}
+	})
+
 /** A generated column a law adds, before its table holds it: its STORED generation, its term alone when its guard is
  * empty, a total column, NOT NULL, and otherwise `CASE WHEN <every guard conjunct> THEN <term> END`, null where the
- * guard fails, every expression lowered over the row's own fields. */
+ * guard fails, every expression lowered over the row's written fields (`lowerWrittenRow`). */
 const lawColumnGeneration = (
 	b: InstallBuilder,
 	o: NativeOf<"LawColumn">,
 	value: Extract<NativeOf<"LawColumn">["value"], { readonly kind: "generated" }>,
 	label: string
 ): ColumnGeneration => {
-	const expr = lowerRow(b, o.relation, value.term, label)
-	const guard = value.guard.map((g) => lowerRow(b, o.relation, g, label))
+	const expr = lowerWrittenRow(b, o.relation, value.term, label)
+	const guard = value.guard.map((g) => lowerWrittenRow(b, o.relation, g, label))
 	return isNonEmpty(guard)
 		? { kind: "partial", when: guard.length === 1 ? guard[0] : and(guard), expr }
 		: { kind: "stored", expr }

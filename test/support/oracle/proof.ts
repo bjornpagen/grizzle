@@ -111,11 +111,10 @@ const proofHolds = (
 				) {
 					return Arr.some(
 						premises,
-						(p) =>
-							p.kind === "language" &&
-							p.operand === 0 &&
-							patternIncludes({ source: p.pattern, flags: p.flags }, refinement).kind ===
-								"included"
+						(m: OperandPremise) =>
+							m.kind === "language" &&
+							m.operand === 0 &&
+							patternIncludes({ source: m.pattern, flags: m.flags }, refinement).kind === "included"
 					)
 				}
 				const p = finite(0)

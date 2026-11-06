@@ -1959,8 +1959,9 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * Two sets of one roster, the second a term or a parameter, never a literal: a set over another roster is another
-	 * universe, whose codes mean other handles.
+	 * Two sets of one roster: the second a term or a parameter of the first's roster, or a set value over it (Bits.of),
+	 * a bare literal that adopts the first's type as an operand does, so its handles are coded by the first's roster. A
+	 * set over another roster is another universe, whose codes mean other handles.
 	 */
 	sets(
 		fn: string,
@@ -1969,6 +1970,9 @@ class Lowering<R extends Refs> {
 		at: SourceLoc
 	): readonly [Lowered, Lowered] {
 		const a = this.set(fn, this.term(first, childLoc(at, 0)), at).set
+		if (second.kind === "literal" && second.type === undefined) {
+			return [a, this.literal(second.value, this.adopt(a.nominal, "operand"), childLoc(at, 1))]
+		}
 		const b = this.set(fn, this.term(second, childLoc(at, 1)), at).set
 		if (!meets(a.nominal, b.nominal)) {
 			return stop(

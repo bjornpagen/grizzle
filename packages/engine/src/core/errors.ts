@@ -265,8 +265,10 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `UnrepresentableKey`: a key or index, `subject`, over `key`, with no representable index entry, for `fault`.
  * - `FoldOverProjection`: a fold whose rule matches `source` without binding every field of one of its keys, so the
  *   fold would read a projection of its facts; `key` is the key to bind.
- * - `QueriedOwnerAppend`: a put at `at` of `owner` from a query, which may insert an owner of `family`, in a ChangeSet
- *   that appends `member` to that family.
+ * - `QueriedOwnerAppend`: a write at `at` of `owner` from a query, its `op` an insert or a put, which may insert an
+ *   owner of `family`, in a ChangeSet that appends `member` to that family.
+ * - `UnstatedKey`: a put or a delete, `op`, of `relation`, whose primary key `key` holds the fields `unstated`, which
+ *   grizzle writes and no fact states, so it names no row.
  * - `MissingDiscriminant`, `AttachedParentUnbound`, `AttachedPage`, `DescribedHeadingMismatch`, `ContractLiteral`:
  *   the rule `capability` names, a sentence nothing reads the parts of.
  * - `DuplicateIdentity`: a name declared twice differently (Duplicate), with the earlier declaration's location.
@@ -316,8 +318,17 @@ export type CompileReason =
 			readonly key: ReadonlyArray<string>
 	  }
 	| {
+			readonly _tag: "UnstatedKey"
+			readonly at: SourceLoc
+			readonly op: "put" | "delete"
+			readonly relation: string
+			readonly key: ReadonlyArray<string>
+			readonly unstated: ReadonlyArray<string>
+	  }
+	| {
 			readonly _tag: "QueriedOwnerAppend"
 			readonly at: SourceLoc
+			readonly op: "insert" | "put"
 			readonly owner: string
 			readonly family: { readonly owner: string; readonly count: string }
 			readonly member: string
@@ -442,11 +453,24 @@ export const foldOverProjectionText = (source: string, key: ReadonlyArray<string
  * two ways to state the owner first.
  */
 const queriedOwnerAppendText = (
+	op: "insert" | "put",
 	owner: string,
 	family: { readonly owner: string; readonly count: string },
 	member: string
 ): string =>
-	`a put of ${owner} from a query, which may insert an owner of the family ${family.owner}.${family.count}, in a ChangeSet that appends ${member} to that family: an inserted owner holds its final count and ends in its own row, which grizzle fills only from the facts a ChangeSet states, so state ${owner}'s facts in this ChangeSet from an array or a Stream, or put ${owner} in a ChangeSet that ChangeSet.sequence runs before the one that appends`
+	`${op === "put" ? "a put of" : "an insert into"} ${owner} from a query, which may insert an owner of the family ${family.owner}.${family.count}, in a ChangeSet that appends ${member} to that family: an inserted owner holds its final count and ends in its own row, which grizzle fills only from the facts a ChangeSet states, so state ${owner}'s facts in this ChangeSet from an array or a Stream, or ${op} ${owner} in a ChangeSet that ChangeSet.sequence runs before the one that appends`
+
+/**
+ * A put names each row by its primary key, and a family's edit names each member by it, so a key holding a field grizzle
+ * writes, which no fact states (a sequence's index), names no row: name the key to declare instead.
+ */
+const unstatedKeyText = (
+	op: "put" | "delete",
+	relation: string,
+	key: ReadonlyArray<string>,
+	unstated: ReadonlyArray<string>
+): string =>
+	`a ${op} of ${relation} names each row by its primary key (${key.join(", ")}), and no fact of ${relation} states ${unstated.join(" or ")}, which grizzle writes itself: give ${relation} a primary key of fields its caller writes, such as an id, to ${op} a row by it`
 
 /** A reason whose one fact is the sentence `text`, at `at`. */
 export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason =>
@@ -474,8 +498,10 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return keyFaultText(reason.subject, reason.key, reason.fault)
 		case "FoldOverProjection":
 			return foldOverProjectionText(reason.source, reason.key)
+		case "UnstatedKey":
+			return unstatedKeyText(reason.op, reason.relation, reason.key, reason.unstated)
 		case "QueriedOwnerAppend":
-			return queriedOwnerAppendText(reason.owner, reason.family, reason.member)
+			return queriedOwnerAppendText(reason.op, reason.owner, reason.family, reason.member)
 		case "DuplicateIdentity":
 			return duplicateText(reason.duplicate)
 		case "OutsideRole":

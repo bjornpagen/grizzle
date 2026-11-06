@@ -24,7 +24,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { changeSetOver as ChangeSet, type MemberInput } from "#compiler/write/changeset/value.ts"
 import { inForce } from "#compiler/write/family/order.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { bindWrite } from "#compiler/write/program/bind.ts"
@@ -153,18 +153,34 @@ const restatedLedger = query(S5).rule((r) => {
 /** Ledger 1's one entry, of step value `x`. */
 const entryOf = (x: bigint) => ({ id: uuidOf(2), ledger: uuidOf(1), x })
 
-/** How a ChangeSet writes a member of the ledger's family beside a put of ledgers from a query. */
+/** How a ChangeSet writes ledgers from a query: either may insert a ledger no row holds. */
+const ownerWrites = ["insert", "put"] as const
+type OwnerWrite = (typeof ownerWrites)[number]
+
+/** How a ChangeSet writes a member of the ledger's family beside a write of ledgers from a query. */
 const appends = ["an insert of Entry", "a put of Entry"] as const
 type Append = (typeof appends)[number]
 
-/** The puts of ledgers from a query that insert no owner a member is appended to, each beside the family's members. */
-const otherPuts = [
-	"a put of stored ledgers only beside an append",
-	"a put beside no write of a member",
-	"a put beside a member's removal",
-	"a put sequenced before the append"
+/** Each write of ledgers from a query beside each write of a member. */
+const appendCases = Arr.flatMap(ownerWrites, (op) => Arr.map(appends, (append) => ({ op, append })))
+
+/** The writes of ledgers from a query that insert no owner a member is appended to, each beside the family's members. */
+const others = [
+	"of stored ledgers only beside an append",
+	"beside no write of a member",
+	"beside a member's removal",
+	"sequenced before the append"
 ] as const
-type OtherPut = (typeof otherPuts)[number]
+type Other = (typeof others)[number]
+
+/** Each such write, an insert's and a put's. */
+const otherCases = Arr.flatMap(ownerWrites, (op) => Arr.map(others, (other) => ({ op, other })))
+
+/** A ChangeSet over S5 that writes `ledgers` as `op` says. */
+const ledgersBy = (op: OwnerWrite, ledgers: MemberInput) =>
+	op === "insert"
+		? ChangeSet.empty(S5).insert(Ledger, ledgers)
+		: ChangeSet.empty(S5).put(Ledger, ledgers)
 
 const A = relation("A", { id: uuid, bs: drawn(natural) }, ["id"])
 const B = relation("B", { a: uuid, id: uuid, cs: drawn(natural) }, ["id"])
@@ -461,24 +477,28 @@ describe("an owner of counted families, rows first", () => {
 			})
 	)
 	it.effect(
-		"refuses a put of an owner read from a query in a ChangeSet that inserts or puts a member of its family, naming the put, the owner, the family and the member",
+		"refuses an insert or a put of an owner read from a query in a ChangeSet that inserts or puts a member of its family, naming the write, the owner, the family and the member",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/write/queried-owner-append",
-						generator: element(appends),
+						generator: element(appendCases),
 						literal: Formatter.format,
-						limit: appends.length,
-						coverage: requiredInSpace<`${Append}: refused at the put`>(
-							Arr.map(appends, (a): `${Append}: refused at the put` => `${a}: refused at the put`)
+						limit: appendCases.length,
+						coverage: requiredInSpace<`${OwnerWrite} beside ${Append}: refused`>(
+							Arr.map(
+								appendCases,
+								(k): `${OwnerWrite} beside ${Append}: refused` =>
+									`${k.op} beside ${k.append}: refused`
+							)
 						),
 						caseHang
 					},
-					(append, c) =>
+					({ op, append }, c) =>
 						Effect.sync(() => {
-							const owners = ChangeSet.empty(S5).put(Ledger, givenLedgers)
+							const owners = ledgersBy(op, givenLedgers)
 							const value =
 								append === "an insert of Entry"
 									? owners.insert(Entry, [entryOf(5n)])
@@ -492,92 +512,121 @@ describe("an owner of counted families, rows first", () => {
 								return assert.fail("a QueriedOwnerAppend")
 							}
 							assert.deepEqual(
-								{ owner: reason.owner, family: reason.family, member: reason.member },
-								{ owner: "Ledger", family: { owner: "Ledger", count: "n" }, member: "Entry" },
-								"the refusal names the owner, its family and the member written to it"
+								{
+									op: reason.op,
+									owner: reason.owner,
+									family: reason.family,
+									member: reason.member
+								},
+								{ op, owner: "Ledger", family: { owner: "Ledger", count: "n" }, member: "Entry" },
+								"the refusal names the write, the owner, its family and the member written to it"
 							)
-							const put = Arr.findFirst(
+							const write = Arr.findFirst(
 								Arr.getUnsafe(descOf(value).strata, 0).members,
-								(m) => m.op === "put" && m.relation === "Ledger"
+								(m) => m.op === op && m.relation === "Ledger"
 							)
-							if (Option.isNone(put)) {
-								return assert.fail("the ChangeSet puts Ledger")
+							if (Option.isNone(write)) {
+								return assert.fail("the ChangeSet writes Ledger")
 							}
-							assert.deepEqual(reason.at, put.value.loc, "the refusal is at the put")
-							c.note(`${append}: refused at the put`)
+							assert.deepEqual(reason.at, write.value.loc, "the refusal is at the owner's write")
+							c.note(`${op} beside ${append}: refused`)
 						})
 				)
 			)
 	)
 
 	it.effect(
-		"compiles and runs the same put with the owner's facts stated, inserting the owner at its final count and end",
-		() =>
-			Effect.gen(function* () {
-				const stated = ChangeSet.empty(S5)
-					.put(Ledger, [{ id: uuidOf(1), total: 5n }])
-					.insert(Entry, [entryOf(5n)])
-				const program = succeeded(s5(stated))
-				const members = yield* collectInputs(program.frontend, parsedOf(stated).inputs)
-				const bound = succeeded(
-					bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+		"compiles and runs the same insert or put with the owner's facts stated, inserting the owner at its final count and end",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/write/queried-owner-stated",
+						generator: element(ownerWrites),
+						literal: Formatter.format,
+						limit: ownerWrites.length,
+						coverage: requiredInSpace<`${OwnerWrite} stated: ran`>(
+							Arr.map(ownerWrites, (op): `${OwnerWrite} stated: ran` => `${op} stated: ran`)
+						),
+						caseHang
+					},
+					(op, c) =>
+						Effect.gen(function* () {
+							const stated = ledgersBy(op, [{ id: uuidOf(1), total: 5n }]).insert(Entry, [
+								entryOf(5n)
+							])
+							const program = succeeded(s5(stated))
+							const members = yield* collectInputs(program.frontend, parsedOf(stated).inputs)
+							const bound = succeeded(
+								bindWrite(program, { members, params: {}, transport: inForce(bindFrame) })
+							)
+							assertVariant(bound, "kind", "bound", "the owner stated with its member binds")
+							assertVariant(
+								bound.flights,
+								"kind",
+								"read",
+								"the owner's key is read first: only an owner no row holds is inserted"
+							)
+							const chunks = succeeded(bound.flights.writes(Arr.map(bound.flights.reads, () => [])))
+							const inserts = Arr.filter(
+								program.artifacts.optimized.statements,
+								(s) =>
+									s.step.kind === "write" &&
+									s.step.relation === "Ledger" &&
+									s.step.result.kind === "insert"
+							)
+							assert.ok(inserts.length > 0, "the write inserts the ledger no row holds")
+							for (const s of inserts) {
+								for (const params of succeeded(chunks(s))) {
+									assert.deepEqual(
+										Arr.takeRight(params, 3),
+										['{"1"}', '{"5"}', '{"5"}'],
+										"the stated owner is inserted at its final count n and end t, which the check holds to its total, its columns read key first and then n, t and total"
+									)
+								}
+							}
+							c.note(`${op} stated: ran`)
+						})
 				)
-				assertVariant(bound, "kind", "bound", "the owner stated with its member binds")
-				assertVariant(
-					bound.flights,
-					"kind",
-					"read",
-					"the owner's key is read first: a stored owner is updated, and only one no row holds is inserted"
-				)
-				const chunks = succeeded(bound.flights.writes(Arr.map(bound.flights.reads, () => [])))
-				const halves = Arr.filter(
-					program.artifacts.optimized.statements,
-					(s) => s.step.kind === "write" && s.step.result.kind === "insert"
-				)
-				assert.ok(halves.length > 0, "the put has its insert half")
-				for (const s of halves) {
-					for (const params of succeeded(chunks(s))) {
-						assert.deepEqual(
-							Arr.takeRight(params, 3),
-							['{"1"}', '{"5"}', '{"5"}'],
-							"the stated owner is inserted at its final count n and end t, which the check holds to its total, its columns read key first and then n, t and total"
-						)
-					}
-				}
-			})
+			)
 	)
 
 	it.effect(
-		"compiles every other put of an owner from a query beside its family's members",
+		"compiles every other insert or put of an owner from a query beside its family's members",
 		(ctx) =>
 			searched(
 				ctx,
 				exhaust(
 					{
 						suite: "unit/write/queried-owner-other",
-						generator: element(otherPuts),
+						generator: element(otherCases),
 						literal: Formatter.format,
-						limit: otherPuts.length,
-						coverage: requiredInSpace<`${OtherPut}: compiled`>(
-							Arr.map(otherPuts, (p): `${OtherPut}: compiled` => `${p}: compiled`)
+						limit: otherCases.length,
+						coverage: requiredInSpace<`${OwnerWrite} ${Other}: compiled`>(
+							Arr.map(
+								otherCases,
+								(k): `${OwnerWrite} ${Other}: compiled` => `${k.op} ${k.other}: compiled`
+							)
 						),
 						caseHang
 					},
-					(other, c) =>
+					({ op, other }, c) =>
 						Effect.sync(() => {
-							const given = ChangeSet.empty(S5).put(Ledger, givenLedgers)
+							const given = ledgersBy(op, givenLedgers)
 							const value =
-								other === "a put of stored ledgers only beside an append"
-									? ChangeSet.empty(S5)
-											.put(Ledger, restatedLedger)
-											.insert(Entry, [entryOf(5n)])
-									: other === "a put beside no write of a member"
+								other === "of stored ledgers only beside an append"
+									? ledgersBy(op, restatedLedger).insert(Entry, [entryOf(5n)])
+									: other === "beside no write of a member"
 										? given
-										: other === "a put beside a member's removal"
+										: other === "beside a member's removal"
 											? given.delete(Entry, [entryOf(5n)])
 											: ChangeSet.sequence(given, ChangeSet.empty(S5).insert(Entry, [entryOf(5n)]))
-							succeeded(s5(value), "a put that inserts no owner the ChangeSet appends to compiles")
-							c.note(`${other}: compiled`)
+							succeeded(
+								s5(value),
+								"a write that inserts no owner the ChangeSet appends to compiles"
+							)
+							c.note(`${op} ${other}: compiled`)
 						})
 				)
 			)

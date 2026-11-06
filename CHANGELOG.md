@@ -16,6 +16,32 @@ How to upgrade:
 
 ### Breaking changes
 
+#### Text translates: `Compute.translate` and `Compute.lowerAscii`, casts into a refined text by language inclusion
+
+- **`Compute.translate(x, from, to)`** is PostgreSQL's `translate` (IMMUTABLE), by characters: each character of `x`
+  that `from` holds becomes the character of `to` at its position. `from` and `to` are strings of one length, `from`
+  holding each character once; PostgreSQL would delete a character `to` has no counterpart for and map a repeated one
+  by its first occurrence, so either is `MalformedDescription` where the call is written, and so is a term as either.
+  **`Compute.lowerAscii(x)`** is `translate` from `A` to `Z` onto `a` to `z`, ASCII's case fold, which lowers no other
+  letter, so it is one map whatever the collation. The term is text of the image of `x`'s language under the map: its
+  pattern with every class and character rewritten, prefixed and suffixed by the image of every admitted character
+  where it is unanchored, so a bounded pattern stays bounded and keeps its key representable; where that pattern
+  passes grizzle's measures of PostgreSQL's regex compile space, the rewrite of `x`'s pattern alone, which holds every
+  value of the image. The host translates by code points and agrees with PostgreSQL exactly. It stands in checks,
+  contract predicates and generated fields, and in a query over a text whose pattern bounds it within 268,435,454
+  bytes, since PostgreSQL's translate allocates four bytes for each byte of its operand and past `MaxAllocSize` raises
+  54000 (`UnsupportedOperation` otherwise). No codemod.
+- **`Compute.cast(x, T)` into a regex-refined text `T`** compiles where `x`'s language lies inside `T`'s, proved on the
+  two languages' minimal automata as a parse's lexical form is; before, a text term other than a literal or a parameter
+  never did. A pair of languages whose comparison passes grizzle's bounds, 2,048 DFA states or 2,097,152 NFA-state
+  visits, is now `ResourceBound` with the new bound `regexInclusion`, naming both patterns and the bounds, where a
+  parse's was `PartialOperation`. No codemod.
+- **A key or containment over a selected side whose term or selection reads a generated field** installs: each law
+  column reads such a field as the field's own generation, since PostgreSQL refuses a generation expression that reads
+  a generated column (42P17); before, the installation's `ALTER TABLE ... ADD COLUMN` failed. No codemod.
+- **Format and state:** a snapshot names the compute function `translate` where a schema uses one; the law column of a
+  selected side over a generated field prints its generation in place of the field. No other change.
+
 #### Text parses into a typed value: `Compute.cast` from text, `lexical(T)` and `lexicalForm(T)`, and a `date` type
 
 - **`Compute.cast(x, T)` over a text `x`** is a parse: PostgreSQL's cast from text into an integer type,
@@ -153,9 +179,10 @@ How to upgrade:
 - **A set of handles is `bits(R)`.** A `bit(n)` column, one bit per code, under a bits domain whose CHECK,
   `((VALUE & live()) = VALUE) IS TRUE`, admits only live handles, `live()` derived from the names constant. Its host
   value is `Bits<typeof R>`, a frozen `ReadonlySet` of handles that `Bits.of(R, handles)` makes. `Compute.union`,
-  `.intersection`, `.difference`, `.cardinality`, `.subset` and `.disjoint` are its algebra, with no complement. A key
-  holds no set. A roster that grows converts its set columns to the wider domain in place, the new handles absent.
-  No codemod.
+  `.intersection`, `.difference`, `.cardinality`, `.subset` and `.disjoint` are its algebra, with no complement; the
+  second operand of a binary one is a set term of the first's roster or a set value, `Bits.of(R, handles)`, a literal
+  that takes the first operand's type, so its bits are its handles' codes. A key holds no set. A roster that grows
+  converts its set columns to the wider domain in place, the new handles absent. No codemod.
 - **Every field says how it is written.** `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type,
   term) }))` declares STORED generated fields, `r` holding the written fields alone; `drawn(natural)` is a count, an
   index or a tree's interval that grizzle draws; `accumulated(type, start)` is a fold's end or accumulator, or a copy
@@ -204,17 +231,26 @@ How to upgrade:
   - Codemod: a capacity's target and source written as two inserts stay two inserts for a counted family; an ordered
     family's members move under their owner's insert, `insert(O, [{ …o, n: [m₁, m₂] }])`, each member without its
     group or index.
-- **A put of an owner from a query is refused beside an append to its family: `QueriedOwnerAppend`.** An owner the
-  ChangeSet inserts and appends members to holds its final count and ends in its own row, which grizzle draws on the
-  host from the facts the ChangeSet states, since PostgreSQL checks a row's CHECKs as it inserts the row. A put whose
-  facts come from a query states none, so its insert half inserted the owner at its starts, its count 0 and each end at
-  its monoid's identity, and a row check over an end, such as an invoice's lines summing to its amount, refused a lawful
-  final state as `invariant-rejected`. Such a put, in a ChangeSet that inserts or puts a member of a counted family the
-  owner owns, is now a `CompileError` when the ChangeSet is compiled, whose reason `QueriedOwnerAppend` names the put
-  (`at`), the `owner`, the `family` (`{ owner, count }`) and the appended `member`. A put whose every fact carries a
-  stored owner's key inserts no owner and compiles, as does every other put.
-  - Codemod: none; state the owner's facts from an array or a `Stream`, or put the owner in a ChangeSet that
+- **An insert or a put of an owner from a query is refused beside an append to its family: `QueriedOwnerAppend`.** An
+  owner the ChangeSet inserts and appends members to holds its final count and ends in its own row, which grizzle
+  draws on the host from the facts the ChangeSet states, since PostgreSQL checks a row's CHECKs as it inserts the row.
+  An insert or a put whose facts come from a query states none, so it inserted the owner at its starts, its count 0 and
+  each end at its monoid's identity, and a row check over an end, such as an invoice's lines summing to its amount,
+  refused a lawful final state as `invariant-rejected`. Such a write, in a ChangeSet that inserts or puts a member of a
+  counted family the owner owns, is now a `CompileError` when the ChangeSet is compiled, whose reason
+  `QueriedOwnerAppend` names the write (`at`, and `op`, `insert` or `put`), the `owner`, the `family`
+  (`{ owner, count }`) and the appended `member`. A write whose every fact carries a stored owner's key inserts no owner
+  and compiles, as does every other.
+  - Codemod: none; state the owner's facts from an array or a `Stream`, or write the owner in a ChangeSet that
     `ChangeSet.sequence` runs before the one that appends.
+- **A put or a delete of a relation whose primary key holds a field grizzle writes is refused: `UnstatedKey`.** A put
+  names each row by its primary key, and a family's edit names each member by it, so a sequence's member keyed by its
+  owner and its drawn index, `["owner", "at"]`, names no row its caller can state; its put or delete reached the host's
+  same-key check and the family's edit without the index and failed as an internal invariant. It is now a
+  `CompileError` when the ChangeSet is compiled, whose reason `UnstatedKey` names the write (`at`, `op`), the
+  `relation`, its primary `key` and the fields no fact states (`unstated`).
+  - Codemod: none; key such a member by fields its caller writes, such as an id, to put or delete it, and insert a
+    sequence nested under its owner.
 - **No residual law remains.** grizzle installs no law function and no constraint trigger, and the residual-law
   engine, the `lawFunction` and `lawTrigger` snapshot objects and the law trigger names are deleted. `alternatives` is
   its containments: one from each arm into its parent at its handle, and one from each handle's parent rows into its

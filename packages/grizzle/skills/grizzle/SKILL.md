@@ -440,7 +440,12 @@ The command line's own refusals, by stage:
   compiler measures; a pattern held in an ordinary field or a parameter is refused. A literal pattern's match is a
   guard: `Compute.when(Compute.matches(x, "^[0-9]+$"), (x) => …, otherwise)`. `Compute.concat` builds text in checks,
   generated fields and folds; in a query, compare a text with a concatenation (`Compute.eq(t, Compute.concat(a, b))`)
-  and it is decided without building it. Fold an ordered family's texts with `Monoid.concat`, naming its
+  and it is decided without building it. Its first operand is a term: write a leading literal as
+  `Compute.literal(Prose, "item-")`. Normalize text with `Compute.translate(x, from, to)`, strings of one length with
+  each character of `from` once (`Compute.translate(title, "\t\n\r", "   ")` for `xs:normalizedString`), and fold
+  ASCII case with `Compute.lowerAscii(x)`, never a locale's `lower`. A translation is text of the image of `x`'s
+  pattern, so store it as `generated(T, Compute.cast(Compute.translate(…), T))` for any refined text `T` the image lies
+  in, which compilation proves; translate in a query only over a pattern that bounds its length. Fold an ordered family's texts with `Monoid.concat`, naming its
   `(before, after)` pair, and write each member's separator into its own step value; type the step and the
   accumulators by a bounded pattern, `str.regex("^.{0,64}$", "su")`, since the family's axes key each running text
   and an unbounded one is UnrepresentableKey.

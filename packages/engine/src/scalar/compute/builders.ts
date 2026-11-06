@@ -543,8 +543,8 @@ const variadic =
 
 /**
  * A set's union, intersection or difference with another set over its roster: the first operand's value, so its
- * carrier's. The second is a term or a parameter of the first's type, never a literal, which a set over the roster
- * literally is (Bits.of).
+ * carrier's. The second is a term or a parameter of the first's type, or a set value over its roster (Bits.of), a
+ * literal that takes the first operand's type, as a comparison's does.
  */
 const setOperation =
 	(fn: "union" | "intersection" | "difference") =>
@@ -552,7 +552,7 @@ const setOperation =
 		if (extra.length > 0) {
 			return malformed(captureLoc(`Compute.${fn}`, []), `two sets for ${fn}`)
 		}
-		const { call, real, ph, carrier } = computeCall(fn, "term", [a, b])
+		const { call, real, ph, carrier } = computeCall(fn, "literal", [a, b])
 		return { ...call.finish(real, ph), carrier }
 	}
 
@@ -1028,8 +1028,8 @@ const checks = Object.freeze({
 	intersection: setOperation("intersection"),
 	difference: setOperation("difference"),
 	cardinality: unary("cardinality"),
-	subset: binary("subset", "term"),
-	disjoint: binary("disjoint", "term")
+	subset: binary("subset", "literal"),
+	disjoint: binary("disjoint", "literal")
 })
 
 /** The predicates, the same for a typed and a JavaScript caller, and's and or's operands as one list. */
@@ -1283,7 +1283,8 @@ export const computeCore = Object.freeze({
 	endsWith: (a: unknown, b: unknown) => plainBy(checks.endsWith(a, b)),
 	translate: (x: unknown, from: unknown, to: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.translate(x, from, to, extra)),
-	lowerAscii: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.lowerAscii(x, extra)),
+	lowerAscii: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.lowerAscii(x, extra)),
 	matches: (subject: unknown, pattern: unknown) => guardBy(checks.matches(subject, pattern)),
 	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b)),
 	union: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {

@@ -9,15 +9,18 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
-import { codePointsText } from "#compiler/core/text.ts"
+import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { textOf } from "#compiler/ir/scalar.ts"
+import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable } from "#compiler/scalar/compute/evaluate.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import { charMapOf, imageOf } from "#compiler/scalar/regex/translate.ts"
+import type { Expr } from "#compiler/sql/ast.ts"
+import { col, lit, types } from "#compiler/sql/build.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -96,8 +99,7 @@ const values = (
 /** The map applied by hand: each character of from, by its position, to to's; every other character itself. */
 const mapped = (value: string, from: ReadonlyArray<number>, to: ReadonlyArray<number>): string =>
 	codePointsText(
-		Arr.map(Arr.fromIterable(value), (ch) => {
-			const c = defined(ch.codePointAt(0))
+		Arr.map(codePoints(value), (c) => {
 			const at = from.indexOf(c)
 			return at < 0 ? c : defined(to[at])
 		})
@@ -207,8 +209,7 @@ describe("Compute's translate and lowerAscii", () => {
 							const got = values(term, row)
 							assert.equal(got.host, expected, `the host over ${Formatter.format(s)}`)
 							assert.equal(got.reference, expected, `the reference over ${Formatter.format(s)}`)
-							for (const ch of Arr.fromIterable(s)) {
-								const cp = defined(ch.codePointAt(0))
+							for (const cp of codePoints(s)) {
 								const at = c.map.from.indexOf(cp)
 								k.note(at >= 0 && c.map.to[at] !== cp ? "a character replaced" : "a character kept")
 								if (at >= 0 && cp > 0xffff && c.map.to[at] !== cp) {
@@ -217,10 +218,7 @@ describe("Compute's translate and lowerAscii", () => {
 							}
 							const lowered = values(folded, row)
 							const lowerExpected = codePointsText(
-								Arr.map(Arr.fromIterable(s), (ch) => {
-									const cp = defined(ch.codePointAt(0))
-									return isAsciiCapital(cp) ? cp + 0x20 : cp
-								})
+								Arr.map(codePoints(s), (cp) => (isAsciiCapital(cp) ? cp + 0x20 : cp))
 							)
 							assert.equal(
 								lowered.host,
@@ -232,12 +230,10 @@ describe("Compute's translate and lowerAscii", () => {
 								lowerExpected,
 								`lowerAscii in the reference over ${Formatter.format(s)}`
 							)
-							if (
-								Arr.some(Arr.fromIterable(s), (ch) => isAsciiCapital(defined(ch.codePointAt(0))))
-							) {
+							if (Arr.some(codePoints(s), isAsciiCapital)) {
 								k.note("a capital lowered")
 							}
-							if (s.includes("É")) {
+							if (Arr.contains(codePoints(s), 0xc9)) {
 								k.note("a non-ASCII letter kept")
 							}
 						}
@@ -264,6 +260,17 @@ describe("Compute's translate and lowerAscii", () => {
 		| "a wildcard operand"
 		| "an exact image past the measures"
 
+	/**
+	 * A code point and four end-or-start tests, eight anchors, unanchored at the start: the exact image's prefix writes
+	 * out two anchors more, past the eight PostgreSQL's compile space admits.
+	 */
+	const anchored =
+		(alphabet: Arr.NonEmptyReadonlyArray<number>): Gen<readonly [string, Flags]> =>
+		(s) => [
+			`\\u{${s.draw(element(alphabet)).toString(16)}}${Arr.join(Arr.replicate("(?:$|^)", 4), "")}`,
+			"u"
+		]
+
 	const imageCase: Gen<ImageCase> = (source) => {
 		const family = source.draw(int(0, families.length - 1))
 		const f = defined(families[family], "a family")
@@ -271,17 +278,7 @@ describe("Compute's translate and lowerAscii", () => {
 			[1, element(Arr.isReadonlyArrayNonEmpty(f.patterns) ? f.patterns : [["^$", "u"] as const])],
 			[2, map(patternOver(f.alphabet), (p): readonly [string, Flags] => [p, "u"])],
 			[1, (s): readonly [string, Flags] => ["^.*$", s.draw(boolean) ? "su" : "u"]],
-			/**
-			 * A code point and four end-or-start tests, eight anchors, unanchored at the start: the exact image's prefix
-			 * writes out two anchors more, past the eight PostgreSQL's compile space admits.
-			 */
-			[
-				1,
-				(s): readonly [string, Flags] => [
-					`\\u{${s.draw(element(f.alphabet)).toString(16)}}${Arr.join(Arr.replicate("(?:$|^)", 4), "")}`,
-					"u"
-				]
-			]
+			[1, anchored(f.alphabet)]
 		])
 		const [pattern, flags] = source.draw(declared)
 		return {
@@ -298,9 +295,8 @@ describe("Compute's translate and lowerAscii", () => {
 	 * each character of from the map takes to it.
 	 */
 	const preimages = (value: string, c: MapCase): ReadonlyArray<string> =>
-		Arr.reduce(Arr.fromIterable(value), [""], (prefixes: ReadonlyArray<string>, ch) => {
-			const cp = defined(ch.codePointAt(0))
-			const own = c.from.includes(cp) ? [] : [ch]
+		Arr.reduce(codePoints(value), [""], (prefixes: ReadonlyArray<string>, cp) => {
+			const own = c.from.includes(cp) ? [] : [String.fromCodePoint(cp)]
 			const moved = Arr.flatMap(c.from, (f, i) => (c.to[i] === cp ? [String.fromCodePoint(f)] : []))
 			return Arr.flatMap(prefixes, (p) => Arr.map([...own, ...moved], (x) => `${p}${x}`))
 		})
@@ -425,6 +421,7 @@ describe("Compute's translate and lowerAscii", () => {
 		| "a column as from"
 		| "a subject that is no text"
 		| "translate in a query over an unbounded text"
+		| "a query's translate spelled as pg_catalog's"
 		| "a map of two lengths at the builder"
 		| "a term as from at the builder"
 
@@ -434,6 +431,7 @@ describe("Compute's translate and lowerAscii", () => {
 		"a column as from",
 		"a subject that is no text",
 		"translate in a query over an unbounded text",
+		"a query's translate spelled as pg_catalog's",
 		"a map of two lengths at the builder",
 		"a term as from at the builder"
 	]
@@ -506,6 +504,31 @@ describe("Compute's translate and lowerAscii", () => {
 									"a query over a bounded text"
 								)
 								return
+							case "a query's translate spelled as pg_catalog's": {
+								/** A query over a bounded text holds the node, which SQL spells as translate over its map's literals. */
+								const node = succeeded(
+									lowered(translation(variable("b"), text("A"), text("a")), "query")
+								).root.expr
+								if (node.kind !== "op") {
+									return assert.fail(`an op node, not ${node.kind}`)
+								}
+								const operands: ReadonlyArray<Expr> = [
+									col("r0", "b"),
+									lit.text("A", types.text),
+									lit.text("a", types.text)
+								]
+								const sql = defined(defaultOps(node, operands), "the node's SQL")
+								if (sql.kind !== "call" || sql.star) {
+									return assert.fail(`a call, not ${sql.kind}`)
+								}
+								assert.deepEqual(
+									sql.fn,
+									{ kind: "builtin", name: "translate" },
+									"pg_catalog's translate"
+								)
+								assert.deepEqual(sql.args, operands, "over the subject and the map")
+								return
+							}
 							case "a map of two lengths at the builder":
 								throwsRefused(
 									() => Compute.translate(v("v", testPg.text), "ab", "c"),

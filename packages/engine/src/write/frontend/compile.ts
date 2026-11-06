@@ -82,7 +82,7 @@ import {
 	scheduleStratum
 } from "#compiler/write/frontend/schedule.ts"
 import { type RelationInput, relationInput } from "#compiler/write/insert/input.ts"
-import { isSerialField } from "#compiler/write/insert/statement.ts"
+import { isCarried, isSerialField } from "#compiler/write/insert/statement.ts"
 import { type RelationUniques, relationUniques } from "#compiler/write/insert/unique.ts"
 import { type HostChecks, hostChecks } from "#compiler/write/normalize/normalize.ts"
 import { existingKeysProof } from "#compiler/write/put/proof.ts"
@@ -421,6 +421,33 @@ export interface WriteFrontend extends WriteQueries {
 
 const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, loc, capability)))
+}
+
+/**
+ * A put or a delete of `relation`, `member`, refused (UnstatedKey) where its primary key holds a field no fact carries
+ * (isCarried): a put names each row by its primary key, and a family's edit names each member by it, so a key holding a
+ * field grizzle writes, such as a sequence's index, names no row a caller can state. An insert names no row by its key:
+ * a sequence's members are inserted nested under their owner, whose nesting draws their index.
+ */
+const refuseUnstatedKey = (member: MemberDesc, relation: RelationInfo): void => {
+	const op = member.op
+	if (op === "insert") {
+		return
+	}
+	const unstated = relation.primaryFields.filter((f) => !isCarried(f))
+	if (!isNonEmpty(unstated)) {
+		return
+	}
+	throw new Refusal(
+		CompileError.make({
+			_tag: "UnstatedKey",
+			at: member.loc,
+			op,
+			relation: relation.name,
+			key: relation.primaryFields.map((f) => f.name),
+			unstated: unstated.map((f) => f.name)
+		})
+	)
 }
 
 const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
@@ -775,12 +802,12 @@ const compile = (
 	const nests = (name: string): boolean =>
 		families.some((f) => f.owner.name === name && isSequence(f))
 	/**
-	 * A put of `relation` from a query, `member`, refused (QueriedOwnerAppend) where its stratum, `members`, writes a
-	 * member of one of the counted families it owns, unless every fact it puts carries a stored owner's key
+	 * An insert or a put of `relation` from a query, `member`, refused (QueriedOwnerAppend) where its stratum, `members`,
+	 * writes a member of one of the counted families it owns, unless every fact it writes carries a stored owner's key
 	 * (existingKeysProof). An owner inserted in the stratum that appends to its family holds its final count and ends in
 	 * its own row, since PostgreSQL checks a row's CHECKs as it inserts the row, and grizzle draws them on the host from
 	 * the facts the ChangeSet states; a query's facts are the statement's alone, so the owner would be inserted at its
-	 * starts, which a CHECK over an end refuses. A put of stored owners only inserts none, and compiles.
+	 * starts, which a CHECK over an end refuses. A write of stored owners only inserts none, and compiles.
 	 */
 	const refuseQueriedOwnerAppend = (
 		member: MemberDesc,
@@ -788,7 +815,8 @@ const compile = (
 		query: LogicalQuery,
 		members: ReadonlyArray<MemberDesc>
 	): void => {
-		if (member.op !== "put") {
+		const op = member.op
+		if (op === "delete") {
 			return
 		}
 		const appended = families.find(
@@ -804,6 +832,7 @@ const compile = (
 			CompileError.make({
 				_tag: "QueriedOwnerAppend",
 				at: member.loc,
+				op,
 				owner: relation.name,
 				family: { owner: appended.id.owner, count: appended.id.count },
 				member: appended.member.name
@@ -893,6 +922,7 @@ const compile = (
 					`a ${member.op} of ${relation.name}, a node of the tree ${tree.id.owner}.${tree.id.count}: a tree is rewritten whole, which grizzle plans only by inserting its root with the whole tree nested`
 				)
 			}
+			refuseUnstatedKey(member, relation)
 			const fixed = families.find(
 				(f) =>
 					f.member.name === relation.name &&

@@ -1773,7 +1773,7 @@ Six things work differently from SQL:
   plain integer or money column, but a ChangeSet member stores one into a field only through that cast: a head that
   writes `Compute.add(balance, amount)` into a `pg.bigint` field is a type error.
 
-Text has four terms. `Compute.matches(x, pattern)` is PostgreSQL's `~`: whether `x` holds a match of a pattern in
+Text has six terms. `Compute.matches(x, pattern)` is PostgreSQL's `~`: whether `x` holds a match of a pattern in
 `str.regex`'s grammar under the flags `"u"`, which `^` and `$` anchor. The pattern is a string, which the type checker
 reads as `str.regex` reads its own, or a text term whose every value the schema holds: a closed relation's text
 payload, as in `Compute.matches(lexical, ValueDomain.at("pattern", domain))`, or a `Compute.cond` of such terms. Each
@@ -1796,16 +1796,33 @@ cast is total, and compiles, exactly when its operand's every value is a member 
 `lexical(T)`, `str.regex(lexicalForm(T))`, or any pattern whose language lies inside the form, which compilation
 proves by comparing the two languages' automata, or a subject under `Compute.when(Compute.matches(x,
 lexicalForm(T)), (x) => Compute.cast(x, T), otherwise)`. Anything else is `PartialOperation` with the precondition
-`lexical`. So a typed value derived from its lexical form is a generated field,
-`generated(pg.bigint, Compute.cast(row.count, pg.bigint))`, NOT NULL and computed by PostgreSQL from the text it
-agrees with, and a law reads it as it reads any field. A numeric's cast is `::numeric(p, s)`, which the form keeps
-from rounding; a date's is `make_date` over the text's year, month and day, since `text::date` reads `DateStyle` and is
-STABLE, which a generated column refuses. The host reads each form by a scan of its own and agrees with PostgreSQL to
-the bit, a double's rounding included.
- `Compute.concat(a,
-b)` is `a || b`, text of no pattern. A concatenation allocates its result, so it stands in checks, contract
-predicates, generated fields and folds, and in a query only as a side of `Compute.eq` or `Compute.ne`, which is
-decided without building it: by the lengths, a prefix and a suffix.
+`lexical`, and a pair of languages whose automata the comparison cannot build within grizzle's bounds, 2,048 DFA
+states and 2,097,152 NFA-state visits, is `ResourceBound`, naming both patterns. So a typed value derived from its
+lexical form is a generated field, `generated(pg.bigint, Compute.cast(row.count, pg.bigint))`, NOT NULL and computed
+by PostgreSQL from the text it agrees with, and a law reads it as it reads any field. A numeric's cast is
+`::numeric(p, s)`, which the form keeps from rounding; a date's is `make_date` over the text's year, month and day,
+since `text::date` reads `DateStyle` and is STABLE, which a generated column refuses. The host reads each form by a
+scan of its own and agrees with PostgreSQL to the bit, a double's rounding included.
+
+`Compute.concat(a, b)` is `a || b`, text of no pattern. A concatenation allocates its result, so it stands in checks,
+contract predicates, generated fields and folds, and in a query only as a side of `Compute.eq` or `Compute.ne`, which
+is decided without building it: by the lengths, a prefix and a suffix. Its first operand is a term, as every
+operation's is, so a leading literal is a typed constant, `Compute.concat(Compute.literal(Prose, "item-"), id)`.
+
+`Compute.translate(x, from, to)` is PostgreSQL's `translate`, by characters: each character of `x` that `from` holds
+becomes the character of `to` at its position, so `Compute.translate(title, "\t\n\r", "   ")` reads a title in
+`xs:normalizedString`'s value space. `from` and `to` are strings of one length, and `from` holds each character once:
+PostgreSQL deletes a character `to` has no counterpart for and maps a repeated one by its first occurrence, so either
+is refused where the call is written. `Compute.lowerAscii(x)` is `translate` from `A` to `Z` onto `a` to `z`: it lowers
+no other letter, so it is one IMMUTABLE map whatever the collation, as a case-insensitive BCP 47 language tag needs.
+Compilation reads a translation as text of the image of `x`'s language, every class and character of its pattern
+rewritten by the map, so a bounded pattern stays bounded and a literal opposite it is judged by the image. A cast of a
+text into a refined text is total where the text's language lies inside the target's, which compilation proves by
+comparing their automata as it proves a parse, so a translation is stored in a field of a type the image lies in:
+`generated(Normalized, Compute.cast(Compute.translate(row.title, "\t\n\r", "   "), Normalized))`, `Normalized` being
+`str.regex("^[^\\t\\n\\r]*$", "su")`. PostgreSQL's translate allocates four bytes for every byte of `x`, so a query
+translates only a text whose pattern bounds it within 268,435,454 bytes, and a check or generated field translates any
+text.
 
 There are no outer joins. Where SQL would LEFT JOIN and fill the gaps with NULL, a second rule covers the rows that
 have no match:
@@ -2187,9 +2204,10 @@ declaration and the `identifier` both convert to; `LawOnDerived`, its `relation`
 its `fault`; `RecursionRefused` and `DerivedRefused`, their `cause`; `RoleRefused`, `LoginRefused` and
 `ContextRefused`, the `rule` broken; `RoleNameTooLong`, the PostgreSQL `role` and its `limit`; `GeneratedRefused`, the
 generated `field` of a `relation` and the `rule` it breaks; `FoldOverProjection`, the match's `source` and the `key` it
-must bind for an aggregate to read each row once; `QueriedOwnerAppend`, a put of the `owner` from a query beside an
-append of `member` to its `family` (`{ owner, count }`), the put being `at`; `UndeclaredDrop`, the name a migration
-would drop, which no `--drop` or `--rename` declares; and the remaining rules, a `capability` sentence.
+must bind for an aggregate to read each row once; `QueriedOwnerAppend`, an insert or a put (`op`) of the `owner` from
+a query beside an append of `member` to its `family` (`{ owner, count }`), the write being `at`; `UnstatedKey`, a put
+or a delete (`op`) of a `relation` whose primary `key` holds fields grizzle writes (`unstated`); `UndeclaredDrop`, the
+name a migration would drop, which no `--drop` or `--rename` declares; and the remaining rules, a `capability` sentence.
 
 **`EncodingFailure`**'s reason is its codec's fault word, never the value, and its `place` the `Slot` the value fills,
 by `name`, or a whole `Fact`. **`CursorError`**'s reason is its cursor fault word.
@@ -2463,18 +2481,26 @@ workflows, whose rules are worth declaring and whose users see different slices 
 - **A concatenation is at most 1 GB.** `Compute.concat` builds its result, and PostgreSQL refuses one past
   `MaxAllocSize` ("invalid memory alloc request size"), so a write whose check or generated field concatenates more
   fails with that error. No query concatenates, and a fold's or an equation's concatenation is never built.
+- **A translation reads at most 268,435,454 bytes.** PostgreSQL's `translate` allocates four bytes for each byte of its
+  operand, past `MaxAllocSize` "requested length too large" (54000), so a write whose check or generated field
+  translates a longer text fails with that error, and a query translates only a text whose pattern bounds it within.
 - **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
 - **A relation is a member of at most one ordered family or tree**, which orders it, and of any number of counted
   families. A tree is written whole, by inserting its root with the whole tree nested. A ChangeSet's write of a
   relation that is both a family's member, outside a tree, and an owner of a family is refused: a member's edit does
   not reach the families it owns, which only a nesting draws.
-- **A put of an owner from a query cannot share its ChangeSet with an append to the owner's family.** An owner the
-  ChangeSet inserts and appends members to holds its final count and ends in its own row, since PostgreSQL checks a
-  row's CHECKs as it inserts the row, and grizzle draws them on the host from the facts the ChangeSet states; a query's
-  facts are the statement's alone. So a put of an owner of a counted family from a query, in a ChangeSet that inserts
-  or puts that family's members, is refused with `QueriedOwnerAppend` when the ChangeSet is compiled: state the owner's
-  facts from an array or a `Stream`, or put the owner in a ChangeSet that `ChangeSet.sequence` runs before the one that
-  appends. A put whose every fact carries a stored owner's key inserts no owner, and compiles.
+- **An insert or a put of an owner from a query cannot share its ChangeSet with an append to the owner's family.** An
+  owner the ChangeSet inserts and appends members to holds its final count and ends in its own row, since PostgreSQL
+  checks a row's CHECKs as it inserts the row, and grizzle draws them on the host from the facts the ChangeSet states;
+  a query's facts are the statement's alone. So an insert or a put of an owner of a counted family from a query, in a
+  ChangeSet that inserts or puts that family's members, is refused with `QueriedOwnerAppend` when the ChangeSet is
+  compiled: state the owner's facts from an array or a `Stream`, or write the owner in a ChangeSet that
+  `ChangeSet.sequence` runs before the one that appends. A write whose every fact carries a stored owner's key inserts
+  no owner, and compiles.
+- **A put or a delete names its rows by their primary key**, so a relation whose primary key holds a field grizzle
+  writes, such as a sequence's member keyed by its owner and its drawn index, is put and deleted by no ChangeSet: its
+  facts cannot state the key. Such a write is refused with `UnstatedKey` when the ChangeSet is compiled; key the member
+  by fields its caller writes, such as an id, to put or delete it, and insert a sequence nested under its owner.
 - **A closed relation is as large as its key's code space.** Its constant holds one cell per combination of its key
   fields' codes, so a sparse relation over a large product of rosters is costly in proportion to the product: choose
   coordinates that make it dense, such as slots, whose space is each owner's counts rather than the product

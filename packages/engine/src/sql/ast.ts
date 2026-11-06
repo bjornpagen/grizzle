@@ -266,6 +266,7 @@ export const builtinFunctionNames = [
 	"char_length",
 	"starts_with",
 	"right",
+	"translate",
 	"lower",
 	"upper",
 	"isempty",

@@ -34,7 +34,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { bits, closedId, generated, pg } from "#compiler/public/fields.ts"
+import { Bits, bits, closedId, generated, pg } from "#compiler/public/fields.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
@@ -91,7 +91,8 @@ import { ownerSession, Substrate, worldSession } from "#test/support/substrate/s
  * The relation R holds a caller's key, a closed id `tier` over the roster Tier and two sets over it, a and b, and up to
  * four generated fields, each one of its kind's expressions:
  * - k, a count: |a|, |b|, |a ∪ b| or |a ∩ b|;
- * - s, a set: a ∪ b, a ∩ b, a − b or b − a;
+ * - s, a set: a ∪ b, a ∩ b, a − b, b − a, or a ∪ L, a ∩ L or a − L, L a literal set operand, Bits.of(Tier, …) of the
+ *   live handles at even declared positions (markedOf), which takes a's type, so its bits are the handles' codes;
  * - w, C.at over Weight, a closed relation keyed by a Tier with two integer payloads: Weight.at("w", tier) or
  *   Weight.at("v", tier);
  * - p, C.row over Pair, a closed relation keyed by two Tiers: Pair.row(tier), or it ∪ a.
@@ -147,7 +148,10 @@ type GeneratedName = (typeof generatedNames)[number]
 
 const countExprs = ["|a|", "|b|", "|a ∪ b|", "|a ∩ b|"] as const
 const pairExprs = ["Pair.row(tier)", "Pair.row(tier) ∪ a"] as const
-const setExprs = ["a ∪ b", "a ∩ b", "a − b", "b − a"] as const
+const setExprs = ["a ∪ b", "a ∩ b", "a − b", "b − a", "a ∪ L", "a ∩ L", "a − L"] as const
+
+/** The set expressions whose second operand is the literal set L. */
+const literalExprs: ReadonlyArray<SetExpr> = ["a ∪ L", "a ∩ L", "a − L"]
 const weightExprs = ['Weight.at("w", tier)', 'Weight.at("v", tier)'] as const
 
 type CountExpr = (typeof countExprs)[number]
@@ -219,6 +223,7 @@ type Refusal = "generated always" | "absent key"
 type Feature =
 	| "a roster with a hole"
 	| "a row written"
+	| "a row written under a literal set operand"
 	| "a write refused at an absent key"
 	| "an insert supplying a generated column refused"
 	| "an update of a generated column refused"
@@ -473,6 +478,12 @@ const builtOf = (name: string, m: Model, declaration: Declaration): Built => {
 						return Compute.difference(r.a, r.b)
 					case "b − a":
 						return Compute.difference(r.b, r.a)
+					case "a ∪ L":
+						return Compute.union(r.a, Bits.of(Tier, markedOf(m.tier)))
+					case "a ∩ L":
+						return Compute.intersection(r.a, Bits.of(Tier, markedOf(m.tier)))
+					case "a − L":
+						return Compute.difference(r.a, Bits.of(Tier, markedOf(m.tier)))
 				}
 			}
 			const pairOf = (expr: PairExpr) => {
@@ -774,7 +785,7 @@ const pairedWith = (rows: ClosedRows, from: string): ReadonlySet<string> =>
 	Object.freeze(new Set(Arr.flatMap(rows.pair, (x) => (x.from === from ? [x.to] : []))))
 
 /** The naive model of a generated field's expression over a row: plain Sets of handles, their sizes and Weight's rows. */
-const naive = (expr: Expr, row: Row, rows: ClosedRows): unknown => {
+const naive = (expr: Expr, row: Row, rows: ClosedRows, marked: ReadonlySet<string>): unknown => {
 	const a = new Set(row.a)
 	const b = new Set(row.b)
 	const union = new Set([...row.a, ...row.b])
@@ -797,6 +808,12 @@ const naive = (expr: Expr, row: Row, rows: ClosedRows): unknown => {
 			return comparable(new Set(Arr.filter(row.a, (h) => !b.has(h))))
 		case "b − a":
 			return comparable(new Set(Arr.filter(row.b, (h) => !a.has(h))))
+		case "a ∪ L":
+			return comparable(new Set([...row.a, ...marked]))
+		case "a ∩ L":
+			return comparable(new Set(Arr.filter(row.a, (h) => marked.has(h))))
+		case "a − L":
+			return comparable(new Set(Arr.filter(row.a, (h) => !marked.has(h))))
 		case "Pair.row(tier)":
 			return comparable(pairedWith(rows, row.tier))
 		case "Pair.row(tier) ∪ a":
@@ -807,6 +824,13 @@ const naive = (expr: Expr, row: Row, rows: ClosedRows): unknown => {
 			return Option.getOrUndefined(Option.map(weighed, (x) => BigInt(x.v)))
 	}
 }
+
+/**
+ * L, the literal set the literal expressions meet: the roster's live handles at even declared positions, the first
+ * among them, so over a roster with holes its handles' codes are not their positions.
+ */
+const markedOf = (state: RosterState): ReadonlyArray<string> =>
+	Arr.filter(liveOf(state), (_, i) => i % 2 === 0)
 
 /** A row's caller values as the host evaluator reads its columns: exact carriers. */
 const hostRow = (row: Row): ReadonlyMap<string, CarrierValue> =>
@@ -939,7 +963,7 @@ const sameAsModel = (sys: System, model: Model) =>
 							comparable(storedCodec(name).convert(text(callerFields.length + j)))
 						],
 						["the host evaluator", comparable(evaluated)],
-						["the naive model", naive(expr, row, model.closedRows)]
+						["the naive model", naive(expr, row, model.closedRows, new Set(markedOf(model.tier)))]
 					],
 					exact
 				)
@@ -1004,6 +1028,9 @@ const real = (
 				assert.equal(failure, undefined, `the row is written: ${failure?.message ?? ""}`)
 				yield* sys.writer.commit
 				note("a row written")
+				if (after.generated.s !== undefined && literalExprs.includes(after.generated.s)) {
+					note("a row written under a literal set operand")
+				}
 				yield* sameAsModel(sys, after)
 				return took
 			}
@@ -1142,6 +1169,7 @@ layer(Substrate.layer)("generated fields on PostgreSQL 19rc1", (it) => {
 							[
 								"a roster with a hole",
 								"a row written",
+								"a row written under a literal set operand",
 								"a write refused at an absent key",
 								"an insert supplying a generated column refused",
 								"an update of a generated column refused",
