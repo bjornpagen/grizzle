@@ -1,7 +1,15 @@
+import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import {
+	extendNonEmpty,
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "#compiler/core/nonempty.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
+import type { SelectionKey } from "#compiler/ir/physical.ts"
 import type { HeadingColumn, NodeOf, Occurrence, VarDecl } from "#compiler/ir/rel.ts"
+import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
@@ -9,6 +17,7 @@ import {
 	distinctSelect,
 	type Env,
 	extendEnv,
+	type InputSource,
 	type LowerContext,
 	type Lowerers,
 	type NodeLowerer,
@@ -16,8 +25,9 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromSource, Target } from "#compiler/sql/ast.ts"
-import { target, unitTargets } from "#compiler/sql/build.ts"
+import { col, target, unitTargets } from "#compiler/sql/build.ts"
 
 type Region = NodeOf<"MatchRegion">
 
@@ -32,6 +42,113 @@ const firstReady = (
 		}
 	}
 	return undefined
+}
+
+/** Whether an expression reads no column: a literal, or an operation over literals alone. */
+const readsNoColumn = (e: ScalarExpr): boolean => e.kind !== "column" && e.args.every(readsNoColumn)
+
+/**
+ * Whether two expressions that read no column compute one value by the same operations: one structure, operators,
+ * casts and literals, at one type. Any other kind is no match, which only leaves a read unprobed.
+ */
+const sameValue = (x: ScalarExpr, y: ScalarExpr): boolean => {
+	if (!sameScalarType(x.type, y.type) || x.args.length !== y.args.length) {
+		return false
+	}
+	const args = (): boolean =>
+		x.args.every((a, i) => {
+			const b = y.args[i]
+			return b !== undefined && sameValue(a, b)
+		})
+	if (x.kind === "literal") {
+		return y.kind === "literal" && canonicalEquals(x.value, y.value, everyProperty)
+	}
+	if (x.kind === "op") {
+		return y.kind === "op" && x.op === y.op && args()
+	}
+	if (x.kind === "cast") {
+		return y.kind === "cast" && x.cast === y.cast && args()
+	}
+	return false
+}
+
+/**
+ * Whether a guard conjunct of a selection key holds as one of an occurrence's constants: an equality of a field of the
+ * occurrence's relation, matched by its name, with a value reading no column, which the occurrence fixes that field to
+ * by a structurally equal value.
+ */
+const holdsAsConstant = (g: ScalarExpr, fixed: ReadonlyMap<string, ScalarExpr>): boolean => {
+	if (g.kind !== "op" || nativeOp(g.op)?.fn !== "eq" || g.args.length !== 2) {
+		return false
+	}
+	const [a, b] = g.args
+	const fixes = (column: ScalarExpr | undefined, value: ScalarExpr | undefined): boolean => {
+		if (column?.kind !== "column" || value === undefined || !readsNoColumn(value)) {
+			return false
+		}
+		const constant = fixed.get(column.column.name)
+		return constant !== undefined && sameValue(value, constant)
+	}
+	return fixes(a, b) || fixes(b, a)
+}
+
+/**
+ * The selection keys an occurrence of a stored relation is probed by (ir/physical.ts SelectionKey): each key every
+ * conjunct of whose guard holds as one of the occurrence's constants, as a set over the ordered selection, and whose
+ * term's field the occurrence fixes by a constant. That field's constant is compared with the key's law column instead
+ * of the field, which the key's UNIQUE index serves: exactly, since the column is the field where every conjunct holds
+ * and NULL elsewhere, and no constant is NULL. The guard's own constants stay, redundant beside it. A source more
+ * than one occurrence matches is shared, and none of its occurrences is probed.
+ */
+const probeKeys = (cx: LowerContext, o: Occurrence): ReadonlyArray<SelectionKey> => {
+	const source = o.source
+	if (source.kind !== "Base" || source.relationKind !== "relation") {
+		return []
+	}
+	const fixed = new Map(o.constants.map((c) => [c.column, c.expr] as const))
+	return cx.names
+		.selectionKeys(source.relation)
+		.filter((k) => fixed.has(k.field) && k.guard.every((g) => holdsAsConstant(g, fixed)))
+}
+
+/**
+ * A Base occurrence's source read beside the law columns of `keys`: each added to the scan's targets under a fresh
+ * column of the derived table, by its term's field. A scan the lowering spells as no plain core over its one table
+ * is read as it is, unprobed.
+ */
+const withLawColumns = (
+	cx: LowerContext,
+	o: Occurrence,
+	source: InputSource,
+	keys: ReadonlyArray<SelectionKey>
+): { readonly source: InputSource; readonly probed: ReadonlyMap<string, Expr> } | undefined => {
+	const item = source.item
+	if (item.kind !== "derived" || item.query.body.kind !== "core" || o.source.kind !== "Base") {
+		return undefined
+	}
+	const scan = item.query.body
+	const [table, ...more] = scan.from
+	if (table?.kind !== "table" || more.length > 0 || !isNonEmpty(keys)) {
+		return undefined
+	}
+	const added = mapNonEmpty(keys, (k) => ({
+		key: k,
+		column: cx.supply.column({ kind: "node", node: o.source.id })
+	}))
+	const lawTargets = mapNonEmpty(added, (a) => target(col(table.alias, a.key.column)))
+	const body =
+		scan.distinct === false
+			? { ...scan, targets: [...scan.targets, ...lawTargets] }
+			: { ...scan, targets: extendNonEmpty(scan.targets, lawTargets) }
+	const widened = {
+		...item,
+		query: { ...item.query, body },
+		columns: [...item.columns, ...added.map((a) => a.column)]
+	}
+	return {
+		source: { ...source, item: widened, columns: widened.columns },
+		probed: new Map(added.map((a) => [a.key.field, col(source.alias, a.column)] as const))
+	}
 }
 
 /** The labels of the nodes local to the region, which column references name: itself and its occurrences' sources. */
@@ -179,6 +296,8 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 	}
 	const from: Array<PlacedOccurrence> = []
 	const shared = sharedSources(node)
+	/** Each probed occurrence's law columns, by the field each stands for (`probeKeys`). */
+	const probes = new Map<Occurrence, ReadonlyMap<string, Expr>>()
 	/**
 	 * Each placed occurrence's columns, and, for a source node only one occurrence matches, the node's columns: the
 	 * scope a correlated source's outer references resolve in.
@@ -229,7 +348,14 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 		pending.splice(ready.position, 1)
 		const needs = occurrenceNeeds(cx, node, o, shared)
 		const correlated = needs.vars.size > 0 || needs.sources.size > 0
-		const source = cx.sourceAs(o.source, scope(), correlated)
+		const read = cx.sourceAs(o.source, scope(), correlated)
+		const probe = shared.has(o.source.id)
+			? undefined
+			: withLawColumns(cx, o, read, probeKeys(cx, o))
+		const source = probe?.source ?? read
+		if (probe !== undefined) {
+			probes.set(o, probe.probed)
+		}
 		from.push({ occurrence: o, item: source.item, alias: source.alias, map: source.map })
 		if (!shared.has(o.source.id)) {
 			placedSources.set(o.source.id, source.map)
@@ -247,7 +373,10 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 		for (const c of o.constants) {
 			readsLocal(node, c.expr, local, shared)
 			const type = columnType(o.source.heading, c.column)
-			where.push(cx.equal(type, columnIn(columns, c.column), lowerExpr(cx, c.expr, scope())))
+			const probed = probes.get(o)?.get(c.column)
+			where.push(
+				cx.equal(type, probed ?? columnIn(columns, c.column), lowerExpr(cx, c.expr, scope()))
+			)
 		}
 	}
 

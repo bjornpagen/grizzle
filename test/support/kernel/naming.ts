@@ -168,6 +168,7 @@ export const productionNames = (
 			)
 		},
 		textDomain: () => undefined,
+		selectionKeys: () => [],
 		vectorSchema: vectorTypes(vectorSchema),
 		codes,
 		closed: (relation) => {

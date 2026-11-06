@@ -20,9 +20,11 @@ import {
 	baseTypeRef,
 	type ClosedConstant,
 	type PhysicalNames,
-	qualifiedType
+	qualifiedType,
+	type SelectionKey
 } from "#compiler/ir/physical.ts"
 import { baseOf, contractOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { NamedNative } from "#compiler/laws/model/model.ts"
 import type { Owned, OwnedEntry, OwnedRole } from "#compiler/schema/own.ts"
 import type { Collation, FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import { cUtf8Collation } from "#compiler/sql/build.ts"
@@ -78,6 +80,50 @@ export interface ContractSource {
 	readonly check: DomainCheck
 }
 
+/**
+ * Each stored relation's selection keys' law columns (ir/physical.ts SelectionKey), from the law model's natives: every
+ * law column generated under a non-empty guard whose term is a field of its relation, and which a UNIQUE's columns
+ * hold, so a probe of it is served by the UNIQUE's index. A guarded column no UNIQUE holds, a containment's source, is
+ * no key: a probe rewritten to it would read no index.
+ */
+export const selectionKeysOf = (
+	natives: ReadonlyArray<NamedNative>
+): ReadonlyMap<string, ReadonlyArray<SelectionKey>> => {
+	const unique = new Set(
+		natives.flatMap(({ object: o }) =>
+			o.kind === "Unique"
+				? o.columns.flatMap((c) =>
+						c.kind === "law" ? [`${o.relation.name}\u0000${c.column}`] : []
+					)
+				: []
+		)
+	)
+	const out = new Map<string, Array<SelectionKey>>()
+	for (const { object: o } of natives) {
+		if (o.kind !== "LawColumn" || o.value.kind !== "generated") {
+			continue
+		}
+		const [first, ...rest] = o.value.guard
+		const term = o.value.term
+		if (
+			first === undefined ||
+			term.kind !== "column" ||
+			!o.relation.fields.some((f) => f.name === term.column.name) ||
+			!unique.has(`${o.relation.name}\u0000${o.column}`)
+		) {
+			continue
+		}
+		const key: SelectionKey = { column: o.column, field: term.column.name, guard: [first, ...rest] }
+		const known = out.get(o.relation.name)
+		if (known === undefined) {
+			out.set(o.relation.name, [key])
+		} else {
+			known.push(key)
+		}
+	}
+	return out
+}
+
 interface NamesInput {
 	readonly owned: Owned
 	readonly installation: Identity<"schema">
@@ -97,6 +143,8 @@ interface NamesInput {
 	readonly codes: Codebook
 	/** Each closed relation's installed constants, by its declared name (physical/ddl/constants.ts). */
 	readonly closed: ReadonlyMap<string, ClosedConstant>
+	/** Each stored relation's selection keys' law columns, by its declared name (`selectionKeysOf`). */
+	readonly selectionKeys: ReadonlyMap<string, ReadonlyArray<SelectionKey>>
 }
 
 /** A login's or role's PostgreSQL role, `<schema>__<name>`, longer than PostgreSQL's `limit` bytes. */
@@ -339,6 +387,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		codes: input.codes,
 		closed: (relation) =>
 			input.closed.get(relation) ?? missing(`physical: no closed relation ${relation}`),
+		selectionKeys: (relation) => input.selectionKeys.get(relation) ?? [],
 		/** A contract's domain by its name, whether the base declares it or a context field does, named by its definition. */
 		contractDomain: (contract) => ({ schema: types, name: identifierOf(contractNamed(contract)) }),
 		contractNamed,

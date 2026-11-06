@@ -51,7 +51,8 @@ import {
 import {
 	type ContractSource,
 	type InstallNames,
-	installNames
+	installNames,
+	selectionKeysOf
 } from "#compiler/physical/ddl/names.ts"
 import {
 	addWorlds,
@@ -430,7 +431,8 @@ const build = (
 				contracts,
 				define: contractDigest,
 				codes: options.codes,
-				closed: closedConstants(identifierOf(settings.installation), closed)
+				closed: closedConstants(identifierOf(settings.installation), closed),
+				selectionKeys: selectionKeysOf(model.natives)
 			})
 			const b = new InstallBuilder({ owned, checked, model, names, settings })
 			const rosters = addRosters(b)

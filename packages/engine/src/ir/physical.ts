@@ -3,6 +3,7 @@ import type { ColumnIdent, DomainName, RelationIdent } from "#compiler/core/ids.
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { int8ExactDigits } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type {
 	ObjectName,
@@ -30,6 +31,19 @@ export interface ClosedConstant {
 		readonly dictionary: ObjectName | undefined
 	}>
 	readonly keys: ObjectName
+}
+
+/**
+ * A selection key's law column: a key over a selected side, `key(on(select(R, φ), f))`, installs the generated column
+ * `CASE WHEN φ THEN f END` (laws/model LawColumn) under a UNIQUE NULLS DISTINCT, and this is that column, its term's
+ * field `f` of R, and φ's conjuncts over R's row, one per field in declared order. The column equals `e` exactly where
+ * every conjunct holds and `f = e`, for any `e` not NULL, so a read of R that holds every conjunct and fixes `f` reads
+ * it by the column, which the UNIQUE's index serves (lower/conservative/match-region probeColumns).
+ */
+export interface SelectionKey {
+	readonly column: ColumnIdent
+	readonly field: string
+	readonly guard: NonEmptyReadonlyArray<ScalarExpr>
 }
 
 /** How the declared names of one schema map to PostgreSQL objects, each qualified by its schema. */
@@ -78,6 +92,9 @@ export interface PhysicalNames {
 	readonly codes: Codebook
 	/** A closed relation's installed constants, by its declared name. */
 	readonly closed: (relation: string) => ClosedConstant
+	/** The selection keys' law columns of a stored relation, by its declared name (`SelectionKey`): none for a
+	 * relation with none. */
+	readonly selectionKeys: (relation: string) => ReadonlyArray<SelectionKey>
 	/**
 	 * The installation's refusal function (write/refusal.ts), which a context source raises an unreadable claims
 	 * setting through (sql/print.ts contextClaims).
@@ -119,6 +136,8 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 			return types.boolean
 		case "uuid":
 			return types.uuid
+		case "date":
+			return types.date
 		case "text":
 			return types.text
 		case "range4":
