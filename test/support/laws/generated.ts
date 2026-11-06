@@ -22,6 +22,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { defined } from "#test/support/assert.ts"
+import { namedText } from "#test/support/closed/stored.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {
 	type LawNames,
@@ -478,27 +479,33 @@ const coverageI2 = contained(
 	on(RotaI2, "site", "during")
 )
 
-const coverageI8 = contained(
-	on(VisitI8, "site", "during"),
-	on(
-		select(RotaI8, (r) => r.eq(r.open, true)),
-		"site",
-		"during"
-	)
-)
+const openRotasI8 = select(RotaI8, (r) => r.eq(r.open, true))
 
+const coverageI8 = contained(on(VisitI8, "site", "during"), on(openRotasI8, "site", "during"))
+
+/**
+ * The span key over the open rotas, which the coverage into them needs: its PERIOD foreign key references their range
+ * law columns, which only a UNIQUE ... WITHOUT OVERLAPS of their own keys apart.
+ */
+const openRotaKeyI8 = key(on(openRotasI8, "site", "during"))
+
+/**
+ * A coverage point: the coverage `law` from the visits `visits` selects into the rotas `rotas` selects, and `keys`, the
+ * span key over a selected target the coverage needs, none into every rota.
+ */
 const coveragePoint = (
 	rota: AnyRelation & { readonly name: string },
 	visit: AnyRelation & { readonly name: string },
 	k: Encoding,
 	law: ReturnType<typeof contained>,
+	keys: ReadonlyArray<ReturnType<typeof key>>,
 	visits: Selection,
 	rotas: Selection,
 	traits: ReadonlyArray<string>
 ): Point => ({
 	name: Arr.join(traits, ", "),
 	traits,
-	statements: [law],
+	statements: [...keys, law],
 	values: { Rota: rota, Visit: visit },
 	relations: [rotaHost(k), visitHost(k)],
 	laws: (laws) => [
@@ -507,8 +514,17 @@ const coveragePoint = (
 			law: laws.primaryKeyLaw(rota),
 			relation: "Rota",
 			scalars: ["site"],
-			span: "during"
+			span: "during",
+			selection: everyFact
 		},
+		...Arr.map(keys, (statement): HostLaw => ({
+			kind: "spanKey",
+			law: laws.lawOf(statement),
+			relation: "Rota",
+			scalars: ["site"],
+			span: "during",
+			selection: selectionOf(rotas)
+		})),
 		keyLaw(laws, visit, ["id"]),
 		{
 			kind: "covered",
@@ -526,6 +542,7 @@ const coveragePoints: Arr.NonEmptyReadonlyArray<Point> = [
 		VisitI2,
 		"plain",
 		coverageI2,
+		[],
 		{ kind: "selected", field: "billable", value: true },
 		every,
 		["family coverage", "key int2", "selected source"]
@@ -535,6 +552,7 @@ const coveragePoints: Arr.NonEmptyReadonlyArray<Point> = [
 		VisitI8,
 		"bigint",
 		coverageI8,
+		[openRotaKeyI8],
 		every,
 		{ kind: "selected", field: "open", value: true },
 		["family coverage", "key int8", "selected target"]
@@ -645,8 +663,11 @@ const boxSession = (
 			reset: s.admin.query(`TRUNCATE ${Arr.join(Arr.map(p.point.relations, table), ", ")}`, []),
 			apply,
 			reported: (law: Law) => reportedLawId(installed.installation.described, law),
-			read: Effect.forEach(p.point.relations, (r) =>
-				Effect.map(
+			read: Effect.forEach(p.point.relations, (r) => {
+				const texts = Arr.map(r.host.fields, (f) =>
+					namedText(installed.installation, r.host.name, f.name)
+				)
+				return Effect.map(
 					s.admin.queryValues(
 						`SELECT ${Arr.join(
 							Arr.map(r.host.fields, (f) => readColumn(encodingOf(r, f.name), f.column)),
@@ -654,9 +675,14 @@ const boxSession = (
 						)} FROM ${table(r)}`,
 						[]
 					),
-					(rows) => Arr.map(rows, (row) => Arr.map(row, (x) => String(x)))
+					(rows) =>
+						Arr.map(rows, (row) =>
+							Arr.map(texts, (text, i) =>
+								text(String(defined(row[i], `${r.host.name}'s column ${i}`)))
+							)
+						)
 				)
-			)
+			})
 		}
 	})
 
@@ -738,7 +764,8 @@ const boxOf = (
  *   parent selected by the handle in its arm, each a native foreign key;
  * - span coverage `contained(on([select(]Visit[)], "site", "during"), on([select(]Rota[)], "site", "during"))` over an
  *   int2 or int8 site: a selected source, a PERIOD foreign key from its range law column that never judges a source
- *   outside its selection, or a selected target, a PERIOD foreign key into the target's;
+ *   outside its selection, or a selected target, a PERIOD foreign key into the target's, keyed apart by the target
+ *   side's own span key;
  * - two relations each declaring a row check of one name, each refused under its own law.
  *
  * The capacity points went with `capacity`: a count or a weight per group is a counted family with a fold

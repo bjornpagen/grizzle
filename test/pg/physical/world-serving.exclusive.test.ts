@@ -13,7 +13,11 @@
  * probes read T at a key it holds and at one it does not; its policy row calls the filter function under row security;
  * and its precheck calls the filter function and every probe. The witness's arm chooses what its link reads: an
  * ordinary relation, the derived relation, or an ordinary relation a declared key reads, such as Share under the
- * base's one-share variant, `key(on(Share, "doc"))`, whose unique probe is that key's. Its link may bind a second field of the source,
+ * base's one-share variant, `key(on(Share, "doc"))`, whose probe is that key's key probe: UniqueObjects.keys holds
+ * every declared key beside the primary key (laws/model/uniques.ts uniqueOf, "A UNIQUE over a declared candidate key's
+ * fields in its order is that key's", so since 65203c4), and a unique probe is only an object's beyond the keys, which
+ * no documents base holds: pg/write/entry-occupants covers it, at its key over a selected side,
+ * `key(on(select(Seat, lead), "grp"))`. Its link may bind a second field of the source,
  * to another field of T or to a context's claim, as the documents base's notes bind their document's
  * organization to the tenant's (test/support/worlds/model/bases/docs.ts), so a probe binds what the row and the claim fix together. The joined arm binds it to a field of a third
  * source that another field of T links into, `T ⋈ Y{to: T.from} ⋈ X{to: T.from2, h: Y.g}`, so X's probe binds what
@@ -55,13 +59,13 @@ import { docsBases, docsOneShareInstall } from "#test/support/worlds/model/bases
 import type { BaseSpec } from "#test/support/worlds/model/types.ts"
 
 /** What a witness's link reads: an ordinary relation, a derived one, an ordinary one from a relation a declared key
- * reads, whose unique probe is the key's, or any source joined to another that a second field of T links into
+ * reads, whose probe is the key's key probe, or any source joined to another that a second field of T links into
  * (world-serving.ts Second, `joined`). */
-type Arm = "ordinary" | "derived" | "unique" | "joined"
+type Arm = "ordinary" | "derived" | "declared key" | "joined"
 
 /**
- * The relations a declared key reads, each once: each holds a unique object besides its primary key, which an insert
- * through it probes (fin.md §6, "at most one").
+ * The relations a declared key reads, each once: each holds a key besides its primary key, which an insert through it
+ * probes (fin.md §6, "at most one").
  */
 const atMostOne = (base: BaseSpec): ReadonlyArray<string> =>
 	Arr.dedupe(Arr.flatMap(base.laws, (law) => (law.kind === "key" ? [law.relation] : [])))
@@ -100,7 +104,7 @@ const armLinks = (
 			return drawn(between(relations, relations))
 		case "derived":
 			return drawn(between(relations, derived))
-		case "unique":
+		case "declared key":
 			return drawn(between(atMostOne(base), relations))
 		case "joined": {
 			const sources = [...relations, ...derived]
@@ -112,7 +116,7 @@ const armLinks = (
 	}
 }
 
-const arms: Arr.NonEmptyReadonlyArray<Arm> = ["ordinary", "derived", "unique", "joined"]
+const arms: Arr.NonEmptyReadonlyArray<Arm> = ["ordinary", "derived", "declared key", "joined"]
 
 /** The arms a base admits: those with a link to draw. */
 const armsOf = (base: BaseSpec): ReadonlyArray<Arm> =>
@@ -166,8 +170,8 @@ const requiredSituations: Arr.NonEmptyReadonlyArray<WorldServingFeature> = [
 	"a filter function's probe bound by its argument and a joined source",
 	"a key probe that reads its key's fact",
 	"a key probe that finds no fact at its key",
-	"a unique probe that reads its object's fact",
-	"a unique probe that finds none",
+	"a declared key's probe that reads its key's fact",
+	"a declared key's probe that finds no fact at its key",
 	"a policy row calling the filter function",
 	"a precheck calling the filter function"
 ]

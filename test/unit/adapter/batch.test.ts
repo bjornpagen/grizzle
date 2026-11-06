@@ -53,7 +53,9 @@ import { statementSql, testSql } from "#test/support/sql.ts"
  * server does with each of its statements, on a session that answers as PostgreSQL answers a pipeline
  * (test/support/flight/scripted.ts, itself checked against the server by test/pg/adapter/flight.test.ts). The driver
  * (test/support/flight/drive.ts) makes timing an input: each case runs once uninterrupted and once interrupted after
- * every number of delivered answers, and each run must observe what the model (test/support/flight/model.ts) predicts
+ * every number of delivered answers, and, where the interruption's CancelRequest stopped a statement, once for every
+ * number of the later queries the server runs before the destroyed connection's end reaches it, and each run must
+ * observe what the model (test/support/flight/model.ts) predicts
  * from the answers the server made and the client was given: the ending, what committed (all of a transaction or none
  * of it), the retirement, and whether a CancelRequest was sent. The flight's texts must be exactly the frame's.
  *
@@ -86,6 +88,7 @@ const smallRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 	"interrupted awaiting COMMIT",
 	"interrupted draining",
 	"cancel sent",
+	"race cut short",
 	"retired",
 	"blocked without an interruption",
 	"committed after an interruption",
@@ -120,18 +123,22 @@ const endingFeature = (observation: Observation): FlightFeature => {
 	}
 }
 
+/** What one run of a case came to: where the interruption came, and whether the destroyed connection's end cut the
+ * server's race past a cancelled statement short (ScriptedSession.cutShort). */
+interface Ran {
+	readonly interruption: Interruption
+	readonly cutShort: boolean
+}
+
 /**
  * One run of a case: the model and the run must agree, the flight's texts must be the frame's, the server must end
- * idle with nothing owed. Answers where the interruption came, or undefined for a run that blocked without one.
+ * idle with nothing owed. Answers where the interruption came and whether the race was cut short, or undefined for a
+ * run that blocked without an interruption.
  *
  * A step of the prologue that fences and enters the Db's role answered with a fault: it fails as a statement position
  * does, and the fence's refusal is StaleSnapshot.
  */
-const runOnce = (
-	c: FlightCase,
-	timing: Timing,
-	k: Case<FlightFeature>
-): Interruption | undefined => {
+const runOnce = (c: FlightCase, timing: Timing, k: Case<FlightFeature>): Ran | undefined => {
 	const run = runScripted(c, timing, statementOf)
 	const observations = observationsOf(c, run, (sql) => sql)
 	if (observations === undefined) {
@@ -158,6 +165,9 @@ const runOnce = (
 	}
 	if (observation.cancelled) {
 		k.note("cancel sent")
+	}
+	if (session.cutShort()) {
+		k.note("race cut short")
 	}
 	const layout = layoutOf(c.call)
 	/** BEGIN refused, or a statement of the transaction refused: the fate must read the whole flight, not COMMIT. */
@@ -205,24 +215,30 @@ const runOnce = (
 	) {
 		k.note("drained by its destruction")
 	}
-	return observations.interruption
+	return { interruption: observations.interruption, cutShort: session.cutShort() }
 }
 
 /**
  * Every run of a case: uninterrupted, then interrupted after k answers for every k up to the call's completion or the
  * statement it blocks at. Once the call completes first, or blocks before k answers, every later k is the same run.
+ * At each k, the server's race past a statement the CancelRequest stopped runs from no query before the destroyed
+ * connection's end reaches it up to the first number that runs every query the server would, where the run is no
+ * longer cut short: every larger number is the same run.
  */
 const checkCase = (c: FlightCase, k: Case<FlightFeature>): void => {
 	k.note(`call ${c.call.kind} ${c.call.frame}`)
-	if (runOnce(c, { interruptAfter: undefined }, k) === undefined) {
+	if (runOnce(c, { interruptAfter: undefined, afterCancel: 0 }, k) === undefined) {
 		k.note("blocked without an interruption")
 	}
 	for (let after = 0; ; after++) {
-		const run = runOnce(c, { interruptAfter: after }, k)
+		let run = runOnce(c, { interruptAfter: after, afterCancel: 0 }, k)
+		for (let afterCancel = 1; run?.cutShort === true; afterCancel++) {
+			run = runOnce(c, { interruptAfter: after, afterCancel }, k)
+		}
 		if (run === undefined) {
 			throw new Error("an interrupted run cannot block")
 		}
-		if (run.at === undefined || run.at < after) {
+		if (run.interruption.at === undefined || run.interruption.at < after) {
 			return
 		}
 	}

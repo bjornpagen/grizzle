@@ -6,7 +6,6 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Data, Effect, Formatter } from "effect"
-import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { formsHold, reachableRecursions } from "#test/pg/recursion/graph/support.ts"
@@ -29,6 +28,7 @@ import {
 	recursiveCaseGen,
 	vertexKinds
 } from "#test/support/oracle/gen/recursive.ts"
+import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 
 import {
 	defaultRunOptions,
@@ -104,12 +104,14 @@ const run = (c: RecursiveCase, left: Lowering, right: Lowering) =>
 	})
 
 /**
- * Physical names for counting sites without an installation. A generated text vertex carries a regex refinement, and
- * the optimized delivery casts an unproved refined output (a relation parameter's root, a base-typed recursive state
- * column) to its structural text domain (lower/shapes/refined), so the names must name one, as an
- * installation's names do: a stand-in domain per pattern (naming.ts standInNames).
+ * Physical names for counting a case's sites without an installation. A generated text vertex carries a regex
+ * refinement, and the optimized delivery casts an unproved refined output (a relation parameter's root, a base-typed
+ * recursive state column) to its structural text domain (lower/shapes/refined), so the names must name one, as an
+ * installation's names do: a stand-in domain per pattern (naming.ts standInNames). A closed-id vertex's literal is its
+ * handle's code under the case's own codes, a roster's history with holes (gen/recursive.ts vertexRoster), which an
+ * installation of the case holds too.
  */
-const siteNames: PhysicalNames = standInNames("Graph", emptyCodebook)
+const siteNames = (c: RecursiveCase): PhysicalNames => standInNames("Graph", schemaCodes(c.schema))
 
 /**
  * How many feedback unions the mutant rewrites in a case's optimized program, and whether a statement of the query
@@ -117,7 +119,7 @@ const siteNames: PhysicalNames = standInNames("Graph", emptyCodebook)
  * consumer node).
  */
 const sites = (c: RecursiveCase) => {
-	const program = lowerCase(c, siteNames)
+	const program = lowerCase(c, siteNames(c))
 	if (!program.ok) {
 		throw new Error(program.error.message)
 	}

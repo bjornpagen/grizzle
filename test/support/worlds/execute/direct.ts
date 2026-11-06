@@ -7,6 +7,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
+import { type Codebook, codeNames } from "#compiler/ir/codes.ts"
 import type { Expr, InsertTarget, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -69,6 +70,8 @@ export interface DirectNames {
 	readonly role: (ref: RoleRef) => Effect.Effect<string>
 	/** An installed function, schema-qualified and quoted. */
 	readonly function: (fn: WorldFunction) => Effect.Effect<string>
+	/** The installation's codebook: the code each closed id's column holds for its handle (ir/codes.ts). */
+	readonly codes: Codebook
 }
 
 /** What a statement reads back: nothing, or rows of the fields named, each read by its domain. */
@@ -129,16 +132,26 @@ const matching = (names: DirectNames, t: OracleTable, fact: HostFact): Effect.Ef
 		(parts) => (Arr.isReadonlyArrayNonEmpty(parts) ? and(parts) : lit.bool(true))
 	)
 
-/** A predicate that divides by zero exactly on the rows whose field reads `value`, true on every other row. */
-const raising = (column: Expr, value: HostValue): Expr =>
+/**
+ * A field's value as its column's text reads it: a closed id's column holds its handle's code, the handle's index in its
+ * roster's names (ir/codes.ts); every other value is its own text.
+ */
+const columnText = (codes: Codebook, domain: FieldDomain, value: HostValue): string => {
+	const text = valueText(sendable(value))
+	if (domain.kind !== "handle") {
+		return text
+	}
+	const code = codeNames(codes)(domain.closed).indexOf(text)
+	return code < 0 ? text : String(code)
+}
+
+/** A predicate that divides by zero exactly on the rows whose column's text is `text` (columnText), true on every other. */
+const raising = (column: Expr, text: string): Expr =>
 	eq(
 		binary(
 			"/",
 			lit.int(1, types.integer),
-			cast(
-				ne(cast(column, types.text), lit.text(valueText(sendable(value)), types.text)),
-				types.integer
-			)
+			cast(ne(cast(column, types.text), lit.text(text, types.text)), types.integer)
 		),
 		lit.int(1, types.integer)
 	)
@@ -159,7 +172,10 @@ const viewSql = (
 						{
 							onNone: () =>
 								Effect.die(new Error(`the view ${relation} has no field ${filter.field}`)),
-							onSome: (f) => Effect.succeed(raising(col("v", f.column), filter.value))
+							onSome: (f) =>
+								Effect.succeed(
+									raising(col("v", f.column), columnText(names.codes, f.domain, filter.value))
+								)
 						}
 					)
 		const sql = yield* emitted(
@@ -195,7 +211,10 @@ const tableSql = (
 						{
 							onNone: () =>
 								Effect.die(new Error(`the table of ${relation} has no field ${filter.field}`)),
-							onSome: (f) => Effect.succeed(raising(col("r", f.column), filter.value))
+							onSome: (f) =>
+								Effect.succeed(
+									raising(col("r", f.column), columnText(names.codes, f.domain, filter.value))
+								)
 						}
 					)
 		const sql = yield* emitted(

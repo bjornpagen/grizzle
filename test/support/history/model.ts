@@ -10,6 +10,7 @@ import {
 	keyedSchema,
 	projection,
 	relationOf,
+	selected,
 	transition,
 	type Violation,
 	violations,
@@ -128,7 +129,10 @@ export const directOps = (
 	]
 }
 
-/** The immediate laws one written row of `relation` breaks against the rows `others` it meets (see the header). */
+/**
+ * The immediate laws one written row of `relation` breaks against the rows `others` it meets (see the header), a key or
+ * a span key only between rows its selection reads, since a projected key's columns are null outside it.
+ */
 const rowViolations = (
 	host: HostSchema,
 	relation: string,
@@ -137,7 +141,8 @@ const rowViolations = (
 ): ReadonlyArray<Violation> =>
 	Arr.flatMap(host.laws, (law): ReadonlyArray<Violation> => {
 		if ((law.kind === "key" || law.kind === "spanKey") && law.relation === relation) {
-			return Arr.some(others, (g) => collide(law, fact, g))
+			return selected(fact, law.selection) &&
+				Arr.some(others, (g) => selected(g, law.selection) && collide(law, fact, g))
 				? [{ law: law.law, immediate: true, violators: violatorsOf(law, [fact]) }]
 				: []
 		}

@@ -2,8 +2,9 @@ import { DateTime, Formatter, Result as EffectResult } from "effect"
 import { formatTimestamp } from "#cli/clock.ts"
 import { rosterRenames } from "#cli/renames.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
-import type { Declarations } from "#compiler/deploy/diff/plan.ts"
+import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type MigrationName, parseMigrationName } from "#compiler/deploy/render/folder.ts"
 import { type GenerateResult, generateMigration } from "#compiler/deploy/render/generate.ts"
 import {
@@ -111,12 +112,23 @@ const epoch = 1_791_763_200_000
 export const draftedAt = (ordinal: number): string =>
 	formatTimestamp(DateTime.makeUnsafe(epoch + ordinal * 1000))
 
-/** The committed snapshot a draft continues: the installation's empty snapshot, as an empty migrations directory reads,
- * or a snapshot drafted before. */
+/**
+ * The committed snapshot a draft continues: the installation's empty snapshot, as a migrations directory without the
+ * schema's folder reads, with the schemas that directory holds and the configuration no longer lists, which the CLI
+ * names for a schema's first draft (cli/generate.ts abandonedSchemas); or a snapshot drafted before, whose draft
+ * abandons none.
+ */
 export type Previous =
-	| { readonly kind: "empty" }
+	| { readonly kind: "empty"; readonly abandoned: ReadonlyArray<AbandonedSchema> }
 	| { readonly kind: "snapshot"; readonly snapshot: DeploySnapshot }
-export const fromEmpty: Previous = { kind: "empty" }
+/** The empty snapshot of a migrations directory that holds no other schema. */
+export const fromEmpty: Previous = { kind: "empty", abandoned: [] }
+/** The empty snapshot of a migrations directory that still holds `abandoned`, schemas the configuration no longer
+ * lists: the draft starts the schema under the loss of their rows, a decision only the reviewer makes. */
+export const fromEmptyBeside = (abandoned: NonEmptyReadonlyArray<AbandonedSchema>): Previous => ({
+	kind: "empty",
+	abandoned
+})
 export const fromSnapshot = (snapshot: DeploySnapshot): Previous => ({ kind: "snapshot", snapshot })
 
 /** A migration name a test gives, parsed as `--name` is (folder.ts parseMigrationName): one it refuses is a defect of
@@ -157,7 +169,7 @@ export const generate = (input: DraftInput): Result.Result<GenerateResult, Compi
 		declared: input.declared,
 		naming: { kind: "named", name: parsedMigrationName(input.name) },
 		timestamp: input.timestamp,
-		abandoned: []
+		abandoned: input.previous.kind === "empty" ? input.previous.abandoned : []
 	})
 
 /** One step of a chain: the schema drafted, what it is compiled under, and the renames and drops it declares. */

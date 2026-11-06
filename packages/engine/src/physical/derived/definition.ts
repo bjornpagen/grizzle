@@ -8,6 +8,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import {
+	baseOf,
 	contractOf,
 	numericTypmodOf,
 	type ScalarType,
@@ -92,7 +93,7 @@ const closingOf = (
 ): Closing => {
 	const column = columnType(names, type)
 	const retyped =
-		contractOf(type) !== undefined
+		contractOf(type) !== undefined || baseOf(type).carrier === "code"
 			? delivered === undefined || !sameTypeRef(delivered, column.type)
 			: numericTypmodOf(type) !== undefined ||
 				vectorTypmodOf(type) !== undefined ||
@@ -240,7 +241,7 @@ export const derivedReading = (
  *
  * A view column takes the type, typmod and collation of its defining expression, and the inferred descriptor is what
  * the view must hold, column by column, in the catalog: its column type (ddl/names.ts columnType), which is also what
- * the installer grants USAGE by. The inferred type is the type the lowering emits, with four exceptions this module
+ * the installer grants USAGE by. The inferred type is the type the lowering emits, with five exceptions this module
  * closes in the outermost SELECT:
  *
  * - a contract: the lowering delivers a contract value at its domain where it reads it from a column of the domain
@@ -248,6 +249,11 @@ export const derivedReading = (
  *   refined column to its base (union/arms.ts), and a literal or a recursive state is base-typed. Every contract column
  *   the statement does not deliver at its domain (delivered.ts deliveredTypes) is cast to the domain; the cast changes
  *   no value, because the checker proved the contract;
+ * - a closed id: the lowering delivers a code at its roster domain where it reads it from a column of the domain, and
+ *   as a smallint elsewhere: a code literal is base-typed (ir/physical.ts baseTypeRef), so a closed relation's facts,
+ *   a VALUES source of code literals, deliver smallint. Every closed id column the statement does not deliver at its
+ *   roster domain is cast to the domain; the cast changes no value, because every code a literal holds is a live
+ *   handle's under the installation's codebook;
  * - a typmod: PostgreSQL's MIN and MAX return their input type without its typmod, so `min` of a numeric(10, 2) field
  *   is a numeric column of no typmod, while the value, an input unchanged, is the field's. Every column whose
  *   inferred type carries a typmod (a numeric precision and scale, a vector's dimensions) and no contract is cast to

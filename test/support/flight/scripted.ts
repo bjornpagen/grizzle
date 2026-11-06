@@ -60,6 +60,14 @@ export type Delivery = "immediate" | "stepped"
 
 export interface ScriptedOptions {
 	readonly delivery: Delivery
+	/**
+	 * How many of a flight's queries past the statement a CancelRequest stopped the server answers before the end of a
+	 * connection the client destroys then reaches it. PostgreSQL runs a pipeline on in order after a cancelled statement
+	 * and stops only once it notices the connection gone, and an interrupted call destroys its connection right after its
+	 * one CancelRequest (README "No server-side timeouts"), so the server may run none of the rest, some or all of it: a
+	 * race between the backend and the client. A connection the client keeps gets every answer.
+	 */
+	readonly afterCancel: number
 }
 
 /**
@@ -72,8 +80,11 @@ export const answeringScript: Script = {
 	commit: () => undefined
 }
 
-/** Answers handed over as they arrive. */
-export const immediateDelivery: ScriptedOptions = { delivery: "immediate" }
+/** Answers handed over as they arrive, the server running a cancelled flight's rest before any end reaches it. */
+export const immediateDelivery: ScriptedOptions = {
+	delivery: "immediate",
+	afterCancel: Number.MAX_SAFE_INTEGER
+}
 
 /** One answer as the client was given it: by the delivery with this ordinal, counted from 1 over the session's life. */
 export interface Delivered {
@@ -108,6 +119,11 @@ export interface ScriptedSession extends Session {
 	readonly deliver: () => void
 	/** The deliveries so far. */
 	readonly deliveries: () => number
+	/**
+	 * A destroyed connection's end reached the server before it had run the queries past a cancelled statement
+	 * (ScriptedOptions.afterCancel): a larger afterCancel would have run more of them.
+	 */
+	readonly cutShort: () => boolean
 }
 
 const result = (command: string, cells: Rows): Answer => ({
@@ -165,6 +181,11 @@ interface Running {
 	next: number
 	waiting: { readonly index: number; readonly waiting: Waiting } | undefined
 	cancels: number
+	/**
+	 * The server stopped a statement for a CancelRequest and has run `afterCancel` queries past it: it runs the rest
+	 * once the client reads on without ending the connection, and never once the client destroys it.
+	 */
+	racing: boolean
 	readonly onAnswer: (index: number, answer: Answer) => void
 	readonly onEnd: () => void
 }
@@ -186,7 +207,9 @@ interface Running {
  *   transaction, after which every statement answers 25P02 without running and COMMIT answers ROLLBACK. `fatal` answers
  *   a FATAL ErrorResponse and ends the session; `lose` ends the connection with no answer. `hold` runs until a
  *   CancelRequest and is refused 57014 then; `late` finishes just as the CancelRequest arrives, too late to stop it, and
- *   answers its rows; `stuck` runs until the connection is destroyed, which no CancelRequest makes it notice.
+ *   answers its rows; `stuck` runs until the connection is destroyed, which no CancelRequest makes it notice. Past a
+ *   statement a CancelRequest stopped, the server answers `afterCancel` more queries before a destroyed connection's
+ *   end reaches it, and the rest only for a client that keeps the connection (ScriptedOptions.afterCancel).
  * - COMMIT commits what the transaction ran, unless the transaction was aborted (ROLLBACK), a doomed statement ran in
  *   it (23503), or the script refuses it or loses the connection before it runs. ROLLBACK ends the transaction.
  *
@@ -215,6 +238,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 	let serverEnded = false
 	let cancels = 0
 	let deliveries = 0
+	let cutShort = false
 	let tx: "idle" | "open" | "aborted" = "idle"
 	let doomed = false
 	/** The statements the open transaction ran. */
@@ -320,9 +344,12 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 	const answerable = (flight: Running): boolean =>
 		!serverEnded && flight.waiting === undefined && flight.next < flight.pipeline.length
 
-	/** Runs the server ahead: answers every query it can, up to a statement that waits for a CancelRequest. */
-	const advance = (flight: Running): void => {
-		while (answerable(flight)) {
+	/**
+	 * Runs the server ahead: answers every query it can, up to a statement that waits for a CancelRequest, or `limit`
+	 * queries.
+	 */
+	const advanceUpTo = (flight: Running, limit: number): void => {
+		for (let answered = 0; answered < limit && answerable(flight); answered++) {
 			const index = flight.next
 			const query = flight.pipeline[index]
 			if (query === undefined) {
@@ -352,6 +379,11 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		}
 	}
 
+	/** Runs the server ahead as far as it can. */
+	const advance = (flight: Running): void => {
+		advanceUpTo(flight, flight.pipeline.length)
+	}
+
 	const record = (flight: Running, index: number, answer: Answer): void => {
 		flight.delivered[index] = { answer, ordinal: deliveries }
 		flight.onAnswer(index, answer)
@@ -359,6 +391,9 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 
 	const deliverOne = (): void => {
 		const flight = running
+		if (flight !== undefined) {
+			runOn(flight)
+		}
 		const owed = flight?.owed.shift()
 		if (flight === undefined || owed === undefined) {
 			throw new Error("scripted: no answer is owed")
@@ -386,8 +421,28 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		flight.onEnd()
 	}
 
-	/** Whether the running flight is owed an answer the client has not been delivered yet. */
-	const owesAnswers = (): boolean => running !== undefined && running.owed.length > 0
+	/**
+	 * A racing flight whose client reads on without ending the connection: the server runs its rest, the end never
+	 * having reached it.
+	 */
+	const runOn = (flight: Running): void => {
+		if (flight.racing && flight.owed.length === 0) {
+			flight.racing = false
+			advance(flight)
+		}
+	}
+
+	/**
+	 * Whether the running flight is owed an answer the client has not been delivered yet: a racing flight's server runs
+	 * on first, as it does for a client that reads on without ending the connection.
+	 */
+	const owesAnswers = (): boolean => {
+		if (running === undefined) {
+			return false
+		}
+		runOn(running)
+		return running.owed.length > 0
+	}
 
 	const deliverAll = (): void => {
 		while (owesAnswers()) {
@@ -404,6 +459,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 			next: 0,
 			waiting: undefined,
 			cancels: 0,
+			racing: false,
 			onAnswer,
 			onEnd
 		}
@@ -426,7 +482,8 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 
 	/**
 	 * A CancelRequest stops the statement the server is running; when it is running none, or one that does not notice,
-	 * it does nothing.
+	 * it does nothing. Past the statement it stopped, the server answers `afterCancel` queries at once, and races the
+	 * connection's end for the rest.
 	 */
 	const cancel: Effect.Effect<void> = Effect.suspend(() => {
 		cancels++
@@ -453,7 +510,8 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		}
 		flight.made[waiting.index] = answer
 		flight.owed.push({ _tag: "answer", index: waiting.index, answer })
-		advance(flight)
+		advanceUpTo(flight, options.afterCancel)
+		flight.racing = answerable(flight)
 		if (delivery === "immediate") {
 			deliverAll()
 		}
@@ -471,6 +529,10 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 			return
 		}
 		const from = flight.delivered.indexOf(undefined)
+		if (flight.racing && answerable(flight)) {
+			cutShort = true
+		}
+		flight.racing = false
 		flight.owed.length = 0
 		flight.waiting = undefined
 		close()
@@ -498,9 +560,10 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		committed: () => committed,
 		cancels: () => cancels,
 		open: () => tx !== "idle",
-		deliverable: () => running !== undefined && running.owed.length > 0,
+		deliverable: owesAnswers,
 		deliver: deliverOne,
-		deliveries: () => deliveries
+		deliveries: () => deliveries,
+		cutShort: () => cutShort
 	}
 }
 

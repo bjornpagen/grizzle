@@ -100,10 +100,20 @@ const computed = query(Kit).rule((r) => {
 	})
 })
 
+/**
+ * The roster's own facts: every closed id read from no stored column but from the closed relation's codes, which the
+ * lowering delivers as smallint literals, and the view still holds at the roster's domain.
+ */
+const kinds = query(Kit).rule((r) => {
+	const { id } = v(Kind, "kind")
+	return r.match(Kind, { id }).find({ kind: id })
+})
+
 const Sums = derived("Sums", sums)
 const Means = derived("Means", means)
 const Extremes = derived("Extremes", extremes)
 const Facts = derived("Facts", facts)
 const Computed = derived("Computed", computed)
+const Kinds = derived("Kinds", kinds)
 
-export const KitReports = schema.extend(Kit, { Sums, Means, Extremes, Facts, Computed }, [])
+export const KitReports = schema.extend(Kit, { Sums, Means, Extremes, Facts, Computed, Kinds }, [])

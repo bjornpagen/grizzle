@@ -38,6 +38,7 @@ import {
 } from "#test/support/laws/model.ts"
 
 import { defined } from "#test/support/assert.ts"
+import type { ClosedField } from "#test/support/closed/stored.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {
 	type CaseSketch,
@@ -45,6 +46,7 @@ import {
 	familyStepSketchGen,
 	redrawStride,
 	lawfulStateSketchGen,
+	type OwnerView,
 	ownerView,
 	resolveStep,
 	type StepSketch,
@@ -269,23 +271,28 @@ const memberStatements = (
 	}
 	for (const op of ops) {
 		for (const fact of op.facts) {
-			push(
+			const statements: ReadonlyArray<Statement> =
 				op.kind === "put"
-					? putStatement(host, reached, op.relation, fact)
-					: { kind: op.kind, relation: op.relation, fact }
-			)
+					? putStatements(host, reached, op.relation, fact)
+					: [{ kind: op.kind, relation: op.relation, fact }]
+			for (const st of statements) {
+				push(st)
+			}
 		}
 	}
 	return out
 }
 
-/** A put of `fact` as a statement against `state`: an UPDATE of the fact at its key, or an INSERT where none is. */
-const putStatement = (
+/**
+ * A put of `fact` as statements against `state`: an INSERT where no fact is at its key, and an UPDATE of its payload
+ * where one is, but none where the relation has no field outside its key, whose fact at that key is `fact` itself.
+ */
+const putStatements = (
 	host: HostSchema,
 	state: HostState,
 	relationName: string,
 	fact: HostFact
-): Statement => {
+): ReadonlyArray<Statement> => {
 	const relation = relationOf(host, relationName)
 	return Option.match(
 		Arr.findFirst(
@@ -293,17 +300,16 @@ const putStatement = (
 			(f) => projection(f, relation.key) === projection(fact, relation.key)
 		),
 		{
-			onNone: (): Statement => ({ kind: "insert", relation: relationName, fact }),
-			onSome: (stored): Statement => ({
-				kind: "update",
-				relation: relationName,
-				from: stored,
-				to: fact,
-				set: Arr.filter(
+			onNone: (): ReadonlyArray<Statement> => [{ kind: "insert", relation: relationName, fact }],
+			onSome: (stored): ReadonlyArray<Statement> => {
+				const set = Arr.filter(
 					Arr.map(relation.fields, (f) => f.name),
 					(f) => !relation.key.includes(f)
 				)
-			})
+				return set.length === 0
+					? []
+					: [{ kind: "update", relation: relationName, from: stored, to: fact, set }]
+			}
 		}
 	)
 }
@@ -667,16 +673,21 @@ const expected = (
 		: { kind: "committed", state: reached }
 }
 
-const literal = (x: Sendable): string =>
-	isSpan(x)
-		? `int4range(${x.start}, ${x.end})`
-		: typeof x === "string"
-			? `'${Str.replaceAll("'", "''")(x)}'`
-			: String(x)
+/** A value as a literal at its column: a closed id as its handle's code, which its column stores. */
+const literal = (closed: ClosedField | undefined, x: Sendable): string => {
+	if (isSpan(x)) {
+		return `int4range(${x.start}, ${x.end})`
+	}
+	if (typeof x !== "string") {
+		return String(x)
+	}
+	return closed === undefined ? `'${Str.replaceAll("'", "''")(x)}'` : closed.literal(x)
+}
 
-/** A statement as the direct writer sends it. */
-const sqlOf = (host: HostSchema, table: (relation: string) => string, st: Statement): string => {
+/** A statement as the direct writer sends it, on the tables and closed ids of the owner's view. */
+const sqlOf = (host: HostSchema, owner: OwnerView, st: Statement): string => {
 	const relation = relationOf(host, st.relation)
+	const table = (name: string) => owner.table(relationOf(host, name))
 	const column = (field: string): string => {
 		const f = Arr.findFirst(relation.fields, (x) => x.name === field)
 		if (Option.isNone(f)) {
@@ -697,7 +708,7 @@ const sqlOf = (host: HostSchema, table: (relation: string) => string, st: Statem
 		if (x === undefined) {
 			throw new Error(`${relation.name} fact without ${field}`)
 		}
-		return literal(x)
+		return literal(owner.closed(relation.name, field), x)
 	}
 	/** The row of `fact` at `fields`, as a WHERE matches it. */
 	const row = (fact: SendableFact, fields: ReadonlyArray<string>) =>
@@ -1006,7 +1017,6 @@ export const runDirect = (
 		Effect.gen(function* () {
 			const s = yield* Substrate
 			const owner = yield* ownerView(host, installed)
-			const table = (name: string) => owner.table(relationOf(host, name))
 			let state = initialState(host, domains, k.initial)
 			yield* Effect.orDie(
 				transaction(s.admin, [
@@ -1016,7 +1026,7 @@ export const runDirect = (
 					)}`,
 					...Arr.flatMap(host.relations, (r) =>
 						Arr.map(factsOf(state, r.name), (f) =>
-							sqlOf(host, table, { kind: "insert", relation: r.name, fact: f })
+							sqlOf(host, owner, { kind: "insert", relation: r.name, fact: f })
 						)
 					)
 				])
@@ -1063,7 +1073,7 @@ export const runDirect = (
 				const moving = Arr.filter(reached, isMoving)
 				const outcome = yield* runTransaction(
 					writer,
-					Arr.map(statements, (st) => sqlOf(host, table, st)),
+					Arr.map(statements, (st) => sqlOf(host, owner, st)),
 					log
 				)
 				log.push(

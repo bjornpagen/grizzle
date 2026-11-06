@@ -173,15 +173,20 @@ type Statement =
 	  }
 	| { readonly kind: "truncate"; readonly relation: WRelation }
 
+/** A domain whose CHECK refuses a wild value as a row is built: a refined text's, or a closed id's roster domain. */
+type Domain = "refined text" | "roster"
+
 /**
  * What a failure names beside its SQLSTATE: one of the constraints a violation of the violated laws is raised under (a
  * key's, a foreign key's or a projected key's UNIQUE, as the installation names them), the table the guard
- * refused a write to, or nothing the model judges.
+ * refused a write to, the kind of domain whose CHECK refused a wild value, which a case notes and the model judges
+ * by its SQLSTATE alone, or nothing the model judges.
  */
 type Named =
 	| { readonly kind: "nothing" }
 	| { readonly kind: "constraints"; readonly constraints: ReadonlySet<ConstraintName> }
 	| { readonly kind: "table"; readonly relation: string }
+	| { readonly kind: "domain"; readonly domain: Domain }
 
 /** What a statement, or the transaction's end, did: succeeded, or failed with a SQLSTATE and what it names. */
 type Answer =
@@ -379,12 +384,33 @@ const breakingStatement = (
 	)
 }
 
-/** Where PostgreSQL meets each wild value (see the header): the planner, or the row it builds. */
-const wildFaults = [
-	{ stage: "plan", kind: "numeric(3, 0)", value: wildNumeric, sqlstate: "22003" },
-	{ stage: "row", kind: "text", value: wildText, sqlstate: "23514" },
-	{ stage: "row", kind: "code", value: wildCode, sqlstate: "23514" }
-] as const
+/**
+ * Where PostgreSQL meets each wild value (see the header): the planner, or the row it builds, by the CHECK of the
+ * domain that types its column.
+ */
+const wildFaults: ReadonlyArray<{
+	readonly stage: "plan" | "row"
+	readonly kind: TypeKind
+	readonly value: unknown
+	readonly sqlstate: string
+	readonly named: Named
+}> = [
+	{ stage: "plan", kind: "numeric(3, 0)", value: wildNumeric, sqlstate: "22003", named: nothing },
+	{
+		stage: "row",
+		kind: "text",
+		value: wildText,
+		sqlstate: "23514",
+		named: { kind: "domain", domain: "refined text" }
+	},
+	{
+		stage: "row",
+		kind: "code",
+		value: wildCode,
+		sqlstate: "23514",
+		named: { kind: "domain", domain: "roster" }
+	}
+]
 type Stage = (typeof wildFaults)[number]["stage"]
 
 /** The refusal of a wild value `fact` holds that PostgreSQL meets at `stage`, before any law. */
@@ -394,7 +420,7 @@ const wildFault = (relation: WRelation, fact: Fact, stage: Stage): Answer => {
 			w.stage === stage &&
 			Arr.some(relation.columns, (c) => c.kind === w.kind && fact[c.name] === w.value)
 		) {
-			return error(w.sqlstate, nothing)
+			return error(w.sqlstate, w.named)
 		}
 	}
 	return ok
@@ -411,19 +437,22 @@ const firstFault = (stages: ReadonlyArray<Answer>): Answer => {
 }
 
 /**
- * The column kinds a refined text domain types: a bounded pattern (oracle/write/domain.ts fieldOf), whose CHECK,
- * `(<membership>) IS TRUE` (packages/engine/src/physical/ddl/domains.ts), refuses NULL.
+ * The column kinds a domain whose CHECK refuses NULL types: a refined text's bounded pattern (oracle/write/domain.ts
+ * fieldOf), whose CHECK is `(<membership>) IS TRUE` (packages/engine/src/physical/ddl/domains.ts), and a closed id's
+ * roster domain, whose CHECK is `(<names>[VALUE + 1] <> '') IS TRUE` (packages/engine/src/physical/ddl/constants.ts),
+ * since a NULL code names no handle.
  */
-const isRefinedText = (kind: TypeKind): boolean => kind === "text" || kind === "text6"
+const refusesNull = (kind: TypeKind): boolean =>
+	kind === "text" || kind === "text6" || kind === "code"
 
 /**
  * Whether an inserted row leaves a field NULL: a field the INSERT does not list, an identity column apart. PostgreSQL
- * coerces each such NULL to its column's type as it builds the row, so a refined text's domain refuses it, 23514,
- * before any column's NOT NULL is checked, 23502.
+ * coerces each such NULL to its column's type as it builds the row, so a refined text's or a closed id's domain refuses
+ * it, 23514, before any column's NOT NULL is checked, 23502.
  */
 const nullField = (relation: WRelation, fact: Fact): Answer => {
 	const left = Arr.filter(relation.columns, (c) => !isSerialKind(c.kind) && !Rec.has(fact, c.name))
-	if (Arr.some(left, (c) => isRefinedText(c.kind))) {
+	if (Arr.some(left, (c) => refusesNull(c.kind))) {
 		return error("23514", nothing)
 	}
 	return left.length > 0 ? error("23502", nothing) : ok
@@ -898,8 +927,8 @@ const firstChanged = (
  *   its bound or a code outside its roster's live codes, 23514, by its domain's CHECK as the row is built, so never by
  *   an UPDATE that matches no row;
  * - a field left out of an INSERT, an identity column apart, is NULL, at the statement: a refined text's domain refuses
- *   it by its CHECK, `(<membership>) IS TRUE`, 23514, as the row is built, and every other column by its NOT NULL,
- *   23502: no field is nullable. An INSERT that leaves out a relation's one field is DEFAULT VALUES;
+ *   it by its CHECK, `(<membership>) IS TRUE`, and a closed id's roster domain by its CHECK, `(<names>[VALUE + 1] <> '')
+ *   IS TRUE`, 23514, as the row is built, and every other column by its NOT NULL, 23502: no field is nullable. An INSERT that leaves out a relation's one field is DEFAULT VALUES;
  * - a fact at an occupied primary key, candidate key or projected key is 23505 at the statement, an exact repeat
  *   included, under the constraint of one of the violated laws, as the installation names them;
  * - an immediate foreign key (into a pure set) is 23503 at its statement, a deferred one at COMMIT, or at the SET
@@ -1021,6 +1050,7 @@ export const runDirectCase = (
 		const named = predicted.answer.named
 		switch (named.kind) {
 			case "nothing":
+			case "domain":
 				break
 			case "constraints":
 				if (met.constraint === undefined || !named.constraints.has(met.constraint)) {
@@ -1042,9 +1072,12 @@ export const runDirectCase = (
 				break
 			}
 		}
-		note(
-			`${met.sqlstate} at ${at === statements.length ? (c.immediate ? "SET CONSTRAINTS" : "COMMIT") : "a statement"}`
-		)
+		const where =
+			at === statements.length ? (c.immediate ? "SET CONSTRAINTS" : "COMMIT") : "a statement"
+		note(`${met.sqlstate} at ${where}`)
+		if (named.kind === "domain") {
+			note(`${met.sqlstate} by a ${named.domain} domain at ${where}`)
+		}
 		const left = firstChanged(
 			group,
 			(r) => new Set(identitiesIn(r, initial.relations)),

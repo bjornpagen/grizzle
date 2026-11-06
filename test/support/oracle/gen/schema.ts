@@ -10,7 +10,7 @@ import {
 } from "@grizzle/testing/gen"
 import { exact, set } from "@grizzle/testing/oracle"
 import { fullSwarm, keep, type Swarm, weightOf } from "@grizzle/testing/swarm"
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
@@ -26,6 +26,7 @@ import {
 	sizeOf
 } from "#test/support/closed/generate.ts"
 import {
+	closedRelation,
 	contained,
 	key as keyOf,
 	on,
@@ -42,6 +43,7 @@ import {
 	resolveValue,
 	type Spelling,
 	scalarOfSpec,
+	typedLiteralDesc,
 	type ValueSketch
 } from "#test/support/oracle/gen/domain.ts"
 import { cyclicAt, elementAt, nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -193,17 +195,61 @@ export const relationNamed = (schema: GenSchema, name: string): GenRelation => {
 }
 
 /**
+ * The closed relation declaring a roster's text payload of a pattern, `<roster>Payload`, keyed by the roster's handle,
+ * one row per live handle: a Closed node's payload is the query's own, and the installation holds a text domain only
+ * for a pattern something it installs declares, as a closed relation's field does. A query delivers such a payload
+ * value through min or max, or compares a parameter with it, both of which the delivery checks by a cast to the
+ * pattern's domain. None for a roster with no such payload; every other payload type needs no declared domain.
+ */
+const payloadPatterns = (c: GenClosed): ReadonlyArray<RelationDesc> => {
+	const patterned = Arr.flatMap(c.payload, (col, i) =>
+		col.type.carrier === "text" &&
+		col.type.contract === undefined &&
+		col.type.text.regex !== "wildcard"
+			? [{ col, at: i + 1 }]
+			: []
+	)
+	if (patterned.length === 0) {
+		return []
+	}
+	return [
+		closedRelation(
+			`${c.name}Payload`,
+			{
+				id: { kind: "closedId", roster: c.name },
+				...Rec.fromEntries(
+					Arr.map(patterned, ({ col }) => [col.name, fieldDescOf(col.type)] as const)
+				)
+			},
+			["id"],
+			Arr.map(c.rows, (row) => ({
+				id: typedLiteralDesc(elementAt(row, 0, "a closed row's handle"), closedIdType(c)),
+				...Rec.fromEntries(
+					Arr.map(
+						patterned,
+						({ col, at }) =>
+							[
+								col.name,
+								typedLiteralDesc(elementAt(row, at, "a closed row's payload"), col.type)
+							] as const
+					)
+				)
+			}))
+		)
+	]
+}
+
+/**
  * The schema's Description: relation, closed, key, mutable and contained, exactly what the
  * public constructors record for this schema. It is an admissible schema: ownership (packages/engine/src/schema/own.ts)
  * accepts it, every key representable. A roster declares its live handles alone: its codes are the installation's
  * (schemaCodes), and a Closed node's payload is the query's own.
  */
 export const schemaDesc = (schema: GenSchema): SchemaDesc => {
-	const closed: Array<RelationDesc> = Arr.map(schema.closed, (c) => ({
-		kind: "closed",
-		name: c.name,
-		handles: c.handles
-	}))
+	const closed: Array<RelationDesc> = Arr.flatMap(schema.closed, (c) => [
+		{ kind: "closed", name: c.name, handles: c.handles },
+		...payloadPatterns(c)
+	])
 	const relations: Array<RelationDesc> = Arr.map(schema.relations, (r) => {
 		const fields: Record<string, FieldDesc> = {}
 		for (const col of r.columns) {

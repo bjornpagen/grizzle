@@ -466,6 +466,7 @@ const statementStrata = (state: ModelState, session: number): Strata<DirectState
 		)
 	)
 	const [firstSerial, ...moreSerials] = serialFields
+	const [firstFunction, ...moreFunctions] = worldFunctionsOf(state)
 	const roles = roleArms(state.install, { kind: "login", login })
 	const claims = claimsArms(state, current)
 	const roleRef = roles.live
@@ -564,23 +565,29 @@ const statementStrata = (state: ModelState, session: number): Strata<DirectState
 			}
 		}),
 		map(relationGen, (relation): DirectStatement => ({ kind: "truncate", relation })),
-		(source) => {
-			const fn = source.draw(element(worldFunctionsOf(state)))
-			/** Values of any of the base's fields, zero to two of them, whatever the function's parameters. */
-			const anyArgs = array(
-				(inner) => inner.draw(element(pool(inner.draw(element(allFields)).domain))),
-				{
-					min: 0,
-					max: 2
-				}
-			)
-			const params = parametersOf(state, fn)
-			return {
-				kind: "call",
-				fn,
-				args: source.draw(params === undefined ? anyArgs : oneOf([argumentsGen(params), anyArgs]))
-			}
-		},
+		...(firstFunction === undefined
+			? []
+			: [
+					(source: Source): DirectStatement => {
+						const fn = source.draw(element([firstFunction, ...moreFunctions]))
+						/** Values of any of the base's fields, zero to two of them, whatever the function's parameters. */
+						const anyArgs = array(
+							(inner) => inner.draw(element(pool(inner.draw(element(allFields)).domain))),
+							{
+								min: 0,
+								max: 2
+							}
+						)
+						const params = parametersOf(state, fn)
+						return {
+							kind: "call",
+							fn,
+							args: source.draw(
+								params === undefined ? anyArgs : oneOf([argumentsGen(params), anyArgs])
+							)
+						}
+					}
+				]),
 		...(firstSerial === undefined
 			? []
 			: [

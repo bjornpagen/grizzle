@@ -1,4 +1,5 @@
 import { Effect, Predicate, Record as Rec } from "effect"
+import { type Codebook, codeNames } from "#compiler/ir/codes.ts"
 import { isDrawn, type Sendable } from "#test/support/laws/model.ts"
 import type { FieldDomain, HostFact, HostValue } from "#test/support/worlds/model/types.ts"
 
@@ -116,17 +117,26 @@ const spanText = regex("^\\[(-?[0-9]+),(-?[0-9]+)\\)$")
 const integerOf = (text: string, what: string): Effect.Effect<number> =>
 	integerText.test(text) ? numberOf(BigInt(text), what) : refused(what, text)
 
-/** A cell's output text as its field's domain spells it. */
+/**
+ * A cell's output text as its field's domain spells it. A closed id's column holds its handle's code, a smallint
+ * under its roster's domain, and `codes`, the installation's codebook, names the live handle each code stands for
+ * (ir/codes.ts): a hole or a code past the roster is no host value.
+ */
 export const valueOfText = (
 	domain: FieldDomain,
 	text: string,
-	what: string
+	what: string,
+	codes: Codebook
 ): Effect.Effect<HostValue> => {
 	switch (domain.kind) {
 		case "uuid":
 		case "text":
-		case "handle":
 			return Effect.succeed(text)
+		case "handle":
+			return Effect.flatMap(integerOf(text, what), (code) => {
+				const handle = codeNames(codes)(domain.closed)[code]
+				return handle === undefined || handle === "" ? refused(what, text) : Effect.succeed(handle)
+			})
 		case "integer":
 		case "serial":
 		case "contract":

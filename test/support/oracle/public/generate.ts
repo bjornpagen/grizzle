@@ -4097,11 +4097,11 @@ const acceptanceCollapse = (sketch: CaseSketch): ProgramCase => {
  *
  *   relation Readings { id: int4, x: numeric } key [id]
  *   facts Readings: (0, 0 stored as "0.000000000000000000000000") (1, 0) (2, 1) (3, 3)
- *   q0 = Readings{x: v0} find {m: r.mean(v0)}
+ *   q0 = Readings{id: v1, x: v0} find {m: r.mean(v0)}
  *
- * The rule's distinct complete bindings are x's distinct values, 0, 1 and 3, the two zeros one value, so the mean is
- * PostgreSQL's quotient of their sum by their count for the values alone, 1.3333333333333333, whichever zero a plan
- * keeps.
+ * A fold reads keyed rows, so the rule binds the key: the mean reads each reading once, 0 twice, 1 and 3, PostgreSQL's
+ * quotient of their sum by their count. A numeric field declares its scale, so the padded zero is stored as the other
+ * is, and the mean's display scale is the same whichever spelling a writer gave either zero.
  */
 const acceptanceMean = (sketch: CaseSketch): ProgramCase => {
 	const id = acceptanceField("id", "int4")
@@ -4124,9 +4124,10 @@ const acceptanceMean = (sketch: CaseSketch): ProgramCase => {
 		fact(3n, canonicallySpelled(decimal("3")))
 	]
 	const v0: Var = { id: 0, field: x }
+	const v1: Var = { id: 1, field: id }
 	const rule = soleRule<never>(
 		readings,
-		[varOf(x, v0)],
+		[varOf(id, v1), varOf(x, v0)],
 		[
 			{
 				kind: "fold",

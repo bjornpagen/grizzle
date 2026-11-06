@@ -665,6 +665,7 @@ export type FlightFeature =
 	| "cancel sent"
 	| "committed after an interruption"
 	| "drained by its destruction"
+	| "race cut short"
 	| "blocked without an interruption"
 	| "begin refused"
 	| `prologue ${FenceStep} ${PrologueFault}`
@@ -697,7 +698,8 @@ export type FlightFeature =
  * - the session is retired as interrupted, sends one CancelRequest and destroys its connection, exactly when a statement
  *   the call waits for was still in flight; otherwise it is retired only as the answers say;
  * - what commits is all of a transaction or none of it, as the server's answer to COMMIT says, whatever the
- *   interruption: an answer the destroyed connection never delivered is still what the server did;
+ *   interruption: an answer the destroyed connection never delivered is still what the server did, and a query past
+ *   a cancelled statement that the connection's end reached first never ran (scripted.ts afterCancel);
  * - the server ends idle, and a session not retired ends healthy, with nothing owed.
  *
  * The model's observation of a run: the case, the answers the client was delivered by pipeline position (every one,

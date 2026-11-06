@@ -9,10 +9,9 @@ import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import {
 	bagRecursion,
 	type CaseLowering,
-	eraseEdgeIdentity,
 	feedbackUnionAllMutant,
 	forCase,
-	movedInside,
+	rebuiltAs,
 	type RecursionOracleFeature,
 	recursiveEquivalence,
 	repeatsStates,
@@ -378,7 +377,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 					yield* killsEvery(recursiveCaseGen(parallelLimits("always")), {
 						suite: "recursion/kills-edge-identity",
 						runs: 200,
-						mutant: eraseEdgeIdentity,
+						mutant: rebuiltAs("edgeIdentityErased"),
 						shape: (o) => undercounts(o, "edges") && !o.comparison.equal,
 						coverage: noCoverage,
 						about: {
@@ -389,7 +388,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 					/** The control: the same rewrite over keyed edges with no parallel pair agrees on every case. */
 					const control = yield* recursiveEquivalence(
 						recursiveCaseGen(parallelLimits("never")),
-						eraseEdgeIdentity,
+						rebuiltAs("edgeIdentityErased"),
 						conservative,
 						{
 							suite: "recursion/parallel-edges-control",
@@ -439,7 +438,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 					return yield* killsEvery(generator, {
 						suite: "recursion/kills-end-filter",
 						runs: 200,
-						mutant: movedInside("endFilterIntoSeed"),
+						mutant: rebuiltAs("endFilterIntoSeed"),
 						shape: told,
 						coverage: required<RecursionOracleFeature>(
 							[
@@ -479,7 +478,7 @@ layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
 					return yield* killsEvery(generator, {
 						suite: "recursion/kills-end-ne",
 						runs: 200,
-						mutant: movedInside("neFilterIntoStep"),
+						mutant: rebuiltAs("neFilterIntoStep"),
 						shape: told,
 						coverage: required<RecursionOracleFeature>(["form:reach", "form:pairs"], {
 							cases: 200,

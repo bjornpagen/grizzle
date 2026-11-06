@@ -82,7 +82,10 @@ const committed = opIn({
 	observations: ["applied", "ok"]
 })
 
-/** A law a direct writer breaks at COMMIT is checked at COMMIT: never a key, a span key or a row check. */
+/**
+ * A law a direct writer breaks at COMMIT is checked at COMMIT: never a key, a span key, a row check or a containment
+ * whose foreign key is immediate.
+ */
 const deferredAtCommit: StepCheck = ({ seen }) => {
 	const o = seen.observation
 	if (seen.action.kind !== "direct-end" || o.kind !== "law-refused") {
@@ -95,7 +98,7 @@ const deferredAtCommit: StepCheck = ({ seen }) => {
 				assert.fail(`action ${seen.index}: the COMMIT names ${o.law}, no law of the installation`),
 			onSome: (law) => {
 				assert.ok(
-					!isImmediate(law),
+					!isImmediate(seen.before.host, law),
 					`action ${seen.index}: the COMMIT names ${o.law}, a law checked at its statement`
 				)
 			}

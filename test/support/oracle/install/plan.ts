@@ -1,8 +1,7 @@
 import { exact, set } from "@grizzle/testing/oracle"
 import { Array as Arr, Data, Formatter, Option, Order, Record as Rec, String as Str } from "effect"
-import { withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { CompileError, type CompileReason, prose, type ProseTag } from "#compiler/core/errors.ts"
-import { domainDigest } from "#compiler/core/fingerprint.ts"
+import type { DomainDigest } from "#compiler/core/fingerprint.ts"
 
 import {
 	type DeclaredName,
@@ -34,6 +33,7 @@ import type {
 	TypeRef
 } from "#compiler/sql/ast.ts"
 
+import { definitionDigest } from "#compiler/physical/ddl/domains.ts"
 import {
 	and,
 	binary,
@@ -54,6 +54,7 @@ import {
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printType } from "#compiler/sql/print.ts"
+import { analyzeText, domainValue, membership } from "#compiler/text/refinement.ts"
 import type {
 	AuthoredRelationDesc as RelationDesc,
 	SchemaDesc,
@@ -173,14 +174,40 @@ const vectorNorm = (vectorSchema: string, column: string): Expr => ({
 })
 
 /**
- * A descriptor's physical definition, which a contract's domain is named by: a contract's base's definition with its
- * predicate (true where it states none), any other descriptor itself. A contract's name is its type-level brand alone,
- * so two contracts of one definition share one domain.
+ * The digest of a contract's domain's definition, which its domain is named by: its CREATE DOMAIN but for the names it
+ * is created and checked under (physical/ddl/domains.ts definitionDigest), as the documented rule states it. Its base
+ * is `base`, the type the contract's base resolves to: an inner contract's domain, a roster's domain, or the unrefined
+ * base type, `text COLLATE pg_catalog.pg_c_utf8` for a text base. Its CHECK is the base's pattern test, membership in
+ * the pattern's language, where the base is refined text outside any contract, or none. A contract's name is its
+ * type-level brand alone, so two contracts of one definition share one domain. A contract's predicate is a CHECK the
+ * minimal installer neither installs nor states, so its domain cannot be named here, and it is refused.
  */
-const physicalDefinition = (field: FieldDesc): unknown =>
-	field.kind === "contract"
-		? { base: physicalDefinition(field.base), predicate: field.predicate ?? true }
-		: field
+const contractDigest = (
+	field: Extract<FieldDesc, { readonly kind: "contract" }>,
+	base: ColumnType,
+	location: string
+): DomainDigest => {
+	if (field.predicate !== undefined) {
+		return refuse(
+			"UnsupportedOperation",
+			location,
+			`oracle install: the contract ${field.name}'s predicate, which its domain's name digests and the minimal installer leaves out`
+		)
+	}
+	const inner = field.base
+	const pattern =
+		inner.kind === "text"
+			? unwrap(analyzeText(inner.source, inner.flags, SourceLoc(location, []))).check
+			: undefined
+	return definitionDigest({
+		base: base.sql,
+		collation: base.sql.kind === "builtin" && base.sql.name === "text" ? cUtf8Collation : undefined,
+		constraints:
+			pattern === undefined || pattern.kind === "tautology"
+				? []
+				: [{ name: "", predicate: membership(pattern, domainValue) }]
+	})
+}
 
 /** What a field descriptor stores under its contracts: the descriptor the column's storage CHECKs follow. */
 const storedDesc = (field: FieldDesc): FieldDesc =>
@@ -495,9 +522,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					}
 				}
 				const base = resolve(field.base, location)
-				const named = door.contractDomain(
-					domainDigest(physicalDefinition(field), withoutSourceLocs)
-				).identifier
+				const named = door.contractDomain(contractDigest(field, base, location)).identifier
 				const shared = definitionDomains.get(named)
 				const name = shared ?? unwrap(schemaScope.claim(named, location))
 				definitionDomains.set(named, name)
@@ -1171,7 +1196,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		ddl,
 		sql,
 		vectorSchema,
-		skipped
+		skipped,
+		fill: { families: [], closed: new Map() }
 	}
 }
 

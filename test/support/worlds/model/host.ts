@@ -1230,7 +1230,8 @@ const primaryKeyLawAs = (law: LawId, relation: RelationSpec): HostLaw => {
 				law,
 				relation: relation.name,
 				scalars: Arr.filter(relation.key, (k) => k !== span),
-				span
+				span,
+				selection: everyFact
 			}
 }
 
@@ -1384,7 +1385,8 @@ const hostLaws = (base: BaseSpec, law: LawSpec, ids: LawIds): ReadonlyArray<Host
 					law: singleLaw(ids, law.kind),
 					relation: law.relation,
 					scalars: law.scalars,
-					span: law.span
+					span: law.span,
+					selection: everyFact
 				}
 			]
 		case "check":

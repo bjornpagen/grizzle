@@ -157,10 +157,10 @@ breaking change may briefly break older application instances that are still run
   with a placeholder for the conversion, or by its cast, with no placeholder, when the new type holds the old one's
   values (a pattern changed, a contract added, removed or swapped for another over the same base), after the
   constraints, indexes and statistics over it are dropped; they are built again as on any table with rows, but a key
-  over it, which is added again right after the conversion in the same transaction, so it holds throughout. A contract's
-  changed predicate replaces its domain's one CHECK in place, `NOT VALID`, validated in Validate. A changed pattern is
-  another pattern's domain, so each field it types is converted to it by its cast, which refuses a stored value the new
-  pattern doesn't admit (23514). Every world object an existing role relies on (a view, a policy, a filter function, a
+  over it, which is added again right after the conversion in the same transaction, so it holds throughout. A domain is
+  named by its whole definition, so a contract's changed predicate, like a changed pattern, is another domain: each
+  field it types is converted to it by its cast, which refuses a stored value the new definition doesn't admit (23514).
+  Every world object an existing role relies on (a view, a policy, a filter function, a
   key or unique probe) that changes, or that reads anything the migration changes or drops (a relation, a column, a
   type, a materialized view, a function), is dropped at the start of this transaction and created again, with its
   grants, at its end, so no committed state lacks it.

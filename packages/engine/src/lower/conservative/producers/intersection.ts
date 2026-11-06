@@ -10,10 +10,11 @@ import {
 import {
 	carriedTargets,
 	type ProducerForm,
+	producedQuery,
 	spanArguments
 } from "#compiler/lower/conservative/producers/shared.ts"
-import type { Select } from "#compiler/sql/ast.ts"
-import { binary, distinctCoreWhen, select, target } from "#compiler/sql/build.ts"
+import type { OperandSelect } from "#compiler/sql/ast.ts"
+import { binary, target } from "#compiler/sql/build.ts"
 
 /**
  * r.intersection(a, b): the common points of two spans, zero or one span per binding.
@@ -25,26 +26,24 @@ import { binary, distinctCoreWhen, select, target } from "#compiler/sql/build.ts
  * pseudo-span. The guard is the GiST-indexable `&&` atom, never a widened test on lower()
  * and upper(). One binding yields at most one fact, so the produced heading is keyed by any input key
  * among the carried columns (analysis/physical produceProps); distinct bindings that agree on the carried columns and
- * intersect to one span collapse at the outer DISTINCT.
+ * intersect to one span collapse at the outer DISTINCT, or at the consumer that makes a plain producer's rows a set.
  */
 export const intersectionQuery = (
 	node: ProducerNode<"spanIntersection" | "spanDifference">,
 	cx: LowerContext,
 	env: Env,
 	form: ProducerForm
-): Select => {
+): OperandSelect => {
 	const at = nodeLabel(node)
 	const input = cx.source(node.input, env)
 	const scope = extendEnv(env, [[node.input.id, input.map]])
 	const {
 		args: [a, b]
 	} = spanArguments(cx, node, scope, at)
-	return select(
-		distinctCoreWhen(
-			form.distinct,
-			appendNonEmpty(carriedTargets(node, input.map), target(binary("*", a, b))),
-			[input.item],
-			binary("&&", a, b)
-		)
+	return producedQuery(
+		form.produced,
+		appendNonEmpty(carriedTargets(node, input.map), target(binary("*", a, b))),
+		[input.item],
+		binary("&&", a, b)
 	)
 }

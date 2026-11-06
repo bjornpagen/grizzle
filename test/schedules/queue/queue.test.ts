@@ -125,12 +125,17 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 			Effect.provideService(grizzleActor(name, login, beside), Substrate, s)
 		const work = names.table(Q.QueueWork)
 		const leased = names.table(Q.Leased)
+		/** A standing as its column stores it, the code a read of Work's standing returns. */
+		const standing = (handle: (typeof Q.Standing.handles)[number]) =>
+			String(names.code(Q.Standing, handle))
+		/** gpu as a lease's and a seat's resource column stores it. */
+		const gpu = names.code(Q.Resource, "gpu")
 		/** The blockers, opened once both worker Dbs hold their sessions: `e` as the enqueuer, `w` as a worker. */
 		const blockers = openActors(s, {
 			e: { kind: "psql", as: f.installed.world(worlds.enqueuer) },
 			w: { kind: "psql", as: f.installed.world(worlds.worker) }
 		})
-		return { f, queue, worlds, env, names, worker, blockers, work, leased }
+		return { f, queue, worlds, env, names, worker, blockers, work, leased, standing, gpu }
 	})
 
 	it.effect(
@@ -172,7 +177,9 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 										awaits("h", mayWait),
 										check(
 											`SELECT pg_catalog.string_agg(l.${leasedColumn("key")} || ':' || l.${leasedColumn("seat")}::text || ':' || l.${leasedColumn("epoch")}::text || ':' || w.${workColumn("standing")}::text || ':' || w.${workColumn("epoch")}::text, ',' ORDER BY l.${leasedColumn("key")}) FROM ${x.leased} AS l JOIN ${x.work} AS w ON w.${workColumn("key")} = l.${leasedColumn("key")} WHERE l.${leasedColumn("key")} IN ('${kG}', '${kB}')`,
-											rows([`${kB}:1:1:leased:1,${kG}:3:1:leased:1`])
+											rows([
+												`${kB}:1:1:${x.standing("leased")}:1,${kG}:3:1:${x.standing("leased")}:1`
+											])
 										)
 									]),
 									actors
@@ -223,7 +230,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 										begin("w"),
 										sql(
 											"w",
-											`INSERT INTO ${x.leased} (${leasedColumn("key")}, ${leasedColumn("resource")}, ${leasedColumn("seat")}, ${leasedColumn("epoch")}, ${leasedColumn("expires")}) VALUES ('${digest("6")}', 'gpu', 3, 1, 999)`,
+											`INSERT INTO ${x.leased} (${leasedColumn("key")}, ${leasedColumn("resource")}, ${leasedColumn("seat")}, ${leasedColumn("epoch")}, ${leasedColumn("expires")}) VALUES ('${digest("6")}', ${x.gpu}, 3, 1, 999)`,
 											ok(),
 											complete
 										),
@@ -235,12 +242,16 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 										check(
 											`SELECT pg_catalog.string_agg(w.${workColumn("key")} || ':' || w.${workColumn("standing")}::text || ':' || w.${workColumn("epoch")}::text || ':' || (SELECT pg_catalog.count(*) FROM ${x.names.table(Q.Wanted)} AS d WHERE d.${x.names.column(Q.Wanted, "key")} = w.${workColumn("key")})::text, ',' ORDER BY w.${workColumn("key")}) FROM ${x.work} AS w WHERE w.${workColumn("key")} IN ('${kA}', '${kG}')`,
 											anyOf(
-												rows([`${kA}:leased:1:0,${kG}:wanted:0:1`]),
-												rows([`${kA}:wanted:0:1,${kG}:leased:1:0`])
+												rows([
+													`${kA}:${x.standing("leased")}:1:0,${kG}:${x.standing("wanted")}:0:1`
+												]),
+												rows([
+													`${kA}:${x.standing("wanted")}:0:1,${kG}:${x.standing("leased")}:1:0`
+												])
 											)
 										),
 										check(
-											`SELECT pg_catalog.count(*)::text FROM ${x.leased} WHERE ${leasedColumn("resource")} = 'gpu' AND ${leasedColumn("seat")} = 3`,
+											`SELECT pg_catalog.count(*)::text FROM ${x.leased} WHERE ${leasedColumn("resource")} = ${x.gpu} AND ${leasedColumn("seat")} = 3`,
 											rows(["1"])
 										)
 									]),
@@ -336,8 +347,12 @@ layer(Substrate.layer, { excludeTestServices: true })("the work queue's races", 
 											check(
 												`SELECT pg_catalog.string_agg(w.${workColumn("key")} || ':' || w.${workColumn("standing")}::text || ':' || w.${workColumn("epoch")}::text || ':' || coalesce((SELECT l.${leasedColumn("seat")}::text || '@' || l.${leasedColumn("epoch")}::text FROM ${x.leased} AS l WHERE l.${leasedColumn("key")} = w.${workColumn("key")}), '-'), ',' ORDER BY w.${workColumn("key")}) FROM ${x.work} AS w WHERE w.${workColumn("key")} IN ('${kB}', '${kG}')`,
 												anyOf(
-													rows([`${kB}:done:1:-,${kG}:leased:1:3@1`]),
-													rows([`${kB}:leased:2:1@2,${kG}:wanted:0:-`])
+													rows([
+														`${kB}:${x.standing("done")}:1:-,${kG}:${x.standing("leased")}:1:3@1`
+													]),
+													rows([
+														`${kB}:${x.standing("leased")}:2:1@2,${kG}:${x.standing("wanted")}:0:-`
+													])
 												)
 											)
 										]),

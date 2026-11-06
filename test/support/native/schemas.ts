@@ -502,7 +502,8 @@ export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compil
 						law: lawOf(statement),
 						relation,
 						scalars: span.value.scalars,
-						span: span.value.span
+						span: span.value.span,
+						selection: everyFact
 					}))
 				}
 				const side = hostSide(law.side)

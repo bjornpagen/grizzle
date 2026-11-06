@@ -1,14 +1,14 @@
 import { Array as Arr, Effect, Record as Rec, Result } from "effect"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import type { Carrier } from "#compiler/ir/scalar.ts"
 import { describeField } from "#compiler/scalar/registry.ts"
 import type { CarrierHost } from "#compiler/scalar/values/identity.ts"
 import { namedRelation } from "#compiler/schema/relation.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
-import { strictRead } from "#test/support/kernel/strict.ts"
+import { type StrictFault, strictReader } from "#test/support/kernel/strict.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -18,8 +18,9 @@ export type StateRow = { readonly [field: string]: StateValue }
 
 interface Column {
 	readonly field: string
-	readonly type: ScalarType
 	readonly select: string
+	/** The column's output text read strictly by the field's type, a closed id's under the installation's codes. */
+	readonly read: (text: string) => Result.Result<StateValue, StrictFault>
 }
 
 /** The relation's fields, each with its column type and its select-list item: a drawn, accumulated or generated
@@ -46,8 +47,8 @@ const columnsOf = (
 			)
 			columns.push({
 				field,
-				type,
-				select: `${quoteIdent(installed.names.column(relation.name, field))}${casts}`
+				select: `${quoteIdent(installed.names.column(relation.name, field))}${casts}`,
+				read: strictReader(type, installed.names.codes)
 			})
 		}
 		return columns
@@ -55,7 +56,8 @@ const columnsOf = (
 
 /**
  * The stored state of an installed relation, read as the owner: every row of its table, by declared field name, each
- * cell its column's output text read strictly by the field's own type (test/support/kernel/strict.ts).
+ * cell its column's output text read strictly by the field's own type (test/support/kernel/strict.ts), a closed id's
+ * code under the installation's codes as the handle it names.
  *
  * The table and its columns are the installation's own names (Installed.names), the authority the lowerings emit, so a
  * test never spells or re-derives one. A row grizzle stored that the strict reader refuses is a defect, never a value,
@@ -92,7 +94,7 @@ export const tableState = (
 						)
 					)
 				}
-				const read = strictRead(column.type, cell)
+				const read = column.read(cell)
 				if (Result.isFailure(read)) {
 					return yield* Effect.die(new Error(`${relation.name}.${column.field}: ${read.failure}`))
 				}

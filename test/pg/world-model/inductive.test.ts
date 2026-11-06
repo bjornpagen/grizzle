@@ -41,6 +41,7 @@ import { type Weights, weightsGen } from "#test/support/worlds/generate/weights.
 import { malformedTexts } from "#test/support/worlds/invalid/claims.ts"
 import {
 	docsEditorInstall,
+	docsHeldRosterInstall,
 	docsOneShareEditorInstall,
 	docsVisitsInstall
 } from "#test/support/worlds/model/bases/docs.ts"
@@ -63,8 +64,8 @@ import type {
 
 /**
  * The worlds invariants, checked inductively: rather than reaching states by walks of actions, a case draws a state
- * directly (an installation, the documents base's own, one with an editor beside or one writing Visit through its
- * serial shapes (installsGen), a lawful reality the owner loads,
+ * directly (an installation, the documents base's own, one with an editor beside, one writing Visit through its
+ * serial shapes or one whose visits hold a roster's handles (installsGen), a lawful reality the owner loads,
  * half the time with a document at its bound of shares, Db sessions of any roles of any logins with any claims their tokens
  * carry, those Dbs' reads spread over the logins' pooled connections, a pool of one connection per login half the
  * time, so its Dbs of every role share it, and then a direct writer with any current role of its login and any claims,
@@ -360,17 +361,21 @@ const planGen =
 	})
 
 /**
- * The installations a case draws: the documents base's (docsInstalls) one time in two; one of its worlds with an editor
- * beside (docsEditorInstall, docsOneShareEditorInstall) one time in four, whose every fact outside an entry it writes
- * lies outside its world one way only: visible through a relation it holds whole, or hidden, which a Db or a direct
- * writer of the editor's meets each way under no claims, and a generated installation's roles rarely offer; and
- * otherwise its worlds with Visit written through a unit entry, one filtering on a serial field and one fixing one
- * (docsVisitsInstall), the serial shapes a generated installation's roles rarely offer.
+ * The installations a case draws: the documents base's (docsInstalls) two times in five; one of its worlds with an
+ * editor beside (docsEditorInstall, docsOneShareEditorInstall) one time in five, whose every fact outside an entry it
+ * writes lies outside its world one way only: visible through a relation it holds whole, or hidden, which a Db or a
+ * direct writer of the editor's meets each way under no claims, and a generated installation's roles rarely offer; its
+ * worlds with Visit written through a unit entry, one filtering on a serial field and one fixing one
+ * (docsVisitsInstall), the serial shapes a generated installation's roles rarely offer, one time in five; and
+ * otherwise the held-roster worlds (docsHeldRosterInstall), where a stored visit holds a handle of Tier, which no other
+ * documents base's field holds (migration:roster-removal-held), and a role of two writes Visit through a filter on a
+ * serial field (fact:filtered-serial-omitted).
  */
 const installsGen: Gen<InstallSpec> = weighted([
 	[2, docsInstalls],
 	[1, element([docsEditorInstall, docsOneShareEditorInstall])],
-	[1, constant(docsVisitsInstall)]
+	[1, constant(docsVisitsInstall)],
+	[1, constant(docsHeldRosterInstall)]
 ])
 
 const caseGen: Gen<InductiveCase> = (source) => {

@@ -20,6 +20,7 @@ import {
 	tNow,
 	tSettled
 } from "#test/support/fixtures/golden/payroll.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgErrorFields } from "#test/support/substrate/errors.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
@@ -31,30 +32,43 @@ const run6 = fresh(51)
 const newLine = fresh(52)
 
 /**
- * The psql variables the writers' statements use: the golden constants, and fresh ids for run5, run6 and the new line.
+ * The psql variables the writers' statements use: the golden constants; fresh ids for run5, run6 and the new line; and
+ * each closed id a statement writes, the code its column stores under the installation's codes, named after its handle,
+ * and `nobasis`, a code no handle of Basis holds.
  */
-const variables: Readonly<Record<string, string>> = {
-	l1,
-	run1,
-	ada,
-	bo,
-	acme,
-	run5,
-	run6,
-	line: newLine,
-	p0: String(p0),
-	p1: String(p1),
-	t5: String(t5),
-	t9: String(t9),
-	t12: String(t12),
-	now: String(tNow)
+const variablesOf = (p: Payroll): Readonly<Record<string, string>> => {
+	const names = namesOf(p.f.installed)
+	const { Basis, LedgerAccount, Levy, Side, Stage } = p.s.relations
+	return {
+		l1,
+		run1,
+		ada,
+		bo,
+		acme,
+		run5,
+		run6,
+		line: newLine,
+		p0: String(p0),
+		p1: String(p1),
+		t5: String(t5),
+		t9: String(t9),
+		t12: String(t12),
+		now: String(tNow),
+		approved: String(names.code(Stage, "approved")),
+		draft: String(names.code(Stage, "draft")),
+		netpay: String(names.code(LedgerAccount, "NetPay")),
+		credit: String(names.code(Side, "credit")),
+		futa: String(names.code(Levy, "Futa")),
+		salaried: String(names.code(Basis, "salaried")),
+		nobasis: String(Math.max(names.code(Basis, "salaried"), names.code(Basis, "hourly")) + 1)
+	}
 }
 
 /** A psql variable as a statement spells it, quoted (`:'name'`) or bare (`:name`): split on, it is every odd piece. */
 const variableToken = regex("(:'[a-z0-9]+'|:[a-z][a-z0-9]*\\b)")
 
 /** A psql variable's value as psql interpolates it: quoted as a literal for `:'name'`, bare for `:name`. */
-const valueOf = (token: string): string => {
+const valueOf = (variables: Readonly<Record<string, string>>, token: string): string => {
 	const quoted = Str.startsWith(":'")(token)
 	const name = quoted ? Str.slice(2, -1)(token) : Str.slice(1)(token)
 	const value = variables[name]
@@ -67,8 +81,11 @@ const valueOf = (token: string): string => {
  * the declared schema `payroll` bare or, where the naming door qualified a name, quoted.
  */
 const spell = (p: Payroll, sql: string): string => {
+	const variables = variablesOf(p)
 	const interpolated = Arr.join(
-		Arr.map(Str.split(sql, variableToken), (piece, i) => (i % 2 === 0 ? piece : valueOf(piece))),
+		Arr.map(Str.split(sql, variableToken), (piece, i) =>
+			i % 2 === 0 ? piece : valueOf(variables, piece)
+		),
 		""
 	)
 	return Str.replaceAll(
@@ -177,25 +194,27 @@ const toAfterReverse = (p: Payroll) =>
 		const approver = yield* p.f.psql(p.w.approver)
 		const clerk = yield* p.f.psql(p.w.clerk)
 		const t = p.f.t
+		const stage = (handle: "approved" | "paid" | "voided"): number =>
+			namesOf(p.f.installed).code(p.s.relations.Stage, handle)
 		const steps: ReadonlyArray<readonly [PsqlWriter, ReadonlyArray<string>]> = [
 			[
 				approver,
 				[
-					`UPDATE ${t("pay_run")} SET "stage" = 'approved' WHERE "id" = '${run1}'`,
+					`UPDATE ${t("pay_run")} SET "stage" = ${stage("approved")} WHERE "id" = '${run1}'`,
 					`INSERT INTO ${t("approval")} ("run", "approver", "at") VALUES ('${run1}', '${ada}', ${tApproved})`
 				]
 			],
 			[
 				clerk,
 				[
-					`UPDATE ${t("pay_run")} SET "stage" = 'paid' WHERE "id" = '${run1}'`,
+					`UPDATE ${t("pay_run")} SET "stage" = ${stage("paid")} WHERE "id" = '${run1}'`,
 					`INSERT INTO ${t("payment")} ("run", "settled") VALUES ('${run1}', ${tSettled})`
 				]
 			],
 			[
 				clerk,
 				[
-					`UPDATE ${t("pay_run")} SET "stage" = 'voided' WHERE "id" = '${run1}'`,
+					`UPDATE ${t("pay_run")} SET "stage" = ${stage("voided")} WHERE "id" = '${run1}'`,
 					`DELETE FROM ${t("payment")} WHERE "run" = '${run1}'`,
 					`INSERT INTO ${t("voiding")} ("run", "reason") VALUES ('${run1}', 'bank returned the batch')`
 				]
@@ -246,8 +265,9 @@ const reachedBy = (row: DirectWriter): ReadonlyArray<string> => {
  * as the fixture's login, the role taken on), schema-qualified because no role gets a search_path default, at
  * SERIALIZABLE: a row's BEGIN is BEGIN ISOLATION LEVEL SERIALIZABLE, and a statement outside a transaction runs at the
  * database's default, SERIALIZABLE. psql variables are spelled into the statements here, since a writer runs no
- * meta-command. The SQLSTATE is the observable contract: 23505, 23514, 23P01 and 428C9 at the statement; 22P02 for a
- * label outside a closed roster; 23503 from a deferred foreign key at COMMIT, or at the statement once the writer sets
+ * meta-command. The SQLSTATE is the observable contract: 23505, 23514, 23P01 and 428C9 at the statement, 23514 too for
+ * a code no handle of a closed roster holds, which its roster domain's CHECK refuses; 22P02 for a handle's text, which a
+ * code column reads as a smallint; 23503 from a deferred foreign key at COMMIT, or at the statement once the writer sets
  * every constraint IMMEDIATE, with the constraint's stable name where the row names it; 42501 for a privilege the role
  * lacks. Every law is native, so no refusal is a law function's 23000. A refused row
  * changes nothing, so the refused rows run one after another on one installation; each accepted row runs on its own

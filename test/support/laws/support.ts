@@ -31,6 +31,7 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
+import { type ClosedField, closedField, namedText } from "#test/support/closed/stored.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { reportedLawId } from "#test/support/kernel/naming.ts"
 import {
@@ -439,10 +440,15 @@ export interface Session {
 	readonly reported: (law: Law) => LawId
 }
 
-/** The owner's side of an installed family schema: emptying every table, and the committed state in stateRows' form. */
+/**
+ * The owner's side of an installed family schema: emptying every table, the committed state in stateRows' form, and
+ * the closed id each field holds, whose column stores its handle's code.
+ */
 export interface OwnerView {
 	readonly table: (relation: HostRelation) => string
+	readonly closed: (relation: string, field: string) => ClosedField | undefined
 	readonly reset: Effect.Effect<void, SqlError>
+	/** Every table's rows as their columns' output text, a closed id's code read back as the handle it names. */
 	readonly read: Effect.Effect<StateRows, SqlError>
 }
 
@@ -454,11 +460,15 @@ export const ownerView = (
 		const s = yield* Substrate
 		const q = quoteIdent(installed.schema)
 		const table = (r: HostRelation) => `${q}.${quoteIdent(r.table)}`
+		const closed = (relation: string, field: string) =>
+			closedField(installed.installation, relation, field)
 		return {
 			table,
+			closed,
 			reset: s.admin.query(`TRUNCATE ${Arr.join(Arr.map(host.relations, table), ", ")}`, []),
-			read: Effect.forEach(host.relations, (r) =>
-				Effect.map(
+			read: Effect.forEach(host.relations, (r) => {
+				const texts = Arr.map(r.fields, (f) => namedText(installed.installation, r.name, f.name))
+				return Effect.map(
 					s.admin.queryValues(
 						`SELECT ${Arr.join(
 							Arr.map(r.fields, (f) => `${quoteIdent(f.column)}::text`),
@@ -466,9 +476,12 @@ export const ownerView = (
 						)} FROM ${table(r)}`,
 						[]
 					),
-					(rows) => Arr.map(rows, (row) => Arr.map(row, (x) => String(x)))
+					(rows) =>
+						Arr.map(rows, (row) =>
+							Arr.map(texts, (text, i) => text(String(defined(row[i], `${r.name}'s column ${i}`))))
+						)
 				)
-			)
+			})
 		}
 	})
 
@@ -1263,7 +1276,10 @@ const fromOf = (law: HostLaw): string => defined(needs(law)[0], `${law.law}'s ne
  *   of the state deleted;
  * - a lawful fact, then a second fact of its relation inserted beside it, over every pair the domains draw, so the
  *   second may collide with the first under a key or a span key;
- * - two lawful groups of one need, then a fact deleted, so a fact the deletion leaves may meet the violator in part.
+ * - two lawful groups of one need, then a fact deleted, so a fact the deletion leaves may meet the violator in part;
+ * - each stored source fact switched into a selected containment's selection, and each of its stored targets moved;
+ * - a lawful fact, then a fact of another relation inserted beside it;
+ * - a source fact switched into its selection beside a lawful fact of another relation.
  */
 export const plantedRefusal = (
 	host: HostSchema,
@@ -1334,6 +1350,49 @@ export const plantedRefusal = (
 			yield { lawful, refused: [plantedInsert(host, domains, relation, second)] }
 		}
 	}
+	/**
+	 * A lawful fact, then a fact of another relation inserted beside it, over every pair the domains draw: a source
+	 * written alone into a state that holds what its other laws ask of it, a coverage's target beside a containment's.
+	 */
+	/**
+	 * A lawful fact, then a lawful fact of another relation beside it, over every pair the domains draw: a state that
+	 * holds what a source's other laws ask of it, a coverage's target, beside the source a switch rewrites.
+	 */
+	const acrossStates = function* (): Generator<CaseSketch> {
+		for (const r of host.relations) {
+			for (const fact of domainFacts(host, domains, r.name)) {
+				for (const other of host.relations) {
+					if (other.name === r.name) {
+						continue
+					}
+					for (const second of domainFacts(host, domains, other.name)) {
+						yield [
+							[plantedInsert(host, domains, r.name, fact)],
+							[plantedInsert(host, domains, other.name, second)]
+						]
+					}
+				}
+			}
+		}
+	}
+	const across = function* (): Generator<PlantedSteps> {
+		for (const r of host.relations) {
+			for (const fact of domainFacts(host, domains, r.name)) {
+				const lawful: CaseSketch = [[plantedInsert(host, domains, r.name, fact)]]
+				if (accepted(lawful) === undefined) {
+					continue
+				}
+				for (const other of host.relations) {
+					if (other.name === r.name) {
+						continue
+					}
+					for (const second of domainFacts(host, domains, other.name)) {
+						yield { lawful, refused: [plantedInsert(host, domains, other.name, second)] }
+					}
+				}
+			}
+		}
+	}
 	const grouped = Arr.filter(host.laws, (l) => needs(l).length > 0)
 	/** The lawful states a rewrite starts from: one fact alone, one referring group, two referring groups. */
 	const startingStates = function* (): Generator<CaseSketch> {
@@ -1396,8 +1455,8 @@ export const plantedRefusal = (
 	 * Each stored source fact outside a selected containment's selection switched into it at its key, its target not
 	 * added.
 	 */
-	const switches = function* (): Generator<PlantedSteps> {
-		for (const lawful of startingStates()) {
+	const switches = function* (states: Iterable<CaseSketch>): Generator<PlantedSteps> {
+		for (const lawful of states) {
 			const state = accepted(lawful)
 			if (state === undefined) {
 				continue
@@ -1475,8 +1534,10 @@ export const plantedRefusal = (
 				])
 			}
 		}
-		yield* switches()
+		yield* switches(startingStates())
 		yield* moves()
+		yield* across()
+		yield* switches(acrossStates())
 	}
 	for (const c of candidates()) {
 		const before = accepted(c.lawful)

@@ -394,6 +394,19 @@ const build = (input: unknown, options: RealPlanOptions): RealInstallPlan => {
 		sql: installationSql(installation),
 		vectorSchema: installation.names.vectorSchema,
 		skipped: [],
+		fill: {
+			families: installation.laws.families,
+			closed: new Map(
+				Arr.map(
+					[...installation.checked.closed],
+					([name, c]) =>
+						[
+							name,
+							{ heading: c.heading, key: c.relation.primaryFields.length, rows: c.rows }
+						] as const
+				)
+			)
+		},
 		installation,
 		logins
 	}
@@ -437,8 +450,26 @@ export const planRealInstall = (
 
 /**
  * The plan of a generated schema on the real installer under `installation`, owned by `owner`, with the one login a
- * generated schema runs as (oracleLogin), as a fresh installation numbers its rosters (firstCodebook): what every
- * oracle suite installs whose case states no codes of its own.
+ * generated schema runs as (oracleLogin), its rosters numbered by `codes`: the codes its case states, which every
+ * literal and parameter of the case is encoded by.
+ */
+export const oraclePlanUnder = (
+	desc: SchemaDesc,
+	installation: Identity<"schema">,
+	owner: string,
+	codes: Codebook
+): Result.Result<RealInstallPlan, CompileError> =>
+	planRealInstall(desc, {
+		installation,
+		owner,
+		logins: [oracleLogin(desc)],
+		extensions: [],
+		codes
+	})
+
+/**
+ * The plan of a generated schema as oraclePlanUnder plans it, as a fresh installation numbers its rosters
+ * (firstCodebook): what every oracle suite installs whose case states no codes of its own.
  */
 export const oraclePlan = (
 	desc: SchemaDesc,
@@ -446,13 +477,7 @@ export const oraclePlan = (
 	owner: string
 ): Result.Result<RealInstallPlan, CompileError> =>
 	Result.flatMap(ownedInput(desc), (owned) =>
-		planRealInstall(desc, {
-			installation,
-			owner,
-			logins: [oracleLogin(desc)],
-			extensions: [],
-			codes: firstCodebook(rostersOf(owned))
-		})
+		oraclePlanUnder(desc, installation, owner, firstCodebook(rostersOf(owned)))
 	)
 
 interface InstalledRealSchema {

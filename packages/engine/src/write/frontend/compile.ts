@@ -81,6 +81,7 @@ import {
 	type ImmediateReference,
 	scheduleStratum
 } from "#compiler/write/frontend/schedule.ts"
+import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import { type RelationInput, relationInput } from "#compiler/write/insert/input.ts"
 import { isCarried, isSerialField } from "#compiler/write/insert/statement.ts"
 import { type RelationUniques, relationUniques } from "#compiler/write/insert/unique.ts"
@@ -1536,9 +1537,13 @@ const compile = (
 	const strata = placedByStratum.map(({ built, outside }): WriteStratum =>
 		Object.freeze({
 			actions: Object.freeze(
-				scheduleStratum(canonicalActionOrder(built), references).map(
-					({ scheduled, dependsOn }): Action<ActionInfo> =>
-						Object.freeze({ ...scheduled.action, dependsOn, info: scheduled.info })
+				scheduleStratum(
+					canonicalActionOrder(
+						built.map((b) => ({ ...b, pureSet: payloadOf(b.info.relation).kind === "pureSet" }))
+					),
+					references
+				).map(({ scheduled, dependsOn }): Action<ActionInfo> =>
+					Object.freeze({ ...scheduled.action, dependsOn, info: scheduled.info })
 				)
 			),
 			outside

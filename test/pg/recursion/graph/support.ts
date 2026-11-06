@@ -8,9 +8,7 @@ import {
 import { checkQuery } from "#compiler/check/index.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
-import { jsonText } from "#compiler/core/trusted.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
-import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -33,15 +31,16 @@ import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { canonicalFacts, type ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import { genParamDecls, normalQuery } from "#test/support/oracle/gen/query.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
-import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
+import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import type { GenContainment, GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import { oraclePlan, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import { oraclePlanUnder, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import {
 	factSet,
 	inputText,
 	type LabelledCase,
-	type Lowering
+	type Lowering,
+	slotValue
 } from "#test/support/oracle/runner.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
@@ -164,9 +163,10 @@ export const hostNormalized = <C extends QueryCase>(c: C): C => {
 			params[id] = p
 			continue
 		}
+		const codes = schemaCodes(c.schema)
 		const texts = (row: ReadonlyArray<TypedLiteral>) =>
 			Arr.map(row, (v, i) =>
-				inputText(v, defined(p.heading[i], "a column of the parameter").type, emptyCodebook)
+				inputText(v, defined(p.heading[i], "a column of the parameter").type, codes)
 			)
 		const rows = Arr.dedupeWith(p.rows, (a, b) => {
 			const x = texts(a)
@@ -257,10 +257,11 @@ export const inInstalledCase = <A, E>(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
 			const desc = schemaDesc(c.schema)
-			const planned = oraclePlan(
+			const planned = oraclePlanUnder(
 				desc,
 				identity.schema(parsedSchemaName(schema)),
-				substrate.owner.role
+				substrate.owner.role,
+				schemaCodes(c.schema)
 			)
 			if (!planned.ok) {
 				return yield* new HarnessFailure({ message: planned.error.message })
@@ -293,59 +294,21 @@ export const inInstalledCase = <A, E>(
 		})
 	)
 
-/** The value of a relation parameter's row at a column of its heading. */
-const cellOf = (row: ReadonlyArray<TypedLiteral>, index: number, column: string): TypedLiteral => {
-	const value = row[index]
-	if (value === undefined) {
-		throw new Error(`no value for the column ${column}`)
-	}
-	return value
-}
-
 /**
- * The text of each placeholder of a statement: a scalar parameter's value, or a relation parameter's rows
- * (runner.ts slotValue). A query statement's placeholder is a declared parameter, never a write's member or a page's.
+ * The text of each placeholder of a statement, as the oracle runner binds it (runner.ts slotValue): a scalar
+ * parameter's value, or a relation parameter column's array, closed ids by the case's codes. A query statement's
+ * placeholder is a declared parameter, never a write's member or a page's.
  */
 export const statementParams = (
 	c: QueryCase,
 	statement: ConservativeStatement
 ): ReadonlyArray<string> =>
 	Arr.map(statement.params, (slot): string => {
-		switch (slot.kind) {
-			case "scalar": {
-				const p = c.query.params[slot.param]
-				if (p?.kind !== "scalar") {
-					throw new Error(`no value for ${slot.param}`)
-				}
-				return inputText(p.value, p.type, emptyCodebook)
-			}
-			case "relation": {
-				const p = c.query.params[slot.param]
-				if (p?.kind !== "relation") {
-					throw new Error(`no rows for ${slot.param}`)
-				}
-				return jsonText(
-					Arr.map(p.rows, (row) =>
-						Rec.fromEntries(
-							Arr.map(slot.columns, (col) => {
-								const at = Option.getOrThrowWith(
-									Arr.findFirstIndex(p.heading, (h) => h.name === col.name),
-									() => new Error("a column the case's own heading holds")
-								)
-								return [
-									col.definition.name,
-									inputText(
-										cellOf(row, at, col.name),
-										defined(p.heading[at], "the column's heading").type,
-										emptyCodebook
-									)
-								]
-							})
-						)
-					)
-				)
-			}
+		const value = slotValue(c, slot)
+		if (value === undefined) {
+			throw new Error(`no value of the case for a ${slot.kind} placeholder`)
 		}
+		return value
 	})
 
 /**

@@ -138,7 +138,11 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 		case "value":
 			return refuse("MalformedDescription", at, "VALUE only inside a contract predicate")
 		case "param":
-			return cx.params.scalar(expr.param, expr.type, cx.typeRef(expr.type, at))
+			return cx.params.scalar(
+				expr.param,
+				expr.type,
+				cx.typeRef(expr.type, `${at}, the parameter ${expr.param}`)
+			)
 		case "literal":
 			return lowerLiteral(cx.names, expr.value, expr.type)
 		case "cast": {

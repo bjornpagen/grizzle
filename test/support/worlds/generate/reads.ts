@@ -7,7 +7,7 @@ import { headingOf } from "#test/support/worlds/generate/entries.ts"
 import { type BoundaryArms, type Variant } from "#test/support/worlds/invalid/kinds.ts"
 import { classifyEntry, entryRows } from "#test/support/worlds/model/host.ts"
 import { entryKeyed } from "#test/support/worlds/model/session/keys.ts"
-import { pageLimit } from "#test/support/worlds/model/step.ts"
+import { isPageSize } from "#test/support/worlds/model/step.ts"
 import type {
 	BaseSpec,
 	EntrySpec,
@@ -137,7 +137,7 @@ export const viaArms = (
 		{
 			invalid: "handle:wild-js-value",
 			gen: map(
-				element([0, -1, 1.5, pageLimit + 1, Number.MAX_SAFE_INTEGER + 2]),
+				element([0, -1, 1.5, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 2]),
 				(size): ReadVia => ({ kind: "page", size })
 			)
 		},
@@ -176,9 +176,7 @@ export const viaKinds = (
 		case "compile":
 			return []
 		case "page":
-			return Number.isSafeInteger(via.size) && via.size > 0 && via.size <= pageLimit
-				? []
-				: ["handle:wild-js-value"]
+			return isPageSize(via.size) ? [] : ["handle:wild-js-value"]
 		case "get": {
 			const spec = Rec.has(role.entries, relation) ? role.entries[relation] : undefined
 			if (spec === undefined) {

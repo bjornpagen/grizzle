@@ -10,10 +10,11 @@ import {
 import {
 	carriedTargets,
 	type ProducerForm,
+	producedQuery,
 	spanArguments
 } from "#compiler/lower/conservative/producers/shared.ts"
-import type { FromItem, Select } from "#compiler/sql/ast.ts"
-import { call, col, distinctCoreWhen, select, target } from "#compiler/sql/build.ts"
+import type { FromItem, OperandSelect } from "#compiler/sql/ast.ts"
+import { call, col, target } from "#compiler/sql/build.ts"
 
 /**
  * r.difference(a, b): the points of a outside b, zero, one or two spans per binding.
@@ -28,14 +29,15 @@ import { call, col, distinctCoreWhen, select, target } from "#compiler/sql/build
  *
  * The pieces of one invocation are distinct, so the produced heading is keyed by an input key among the carried columns
  * plus the piece (analysis/physical produceProps). Different bindings can produce identical pieces: the
- * outer DISTINCT is the conservative boundary, and the optimized lowering keeps it unless that proof holds.
+ * outer DISTINCT is the conservative boundary, and the optimized lowering keeps it unless that proof holds or the
+ * node's consumers make its rows a set.
  */
 export const differenceQuery = (
 	node: ProducerNode<"spanIntersection" | "spanDifference">,
 	cx: LowerContext,
 	env: Env,
 	form: ProducerForm
-): Select => {
+): OperandSelect => {
 	const at = nodeLabel(node)
 	const input = cx.source(node.input, env)
 	const scope = extendEnv(env, [[node.input.id, input.map]])
@@ -52,12 +54,10 @@ export const differenceQuery = (
 		columns: [piece],
 		lateral: true
 	}
-	return select(
-		distinctCoreWhen(
-			form.distinct,
-			appendNonEmpty(carriedTargets(node, input.map), target(col(alias, piece))),
-			[input.item, pieces],
-			undefined
-		)
+	return producedQuery(
+		form.produced,
+		appendNonEmpty(carriedTargets(node, input.map), target(col(alias, piece))),
+		[input.item, pieces],
+		undefined
 	)
 }

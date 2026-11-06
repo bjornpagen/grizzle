@@ -73,7 +73,8 @@ How to upgrade:
   among them, has no cast from text, by type and at compile time. No codemod.
 - **`date`** is a new field type: PostgreSQL's date under the builtin contract `date`, whose domain admits
   0001-01-01 to 9999-12-31, its host value `CalendarDate`, the ISO 8601 text, its one form. It compares, takes `min`
-  and `max`, and keys and indexes. No codemod.
+  and `max`, and keys and indexes. It has no span yet, though PostgreSQL has `daterange`: `span(date)` is refused, by
+  the types and with `UnsupportedOperation` (`spanEndpoint`), a limit the README states. No codemod.
 - **Every login pins `DateStyle = 'ISO, YMD'`** beside `extra_float_digits = 1`, stored as its default and sent in its
   startup options, so PostgreSQL writes a date as its host text. A login of an existing database lacks the default
   and `Db.open`'s admission refuses it until a migration stores it: regenerate and re-create as every entry here asks.

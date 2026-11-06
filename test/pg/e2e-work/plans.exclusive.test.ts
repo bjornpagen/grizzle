@@ -15,7 +15,10 @@
  * which reads only by an index condition, is the one scan left, every scan of a relation a statement restricts reads by
  * an index condition on an index the installation planned; and no free plan scans a relation of more than 20,000 rows,
  * neither sequentially nor as a nested loop's inner side without an index condition.
- * Every index the installation created must be read by some free plan of some case.
+ * Every index the workload's access paths created must be read by some free plan of some case. An index only a law's
+ * maintenance asked for is no read's: the reverse reference of each alternatives arm's containment from Task's rows of
+ * its handle, over Task's law column of that handle, is read by the foreign key's own check when an arm's row goes,
+ * and the serving suite (test/pg/physical/serving.ts) holds every law's probe to the index planned for it.
  *
  * The workload's other reads ask for every fact of a relation (taskPayloads, largestPerAccount, tasksWithoutNotes,
  * assignedTasks, accountCards), so a scan is their plan; they are not run.
@@ -214,9 +217,17 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 						Effect.scoped
 					)
 			)
+			/** The indexes no access path asked for: each serves only a law's maintenance. */
+			const lawOnly = new Set<string>(
+				Arr.flatMap(o.installed.installation.indexes, (i) =>
+					i.index.kind === "created" && Arr.every(i.requests, (r) => r.role === "lawMaintenance")
+						? [i.index.name]
+						: []
+				)
+			)
 			const created = yield* createdIndexes(o.installed.schema)
 			assert.deepEqual(
-				Arr.filter(created, (i) => !used.has(i)),
+				Arr.filter(created, (i) => !used.has(i) && !lawOnly.has(i)),
 				[],
 				"every index the workload creates is read by a selective read"
 			)
@@ -226,7 +237,7 @@ const planSuite = (sizes: Sizes, runs: number) => (ctx: TestContext) =>
 
 layer(Substrate.layer)("the worked example's plans at volume", (it) => {
 	it.effect(
-		"60,000 tasks: every selective read through its indexes, every created index read",
+		"60,000 tasks: every selective read through its indexes, every index the workload created read",
 		planSuite({ accounts: 25_000, tasks: 60_000 }, 8)
 	)
 })

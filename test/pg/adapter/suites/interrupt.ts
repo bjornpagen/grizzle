@@ -443,6 +443,8 @@ const interruptCases = Effect.gen(function* () {
 					const answersOf = (type: string) => Arr.filter(traffic, (m) => m.type === type).length
 					const lastAnswered = answersOf("Z") - 1
 					const callMark = tap.mark()
+					yield* tap.gate.settled
+					/** The answers before the call, every one of which has reached the driver (Gate.settled). */
 					const answeredBefore = tap.gate.delivered("Z")
 					const answered = (): number => tap.gate.delivered("Z") - answeredBefore
 					tap.gate.hold(

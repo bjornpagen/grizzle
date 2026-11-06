@@ -8,7 +8,8 @@ import { optimizedProducerForm } from "#compiler/lower/shapes/spans/forms.ts"
  *
  * A Produce node lowers through the conservative builders (lower/conservative/producers) in its optimized form
  * (forms.ts): intersection and difference keep their outer DISTINCT only where the placement realized the node
- * `distinct`, and pack keeps neither of its boundaries, being unique by construction. The shape dispatch (../index.ts)
+ * `distinct`, and pack drops its own, being unique by construction, and keeps its contributions' unless the analysis
+ * keys them. The shape dispatch (../index.ts)
  * reads `producerLowerer` at this fixed path and never edits it. A point lookup against a span-keyed relation is the
  * ordinary `s @> t` the Filter lowers to, which the span key's GiST index serves.
  */

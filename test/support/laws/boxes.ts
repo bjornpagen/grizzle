@@ -69,8 +69,9 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
  * - span coverage: Rota(site, during) keyed by a span key, and `contained(on([select(]Visit[, (v) => v.eq(v.billable,
  *   b))], "site", "during"), on([select(]Rota[, (r) => r.eq(r.open, o))], "site", "during"))`, at most one side
  *   selected: a PERIOD foreign key for every visit into every rota fact, from a selected visit's range law column, or
- *   into the range law column of the rota facts a selector picks, each met by fragments of adjacent rota spans, and
- *   Visit's candidate span key `key(on(Visit, "site", "during"))` beside its id; and the same coverage into
+ *   into the range law column of the rota facts a selector picks, which their own span key
+ *   `key(on(select(Rota, (r) => r.eq(r.open, o)), "site", "during"))` keys apart, each met by fragments of adjacent rota
+ *   spans, and Visit's candidate span key `key(on(Visit, "site", "during"))` beside its id; and the same coverage into
  *   Roster(shift, crew, place) keyed by (place, shift), `on(Roster, "place", "shift")`, whose fields are named apart
  *   from the source's and declared in another heading order, so the law pairs the sides' fields by their positions in
  *   the two lists alone;
@@ -540,9 +541,23 @@ const rosterCoverage = (p: VisitsParams) =>
  */
 const visitSpanKey = key(on(Visit, "site", "during"))
 
+/**
+ * The span key over the rota facts a selector picks, which a coverage into them needs: its PERIOD foreign key references
+ * the target side's range law columns, so their own UNIQUE ... WITHOUT OVERLAPS, never the rota's primary key over its
+ * fields, keys them apart (a coverage's target needs a no-overlap key over its span). Every visit covered by every rota
+ * fact needs none beside the primary key.
+ */
+const coverRotaKey = (p: VisitsParams) =>
+	p.cover.kind === "every" ? [] : [key(on(openRota(p.cover.value), "site", "during"))]
+
+/** The span key over the roster facts a selector picks, as coverRotaKey's over the rota. */
+const coverRosterKey = (p: VisitsParams) =>
+	p.cover.kind === "every" ? [] : [key(on(openRoster(p.cover.value), "place", "shift"))]
+
 export const visits = (p: VisitsParams) => (name: string) =>
 	schema(name, { Rota, Visit }, [
 		visitSpanKey,
+		...coverRotaKey(p),
 		rotaCoverage(p),
 		...mutables(p.mutable, { source: Visit, target: Rota })
 	])
@@ -550,6 +565,7 @@ export const visits = (p: VisitsParams) => (name: string) =>
 export const rosterVisits = (p: VisitsParams) => (name: string) =>
 	schema(name, { Roster: ShiftRoster, Visit }, [
 		visitSpanKey,
+		...coverRosterKey(p),
 		rosterCoverage(p),
 		...mutables(p.mutable, { source: Visit, target: ShiftRoster })
 	])
@@ -569,8 +585,27 @@ const visitSpanKeyLaw = (laws: LawNames): HostLaw => ({
 	law: laws.lawOf(visitSpanKey),
 	relation: "Visit",
 	scalars: ["site"],
-	span: "during"
+	span: "during",
+	selection: everyFact
 })
+
+/** The host's law of a selected cover's span key (coverRotaKey, coverRosterKey): none for every target fact. */
+const coverKeyLaws = (
+	laws: LawNames,
+	statements: ReadonlyArray<ReturnType<typeof key>>,
+	relation: string,
+	scalars: ReadonlyArray<string>,
+	span: string,
+	selection: HostSelection
+): ReadonlyArray<HostLaw> =>
+	Arr.map(statements, (statement) => ({
+		kind: "spanKey",
+		law: laws.lawOf(statement),
+		relation,
+		scalars,
+		span,
+		selection
+	}))
 
 const coverageHost = (p: VisitsParams): HostSchema => {
 	const source = {
@@ -597,8 +632,17 @@ const coverageHost = (p: VisitsParams): HostSchema => {
 						law: laws.primaryKeyLaw(Rota),
 						relation: "Rota",
 						scalars: ["site"],
-						span: "during"
+						span: "during",
+						selection: everyFact
 					},
+					...coverKeyLaws(
+						laws,
+						coverRotaKey(p),
+						"Rota",
+						["site"],
+						"during",
+						selectionOf("open", p.cover)
+					),
 					visitKey(laws),
 					visitSpanKeyLaw(laws),
 					{
@@ -629,8 +673,17 @@ const coverageHost = (p: VisitsParams): HostSchema => {
 						law: laws.primaryKeyLaw(ShiftRoster),
 						relation: "Roster",
 						scalars: ["place"],
-						span: "shift"
+						span: "shift",
+						selection: everyFact
 					},
+					...coverKeyLaws(
+						laws,
+						coverRosterKey(p),
+						"Roster",
+						["place"],
+						"shift",
+						selectionOf("open", p.cover)
+					),
 					visitKey(laws),
 					visitSpanKeyLaw(laws),
 					{
@@ -942,7 +995,8 @@ export const timekeepingFamily: Family<TimekeepingParams> = {
 					law: laws.primaryKeyLaw(Employment),
 					relation: "Employment",
 					scalars: ["employee"],
-					span: "during"
+					span: "during",
+					selection: everyFact
 				},
 				{
 					kind: "key",
@@ -956,7 +1010,8 @@ export const timekeepingFamily: Family<TimekeepingParams> = {
 					law: laws.primaryKeyLaw(Shift),
 					relation: "Shift",
 					scalars: ["employee"],
-					span: "during"
+					span: "during",
+					selection: everyFact
 				},
 				{
 					kind: "contained",

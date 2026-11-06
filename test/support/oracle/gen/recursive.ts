@@ -167,7 +167,8 @@ interface GenEdge {
  * completed recursion's state: its end vertex equal to a parameter or a literal, its end vertex unequal to a literal,
  * or its origin equal to one (an endpoint filter is not a seed filter, a final predicate is not safe at every
  * intermediate vertex, and only the origin filter may move into the seed). resolveRecursiveCase with a
- * RecursionMutation builds the same case with that predicate moved inside the recursion.
+ * RecursionMutation builds the same case mutated: that predicate moved inside the recursion, or an edge count's edge
+ * identity erased.
  *
  * fixedLengthCaseGen pairs two lowerings of one answer in one DAG: a fixed-length connected match of k edges through
  * joins and the same set through a bounded recursive relation filtered to hops = k, for the
@@ -1628,7 +1629,8 @@ const originColumn = (parts: RecursiveQueryParts): string | undefined =>
 
 /**
  * A recursion mutant: the case's own query with a result predicate placed inside the recursion, the way an optimizer
- * might push it. Each applies to one consumer and leaves every other case as it is.
+ * might push it, or a fold of the completed recursion over a projection that drops a key. Each applies to one consumer
+ * and leaves every other case as it is.
  *
  * - endFilterIntoSeed (endFilter): the filter on the completed recursion's end vertex applied to the seed instead. An
  *   endpoint filter is not a seed filter, so this is unsound: a chain or a diamond tells it apart.
@@ -1636,11 +1638,16 @@ const originColumn = (parts: RecursiveQueryParts): string | undefined =>
  *   A final predicate is not safe at every intermediate vertex: a chain through v tells it apart.
  * - originFilterIntoSeed (originFilter): the filter on the origin applied to the seed. Every state keeps its seed's
  *   origin, so this is a valid pushdown of a bound root, and it agrees on every case.
+ * - edgeIdentityErased (edgeCount): the edges leaving the reached vertices counted by their endpoints instead of their
+ *   bound edge id. The bound tuple then holds no key of E, so the count reads the projection's set (groupOver), and
+ *   parallel edges, distinct facts whose endpoints agree, merge into one contribution: unsound wherever a parallel edge
+ *   is reached, and the same count without one.
  */
 const recursionMutations = [
 	"endFilterIntoSeed",
 	"neFilterIntoStep",
-	"originFilterIntoSeed"
+	"originFilterIntoSeed",
+	"edgeIdentityErased"
 ] as const
 export type RecursionMutation = (typeof recursionMutations)[number]
 /** The case a sketch names ("unmutated"), or a mutant of it. */
@@ -1725,12 +1732,9 @@ const buildConsumer = (
 				{ source: q.relation("E"), bind: edgeBind }
 			])
 			const keys = key === undefined ? [] : ["origin"]
-			return q.groupOver(
-				region,
-				keys,
-				[...keys, ...(q.graph.keyed ? ["edge"] : ["node", "next"])],
-				"edges"
-			).node
+			const identity =
+				q.graph.keyed && mutation !== "edgeIdentityErased" ? ["edge"] : ["node", "next"]
+			return q.groupOver(region, keys, [...keys, ...identity], "edges").node
 		}
 		case "join2": {
 			/**

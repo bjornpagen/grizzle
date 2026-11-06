@@ -20,7 +20,11 @@ import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
-import { numericMaxFractionDigits } from "#compiler/ir/scalar.ts"
+import {
+	numericMaxFractionDigits,
+	numericMaxPrecision,
+	numericMaxScale
+} from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -43,10 +47,33 @@ import {
 	plainRender,
 	renderSql,
 	spelledExpr,
+	type TestField,
 	v
 } from "#test/unit/compute/support.ts"
 
 import { regex } from "arkregex"
+/**
+ * The field a literal base is typed by, as Compute.literal types one: a literal never stands first, so the base is a
+ * literal of a numeric field, whose typmod holds its value exactly, (its digits, its least scale), or NaN, which every
+ * typmod admits, at numeric(1, 0). None for an infinity, which no typmod admits, or a value whose digits or scale pass
+ * numeric's declarable ones: no declared field holds it, so no literal base is it. The exponent stays a bare literal,
+ * typed by the base it meets.
+ */
+const baseField = (base: Decimal): TestField | undefined => {
+	if (base.isNaN()) {
+		return testPg.numericOf(1, 0)
+	}
+	if (!base.isFinite()) {
+		return undefined
+	}
+	const scale = base.parts.minScale
+	const digits = base.parts.coefficient === 0n ? 1 : String(base.parts.coefficient).length
+	const precision = Math.max(digits, scale, 1)
+	return precision > numericMaxPrecision.value || scale > numericMaxScale.value
+		? undefined
+		: testPg.numericOf(precision, scale)
+}
+
 /**
  * What a case reached: a value both sides agree on; a power compilation refuses, its literal operands outside the
  * domain and range it proves (PartialOperation, precondition powerDomain: zero to a negative power, a negative base, a
@@ -195,6 +222,10 @@ const guardedKept: ReadonlyArray<Kept<ReadonlyArray<GuardedPower>, GuardedFeatur
 	}
 ]
 
+/**
+ * The pairs every case runs: zeros, ones, signs, int32 and numeric limits, the special values, and the results that
+ * reach a power of ten the proof bounds them by, x^0, 1^y and (10^-s)^-y, an integer digit past the bound's exponent.
+ */
 const edges: ReadonlyArray<readonly [string, string]> = [
 	["0", "0"],
 	["0", "1"],
@@ -219,6 +250,9 @@ const edges: ReadonlyArray<readonly [string, string]> = [
 	["10", "-1001"],
 	["10", "-1017"],
 	["0.1", "2000"],
+	["0.1", "-2"],
+	["0.01", "-1"],
+	["0.001", "-3.0"],
 	["9999", "32768"],
 	["-2", "3"],
 	["-2", "4"],
@@ -321,11 +355,16 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 						Effect.gen(function* () {
 							let refused = 0
 							const cases: Array<EvalCase> = Arr.flatMap([...edges, ...batch], ([a, b], ord) => {
+								const base = Decimal.of(a)
+								const field = baseField(base)
+								if (field === undefined) {
+									return []
+								}
 								const lowered = lowerWith(
 									"query",
 									expr,
 									{
-										a: { kind: "bare", value: Decimal.of(a) },
+										a: { kind: "literal", field, value: base },
 										b: { kind: "bare", value: Decimal.of(b) }
 									},
 									false,

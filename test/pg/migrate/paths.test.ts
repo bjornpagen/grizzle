@@ -11,6 +11,7 @@ import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
 import {
 	carryChain,
 	catalogRenamedDrawGen,
+	directVersion,
 	holdsCatalogName,
 	type IntentSketch,
 	keyCarriedOverRetyped,
@@ -87,7 +88,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *     chains, each migration's validation being a reviewed data step): after B, A's facts stand in B's relations
  *     exactly as the model's rows, loaded into a fresh installation of B and read back by PostgreSQL, compare;
  * (c) A to C directly, from A's snapshot, applies and passes (a) too, so the catalog of C is the same whichever path
- *     led to it;
+ *     led to it, but for its rosters' codes, which are each path's history (a handle B added and C no longer holds is
+ *     a hole after B, and no code at all on the direct path);
  * (d) after every migration, each identity's next value is past its column's stored maximum (`identitiesPast`): the
  *     reviewer converts a serial field to bigint by its cast, so a widened serial keeps its values and its advance
  *     is judged against them.
@@ -257,13 +259,16 @@ const property = (p: RenamedPath, notes: Case<Feature>) =>
 			yield* fresh(x, p.path.c, "(a) A to B to C")
 			yield* identitiesPast(planOf(p.path.c, x, owner), "(d) A to B to C")
 
-			/** (c) Y: A, then C directly. */
-			const dy = yield* Effect.fromResult(drafted([a, c], y, owner, p.choose))
+			/** (c) Y: A, then C directly, its rosters' codes the direct migration's (directVersion). */
+			const direct = directVersion(p.path)
+			const dy = yield* Effect.fromResult(
+				drafted([a, { version: direct, origins: p.origins.c }], y, owner, p.choose)
+			)
 			yield* apply(m, directory(dy, 0), noFurther)
 			yield* load(y, p.path.a, model.loaded)
 			yield* apply(m, directory(dy, 1), noFurther)
-			yield* fresh(y, p.path.c, "(c) A to C")
-			yield* identitiesPast(planOf(p.path.c, y, owner), "(d) A to C")
+			yield* fresh(y, direct, "(c) A to C")
+			yield* identitiesPast(planOf(direct, y, owner), "(d) A to C")
 		})
 	)
 

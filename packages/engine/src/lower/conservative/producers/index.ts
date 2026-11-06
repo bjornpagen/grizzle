@@ -22,7 +22,8 @@ export type { ProducerForm } from "#compiler/lower/conservative/producers/shared
  * - spanPack: unnest of the grouped range_agg, one span per maximal covered component of each group (pack.ts).
  *
  * Each closes its produced heading with SELECT DISTINCT, the oracle baseline's boundary at every set boundary:
- * different bindings can produce the same piece.
+ * different bindings can produce the same piece. A node lowers to a set, or, realized plain where its consumers make
+ * its rows a set, an operand (context.ts NodeLowerer).
  */
 export const produceQuery =
 	(form: ProducerForm): NodeLowerer<"Produce"> =>

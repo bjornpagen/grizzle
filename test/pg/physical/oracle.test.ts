@@ -58,7 +58,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   that same text. Each domain's CHECK is judged by what it admits: every probe text (checks.ts) cast into the domain
  *   inside the real installation's transaction must be admitted exactly when the declared pattern, read by the
  *   JavaScript engine, matches it, and refused with 23514 naming the domain's CHECK;
- * - a contract domain is the real installer's without its CHECKs, which the minimal installer leaves out (plan.ts);
+ * - a contract domain is the real installer's without its CHECKs, which the minimal installer leaves out (plan.ts),
+ *   named alike, by the digest of its definition, CHECK and all;
+ * - a closed relation, which a roster's patterned payload declares, is the real installer's alone: the minimal installer
+ *   skips it (plan.ts), and its constants are no part compared here;
  * - a table's storage CHECKs (a span's shape and width, a vector's norm) are the oracle's own statement of the
  *   documented rule, compared with the real installer's by name and by PostgreSQL's deparsed definition; a row check
  *   and a finite check are the real installer's alone, held by name to the ones its DDL states here, and by what they
@@ -180,10 +183,25 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 								 */
 								const schema = yield* substrate.schema({ create: false, label: "physical" })
 								const pinned = yield* substrate.admin.pin
-								const plan = planInstall(desc, atName(schema), defaultPlanOptions)
+								const plan = planInstall(desc, atName(schema), {
+									...defaultPlanOptions,
+									unsupported: "skip"
+								})
 								if (!plan.ok) {
 									return yield* Effect.die(new Error(`oracle plan ${plan.error.message}`))
 								}
+								/**
+								 * What the plan skips: exactly the closed relations, a roster's patterned payload
+								 * (gen/schema.ts schemaDesc), constants, which no part compared here holds, beside their
+								 * text domain, a structural domain like any other.
+								 */
+								const skippedClosed = Arr.flatMap(desc.relations, (r) =>
+									r.kind === "closedRelation" ? [`closed relation ${r.name}`] : []
+								)
+								assert.deepEqual(
+									Arr.map(plan.value.skipped, (o) => o.what),
+									skippedClosed
+								)
 								const owned = owning(desc)
 								const worlds = fixtureWorlds(desc)
 								const real = compileInstallation(owned, {
@@ -268,9 +286,16 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 									c.note("vector column")
 								}
 								/**
-								 * Domains: the real installer's structural text domains, over text, and its
-								 * contract domains, which are the oracle's but for their CHECKs.
+								 * Domains: the real installer's structural text domains, over text, its roster
+								 * domains, the oracle's CHECK and all, and its contract domains, which are the
+								 * oracle's but for their CHECKs.
 								 */
+								const rosterDomains = new Set<string>(
+									Arr.map(
+										[...real.value.names.codes.rosters.keys()],
+										(roster) => real.value.names.rosterDomain(roster).name
+									)
+								)
 								const textDomainsOf = Arr.filter(r.domains, (d) => textDomains.has(d.name))
 								assert.deepEqual(
 									Arr.map(textDomainsOf, (d) => d.name),
@@ -283,7 +308,7 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 									o.domains,
 									Arr.map(
 										Arr.filter(r.domains, (d) => !textDomains.has(d.name)),
-										(d) => ({ ...d, constraints: [] })
+										(d) => (rosterDomains.has(d.name) ? d : { ...d, constraints: [] })
 									)
 								)
 								/**

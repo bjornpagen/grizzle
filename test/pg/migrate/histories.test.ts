@@ -93,22 +93,24 @@ import type {
  * - a relation renamed, two relations' names swapped, a field renamed, a field renamed with its type changed, or a
  *   relation removed and one of its shape added under another name (a new identity: the old one dropped); programs
  *   chain them, so a rename followed by another is a chain A→B→C, and one back to an earlier name A→B→A;
- * - a login renamed, or renamed while its roles change (a role added to it, or taken from another login): a login is
- *   no name a draft renames, so its rename is a login dropped and another created;
+ * - a login renamed, or renamed while its roles change (a role added to it, or taken from another login), each rename
+ *   declared (`--rename @old=@new`), so the login keeps its PostgreSQL role, renamed in place;
  * - an entry added to a role or removed from it, a field of the context renamed or added, or the context renamed;
- * - a login's and a role's names exchanged: one PostgreSQL role would turn from a login into a role, which the draft
- *   refuses by name (loginRoleExchange), at the PostgreSQL role of one of the two, applying nothing.
+ * - a login's and a role's names exchanged, the login declared dropped (`--drop @<login>`): one PostgreSQL role would
+ *   turn from a login into a role, which the draft refuses by name (loginRoleExchange), at the PostgreSQL role of one of
+ *   the two, applying nothing.
  *
  * Each step drafts the edit from the snapshot before (`grizzle generate`), declaring by the model's identity map what
  * it renames and drops (`--rename`, `--drop`): a relation renamed exactly when the step keeps its origin under another
- * name, a field renamed exactly when a kept relation keeps its origin under another name, and every relation and field
- * whose origin the step no longer holds dropped. It checks the review reads back as made (the read-back oracle), and
+ * name, a field renamed exactly when a kept relation keeps its origin under another name, a login renamed exactly when
+ * the step keeps its origin under another name, and every relation and field whose origin the step no longer holds
+ * dropped. It checks the review reads back as made (the read-back oracle), and
  * migrates it with the runner, whose admission checks the catalog against the snapshot (drift). After every step:
  *
  * - the installed catalog is a fresh install's of the step's version, its worlds included: roles, memberships, views,
  *   policies, functions and grants;
- * - every login and role is the PostgreSQL role of its name: one kept under its name keeps its OID, no role is created
- *   again, and a renamed login is a new PostgreSQL role, its old one dropped;
+ * - every login is the PostgreSQL role its origin was installed as, and every role the one of its name: a renamed login
+ *   keeps its OID under its new name, its old name held by no role, and no role is created again;
  * - the facts written before the first step read back through the renamed objects: every relation of the step holds
  *   the rows the carry model of the model's identity map says, against a fresh install loaded with them.
  *
@@ -805,8 +807,9 @@ const planned = (built: Built, schema: string, owner: string): RealInstallPlan =
 /**
  * What a step declares by the model's identity map, as `--rename` and `--drop` spell it: a relation renamed exactly when
  * a relation of the step keeps the origin of one before it under another name, a field renamed exactly when a field of
- * a kept relation keeps the origin of one before it under another name, and every relation and field whose origin the
- * step no longer holds dropped. Tier never changes, so no handle is renamed or dropped.
+ * a kept relation keeps the origin of one before it under another name, a login renamed exactly when a login of the
+ * step keeps the origin of one before it under another name, and every relation and field whose origin the step no
+ * longer holds dropped. Tier never changes, so no handle is renamed or dropped, and no command drops a login.
  */
 const identityDeclarations = (before: Model, after: Model): Declarations => {
 	const renames: Array<Rename> = []
@@ -841,6 +844,15 @@ const identityDeclarations = (before: Model, after: Model): Declarations => {
 					}
 				})
 			}
+		}
+	}
+	for (const was of before.logins) {
+		const now = Arr.findFirst(after.logins, (l) => l.origin === was.origin)
+		if (Option.isSome(now) && loginName(now.value) !== loginName(was)) {
+			renames.push({
+				from: { kind: "login", login: parsedName(loginName(was)) },
+				to: { kind: "login", login: parsedName(loginName(now.value)) }
+			})
 		}
 	}
 	return { renames, drops }
@@ -901,7 +913,7 @@ const worldRoles = (m: Model, plan: RealInstallPlan): ReadonlyMap<string, string
 				() => new Error(`the plan installs no login ${loginName(l)}`)
 			)
 			return [
-				[`login ${loginName(l)}`, installed.role] as const,
+				[`login ${l.origin}`, installed.role] as const,
 				...Arr.map(
 					l.roles,
 					(r) =>
@@ -936,7 +948,7 @@ type Feature =
 	| "a world entry over a renamed relation"
 	| "a rename declared by identity"
 	| "a drop declared by identity"
-	| "a renamed login created afresh"
+	| "a renamed login kept in place"
 
 const featureOf: { readonly [K in keyof Params]: Feature } = {
 	"rename a relation": "a relation renamed",
@@ -1044,8 +1056,8 @@ const loginRolesOf = (m: Model, plan: RealInstallPlan): ReadonlyMap<string, stri
 		])
 	)
 
-/** Every login and every role of a version is the PostgreSQL role of its name: one the step keeps under its name keeps
- * the OID it had, and a renamed login, a login created afresh, has the OID of its new role. */
+/** Every login of a version is the PostgreSQL role its origin was installed as, and every role the one of its name:
+ * each keeps the OID it had, a renamed login's role renamed in place with it. */
 const sameWorlds = (h: History, m: Model, plan: RealInstallPlan, what: string) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
@@ -1082,7 +1094,7 @@ const noteDeclared = (
 		note("a drop declared by identity")
 	}
 	if (Arr.some(renamedLogins(before, after), () => true)) {
-		note("a renamed login created afresh")
+		note("a renamed login kept in place")
 	}
 }
 
@@ -1127,7 +1139,7 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 				const kept = yield* substrate.roleExists(defined(h.loginRoles.get(role), "a login's role"))
 				assert.ok(
 					!kept,
-					`step ${h.steps}: the renamed login ${role}'s old PostgreSQL role is dropped`
+					`step ${h.steps}: no PostgreSQL role holds the renamed login ${role}'s old name`
 				)
 			}
 			h.loginRoles = loginRolesOf(after, plan)
@@ -1158,13 +1170,15 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 		})
 	)
 
-/** A login's and a role's names exchanged: the draft is refused by name, at the PostgreSQL role of one of the two, and
- * nothing is applied, so the model and the system stay where they were. */
+/** A login's and a role's names exchanged, the login declared dropped (`--drop @<login>`), so its PostgreSQL role
+ * would become the role's: the draft is refused by name, at the PostgreSQL role of one of the two, and nothing is
+ * applied, so the model and the system stay where they were. */
 const exchange = (h: History, before: Model, p: Params["exchange a login's and a role's names"]) =>
 	Effect.gen(function* () {
 		const built = yield* builtOf(exchanged(before, p))
 		const plan = planned(built, h.schema, h.owner)
 		h.steps++
+		const login = nth(before.logins, p.login, "login")
 		const error = refused(
 			generate({
 				previous: h.previous,
@@ -1172,7 +1186,7 @@ const exchange = (h: History, before: Model, p: Params["exchange a login's and a
 				name: `step_${h.steps}`,
 				timestamp: draftedAt(h.steps),
 				workload: noWorkload,
-				declared: noDeclarations
+				declared: { renames: [], drops: [{ kind: "login", login: parsedName(loginName(login)) }] }
 			}),
 			"UnsupportedOperation",
 			`step ${h.steps}: a login's and a role's names exchanged are drafted`
@@ -1183,7 +1197,6 @@ const exchange = (h: History, before: Model, p: Params["exchange a login's and a
 			`step ${h.steps}: the exchange is refused as another unsupported change`
 		)
 		const roles = worldRoles(before, h.plan)
-		const login = nth(before.logins, p.login, "login")
 		const role = nth(before.roles, p.role, "role")
 		const named = Arr.flatMap([`login ${login.origin}`, `role ${role.name}`], (who) =>
 			Option.toArray(Option.fromUndefinedOr(roles.get(who)))
@@ -1329,7 +1342,7 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 								"a world entry over a renamed relation",
 								"a rename declared by identity",
 								"a drop declared by identity",
-								"a renamed login created afresh"
+								"a renamed login kept in place"
 							],
 							{ cases: 24, sense: notesOnly }
 						),

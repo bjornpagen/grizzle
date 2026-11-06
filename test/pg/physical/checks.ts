@@ -1,10 +1,12 @@
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
+import { conversionOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, DomainName } from "#compiler/core/ids.ts"
 import { type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { compiledPattern } from "#test/support/regex.ts"
 
@@ -152,19 +154,26 @@ const textDomainModels = (
 	desc: SchemaDesc
 ): ReadonlyArray<TextDomainModel> =>
 	Arr.map(installation.textDomains, (d) => {
-		/** A stored relation's fields, each a column of its table. */
-		const fields = Arr.flatMap(desc.relations, (r) =>
-			Arr.flatMap(Rec.toEntries(r.kind === "relation" ? fieldTypes(r.fields) : {}), ([field, f]) =>
+		/**
+		 * A stored relation's fields, each a column of its table, and a closed relation's, which has no table, each a use
+		 * by the relation's conversion and the field's column, as the closed facts' validation casts it.
+		 */
+		const fields = Arr.flatMap(desc.relations, (r) => {
+			const declaredFields =
+				r.kind === "relation" ? fieldTypes(r.fields) : r.kind === "closedRelation" ? r.fields : {}
+			const table =
+				r.kind === "relation"
+					? installation.names.relation(r.name).name
+					: conversionOf(parsedName(r.name))
+			return Arr.flatMap(Rec.toEntries(declaredFields), ([field, f]) =>
 				Arr.some(
 					d.uses,
-					(u) =>
-						u.table === installation.names.relation(r.name).name &&
-						u.column === installation.names.column(r.name, field)
+					(u) => u.table === table && u.column === installation.names.column(r.name, field)
 				)
 					? [declaredText(f)]
 					: []
 			)
-		)
+		})
 		const [text] = Arr.flatMap(fields, (t) => (t.kind === "text" ? [t] : []))
 		if (text === undefined) {
 			throw new Error(`the text domain ${d.name} types no declared text field`)

@@ -10,7 +10,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import type { AggregateFn } from "#compiler/ir/rel.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import { unaryOverload } from "#compiler/scalar/aggregate.ts"
+import { type AggregateLowering, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import {
 	binaryCoercion,
 	castOf,
@@ -189,16 +189,8 @@ const checkerAggregate: Readonly<
 	boolOr: "max"
 }
 
-/**
- * The result type the checker gives the aggregate (scalar/aggregate.ts unaryOverload): count is bigint; sum is bigint
- * over smallint and integer, numeric over bigint and numeric, the argument's type over the floats and exact money over
- * money; avg is numeric over the exact types and double precision over the floats; min and max keep the argument's
- * descriptor; the folds are boolean.
- */
-export const aggregateResult = (fn: GenAggregate, type: ScalarType | undefined): ScalarType => {
-	if (fn === "count") {
-		return int8
-	}
+/** The checker's overload of a generated aggregate of one argument; one it refuses is a defect of the generators. */
+const overloadOf = (fn: Exclude<GenAggregate, "count">, type: ScalarType | undefined) => {
 	if (type === undefined) {
 		throw new Error(`${fn} needs an argument`)
 	}
@@ -206,8 +198,29 @@ export const aggregateResult = (fn: GenAggregate, type: ScalarType | undefined):
 	if (!overload.ok) {
 		throw new Error(`a generated aggregate the checker refuses: ${overload.error.message}`)
 	}
-	return overload.value.result
+	return overload.value
 }
+
+/** count's lowering: the native call. */
+const nativeLowering: AggregateLowering = { kind: "native" }
+
+/**
+ * The result type the checker gives the aggregate (scalar/aggregate.ts unaryOverload): count is bigint; sum is bigint
+ * over smallint and integer, numeric over bigint and numeric, the argument's type over the floats and exact money over
+ * money; avg is numeric over the exact types and double precision over the floats; min and max keep the argument's
+ * descriptor; the folds are boolean.
+ */
+export const aggregateResult = (fn: GenAggregate, type: ScalarType | undefined): ScalarType =>
+	fn === "count" ? int8 : overloadOf(fn, type).result
+
+/**
+ * How the conservative lowering calls the aggregate (scalar/aggregate.ts AggregateLowering): natively, or over each
+ * argument's exact numeric value, as a money sum, whose total stays exact money, is the sum of the amounts as numeric.
+ */
+export const aggregateLowering = (
+	fn: GenAggregate,
+	type: ScalarType | undefined
+): AggregateLowering => (fn === "count" ? nativeLowering : overloadOf(fn, type).lowering)
 
 export const aggregateOpId = (fn: GenAggregate, type: ScalarType | undefined): CatalogOpId => {
 	if (fn === "count") {

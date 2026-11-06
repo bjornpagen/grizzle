@@ -37,7 +37,8 @@ import * as K from "#test/unit/derived/kit.ts"
 /** Derived relations installed on PostgreSQL 19 (gate).
  *
  * - the inferred descriptors hold: every view column's catalog type, typmod and collation is the one its inferred field
- *   descriptor names, for every aggregate overload, refinement, roster and contract;
+ *   descriptor names, for every aggregate overload, refinement, roster and contract, a closed id read from its roster's
+ *   own facts, which the lowering delivers as a smallint literal, included;
  * - a view column of refined text has its pattern's domain, whether a stored field declares the pattern or not, a role
  *   reading the relation reads it through its world's view, and a role refreshing it refreshes the materialized view;
  * - a refresh inside an owner's transaction with a deferred containment temporarily false (transaction evidence)
@@ -154,9 +155,16 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 					return yield* exhaust(
 						{
 							suite: "derived/install/descriptors",
-							generator: element(["Sums", "Means", "Extremes", "Facts", "Computed"] as const),
+							generator: element([
+								"Sums",
+								"Means",
+								"Extremes",
+								"Facts",
+								"Computed",
+								"Kinds"
+							] as const),
 							literal: Formatter.format,
-							limit: 5,
+							limit: 6,
 							coverage: noCoverage,
 							caseHang
 						},

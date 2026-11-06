@@ -3,7 +3,7 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import { isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type LowerContext, refuse } from "#compiler/lower/conservative/context.ts"
-import type { ScalarParamSlot } from "#compiler/lower/conservative/types.ts"
+import type { ConservativeParamSlot, ScalarParamSlot } from "#compiler/lower/conservative/types.ts"
 import { regexMember } from "#compiler/scalar/regex/nfa.ts"
 import type {
 	Cte,
@@ -23,7 +23,12 @@ import type {
 import { cast, mapTargets, sameTypeRef, setBodyOf, withArms } from "#compiler/sql/build.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 
-type Verdict = "proved" | "unproved"
+/**
+ * What the trace finds of one definition of a delivered value: proved inside its refinement; unproved; or a declared
+ * parameter's value, which its caller supplies and so is unproved, named as the query declares it, a relation
+ * parameter's by its field (`<parameter>.<field>`), so a refusal names what the value came from.
+ */
+type Verdict = "proved" | "unproved" | { readonly kind: "parameter"; readonly name: string }
 
 /**
  * The FROM items one SELECT core reads, by alias, and the scope it is nested in: the WITH lists in force, the CTE
@@ -109,11 +114,40 @@ interface Claim {
 	readonly base: TypeRef
 }
 
+/** The placeholder a declared parameter's value fills, by its number, as the query names the parameter: a scalar
+ * parameter by its name, a relation parameter's field array `<parameter>.<field>`; none for a placeholder a lowering
+ * allocates itself. */
+const parameterOf = (slot: ConservativeParamSlot): ReadonlyArray<readonly [number, string]> => {
+	switch (slot.kind) {
+		case "scalar":
+			return [[slot.number, slot.param]]
+		case "relation": {
+			const field = slot.part.kind === "column" ? slot.columns[slot.part.index] : undefined
+			return field === undefined ? [] : [[slot.number, `${slot.param}.${field.name}`]]
+		}
+		case "member":
+		case "page":
+			return []
+	}
+}
+
 export class Tracer {
 	readonly #stored: ReadonlyMap<string, ScalarType>
+	/** Each declared parameter's placeholder, by its number, as the query names it: a relation parameter's by field. */
+	readonly #parameters: ReadonlyMap<number, string>
 
-	constructor(stored: ReadonlyMap<string, ScalarType>) {
+	constructor(
+		stored: ReadonlyMap<string, ScalarType>,
+		slots: ReadonlyArray<ConservativeParamSlot>
+	) {
 		this.#stored = stored
+		this.#parameters = new Map(slots.flatMap(parameterOf))
+	}
+
+	/** The verdict of a value the placeholder `number` fills: a declared parameter's, or unproved. */
+	#supplied(number: number): Verdict {
+		const name = this.#parameters.get(number)
+		return name === undefined ? "unproved" : { kind: "parameter", name }
 	}
 
 	/** The verdicts of the values output position `position` of `select` delivers. */
@@ -147,7 +181,7 @@ export class Tracer {
 	expr(e: Expr, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
 		switch (e.kind) {
 			case "param":
-				return [isDomain(e.type, claim) ? "proved" : "unproved"]
+				return [isDomain(e.type, claim) ? "proved" : this.#supplied(e.slot.number)]
 			case "literal":
 				return [isDomain(e.type, claim) || admittedLiteral(e, claim) ? "proved" : "unproved"]
 			case "cast":
@@ -246,9 +280,15 @@ export class Tracer {
 			}
 			case "cte":
 				return this.cte(item.name, column, scope, claim)
+			case "arrays": {
+				const array =
+					item.source.kind === "columns"
+						? item.source.columns.find((c) => c.definition.name === column)
+						: undefined
+				return [array === undefined ? "unproved" : this.#supplied(array.array.number)]
+			}
 			case "enclosing":
 			case "function":
-			case "arrays":
 			case "context":
 				return ["unproved"]
 		}
@@ -374,7 +414,9 @@ export const claimOf = (cx: LowerContext, column: HeadingColumn): Claim => ({
 
 /**
  * The domain a refined value must be cast to: none when every definition of it is proved, else its claim's domain. A
- * refinement with no domain to cast to is refused.
+ * refinement with no domain to cast to, a text pattern no stored field declares, is refused, naming the delivered
+ * column, the pattern and the parameters whose values the trace could not prove inside it, and saying what to do. A
+ * contract's domain is always named, so only a pattern meets the refusal.
  */
 export const castDomain = (
 	verdicts: ReadonlyArray<Verdict>,
@@ -386,10 +428,22 @@ export const castDomain = (
 		return undefined
 	}
 	if (claim.domain === undefined) {
+		const t = claim.type
+		const pattern =
+			t.carrier === "text" && t.text.regex !== "wildcard"
+				? `the pattern /${t.text.regex.source}/${t.text.regex.flags}`
+				: "a refinement"
+		const parameters = [
+			...new Set(verdicts.flatMap((v) => (typeof v === "object" ? [v.name] : [])))
+		]
+		const from =
+			parameters.length === 0
+				? "a value the query computes"
+				: `the ${parameters.length === 1 ? "value of the parameter" : "values of the parameters"} ${parameters.join(", ")}`
 		return refuse(
 			"UnsupportedOperation",
 			at,
-			`the domain of ${name}'s refinement, which its delivered value must be cast to`
+			`${name}'s refinement, ${pattern}, which no stored field declares, so the installation holds no domain to check ${from} by as it is delivered; declare a field of that pattern on a stored relation, or type the value by a pattern a stored field declares`
 		)
 	}
 	return claim.domain
@@ -458,7 +512,7 @@ export const refineConservative = (
 	) {
 		return relabeled
 	}
-	const tracer = new Tracer(storedColumns(cx))
+	const tracer = new Tracer(storedColumns(cx), cx.params.slots)
 	const casts = new Map<number, TypeRef>()
 	for (const [position, column] of delivered.entries()) {
 		if (!isRefined(column.type)) {

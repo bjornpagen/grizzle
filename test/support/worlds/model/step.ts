@@ -301,17 +301,17 @@ const entryFieldDomain = (
 }
 
 /**
- * The most rows a page may ask for: grizzle's page admission takes a size that is a safe integer from 1 to this limit,
- * and refuses any other before any SQL.
+ * A page size grizzle's page admission takes: a safe integer of at least 1, with no upper bound (README "A page size
+ * has no upper bound"); it refuses any other before any SQL.
  */
-export const pageLimit = 1_000
+export const isPageSize = (size: number): boolean => Number.isSafeInteger(size) && size >= 1
 
 /**
  * A read through a Db's role relation (README "Reading"): `execute`, `compile` and every page together deliver
  * its rows under the Db's facts; `get` the row at a key the relation proves, or none. Refused on the host when it
  * compiles: a relation the role does not hold, a get by a field set within which none of its keys lies (session/keys.ts)
  * or by a key holding a value of another type than its field's, which the builder refuses as a literal of that field,
- * and a page whose size is no safe integer from 1 to `pageLimit`.
+ * and a page whose size is no page size (isPageSize).
  */
 const readCall = (
 	state: ModelState,
@@ -343,9 +343,7 @@ const readCall = (
 		case "compile":
 			return delivers((rows) => rows)
 		case "page":
-			return Number.isSafeInteger(via.size) && via.size > 0 && via.size <= pageLimit
-				? delivers((rows) => rows)
-				: refused
+			return isPageSize(via.size) ? delivers((rows) => rows) : refused
 		case "get": {
 			const entry = role.entries[relation]
 			if (entry === undefined) {

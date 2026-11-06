@@ -251,9 +251,10 @@ const judgeCase = (
 		for (const m of all.mark) {
 			const grade = handles[m.grade]
 			const holds = p.scores[m.grade] === m.score
+			/** A closed id is stored as its code, the handle's position in the roster's declared order. */
 			const verdict = yield* run(
 				`INSERT INTO ${names.table(s.Mark)} (${names.column(s.Mark, "id")}, ${names.column(s.Mark, "grade")}, ${names.column(s.Mark, "score")}) VALUES ($1, $2, $3)`,
-				[grade, m.score]
+				[m.grade, m.score]
 			)
 			appendAll(
 				problems,

@@ -399,6 +399,21 @@ const rosterChanges = (
 	}
 }
 
+/**
+ * Every roster migration from a state, each applied whole: each growth, each removal of a handle held by no stored
+ * fact or by one, and each reorder (rosterChanges), what the aimed box offers (generate/enumerate.ts migrateActions).
+ */
+export const rosterMigrations = (state: ModelState): ReadonlyArray<Migration> => {
+	const rosters = rosterChanges(state)
+	return Arr.map(
+		[...rosters.grown, ...rosters.unheld, ...rosters.held, ...rosters.reordered],
+		(change): Migration => ({
+			to: onBase(state.install, withMembers(state.install.base, change.roster, change.members)),
+			how: "complete"
+		})
+	)
+}
+
 /** A base with one more law. */
 const withLaw = (base: BaseSpec, law: LawSpec): BaseSpec => ({ ...base, laws: [...base.laws, law] })
 

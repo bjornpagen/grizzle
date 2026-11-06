@@ -191,8 +191,9 @@ export interface DirectWriter {
 				readonly setup: ReadonlyArray<string>
 		  }
 	/**
-	 * The statements, with psql variables as a psql writer spells them; BEGIN and COMMIT where the row has a
-	 * transaction.
+	 * The statements, with psql variables as a psql writer spells them, a closed id by the variable its handle names, set
+	 * to its code; BEGIN and COMMIT where the row has a transaction. A row that inserts an owner of a family states its
+	 * drawn count and its ends, as a direct writer fills them.
 	 */
 	readonly sql: ReadonlyArray<string>
 	readonly outcome: DirectOutcome
@@ -239,7 +240,7 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		role: "clerk",
 		name: "a clerk writes a generated entry",
 		sql: [
-			"INSERT INTO payroll.posting (entry, line, account, side, amount) VALUES (1, :'l1', 'NetPay', 'credit', 1)"
+			"INSERT INTO payroll.posting (entry, line, account, side, amount) VALUES (1, :'l1', :netpay, :credit, 1)"
 		],
 		outcome: { kind: "refused", sqlstate: "428C9", at: "statement" }
 	},
@@ -249,7 +250,7 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		role: "clerk",
 		name: "a clerk inserts a second l1",
 		sql: [
-			"INSERT INTO payroll.pay_line (id, run, employee, gross, net, off_cycle) VALUES (:'l1', :'run1', :'ada', 500000, 390000, false)"
+			"INSERT INTO payroll.pay_line (id, run, employee, gross, net, off_cycle, deposits, deposited) VALUES (:'l1', :'run1', :'ada', 500000, 390000, false, 2, 390000)"
 		],
 		outcome: {
 			kind: "constraint",
@@ -279,7 +280,7 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		precondition: { kind: "none" },
 		role: "clerk",
 		name: "a clerk approves run1 with no approval",
-		sql: ["BEGIN", "UPDATE payroll.pay_run SET stage = 'approved' WHERE id = :'run1'", "COMMIT"],
+		sql: ["BEGIN", "UPDATE payroll.pay_run SET stage = :approved WHERE id = :'run1'", "COMMIT"],
 		outcome: {
 			kind: "constraint",
 			sqlstate: "23503",
@@ -306,7 +307,7 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		role: "clerk",
 		name: "a clerk inserts a levy line at a rate the levy does not have",
 		sql: [
-			"INSERT INTO payroll.levy_line (line, levy, employee_rate, withheld) VALUES (:'l1', 'Futa', 0.006, 0)"
+			"INSERT INTO payroll.levy_line (line, levy, employee_rate, withheld) VALUES (:'l1', :futa, 0.006, 0)"
 		],
 		outcome: {
 			kind: "constraint",
@@ -337,22 +338,21 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		name: "an explicit entry, and the writer advancing the sequence past it",
 		/**
 		 * Every line of the state after draftRun has its NetPay posting, so :'line' is a line of a fresh draft run,
-		 * lawful with its one remainder deposit and no posting (key(on(PayLine, "run", "employee")) allows one line per
-		 * employee per run).
+		 * lawful with no posting (key(on(PayLine, "run", "employee")) allows one line per employee per run) and no
+		 * deposit: a net of zero, which its empty family of deposits sums to, its drawn count and sum the writer's.
 		 */
 		precondition: {
 			kind: "setup",
 			description: "a line with no NetPay posting yet",
 			setup: [
 				"BEGIN",
-				"INSERT INTO payroll.pay_run (id, employer, period, stage) VALUES (:'run5', :'acme', int8range(:p0, :p1), 'draft')",
-				"INSERT INTO payroll.pay_line (id, run, employee, gross, net, off_cycle) VALUES (:'line', :'run5', :'ada', 5000, 5000, false)",
-				"INSERT INTO payroll.deposit (line, account, amount, remainder) VALUES (:'line', '000123456789', 5000, true)",
+				"INSERT INTO payroll.pay_run (id, employer, period, stage) VALUES (:'run5', :'acme', int8range(:p0, :p1), :draft)",
+				"INSERT INTO payroll.pay_line (id, run, employee, gross, net, off_cycle, deposits, deposited) VALUES (:'line', :'run5', :'ada', 5000, 0, false, 0, 0)",
 				"COMMIT"
 			]
 		},
 		sql: [
-			"INSERT INTO payroll.posting (entry, line, account, side, amount) OVERRIDING SYSTEM VALUE VALUES (1000000, :'line', 'NetPay', 'credit', 5000)",
+			"INSERT INTO payroll.posting (entry, line, account, side, amount) OVERRIDING SYSTEM VALUE VALUES (1000000, :'line', :netpay, :credit, 5000)",
 			`SELECT ${payroll.advance({ name: "Posting" }, "entry")}(1000000)`
 		],
 		outcome: { kind: "accepted" }
@@ -372,7 +372,7 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		role: "clerk",
 		name: "a mutable run's key change",
 		sql: [
-			"INSERT INTO payroll.pay_run (id, employer, period, stage) VALUES (:'run5', :'acme', int8range(:p0, :p1), 'draft')",
+			"INSERT INTO payroll.pay_run (id, employer, period, stage) VALUES (:'run5', :'acme', int8range(:p0, :p1), :draft)",
 			"UPDATE payroll.pay_run SET id = :'run6' WHERE id = :'run5'"
 		],
 		outcome: { kind: "accepted" }
@@ -389,7 +389,7 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		sql: [
 			"BEGIN",
 			"DELETE FROM payroll.voiding WHERE run = :'run1'",
-			"UPDATE payroll.pay_run SET stage = 'approved' WHERE id = :'run1'",
+			"UPDATE payroll.pay_run SET stage = :approved WHERE id = :'run1'",
 			"COMMIT"
 		],
 		outcome: { kind: "accepted" }
@@ -400,7 +400,7 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		role: "hr",
 		name: "hr inserts an overlapping employment",
 		sql: [
-			"INSERT INTO payroll.employment (employee, during, basis) VALUES (:'ada', int8range(:t5, :t12), 'salaried')"
+			"INSERT INTO payroll.employment (employee, during, basis) VALUES (:'ada', int8range(:t5, :t12), :salaried)"
 		],
 		outcome: {
 			kind: "constraint",
@@ -413,9 +413,21 @@ export const directWriters: ReadonlyArray<DirectWriter> = [
 		startsFrom: { kind: "stateA" },
 		precondition: { kind: "none" },
 		role: "hr",
+		/** A code no handle of Basis holds: its roster domain's CHECK refuses it. */
 		name: "hr inserts a basis outside the closed roster",
 		sql: [
-			"INSERT INTO payroll.employment (employee, during, basis) VALUES (:'bo', int8range(:t9, :t12), 'contractor')"
+			"INSERT INTO payroll.employment (employee, during, basis) VALUES (:'bo', int8range(:t9, :t12), :nobasis)"
+		],
+		outcome: { kind: "refused", sqlstate: "23514", at: "statement" }
+	},
+	{
+		startsFrom: { kind: "stateA" },
+		precondition: { kind: "none" },
+		role: "hr",
+		/** A closed id's column stores its handle's code, a smallint, which a handle's text is no input of. */
+		name: "hr writes a basis as its handle's text",
+		sql: [
+			"INSERT INTO payroll.employment (employee, during, basis) VALUES (:'bo', int8range(:t9, :t12), 'salaried')"
 		],
 		outcome: { kind: "refused", sqlstate: "22P02", at: "statement" }
 	},

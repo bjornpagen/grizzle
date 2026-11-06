@@ -35,7 +35,19 @@ import type {
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
 import { namedIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
-import type { Grantee, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
+import type {
+	AlterTableAction,
+	ColumnDef,
+	Expr,
+	ForeignKeyColumn,
+	Grantee,
+	InlineConstraint,
+	KeyColumn,
+	ObjectName,
+	SqlStatement,
+	TableConstraint
+} from "#compiler/sql/ast.ts"
+import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 
 /**
  * A draft's declarations (`--rename`, `--drop`) applied to the previous snapshot: the statements that carry out its
@@ -89,6 +101,25 @@ const heldIn = (
 	return r === undefined || r.kind === "derived" ? undefined : r
 }
 
+/** Whether two names a snapshot records are alike (core/identity.ts declaredAlike): the naming door derives a relation's
+ * table or roster domain, and a field's column, from its name's conversion, so two alike names are one installed
+ * object, which a respelling keeps as it stands. */
+const alike = (a: string, b: string): boolean => declaredAlike(declared(a), declared(b))
+
+/** The stored relation's or roster's record of `relations` under a name alike `name`, its own first: one relation,
+ * whatever spelling of its conversion a version declares it under. */
+const heldAlike = (
+	relations: Readonly<Record<string, SnapshotRelation>>,
+	name: string
+): Held | undefined => {
+	const own = heldIn(relations, name)
+	if (own !== undefined) {
+		return own
+	}
+	const respelled = Object.keys(relations).find((n) => alike(n, name))
+	return respelled === undefined ? undefined : heldIn(relations, respelled)
+}
+
 /** Whether grizzle draws a field's values again, so its drop loses nothing its caller wrote: a generated, drawn or
  * accumulated field. A caller's field holds the caller's values, and a serial one the identities its rows were given. */
 const drawnAgain = (writing: SnapshotWriting): boolean =>
@@ -132,7 +163,9 @@ const loginIn = (
  * chain included; then each renamed one is renamed from its aside name to the target's, each part it owns that the
  * target's relation declares by the same definition renamed to the target's name for it (pairParts), the rest left
  * under their aside names for the diff to drop. A renamed field is renamed in place, through its own aside name, on its
- * relation under the target's name; what is built over it is built again as the target declares it. A renamed handle
+ * relation under the target's name, and PostgreSQL carries the rename into everything built over the column, so the
+ * previous snapshot names it under its new name there too (withColumns); the diff then builds again only what the
+ * target declares otherwise, and a key it replaces over the renamed columns is one it sees standing over them. A renamed handle
  * keeps its code: the codes were drafted under the rename (ir/codes.ts draftCodebook), so nothing more is drafted for it.
  * A renamed login's role is renamed in place the same way, through its aside name (loginRenamed).
  */
@@ -192,7 +225,7 @@ export const applyDeclarations = (
 		if (
 			was?.kind !== "relation" ||
 			into === undefined ||
-			targetName(from.relation) !== to.relation ||
+			!alike(targetName(from.relation), to.relation) ||
 			!was.fields.some((f) => f.name === from.field)
 		) {
 			return refuse(
@@ -225,7 +258,7 @@ export const applyDeclarations = (
 		if (
 			was?.kind !== "closed" ||
 			now?.kind !== "closed" ||
-			targetName(from.roster) !== to.roster ||
+			!alike(targetName(from.roster), to.roster) ||
 			!was.codes.some((c) => c.kind === "live" && c.handle === from.handle) ||
 			!now.codes.some((c) => c.kind === "live" && c.handle === to.handle)
 		) {
@@ -287,7 +320,7 @@ export const applyDeclarations = (
 			continue
 		}
 		const relation = declared(name)
-		const now = heldIn(after, targetName(name))
+		const now = heldAlike(after, targetName(name))
 		if (now?.kind !== was.kind || taken(name, was)) {
 			if (!dropped({ kind: "relation", relation })) {
 				undeclared({ kind: "relation", relation })
@@ -300,7 +333,7 @@ export const applyDeclarations = (
 				const to = fields.get(name)?.get(f.name) ?? f.name
 				if (
 					!drawnAgain(f.writing) &&
-					(!now.fields.some((x) => x.name === to) || fieldTaken(name, f)) &&
+					(!now.fields.some((x) => alike(x.name, to)) || fieldTaken(name, f)) &&
 					!dropped({ kind: "field", relation, field })
 				) {
 					undeclared({ kind: "field", relation, field })
@@ -337,23 +370,23 @@ export const applyDeclarations = (
 				return (
 					was !== undefined &&
 					!renamed.has(d.relation) &&
-					(heldIn(after, d.relation)?.kind !== was.kind || taken(d.relation, was))
+					(heldAlike(after, d.relation)?.kind !== was.kind || taken(d.relation, was))
 				)
 			}
 			case "field": {
 				const was = heldIn(before, d.relation)
-				const now = heldIn(after, targetName(d.relation))
+				const now = heldAlike(after, targetName(d.relation))
 				const f = was?.kind === "relation" ? was.fields.find((x) => x.name === d.field) : undefined
 				return (
 					f !== undefined &&
 					fields.get(d.relation)?.has(d.field) !== true &&
-					(!(now?.kind === "relation" && now.fields.some((x) => x.name === d.field)) ||
+					(!(now?.kind === "relation" && now.fields.some((x) => alike(x.name, d.field))) ||
 						fieldTaken(d.relation, f))
 				)
 			}
 			case "handle": {
 				const was = heldIn(before, d.roster)
-				const now = heldIn(after, targetName(d.roster))
+				const now = heldAlike(after, targetName(d.roster))
 				const code =
 					was?.kind === "closed"
 						? was.codes.findIndex((c) => c.kind === "live" && c.handle === d.handle)
@@ -554,7 +587,8 @@ const pairedParts = (
 
 /** The declared field renames carried out on each relation under its target name, through each column's aside name so
  * no order of them meets a name another holds, and the previous snapshot with each renamed column under its target
- * name: in its table's definition and in its relation's record. */
+ * name, as the database holds it once the renames ran: in its relation's record, and wherever the snapshot's
+ * definitions name it as PostgreSQL carries a column's rename (withColumns), its table's definition among them. */
 const columnRenames = (
 	previous: DeploySnapshot,
 	after: Readonly<Record<string, SnapshotRelation>>,
@@ -569,7 +603,7 @@ const columnRenames = (
 	const records = new Map<string, SnapshotRelation>()
 	for (const [relation, renames] of fields) {
 		const was = heldIn(previous.theory.relations, relation)
-		const now = heldIn(after, renamed.get(relation) ?? relation)
+		const now = heldAlike(after, renamed.get(relation) ?? relation)
 		if (was?.kind !== "relation" || now?.kind !== "relation") {
 			continue
 		}
@@ -620,30 +654,19 @@ const columnRenames = (
 			})
 		})
 	}
+	const renamedOn = (table: ObjectName): ReadonlyMap<string, string> | undefined =>
+		tableColumns.get(nameKey(table))
 	const snapshot: DeploySnapshot = {
 		...previous,
 		manifest: {
 			...previous.manifest,
-			objects: previous.manifest.objects.map((o): ManifestObject => {
-				const v = installed(o)
-				const into = v.kind === "table" ? tableColumns.get(nameKey(v.create.table)) : undefined
-				if (v.kind !== "table" || into === undefined) {
-					return o
-				}
-				return {
-					...o,
-					ddl: [
-						{
-							...v.create,
-							columns: mapNonEmpty(v.create.columns, (c) => ({
-								...c,
-								name: into.get(c.name) ?? c.name
-							}))
-						},
-						...o.ddl.slice(1)
-					]
-				}
-			})
+			objects:
+				tableColumns.size === 0
+					? previous.manifest.objects
+					: previous.manifest.objects.map((o): ManifestObject => ({
+							...o,
+							ddl: o.ddl.map((statement) => withColumns(statement, renamedOn))
+						}))
 		},
 		theory: {
 			...previous.theory,
@@ -655,6 +678,216 @@ const columnRenames = (
 		}
 	}
 	return { statements, previous: snapshot }
+}
+
+/**
+ * `s` with each column of a table `renamed` maps under its new name, wherever PostgreSQL's RENAME COLUMN carries the
+ * rename, which it does by the column's attribute number into everything built over it: a table's columns and what its
+ * CREATE TABLE declares over them (its keys, its CHECKs, a generated column's expression), a constraint or a column an
+ * ALTER TABLE adds to it, a foreign key's columns on it and its referenced columns there, an index's keys, INCLUDE
+ * columns and predicate, an extended statistics object's columns, and a column privilege's grant. A column an
+ * expression names without a relation is its table's, as every expression over one table's row names it. A
+ * statement of any other kind names no column of a table it is built over; the roles' views, policies and functions,
+ * and the materialized views, which read columns through a relation of their FROM, the diff builds again whenever
+ * they read a column a migration changes.
+ */
+const withColumns = (
+	s: SqlStatement,
+	renamed: (table: ObjectName) => ReadonlyMap<string, string> | undefined
+): SqlStatement => {
+	const nameIn =
+		(into: ReadonlyMap<string, string> | undefined) =>
+		(column: string): string =>
+			into?.get(column) ?? column
+	const exprIn = (into: ReadonlyMap<string, string> | undefined, e: Expr): Expr =>
+		into === undefined
+			? e
+			: transformExpr(e, {
+					...identityHooks,
+					expr: (x) =>
+						x.kind === "column" && x.table === undefined
+							? { ...x, column: nameIn(into)(x.column) }
+							: x
+				})
+	const keyIn =
+		(into: ReadonlyMap<string, string> | undefined) =>
+		(k: KeyColumn): KeyColumn => ({ ...k, column: nameIn(into)(k.column) })
+	const referenceIn =
+		(into: ReadonlyMap<string, string> | undefined) =>
+		(k: ForeignKeyColumn): ForeignKeyColumn => ({ ...k, column: nameIn(into)(k.column) })
+	const columnIn = (into: ReadonlyMap<string, string> | undefined, c: ColumnDef): ColumnDef => {
+		const generated = c.generated
+		return {
+			...c,
+			name: nameIn(into)(c.name),
+			generated:
+				generated === undefined || generated.kind === "identity"
+					? generated
+					: generated.kind === "stored"
+						? { kind: "stored", expr: exprIn(into, generated.expr) }
+						: {
+								kind: "partial",
+								when: exprIn(into, generated.when),
+								expr: exprIn(into, generated.expr)
+							}
+		}
+	}
+	const inlineIn = (
+		into: ReadonlyMap<string, string> | undefined,
+		c: InlineConstraint
+	): InlineConstraint => {
+		switch (c.kind) {
+			case "unique":
+				return { ...c, columns: mapNonEmpty(c.columns, keyIn(into)) }
+			case "exclude":
+				return {
+					...c,
+					elements: mapNonEmpty(c.elements, (e) => ({ ...e, column: nameIn(into)(e.column) }))
+				}
+			case "check":
+				return { ...c, predicate: exprIn(into, c.predicate) }
+		}
+	}
+	const constraintIn = (table: ObjectName, c: TableConstraint): TableConstraint => {
+		const into = renamed(table)
+		switch (c.kind) {
+			case "primaryKey":
+				return { ...c, columns: mapNonEmpty(c.columns, keyIn(into)) }
+			case "foreignKey":
+				return {
+					...c,
+					columns: mapNonEmpty(c.columns, referenceIn(into)),
+					referencedColumns: mapNonEmpty(c.referencedColumns, referenceIn(renamed(c.references)))
+				}
+			case "unique":
+			case "exclude":
+			case "check":
+				return inlineIn(into, c)
+		}
+	}
+	const actionIn = (table: ObjectName, a: AlterTableAction): AlterTableAction => {
+		const into = renamed(table)
+		switch (a.kind) {
+			case "addConstraint":
+				return { ...a, constraint: constraintIn(table, a.constraint) }
+			case "addColumn":
+			case "addColumnPlaceholder":
+				return { ...a, column: columnIn(into, a.column) }
+			case "addColumnDefault":
+				return { ...a, column: columnIn(into, a.column), default: exprIn(into, a.default) }
+			case "setExpression":
+				return { ...a, column: nameIn(into)(a.column), expr: exprIn(into, a.expr) }
+			case "alterColumnType":
+				return {
+					...a,
+					column: nameIn(into)(a.column),
+					using:
+						a.using.kind === "expr" ? { kind: "expr", expr: exprIn(into, a.using.expr) } : a.using
+				}
+			case "dropColumn":
+			case "dropDefault":
+			case "addIdentity":
+			case "dropIdentity":
+				return { ...a, column: nameIn(into)(a.column) }
+			case "addConstraintUsingIndex":
+			case "validateConstraint":
+			case "dropConstraint":
+			case "enableRowSecurity":
+			case "disableRowSecurity":
+				return a
+		}
+	}
+	switch (s.kind) {
+		case "createTable": {
+			const into = renamed(s.table)
+			return into === undefined
+				? s
+				: {
+						...s,
+						columns: mapNonEmpty(s.columns, (c) => columnIn(into, c)),
+						primaryKey: {
+							...s.primaryKey,
+							columns: mapNonEmpty(s.primaryKey.columns, keyIn(into))
+						},
+						secondary: s.secondary.map((c) => inlineIn(into, c))
+					}
+		}
+		case "alterTable":
+			return { ...s, actions: mapNonEmpty(s.actions, (a) => actionIn(s.table, a)) }
+		case "createIndex": {
+			const into = renamed(s.table)
+			return into === undefined
+				? s
+				: {
+						...s,
+						keys: mapNonEmpty(s.keys, (k) => ({
+							...k,
+							key:
+								k.key.kind === "column"
+									? { kind: "column", column: nameIn(into)(k.key.column) }
+									: { kind: "expr", expr: exprIn(into, k.key.expr) }
+						})),
+						include: s.include.map(nameIn(into)),
+						where: s.where === undefined ? undefined : exprIn(into, s.where)
+					}
+		}
+		case "createStatistics": {
+			const into = renamed(s.table)
+			if (into === undefined) {
+				return s
+			}
+			const [first, second, ...rest] = s.columns
+			return {
+				...s,
+				columns: [nameIn(into)(first), nameIn(into)(second), ...rest.map(nameIn(into))]
+			}
+		}
+		case "grantColumns": {
+			const into = renamed(s.table)
+			return into === undefined ? s : { ...s, columns: mapNonEmpty(s.columns, nameIn(into)) }
+		}
+		case "select":
+		case "insert":
+		case "update":
+		case "delete":
+		case "merge":
+		case "createSchema":
+		case "createRole":
+		case "alterRole":
+		case "grantRole":
+		case "revokeRole":
+		case "grant":
+		case "revoke":
+		case "alterDefaultPrivileges":
+		case "createPolicy":
+		case "rename":
+		case "drop":
+		case "comment":
+		case "renameColumn":
+		case "renameConstraint":
+		case "createDomain":
+		case "alterDomain":
+		case "dropIndex":
+		case "createMaterializedView":
+		case "createView":
+		case "dropPolicy":
+		case "dropFunction":
+		case "dropTrigger":
+		case "createFunction":
+		case "packConstant":
+		case "createConstant":
+		case "createGuardTrigger":
+		case "alterDatabaseDefault":
+		case "createExtension":
+		case "lockTable":
+		case "createCarrier":
+		case "begin":
+		case "commit":
+		case "rollback":
+		case "refresh":
+		case "analyze":
+			return s
+	}
 }
 
 /** `s` with every role name it holds that `roles` maps renamed: a role's own statements, the grants to it and of it,

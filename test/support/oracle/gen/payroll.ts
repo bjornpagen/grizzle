@@ -186,8 +186,10 @@ const runGen: Gen<RunSketch> = (source) => ({
  *
  * - keys: every id is fresh, every candidate key distinct (an employee code is unique across the state, an account
  *   unique per line), and the spans of one employee in a span-keyed relation never overlap;
- * - containments: every referenced id names a fact the state holds, a levy line carries its levy's own rate, an
- *   approved shift has a timesheet for its week, a reissue replaces a voided run;
+ * - containments: every referenced id names a fact the state holds, a levy line carries its levy's own rate, a
+ *   shift has a timesheet for its week, a reissue replaces a voided run;
+ * - families: a timesheet's shifts, a line's deposits and an employer's approvers are each a counted family of their
+ *   owner, every member under an owner the state holds, whose drawn values the loader fills;
  * - mirrors: every employee has a tax profile, every off-cycle line a reason and only those, and each employee's
  *   assignments cover exactly the time their employment covers (each spell is split into one or two assignments);
  * - span coverage: leave lies inside employment, salary inside salaried employment, an approved shift inside
@@ -347,7 +349,10 @@ export const resolvePayroll = (sketch: PayrollSketch): PayrollFacts => {
 				})
 			}
 		}
-		/** Shifts on distinct days inside a spell, from 09:00; approved ones fit their week's timesheet. */
+		/**
+		 * Shifts on distinct days inside a spell, from 09:00, each a member of its week's timesheet, whose counted family
+		 * its shifts are; the approved ones fit its ceiling.
+		 */
 		const days = new Set<number>()
 		const weekly = new Map<bigint, bigint>()
 		for (const sh of e.shifts) {
@@ -364,9 +369,7 @@ export const resolvePayroll = (sketch: PayrollSketch): PayrollFacts => {
 				week,
 				status: sh.approved ? "approved" : "pending"
 			})
-			if (sh.approved) {
-				weekly.set(week, (weekly.get(week) ?? 0n) + BigInt(hours) * hour)
-			}
+			weekly.set(week, (weekly.get(week) ?? 0n) + (sh.approved ? BigInt(hours) * hour : 0n))
 		}
 		for (const [week, used] of weekly) {
 			Timesheet.push({

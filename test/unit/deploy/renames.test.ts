@@ -659,6 +659,27 @@ const judge = (box: Box, note: (feature: Feature) => void): void => {
 
 /** A field the target no longer declares: one its caller writes, or one PostgreSQL generates from its row; and whether
  * its drop is declared. */
+/** What a case respells: a relation's name, a field's or a roster's. */
+type Respelled = "relation" | "field" | "roster"
+
+/** The relation P with the field x, a closed id of the roster Kind, each respelled with a trailing underscore, a name
+ * of the same conversion, where `respelled` names it and `after` holds. */
+const respelledDesc = (respelled: Respelled, after: boolean): SchemaDesc => {
+	const spell = (what: Respelled, name: string) => (after && respelled === what ? `${name}_` : name)
+	const kind = spell("roster", "Kind")
+	return {
+		name: "Renames",
+		relations: [
+			closed(kind, ["Low", "High"]),
+			relation(spell("relation", "P"), { id: f.uuid, [spell("field", "x")]: f.closedId(kind) }, [
+				"id"
+			])
+		],
+		statements: [],
+		extends: undefined
+	}
+}
+
 interface Gone {
 	readonly writing: "caller" | "generated"
 	readonly declared: boolean
@@ -754,6 +775,62 @@ describe("declared renames and drops", () => {
 							c.note(
 								gone.writing === "caller" ? "a caller's field dropped" : "a generated field dropped"
 							)
+						})
+				)
+			)
+	)
+
+	it.effect(
+		"a relation, a field or a roster respelled to an alike name is one installed object: drafted with no declaration, and nothing dropped",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/deploy/renames-respelled",
+						generator: element(["relation", "field", "roster"] as const),
+						literal: Formatter.format,
+						limit: 3,
+						box: "a relation, a field and a roster each respelled to a name of its conversion, declaring nothing",
+						oracle: {
+							kind: "specification",
+							name: "the naming door installs a declared name as its conversion, so two alike names name one table, column or roster domain"
+						},
+						coverage: requiredInSpace<Respelled>(["relation", "field", "roster"]),
+						caseHang
+					},
+					(respelled, c) =>
+						Effect.sync(() => {
+							c.note(respelled)
+							const previous = draft(
+								emptySnapshot({ schemaName: "Renames", schema: "renames" }),
+								{ desc: respelledDesc(respelled, false), logins: [] },
+								{ renames: [], drops: [] },
+								new Map()
+							)
+							if (Result.isFailure(previous)) {
+								return assert.fail(`the starting draft: ${previous.failure.message}`)
+							}
+							const drafted = draft(
+								previous.success.snapshot,
+								{ desc: respelledDesc(respelled, true), logins: [] },
+								{ renames: [], drops: [] },
+								new Map()
+							)
+							if (Result.isFailure(drafted)) {
+								return assert.fail(`the respelled ${respelled} drafts: ${drafted.failure.message}`)
+							}
+							const drops = Arr.filter(
+								statementsOf(drafted.success.plan.steps),
+								(st) =>
+									st.kind === "drop" ||
+									(st.kind === "alterTable" &&
+										Arr.some(
+											st.actions,
+											(a) => a.kind === "dropColumn" || a.kind === "alterColumnType"
+										))
+							)
+							assert.deepEqual(drops, [], `the respelled ${respelled} drops nothing`)
 						})
 				)
 			)

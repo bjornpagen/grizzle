@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Record as Rec, Result as EffectResult } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, Result as EffectResult } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -17,8 +17,9 @@ import {
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printExpr } from "#compiler/sql/print.ts"
+import { type FilledRelation, familyRows } from "#test/support/oracle/install/fill.ts"
 import { literalFor } from "#test/support/oracle/install/literal.ts"
-import type { InstallPlan, OracleTable } from "#test/support/oracle/install/model.ts"
+import type { InstallPlan, OracleColumn, OracleTable } from "#test/support/oracle/install/model.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -70,6 +71,10 @@ export const factStatements = (
 	plan: InstallPlan,
 	facts: FactSet
 ): Result.Result<ReadonlyArray<string>, CompileError> => {
+	const filled = familyRows(plan, facts)
+	if (!filled.ok) {
+		return Result.err(filled.error)
+	}
 	for (const relation of Rec.keys(facts)) {
 		if (!Rec.has(plan.tables, relation)) {
 			return refuse(
@@ -87,7 +92,13 @@ export const factStatements = (
 			throw new Error(`the load order names ${relation}, which the plan has no table for`)
 		}
 		const given = Rec.has(facts, relation) ? (facts[relation] ?? []) : []
-		const emitted = relationStatements(plan, relation, table, given)
+		const family = filled.value.get(relation)
+		const rows =
+			family === undefined ? factRows(plan, relation, table, given) : filledRows(table, family)
+		if (!rows.ok) {
+			return Result.err(rows.error)
+		}
+		const emitted = relationStatements(table, rows.value)
 		if (!emitted.ok) {
 			return Result.err(emitted.error)
 		}
@@ -96,34 +107,30 @@ export const factStatements = (
 	return Result.ok(statements)
 }
 
-/** One fact as the row of typed literals its relation's INSERT stores. */
-const factRow = (
-	table: OracleTable,
-	fact: Fact,
-	location: string
-): Result.Result<ReadonlyArray<Expr>, CompileError> => {
-	const row: Array<Expr> = []
-	for (const column of table.columns) {
-		const expr = literalFor(column.type, fact[column.field], `${location}.${column.field}`)
-		if (EffectResult.isFailure(expr)) {
-			return Result.err(expr.failure)
-		}
-		row.push(expr.success)
-	}
-	return Result.ok(row)
+/**
+ * A column one relation's INSERTs write: a field's, with its sequence where it is serial, or a family's drawn law
+ * column, which no sequence draws.
+ */
+type WrittenColumn = Pick<OracleColumn, "field" | "column" | "type" | "sequence">
+
+/** The rows one relation's INSERTs store: their columns, and each row's values in their order, at its location. */
+interface RelationRows {
+	readonly columns: ReadonlyArray<WrittenColumn>
+	readonly rows: ReadonlyArray<{
+		readonly values: ReadonlyArray<unknown>
+		readonly location: string
+	}>
 }
 
-/** One relation's statements: its distinct facts in chunks of INSERTs, then each sequence advanced past them. */
-const relationStatements = (
+/** A relation's facts as its rows, each a complete fact: exactly the fields of the relation, which no family names. */
+const factRows = (
 	plan: InstallPlan,
 	relation: string,
 	table: OracleTable,
 	given: ReadonlyArray<Fact>
-): Result.Result<ReadonlyArray<string>, CompileError> => {
+): Result.Result<RelationRows, CompileError> => {
 	const fields = Arr.map(table.columns, (c) => c.field)
-	const rows: Array<ReadonlyArray<Expr>> = []
-	const seen = new Set<string>()
-	const maxima = new Map<string, bigint>()
+	const rows: Array<RelationRows["rows"][number]> = []
 	for (const [index, fact] of given.entries()) {
 		const location = formatLoc(
 			SourceLoc(`fact ${relation}[${index}]`, [plan.declared, "facts", relation, index])
@@ -135,12 +142,72 @@ const relationStatements = (
 				`a complete fact of ${relation}: exactly the fields ${Arr.join(fields, ", ")}`
 			)
 		}
-		const row = factRow(table, fact, location)
+		rows.push({ values: Arr.map(fields, (f) => fact[f]), location })
+	}
+	return Result.ok({ columns: table.columns, rows })
+}
+
+/** A family relation's filled rows (fill.ts familyRows), each field's column the table's own. */
+const filledRows = (
+	table: OracleTable,
+	filled: FilledRelation
+): Result.Result<RelationRows, CompileError> => {
+	const columns: Array<WrittenColumn> = []
+	for (const c of filled.columns) {
+		if (c.kind === "law") {
+			columns.push({ field: c.column, column: c.column, type: c.type, sequence: { kind: "none" } })
+			continue
+		}
+		const column = Arr.findFirst(table.columns, (t) => t.field === c.field)
+		if (Option.isNone(column)) {
+			return refuse(table.location, `a column of ${table.relation} for its field ${c.field}`)
+		}
+		columns.push(column.value)
+	}
+	return Result.ok({
+		columns,
+		rows: Arr.map(filled.rows, (values, index) => ({
+			values,
+			location: `${table.location}, filled row ${index}`
+		}))
+	})
+}
+
+/** One row as the typed literals its relation's INSERT stores. */
+const literalRow = (
+	columns: ReadonlyArray<WrittenColumn>,
+	values: ReadonlyArray<unknown>,
+	location: string
+): Result.Result<ReadonlyArray<Expr>, CompileError> => {
+	const row: Array<Expr> = []
+	for (const [i, column] of columns.entries()) {
+		const expr = literalFor(column.type, values[i], `${location}.${column.field}`)
+		if (EffectResult.isFailure(expr)) {
+			return Result.err(expr.failure)
+		}
+		row.push(expr.success)
+	}
+	return Result.ok(row)
+}
+
+/** One relation's statements: its distinct rows in chunks of INSERTs, then each sequence advanced past them. */
+const relationStatements = (
+	table: OracleTable,
+	given: RelationRows
+): Result.Result<ReadonlyArray<string>, CompileError> => {
+	const rows: Array<ReadonlyArray<Expr>> = []
+	const seen = new Set<string>()
+	const maxima = new Map<string, bigint>()
+	for (const { values, location } of given.rows) {
+		const row = literalRow(given.columns, values, location)
 		if (!row.ok) {
 			return Result.err(row.error)
 		}
-		for (const column of Arr.filter(table.columns, (c) => c.sequence.kind === "identity")) {
-			const value = sequenceValue(fact[column.field], column.field)
+		for (const [i, column] of given.columns.entries()) {
+			if (column.sequence.kind !== "identity") {
+				continue
+			}
+			const value = sequenceValue(values[i], column.field)
 			const max = maxima.get(column.field)
 			maxima.set(column.field, max === undefined || value > max ? value : max)
 		}
@@ -151,11 +218,11 @@ const relationStatements = (
 		}
 	}
 	const statements: Array<string> = []
-	const serial = Arr.some(table.columns, (c) => c.sequence.kind === "identity")
-	const columns = Arr.map(table.columns, (c) => c.column)
+	const serial = Arr.some(given.columns, (c) => c.sequence.kind === "identity")
+	const columns = Arr.map(given.columns, (c) => c.column)
 	if (!Arr.isReadonlyArrayNonEmpty(columns)) {
 		return refuse(
-			formatLoc(SourceLoc(`facts of ${relation}`, [])),
+			formatLoc(SourceLoc(`facts of ${table.relation}`, [])),
 			"a table of at least one column"
 		)
 	}
@@ -177,7 +244,7 @@ const relationStatements = (
 		}
 		statements.push(emitted.value.text)
 	}
-	for (const column of table.columns) {
+	for (const column of given.columns) {
 		const max = maxima.get(column.field)
 		const advanced =
 			column.sequence.kind === "none" || max === undefined || max < 1n
@@ -196,7 +263,9 @@ const relationStatements = (
 /**
  * Fact loading for the oracle: a loader emitting typed literal INSERTs.
  *
- * A fact set maps each stored relation to its facts, each a complete record of the relation's fields. The loader
+ * A fact set maps each stored relation to its facts, each a complete record of the relation's fields, or, for a relation
+ * a family names, a written one: its caller's and serial fields, whose family's drawn values the loader fills as
+ * grizzle's host fill does (fill.ts), every column its row layout writes and no generated one. The loader
  * emits one INSERT ... VALUES of typed literals per relation (in chunks), in the plan's load order so every immediate
  * foreign key is satisfied when its statement ends. Facts are a set: an exact repeat of a fact in the input collapses
  * on the host, so the loader never asks PostgreSQL to store a duplicate tuple. Two facts that are equal

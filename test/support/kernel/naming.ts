@@ -30,7 +30,7 @@ import {
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 
-import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
+import { type Codebook, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import {
 	fieldNames,
 	type NativeColumn,
@@ -51,7 +51,13 @@ import {
 	worldNames
 } from "#compiler/physical/ddl/names.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import type { AnyRelation, AnyRole, AnySchema, Statement } from "#compiler/public/schema.ts"
+import type {
+	AnyRelation,
+	AnyRole,
+	AnyRoster,
+	AnySchema,
+	Statement
+} from "#compiler/public/schema.ts"
 import { ownRole, rostersOf } from "#compiler/schema/own.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
@@ -278,6 +284,11 @@ export interface Names extends LawNames {
 		relation: R,
 		field: keyof RelationFieldsOf<R> & string
 	) => string
+	/**
+	 * The code a closed id's column stores for a live handle of `roster`, under the installation's codes: the smallint a
+	 * direct writer binds and a direct read returns, never the handle's text.
+	 */
+	readonly code: <R extends AnyRoster>(roster: R, handle: R["handles"][number]) => number
 	/** The bare identifiers, for comparison with catalog facts and DETAIL keys. */
 	readonly tableIdent: (relation: NamedRelation) => RelationIdent
 	readonly columnIdent: (relation: NamedRelation, field: string) => ColumnIdent
@@ -946,6 +957,15 @@ const namesOver = (installation: Installation, schema: string): Names => {
 			r.kind === "relation" ? [table(r)] : []
 		),
 		column: (relation, field) => quoteIdent(names.column(relation.name, field)),
+		code: (roster, handle) => {
+			const codec = names.codes.rosters.get(parsedName(roster.name))
+			if (codec === undefined) {
+				throw new Error(
+					`the test names the roster ${roster.name}, which the installation holds no codes of`
+				)
+			}
+			return codeOf(codec, handle)
+		},
 		tableIdent,
 		columnIdent,
 		advance: (relation, field) => {

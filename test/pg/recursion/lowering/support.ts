@@ -4,7 +4,6 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
-import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import { type ConservativeProgram, flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
@@ -17,9 +16,9 @@ import { genCatalog } from "#test/support/evidence.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
-import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
+import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import { oraclePlan } from "#test/support/oracle/install/real.ts"
+import { oraclePlanUnder } from "#test/support/oracle/install/real.ts"
 import {
 	aliasOrigins,
 	identityVisitor,
@@ -112,10 +111,12 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 			const substrate = yield* Substrate
 			const schema = yield* substrate.schema({ create: false, label: "explain" })
 			const desc = schemaDesc(c.schema)
-			const planned = oraclePlan(
+			const codes = schemaCodes(c.schema)
+			const planned = oraclePlanUnder(
 				desc,
 				identity.schema(parsedSchemaName(schema)),
-				substrate.owner.role
+				substrate.owner.role,
+				codes
 			)
 			if (!planned.ok) {
 				return yield* Effect.die(new Error(planned.error.message))
@@ -135,7 +136,7 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 				if (p?.kind !== "scalar") {
 					throw new Error(`explainMain binds scalar parameters only, not ${slot.kind}`)
 				}
-				return inputText(p.value, p.type, emptyCodebook)
+				return inputText(p.value, p.type, codes)
 			})
 			const session = yield* substrate.admin.pin
 			yield* session.query("BEGIN", [])

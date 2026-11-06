@@ -88,6 +88,14 @@ const exclusions: Partial<Record<Carrier, ReadonlyArray<(typeof catalogCapabilit
 /** The capabilities the registry claims for a carrier. */
 const claimedBy = (carrier: Carrier): ReadonlyArray<Capability> => nativeCapabilities[carrier]
 
+/**
+ * The carriers PostgreSQL has a discrete range over that grizzle declares no span over, each with the README's named
+ * limit (Limits, "A span is over integer or bigint"). Nothing else may differ from the catalog.
+ */
+const unspanned: Partial<Record<Carrier, string>> = {
+	date: "daterange: grizzle declares no span carrier over a date yet"
+}
+
 /** The text a probe stored for spelling i: every spelling has one. */
 const storedAt = (stored: ReadonlyArray<string>, i: number): string => {
 	const s = stored[i]
@@ -415,7 +423,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 	)
 
 	it.effect(
-		"has span endpoints exactly where a built-in discrete range exists over the carrier",
+		"has span endpoints only where a built-in discrete range exists over the carrier, and every such carrier spannable or a named limit",
 		() =>
 			Effect.gen(function* () {
 				const { session } = yield* Substrate
@@ -423,8 +431,10 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 				const vectorSchema = yield* vectorSchemaOf(db)
 				const types = carrierTypes(vectorSchema)
 				/**
-				 * A carrier is a span endpoint exactly where PostgreSQL has a built-in range over its type with a canonical
-				 * function, so that a span's text is canonical: a discrete range.
+				 * A carrier may be a span endpoint only where PostgreSQL has a built-in range over its type with a canonical
+				 * function, so that a span's text is canonical: a discrete range. Each carrier with one is a span endpoint
+				 * or is named in `unspanned` with its limit, never neither and never both, so a ranged carrier the registry
+				 * gains is refused here until it is declared spannable or its limit is stated.
 				 */
 				const discrete: Array<Carrier> = []
 				for (const carrier of carriers) {
@@ -436,10 +446,17 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 						discrete.push(carrier)
 					}
 				}
-				assert.notDeepEqual(discrete, [], "a discrete range")
+				const spannable = Arr.filter(carriers, (c) => claimedBy(c).includes("spanEndpoint"))
+				assert.notDeepEqual(spannable, [], "a spannable carrier")
 				assert.deepEqual(
-					Arr.filter(carriers, (c) => claimedBy(c).includes("spanEndpoint")),
-					discrete
+					Arr.filter(carriers, (c) => spannable.includes(c) || unspanned[c] !== undefined),
+					discrete,
+					"the carriers with a discrete range: the spannable ones and the named limits"
+				)
+				assert.deepEqual(
+					Arr.filter(spannable, (c) => unspanned[c] !== undefined),
+					[],
+					"a spannable carrier named as a limit"
 				)
 			})
 	)

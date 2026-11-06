@@ -817,7 +817,8 @@ const realizeWith = (
 							return Effect.succeed(substrate.owner.role)
 					}
 				},
-				function: (fn) => functionOf(v, fn)
+				function: (fn) => functionOf(v, fn),
+				codes: v.installation.names.codes
 			}
 		}
 
@@ -1267,7 +1268,12 @@ const realizeWith = (
 									const cell = row[i]
 									return cell !== undefined && cell !== null
 										? Effect.map(
-												valueOfText(f.domain, cell, `${name}.${f.field}`),
+												valueOfText(
+													f.domain,
+													cell,
+													`${name}.${f.field}`,
+													v.installation.names.codes
+												),
 												(value) => [f.field, value] as const
 											)
 										: missing(`text of ${name}.${f.field}`)

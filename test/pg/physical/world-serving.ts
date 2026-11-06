@@ -158,6 +158,8 @@ export type WorldServingFeature =
 	| "a filter function's probe bound by its argument and a joined source"
 	| "a key probe that reads its key's fact"
 	| "a key probe that finds no fact at its key"
+	| "a declared key's probe that reads its key's fact"
+	| "a declared key's probe that finds no fact at its key"
 	| "a unique probe that reads its object's fact"
 	| "a unique probe that finds none"
 	| "a policy row calling the filter function"
@@ -452,8 +454,12 @@ interface WorldFunction {
 	readonly params: ReadonlyArray<FieldSpec>
 }
 
-/** A probe's kind: of a declared key, or of a unique object no key subsumes (write/insert/unique.ts OutsideProbe). */
-type ProbeKind = "key" | "unique"
+/**
+ * A probe's kind: of the primary key; of another declared key, which UniqueObjects.keys holds beside the primary key
+ * (laws/model/uniques.ts), so its probe is a key probe; or of a unique object no key subsumes, an object beyond the
+ * keys such as a key over a selected side (write/insert/unique.ts OutsideProbe, beyondKeys).
+ */
+type ProbeKind = "key" | "declared key" | "unique"
 
 /** A writable query entry of an installed role and the world functions it installs. */
 interface WorldEntry {
@@ -519,9 +525,8 @@ const worldEntries = (
 			const target = relationOf(spec.base, w.writable.target)
 			const label = `${r.name}.${w.name}`
 			const filter = w.writable.filter
-			const laws = defined(
-				installation.laws.relations.get(target.name),
-				`the laws of ${target.name}`
+			const uniques = relationUniques(
+				defined(installation.laws.relations.get(target.name), `the laws of ${target.name}`)
 			)
 			return [
 				{
@@ -535,8 +540,11 @@ const worldEntries = (
 									functionOf(`${label}'s filter function`, target, names.filterFunction(w.name, []))
 								)
 							: Option.none(),
-					probes: Arr.map(relationUniques(laws).probes, (probe) => ({
-						kind: probe.kind,
+					probes: Arr.map(uniques.probes, (probe) => ({
+						kind:
+							probe.kind === "key" && probe.object !== uniques.arbiter
+								? ("declared key" as const)
+								: probe.kind,
 						fn: functionOf(
 							`${label}'s ${probe.kind} probe of ${probe.object.name}`,
 							target,
@@ -881,7 +889,12 @@ const precheck = (
 		}
 		const values = yield* Effect.forEach(entry.target.fields, (f) =>
 			Effect.map(
-				valueOfText(f.domain, defined(fact[f.name], `the fact's ${f.name}`), f.name),
+				valueOfText(
+					f.domain,
+					defined(fact[f.name], `the fact's ${f.name}`),
+					f.name,
+					cx.installed.installation.names.codes
+				),
 				(value) => [f.name, carrierOf(f.domain, value)] as const
 			)
 		)
@@ -1093,7 +1106,7 @@ const callsOf = (entry: WorldEntry, args: Arguments): ReadonlyArray<Call> => {
 }
 
 /** What a call's reading reached (WorldServingFeature): its probes of another relation for a filter function, its scans of T
- * for a key or unique probe. */
+ * for a key, a declared key's or a unique probe. */
 const callFeatures = (
 	cx: Judging,
 	call: Call,
@@ -1125,6 +1138,18 @@ const callFeatures = (
 				s.entries > 0
 					? "a key probe that reads its key's fact"
 					: "a key probe that finds no fact at its key"
+			)
+		case "declared key":
+			return Arr.flatMap(ofTarget, (s): ReadonlyArray<WorldServingFeature> =>
+				s.entries > 0
+					? [
+							"a key probe that reads its key's fact",
+							"a declared key's probe that reads its key's fact"
+						]
+					: [
+							"a key probe that finds no fact at its key",
+							"a declared key's probe that finds no fact at its key"
+						]
 			)
 		case "unique":
 			return Arr.map(ofTarget, (s): WorldServingFeature =>

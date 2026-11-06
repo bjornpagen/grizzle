@@ -196,8 +196,9 @@ const situations: Arr.NonEmptyReadonlyArray<DirectFeature> = [
 	"42501 at a statement",
 	"428C9 at a statement",
 	"23514 at a statement",
+	"23514 by a refined text domain at a statement",
+	"23514 by a roster domain at a statement",
 	"22003 at a statement",
-	"22P02 at a statement",
 	"23502 at a statement",
 	"25000 at a statement",
 	...Arr.map(levels, (l): DirectFeature => `level ${l}`),
@@ -211,11 +212,11 @@ const runs = 40
  * psql child in its world (logged in as its login, the role `writer` taken on), whose cases run direct transactions the
  * model predicts (model.ts).
  *
- * The population must reach every statement kind, each native error at the time PostgreSQL raises it (a
- * unique violation, an immediate foreign key, a privilege refusal, an identity column's refusal, a refinement's, a
- * precision's, a handle's and a missing field's at the statement; a deferred foreign key at COMMIT and at SET
- * CONSTRAINTS), and commits; and every level below SERIALIZABLE a writer may begin at, each refused by grizzle's guard
- * (25000 naming the table, nothing committed).
+ * The population must reach every statement kind, each native error at the time PostgreSQL raises it (a unique
+ * violation, an immediate foreign key, a privilege refusal, an identity column's refusal, a refined text's domain's
+ * and a closed id's roster domain's, each by its CHECK, a precision's and a missing field's at the statement; a
+ * deferred foreign key at COMMIT and at SET CONSTRAINTS), and commits; and every level below SERIALIZABLE a writer may
+ * begin at, each refused by grizzle's guard (25000 naming the table, nothing committed).
  *
  * Six of those errors need a column kind or a foreign key a third of the generated schemas hold, and a case that meets
  * them first: a code outside the roster's live codes (23514), a numeric past its precision (22003), a refined text past

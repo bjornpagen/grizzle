@@ -1,11 +1,11 @@
 import { layer } from "@effect/vitest"
 import { type Case, explore, type Kept, sketched } from "@grizzle/testing/explore"
 import { required } from "@grizzle/testing/features"
-import { agree, exact } from "@grizzle/testing/oracle"
+import { exact } from "@grizzle/testing/oracle"
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Fiber, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Fiber, Formatter, Option, Order } from "effect"
 import type { BatchStatement } from "#adapter/wire/batch.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { until } from "#test/pg/adapter/support.ts"
@@ -25,7 +25,12 @@ import {
 	type Planned,
 	prologueIn
 } from "#test/support/flight/model.ts"
-import { observationsOf, plannedBySql, runScripted } from "#test/support/flight/run.ts"
+import {
+	observationsOf,
+	plannedBySql,
+	runScripted,
+	type ScriptedRun
+} from "#test/support/flight/run.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { testSql } from "#test/support/sql.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
@@ -51,7 +56,12 @@ import { backendCount, tappedSession } from "#test/support/wire-tap.ts"
  * connection reads nothing more, and at once when the session is not retired, when no CancelRequest can follow. The
  * scripted session is driven the same way: k answers, then the interruption.
  *
- * The observations compared are the ending, what committed, the retirement, and whether a CancelRequest was sent.
+ * The observations compared are the ending, what committed, the retirement, and whether a CancelRequest was sent. A
+ * call interrupted with a statement in flight sends one CancelRequest and then destroys its connection (README "No
+ * server-side timeouts"), so the server runs none, some or all of the queries left after the statement it stopped
+ * before it notices the connection gone, a race between the backend and the client: the scripted session is run at
+ * each number of them from none to all (scripted.ts afterCancel), and the server must agree with one, every field
+ * exact.
  *
  * The kinds the server answers on demand.
  */
@@ -127,6 +137,7 @@ const statementsOver =
 /** What a case reached on both sides: where it was interrupted, how it ended, and what the interruption did. */
 type FlightFeature =
 	| "cancel sent"
+	| "race cut short"
 	| "committed after an interruption"
 	| `interrupted ${Exclude<InterruptionPoint, "none">}`
 	| `ending ${Failure["tag"]}`
@@ -273,7 +284,10 @@ const flightSuite = Effect.gen(function* () {
 		)
 
 	/**
-	 * One timing of a case on both sides: they must agree.
+	 * One timing of a case on both sides: the server must agree with the scripted session at one way its race past a
+	 * cancelled statement ends (afterCancel), each scripted race run from none of the queries left after that statement
+	 * to all of them, where it is no longer cut short. Every field is exact at that value; a flight no CancelRequest
+	 * stopped has one race.
 	 *
 	 * A call that completed before k answers is the uninterrupted run; one that blocked before them is the run
 	 * of a smaller k.
@@ -283,34 +297,44 @@ const flightSuite = Effect.gen(function* () {
 			const statementOf = statementsOver(schema, c)
 			const bySql = plannedBySql(c, statementOf)
 			const writes = writing(c)
-			const run = runScripted(c, { interruptAfter: k }, statementOf)
-			const observations = observationsOf(c, run, (sql) => bySql.get(sql)?.label ?? sql)
-			if (observations === undefined) {
-				return { blocked: true, at: undefined }
+			const races: Array<{
+				readonly run: ScriptedRun
+				readonly observations: NonNullable<ReturnType<typeof observationsOf>>
+				readonly scripted: Observation
+			}> = []
+			for (let afterCancel = 0; ; afterCancel++) {
+				const run = runScripted(c, { interruptAfter: k, afterCancel }, statementOf)
+				const observations = observationsOf(c, run, (sql) => bySql.get(sql)?.label ?? sql)
+				if (observations === undefined) {
+					return { blocked: true, at: undefined }
+				}
+				const scripted: Observation = asSet({
+					...observations.run,
+					committed: Arr.filter(observations.run.committed, (label) => writes.has(label))
+				})
+				races.push({ run, observations, scripted })
+				if (!run.session.cutShort()) {
+					break
+				}
 			}
-			const scripted: Observation = asSet({
-				...observations.run,
-				committed: Arr.filter(observations.run.committed, (label) => writes.has(label))
-			})
-			const at = observations.interruption.at
+			const at = races[0]?.observations.interruption.at
 			if (k !== undefined && (at === undefined || at < k)) {
 				return { blocked: false, at }
 			}
 			const serverRows = yield* onServer(c, k)
 			const server = asSet(serverRows)
-			yield* agree(
-				[
-					["scripted", scripted],
-					["server", server]
-				],
-				exact
-			).pipe(
-				Effect.mapError(
-					(disagreement) =>
-						new Error(`${disagreement.message}\ninterrupted after ${k ?? "no"} answers`)
-				),
-				Effect.orDie
-			)
+			const agreed = Arr.findFirst(races, (race) => Option.isNone(exact(race.scripted, server)))
+			if (Option.isNone(agreed)) {
+				return yield* Effect.die(
+					new Error(
+						`server disagrees with scripted at every way its race ends: ${Formatter.format(server)} is none of ${Formatter.format(Arr.map(races, (race) => race.scripted))}\ninterrupted after ${k ?? "no"} answers`
+					)
+				)
+			}
+			const { run, observations, scripted } = agreed.value
+			if (run.session.cutShort()) {
+				cx.note("race cut short")
+			}
 			const point = interruptionPoint(
 				c.call,
 				run.session.flights()[0]?.delivered ?? [],

@@ -244,7 +244,11 @@ export interface AggSketch {
 export interface RuleSketch {
 	readonly matches: ReadonlyArray<MatchSketch>
 	readonly preds: ReadonlyArray<PredSketch>
-	/** A negation: -1 for none, otherwise a source, bound through one variable of a field's kind. */
+	/**
+	 * A negation: -1 for none, otherwise a source, bound through one variable of a field's kind, never a computed numeric:
+	 * each is typed by the bound its own definition proves, so two are of different refinements, which a negation does
+	 * not correlate.
+	 */
 	readonly not: number
 	readonly head: ReadonlyArray<number>
 	readonly aggregate: boolean
@@ -694,7 +698,10 @@ const runRule = (
 	let negation = false
 	if (sketch.not >= 0) {
 		const source = pick(sources, sketch.not)
-		const target = Arr.findFirst(source.columns, (c) => Arr.some(vars, (x) => x.kind === c.kind))
+		const target = Arr.findFirst(
+			source.columns,
+			(c) => c.kind !== "num" && Arr.some(vars, (x) => x.kind === c.kind)
+		)
 		const x = Option.flatMap(target, (t) => Arr.findFirst(vars, (y) => y.kind === t.kind))
 		if (Option.isSome(target) && Option.isSome(x)) {
 			predicates.push(r.not(source.value, { [target.value.name]: x.value.term }))

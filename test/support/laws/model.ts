@@ -178,11 +178,17 @@ export type HostLaw =
 			readonly selection: HostSelection
 	  }
 	| {
+			/**
+			 * A span key over a side: no two facts its selection reads agree on its scalars with overlapping spans. A
+			 * primary or candidate span key reads every fact; a projected one, key(on(select(R, φ), ..., span)), only those
+			 * φ holds of, as the key over a coverage's selected target its PERIOD foreign key references.
+			 */
 			readonly kind: "spanKey"
 			readonly law: LawId
 			readonly relation: string
 			readonly scalars: ReadonlyArray<string>
 			readonly span: string
+			readonly selection: HostSelection
 	  }
 	| {
 			readonly kind: "check"
@@ -243,9 +249,50 @@ export interface HostSchema {
 	readonly laws: ReadonlyArray<HostLaw>
 }
 
-/** Whether a law is checked at the statement that breaks it: a key, a span key, a row check. */
-export const isImmediate = (law: HostLaw): boolean =>
-	law.kind === "key" || law.kind === "spanKey" || law.kind === "check"
+/** Whether `to` reaches `from` along the relations the schema's containments and coverages point at. */
+const reaches = (schema: HostSchema, to: string, from: string): boolean => {
+	const seen = new Set<string>()
+	const walk = (at: string): boolean => {
+		if (at === from) {
+			return true
+		}
+		if (seen.has(at)) {
+			return false
+		}
+		seen.add(at)
+		return Arr.some(schema.laws, (l) =>
+			l.kind === "contained" || l.kind === "covered"
+				? l.source.relation === at && walk(l.target.relation)
+				: false
+		)
+	}
+	return walk(to)
+}
+
+/**
+ * Whether a law is checked at the statement that breaks it: a key, a span key, a row check, and a containment whose
+ * foreign key is immediate, one into an unselected target it references whole, every field of the target among the
+ * fields it pairs, and on no cycle of containments, so no lawful ChangeSet replaces the referenced row in passing. A
+ * coverage's PERIOD foreign key references its target's span as a period, never as a plain column, and is deferred.
+ */
+export const isImmediate = (schema: HostSchema, law: HostLaw): boolean => {
+	switch (law.kind) {
+		case "key":
+		case "spanKey":
+		case "check":
+			return true
+		case "covered":
+			return false
+		case "contained":
+			return (
+				law.target.selection.kind === "every" &&
+				Arr.every(relationOf(schema, law.target.relation).fields, (f) =>
+					law.target.fields.includes(f.name)
+				) &&
+				!reaches(schema, law.target.relation, law.source.relation)
+			)
+	}
+}
 
 /** A containment, the one law kind whose sides pair plain fields. */
 export type HostContainment = Extract<HostLaw, { readonly kind: "contained" }>
@@ -490,14 +537,18 @@ export const violatorsOf = (
 }
 
 /** The violation of one law in `state`, or none when it holds. */
-const violationOf = (state: HostState, law: HostLaw): Option.Option<Violation> => {
+const violationOf = (
+	schema: HostSchema,
+	state: HostState,
+	law: HostLaw
+): Option.Option<Violation> => {
 	/** The violation of `bad`, its facts named as the law's witness names them. */
 	const of = (bad: ReadonlyArray<HostFact>): Option.Option<Violation> =>
 		bad.length === 0
 			? Option.none()
 			: Option.some({
 					law: law.law,
-					immediate: isImmediate(law),
+					immediate: isImmediate(schema, law),
 					violators: violatorsOf(law, bad)
 				})
 	switch (law.kind) {
@@ -509,7 +560,7 @@ const violationOf = (state: HostState, law: HostLaw): Option.Option<Violation> =
 			return of(bad)
 		}
 		case "spanKey": {
-			const facts = factsIn(state, law.relation)
+			const facts = Arr.filter(factsIn(state, law.relation), (f) => selected(f, law.selection))
 			const bad = Arr.filter(facts, (f, i) =>
 				Arr.some(facts, (g, j) => i !== j && collide(law, f, g))
 			)
@@ -573,6 +624,7 @@ const primaryKeyLawOf = (schema: HostSchema, relation: HostRelation): HostLaw | 
 					sameFieldSet(law.fields, relation.key)) ||
 				(law.kind === "spanKey" &&
 					law.relation === relation.name &&
+					law.selection.kind === "every" &&
 					sameFieldSet([...law.scalars, law.span], relation.key))
 		)
 	)
@@ -608,8 +660,8 @@ export const keyedSchema = (schema: HostSchema): HostSchema => {
  *
  * - `key`: a primary, candidate or projected key, immediate; two facts its selection reads at one value of its fields
  *   are a violation;
- * - `spanKey`: a span key, immediate; two facts equal on its scalar fields whose spans overlap are a violation (spans
- *   are half-open, so adjacent spans do not overlap);
+ * - `spanKey`: a primary, candidate or projected span key, immediate; two facts its selection reads equal on its scalar
+ *   fields whose spans overlap are a violation (spans are half-open, so adjacent spans do not overlap);
  * - `check`: a row check, immediate; a fact the predicate refuses is a violation, reported natively without a key;
  * - `contained`: every source fact, among those its selector admits, has a target fact, among those the target's
  *   selector admits, equal on the paired fields (contained, either half of mirrors, and both directions of
@@ -624,7 +676,8 @@ export const keyedSchema = (schema: HostSchema): HostSchema => {
  *
  * A ChangeSet of enumerated members is one add-wins transition S' = (S \ D) ∪ A, with put the deletion of the current
  * occupants at its facts' keys plus their insertion. Its outcome follows from S': a violation of an immediate law (a
- * key, a span key, a row check) is refused with that law, raised at its statement before any deferred law; otherwise a
+ * key, a span key, a row check, a containment into a target it references whole, isImmediate) is refused with one of
+ * the immediate laws violated, raised at its statement before any deferred law; otherwise a
  * violation of any other law is refused with one of the violated laws; otherwise it is accepted, or no-change when S'
  * is S. A key's or a span key's refusal names the violating facts by the law's own fields (witnessOf); every other
  * native violation, whose key PostgreSQL reports only in prose, carries none.
@@ -632,7 +685,7 @@ export const keyedSchema = (schema: HostSchema): HostSchema => {
  * Every law's violation query over `state`.
  */
 export const violations = (schema: HostSchema, state: HostState): ReadonlyArray<Violation> => {
-	const out = Arr.flatMap(schema.laws, (law) => Option.toArray(violationOf(state, law)))
+	const out = Arr.flatMap(schema.laws, (law) => Option.toArray(violationOf(schema, state, law)))
 	/** Two statements of one law identity are one law (a restated containment): their violators merge. */
 	const merged = new Map<string, Violation>()
 	for (const v of out) {
@@ -719,7 +772,7 @@ export const overlapsUnequally = (state: HostState, law: HostLaw): boolean => {
 	if (law.kind !== "spanKey") {
 		return false
 	}
-	const facts = factsIn(state, law.relation)
+	const facts = Arr.filter(factsIn(state, law.relation), (f) => selected(f, law.selection))
 	const pairs = Arr.flatMap(facts, (a, i) =>
 		Arr.flatMap(facts.slice(i + 1), (b) => {
 			const x = a[law.span]

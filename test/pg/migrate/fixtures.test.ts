@@ -10,6 +10,7 @@ import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identity } from "#compiler/core/identity.ts"
+import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { completedFiles } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
@@ -43,15 +44,14 @@ import * as spansApi from "#test/support/fixtures/api/spans.ts"
 import * as workApi from "#test/support/fixtures/api/work.ts"
 import { installMigrated, runsInstallScript } from "#test/support/install-migrate.ts"
 import { rebuild } from "#test/support/installed.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
 	draftCodes,
 	draftedAt,
 	fromEmpty,
 	fromSnapshot,
-	generate,
-	noDeclarations
+	generate
 } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -88,7 +88,8 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  *   database.
  *
  * A version carries the logins its fixture's worlds declare, so the histories add, drop
- * and keep logins and roles as they move between levels, and every apply's checker judges the worlds' posture: the
+ * and keep logins and roles as they move between levels, each login a step drops declared (`--drop @<login>`), and every
+ * apply's checker judges the worlds' posture: the
  * grants, the memberships, and each login's defaults, the search policy's among them (Search reads vectors). The
  * fixtures' roles hold their relations whole, so no table has row security; the worlds suite migrates worlds whose written query entries have policies. */
 interface Version {
@@ -200,6 +201,26 @@ const compiledAt = (
 	)
 }
 
+/**
+ * What a step from `before` to `version` declares (`--drop`): each login `before` holds that `version` no longer does,
+ * whose PostgreSQL role holds what its operator gave it, so its drop is stored state a draft refuses undeclared. A
+ * history drops nothing else of stored state: the derived relation it drops is recomputed from its definition, and a
+ * role is created and granted whole. A history's first step continues the empty snapshot and drops nothing.
+ */
+const declaredFrom = (
+	before: Version | undefined,
+	version: Version,
+	name: string
+): Declarations => {
+	const kept = new Set(Arr.map(version.logins(name), (l) => l.name))
+	return {
+		renames: [],
+		drops: Arr.flatMap(before === undefined ? [] : before.logins(name), (l): ReadonlyArray<Named> =>
+			kept.has(l.name) ? [] : [{ kind: "login", login: parsedName(l.name) }]
+		)
+	}
+}
+
 /** The three installations of the last version, the fresh one and the installer's dropped once compared.
  *
  * Db.open admits the database: a refusal fails the test. */
@@ -213,11 +234,12 @@ const migrates = (history: History) =>
 		const drafted: Array<GenerateResult> = []
 		let previous = fromEmpty
 		for (const [i, version] of history.versions.entries()) {
+			const declared = declaredFrom(i === 0 ? undefined : history.versions[i - 1], version, name)
 			const installation = compiledAt(
 				version,
 				name,
 				owner,
-				succeeded(draftCodes(renamed(version.desc, name), previous, noDeclarations))
+				succeeded(draftCodes(renamed(version.desc, name), previous, declared))
 			)
 			const g: GenerateResult = succeeded(
 				generate({
@@ -226,8 +248,7 @@ const migrates = (history: History) =>
 					name: `step_${i + 1}`,
 					timestamp: draftedAt(i + 1),
 					workload: noWorkload,
-					/** Every history drops only a derived relation, whose rows are no stored data: nothing to declare. */
-					declared: noDeclarations
+					declared
 				})
 			)
 			if (i > 0 && history.versions[i - 1] === version) {

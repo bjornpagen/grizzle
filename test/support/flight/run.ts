@@ -22,7 +22,6 @@ import {
 } from "#test/support/flight/model.ts"
 
 import {
-	immediateDelivery,
 	refusedAnswer,
 	rows,
 	type ScriptedSession,
@@ -83,11 +82,13 @@ const prologueAnswerOf = (step: FenceStep, answer: StepAnswer): StatementAnswer 
 
 /**
  * A stepped scripted session that answers the case: each statement as its plan says, and the prologue's two
- * statements, whose SQL none of the case's has, as the case's prologue answer says.
+ * statements, whose SQL none of the case's has, as the case's prologue answer says; past a cancelled statement, the
+ * server runs `afterCancel` queries before a destroyed connection's end reaches it.
  */
 const sessionOf = (
 	c: FlightCase,
-	statementOf: (planned: Planned) => BatchStatement
+	statementOf: (planned: Planned) => BatchStatement,
+	afterCancel: number
 ): ScriptedSession => {
 	const bySql = plannedBySql(c, statementOf)
 	const call = c.call
@@ -112,7 +113,7 @@ const sessionOf = (
 					: undefined,
 			commit: () => (c.commit === "lost" ? "lose" : undefined)
 		},
-		{ ...immediateDelivery, delivery: "stepped" }
+		{ delivery: "stepped", afterCancel }
 	)
 }
 
@@ -129,7 +130,7 @@ export const runScripted = (
 	timing: Timing,
 	statementOf: (planned: Planned) => BatchStatement
 ): ScriptedRun => {
-	const session = sessionOf(c, statementOf)
+	const session = sessionOf(c, statementOf, timing.afterCancel)
 	return {
 		session,
 		driven: drive(session, callOf(session, c.call, statementOf, flightPrologue), timing)

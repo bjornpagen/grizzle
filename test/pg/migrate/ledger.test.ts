@@ -27,6 +27,7 @@ import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { indices } from "#compiler/core/array.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { AbandonedSchema } from "#compiler/deploy/diff/plan.ts"
 import {
 	completedFiles,
 	type LedgerColumn,
@@ -67,6 +68,7 @@ import {
 	draftChain,
 	draftedAt,
 	fromEmpty,
+	fromEmptyBeside,
 	noDeclarations,
 	ownedBy,
 	parsedMigrationName
@@ -85,8 +87,9 @@ import { regex } from "arkregex"
  * The apply runner's ledger as a state machine, on PostgreSQL 19.
  *
  * The model is the documented contract: a migrations
- * directory of three drafted folders (Shop v1 to v3: a placeholder, a law with its Validate files, a concurrent index
- * in a no-transaction file, a handle appended to a roster, a serial field, removed objects dropped in Publish), and a
+ * directory of three drafted folders (Shop v1 to v3: the first drafted beside an abandoned schema, whose rows it leaves
+ * behind, a loss only the reviewer decides; a placeholder, a law with its Validate files, a concurrent index in a
+ * no-transaction file, a handle appended to a roster, a serial field, removed objects dropped in Publish), and a
  * database whose
  * ledger has recorded some folders, maybe one of them in part. Its state is two numbers: the folders recorded complete,
  * and the files recorded of the next one. Each command is an action a user or a deployment takes, and the model says
@@ -1070,8 +1073,16 @@ const realOf = (
 })
 
 /**
- * The chain Shop v1 to v3 drafted from the empty snapshot under an allocated schema name and its owner, each step's
- * codes drafted from the snapshot before it, v3 declaring its one drop (`--drop Task.weight`).
+ * The schema the chain's first draft abandons: a directory of the migrations directory, holding its snapshot.json, of a
+ * schema the configuration no longer lists, as a schema renamed in code leaves one. Every drop is declared, so starting
+ * the schema beside it is the one loss a draft leaves to the reviewer.
+ */
+const abandoned: AbandonedSchema = { schema: "store", directory: "migrations/store" }
+
+/**
+ * The chain Shop v1 to v3 drafted from the empty snapshot beside the abandoned schema, under an allocated schema name
+ * and its owner, each step's codes drafted from the snapshot before it, v3 declaring its one drop (`--drop
+ * Task.weight`).
  */
 const chainOf = (allocated: string, owner: string): ReadonlyArray<GenerateResult> =>
 	draftChain(
@@ -1092,7 +1103,7 @@ const chainOf = (allocated: string, owner: string): ReadonlyArray<GenerateResult
 				declared
 			})
 		),
-		fromEmpty
+		fromEmptyBeside([abandoned])
 	)
 
 type LedgerProgram = Program<LedgerParameters>

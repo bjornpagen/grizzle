@@ -3,8 +3,7 @@ import type { Gen } from "@grizzle/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import { rebuildDag, relNode, unchangedEdges } from "#compiler/ir/dag.ts"
-import type { NodeOver, RelNode, ValueRefs } from "#compiler/ir/rel.ts"
+import type { RelNode } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { type ConservativeProgram, conservativeInput } from "#compiler/lower/conservative/types.ts"
 import type { OperandBody, OperandSelect, SelectCore } from "#compiler/sql/ast.ts"
@@ -57,11 +56,12 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   feedbackUnionAll replaces recursive UNION with UNION ALL over plain seed and step SELECTs (the I8
  *   rewrite applied to every recursion, not only the generator's acyclic closure, in the V6 shape an optimizer emits);
  *   bagRecursion drops every DISTINCT inside the recursive term as well as the feedback deduplication, so the
- *   recursion believes each transition already unique; eraseEdgeIdentity folds edges by their endpoints rather than
- *   their edge id before an aggregate.
- * - The predicate-placement mutants (movedInside) lower the case rebuilt with a predicate on the completed recursion
- *   moved inside it (gen/recursive.ts RecursionMutation): an endpoint filter into the seed and a final
- *   inequality into every state, both unsound, and an origin filter into the seed, a valid pushdown of a bound root.
+ *   recursion believes each transition already unique.
+ * - The rebuilt mutants (rebuiltAs) lower the case rebuilt by its generator under a mutation (gen/recursive.ts
+ *   RecursionMutation): a predicate on the completed recursion moved inside it, an endpoint filter into the seed and
+ *   a final inequality into every state, both unsound, and an origin filter into the seed, a valid pushdown of a bound
+ *   root; and an edge count over the edges' endpoints rather than their edge id, which folds the projection's set and
+ *   so merges parallel edges.
  */
 export type RecursionOracleFeature = RecursiveFeature | "nonempty"
 
@@ -223,34 +223,6 @@ export const bagRecursion: Lowering = {
 }
 
 /**
- * IR mutant: an aggregate whose bound tuple binds the edge id folds the edge's endpoints instead, so parallel edges,
- * distinct facts whose endpoints agree, merge into one contribution.
- */
-const eraseEdge = (node: RelNode, inputs: NodeOver<ValueRefs<RelNode>>): RelNode => {
-	if (inputs.kind !== "Group" || !inputs.bound.columns.includes("edge")) {
-		return unchangedEdges(node, inputs) ? node : relNode(node.id, inputs)
-	}
-	const bound = [...Arr.filter(inputs.bound.columns, (c) => c !== "edge"), "node", "next"]
-	return relNode(node.id, { ...inputs, bound: { ...inputs.bound, columns: [...new Set(bound)] } })
-}
-
-export const eraseEdgeIdentity: Lowering = {
-	name: "mutant erase edge identity",
-	lower: ({ case: c, names }) => {
-		/** The mutant changes a Group's bound alone, each node above it rebuilt over it. */
-		const dag = rebuildDag(c.query.dag, eraseEdge)
-		return lowerConservative(
-			{ dag, root: dag.roots[0] },
-			{
-				names,
-				params: genParamDecls(c.query),
-				subject: { kind: "query" }
-			}
-		)
-	}
-}
-
-/**
  * A lowering of a generated recursive case: one lowering for every case, or one made for each case from the case
  * itself, as a recursion mutant that rebuilds the case from what it was generated from.
  */
@@ -261,11 +233,12 @@ export const forCase = <C>(lowering: CaseLowering<C>, c: C): Lowering =>
 	typeof lowering === "function" ? lowering(c) : lowering
 
 /**
- * IR mutants: the case rebuilt by its generator with a result predicate moved inside the recursion. The
- * rebuilt query names the case's parameters with the same values, so it runs against the case's own bindings. The
- * lowering is made for the generated case it lowers, so it reads the case's source.
+ * IR mutants: the case rebuilt by its generator under a mutation (gen/recursive.ts RecursionMutation), a result
+ * predicate moved inside the recursion or an edge count's edge identity erased. The rebuilt query names the case's
+ * parameters with the same values, so it runs against the case's own bindings. The lowering is made for the generated
+ * case it lowers, so it reads the case's source.
  */
-export const movedInside =
+export const rebuiltAs =
 	(mutation: RecursionMutation) =>
 	(c: RecursiveCase): Lowering => ({
 		name: `mutant ${mutation}`,

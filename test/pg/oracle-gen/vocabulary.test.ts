@@ -1,9 +1,10 @@
 /**
  * The generators' claims about PostgreSQL 19, checked on PostgreSQL 19.
  *
- * - Every aggregate the generators emit exists over its argument type with the result type ops.ts states, and every
- *   aggregate they leave out of a type exists in neither PostgreSQL's schema nor the vector extension's, each looked
- *   up qualified, unless the language states why it leaves it out (declinedAggregates).
+ * - Every aggregate the generators emit exists over the argument its lowering passes it with the result type ops.ts
+ *   states, a money sum over its amounts as numeric, and every aggregate they leave out of a type exists in neither
+ *   PostgreSQL's schema nor the vector extension's, each looked up qualified, unless the language states why it leaves
+ *   it out (declinedAggregates).
  * - The value domains' classes are PostgreSQL's equality classes: two literals are equal under PostgreSQL's `=`
  *   exactly when they share a class (NaN = NaN, -0 = 0, 1.0 = 1.00).
  * - Generated facts satisfy the declared laws natively: an explored population of schemas installs with PRIMARY KEY,
@@ -36,6 +37,7 @@ import {
 import { caseHang } from "#test/support/limits.ts"
 import {
 	aggregateApplies,
+	aggregateLowering,
 	aggregateResult,
 	type GenAggregate,
 	genAggregates
@@ -168,22 +170,36 @@ const aggregateSql = (fn: GenAggregate, arg: string, schema: string): string =>
 		? `${schema}.count(*)`
 		: `${schema}.${fn === "boolAnd" ? "bool_and" : fn === "boolOr" ? "bool_or" : fn}(${arg})`
 
+/**
+ * The argument the conservative lowering passes an aggregate over `x`: a money sum's is each amount's exact numeric value,
+ * since the checker keeps the total exact money (ops.ts aggregateLowering), which PostgreSQL's sum(money) does not; any
+ * other aggregate reads `x` as it is.
+ */
+const argumentSql = (fn: GenAggregate, t: ScalarType, x: string): string => {
+	const lowering = aggregateLowering(fn, t)
+	return lowering.kind === "exactSum" && lowering.exact === "money" ? `${x}::numeric` : x
+}
+
 /** The schemas an aggregate over a generated type can live in: PostgreSQL's own, and the vector extension's. */
 const aggregateSchemas: Arr.NonEmptyReadonlyArray<string> = [quoteIdent("pg_catalog"), vectorSchema]
 
-/** The aggregates an extension defines that the language leaves out, by carrier, each with why. */
+/** The aggregates PostgreSQL or an extension defines over a generated type's storage that the language leaves out, by carrier, each with why. */
 const declinedAggregates: ReadonlyArray<{
 	readonly carrier: ScalarType["carrier"]
 	readonly fn: GenAggregate
 	/**
-	 * Why the language leaves out an aggregate an extension defines over a generated type: its answer depends on the
-	 * order it meets its rows in. pgvector's sum(vector) adds the components in float32 in that order and fails where a
-	 * partial sum overflows (vector.c vector_add), and its avg(vector) sums them in float8 in that order (vector_accum).
+	 * Why the language leaves out an aggregate defined over a generated type's storage. Its answer depends on the order
+	 * it meets its rows in: pgvector's sum(vector) adds the components in float32 in that order and fails where a partial
+	 * sum overflows (vector.c vector_add), and its avg(vector) sums them in float8 in that order (vector_accum). Or it is
+	 * no aggregate of the type's values: a closed id's column stores its handle's code, a smallint, whose sum and avg
+	 * PostgreSQL computes, but a handle is no number.
 	 */
-	readonly why: "its accumulation depends on the order of its rows"
+	readonly why: "its accumulation depends on the order of its rows" | "a closed id is no number"
 }> = [
 	{ carrier: "vector", fn: "sum", why: "its accumulation depends on the order of its rows" },
-	{ carrier: "vector", fn: "avg", why: "its accumulation depends on the order of its rows" }
+	{ carrier: "vector", fn: "avg", why: "its accumulation depends on the order of its rows" },
+	{ carrier: "code", fn: "sum", why: "a closed id is no number" },
+	{ carrier: "code", fn: "avg", why: "a closed id is no number" }
 ]
 
 const declinedOver = (t: ScalarType, fn: GenAggregate): boolean =>
@@ -228,10 +244,13 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 			)
 			for (const [t, fn] of pairs) {
 				const value = sqlLiteral(at(valueClasses(t, false), 0, "a value class"), t, schema)
-				const query = (home: string) =>
-					`SELECT pg_typeof(${aggregateSql(fn, "v.x", home)})::regtype::text FROM (VALUES (${value})) AS v(x)`
+				const query = (home: string, arg: string) =>
+					`SELECT pg_typeof(${aggregateSql(fn, arg, home)})::regtype::text FROM (VALUES (${value})) AS v(x)`
 				if (aggregateApplies(fn, t)) {
-					const [row = []] = yield* s.admin.queryValues(query(quoteIdent("pg_catalog")), [])
+					const [row = []] = yield* s.admin.queryValues(
+						query(quoteIdent("pg_catalog"), argumentSql(fn, t, "v.x")),
+						[]
+					)
 					const expected = aggregateResult(fn, fn === "count" ? undefined : t)
 					/**
 					 * pg_typeof reports the type without its typmod; min and max keep the argument's descriptor.
@@ -244,7 +263,7 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 				} else if (fn !== "count") {
 					/** Whether the aggregate resolves in a schema: it runs, or fails with 42883 where it does not exist. */
 					const resolves = (home: string) =>
-						s.admin.queryValues(query(home), []).pipe(
+						s.admin.queryValues(query(home, "v.x"), []).pipe(
 							Effect.as(true),
 							Effect.catchIf(
 								(e) => pgErrorFields(e)?.code === "42883",

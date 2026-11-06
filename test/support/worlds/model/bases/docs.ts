@@ -168,6 +168,7 @@ const doc = variable("doc")
 const user = variable("user")
 const no = variable("no")
 const seq = variable("seq")
+const tier = variable("tier")
 const plan = variable("plan")
 const tenant = claim("Tenant", "org")
 const subjectClaim = claim("Session", "sub")
@@ -396,4 +397,59 @@ export const docsVisitsInstall: InstallSpec = {
 		{ name: "web", roles: ["reader", "member"] },
 		{ name: "ops", roles: ["job", "admin", "visitor", "counter", "pinner"] }
 	]
+}
+
+/**
+ * The documents base with every visit on a tier (Visit.tier, an id of the roster Tier), the one roster handle a stored
+ * fact holds: a migration dropping a handle some visit holds is the removal VALIDATE refuses
+ * (invalid/migrations.ts, migration:roster-removal-held).
+ */
+const docsTieredVisitsBase: BaseSpec = {
+	...docsBase,
+	name: "DocsTieredVisits",
+	relations: Arr.map(docsBase.relations, (r) =>
+		r.name === "Visit"
+			? {
+					...r,
+					fields: [
+						...r.fields,
+						{ name: "tier", domain: { kind: "handle", closed: "Tier", members: ["Free", "Pro"] } }
+					]
+				}
+			: r
+	)
+}
+
+/**
+ * The worlds a held roster handle and a filtered serial's omission are one action from (pg/world-model/inductive): over
+ * the tiered visits (docsTieredVisitsBase), the `counter` writes LateVisit, the visits whose `seq` is at least one, a
+ * filter reading a serial field, so an insert through it leaving `seq` out is refused (fact:filtered-serial-omitted);
+ * the `keeper` holds Visit and Tier whole. No role names a handle of Tier, so either may be dropped, and dropping one a
+ * stored visit holds is migration:roster-removal-held. Both roles are in the login `ops`.
+ */
+export const docsHeldRosterInstall: InstallSpec = {
+	base: docsTieredVisitsBase,
+	roles: [
+		{
+			name: "counter",
+			entries: {
+				LateVisit: query(
+					rule(
+						[of("Visit", { no, seq, tier })],
+						{ no, seq, tier },
+						{ negations: [], comparisons: [{ left: seq, op: ">=", right: literal(1) }] }
+					)
+				)
+			},
+			write: ["LateVisit"],
+			refresh: []
+		},
+		{
+			name: "keeper",
+			entries: { Visit: whole("Visit"), Tier: whole("Tier") },
+			write: [],
+			refresh: []
+		}
+	],
+	logins: [{ name: "ops", roles: ["counter", "keeper"] }]
 }

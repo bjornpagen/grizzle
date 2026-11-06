@@ -20,6 +20,8 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { PayrollInstalled, PayrollWorlds } from "#test/pg/e2e-laws/payroll.ts"
 import { openFixture } from "#test/pg/e2e-laws/support.ts"
+import { defined } from "#test/support/assert.ts"
+import { type ClosedField, closedField } from "#test/support/closed/stored.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import { ada, stateA, t5, t9 } from "#test/support/fixtures/golden/payroll.ts"
@@ -52,6 +54,8 @@ interface Rig {
 	readonly s: PayrollInstalled
 	/** The installation's names of Payroll's relations. */
 	readonly names: Names
+	/** A leave reason as the literal its column stores: its handle's code under the installation's codes. */
+	readonly reason: ClosedField
 	readonly hr: Db<PayrollWorlds["hr"], unknown>
 	readonly run: (
 		schedule: Schedule<"h", "g", "h" | "g">
@@ -83,6 +87,10 @@ const openPayroll: Effect.Effect<
 	return {
 		s,
 		names: namesOf(f.installed),
+		reason: defined(
+			closedField(f.installed.installation, P.Leave.name, "reason"),
+			"Leave's reason, a closed id"
+		),
 		hr,
 		run: (sched) => runSchedule(env, sched, actors)
 	} satisfies Rig
@@ -108,7 +116,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									begin("h"),
 									sql(
 										"h",
-										`INSERT INTO ${leave} (${employee}, ${r.names.column(P.Leave, "during")}, ${r.names.column(P.Leave, "reason")}) VALUES ('${ada}', ${range(t5, t9)}, '${reason}')`,
+										`INSERT INTO ${leave} (${employee}, ${r.names.column(P.Leave, "during")}, ${r.names.column(P.Leave, "reason")}) VALUES ('${ada}', ${range(t5, t9)}, ${r.reason.literal(reason)})`,
 										ok(),
 										complete
 									),

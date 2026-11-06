@@ -64,10 +64,10 @@ import { largeFormPrograms } from "#test/support/oracle/forms.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
-import { schemaDesc } from "#test/support/oracle/gen/schema.ts"
+import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { arrayCasts, captureRows, type RawRow } from "#test/support/oracle/install/capture.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import { oraclePlan, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import { oraclePlanUnder, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import {
 	CurrentPerturbation,
 	multiplyFacts,
@@ -301,8 +301,8 @@ const execute = (
 	executeStatements(session, roots, name, (slot) => slotValue(c, slot))
 
 /**
- * A fused attachment's Attach node, read from the program's own DAG, and the child columns its array carries and those
- * the parent row supplies (attach/index.ts fusedLayout).
+ * The layout of a fused attachment whose Attach node the program's own DAG holds: the child columns its array carries
+ * and those the parent row supplies (attach/index.ts fusedLayout).
  */
 const layoutOf = (dag: RelDag, f: FusedAttachment) =>
 	Option.map(
@@ -310,11 +310,11 @@ const layoutOf = (dag: RelDag, f: FusedAttachment) =>
 			topoOrder(dag),
 			(n): n is NodeOf<"Attach"> => n.kind === "Attach" && n.id === f.attach
 		),
-		(attach) => {
+		() => {
 			const correlated = Arr.flatMap(f.layout.columns, (c) =>
 				c.source.from === "parent" ? [{ parent: c.source.parent, child: c.column.name }] : []
 			)
-			return { attach, layout: { element: fusedElement(f.layout), correlated } }
+			return { element: fusedElement(f.layout), correlated }
 		}
 	)
 
@@ -403,8 +403,8 @@ const childRowsOf = (
 export interface Delivered {
 	readonly run: Run
 	/**
-	 * For each statement label, the rows in delivery order, and for an ordered attachment the parent key prefix
-	 * length under which the child sequence is judged.
+	 * For each statement label, the rows in delivery order, and for an attachment the parent key prefix length under
+	 * which the child sequence is judged.
 	 */
 	readonly sequences: ReadonlyMap<
 		string,
@@ -472,8 +472,8 @@ const parentArrays = (
 
 /**
  * A fused attachment unfused into the rows of the attachment statement it replaces, each element column the text its
- * array carries, which is the column's result text (codec resultTextCasts), with its sequence when the attachment is
- * ordered.
+ * array carries, which is the column's result text (codec resultTextCasts), with its child sequence under each parent
+ * key (delivered).
  */
 const unfused = (
 	dag: RelDag,
@@ -496,7 +496,7 @@ const unfused = (
 		if (Option.isNone(found)) {
 			return yield* failure("unfuse", name, `${fusedLabel}: its Attach node`)
 		}
-		const { attach, layout } = found.value
+		const layout = found.value
 		const child = fusedHeading(f)
 		const parentFound = Option.all(
 			Arr.map(f.parentColumns, (c) => Arr.findFirstIndex(heading, (h) => h.name === c))
@@ -542,21 +542,23 @@ const unfused = (
 		}
 		return {
 			statement,
-			sequence:
-				attach.order === undefined
-					? []
-					: [
-							[
-								fusedLabel,
-								{ rows: canonicalRows(statement), prefix: f.parentColumns.length }
-							] as const
-						]
+			sequence: [
+				[fusedLabel, { rows: canonicalRows(statement), prefix: f.parentColumns.length }] as const
+			]
 		}
 	})
 
 /**
  * An executed program as the conservative program's statements: every fused attachment unfused into the rows of the
  * attachment statement it replaces.
+ *
+ * Every attachment's child sequence under each parent key is judged, whatever delivered type the
+ * program's own Attach node states: an array's children follow its completed total order, and an option's or a bare
+ * child's are at most one per parent, a sequence in any order. The optimized program's Attach is judged from its child's
+ * evidence (logical/annotate.ts), and the conservative program's is the case's own, so the two may state different
+ * delivered types for one attachment, an array and an option; the reader decodes both artifacts by the judged one
+ * (program/compile.ts `analyzed`) and matches children to parents by key (adapter/reader/execution.ts), so the
+ * sequences, which each program determines, are what must agree.
  */
 export const delivered = (
 	dag: RelDag,
@@ -583,7 +585,7 @@ export const delivered = (
 				rows: Arr.map(raw, (r) => r.slice(0, width))
 			}
 			statements.push(statement)
-			if (attach?.order !== undefined) {
+			if (attach !== undefined) {
 				sequences.push([
 					label,
 					{ rows: canonicalRows(statement), prefix: keyColumns(s.role).length }
@@ -604,7 +606,9 @@ export const delivered = (
 
 /**
  * The order problems of an optimized delivery against the conservative one: an ordered statement delivers the same
- * sequence, and an ordered attachment the same child sequence under each parent key. Both orders are the query's completed total order over a set, so the sequences are determined.
+ * sequence, and every attachment the same child sequence under each parent key. Each is determined: an ordered
+ * statement's and an array's by the query's completed total order over a set, and an option's or a bare child's by
+ * holding at most one child per parent.
  */
 export const orderProblems = (
 	conservative: Delivered,
@@ -729,10 +733,12 @@ const runDifferential = (
 			facts: multiplyFacts(normalized.schema, normalized.facts, perturbation.multiplier)
 		}
 		const desc = schemaDesc(c.schema)
-		const planned = oraclePlan(
+		/** The case's own codes, which its facts, its parameters and every delivered closed id are encoded by. */
+		const planned = oraclePlanUnder(
 			desc,
 			identity.schema(parsedSchemaName(options.schema)),
-			substrate.owner.role
+			substrate.owner.role,
+			schemaCodes(c.schema)
 		)
 		if (!planned.ok) {
 			return yield* failure("plan", "install", compileMessage(planned.error))

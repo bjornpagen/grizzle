@@ -145,19 +145,44 @@ const toUnionAll = (
 	})
 }
 
-/** The recursive CTE's UNION of a Recursive node's lowering (recursive/index.ts). */
+/**
+ * Where a Recursive node's lowering (recursive/index.ts) holds its recursive CTE: the one its WITH RECURSIVE's own body
+ * reads, `SELECT ... FROM <cte> AS r`. A node the recursion reads more than once is shared, its CTE defined ahead of the
+ * recursive one in the same WITH (dispatch.ts leading), so the recursive CTE is found by the name its body reads, never
+ * by its place in the list.
+ */
+const recursiveCteAt = (query: OperandSelect): number | undefined => {
+	const w = query.with
+	const body = query.body
+	if (w?.recursive !== true || body.kind !== "core") {
+		return undefined
+	}
+	const [read] = body.from
+	if (read?.kind !== "cte") {
+		return undefined
+	}
+	const at = Arr.findFirstIndex(w.ctes, (cte) => cte.name === read.name)
+	return Option.getOrUndefined(at)
+}
+
+/** The recursive CTE's UNION of a Recursive node's lowering (recursiveCteAt). */
 const recursiveTerms = (query: OperandSelect): OperandSelect | undefined => {
-	const cte = query.with?.recursive === true ? query.with.ctes[0] : undefined
+	const at = recursiveCteAt(query)
+	const cte = at === undefined ? undefined : query.with?.ctes[at]
 	return cte?.query.kind === "select" && cte.query.body.kind === "setOp" ? cte.query : undefined
 }
 
+/** A Recursive node's lowering with `body` in place of its recursive CTE's query (recursiveCteAt). */
 const withRecursiveBody = (query: OperandSelect, body: OperandSelect): OperandSelect => {
 	const w = query.with
-	if (w === undefined) {
+	const at = recursiveCteAt(query)
+	if (w === undefined || at === undefined) {
 		return query
 	}
-	const [first, ...rest] = w.ctes
-	return { ...query, with: { ...w, ctes: [{ ...first, query: body }, ...rest] } }
+	return {
+		...query,
+		with: { ...w, ctes: Arr.map(w.ctes, (cte, i) => (i === at ? { ...cte, query: body } : cte)) }
+	}
 }
 
 /** The seed or step term: SELECT casts FROM (<node>) AS r(...), with the node's DISTINCT removed. */

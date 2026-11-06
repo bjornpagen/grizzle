@@ -69,32 +69,30 @@ const identitiesOf = (ids: LawIds): ReadonlyArray<LawId> => {
 }
 
 /**
- * Every function a direct writer may try to call: the installation's own. No law has a function (fin.md §7).
+ * Every function a direct writer may try to call: the installation's own, none when it holds no query entry and no
+ * serial field. No law has a function (fin.md §7).
  */
-export const worldFunctionsOf = (state: ModelState): Arr.NonEmptyReadonlyArray<WorldFunction> => {
+export const worldFunctionsOf = (state: ModelState): ReadonlyArray<WorldFunction> => {
 	const base = state.install.base
 	const queries = Arr.flatMap(state.install.roles, (role) =>
 		Arr.flatMap(Record.toEntries(role.entries), ([entry, spec]) =>
 			spec.kind === "query" ? [{ role: role.name, entry }] : []
 		)
 	)
-	return knownNonEmpty(
-		[
-			...Arr.map(queries, (q): WorldFunction => ({ kind: "filter", role: q.role, entry: q.entry })),
-			...Arr.map(queries, (q): WorldFunction => ({
-				kind: "key-probe",
-				role: q.role,
-				entry: q.entry,
-				key: 0
-			})),
-			...Arr.flatMap(base.relations, (r) =>
-				Arr.flatMap(r.fields, (f): ReadonlyArray<WorldFunction> =>
-					f.domain.kind === "serial" ? [{ kind: "advance", relation: r.name, field: f.name }] : []
-				)
+	return [
+		...Arr.map(queries, (q): WorldFunction => ({ kind: "filter", role: q.role, entry: q.entry })),
+		...Arr.map(queries, (q): WorldFunction => ({
+			kind: "key-probe",
+			role: q.role,
+			entry: q.entry,
+			key: 0
+		})),
+		...Arr.flatMap(base.relations, (r) =>
+			Arr.flatMap(r.fields, (f): ReadonlyArray<WorldFunction> =>
+				f.domain.kind === "serial" ? [{ kind: "advance", relation: r.name, field: f.name }] : []
 			)
-		],
-		"the installation's functions"
-	)
+		)
+	]
 }
 
 /**

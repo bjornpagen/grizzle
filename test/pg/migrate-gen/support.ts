@@ -11,7 +11,12 @@ import {
 	String as Str
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { conversionOf as converts, identity, parseDeclaredName } from "#compiler/core/identity.ts"
+import {
+	conversionOf as converts,
+	identity,
+	maxIdentifierBytes,
+	parseDeclaredName
+} from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as EngineResult from "#compiler/core/result.ts"
 import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
@@ -344,7 +349,12 @@ const applyEdit = (
 				pattern: {
 					...c.pattern,
 					slots: [...c.pattern.slots, { kind: "live", handle: `G${c.pattern.slots.length}` }]
-				}
+				},
+				payload: Arr.map(c.payload, (p) => ({
+					...p,
+					/** The new handle's code takes a payload value too: the column's first. */
+					values: [...p.values, ...p.values.slice(0, 1)]
+				}))
 			}
 			return { ...sketch, closed }
 		}
@@ -355,7 +365,18 @@ const applyEdit = (
 			if (c === undefined || from === undefined) {
 				return sketch
 			}
-			closed[k] = { ...c, payload: from.payload }
+			/** The codes of this roster, each of which the donor's payload columns hold a value for, the donor's in turn. */
+			const codes = c.pattern.slots.length
+			closed[k] = {
+				...c,
+				payload: Arr.map(from.payload, (p) => ({
+					...p,
+					values: Arr.flatMap(
+						Arr.makeBy(codes, (i) => i),
+						(i) => Option.toArray(Arr.get(p.values, i % Math.max(p.values.length, 1)))
+					)
+				}))
+			}
 			return { ...sketch, closed }
 		}
 		case "addClosed": {
@@ -937,9 +958,38 @@ const initialExtras = (drawn: Swarm<PathKind>, sketch: ExtrasSketch): Extras => 
 const version = (sketch: SchemaSketch, spelling: Spelling, extras: Extras): Gen<Version> =>
 	map(resolveSchema(sketch, spelling, fullDataSwarm), (schema) => versionOf(schema, extras))
 
+/**
+ * A roster as its first migration installs it: its live handles in declared order, each holding the code of its
+ * position, with no hole, since the migration that creates a roster drafts its codes from no history. Its later
+ * versions keep those codes, a handle appended taking the next one and a removed one leaving a hole
+ * (lastHandleRemoved), as the migrations between them draft them.
+ */
+const firstInstalled = (c: ClosedSketch): ClosedSketch => ({
+	...c,
+	pattern: {
+		...c.pattern,
+		slots: nonEmptyList(
+			Arr.filter(c.pattern.slots, (slot) => slot.kind === "live"),
+			"a roster's live handle"
+		)
+	}
+})
+
+/** A schema sketch whose rosters are as their first migration installs them (firstInstalled). */
+const withFirstInstalled = (sketch: SchemaSketch): SchemaSketch => ({
+	...sketch,
+	closed: Arr.map(sketch.closed, firstInstalled)
+})
+
 const resolvePath =
-	(sketch: PathSketch): Gen<MigrationPath> =>
+	(drawn: PathSketch): Gen<MigrationPath> =>
 	(source) => {
+		/** A's rosters, and every roster a later version adds from the donor, as their first migration installs them. */
+		const sketch: PathSketch = {
+			...drawn,
+			a: withFirstInstalled(drawn.a),
+			donor: withFirstInstalled(drawn.donor)
+		}
 		const spelling: Spelling = { mode: "drawn", edge: false }
 		const b = applyEdits(sketch.a, sketch.donor, sketch.a, pathLimits, sketch.toB)
 		const c = applyEdits(b, sketch.donor, sketch.a, pathLimits, sketch.toC)
@@ -1364,8 +1414,19 @@ const renamed = (
 			if (!picks.flag) {
 				return renameRelation(t, relation, entry.declared)
 			}
+			/**
+			 * A closed id's field has a decoded column `<field>_name` in each role's view, which fits a name too, so a
+			 * dictionary name too long to take that suffix is no name of one.
+			 */
 			const column = columnOf(relation)
-			return column === undefined ? t : renameField(t, relation, column.name, entry.declared)
+			const decodedFits =
+				column === undefined ||
+				rosterOf(column.type) === undefined ||
+				Buffer.byteLength(`${conversionOf(entry.declared)}_name`, "utf8") <=
+					maxIdentifierBytes.value
+			return column === undefined || !decodedFits
+				? t
+				: renameField(t, relation, column.name, entry.declared)
 		}
 		case "catalog": {
 			/** A name a PostgreSQL type or function holds: a relation's row type or a closed relation's enum takes it. */
@@ -1509,6 +1570,89 @@ const renamedSketchGen: Gen<RenamedSketch> = (source) => {
 	}
 }
 
+/**
+ * `c` with every handle B removed from a roster of A removed from that roster in C too, while it keeps a handle: a
+ * removed handle's code is a hole no handle takes again, so C declaring it back would give it a new code after B and
+ * its old one straight from A, and no catalog of C would be one whichever path led to it.
+ */
+const removalsKept = (a: GenSchema, b: GenSchema, c: GenSchema): GenSchema => {
+	const named = (s: GenSchema, name: string) => Arr.findFirst(s.closed, (x) => x.name === name)
+	return Arr.reduce(c.closed, c, (schema, rc) => {
+		const was = named(a, rc.name)
+		const now = named(b, rc.name)
+		if (Option.isNone(was) || Option.isNone(now)) {
+			return schema
+		}
+		const gone = new Set(Arr.filter(was.value.handles, (h) => !now.value.handles.includes(h)))
+		const kept = Arr.filter(rc.handles, (h) => !gone.has(h))
+		return Arr.isReadonlyArrayNonEmpty(kept) && kept.length < rc.handles.length
+			? handlesRemoved(schema, rc, kept)
+			: schema
+	})
+}
+
+/** `schema` with the roster `closed` holding only `handles`: each removed handle's code a hole, its payload row gone,
+ * and every field the roster types retyped to its live handles. */
+const handlesRemoved = (
+	schema: GenSchema,
+	closed: GenClosed,
+	handles: Arr.NonEmptyReadonlyArray<string>
+): GenSchema => {
+	const to: GenClosed = {
+		...closed,
+		handles,
+		codes: Arr.map(closed.codes, (slot): CodeSlot =>
+			slot.kind === "live" && !handles.includes(slot.handle) ? { kind: "hole" } : slot
+		),
+		rows: Arr.filter(closed.rows, (row) => {
+			const [id] = row
+			return !(id?.kind === "handle" && !handles.includes(id.handle))
+		})
+	}
+	const roster = (type: GenRelation["columns"][number]["type"]) =>
+		rosterOf(type)?.closed === closed.name ? closedIdType(to) : type
+	return {
+		...schema,
+		closed: Arr.map(schema.closed, (c) => (c.name === closed.name ? to : c)),
+		relations: Arr.map(schema.relations, (r) => ({
+			...r,
+			columns: Arr.map(r.columns, (c) => ({ ...c, type: roster(c.type) }))
+		}))
+	}
+}
+
+/**
+ * `after` with each roster's codes as the migration from `before` drafts them, the roster by its name: each handle it
+ * held and still holds keeps its code, one it no longer holds leaves a hole no handle takes again, and one new to it
+ * takes the next code, a handle given back after its removal among them; a roster new to `after` is installed fresh, its
+ * handles in declared order. A removal takes a roster's last handle and an addition appends one, so a later version
+ * still declares its handles in their codes' order.
+ */
+const continuedCodes = (before: GenSchema, after: GenSchema): GenSchema => ({
+	...after,
+	closed: Arr.map(after.closed, (c): GenClosed => {
+		const was = Arr.findFirst(before.closed, (x) => x.name === c.name)
+		if (Option.isNone(was)) {
+			return { ...c, codes: Arr.map(c.handles, (handle): CodeSlot => ({ kind: "live", handle })) }
+		}
+		const kept = Arr.map(was.value.codes, (slot): CodeSlot =>
+			slot.kind === "live" && c.handles.includes(slot.handle) ? slot : { kind: "hole" }
+		)
+		const held = new Set(Arr.flatMap(kept, (slot) => (slot.kind === "live" ? [slot.handle] : [])))
+		const added = Arr.flatMap(c.handles, (handle): ReadonlyArray<CodeSlot> =>
+			held.has(handle) ? [] : [{ kind: "live", handle }]
+		)
+		return { ...c, codes: [...kept, ...added] }
+	})
+})
+
+/**
+ * C as the direct migration from A drafts it: C's declaration, each roster's codes continued from A's rather than B's,
+ * since a code is history (continuedCodes), so a handle B added and C no longer holds leaves no hole on the direct path.
+ */
+export const directVersion = (path: MigrationPath): Version =>
+	versionOf(continuedCodes(path.a.schema, path.c.schema), path.c.extras)
+
 const resolveRenamed =
 	({
 		path,
@@ -1538,8 +1682,10 @@ const resolveRenamed =
 					removed
 				)
 			: renamedAll(cFirst, renamesC, "p", removed)
+		const bSchema = continuedCodes(p.a.schema, b.schema)
+		const cSchema = continuedCodes(bSchema, removalsKept(p.a.schema, b.schema, c.schema))
 		return {
-			path: { ...p, b: versionOf(b.schema, p.b.extras), c: versionOf(c.schema, p.c.extras) },
+			path: { ...p, b: versionOf(bSchema, p.b.extras), c: versionOf(cSchema, p.c.extras) },
 			origins: { a: ownOrigins(p.a.schema), b: b.origins, c: c.origins },
 			choose,
 			chained,
@@ -1708,22 +1854,23 @@ const has = (rel: GenRelation, name: string) => Arr.some(rel.columns, (c) => c.n
  * its heading, as a candidate needs, and a field of a relation of both renamed to a field of its type, or of another
  * when no removed field has its type; or, with
  * `alias`, those between two names of one identifier, which no candidate needs: the draft holds such a name as no
- * change, the same table or column whatever the name's origin. A relation whose kept name is set aside
- * (movedRelations) is removed under its name and added afresh there: a swap's or a chain's relation that took another's
- * name is a rename from that one when the two have one origin, its rows carried only when chosen. */
+ * change, the same table or column whatever the name's origin or heading. For the chosen renames, a relation whose
+ * kept name another relation's identity takes (movedRelations) is a rename from that one when the two have one
+ * origin, its rows carried only when chosen. */
 const originRenames = (
 	fromVersion: TracedVersion,
 	toVersion: TracedVersion,
 	alias: boolean
 ): Renames => {
-	const moved = movedRelations(fromVersion.version, toVersion.version)
+	/** The names whose identity moves, which a chosen rename may take; an alias is one table whatever moves. */
+	const moved = alias ? new Set<string>() : movedRelations(fromVersion.version, toVersion.version)
 	const from: TracedSchema = { schema: fromVersion.version.schema, origins: fromVersion.origins }
 	const to: TracedSchema = { schema: toVersion.version.schema, origins: toVersion.origins }
 	const named = (s: GenSchema, name: string) =>
 		!moved.has(conversionOf(name)) && Arr.some(s.relations, (r) => r.name === name)
 	const relations = new Map<string, string>()
 	for (const added of to.schema.relations) {
-		if (named(from.schema, added.name) || (alias && moved.has(conversionOf(added.name)))) {
+		if (named(from.schema, added.name)) {
 			continue
 		}
 		const origin = to.origins.relations.get(added.name)
@@ -1798,7 +1945,7 @@ export const bothRenames = (a: Renames, b: Renames): Renames => ({
 
 /**
  * What a draft from `a` to `b` declares (`--rename`, `--drop`): each relation rename and each field rename of
- * `declared`, a field renamed on its relation under the target's name; every relation and field `a` holds that `b`
+ * `declared`, a field's `from` named as `a` names it and its `to` as `b` does; every relation and field `a` holds that `b`
  * carries nowhere, by a declared rename, an alias (`aliases`, a rename between names of one identifier, which the draft
  * holds as no change) or its own name, dropped; and each removed handle, a code `b` holds as a hole, dropped.
  */
@@ -1854,18 +2001,34 @@ const declarationsOf = (
 		}
 		for (const ac of ar.columns) {
 			const key = (bc: GenColumn) => `${carried.to}.${bc.name}`
+			/** The field `ac` is in B: a declared or aliased rename's, or the field of its conversion, one column. */
 			const into = Arr.findFirst(br.value.columns, (bc) => {
 				const was = declared.columns.get(key(bc)) ?? aliases.columns.get(key(bc))
-				return was === undefined ? bc.name === ac.name : was === ac.name
+				return was === undefined ? conversionOf(bc.name) === conversionOf(ac.name) : was === ac.name
 			})
 			if (Option.isNone(into)) {
 				drops.push({ kind: "field", relation: named(ar.name), field: named(ac.name) })
 			} else if (declared.columns.get(key(into.value)) === ac.name && into.value.name !== ac.name) {
 				renames.push({
-					from: { kind: "field", relation: named(carried.to), field: named(ac.name) },
+					from: { kind: "field", relation: named(ar.name), field: named(ac.name) },
 					to: { kind: "field", relation: named(carried.to), field: named(into.value.name) }
 				})
 			}
+		}
+	}
+	/** Each relation's serial field `sq`, which an extra declares, holds the identities its rows were given, so its drop
+	 * is declared: a relation carried to one that declares none. */
+	const serialsA = serialRelations(a.schema, a.extras)
+	const serialsB = serialRelations(b.schema, b.extras)
+	for (const ar of a.schema.relations) {
+		const carried = carriedTo(ar.name)
+		if (
+			serialsA.has(ar.name) &&
+			carried !== undefined &&
+			Arr.some(b.schema.relations, (r) => r.name === carried.to) &&
+			!serialsB.has(carried.to)
+		) {
+			drops.push({ kind: "field", relation: named(ar.name), field: named(serialField) })
 		}
 	}
 	for (const ac of a.schema.closed) {
@@ -2469,9 +2632,10 @@ const contains = (
 }
 
 /** The carry model of the header: removes rows of A until every carried form is lawful in B and A is lawful. A
- * chosen rename carries the renamed relation's rows, or the renamed field's values; a relation whose kept name is set
- * aside (movedRelations) keeps its rows only through a chosen rename. `serial` holds the fields B declares serial,
- * `<relation>.<field>`.
+ * chosen rename carries the renamed relation's rows, or the renamed field's values, and the relation of A a rename takes
+ * to another name leaves its own name to a relation afresh; any other relation of B carries the rows of A's relation of
+ * its name, which the draft keeps and changes in place, since a draft renames only what is declared, a field it adds
+ * holding the reviewer's value. `serial` holds the fields B declares serial, `<relation>.<field>`.
  *
  * A's containments, in declaration order: a target precedes its source. */
 export const carry = (
@@ -2487,8 +2651,11 @@ export const carry = (
 	for (const r of a.relations) {
 		loaded[r.name] = [...(facts[r.name] ?? [])]
 	}
-	/** A relation of B under a name set aside starts empty unless a chosen rename fills it. */
-	const moved = movedRelations(av, bv)
+	/** The relations of A a rename takes to another name of B: each leaves its name, which holds a relation afresh
+	 * unless a rename fills it. */
+	const renamedAway = new Set(
+		Arr.flatMap([...renames.relations], ([to, was]) => (to === was ? [] : [was]))
+	)
 	for (;;) {
 		let removed = false
 		for (const r of a.relations) {
@@ -2507,7 +2674,7 @@ export const carry = (
 			const carried =
 				from !== undefined
 					? relationOf(a, from)
-					: moved.has(conversionOf(br.name))
+					: renamedAway.has(br.name)
 						? Option.none()
 						: relationOf(a, br.name)
 			const out: Array<LiteralRow> = []

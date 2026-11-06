@@ -3611,7 +3611,11 @@ export const powerInRange = (
 		: weight * Math.LN10 < powerExpLimit.value
 }
 
-/** power's result bounds where its premises hold: its integer digits powerWeight's bound; a float's its type's. */
+/**
+ * power's result bounds where its premises hold: a float's its type's; a numeric's integer digits one past the whole
+ * part of powerWeight's bound w. The result reaches 10^w itself, so w digits never suffice: x^0 and 1^y are 1, one
+ * integer digit where w is 0, and a least base 10^-s raised to -y is 10^(s·y) exactly.
+ */
 const powerBounds = (a: Lowered, b: Lowered, v: ScalarType): Bounds | undefined => {
 	if (isFloat(v)) {
 		return boundsOfType(v)
@@ -3621,7 +3625,7 @@ const powerBounds = (a: Lowered, b: Lowered, v: ScalarType): Bounds | undefined 
 	if (ea === undefined || eb === undefined) {
 		return undefined
 	}
-	const digits = Math.ceil(powerWeight(ea[0], ea[1], eb[0], eb[1]))
+	const digits = Math.floor(powerWeight(ea[0], ea[1], eb[0], eb[1])) + 1
 	return ofDigits(Math.min(digits, numericMaxIntegerDigits.value), numericMaxDisplayScale.value, {
 		infinite: false,
 		nan: true

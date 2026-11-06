@@ -8,9 +8,13 @@ interface ScheduledAction<A> {
 	readonly dependsOn: ReadonlyArray<number>
 }
 
-/** What the schedule reads of an action: what it does. */
+/**
+ * What the schedule reads of an action: what it does, and whether its relation is a pure set, whose every field its
+ * primary key holds (write/frontend/targets.ts Payload), so that a put of it displaces nothing.
+ */
 interface Scheduled {
 	readonly action: ActionCore
+	readonly pureSet: boolean
 }
 
 /** An immediate reference: facts of `from` name facts of `to` at every statement. */
@@ -23,8 +27,13 @@ export interface ImmediateReference {
 const phaseOf = (a: ActionCore): 0 | 1 | 2 | 3 =>
 	a.op === "delete" ? 0 : a.op === "put" ? 1 : a.serial.kind === "generated" ? 3 : 2
 
-const removes = (a: ActionCore): boolean => a.op === "delete" || a.op === "put"
-const adds = (a: ActionCore): boolean => a.op === "insert" || a.op === "put"
+/**
+ * Whether an action removes facts: a deletion, or a put of a relation with a payload, which displaces the occupant of
+ * each key it writes. A pure set's put displaces nothing: its fact at a key is the key, so its put only adds.
+ */
+const removes = (s: Scheduled): boolean =>
+	s.action.op === "delete" || (s.action.op === "put" && !s.pureSet)
+const adds = (s: Scheduled): boolean => s.action.op === "insert" || s.action.op === "put"
 
 /** The canonical order of a stratum's actions: relation, phase, then (the sort being stable) the order given. */
 const scheduledOrder: Order.Comparator<Scheduled> = Order.combine(
@@ -57,10 +66,10 @@ export const canonicalActionOrder = <A extends Scheduled>(
  *   value a generated addition draws.
  * - Across relations, an immediate foreign key from C into P (`natives`, deferrable false) is checked at
  *   each statement, so P's additions precede C's, and C's removals precede P's. A deferred reference tolerates any
- *   order until COMMIT, so it orders nothing. A put is both a removal and an addition; where the two rules
- *   would order two actions both ways, the foreign key cannot be immediate under the deferral rule (a
- *   reference into a relation that has a field outside the referenced columns is deferred), and the edge
- *   that closes the cycle is dropped.
+ *   order until COMMIT, so it orders nothing. A put is both a removal and an addition, but a pure set's put displaces
+ *   nothing and is an addition alone, and an immediate foreign key's target is a pure set under the deferral rule (a
+ *   reference into a relation that has a field outside the referenced columns is deferred): so C's put follows P's,
+ *   and where the two rules would still order two actions both ways, the edge that closes the cycle is dropped.
  *
  * The actions are numbered in a canonical order (relation, then the phases above, then member order), sorted
  * topologically with that order breaking ties, and each action's dependsOn lists the earlier actions an edge orders
@@ -93,10 +102,10 @@ export const scheduleStratum = <A extends Scheduled>(
 			if (!references.some((r) => r.from === b.relation && r.to === a.relation)) {
 				continue
 			}
-			if (adds(a) && adds(b)) {
+			if (adds(x.scheduled) && adds(y.scheduled)) {
 				y.follows.add(x)
 			}
-			if (removes(a) && removes(b)) {
+			if (removes(x.scheduled) && removes(y.scheduled)) {
 				x.follows.add(y)
 			}
 		}

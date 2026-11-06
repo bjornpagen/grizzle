@@ -3,7 +3,7 @@ import { exhaust } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Effect, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { baseOf, contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { type AggregateOverload, aggregateOverload } from "#compiler/scalar/aggregate.ts"
@@ -23,6 +23,12 @@ interface Sample {
 	readonly type: ScalarType
 	/** The VALUES list of the sample, given the test's schema. */
 	readonly values: (schema: string) => string
+	/**
+	 * The aggregates the host refuses over the sample whatever PostgreSQL defines over its storage: a closed id and a set
+	 * of handles are no numbers, so the sum and the mean of a code's smallint, which PostgreSQL computes, are no aggregate
+	 * of the handles it stores.
+	 */
+	readonly noNumber: ReadonlyArray<"sum" | "mean">
 }
 
 const mood = field({ kind: "closedId", roster: "Mood" }, "code")
@@ -32,7 +38,8 @@ const Cents = testContract("Cents", testPg.bigint, (x) => x.ge(0n))
 const plain = (label: string, f: TestField, values: string): Sample => ({
 	label,
 	type: f.scalar,
-	values: () => values
+	values: () => values,
+	noNumber: []
 })
 
 const samples: readonly [Sample, ...ReadonlyArray<Sample>] = [
@@ -52,18 +59,26 @@ const samples: readonly [Sample, ...ReadonlyArray<Sample>] = [
 			{ kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined },
 			{}
 		),
-		values: () => "(VALUES (int4range(1, 3)))"
+		values: () => "(VALUES (int4range(1, 3)))",
+		noNumber: []
 	},
 	{
 		label: "code",
 		type: mood.scalar,
-		values: (s) => `(VALUES (1::smallint::"${s}".mood), (2::smallint::"${s}".mood))`
+		values: (s) => `(VALUES (1::smallint::"${s}".mood), (2::smallint::"${s}".mood))`,
+		noNumber: ["sum", "mean"]
 	},
-	plain("bits", moods, "(VALUES ('101'::bit(3)), ('011'::bit(3)))"),
+	{
+		label: "bits",
+		type: moods.scalar,
+		values: () => "(VALUES ('101'::bit(3)), ('011'::bit(3)))",
+		noNumber: ["sum", "mean"]
+	},
 	{
 		label: "Cents",
 		type: Cents.scalar,
-		values: (s) => `(VALUES (1::"${s}".cents), (2::"${s}".cents))`
+		values: (s) => `(VALUES (1::"${s}".cents), (2::"${s}".cents))`,
+		noNumber: []
 	}
 ]
 
@@ -87,8 +102,9 @@ const resultCall = (
 		: { sql: `${o.sql}(${x})`, op: o.op }
 
 /**
- * What PostgreSQL says against the host's typing of one aggregate over one sample: an aggregate the host refuses has no
- * PostgreSQL counterpart, and an admitted one runs, resolves to the pg_aggregate the overload names, takes the sample's
+ * What PostgreSQL says against the host's typing of one aggregate over one sample: an aggregate over no number
+ * (`noNumber`) is refused, and PostgreSQL is not asked; any other aggregate the host refuses has no PostgreSQL
+ * counterpart, and an admitted one runs, resolves to the pg_aggregate the overload names, takes the sample's
  * base type (or the polymorphic type it instantiates), and its result call (resultCall) has the pg_proc result and the
  * pg_typeof of the host's result type, over the base for a contract. `checked` marks an admitted aggregate whose checks
  * all ran.
@@ -106,6 +122,13 @@ const aggregateProblems = (
 		const values = sample.values(s)
 		const label = `${name}/${sample.label}`
 		const overload = aggregateOverload({ name, arg: sample.type }, SourceLoc("test", []))
+		const noNumber = Arr.some(sample.noNumber, (n) => n === name)
+		if (noNumber) {
+			return {
+				problems: overload.ok ? [`${label}: admitted, though ${sample.label} is no number`] : [],
+				checked: false
+			}
+		}
 		if (!overload.ok) {
 			const fn = name === "mean" ? "avg" : name
 			const run = yield* db

@@ -43,7 +43,8 @@ import {
 	conservativeInput,
 	type ConservativeStatement,
 	flight,
-	keyColumns
+	keyColumns,
+	statementOutput
 } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { deliveredAsOptimized, type OptimizedStatement } from "#compiler/lower/shapes/index.ts"
@@ -497,7 +498,8 @@ interface Full {
 
 /**
  * D: the conservative lowering's delivery, each heading group sorted on the page order and the groups merged on it,
- * on the template's heading, as values (valueRows); and every attachment statement's rows over every delivered parent.
+ * on the template's heading, as values (valueRows); and every attachment statement's rows over every delivered parent,
+ * as values too.
  */
 const fullResult = (
 	session: PgConnection,
@@ -538,7 +540,7 @@ const fullResult = (
 			spec.role === "attachment" ? [] : [{ spec, rows: raws[i] ?? [] }]
 		)
 		const attachments = Arr.flatMap(specs, (spec, i) =>
-			spec.role === "attachment" ? [raws[i] ?? []] : []
+			spec.role === "attachment" ? [valueRows(spec.heading, raws[i] ?? [], codes)] : []
 		)
 		const types: Record<string, Heading[number]["type"]> = {}
 		for (const c of heading) {
@@ -616,9 +618,10 @@ interface Paged {
 }
 
 /**
- * One attachment statement of one page: the parent key texts its parent delivered on this page (the page's delivered
- * rows of a rows statement, or every row of a parent attachment), and the rows it read, each leading with its parent
- * key.
+ * One attachment statement of one page: the parent keys its parent delivered on this page (the page's delivered rows
+ * of a rows statement, or every row of a parent attachment), and the rows it read, each leading with its parent key,
+ * all as values (valueRows): an attachment statement keeps each (parent key, child) once, so where two parents' keys
+ * are one value spelled two ways (-0 and 0), D's statement and the page's may keep different spellings of that row.
  */
 interface Attached {
 	readonly width: number
@@ -632,9 +635,25 @@ interface Attached {
 	readonly tail: string | undefined
 }
 
-/** The parent key text of an attachment row, or of a parent row, at the key's positions. */
+/** The parent key text of an attachment row, or of a parent row, at the key's positions, of rows read as values. */
 const keyText = (row: Row, positions: ReadonlyArray<number>): string =>
 	Formatter.format(Arr.map(positions, (p) => row[p]))
+
+/** The parent key of a parent row as a value: each cell at the key's positions its column type's canonical text. */
+const keyValue = (
+	row: Row,
+	positions: ReadonlyArray<number>,
+	key: Heading,
+	codes: Codebook
+): string =>
+	Formatter.format(
+		Arr.map(positions, (p, i) =>
+			canonicalCell(
+				defined(key[i], "a parent key column").type,
+				codes
+			)(defined(row[p], "a parent key cell"))
+		)
+	)
 const leading = (width: number): ReadonlyArray<number> => [...indices(width)]
 
 /** A cell as the wire admits it: the text the server sent, or NULL. */
@@ -774,11 +793,17 @@ const pager =
 							)
 				expected++
 				const edgeKey = (edge: PageRows["edges"][number] | undefined): string | undefined =>
-					edge?.statement === parentRecord ? keyText(edge.raw, positions) : undefined
+					edge?.statement === parentRecord
+						? keyValue(edge.raw, positions, parentKey, codes)
+						: undefined
 				attached.push({
 					width: parentKey.length,
-					parents: Arr.map(parentRows, (row) => keyText(row, positions)),
-					rows: rows.attachments.get(record) ?? [],
+					parents: Arr.map(parentRows, (row) => keyValue(row, positions, parentKey, codes)),
+					rows: valueRows(
+						statementOutput(statement.role, statement.heading, statement.fused).heading,
+						rows.attachments.get(record) ?? [],
+						codes
+					),
 					head: edgeKey(rows.edges[0]),
 					tail: edgeKey(rows.edges[rows.edges.length - 1])
 				})
@@ -846,7 +871,8 @@ const assertWithinBound = (
  * to a parent delivered on that page, never to the dropped lookahead row or a row of another page, and each delivered
  * parent's children are exactly D's children of that parent key, with no duplicate and no omission. The attachment
  * statement keeps each (parent key, child) once (shapes/attach pipelinedAttachment), so a parent key's children are
- * the same set on a page as in D's attachment statement.
+ * the same set of values on a page as in D's attachment statement, keys and rows compared as values, as the reader
+ * matches a parent to its children (codec/scalar.ts cellText).
  */
 const checkAttachments = (label: string, p: Paged, full: Full): void => {
 	for (const [a, attached] of p.attached.entries()) {

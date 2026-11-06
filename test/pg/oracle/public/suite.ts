@@ -200,11 +200,7 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
 			}
 		},
 		draws: "",
-		reaches: [
-			"facts by a direct writer",
-			"a collapse over two stored spellings of one value",
-			"a display-scale reading over a collapsed or padded value"
-		]
+		reaches: ["facts by a direct writer"]
 	}
 ]
 

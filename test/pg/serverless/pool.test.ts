@@ -8,12 +8,14 @@ import { searched } from "@grizzle/testing/vitest"
 import {
 	Array as Arr,
 	Clock,
+	Context,
 	Deferred,
 	Duration,
 	Effect,
 	Exit,
 	Fiber,
 	Formatter,
+	Option,
 	type Redacted,
 	Result,
 	Scheduler,
@@ -188,6 +190,18 @@ const interleavingGen: Gen<Interleaving> = (source) => ({
 /** How far a lease got before its end: what a cut lease was doing when the cut came. */
 type Progress = "asking" | "holding" | "running"
 
+/**
+ * The lease a connection attempt is for, by its index in the interleaving. The pool runs a new connection's password
+ * Effect under the services of the lease whose ask constructs it (wire/session.ts makePool, passwordOf), so the
+ * password reads the lease its connection is for.
+ */
+const AskingLease = Context.Reference<Option.Option<number>>(
+	"grizzle/test/serverless/AskingLease",
+	{
+		defaultValue: () => Option.none()
+	}
+)
+
 type InterleavingFeature =
 	| "cut while asking"
 	| "cut while asking, a connection being established"
@@ -206,8 +220,9 @@ const interleavingSituations: Arr.NonEmptyReadonlyArray<InterleavingFeature> = [
 ]
 
 /**
- * Planted: on a pool of one, a lease held across a statement while two more wait, the first cut at once on the fiber's
- * side and the second after a few milliseconds of real time, while pg connects, the statement's lease then cut too.
+ * Planted: on a pool of one, a lease held across a statement while three more wait for its one permit: one cut at once
+ * on the fiber's side and one after a few milliseconds of real time, while pg connects the holder's session, both cut
+ * asking with no connection of their own, and one kept to its end once the statement's lease is cut too.
  */
 const interleavingKept: ReadonlyArray<Kept<Interleaving, InterleavingFeature>> = [
 	{
@@ -238,8 +253,10 @@ const running = "SELECT pg_catalog.pg_sleep(0.05)::text"
  * eight leases started at once on a pool of one to three, each kept to its end or cut, after a drawn number of the
  * scheduler's turns or of real milliseconds, while it asks (queued for a permit, while pg connects it over TLS, or
  * once pg answered and before the lease took the client), while it holds its session, or while a statement runs on
- * it. A client that arrives for an ask whose lease was cut goes straight back to the pool with its permit; a session
- * cut mid-statement sends its CancelRequest, is destroyed and is counted out of the pool.
+ * it. A lease cut while it asks was establishing a connection exactly when the pool had started one for it: its
+ * connection's password ran under its own services (AskingLease), whatever connections other leases were
+ * establishing. A client that arrives for an ask whose lease was cut goes straight back to the pool with its permit;
+ * a session cut mid-statement sends its CancelRequest, is destroyed and is counted out of the pool.
  *
  * Once every lease has ended: every kept lease succeeded and every cut one ended as an interruption; the pool leases
  * nothing, opens at most its maximum, and queues nothing in pg's Pool; the role's backends fall to at most the
@@ -269,8 +286,17 @@ const cutLeases = Effect.gen(function* () {
 		},
 		({ max, leases }, c) =>
 			Effect.gen(function* () {
+				/** The leases the pool started a connection for: each connection's password names its lease. */
+				const connecting = new Set<number>()
+				const password = Effect.map(AskingLease, (lease) => {
+					if (Option.isSome(lease)) {
+						connecting.add(lease.value)
+					}
+					return reader.password
+				})
 				const pool = yield* poolFor(reader, {
 					...defaultPool,
+					password: { kind: "given", password },
 					pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max }
 				})
 				if (leases.length > max) {
@@ -301,18 +327,15 @@ const cutLeases = Effect.gen(function* () {
 							}
 						})
 					)
-				const fibers = yield* Effect.forEach(leases, (plan, index) =>
-					Effect.forkChild(
+				const fibers = yield* Effect.forEach(leases, (plan, index) => {
+					const lease = Effect.provideService(leaseOf(plan, index), AskingLease, Option.some(index))
+					return Effect.forkChild(
 						plan.cut.kind === "cut" && plan.cut.at.kind === "turns"
-							? Effect.provideService(
-									leaseOf(plan, index),
-									Scheduler.MaxOpsBeforeYield,
-									plan.cut.at.ops
-								)
-							: leaseOf(plan, index),
+							? Effect.provideService(lease, Scheduler.MaxOpsBeforeYield, plan.cut.at.ops)
+							: lease,
 						{ startImmediately: true }
 					)
-				)
+				})
 				yield* Effect.forEach(
 					leases,
 					(plan, index) =>
@@ -330,13 +353,12 @@ const cutLeases = Effect.gen(function* () {
 								yield* wallClock(at.millis)
 							}
 							const reached = progress[index]
-							const open = yield* pool.size
-							const leasedNow = yield* pool.leased
+							const establishing = connecting.has(index)
 							yield* Fiber.interrupt(fiber)
 							switch (reached) {
 								case "asking":
 									c.note(
-										open > leasedNow
+										establishing
 											? "cut while asking, a connection being established"
 											: "cut while asking"
 									)

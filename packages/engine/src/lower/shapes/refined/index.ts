@@ -672,7 +672,7 @@ export const refineDelivered = (cx: LowerContext, query: Select, heading: Headin
 	if (refined.length === 0 && !fused) {
 		return agreed
 	}
-	const tracer = new Tracer(storedColumns(cx))
+	const tracer = new Tracer(storedColumns(cx), cx.params.slots)
 	const casts = new Map<number, TypeRef>()
 	for (const { column, position } of refined) {
 		const at = `the refined output ${column.name}`

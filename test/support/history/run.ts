@@ -21,6 +21,7 @@ import {
 
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { defined } from "#test/support/assert.ts"
+import { type ClosedField, closedField, namedText } from "#test/support/closed/stored.ts"
 import type { Outcome, Settled, WitnessKey } from "#test/support/history/check.ts"
 import type { GrizzleWriter, HistoryRig } from "#test/support/history/families.ts"
 import { directOps, expectDirect, type Immediacy } from "#test/support/history/model.ts"
@@ -551,17 +552,24 @@ export interface HistoryEnv {
 	readonly names: Names
 }
 
-const literal = (x: HostValue): string => {
+/** The closed id `relation`'s `field` holds on this installation, whose column stores its handle's code. */
+const closedOf = (env: HistoryEnv, relation: string, field: string): ClosedField | undefined =>
+	closedField(env.rig.installed.installation, relation, field)
+
+/** A value as a literal at its column: a closed id as its handle's code, which its column stores. */
+const literal = (closed: ClosedField | undefined, x: HostValue): string => {
 	if (isDrawn(x)) {
 		throw new Error(
 			`draw ${String(x.draw)} has no SQL literal: a writer sends only values it has seen`
 		)
 	}
-	return isSpan(x)
-		? `int4range(${x.start}, ${x.end})`
-		: typeof x === "string"
-			? `'${Str.replaceAll("'", "''")(x)}'`
-			: String(x)
+	if (isSpan(x)) {
+		return `int4range(${x.start}, ${x.end})`
+	}
+	if (typeof x !== "string") {
+		return String(x)
+	}
+	return closed === undefined ? `'${Str.replaceAll("'", "''")(x)}'` : closed.literal(x)
 }
 
 /**
@@ -604,7 +612,11 @@ const cellsOf = (
 		if (x === undefined) {
 			throw new Error(`${relation} fact without ${f.name}`)
 		}
-		return { field: f.name, column: quoteIdent(f.column), value: literal(x) }
+		return {
+			field: f.name,
+			column: quoteIdent(f.column),
+			value: literal(closedOf(env, relation, f.name), x)
+		}
 	})
 	if (first === undefined) {
 		throw new Error(`${relation} has no field`)
@@ -701,12 +713,18 @@ export const load = (
 		])
 	})
 
-/** The committed state, read as the owner, each value parsed by the kind its domain draws. */
+/**
+ * The committed state, read as the owner, each value parsed by the kind its domain draws, a closed id's code read back
+ * as the handle it names.
+ */
 export const read = (env: HistoryEnv): Effect.Effect<HostState, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const out = new Map<string, ReadonlyArray<HostFact>>()
 		for (const r of env.host.relations) {
+			const texts = Arr.map(r.fields, (f) =>
+				namedText(env.rig.installed.installation, r.name, f.name)
+			)
 			const rows = yield* s.admin.queryValues(
 				`SELECT ${Arr.join(
 					Arr.map(r.fields, (f) => `${quoteIdent(f.column)}::text`),
@@ -720,7 +738,14 @@ export const read = (env: HistoryEnv): Effect.Effect<HostState, SqlError, Substr
 					Record.fromEntries(
 						Arr.map(
 							r.fields,
-							(f, i) => [f.name, hostValue(sampleOf(env, r.name, f.name), String(row[i]))] as const
+							(f, i) =>
+								[
+									f.name,
+									hostValue(
+										sampleOf(env, r.name, f.name),
+										defined(texts[i], `${r.name}'s reader ${i}`)(String(row[i]))
+									)
+								] as const
 						)
 					)
 				)

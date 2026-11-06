@@ -5,6 +5,11 @@ import type { ScriptedSession } from "#test/support/flight/scripted.ts"
 export interface Timing {
 	/** Interrupt once this many answers were delivered; undefined: never. */
 	readonly interruptAfter: number | undefined
+	/**
+	 * How many queries past a statement a CancelRequest stopped the server runs before the destroyed connection's end
+	 * reaches it (scripted.ts ScriptedOptions.afterCancel): the race an interrupted flight's server side runs.
+	 */
+	readonly afterCancel: number
 }
 
 export type Driven<A, E> =

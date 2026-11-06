@@ -198,7 +198,8 @@ export const armSwitchSuite = (): void => {
 							const automatic = names.table(W.AutomaticTask)
 							const manual = names.table(W.ManualTask)
 							/**
-							 * The task's rows as workFacts holds them, in one transaction, the alternatives law holding at its end.
+							 * The task's rows as workFacts holds them, in one transaction, the alternatives law holding at its end;
+							 * its kind as the code its column stores.
 							 */
 							const restore = (id: string) => {
 								const t = taskFact(id)
@@ -212,7 +213,7 @@ export const armSwitchSuite = (): void => {
 										onNone: () =>
 											`DELETE FROM ${task} WHERE ${names.column(W.Task, "id")} = ${lit(id)}::uuid`,
 										onSome: (fact) =>
-											`UPDATE ${task} SET ${names.column(W.Task, "kind")} = ${lit(fact.kind)}, ${names.column(W.Task, "account")} = ${lit(fact.account)}::uuid WHERE ${names.column(W.Task, "id")} = ${lit(id)}::uuid`
+											`UPDATE ${task} SET ${names.column(W.Task, "kind")} = ${names.code(W.Kind, fact.kind)}, ${names.column(W.Task, "account")} = ${lit(fact.account)}::uuid WHERE ${names.column(W.Task, "id")} = ${lit(id)}::uuid`
 									}),
 									...Option.toArray(
 										Option.map(

@@ -13,8 +13,10 @@ import type { Transport } from "#adapter/types/layer.ts"
  * verify-full TLS. grizzle reaches it as it reaches any server (memoryTransport), its CA given as `ca`, so a test's
  * protocol tap or fake server sits behind the same SSLRequest and verify-full TLS every connection makes.
  *
- * In memory, a byte the server's end writes reaches the client's end in the same call, and the driver reads it there:
- * so a test that counts what it let through knows the driver has read exactly that.
+ * In memory, a byte one end's stream writes reaches the other end in the same call, and through the TLS over it the
+ * driver reads it there. But a TLS socket writes one chunk at a time: a write made while an earlier one is unfinished,
+ * whose completion comes a turn after its bytes went out, waits for it. So the driver has read a TLS write's bytes
+ * once that write's callback has run, and a test that counts what it let through counts it then (wire-tap.ts).
  *
  * A DER element: its tag, its length (short form below 128, long form from it), and its content.
  */

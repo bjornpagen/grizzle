@@ -8,16 +8,17 @@
  * - over violating rows, every kind of law refuses with its identity and leaves the rows exactly as they were, never an
  *   automatic deletion; the files before the failing one stay applied, and once the reviewer fixes the rows the apply
  *   resumes at it. The kinds: a candidate key, a row check, a containment and a selected side's one; a contract's
- *   predicate tightened, its domain changed in place, whose VALIDATE refuses with 23514 naming the column it found
- *   violating (PostgreSQL's VALIDATE of a domain constraint names the table and column, never the constraint); a text
- *   pattern narrowed, which types the field by the narrowed pattern's domain, the column converted to it by its cast
- *   with no placeholder, refused with 23514 by that domain's CHECK as the cast judges each stored value; and a closed
- *   payload outside the narrowed pattern, written into Publish's validation of the closed facts by the reviewer,
- *   refused there with 23514 by the same CHECK, the folder as drafted then completing;
+ *   predicate tightened, which is another definition and so another domain, named by its digest, the column converted
+ *   to it by its cast with no placeholder, refused with 23514 by that domain's CHECK as the cast judges each stored
+ *   value; a text pattern narrowed, which types the field by the narrowed pattern's domain, converted and refused the
+ *   same way by that domain's CHECK; and a closed payload outside the narrowed pattern, written into Publish's
+ *   validation of the closed facts by the reviewer, refused there with 23514 by the same CHECK, the folder as drafted
+ *   then completing;
  * - a writer racing the migration cannot slip a violation past a selected side's foreign key: a violating row a writer
- *   commits while the migration waits for it is seen by the foreign key's validation, 23503, and a writer that arrives
- *   while the migration holds its lock waits until the foreign key is installed, then meets it at its commit, 23503,
- *   the key deferred.
+ *   commits while the migration waits for it is seen by the foreign key's validation, 23503; the refused migration's
+ *   Structure file stays applied, so the foreign key it added NOT VALID refuses the next violation at its commit, 23503;
+ *   and a writer that arrives while the migration holds its lock waits until the foreign key is installed, then meets it
+ *   at its commit, 23503, the key deferred.
  *
  * The migrations are drafted by generateMigration from the installed snapshot and applied by applyOnSession, exactly as
  * `grizzle migrate` applies them, as the database owner; each folder is applied with the same files every time,
@@ -96,9 +97,9 @@ import { regex } from "arkregex"
 const label = str.regex("^[a-z]{0,8}$")
 /**
  * The domains a version changes: an assignment's rate, a contract whose predicate the tightened version tightens from
- * 1000 to 100 in place, and a desk's code, a text pattern it narrows from seven letters to three, which the closed
- * relation FloorCode's payload shares (a pattern of its own, so its domain is no other field's), each version's pattern a
- * domain of its own.
+ * 1000 to 100, a domain of its own by its definition, and a desk's code, a text pattern it narrows from seven letters to
+ * three, which the closed relation FloorCode's payload shares (a pattern of its own, so its domain is no other field's),
+ * each version's pattern a domain of its own.
  */
 const domains = (tightened: boolean) => {
 	const Rate = contract("Rate", pg.integer, (v) => v.le(tightened ? 100 : 1000))
@@ -124,7 +125,7 @@ const domains = (tightened: boolean) => {
 	return { Worker, Assignment, Desk, Badge, Floor, FloorCode }
 }
 const relations = domains(false)
-const { Worker, Assignment, Desk, Badge, FloorCode } = relations
+const { Worker, Assignment, Desk, Badge } = relations
 
 /**
  * Every version's world is its full world (fullWorld): the role `app`, writing every relation, in
@@ -290,12 +291,34 @@ const prepare = (
 		const target: MigrationTarget = { snapshot: g.snapshot, folders: [...done.folders, drafted] }
 		const migrator = yield* openMigrator(s, s.owner)
 		const owner = (statement: string) => s.admin.query(statement, [])
-		/** Every table's rows as text, sorted, as the owner. */
+		/**
+		 * Every table's rows as text, sorted, as the owner: each row's declared fields, which a refusal must leave as they
+		 * were, and none of the columns a law adds, such as a selected side's generated term, which a file before the
+		 * refused one adds and keeps.
+		 */
 		const contents = Effect.gen(function* () {
 			const out: Array<string> = []
-			for (const r of [Worker, Assignment, Desk, Badge]) {
+			const declared = [
+				{ r: Worker, columns: [names.column(Worker, "id"), names.column(Worker, "name")] },
+				{
+					r: Assignment,
+					columns: Arr.map(["id", "worker", "active", "hours", "rate"] as const, (f) =>
+						names.column(Assignment, f)
+					)
+				},
+				{ r: Desk, columns: [names.column(Desk, "id"), names.column(Desk, "code")] },
+				{
+					r: Badge,
+					columns: Arr.map(["id", "desk", "issued"] as const, (f) => names.column(Badge, f))
+				}
+			]
+			for (const { r, columns } of declared) {
+				const fields = Arr.join(
+					Arr.map(columns, (c) => `t.${c}`),
+					", "
+				)
 				const found = yield* s.admin.queryValues(
-					`SELECT t::text FROM ${names.table(r)} AS t ORDER BY t::text`,
+					`SELECT ROW(${fields})::text AS r FROM ${names.table(r)} AS t ORDER BY r`,
 					[]
 				)
 				out.push(
@@ -327,7 +350,7 @@ const assignmentColumns = (names: Names) =>
 	)
 const deskColumns = (names: Names) => `${names.column(Desk, "id")}, ${names.column(Desk, "code")}`
 
-/** A refusal by a text domain's CHECK as a cast to the domain judges a value: the domain and its constraint, at 23514. */
+/** A refusal by a domain's CHECK as a cast to the domain judges a value: the domain and its constraint, at 23514. */
 const domainCheck =
 	(domain: TextDomainNames) =>
 	(server: ServerReport): boolean =>
@@ -339,16 +362,6 @@ const domainCheck =
 /** A file's text with Ground's payload written out of the narrowed pattern, as the reviewer edits the validation of the
  * closed facts. */
 const narrowedPayload = (text: string): string => Str.replaceAll("'grd'", "'grounds'")(text)
-
-/** The column a domain's VALIDATE found violating: its table and column, at 23514. */
-const violated =
-	(table: string, column: string) =>
-	(server: ServerReport): boolean =>
-		server.by === "server" &&
-		server.error.sqlstate === "23514" &&
-		server.error.constraint === undefined &&
-		server.error.table === table &&
-		server.error.column === column
 
 layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate phase", (it) => {
 	/** A value of the name field, and keys apart from one another by construction: a first key and positive gaps. */
@@ -399,11 +412,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 	})
 
 	/**
-	 * A refusal the data earns, by the law it reports and where: a table's law by the constraint PostgreSQL names; a
-	 * contract's law over stored rows by the column its VALIDATE found violating, at 23514, which names no constraint;
-	 * the narrowed pattern's law by its domain's CHECK a cast names, at 23514, over stored rows in the file converting
-	 * the column and over a closed payload in the file validating the closed facts. The pattern's law refuses twice,
-	 * once over its rows and once over the payload.
+	 * A refusal the data earns, by the law it reports and where: a table's law by the constraint PostgreSQL names; the
+	 * tightened contract's law by its domain's CHECK a cast names, at 23514, over stored rows in the file converting the
+	 * column; the narrowed pattern's law the same way, over stored rows in the file converting the column and over a
+	 * closed payload in the file validating the closed facts. The pattern's law refuses twice, once over its rows and
+	 * once over the payload.
 	 */
 	interface Refusing {
 		readonly law: LawId
@@ -451,10 +464,17 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 						)
 					}
 				/**
-				 * The narrowed pattern's domain, which types the desk's code and FloorCode's payload in the next version.
+				 * The narrowed pattern's domain, which types the desk's code and FloorCode's payload in the next version:
+				 * one domain, since a pattern has one domain whatever uses it, and a closed relation has no table to name
+				 * it by, its payload cast to the domain in Publish's validation of its facts, so Desk's column names it.
 				 */
 				const codeDomain = x.nextNames.textDomain(Desk, "code")
-				const floorDomain = x.nextNames.textDomain(FloorCode, "code")
+				const floorDomain = codeDomain
+				/** The tightened contract's domain, which types the assignment's rate in the next version. */
+				const rateDomain = x.nextNames.contract("Rate")
+				if (rateDomain.kind !== "checked") {
+					return assert.fail("the tightened contract Rate checks its predicate")
+				}
 				/**
 				 * The reviewer writes Ground's payload out of the narrowed pattern into Publish's validation of the
 				 * closed facts; restoring the folder as drafted is the fix. The file the edit changes is the one
@@ -500,9 +520,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 						fix: `INSERT INTO ${names.table(Desk)} (${deskColumns(names)}) VALUES (${desk}, 'abc')`
 					},
 					{
-						law: names.contract("Rate").law,
+						law: rateDomain.law,
 						over: "rows",
-						reports: violated(names.tableIdent(Assignment), names.columnIdent(Assignment, "rate")),
+						reports: (server, place) => domainCheck(rateDomain)(server) && !inPayloadFile(place),
 						fix: `UPDATE ${names.table(Assignment)} SET ${names.column(Assignment, "rate")} = 100 WHERE ${names.column(Assignment, "id")} = ${orphanAssignment}`
 					},
 					{
@@ -582,8 +602,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 	)
 
 	/**
-	 * The stored worker; the workers a violation names, the first fixed by the reviewer's data step later; the worker a
-	 * writer inserts while Validate holds its lock; and the assignments' keys.
+	 * The stored worker; the workers a violation names; the worker a writer inserts while the migration holds its locks,
+	 * and the one the late assignment names, which none holds; the stored and the arriving worker's names; and the
+	 * assignments' keys.
 	 */
 	const raceGen = (source: Source) => ({
 		workers: source.draw(apart5),
@@ -604,36 +625,52 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 			(v) =>
 				Effect.gen(function* () {
 					const [stored, fixed, second, arriving, never] = v.workers
-					const [storedName, fixedName, arrivingName] = v.names
+					const [storedName, arrivingName] = v.names
 					const [firstAssignment, secondAssignment, lateAssignment] = v.assignments
-					const x = yield* prepare(staffed, (names) => [
-						`INSERT INTO ${names.table(Worker)} (${workerColumns(names)}) VALUES (${stored}, '${storedName}')`
-					])
-					const { names } = x
-					const staffingLaw: ForeignKeyLaw = {
-						laws: lawNamesOf(staffed(x.done.schema)).model.constraintToLaw,
-						schema: names.schema,
-						refusing: lawIdOf(staffed(x.done.schema), staffing)
-					}
-					const env = yield* exploreEnv(x.s)
-					const direct = yield* openActors(x.s, {
-						w1: { kind: "psql", as: x.writer },
-						w2: { kind: "psql", as: x.writer }
+					/**
+					 * An installation of v1 holding the stored worker, the migration to the selected side's containment
+					 * drafted for it, its two direct writers and its migrator as the schedules' actors. Each schedule runs
+					 * on one of its own, so each migration starts at its Structure file.
+					 */
+					const racing = Effect.gen(function* () {
+						const x = yield* prepare(staffed, (names) => [
+							`INSERT INTO ${names.table(Worker)} (${workerColumns(names)}) VALUES (${stored}, '${storedName}')`
+						])
+						const { names } = x
+						const law: ForeignKeyLaw = {
+							laws: lawNamesOf(staffed(x.done.schema)).model.constraintToLaw,
+							schema: names.schema,
+							refusing: lawIdOf(staffed(x.done.schema), staffing)
+						}
+						const direct = yield* openActors(x.s, {
+							w1: { kind: "psql", as: x.writer },
+							w2: { kind: "psql", as: x.writer }
+						})
+						const pid = yield* Effect.map(
+							Effect.orDie(
+								statementRows(x.migrator, "SELECT pg_catalog.pg_backend_pid()::text", [])
+							),
+							backendOf
+						)
+						const m: GrizzleActor = { name: "m", role: x.s.owner.role, pid }
+						const assignment = names.table(Assignment)
+						return {
+							x,
+							law,
+							actors: { direct, grizzle: { m } },
+							apply: applyOnSession(x.migrator, [x.target]),
+							assignment,
+							insertAssignment: (id: number, worker: number) =>
+								`INSERT INTO ${assignment} (${assignmentColumns(names)}) VALUES (${id}, ${worker}, true, ${v.hours}, 1)`
+						}
 					})
-					const pid = yield* Effect.map(
-						Effect.orDie(statementRows(x.migrator, "SELECT pg_catalog.pg_backend_pid()::text", [])),
-						backendOf
-					)
-					const m: GrizzleActor = { name: "m", role: x.s.owner.role, pid }
-					const actors = { direct, grizzle: { m } }
-					const apply = applyOnSession(x.migrator, [x.target])
-					const assignment = names.table(Assignment)
-					const insertAssignment = (id: number, worker: number) =>
-						`INSERT INTO ${assignment} (${assignmentColumns(names)}) VALUES (${id}, ${worker}, true, ${v.hours}, 1)`
+					const first = yield* racing
+					const env = yield* exploreEnv(first.x.s)
 
 					/**
-					 * A violating row a writer commits while the migration waits for it is seen by the full violation
-					 * query.
+					 * A violating row a writer commits while the migration waits for it is seen by the foreign key's
+					 * validation; the refused migration's Structure file stays applied, so the foreign key it added NOT
+					 * VALID refuses the next violation at its commit.
 					 */
 					const committed = yield* runSchedule(
 						env,
@@ -641,46 +678,51 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 							"a violation committed while the migration waits is refused by its validation",
 							[
 								begin("w1"),
-								sql("w1", insertAssignment(firstAssignment, fixed), ok(), complete),
-								op("m", "migrate apply", apply, refusedBy(staffingLaw), blocksOn("w1")),
+								sql("w1", first.insertAssignment(firstAssignment, fixed), ok(), complete),
+								op("m", "migrate apply", first.apply, refusedBy(first.law), blocksOn("w1")),
 								commit("w1", ok(), complete),
 								awaits("m", complete),
-								checkRows(`SELECT count(*)::text FROM ${assignment}`, rows(["1"])),
-								sql("w2", insertAssignment(secondAssignment, second), ok(), complete)
+								checkRows(`SELECT count(*)::text FROM ${first.assignment}`, rows(["1"])),
+								sql(
+									"w2",
+									first.insertAssignment(secondAssignment, second),
+									committedPast(first.law),
+									complete
+								)
 							]
 						),
-						actors
+						first.actors
 					)
 
-					yield* x.owner(
-						`DELETE FROM ${assignment} WHERE ${names.column(Assignment, "id")} = ${secondAssignment}`
-					)
-					yield* x.owner(
-						`INSERT INTO ${names.table(Worker)} (${workerColumns(names)}) VALUES (${fixed}, '${fixedName}')`
-					)
+					/**
+					 * A writer that arrives while the migration's Structure file holds its locks waits until the foreign
+					 * key is installed, then meets it at its commit, the key deferred; the migration's concurrent index
+					 * build waits for that writer's transaction to end, and then the migration completes.
+					 */
+					const fresh = yield* racing
 					const arrived = yield* runSchedule(
 						env,
 						schedule("a writer arriving during the migration waits for the law and meets it", [
 							begin("w1"),
 							sql(
 								"w1",
-								`INSERT INTO ${names.table(Worker)} (${workerColumns(names)}) VALUES (${arriving}, '${arrivingName}')`,
+								`INSERT INTO ${fresh.x.names.table(Worker)} (${workerColumns(fresh.x.names)}) VALUES (${arriving}, '${arrivingName}')`,
 								ok(),
 								complete
 							),
-							op("m", "migrate apply", apply, migrated, blocksOn("w1")),
+							op("m", "migrate apply", fresh.apply, migrated, blocksOn("w1")),
 							begin("w2"),
-							sql("w2", insertAssignment(lateAssignment, never), ok(), blocksOn("m")),
+							sql("w2", fresh.insertAssignment(lateAssignment, never), ok(), blocksOn("m")),
 							commit("w1", ok(), complete),
-							awaits("m", complete),
 							awaits("w2", complete),
-							commit("w2", committedPast(staffingLaw), complete),
+							commit("w2", committedPast(fresh.law), complete),
+							awaits("m", complete),
 							checkRows(
-								`SELECT count(*)::text FROM ${assignment} WHERE ${names.column(Assignment, "worker")} = ${never}`,
+								`SELECT count(*)::text FROM ${fresh.assignment} WHERE ${fresh.x.names.column(Assignment, "worker")} = ${never}`,
 								rows(["0"])
 							)
 						]),
-						actors
+						fresh.actors
 					)
 					return [committed, arrived]
 				})

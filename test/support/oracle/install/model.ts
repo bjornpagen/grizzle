@@ -1,6 +1,8 @@
 import type { Array as Arr } from "effect"
 import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
+import type { Family } from "#compiler/ir/family.ts"
 import type { Ddl, ObjectName, TypeRef } from "#compiler/sql/ast.ts"
+import type { ClosedRows } from "#compiler/write/family/fold.ts"
 
 /**
  * How a host value of a column is spelled as a typed SQL literal (literal.ts). A contract column spells its base's
@@ -110,6 +112,17 @@ export interface OracleDomain {
 	readonly location: string
 }
 
+/**
+ * What the loader fills a family's drawn values from, as grizzle's own host fill does (write/family/fold.ts filler): the
+ * law model's families, and the rows of the closed relations a fill's generated fields and fold selections may read.
+ * A fact never states a drawn value: each member's index, its copy of its owner's count and each fold's running values,
+ * and the owner's count and ends.
+ */
+interface FamilyFill {
+	readonly families: ReadonlyArray<Family>
+	readonly closed: ReadonlyMap<string, ClosedRows>
+}
+
 /** Something the schema declares that the oracle installer does not install. */
 export interface OracleOmission {
 	readonly location: string
@@ -147,6 +160,8 @@ export interface InstallPlan {
 	readonly vectorSchema: string
 	/** Declarations skipped under `unsupported: "skip"`: laws and derived relations beyond the minimal installer. */
 	readonly skipped: ReadonlyArray<OracleOmission>
+	/** The fill of the families' drawn values: none for the minimal installer, which refuses every drawn field. */
+	readonly fill: FamilyFill
 }
 
 export interface PlanOptions {

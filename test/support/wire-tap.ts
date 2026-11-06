@@ -31,9 +31,11 @@ import { parsedConnection } from "#test/support/pg.ts"
  *
  * The gate holds the server's bytes on their way to the session: once a given number of backend messages (of one type,
  * or any) have reached the driver, every later byte waits in the tap until the test releases it, the end of the
- * connection included. The server runs on meanwhile; only what the client has read stops. A byte the gate lets through
- * reaches the driver in the same call, since the socket is in memory, so a test can interrupt a call after exactly k
- * answers, with the server having done all it can, and then let the rest through.
+ * connection included. The server runs on meanwhile; only what the client has read stops. A message has reached the
+ * driver once the tap's TLS write that ends it has completed: the socket is in memory, so a write reaches the driver
+ * in the call that makes it, but a TLS socket writes one chunk at a time, and a write made while an earlier one is
+ * unfinished waits for it (memory-tls.ts). So the gate counts a message, and holds, only then, and a test can interrupt
+ * a call after exactly k answers it has read, with the server having done all it can, and then let the rest through.
  *
  * One frontend message: its type byte; the statement it names for Parse, Bind and Close ("" for the unnamed one and for
  * every other type); and the SQL text of a Parse or a simple Query ("" for every other type). The untyped startup
@@ -169,20 +171,26 @@ const framer = (untyped: boolean, onMessage: (type: string, body: Buffer) => voi
 }
 
 /**
- * What carries the server's bytes to the driver: straight through, or through a gate. `push` hands the driver bytes,
- * or null for the end of the connection.
+ * Hands the driver `bytes`, or null for the end of the connection, and calls `written` once bytes have reached it:
+ * when the TLS write carrying them has completed. Bytes the connection's end overtakes never reach it, and `written`
+ * is never called for them.
  */
+type Push = (bytes: Buffer | null, written: () => void) => void
+
+/** What carries the server's bytes to the driver: straight through, or through a gate. */
 interface Carrier {
-	readonly data: (chunk: Buffer, push: (bytes: Buffer | null) => void) => void
-	readonly end: (push: (bytes: Buffer | null) => void) => void
+	readonly data: (chunk: Buffer, push: Push) => void
+	readonly end: (push: Push) => void
 }
+
+const nothingWaits = (): void => undefined
 
 const straight: Carrier = {
 	data: (chunk, push) => {
-		push(chunk)
+		push(chunk, nothingWaits)
 	},
 	end: (push) => {
-		push(null)
+		push(null, nothingWaits)
 	}
 }
 
@@ -196,13 +204,16 @@ export interface Gate {
 	 * after the last of them until `release`. A count of 0 holds at once.
 	 */
 	readonly hold: (count: number, of: Counted) => void
-	/** Resolves once the gate holds. */
+	/** Resolves once the gate holds and every byte it let through has reached the driver. */
 	readonly holding: Effect.Effect<void>
+	/** Resolves once every byte the gate has let through has reached the driver, at once when nothing is on its way. */
+	readonly settled: Effect.Effect<void>
 	/** Hands the driver every byte held, and every later one as it arrives. */
 	readonly release: () => void
 	/**
-	 * How many backend messages of a type (its message code, such as "Z") have reached the driver whole. The driver
-	 * reads each as it arrives, so it has read every one counted.
+	 * How many backend messages of a type (its message code, such as "Z") have reached the driver whole, each counted
+	 * once the write that ends it has completed: the driver reads a write's bytes in the call that hands them over, so it
+	 * has read every one counted.
 	 */
 	readonly delivered: (type: string) => number
 }
@@ -214,20 +225,74 @@ class MessageGate implements Carrier, Gate {
 	/** What the gate holds, null for the end of the connection; undefined while it lets everything through. */
 	#held: Array<Buffer | null> | undefined = undefined
 	#reached = Deferred.makeUnsafe<void>()
-	#push: (bytes: Buffer | null) => void = () => undefined
+	/** The gate holds, and `reached` waits for every write it let through to complete. */
+	#settling = false
+	/** The writes the gate let through that have not completed. */
+	#unwritten = 0
+	/** Who waits for every write the gate let through to complete (settled). */
+	readonly #waiting = new Set<() => void>()
+	#push: Push = () => undefined
 	readonly #delivered = new Map<string, number>()
 
 	readonly delivered = (type: string): number => this.#delivered.get(type) ?? 0
 
 	readonly hold = (count: number, of: Counted): void => {
 		this.#reached = Deferred.makeUnsafe<void>()
+		this.#settling = false
 		if (count > 0) {
 			this.#armed = { remaining: count, of }
 			return
 		}
 		this.#armed = undefined
 		this.#held ??= []
-		Deferred.doneUnsafe(this.#reached, Exit.void)
+		this.#settle()
+	}
+
+	/** The gate holds: `reached` resolves once every write it let through has completed, at once when none is pending. */
+	readonly #settle = (): void => {
+		this.#settling = true
+		this.#check()
+	}
+
+	readonly #check = (): void => {
+		if (this.#unwritten > 0) {
+			return
+		}
+		if (this.#settling) {
+			this.#settling = false
+			Deferred.doneUnsafe(this.#reached, Exit.void)
+		}
+		const waiting = [...this.#waiting]
+		this.#waiting.clear()
+		for (const resume of waiting) {
+			resume()
+		}
+	}
+
+	readonly settled: Effect.Effect<void> = Effect.callback<void>((resume) => {
+		if (this.#unwritten === 0) {
+			resume(Effect.void)
+			return
+		}
+		const done = (): void => {
+			resume(Effect.void)
+		}
+		this.#waiting.add(done)
+		return Effect.sync(() => {
+			this.#waiting.delete(done)
+		})
+	})
+
+	/** Lets `bytes` through, counting the messages of `types`, the ones they end, once their write has completed. */
+	readonly #send = (bytes: Buffer, types: ReadonlyArray<string>): void => {
+		this.#unwritten += 1
+		this.#push(bytes, () => {
+			this.#unwritten -= 1
+			for (const type of types) {
+				this.#delivered.set(type, this.delivered(type) + 1)
+			}
+			this.#check()
+		})
 	}
 
 	readonly holding: Effect.Effect<void> = Effect.suspend(() => Deferred.await(this.#reached))
@@ -238,14 +303,14 @@ class MessageGate implements Carrier, Gate {
 		this.#armed = undefined
 		for (const piece of held) {
 			if (piece === null) {
-				this.#push(null)
+				this.#push(null, nothingWaits)
 			} else {
 				this.data(piece, this.#push)
 			}
 		}
 	}
 
-	readonly data = (chunk: Buffer, push: (bytes: Buffer | null) => void): void => {
+	readonly data = (chunk: Buffer, push: Push): void => {
 		this.#push = push
 		if (this.#held !== undefined) {
 			this.#held.push(chunk)
@@ -254,6 +319,8 @@ class MessageGate implements Carrier, Gate {
 		const carried = this.#partial.length
 		const bytes = Buffer.concat([this.#partial, chunk])
 		let offset = 0
+		/** The type of every whole message the bytes let through end. */
+		const ended: Array<string> = []
 		/**
 		 * Every whole message up to the split, or in the chunk when the gate does not hold, reaches the driver.
 		 */
@@ -265,7 +332,7 @@ class MessageGate implements Carrier, Gate {
 			}
 			const type = String.fromCharCode(bytes[offset] ?? 0)
 			offset += total
-			this.#delivered.set(type, this.delivered(type) + 1)
+			ended.push(type)
 			const armed = this.#armed
 			if (armed !== undefined && (armed.of.kind === "any" || armed.of.type === type)) {
 				armed.remaining -= 1
@@ -276,21 +343,21 @@ class MessageGate implements Carrier, Gate {
 		}
 		if (split === undefined) {
 			this.#partial = bytes.subarray(offset)
-			push(chunk)
+			this.#send(chunk, ended)
 			return
 		}
 		this.#partial = Buffer.alloc(0)
 		this.#armed = undefined
 		const rest = chunk.subarray(split - carried)
 		this.#held = rest.length === 0 ? [] : [rest]
-		push(chunk.subarray(0, split - carried))
-		Deferred.doneUnsafe(this.#reached, Exit.void)
+		this.#send(chunk.subarray(0, split - carried), ended)
+		this.#settle()
 	}
 
-	readonly end = (push: (bytes: Buffer | null) => void): void => {
+	readonly end = (push: Push): void => {
 		this.#push = push
 		if (this.#held === undefined) {
-			push(null)
+			push(null, nothingWaits)
 		} else {
 			this.#held.push(null)
 		}
@@ -403,7 +470,7 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 				})
 			}
 			let closed = false
-			const push = (bytes: Buffer | null): void => {
+			const push: Push = (bytes, written) => {
 				if (closed || !secure.writable) {
 					return
 				}
@@ -412,7 +479,11 @@ export const makeTap = (cluster: InitializedClusterShape): Tap => {
 					secure.end()
 					return
 				}
-				secure.write(bytes)
+				secure.write(bytes, (error) => {
+					if (error === undefined || error === null) {
+						written()
+					}
+				})
 			}
 			const carrier: Carrier = recorded ? gate : straight
 			let written: Array<FrontendMessage> = []

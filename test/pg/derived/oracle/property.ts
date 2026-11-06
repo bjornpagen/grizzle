@@ -62,7 +62,7 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
  * - every row the call wrote, across all the views it named, carries one xmin: one call publishes in one commit;
  * - a call after no base change wrote nothing, even when every base row was rewritten with the same facts, in the
  *   same or another physical order: the case's values have one spelling, and no aggregate depends on the order
- *   PostgreSQL meets its inputs in; allowance.`covers` the exception, a numeric's spelling;
+ *   PostgreSQL meets its inputs in; allowance.test.ts holds it over equal numerics written in several spellings;
  * - before a view's first refresh a read of it through the Db is ReadError, and after it the Db reads
  *   exactly the rows the view stores.
  *

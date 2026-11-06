@@ -30,7 +30,7 @@ import { actionKinds } from "#test/support/worlds/generate/weights.ts"
 import { enumeratePerturbations, worldFunctionsOf } from "#test/support/worlds/invalid/catalog.ts"
 import { opKinds, type FactWriter } from "#test/support/worlds/invalid/facts.ts"
 import { jsonObject, jsonText } from "#test/support/worlds/invalid/json.ts"
-import { violatingLaws } from "#test/support/worlds/invalid/migrations.ts"
+import { rosterMigrations, violatingLaws } from "#test/support/worlds/invalid/migrations.ts"
 import { patternEdges } from "#test/support/worlds/invalid/patterns.ts"
 import { droppedNames, nonexistentNames } from "#test/support/worlds/invalid/roles.ts"
 import { nameableFacts } from "#test/support/worlds/model/draws.ts"
@@ -1386,8 +1386,9 @@ export const enumerateActions = (state: ModelState, scope: SmallScope): Readonly
 /**
  * The migrations of the box: each installation of the box applied whole, the first other than the one the new folder
  * is drafted from (draftedFrom) half-applied (that one drafts a folder with nothing to stop in), the current one
- * hand-edited, the current one with each write-list defect grizzle refuses at build planted (plantedInstall), and each
- * new law the data breaks.
+ * hand-edited, the current one with each write-list defect grizzle refuses at build planted (plantedInstall), each
+ * new law the data breaks, and each roster migration (rosterMigrations): a growth, a removal of a handle a stored fact
+ * holds or none does, and a reorder.
  */
 const migrateActions = (state: ModelState, scope: SmallScope): ReadonlyArray<Action> => {
 	const installs = enumerateInstalls(state.install.base, scope)
@@ -1414,7 +1415,8 @@ const migrateActions = (state: ModelState, scope: SmallScope): ReadonlyArray<Act
 				base: { ...state.install.base, laws: [...state.install.base.laws, law] }
 			},
 			how: "complete"
-		}))
+		})),
+		...Arr.map(rosterMigrations(state), (m): Action => ({ kind: "migrate", to: m.to, how: m.how }))
 	]
 }
 

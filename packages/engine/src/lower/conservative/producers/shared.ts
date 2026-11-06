@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { NodeOf, ProducerNode } from "#compiler/ir/rel.ts"
 import {
@@ -8,19 +9,36 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import type { Expr, Target } from "#compiler/sql/ast.ts"
-import { target } from "#compiler/sql/build.ts"
+import type { Expr, FromItem, OperandSelect, Target } from "#compiler/sql/ast.ts"
+import {
+	distinctCore,
+	keyedSet,
+	provedCore,
+	select,
+	simpleSelect,
+	target
+} from "#compiler/sql/build.ts"
 
-/** Which set boundaries a producer's lowering emits. */
+/**
+ * How the produced heading's rows are a set: SELECT DISTINCT; a plain core whose targets key the sets it reads, by the
+ * producer's construction (`keyed`, a pack's grouped key and the disjoint components of one multirange); a plain core
+ * under the physical analysis's proof that they are unique (`certified`); or a plain core whose rows may repeat
+ * (`operand`), which stands only where the node is realized plain because its consumers make its rows a set, as any
+ * plain node's query does (shapes/index.ts withoutBoundary). A plain core claims no proof nothing made.
+ */
+export type ProducedRows = "distinct" | "keyed" | "certified" | "operand"
+
+/**
+ * How a pack's contributions, the carried columns and the span range_agg folds, are a set: SELECT DISTINCT over its
+ * input, or a plain read of an input that is a set, keyed by them (`keyed`), as the physical analysis proves where it
+ * keys that input by the carried columns and the span. range_agg folds keyed rows, never a projection's repeats.
+ */
+export type Contributions = "distinct" | "keyed"
+
+/** Which set boundaries a producer's lowering emits; only a pack has contributions. */
 export interface ProducerForm {
-	/** The outermost SELECT DISTINCT over the produced heading. */
-	readonly distinct: boolean
-	/**
-	 * A pack, and the busy relation of a coverage subtraction: SELECT DISTINCT over the grouped input before range_agg.
-	 * range_agg absorbs repeats (a multirange is a set of points), so only the conservative baseline, which places a
-	 * boundary at every set boundary whatever it reads, keeps it.
-	 */
-	readonly contributions: boolean
+	readonly produced: ProducedRows
+	readonly contributions: Contributions
 }
 
 /**
@@ -30,12 +48,34 @@ export interface ProducerForm {
  *
  * A producer is evaluated once per binding of its input, the complete bound tuple of the rule, and yields zero or more
  * facts of its carried columns and the produced span. The conservative lowering closes every producer with SELECT
- * DISTINCT over the produced heading: different bindings can yield the same piece. The
- * optimized lowering (lower/shapes/spans) reuses the same builders and drops a boundary only where the physical facts
- * prove the produced heading unique, so both artifacts spell every producer alike apart from
+ * DISTINCT over the produced heading: different bindings can yield the same piece. The optimized lowering
+ * (lower/shapes/spans) reuses the same builders and drops a boundary only where the physical facts prove its rows a set
+ * without it, or where the node's consumers make them one, so both artifacts spell every producer alike apart from
  * their DISTINCTs.
  */
-export const conservativeProducerForm: ProducerForm = { distinct: true, contributions: true }
+export const conservativeProducerForm: ProducerForm = {
+	produced: "distinct",
+	contributions: "distinct"
+}
+
+/** SELECT <targets> FROM <from> [WHERE <where>] over the produced heading, a set as `rows` states or an operand. */
+export const producedQuery = (
+	rows: ProducedRows,
+	targets: NonEmptyReadonlyArray<Target>,
+	from: ReadonlyArray<FromItem>,
+	where: Expr | undefined
+): OperandSelect => {
+	switch (rows) {
+		case "distinct":
+			return select(distinctCore(targets, from, where))
+		case "keyed":
+			return select(keyedSet(targets, from, where, "a producer's rows keyed by its construction"))
+		case "certified":
+			return select(provedCore("certified", targets, from, where))
+		case "operand":
+			return simpleSelect(targets, from, where)
+	}
+}
 
 /** The range carrier of a span: int4range for pg.integer endpoints, int8range for pg.bigint. */
 type SpanCarrier = "range4" | "range8"

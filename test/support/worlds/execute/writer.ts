@@ -195,7 +195,15 @@ const nativeWitness = (reading: LawReading, fields: PgErrorFields): Effect.Effec
 						if (Option.isNone(domain)) {
 							return yield* Effect.die(new Error(`no domain for ${relation}.${field}`))
 						}
-						return [field, yield* valueOfText(domain.value, text, `${relation}.${field}`)] as const
+						return [
+							field,
+							yield* valueOfText(
+								domain.value,
+								text,
+								`${relation}.${field}`,
+								reading.installation.names.codes
+							)
+						] as const
 					})
 				)
 				const witness: Witness = { kind: "shown", keys: [Rec.fromEntries(entries)] }
@@ -291,7 +299,10 @@ const runOne = (
 					const text = row[i]
 					return text === undefined || text === null
 						? Effect.die(new Error(`a direct read's row ${r} holds no ${f.field}`))
-						: Effect.map(valueOfText(f.domain, text, f.field), (value) => [f.field, value] as const)
+						: Effect.map(
+								valueOfText(f.domain, text, f.field, reading.installation.names.codes),
+								(value) => [f.field, value] as const
+							)
 				}),
 				Rec.fromEntries
 			)
@@ -327,9 +338,11 @@ export const endDirect = (
 
 /**
  * current_user, the claims setting and whether the statement runs inside an explicit transaction: the probe of a direct
- * writer's connection and of a pooled one (pool.ts probePool).
+ * writer's connection, whose psql sends it as a simple Query, which sets its statement timestamp once and starts an
+ * implicit transaction at it. A pooled connection's statements run on the extended protocol, where the two timestamps
+ * always differ, so its probe reads ReadyForQuery's status instead (pool.ts probePool).
  */
-export const probeSql =
+const probeSql =
 	"SELECT current_user::text, coalesce(pg_catalog.current_setting('grizzle.claims', true), ''), pg_catalog.statement_timestamp() <> pg_catalog.transaction_timestamp()"
 
 /**

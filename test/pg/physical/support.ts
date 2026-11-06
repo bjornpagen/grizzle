@@ -203,11 +203,12 @@ export const worldsExpectation = (
  * The grants of a fixture installed with its worlds, as ProjectedCatalog.grants holds them, derived from its
  * declaration and the types the catalog holds, never from the installer: the writer and the reader hold every relation
  * whole, so each holds USAGE on the schema and on every enum and domain of it (a full role reads every type a
- * relation's heading uses, and the installer creates no other) and SELECT on its view of every stored and derived
- * relation; the writer writes every stored relation, so it holds SELECT, INSERT and DELETE on its table, UPDATE too on a
+ * relation's heading uses, and the installer creates no other) but a closed relation's own pattern domain, and SELECT
+ * on its view of every stored and derived relation; the writer writes every stored relation, so it holds SELECT, INSERT and DELETE on its table, UPDATE too on a
  * mutable one, and EXECUTE on the refusal function and on every serial field's advance function, and refreshes every
  * derived one, so it holds MAINTAIN on its materialized view; the login holds USAGE on the schema and EXECUTE on the
- * snapshot guard; each role's schema grants USAGE to its role alone.
+ * snapshot guard; each role's schema grants USAGE to its role alone; and both roles hold EXECUTE on a declared closed
+ * relation's own constants, the writer on any constant a CHECK or generated column it writes calls.
  *
  * The writer refreshes every derived relation, which both read through their views.
  */
@@ -230,6 +231,33 @@ export const worldsGrants = (
 		Arr.flatMap(grantees, (grantee) =>
 			Arr.map(privileges, (privilege) => ({ kind, name, grantee, privilege }))
 		)
+	/**
+	 * A closed constant's executors: every world role on a declared closed relation's own constant, which its closed
+	 * reads call, and the writer on one a CHECK or generated column of a table it writes calls.
+	 */
+	const closedExecutors = Arr.flatMap(
+		closedConstantsOf(installation),
+		([name, fn]): ReadonlyArray<ProjectedGrant> =>
+			fn.kind === "closedConstant"
+				? on(
+						"function",
+						name,
+						fn.declared ? [writer.role, reader] : fn.tables.length > 0 ? [writer.role] : [],
+						["EXECUTE"]
+					)
+				: []
+	)
+	/**
+	 * The domains a full role reads: every domain of the schema but a text domain whose every use is a closed
+	 * relation's field, which no table holds, the migration's validation of the closed facts alone casting to it.
+	 */
+	const tables = new Set(Arr.map(catalog.tables, (t) => t.name))
+	const closedOnly = new Set<string>(
+		Arr.flatMap(installation.textDomains, (d) =>
+			Arr.some(d.uses, (u) => tables.has(u.table)) ? [] : [d.name]
+		)
+	)
+	const usedDomains = Arr.filter(catalog.domains, (d) => !closedOnly.has(d.name))
 	return projectedGrants([
 		...on("schema", installation.names.schema, [writer.login, writer.role, reader], ["USAGE"]),
 		...on("schema", writer.role, [writer.role], ["USAGE"]),
@@ -246,9 +274,7 @@ export const worldsGrants = (
 			...on("table", `${writer.role}.${table}`, [writer.role], ["SELECT"]),
 			...on("table", `${reader}.${table}`, [reader], ["SELECT"])
 		]),
-		...Arr.flatMap(catalog.domains, (type) =>
-			on("type", type.name, [writer.role, reader], ["USAGE"])
-		),
+		...Arr.flatMap(usedDomains, (type) => on("type", type.name, [writer.role, reader], ["USAGE"])),
 		...Arr.flatMap([...declared.views], (view) => [
 			...on("table", view, [writer.role], ["MAINTAIN"]),
 			...on("table", `${writer.role}.${view}`, [writer.role], ["SELECT"]),
@@ -270,6 +296,7 @@ export const worldsGrants = (
 				case "closedConstant":
 					return []
 			}
-		})
+		}),
+		...closedExecutors
 	])
 }

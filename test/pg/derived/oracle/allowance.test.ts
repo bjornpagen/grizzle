@@ -4,7 +4,7 @@ import { required } from "@grizzle/testing/features"
 import { array, type Gen, int } from "@grizzle/testing/gen"
 import { notesOnly } from "@grizzle/testing/sense"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { refreshReport } from "#adapter/refresh/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { login } from "#compiler/program/workload/login.ts"
@@ -28,21 +28,17 @@ import { regex } from "arkregex"
 /** The menu's schemas differ per case, so their definitions drive the builder runtime as a JavaScript caller does,
  * over the typed Amount; the typed facade is the type tests' subject.
  *
- * The one exception to "a refresh with no base change writes nothing": equal-not-identical numerics.
- *
- * The generated oracle keeps one spelling per value, so there no refresh without a definition change writes anything.
- * Here the facts are chosen to make the exception possible, and to show that a float aggregate is none: an
- * unconstrained numeric whose equal values are spelled differently (1, 1.0, 1.00), which min and max return whichever
- * of them they meet last, and doubles that are not exact binary fractions, whose sum and mean are their exact total
- * rounded once, the same in any order. Each case installs Amount with generated facts and derived relations drawn from
- * a menu of such definitions, refreshes them, and then:
+ * A refresh with no base change writes nothing, over the facts most likely to tempt it: equal numerics written in
+ * several spellings (1, 1.0, 1.00), and doubles that are not exact binary fractions. Every numeric field declares its
+ * precision and scale, so the column stores each of a value's spellings as the one its scale writes, and min and max
+ * return it whichever spelling they meet last; and a float's sum and mean are its exact total rounded once, the same in
+ * any order. Each case installs Amount with generated facts and derived relations drawn from a menu of such
+ * definitions, refreshes them, and then:
  *
  * - checks every view against its definition evaluated by the conservative lowering on one snapshot: numerics compared
  *   by value, every other column exactly (raw text cannot be compared);
- * - reloads the same facts in another physical order, refreshes again with no base change, and checks that every row
- *   the refresh wrote is one whose record image changed only in a numeric's spelling: the same group, the float
- *   aggregates byte for byte, a numeric equal but not byte-identical (a value that is equal but not byte-identical
- *   counts as changed and its row is deleted and reinserted, which is correct); every other row keeps its tuple. */
+ * - reloads the same facts in another physical order, refreshes again with no base change, and checks that the refresh
+ *   wrote no row: every row keeps its tuple. */
 type Vars = ReturnType<typeof v>
 
 /** How a column is compared: exactly, or by numeric value. */
@@ -271,15 +267,24 @@ const rowsOf = (o: Opened, item: MenuItem, from: "view" | "definition") =>
 
 const cases = 300
 
-/** What a case's reordered reload reaches: a row kept, a row rewritten, and the exception among the rewrites, a numeric
- * min or max returned in another spelling. */
-type AllowanceFeature = "row kept" | "row rewritten" | "numeric spelling rewritten"
+/**
+ * What a case's facts and its reordered reload reach: a min or max over a group whose amounts hold one value in two
+ * spellings, a float aggregate over a group of two inexact doubles, and a row kept.
+ */
+type AllowanceFeature =
+	| "a min or max over a value in two spellings"
+	| "a float aggregate over two inexact doubles"
+	| "row kept"
 
 const situations: Arr.NonEmptyReadonlyArray<AllowanceFeature> = [
-	"row kept",
-	"row rewritten",
-	"numeric spelling rewritten"
+	"a min or max over a value in two spellings",
+	"a float aggregate over two inexact doubles",
+	"row kept"
 ]
+
+/** The facts of each group, by group. */
+const groupsOf = (sketch: Sketch): ReadonlyArray<ReadonlyArray<Sketch["facts"][number]>> =>
+	Arr.map([0, 1, 2], (g) => Arr.filter(sketch.facts, (f) => f.grp === g))
 
 /** The same facts, every base row rewritten in another physical order: no base change. */
 const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
@@ -295,6 +300,28 @@ const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
 			const all = Arr.isReadonlyArrayNonEmpty(named)
 				? named
 				: yield* Effect.die(new Error("a sketch picks at least one derived relation"))
+			const groups = groupsOf(sketch)
+			if (
+				Arr.some(items, (m) => m.name === "Top" || m.name === "Low") &&
+				Arr.some(groups, (g) =>
+					Arr.some(g, (a, i) =>
+						Arr.some(
+							g.slice(i + 1),
+							(b) =>
+								a.amount !== b.amount &&
+								decimalValue(pick(spellings, a.amount)) === decimalValue(pick(spellings, b.amount))
+						)
+					)
+				)
+			) {
+				c.note("a min or max over a value in two spellings")
+			}
+			if (
+				Arr.some(items, (m) => m.name === "Totals" || m.name === "Means") &&
+				Arr.some(groups, (g) => g.length >= 2)
+			) {
+				c.note("a float aggregate over two inexact doubles")
+			}
 			yield* refreshReport(ctx, all)
 			for (const item of items) {
 				const stored = yield* rowsOf(o, item, "view")
@@ -332,38 +359,11 @@ const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
 				const now = yield* rowsOf(o, item, "view")
 				const kept = new Set(Arr.map(then, (r) => r.tuple))
 				for (const row of now) {
-					if (kept.has(row.tuple)) {
-						c.note("row kept")
-						continue
-					}
-					/** A row the refresh wrote: it replaced the row of its group, whose record image differs. */
-					const group = Arr.findFirst(
-						then,
-						(r) => groupOf(item.columns, r) === groupOf(item.columns, row)
-					)
-					assert.ok(Option.isSome(group), `${item.name}: ${row.text} replaced a row of its group`)
-					const old = group.value
-					assert.notEqual(
-						old.text,
-						row.text,
-						`${item.name}: a rewritten row's record image changed`
-					)
 					assert.ok(
-						equivalent(item.columns, old, row),
-						`${item.name}: ${old.text} became ${row.text}, which is more than a numeric's spelling`
+						kept.has(row.tuple),
+						`${item.name}: the refresh rewrote ${row.text}, though no base value changed`
 					)
-					assert.ok(
-						!Arr.some(now, (r) => r.tuple === old.tuple),
-						`${item.name}: the old tuple is gone`
-					)
-					c.note("row rewritten")
-					const changed = Arr.filter(
-						Rec.toEntries(item.columns),
-						([column]) => old.values[column] !== row.values[column]
-					)
-					if (Arr.some(changed, ([, how]) => how === "numeric")) {
-						c.note("numeric spelling rewritten")
-					}
+					c.note("row kept")
 				}
 				assert.equal(now.length, then.length, `${item.name} keeps its groups`)
 			}
@@ -371,10 +371,10 @@ const property = (sketch: Sketch, c: Case<AllowanceFeature>) =>
 	)
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"a refresh with no base change writes only equal-not-identical numerics",
+	"a refresh with no base change writes nothing, whatever its facts' spellings and order",
 	(it) => {
 		it.effect(
-			`${cases} generated cases: a reordered reload rewrites only rows equal modulo a numeric's spelling`,
+			`${cases} generated cases: a reordered reload's refresh keeps every row's tuple`,
 			(ctx) =>
 				searched(
 					ctx,

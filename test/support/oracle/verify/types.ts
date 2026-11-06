@@ -1,9 +1,12 @@
 import { Array as Arr, Effect, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { statementOutput } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement } from "#compiler/lower/shapes/index.ts"
 import { columnType } from "#compiler/physical/ddl/names.ts"
+import type { TypeRef } from "#compiler/sql/ast.ts"
+import { types } from "#compiler/sql/build.ts"
 import { lex } from "#compiler/sql/lexer.ts"
 import { printType } from "#compiler/sql/print.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
@@ -26,6 +29,18 @@ const withNullPlaceholders = (text: string): string => {
 const quoted = (s: string): string => `'${Str.replaceAll("'", "''")(s)}'`
 
 /**
+ * The type a delivered column of `t` is claimed as: the DDL's type of a column of it (columnType), or, for a text
+ * refinement outside any contract whose domain the installation does not name, its base, text.
+ */
+const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef =>
+	contractOf(t) === undefined &&
+	t.carrier === "text" &&
+	t.text.regex !== "wildcard" &&
+	names.textDomain(t.text.regex) === undefined
+		? types.text
+		: columnType(names, t).type
+
+/**
  * The type oracle: PostgreSQL's resolved type of every column a lowered statement delivers, against the IR's.
  *
  * The IR states each delivered column's type (the statement's heading), and the lowering emits SQL whose types
@@ -38,7 +53,9 @@ const quoted = (s: string): string => `'${Str.replaceAll("'", "''")(s)}'`
  *   types it), becomes a temporary view, and pg_attribute states each output column's type, domains and enums
  *   included;
  * - the IR's type of the column is printed as the DDL types a column of it (physical/ddl/names.ts columnType) and
- *   resolved by PostgreSQL's own ::regtype.
+ *   resolved by PostgreSQL's own ::regtype; a text refinement the installation names no domain for, a pattern no stored
+ *   column carries (a literal's, or a closed read's query-local payload's), is typed by its base, text, as the lowering
+ *   types it (lower/conservative/context.ts physicalTypeOf), since no column could be typed by it.
  *
  * An unrefined column must be exactly its type. A refined column (a contract's domain or a pattern's text domain) is
  * delivered as its domain, or as one of the types the domain is over, down to its base: the refined delivery leaves a
@@ -74,7 +91,7 @@ export const typeProblems = (
 		)
 		const claimed = Arr.map(
 			heading,
-			(c, i) => `(${i + 1}, ${quoted(printType(columnType(names, c.type).type))})`
+			(c, i) => `(${i + 1}, ${quoted(printType(claimedType(names, c.type)))})`
 		)
 		/** Each claimed type with the types it is over, a domain's chain down to its base. */
 		const result = yield* session.query(

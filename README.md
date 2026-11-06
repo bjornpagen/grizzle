@@ -1324,7 +1324,7 @@ becomes one PostgreSQL schema.
 | `closedId(X)`, for `X = closed("X", [...])`        | smallint, behind the roster's domain           | the union of its names                                              |
 | `bits(X)`, a set of `X`'s handles                  | bit(n), behind a domain that holds only live handles | `Bits<typeof X>`, a `ReadonlySet` of its names, `Bits.of(X, [...])` |
 | `contract(name, base, check?)`                     | a domain with that CHECK                      | the base type, branded with the name                                |
-| `span(pg.integer)`, over any integer type          | a range                                       | `{ start, end }`, start included, end excluded                      |
+| `span(pg.integer)`, over integer or bigint         | a range                                       | `{ start, end }`, start included, end excluded                      |
 | `pg.vector(n)`                                     | pgvector's vector(n)                          | `Vector`, a Float32Array                                            |
 
 Text always carries a pattern, with flags `"u"` (the default) or `"su"`. A contract value is made with its
@@ -2220,7 +2220,8 @@ with the statement and its length; or `literal`, one column's array longer than 
 **`CompileError`**'s reason holds where it refused, `at`, and its details: `MalformedDescription`, your schema or
 program breaking the rule `what`; `MalformedArtifact`, what grizzle reads back (the snapshot, a migration folder or
 its meta.json, the ledger's rows, a cursor) malformed at the path `at`; `UnsupportedOperation` and
-`UnsupportedLawFamily`, a `capability` grizzle doesn't have; `ResourceBound`, its `bound`; `OutsideRole`, the `role`
+`UnsupportedLawFamily`, a `capability` grizzle doesn't have, such as a parameter's value of a pattern no stored field
+declares, which names the parameter and the pattern ([Limits](#limits)); `ResourceBound`, its `bound`; `OutsideRole`, the `role`
 and the `access` it doesn't hold; `DuplicateIdentity`, the `earlier` declaration; `IdentifierCollision`, the `other`
 declaration and the `identifier` both convert to; `LawOnDerived`, its `relation`; `UnrepresentableKey`, the key and
 its `fault`; `RecursionRefused` and `DerivedRefused`, their `cause`; `RoleRefused`, `LoginRefused` and
@@ -2464,6 +2465,9 @@ workflows, whose rules are worth declaring and whose users see different slices 
   grizzle's query language or not at all.
 - **No timestamp type.** An instant is a bigint contract. A `date` holds 0001-01-01 to 9999-12-31, and a lexical
   form has no timezone: a timezoned `xs:date` has no typed value.
+- **A span is over `integer` or `bigint`, or a contract over one**: PostgreSQL's int4range or int8range. A `date` has
+  no span yet, though PostgreSQL has `daterange`, and `span(date)` is refused, by the types and with
+  `UnsupportedOperation` (`spanEndpoint`) at run time; a `smallint` has none, since PostgreSQL has no range over it.
 - **A parse reads the forms of integers, numeric(p, s), double precision, booleans and dates.** A numeric's form
   holds at most 255 digits either side of its point, PostgreSQL's limit on a counted repetition; a double's, 15
   significant digits either side and an exponent of at most 293, inside which float8in neither overflows nor
@@ -2485,6 +2489,14 @@ workflows, whose rules are worth declaring and whose users see different slices 
   paths, 8 anchors, and 8,192 for anchors times positions. The measures sit inside PostgreSQL's limit, so a pattern
   past one may still compile there. A counted repetition's bound is at most 255, PostgreSQL's limit. Every pattern a
   `Compute.matches` term can take is bounded the same way, each value of a closed relation's dictionary included.
+- **A parameter's value of a pattern is delivered only through that pattern's domain.** A query delivers a value it
+  cannot prove inside its pattern, a parameter's, cast to the pattern's domain, which PostgreSQL checks for every
+  delivered row; a literal is proved as it is compiled and needs none. The installation holds a domain only for a
+  pattern something it installs declares: a stored field, a closed relation's field, a derived table's column, a
+  role's view column or a context field. So a query that delivers a parameter's value, or a relation parameter's
+  field, of any other pattern is refused with `UnsupportedOperation` when it is compiled, naming the parameter and the
+  pattern: declare a field of that pattern on a stored relation, or type the parameter by a pattern a stored field
+  declares.
 - **PostgreSQL keeps the last 32 regular expressions a backend compiled** (`MAX_CACHED_RES`). A match over a
   dictionary of more patterns, over rows that cycle through them, compiles a pattern per row. Measured on 19rc1 (an
   Apple M-series laptop under load), 200,000 rows matched over dictionaries of 1 to 178 value-domain patterns, median
